@@ -77,7 +77,6 @@ func (h *ExtraCostHandler) List(c *gin.Context) {
 }
 
 type CreateExtraCostRequest struct {
-	CostDate       string  `json:"cost_date" binding:"required"`
 	Amount         float64 `json:"amount"`
 	Category       string  `json:"category" binding:"required"`
 	Notes          string  `json:"notes"`
@@ -97,7 +96,7 @@ func (h *ExtraCostHandler) Create(c *gin.Context) {
 		createdBy = &subject.UserID
 	}
 	entry, err := h.service.Create(c.Request.Context(), service.ExtraCostEntry{
-		CostDate: req.CostDate, Amount: req.Amount, Category: req.Category, Notes: req.Notes,
+		Amount: req.Amount, Category: req.Category, Notes: req.Notes,
 		CreatedBy: createdBy, IdempotencyKey: strings.TrimSpace(req.IdempotencyKey),
 	})
 	if err != nil {
@@ -155,6 +154,8 @@ func (h *ExtraCostHandler) writeError(c *gin.Context, err error) {
 	case errors.Is(err, service.ErrExtraCostNotFound):
 		response.NotFound(c, err.Error())
 	case errors.Is(err, service.ErrExtraCostAlreadyReversed):
+		response.Error(c, http.StatusConflict, err.Error())
+	case errors.Is(err, service.ErrExtraCostIdempotencyConflict):
 		response.Error(c, http.StatusConflict, err.Error())
 	default:
 		response.ErrorFrom(c, err)

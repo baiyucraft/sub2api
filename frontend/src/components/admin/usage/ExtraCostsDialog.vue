@@ -13,10 +13,6 @@
 
       <form class="grid gap-4 rounded-xl border border-gray-200 p-4 dark:border-dark-700 md:grid-cols-2" @submit.prevent="submit">
         <div>
-          <label for="extra-cost-date" class="input-label">{{ t('admin.dashboard.extraCostDate') }}</label>
-          <input id="extra-cost-date" v-model="form.cost_date" type="date" required class="input w-full" :disabled="submitting" />
-        </div>
-        <div>
           <label for="extra-cost-amount" class="input-label">{{ t('admin.dashboard.extraCostAmount') }}</label>
           <div class="relative">
             <span class="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-400">$</span>
@@ -31,6 +27,9 @@
           <label for="extra-cost-notes" class="input-label">{{ t('admin.dashboard.extraCostNotes') }}</label>
           <input id="extra-cost-notes" v-model="form.notes" maxlength="500" class="input w-full" :placeholder="t('admin.dashboard.extraCostNotesPlaceholder')" :disabled="submitting" />
         </div>
+        <p class="text-xs text-gray-500 dark:text-dark-400 md:col-span-2">
+          {{ t('admin.dashboard.extraCostTimeHint') }}
+        </p>
         <div class="flex justify-end md:col-span-2">
           <button type="submit" class="btn btn-primary" :disabled="submitting || !canSubmit">
             {{ submitting ? t('common.saving') : t('admin.dashboard.addExtraCost') }}
@@ -68,7 +67,7 @@
           <table class="min-w-full divide-y divide-gray-200 text-sm dark:divide-dark-700">
             <thead class="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500 dark:bg-dark-800/60 dark:text-dark-400">
               <tr>
-                <th class="px-4 py-3 font-medium">{{ t('admin.dashboard.extraCostDate') }}</th>
+                <th class="px-4 py-3 font-medium">{{ t('admin.dashboard.extraCostTime') }}</th>
                 <th class="px-4 py-3 font-medium">{{ t('admin.dashboard.extraCostType') }}</th>
                 <th class="px-4 py-3 text-right font-medium">{{ t('admin.dashboard.extraCostAmount') }}</th>
                 <th class="px-4 py-3 font-medium">{{ t('admin.dashboard.extraCostNotes') }}</th>
@@ -77,7 +76,7 @@
             </thead>
             <tbody class="divide-y divide-gray-100 dark:divide-dark-800">
               <tr v-for="entry in entries" :key="entry.id" class="text-gray-700 dark:text-dark-200">
-                <td class="whitespace-nowrap px-4 py-3">{{ entry.cost_date }}</td>
+                <td class="whitespace-nowrap px-4 py-3">{{ formatDateTime(entry.created_at) }}</td>
                 <td class="whitespace-nowrap px-4 py-3">{{ typeLabel(entry.category) }}</td>
                 <td class="whitespace-nowrap px-4 py-3 text-right font-mono">${{ formatCost(entry.amount) }}</td>
                 <td class="max-w-xs truncate px-4 py-3" :title="entry.notes">{{ entry.notes || '—' }}</td>
@@ -108,15 +107,22 @@ import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import Select from '@/components/common/Select.vue'
 import { useAppStore } from '@/stores/app'
+import { formatDateTime } from '@/utils/format'
 
-const props = defineProps<{ show: boolean; startDate?: string; endDate?: string }>()
+const props = defineProps<{ show: boolean }>()
 const emit = defineEmits<{ (event: 'close'): void; (event: 'changed'): void }>()
 const { t } = useI18n()
 const appStore = useAppStore()
 
-const today = () => new Date().toISOString().slice(0, 10)
-const form = reactive<{ cost_date: string; amount: string | number; category: ExtraCostType; notes: string }>({ cost_date: today(), amount: '', category: 'account', notes: '' })
-const filters = reactive<{ start_date: string; end_date: string; category?: ExtraCostType }>({ start_date: props.startDate || today(), end_date: props.endDate || today() })
+const today = () => {
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+const form = reactive<{ amount: string | number; category: ExtraCostType; notes: string }>({ amount: '', category: 'account', notes: '' })
+const filters = reactive<{ start_date: string; end_date: string; category?: ExtraCostType }>({ start_date: today(), end_date: today() })
 const entries = ref<ExtraCostEntry[]>([])
 const loading = ref(false)
 const submitting = ref(false)
@@ -134,11 +140,17 @@ const typeOptions = computed(() => [
   { value: 'adjustment', label: t('admin.dashboard.extraCostTypes.adjustment') }
 ])
 const filterTypeOptions = computed(() => [{ value: undefined, label: t('admin.dashboard.extraCostTypes.all') }, ...typeOptions.value])
-const canSubmit = computed(() => form.cost_date.length > 0 && String(form.amount).trim() !== '' && Number.isFinite(Number(form.amount)) && Number(form.amount) >= 0)
+const canSubmit = computed(() => String(form.amount).trim() !== '' && Number.isFinite(Number(form.amount)) && Number(form.amount) >= 0)
 
 const close = () => emit('close')
 const formatCost = (value: number | null | undefined) => (Number.isFinite(Number(value)) ? Number(value).toFixed(4) : '0.0000')
 const typeLabel = (type: ExtraCostType) => typeOptions.value.find((item) => item.value === type)?.label || type
+const resetLedgerDate = (date: string) => {
+  filters.start_date = date
+  filters.end_date = date
+  pagination.page = 1
+}
+const resetLedgerToToday = () => resetLedgerDate(today())
 
 async function load(): Promise<void> {
   if (!props.show) return
@@ -161,10 +173,11 @@ async function submit(): Promise<void> {
   if (!canSubmit.value || submitting.value) return
   submitting.value = true
   try {
-    await adminAPI.extraCosts.create({ cost_date: form.cost_date, amount: Number(form.amount), category: form.category, notes: form.notes.trim() || undefined, idempotency_key: `extra-cost-${Date.now()}-${Math.random().toString(36).slice(2)}` })
+    const created = await adminAPI.extraCosts.create({ amount: Number(form.amount), category: form.category, notes: form.notes.trim() || undefined, idempotency_key: `extra-cost-${Date.now()}-${Math.random().toString(36).slice(2)}` })
     appStore.showSuccess(t('admin.dashboard.extraCostAdded'))
     form.amount = ''
     form.notes = ''
+    resetLedgerDate(created.cost_date || today())
     await load()
     emit('changed')
   } catch (error) {
@@ -180,8 +193,9 @@ async function reverseEntry(entry: ExtraCostEntry): Promise<void> {
   if (reason === null || !reason.trim() || reversingId.value !== null) return
   reversingId.value = entry.id
   try {
-    await adminAPI.extraCosts.reverse(entry.id, { reason: reason.trim(), idempotency_key: `extra-cost-reverse-${entry.id}-${Date.now()}` })
+    const reversed = await adminAPI.extraCosts.reverse(entry.id, { reason: reason.trim(), idempotency_key: `extra-cost-reverse-${entry.id}-${Date.now()}` })
     appStore.showSuccess(t('admin.dashboard.extraCostReversedSuccess'))
+    resetLedgerDate(reversed.cost_date || today())
     await load()
     emit('changed')
   } catch (error) {
@@ -204,9 +218,7 @@ async function changePage(page: number): Promise<void> {
 
 watch(() => props.show, (show) => {
   if (show) {
-    filters.start_date = props.startDate || today()
-    filters.end_date = props.endDate || today()
-    form.cost_date = today()
+    resetLedgerToToday()
     void load()
   }
 })

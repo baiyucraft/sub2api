@@ -68,6 +68,8 @@ export default {
     extraCostsRangeTotal: '当前范围额外成本',
     addExtraCost: '新增成本',
     extraCostDate: '发生日期',
+    extraCostTime: '发生时间',
+    extraCostTimeHint: '发生时间将在保存时由系统自动记录。',
     extraCostAmount: '金额（USD）',
     extraCostType: '成本类型',
     extraCostNotes: '备注',
