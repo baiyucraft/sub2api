@@ -384,7 +384,7 @@ func TestGrokMediaVideoLookupOwnerIsolation(t *testing.T) {
 	}
 }
 
-func TestGrokMediaVideoCompletionStillClaimsBillingOnce(t *testing.T) {
+func TestGrokMediaVideoCompletionUsesStableDurableBillingID(t *testing.T) {
 	h, _, bindings, _ := newGrokMediaSlotHandler(t, false, false)
 	c, _ := grokMediaSlotContext(context.Background(), false)
 	key, ok := middleware2.GetAPIKeyFromContext(c)
@@ -394,12 +394,8 @@ func TestGrokMediaVideoCompletionStillClaimsBillingOnce(t *testing.T) {
 		VideoCount: 1, VideoDurationSeconds: 6}
 	for i := range 20 {
 		bill := prepareGrokVideoCompletionBilling(c.Request.Context(), h, zap.NewNop(), key, subject, "task", result)
-		if i == 0 {
-			require.NotNil(t, bill)
-			require.Equal(t, service.StableGrokVideoBillingRequestID("task"), bill.RequestID)
-		} else {
-			require.Nil(t, bill)
-		}
+		require.NotNil(t, bill, "observation %d", i)
+		require.Equal(t, service.StableGrokVideoBillingRequestID("task"), bill.RequestID)
 	}
-	require.Len(t, bindings.billed, 1)
+	require.Empty(t, bindings.billed, "ephemeral Redis claims must not precede durable database billing")
 }

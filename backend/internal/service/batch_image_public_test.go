@@ -59,6 +59,8 @@ func TestBatchImagePublicService_Submit(t *testing.T) {
 		configID := int64(701)
 		keyID := int64(702)
 		accountRepo := svc.AccountRepo.(*publicBatchImageAccountRepo)
+		accountRepo.accounts[0].Priority = 2
+		accountRepo.accounts[1].Priority = 1
 		accountRepo.accounts[1].UpstreamConfigID = &configID
 		accountRepo.accounts[1].UpstreamKeyID = &keyID
 		req := validBatchImageSubmitRequest()
