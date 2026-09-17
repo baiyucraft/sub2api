@@ -319,6 +319,7 @@ describe('RegisterView', () => {
     await flushPromises()
     await wrapper.get('#email').setValue('ABC123@gmail.com')
     await wrapper.get('#password').setValue('secret-123')
+    await wrapper.get('#confirmPassword').setValue('secret-123')
     await wrapper.get('form').trigger('submit.prevent')
     await flushPromises()
 
@@ -343,6 +344,7 @@ describe('RegisterView', () => {
     await flushPromises()
     await wrapper.get('#email').setValue('plain@gmail.com')
     await wrapper.get('#password').setValue('secret-123')
+    await wrapper.get('#confirmPassword').setValue('secret-123')
     await wrapper.get('form').trigger('submit.prevent')
     await flushPromises()
 
