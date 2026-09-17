@@ -732,6 +732,48 @@ func (s *AccountRepoSuite) TestBindGroups_EmptyList() {
 	s.Require().Empty(groups, "expected 0 groups after binding empty list")
 }
 
+func (s *AccountRepoSuite) TestBindGroupsWithPreferred_ReplacesExactState() {
+	g1 := mustCreateGroup(s.T(), s.client, &service.Group{Name: "preferred-g1"})
+	g2 := mustCreateGroup(s.T(), s.client, &service.Group{Name: "preferred-g2"})
+	g3 := mustCreateGroup(s.T(), s.client, &service.Group{Name: "preferred-g3"})
+	account := mustCreateAccount(s.T(), s.client, &service.Account{Name: "preferred-account"})
+	_, err := s.repo.sql.ExecContext(s.ctx, "DELETE FROM scheduler_outbox WHERE account_id = $1", account.ID)
+	s.Require().NoError(err)
+
+	s.Require().NoError(s.repo.BindGroupsWithPreferred(s.ctx, account.ID, []int64{g1.ID, g2.ID}, []int64{g2.ID}))
+	relations, err := s.client.AccountGroup.Query().
+		Where(accountgroup.AccountIDEQ(account.ID)).
+		Order(dbent.Asc(accountgroup.FieldPriority)).
+		All(s.ctx)
+	s.Require().NoError(err)
+	s.Require().Len(relations, 2)
+	s.Require().Equal(g1.ID, relations[0].GroupID)
+	s.Require().False(relations[0].SchedulerPreferred)
+	s.Require().Equal(g2.ID, relations[1].GroupID)
+	s.Require().True(relations[1].SchedulerPreferred)
+	var outboxCount int
+	s.Require().NoError(scanSingleRow(
+		s.ctx,
+		s.repo.sql,
+		"SELECT COUNT(*) FROM scheduler_outbox WHERE event_type = $1 AND account_id = $2",
+		[]any{service.SchedulerOutboxEventAccountGroupsChanged, account.ID},
+		&outboxCount,
+	))
+	s.Require().Equal(1, outboxCount, "one exact relation replacement must enqueue one scheduler refresh")
+
+	s.Require().NoError(s.repo.BindGroupsWithPreferred(s.ctx, account.ID, []int64{g2.ID, g3.ID}, []int64{g3.ID}))
+	relations, err = s.client.AccountGroup.Query().
+		Where(accountgroup.AccountIDEQ(account.ID)).
+		Order(dbent.Asc(accountgroup.FieldPriority)).
+		All(s.ctx)
+	s.Require().NoError(err)
+	s.Require().Len(relations, 2)
+	s.Require().Equal(g2.ID, relations[0].GroupID)
+	s.Require().False(relations[0].SchedulerPreferred, "retained relations must follow the exact submitted preferred set")
+	s.Require().Equal(g3.ID, relations[1].GroupID)
+	s.Require().True(relations[1].SchedulerPreferred)
+}
+
 // --- Schedulable ---
 
 func (s *AccountRepoSuite) TestListSchedulable() {
