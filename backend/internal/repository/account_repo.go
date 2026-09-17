@@ -2360,6 +2360,86 @@ func (r *accountRepository) BindGroups(ctx context.Context, accountID int64, gro
 	return nil
 }
 
+// BindGroupsWithPreferred replaces one account's exact group membership and
+// preferred-pool state in a single transaction. Unlike BindGroups, retained
+// relations do not preserve their old scheduler_preferred value: the supplied
+// preferredGroupIDs are the complete desired preferred subset.
+func (r *accountRepository) BindGroupsWithPreferred(ctx context.Context, accountID int64, groupIDs, preferredGroupIDs []int64) error {
+	preferred := make(map[int64]struct{}, len(preferredGroupIDs))
+	for _, groupID := range preferredGroupIDs {
+		preferred[groupID] = struct{}{}
+	}
+
+	return r.withAccountWriteTx(ctx, func(txCtx context.Context, txClient *dbent.Client) error {
+		if err := lockLiveGroups(txCtx, txClient, groupIDs); err != nil {
+			return err
+		}
+
+		existing, err := txClient.AccountGroup.Query().
+			Where(dbaccountgroup.AccountIDEQ(accountID)).
+			All(txCtx)
+		if err != nil {
+			return err
+		}
+		existingGroupIDs := make([]int64, 0, len(existing))
+		for _, relation := range existing {
+			existingGroupIDs = append(existingGroupIDs, relation.GroupID)
+		}
+
+		if len(groupIDs) == 0 {
+			if _, err := txClient.AccountGroup.Delete().
+				Where(dbaccountgroup.AccountIDEQ(accountID)).
+				Exec(txCtx); err != nil {
+				return err
+			}
+			return enqueueSchedulerOutbox(
+				txCtx,
+				txClient,
+				service.SchedulerOutboxEventAccountGroupsChanged,
+				&accountID,
+				nil,
+				buildSchedulerGroupPayload(existingGroupIDs),
+			)
+		}
+
+		if _, err := txClient.ExecContext(
+			txCtx,
+			`DELETE FROM account_groups WHERE account_id = $1 AND NOT (group_id = ANY($2::bigint[]))`,
+			accountID,
+			pq.Array(groupIDs),
+		); err != nil {
+			return err
+		}
+
+		for index, groupID := range groupIDs {
+			_, isPreferred := preferred[groupID]
+			builder := txClient.AccountGroup.Create().
+				SetAccountID(accountID).
+				SetGroupID(groupID).
+				SetPriority(index + 1).
+				SetSchedulerPreferred(isPreferred)
+			if err := builder.
+				OnConflictColumns(dbaccountgroup.FieldAccountID, dbaccountgroup.FieldGroupID).
+				Update(func(upsert *dbent.AccountGroupUpsert) {
+					upsert.UpdatePriority()
+					upsert.UpdateSchedulerPreferred()
+				}).
+				Exec(txCtx); err != nil {
+				return err
+			}
+		}
+
+		return enqueueSchedulerOutbox(
+			txCtx,
+			txClient,
+			service.SchedulerOutboxEventAccountGroupsChanged,
+			&accountID,
+			nil,
+			buildSchedulerGroupPayload(mergeGroupIDs(existingGroupIDs, groupIDs)),
+		)
+	})
+}
+
 func (r *accountRepository) ListSchedulable(ctx context.Context) ([]service.Account, error) {
 	accounts, err := r.schedulableAccountsQuery(time.Now()).All(ctx)
 	if err != nil {

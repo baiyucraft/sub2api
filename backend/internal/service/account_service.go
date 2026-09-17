@@ -158,6 +158,14 @@ type PreferredAccountListRepository interface {
 	SetPreferredAccount(ctx context.Context, groupID, accountID int64, preferred bool) error
 }
 
+// AccountGroupPreferenceRepository is the narrow write contract used by admin
+// account forms when group membership and preferred-pool state must be replaced
+// atomically. Keeping it separate avoids coupling gateway/read-only repositories
+// to this fork-specific administrative capability.
+type AccountGroupPreferenceRepository interface {
+	BindGroupsWithPreferred(ctx context.Context, accountID int64, groupIDs, preferredGroupIDs []int64) error
+}
+
 type PreferredAccountListService interface {
 	ListAccountsScopedWithPreferred(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string, preferred bool, sortBy, sortOrder string, scope AccountListScope) ([]Account, int64, error)
 	ListAccountsForSchedulerScoreFilterWithPreferred(ctx context.Context, platform, accountType, status, search string, groupID int64, privacyMode string, preferred bool) ([]Account, error)
@@ -197,13 +205,13 @@ type AdminAccountRepository interface {
 // AccountBulkUpdate describes the fields that can be updated in a bulk operation.
 // Nil pointers mean "do not change".
 type AccountBulkUpdate struct {
-	Name           *string
-	ProxyID        *int64
-	Concurrency    *int
-	RPMLimit       *int
+	Name                *string
+	ProxyID             *int64
+	Concurrency         *int
+	RPMLimit            *int
 	ProbeMinInputTokens *int
-	Priority       *int
-	RateMultiplier *float64
+	Priority            *int
+	RateMultiplier      *float64
 	// UpstreamSourceRateMultiplier preserves the provider source rate for
 	// diagnostics; scheduling and billing use RateMultiplier.
 	UpstreamSourceRateMultiplier *float64

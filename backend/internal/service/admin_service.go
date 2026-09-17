@@ -404,25 +404,25 @@ type UpdateGroupInput struct {
 }
 
 type CreateAccountInput struct {
-	Name               string
-	Notes              *string
-	Platform           string
-	Type               string
-	Credentials        map[string]any
-	Extra              map[string]any
-	ProxyID            *int64
-	UpstreamConfigID   *int64
-	UpstreamKeyID      *int64
-	Concurrency        int
-	RPMLimit           int // 账号每分钟业务请求上限，0 表示不限
+	Name                string
+	Notes               *string
+	Platform            string
+	Type                string
+	Credentials         map[string]any
+	Extra               map[string]any
+	ProxyID             *int64
+	UpstreamConfigID    *int64
+	UpstreamKeyID       *int64
+	Concurrency         int
+	RPMLimit            int // 账号每分钟业务请求上限，0 表示不限
 	ProbeMinInputTokens int // 上游要求的最小输入 token 数，0 表示不限
-	Priority           int
-	RateMultiplier     *float64 // 账号计费倍率（>=0，允许 0）
-	LoadFactor         *int
-	GroupIDs           []int64
-	ExpiresAt          *int64
-	AutoPauseOnExpired *bool
-	ProbeEnabled       *bool
+	Priority            int
+	RateMultiplier      *float64 // 账号计费倍率（>=0，允许 0）
+	LoadFactor          *int
+	GroupIDs            []int64
+	ExpiresAt           *int64
+	AutoPauseOnExpired  *bool
+	ProbeEnabled        *bool
 	// SkipDefaultGroupBind prevents auto-binding to platform default group when GroupIDs is empty.
 	SkipDefaultGroupBind bool
 	// SkipMixedChannelCheck skips the mixed channel risk check when binding groups.
@@ -456,6 +456,7 @@ type UpdateAccountInput struct {
 	LoadFactor            *int
 	Status                string
 	GroupIDs              *[]int64
+	PreferredGroupIDs     *[]int64
 	ExpiresAt             *int64
 	AutoPauseOnExpired    *bool
 	ProbeEnabled          *bool
@@ -465,22 +466,23 @@ type UpdateAccountInput struct {
 
 // BulkUpdateAccountsInput describes the payload for bulk updating accounts.
 type BulkUpdateAccountsInput struct {
-	AccountIDs     []int64
-	Filters        *BulkUpdateAccountFilters
-	Name           string
-	ProxyID        *int64
-	Concurrency    *int
-	RPMLimit       *int // 账号每分钟业务请求上限，0 表示不限
+	AccountIDs          []int64
+	Filters             *BulkUpdateAccountFilters
+	Name                string
+	ProxyID             *int64
+	Concurrency         *int
+	RPMLimit            *int // 账号每分钟业务请求上限，0 表示不限
 	ProbeMinInputTokens *int // 上游要求的最小输入 token 数，0 表示不限
-	Priority       *int
-	RateMultiplier *float64 // 账号计费倍率（>=0，允许 0）
-	LoadFactor     *int
-	Status         string
-	Schedulable    *bool
-	GroupIDs       *[]int64
-	Credentials    map[string]any
-	Extra          map[string]any
-	ProbeEnabled   *bool
+	Priority            *int
+	RateMultiplier      *float64 // 账号计费倍率（>=0，允许 0）
+	LoadFactor          *int
+	Status              string
+	Schedulable         *bool
+	GroupIDs            *[]int64
+	PreferredGroupIDs   *[]int64
+	Credentials         map[string]any
+	Extra               map[string]any
+	ProbeEnabled        *bool
 	// SkipMixedChannelCheck skips the mixed channel risk check when binding groups.
 	// This should only be set when the caller has explicitly confirmed the risk.
 	SkipMixedChannelCheck bool

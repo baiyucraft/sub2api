@@ -24,6 +24,8 @@ type accountRepoStubForBulkUpdate struct {
 	bindGroupErrByID    map[int64]error
 	bindGroupsCalls     []int64
 	bindGroupsByAccount map[int64][]int64
+	preferredBindCalls  []int64
+	preferredByAccount  map[int64][]int64
 	createAccount       *Account
 	createID            int64
 	createErr           error
@@ -93,6 +95,22 @@ func (s *accountRepoStubForBulkUpdate) BindGroups(_ context.Context, accountID i
 		s.bindGroupsByAccount = make(map[int64][]int64)
 	}
 	s.bindGroupsByAccount[accountID] = append([]int64{}, groupIDs...)
+	if err, ok := s.bindGroupErrByID[accountID]; ok {
+		return err
+	}
+	return nil
+}
+
+func (s *accountRepoStubForBulkUpdate) BindGroupsWithPreferred(_ context.Context, accountID int64, groupIDs, preferredGroupIDs []int64) error {
+	s.preferredBindCalls = append(s.preferredBindCalls, accountID)
+	if s.bindGroupsByAccount == nil {
+		s.bindGroupsByAccount = make(map[int64][]int64)
+	}
+	if s.preferredByAccount == nil {
+		s.preferredByAccount = make(map[int64][]int64)
+	}
+	s.bindGroupsByAccount[accountID] = append([]int64{}, groupIDs...)
+	s.preferredByAccount[accountID] = append([]int64{}, preferredGroupIDs...)
 	if err, ok := s.bindGroupErrByID[accountID]; ok {
 		return err
 	}
@@ -247,6 +265,116 @@ func TestAdminService_BulkUpdateAccounts_NilGroupRepoReturnsError(t *testing.T) 
 	require.Nil(t, result)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "group repository not configured")
+}
+
+func TestAdminService_BulkUpdateAccounts_ReplacesGroupsAndPreferredState(t *testing.T) {
+	repo := &accountRepoStubForBulkUpdate{}
+	svc := &adminServiceImpl{
+		accountRepo: repo,
+		groupRepo:   &groupRepoStubForAdmin{getByID: &Group{ID: 10, Name: "g10"}},
+	}
+
+	groupIDs := []int64{10, 10}
+	preferredGroupIDs := []int64{10, 10}
+	result, err := svc.BulkUpdateAccounts(context.Background(), &BulkUpdateAccountsInput{
+		AccountIDs:            []int64{1, 2},
+		GroupIDs:              &groupIDs,
+		PreferredGroupIDs:     &preferredGroupIDs,
+		SkipMixedChannelCheck: true,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, 2, result.Success)
+	require.Empty(t, repo.bindGroupsCalls, "exact preferred writes must use the atomic relation writer")
+	require.Equal(t, []int64{1, 2}, repo.preferredBindCalls)
+	require.Equal(t, []int64{10}, repo.bindGroupsByAccount[1])
+	require.Equal(t, []int64{10}, repo.preferredByAccount[1])
+	require.Equal(t, []int64{10}, groupIDs)
+	require.Equal(t, []int64{10}, preferredGroupIDs)
+}
+
+func TestAdminService_UpdateAccount_ReplacesGroupsAndPreferredState(t *testing.T) {
+	account := &Account{ID: 1, Name: "account-1", Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	repo := &accountRepoStubForBulkUpdate{
+		getByIDAccounts: map[int64]*Account{account.ID: account},
+	}
+	svc := &adminServiceImpl{
+		accountRepo: repo,
+		groupRepo: &groupRepoStubForAdmin{getByIDByID: map[int64]*Group{
+			10: {ID: 10, Name: "g10"},
+			20: {ID: 20, Name: "g20"},
+		}},
+	}
+
+	groupIDs := []int64{10, 20, 10}
+	preferredGroupIDs := []int64{20, 20}
+	updated, err := svc.UpdateAccount(context.Background(), account.ID, &UpdateAccountInput{
+		GroupIDs:              &groupIDs,
+		PreferredGroupIDs:     &preferredGroupIDs,
+		SkipMixedChannelCheck: true,
+	})
+
+	require.NoError(t, err)
+	require.Same(t, account, updated)
+	require.Empty(t, repo.bindGroupsCalls, "exact preferred writes must use the atomic relation writer")
+	require.Equal(t, []int64{account.ID}, repo.preferredBindCalls)
+	require.Equal(t, []int64{10, 20}, repo.bindGroupsByAccount[account.ID])
+	require.Equal(t, []int64{20}, repo.preferredByAccount[account.ID])
+	require.Equal(t, []int64{10, 20}, groupIDs)
+	require.Equal(t, []int64{20}, preferredGroupIDs)
+}
+
+func TestAdminService_UpdateAccount_LegacyGroupRequestUsesBindGroups(t *testing.T) {
+	account := &Account{ID: 1, Name: "account-1", Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	repo := &accountRepoStubForBulkUpdate{
+		getByIDAccounts: map[int64]*Account{account.ID: account},
+	}
+	svc := &adminServiceImpl{
+		accountRepo: repo,
+		groupRepo:   &groupRepoStubForAdmin{getByID: &Group{ID: 10, Name: "g10"}},
+	}
+	groupIDs := []int64{10}
+
+	_, err := svc.UpdateAccount(context.Background(), account.ID, &UpdateAccountInput{
+		GroupIDs:              &groupIDs,
+		SkipMixedChannelCheck: true,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, []int64{account.ID}, repo.bindGroupsCalls)
+	require.Empty(t, repo.preferredBindCalls)
+}
+
+func TestAdminService_BulkUpdateAccounts_RejectsPreferredGroupsWithoutGroupReplacement(t *testing.T) {
+	repo := &accountRepoStubForBulkUpdate{}
+	svc := &adminServiceImpl{accountRepo: repo}
+	preferredGroupIDs := []int64{10}
+
+	result, err := svc.BulkUpdateAccounts(context.Background(), &BulkUpdateAccountsInput{
+		AccountIDs:        []int64{1},
+		PreferredGroupIDs: &preferredGroupIDs,
+	})
+
+	require.Nil(t, result)
+	requireApplicationErrorReason(t, err, "PREFERRED_GROUPS_REQUIRE_GROUPS")
+	require.Zero(t, repo.bulkUpdateCalls)
+}
+
+func TestAdminService_BulkUpdateAccounts_RejectsPreferredGroupOutsideSelection(t *testing.T) {
+	repo := &accountRepoStubForBulkUpdate{}
+	svc := &adminServiceImpl{accountRepo: repo}
+	groupIDs := []int64{10}
+	preferredGroupIDs := []int64{11}
+
+	result, err := svc.BulkUpdateAccounts(context.Background(), &BulkUpdateAccountsInput{
+		AccountIDs:        []int64{1},
+		GroupIDs:          &groupIDs,
+		PreferredGroupIDs: &preferredGroupIDs,
+	})
+
+	require.Nil(t, result)
+	requireApplicationErrorReason(t, err, "PREFERRED_GROUP_NOT_SELECTED")
+	require.Zero(t, repo.bulkUpdateCalls)
 }
 
 // TestAdminService_BulkUpdateAccounts_MixedChannelPreCheckBlocksOnExistingConflict verifies

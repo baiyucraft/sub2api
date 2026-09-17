@@ -2941,6 +2941,7 @@
       <!-- Group Selection - 仅标准模式显示 -->
       <GroupSelector
         v-model="form.group_ids"
+        v-model:preferred-group-ids="form.preferred_group_ids"
         :groups="selectableGroups"
         :platform="account?.platform"
         :mixed-scheduling="mixedScheduling"
@@ -3872,6 +3873,7 @@ const form = reactive({
   rate_multiplier: 1,
   status: 'active' as 'active' | 'inactive' | 'error',
   group_ids: [] as number[],
+  preferred_group_ids: [] as number[],
   expires_at: null as number | null
 })
 
@@ -4010,6 +4012,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     ? newAccount.status
     : 'active'
   form.group_ids = newAccount.group_ids || []
+  form.preferred_group_ids = (newAccount.preferred_group_ids || []).filter((id) => form.group_ids.includes(id))
   form.expires_at = newAccount.expires_at ?? null
 
   // Load intercept warmup requests setting (applies to all account types)
