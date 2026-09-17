@@ -144,9 +144,13 @@ const GroupSelectorStub = defineComponent({
     modelValue: {
       type: Array,
       default: () => []
+    },
+    preferredGroupIds: {
+      type: Array,
+      default: undefined
     }
   },
-  emits: ['update:modelValue'],
+  emits: ['update:modelValue', 'update:preferredGroupIds'],
   template: `
     <div data-testid="group-selector">
       <button
@@ -156,6 +160,14 @@ const GroupSelectorStub = defineComponent({
       >
         group
       </button>
+      <button
+        type="button"
+        data-testid="set-shadow-preferred-group"
+        @click="$emit('update:preferredGroupIds', [7])"
+      >
+        preferred
+      </button>
+      <span data-testid="preferred-group-value">{{ preferredGroupIds?.join(',') }}</span>
     </div>
   `
 })
@@ -799,6 +811,27 @@ describe('EditAccountModal', () => {
     expect(updateAccountMock).toHaveBeenCalledTimes(1)
     expect(updateAccountMock.mock.calls[0]?.[1]?.group_ids).toEqual([1])
     expect(account.group_ids).toEqual([1, 2])
+  })
+
+  it('rehydrates and submits preferred group IDs with group membership', async () => {
+    const account = buildAccount()
+    account.group_ids = [1, 7]
+    account.preferred_group_ids = [1]
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+
+    const wrapper = mountModal(account)
+    expect(wrapper.get('[data-testid="preferred-group-value"]').text()).toBe('1')
+
+    await wrapper.get('[data-testid="set-shadow-group"]').trigger('click')
+    await wrapper.get('[data-testid="set-shadow-preferred-group"]').trigger('click')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(updateAccountMock).toHaveBeenCalledWith(1, expect.objectContaining({
+      group_ids: [7],
+      preferred_group_ids: [7]
+    }))
   })
 
   it('reopening the same account rehydrates the OpenAI whitelist from props', async () => {

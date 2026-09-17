@@ -413,9 +413,9 @@ func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, id int64, actor
 		Credentials:           credentials,
 		Extra:                 extra,
 		ProxyID:               cloneAccountValuePointer(proxyID),
-			Concurrency:           source.Concurrency,
-			RPMLimit:              source.RPMLimit,
-			ProbeMinInputTokens:   source.ProbeMinInputTokens,
+		Concurrency:           source.Concurrency,
+		RPMLimit:              source.RPMLimit,
+		ProbeMinInputTokens:   source.ProbeMinInputTokens,
 		Priority:              source.Priority,
 		RateMultiplier:        cloneAccountValuePointer(source.RateMultiplier),
 		LoadFactor:            cloneAccountValuePointer(source.LoadFactor),
@@ -555,21 +555,21 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 	delete(accountExtra, OllamaCloudUsageSnapshotExtraKey)
 	accountExtra = prepareCodexFingerprintExtraForCreate(input.Platform, input.Type, accountExtra)
 	account := &Account{
-		Name:             input.Name,
-		Notes:            normalizeAccountNotes(input.Notes),
-		Platform:         input.Platform,
-		Type:             input.Type,
-		Credentials:      input.Credentials,
-		Extra:            accountExtra,
-		ProxyID:          input.ProxyID,
-		UpstreamConfigID: input.UpstreamConfigID,
-		UpstreamKeyID:    input.UpstreamKeyID,
-		Concurrency:      normalizeAccountConcurrency(input.Platform, input.Type, input.Concurrency),
-		RPMLimit:         input.RPMLimit,
+		Name:                input.Name,
+		Notes:               normalizeAccountNotes(input.Notes),
+		Platform:            input.Platform,
+		Type:                input.Type,
+		Credentials:         input.Credentials,
+		Extra:               accountExtra,
+		ProxyID:             input.ProxyID,
+		UpstreamConfigID:    input.UpstreamConfigID,
+		UpstreamKeyID:       input.UpstreamKeyID,
+		Concurrency:         normalizeAccountConcurrency(input.Platform, input.Type, input.Concurrency),
+		RPMLimit:            input.RPMLimit,
 		ProbeMinInputTokens: input.ProbeMinInputTokens,
-		Priority:         input.Priority,
-		Status:           StatusActive,
-		Schedulable:      true,
+		Priority:            input.Priority,
+		Status:              StatusActive,
+		Schedulable:         true,
 	}
 	if input.ProbeEnabled != nil && *input.ProbeEnabled {
 		if !isUpstreamBillingProbeAccount(account) {
@@ -718,6 +718,12 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 }
 
 func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *UpdateAccountInput) (*Account, error) {
+	if input == nil {
+		return nil, errors.New("account update input is required")
+	}
+	if err := normalizeAdminAccountGroupSelection(input.GroupIDs, input.PreferredGroupIDs); err != nil {
+		return nil, err
+	}
 	account, err := s.accountRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -1093,7 +1099,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 
 	// 绑定分组
 	if input.GroupIDs != nil {
-		if err := s.accountRepo.BindGroups(ctx, account.ID, *input.GroupIDs); err != nil {
+		if err := s.bindAccountGroups(ctx, account.ID, *input.GroupIDs, input.PreferredGroupIDs); err != nil {
 			return nil, err
 		}
 	}
@@ -1144,6 +1150,9 @@ func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, upd
 func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUpdateAccountsInput) (*BulkUpdateAccountsResult, error) {
 	if input == nil {
 		return nil, errors.New("bulk update input is required")
+	}
+	if err := normalizeAdminAccountGroupSelection(input.GroupIDs, input.PreferredGroupIDs); err != nil {
+		return nil, err
 	}
 	if input.Filters != nil && !input.Filters.Scope.Valid() {
 		return nil, fmt.Errorf("invalid account list scope %q", input.Filters.Scope)
@@ -1469,7 +1478,7 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 		entry := BulkUpdateAccountResult{AccountID: accountID}
 
 		if input.GroupIDs != nil {
-			if err := s.accountRepo.BindGroups(ctx, accountID, *input.GroupIDs); err != nil {
+			if err := s.bindAccountGroups(ctx, accountID, *input.GroupIDs, input.PreferredGroupIDs); err != nil {
 				entry.Success = false
 				entry.Error = err.Error()
 				result.Failed++
@@ -1486,6 +1495,78 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	}
 
 	return result, nil
+}
+
+func normalizeAdminAccountGroupSelection(groupIDs, preferredGroupIDs *[]int64) error {
+	if preferredGroupIDs != nil && groupIDs == nil {
+		return infraerrors.BadRequest(
+			"PREFERRED_GROUPS_REQUIRE_GROUPS",
+			"preferred_group_ids requires group_ids in the same request",
+		)
+	}
+	if groupIDs == nil {
+		return nil
+	}
+
+	normalizedGroups, err := normalizeAdminAccountGroupIDs(*groupIDs)
+	if err != nil {
+		return err
+	}
+	*groupIDs = normalizedGroups
+	if preferredGroupIDs == nil {
+		return nil
+	}
+
+	normalizedPreferred, err := normalizeAdminAccountGroupIDs(*preferredGroupIDs)
+	if err != nil {
+		return err
+	}
+	selected := make(map[int64]struct{}, len(normalizedGroups))
+	for _, groupID := range normalizedGroups {
+		selected[groupID] = struct{}{}
+	}
+	for _, groupID := range normalizedPreferred {
+		if _, ok := selected[groupID]; !ok {
+			return infraerrors.BadRequest(
+				"PREFERRED_GROUP_NOT_SELECTED",
+				"preferred_group_ids must be a subset of group_ids",
+			)
+		}
+	}
+	*preferredGroupIDs = normalizedPreferred
+	return nil
+}
+
+func normalizeAdminAccountGroupIDs(groupIDs []int64) ([]int64, error) {
+	seen := make(map[int64]struct{}, len(groupIDs))
+	normalized := make([]int64, 0, len(groupIDs))
+	for _, groupID := range groupIDs {
+		if groupID <= 0 {
+			return nil, infraerrors.BadRequest("INVALID_GROUP_ID", "group IDs must be positive")
+		}
+		if _, exists := seen[groupID]; exists {
+			continue
+		}
+		seen[groupID] = struct{}{}
+		normalized = append(normalized, groupID)
+	}
+	return normalized, nil
+}
+
+func (s *adminServiceImpl) bindAccountGroups(
+	ctx context.Context,
+	accountID int64,
+	groupIDs []int64,
+	preferredGroupIDs *[]int64,
+) error {
+	if preferredGroupIDs == nil {
+		return s.accountRepo.BindGroups(ctx, accountID, groupIDs)
+	}
+	preferredRepo, ok := s.accountRepo.(AccountGroupPreferenceRepository)
+	if !ok {
+		return errors.New("account group preference mutation is not supported")
+	}
+	return preferredRepo.BindGroupsWithPreferred(ctx, accountID, groupIDs, *preferredGroupIDs)
 }
 
 func updatesUpstreamBillingProbeIdentity(credentials map[string]any) bool {

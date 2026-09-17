@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
-import { nextTick } from 'vue'
+import { defineComponent, nextTick } from 'vue'
 import BulkEditAccountModal from '../BulkEditAccountModal.vue'
 import ModelWhitelistSelector from '../ModelWhitelistSelector.vue'
 import { adminAPI } from '@/api/admin'
@@ -48,6 +48,41 @@ vi.mock('vue-i18n', async () => {
   }
 })
 
+const GroupSelectorStub = defineComponent({
+  name: 'GroupSelector',
+  props: {
+    modelValue: {
+      type: Array,
+      default: () => []
+    },
+    preferredGroupIds: {
+      type: Array,
+      default: undefined
+    }
+  },
+  emits: ['update:modelValue', 'update:preferredGroupIds'],
+  template: `
+    <div data-testid="bulk-group-selector">
+      <button
+        v-if="preferredGroupIds !== undefined"
+        type="button"
+        data-testid="bulk-set-groups"
+        @click="$emit('update:modelValue', [1, 2])"
+      >
+        set groups
+      </button>
+      <button
+        v-if="preferredGroupIds !== undefined"
+        type="button"
+        data-testid="bulk-set-preferred"
+        @click="$emit('update:preferredGroupIds', [2])"
+      >
+        set preferred
+      </button>
+    </div>
+  `
+})
+
 function mountModal(extraProps: Record<string, unknown> = {}) {
   return mount(BulkEditAccountModal, {
     props: {
@@ -79,7 +114,7 @@ function mountModal(extraProps: Record<string, unknown> = {}) {
           `
         },
         ProxySelector: true,
-        GroupSelector: true,
+        GroupSelector: GroupSelectorStub,
         Icon: true
       }
     }
@@ -133,6 +168,56 @@ describe('BulkEditAccountModal', () => {
           'gpt-5.4-mini': 'gpt-5.4-mini'
         }
       },
+      filters: { scope: 'upstream' }
+    })
+  })
+
+  it('未开启分组修改时不显示星标，也不提交分组字段', async () => {
+    const wrapper = mountModal()
+    expect(wrapper.find('[data-testid="bulk-set-preferred"]').exists()).toBe(false)
+
+    await wrapper.get('#bulk-edit-status-enabled').setValue(true)
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
+      status: 'active'
+    })
+  })
+
+  it('开启分组修改后统一提交分组与优先星标', async () => {
+    const wrapper = mountModal()
+    await wrapper.get('#bulk-edit-groups-enabled').setValue(true)
+    await wrapper.get('[data-testid="bulk-set-groups"]').trigger('click')
+    await wrapper.get('[data-testid="bulk-set-preferred"]').trigger('click')
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
+      group_ids: [1, 2],
+      preferred_group_ids: [2]
+    })
+  })
+
+  it('上游模式同样提交分组与优先星标，并保留 scope 过滤', async () => {
+    const wrapper = mountModal({
+      mode: 'upstream',
+      selectedPlatforms: ['openai'],
+      selectedTypes: ['apikey']
+    })
+    await wrapper.get('#bulk-edit-upstream-groups-enabled').setValue(true)
+    const selector = wrapper.findComponent(GroupSelectorStub)
+    expect(selector.props('preferredGroupIds')).toEqual([])
+    selector.vm.$emit('update:modelValue', [1, 2])
+    selector.vm.$emit('update:preferredGroupIds', [2])
+    await nextTick()
+    expect(selector.props('preferredGroupIds')).toEqual([2])
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
+      group_ids: [1, 2],
+      preferred_group_ids: [2],
       filters: { scope: 'upstream' }
     })
   })

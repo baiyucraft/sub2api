@@ -29,7 +29,19 @@
             <label class="input-label mb-0">{{ t('nav.groups') }}</label>
             <input id="bulk-edit-upstream-groups-enabled" v-model="enableGroups" type="checkbox" class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
           </div>
-          <GroupSelector v-model="groupIds" :groups="groups" :platform="targetSelectedPlatforms[0]" :disabled="!enableGroups" />
+          <div :class="!enableGroups && 'pointer-events-none opacity-50'">
+            <GroupSelector
+              v-model="groupIds"
+              :preferred-group-ids="enableGroups ? preferredGroupIds : undefined"
+              :groups="groups"
+              :platform="targetSelectedPlatforms[0]"
+              :disabled="!enableGroups"
+              @update:preferred-group-ids="preferredGroupIds = $event"
+            />
+            <p v-if="enableGroups" class="mt-2 text-xs text-amber-700 dark:text-amber-300">
+              {{ t('admin.accounts.bulkEdit.groupsAndPreferredHint') }}
+            </p>
+          </div>
         </div>
         <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
           <div class="mb-3 flex items-center justify-between">
@@ -1496,9 +1508,15 @@
         <div id="bulk-edit-groups" :class="!enableGroups && 'pointer-events-none opacity-50'">
           <GroupSelector
             v-model="groupIds"
+            :preferred-group-ids="enableGroups ? preferredGroupIds : undefined"
             :groups="groups"
+            :disabled="!enableGroups"
             aria-labelledby="bulk-edit-groups-label"
+            @update:preferred-group-ids="preferredGroupIds = $event"
           />
+          <p v-if="enableGroups" class="mt-2 text-xs text-amber-700 dark:text-amber-300">
+            {{ t('admin.accounts.bulkEdit.groupsAndPreferredHint') }}
+          </p>
         </div>
       </div>
       </template>
@@ -1781,6 +1799,7 @@ const priority = ref(1)
 const rateMultiplier = ref(1)
 const status = ref<'active' | 'inactive'>('active')
 const groupIds = ref<number[]>([])
+const preferredGroupIds = ref<number[]>([])
 const openaiPassthroughEnabled = ref(false)
 // Codex namespace 工具摊平兼容开关（仅 OAuth），缺省关闭即原样保留
 const openaiFlattenNamespacesEnabled = ref(false)
@@ -2061,6 +2080,7 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
 
   if (enableGroups.value) {
     updates.group_ids = groupIds.value
+    updates.preferred_group_ids = preferredGroupIds.value
   }
 
   if (enableBaseUrl.value) {
@@ -2248,7 +2268,7 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
 
   if (props.mode === 'upstream') {
     const allowed: Record<string, unknown> = {}
-    for (const key of ['status', 'group_ids', 'schedulable']) {
+    for (const key of ['status', 'group_ids', 'preferred_group_ids', 'schedulable']) {
       if (key in updates) allowed[key] = updates[key]
     }
     const mapping = (updates.credentials as Record<string, unknown> | undefined)?.model_mapping
@@ -2514,6 +2534,7 @@ watch(
       rateMultiplier.value = 1
       status.value = 'active'
       groupIds.value = []
+      preferredGroupIds.value = []
       openaiOAuthResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
       openaiAPIKeyResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
       upstreamBillingAutoProbeMode.value = 'enabled'
