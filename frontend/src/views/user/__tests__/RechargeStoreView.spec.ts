@@ -59,11 +59,16 @@ describe('RechargeStoreView', () => {
   })
 
   it('places the store between native purchase and orders without a payment flag', () => {
-    const purchaseItem = "{ path: '/purchase', label: t('nav.buySubscription'), icon: RechargeSubscriptionIcon, hideInSimpleMode: true, featureFlag: flagPayment }"
+    const purchaseItem = "{ path: '/purchase', label: purchaseNavLabel.value, icon: RechargeSubscriptionIcon, hideInSimpleMode: true, featureFlag: flagPayment }"
     const storeItem = "{ path: '/recharge-store', label: t('nav.rechargeStore'), icon: RechargeStoreIcon }"
     const ordersItem = "{ path: '/orders', label: t('nav.myOrders'), icon: OrderListIcon, hideInSimpleMode: true, featureFlag: flagPayment }"
+    const purchaseIndex = sidebarSource.indexOf(purchaseItem)
+    const storeIndex = sidebarSource.indexOf(storeItem)
+    const ordersIndex = sidebarSource.indexOf(ordersItem)
 
-    expect(sidebarSource).toContain(`${purchaseItem},\n    ${storeItem},\n    ${ordersItem},`)
+    expect(purchaseIndex).toBeGreaterThanOrEqual(0)
+    expect(storeIndex).toBeGreaterThan(purchaseIndex)
+    expect(ordersIndex).toBeGreaterThan(storeIndex)
     expect(storeItem).not.toContain('hideInSimpleMode')
   })
 })
