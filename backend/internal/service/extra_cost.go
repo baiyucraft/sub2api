@@ -7,6 +7,8 @@ import (
 	"math"
 	"strings"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 )
 
 const (
@@ -17,17 +19,19 @@ const (
 	ExtraCostCategoryAdjust  = "adjustment"
 	ExtraCostRuleVersion     = "extra-cost-v1"
 	ExtraCostMaxAmount       = 1_000_000_000.0
+	extraCostAmountScale     = 100_000_000.0
 	ExtraCostMaxNoteLength   = 500
 	ExtraCostMaxPageSize     = 100
 )
 
 var (
-	ErrExtraCostInvalidDate     = errors.New("额外成本日期无效")
-	ErrExtraCostInvalidAmount   = errors.New("额外成本金额无效")
-	ErrExtraCostInvalidCategory = errors.New("额外成本类型无效")
-	ErrExtraCostInvalidNote     = errors.New("额外成本备注过长")
-	ErrExtraCostNotFound        = errors.New("额外成本记录不存在")
-	ErrExtraCostAlreadyReversed = errors.New("额外成本记录已冲正")
+	ErrExtraCostInvalidDate         = errors.New("额外成本日期无效")
+	ErrExtraCostInvalidAmount       = errors.New("额外成本金额无效")
+	ErrExtraCostInvalidCategory     = errors.New("额外成本类型无效")
+	ErrExtraCostInvalidNote         = errors.New("额外成本备注过长")
+	ErrExtraCostNotFound            = errors.New("额外成本记录不存在")
+	ErrExtraCostAlreadyReversed     = errors.New("额外成本记录已冲正")
+	ErrExtraCostIdempotencyConflict = errors.New("额外成本幂等键已用于其他操作")
 )
 
 var ExtraCostCategories = []string{
@@ -63,7 +67,7 @@ type ExtraCostRepository interface {
 	List(ctx context.Context, filter ExtraCostFilter) ([]ExtraCostEntry, int64, error)
 	Create(ctx context.Context, entry ExtraCostEntry) (*ExtraCostEntry, error)
 	GetByID(ctx context.Context, id int64) (*ExtraCostEntry, error)
-	Reverse(ctx context.Context, id int64, createdBy *int64, reason, idempotencyKey string) (*ExtraCostEntry, error)
+	Reverse(ctx context.Context, id int64, adjustment ExtraCostEntry) (*ExtraCostEntry, error)
 	Sum(ctx context.Context, start, end *time.Time) (float64, error)
 }
 
@@ -74,11 +78,23 @@ type extraCostDailyRepository interface {
 type ExtraCostService struct {
 	repo           ExtraCostRepository
 	invalidateDash []func()
+	now            func() time.Time
+	location       func() *time.Location
 }
 
 func NewExtraCostService(repo ExtraCostRepository, invalidateDashboard ...func()) *ExtraCostService {
-	svc := &ExtraCostService{repo: repo, invalidateDash: invalidateDashboard}
+	svc := &ExtraCostService{
+		repo:           repo,
+		invalidateDash: invalidateDashboard,
+		now:            timezone.Now,
+		location:       timezone.Location,
+	}
 	return svc
+}
+
+func (s *ExtraCostService) occurrenceTime() time.Time {
+	now := s.now()
+	return now.In(s.location())
 }
 
 func (s *ExtraCostService) invalidateDashboardCache() {
@@ -106,12 +122,10 @@ func (s *ExtraCostService) List(ctx context.Context, filter ExtraCostFilter) ([]
 }
 
 func (s *ExtraCostService) Create(ctx context.Context, entry ExtraCostEntry) (*ExtraCostEntry, error) {
-	if _, err := time.Parse("2006-01-02", entry.CostDate); err != nil {
-		return nil, ErrExtraCostInvalidDate
-	}
 	if math.IsNaN(entry.Amount) || math.IsInf(entry.Amount, 0) || entry.Amount < 0 || entry.Amount > ExtraCostMaxAmount {
 		return nil, ErrExtraCostInvalidAmount
 	}
+	entry.Amount = normalizeExtraCostAmount(entry.Amount)
 	entry.Category = strings.TrimSpace(entry.Category)
 	if !IsValidExtraCostCategory(entry.Category) {
 		return nil, ErrExtraCostInvalidCategory
@@ -123,11 +137,18 @@ func (s *ExtraCostService) Create(ctx context.Context, entry ExtraCostEntry) (*E
 	if entry.RuleVersion == "" {
 		entry.RuleVersion = ExtraCostRuleVersion
 	}
+	occurredAt := s.occurrenceTime()
+	entry.CostDate = occurredAt.Format("2006-01-02")
+	entry.CreatedAt = occurredAt
 	created, err := s.repo.Create(ctx, entry)
 	if err == nil {
 		s.invalidateDashboardCache()
 	}
 	return created, err
+}
+
+func normalizeExtraCostAmount(amount float64) float64 {
+	return math.Round(amount*extraCostAmountScale) / extraCostAmountScale
 }
 
 func (s *ExtraCostService) Reverse(ctx context.Context, id int64, createdBy *int64, reason, idempotencyKey string) (*ExtraCostEntry, error) {
@@ -151,7 +172,17 @@ func (s *ExtraCostService) Reverse(ctx context.Context, id int64, createdBy *int
 	if entry.ReversalOf != nil {
 		return nil, ErrExtraCostAlreadyReversed
 	}
-	created, err := s.repo.Reverse(ctx, id, createdBy, reason, idempotencyKey)
+	occurredAt := s.occurrenceTime()
+	created, err := s.repo.Reverse(ctx, id, ExtraCostEntry{
+		CostDate:       occurredAt.Format("2006-01-02"),
+		Category:       ExtraCostCategoryAdjust,
+		Notes:          reason,
+		CreatedBy:      createdBy,
+		CreatedAt:      occurredAt,
+		ReversalOf:     &id,
+		IdempotencyKey: idempotencyKey,
+		RuleVersion:    ExtraCostRuleVersion,
+	})
 	if err == nil {
 		s.invalidateDashboardCache()
 	}

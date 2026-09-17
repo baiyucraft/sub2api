@@ -68,6 +68,8 @@ export default {
     extraCostsRangeTotal: 'Extra costs in range',
     addExtraCost: 'Add cost',
     extraCostDate: 'Cost date',
+    extraCostTime: 'Occurred at',
+    extraCostTimeHint: 'The occurrence time is recorded automatically when the entry is saved.',
     extraCostAmount: 'Amount (USD)',
     extraCostType: 'Cost type',
     extraCostNotes: 'Notes',

@@ -5,6 +5,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import type { DashboardStats } from '@/types'
 import DashboardView from '../DashboardView.vue'
 import AccountCostAmount from '@/components/admin/usage/AccountCostAmount.vue'
+import ExtraCostsDialog from '@/components/admin/usage/ExtraCostsDialog.vue'
 
 const { getSnapshotV2, getUserUsageTrend, getUserSpendingRanking } = vi.hoisted(() => ({
   getSnapshotV2: vi.fn(),
@@ -156,7 +157,7 @@ describe('admin DashboardView', () => {
   })
 
   it('uses last 24 hours as default dashboard range', async () => {
-    mount(DashboardView, {
+    const wrapper = mount(DashboardView, {
       global: {
         stubs: {
           AppLayout: { template: '<div><slot /></div>' },
@@ -182,6 +183,8 @@ describe('admin DashboardView', () => {
       end_date: formatLocalDate(now),
       granularity: 'hour'
     }))
+    const extraCostsDialog = wrapper.findComponent(ExtraCostsDialog)
+    expect(extraCostsDialog.props()).toEqual({ show: false })
   })
 
   it('distinguishes a recent usage request failure from an empty result', async () => {
