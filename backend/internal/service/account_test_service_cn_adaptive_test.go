@@ -120,13 +120,14 @@ func TestAccountTestService_AdaptiveDeepSeekPrefersResponsesEndpoint(t *testing.
 	svc, _ := adaptiveCNHealthProbeTestService(account, upstream)
 	c, recorder := newTestContext()
 
-	err := svc.TestAccountConnection(c, account.ID, "deepseek-chat", "", AccountTestModeDefault)
+	err := svc.TestAccountConnection(c, account.ID, "deepseek-flash", "", AccountTestModeDefault)
 
 	require.NoError(t, err)
 	require.Len(t, upstream.requests, 1)
 	require.Equal(t, "http://responses.example/responses", upstream.requests[0].URL.String())
 	require.Equal(t, HTTPUpstreamProfileOpenAI, HTTPUpstreamProfileFromContext(upstream.requests[0].Context()))
 	require.Equal(t, "Bearer sk-adaptive-test", upstream.requests[0].Header.Get("Authorization"))
+	require.Equal(t, "deepseek-flash", gjson.GetBytes(upstream.bodies[0], "model").String())
 	require.True(t, gjson.GetBytes(upstream.bodies[0], "stream").Bool())
 	require.False(t, gjson.GetBytes(upstream.bodies[0], "store").Bool())
 	require.Equal(t, 1, strings.Count(recorder.Body.String(), `"type":"test_complete"`))
@@ -158,7 +159,7 @@ func TestAccountTestService_AdaptiveResponsesFailureFallsBackToChat(t *testing.T
 	svc, _ := adaptiveCNHealthProbeTestService(account, upstream)
 	c, recorder := newTestContext()
 
-	err := svc.TestAccountConnection(c, account.ID, "deepseek-chat", "", AccountTestModeDefault)
+	err := svc.TestAccountConnection(c, account.ID, "deepseek-flash", "", AccountTestModeDefault)
 
 	require.NoError(t, err)
 	require.Len(t, upstream.requests, 2)
