@@ -80,9 +80,88 @@ const (
 )
 
 const (
-	codexFingerprintModeExtraKey = "codex_fingerprint_mode"
-	codexFingerprintSeedExtraKey = "codex_fingerprint_seed"
+	codexFingerprintModeExtraKey              = "codex_fingerprint_mode"
+	codexFingerprintSeedExtraKey              = "codex_fingerprint_seed"
+	codexImportReplicaFingerprintSeedExtraKey = "codex_import_replica_fingerprint_seed"
 )
+
+// trustedCodexImportReplicaFingerprintSeed is an in-process marker used by the
+// import path. JSON input can only produce strings, so external callers cannot
+// smuggle this system-managed value through account Extra.
+type trustedCodexImportReplicaFingerprintSeed string
+
+// CodexImportFingerprintGroup prepares Extra for one imported source account
+// and all of its proxy replicas. A group is intentionally opaque: callers can
+// reuse it, but cannot choose or inspect the system-managed shared seed.
+type CodexImportFingerprintGroup struct {
+	seed     string
+	deviceID string
+	batch    *CodexImportFingerprintBatch
+}
+
+// CodexImportFingerprintBatch keeps source-account device identities distinct
+// within one import request while allowing every replica of one source to share.
+type CodexImportFingerprintBatch struct {
+	usedDeviceIDs map[string]struct{}
+}
+
+func NewCodexImportFingerprintBatch() *CodexImportFingerprintBatch {
+	return &CodexImportFingerprintBatch{usedDeviceIDs: make(map[string]struct{})}
+}
+
+func (b *CodexImportFingerprintBatch) NewGroup() *CodexImportFingerprintGroup {
+	return &CodexImportFingerprintGroup{seed: newCodexFingerprintSeed(), batch: b}
+}
+
+// NewCodexImportFingerprintGroup creates a fingerprint group for one imported
+// source account. Call PrepareExtra for the base account and every proxy copy.
+func NewCodexImportFingerprintGroup() *CodexImportFingerprintGroup {
+	return NewCodexImportFingerprintBatch().NewGroup()
+}
+
+// PrepareExtra strips any externally supplied replica seed. Device and session
+// modes share one source device ID; session mode additionally attaches a
+// trusted shared seed for the account creation pipeline.
+func (g *CodexImportFingerprintGroup) PrepareExtra(extra map[string]any) map[string]any {
+	prepared := stripCodexImportReplicaFingerprintSeed(extra)
+	if g == nil {
+		return prepared
+	}
+	mode := codexFingerprintModeFromExtra(prepared)
+	if mode != codexFingerprintDevice && mode != codexFingerprintSession {
+		return prepared
+	}
+	if g.deviceID == "" {
+		existing, _ := prepared["openai_device_id"].(string)
+		existing = strings.TrimSpace(existing)
+		if existing != "" && g.batch != nil {
+			if _, duplicate := g.batch.usedDeviceIDs[existing]; duplicate {
+				existing = ""
+			}
+		}
+		if existing != "" {
+			g.deviceID = existing
+		} else {
+			g.deviceID = uuid.NewString()
+		}
+		if g.batch != nil {
+			g.batch.usedDeviceIDs[g.deviceID] = struct{}{}
+		}
+	}
+	if prepared == nil {
+		prepared = make(map[string]any, 2)
+	}
+	prepared["openai_device_id"] = g.deviceID
+	if mode != codexFingerprintSession {
+		return prepared
+	}
+	seed, ok := canonicalCodexFingerprintSeed(g.seed)
+	if !ok {
+		return prepared
+	}
+	prepared[codexImportReplicaFingerprintSeedExtraKey] = trustedCodexImportReplicaFingerprintSeed(seed)
+	return prepared
+}
 
 func canonicalCodexFingerprintSeed(value any) (string, bool) {
 	raw, ok := value.(string)
@@ -107,6 +186,15 @@ func stripCodexFingerprintSeed(extra map[string]any) map[string]any {
 	}
 	stripped := maps.Clone(extra)
 	delete(stripped, codexFingerprintSeedExtraKey)
+	return stripped
+}
+
+func stripCodexImportReplicaFingerprintSeed(extra map[string]any) map[string]any {
+	if extra == nil {
+		return nil
+	}
+	stripped := maps.Clone(extra)
+	delete(stripped, codexImportReplicaFingerprintSeedExtraKey)
 	return stripped
 }
 
@@ -139,26 +227,54 @@ func codexFingerprintSeed(extra map[string]any) (string, bool) {
 	return canonicalCodexFingerprintSeed(extra[codexFingerprintSeedExtraKey])
 }
 
+func codexImportReplicaFingerprintSeed(extra map[string]any) (string, bool) {
+	if extra == nil {
+		return "", false
+	}
+	return canonicalCodexFingerprintSeed(extra[codexImportReplicaFingerprintSeedExtraKey])
+}
+
+func trustedCodexImportReplicaSeed(extra map[string]any) (string, bool) {
+	if extra == nil {
+		return "", false
+	}
+	seed, ok := extra[codexImportReplicaFingerprintSeedExtraKey].(trustedCodexImportReplicaFingerprintSeed)
+	if !ok {
+		return "", false
+	}
+	return canonicalCodexFingerprintSeed(string(seed))
+}
+
 func prepareCodexFingerprintExtraForCreate(platform, accountType string, extra map[string]any) map[string]any {
-	prepared := stripCodexFingerprintSeed(extra)
+	sharedSeed, hasTrustedSharedSeed := trustedCodexImportReplicaSeed(extra)
+	prepared := stripCodexImportReplicaFingerprintSeed(stripCodexFingerprintSeed(extra))
 	if platform != PlatformOpenAI || (accountType != AccountTypeOAuth && accountType != AccountTypeSetupToken) || !codexFingerprintModeRequiresSeed(codexFingerprintModeFromExtra(prepared)) {
 		return prepared
 	}
 	if prepared == nil {
-		prepared = make(map[string]any, 1)
+		prepared = make(map[string]any, 2)
 	}
 	prepared[codexFingerprintSeedExtraKey] = newCodexFingerprintSeed()
+	if codexFingerprintModeFromExtra(prepared) == codexFingerprintSession && hasTrustedSharedSeed {
+		prepared[codexImportReplicaFingerprintSeedExtraKey] = sharedSeed
+	}
 	return prepared
 }
 
 func prepareCodexFingerprintExtraForUpdate(account *Account, extra map[string]any) map[string]any {
-	prepared := stripCodexFingerprintSeed(extra)
+	prepared := stripCodexImportReplicaFingerprintSeed(stripCodexFingerprintSeed(extra))
 	if account == nil || !account.IsOpenAIOAuthLike() {
 		return prepared
 	}
+	if sharedSeed, ok := codexImportReplicaFingerprintSeed(account.Extra); ok {
+		if prepared == nil {
+			prepared = make(map[string]any, 2)
+		}
+		prepared[codexImportReplicaFingerprintSeedExtraKey] = sharedSeed
+	}
 	if seed, ok := codexFingerprintSeed(account.Extra); ok {
 		if prepared == nil {
-			prepared = make(map[string]any, 1)
+			prepared = make(map[string]any, 2)
 		}
 		prepared[codexFingerprintSeedExtraKey] = seed
 		return prepared
@@ -178,6 +294,7 @@ func sanitizedCodexFingerprintExtraUpdates(updates map[string]any) map[string]an
 	}
 	sanitized := maps.Clone(updates)
 	delete(sanitized, codexFingerprintSeedExtraKey)
+	delete(sanitized, codexImportReplicaFingerprintSeedExtraKey)
 	return sanitized
 }
 
@@ -287,6 +404,12 @@ func resolveCodexFingerprintIDs(account *Account, clientSessionID string, mode c
 	if !ok {
 		return nil
 	}
+	derivationSeed := seed
+	if mode == codexFingerprintSession {
+		if sharedSeed, sharedOK := codexImportReplicaFingerprintSeed(account.Extra); sharedOK {
+			derivationSeed = sharedSeed
+		}
+	}
 
 	ids := &codexFingerprintIDs{
 		accountID:           account.ID,
@@ -294,7 +417,7 @@ func resolveCodexFingerprintIDs(account *Account, clientSessionID string, mode c
 		turnStartedAtUnixMs: time.Now().UnixMilli(),
 	}
 
-	ids.installationID = resolveConvergedInstallationID(account, seed)
+	ids.installationID = resolveConvergedInstallationID(account, derivationSeed)
 	if ids.installationID == "" {
 		return nil
 	}
@@ -304,8 +427,8 @@ func resolveCodexFingerprintIDs(account *Account, clientSessionID string, mode c
 		return ids
 
 	case codexFingerprintSession:
-		ids.sessionID = resolveConvergedSessionID(seed)
-		ids.threadID = resolveConvergedThreadID(seed, clientSessionID)
+		ids.sessionID = resolveConvergedSessionID(derivationSeed)
+		ids.threadID = resolveConvergedThreadID(derivationSeed, clientSessionID)
 		if ids.threadID == "" {
 			ids.threadID = ids.sessionID
 		}

@@ -800,7 +800,10 @@ export interface AdminDataImportOptions {
   copy_proxy_ids?: number[]
   override_concurrency?: number
   override_rate_multiplier?: number
+  override_priority?: number
   override_codex_fingerprint_mode?: 'off' | 'device' | 'session' | 'full'
+  group_ids?: number[]
+  preferred_group_ids?: number[]
 }
 
 export async function importData(payload: AdminDataImportOptions): Promise<AdminDataImportResult> {
@@ -811,9 +814,12 @@ export async function importData(payload: AdminDataImportOptions): Promise<Admin
   if (payload.copy_proxy_ids !== undefined) request.copy_proxy_ids = payload.copy_proxy_ids
   if (payload.override_concurrency !== undefined) request.override_concurrency = payload.override_concurrency
   if (payload.override_rate_multiplier !== undefined) request.override_rate_multiplier = payload.override_rate_multiplier
+  if (payload.override_priority !== undefined) request.override_priority = payload.override_priority
   if (payload.override_codex_fingerprint_mode !== undefined) {
     request.override_codex_fingerprint_mode = payload.override_codex_fingerprint_mode
   }
+  if (payload.group_ids !== undefined) request.group_ids = payload.group_ids
+  if (payload.preferred_group_ids !== undefined) request.preferred_group_ids = payload.preferred_group_ids
   const { data } = await apiClient.post<AdminDataImportResult>('/admin/accounts/data', request)
   return data
 }

@@ -33,7 +33,7 @@ func TestCreateWithAccountGroupsPersistsPausedCopyAtomically(t *testing.T) {
 		Credentials: map[string]any{"api_key": "secret"},
 		Extra:       map[string]any{},
 	}
-	require.NoError(t, repo.CreateWithAccountGroups(ctx, success, []service.AccountGroup{{GroupID: group.ID, Priority: 37}}))
+	require.NoError(t, repo.CreateWithAccountGroups(ctx, success, []service.AccountGroup{{GroupID: group.ID, Priority: 37, SchedulerPreferred: true}}))
 	t.Cleanup(func() {
 		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM scheduler_outbox WHERE account_id = $1", success.ID)
 		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM account_groups WHERE account_id = $1", success.ID)
@@ -45,8 +45,10 @@ func TestCreateWithAccountGroupsPersistsPausedCopyAtomically(t *testing.T) {
 	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT schedulable FROM accounts WHERE id = $1", success.ID).Scan(&schedulable))
 	require.False(t, schedulable)
 	var priority int
-	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT priority FROM account_groups WHERE account_id = $1 AND group_id = $2", success.ID, group.ID).Scan(&priority))
+	var schedulerPreferred bool
+	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT priority, scheduler_preferred FROM account_groups WHERE account_id = $1 AND group_id = $2", success.ID, group.ID).Scan(&priority, &schedulerPreferred))
 	require.Equal(t, 37, priority)
+	require.True(t, schedulerPreferred)
 	var outboxCount int
 	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT COUNT(*) FROM scheduler_outbox WHERE account_id = $1", success.ID).Scan(&outboxCount))
 	require.Equal(t, 1, outboxCount)

@@ -81,8 +81,11 @@ type DataImportRequest struct {
 	SkipDefaultGroupBind         *bool       `json:"skip_default_group_bind"`
 	CopyProxyIDs                 []int64     `json:"copy_proxy_ids,omitempty"`
 	OverrideConcurrency          *int        `json:"override_concurrency,omitempty"`
+	OverridePriority             *int        `json:"override_priority,omitempty"`
 	OverrideRateMultiplier       *float64    `json:"override_rate_multiplier,omitempty"`
 	OverrideCodexFingerprintMode *string     `json:"override_codex_fingerprint_mode,omitempty"`
+	GroupIDs                     *[]int64    `json:"group_ids,omitempty"`
+	PreferredGroupIDs            *[]int64    `json:"preferred_group_ids,omitempty"`
 }
 
 const (
@@ -253,16 +256,16 @@ func (h *AccountHandler) ImportData(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
+	if err := normalizeDataImportOptions(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
 	if req.OverrideCodexFingerprintMode != nil {
 		normalizedMode := strings.ToLower(strings.TrimSpace(*req.OverrideCodexFingerprintMode))
 		req.OverrideCodexFingerprintMode = &normalizedMode
 	}
 
 	if err := validateDataHeader(req.Data); err != nil {
-		response.BadRequest(c, err.Error())
-		return
-	}
-	if err := validateDataImportOptions(req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
@@ -273,7 +276,7 @@ func (h *AccountHandler) ImportData(c *gin.Context) {
 }
 
 func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) (DataImportResult, error) {
-	if err := validateDataImportOptions(req); err != nil {
+	if err := normalizeDataImportOptions(&req); err != nil {
 		return DataImportResult{}, infraerrors.BadRequest("INVALID_IMPORT_OPTIONS", err.Error())
 	}
 	if req.OverrideCodexFingerprintMode != nil {
@@ -287,6 +290,9 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 
 	dataPayload := req.Data
 	result := DataImportResult{}
+	if err := h.validateDataImportGroups(ctx, req); err != nil {
+		return result, infraerrors.BadRequest("INVALID_IMPORT_GROUPS", err.Error())
+	}
 
 	existingProxies, err := h.listAllProxies(ctx)
 	if err != nil {
@@ -456,8 +462,13 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 	// 收集需要异步设置隐私的 Antigravity OAuth 账号
 	var privacyAccounts []*service.Account
 
+	fingerprintBatch := service.NewCodexImportFingerprintBatch()
 	for i := range dataPayload.Accounts {
 		source := dataPayload.Accounts[i]
+		var fingerprintGroup *service.CodexImportFingerprintGroup
+		if isOpenAIOAuthLikeImport(source) {
+			fingerprintGroup = fingerprintBatch.NewGroup()
+		}
 		copyCount := len(copyProxies)
 		if copyCount == 0 {
 			copyCount = 1
@@ -497,6 +508,9 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 			if req.OverrideConcurrency != nil {
 				item.Concurrency = *req.OverrideConcurrency
 			}
+			if req.OverridePriority != nil {
+				item.Priority = *req.OverridePriority
+			}
 			if req.OverrideRateMultiplier != nil {
 				value := *req.OverrideRateMultiplier
 				item.RateMultiplier = &value
@@ -506,6 +520,9 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 					item.Extra = make(map[string]any)
 				}
 				item.Extra["codex_fingerprint_mode"] = strings.TrimSpace(*req.OverrideCodexFingerprintMode)
+			}
+			if fingerprintGroup != nil {
+				item.Extra = fingerprintGroup.PrepareExtra(item.Extra)
 			}
 
 			var proxyID *int64
@@ -529,6 +546,10 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 
 			enrichCredentialsFromIDToken(&item)
 
+			var groupIDs []int64
+			if req.GroupIDs != nil {
+				groupIDs = append([]int64(nil), (*req.GroupIDs)...)
+			}
 			accountInput := &service.CreateAccountInput{
 				Name:                 item.Name,
 				Notes:                item.Notes,
@@ -540,10 +561,11 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 				Concurrency:          item.Concurrency,
 				Priority:             item.Priority,
 				RateMultiplier:       item.RateMultiplier,
-				GroupIDs:             nil,
+				GroupIDs:             groupIDs,
+				PreferredGroupIDs:    req.PreferredGroupIDs,
 				ExpiresAt:            item.ExpiresAt,
 				AutoPauseOnExpired:   item.AutoPauseOnExpired,
-				SkipDefaultGroupBind: skipDefaultGroupBind,
+				SkipDefaultGroupBind: skipDefaultGroupBind || req.GroupIDs != nil,
 			}
 
 			created, err := h.adminService.CreateAccount(ctx, accountInput)
@@ -752,17 +774,23 @@ func validateDataHeader(payload DataPayload) error {
 	return nil
 }
 
-func validateDataImportOptions(req DataImportRequest) error {
+func normalizeDataImportOptions(req *DataImportRequest) error {
+	if req == nil {
+		return errors.New("import options are required")
+	}
+	copyProxyIDs, err := normalizeDataImportIDs(req.CopyProxyIDs, "copy proxy")
+	if err != nil {
+		return err
+	}
+	req.CopyProxyIDs = copyProxyIDs
 	if len(req.CopyProxyIDs) > maxImportCopyProxySlots {
 		return fmt.Errorf("copy_proxy_ids must contain at most %d proxies", maxImportCopyProxySlots)
 	}
-	for _, id := range req.CopyProxyIDs {
-		if id <= 0 {
-			return fmt.Errorf("copy proxy id %d is invalid", id)
-		}
-	}
 	if req.OverrideConcurrency != nil && *req.OverrideConcurrency < 0 {
 		return errors.New("override_concurrency must be >= 0")
+	}
+	if req.OverridePriority != nil && *req.OverridePriority < 1 {
+		return errors.New("override_priority must be >= 1")
 	}
 	if req.OverrideRateMultiplier != nil && *req.OverrideRateMultiplier < 0 {
 		return errors.New("override_rate_multiplier must be >= 0")
@@ -772,6 +800,86 @@ func validateDataImportOptions(req DataImportRequest) error {
 		case "off", "device", "session", "full":
 		default:
 			return fmt.Errorf("override_codex_fingerprint_mode is invalid: %q", *req.OverrideCodexFingerprintMode)
+		}
+	}
+	if (req.GroupIDs == nil) != (req.PreferredGroupIDs == nil) {
+		return errors.New("group_ids and preferred_group_ids must be provided together")
+	}
+	if req.GroupIDs != nil {
+		groupIDs, err := normalizeDataImportIDs(*req.GroupIDs, "group")
+		if err != nil {
+			return err
+		}
+		preferredGroupIDs, err := normalizeDataImportIDs(*req.PreferredGroupIDs, "preferred group")
+		if err != nil {
+			return err
+		}
+		selected := make(map[int64]struct{}, len(groupIDs))
+		for _, groupID := range groupIDs {
+			selected[groupID] = struct{}{}
+		}
+		for _, groupID := range preferredGroupIDs {
+			if _, ok := selected[groupID]; !ok {
+				return errors.New("preferred_group_ids must be a subset of group_ids")
+			}
+		}
+		*req.GroupIDs = groupIDs
+		*req.PreferredGroupIDs = preferredGroupIDs
+	}
+	return nil
+}
+
+func normalizeDataImportIDs(ids []int64, label string) ([]int64, error) {
+	seen := make(map[int64]struct{}, len(ids))
+	normalized := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		if id <= 0 {
+			return nil, fmt.Errorf("%s id %d is invalid", label, id)
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		normalized = append(normalized, id)
+	}
+	return normalized, nil
+}
+
+func (h *AccountHandler) validateDataImportGroups(ctx context.Context, req DataImportRequest) error {
+	if req.GroupIDs == nil {
+		return nil
+	}
+	groupIDs := *req.GroupIDs
+	if err := h.adminService.ValidateAccountGroupBindings(ctx, groupIDs); err != nil {
+		return err
+	}
+
+	platforms := make(map[string]struct{})
+	for _, account := range req.Data.Accounts {
+		platform := strings.ToLower(strings.TrimSpace(account.Platform))
+		if platform != "" {
+			platforms[platform] = struct{}{}
+		}
+	}
+	if len(groupIDs) > 0 && len(platforms) > 1 {
+		return errors.New("group selection is not supported for mixed-platform imports")
+	}
+
+	var accountPlatform string
+	for platform := range platforms {
+		accountPlatform = platform
+	}
+	for _, groupID := range groupIDs {
+		group, err := h.adminService.GetGroup(ctx, groupID)
+		if err != nil {
+			return fmt.Errorf("get group %d: %w", groupID, err)
+		}
+		if group == nil {
+			return fmt.Errorf("group %d not found", groupID)
+		}
+		groupPlatform := strings.ToLower(strings.TrimSpace(group.Platform))
+		if accountPlatform != "" && groupPlatform != accountPlatform && groupPlatform != service.PlatformComposite {
+			return fmt.Errorf("group %d platform %q is incompatible with account platform %q", groupID, group.Platform, accountPlatform)
 		}
 	}
 	return nil

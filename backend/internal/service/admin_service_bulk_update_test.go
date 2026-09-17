@@ -26,6 +26,7 @@ type accountRepoStubForBulkUpdate struct {
 	bindGroupsByAccount map[int64][]int64
 	preferredBindCalls  []int64
 	preferredByAccount  map[int64][]int64
+	atomicCreateCalls   int
 	createAccount       *Account
 	createID            int64
 	createErr           error
@@ -82,6 +83,35 @@ func (s *accountRepoStubForBulkUpdate) Create(_ context.Context, account *Accoun
 		account.ID = s.createID
 	}
 	return s.createErr
+}
+
+func (s *accountRepoStubForBulkUpdate) CreateWithAccountGroups(_ context.Context, account *Account, groups []AccountGroup) error {
+	s.atomicCreateCalls++
+	if s.createErr != nil {
+		return s.createErr
+	}
+	accountID := s.createID
+	if accountID == 0 {
+		accountID = account.ID
+	}
+	if err, ok := s.bindGroupErrByID[accountID]; ok {
+		return err
+	}
+	account.ID = accountID
+	s.createAccount = account
+	if s.bindGroupsByAccount == nil {
+		s.bindGroupsByAccount = make(map[int64][]int64)
+	}
+	if s.preferredByAccount == nil {
+		s.preferredByAccount = make(map[int64][]int64)
+	}
+	for _, group := range groups {
+		s.bindGroupsByAccount[accountID] = append(s.bindGroupsByAccount[accountID], group.GroupID)
+		if group.SchedulerPreferred {
+			s.preferredByAccount[accountID] = append(s.preferredByAccount[accountID], group.GroupID)
+		}
+	}
+	return nil
 }
 
 func (s *accountRepoStubForBulkUpdate) Update(_ context.Context, account *Account) error {

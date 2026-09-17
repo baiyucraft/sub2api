@@ -420,9 +420,12 @@ type CreateAccountInput struct {
 	RateMultiplier      *float64 // 账号计费倍率（>=0，允许 0）
 	LoadFactor          *int
 	GroupIDs            []int64
-	ExpiresAt           *int64
-	AutoPauseOnExpired  *bool
-	ProbeEnabled        *bool
+	// PreferredGroupIDs is the complete preferred subset for GroupIDs when provided.
+	// nil preserves the legacy BindGroups behavior for existing create callers.
+	PreferredGroupIDs  *[]int64
+	ExpiresAt          *int64
+	AutoPauseOnExpired *bool
+	ProbeEnabled       *bool
 	// SkipDefaultGroupBind prevents auto-binding to platform default group when GroupIDs is empty.
 	SkipDefaultGroupBind bool
 	// SkipMixedChannelCheck skips the mixed channel risk check when binding groups.
