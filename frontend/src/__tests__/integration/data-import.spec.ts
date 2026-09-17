@@ -1,3 +1,4 @@
+import { defineComponent } from 'vue'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import ImportDataModal from '@/components/admin/account/ImportDataModal.vue'
@@ -21,22 +22,47 @@ vi.mock('@/api/admin', () => ({
     },
     proxies: {
       getAll: vi.fn()
+    },
+    groups: {
+      getAll: vi.fn()
     }
   }
 }))
 
-vi.mock('vue-i18n', () => ({
-  useI18n: () => ({
-    t: (key: string) => key
-  })
-}))
+vi.mock('vue-i18n', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('vue-i18n')>()
+  return {
+    ...actual,
+    useI18n: () => ({
+      t: (key: string) => key
+    })
+  }
+})
+
+const GroupSelectorStub = defineComponent({
+  name: 'GroupSelector',
+  props: {
+    modelValue: { type: Array, default: () => [] },
+    preferredGroupIds: { type: Array, default: () => [] },
+    groups: { type: Array, default: () => [] },
+    platform: { type: String, default: '' }
+  },
+  emits: ['update:modelValue', 'update:preferredGroupIds'],
+  template: `
+    <div data-testid="group-selector-stub" :data-platform="platform">
+      <button type="button" data-testid="select-import-groups" @click="$emit('update:modelValue', [101, 102])">groups</button>
+      <button type="button" data-testid="select-import-preferred" @click="$emit('update:preferredGroupIds', [102])">preferred</button>
+    </div>
+  `
+})
 
 const mountModal = () =>
   mount(ImportDataModal, {
     props: { show: true },
     global: {
       stubs: {
-        BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' }
+        BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' },
+        GroupSelector: GroupSelectorStub
       }
     }
   })
@@ -64,15 +90,18 @@ describe('ImportDataModal', () => {
     const { adminAPI } = await import('@/api/admin')
     vi.mocked(adminAPI.accounts.importData).mockReset()
     vi.mocked(adminAPI.proxies.getAll).mockReset()
+    vi.mocked(adminAPI.groups.getAll).mockReset()
     vi.mocked(adminAPI.proxies.getAll).mockResolvedValue([
       {
         id: 12,
         name: 'Hong Kong 1',
         host: '127.0.0.1',
         port: 8080,
-        status: 'active'
+        status: 'active',
+        created_at: '2026-08-01T00:00:00Z'
       } as never
     ])
+    vi.mocked(adminAPI.groups.getAll).mockResolvedValue([])
   })
 
   it('打开弹窗时加载当前可用代理', async () => {
@@ -150,7 +179,11 @@ describe('ImportDataModal', () => {
       data: expect.objectContaining({
         accounts: [{ name: 'a' }]
       }),
-      skip_default_group_bind: true
+      skip_default_group_bind: true,
+      override_concurrency: 4,
+      override_rate_multiplier: 0,
+      override_priority: 1,
+      override_codex_fingerprint_mode: 'device'
     })
   })
 
@@ -190,7 +223,11 @@ describe('ImportDataModal', () => {
         proxies: [{ proxy_key: 'p' }],
         accounts: [{ name: 'a' }, { name: 'b' }]
       }),
-      skip_default_group_bind: true
+      skip_default_group_bind: true,
+      override_concurrency: 4,
+      override_rate_multiplier: 0,
+      override_priority: 1,
+      override_codex_fingerprint_mode: 'device'
     })
     expect(showSuccess).toHaveBeenCalledWith('admin.accounts.dataImportSuccess')
   })
@@ -231,6 +268,186 @@ describe('ImportDataModal', () => {
     }))
   })
 
+  it('按创建时间和 ID 依次添加尚未选择的启用代理', async () => {
+    const { adminAPI } = await import('@/api/admin')
+    vi.mocked(adminAPI.proxies.getAll).mockResolvedValue([
+      { id: 30, name: 'third', host: '3', port: 3, status: 'active', created_at: '2026-08-03T00:00:00Z' } as never,
+      { id: 20, name: 'second', host: '2', port: 2, status: 'active', created_at: '2026-08-02T00:00:00Z' } as never,
+      { id: 10, name: 'first', host: '1', port: 1, status: 'active', created_at: '2026-08-01T00:00:00Z' } as never,
+      { id: 5, name: 'inactive', host: '5', port: 5, status: 'inactive', created_at: '2026-07-01T00:00:00Z' } as never
+    ])
+
+    const wrapper = mountModal()
+    await flushPromises()
+    const input = wrapper.find('input[type="file"]')
+    setInputFiles(input.element, [
+      makeJsonFile('accounts.json', JSON.stringify({
+        exported_at: '2026-08-31T00:00:00Z',
+        proxies: [],
+        accounts: [{ name: 'a', platform: 'openai' }]
+      }))
+    ])
+    await input.trigger('change')
+    await flushPromises()
+
+    const addButton = wrapper.findAll('button').find((button) => button.text() === 'admin.accounts.dataImportAddCopy')!
+    await addButton.trigger('click')
+    await addButton.trigger('click')
+    await addButton.trigger('click')
+
+    const proxySelects = wrapper.findAllComponents({ name: 'Select' })
+      .filter((select) => select.props('ariaLabel') === 'admin.accounts.dataImportSelectProxy')
+    expect(proxySelects.map((select) => select.props('modelValue'))).toEqual([10, 20, 30])
+    expect((proxySelects[0]!.props('options') as Array<{ value: number; disabled?: boolean }>))
+      .toEqual(expect.arrayContaining([
+        expect.objectContaining({ value: 20, disabled: true }),
+        expect.objectContaining({ value: 30, disabled: true })
+      ]))
+    expect(addButton.attributes('disabled')).toBeDefined()
+  })
+
+  it('单平台导入提交默认覆盖值、分组和优先分组', async () => {
+    const { adminAPI } = await import('@/api/admin')
+    vi.mocked(adminAPI.groups.getAll).mockResolvedValue([
+      { id: 101, name: 'standard', platform: 'openai', status: 'active' } as never,
+      { id: 102, name: 'preferred', platform: 'openai', status: 'active' } as never
+    ])
+    vi.mocked(adminAPI.accounts.importData).mockResolvedValue({
+      proxy_created: 0,
+      proxy_reused: 0,
+      proxy_failed: 0,
+      account_created: 1,
+      account_failed: 0
+    })
+
+    const wrapper = mountModal()
+    await flushPromises()
+    const input = wrapper.find('input[type="file"]')
+    setInputFiles(input.element, [
+      makeJsonFile('openai.json', JSON.stringify({
+        exported_at: '2026-08-31T00:00:00Z',
+        proxies: [],
+        accounts: [{ name: 'a', platform: 'openai' }]
+      }))
+    ])
+    await input.trigger('change')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="data-import-group-selector"]').attributes('data-platform')).toBe('openai')
+    await wrapper.get('[data-testid="select-import-groups"]').trigger('click')
+    await wrapper.get('[data-testid="select-import-preferred"]').trigger('click')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(adminAPI.accounts.importData).toHaveBeenCalledWith(expect.objectContaining({
+      override_concurrency: 4,
+      override_rate_multiplier: 0,
+      override_priority: 1,
+      override_codex_fingerprint_mode: 'device',
+      group_ids: [101, 102],
+      preferred_group_ids: [102]
+    }))
+  })
+
+  it('清空数字覆盖值后不提交对应字段', async () => {
+    const { adminAPI } = await import('@/api/admin')
+    vi.mocked(adminAPI.accounts.importData).mockResolvedValue({
+      proxy_created: 0,
+      proxy_reused: 0,
+      proxy_failed: 0,
+      account_created: 1,
+      account_failed: 0
+    })
+    const wrapper = mountModal()
+    const input = wrapper.find('input[type="file"]')
+    setInputFiles(input.element, [
+      makeJsonFile('openai.json', JSON.stringify({
+        exported_at: '2026-08-31T00:00:00Z',
+        proxies: [],
+        accounts: [{ name: 'a', platform: 'openai' }]
+      }))
+    ])
+    await input.trigger('change')
+    await flushPromises()
+
+    for (const numericInput of wrapper.findAll('input[type="number"]')) {
+      await numericInput.setValue('')
+    }
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    const payload = vi.mocked(adminAPI.accounts.importData).mock.calls[0]![0]
+    expect(payload).not.toHaveProperty('override_concurrency')
+    expect(payload).not.toHaveProperty('override_rate_multiplier')
+    expect(payload).not.toHaveProperty('override_priority')
+    expect(payload.override_codex_fingerprint_mode).toBe('device')
+  })
+
+  it('混合平台导入禁用并清空分组设置', async () => {
+    const { adminAPI } = await import('@/api/admin')
+    vi.mocked(adminAPI.accounts.importData).mockResolvedValue({
+      proxy_created: 0,
+      proxy_reused: 0,
+      proxy_failed: 0,
+      account_created: 2,
+      account_failed: 0
+    })
+    const wrapper = mountModal()
+    const input = wrapper.find('input[type="file"]')
+    setInputFiles(input.element, [
+      makeJsonFile('openai.json', JSON.stringify({
+        exported_at: '2026-08-31T00:00:00Z',
+        proxies: [],
+        accounts: [{ name: 'a', platform: 'openai' }]
+      }))
+    ])
+    await input.trigger('change')
+    await flushPromises()
+    await wrapper.get('[data-testid="select-import-groups"]').trigger('click')
+    await wrapper.get('[data-testid="select-import-preferred"]').trigger('click')
+
+    setInputFiles(input.element, [
+      makeJsonFile('mixed.json', JSON.stringify({
+        exported_at: '2026-08-31T00:00:00Z',
+        proxies: [],
+        accounts: [
+          { name: 'a', platform: 'openai' },
+          { name: 'b', platform: 'anthropic' }
+        ]
+      }))
+    ])
+    await input.trigger('change')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="data-import-group-selector"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="data-import-mixed-platform-warning"]').exists()).toBe(true)
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    const payload = vi.mocked(adminAPI.accounts.importData).mock.calls[0]![0]
+    expect(payload).not.toHaveProperty('group_ids')
+    expect(payload).not.toHaveProperty('preferred_group_ids')
+  })
+
+  it('存在未知平台时不允许配置分组', async () => {
+    const wrapper = mountModal()
+    const input = wrapper.find('input[type="file"]')
+    setInputFiles(input.element, [
+      makeJsonFile('unknown.json', JSON.stringify({
+        exported_at: '2026-08-31T00:00:00Z',
+        proxies: [],
+        accounts: [
+          { name: 'a', platform: 'openai' },
+          { name: 'b', platform: 'unknown-provider' }
+        ]
+      }))
+    ])
+    await input.trigger('change')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="data-import-group-selector"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('admin.accounts.dataImportPlatformUnavailable')
+  })
+
   it('accepts numeric v-model values and preserves zero overrides', async () => {
     const { adminAPI } = await import('@/api/admin')
     vi.mocked(adminAPI.accounts.importData).mockResolvedValue({
@@ -261,7 +478,9 @@ describe('ImportDataModal', () => {
 
     expect(adminAPI.accounts.importData).toHaveBeenCalledWith(expect.objectContaining({
       override_concurrency: 0,
-      override_rate_multiplier: 0
+      override_rate_multiplier: 0,
+      override_priority: 1,
+      override_codex_fingerprint_mode: 'device'
     }))
     expect(showError).not.toHaveBeenCalledWith('admin.accounts.dataImportFailed')
   })

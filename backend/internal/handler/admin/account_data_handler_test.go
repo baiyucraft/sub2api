@@ -2,6 +2,7 @@ package admin
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -49,9 +50,13 @@ type dataAccount struct {
 }
 
 func setupAccountDataRouter() (*gin.Engine, *stubAdminService) {
+	adminSvc := newStubAdminService()
+	return setupAccountDataRouterWithService(adminSvc), adminSvc
+}
+
+func setupAccountDataRouterWithService(adminSvc service.AdminService) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	adminSvc := newStubAdminService()
 
 	h := NewAccountHandler(
 		adminSvc,
@@ -72,7 +77,42 @@ func setupAccountDataRouter() (*gin.Engine, *stubAdminService) {
 
 	router.GET("/api/v1/admin/accounts/data", h.ExportData)
 	router.POST("/api/v1/admin/accounts/data", h.ImportData)
-	return router, adminSvc
+	return router
+}
+
+type accountDataImportAdminService struct {
+	*stubAdminService
+	groupsByID    map[int64]*service.Group
+	nextAccountID int64
+}
+
+func newAccountDataImportAdminService() *accountDataImportAdminService {
+	return &accountDataImportAdminService{
+		stubAdminService: newStubAdminService(),
+		groupsByID:       make(map[int64]*service.Group),
+		nextAccountID:    300,
+	}
+}
+
+func (s *accountDataImportAdminService) GetGroup(_ context.Context, id int64) (*service.Group, error) {
+	group, ok := s.groupsByID[id]
+	if !ok {
+		return nil, service.ErrGroupNotFound
+	}
+	clone := *group
+	return &clone, nil
+}
+
+func (s *accountDataImportAdminService) CreateAccount(ctx context.Context, input *service.CreateAccountInput) (*service.Account, error) {
+	created, err := s.stubAdminService.CreateAccount(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+	s.nextAccountID++
+	created.ID = s.nextAccountID
+	created.Platform = input.Platform
+	created.Type = input.Type
+	return created, nil
 }
 
 func TestExportDataIncludesSecrets(t *testing.T) {
@@ -351,12 +391,16 @@ func TestImportDataCopiesAccountsPerProxyAndAppliesOverrides(t *testing.T) {
 			"type": dataType, "version": dataVersion, "proxies": []any{},
 			"accounts": []any{map[string]any{
 				"name": "codex", "platform": service.PlatformOpenAI, "type": service.AccountTypeOAuth,
-				"credentials": map[string]any{"token": "x"}, "extra": map[string]any{"codex_fingerprint_seed": "should-not-copy"},
+				"credentials": map[string]any{"token": "x"}, "extra": map[string]any{
+					"codex_fingerprint_seed":                "should-not-copy",
+					"codex_import_replica_fingerprint_seed": "forged",
+				},
 				"concurrency": 2, "rate_multiplier": 0.5,
 			}},
 		},
 		"copy_proxy_ids":                  []int64{11, 12, 11},
 		"override_concurrency":            0,
+		"override_priority":               1,
 		"override_rate_multiplier":        0,
 		"override_codex_fingerprint_mode": "session",
 	}
@@ -366,16 +410,215 @@ func TestImportDataCopiesAccountsPerProxyAndAppliesOverrides(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.Len(t, adminSvc.createdAccounts, 3)
+	require.Len(t, adminSvc.createdAccounts, 2)
 	require.Equal(t, "codex - HK", adminSvc.createdAccounts[0].Name)
 	require.Equal(t, "codex - US", adminSvc.createdAccounts[1].Name)
-	require.Equal(t, "codex - HK", adminSvc.createdAccounts[2].Name)
 	require.Equal(t, int64(11), *adminSvc.createdAccounts[0].ProxyID)
+	require.Equal(t, int64(12), *adminSvc.createdAccounts[1].ProxyID)
 	require.Equal(t, 0, adminSvc.createdAccounts[0].Concurrency)
+	require.Equal(t, 1, adminSvc.createdAccounts[0].Priority)
 	require.NotNil(t, adminSvc.createdAccounts[0].RateMultiplier)
 	require.Equal(t, float64(0), *adminSvc.createdAccounts[0].RateMultiplier)
 	require.Equal(t, "session", adminSvc.createdAccounts[0].Extra["codex_fingerprint_mode"])
 	require.NotContains(t, adminSvc.createdAccounts[0].Extra, "codex_fingerprint_seed")
+	require.NotEmpty(t, adminSvc.createdAccounts[0].Extra["openai_device_id"])
+	require.Equal(t, adminSvc.createdAccounts[0].Extra["openai_device_id"], adminSvc.createdAccounts[1].Extra["openai_device_id"])
+	require.NotEqual(t, "forged", adminSvc.createdAccounts[0].Extra["codex_import_replica_fingerprint_seed"])
+	require.Equal(t,
+		adminSvc.createdAccounts[0].Extra["codex_import_replica_fingerprint_seed"],
+		adminSvc.createdAccounts[1].Extra["codex_import_replica_fingerprint_seed"],
+	)
+}
+
+func TestImportDataBindsNormalizedPreferredGroupsForEveryProxyCopy(t *testing.T) {
+	adminSvc := newAccountDataImportAdminService()
+	adminSvc.proxies = []service.Proxy{
+		{ID: 11, Name: "HK", Status: service.StatusActive},
+		{ID: 12, Name: "US", Status: service.StatusActive},
+	}
+	adminSvc.groupsByID[7] = &service.Group{ID: 7, Platform: service.PlatformOpenAI, Status: service.StatusActive}
+	adminSvc.groupsByID[9] = &service.Group{ID: 9, Platform: service.PlatformComposite, Status: service.StatusActive}
+	router := setupAccountDataRouterWithService(adminSvc)
+
+	body, err := json.Marshal(map[string]any{
+		"data": map[string]any{
+			"type": dataType, "version": dataVersion, "proxies": []any{},
+			"accounts": []any{map[string]any{
+				"name": "codex", "platform": service.PlatformOpenAI, "type": service.AccountTypeOAuth,
+				"credentials": map[string]any{"token": "x"}, "concurrency": 2, "priority": 50,
+			}},
+		},
+		"copy_proxy_ids":      []int64{11, 12},
+		"override_priority":   1,
+		"group_ids":           []int64{7, 9, 7},
+		"preferred_group_ids": []int64{9, 9},
+	})
+	require.NoError(t, err)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/data", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.Len(t, adminSvc.createdAccounts, 2)
+	for i := range adminSvc.createdAccounts {
+		require.Equal(t, []int64{7, 9}, adminSvc.createdAccounts[i].GroupIDs)
+		require.NotNil(t, adminSvc.createdAccounts[i].PreferredGroupIDs)
+		require.Equal(t, []int64{9}, *adminSvc.createdAccounts[i].PreferredGroupIDs)
+		require.True(t, adminSvc.createdAccounts[i].SkipDefaultGroupBind)
+		require.False(t, adminSvc.createdAccounts[i].SkipMixedChannelCheck)
+		require.Equal(t, 1, adminSvc.createdAccounts[i].Priority)
+	}
+}
+
+func TestImportDataExplicitEmptyGroupsSuppressDefaultBinding(t *testing.T) {
+	adminSvc := newAccountDataImportAdminService()
+	router := setupAccountDataRouterWithService(adminSvc)
+	body, err := json.Marshal(map[string]any{
+		"data": map[string]any{
+			"type": dataType, "version": dataVersion, "proxies": []any{},
+			"accounts": []any{map[string]any{
+				"name": "account", "platform": service.PlatformOpenAI, "type": service.AccountTypeAPIKey,
+				"credentials": map[string]any{"api_key": "x"},
+			}},
+		},
+		"group_ids":           []int64{},
+		"preferred_group_ids": []int64{},
+	})
+	require.NoError(t, err)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/data", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.Len(t, adminSvc.createdAccounts, 1)
+	require.True(t, adminSvc.createdAccounts[0].SkipDefaultGroupBind)
+	require.NotNil(t, adminSvc.createdAccounts[0].PreferredGroupIDs)
+	require.Empty(t, *adminSvc.createdAccounts[0].PreferredGroupIDs)
+}
+
+func TestImportDataMissingGroupFieldsPreservesLegacyBindingBehavior(t *testing.T) {
+	router, adminSvc := setupAccountDataRouter()
+	body, err := json.Marshal(map[string]any{
+		"data": map[string]any{
+			"type": dataType, "version": dataVersion, "proxies": []any{},
+			"accounts": []any{map[string]any{
+				"name": "account", "platform": service.PlatformOpenAI, "type": service.AccountTypeAPIKey,
+				"credentials": map[string]any{"api_key": "x"},
+			}},
+		},
+		"skip_default_group_bind": false,
+	})
+	require.NoError(t, err)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/data", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.Len(t, adminSvc.createdAccounts, 1)
+	require.False(t, adminSvc.createdAccounts[0].SkipDefaultGroupBind)
+}
+
+func TestImportDataRejectsInvalidGroupSelectionsBeforeCreation(t *testing.T) {
+	tests := []struct {
+		name      string
+		accounts  []any
+		groups    map[int64]*service.Group
+		groupIDs  any
+		preferred any
+	}{
+		{
+			name: "preferred field missing",
+			accounts: []any{map[string]any{
+				"name": "account", "platform": service.PlatformOpenAI, "type": service.AccountTypeAPIKey,
+				"credentials": map[string]any{"api_key": "x"},
+			}},
+			groupIDs: []int64{7},
+		},
+		{
+			name: "preferred group is not selected",
+			accounts: []any{map[string]any{
+				"name": "account", "platform": service.PlatformOpenAI, "type": service.AccountTypeAPIKey,
+				"credentials": map[string]any{"api_key": "x"},
+			}},
+			groupIDs: []int64{7}, preferred: []int64{8},
+		},
+		{
+			name: "mixed platform import",
+			accounts: []any{
+				map[string]any{"name": "openai", "platform": service.PlatformOpenAI, "type": service.AccountTypeAPIKey, "credentials": map[string]any{"api_key": "x"}},
+				map[string]any{"name": "anthropic", "platform": service.PlatformAnthropic, "type": service.AccountTypeAPIKey, "credentials": map[string]any{"api_key": "y"}},
+			},
+			groups:   map[int64]*service.Group{9: {ID: 9, Platform: service.PlatformComposite}},
+			groupIDs: []int64{9}, preferred: []int64{},
+		},
+		{
+			name: "group platform mismatch",
+			accounts: []any{map[string]any{
+				"name": "account", "platform": service.PlatformOpenAI, "type": service.AccountTypeAPIKey,
+				"credentials": map[string]any{"api_key": "x"},
+			}},
+			groups:   map[int64]*service.Group{7: {ID: 7, Platform: service.PlatformAnthropic}},
+			groupIDs: []int64{7}, preferred: []int64{},
+		},
+		{
+			name: "group does not exist",
+			accounts: []any{map[string]any{
+				"name": "account", "platform": service.PlatformOpenAI, "type": service.AccountTypeAPIKey,
+				"credentials": map[string]any{"api_key": "x"},
+			}},
+			groupIDs: []int64{404}, preferred: []int64{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			adminSvc := newAccountDataImportAdminService()
+			adminSvc.groupsByID = tt.groups
+			if adminSvc.groupsByID == nil {
+				adminSvc.groupsByID = make(map[int64]*service.Group)
+			}
+			router := setupAccountDataRouterWithService(adminSvc)
+			payload := map[string]any{
+				"data": map[string]any{
+					"type": dataType, "version": dataVersion, "proxies": []any{}, "accounts": tt.accounts,
+				},
+				"group_ids": tt.groupIDs,
+			}
+			if tt.preferred != nil {
+				payload["preferred_group_ids"] = tt.preferred
+			}
+			body, err := json.Marshal(payload)
+			require.NoError(t, err)
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/data", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			router.ServeHTTP(rec, req)
+
+			require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+			require.Empty(t, adminSvc.createdAccounts)
+		})
+	}
+}
+
+func TestNormalizeDataImportOptionsDeduplicatesBeforeCopyProxyLimit(t *testing.T) {
+	proxyIDs := make([]int64, 0, maxImportCopyProxySlots+2)
+	for id := int64(1); id <= maxImportCopyProxySlots; id++ {
+		proxyIDs = append(proxyIDs, id)
+	}
+	proxyIDs = append(proxyIDs, 1, 2)
+	req := DataImportRequest{CopyProxyIDs: proxyIDs}
+
+	require.NoError(t, normalizeDataImportOptions(&req))
+	require.Len(t, req.CopyProxyIDs, maxImportCopyProxySlots)
+	require.Equal(t, int64(1), req.CopyProxyIDs[0])
+	require.Equal(t, int64(maxImportCopyProxySlots), req.CopyProxyIDs[len(req.CopyProxyIDs)-1])
+
+	req.CopyProxyIDs = append(req.CopyProxyIDs, int64(maxImportCopyProxySlots+1))
+	err := normalizeDataImportOptions(&req)
+	require.EqualError(t, err, "copy_proxy_ids must contain at most 50 proxies")
 }
 
 func TestImportDataRejectsUnavailableCopyProxyBeforeCreation(t *testing.T) {

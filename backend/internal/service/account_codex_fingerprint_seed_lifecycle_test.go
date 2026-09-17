@@ -8,6 +8,7 @@ import (
 )
 
 const userSuppliedCodexFingerprintSeed = "22222222-2222-4222-8222-222222222222"
+const existingCodexImportReplicaFingerprintSeed = "44444444-4444-4444-8444-444444444444"
 
 func requireValidCodexFingerprintSeed(t *testing.T, extra map[string]any) string {
 	t.Helper()
@@ -65,6 +66,36 @@ func TestAdminUpdateAccountPreservesExistingSeedAndStripsUserSeed(t *testing.T) 
 	require.NoError(t, err)
 	require.Equal(t, testCodexFingerprintSeed, requireValidCodexFingerprintSeed(t, updated.Extra))
 	require.Equal(t, "full", updated.Extra[codexFingerprintModeExtraKey])
+	require.Equal(t, "value", updated.Extra["custom"])
+}
+
+func TestAdminUpdateAccountPreservesImportReplicaSeedAndStripsUserValue(t *testing.T) {
+	accountID := int64(205)
+	repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{
+		accountID: {
+			ID:       accountID,
+			Name:     "before",
+			Platform: PlatformOpenAI,
+			Type:     AccountTypeOAuth,
+			Status:   StatusActive,
+			Extra: map[string]any{
+				codexFingerprintModeExtraKey:              "session",
+				codexFingerprintSeedExtraKey:              testCodexFingerprintSeed,
+				codexImportReplicaFingerprintSeedExtraKey: existingCodexImportReplicaFingerprintSeed,
+			},
+		},
+	}}
+
+	updated, err := (&adminServiceImpl{accountRepo: repo}).UpdateAccount(context.Background(), accountID, &UpdateAccountInput{
+		Extra: map[string]any{
+			codexFingerprintModeExtraKey:              "session",
+			codexImportReplicaFingerprintSeedExtraKey: userSuppliedCodexFingerprintSeed,
+			"custom": "value",
+		},
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, existingCodexImportReplicaFingerprintSeed, updated.Extra[codexImportReplicaFingerprintSeedExtraKey])
 	require.Equal(t, "value", updated.Extra["custom"])
 }
 
@@ -134,14 +165,16 @@ func TestAdminUpdateAccountExtraStripsSeedAndLeavesAtomicEnsureToRepository(t *t
 	}}
 
 	err := (&adminServiceImpl{accountRepo: repo}).UpdateAccountExtra(context.Background(), accountID, map[string]any{
-		codexFingerprintModeExtraKey: "device",
-		codexFingerprintSeedExtraKey: userSuppliedCodexFingerprintSeed,
+		codexFingerprintModeExtraKey:              "device",
+		codexFingerprintSeedExtraKey:              userSuppliedCodexFingerprintSeed,
+		codexImportReplicaFingerprintSeedExtraKey: userSuppliedCodexFingerprintSeed,
 	})
 
 	require.NoError(t, err)
 	require.Len(t, repo.updates[accountID], 1)
 	require.Equal(t, "device", repo.updates[accountID][0][codexFingerprintModeExtraKey])
 	require.NotContains(t, repo.updates[accountID][0], codexFingerprintSeedExtraKey)
+	require.NotContains(t, repo.updates[accountID][0], codexImportReplicaFingerprintSeedExtraKey)
 }
 
 func TestBulkUpdateAccountsDoesNotPrewriteCodexSeed(t *testing.T) {

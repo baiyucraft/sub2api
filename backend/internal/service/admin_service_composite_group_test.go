@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -135,6 +136,80 @@ func TestAdminService_CreateAccountAllowsCompositeGroupAssignment(t *testing.T) 
 	require.Equal(t, int64(7), account.ID)
 	require.Equal(t, PlatformOpenAI, accountRepo.createAccount.Platform)
 	require.ElementsMatch(t, []int64{99}, accountRepo.bindGroupsByAccount[7])
+}
+
+func TestAdminService_CreateAccountBindsPreferredGroupSubset(t *testing.T) {
+	accountRepo := &accountRepoStubForBulkUpdate{createID: 8}
+	groupRepo := &groupRepoStubForAdmin{
+		getByIDByID: map[int64]*Group{
+			10: {ID: 10, Platform: PlatformOpenAI},
+			20: {ID: 20, Platform: PlatformOpenAI},
+		},
+	}
+	svc := &adminServiceImpl{accountRepo: accountRepo, accountDuplicateRepo: accountRepo, groupRepo: groupRepo}
+	preferredGroupIDs := []int64{20}
+
+	account, err := svc.CreateAccount(context.Background(), &CreateAccountInput{
+		Name:                 "OpenAI preferred account",
+		Platform:             PlatformOpenAI,
+		Type:                 AccountTypeAPIKey,
+		Concurrency:          1,
+		GroupIDs:             []int64{10, 20},
+		PreferredGroupIDs:    &preferredGroupIDs,
+		SkipDefaultGroupBind: true,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, int64(8), account.ID)
+	require.Equal(t, 1, accountRepo.atomicCreateCalls)
+	require.Empty(t, accountRepo.preferredBindCalls)
+	require.Equal(t, []int64{10, 20}, accountRepo.bindGroupsByAccount[8])
+	require.Equal(t, []int64{20}, accountRepo.preferredByAccount[8])
+}
+
+func TestAdminService_CreateAccountPreferredGroupsRollBackOnAtomicFailure(t *testing.T) {
+	accountRepo := &accountRepoStubForBulkUpdate{
+		createID:         8,
+		bindGroupErrByID: map[int64]error{8: errors.New("bind failed")},
+	}
+	groupRepo := &groupRepoStubForAdmin{
+		getByIDByID: map[int64]*Group{10: {ID: 10, Platform: PlatformOpenAI}},
+	}
+	svc := &adminServiceImpl{accountRepo: accountRepo, accountDuplicateRepo: accountRepo, groupRepo: groupRepo}
+	preferredGroupIDs := []int64{10}
+
+	_, err := svc.CreateAccount(context.Background(), &CreateAccountInput{
+		Name:                 "OpenAI preferred account",
+		Platform:             PlatformOpenAI,
+		Type:                 AccountTypeAPIKey,
+		Concurrency:          1,
+		GroupIDs:             []int64{10},
+		PreferredGroupIDs:    &preferredGroupIDs,
+		SkipDefaultGroupBind: true,
+	})
+
+	require.EqualError(t, err, "bind failed")
+	require.Equal(t, 1, accountRepo.atomicCreateCalls)
+	require.Nil(t, accountRepo.createAccount)
+}
+
+func TestAdminService_CreateAccountRejectsPreferredGroupOutsideSelection(t *testing.T) {
+	accountRepo := &accountRepoStubForBulkUpdate{createID: 9}
+	svc := &adminServiceImpl{accountRepo: accountRepo}
+	preferredGroupIDs := []int64{20}
+
+	_, err := svc.CreateAccount(context.Background(), &CreateAccountInput{
+		Name:                 "invalid preferred account",
+		Platform:             PlatformOpenAI,
+		Type:                 AccountTypeAPIKey,
+		Concurrency:          1,
+		GroupIDs:             []int64{10},
+		PreferredGroupIDs:    &preferredGroupIDs,
+		SkipDefaultGroupBind: true,
+	})
+
+	requireApplicationErrorReason(t, err, "PREFERRED_GROUP_NOT_SELECTED")
+	require.Nil(t, accountRepo.createAccount)
 }
 
 func TestAdminService_UpdateAccountAllowsCompositeGroupAssignment(t *testing.T) {
