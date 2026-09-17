@@ -277,7 +277,8 @@ func (r *accountRepository) CreateWithAccountGroups(ctx context.Context, account
 				builders = append(builders, txClient.AccountGroup.Create().
 					SetAccountID(created.ID).
 					SetGroupID(groups[i].GroupID).
-					SetPriority(groups[i].Priority),
+					SetPriority(groups[i].Priority).
+					SetSchedulerPreferred(groups[i].SchedulerPreferred),
 				)
 			}
 			if _, err := txClient.AccountGroup.CreateBulk(builders...).Save(txCtx); err != nil {

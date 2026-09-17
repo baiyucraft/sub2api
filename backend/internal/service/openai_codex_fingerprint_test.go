@@ -14,6 +14,7 @@ import (
 )
 
 const testCodexFingerprintSeed = "11111111-1111-4111-8111-111111111111"
+const testCodexFingerprintSeedB = "33333333-3333-4333-8333-333333333333"
 
 func newTestOAuthAccount(id int64, extra map[string]any) *Account {
 	if codexFingerprintModeRequiresSeed(codexFingerprintModeFromExtra(extra)) {
@@ -168,6 +169,194 @@ func TestResolveCodexFingerprintIDsFromRequest_EnabledModesRequireValidSeed(t *t
 			require.Nil(t, resolveCodexFingerprintIDsFromRequest(account, nil))
 		})
 	}
+}
+
+func TestCodexImportFingerprintGroup_SessionReplicasShareIdentity(t *testing.T) {
+	group := NewCodexImportFingerprintGroup()
+	baseExtra := map[string]any{
+		codexFingerprintModeExtraKey: "session",
+		"openai_device_id":           "shared-import-device",
+	}
+	accountAExtra := prepareCodexFingerprintExtraForCreate(PlatformOpenAI, AccountTypeOAuth, group.PrepareExtra(baseExtra))
+	accountBExtra := prepareCodexFingerprintExtraForCreate(PlatformOpenAI, AccountTypeOAuth, group.PrepareExtra(baseExtra))
+	require.Equal(t, "shared-import-device", accountAExtra["openai_device_id"])
+	require.Equal(t, accountAExtra["openai_device_id"], accountBExtra["openai_device_id"])
+
+	accountASeed, ok := codexFingerprintSeed(accountAExtra)
+	require.True(t, ok)
+	accountBSeed, ok := codexFingerprintSeed(accountBExtra)
+	require.True(t, ok)
+	require.NotEqual(t, accountASeed, accountBSeed, "per-account seeds must remain independent")
+
+	sharedA, ok := codexImportReplicaFingerprintSeed(accountAExtra)
+	require.True(t, ok)
+	sharedB, ok := codexImportReplicaFingerprintSeed(accountBExtra)
+	require.True(t, ok)
+	require.Equal(t, sharedA, sharedB)
+
+	accountA := newTestOAuthAccount(5101, accountAExtra)
+	accountB := newTestOAuthAccount(5102, accountBExtra)
+	idsA := resolveCodexFingerprintIDs(accountA, "client-session-a", codexFingerprintSession)
+	idsB := resolveCodexFingerprintIDs(accountB, "client-session-a", codexFingerprintSession)
+	require.NotNil(t, idsA)
+	require.NotNil(t, idsB)
+	require.Equal(t, idsA.installationID, idsB.installationID)
+	require.Equal(t, idsA.sessionID, idsB.sessionID)
+	require.Equal(t, idsA.threadID, idsB.threadID)
+	require.NotEqual(t, idsA.turnID, idsB.turnID, "turn IDs must remain per-request random")
+
+	otherClient := resolveCodexFingerprintIDs(accountB, "client-session-b", codexFingerprintSession)
+	require.NotNil(t, otherClient)
+	require.Equal(t, idsA.sessionID, otherClient.sessionID)
+	require.NotEqual(t, idsA.threadID, otherClient.threadID, "different client sessions need distinct threads")
+}
+
+func TestCodexImportFingerprintGroup_DeviceOnlySharesConfiguredDevice(t *testing.T) {
+	group := NewCodexImportFingerprintGroup()
+	baseExtra := map[string]any{
+		codexFingerprintModeExtraKey: "device",
+		"openai_device_id":           "shared-import-device",
+	}
+	accountAExtra := prepareCodexFingerprintExtraForCreate(PlatformOpenAI, AccountTypeOAuth, group.PrepareExtra(baseExtra))
+	accountBExtra := prepareCodexFingerprintExtraForCreate(PlatformOpenAI, AccountTypeOAuth, group.PrepareExtra(baseExtra))
+	require.NotContains(t, accountAExtra, codexImportReplicaFingerprintSeedExtraKey)
+	require.NotContains(t, accountBExtra, codexImportReplicaFingerprintSeedExtraKey)
+
+	idsA := resolveCodexFingerprintIDs(newTestOAuthAccount(5111, accountAExtra), "client-session", codexFingerprintDevice)
+	idsB := resolveCodexFingerprintIDs(newTestOAuthAccount(5112, accountBExtra), "client-session", codexFingerprintDevice)
+	require.NotNil(t, idsA)
+	require.NotNil(t, idsB)
+	require.Equal(t, idsA.installationID, idsB.installationID)
+	require.Empty(t, idsA.sessionID)
+	require.Empty(t, idsA.threadID)
+}
+
+func TestCodexImportFingerprintGroup_GeneratesDeviceForDeviceAndSession(t *testing.T) {
+	for _, mode := range []string{"device", "session"} {
+		t.Run(mode, func(t *testing.T) {
+			group := NewCodexImportFingerprintGroup()
+			baseExtra := map[string]any{codexFingerprintModeExtraKey: mode}
+			accountAExtra := prepareCodexFingerprintExtraForCreate(PlatformOpenAI, AccountTypeOAuth, group.PrepareExtra(baseExtra))
+			accountBExtra := prepareCodexFingerprintExtraForCreate(PlatformOpenAI, AccountTypeOAuth, group.PrepareExtra(baseExtra))
+
+			deviceA, ok := accountAExtra["openai_device_id"].(string)
+			require.True(t, ok)
+			_, err := uuid.Parse(deviceA)
+			require.NoError(t, err)
+			require.Equal(t, deviceA, accountBExtra["openai_device_id"])
+
+			if mode == "session" {
+				sharedA, sharedOK := codexImportReplicaFingerprintSeed(accountAExtra)
+				require.True(t, sharedOK)
+				sharedB, sharedOK := codexImportReplicaFingerprintSeed(accountBExtra)
+				require.True(t, sharedOK)
+				require.Equal(t, sharedA, sharedB)
+			} else {
+				require.NotContains(t, accountAExtra, codexImportReplicaFingerprintSeedExtraKey)
+				require.NotContains(t, accountBExtra, codexImportReplicaFingerprintSeedExtraKey)
+			}
+		})
+	}
+}
+
+func TestCodexImportFingerprintGroup_DifferentSourcesDoNotShareIdentity(t *testing.T) {
+	batch := NewCodexImportFingerprintBatch()
+	groupA := batch.NewGroup()
+	groupB := batch.NewGroup()
+	baseExtra := map[string]any{
+		codexFingerprintModeExtraKey: "session",
+		"openai_device_id":           "duplicate-source-device",
+	}
+	accountAExtra := prepareCodexFingerprintExtraForCreate(PlatformOpenAI, AccountTypeOAuth, groupA.PrepareExtra(baseExtra))
+	accountBExtra := prepareCodexFingerprintExtraForCreate(PlatformOpenAI, AccountTypeOAuth, groupB.PrepareExtra(baseExtra))
+
+	require.NotEqual(t, accountAExtra["openai_device_id"], accountBExtra["openai_device_id"])
+	sharedA, ok := codexImportReplicaFingerprintSeed(accountAExtra)
+	require.True(t, ok)
+	sharedB, ok := codexImportReplicaFingerprintSeed(accountBExtra)
+	require.True(t, ok)
+	require.NotEqual(t, sharedA, sharedB)
+}
+
+func TestCodexImportFingerprintGroup_FullModeDoesNotShareSeed(t *testing.T) {
+	group := NewCodexImportFingerprintGroup()
+	baseExtra := map[string]any{codexFingerprintModeExtraKey: "full"}
+	accountAExtra := prepareCodexFingerprintExtraForCreate(PlatformOpenAI, AccountTypeOAuth, group.PrepareExtra(baseExtra))
+	accountBExtra := prepareCodexFingerprintExtraForCreate(PlatformOpenAI, AccountTypeOAuth, group.PrepareExtra(baseExtra))
+	require.NotContains(t, accountAExtra, codexImportReplicaFingerprintSeedExtraKey)
+	require.NotContains(t, accountBExtra, codexImportReplicaFingerprintSeedExtraKey)
+	require.NotContains(t, accountAExtra, "openai_device_id")
+	require.NotContains(t, accountBExtra, "openai_device_id")
+	accountAExtra[codexImportReplicaFingerprintSeedExtraKey] = existingCodexImportReplicaFingerprintSeed
+	accountBExtra[codexImportReplicaFingerprintSeedExtraKey] = existingCodexImportReplicaFingerprintSeed
+
+	idsA := resolveCodexFingerprintIDs(newTestOAuthAccount(5121, accountAExtra), "same-client", codexFingerprintFull)
+	idsB := resolveCodexFingerprintIDs(newTestOAuthAccount(5122, accountBExtra), "same-client", codexFingerprintFull)
+	require.NotNil(t, idsA)
+	require.NotNil(t, idsB)
+	require.NotEqual(t, idsA.installationID, idsB.installationID)
+	require.NotEqual(t, idsA.sessionID, idsB.sessionID)
+	require.NotEqual(t, idsA.threadID, idsB.threadID)
+}
+
+func TestCodexImportFingerprintGroup_SetupTokenReplicaModes(t *testing.T) {
+	for _, mode := range []codexFingerprintMode{codexFingerprintDevice, codexFingerprintSession, codexFingerprintFull} {
+		t.Run(string(mode), func(t *testing.T) {
+			group := NewCodexImportFingerprintGroup()
+			baseExtra := map[string]any{codexFingerprintModeExtraKey: string(mode)}
+			accountAExtra := prepareCodexFingerprintExtraForCreate(PlatformOpenAI, AccountTypeSetupToken, group.PrepareExtra(baseExtra))
+			accountBExtra := prepareCodexFingerprintExtraForCreate(PlatformOpenAI, AccountTypeSetupToken, group.PrepareExtra(baseExtra))
+			accountA := &Account{ID: 5141, Platform: PlatformOpenAI, Type: AccountTypeSetupToken, Extra: accountAExtra}
+			accountB := &Account{ID: 5142, Platform: PlatformOpenAI, Type: AccountTypeSetupToken, Extra: accountBExtra}
+
+			idsA := resolveCodexFingerprintIDs(accountA, "same-client", mode)
+			idsB := resolveCodexFingerprintIDs(accountB, "same-client", mode)
+			require.NotNil(t, idsA)
+			require.NotNil(t, idsB)
+			if mode == codexFingerprintFull {
+				require.NotEqual(t, idsA.installationID, idsB.installationID)
+				require.NotEqual(t, idsA.sessionID, idsB.sessionID)
+				return
+			}
+			require.Equal(t, idsA.installationID, idsB.installationID)
+			if mode == codexFingerprintSession {
+				require.Equal(t, idsA.sessionID, idsB.sessionID)
+				require.Equal(t, idsA.threadID, idsB.threadID)
+			}
+		})
+	}
+}
+
+func TestResolveCodexFingerprintIDs_InvalidReplicaSeedFallsBackToAccountSeed(t *testing.T) {
+	account := newTestOAuthAccount(5131, map[string]any{
+		codexFingerprintModeExtraKey:              "session",
+		codexFingerprintSeedExtraKey:              testCodexFingerprintSeedB,
+		codexImportReplicaFingerprintSeedExtraKey: "not-a-uuid",
+	})
+	ids := resolveCodexFingerprintIDs(account, "client-session", codexFingerprintSession)
+	require.NotNil(t, ids)
+	require.Equal(t, resolveConvergedInstallationID(account, testCodexFingerprintSeedB), ids.installationID)
+	require.Equal(t, resolveConvergedSessionID(testCodexFingerprintSeedB), ids.sessionID)
+	require.Equal(t, resolveConvergedThreadID(testCodexFingerprintSeedB, "client-session"), ids.threadID)
+}
+
+func TestCodexImportFingerprintGroup_StripsExternalReplicaSeed(t *testing.T) {
+	forgedSeed := "22222222-2222-4222-8222-222222222222"
+	raw := map[string]any{
+		codexFingerprintModeExtraKey:              "session",
+		codexImportReplicaFingerprintSeedExtraKey: forgedSeed,
+	}
+	prepared := prepareCodexFingerprintExtraForCreate(
+		PlatformOpenAI,
+		AccountTypeOAuth,
+		NewCodexImportFingerprintGroup().PrepareExtra(raw),
+	)
+	actual, ok := codexImportReplicaFingerprintSeed(prepared)
+	require.True(t, ok)
+	require.NotEqual(t, forgedSeed, actual)
+
+	directCreate := prepareCodexFingerprintExtraForCreate(PlatformOpenAI, AccountTypeOAuth, raw)
+	require.NotContains(t, directCreate, codexImportReplicaFingerprintSeedExtraKey)
 }
 
 // --- applyCodexFingerprintHeaders: off 模式 ---

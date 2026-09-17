@@ -617,6 +617,16 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 }
 
 func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccountInput) (*Account, error) {
+	if input == nil {
+		return nil, errors.New("account create input is required")
+	}
+	if input.PreferredGroupIDs != nil {
+		groupIDs := append([]int64(nil), input.GroupIDs...)
+		if err := normalizeAdminAccountGroupSelection(&groupIDs, input.PreferredGroupIDs); err != nil {
+			return nil, err
+		}
+		input.GroupIDs = groupIDs
+	}
 	if err := s.normalizeUpstreamAccountInput(ctx, input); err != nil {
 		return nil, err
 	}
@@ -673,14 +683,36 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	if err := s.ValidateAccountGroupBindings(ctx, groupIDs); err != nil {
 		return nil, err
 	}
-	if err := s.accountRepo.Create(ctx, account); err != nil {
-		return nil, err
-	}
-
-	// 绑定分组
-	if len(groupIDs) > 0 {
-		if err := s.accountRepo.BindGroups(ctx, account.ID, groupIDs); err != nil {
+	if input.PreferredGroupIDs != nil {
+		if s.accountDuplicateRepo == nil {
+			return nil, errors.New("atomic account group repository is not configured")
+		}
+		preferred := make(map[int64]struct{}, len(*input.PreferredGroupIDs))
+		for _, groupID := range *input.PreferredGroupIDs {
+			preferred[groupID] = struct{}{}
+		}
+		groups := make([]AccountGroup, 0, len(groupIDs))
+		for index, groupID := range groupIDs {
+			_, schedulerPreferred := preferred[groupID]
+			groups = append(groups, AccountGroup{
+				GroupID:            groupID,
+				Priority:           index + 1,
+				SchedulerPreferred: schedulerPreferred,
+			})
+		}
+		if err := s.accountDuplicateRepo.CreateWithAccountGroups(ctx, account, groups); err != nil {
 			return nil, err
+		}
+	} else {
+		if err := s.accountRepo.Create(ctx, account); err != nil {
+			return nil, err
+		}
+
+		// Legacy create callers preserve their existing group binding behavior.
+		if len(groupIDs) > 0 {
+			if err := s.accountRepo.BindGroups(ctx, account.ID, groupIDs); err != nil {
+				return nil, err
+			}
 		}
 	}
 	if enriched, err := s.accountRepo.GetByID(ctx, account.ID); err == nil && enriched != nil {
