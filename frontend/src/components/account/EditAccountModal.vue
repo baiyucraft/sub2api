@@ -5094,7 +5094,7 @@ const handleSubmit = async () => {
       } else {
         newCredentials.base_url = editBaseUrl.value.trim() || defaultBaseUrl.value
         if (isCNApiKeyAccount.value) {
-          newCredentials.account_mode = editAccountMode.value
+          newCredentials.account_mode = currentOpenCodeOrCNMode()
           newCredentials.api_protocol = editApiProtocol.value
         }
         // 后端响应已脱敏：currentCredentials 不会再包含 api_key 原文。
@@ -5108,7 +5108,10 @@ const handleSubmit = async () => {
         }
         if (isCNApiKeyAccount.value) {
           if (editApiProtocol.value === 'adaptive') {
-            const defaults = defaultCNAdaptiveBaseUrls(cnPresetPlatform.value, editAccountMode.value)
+            const defaults = defaultCNAdaptiveBaseUrls(
+              adaptivePresetPlatform.value,
+              currentOpenCodeOrCNMode()
+            )
             const protocolBaseUrls: Record<string, string> = {}
             for (const item of editAdaptiveProtocolOptions.value) {
               protocolBaseUrls[item.value] = (editAdaptiveBaseUrls.value[item.value] || defaults[item.value]).trim()
