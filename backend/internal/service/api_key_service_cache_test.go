@@ -278,52 +278,6 @@ func TestAPIKeyService_SnapshotRoundTrip_PreservesMessagesDispatchModelConfig(t 
 	require.Equal(t, apiKey.Group.MessagesDispatchModelConfig, roundTrip.Group.MessagesDispatchModelConfig)
 }
 
-func TestAPIKeyService_SnapshotRoundTrip_PreservesSchedulingMode(t *testing.T) {
-	svc := NewAPIKeyService(nil, nil, nil, nil, nil, nil, &config.Config{})
-	apiKey := &APIKey{
-		ID:             1,
-		UserID:         2,
-		Key:            "k-speed-first",
-		Status:         StatusActive,
-		SchedulingMode: APIKeySchedulingModeSpeedFirst,
-		User: &User{
-			ID:          2,
-			Status:      StatusActive,
-			Role:        RoleUser,
-			Balance:     10,
-			Concurrency: 3,
-		},
-	}
-
-	snapshot := svc.snapshotFromAPIKey(context.Background(), apiKey)
-	require.Equal(t, APIKeySchedulingModeSpeedFirst, snapshot.SchedulingMode)
-
-	roundTrip := svc.snapshotToAPIKey(apiKey.Key, snapshot)
-	require.NotNil(t, roundTrip)
-	require.Equal(t, APIKeySchedulingModeSpeedFirst, roundTrip.SchedulingMode)
-}
-
-func TestAPIKeyService_SnapshotMissingSchedulingModeDefaultsToCacheFirst(t *testing.T) {
-	svc := NewAPIKeyService(nil, nil, nil, nil, nil, nil, &config.Config{})
-	snapshot := &APIKeyAuthSnapshot{
-		Version:  apiKeyAuthSnapshotVersion,
-		APIKeyID: 1,
-		UserID:   2,
-		Status:   StatusActive,
-		User: APIKeyAuthUserSnapshot{
-			ID:          2,
-			Status:      StatusActive,
-			Role:        RoleUser,
-			Balance:     10,
-			Concurrency: 3,
-		},
-	}
-
-	roundTrip := svc.snapshotToAPIKey("k-legacy", snapshot)
-	require.NotNil(t, roundTrip)
-	require.Equal(t, APIKeySchedulingModeCacheFirst, roundTrip.SchedulingMode)
-}
-
 func TestAPIKeyService_SnapshotRoundTrip_PreservesReasoningEffortPolicy(t *testing.T) {
 	svc := NewAPIKeyService(nil, nil, nil, nil, nil, nil, &config.Config{})
 	groupID := int64(9)

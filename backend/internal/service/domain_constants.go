@@ -645,12 +645,6 @@ const (
 	// SettingKeyUpstreamPoolModeRetryStatusCodes stores the management-level
 	// retry status code override applied to all upstream-bound accounts.
 	SettingKeyUpstreamPoolModeRetryStatusCodes = "upstream_pool_mode_retry_status_codes"
-	// Session-level account switching settings are stored as independent flat
-	// values so the admin API can evolve without introducing a new table.
-	SettingKeySessionSwitchWindowSeconds    = "session_switch_window_seconds"
-	SettingKeySessionSwitchFailureThreshold = "session_switch_failure_threshold"
-	SettingKeySessionSwitchCooldownSeconds  = "session_switch_cooldown_seconds"
-	SettingKeySessionSwitchStatusCodes      = "session_switch_status_codes"
 
 	// =========================
 	// Claude Code Version Check

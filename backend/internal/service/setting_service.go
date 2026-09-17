@@ -158,13 +158,6 @@ type SettingService struct {
 	openAIQuotaAutoPauseSettingsSF    singleflight.Group
 	openAIAPIKeyHealthBreakerCache    atomic.Value // *cachedOpenAIAPIKeyHealthBreakerSettings
 
-	// Session switching is optional fork policy. Gateway reads are non-blocking
-	// and use this per-service snapshot instead of querying settings on each request.
-	sessionSwitchSettingsCache atomic.Value // *cachedSessionSwitchSettings
-	sessionSwitchSettingsSF    singleflight.Group
-	sessionSwitchSettingsGen   atomic.Uint64
-	sessionSwitchSettingsMu    sync.Mutex
-
 	// OpenAI TTFT guard uses a per-service stale-while-revalidate snapshot so
 	// scheduler hot-path reads never wait for the settings repository.
 	openAITTFTGuardConfigCache atomic.Value // *cachedOpenAITTFTGuardConfig

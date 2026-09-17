@@ -195,17 +195,6 @@
             </div>
           </template>
 
-          <template #cell-scheduling_mode="{ row }">
-            <span
-              class="inline-flex items-center rounded border px-2 py-1 text-xs font-medium"
-              :class="(row.scheduling_mode ?? 'cache_first') === 'speed_first'
-                ? 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-800 dark:bg-sky-900/20 dark:text-sky-300'
-                : 'border-gray-200 bg-gray-50 text-gray-600 dark:border-dark-600 dark:bg-dark-700 dark:text-gray-300'"
-            >
-              {{ schedulingModeLabel(row.scheduling_mode) }}
-            </span>
-          </template>
-
           <template #cell-current_concurrency="{ value }">
             <span
               :class="[
@@ -620,37 +609,6 @@
             {{ t('keys.noGroupsAvailable') }}
           </p>
         </div>
-
-        <fieldset>
-          <legend class="input-label">{{ t('keys.schedulingMode.label') }}</legend>
-          <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <label
-              v-for="mode in schedulingModeOptions"
-              :key="mode.value"
-              class="relative cursor-pointer"
-            >
-              <input
-                v-model="formData.scheduling_mode"
-                type="radio"
-                name="key-scheduling-mode"
-                :value="mode.value"
-                class="peer sr-only"
-                :data-test="`key-scheduling-mode-${mode.value}`"
-              />
-              <span class="flex h-full flex-col rounded-lg border border-gray-200 bg-white px-3 py-2.5 transition-colors peer-checked:border-primary-500 peer-checked:bg-primary-50/60 peer-checked:ring-1 peer-checked:ring-primary-500 peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-primary-500 dark:border-dark-600 dark:bg-dark-800 dark:peer-checked:border-primary-500 dark:peer-checked:bg-primary-500/10">
-                <span class="text-sm font-semibold text-gray-800 dark:text-gray-100">{{ mode.label }}</span>
-                <span class="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">{{ mode.description }}</span>
-              </span>
-              <span
-                v-if="formData.scheduling_mode === mode.value"
-                class="absolute right-2 top-2 flex h-4 w-4 items-center justify-center rounded-full bg-primary-500 text-white"
-                aria-hidden="true"
-              >
-                <Icon name="check" size="xs" :stroke-width="3" />
-              </span>
-            </label>
-          </div>
-        </fieldset>
 
         <!-- Custom Key Section (only for create) -->
         <div v-if="!showEditModal" class="space-y-3">
@@ -1294,7 +1252,7 @@ import BulkEditKeysModal from '@/components/keys/BulkEditKeysModal.vue'
 	import EndpointPopover from '@/components/keys/EndpointPopover.vue'
 	import GroupBadge from '@/components/common/GroupBadge.vue'
 	import GroupOptionItem from '@/components/common/GroupOptionItem.vue'
-import type { ApiKey, ApiKeySchedulingMode, Group, PublicSettings, SubscriptionType, GroupPlatform, UpdateApiKeyRequest } from '@/types'
+import type { ApiKey, Group, PublicSettings, SubscriptionType, GroupPlatform, UpdateApiKeyRequest } from '@/types'
 import type { Column } from '@/components/common/types'
 import type { BatchApiKeyUsageStats } from '@/api/usage'
 import { formatDateTime } from '@/utils/format'
@@ -1337,7 +1295,6 @@ const allColumns = computed<Column[]>(() => [
   { key: 'id', label: t('keys.id'), sortable: true },
   { key: 'key', label: t('keys.apiKey'), sortable: false },
   { key: 'group', label: t('keys.group'), sortable: false },
-  { key: 'scheduling_mode', label: t('keys.schedulingMode.label'), sortable: false },
   { key: 'current_concurrency', label: t('keys.currentConcurrency'), sortable: true },
   { key: 'usage', label: t('keys.usage'), sortable: false },
   { key: 'rate_limit', label: t('keys.rateLimitColumn'), sortable: false },
@@ -1504,7 +1461,6 @@ const setGroupButtonRef = (keyId: number, el: Element | ComponentPublicInstance 
 const formData = ref({
   name: '',
   group_id: null as number | null,
-  scheduling_mode: 'cache_first' as ApiKeySchedulingMode,
   status: 'active' as 'active' | 'inactive',
   use_custom_key: false,
   custom_key: '',
@@ -1544,22 +1500,6 @@ const statusOptions = computed(() => [
   { value: 'active', label: t('common.active') },
   { value: 'inactive', label: t('common.inactive') }
 ])
-
-const schedulingModeOptions = computed(() => [
-  {
-    value: 'cache_first' as ApiKeySchedulingMode,
-    label: t('keys.schedulingMode.cacheFirst'),
-    description: t('keys.schedulingMode.cacheFirstDescription')
-  },
-  {
-    value: 'speed_first' as ApiKeySchedulingMode,
-    label: t('keys.schedulingMode.speedFirst'),
-    description: t('keys.schedulingMode.speedFirstDescription')
-  }
-])
-
-const schedulingModeLabel = (mode?: ApiKeySchedulingMode) =>
-  t(mode === 'speed_first' ? 'keys.schedulingMode.speedFirst' : 'keys.schedulingMode.cacheFirst')
 
 const shouldSubmitEditStatus = (key: ApiKey, status: 'active' | 'inactive') => {
   if (key.status === 'quota_exhausted' || key.status === 'expired') {
@@ -1779,7 +1719,6 @@ const loadPublicSettings = async () => {
 const openCreateModal = () => {
   selectedCreatePlatform.value = createPlatforms.value[0] ?? null
   formData.value.group_id = null
-  formData.value.scheduling_mode = 'cache_first'
   showCreateModal.value = true
 }
 
@@ -1821,7 +1760,6 @@ const editKey = (key: ApiKey) => {
   formData.value = {
     name: key.name,
     group_id: key.group_id,
-    scheduling_mode: key.scheduling_mode ?? 'cache_first',
     status: key.status === 'quota_exhausted' || key.status === 'expired' ? 'inactive' : key.status,
     use_custom_key: false,
     custom_key: '',
@@ -1979,7 +1917,6 @@ const handleSubmit = async () => {
       const updates: UpdateApiKeyRequest = {
         name: formData.value.name,
         group_id: formData.value.group_id,
-        scheduling_mode: formData.value.scheduling_mode,
         ip_whitelist: ipWhitelist,
         ip_blacklist: ipBlacklist,
         quota: quota,
@@ -2003,8 +1940,7 @@ const handleSubmit = async () => {
         ipBlacklist,
         quota,
         expiresInDays,
-        rateLimitData,
-        formData.value.scheduling_mode
+        rateLimitData
       )
       appStore.showSuccess(t('keys.keyCreatedSuccess'))
       // Only advance tour if active, on submit step, and creation succeeded
@@ -2051,7 +1987,6 @@ const closeModals = () => {
   formData.value = {
     name: '',
     group_id: null,
-    scheduling_mode: 'cache_first',
     status: 'active',
     use_custom_key: false,
     custom_key: '',

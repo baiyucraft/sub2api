@@ -27,16 +27,6 @@ export default {
       overwriteConfirm: 'Change the global same-account retry status codes used by all upstream accounts? Newly added upstream accounts will inherit it automatically; ordinary accounts are unaffected.',
       clearConfirm: 'Restore the system-default same-account retry status codes for all upstream accounts? Ordinary accounts are unaffected.'
     },
-    sessionSwitch: {
-      title: 'Session-level account switching',
-      description: 'Configure the failure window, switch threshold, and account cooldown for API keys using Speed first. Only the current session is affected; the account and other sessions remain available.',
-      windowSeconds: 'Failure window (seconds)',
-      failureThreshold: 'Failure threshold',
-      cooldownSeconds: 'Exclusion time (seconds)',
-      statusCodes: 'Trigger status codes',
-      statusCodesHint: 'Enter HTTP status codes from 100 to 599 separated by commas. Values are de-duplicated and sorted when saved.',
-      invalidStatusCodes: 'Enter at least one integer HTTP status code from 100 to 599, separated by commas.'
-    },
     probeSettings: {
       title: 'Probe settings',
       open: 'Probe settings'
