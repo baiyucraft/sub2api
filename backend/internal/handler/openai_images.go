@@ -153,10 +153,6 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 	switchCount := 0
 	profitVetoCount := 0
 	failedAccountIDs := make(map[int64]struct{})
-	sessionSwitch := newSessionSwitchGuard(
-		h.gatewayService, requestCtx, apiKey, apiKey.GroupID, sessionHash, failedAccountIDs,
-	)
-	sessionSwitch.MergeExclusions(routingModel)
 	sameAccountRetryCount := make(map[int64]int)
 	var lastFailoverErr *service.UpstreamFailoverError
 	stopJSONKeepalive := func() {}
@@ -292,9 +288,6 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 			responseLatencyMs = forwardDurationMs - upstreamLatencyMs
 		}
 		service.SetOpsLatencyMs(c, service.OpsResponseLatencyMsKey, responseLatencyMs)
-		if err == nil {
-			sessionSwitch.ClearSuccess(routingModel, account.ID)
-		}
 		if result != nil && result.FirstTokenMs != nil {
 			service.SetOpsLatencyMs(c, service.OpsTimeToFirstTokenMsKey, int64(*result.FirstTokenMs))
 		}
@@ -309,9 +302,6 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 				var imageUpstreamErr *service.OpenAIImagesUpstreamError
 				if errors.As(err, &imageUpstreamErr) {
 					retryableServerError := service.IsOpenAIImagesRetryableUpstreamError(imageUpstreamErr)
-					if retryableServerError {
-						sessionSwitch.RecordStatus(routingModel, account.ID, imageUpstreamErr.StatusCode)
-					}
 					if retryableServerError {
 						h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, requestModel, false, result), false, nil, err)
 					} else {
@@ -332,7 +322,6 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 				}
 				var failoverErr *service.UpstreamFailoverError
 				if errors.As(err, &failoverErr) {
-					_, tripped := sessionSwitch.RecordFailure(routingModel, account.ID, failoverErr)
 					h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, requestModel, false, result), false, nil, err)
 					if service.OpenAIImagesJSONKeepaliveAdjustedWrittenSize(c) != writerSizeBeforeForward {
 						reqLog.Warn("openai.images.upstream_failover_skipped_after_flush",
@@ -349,7 +338,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 						)
 						return
 					}
-					if failoverErr.RetryableOnSameAccount && !tripped {
+					if failoverErr.RetryableOnSameAccount {
 						retryLimit := effectiveSameAccountRetryLimit(failoverErr, account)
 						if sameAccountRetryAllowed(failoverErr, sameAccountRetryCount[account.ID], retryLimit) {
 							sameAccountRetryCount[account.ID]++

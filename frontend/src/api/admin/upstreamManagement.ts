@@ -33,10 +33,6 @@ export interface UpstreamManagementSettings {
   model_alias_rules?: Record<string, string>
   confidence_probe: UpstreamConfidenceProbeSettings
   pool_mode_retry_status_codes?: number[]
-  session_switch_window_seconds?: number
-  session_switch_failure_threshold?: number
-  session_switch_cooldown_seconds?: number
-  session_switch_status_codes?: number[]
 }
 
 export interface UpstreamConfidenceProbeSettings {

@@ -53,11 +53,6 @@ const messages: Record<string, string> = {
   'keys.nameLabel': 'Name',
   'keys.namePlaceholder': 'My API Key',
   'keys.groupLabel': 'Group',
-  'keys.schedulingMode.label': 'Scheduling preference',
-  'keys.schedulingMode.cacheFirst': 'Cache first',
-  'keys.schedulingMode.cacheFirstDescription': 'Keep session affinity',
-  'keys.schedulingMode.speedFirst': 'Speed first',
-  'keys.schedulingMode.speedFirstDescription': 'Switch after failures',
   'keys.selectGroup': 'Select a group',
   'keys.created': 'Created',
   'keys.expiresAt': 'Expires',
@@ -154,7 +149,6 @@ const createApiKey = (): ApiKey => ({
   reset_5h_at: null,
   reset_1d_at: null,
   reset_7d_at: null,
-  scheduling_mode: 'cache_first',
 })
 
 const AppLayoutStub = {
@@ -191,12 +185,6 @@ const DataTableStub = {
           <slot name="cell-id" :value="row.id" :row="row" />
         </div>
         <slot name="cell-name" :value="row.name" :row="row" />
-        <div
-          v-if="columns.some((col) => col.key === 'scheduling_mode')"
-          data-test="scheduling-mode"
-        >
-          <slot name="cell-scheduling_mode" :value="row.scheduling_mode" :row="row" />
-        </div>
         <slot name="cell-actions" :row="row" />
         <div data-test="current-concurrency">
           <slot name="cell-current_concurrency" :value="row.current_concurrency" :row="row" />
@@ -218,6 +206,11 @@ const SelectStub = {
   props: ['modelValue', 'options'],
   emits: ['update:modelValue'],
   template: '<select v-bind="$attrs" :value="modelValue" @change="$emit(\'update:modelValue\', $event.target.value)"></select>',
+}
+
+const BaseDialogStub = {
+  props: ['show'],
+  template: '<div v-if="show"><slot /><slot name="footer" /></div>',
 }
 
 const SearchInputStub = {
@@ -389,7 +382,7 @@ describe('user KeysView column settings', () => {
     expect(createFormGroupSelect(wrapper).props('modelValue')).toBeNull()
   })
 
-  it('creates API keys with cache-first scheduling by default', async () => {
+  it('keeps the existing API key create request shape', async () => {
     getAvailableGroups.mockResolvedValue([
       createAvailableGroup(1, 'Anthropic One', 'anthropic'),
     ])
@@ -402,36 +395,9 @@ describe('user KeysView column settings', () => {
     await flushPromises()
 
     expect(createKey).toHaveBeenCalledTimes(1)
-    expect(createKey.mock.calls[0]).toHaveLength(9)
+    expect(createKey.mock.calls[0]).toHaveLength(8)
     expect(createKey.mock.calls[0][0]).toBe('platform-filter-key')
     expect(createKey.mock.calls[0][1]).toBe(1)
-    expect(createKey.mock.calls[0][8]).toBe('cache_first')
-  })
-
-  it('creates and edits API keys with the selected scheduling mode', async () => {
-    getAvailableGroups.mockResolvedValue([
-      createAvailableGroup(1, 'Anthropic One', 'anthropic'),
-    ])
-    const wrapper = await mountView()
-
-    await wrapper.get('[data-tour="keys-create-btn"]').trigger('click')
-    await wrapper.get('[data-tour="key-form-name"]').setValue('speed-key')
-    await createFormGroupSelect(wrapper).vm.$emit('update:modelValue', 1)
-    await wrapper.get('[data-test="key-scheduling-mode-speed_first"]').setValue()
-    await wrapper.get('#key-form').trigger('submit')
-    await flushPromises()
-    expect(createKey.mock.calls[0][8]).toBe('speed_first')
-
-    const speedKey = { ...createApiKey(), group_id: 1, scheduling_mode: 'speed_first' as const }
-    listKeys.mockResolvedValueOnce({ items: [speedKey], total: 1, page: 1, page_size: 20, pages: 1 })
-    await wrapper.get('button[title="Refresh"]').trigger('click')
-    await flushPromises()
-    await getButtonByText(wrapper, 'common.edit').trigger('click')
-    expect(wrapper.get<HTMLInputElement>('[data-test="key-scheduling-mode-speed_first"]').element.checked).toBe(true)
-    await wrapper.get('[data-test="key-scheduling-mode-cache_first"]').setValue()
-    await wrapper.get('#key-form').trigger('submit')
-    await flushPromises()
-    expect(updateKey).toHaveBeenLastCalledWith(speedKey.id, expect.objectContaining({ scheduling_mode: 'cache_first' }))
   })
 
   it('shows an empty state and keeps the group requirement when no groups are available', async () => {
@@ -492,7 +458,6 @@ describe('user KeysView column settings', () => {
       'name',
       'key',
       'group',
-      'scheduling_mode',
       'current_concurrency',
       'usage',
       'expires_at',
@@ -504,23 +469,6 @@ describe('user KeysView column settings', () => {
     expect(visibleColumnKeys(wrapper)).not.toContain('last_used_at')
     expect(visibleColumnKeys(wrapper)).not.toContain('last_used_ip')
     expect(visibleColumnKeys(wrapper)).not.toContain('id')
-  })
-
-  it('shows each API key scheduling mode and falls back legacy keys to cache first', async () => {
-    listKeys.mockResolvedValueOnce({
-      items: [
-        { ...createApiKey(), scheduling_mode: undefined },
-        { ...createApiKey(), id: 2, name: 'Speed', scheduling_mode: 'speed_first' },
-      ],
-      total: 2,
-      page: 1,
-      page_size: 20,
-      pages: 1,
-    })
-
-    const wrapper = await mountView()
-    const labels = wrapper.findAll('[data-test="scheduling-mode"]').map((item) => item.text())
-    expect(labels).toEqual(['Cache first', 'Speed first'])
   })
 
   it('opens bulk editing with only selected visible keys', async () => {
@@ -636,7 +584,6 @@ describe('user KeysView column settings', () => {
     expect(visibleColumnKeys(wrapper)).toEqual([
       'name',
       'key',
-      'scheduling_mode',
       'current_concurrency',
       'usage',
       'rate_limit',
