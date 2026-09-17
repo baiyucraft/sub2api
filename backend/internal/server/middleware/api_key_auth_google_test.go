@@ -351,13 +351,12 @@ func TestApiKeyAuthWithSubscriptionGoogleSetsGroupContext(t *testing.T) {
 		Concurrency: 3,
 	}
 	apiKey := &service.APIKey{
-		ID:             100,
-		UserID:         user.ID,
-		Key:            "test-key",
-		Status:         service.StatusActive,
-		SchedulingMode: service.APIKeySchedulingModeSpeedFirst,
-		User:           user,
-		Group:          group,
+		ID:     100,
+		UserID: user.ID,
+		Key:    "test-key",
+		Status: service.StatusActive,
+		User:   user,
+		Group:  group,
 	}
 	apiKey.GroupID = &group.ID
 
@@ -385,10 +384,6 @@ func TestApiKeyAuthWithSubscriptionGoogleSetsGroupContext(t *testing.T) {
 	r.GET("/v1beta/test", func(c *gin.Context) {
 		groupFromCtx, ok := c.Request.Context().Value(ctxkey.Group).(*service.Group)
 		if !ok || groupFromCtx == nil || groupFromCtx.ID != group.ID {
-			c.JSON(http.StatusInternalServerError, gin.H{"ok": false})
-			return
-		}
-		if service.SessionSwitchStickyScopeAPIKeyID(c.Request.Context()) != apiKey.ID {
 			c.JSON(http.StatusInternalServerError, gin.H{"ok": false})
 			return
 		}
@@ -797,12 +792,11 @@ func TestApiKeyAuthWithSubscriptionGoogle_TouchesLastUsedInStandardMode(t *testi
 		Concurrency: 3,
 	}
 	apiKey := &service.APIKey{
-		ID:             203,
-		UserID:         user.ID,
-		Key:            "google-touch-standard",
-		Status:         service.StatusActive,
-		SchedulingMode: service.APIKeySchedulingModeSpeedFirst,
-		User:           user,
+		ID:     203,
+		UserID: user.ID,
+		Key:    "google-touch-standard",
+		Status: service.StatusActive,
+		User:   user,
 	}
 
 	touchCalls := 0
@@ -822,13 +816,7 @@ func TestApiKeyAuthWithSubscriptionGoogle_TouchesLastUsedInStandardMode(t *testi
 	})
 	cfg := &config.Config{RunMode: config.RunModeStandard}
 	r.Use(APIKeyAuthWithSubscriptionGoogle(apiKeyService, nil, cfg))
-	r.GET("/v1beta/test", func(c *gin.Context) {
-		if service.SessionSwitchStickyScopeAPIKeyID(c.Request.Context()) != apiKey.ID {
-			c.JSON(http.StatusInternalServerError, gin.H{"ok": false})
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"ok": true})
-	})
+	r.GET("/v1beta/test", func(c *gin.Context) { c.JSON(200, gin.H{"ok": true}) })
 
 	req := httptest.NewRequest(http.MethodGet, "/v1beta/test", nil)
 	req.Header.Set("Authorization", "Bearer "+apiKey.Key)

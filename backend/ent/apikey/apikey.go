@@ -36,8 +36,6 @@ const (
 	FieldGroupID = "group_id"
 	// FieldStatus holds the string denoting the status field in the database.
 	FieldStatus = "status"
-	// FieldSchedulingMode holds the string denoting the scheduling_mode field in the database.
-	FieldSchedulingMode = "scheduling_mode"
 	// FieldLastUsedAt holds the string denoting the last_used_at field in the database.
 	FieldLastUsedAt = "last_used_at"
 	// FieldIPWhitelist holds the string denoting the ip_whitelist field in the database.
@@ -121,7 +119,6 @@ var Columns = []string{
 	FieldManagedMonitorID,
 	FieldGroupID,
 	FieldStatus,
-	FieldSchedulingMode,
 	FieldLastUsedAt,
 	FieldIPWhitelist,
 	FieldIPBlacklist,
@@ -215,32 +212,6 @@ func PurposeValidator(pu Purpose) error {
 	}
 }
 
-// SchedulingMode defines the type for the "scheduling_mode" enum field.
-type SchedulingMode string
-
-// SchedulingModeCacheFirst is the default value of the SchedulingMode enum.
-const DefaultSchedulingMode = SchedulingModeCacheFirst
-
-// SchedulingMode values.
-const (
-	SchedulingModeCacheFirst SchedulingMode = "cache_first"
-	SchedulingModeSpeedFirst SchedulingMode = "speed_first"
-)
-
-func (sm SchedulingMode) String() string {
-	return string(sm)
-}
-
-// SchedulingModeValidator is a validator for the "scheduling_mode" field enum values. It is called by the builders before save.
-func SchedulingModeValidator(sm SchedulingMode) error {
-	switch sm {
-	case SchedulingModeCacheFirst, SchedulingModeSpeedFirst:
-		return nil
-	default:
-		return fmt.Errorf("apikey: invalid enum value for scheduling_mode field: %q", sm)
-	}
-}
-
 // OrderOption defines the ordering options for the APIKey queries.
 type OrderOption func(*sql.Selector)
 
@@ -297,11 +268,6 @@ func ByGroupID(opts ...sql.OrderTermOption) OrderOption {
 // ByStatus orders the results by the status field.
 func ByStatus(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldStatus, opts...).ToFunc()
-}
-
-// BySchedulingMode orders the results by the scheduling_mode field.
-func BySchedulingMode(opts ...sql.OrderTermOption) OrderOption {
-	return sql.OrderByField(FieldSchedulingMode, opts...).ToFunc()
 }
 
 // ByLastUsedAt orders the results by the last_used_at field.

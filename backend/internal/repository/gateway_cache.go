@@ -23,7 +23,7 @@ type gatewayCache struct {
 }
 
 func NewGatewayCache(rdb *redis.Client) service.GatewayCache {
-	return newGatewayCacheWithForkExtensions(rdb)
+	return &gatewayCache{rdb: rdb}
 }
 
 // buildSessionKey 构建 session key，包含 groupID 实现分组隔离

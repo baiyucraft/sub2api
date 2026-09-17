@@ -166,13 +166,6 @@ export default {
       composite: 'Composite'
     },
     groupLabel: '分组',
-    schedulingMode: {
-      label: '调度偏好',
-      cacheFirst: '缓存优先',
-      cacheFirstDescription: '保持会话粘性，不启用跨请求的会话级失败切号。',
-      speedFirst: '速度优先',
-      speedFirstDescription: '达到管理员配置的失败阈值后，仅为当前会话切换上游账号。'
-    },
     providerLabel: '厂商',
     providers: {
       anthropic: 'Anthropic',

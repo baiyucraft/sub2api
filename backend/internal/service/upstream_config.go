@@ -105,80 +105,16 @@ type UpstreamConfig struct {
 }
 
 type UpstreamManagementSettings struct {
-	TTFTGuard                     OpenAITTFTGuardSettings         `json:"ttft_guard"`
-	ProbeModels                   UpstreamProbeModels             `json:"probe_models"`
-	ProbeIntervalSeconds          int                             `json:"probe_interval_seconds"`
-	ProbeGuard                    UpstreamProbeGuardSettings      `json:"probe_guard"`
-	ModelAliasRules               map[string]string               `json:"model_alias_rules"`
-	ConfidenceProbe               UpstreamConfidenceProbeSettings `json:"confidence_probe"`
-	PoolModeRetryStatusCodes      []int                           `json:"pool_mode_retry_status_codes"`
-	SessionSwitchWindowSeconds    int                             `json:"session_switch_window_seconds"`
-	SessionSwitchFailureThreshold int                             `json:"session_switch_failure_threshold"`
-	SessionSwitchCooldownSeconds  int                             `json:"session_switch_cooldown_seconds"`
-	SessionSwitchStatusCodes      []int                           `json:"session_switch_status_codes"`
+	TTFTGuard                OpenAITTFTGuardSettings         `json:"ttft_guard"`
+	ProbeModels              UpstreamProbeModels             `json:"probe_models"`
+	ProbeIntervalSeconds     int                             `json:"probe_interval_seconds"`
+	ProbeGuard               UpstreamProbeGuardSettings      `json:"probe_guard"`
+	ModelAliasRules          map[string]string               `json:"model_alias_rules"`
+	ConfidenceProbe          UpstreamConfidenceProbeSettings `json:"confidence_probe"`
+	PoolModeRetryStatusCodes []int                           `json:"pool_mode_retry_status_codes"`
 }
 
 var defaultUpstreamPoolModeRetryStatusCodes = []int{401, 403, 429}
-
-const (
-	DefaultSessionSwitchWindowSeconds    = 60
-	DefaultSessionSwitchFailureThreshold = 3
-	DefaultSessionSwitchCooldownSeconds  = 300
-)
-
-var defaultSessionSwitchStatusCodes = []int{502, 503}
-
-// SessionSwitchSettings is the normalized DB-backed policy consumed by the
-// gateway hot path. Missing persisted values are always represented by these
-// concrete defaults rather than zero values.
-type SessionSwitchSettings struct {
-	WindowSeconds    int   `json:"window_seconds"`
-	FailureThreshold int   `json:"failure_threshold"`
-	CooldownSeconds  int   `json:"cooldown_seconds"`
-	StatusCodes      []int `json:"status_codes"`
-}
-
-func DefaultSessionSwitchSettings() SessionSwitchSettings {
-	return SessionSwitchSettings{
-		WindowSeconds:    DefaultSessionSwitchWindowSeconds,
-		FailureThreshold: DefaultSessionSwitchFailureThreshold,
-		CooldownSeconds:  DefaultSessionSwitchCooldownSeconds,
-		StatusCodes:      append([]int(nil), defaultSessionSwitchStatusCodes...),
-	}
-}
-
-func normalizeSessionSwitchSettings(settings SessionSwitchSettings) (SessionSwitchSettings, error) {
-	if settings.WindowSeconds == 0 && settings.FailureThreshold == 0 && settings.CooldownSeconds == 0 && settings.StatusCodes == nil {
-		return DefaultSessionSwitchSettings(), nil
-	}
-	if settings.WindowSeconds < 10 || settings.WindowSeconds > 3600 {
-		return SessionSwitchSettings{}, infraerrors.BadRequest("INVALID_SESSION_SWITCH_WINDOW_SECONDS", "session_switch_window_seconds must be between 10 and 3600")
-	}
-	if settings.FailureThreshold < 1 || settings.FailureThreshold > 20 {
-		return SessionSwitchSettings{}, infraerrors.BadRequest("INVALID_SESSION_SWITCH_FAILURE_THRESHOLD", "session_switch_failure_threshold must be between 1 and 20")
-	}
-	if settings.CooldownSeconds < 10 || settings.CooldownSeconds > 3600 {
-		return SessionSwitchSettings{}, infraerrors.BadRequest("INVALID_SESSION_SWITCH_COOLDOWN_SECONDS", "session_switch_cooldown_seconds must be between 10 and 3600")
-	}
-	seen := make(map[int]struct{}, len(settings.StatusCodes))
-	normalizedCodes := make([]int, 0, len(settings.StatusCodes))
-	for _, code := range settings.StatusCodes {
-		if code < 100 || code > 599 {
-			return SessionSwitchSettings{}, infraerrors.BadRequest("INVALID_SESSION_SWITCH_STATUS_CODES", "session_switch_status_codes must contain HTTP status codes between 100 and 599")
-		}
-		if _, ok := seen[code]; ok {
-			continue
-		}
-		seen[code] = struct{}{}
-		normalizedCodes = append(normalizedCodes, code)
-	}
-	if len(normalizedCodes) == 0 {
-		return SessionSwitchSettings{}, infraerrors.BadRequest("INVALID_SESSION_SWITCH_STATUS_CODES", "session_switch_status_codes must contain at least one HTTP status code")
-	}
-	sort.Ints(normalizedCodes)
-	settings.StatusCodes = normalizedCodes
-	return settings, nil
-}
 
 func normalizeUpstreamPoolModeRetryStatusCodes(codes []int) ([]int, error) {
 	normalized, err := legacy.NormalizePoolModeRetryStatusCodes(codes)
@@ -607,65 +543,9 @@ func (s *UpstreamConfigService) GetProbePlatformCatalog() []UpstreamProbePlatfor
 	return DefaultUpstreamProbePlatformCatalog()
 }
 
-// GetSessionSwitchSettings returns the normalized session-level switching
-// policy directly from the settings store. Gateway services should depend on
-// this method instead of the broader UpstreamConfigService management API.
-func (s *SettingService) GetSessionSwitchSettings(ctx context.Context) (SessionSwitchSettings, error) {
-	defaults := DefaultSessionSwitchSettings()
-	if s == nil || s.settingRepo == nil {
-		return SessionSwitchSettings{}, infraerrors.ServiceUnavailable("SESSION_SWITCH_SETTINGS_UNAVAILABLE", "session switch settings are unavailable")
-	}
-	values, err := s.settingRepo.GetMultiple(ctx, []string{
-		SettingKeySessionSwitchWindowSeconds,
-		SettingKeySessionSwitchFailureThreshold,
-		SettingKeySessionSwitchCooldownSeconds,
-		SettingKeySessionSwitchStatusCodes,
-	})
-	if err != nil {
-		return SessionSwitchSettings{}, err
-	}
-	readInt := func(key string, fallback int) (int, error) {
-		raw, ok := values[key]
-		if !ok {
-			return fallback, nil
-		}
-		value, err := strconv.Atoi(strings.TrimSpace(raw))
-		if err != nil {
-			return 0, infraerrors.InternalServer("INVALID_SESSION_SWITCH_SETTING", "stored session switch setting is invalid")
-		}
-		return value, nil
-	}
-	windowSeconds, err := readInt(SettingKeySessionSwitchWindowSeconds, defaults.WindowSeconds)
-	if err != nil {
-		return SessionSwitchSettings{}, err
-	}
-	failureThreshold, err := readInt(SettingKeySessionSwitchFailureThreshold, defaults.FailureThreshold)
-	if err != nil {
-		return SessionSwitchSettings{}, err
-	}
-	cooldownSeconds, err := readInt(SettingKeySessionSwitchCooldownSeconds, defaults.CooldownSeconds)
-	if err != nil {
-		return SessionSwitchSettings{}, err
-	}
-	statusCodes := defaults.StatusCodes
-	if rawCodes, ok := values[SettingKeySessionSwitchStatusCodes]; ok {
-		if unmarshalErr := json.Unmarshal([]byte(rawCodes), &statusCodes); unmarshalErr != nil {
-			return SessionSwitchSettings{}, infraerrors.InternalServer("INVALID_SESSION_SWITCH_SETTING", "stored session switch setting is invalid")
-		}
-	}
-	normalized, normalizeErr := normalizeSessionSwitchSettings(SessionSwitchSettings{
-		WindowSeconds: windowSeconds, FailureThreshold: failureThreshold, CooldownSeconds: cooldownSeconds, StatusCodes: statusCodes,
-	})
-	if normalizeErr != nil {
-		return SessionSwitchSettings{}, infraerrors.InternalServer("INVALID_SESSION_SWITCH_SETTING", "stored session switch setting is invalid")
-	}
-	return normalized, nil
-}
-
 func (s *UpstreamConfigService) GetManagementSettings(ctx context.Context) (UpstreamManagementSettings, error) {
 	if s == nil || s.settingService == nil {
-		sessionSwitch := DefaultSessionSwitchSettings()
-		return UpstreamManagementSettings{TTFTGuard: *DefaultOpenAITTFTGuardSettings(), ProbeModels: DefaultUpstreamProbeModels(), ProbeIntervalSeconds: DefaultUpstreamProbeIntervalSeconds, ProbeGuard: DefaultUpstreamProbeGuardSettings(), ModelAliasRules: map[string]string{}, ConfidenceProbe: DefaultUpstreamConfidenceProbeSettings(), PoolModeRetryStatusCodes: cloneUpstreamPoolModeRetryStatusCodes(defaultUpstreamPoolModeRetryStatusCodes), SessionSwitchWindowSeconds: sessionSwitch.WindowSeconds, SessionSwitchFailureThreshold: sessionSwitch.FailureThreshold, SessionSwitchCooldownSeconds: sessionSwitch.CooldownSeconds, SessionSwitchStatusCodes: sessionSwitch.StatusCodes}, nil
+		return UpstreamManagementSettings{TTFTGuard: *DefaultOpenAITTFTGuardSettings(), ProbeModels: DefaultUpstreamProbeModels(), ProbeIntervalSeconds: DefaultUpstreamProbeIntervalSeconds, ProbeGuard: DefaultUpstreamProbeGuardSettings(), ModelAliasRules: map[string]string{}, ConfidenceProbe: DefaultUpstreamConfidenceProbeSettings(), PoolModeRetryStatusCodes: cloneUpstreamPoolModeRetryStatusCodes(defaultUpstreamPoolModeRetryStatusCodes)}, nil
 	}
 	ttft, err := s.settingService.GetOpenAITTFTGuardSettings(ctx)
 	if err != nil {
@@ -696,11 +576,7 @@ func (s *UpstreamConfigService) GetManagementSettings(ctx context.Context) (Upst
 	if retryErr != nil {
 		return UpstreamManagementSettings{}, retryErr
 	}
-	sessionSwitch, sessionSwitchErr := s.settingService.GetSessionSwitchSettings(ctx)
-	if sessionSwitchErr != nil {
-		return UpstreamManagementSettings{}, sessionSwitchErr
-	}
-	return UpstreamManagementSettings{TTFTGuard: *ttft, ProbeModels: models, ProbeIntervalSeconds: interval, ProbeGuard: guard, ModelAliasRules: aliases, ConfidenceProbe: confidence, PoolModeRetryStatusCodes: retryCodes, SessionSwitchWindowSeconds: sessionSwitch.WindowSeconds, SessionSwitchFailureThreshold: sessionSwitch.FailureThreshold, SessionSwitchCooldownSeconds: sessionSwitch.CooldownSeconds, SessionSwitchStatusCodes: sessionSwitch.StatusCodes}, nil
+	return UpstreamManagementSettings{TTFTGuard: *ttft, ProbeModels: models, ProbeIntervalSeconds: interval, ProbeGuard: guard, ModelAliasRules: aliases, ConfidenceProbe: confidence, PoolModeRetryStatusCodes: retryCodes}, nil
 }
 
 func (s *UpstreamConfigService) getManagementRetryStatusCodes(ctx context.Context) ([]int, error) {
@@ -766,13 +642,6 @@ func (s *UpstreamConfigService) SetManagementSettings(ctx context.Context, setti
 	if settings.ProbeGuard.SuspendAfterFailures == 0 && settings.ProbeGuard.RecoverySuccesses == 0 && settings.ProbeGuard.CustomErrorCodes == nil {
 		settings.ProbeGuard = DefaultUpstreamProbeGuardSettings()
 	}
-	sessionSwitch, err := normalizeSessionSwitchSettings(SessionSwitchSettings{
-		WindowSeconds: settings.SessionSwitchWindowSeconds, FailureThreshold: settings.SessionSwitchFailureThreshold,
-		CooldownSeconds: settings.SessionSwitchCooldownSeconds, StatusCodes: settings.SessionSwitchStatusCodes,
-	})
-	if err != nil {
-		return err
-	}
 	aliases, err := NormalizeUpstreamModelAliasRules(settings.ModelAliasRules)
 	if err != nil {
 		return err
@@ -781,9 +650,6 @@ func (s *UpstreamConfigService) SetManagementSettings(ctx context.Context, setti
 		return err
 	}
 	if err := s.settingService.SetUpstreamConfidenceProbeSettings(ctx, settings.ConfidenceProbe); err != nil {
-		return err
-	}
-	if err := s.settingService.setSessionSwitchSettings(ctx, sessionSwitch); err != nil {
 		return err
 	}
 	settings.ProbeGuard, _ = NormalizeUpstreamProbeGuardSettings(settings.ProbeGuard)
@@ -796,30 +662,6 @@ func (s *UpstreamConfigService) SetManagementSettings(ctx context.Context, setti
 		}
 	}
 	s.healthProbeIntervalSeconds.Store(int64(settings.ProbeIntervalSeconds))
-	return nil
-}
-
-func (s *SettingService) setSessionSwitchSettings(ctx context.Context, settings SessionSwitchSettings) error {
-	if s == nil || s.settingRepo == nil {
-		return infraerrors.ServiceUnavailable("UPSTREAM_MANAGEMENT_SETTINGS_UNAVAILABLE", "upstream management settings are unavailable")
-	}
-	normalized, err := normalizeSessionSwitchSettings(settings)
-	if err != nil {
-		return err
-	}
-	statusCodesRaw, err := json.Marshal(normalized.StatusCodes)
-	if err != nil {
-		return fmt.Errorf("marshal session switch status codes: %w", err)
-	}
-	if err := s.settingRepo.SetMultiple(ctx, map[string]string{
-		SettingKeySessionSwitchWindowSeconds:    strconv.Itoa(normalized.WindowSeconds),
-		SettingKeySessionSwitchFailureThreshold: strconv.Itoa(normalized.FailureThreshold),
-		SettingKeySessionSwitchCooldownSeconds:  strconv.Itoa(normalized.CooldownSeconds),
-		SettingKeySessionSwitchStatusCodes:      string(statusCodesRaw),
-	}); err != nil {
-		return fmt.Errorf("set session switch settings: %w", err)
-	}
-	s.publishSessionSwitchSettingsSnapshot(normalized, true, sessionSwitchSettingsCacheTTL)
 	return nil
 }
 

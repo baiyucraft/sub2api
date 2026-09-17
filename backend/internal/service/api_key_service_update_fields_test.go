@@ -45,7 +45,6 @@ func TestAPIKeyUpdate_OnlyDeclaresRequestedColumns(t *testing.T) {
 	quota := 500.0
 	rateLimit := 42.0
 	whitelist := []string{"10.0.0.1"}
-	schedulingMode := APIKeySchedulingModeSpeedFirst
 
 	tests := []struct {
 		name string
@@ -71,11 +70,6 @@ func TestAPIKeyUpdate_OnlyDeclaresRequestedColumns(t *testing.T) {
 			name: "ip whitelist only",
 			req:  UpdateAPIKeyRequest{IPWhitelist: &whitelist},
 			want: APIKeyUpdateFields{IPRules: true},
-		},
-		{
-			name: "scheduling mode only",
-			req:  UpdateAPIKeyRequest{SchedulingMode: &schedulingMode},
-			want: APIKeyUpdateFields{SchedulingMode: true},
 		},
 	}
 

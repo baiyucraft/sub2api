@@ -799,8 +799,6 @@ export interface CompositeRouteDecision {
   reason?: string
 }
 
-export type ApiKeySchedulingMode = 'cache_first' | 'speed_first'
-
 export interface ApiKey {
   id: number
   user_id: number
@@ -831,7 +829,6 @@ export interface ApiKey {
   reset_5h_at: string | null
   reset_1d_at: string | null
   reset_7d_at: string | null
-  scheduling_mode?: ApiKeySchedulingMode
 }
 
 export interface CreateApiKeyRequest {
@@ -845,7 +842,6 @@ export interface CreateApiKeyRequest {
   rate_limit_5h?: number
   rate_limit_1d?: number
   rate_limit_7d?: number
-  scheduling_mode?: ApiKeySchedulingMode
 }
 
 export interface UpdateApiKeyRequest {
@@ -861,7 +857,6 @@ export interface UpdateApiKeyRequest {
   rate_limit_1d?: number
   rate_limit_7d?: number
   reset_rate_limit_usage?: boolean
-  scheduling_mode?: ApiKeySchedulingMode
 }
 
 export interface CreateGroupRequest {

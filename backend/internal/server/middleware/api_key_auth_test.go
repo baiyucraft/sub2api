@@ -288,13 +288,12 @@ func TestAPIKeyAuthSetsGroupContext(t *testing.T) {
 		Concurrency: 3,
 	}
 	apiKey := &service.APIKey{
-		ID:             100,
-		UserID:         user.ID,
-		Key:            "test-key",
-		Status:         service.StatusActive,
-		SchedulingMode: service.APIKeySchedulingModeSpeedFirst,
-		User:           user,
-		Group:          group,
+		ID:     100,
+		UserID: user.ID,
+		Key:    "test-key",
+		Status: service.StatusActive,
+		User:   user,
+		Group:  group,
 	}
 	apiKey.GroupID = &group.ID
 
@@ -320,10 +319,6 @@ func TestAPIKeyAuthSetsGroupContext(t *testing.T) {
 		}
 		userIDFromCtx, ok := c.Request.Context().Value(ctxkey.UserID).(int64)
 		if !ok || userIDFromCtx != user.ID {
-			c.JSON(http.StatusInternalServerError, gin.H{"ok": false})
-			return
-		}
-		if service.SessionSwitchStickyScopeAPIKeyID(c.Request.Context()) != apiKey.ID {
 			c.JSON(http.StatusInternalServerError, gin.H{"ok": false})
 			return
 		}

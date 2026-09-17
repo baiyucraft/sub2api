@@ -82,11 +82,7 @@ describe('UpstreamManagementSettingsDialog', () => {
       probe_models: { openai: 'gpt-live', anthropic: 'claude-live', gemini: 'gemini-live' },
       probe_interval_seconds: 420,
       model_alias_rules: { 'gpt-5.6-luna': 'gpt-5.6-terra' },
-      pool_mode_retry_status_codes: [401, 403, 429],
-      session_switch_window_seconds: 90,
-      session_switch_failure_threshold: 4,
-      session_switch_cooldown_seconds: 240,
-      session_switch_status_codes: [502, 503]
+      pool_mode_retry_status_codes: [401, 403, 429]
     })
     getCandidates.mockResolvedValue({ candidates: {
       openai: ['gpt-live', 'gpt-fallback'],
@@ -107,11 +103,7 @@ describe('UpstreamManagementSettingsDialog', () => {
       probe_models: { openai: 'custom-model', anthropic: 'claude-live', gemini: 'gemini-live' },
       probe_interval_seconds: 300,
       model_alias_rules: { 'gpt-5.6-luna': 'gpt-5.6-terra' },
-      pool_mode_retry_status_codes: [401, 403, 429],
-      session_switch_window_seconds: 60,
-      session_switch_failure_threshold: 3,
-      session_switch_cooldown_seconds: 300,
-      session_switch_status_codes: [502, 503]
+      pool_mode_retry_status_codes: [401, 403, 429]
     })
   })
 
@@ -188,11 +180,7 @@ describe('UpstreamManagementSettingsDialog', () => {
       },
       probe_models: expect.objectContaining({ openai: 'gpt-live' }),
       probe_interval_seconds: 420,
-      model_alias_rules: { 'gpt-5.6-luna': 'gpt-5.6-terra' },
-      session_switch_window_seconds: 90,
-      session_switch_failure_threshold: 4,
-      session_switch_cooldown_seconds: 240,
-      session_switch_status_codes: [502, 503]
+      model_alias_rules: { 'gpt-5.6-luna': 'gpt-5.6-terra' }
     }))
   })
 
@@ -238,46 +226,6 @@ describe('UpstreamManagementSettingsDialog', () => {
     const wrapper = mountDialog(true)
     await flushPromises()
     await wrapper.get('[data-test="pool-mode-retry-status-codes"]').setValue('99, 429')
-    expect(wrapper.find('button.btn-primary').attributes('disabled')).toBeDefined()
-  })
-
-  it('loads legacy session switch settings with defaults and normalizes status codes on save', async () => {
-    getSettings.mockResolvedValueOnce({
-      ttft_guard: { enabled: true, degradation_ttft_seconds: 30, min_samples: 7 },
-      probe_guard: { enabled: true, suspend_after_failures: 4, recovery_successes: 2, custom_error_codes_enabled: false, custom_error_codes: [] },
-      probe_models: { openai: 'gpt-live', anthropic: 'claude-live', gemini: 'gemini-live' },
-      probe_interval_seconds: 300,
-      model_alias_rules: {},
-      pool_mode_retry_status_codes: [401, 403, 429]
-    })
-    const wrapper = mountDialog(true)
-    await flushPromises()
-
-    expect((wrapper.get('[data-test="session-switch-window-seconds"]').element as HTMLInputElement).value).toBe('60')
-    expect((wrapper.get('[data-test="session-switch-failure-threshold"]').element as HTMLInputElement).value).toBe('3')
-    expect((wrapper.get('[data-test="session-switch-cooldown-seconds"]').element as HTMLInputElement).value).toBe('300')
-    expect((wrapper.get('[data-test="session-switch-status-codes"]').element as HTMLInputElement).value).toBe('502, 503')
-
-    await wrapper.get('[data-test="session-switch-status-codes"]').setValue(' 503, 502, 503 ')
-    await wrapper.find('button.btn-primary').trigger('click')
-    await flushPromises()
-    expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({
-      session_switch_window_seconds: 60,
-      session_switch_failure_threshold: 3,
-      session_switch_cooldown_seconds: 300,
-      session_switch_status_codes: [502, 503]
-    }))
-  })
-
-  it('rejects invalid session switch ranges and status codes', async () => {
-    const wrapper = mountDialog(true)
-    await flushPromises()
-    await wrapper.get('[data-test="session-switch-window-seconds"]').setValue(9)
-    expect(wrapper.find('button.btn-primary').attributes('disabled')).toBeDefined()
-    await wrapper.get('[data-test="session-switch-window-seconds"]').setValue(60)
-    await wrapper.get('[data-test="session-switch-status-codes"]').setValue('99, 503')
-    expect(wrapper.find('button.btn-primary').attributes('disabled')).toBeDefined()
-    await wrapper.get('[data-test="session-switch-status-codes"]').setValue('')
     expect(wrapper.find('button.btn-primary').attributes('disabled')).toBeDefined()
   })
 

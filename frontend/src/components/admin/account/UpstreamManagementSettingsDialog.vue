@@ -58,36 +58,6 @@
         </label>
       </section>
 
-      <section v-if="!probeOnly" class="rounded-2xl border border-gray-200 bg-white p-5 dark:border-dark-700 dark:bg-dark-900/60">
-        <div>
-          <h4 class="text-base font-semibold text-gray-900 dark:text-white">{{ t('admin.upstreamManagement.sessionSwitch.title') }}</h4>
-          <p class="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">{{ t('admin.upstreamManagement.sessionSwitch.description') }}</p>
-        </div>
-        <div class="mt-5 grid gap-4 sm:grid-cols-3">
-          <label class="space-y-1.5">
-            <span class="text-sm font-medium text-gray-700 dark:text-gray-200">{{ t('admin.upstreamManagement.sessionSwitch.windowSeconds') }}</span>
-            <input v-model.number="draft.session_switch_window_seconds" data-test="session-switch-window-seconds" type="number" min="10" max="3600" class="input" />
-            <span class="block text-xs text-gray-400">10–3600</span>
-          </label>
-          <label class="space-y-1.5">
-            <span class="text-sm font-medium text-gray-700 dark:text-gray-200">{{ t('admin.upstreamManagement.sessionSwitch.failureThreshold') }}</span>
-            <input v-model.number="draft.session_switch_failure_threshold" data-test="session-switch-failure-threshold" type="number" min="1" max="20" class="input" />
-            <span class="block text-xs text-gray-400">1–20</span>
-          </label>
-          <label class="space-y-1.5">
-            <span class="text-sm font-medium text-gray-700 dark:text-gray-200">{{ t('admin.upstreamManagement.sessionSwitch.cooldownSeconds') }}</span>
-            <input v-model.number="draft.session_switch_cooldown_seconds" data-test="session-switch-cooldown-seconds" type="number" min="10" max="3600" class="input" />
-            <span class="block text-xs text-gray-400">10–3600</span>
-          </label>
-        </div>
-        <label class="mt-4 block max-w-xl space-y-1.5">
-          <span class="text-sm font-medium text-gray-700 dark:text-gray-200">{{ t('admin.upstreamManagement.sessionSwitch.statusCodes') }}</span>
-          <input v-model="sessionSwitchStatusCodesInput" data-test="session-switch-status-codes" type="text" class="input" :placeholder="DEFAULT_SESSION_SWITCH_STATUS_CODES.join(', ')" />
-          <span class="block text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('admin.upstreamManagement.sessionSwitch.statusCodesHint') }}</span>
-          <span v-if="sessionSwitchStatusCodesError" class="block text-sm text-red-600 dark:text-red-400">{{ sessionSwitchStatusCodesError }}</span>
-        </label>
-      </section>
-
       <section v-if="probeOnly" class="rounded-2xl border border-gray-200 bg-white p-5 dark:border-dark-700 dark:bg-dark-900/60">
         <div>
           <h4 class="text-base font-semibold text-gray-900 dark:text-white">{{ t('admin.upstreamManagement.probeModels.title') }}</h4>
@@ -266,11 +236,7 @@ const defaults: UpstreamManagementSettings = {
   probe_interval_seconds: 300,
   model_alias_rules: {},
   confidence_probe: { enabled: false, reasoning_effort: 'high', long_context_enabled: false, long_context_max_tokens: 2048, quality_degrade_threshold: 70, prompt_version: 'openai-juice-multiprobe-v2' }
-  , pool_mode_retry_status_codes: [401, 403, 429],
-  session_switch_window_seconds: 60,
-  session_switch_failure_threshold: 3,
-  session_switch_cooldown_seconds: 300,
-  session_switch_status_codes: [502, 503]
+  , pool_mode_retry_status_codes: [401, 403, 429]
 }
 const draft = reactive<UpstreamManagementSettings>(structuredClone(defaults))
 const probeIntervalMinutes = ref(5)
@@ -282,9 +248,6 @@ const modelAliasError = ref('')
 const poolModeRetryStatusCodesInput = ref('')
 const retryStatusCodesError = ref('')
 const DEFAULT_POOL_MODE_RETRY_STATUS_CODES = [401, 403, 429]
-const sessionSwitchStatusCodesInput = ref('')
-const sessionSwitchStatusCodesError = ref('')
-const DEFAULT_SESSION_SWITCH_STATUS_CODES = [502, 503]
 let nextModelAliasRowId = 1
 
 const candidateOptions = computed<Record<string, SelectOption[]>>(() => Object.fromEntries(
@@ -299,49 +262,19 @@ const valid = computed(() => {
   const recoverySuccesses = Number(draft.probe_guard.recovery_successes)
   const customCodes = draft.probe_guard.custom_error_codes || []
   const confidence = draft.confidence_probe
-  const sessionSwitchWindow = Number(draft.session_switch_window_seconds)
-  const sessionSwitchThreshold = Number(draft.session_switch_failure_threshold)
-  const sessionSwitchCooldown = Number(draft.session_switch_cooldown_seconds)
   parsePoolModeRetryStatusCodes()
-  parseSessionSwitchStatusCodes()
   return Number.isFinite(threshold) && threshold >= 5 && threshold <= 300 &&
     Number.isInteger(samples) && samples >= 2 && samples <= 20 &&
     Number.isInteger(intervalMinutes) && intervalMinutes >= 1 && intervalMinutes <= 60 &&
     Number.isInteger(suspendAfterFailures) && suspendAfterFailures >= 1 && suspendAfterFailures <= 20 &&
     Number.isInteger(recoverySuccesses) && recoverySuccesses >= 1 && recoverySuccesses <= 20 &&
     customCodes.every(code => Number.isInteger(code) && code >= 100 && code <= 599) &&
-    Number.isInteger(sessionSwitchWindow) && sessionSwitchWindow >= 10 && sessionSwitchWindow <= 3600 &&
-    Number.isInteger(sessionSwitchThreshold) && sessionSwitchThreshold >= 1 && sessionSwitchThreshold <= 20 &&
-    Number.isInteger(sessionSwitchCooldown) && sessionSwitchCooldown >= 10 && sessionSwitchCooldown <= 3600 &&
     confidence && Number.isInteger(Number(confidence.quality_degrade_threshold)) && Number(confidence.quality_degrade_threshold) >= 0 && Number(confidence.quality_degrade_threshold) <= 100 &&
     platforms.value.filter(platform => platform.probe_supported).every(platform => {
       const value = draft.probe_models[platform.id]?.trim() || ''
       return value.length > 0 && value.length <= 120
-    }) && parseModelAliasRules() !== null && parsePoolModeRetryStatusCodes() !== null && parseSessionSwitchStatusCodes() !== null
+    }) && parseModelAliasRules() !== null && parsePoolModeRetryStatusCodes() !== null
 })
-
-function parseSessionSwitchStatusCodes(): number[] | null {
-  sessionSwitchStatusCodesError.value = ''
-  const raw = sessionSwitchStatusCodesInput.value.trim()
-  if (!raw) {
-    sessionSwitchStatusCodesError.value = t('admin.upstreamManagement.sessionSwitch.invalidStatusCodes')
-    return null
-  }
-  const parsed: number[] = []
-  for (const value of raw.split(',').map(item => item.trim()).filter(Boolean)) {
-    if (!/^\d+$/.test(value)) {
-      sessionSwitchStatusCodesError.value = t('admin.upstreamManagement.sessionSwitch.invalidStatusCodes')
-      return null
-    }
-    const code = Number(value)
-    if (!Number.isInteger(code) || code < 100 || code > 599) {
-      sessionSwitchStatusCodesError.value = t('admin.upstreamManagement.sessionSwitch.invalidStatusCodes')
-      return null
-    }
-    parsed.push(code)
-  }
-  return Array.from(new Set(parsed)).sort((a, b) => a - b)
-}
 
 function parsePoolModeRetryStatusCodes(): number[] | null {
   retryStatusCodesError.value = ''
@@ -406,15 +339,6 @@ async function load() {
     draft.pool_mode_retry_status_codes = [...loadedRetryStatusCodes]
     poolModeRetryStatusCodesInput.value = loadedRetryStatusCodes.join(', ')
     retryStatusCodesError.value = ''
-    draft.session_switch_window_seconds = settings.session_switch_window_seconds ?? defaults.session_switch_window_seconds
-    draft.session_switch_failure_threshold = settings.session_switch_failure_threshold ?? defaults.session_switch_failure_threshold
-    draft.session_switch_cooldown_seconds = settings.session_switch_cooldown_seconds ?? defaults.session_switch_cooldown_seconds
-    const loadedSessionSwitchStatusCodes = Array.isArray(settings.session_switch_status_codes)
-      ? settings.session_switch_status_codes
-      : DEFAULT_SESSION_SWITCH_STATUS_CODES
-    draft.session_switch_status_codes = [...loadedSessionSwitchStatusCodes]
-    sessionSwitchStatusCodesInput.value = loadedSessionSwitchStatusCodes.join(', ')
-    sessionSwitchStatusCodesError.value = ''
     modelAliasRows.value = Object.entries(settings.model_alias_rules || {}).map(([source, target]) => ({ id: nextModelAliasRowId++, source, target }))
     modelAliasError.value = ''
     probeIntervalMinutes.value = Math.max(1, Math.min(60, Math.round(draft.probe_interval_seconds / 60)))
@@ -442,8 +366,6 @@ async function save() {
     if (!modelAliasRules) return
     const retryStatusCodes = parsePoolModeRetryStatusCodes()
     if (!retryStatusCodes) return
-    const sessionSwitchStatusCodes = parseSessionSwitchStatusCodes()
-    if (!sessionSwitchStatusCodes) return
     const previousRetryStatusCodes = draft.pool_mode_retry_status_codes || DEFAULT_POOL_MODE_RETRY_STATUS_CODES
     const retryChanged = JSON.stringify(previousRetryStatusCodes) !== JSON.stringify(retryStatusCodes)
     if (retryChanged) {
@@ -465,13 +387,7 @@ async function save() {
       probe_interval_seconds: probeIntervalMinutes.value * 60,
       model_alias_rules: modelAliasRules
       , confidence_probe: { ...draft.confidence_probe, reasoning_effort: 'high', prompt_version: 'openai-juice-multiprobe-v2' },
-      ...(probeOnly.value ? {} : {
-        pool_mode_retry_status_codes: retryStatusCodes,
-        session_switch_window_seconds: Number(draft.session_switch_window_seconds),
-        session_switch_failure_threshold: Number(draft.session_switch_failure_threshold),
-        session_switch_cooldown_seconds: Number(draft.session_switch_cooldown_seconds),
-        session_switch_status_codes: sessionSwitchStatusCodes
-      })
+      ...(probeOnly.value ? {} : { pool_mode_retry_status_codes: retryStatusCodes })
     }
     const saved = probeOnly.value
       ? await upstreamManagementAPI.updateProbeSettings(payload)

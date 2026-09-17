@@ -168,14 +168,9 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		APIKeyID:  apiKey.ID,
 	}
 	sessionHash := h.gatewayService.GenerateSessionHash(parsedReq)
-	sessionSwitchHash := h.gatewayService.GenerateExplicitSessionHash(parsedReq)
 
 	// 3. Account selection + failover loop
 	fs := NewFailoverState(h.maxAccountSwitches, false)
-	sessionSwitch := newSessionSwitchGuard(
-		h.gatewayService, requestCtx, apiKey, apiKey.GroupID, sessionSwitchHash, fs.FailedAccountIDs,
-	)
-	sessionSwitch.MergeExclusions(reqModel)
 
 	for {
 		if requestCtx.Err() != nil {
@@ -196,7 +191,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 				h.responsesErrorResponse(c, cls.Status, cls.ErrType, message)
 				return
 			}
-			action := sessionSwitch.HandleSelectionExhausted(requestCtx, fs)
+			action := fs.HandleSelectionExhausted(requestCtx)
 			switch action {
 			case FailoverContinue:
 				continue
@@ -302,13 +297,12 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		if err != nil {
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
-				effectiveFailoverErr, _ := sessionSwitch.RecordFailure(reqModel, account.ID, failoverErr)
 				// Can't failover if streaming content already sent
 				if c.Writer.Size() != writerSizeBeforeForward {
 					h.handleResponsesFailoverExhausted(c, failoverErr, true)
 					return
 				}
-				action := fs.HandleFailoverError(requestCtx, h.gatewayService, account.ID, account.Platform, account.GetPoolModeRetryCount(), effectiveFailoverErr)
+				action := fs.HandleFailoverError(requestCtx, h.gatewayService, account.ID, account.Platform, account.GetPoolModeRetryCount(), failoverErr)
 				switch action {
 				case FailoverContinue:
 					continue
@@ -333,7 +327,6 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 			)
 			return
 		}
-		sessionSwitch.ClearSuccess(reqModel, account.ID)
 
 		// 6. Record usage
 		userAgent := c.GetHeader("User-Agent")

@@ -611,7 +611,6 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 
 	// Generate session hash (header first; fallback to prompt_cache_key)
 	sessionHash := h.gatewayService.GenerateSessionHash(c, sessionHashBody)
-	sessionSwitchHash := h.gatewayService.GenerateExplicitSessionHash(c, sessionHashBody)
 	if h.rejectIfCyberSessionBlocked(c, apiKey, sessionHashBody, reqModel, cyberBlockFormatResponses) {
 		return
 	}
@@ -625,10 +624,6 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	firstOutputTimeoutSwitchCount := 0
 	profitVetoCount := 0
 	failedAccountIDs := make(map[int64]struct{})
-	sessionSwitch := newSessionSwitchGuard(
-		h.gatewayService, c.Request.Context(), apiKey, apiKey.GroupID, sessionSwitchHash, failedAccountIDs,
-	)
-	sessionSwitch.MergeExclusions(forwardModel)
 	sameAccountRetryCount := make(map[int64]int)
 	var lastFailoverErr *service.UpstreamFailoverError
 	var oauth429FailoverState service.OpenAIOAuth429FailoverState
@@ -872,7 +867,6 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			} else {
 				var failoverErr *service.UpstreamFailoverError
 				if errors.As(err, &failoverErr) {
-					_, tripped := sessionSwitch.RecordFailure(forwardModel, account.ID, failoverErr)
 					if failoverClientGone(c) {
 						reqLog.Info("openai.failover_aborted_client_disconnected",
 							zap.Int64("account_id", account.ID),
@@ -902,7 +896,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 						return
 					}
 					// 池模式：同账号重试
-					if failoverErr.RetryableOnSameAccount && !tripped {
+					if failoverErr.RetryableOnSameAccount {
 						retryLimit := effectiveSameAccountRetryLimit(failoverErr, account)
 						if sameAccountRetryAllowed(failoverErr, sameAccountRetryCount[account.ID], retryLimit) {
 							sameAccountRetryCount[account.ID]++
@@ -975,7 +969,6 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 				return
 			}
 		}
-		sessionSwitch.ClearSuccess(forwardModel, account.ID)
 		if result != nil {
 			// 排除 spark 影子:其 codex_* 仅由 QueryUsage(/wham/usage bengalfox)更新(外审第7轮 P1)。
 			if account.Type == service.AccountTypeOAuth && !account.IsShadow() {
@@ -1264,8 +1257,6 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	sessionHash := h.gatewayService.GenerateSessionHash(c, body)
 	promptCacheKey := h.gatewayService.ExtractSessionID(c, body)
 	sessionHash, promptCacheKey = resolveOpenAIMessagesMetadataSession(c, sessionHash, promptCacheKey, reqModel, body)
-	sessionSwitchHash := h.gatewayService.GenerateExplicitSessionHash(c, body)
-	sessionSwitchHash = resolveOpenAIMessagesSessionSwitchHash(c, sessionSwitchHash, body)
 	if h.rejectIfCyberSessionBlocked(c, apiKey, body, reqModel, cyberBlockFormatAnthropic) {
 		return
 	}
@@ -1274,9 +1265,6 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	switchCount := 0
 	profitVetoCount := 0
 	failedAccountIDs := make(map[int64]struct{})
-	sessionSwitch := newSessionSwitchGuard(
-		h.gatewayService, c.Request.Context(), apiKey, apiKey.GroupID, sessionSwitchHash, failedAccountIDs,
-	)
 	sameAccountRetryCount := make(map[int64]int)
 	var lastFailoverErr *service.UpstreamFailoverError
 	var oauth429FailoverState service.OpenAIOAuth429FailoverState
@@ -1294,7 +1282,6 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		if effectiveMappedModel != "" {
 			currentRoutingModel = effectiveMappedModel
 		}
-		sessionSwitch.MergeExclusions(currentRoutingModel)
 		reqLog.Debug("openai_messages.account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
 		selection, scheduleDecision, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
 			c.Request.Context(),
@@ -1454,7 +1441,6 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			} else {
 				var failoverErr *service.UpstreamFailoverError
 				if errors.As(err, &failoverErr) {
-					_, tripped := sessionSwitch.RecordFailure(currentRoutingModel, account.ID, failoverErr)
 					if failoverClientGone(c) {
 						reqLog.Info("openai_messages.failover_aborted_client_disconnected",
 							zap.Int64("account_id", account.ID),
@@ -1475,7 +1461,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 						return
 					}
 					// 池模式：同账号重试
-					if failoverErr.RetryableOnSameAccount && !tripped {
+					if failoverErr.RetryableOnSameAccount {
 						retryLimit := effectiveSameAccountRetryLimit(failoverErr, account)
 						if sameAccountRetryAllowed(failoverErr, sameAccountRetryCount[account.ID], retryLimit) {
 							sameAccountRetryCount[account.ID]++
@@ -1537,7 +1523,6 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 				return
 			}
 		}
-		sessionSwitch.ClearSuccess(currentRoutingModel, account.ID)
 		if result != nil {
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, currentRoutingModel, false, result), true, result.FirstTokenMs)
 		} else {
@@ -1574,25 +1559,6 @@ func resolveOpenAIMessagesMetadataSession(c *gin.Context, sessionHash, promptCac
 		sessionHash = service.DeriveSessionHashFromSeed(seed)
 	}
 	return sessionHash, promptCacheKey
-}
-
-// resolveOpenAIMessagesSessionSwitchHash accepts only explicit, session-scoped
-// identities. The broader sticky resolver intentionally supports opaque
-// metadata and content affinity, but those values are not reliable boundaries
-// for cross-request failure counters.
-func resolveOpenAIMessagesSessionSwitchHash(c *gin.Context, explicitHash string, body []byte) string {
-	if explicitHash != "" {
-		return explicitHash
-	}
-	if claudeSessionID := service.ClaudeCodeSessionIDFromHeader(c); claudeSessionID != "" {
-		return service.DeriveSessionHashFromSeed(claudeSessionID)
-	}
-	userID := strings.TrimSpace(gjson.GetBytes(body, "metadata.user_id").String())
-	parsed := service.ParseMetadataUserID(userID)
-	if parsed == nil || strings.TrimSpace(parsed.SessionID) == "" {
-		return ""
-	}
-	return service.DeriveSessionHashFromSeed(parsed.SessionID)
 }
 
 // anthropicErrorResponse writes an error in Anthropic Messages API format.
@@ -2639,23 +2605,16 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		return
 	}
 
-	sessionHash, sessionSwitchHash := openAIWSStickyAndSessionSwitchHashes(
-		h.gatewayService,
+	sessionHash := h.gatewayService.GenerateSessionHashWithFallback(
 		c,
 		firstMessage,
 		openAIWSIngressFallbackSessionSeed(subject.UserID, apiKey.ID, apiKey.GroupID),
 	)
-	// Keep the context carrying the legacy sticky hash for session-switch
-	// reads and cleanup. Later admission contexts may not retain that value.
-	sessionSwitchCtx := c.Request.Context()
 	ctx = service.WithOpenAIGuardianParentAffinity(ctx, c, firstMessage, reqModel)
 	maxAccountSwitches := h.maxAccountSwitches
 	switchCount := 0
 	profitVetoCount := 0
 	failedAccountIDs := make(map[int64]struct{})
-	sessionSwitch := newSessionSwitchGuard(
-		h.gatewayService, sessionSwitchCtx, apiKey, apiKey.GroupID, sessionSwitchHash, failedAccountIDs,
-	)
 	sameAccountRetryCount := make(map[int64]int)
 	var lastFailoverErr *service.UpstreamFailoverError
 	var oauth429FailoverState service.OpenAIOAuth429FailoverState
@@ -2743,7 +2702,6 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		sessionSwitch.MergeExclusions(wsForwardModel)
 		reqLog.Debug("openai.websocket_account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
 		selection, scheduleDecision, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
 			ctx,
@@ -2855,7 +2813,6 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			}
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
-				sessionSwitch.RecordFailure(wsForwardModel, account.ID, failoverErr)
 				if handleWSFailover(account, failoverErr) {
 					continue
 				}
@@ -3038,9 +2995,6 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					clearCyberPolicyAttemptState(c, !cyberBlockPendingAfterFailover)
 				}()
 				releaseTurnSlots()
-				if turnErr == nil {
-					sessionSwitch.ClearSuccess(wsForwardModel, account.ID)
-				}
 				turnRequestedModel := reqModel
 				turnUpstreamModel := ""
 				if result != nil && turn > 1 {
@@ -3171,7 +3125,6 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			}
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
-				_, tripped := sessionSwitch.RecordFailure(wsForwardModel, account.ID, failoverErr)
 				retryPayload, retryCurrentTurn := service.OpenAIWSCurrentTurnRetryPayload(err)
 				nextAttemptMessage, retrySafe := openAIWSNextAttemptMessage(wsAttemptMessage, retryPayload, retryCurrentTurn)
 				if !retrySafe {
@@ -3187,7 +3140,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 						zap.Int("retry_payload_bytes", len(retryPayload)),
 					)
 				}
-				if !tripped && waitForWSSameAccountRetry(account, failoverErr) {
+				if waitForWSSameAccountRetry(account, failoverErr) {
 					if failoverErr.ShouldReportAccountScheduleFailure() {
 						h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, wsForwardModel, false, nil), false, nil, err)
 					}

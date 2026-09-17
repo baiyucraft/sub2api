@@ -47,11 +47,6 @@ func (r *apiKeyRepository) visibleQuery() *dbent.APIKeyQuery {
 }
 
 func (r *apiKeyRepository) Create(ctx context.Context, key *service.APIKey) error {
-	schedulingMode, err := service.NormalizeAPIKeySchedulingMode(key.SchedulingMode)
-	if err != nil {
-		return err
-	}
-	key.SchedulingMode = schedulingMode
 	builder := r.client.APIKey.Create().
 		SetUserID(key.UserID).
 		SetKey(key.Key).
@@ -59,7 +54,6 @@ func (r *apiKeyRepository) Create(ctx context.Context, key *service.APIKey) erro
 		SetPurpose(apikey.Purpose(defaultAPIKeyPurpose(key.Purpose))).
 		SetNillableManagedMonitorID(key.ManagedMonitorID).
 		SetStatus(key.Status).
-		SetSchedulingMode(apikey.SchedulingMode(schedulingMode)).
 		SetNillableGroupID(key.GroupID).
 		SetNillableLastUsedAt(key.LastUsedAt).
 		SetQuota(key.Quota).
@@ -150,7 +144,6 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 			apikey.FieldGroupID,
 			apikey.FieldName,
 			apikey.FieldStatus,
-			apikey.FieldSchedulingMode,
 			apikey.FieldIPWhitelist,
 			apikey.FieldIPBlacklist,
 			apikey.FieldQuota,
@@ -278,9 +271,6 @@ func (r *apiKeyRepository) Update(ctx context.Context, key *service.APIKey, fiel
 	}
 	if fields.Status {
 		builder.SetStatus(key.Status)
-	}
-	if fields.SchedulingMode {
-		builder.SetSchedulingMode(apikey.SchedulingMode(key.SchedulingMode))
 	}
 	if fields.Quota {
 		builder.SetQuota(key.Quota)
@@ -906,7 +896,6 @@ func apiKeyEntityToService(m *dbent.APIKey) *service.APIKey {
 		Purpose:          string(m.Purpose),
 		ManagedMonitorID: m.ManagedMonitorID,
 		Status:           m.Status,
-		SchedulingMode:   string(m.SchedulingMode),
 		IPWhitelist:      m.IPWhitelist,
 		IPBlacklist:      m.IPBlacklist,
 		LastUsedAt:       m.LastUsedAt,
