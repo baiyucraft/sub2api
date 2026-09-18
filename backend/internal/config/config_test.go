@@ -410,6 +410,15 @@ func TestLoadDefaultSchedulingConfig(t *testing.T) {
 	if cfg.Gateway.Scheduling.FallbackMaxWaiting != 100 {
 		t.Fatalf("FallbackMaxWaiting = %d, want 100", cfg.Gateway.Scheduling.FallbackMaxWaiting)
 	}
+	if cfg.Gateway.Scheduling.CapacityFailoverEnabled {
+		t.Fatalf("CapacityFailoverEnabled = true, want false")
+	}
+	if cfg.Gateway.Scheduling.CapacityFailoverMaxSwitches != 3 {
+		t.Fatalf("CapacityFailoverMaxSwitches = %d, want 3", cfg.Gateway.Scheduling.CapacityFailoverMaxSwitches)
+	}
+	if cfg.Gateway.Scheduling.CapacityFailoverExhaustedStatusCode != 503 {
+		t.Fatalf("CapacityFailoverExhaustedStatusCode = %d, want 503", cfg.Gateway.Scheduling.CapacityFailoverExhaustedStatusCode)
+	}
 	if !cfg.Gateway.Scheduling.LoadBatchEnabled {
 		t.Fatalf("LoadBatchEnabled = false, want true")
 	}
@@ -741,6 +750,9 @@ func TestLoadIdempotencyConfigFromEnv(t *testing.T) {
 func TestLoadSchedulingConfigFromEnv(t *testing.T) {
 	resetViperWithJWTSecret(t)
 	t.Setenv("GATEWAY_SCHEDULING_STICKY_SESSION_MAX_WAITING", "5")
+	t.Setenv("GATEWAY_SCHEDULING_CAPACITY_FAILOVER_ENABLED", "true")
+	t.Setenv("GATEWAY_SCHEDULING_CAPACITY_FAILOVER_MAX_SWITCHES", "7")
+	t.Setenv("GATEWAY_SCHEDULING_CAPACITY_FAILOVER_EXHAUSTED_STATUS_CODE", "429")
 
 	cfg, err := Load()
 	if err != nil {
@@ -749,6 +761,39 @@ func TestLoadSchedulingConfigFromEnv(t *testing.T) {
 
 	if cfg.Gateway.Scheduling.StickySessionMaxWaiting != 5 {
 		t.Fatalf("StickySessionMaxWaiting = %d, want 5", cfg.Gateway.Scheduling.StickySessionMaxWaiting)
+	}
+	require.True(t, cfg.Gateway.Scheduling.CapacityFailoverEnabled)
+	require.Equal(t, 7, cfg.Gateway.Scheduling.CapacityFailoverMaxSwitches)
+	require.Equal(t, 429, cfg.Gateway.Scheduling.CapacityFailoverExhaustedStatusCode)
+}
+
+func TestLoadCapacityFailoverSchedulingConfigFromYAML(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	configFile := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(configFile, []byte(`gateway:
+  scheduling:
+    capacity_failover_enabled: true
+    capacity_failover_max_switches: 5
+    capacity_failover_exhausted_status_code: 599
+`), 0o600))
+	t.Setenv("CONFIG_FILE", configFile)
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.True(t, cfg.Gateway.Scheduling.CapacityFailoverEnabled)
+	require.Equal(t, 5, cfg.Gateway.Scheduling.CapacityFailoverMaxSwitches)
+	require.Equal(t, 599, cfg.Gateway.Scheduling.CapacityFailoverExhaustedStatusCode)
+}
+
+func TestValidateCapacityFailoverExhaustedStatusCode(t *testing.T) {
+	for _, statusCode := range []int{400, 429, 503, 599} {
+		t.Run(fmt.Sprintf("status_%d", statusCode), func(t *testing.T) {
+			resetViperWithJWTSecret(t)
+			cfg, err := Load()
+			require.NoError(t, err)
+			cfg.Gateway.Scheduling.CapacityFailoverExhaustedStatusCode = statusCode
+			require.NoError(t, cfg.Validate())
+		})
 	}
 }
 
@@ -2109,6 +2154,21 @@ func TestValidateConfigErrors(t *testing.T) {
 			name:    "gateway scheduling load batch cache ttl",
 			mutate:  func(c *Config) { c.Gateway.Scheduling.LoadBatchCacheTTLMS = -1 },
 			wantErr: "gateway.scheduling.load_batch_cache_ttl_ms",
+		},
+		{
+			name:    "gateway scheduling capacity failover max switches",
+			mutate:  func(c *Config) { c.Gateway.Scheduling.CapacityFailoverMaxSwitches = -1 },
+			wantErr: "gateway.scheduling.capacity_failover_max_switches",
+		},
+		{
+			name:    "gateway scheduling capacity failover status below range",
+			mutate:  func(c *Config) { c.Gateway.Scheduling.CapacityFailoverExhaustedStatusCode = 399 },
+			wantErr: "gateway.scheduling.capacity_failover_exhausted_status_code",
+		},
+		{
+			name:    "gateway scheduling capacity failover status above range",
+			mutate:  func(c *Config) { c.Gateway.Scheduling.CapacityFailoverExhaustedStatusCode = 600 },
+			wantErr: "gateway.scheduling.capacity_failover_exhausted_status_code",
 		},
 		{
 			name:    "gateway scheduling outbox poll",
