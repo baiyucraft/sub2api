@@ -1285,7 +1285,16 @@ export interface UpstreamModelSync {
   checksum?: string
   failure_kind?: string
   error_code?: string
+  auto_mapping?: Record<string, string>
   enforcement_expired: boolean
+}
+
+export type UpstreamModelCustomRuleAction = 'allow' | 'map' | 'deny'
+
+export interface UpstreamModelCustomRule {
+  source: string
+  action: UpstreamModelCustomRuleAction
+  target?: string
 }
 
 export interface Account {
@@ -1335,6 +1344,7 @@ export interface Account {
   upstream_video_pricing?: UpstreamVideoPricing
   upstream_long_context?: UpstreamLongContext
   upstream_model_sync?: UpstreamModelSync
+  upstream_model_custom_rules?: UpstreamModelCustomRule[]
   available_actions?: string[]
   upstream_scheduling_enabled?: boolean | null
   proxy_fallback_origin_id?: number | null
@@ -1800,6 +1810,7 @@ export interface UpdateAccountRequest {
   auto_pause_on_expired?: boolean
   upstream_billing_probe_enabled?: boolean
   upstream_billing_rate_sync_enabled?: boolean
+  upstream_model_custom_rules?: UpstreamModelCustomRule[]
   confirm_mixed_channel_risk?: boolean
 }
 

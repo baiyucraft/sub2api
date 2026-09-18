@@ -999,6 +999,19 @@ export default {
       requestModel: '请求模型',
       actualModel: '实际模型',
       addMapping: '添加映射',
+      upstreamModelCustomRules: {
+        title: '当前账号自定义编辑规则',
+        description: '这里记录相对自动同步结果的账号级增删改。删除规则会恢复该模型的自动同步结果，保存后生效。',
+        actions: {
+          allow: '允许',
+          map: '映射',
+          deny: '禁用'
+        },
+        empty: '当前没有自定义编辑规则。',
+        waiting: '等待上游模型恢复',
+        remove: '删除 {model} 的自定义规则并恢复自动同步',
+        refreshFailed: '模型已同步，但当前编辑窗口刷新失败；请重新打开账号后校对。'
+      },
       mappingExists: '模型 {model} 的映射已存在',
       wildcardOnlyAtEnd: '通配符 * 只能放在末尾',
       targetNoWildcard: '目标模型不能包含通配符 *',

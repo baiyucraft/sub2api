@@ -194,17 +194,19 @@ func (s *AccountTestService) syncUpstreamAccountModelsOnce(ctx context.Context, 
 		return UpstreamModelSyncResult{Attempted: true}, err
 	}
 
-	aliases := map[string]string{}
-	if s.settingService != nil {
-		var aliasErr error
-		aliases, aliasErr = s.settingService.GetUpstreamModelAliasRules(ctx)
-		if aliasErr != nil {
-			return UpstreamModelSyncResult{Models: models, Attempted: true}, newUpstreamModelSyncConfigError("Invalid upstream model alias rules", aliasErr)
-		}
+	customRules, customRulesPresent, customRulesErr := UpstreamModelCustomRulesFromExtra(account.Extra)
+	if customRulesErr != nil {
+		return UpstreamModelSyncResult{Models: models, Attempted: true}, newUpstreamModelSyncConfigError("Invalid account upstream model custom rules", customRulesErr)
 	}
-	mapping, autoMapping, mergeErr := MergeUpstreamModelMappings(models, aliases, account.GetModelMapping(), previous.AutoMapping)
+	mapping, autoMapping, mergeErr := MergeUpstreamModelMappingsWithCustomRules(
+		models,
+		account.GetModelMapping(),
+		previous.AutoMapping,
+		customRules,
+		customRulesPresent,
+	)
 	if mergeErr != nil {
-		return UpstreamModelSyncResult{Models: models, Attempted: true}, newUpstreamModelSyncConfigError("Invalid upstream model alias rules", mergeErr)
+		return UpstreamModelSyncResult{Models: models, Attempted: true}, newUpstreamModelSyncConfigError("Invalid account upstream model custom rules", mergeErr)
 	}
 	state := upstreamModelSyncStateMap(UpstreamModelSyncStatusAvailable, source, attemptedAt, UpstreamModelSyncState{}, len(models), upstreamModelChecksum(models), "", "")
 	if autoMapping != nil {
