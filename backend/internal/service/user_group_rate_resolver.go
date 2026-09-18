@@ -20,13 +20,25 @@ type userGroupRateResolver struct {
 	logComponent string
 }
 
-// cachedUserGroupRate retains whether a user override actually exists. A bare
-// effective float is insufficient because an explicit 0 and a missing entry
-// must remain distinguishable, and a missing entry must not cache a caller's
-// group default multiplier.
+// cachedUserGroupRate caches the persisted percentage rather than an effective
+// multiplier. The effective value is recalculated from the caller's current
+// group default so ordinary group-rate changes take effect immediately.
 type cachedUserGroupRate struct {
-	multiplier  float64
-	hasOverride bool
+	percent              float64
+	legacyMultiplier     float64
+	hasOverride          bool
+	usesLegacyMultiplier bool
+}
+
+func (e cachedUserGroupRate) resolve(groupDefaultMultiplier float64) (float64, bool) {
+	if !e.hasOverride {
+		return groupDefaultMultiplier, false
+	}
+	if e.usesLegacyMultiplier {
+		return e.legacyMultiplier, e.legacyMultiplier == 0
+	}
+	multiplier := groupDefaultMultiplier * e.percent / 100
+	return multiplier, e.percent == 0
 }
 
 // All request paths keep their own resolver instance (and therefore their own
@@ -80,10 +92,7 @@ func (r *userGroupRateResolver) ResolveWithExplicitZero(ctx context.Context, use
 		if cached, ok := r.cache.Get(key); ok {
 			if entry, castOK := cached.(cachedUserGroupRate); castOK {
 				userGroupRateCacheHitTotal.Add(1)
-				if entry.hasOverride {
-					return entry.multiplier, entry.multiplier == 0
-				}
-				return groupDefaultMultiplier, false
+				return entry.resolve(groupDefaultMultiplier)
 			}
 			// Compatibility with entries written by older in-process code before
 			// the cache started preserving override presence.
@@ -107,21 +116,36 @@ func (r *userGroupRateResolver) ResolveWithExplicitZero(ctx context.Context, use
 				}
 				if multiplier, castOK := cached.(float64); castOK {
 					userGroupRateCacheHitTotal.Add(1)
-					return cachedUserGroupRate{multiplier: multiplier, hasOverride: true}, nil
+					return cachedUserGroupRate{
+						legacyMultiplier:     multiplier,
+						hasOverride:          true,
+						usesLegacyMultiplier: true,
+					}, nil
 				}
 			}
 		}
 
 		userGroupRateCacheLoadTotal.Add(1)
-		userRate, repoErr := r.repo.GetByUserAndGroup(ctx, userID, groupID)
-		if repoErr != nil {
-			return nil, repoErr
-		}
-
 		entry := cachedUserGroupRate{}
-		if userRate != nil {
-			entry.multiplier = *userRate
-			entry.hasOverride = true
+		if percentReader, ok := r.repo.(UserGroupRatePercentReader); ok {
+			percent, repoErr := percentReader.GetPercentByUserAndGroup(ctx, userID, groupID)
+			if repoErr != nil {
+				return nil, repoErr
+			}
+			if percent != nil {
+				entry.percent = *percent
+				entry.hasOverride = true
+			}
+		} else {
+			userRate, repoErr := r.repo.GetByUserAndGroup(ctx, userID, groupID)
+			if repoErr != nil {
+				return nil, repoErr
+			}
+			if userRate != nil {
+				entry.legacyMultiplier = *userRate
+				entry.hasOverride = true
+				entry.usesLegacyMultiplier = true
+			}
 		}
 		if r.cache != nil {
 			r.cache.Set(key, entry, r.cacheTTL)
@@ -142,10 +166,7 @@ func (r *userGroupRateResolver) ResolveWithExplicitZero(ctx context.Context, use
 		userGroupRateCacheFallbackTotal.Add(1)
 		return groupDefaultMultiplier, false
 	}
-	if !entry.hasOverride {
-		return groupDefaultMultiplier, false
-	}
-	return entry.multiplier, entry.multiplier == 0
+	return entry.resolve(groupDefaultMultiplier)
 }
 
 // IsExplicitZero reports whether a user has explicitly configured a zero rate

@@ -253,13 +253,13 @@ func TestGetUserGroupRateMultiplier_UsesCacheAndSingleflight(t *testing.T) {
 	wg.Wait()
 
 	for _, got := range results {
-		require.Equal(t, rate, got)
+		require.InDelta(t, rate, got, 1e-12)
 	}
 	require.Equal(t, int64(1), repo.calls.Load())
 
 	// 再次读取应命中缓存，不再回源。
 	got := svc.getUserGroupRateMultiplier(context.Background(), 101, 202, 1.2)
-	require.Equal(t, rate, got)
+	require.InDelta(t, rate, got, 1e-12)
 	require.Equal(t, int64(1), repo.calls.Load())
 
 	hit, miss, load, sfShared, fallback := GatewayUserGroupRateCacheStats()

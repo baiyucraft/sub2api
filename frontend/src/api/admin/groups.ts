@@ -361,6 +361,9 @@ export interface GroupRateMultiplierEntry {
   user_email: string
   user_notes: string
   user_status: string
+  /** Persisted custom percentage relative to the group's ordinary rate. */
+  rate_percent?: number | null
+  /** Compatibility field: effective rate calculated from the current group rate. */
   rate_multiplier?: number | null
   rpm_override?: number | null
 }
@@ -402,12 +405,12 @@ export async function clearGroupRateMultipliers(id: number): Promise<{ message: 
 }
 
 /**
- * Batch set rate multipliers for users in a group
- * Only touches rate_multiplier column; preserves rpm_override on existing rows.
+ * Batch set custom rate percentages for users in a group.
+ * Only touches the rate percentage; preserves rpm_override on existing rows.
  */
 export async function batchSetGroupRateMultipliers(
   id: number,
-  entries: Array<{ user_id: number; rate_multiplier: number }>
+  entries: Array<{ user_id: number; rate_percent: number }>
 ): Promise<{ message: string }> {
   const { data } = await apiClient.put<{ message: string }>(
     `/admin/groups/${id}/rate-multipliers`,

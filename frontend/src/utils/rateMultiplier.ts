@@ -2,8 +2,8 @@
  * Convert between a user's effective/custom multiplier and the percentage of
  * the group's ordinary multiplier shown in the admin UI.
  *
- * The API and database continue to store the actual multiplier. Percentages
- * are only a presentation/input convenience: group rate 0.5 + 50% = 0.25.
+ * The persisted value is the percentage. The effective multiplier is derived
+ * from the current ordinary group rate: group rate 0.5 + 50% = 0.25.
  */
 
 const MAX_RATE_DECIMALS = 6

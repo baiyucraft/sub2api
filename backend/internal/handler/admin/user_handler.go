@@ -87,7 +87,8 @@ type UpdateUserRequest struct {
 	RestrictPublicGroups *bool    `json:"restrict_public_groups"`
 	// GroupRates 用户专属分组倍率配置
 	// map[groupID]*rate，nil 表示删除该分组的专属倍率
-	GroupRates map[int64]*float64 `json:"group_rates"`
+	GroupRates        map[int64]*float64 `json:"group_rates"`
+	GroupRatePercents map[int64]*float64 `json:"group_rate_percents"`
 }
 
 // UpdateBalanceRequest represents balance update request
@@ -357,6 +358,7 @@ func (h *UserHandler) Update(c *gin.Context) {
 		AllowedGroups:        req.AllowedGroups,
 		RestrictPublicGroups: req.RestrictPublicGroups,
 		GroupRates:           req.GroupRates,
+		GroupRatePercents:    req.GroupRatePercents,
 		ActorAdminID:         getAdminIDFromContext(c),
 	})
 	if err != nil {

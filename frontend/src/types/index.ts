@@ -105,8 +105,10 @@ export interface AdminUser extends User {
   // 管理员备注（普通用户接口不返回）
   notes: string
   last_used_at?: string | null
-  // 用户专属分组倍率配置 (group_id -> rate_multiplier)
+  // 用户专属分组倍率配置（兼容有效倍率，group_id -> rate_multiplier）
   group_rates?: Record<number, number>
+  // 用户专属分组比例真值（group_id -> rate_percent）
+  group_rate_percents?: Record<number, number>
   // 为 true 时该用户仅可使用 allowed_groups 中列出的公开分组。
   // 管理侧权限开关，普通用户接口不返回。
   restrict_public_groups?: boolean
@@ -2343,9 +2345,12 @@ export interface UpdateUserRequest {
   status?: 'active' | 'disabled'
   allowed_groups?: number[] | null
   restrict_public_groups?: boolean
-  // 用户专属分组倍率配置 (group_id -> rate_multiplier | null)
-  // null 表示删除该分组的专属倍率
+  // 旧客户端兼容：用户专属有效倍率 (group_id -> rate_multiplier | null)
+  // 与 group_rate_percents 不可同时提交。
   group_rates?: Record<number, number | null>
+  // 用户专属分组比例配置 (group_id -> rate_percent | null)，规范写入字段。
+  // null 表示删除该分组的专属比例。
+  group_rate_percents?: Record<number, number | null>
 }
 
 export interface ChangePasswordRequest {

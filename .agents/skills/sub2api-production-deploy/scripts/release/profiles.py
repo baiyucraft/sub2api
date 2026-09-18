@@ -717,7 +717,24 @@ PROFILES["252"] = {
     },
 }
 
-CURRENT_RELEASE_PROFILE = "252"
+# Profile 252 is immutable. The fork-only percentage persistence migration
+# keeps the application version unchanged while advancing the release lineage.
+PROFILES["253"] = {
+    **{key: PROFILES["252"][key] for key in _PROFILE_V2_RUNTIME_KEYS},
+    "name": "253",
+    "version": "0.2.5-baiyu",
+    "parent": "252",
+    "new_migrations": [
+        "277_user_group_rate_percent.sql",
+    ],
+    "gate_schema": 2,
+    "release_policy": {
+        "compatibility_image": "production_current",
+        "migration_source": "database_state",
+    },
+}
+
+CURRENT_RELEASE_PROFILE = "253"
 
 
 def get_profile(name: str) -> dict:
