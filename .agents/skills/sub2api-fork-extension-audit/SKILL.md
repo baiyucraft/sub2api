@@ -30,6 +30,13 @@ description: 审计 Sub2API fork 相对官方 upstream/main 的扩展合同。�
 - 官方修复完整覆盖本地修复时，以官方实现和官方测试为基线，建议删除重复的 fork 实现；官方仅部分覆盖时，只保留可证明仍有必要的最小 fork 增量。
 - 按故障域分别判断覆盖关系，不得因为官方修复了相邻问题，就回退仍在解决另一独立错误的本地修改。详细判定和测试要求见 [merge-workflow.md](references/merge-workflow.md)。
 
+## 语义重叠候选
+
+- `pre-merge` 和 `post-merge` 会检查 fork 与 upstream 从共同基线起共同修改的用户界面和高风险文件；`snapshot` 不执行该检查。
+- `semantic_overlap_candidate` 只基于新增代码中的共享稳定入口、共享非噪声标识符，或 `extensions.yaml.semantic_overlap.evidence_rules` 中显式登记的共同证据生成。
+- 该 finding 始终是 `warning`，只要求人工复核。它不表示两侧实现等价、官方完整覆盖 fork，也不授权自动删除、回退或改写任何代码。
+- 显式证据规则用于补充已知业务入口、提高候选召回率，不能替代故障域、调用路径、边界行为和回归测试的人工裁决。
+
 - 如果目标 `upstream/main` 变更了账号管理或账号编辑，必须单独建立“上游管理/编辑同步”审计项：逐块对比官方的 handler/service/repository、账号编辑 modal、字段白名单、模型能力同步和相关测试，并把官方新增或修正合理合入当前的上游管理/编辑实现。不得仅合并后端变更而遗漏前端编辑流程，也不得以整文件覆盖丢失 fork 专属白名单、运行时字段或上游账号生命周期语义。
 
 ## 已采用但未正式发布的 upstream 批次
@@ -78,7 +85,7 @@ python .agents/skills/sub2api-fork-extension-audit/scripts/audit_fork_extensions
 ## 结果解释
 
 - `pass`：机器合同满足。
-- `warning`：需要人工语义复核，例如高风险文件结果与某一父提交完全相同。
+- `warning`：需要人工语义复核，例如高风险文件结果与某一父提交完全相同，或两侧可能修改同一语义入口。
 - `blocker`：合并身份、工作区、版本或不可变历史不可信。
 - `catalog_update_required`：发现未登记 fork-only 路径或 migration。
 

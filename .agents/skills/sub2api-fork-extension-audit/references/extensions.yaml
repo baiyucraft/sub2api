@@ -228,6 +228,23 @@
       "speed_first"
     ]
   },
+  "semantic_overlap": {
+    "ui_path_patterns": [
+      "frontend/src/views/*.vue",
+      "frontend/src/views/**/*.vue",
+      "frontend/src/components/*.vue",
+      "frontend/src/components/**/*.vue"
+    ],
+    "minimum_shared_identifiers": 2,
+    "evidence_rules": [
+      {
+        "id": "api-key-create-group-filter",
+        "paths": ["frontend/src/views/user/KeysView.vue"],
+        "markers": ["formGroupOptions", "group.platform", "formData.group_id"],
+        "minimum_matches": 2
+      }
+    ]
+  },
   "high_risk_paths": [
     "backend/internal/service/openai_gateway_*.go", "backend/internal/service/openai_account_scheduler.go", "backend/internal/service/gateway_scheduling.go", "backend/internal/service/concurrency_service.go", "backend/internal/repository/concurrency_cache.go", "backend/internal/repository/account_repo.go", "backend/internal/handler/admin/account_handler.go", "backend/internal/server/routes/admin.go", "backend/cmd/server/wire.go", "backend/cmd/server/wire_gen.go", "backend/ent/schema/*.go", "backend/migrations/*.sql", "frontend/src/views/admin/AccountsView.vue", "frontend/src/components/account/AccountStatusIndicator.vue", "frontend/src/components/account/UpstreamHealthCell.vue", "frontend/src/i18n/locales/zh/admin/*.ts", "frontend/src/i18n/locales/en/admin/*.ts"
   ],

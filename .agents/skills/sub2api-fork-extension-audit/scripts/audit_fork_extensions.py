@@ -15,6 +15,19 @@ from typing import Any
 
 SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 SEVERITY_ORDER = {"pass": 0, "warning": 1, "blocker": 2, "catalog_update_required": 3}
+IDENTIFIER_RE = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]*")
+DECLARATION_RE = re.compile(r"\b(?:const|let|var|function|def|func)\s+([A-Za-z_$][A-Za-z0-9_$]*)")
+TEMPLATE_ENTRYPOINT_RE = re.compile(
+    r"(?:data-test(?:id)?|data-tour|v-model(?::[\w-]+)?|@[\w:-]+|v-on:[\w:-]+)\s*=\s*[\"']([^\"']+)[\"']"
+)
+I18N_ENTRYPOINT_RE = re.compile(r"(?:\$?t|i18n\.t)\(\s*[\"']([^\"']+)[\"']")
+IDENTIFIER_STOPWORDS = {
+    "and", "as", "async", "await", "break", "case", "catch", "class", "const", "continue",
+    "default", "def", "delete", "do", "else", "export", "extends", "false", "finally", "for",
+    "from", "func", "function", "if", "import", "in", "interface", "is", "let", "new", "nil",
+    "none", "null", "of", "or", "package", "pass", "return", "select", "style", "switch", "this",
+    "throw", "true", "try", "type", "undefined", "var", "while", "with", "yield",
+}
 
 # Governance and knowledge assets are intentionally outside the fork business
 # extension catalog. They may differ from upstream, but must not trigger a
@@ -119,6 +132,8 @@ class Audit:
         self.check_migrations()
         self.check_profiles()
         self.check_unregistered_paths()
+        if self.mode in ("pre-merge", "post-merge"):
+            self.check_semantic_overlap_candidates()
         if self.mode == "post-merge":
             self.check_whole_file_resolution()
         self.check_generated_drift()
@@ -699,6 +714,122 @@ class Audit:
             )
         if new_migrations:
             self.add("catalog_update_required", "unregistered_migrations", "发现未登记的新增 migration", migrations=new_migrations)
+
+    def semantic_overlap_sides(self) -> tuple[str, str, str] | None:
+        if self.mode == "pre-merge":
+            return self.merge_base, self.head, self.upstream_ref
+        if self.mode == "post-merge" and len(self.parents) >= 2:
+            base = self.git("merge-base", self.parents[0], self.parents[1]).lower()
+            return base, self.parents[0].lower(), self.parents[1].lower()
+        return None
+
+    def added_diff_lines(self, base: str, side: str, path: str) -> list[str]:
+        diff = self.git("diff", "--no-ext-diff", "--unified=3", f"{base}..{side}", "--", path, check=False)
+        return [line[1:] for line in diff.splitlines() if line.startswith("+") and not line.startswith("+++")]
+
+    @staticmethod
+    def semantic_entrypoints(lines: list[str]) -> set[str]:
+        text = "\n".join(lines)
+        entrypoints = set(DECLARATION_RE.findall(text))
+        entrypoints.update(TEMPLATE_ENTRYPOINT_RE.findall(text))
+        entrypoints.update(I18N_ENTRYPOINT_RE.findall(text))
+        return entrypoints
+
+    @staticmethod
+    def semantic_identifiers(lines: list[str]) -> set[str]:
+        identifiers = set(IDENTIFIER_RE.findall("\n".join(lines)))
+        return {
+            identifier
+            for identifier in identifiers
+            if len(identifier) >= 3 and identifier.lower() not in IDENTIFIER_STOPWORDS
+        }
+
+    def configured_semantic_evidence(self, path: str, fork_text: str, upstream_text: str) -> list[dict[str, Any]]:
+        matched: list[dict[str, Any]] = []
+        config = self.catalog.get("semantic_overlap", {})
+        for rule in config.get("evidence_rules", []):
+            patterns = rule.get("paths", [])
+            if not any(fnmatch.fnmatch(path, pattern) for pattern in patterns):
+                continue
+            common_markers = sorted({
+                marker
+                for marker in rule.get("markers", [])
+                if isinstance(marker, str) and marker and marker in fork_text and marker in upstream_text
+            })
+            try:
+                minimum_matches = max(1, int(rule.get("minimum_matches", len(rule.get("markers", [])) or 1)))
+            except (TypeError, ValueError):
+                minimum_matches = 1
+            if len(common_markers) >= minimum_matches:
+                matched.append({
+                    "rule_id": str(rule.get("id", "unnamed")),
+                    "markers": common_markers,
+                    "minimum_matches": minimum_matches,
+                })
+        return matched
+
+    def check_semantic_overlap_candidates(self) -> None:
+        sides = self.semantic_overlap_sides()
+        if not sides:
+            return
+        base, fork_commit, upstream_commit = sides
+        fork_paths = set(self.git("diff", "--name-only", f"{base}..{fork_commit}").splitlines())
+        upstream_paths = set(self.git("diff", "--name-only", f"{base}..{upstream_commit}").splitlines())
+        config = self.catalog.get("semantic_overlap", {})
+        candidate_patterns = [
+            *config.get("ui_path_patterns", []),
+            *self.catalog.get("high_risk_paths", []),
+        ]
+        common_paths = [
+            path
+            for path in sorted(fork_paths & upstream_paths)
+            if any(fnmatch.fnmatch(path, pattern) for pattern in candidate_patterns)
+        ]
+        try:
+            minimum_shared_identifiers = max(1, int(config.get("minimum_shared_identifiers", 2)))
+        except (TypeError, ValueError):
+            minimum_shared_identifiers = 2
+
+        candidate_count = 0
+        for path in common_paths:
+            fork_lines = self.added_diff_lines(base, fork_commit, path)
+            upstream_lines = self.added_diff_lines(base, upstream_commit, path)
+            if not fork_lines or not upstream_lines:
+                continue
+            shared_entrypoints = sorted(self.semantic_entrypoints(fork_lines) & self.semantic_entrypoints(upstream_lines))
+            shared_identifiers = sorted(self.semantic_identifiers(fork_lines) & self.semantic_identifiers(upstream_lines))
+            configured_evidence = self.configured_semantic_evidence(
+                path,
+                "\n".join(fork_lines),
+                "\n".join(upstream_lines),
+            )
+            reasons = []
+            if shared_entrypoints and len(shared_identifiers) >= minimum_shared_identifiers:
+                reasons.append("shared_entrypoints_and_identifiers")
+            reasons.extend(f"configured_evidence:{item['rule_id']}" for item in configured_evidence)
+            if not reasons:
+                continue
+            candidate_count += 1
+            self.add(
+                "warning",
+                "semantic_overlap_candidate",
+                "fork 与 upstream 可能修改了同一语义入口，仅表示需要人工语义复核；不代表实现等价、官方已完整覆盖或应删除 fork 代码",
+                path=path,
+                base_commit=base,
+                fork_commit=fork_commit,
+                upstream_commit=upstream_commit,
+                reasons=reasons,
+                shared_entrypoints=shared_entrypoints,
+                shared_identifiers=shared_identifiers,
+                configured_evidence=configured_evidence,
+            )
+        if candidate_count == 0:
+            self.add(
+                "pass",
+                "semantic_overlap_candidates_clear",
+                "共同修改的 UI/高风险路径未达到保守语义重叠候选阈值",
+                common_path_count=len(common_paths),
+            )
 
     def check_whole_file_resolution(self) -> None:
         if not self.merge_commit or len(self.parents) < 2:
