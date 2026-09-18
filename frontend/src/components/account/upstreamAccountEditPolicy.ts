@@ -52,6 +52,7 @@ const EDITABLE_EXTRA_KEYS = new Set([
   'quota_weekly_reset_day',
   'quota_weekly_reset_hour',
   'quota_weekly_reset_mode',
+	'upstream_model_custom_rules',
   'web_search_emulation'
 ])
 

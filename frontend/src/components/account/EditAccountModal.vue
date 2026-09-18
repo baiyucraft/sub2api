@@ -324,7 +324,7 @@
 
           <template v-else>
             <!-- Mode Toggle -->
-            <div class="mb-4 flex gap-2">
+            <div v-if="!isSyncManagedUpstreamAccount" class="mb-4 flex gap-2">
               <button
                 type="button"
                 @click="modelRestrictionMode = 'whitelist'"
@@ -378,7 +378,7 @@
             </div>
 
             <!-- Whitelist Mode -->
-            <div v-if="modelRestrictionMode === 'whitelist'">
+            <div v-if="modelRestrictionMode === 'whitelist' || modelRestrictionMode === 'combined'">
               <ModelWhitelistSelector
                 v-model="allowedModels"
                 :platform="account?.platform || 'anthropic'"
@@ -395,7 +395,7 @@
             </div>
 
             <!-- Mapping Mode -->
-            <div v-else>
+            <div v-if="modelRestrictionMode === 'mapping' || modelRestrictionMode === 'combined'" :class="{ 'mt-4 border-t border-gray-200 pt-4 dark:border-dark-600': modelRestrictionMode === 'combined' }">
               <div class="mb-3 rounded-lg bg-purple-50 p-3 dark:bg-purple-900/20">
                 <p class="text-xs text-purple-700 dark:text-purple-400">
                   <svg
@@ -498,6 +498,13 @@
                 </button>
               </div>
             </div>
+
+            <UpstreamModelCustomRulesSummary
+              v-if="isSyncManagedUpstreamAccount"
+              :rules="upstreamModelCustomRules"
+              :auto-mapping="upstreamAutoModelMapping"
+              @remove="removeUpstreamModelCustomRule"
+            />
           </template>
         </div>
 
@@ -3019,7 +3026,8 @@ import type {
   OpenAIEndpointCapability,
   OllamaCloudUsageState,
   GrokMediaEligibilityMode,
-  GrokMediaEligibilityState
+  GrokMediaEligibilityState,
+  UpstreamModelCustomRule
 } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
@@ -3039,6 +3047,7 @@ import {
   pickUpstreamAccountEditableExtra
 } from '@/components/account/upstreamAccountEditPolicy'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
+import UpstreamModelCustomRulesSummary from '@/components/account/UpstreamModelCustomRulesSummary.vue'
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
 import GrokBaseUrlPresets from '@/components/account/GrokBaseUrlPresets.vue'
 import CnBaseUrlPresets from '@/components/account/CnBaseUrlPresets.vue'
@@ -3101,6 +3110,11 @@ import {
   splitModelMappingObject,
   isValidWildcardPattern
 } from '@/composables/useModelWhitelist'
+import {
+  buildUpstreamModelCustomRules,
+  buildUpstreamModelEditorState,
+  normalizeUpstreamModelCustomRules
+} from '@/components/account/upstreamModelCustomRules'
 
 interface Props {
   show: boolean
@@ -3338,8 +3352,19 @@ const isBedrockAPIKeyMode = computed(() =>
 )
 const modelMappings = ref<ModelMapping[]>([])
 const openAICompactModelMappings = ref<ModelMapping[]>([])
-const modelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
+const modelRestrictionMode = ref<'whitelist' | 'mapping' | 'combined'>('whitelist')
 const allowedModels = ref<string[]>([])
+const upstreamAutoModelMapping = ref<Record<string, string>>({})
+const upstreamLoadedCustomRules = ref<UpstreamModelCustomRule[]>([])
+const upstreamModelCustomRules = computed<UpstreamModelCustomRule[]>(() =>
+  isSyncManagedUpstreamAccount.value
+    ? buildUpstreamModelCustomRules(
+        upstreamAutoModelMapping.value,
+        allowedModels.value,
+        modelMappings.value
+      )
+    : []
+)
 const DEFAULT_POOL_MODE_RETRY_COUNT = 3
 const MAX_POOL_MODE_RETRY_COUNT = 10
 const DEFAULT_POOL_MODE_RETRY_STATUS_CODES = [401, 403, 429]
@@ -3942,16 +3967,18 @@ const applyPoolModeCredentials = (credentials: Record<string, unknown>) => {
 }
 
 const loadModelRestrictionFromMapping = (rawMapping?: Record<string, unknown>) => {
-  const parsed = splitModelMappingObject(rawMapping)
-  if (props.mode === 'upstream') {
-    allowedModels.value = []
-    modelMappings.value = [
-      ...parsed.allowedModels.map((model) => ({ from: model, to: model })),
-      ...parsed.modelMappings
-    ]
-    modelRestrictionMode.value = 'mapping'
+  if (isSyncManagedUpstreamAccount.value) {
+    const editor = buildUpstreamModelEditorState(
+      upstreamAutoModelMapping.value,
+      upstreamLoadedCustomRules.value,
+      rawMapping
+    )
+    allowedModels.value = editor.allowedModels
+    modelMappings.value = editor.modelMappings
+    modelRestrictionMode.value = 'combined'
     return
   }
+  const parsed = splitModelMappingObject(rawMapping)
   allowedModels.value = parsed.allowedModels
   modelMappings.value = parsed.modelMappings
   modelRestrictionMode.value =
@@ -4017,6 +4044,10 @@ const syncFormFromAccount = (newAccount: Account | null) => {
 
   // Load intercept warmup requests setting (applies to all account types)
   const credentials = newAccount.credentials as Record<string, unknown> | undefined
+  upstreamAutoModelMapping.value = { ...(newAccount.upstream_model_sync?.auto_mapping || {}) }
+  upstreamLoadedCustomRules.value = normalizeUpstreamModelCustomRules(
+    newAccount.upstream_model_custom_rules
+  )
   interceptWarmupRequests.value = credentials?.intercept_warmup_requests === true
   autoPauseOnExpired.value = newAccount.auto_pause_on_expired === true
   editVertexProjectId.value = ''
@@ -4585,8 +4616,23 @@ const syncAntigravityUpstreamModels = async () => {
   }
 }
 
-const handleManagedUpstreamModelsSynced = () => {
+const handleManagedUpstreamModelsSynced = async () => {
   emit('refresh-list')
+  if (!props.account) return
+  try {
+    const refreshed = await adminAPI.accounts.getById(props.account.id)
+    syncFormFromAccount(refreshed)
+  } catch {
+    appStore.showWarning(t('admin.accounts.upstreamModelCustomRules.refreshFailed'))
+  }
+}
+
+const removeUpstreamModelCustomRule = (source: string) => {
+  const remaining = upstreamModelCustomRules.value.filter((rule) => rule.source !== source)
+  const editor = buildUpstreamModelEditorState(upstreamAutoModelMapping.value, remaining)
+  allowedModels.value = editor.allowedModels
+  modelMappings.value = editor.modelMappings
+  modelRestrictionMode.value = 'combined'
 }
 
 const addTempUnschedRule = (preset?: TempUnschedRuleForm) => {
@@ -5080,6 +5126,12 @@ const handleSubmit = async () => {
         updatePayload.upstream_key_id = editUpstreamKeyId.value
         updatePayload.proxy_id = 0
       }
+    }
+
+    if (isSyncManagedUpstreamAccount.value) {
+      updatePayload.upstream_model_custom_rules = upstreamModelCustomRules.value
+    } else {
+      delete updatePayload.upstream_model_custom_rules
     }
 
     // For apikey type, handle credentials update

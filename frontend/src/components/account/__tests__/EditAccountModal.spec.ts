@@ -526,6 +526,55 @@ describe('EditAccountModal', () => {
     expect(payload?.extra).toMatchObject({ images_url_to_b64_json: true, upstream_request_id_header: 'X-Upstream-Request-ID' })
   })
 
+  it('同步托管账号将 A-A 放入白名单并支持删除账号级禁用规则', async () => {
+    authIsSimpleMode.value = false
+    const account = buildUpstreamBoundAccount()
+    account.credentials = {
+      model_mapping: {
+        'gpt-auto': 'gpt-auto',
+        'public-model': 'gpt-target'
+      }
+    }
+    account.upstream_model_sync = {
+      mode: 'sync_managed',
+      status: 'available',
+      model_count: 2,
+      enforcement_expired: false,
+      auto_mapping: {
+        'gpt-auto': 'gpt-auto',
+        'gpt-target': 'gpt-target'
+      }
+    }
+    account.upstream_model_custom_rules = [
+      { source: 'gpt-target', action: 'deny' },
+      { source: 'public-model', action: 'map', target: 'gpt-target' }
+    ]
+    updateAccountMock.mockImplementation(async (_id, payload) => ({
+      ...account,
+      upstream_model_custom_rules: payload.upstream_model_custom_rules
+    }))
+
+    const wrapper = mountModal(account, { mode: 'upstream' })
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="model-whitelist-value"]').text()).toBe('gpt-auto')
+    expect(wrapper.findAll('[data-test="upstream-model-custom-rule"]')).toHaveLength(2)
+
+    const denyRow = wrapper.findAll('[data-test="upstream-model-custom-rule"]')
+      .find((row) => row.text().includes('gpt-target'))
+    expect(denyRow).toBeDefined()
+    await denyRow!.get('[data-test="remove-upstream-model-custom-rule"]').trigger('click')
+    expect(wrapper.get('[data-testid="model-whitelist-value"]').text()).toContain('gpt-target')
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock).toHaveBeenCalledWith(1, expect.objectContaining({
+      upstream_model_custom_rules: [
+        { source: 'public-model', action: 'map', target: 'gpt-target' }
+      ]
+    }))
+  })
+
   it('persists an upstream RPM limit and rejects a stale backend response', async () => {
     const account = buildUpstreamBoundAccount()
     account.rpm_limit = 0

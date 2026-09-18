@@ -923,6 +923,19 @@ export default {
       requestModel: 'Request model',
       actualModel: 'Actual model',
       addMapping: 'Add Mapping',
+      upstreamModelCustomRules: {
+        title: 'Account custom edit rules',
+        description: 'These account-level additions, changes, and removals override the automatic model snapshot. Removing a rule restores the automatic result after saving.',
+        actions: {
+          allow: 'Allow',
+          map: 'Map',
+          deny: 'Deny'
+        },
+        empty: 'No custom edit rules for this account.',
+        waiting: 'Waiting for upstream model',
+        remove: 'Remove the custom rule for {model} and restore automatic sync',
+        refreshFailed: 'Models were synced, but this editor could not refresh. Reopen the account to verify the latest rules.'
+      },
       mappingExists: 'Mapping for {model} already exists',
       wildcardOnlyAtEnd: 'Wildcard * can only be at the end',
       targetNoWildcard: 'Target model cannot contain wildcard *',
