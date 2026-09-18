@@ -123,6 +123,62 @@ def audit(repo: Path, mode: str, upstream: str, catalog: Path, merge_commit: str
     return proc, report
 
 
+SEMANTIC_OVERLAP_PATH = "frontend/src/views/user/KeysView.vue"
+
+
+def make_semantic_overlap_fixture(
+    repo: Path,
+    upstream_base: str,
+    catalog: Path,
+    variant: str = "automatic",
+) -> tuple[str, str]:
+    payload = json.loads(catalog.read_text(encoding="utf-8"))
+    payload["registered_support_paths"].append("frontend/**")
+    payload["semantic_overlap"] = {
+        "ui_path_patterns": ["frontend/src/views/**/*.vue"],
+        "minimum_shared_identifiers": 2,
+        "evidence_rules": [],
+    }
+    if variant == "configured":
+        payload["semantic_overlap"]["evidence_rules"] = [
+            {
+                "id": "fixture-platform-filter",
+                "paths": [SEMANTIC_OVERLAP_PATH],
+                "markers": ["group.platform"],
+                "minimum_matches": 1,
+            }
+        ]
+
+    if variant == "automatic":
+        fork_source = """<script setup lang=\"ts\">\nconst formGroupOptions = groups.filter((group) => group.platform === selectedPlatform)\nconst updateGroup = () => { formData.group_id = formGroupOptions[0]?.id ?? null }\n</script>\n"""
+        upstream_source = """<script setup lang=\"ts\">\nconst formGroupOptions = groups.filter((group) => group.platform === selectedProvider)\nconst resetGroup = () => { formData.group_id = formGroupOptions.at(0)?.id ?? null }\n</script>\n"""
+    elif variant == "configured":
+        fork_source = """<script setup lang=\"ts\">\nconst forkPlatformFilter = sourceGroups.filter((group) => group.platform)\n</script>\n"""
+        upstream_source = """<script setup lang=\"ts\">\nconst upstreamVendorFilter = providerGroups.some((group) => group.platform)\n</script>\n"""
+    else:
+        fork_source = """<script setup lang=\"ts\">\nconst platformFilteredGroups = sourceGroups.filter((group) => group.platform)\n</script>\n"""
+        upstream_source = """<script setup lang=\"ts\">\nconst providerFilteredKeys = sourceKeys.filter((item) => item.provider)\n</script>\n"""
+
+    write(catalog, json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    write(repo / SEMANTIC_OVERLAP_PATH, fork_source)
+    commit_all(repo, f"fork semantic overlap fixture {variant}")
+
+    git(repo, "checkout", "-b", f"official-overlap-{variant}", upstream_base)
+    write(repo / SEMANTIC_OVERLAP_PATH, upstream_source)
+    upstream_target = commit_all(repo, f"official semantic overlap fixture {variant}")
+    git(repo, "checkout", "main")
+    return upstream_target, fork_source
+
+
+def merge_semantic_overlap_fixture(repo: Path, upstream_target: str, fork_source: str) -> str:
+    proc = run(repo, "git", "merge", "--no-ff", upstream_target, "-m", "merge semantic overlap fixture", check=False)
+    if proc.returncode:
+        write(repo / SEMANTIC_OVERLAP_PATH, fork_source)
+        git(repo, "add", SEMANTIC_OVERLAP_PATH)
+        git(repo, "commit", "--no-edit")
+    return git(repo, "rev-parse", "HEAD")
+
+
 @pytest.mark.parametrize("mode", ["snapshot", "pre-merge"])
 def test_clean_audit_passes_and_report_is_deterministic(tmp_path: Path, mode: str) -> None:
     repo, upstream, catalog = make_fixture(tmp_path)
@@ -279,6 +335,70 @@ def test_post_merge_parent_and_whole_file_resolution(tmp_path: Path) -> None:
     wrong, wrong_report = audit(repo, "post-merge", upstream_base, catalog, merge_commit)
     assert wrong.returncode != 0
     assert any(item["code"] == "wrong_merge_parent" for item in wrong_report["findings"])
+
+
+def test_pre_merge_reports_semantic_overlap_candidate_without_auto_decision(tmp_path: Path) -> None:
+    repo, upstream_base, catalog = make_fixture(tmp_path)
+    upstream_target, _ = make_semantic_overlap_fixture(repo, upstream_base, catalog)
+
+    proc, report = audit(repo, "pre-merge", upstream_target, catalog)
+
+    assert proc.returncode == 0
+    assert report["status"] == "warning"
+    finding = next(item for item in report["findings"] if item["code"] == "semantic_overlap_candidate")
+    assert finding["details"]["path"] == SEMANTIC_OVERLAP_PATH
+    assert "formGroupOptions" in finding["details"]["shared_entrypoints"]
+    assert finding["details"]["reasons"] == ["shared_entrypoints_and_identifiers"]
+    assert "不代表实现等价" in finding["message"]
+    assert "equivalent" not in finding["details"]
+    assert "delete" not in finding["details"]
+
+
+def test_post_merge_reports_semantic_overlap_candidate(tmp_path: Path) -> None:
+    repo, upstream_base, catalog = make_fixture(tmp_path)
+    upstream_target, fork_source = make_semantic_overlap_fixture(repo, upstream_base, catalog)
+    merge_commit = merge_semantic_overlap_fixture(repo, upstream_target, fork_source)
+
+    proc, report = audit(repo, "post-merge", upstream_target, catalog, merge_commit)
+
+    assert proc.returncode == 0
+    finding = next(item for item in report["findings"] if item["code"] == "semantic_overlap_candidate")
+    assert finding["details"]["fork_commit"] == report["parents"][0]
+    assert finding["details"]["upstream_commit"] == report["parents"][1]
+
+
+def test_semantic_overlap_ignores_independent_changes_in_same_ui_file(tmp_path: Path) -> None:
+    repo, upstream_base, catalog = make_fixture(tmp_path)
+    upstream_target, _ = make_semantic_overlap_fixture(repo, upstream_base, catalog, variant="independent")
+
+    proc, report = audit(repo, "pre-merge", upstream_target, catalog)
+
+    assert proc.returncode == 0
+    assert report["status"] == "pass"
+    assert not any(item["code"] == "semantic_overlap_candidate" for item in report["findings"])
+
+
+def test_semantic_overlap_accepts_configured_common_evidence(tmp_path: Path) -> None:
+    repo, upstream_base, catalog = make_fixture(tmp_path)
+    upstream_target, _ = make_semantic_overlap_fixture(repo, upstream_base, catalog, variant="configured")
+
+    proc, report = audit(repo, "pre-merge", upstream_target, catalog)
+
+    assert proc.returncode == 0
+    finding = next(item for item in report["findings"] if item["code"] == "semantic_overlap_candidate")
+    assert finding["details"]["shared_entrypoints"] == []
+    assert finding["details"]["reasons"] == ["configured_evidence:fixture-platform-filter"]
+    assert finding["details"]["configured_evidence"][0]["markers"] == ["group.platform"]
+
+
+def test_snapshot_skips_semantic_overlap_detection(tmp_path: Path) -> None:
+    repo, upstream_base, catalog = make_fixture(tmp_path)
+    upstream_target, _ = make_semantic_overlap_fixture(repo, upstream_base, catalog)
+
+    proc, report = audit(repo, "snapshot", upstream_target, catalog)
+
+    assert proc.returncode == 0
+    assert not any(item["code"].startswith("semantic_overlap") for item in report["findings"])
 
 
 def test_adopted_unreleased_tranche_is_preserved_without_version_bump(tmp_path: Path) -> None:
