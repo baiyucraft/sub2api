@@ -18,6 +18,19 @@
 5. 合并后的测试至少覆盖官方新增回归、fork 原有专项回归，以及证明“已替换 workaround 不再需要”和“独立修复未被误删”的定向用例。
 6. 若目标 upstream 尚未包含修复，只能记录候选 PR 和预期采用方式；不得把未合并 PR 宣称为当前官方修复，也不得仅因其存在就提前删除 fork 保护。
 
+## 未正式发布批次的保留与重核
+
+1. fork 已通过真实 merge commit 采用、但尚未进入正式 tag 的 upstream 批次，登记到 `extensions.yaml.adopted_upstream_tranches`；base、tip、merge commit、提交数和采用时 VERSION 都是不可省略的证据。
+2. 批次 tip 的 `VERSION` 未变化时，fork VERSION 也不变化。例如 tip 仍为 `0.2.5` 时保持 `0.2.5-baiyu`，不得因预期下一版是 `0.2.6` 就新增版本或 release profile。
+3. upstream 回退、force-push 或撤回不触发 fork 回滚，不删除提交，不重写 merge 历史；先保持现有实现和测试稳定。
+4. 正式目标版本到达前，批次 `base..tip` 的变更路径临时按 upstream 所有权登记；只豁免该批次真实修改且 merge commit 后未再变化的路径，不扩大到相邻目录或后续 fork 修改。
+5. 正式目标版本到达后，临时路径所有权立即失效，并对批次内每个非 merge 源提交执行三态重核：
+   - 官方目标包含原提交或语义等价实现：标记为 `upstream_covered_source_commits`，后续维护跟随官方。
+   - 官方目标未覆盖：标记为 `fork_retained_source_commits`，新增或绑定 fork 扩展 ID、路径、不变量和最低测试。
+   - 官方只覆盖部分故障域：标记为 `partially_covered_source_commits`，采用官方实现并保留最小 fork 增量，同样绑定 fork 扩展 ID。
+6. `git cherry`/patch-id 仅用于给出初步等价候选，最终归属必须结合错误文本、调用路径、协议边界和回归测试做语义确认。
+7. 重核分类必须无遗漏、无重复地覆盖全部非 merge 源提交；保留/部分覆盖项绑定的扩展 ID 必须真实存在并覆盖对应提交路径。完成前 fork audit 返回 `catalog_update_required`，不得进入正式合并或发布。
+
 ## 合并中
 
 1. 创建真实 merge commit，第二父提交必须是目标 upstream SHA。

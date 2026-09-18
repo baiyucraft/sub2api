@@ -6,6 +6,27 @@
     "fork_suffix": "-baiyu",
     "format": "official VERSION + -baiyu"
   },
+  "adopted_upstream_tranches": [
+    {
+      "id": "upstream-main-2026-09-18-unreleased-0.2.5",
+      "status": "adopted_unreleased",
+      "base_commit": "881f3202694c6bc932446931a30c27d9675178b9",
+      "tip_commit": "efe9aab1e4ec89a42ba45e8dac20e882c5409a6a",
+      "merge_commit": "f501d6ee9461b86077a376002f0048d94e16cd61",
+      "official_version_at_adoption": "0.2.5",
+      "fork_version_at_adoption": "0.2.5-baiyu",
+      "commit_count": 52,
+      "non_merge_commit_count": 27,
+      "reconciliation": {
+        "status": "pending",
+        "target_version": "0.2.6",
+        "upstream_covered_source_commits": [],
+        "fork_retained_source_commits": [],
+        "partially_covered_source_commits": [],
+        "fork_extension_ids": []
+      }
+    }
+  ],
   "profile_source": ".agents/skills/sub2api-production-deploy/scripts/release/profiles.py",
   "historical_profiles": {
     "233": {"version": "0.1.173-baiyu", "migration_count": 50, "migration_map_sha256": "19a9303dbbb69dab8be3c2de420b0bba0d84c35b85c92475e4edbdeb7c5716d6", "compatibility_version": "0.1.172-baiyu", "compatibility_commit": "74e47e67205084750ccd994c331ead328e4ce35b", "compatibility_image_id": "sha256:cd3dff0ce18762d7faa9d4a4492eb770b616f9b01b66256ce6280c2f4855abd6"},

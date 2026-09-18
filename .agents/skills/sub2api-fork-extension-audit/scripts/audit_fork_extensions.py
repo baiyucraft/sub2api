@@ -44,6 +44,7 @@ class Audit:
         self.diff_paths: list[str] = []
         self.diff_status: dict[str, str] = {}
         self.dirty_paths: list[str] = []
+        self.provisional_adopted_paths: set[str] = set()
 
     def git(self, *args: str, check: bool = True) -> str:
         proc = subprocess.run(["git", "-c", "core.quotepath=false", *args], cwd=self.root, text=True, encoding="utf-8", errors="replace", capture_output=True)
@@ -52,6 +53,21 @@ class Audit:
         if proc.returncode and check:
             raise RuntimeError(proc.stderr.strip())
         return proc.stdout.strip()
+
+    def git_success(self, *args: str) -> bool:
+        proc = subprocess.run(
+            ["git", "-c", "core.quotepath=false", *args],
+            cwd=self.root,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            capture_output=True,
+        )
+        return proc.returncode == 0
+
+    def tree_entry_oid(self, commit: str, path: str) -> str | None:
+        value = self.git("rev-parse", "--verify", f"{commit}:{path}", check=False).strip()
+        return value.lower() if SHA_RE.fullmatch(value) else None
 
     def add(self, level: str, code: str, message: str, **details: Any) -> None:
         self.findings.append({"level": level, "code": code, "message": message, "details": details})
@@ -97,6 +113,7 @@ class Audit:
         if self.mode == "post-merge":
             self.check_post_merge_identity()
         self.check_versions()
+        self.check_adopted_upstream_tranches()
         self.check_catalog_markers()
         self.check_extensions()
         self.check_migrations()
@@ -157,6 +174,282 @@ class Audit:
             self.add("blocker", "fork_version_mismatch", "fork VERSION 未按官方版本追加 -baiyu", official=official, fork=fork, expected=expected)
         else:
             self.add("pass", "version_contract", "VERSION 满足官方版本加后缀合同", official=official, fork=fork)
+
+    @staticmethod
+    def version_key(value: str) -> tuple[int, int, int] | None:
+        match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", value.strip())
+        if not match:
+            return None
+        return tuple(int(part) for part in match.groups())
+
+    def preliminary_tranche_coverage(self, base: str, tip: str) -> dict[str, Any]:
+        source_commits = self.git("rev-list", "--no-merges", "--reverse", f"{base}..{tip}").splitlines()
+        exact = [commit for commit in source_commits if self.git_success("merge-base", "--is-ancestor", commit, self.upstream_ref)]
+        equivalent: list[str] = []
+        cherry = self.git("cherry", self.upstream_ref, tip, base, check=False)
+        for line in cherry.splitlines():
+            fields = line.split()
+            if len(fields) == 2 and fields[0] == "-" and fields[1] not in exact:
+                equivalent.append(fields[1])
+        covered = set(exact) | set(equivalent)
+        missing = [commit for commit in source_commits if commit not in covered]
+        return {
+            "source_commit_count": len(source_commits),
+            "exact_commits": exact,
+            "patch_equivalent_commits": equivalent,
+            "not_detected_commits": missing,
+        }
+
+    def check_adopted_upstream_tranches(self) -> None:
+        for tranche in self.catalog.get("adopted_upstream_tranches", []):
+            tranche_id = str(tranche.get("id", "")).strip()
+            tranche_status = str(tranche.get("status", "")).strip()
+            base = str(tranche.get("base_commit", "")).lower()
+            tip = str(tranche.get("tip_commit", "")).lower()
+            merge_commit = str(tranche.get("merge_commit", "")).lower()
+            required = {"base_commit": base, "tip_commit": tip, "merge_commit": merge_commit}
+            invalid = {field: value for field, value in required.items() if not SHA_RE.fullmatch(value)}
+            if not tranche_id or invalid:
+                self.add("blocker", "adopted_upstream_tranche_invalid", "已采用 upstream 批次身份无效", tranche_id=tranche_id, invalid=invalid)
+                continue
+            if tranche_status != "adopted_unreleased":
+                self.add(
+                    "blocker",
+                    "adopted_upstream_tranche_status_invalid",
+                    "已采用 upstream 批次状态无效",
+                    tranche_id=tranche_id,
+                    status=tranche_status,
+                )
+                continue
+
+            missing_objects = []
+            for field, commit in required.items():
+                if not self.git_success("rev-parse", "--verify", f"{commit}^{{commit}}"):
+                    missing_objects.append({"field": field, "commit": commit})
+            if missing_objects:
+                self.add("blocker", "adopted_upstream_tranche_object_missing", "已采用 upstream 批次对象缺失", tranche_id=tranche_id, objects=missing_objects)
+                continue
+
+            if not self.git_success("merge-base", "--is-ancestor", base, tip):
+                self.add("blocker", "adopted_upstream_tranche_range_invalid", "已采用 upstream 批次 base 不是 tip 的祖先", tranche_id=tranche_id, base=base, tip=tip)
+                continue
+
+            commit_count = int(self.git("rev-list", "--count", f"{base}..{tip}"))
+            non_merge_commit_count = int(self.git("rev-list", "--count", "--no-merges", f"{base}..{tip}"))
+            expected_count = tranche.get("commit_count")
+            expected_non_merge_count = tranche.get("non_merge_commit_count")
+            if commit_count != expected_count or non_merge_commit_count != expected_non_merge_count:
+                self.add(
+                    "blocker",
+                    "adopted_upstream_tranche_commit_count_mismatch",
+                    "已采用 upstream 批次提交数与目录不一致",
+                    tranche_id=tranche_id,
+                    expected_commit_count=expected_count,
+                    actual_commit_count=commit_count,
+                    expected_non_merge_commit_count=expected_non_merge_count,
+                    actual_non_merge_commit_count=non_merge_commit_count,
+                )
+                continue
+
+            parents = self.git("rev-list", "--parents", "-n", "1", merge_commit).split()[1:]
+            if len(parents) < 2 or parents[1].lower() != tip:
+                self.add("blocker", "adopted_upstream_tranche_merge_parent_mismatch", "已采用 upstream 批次 merge commit 第二父不匹配 tip", tranche_id=tranche_id, merge_commit=merge_commit, parents=parents, tip=tip)
+                continue
+            if self.head and not self.git_success("merge-base", "--is-ancestor", merge_commit, self.head):
+                self.add("blocker", "adopted_upstream_tranche_not_preserved", "当前 HEAD 未保留已采用 upstream 批次 merge commit", tranche_id=tranche_id, merge_commit=merge_commit, head=self.head)
+                continue
+
+            official_version = str(tranche.get("official_version_at_adoption", "")).strip()
+            fork_version = str(tranche.get("fork_version_at_adoption", "")).strip()
+            tip_version = (self.show(tip, "backend/cmd/server/VERSION") or "").strip()
+            merge_version = (self.show(merge_commit, "backend/cmd/server/VERSION") or "").strip()
+            if tip_version != official_version or merge_version != fork_version:
+                self.add(
+                    "blocker",
+                    "adopted_upstream_tranche_version_mismatch",
+                    "已采用 upstream 批次版本合同漂移",
+                    tranche_id=tranche_id,
+                    expected_official_version=official_version,
+                    actual_tip_version=tip_version,
+                    expected_fork_version=fork_version,
+                    actual_merge_version=merge_version,
+                )
+                continue
+
+            reconciliation = tranche.get("reconciliation", {})
+            reconciliation_status = str(reconciliation.get("status", "pending")).strip()
+            target_version = str(reconciliation.get("target_version", "")).strip()
+            upstream_version = (self.show(self.upstream_ref, "backend/cmd/server/VERSION") or "").strip()
+            upstream_key = self.version_key(upstream_version)
+            target_key = self.version_key(target_version)
+            official_key = self.version_key(official_version)
+            if not upstream_key or not target_key or not official_key:
+                self.add(
+                    "blocker",
+                    "adopted_upstream_tranche_version_format_invalid",
+                    "已采用 upstream 批次版本必须使用 x.y.z 格式",
+                    tranche_id=tranche_id,
+                    official_version_at_adoption=official_version,
+                    target_version=target_version,
+                    upstream_version=upstream_version,
+                )
+                continue
+            release_reached = upstream_key >= target_key
+
+            if reconciliation_status == "pending":
+                if release_reached:
+                    self.add(
+                        "catalog_update_required",
+                        "adopted_upstream_tranche_reconciliation_required",
+                        "正式 upstream 版本已到达，必须重核已采用批次的官方覆盖与 fork 保留归属",
+                        tranche_id=tranche_id,
+                        target_version=target_version,
+                        upstream_version=upstream_version,
+                        preliminary_coverage=self.preliminary_tranche_coverage(base, tip),
+                    )
+                else:
+                    tranche_paths = sorted(
+                        set(self.git("diff", "--name-only", "--no-renames", f"{base}..{tip}").splitlines())
+                    )
+                    provisional_paths: list[str] = []
+                    merge_resolution_changed_paths: list[str] = []
+                    changed_after_adoption_paths: list[str] = []
+                    for path in tranche_paths:
+                        tip_oid = self.tree_entry_oid(tip, path)
+                        merge_oid = self.tree_entry_oid(merge_commit, path)
+                        head_oid = self.tree_entry_oid(self.head, path)
+                        if tip_oid != merge_oid:
+                            merge_resolution_changed_paths.append(path)
+                        elif merge_oid != head_oid:
+                            changed_after_adoption_paths.append(path)
+                        else:
+                            provisional_paths.append(path)
+                    self.provisional_adopted_paths.update(provisional_paths)
+                    self.add(
+                        "pass",
+                        "adopted_upstream_tranche_paths_provisionally_registered",
+                        "待正式发布的 upstream 批次路径临时按 upstream 所有权登记",
+                        tranche_id=tranche_id,
+                        target_version=target_version,
+                        paths=provisional_paths,
+                        merge_resolution_changed_paths=merge_resolution_changed_paths,
+                        changed_after_adoption_paths=changed_after_adoption_paths,
+                    )
+                    if merge_resolution_changed_paths:
+                        self.add(
+                            "warning",
+                            "adopted_upstream_tranche_merge_content_diverged",
+                            "部分已采用路径在 merge commit 中不同于 upstream tip，不授予临时 upstream 路径所有权",
+                            tranche_id=tranche_id,
+                            paths=merge_resolution_changed_paths,
+                        )
+                    self.add(
+                        "pass",
+                        "adopted_upstream_tranche_preserved",
+                        "未正式发布的 upstream 批次已完整保留且不触发提前升版",
+                        tranche_id=tranche_id,
+                        base=base,
+                        tip=tip,
+                        merge_commit=merge_commit,
+                        official_version=official_version,
+                        commit_count=commit_count,
+                    )
+                continue
+
+            if reconciliation_status != "complete":
+                self.add("blocker", "adopted_upstream_tranche_reconciliation_status_invalid", "已采用 upstream 批次重核状态无效", tranche_id=tranche_id, status=reconciliation_status)
+                continue
+            if not release_reached:
+                self.add(
+                    "blocker",
+                    "adopted_upstream_tranche_reconciled_before_target_release",
+                    "目标正式版本尚未到达，不能提前完成已采用批次归属重核",
+                    tranche_id=tranche_id,
+                    target_version=target_version,
+                    upstream_version=upstream_version,
+                )
+                continue
+
+            source_commits = set(self.git("rev-list", "--no-merges", f"{base}..{tip}").splitlines())
+            categories: dict[str, set[str]] = {}
+            invalid_categories: dict[str, Any] = {}
+            for key in (
+                "upstream_covered_source_commits",
+                "fork_retained_source_commits",
+                "partially_covered_source_commits",
+            ):
+                values = reconciliation.get(key, [])
+                if not isinstance(values, list) or any(not isinstance(value, str) or not SHA_RE.fullmatch(value) for value in values):
+                    invalid_categories[key] = values
+                    continue
+                categories[key] = set(values)
+            if invalid_categories:
+                self.add(
+                    "blocker",
+                    "adopted_upstream_tranche_reconciliation_categories_invalid",
+                    "已采用 upstream 批次重核分类格式无效",
+                    tranche_id=tranche_id,
+                    categories=invalid_categories,
+                )
+                continue
+            classified = set().union(*categories.values())
+            duplicate = set()
+            category_values = list(categories.values())
+            for index, values in enumerate(category_values):
+                duplicate.update(values & set().union(*category_values[index + 1:]))
+            if classified != source_commits or duplicate:
+                self.add(
+                    "blocker",
+                    "adopted_upstream_tranche_reconciliation_incomplete",
+                    "已采用 upstream 批次重核分类未精确覆盖全部源提交",
+                    tranche_id=tranche_id,
+                    missing=sorted(source_commits - classified),
+                    unknown=sorted(classified - source_commits),
+                    duplicate=sorted(duplicate),
+                )
+                continue
+            retained = categories["fork_retained_source_commits"] | categories["partially_covered_source_commits"]
+            extension_ids = reconciliation.get("fork_extension_ids", [])
+            if not isinstance(extension_ids, list) or any(not isinstance(value, str) or not value.strip() for value in extension_ids):
+                self.add("blocker", "adopted_upstream_tranche_fork_extensions_invalid", "保留的 upstream 源提交绑定了无效的 fork 扩展 ID", tranche_id=tranche_id, fork_extension_ids=extension_ids)
+                continue
+            if retained and not extension_ids:
+                self.add("blocker", "adopted_upstream_tranche_fork_extensions_missing", "保留的 upstream 源提交尚未绑定 fork 扩展 ID", tranche_id=tranche_id, retained=sorted(retained))
+                continue
+            extension_by_id = {str(extension.get("id", "")): extension for extension in self.catalog.get("extensions", [])}
+            unknown_extension_ids = sorted(set(extension_ids) - set(extension_by_id))
+            if unknown_extension_ids:
+                self.add("blocker", "adopted_upstream_tranche_fork_extension_unknown", "已采用 upstream 批次绑定了不存在的 fork 扩展 ID", tranche_id=tranche_id, extension_ids=unknown_extension_ids)
+                continue
+            if retained:
+                retained_paths = sorted(
+                    {
+                        path
+                        for commit in retained
+                        for path in self.git("diff-tree", "--no-commit-id", "--name-only", "--no-renames", "-r", commit).splitlines()
+                    }
+                )
+                bound_patterns = [
+                    pattern
+                    for extension_id in extension_ids
+                    for pattern in extension_by_id[extension_id].get("paths", [])
+                ]
+                uncovered_paths = [
+                    path
+                    for path in retained_paths
+                    if not any(fnmatch.fnmatch(path, pattern) for pattern in bound_patterns)
+                ]
+                if uncovered_paths:
+                    self.add(
+                        "blocker",
+                        "adopted_upstream_tranche_fork_paths_uncovered",
+                        "保留的 upstream 源提交路径未被绑定的 fork 扩展覆盖",
+                        tranche_id=tranche_id,
+                        paths=uncovered_paths,
+                        fork_extension_ids=extension_ids,
+                    )
+                    continue
+            self.add("pass", "adopted_upstream_tranche_reconciled", "已采用 upstream 批次已完成官方覆盖与 fork 保留归属重核", tranche_id=tranche_id, categories={key: sorted(value) for key, value in categories.items()})
 
     def path_exists(self, pattern: str) -> list[str]:
         matches = []
@@ -390,13 +683,20 @@ class Audit:
             if not is_governance_path(path)
             and not any(fnmatch.fnmatch(path, pattern) for pattern in GOVERNANCE_PATH_PATTERNS)
             and not any(fnmatch.fnmatch(path, pattern) for pattern in all_patterns)
+            and path not in self.provisional_adopted_paths
         ]
         migrations = self.all_profile_migrations() | set(self.catalog.get("migration_contracts", {}))
         new_migrations = [path for path in self.diff_paths if self.diff_status.get(path, "")[0] != "D" and path.startswith("backend/migrations/") and path.endswith(".sql") and Path(path).name not in migrations]
         if unknown:
             self.add("catalog_update_required", "unregistered_fork_paths", "发现未登记的 fork-only 路径", paths=unknown)
         else:
-            self.add("pass", "catalog_paths", "fork-only 路径均落在已登记范围", count=len(self.diff_paths))
+            self.add(
+                "pass",
+                "catalog_paths",
+                "fork-only 路径均落在已登记范围",
+                count=len(self.diff_paths),
+                provisional_adopted_path_count=len(self.provisional_adopted_paths),
+            )
         if new_migrations:
             self.add("catalog_update_required", "unregistered_migrations", "发现未登记的新增 migration", migrations=new_migrations)
 
