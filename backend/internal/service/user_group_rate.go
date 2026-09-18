@@ -3,7 +3,7 @@ package service
 import "context"
 
 // UserGroupRateEntry 分组下用户专属倍率/RPM 条目。
-// RateMultiplier 与 RPMOverride 均为指针以支持"未设置"语义（NULL）。
+// RatePercent 是持久化真值，RateMultiplier 是按当前分组普通倍率计算的兼容有效值。
 type UserGroupRateEntry struct {
 	UserID         int64    `json:"user_id"`
 	UserName       string   `json:"user_name"`
@@ -11,13 +11,28 @@ type UserGroupRateEntry struct {
 	UserNotes      string   `json:"user_notes"`
 	UserStatus     string   `json:"user_status"`
 	RateMultiplier *float64 `json:"rate_multiplier,omitempty"`
+	RatePercent    *float64 `json:"rate_percent,omitempty"`
 	RPMOverride    *int     `json:"rpm_override,omitempty"`
 }
 
-// GroupRateMultiplierInput 批量设置分组倍率的输入条目
+// GroupRateMultiplierInput 批量设置分组专属倍率的输入条目。
+// 新客户端提交 RatePercent；RateMultiplier 仅用于兼容旧客户端。两者不可同时设置。
 type GroupRateMultiplierInput struct {
-	UserID         int64   `json:"user_id"`
-	RateMultiplier float64 `json:"rate_multiplier"`
+	UserID         int64    `json:"user_id"`
+	RatePercent    *float64 `json:"rate_percent,omitempty"`
+	RateMultiplier *float64 `json:"rate_multiplier,omitempty"`
+}
+
+// UserGroupRatePercentReader 暴露专属比例真值，供运行时缓存和管理端展示使用。
+// 保持为窄接口，避免破坏仍只实现旧有效倍率接口的测试或扩展仓储。
+type UserGroupRatePercentReader interface {
+	GetPercentByUserID(ctx context.Context, userID int64) (map[int64]float64, error)
+	GetPercentByUserAndGroup(ctx context.Context, userID, groupID int64) (*float64, error)
+}
+
+// UserGroupRatePercentWriter 使用百分比语义同步一个用户的专属倍率。
+type UserGroupRatePercentWriter interface {
+	SyncUserGroupRatePercents(ctx context.Context, userID int64, percents map[int64]*float64) error
 }
 
 // GroupRPMOverrideInput 批量设置分组 RPM override 的输入条目。

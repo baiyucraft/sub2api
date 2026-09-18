@@ -61,8 +61,42 @@ func (s *adminServiceImpl) ListUsers(ctx context.Context, page, pageSize int, fi
 		} else {
 			s.loadUserGroupRatesOneByOne(ctx, users)
 		}
+		if batchRepo, ok := s.userGroupRateRepo.(userGroupRatePercentBatchReader); ok {
+			userIDs := make([]int64, 0, len(users))
+			for i := range users {
+				userIDs = append(userIDs, users[i].ID)
+			}
+			percentsByUser, err := batchRepo.GetPercentsByUserIDs(ctx, userIDs)
+			if err != nil {
+				logger.LegacyPrintf("service.admin", "failed to load user group rate percents in batch: err=%v", err)
+				s.loadUserGroupRatePercentsOneByOne(ctx, users)
+			} else {
+				for i := range users {
+					if percents, ok := percentsByUser[users[i].ID]; ok {
+						users[i].GroupRatePercents = percents
+					}
+				}
+			}
+		} else {
+			s.loadUserGroupRatePercentsOneByOne(ctx, users)
+		}
 	}
 	return users, result.Total, nil
+}
+
+func (s *adminServiceImpl) loadUserGroupRatePercentsOneByOne(ctx context.Context, users []User) {
+	percentReader, ok := s.userGroupRateRepo.(UserGroupRatePercentReader)
+	if !ok {
+		return
+	}
+	for i := range users {
+		percents, err := percentReader.GetPercentByUserID(ctx, users[i].ID)
+		if err != nil {
+			logger.LegacyPrintf("service.admin", "failed to load user group rate percents: user_id=%d err=%v", users[i].ID, err)
+			continue
+		}
+		users[i].GroupRatePercents = percents
+	}
 }
 
 func (s *adminServiceImpl) loadUserGroupRatesOneByOne(ctx context.Context, users []User) {
@@ -97,6 +131,14 @@ func (s *adminServiceImpl) GetUser(ctx context.Context, id int64) (*User, error)
 			logger.LegacyPrintf("service.admin", "failed to load user group rates: user_id=%d err=%v", id, err)
 		} else {
 			user.GroupRates = rates
+		}
+		if percentReader, ok := s.userGroupRateRepo.(UserGroupRatePercentReader); ok {
+			percents, percentErr := percentReader.GetPercentByUserID(ctx, id)
+			if percentErr != nil {
+				logger.LegacyPrintf("service.admin", "failed to load user group rate percents: user_id=%d err=%v", id, percentErr)
+			} else {
+				user.GroupRatePercents = percents
+			}
 		}
 	}
 	return user, nil
@@ -196,11 +238,21 @@ func (s *adminServiceImpl) assignDefaultSubscriptions(ctx context.Context, userI
 }
 
 func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *UpdateUserInput) (*User, error) {
+	if input.GroupRates != nil && input.GroupRatePercents != nil {
+		return nil, infraerrors.BadRequest("AMBIGUOUS_USER_GROUP_RATE", "group_rates and group_rate_percents cannot be submitted together")
+	}
 	// 校验用户专属分组倍率：允许显式 0（nil 合法，表示清除专属倍率）。
 	if input.GroupRates != nil {
 		for groupID, rate := range input.GroupRates {
 			if rate != nil && (*rate < 0 || math.IsNaN(*rate) || math.IsInf(*rate, 0)) {
 				return nil, fmt.Errorf("rate_multiplier must be >= 0 (group_id=%d)", groupID)
+			}
+		}
+	}
+	if input.GroupRatePercents != nil {
+		for groupID, percent := range input.GroupRatePercents {
+			if percent != nil && (*percent < 0 || math.IsNaN(*percent) || math.IsInf(*percent, 0)) {
+				return nil, infraerrors.BadRequest("INVALID_GROUP_RATE_PERCENT", fmt.Sprintf("rate_percent must be >= 0 (group_id=%d)", groupID))
 			}
 		}
 	}
@@ -302,7 +354,28 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 	// 同步用户专属分组倍率
 	if input.GroupRates != nil && s.userGroupRateRepo != nil {
 		if err := s.userGroupRateRepo.SyncUserGroupRates(ctx, user.ID, input.GroupRates); err != nil {
-			logger.LegacyPrintf("service.admin", "failed to sync user group rates: user_id=%d err=%v", user.ID, err)
+			InvalidateUserGroupRateCachesByUser(user.ID)
+			if s.authCacheInvalidator != nil {
+				s.authCacheInvalidator.InvalidateAuthCacheByUserID(ctx, user.ID)
+			}
+			return nil, err
+		}
+		InvalidateUserGroupRateCachesByUser(user.ID)
+		if s.authCacheInvalidator != nil {
+			s.authCacheInvalidator.InvalidateAuthCacheByUserID(ctx, user.ID)
+		}
+	}
+	if input.GroupRatePercents != nil && s.userGroupRateRepo != nil {
+		percentWriter, ok := s.userGroupRateRepo.(UserGroupRatePercentWriter)
+		if !ok {
+			return nil, errors.New("user group rate percent storage is unavailable")
+		}
+		if err := percentWriter.SyncUserGroupRatePercents(ctx, user.ID, input.GroupRatePercents); err != nil {
+			InvalidateUserGroupRateCachesByUser(user.ID)
+			if s.authCacheInvalidator != nil {
+				s.authCacheInvalidator.InvalidateAuthCacheByUserID(ctx, user.ID)
+			}
+			return nil, err
 		}
 		InvalidateUserGroupRateCachesByUser(user.ID)
 		if s.authCacheInvalidator != nil {

@@ -83,10 +83,13 @@
                     type="number"
                     step="0.001"
                     min="0"
-                    :value="config.customRate ?? ''"
+                    :value="getCustomRate(config) ?? ''"
                     @input="updateCustomRate(config.groupId, ($event.target as HTMLInputElement).value)"
                     :placeholder="String(config.defaultRate)"
-                    class="hide-spinner w-24 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium transition-colors focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-dark-500 dark:bg-dark-700 dark:focus:border-primary-500"
+                    :data-test="`group-effective-rate-${config.groupId}`"
+                    :disabled="config.defaultRate <= 0"
+                    :title="config.defaultRate > 0 ? t('admin.users.actualRateHint') : t('admin.users.actualRateUnavailable')"
+                    class="hide-spinner w-24 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium transition-colors focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400 dark:border-dark-500 dark:bg-dark-700 dark:focus:border-primary-500 dark:disabled:bg-dark-600"
                   />
                   </label>
                   <label class="text-xs font-medium text-gray-600 dark:text-gray-400">
@@ -95,12 +98,12 @@
                       type="number"
                       step="0.01"
                       min="0"
-                      :value="getCustomRatePercent(config) ?? ''"
-                      :disabled="config.defaultRate <= 0"
+                      :value="config.customRatePercent ?? ''"
                       @input="updateCustomRatePercent(config.groupId, ($event.target as HTMLInputElement).value)"
-                      :placeholder="config.defaultRate > 0 ? '100' : '—'"
-                      :title="config.defaultRate > 0 ? t('admin.users.relativeRatePercentHint') : t('admin.users.relativeRatePercentUnavailable')"
-                      class="hide-spinner w-24 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium transition-colors focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400 dark:border-dark-500 dark:bg-dark-700 dark:disabled:bg-dark-600"
+                      :data-test="`group-rate-percent-${config.groupId}`"
+                      placeholder="100"
+                      :title="t('admin.users.relativeRatePercentHint')"
+                      class="hide-spinner w-24 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium transition-colors focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-dark-500 dark:bg-dark-700"
                     />
                   </label>
                 </div>
@@ -179,10 +182,13 @@
                     type="number"
                     step="0.001"
                     min="0"
-                    :value="config.customRate ?? ''"
+                    :value="getCustomRate(config) ?? ''"
                     @input="updateCustomRate(config.groupId, ($event.target as HTMLInputElement).value)"
                     :placeholder="String(config.defaultRate)"
-                    class="hide-spinner w-24 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium transition-colors focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-dark-500 dark:bg-dark-700 dark:focus:border-primary-500"
+                    :data-test="`group-effective-rate-${config.groupId}`"
+                    :disabled="config.defaultRate <= 0"
+                    :title="config.defaultRate > 0 ? t('admin.users.actualRateHint') : t('admin.users.actualRateUnavailable')"
+                    class="hide-spinner w-24 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium transition-colors focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400 dark:border-dark-500 dark:bg-dark-700 dark:focus:border-primary-500 dark:disabled:bg-dark-600"
                   />
                   </label>
                   <label class="text-xs font-medium text-gray-600 dark:text-gray-400">
@@ -191,12 +197,12 @@
                       type="number"
                       step="0.01"
                       min="0"
-                      :value="getCustomRatePercent(config) ?? ''"
-                      :disabled="config.defaultRate <= 0"
+                      :value="config.customRatePercent ?? ''"
                       @input="updateCustomRatePercent(config.groupId, ($event.target as HTMLInputElement).value)"
-                      :placeholder="config.defaultRate > 0 ? '100' : '—'"
-                      :title="config.defaultRate > 0 ? t('admin.users.relativeRatePercentHint') : t('admin.users.relativeRatePercentUnavailable')"
-                      class="hide-spinner w-24 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium transition-colors focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400 dark:border-dark-500 dark:bg-dark-700 dark:disabled:bg-dark-600"
+                      :data-test="`group-rate-percent-${config.groupId}`"
+                      placeholder="100"
+                      :title="t('admin.users.relativeRatePercentHint')"
+                      class="hide-spinner w-24 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium transition-colors focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-dark-500 dark:bg-dark-700"
                     />
                   </label>
                 </div>
@@ -220,7 +226,7 @@
     <template #footer>
       <div class="flex justify-end gap-3">
         <button @click="$emit('close')" class="btn btn-secondary px-5">{{ t('common.cancel') }}</button>
-        <button @click="handleSave" :disabled="submitting" class="btn btn-primary px-6">
+        <button data-test="save-group-config" @click="handleSave" :disabled="submitting" class="btn btn-primary px-6">
           <svg v-if="submitting" class="-ml-1 mr-2 h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -248,7 +254,7 @@ interface GroupRateConfig {
   platform: GroupPlatform
   isExclusive: boolean
   defaultRate: number
-  customRate: number | null
+  customRatePercent: number | null
   isSelected: boolean
 }
 
@@ -259,7 +265,7 @@ const appStore = useAppStore()
 
 const groups = ref<Group[]>([])
 const groupConfigs = ref<GroupRateConfig[]>([])
-const originalGroupRates = ref<Record<number, number>>({}) // 记录原始专属倍率，用于检测删除
+const originalGroupRatePercents = ref<Record<number, number>>({}) // 记录原始专属比例，用于检测删除
 const loading = ref(false)
 const submitting = ref(false)
 const restrictPublicGroups = ref(false)
@@ -289,11 +295,19 @@ const load = async () => {
 
     // 初始化配置
     const userAllowedGroups = props.user?.allowed_groups || []
-    const userGroupRates = props.user?.group_rates || {}
+    const userGroupRatePercents = props.user?.group_rate_percents || {}
+    const compatibilityGroupRates = props.user?.group_rates || {}
     restrictPublicGroups.value = props.user?.restrict_public_groups ?? false
 
-    // 保存原始专属倍率，用于检测删除操作
-    originalGroupRates.value = { ...userGroupRates }
+    // 百分比是规范状态；仅在旧响应缺少百分比时由兼容有效倍率反算。
+    const normalizedPercents: Record<number, number> = {}
+    for (const group of groups.value) {
+      const explicitPercent = userGroupRatePercents[group.id]
+      const compatibilityRate = compatibilityGroupRates[group.id]
+      const percent = explicitPercent ?? exclusiveRateToPercent(compatibilityRate, group.rate_multiplier)
+      if (percent !== null && percent !== undefined) normalizedPercents[group.id] = percent
+    }
+    originalGroupRatePercents.value = { ...normalizedPercents }
 
     groupConfigs.value = groups.value.map((g) => ({
       groupId: g.id,
@@ -301,7 +315,7 @@ const load = async () => {
       platform: g.platform,
       isExclusive: g.is_exclusive,
       defaultRate: g.rate_multiplier,
-      customRate: userGroupRates[g.id] ?? null,
+      customRatePercent: normalizedPercents[g.id] ?? null,
       // 专属分组：检查是否在 allowed_groups 中
       // 公开分组：未开启限制时恒可用；开启后同样以 allowed_groups 为准
       isSelected:
@@ -342,24 +356,25 @@ const updateCustomRate = (groupId: number, value: string) => {
   const config = groupConfigs.value.find((c) => c.groupId === groupId)
   if (config) {
     if (value === '' || value === null || value === undefined) {
-      config.customRate = null
+      config.customRatePercent = null
     } else {
-      config.customRate = parseNonNegativeNumber(value)
+      const ratePercent = exclusiveRateToPercent(parseNonNegativeNumber(value), config.defaultRate)
+      if (ratePercent !== null) config.customRatePercent = ratePercent
     }
   }
 }
 
-const getCustomRatePercent = (config: GroupRateConfig) =>
-  exclusiveRateToPercent(config.customRate, config.defaultRate)
+const getCustomRate = (config: GroupRateConfig) =>
+  percentToExclusiveRate(config.customRatePercent, config.defaultRate)
 
 const updateCustomRatePercent = (groupId: number, value: string) => {
   const config = groupConfigs.value.find((c) => c.groupId === groupId)
   if (!config) return
   if (value.trim() === '') {
-    config.customRate = null
+    config.customRatePercent = null
     return
   }
-  config.customRate = percentToExclusiveRate(parseNonNegativeNumber(value), config.defaultRate)
+  config.customRatePercent = parseNonNegativeNumber(value)
 }
 
 const handleSave = async () => {
@@ -367,7 +382,7 @@ const handleSave = async () => {
 
   // 只有新增或改成显式 0 时确认；已有 0 配置未发生变化不应重复打扰管理员。
   const changedToZero = groupConfigs.value.some(
-    (c) => c.customRate === 0 && originalGroupRates.value[c.groupId] !== 0,
+    (c) => c.customRatePercent === 0 && originalGroupRatePercents.value[c.groupId] !== 0,
   )
   if (changedToZero) {
     const confirmed = window.confirm(t('admin.users.zeroRateConfirm'))
@@ -382,26 +397,24 @@ const handleSave = async () => {
       .filter((c) => c.isSelected && (c.isExclusive || restrictPublicGroups.value))
       .map((c) => c.groupId)
 
-    // 构建 group_rates
-    // - 有新专属倍率: 设置为该值
-    // - 原本有专属倍率但现在被清空: 设置为 null（表示删除）
-    const groupRates: Record<number, number | null> = {}
+    // 构建 group_rate_percents
+    // - 有新专属比例: 设置为该值
+    // - 原本有专属比例但现在被清空: 设置为 null（表示删除）
+    const groupRatePercents: Record<number, number | null> = {}
     for (const c of groupConfigs.value) {
-      const hadOriginalRate = originalGroupRates.value[c.groupId] !== undefined
+      const hadOriginalRate = originalGroupRatePercents.value[c.groupId] !== undefined
 
-      if (c.customRate !== null) {
-        // 有专属倍率
-        groupRates[c.groupId] = c.customRate
+      if (c.customRatePercent !== null) {
+        groupRatePercents[c.groupId] = c.customRatePercent
       } else if (hadOriginalRate) {
-        // 原本有专属倍率，现在被清空，需要显式删除
-        groupRates[c.groupId] = null
+        groupRatePercents[c.groupId] = null
       }
     }
 
     await adminAPI.users.update(props.user.id, {
       allowed_groups: allowedGroups,
       restrict_public_groups: restrictPublicGroups.value,
-      group_rates: Object.keys(groupRates).length > 0 ? groupRates : undefined,
+      group_rate_percents: Object.keys(groupRatePercents).length > 0 ? groupRatePercents : undefined,
     })
 
     appStore.showSuccess(t('admin.users.groupConfigUpdated'))

@@ -4,8 +4,10 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
 
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/stretchr/testify/require"
 )
 
@@ -107,4 +109,66 @@ func TestAdminService_UpdateUser_AllowsExplicitZeroGroupRateAndInvalidatesCaches
 	require.NotNil(t, rateRepo.syncedRates[7])
 	require.Equal(t, 0.0, *rateRepo.syncedRates[7])
 	require.Equal(t, []int64{42}, invalidator.userIDs, "显式 0 倍率变更后应立即失效 API Key 认证快照")
+}
+
+func TestAdminService_UpdateUser_WritesGroupRatePercentsAndInvalidatesCaches(t *testing.T) {
+	base := &userRepoStub{user: &User{ID: 42, Email: "u@example.com"}}
+	repo := &rpmUserRepoStub{userRepoStub: base}
+	rateRepo := &userGroupRateRepoStubForGroupRate{}
+	invalidator := &authCacheInvalidatorStub{}
+	svc := &adminServiceImpl{
+		userRepo:             repo,
+		redeemCodeRepo:       &redeemRepoStub{},
+		userGroupRateRepo:    rateRepo,
+		authCacheInvalidator: invalidator,
+	}
+
+	percent := 50.0
+	updated, err := svc.UpdateUser(context.Background(), 42, &UpdateUserInput{
+		GroupRatePercents: map[int64]*float64{7: &percent},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, updated)
+	require.Equal(t, int64(42), rateRepo.syncedUserID)
+	require.Contains(t, rateRepo.syncedPercents, int64(7))
+	require.NotNil(t, rateRepo.syncedPercents[7])
+	require.Equal(t, 50.0, *rateRepo.syncedPercents[7])
+	require.Equal(t, []int64{42}, invalidator.userIDs)
+}
+
+func TestAdminService_UpdateUser_ReturnsGroupRatePercentPersistenceError(t *testing.T) {
+	base := &userRepoStub{user: &User{ID: 42, Email: "u@example.com"}}
+	repo := &rpmUserRepoStub{userRepoStub: base}
+	rateRepo := &userGroupRateRepoStubForGroupRate{syncUserErr: errors.New("rate persistence failed")}
+	invalidator := &authCacheInvalidatorStub{}
+	svc := &adminServiceImpl{
+		userRepo:             repo,
+		redeemCodeRepo:       &redeemRepoStub{},
+		userGroupRateRepo:    rateRepo,
+		authCacheInvalidator: invalidator,
+	}
+
+	percent := 50.0
+	updated, err := svc.UpdateUser(context.Background(), 42, &UpdateUserInput{
+		GroupRatePercents: map[int64]*float64{7: &percent},
+	})
+	require.Nil(t, updated)
+	require.EqualError(t, err, "rate persistence failed")
+	require.Equal(t, []int64{42}, invalidator.userIDs, "用户基础字段可能已落库，失败路径也必须驱逐认证快照")
+}
+
+func TestAdminService_UpdateUser_RejectsLegacyAndPercentRatesTogether(t *testing.T) {
+	base := &userRepoStub{user: &User{ID: 42, Email: "u@example.com"}}
+	repo := &rpmUserRepoStub{userRepoStub: base}
+	svc := &adminServiceImpl{userRepo: repo, redeemCodeRepo: &redeemRepoStub{}}
+	rate := 0.4
+	percent := 50.0
+
+	_, err := svc.UpdateUser(context.Background(), 42, &UpdateUserInput{
+		GroupRates:        map[int64]*float64{7: &rate},
+		GroupRatePercents: map[int64]*float64{7: &percent},
+	})
+	require.Error(t, err)
+	require.Equal(t, "AMBIGUOUS_USER_GROUP_RATE", infraerrors.Reason(err))
+	require.Nil(t, repo.lastUpdated)
 }
