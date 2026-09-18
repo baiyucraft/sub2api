@@ -224,6 +224,50 @@ def make_merge(repo: Path, upstream_base: str) -> tuple[str, str]:
     return upstream_target, git(repo, "rev-parse", "HEAD")
 
 
+def add_adopted_tranche(repo: Path, upstream_base: str, catalog: Path, target_version: str = "1.1.0") -> tuple[str, str]:
+    git(repo, "branch", "adopted-official", upstream_base)
+    git(repo, "checkout", "adopted-official")
+    write(repo / "official.txt", "adopted before release\n")
+    tip = commit_all(repo, "unreleased official change")
+    git(repo, "checkout", "main")
+    git(repo, "merge", "--no-ff", tip, "-m", "merge unreleased official tranche")
+    merge_commit = git(repo, "rev-parse", "HEAD")
+    payload = json.loads(catalog.read_text(encoding="utf-8"))
+    payload["adopted_upstream_tranches"] = [
+        {
+            "id": "fixture-unreleased-tranche",
+            "status": "adopted_unreleased",
+            "base_commit": upstream_base,
+            "tip_commit": tip,
+            "merge_commit": merge_commit,
+            "official_version_at_adoption": "1.0.0",
+            "fork_version_at_adoption": "1.0.0-baiyu",
+            "commit_count": 1,
+            "non_merge_commit_count": 1,
+            "reconciliation": {
+                "status": "pending",
+                "target_version": target_version,
+                "upstream_covered_source_commits": [],
+                "fork_retained_source_commits": [],
+                "partially_covered_source_commits": [],
+                "fork_extension_ids": [],
+            },
+        }
+    ]
+    write(catalog, json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    commit_all(repo, "register unreleased official tranche")
+    return tip, merge_commit
+
+
+def add_official_release(repo: Path, upstream_base: str, version: str = "1.1.0") -> str:
+    git(repo, "branch", "official-release", upstream_base)
+    git(repo, "checkout", "official-release")
+    write(repo / "backend/cmd/server/VERSION", version + "\n")
+    release = commit_all(repo, f"release {version}")
+    git(repo, "checkout", "main")
+    return release
+
+
 def test_post_merge_parent_and_whole_file_resolution(tmp_path: Path) -> None:
     repo, upstream_base, catalog = make_fixture(tmp_path)
     upstream_target, merge_commit = make_merge(repo, upstream_base)
@@ -235,6 +279,159 @@ def test_post_merge_parent_and_whole_file_resolution(tmp_path: Path) -> None:
     wrong, wrong_report = audit(repo, "post-merge", upstream_base, catalog, merge_commit)
     assert wrong.returncode != 0
     assert any(item["code"] == "wrong_merge_parent" for item in wrong_report["findings"])
+
+
+def test_adopted_unreleased_tranche_is_preserved_without_version_bump(tmp_path: Path) -> None:
+    repo, upstream, catalog = make_fixture(tmp_path)
+    add_adopted_tranche(repo, upstream, catalog)
+
+    proc, report = audit(repo, "pre-merge", upstream, catalog)
+
+    assert proc.returncode == 0
+    finding = next(item for item in report["findings"] if item["code"] == "adopted_upstream_tranche_preserved")
+    assert finding["details"]["official_version"] == "1.0.0"
+    assert finding["details"]["commit_count"] == 1
+    provisional = next(
+        item
+        for item in report["findings"]
+        if item["code"] == "adopted_upstream_tranche_paths_provisionally_registered"
+    )
+    assert provisional["details"]["paths"] == ["official.txt"]
+    assert not any(item["code"] == "unregistered_fork_paths" for item in report["findings"])
+
+
+def test_adopted_tranche_commit_count_drift_is_blocker(tmp_path: Path) -> None:
+    repo, upstream, catalog = make_fixture(tmp_path)
+    add_adopted_tranche(repo, upstream, catalog)
+    payload = json.loads(catalog.read_text(encoding="utf-8"))
+    payload["adopted_upstream_tranches"][0]["commit_count"] = 99
+    write(catalog, json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    commit_all(repo, "break tranche count")
+
+    proc, report = audit(repo, "pre-merge", upstream, catalog)
+
+    assert proc.returncode != 0
+    assert any(item["code"] == "adopted_upstream_tranche_commit_count_mismatch" for item in report["findings"])
+
+
+def test_adopted_tranche_does_not_hide_later_fork_changes_on_the_same_path(tmp_path: Path) -> None:
+    repo, upstream, catalog = make_fixture(tmp_path)
+    add_adopted_tranche(repo, upstream, catalog)
+    write(repo / "official.txt", "adopted before release\nnew fork behavior\n")
+    commit_all(repo, "extend adopted path in fork")
+
+    proc, report = audit(repo, "pre-merge", upstream, catalog)
+
+    assert proc.returncode != 0
+    provisional = next(
+        item
+        for item in report["findings"]
+        if item["code"] == "adopted_upstream_tranche_paths_provisionally_registered"
+    )
+    assert provisional["details"]["paths"] == []
+    assert provisional["details"]["changed_after_adoption_paths"] == ["official.txt"]
+    unregistered = next(item for item in report["findings"] if item["code"] == "unregistered_fork_paths")
+    assert "official.txt" in unregistered["details"]["paths"]
+
+
+def test_adopted_tranche_rejects_invalid_target_version_without_exemption(tmp_path: Path) -> None:
+    repo, upstream, catalog = make_fixture(tmp_path)
+    add_adopted_tranche(repo, upstream, catalog, target_version="not-a-version")
+
+    proc, report = audit(repo, "pre-merge", upstream, catalog)
+
+    assert proc.returncode != 0
+    assert any(
+        item["code"] == "adopted_upstream_tranche_version_format_invalid"
+        for item in report["findings"]
+    )
+    assert not any(
+        item["code"] == "adopted_upstream_tranche_paths_provisionally_registered"
+        for item in report["findings"]
+    )
+
+
+def test_adopted_tranche_rejects_complete_reconciliation_before_target_release(tmp_path: Path) -> None:
+    repo, upstream, catalog = make_fixture(tmp_path)
+    tip, _ = add_adopted_tranche(repo, upstream, catalog)
+    payload = json.loads(catalog.read_text(encoding="utf-8"))
+    reconciliation = payload["adopted_upstream_tranches"][0]["reconciliation"]
+    reconciliation["status"] = "complete"
+    reconciliation["fork_retained_source_commits"] = [tip]
+    reconciliation["fork_extension_ids"] = ["fixture-extension"]
+    write(catalog, json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    commit_all(repo, "complete reconciliation too early")
+
+    proc, report = audit(repo, "pre-merge", upstream, catalog)
+
+    assert proc.returncode != 0
+    assert any(
+        item["code"] == "adopted_upstream_tranche_reconciled_before_target_release"
+        for item in report["findings"]
+    )
+
+
+def test_adopted_tranche_reconciliation_rejects_unknown_fork_extension(tmp_path: Path) -> None:
+    repo, upstream, catalog = make_fixture(tmp_path)
+    tip, _ = add_adopted_tranche(repo, upstream, catalog)
+    release = add_official_release(repo, upstream)
+    payload = json.loads(catalog.read_text(encoding="utf-8"))
+    reconciliation = payload["adopted_upstream_tranches"][0]["reconciliation"]
+    reconciliation["status"] = "complete"
+    reconciliation["fork_retained_source_commits"] = [tip]
+    reconciliation["fork_extension_ids"] = ["missing-extension"]
+    write(catalog, json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    commit_all(repo, "bind missing extension")
+
+    proc, report = audit(repo, "pre-merge", release, catalog)
+
+    assert proc.returncode != 0
+    assert any(
+        item["code"] == "adopted_upstream_tranche_fork_extension_unknown"
+        for item in report["findings"]
+    )
+
+
+def test_adopted_tranche_reconciliation_requires_bound_path_coverage(tmp_path: Path) -> None:
+    repo, upstream, catalog = make_fixture(tmp_path)
+    tip, _ = add_adopted_tranche(repo, upstream, catalog)
+    release = add_official_release(repo, upstream)
+    payload = json.loads(catalog.read_text(encoding="utf-8"))
+    reconciliation = payload["adopted_upstream_tranches"][0]["reconciliation"]
+    reconciliation["status"] = "complete"
+    reconciliation["fork_retained_source_commits"] = [tip]
+    reconciliation["fork_extension_ids"] = ["fixture-extension"]
+    write(catalog, json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    commit_all(repo, "bind extension without path coverage")
+
+    proc, report = audit(repo, "pre-merge", release, catalog)
+
+    assert proc.returncode != 0
+    finding = next(
+        item
+        for item in report["findings"]
+        if item["code"] == "adopted_upstream_tranche_fork_paths_uncovered"
+    )
+    assert finding["details"]["paths"] == ["official.txt"]
+
+
+def test_target_release_requires_adopted_tranche_reconciliation(tmp_path: Path) -> None:
+    repo, upstream, catalog = make_fixture(tmp_path)
+    add_adopted_tranche(repo, upstream, catalog, target_version="1.1.0")
+    release = add_official_release(repo, upstream)
+
+    proc, report = audit(repo, "pre-merge", release, catalog)
+
+    assert proc.returncode != 0
+    finding = next(item for item in report["findings"] if item["code"] == "adopted_upstream_tranche_reconciliation_required")
+    assert finding["level"] == "catalog_update_required"
+    assert finding["details"]["preliminary_coverage"]["not_detected_commits"]
+    unregistered = next(item for item in report["findings"] if item["code"] == "unregistered_fork_paths")
+    assert "official.txt" in unregistered["details"]["paths"]
+    assert not any(
+        item["code"] == "adopted_upstream_tranche_paths_provisionally_registered"
+        for item in report["findings"]
+    )
 
 
 def test_real_catalog_registers_upstream_model_capability_sync() -> None:
@@ -252,3 +449,18 @@ def test_real_catalog_registers_upstream_model_capability_sync() -> None:
     invariants = "\n".join(extension["invariants"])
     for marker in ("sync_managed", "model_limits", "30 分钟", "24 小时", "scheduler", "凭据"):
         assert marker in invariants, marker
+
+
+def test_real_catalog_registers_unreleased_adopted_upstream_tranche() -> None:
+    catalog_path = REPO_ROOT / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml"
+    catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+    tranche = next(item for item in catalog["adopted_upstream_tranches"] if item["id"] == "upstream-main-2026-09-18-unreleased-0.2.5")
+
+    assert tranche["base_commit"] == "881f3202694c6bc932446931a30c27d9675178b9"
+    assert tranche["tip_commit"] == "efe9aab1e4ec89a42ba45e8dac20e882c5409a6a"
+    assert tranche["merge_commit"] == "f501d6ee9461b86077a376002f0048d94e16cd61"
+    assert tranche["official_version_at_adoption"] == "0.2.5"
+    assert tranche["fork_version_at_adoption"] == "0.2.5-baiyu"
+    assert tranche["commit_count"] == 52
+    assert tranche["non_merge_commit_count"] == 27
+    assert tranche["reconciliation"]["target_version"] == "0.2.6"

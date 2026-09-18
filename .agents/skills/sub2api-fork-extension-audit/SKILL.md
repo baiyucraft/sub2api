@@ -13,12 +13,13 @@ description: 审计 Sub2API fork 相对官方 upstream/main 的扩展合同。�
 - 必须由操作者明确提供官方目标的 40 位完整 commit SHA；短 SHA、未知对象、脏工作区和未解决冲突均为 blocker。
 - 不得用整文件 `ours` 或 `theirs` 解决高风险冲突。确需整文件选择时，在合并记录中说明理由并绑定专项回归测试。
 - profile 233–252、已发布 migration、checksum 和 compatibility identity 是不可变历史证据；profile 253 是当前 pending 合同。
-- Fork 版本必须等于目标官方源码 `VERSION` 加 `-baiyu`。
+- Fork 版本必须等于目标官方源码 `VERSION` 加 `-baiyu`；采用尚未正式发版且 `VERSION` 未变化的 upstream 提交批次时不得猜测下一版本或提前升版。
 - 报告只写入 `.tmp/fork-extension-audit/`，不得修改 tracked 文件。
 
 ## 强制读取
 
 - 每次审计先读取 [extensions.yaml](references/extensions.yaml)。
+- 若 `adopted_upstream_tranches` 非空，必须验证其中 base、tip、merge commit、提交数、版本和当前 HEAD 祖先关系；这些批次不得因 upstream 回退、force-push 或撤回而删除。
 - 准备或执行 upstream 合并时读取 [merge-workflow.md](references/merge-workflow.md)。
 - post-merge 审计后读取 [regression-matrix.md](references/regression-matrix.md)，按报告列出的功能域执行最低测试。
 - 进入构建、Gate、VM 或生产阶段时改用 `sub2api-production-deploy` skill；本技能不替代发布门禁。
@@ -30,6 +31,16 @@ description: 审计 Sub2API fork 相对官方 upstream/main 的扩展合同。�
 - 按故障域分别判断覆盖关系，不得因为官方修复了相邻问题，就回退仍在解决另一独立错误的本地修改。详细判定和测试要求见 [merge-workflow.md](references/merge-workflow.md)。
 
 - 如果目标 `upstream/main` 变更了账号管理或账号编辑，必须单独建立“上游管理/编辑同步”审计项：逐块对比官方的 handler/service/repository、账号编辑 modal、字段白名单、模型能力同步和相关测试，并把官方新增或修正合理合入当前的上游管理/编辑实现。不得仅合并后端变更而遗漏前端编辑流程，也不得以整文件覆盖丢失 fork 专属白名单、运行时字段或上游账号生命周期语义。
+
+## 已采用但未正式发布的 upstream 批次
+
+- upstream `main` 的提交可以在正式 tag 前被 fork 采用。采用时在 `extensions.yaml.adopted_upstream_tranches` 记录完整 base、tip、真实 merge commit、提交数和采用时的官方/Fork VERSION。
+- 如果该批次的官方 `VERSION` 仍为当前正式版本，Fork VERSION 保持该正式版本加 `-baiyu`，不得按预期版本名提前升级。例如采用 `0.2.5` 之后、正式 `0.2.6` 之前的提交时仍使用 `0.2.5-baiyu`。
+- upstream 后续回退、force-push、撤回 PR 或删除远端引用，不构成删除 fork 已采用代码或改写 Git 历史的理由。受保护批次必须继续可由 merge commit 到达。
+- 在目标正式版本到达前，批次 `base..tip` 的变更路径临时按 upstream 所有权登记，不要求伪装成 fork 扩展；该临时登记不得覆盖批次之外的路径，也不得掩盖 merge commit 之后对同一路径新增的 fork 修改。
+- 当目录声明的目标正式版本到达时，审计返回 `adopted_upstream_tranche_reconciliation_required`，必须逐源提交判断：官方完整或等价覆盖的归回 upstream；官方未覆盖的登记为 fork 扩展；部分覆盖的只保留最小 fork 增量。
+- 目标正式版本一旦到达，临时路径登记立即失效；仍未被官方覆盖的路径必须绑定正常的 fork 扩展合同，不能继续借用临时 upstream 所有权。
+- “归回 upstream”只改变维护归属并在后续语义合并中消除重复实现，不删除既有提交历史。重核完成后将 `reconciliation.status` 设为 `complete`，精确分类全部非 merge 源提交，并把保留/部分覆盖项绑定到真实存在且覆盖相应路径的 `fork_extension_ids`；目标正式版本到达前不得提前完成重核。
 
 ## 审计命令
 
