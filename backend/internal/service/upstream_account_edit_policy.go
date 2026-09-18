@@ -65,6 +65,7 @@ var upstreamAccountEditableExtraKeys = map[string]struct{}{
 	"quota_weekly_reset_day":                        {},
 	"quota_weekly_reset_hour":                       {},
 	"quota_weekly_reset_mode":                       {},
+	AccountUpstreamModelCustomRulesExtraKey:         {},
 	"web_search_emulation":                          {},
 }
 

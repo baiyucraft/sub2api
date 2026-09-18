@@ -2,6 +2,7 @@
 package dto
 
 import (
+	"maps"
 	"strconv"
 	"strings"
 	"time"
@@ -303,6 +304,9 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 	if sync := upstreamModelSyncProjection(a); sync != nil {
 		out.UpstreamModelSync = sync
 	}
+	if rules, present, err := service.UpstreamModelCustomRulesFromExtra(a.Extra); err == nil && present {
+		out.UpstreamModelCustomRules = rules
+	}
 	if p := a.UpstreamImagePricing; p != nil {
 		out.UpstreamImagePricing = &UpstreamImagePricing{
 			Supported:               p.Supported,
@@ -482,6 +486,19 @@ func upstreamModelSyncProjection(a *service.Account) *UpstreamModelSync {
 	projection.FailureKind, _ = state["failure_kind"].(string)
 	projection.ErrorCode, _ = state["error_code"].(string)
 	projection.Checksum, _ = state["checksum"].(string)
+	if autoMapping, ok := state["auto_mapping"].(map[string]string); ok {
+		projection.AutoMapping = maps.Clone(autoMapping)
+	} else if autoMapping, ok := state["auto_mapping"].(map[string]any); ok {
+		projection.AutoMapping = make(map[string]string, len(autoMapping))
+		for source, rawTarget := range autoMapping {
+			if target, ok := rawTarget.(string); ok && source != "" && target != "" {
+				projection.AutoMapping[source] = target
+			}
+		}
+		if len(projection.AutoMapping) == 0 {
+			projection.AutoMapping = nil
+		}
+	}
 	projection.ModelCount = intFromJSONNumber(state["model_count"])
 	projection.LastAttemptAt = timeFromRFC3339(state["last_attempt_at"])
 	projection.LastSuccessAt = timeFromRFC3339(state["last_success_at"])

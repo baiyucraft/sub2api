@@ -160,29 +160,6 @@
         </div>
       </section>
 
-      <section v-if="!probeOnly" class="rounded-2xl border border-gray-200 bg-white p-5 dark:border-dark-700 dark:bg-dark-900/60">
-        <div class="flex items-start justify-between gap-5">
-          <div class="min-w-0">
-            <h4 class="text-base font-semibold text-gray-900 dark:text-white">{{ t('admin.upstreamManagement.modelAliases.title') }}</h4>
-            <p class="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">{{ t('admin.upstreamManagement.modelAliases.description') }}</p>
-          </div>
-        </div>
-        <div class="mt-4 space-y-3" data-test="model-alias-rules">
-          <div v-for="(mapping, index) in modelAliasRows" :key="mapping.id" class="flex items-center gap-2" data-test="model-alias-row">
-            <input v-model="mapping.source" data-test="model-alias-source" type="text" class="input min-w-0 flex-1" :placeholder="t('admin.upstreamManagement.modelAliases.source')" />
-            <span class="shrink-0 text-gray-400">→</span>
-            <input v-model="mapping.target" data-test="model-alias-target" type="text" class="input min-w-0 flex-1" :placeholder="t('admin.upstreamManagement.modelAliases.target')" />
-            <button type="button" class="shrink-0 text-red-500 hover:text-red-700" data-test="remove-model-alias" :aria-label="t('admin.upstreamManagement.modelAliases.remove')" @click="modelAliasRows.splice(index, 1)">
-              <Icon name="trash" size="sm" />
-            </button>
-          </div>
-          <button type="button" class="btn btn-secondary text-sm" data-test="add-model-alias" @click="addModelAliasRow()">
-            + {{ t('admin.upstreamManagement.modelAliases.add') }}
-          </button>
-          <p v-if="modelAliasRows.length === 0" class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.upstreamManagement.modelAliases.empty') }}</p>
-        </div>
-        <p v-if="modelAliasError" class="mt-2 text-sm text-red-600 dark:text-red-400">{{ modelAliasError }}</p>
-      </section>
     </div>
 
     <template #footer>
@@ -216,7 +193,6 @@ const { t } = useI18n()
 const probeOnly = computed(() => props.probeOnly === true)
 const appStore = useAppStore()
 
-type ModelAliasRow = { id: number; source: string; target: string }
 const platforms = ref<ProbePlatformDescriptor[]>([])
 const legacyPlatforms: ProbePlatformDescriptor[] = [
   { id: 'openai', label: 'OpenAI', models: [], probe_supported: true },
@@ -234,7 +210,6 @@ const defaults: UpstreamManagementSettings = {
   },
   probe_models: { openai: 'gpt-4o-mini', anthropic: 'claude-3-5-haiku-latest', gemini: 'gemini-2.0-flash' },
   probe_interval_seconds: 300,
-  model_alias_rules: {},
   confidence_probe: { enabled: false, reasoning_effort: 'high', long_context_enabled: false, long_context_max_tokens: 2048, quality_degrade_threshold: 70, prompt_version: 'openai-juice-multiprobe-v2' }
   , pool_mode_retry_status_codes: [401, 403, 429]
 }
@@ -243,12 +218,9 @@ const probeIntervalMinutes = ref(5)
 const candidates = reactive<Record<string, string[]>>({})
 const loading = ref(false)
 const saving = ref(false)
-const modelAliasRows = ref<ModelAliasRow[]>([])
-const modelAliasError = ref('')
 const poolModeRetryStatusCodesInput = ref('')
 const retryStatusCodesError = ref('')
 const DEFAULT_POOL_MODE_RETRY_STATUS_CODES = [401, 403, 429]
-let nextModelAliasRowId = 1
 
 const candidateOptions = computed<Record<string, SelectOption[]>>(() => Object.fromEntries(
   Object.entries(candidates).map(([platform, values]) => [platform, values.map(value => ({ value, label: value }))])
@@ -273,7 +245,7 @@ const valid = computed(() => {
     platforms.value.filter(platform => platform.probe_supported).every(platform => {
       const value = draft.probe_models[platform.id]?.trim() || ''
       return value.length > 0 && value.length <= 120
-    }) && parseModelAliasRules() !== null && parsePoolModeRetryStatusCodes() !== null
+    }) && parsePoolModeRetryStatusCodes() !== null
 })
 
 function parsePoolModeRetryStatusCodes(): number[] | null {
@@ -297,30 +269,6 @@ function parsePoolModeRetryStatusCodes(): number[] | null {
   return Array.from(new Set(parsed)).sort((a, b) => a - b)
 }
 
-function parseModelAliasRules(): Record<string, string> | null {
-  modelAliasError.value = ''
-  const normalized: Record<string, string> = {}
-  for (const row of modelAliasRows.value) {
-    const source = row.source.trim()
-    const target = row.target.trim()
-    if (!source && !target) continue
-    if (!source || !target) {
-      modelAliasError.value = t('admin.upstreamManagement.modelAliases.invalidEntry')
-      return null
-    }
-    if (normalized[source] !== undefined) {
-      modelAliasError.value = t('admin.upstreamManagement.modelAliases.duplicateSource')
-      return null
-    }
-    normalized[source] = target
-  }
-  return normalized
-}
-
-function addModelAliasRow(source = '', target = '') {
-  modelAliasRows.value.push({ id: nextModelAliasRowId++, source, target })
-}
-
 async function load() {
   loading.value = true
   try {
@@ -339,8 +287,6 @@ async function load() {
     draft.pool_mode_retry_status_codes = [...loadedRetryStatusCodes]
     poolModeRetryStatusCodesInput.value = loadedRetryStatusCodes.join(', ')
     retryStatusCodesError.value = ''
-    modelAliasRows.value = Object.entries(settings.model_alias_rules || {}).map(([source, target]) => ({ id: nextModelAliasRowId++, source, target }))
-    modelAliasError.value = ''
     probeIntervalMinutes.value = Math.max(1, Math.min(60, Math.round(draft.probe_interval_seconds / 60)))
     platforms.value = options.platforms?.length ? options.platforms : legacyPlatforms
     for (const platform of platforms.value) {
@@ -362,8 +308,6 @@ async function save() {
   }
   saving.value = true
   try {
-    const modelAliasRules = parseModelAliasRules()
-    if (!modelAliasRules) return
     const retryStatusCodes = parsePoolModeRetryStatusCodes()
     if (!retryStatusCodes) return
     const previousRetryStatusCodes = draft.pool_mode_retry_status_codes || DEFAULT_POOL_MODE_RETRY_STATUS_CODES
@@ -385,8 +329,7 @@ async function save() {
       },
       probe_models: Object.fromEntries(Object.entries(draft.probe_models).map(([platform, model]) => [platform, model.trim()])),
       probe_interval_seconds: probeIntervalMinutes.value * 60,
-      model_alias_rules: modelAliasRules
-      , confidence_probe: { ...draft.confidence_probe, reasoning_effort: 'high', prompt_version: 'openai-juice-multiprobe-v2' },
+      confidence_probe: { ...draft.confidence_probe, reasoning_effort: 'high', prompt_version: 'openai-juice-multiprobe-v2' },
       ...(probeOnly.value ? {} : { pool_mode_retry_status_codes: retryStatusCodes })
     }
     const saved = probeOnly.value

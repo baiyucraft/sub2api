@@ -218,37 +218,38 @@ type Account struct {
 	Type     string  `json:"type"`
 	// Credentials 经 RedactCredentials 处理后只含非敏感子键；敏感 token / api_key / 私钥
 	// 的存在性通过 CredentialsStatus（has_<key>）暴露，原始值不返回前端。
-	Credentials               map[string]any                 `json:"credentials"`
-	CredentialsStatus         map[string]bool                `json:"credentials_status,omitempty"`
-	Extra                     map[string]any                 `json:"extra"`
-	OllamaCloudUsage          *service.OllamaCloudUsageState `json:"ollama_cloud_usage,omitempty"`
-	ProxyID                   *int64                         `json:"proxy_id"`
-	ProxyFallbackOriginID     *int64                         `json:"proxy_fallback_origin_id"`
-	ProxyFallbackOriginName   *string                        `json:"proxy_fallback_origin_name,omitempty"`
-	UpstreamConfigID          *int64                         `json:"upstream_config_id,omitempty"`
-	UpstreamKeyID             *int64                         `json:"upstream_key_id,omitempty"`
-	UpstreamSiteURL           *string                        `json:"upstream_site_url,omitempty"`
-	UpstreamConfigName        *string                        `json:"upstream_config_name,omitempty"`
-	UpstreamKeyName           *string                        `json:"upstream_key_name,omitempty"`
-	UpstreamKeyMasked         *string                        `json:"upstream_key_masked,omitempty"`
-	UpstreamImagePricing      *UpstreamImagePricing          `json:"upstream_image_pricing,omitempty"`
-	UpstreamVideoPricing      *UpstreamVideoPricing          `json:"upstream_video_pricing,omitempty"`
-	UpstreamLongContext       *UpstreamLongContext           `json:"upstream_long_context,omitempty"`
-	UpstreamModelSync         *UpstreamModelSync             `json:"upstream_model_sync,omitempty"`
-	UpstreamSchedulingEnabled *bool                          `json:"upstream_scheduling_enabled,omitempty"`
-	Concurrency               int                            `json:"concurrency"`
-	RPMLimit                  int                            `json:"rpm_limit"`
-	ProbeMinInputTokens       int                            `json:"probe_min_input_tokens"`
-	LoadFactor                *int                           `json:"load_factor,omitempty"`
-	Priority                  int                            `json:"priority"`
-	RateMultiplier            float64                        `json:"rate_multiplier"`
-	Status                    string                         `json:"status"`
-	ErrorMessage              string                         `json:"error_message"`
-	LastUsedAt                *time.Time                     `json:"last_used_at"`
-	ExpiresAt                 *int64                         `json:"expires_at"`
-	AutoPauseOnExpired        bool                           `json:"auto_pause_on_expired"`
-	CreatedAt                 time.Time                      `json:"created_at"`
-	UpdatedAt                 time.Time                      `json:"updated_at"`
+	Credentials               map[string]any                    `json:"credentials"`
+	CredentialsStatus         map[string]bool                   `json:"credentials_status,omitempty"`
+	Extra                     map[string]any                    `json:"extra"`
+	OllamaCloudUsage          *service.OllamaCloudUsageState    `json:"ollama_cloud_usage,omitempty"`
+	ProxyID                   *int64                            `json:"proxy_id"`
+	ProxyFallbackOriginID     *int64                            `json:"proxy_fallback_origin_id"`
+	ProxyFallbackOriginName   *string                           `json:"proxy_fallback_origin_name,omitempty"`
+	UpstreamConfigID          *int64                            `json:"upstream_config_id,omitempty"`
+	UpstreamKeyID             *int64                            `json:"upstream_key_id,omitempty"`
+	UpstreamSiteURL           *string                           `json:"upstream_site_url,omitempty"`
+	UpstreamConfigName        *string                           `json:"upstream_config_name,omitempty"`
+	UpstreamKeyName           *string                           `json:"upstream_key_name,omitempty"`
+	UpstreamKeyMasked         *string                           `json:"upstream_key_masked,omitempty"`
+	UpstreamImagePricing      *UpstreamImagePricing             `json:"upstream_image_pricing,omitempty"`
+	UpstreamVideoPricing      *UpstreamVideoPricing             `json:"upstream_video_pricing,omitempty"`
+	UpstreamLongContext       *UpstreamLongContext              `json:"upstream_long_context,omitempty"`
+	UpstreamModelSync         *UpstreamModelSync                `json:"upstream_model_sync,omitempty"`
+	UpstreamModelCustomRules  []service.UpstreamModelCustomRule `json:"upstream_model_custom_rules,omitempty"`
+	UpstreamSchedulingEnabled *bool                             `json:"upstream_scheduling_enabled,omitempty"`
+	Concurrency               int                               `json:"concurrency"`
+	RPMLimit                  int                               `json:"rpm_limit"`
+	ProbeMinInputTokens       int                               `json:"probe_min_input_tokens"`
+	LoadFactor                *int                              `json:"load_factor,omitempty"`
+	Priority                  int                               `json:"priority"`
+	RateMultiplier            float64                           `json:"rate_multiplier"`
+	Status                    string                            `json:"status"`
+	ErrorMessage              string                            `json:"error_message"`
+	LastUsedAt                *time.Time                        `json:"last_used_at"`
+	ExpiresAt                 *int64                            `json:"expires_at"`
+	AutoPauseOnExpired        bool                              `json:"auto_pause_on_expired"`
+	CreatedAt                 time.Time                         `json:"created_at"`
+	UpdatedAt                 time.Time                         `json:"updated_at"`
 
 	Schedulable bool `json:"schedulable"`
 
@@ -386,18 +387,19 @@ type UpstreamLongContext struct {
 // upstream model mapping synchronizer. It intentionally contains no upstream
 // URL, credential, response body, or raw error.
 type UpstreamModelSync struct {
-	Mode               string     `json:"mode"`
-	Status             string     `json:"status"`
-	Source             string     `json:"source,omitempty"`
-	LastAttemptAt      *time.Time `json:"last_attempt_at,omitempty"`
-	LastSuccessAt      *time.Time `json:"last_success_at,omitempty"`
-	FreshUntil         *time.Time `json:"fresh_until,omitempty"`
-	EnforceUntil       *time.Time `json:"enforce_until,omitempty"`
-	ModelCount         int        `json:"model_count"`
-	Checksum           string     `json:"checksum,omitempty"`
-	FailureKind        string     `json:"failure_kind,omitempty"`
-	ErrorCode          string     `json:"error_code,omitempty"`
-	EnforcementExpired bool       `json:"enforcement_expired"`
+	Mode               string            `json:"mode"`
+	Status             string            `json:"status"`
+	Source             string            `json:"source,omitempty"`
+	LastAttemptAt      *time.Time        `json:"last_attempt_at,omitempty"`
+	LastSuccessAt      *time.Time        `json:"last_success_at,omitempty"`
+	FreshUntil         *time.Time        `json:"fresh_until,omitempty"`
+	EnforceUntil       *time.Time        `json:"enforce_until,omitempty"`
+	ModelCount         int               `json:"model_count"`
+	Checksum           string            `json:"checksum,omitempty"`
+	FailureKind        string            `json:"failure_kind,omitempty"`
+	ErrorCode          string            `json:"error_code,omitempty"`
+	AutoMapping        map[string]string `json:"auto_mapping,omitempty"`
+	EnforcementExpired bool              `json:"enforcement_expired"`
 }
 
 // AccountListItem is the compact representation returned by the admin account
