@@ -672,6 +672,9 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 				reqLog.Info("openai.account_select_aborted_client_disconnected", zap.Error(err))
 				return
 			}
+			if h.handleOpenAICapacitySelectionExhausted(c, streamStarted, reqLog, failedAccountIDs, lastFailoverErr) {
+				return
+			}
 			reqLog.Warn("openai.account_select_failed",
 				zap.Error(openAICompatibleSelectionErrorForLog(err, requestPlatform)),
 				zap.Int("excluded_account_count", len(failedAccountIDs)),
@@ -698,6 +701,9 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			return
 		}
 		if selection == nil || selection.Account == nil {
+			if h.handleOpenAICapacitySelectionExhausted(c, streamStarted, reqLog, failedAccountIDs, lastFailoverErr) {
+				return
+			}
 			cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, reqModel, reqModel, requestPlatform)
 			if !cls.ModelNotFound {
 				markOpsRoutingCapacityLimited(c)
@@ -746,6 +752,12 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		setOpsSelectedAccount(c, account.ID, account.Platform)
 
 		accountReleaseFunc, slotResult := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, reqStream, &streamStarted, reqLog)
+		if slotResult == openAISlotAcquireCapacityFull {
+			if h.handleOpenAICapacityFull(c, forwardModel, account, failedAccountIDs, streamStarted, reqLog) {
+				continue
+			}
+			return
+		}
 		if slotResult == openAISlotAcquireProfitVetoed {
 			// 利润终检否决：排除该账号重新选号，全池耗尽由下一轮选号报错；
 			// 否决次数达上限则直接终止，避免排队抢槽后才终检的延迟放大。
@@ -1302,6 +1314,9 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 				reqLog.Info("openai_messages.account_select_aborted_client_disconnected", zap.Error(err))
 				return
 			}
+			if h.handleOpenAICapacitySelectionExhausted(c, streamStarted, reqLog, failedAccountIDs, lastFailoverErr) {
+				return
+			}
 			reqLog.Warn("openai_messages.account_select_failed",
 				zap.Error(openAICompatibleSelectionErrorForLog(err, requestPlatform)),
 				zap.Int("excluded_account_count", len(failedAccountIDs)),
@@ -1325,6 +1340,9 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			}
 		}
 		if selection == nil || selection.Account == nil {
+			if h.handleOpenAICapacitySelectionExhausted(c, streamStarted, reqLog, failedAccountIDs, lastFailoverErr) {
+				return
+			}
 			cls := classifyOpenAICompatibleNoAccountErrorFromGin(c, h.gatewayService, apiKey, currentRoutingModel, reqModel)
 			if !cls.ModelNotFound {
 				markOpsRoutingCapacityLimited(c)
@@ -1339,6 +1357,12 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		setOpsSelectedAccount(c, account.ID, account.Platform)
 
 		accountReleaseFunc, slotResult := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, reqStream, &streamStarted, reqLog)
+		if slotResult == openAISlotAcquireCapacityFull {
+			if h.handleOpenAICapacityFull(c, currentRoutingModel, account, failedAccountIDs, streamStarted, reqLog) {
+				continue
+			}
+			return
+		}
 		if slotResult == openAISlotAcquireProfitVetoed {
 			// 利润终检否决：排除该账号重新选号，全池耗尽由下一轮选号报错；
 			// 否决次数达上限则直接终止，避免排队抢槽后才终检的延迟放大。
@@ -2077,7 +2101,209 @@ const (
 	// 未写任何响应；调用方应经 recordOpenAIProfitVeto 把该账号加入本请求排除集
 	// 后重新选号，全池耗尽由下一轮选号返回标准 no available accounts。
 	openAISlotAcquireProfitVetoed
+	// openAISlotAcquireCapacityFull：账号等待队列已满，未写响应；启用容量
+	// failover 的短连接调用方应排除当前账号及其共享并发目标后重新选号。
+	openAISlotAcquireCapacityFull
 )
+
+const gatewayCapacityExhaustedMessage = "All available accounts are at capacity, please retry later"
+
+const openAICapacityFailoverStateKey = "openai_capacity_failover_state"
+
+type openAICapacityFailoverState struct {
+	excludedTargets  map[string]struct{}
+	capacityAccounts map[int64]struct{}
+	switchCount      int
+	routingModel     string
+	lastAccountID    int64
+	lastTargetKey    string
+}
+
+var (
+	openAICapacityFailoverSwitchTotal    atomic.Uint64
+	openAICapacityFailoverExhaustedTotal atomic.Uint64
+)
+
+// OpenAICapacityFailoverMetricsSnapshot reports process-local capacity
+// failover counters for operational inspection.
+type OpenAICapacityFailoverMetricsSnapshot struct {
+	SwitchTotal    uint64
+	ExhaustedTotal uint64
+}
+
+func SnapshotOpenAICapacityFailoverMetrics() OpenAICapacityFailoverMetricsSnapshot {
+	return OpenAICapacityFailoverMetricsSnapshot{
+		SwitchTotal:    openAICapacityFailoverSwitchTotal.Load(),
+		ExhaustedTotal: openAICapacityFailoverExhaustedTotal.Load(),
+	}
+}
+
+func (h *OpenAIGatewayHandler) capacityFailoverConfig() (enabled bool, maxSwitches, exhaustedStatus int) {
+	maxSwitches = 3
+	exhaustedStatus = http.StatusServiceUnavailable
+	if h == nil || h.cfg == nil {
+		return false, maxSwitches, exhaustedStatus
+	}
+	cfg := h.cfg.Gateway.Scheduling
+	enabled = cfg.CapacityFailoverEnabled
+	maxSwitches = cfg.CapacityFailoverMaxSwitches
+	if maxSwitches < 0 {
+		maxSwitches = 0
+	}
+	if cfg.CapacityFailoverExhaustedStatusCode >= 400 && cfg.CapacityFailoverExhaustedStatusCode <= 599 {
+		exhaustedStatus = cfg.CapacityFailoverExhaustedStatusCode
+	}
+	return enabled, maxSwitches, exhaustedStatus
+}
+
+func (h *OpenAIGatewayHandler) openAICapacityFailoverEligible(c *gin.Context, account *service.Account, streamStarted bool) bool {
+	enabled, _, _ := h.capacityFailoverConfig()
+	return enabled && account != nil && account.IsOpenAI() && c != nil && c.Request != nil &&
+		!isOpenAIWSUpgradeRequest(c.Request) && !streamStarted && !c.Writer.Written()
+}
+
+func openAICapacityState(c *gin.Context) *openAICapacityFailoverState {
+	if c == nil {
+		return nil
+	}
+	if value, ok := c.Get(openAICapacityFailoverStateKey); ok {
+		if state, ok := value.(*openAICapacityFailoverState); ok && state != nil {
+			return state
+		}
+	}
+	state := &openAICapacityFailoverState{
+		excludedTargets:  make(map[string]struct{}),
+		capacityAccounts: make(map[int64]struct{}),
+	}
+	c.Set(openAICapacityFailoverStateKey, state)
+	return state
+}
+
+func (h *OpenAIGatewayHandler) writeOpenAICapacityExhausted(c *gin.Context, streamStarted bool, reqLog *zap.Logger, state *openAICapacityFailoverState) {
+	_, _, status := h.capacityFailoverConfig()
+	markOpsRoutingCapacityLimited(c)
+	apiKeyID := int64(0)
+	groupID := int64(0)
+	if apiKey, ok := middleware2.GetAPIKeyFromContext(c); ok && apiKey != nil {
+		apiKeyID = apiKey.ID
+		if apiKey.GroupID != nil {
+			groupID = *apiKey.GroupID
+		}
+	}
+	fields := []zap.Field{
+		zap.Int64("api_key_id", apiKeyID),
+		zap.Int64("group_id", groupID),
+		zap.Int("http_status", status),
+		zap.Bool("exhausted", true),
+	}
+	if state != nil {
+		fields = append(fields,
+			zap.String("model", state.routingModel),
+			zap.Int64("account_id", state.lastAccountID),
+			zap.String("concurrency_target", state.lastTargetKey),
+			zap.Int("switch_count", state.switchCount),
+			zap.Int("excluded_target_count", len(state.excludedTargets)),
+		)
+	}
+	if reqLog != nil {
+		reqLog.Warn("gateway_capacity_exhausted", fields...)
+	}
+	openAICapacityFailoverExhaustedTotal.Add(1)
+	h.handleStreamingAwareErrorWithCode(
+		c,
+		status,
+		"api_error",
+		gatewayCapacityExhaustedCode,
+		gatewayCapacityExhaustedMessage,
+		streamStarted,
+		false,
+	)
+}
+
+// handleOpenAICapacityFull records a request-local capacity exclusion and
+// returns true when the caller should retry account selection.
+func (h *OpenAIGatewayHandler) handleOpenAICapacityFull(
+	c *gin.Context,
+	routingModel string,
+	account *service.Account,
+	failedAccountIDs map[int64]struct{},
+	streamStarted bool,
+	reqLog *zap.Logger,
+) bool {
+	state := openAICapacityState(c)
+	if state == nil || account == nil {
+		h.writeOpenAICapacityExhausted(c, streamStarted, reqLog, state)
+		return false
+	}
+	target := account.SchedulingConcurrencyTarget()
+	targetKey := target.Key()
+	state.routingModel = routingModel
+	state.lastAccountID = account.ID
+	state.lastTargetKey = targetKey
+	if _, duplicate := state.excludedTargets[targetKey]; duplicate {
+		h.writeOpenAICapacityExhausted(c, streamStarted, reqLog, state)
+		return false
+	}
+	state.excludedTargets[targetKey] = struct{}{}
+	state.capacityAccounts[account.ID] = struct{}{}
+	if failedAccountIDs != nil {
+		failedAccountIDs[account.ID] = struct{}{}
+	}
+	if c != nil && c.Request != nil {
+		c.Request = c.Request.WithContext(service.WithOpenAICapacityExcludedTargets(c.Request.Context(), state.excludedTargets))
+	}
+
+	_, maxSwitches, _ := h.capacityFailoverConfig()
+	if state.switchCount >= maxSwitches {
+		h.writeOpenAICapacityExhausted(c, streamStarted, reqLog, state)
+		return false
+	}
+	state.switchCount++
+	openAICapacityFailoverSwitchTotal.Add(1)
+
+	apiKeyID := int64(0)
+	groupID := int64(0)
+	if apiKey, ok := middleware2.GetAPIKeyFromContext(c); ok && apiKey != nil {
+		apiKeyID = apiKey.ID
+		if apiKey.GroupID != nil {
+			groupID = *apiKey.GroupID
+		}
+	}
+	if reqLog != nil {
+		reqLog.Info("gateway_capacity_failover",
+			zap.Int64("api_key_id", apiKeyID),
+			zap.Int64("group_id", groupID),
+			zap.String("model", routingModel),
+			zap.Int64("account_id", account.ID),
+			zap.String("concurrency_target", targetKey),
+			zap.Int("switch_count", state.switchCount),
+			zap.Int("max_switches", maxSwitches),
+			zap.Bool("exhausted", false),
+		)
+	}
+	return true
+}
+
+func (h *OpenAIGatewayHandler) handleOpenAICapacitySelectionExhausted(c *gin.Context, streamStarted bool, reqLog *zap.Logger, failedAccountIDs map[int64]struct{}, lastFailoverErr *service.UpstreamFailoverError) bool {
+	if lastFailoverErr != nil || c == nil {
+		return false
+	}
+	value, ok := c.Get(openAICapacityFailoverStateKey)
+	if !ok {
+		return false
+	}
+	state, ok := value.(*openAICapacityFailoverState)
+	if !ok || state == nil || len(state.excludedTargets) == 0 {
+		return false
+	}
+	for accountID := range failedAccountIDs {
+		if _, capacityFailure := state.capacityAccounts[accountID]; !capacityFailure {
+			return false
+		}
+	}
+	h.writeOpenAICapacityExhausted(c, streamStarted, reqLog, state)
+	return true
+}
 
 // openAIWSTurnPricing 持有 WebSocket 连接内「当前 turn」的计费定价时刻。
 // 由 BeforeTurn 在每个 turn 开始时冻结，AfterTurn 的用量提交读取它；turn 在
@@ -2303,6 +2529,9 @@ func (h *OpenAIGatewayHandler) acquireOpenAIAccountSlot(
 			zap.Int64("account_id", account.ID),
 			zap.Int("max_waiting", selection.WaitPlan.MaxWaiting),
 		)
+		if h.openAICapacityFailoverEligible(c, account, *streamStarted) {
+			return nil, openAISlotAcquireCapacityFull
+		}
 		writeError(http.StatusTooManyRequests, "rate_limit_error", gatewayQueueFullCode, "Too many pending requests, please retry later")
 		return nil, openAISlotAcquireFailed
 	}

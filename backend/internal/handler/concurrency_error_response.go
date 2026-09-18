@@ -10,8 +10,9 @@ import (
 const statusClientClosedRequest = 499
 
 const (
-	gatewayQueueFullCode        = "gateway_queue_full"
-	gatewayConcurrencyLimitCode = "gateway_concurrency_limit"
+	gatewayQueueFullCode         = "gateway_queue_full"
+	gatewayCapacityExhaustedCode = "gateway_capacity_exhausted"
+	gatewayConcurrencyLimitCode  = "gateway_concurrency_limit"
 )
 
 func concurrencyErrorResponse(err error, slotType string) (int, string, string, string) {

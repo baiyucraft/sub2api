@@ -1467,6 +1467,13 @@ type GatewaySchedulingConfig struct {
 	FallbackWaitTimeout time.Duration `mapstructure:"fallback_wait_timeout"`
 	FallbackMaxWaiting  int           `mapstructure:"fallback_max_waiting"`
 
+	// 账号等待队列满载时，是否在当前请求内切换到其他账号。
+	CapacityFailoverEnabled bool `mapstructure:"capacity_failover_enabled"`
+	// 单次请求因容量不足最多切换账号的次数。
+	CapacityFailoverMaxSwitches int `mapstructure:"capacity_failover_max_switches"`
+	// 所有候选账号容量耗尽时返回的 HTTP 状态码。
+	CapacityFailoverExhaustedStatusCode int `mapstructure:"capacity_failover_exhausted_status_code"`
+
 	// 兜底层账户选择策略: "last_used"(按最后使用时间排序，默认) 或 "random"(随机)
 	FallbackSelectionMode string `mapstructure:"fallback_selection_mode"`
 
@@ -2502,6 +2509,9 @@ func setDefaults() {
 	viper.SetDefault("gateway.scheduling.sticky_session_wait_timeout", 120*time.Second)
 	viper.SetDefault("gateway.scheduling.fallback_wait_timeout", 30*time.Second)
 	viper.SetDefault("gateway.scheduling.fallback_max_waiting", 100)
+	viper.SetDefault("gateway.scheduling.capacity_failover_enabled", false)
+	viper.SetDefault("gateway.scheduling.capacity_failover_max_switches", 3)
+	viper.SetDefault("gateway.scheduling.capacity_failover_exhausted_status_code", 503)
 	viper.SetDefault("gateway.scheduling.fallback_selection_mode", "last_used")
 	viper.SetDefault("gateway.scheduling.prefer_soonest_reset", false)
 	viper.SetDefault("gateway.scheduling.load_batch_enabled", true)
@@ -3640,6 +3650,13 @@ func (c *Config) Validate() error {
 	}
 	if c.Gateway.Scheduling.FallbackMaxWaiting <= 0 {
 		return fmt.Errorf("gateway.scheduling.fallback_max_waiting must be positive")
+	}
+	if c.Gateway.Scheduling.CapacityFailoverMaxSwitches < 0 {
+		return fmt.Errorf("gateway.scheduling.capacity_failover_max_switches must be non-negative")
+	}
+	if c.Gateway.Scheduling.CapacityFailoverExhaustedStatusCode < 400 ||
+		c.Gateway.Scheduling.CapacityFailoverExhaustedStatusCode > 599 {
+		return fmt.Errorf("gateway.scheduling.capacity_failover_exhausted_status_code must be between 400-599")
 	}
 	if c.Gateway.Scheduling.LoadBatchCacheTTLMS < 0 {
 		return fmt.Errorf("gateway.scheduling.load_batch_cache_ttl_ms must be non-negative")
