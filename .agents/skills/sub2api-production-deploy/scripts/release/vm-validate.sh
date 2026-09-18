@@ -101,12 +101,11 @@ if [[ "$manifest_schema" == 2 ]]; then
   trap on_v2_failure ERR INT TERM
   cd "$source_dir"
   [[ -f .sub2api-deploy-worktree ]]
-  # The VM's inherited HTTP proxy is reserved for package/image traffic and
-  # can reject GitHub smart-HTTP requests. Git source synchronization has a
-  # verified direct egress path, so keep proxy state out of this fetch only.
-  env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY \
-    git fetch --no-tags --depth=1 origin \
-      +refs/heads/main:refs/remotes/origin/main >/dev/null 2>&1
+  # Preserve the VM's verified Git egress environment. The remote-tracking
+  # refspec is explicit and forced so a stale local origin/main cannot block
+  # synchronization without changing the remote branch.
+  git fetch --no-tags --depth=1 origin \
+    +main:refs/remotes/origin/main >/dev/null 2>&1
   [[ $(git rev-parse origin/main) == "$commit" ]]
   git reset --hard "$commit" >/dev/null
   [[ $(git rev-parse HEAD) == "$commit" ]]
