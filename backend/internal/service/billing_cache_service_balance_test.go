@@ -66,7 +66,7 @@ func TestCheckBillingEligibility_AllowsBalanceAtMinimumReserve(t *testing.T) {
 func TestCheckBillingEligibility_ExplicitZeroRateSkipsBalanceCheck(t *testing.T) {
 	cache := &balanceEligibilityCacheStub{balance: 0}
 	rate := 0.0
-	rateRepo := &userGroupRateResolverRepoStub{rate: &rate}
+	rateRepo := &userGroupRateResolverRepoStub{percent: &rate}
 	cfg := &config.Config{}
 	cfg.Billing.MinimumBalanceReserve = 0.01
 	svc := NewBillingCacheService(cache, nil, nil, nil, nil, rateRepo, cfg, nil)
@@ -79,7 +79,7 @@ func TestCheckBillingEligibility_ExplicitZeroRateSkipsBalanceCheck(t *testing.T)
 func TestCheckBillingEligibility_ExplicitZeroGroupRateBypassesBalance(t *testing.T) {
 	cache := &balanceEligibilityCacheStub{balance: 0}
 	rate := 0.0
-	rateRepo := &userGroupRateResolverRepoStub{rate: &rate}
+	rateRepo := &userGroupRateResolverRepoStub{percent: &rate}
 	cfg := &config.Config{}
 	cfg.Billing.MinimumBalanceReserve = 0.01
 	svc := NewBillingCacheService(cache, nil, nil, nil, nil, rateRepo, cfg, nil)

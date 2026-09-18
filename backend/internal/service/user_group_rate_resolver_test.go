@@ -12,17 +12,21 @@ import (
 type userGroupRateResolverRepoStub struct {
 	UserGroupRateRepository
 
-	rate  *float64
-	err   error
-	calls int
+	percent *float64
+	err     error
+	calls   int
 }
 
-func (s *userGroupRateResolverRepoStub) GetByUserAndGroup(ctx context.Context, userID, groupID int64) (*float64, error) {
+func (s *userGroupRateResolverRepoStub) GetPercentByUserID(context.Context, int64) (map[int64]float64, error) {
+	panic("unexpected GetPercentByUserID call")
+}
+
+func (s *userGroupRateResolverRepoStub) GetPercentByUserAndGroup(ctx context.Context, userID, groupID int64) (*float64, error) {
 	s.calls++
 	if s.err != nil {
 		return nil, s.err
 	}
-	return s.rate, nil
+	return s.percent, nil
 }
 
 func TestNewUserGroupRateResolver_Defaults(t *testing.T) {
@@ -47,21 +51,21 @@ func TestUserGroupRateResolverResolve_FallbackForNilResolverAndInvalidIDs(t *tes
 func TestUserGroupRateResolverResolve_InvalidCacheEntryLoadsRepoAndCaches(t *testing.T) {
 	resetGatewayHotpathStatsForTest()
 
-	rate := 1.7
-	repo := &userGroupRateResolverRepoStub{rate: &rate}
+	percent := 50.0
+	repo := &userGroupRateResolverRepoStub{percent: &percent}
 	cache := gocache.New(time.Minute, time.Minute)
 	cache.Set("101:202", "bad-cache", time.Minute)
 	resolver := newUserGroupRateResolver(repo, cache, time.Minute, nil, "service.test")
 
 	got := resolver.Resolve(context.Background(), 101, 202, 1.2)
-	require.Equal(t, rate, got)
+	require.Equal(t, 0.6, got)
 	require.Equal(t, 1, repo.calls)
 
 	cached, ok := cache.Get("101:202")
 	require.True(t, ok)
 	entry, ok := cached.(cachedUserGroupRate)
 	require.True(t, ok)
-	require.Equal(t, rate, entry.multiplier)
+	require.Equal(t, percent, entry.percent)
 	require.True(t, entry.hasOverride)
 
 	hit, miss, load, _, fallback := GatewayUserGroupRateCacheStats()
@@ -75,37 +79,47 @@ func TestGatewayServiceGetUserGroupRateMultiplier_FallbacksAndUsesExistingResolv
 	var nilSvc *GatewayService
 	require.Equal(t, 1.3, nilSvc.getUserGroupRateMultiplier(context.Background(), 101, 202, 1.3))
 
-	rate := 1.9
-	repo := &userGroupRateResolverRepoStub{rate: &rate}
+	percent := 150.0
+	repo := &userGroupRateResolverRepoStub{percent: &percent}
 	resolver := newUserGroupRateResolver(repo, nil, time.Minute, nil, "service.gateway")
 	svc := &GatewayService{userGroupRateResolver: resolver}
 
 	got := svc.getUserGroupRateMultiplier(context.Background(), 101, 202, 1.2)
-	require.Equal(t, rate, got)
+	require.Equal(t, 1.8, got)
 	require.Equal(t, 1, repo.calls)
 }
 
 func TestUserGroupRateResolver_ExplicitZeroAndInvalidation(t *testing.T) {
-	rate := 1.25
-	repo := &userGroupRateResolverRepoStub{rate: &rate}
+	percent := 62.5
+	repo := &userGroupRateResolverRepoStub{percent: &percent}
 	resolver := newUserGroupRateResolver(repo, nil, time.Minute, nil, "service.test")
 
 	require.False(t, resolver.IsExplicitZero(context.Background(), 101, 202))
-	rate = 0
+	percent = 0
 	// The cached positive value must remain until the administrative invalidation.
 	require.False(t, resolver.IsExplicitZero(context.Background(), 101, 202))
 	InvalidateUserGroupRateCaches(101, 202)
 	require.True(t, resolver.IsExplicitZero(context.Background(), 101, 202))
 
-	rate = 1.5
+	percent = 75
 	InvalidateUserGroupRateCaches(101, 202)
 	require.Equal(t, 1.5, resolver.Resolve(context.Background(), 101, 202, 2.0))
 }
 
 func TestUserGroupRateResolver_MissingRateFallsBackToGroupDefault(t *testing.T) {
-	repo := &userGroupRateResolverRepoStub{rate: nil}
+	repo := &userGroupRateResolverRepoStub{percent: nil}
 	resolver := newUserGroupRateResolver(repo, nil, time.Minute, nil, "service.test")
 
 	require.False(t, resolver.IsExplicitZero(context.Background(), 101, 202))
 	require.Equal(t, 2.0, resolver.Resolve(context.Background(), 101, 202, 2.0))
+}
+
+func TestUserGroupRateResolver_CachedPercentTracksCurrentGroupRate(t *testing.T) {
+	percent := 50.0
+	repo := &userGroupRateResolverRepoStub{percent: &percent}
+	resolver := newUserGroupRateResolver(repo, nil, time.Minute, nil, "service.test")
+
+	require.Equal(t, 0.5, resolver.Resolve(context.Background(), 101, 202, 1.0))
+	require.Equal(t, 1.0, resolver.Resolve(context.Background(), 101, 202, 2.0))
+	require.Equal(t, 1, repo.calls)
 }

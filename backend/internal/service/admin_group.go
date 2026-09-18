@@ -820,6 +820,7 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	// 渠道缓存里存了 groupID → platform 的映射，改了平台要让它失效（见函数末尾）
 	previousPlatform := group.Platform
 	previousName := group.Name
+	previousRateMultiplier := group.RateMultiplier
 
 	if input.Name != "" {
 		group.Name = input.Name
@@ -1156,6 +1157,9 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	if s.authCacheInvalidator != nil {
 		s.authCacheInvalidator.InvalidateAuthCacheByGroupID(ctx, id)
 	}
+	if group.RateMultiplier != previousRateMultiplier {
+		InvalidateUserGroupRateCachesByGroup(id)
+	}
 
 	// 平台变了就失效渠道缓存：该缓存持有 groupID → platform，而渠道定价 / 模型映射 /
 	// 模型白名单都按平台严格隔离。不失效的话，缓存最长 10 分钟仍按旧平台匹配，
@@ -1367,7 +1371,7 @@ func (s *adminServiceImpl) ClearGroupRateMultipliers(ctx context.Context, groupI
 	if s.userGroupRateRepo == nil {
 		return nil
 	}
-	if err := s.userGroupRateRepo.DeleteByGroupID(ctx, groupID); err != nil {
+	if err := s.userGroupRateRepo.SyncGroupRateMultipliers(ctx, groupID, nil); err != nil {
 		return err
 	}
 	InvalidateUserGroupRateCachesByGroup(groupID)
@@ -1384,12 +1388,39 @@ func (s *adminServiceImpl) BatchSetGroupRateMultipliers(ctx context.Context, gro
 	if s.userGroupRateRepo == nil {
 		return nil
 	}
-	for _, e := range entries {
-		if e.RateMultiplier < 0 || math.IsNaN(e.RateMultiplier) || math.IsInf(e.RateMultiplier, 0) {
-			return fmt.Errorf("rate_multiplier must be >= 0 (user_id=%d)", e.UserID)
+	seenUserIDs := make(map[int64]struct{}, len(entries))
+	var group *Group
+	normalized := make([]GroupRateMultiplierInput, len(entries))
+	for i, e := range entries {
+		if e.UserID <= 0 {
+			return infraerrors.BadRequest("INVALID_USER_ID", "user_id must be > 0")
 		}
+		if _, exists := seenUserIDs[e.UserID]; exists {
+			return infraerrors.BadRequest("DUPLICATE_USER_ID", fmt.Sprintf("duplicate user_id=%d", e.UserID))
+		}
+		seenUserIDs[e.UserID] = struct{}{}
+		if (e.RatePercent == nil) == (e.RateMultiplier == nil) {
+			return infraerrors.BadRequest("AMBIGUOUS_GROUP_RATE", fmt.Sprintf("exactly one of rate_percent or rate_multiplier is required (user_id=%d)", e.UserID))
+		}
+
+		percent := e.RatePercent
+		if percent == nil {
+			if group == nil {
+				var err error
+				group, err = s.groupRepo.GetByID(ctx, groupID)
+				if err != nil {
+					return err
+				}
+			}
+			value := *e.RateMultiplier / group.RateMultiplier * 100
+			percent = &value
+		}
+		if *percent < 0 || math.IsNaN(*percent) || math.IsInf(*percent, 0) {
+			return infraerrors.BadRequest("INVALID_GROUP_RATE_PERCENT", fmt.Sprintf("rate_percent must be >= 0 (user_id=%d)", e.UserID))
+		}
+		normalized[i] = GroupRateMultiplierInput{UserID: e.UserID, RatePercent: percent}
 	}
-	if err := s.userGroupRateRepo.SyncGroupRateMultipliers(ctx, groupID, entries); err != nil {
+	if err := s.userGroupRateRepo.SyncGroupRateMultipliers(ctx, groupID, normalized); err != nil {
 		return err
 	}
 	if s.authCacheInvalidator != nil {

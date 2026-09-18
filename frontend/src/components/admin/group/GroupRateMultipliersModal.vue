@@ -52,12 +52,15 @@
           <label class="w-24 text-xs font-medium text-gray-500 dark:text-gray-400">
             <span class="mb-1 block">{{ t('admin.groups.actualRate') }}</span>
             <input
-              :value="newRate ?? ''"
+              :value="newActualRate ?? ''"
               type="number"
               step="0.001"
               min="0"
+              data-test="new-effective-rate-input"
+              :disabled="!group || group.rate_multiplier <= 0"
+              :title="group && group.rate_multiplier > 0 ? t('admin.groups.actualRateHint') : t('admin.groups.actualRateUnavailable')"
               autocomplete="off"
-              class="hide-spinner input w-full"
+              class="hide-spinner input w-full disabled:cursor-not-allowed disabled:bg-gray-100 dark:disabled:bg-dark-600"
               placeholder="1.0"
               @input="updateNewRate(($event.target as HTMLInputElement).value)"
             />
@@ -69,9 +72,10 @@
               type="number"
               step="0.01"
               min="0"
-              :disabled="!group || group.rate_multiplier <= 0"
+              data-test="new-rate-percent-input"
+              :title="t('admin.groups.relativeRatePercentHint')"
               autocomplete="off"
-              class="hide-spinner input w-full disabled:cursor-not-allowed disabled:bg-gray-100 dark:disabled:bg-dark-600"
+              class="hide-spinner input w-full"
               placeholder="100"
               @input="updateNewRatePercent(($event.target as HTMLInputElement).value)"
             />
@@ -79,7 +83,7 @@
           <button
             type="button"
             class="btn btn-primary shrink-0"
-            :disabled="!selectedUser || newRate === null || newRate < 0 || !Number.isFinite(newRate)"
+            :disabled="!selectedUser || newRatePercent === null || newRatePercent < 0 || !Number.isFinite(newRatePercent)"
             @click="handleAddLocal"
           >
             {{ t('common.add') }}
@@ -97,6 +101,7 @@
               step="0.1"
               min="0"
               autocomplete="off"
+              data-test="batch-rate-factor-input"
               class="hide-spinner w-20 rounded border border-gray-200 bg-white px-2 py-1 text-center text-sm transition-colors focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500/20 dark:border-dark-500 dark:bg-dark-700 dark:focus:border-primary-500"
               placeholder="0.5"
             />
@@ -104,6 +109,7 @@
               type="button"
               class="btn btn-primary btn-sm shrink-0 px-2.5 py-1 text-xs"
               :disabled="!batchFactor || batchFactor <= 0"
+              data-test="apply-batch-factor"
               @click="applyBatchFactor"
             >
               {{ t('admin.groups.applyMultiplier') }}
@@ -114,15 +120,16 @@
               type="number"
               step="0.01"
               min="0"
-              :disabled="!group || group.rate_multiplier <= 0"
               autocomplete="off"
-              class="hide-spinner w-20 rounded border border-gray-200 bg-white px-2 py-1 text-center text-sm transition-colors focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500/20 disabled:cursor-not-allowed disabled:bg-gray-100 dark:border-dark-500 dark:bg-dark-700 dark:disabled:bg-dark-600"
+              data-test="batch-rate-percent-input"
+              class="hide-spinner w-20 rounded border border-gray-200 bg-white px-2 py-1 text-center text-sm transition-colors focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500/20 dark:border-dark-500 dark:bg-dark-700"
               placeholder="50"
             />
             <button
               type="button"
               class="btn btn-primary btn-sm shrink-0 px-2.5 py-1 text-xs"
-              :disabled="batchPercent === null || batchPercent < 0 || !Number.isFinite(batchPercent) || !group || group.rate_multiplier <= 0"
+              :disabled="batchPercent === null || batchPercent < 0 || !Number.isFinite(batchPercent)"
+              data-test="apply-batch-percent"
               @click="applyBatchPercent"
             >
               {{ t('admin.groups.applyRatePercent') }}
@@ -170,7 +177,7 @@
                     <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('admin.groups.columns.userName') }}</th>
                     <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('admin.groups.columns.userNotes') }}</th>
                     <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('admin.groups.columns.userStatus') }}</th>
-                    <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('admin.groups.columns.rateMultiplier') }}</th>
+                    <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('admin.groups.actualRate') }}</th>
                     <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('admin.groups.columns.ratePercent') }}</th>
                     <th v-if="showFinalRate" class="px-3 py-2 text-left text-xs font-medium text-primary-600 dark:text-primary-400">{{ t('admin.groups.finalRate') }}</th>
                     <th v-if="showProfitControlMaxRate" class="whitespace-nowrap px-3 py-2 text-left text-xs font-medium text-primary-600 dark:text-primary-400">{{ t('admin.groups.profitControl.maxAccountRate') }}</th>
@@ -205,9 +212,12 @@
                         step="0.001"
                         min="0"
                         autocomplete="off"
-                        :value="entry.rate_multiplier ?? ''"
+                        :value="getLocalActualRate(entry) ?? ''"
                         :placeholder="String(props.group?.rate_multiplier ?? 1)"
-                        class="hide-spinner w-20 rounded border border-gray-200 bg-white px-2 py-1 text-center text-sm font-medium transition-colors focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500/20 dark:border-dark-500 dark:bg-dark-700 dark:focus:border-primary-500"
+                        :data-test="`entry-effective-rate-${entry.user_id}`"
+                        :disabled="!group || group.rate_multiplier <= 0"
+                        :title="group && group.rate_multiplier > 0 ? t('admin.groups.actualRateHint') : t('admin.groups.actualRateUnavailable')"
+                        class="hide-spinner w-20 rounded border border-gray-200 bg-white px-2 py-1 text-center text-sm font-medium transition-colors focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500/20 disabled:cursor-not-allowed disabled:bg-gray-100 dark:border-dark-500 dark:bg-dark-700 dark:focus:border-primary-500 dark:disabled:bg-dark-600"
                         @change="updateLocalRate(entry.user_id, ($event.target as HTMLInputElement).value)"
                       />
                     </td>
@@ -216,22 +226,24 @@
                         type="number"
                         step="0.01"
                         min="0"
-                        :value="getLocalRatePercent(entry) ?? ''"
-                        :disabled="!group || group.rate_multiplier <= 0"
+                        :value="entry.rate_percent ?? ''"
+                        :data-test="`entry-rate-percent-${entry.user_id}`"
+                        :title="t('admin.groups.relativeRatePercentHint')"
                         autocomplete="off"
-                        class="hide-spinner w-20 rounded border border-gray-200 bg-white px-2 py-1 text-center text-sm font-medium transition-colors focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500/20 disabled:cursor-not-allowed disabled:bg-gray-100 dark:border-dark-500 dark:bg-dark-700 dark:disabled:bg-dark-600"
+                        class="hide-spinner w-20 rounded border border-gray-200 bg-white px-2 py-1 text-center text-sm font-medium transition-colors focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500/20 dark:border-dark-500 dark:bg-dark-700"
                         @change="updateLocalRatePercent(entry.user_id, ($event.target as HTMLInputElement).value)"
                       />
                     </td>
                     <td v-if="showFinalRate" class="whitespace-nowrap px-3 py-2 font-medium text-primary-600 dark:text-primary-400">
-                      {{ computeFinalRate(entry.rate_multiplier) }}
+                      {{ computeFinalRate(entry.rate_percent) }}
                     </td>
                     <td v-if="showProfitControlMaxRate" class="whitespace-nowrap px-3 py-2 font-medium text-primary-600 dark:text-primary-400">
-                      {{ computeProfitControlMaxRate(entry.rate_multiplier) }}
+                      {{ computeProfitControlMaxRate(entry.rate_percent) }}
                     </td>
                     <td class="px-2 py-2">
                       <button
                         type="button"
+                        :data-test="`remove-rate-entry-${entry.user_id}`"
                         class="rounded p-1 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400"
                         @click="removeLocal(entry.user_id)"
                       >
@@ -278,6 +290,7 @@
             type="button"
             class="btn btn-primary btn-sm px-4 py-1.5"
             :disabled="saving"
+            data-test="save-rate-multipliers"
             @click="handleSave"
           >
             <Icon v-if="saving" name="refresh" size="sm" class="mr-1 animate-spin" />
@@ -304,7 +317,9 @@ import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import { calculateProfitControlMaxAccountRate, formatProfitControlMaxAccountRate } from '@/views/admin/groupsProfitControl'
 import { exclusiveRateToPercent, parseNonNegativeNumber, percentToExclusiveRate } from '@/utils/rateMultiplier'
 
-interface LocalEntry extends GroupRateMultiplierEntry {}
+interface LocalEntry extends GroupRateMultiplierEntry {
+  rate_percent: number | null
+}
 
 const props = defineProps<{
   show: boolean
@@ -321,13 +336,12 @@ const appStore = useAppStore()
 
 const loading = ref(false)
 const saving = ref(false)
-const serverEntries = ref<GroupRateMultiplierEntry[]>([])
+const serverEntries = ref<LocalEntry[]>([])
 const localEntries = ref<LocalEntry[]>([])
 const searchQuery = ref('')
 const searchResults = ref<AdminUser[]>([])
 const showDropdown = ref(false)
 const selectedUser = ref<AdminUser | null>(null)
-const newRate = ref<number | null>(null)
 const newRatePercent = ref<number | null>(null)
 const currentPage = ref(1)
 const pageSize = ref(10)
@@ -347,6 +361,10 @@ const platformColorClass = computed(() => {
   }
 })
 
+const newActualRate = computed(() =>
+  percentToExclusiveRate(newRatePercent.value, props.group?.rate_multiplier)
+)
+
 // 是否显示"最终倍率"预览列
 const showFinalRate = computed(() => {
   return batchFactor.value != null && batchFactor.value > 0 && batchFactor.value !== 1
@@ -358,22 +376,25 @@ const showProfitControlMaxRate = computed(() => {
 })
 
 // 计算最终倍率预览
-const computeFinalRate = (rate: number | null | undefined) => {
-  const base = rate ?? props.group?.rate_multiplier ?? 1
-  if (!batchFactor.value) return base
-  return parseFloat((base * batchFactor.value).toFixed(6))
+const computeFinalRate = (ratePercent: number | null | undefined) => {
+  if (ratePercent == null) return props.group?.rate_multiplier ?? 1
+  const adjustedPercent = batchFactor.value
+    ? parseFloat((ratePercent * batchFactor.value).toFixed(6))
+    : ratePercent
+  return percentToExclusiveRate(adjustedPercent, props.group?.rate_multiplier)
 }
 
-const computeProfitControlMaxRate = (rate: number | null | undefined) => {
+const computeProfitControlMaxRate = (ratePercent: number | null | undefined) => {
   if (!props.group) return '-'
-  return formatProfitControlMaxAccountRate(calculateProfitControlMaxAccountRate(props.group, rate ?? props.group.rate_multiplier, previewNow.value, appStore.cachedPublicSettings?.server_timezone))
+  const effectiveRate = percentToExclusiveRate(ratePercent, props.group.rate_multiplier)
+  return formatProfitControlMaxAccountRate(calculateProfitControlMaxAccountRate(props.group, effectiveRate ?? props.group.rate_multiplier, previewNow.value, appStore.cachedPublicSettings?.server_timezone))
 }
 
 // 检测是否有未保存的修改
 const isDirty = computed(() => {
   if (localEntries.value.length !== serverEntries.value.length) return true
-  const serverMap = new Map(serverEntries.value.map(e => [e.user_id, e.rate_multiplier ?? null]))
-  return localEntries.value.some(e => serverMap.get(e.user_id) !== (e.rate_multiplier ?? null))
+  const serverMap = new Map(serverEntries.value.map(e => [e.user_id, e.rate_percent]))
+  return localEntries.value.some(e => serverMap.get(e.user_id) !== e.rate_percent)
 })
 
 const paginatedLocalEntries = computed(() => {
@@ -381,8 +402,16 @@ const paginatedLocalEntries = computed(() => {
   return localEntries.value.slice(start, start + pageSize.value)
 })
 
-const cloneEntries = (entries: GroupRateMultiplierEntry[]): LocalEntry[] => {
+const cloneEntries = (entries: LocalEntry[]): LocalEntry[] => {
   return entries.map(e => ({ ...e }))
+}
+
+const normalizeEntries = (entries: GroupRateMultiplierEntry[]): LocalEntry[] => {
+  return entries.flatMap((entry) => {
+    const ratePercent = entry.rate_percent
+      ?? exclusiveRateToPercent(entry.rate_multiplier, props.group?.rate_multiplier)
+    return ratePercent == null ? [] : [{ ...entry, rate_percent: ratePercent }]
+  })
 }
 
 const loadEntries = async () => {
@@ -390,8 +419,8 @@ const loadEntries = async () => {
   loading.value = true
   try {
     const raw = await adminAPI.groups.getGroupRateMultipliers(props.group.id)
-    // 仅显示已设置 rate_multiplier 的条目；rpm_override 在另一个弹窗管理，保留不动
-    serverEntries.value = raw.filter(e => e.rate_multiplier != null)
+    // 百分比是本地唯一真值；rate_multiplier 仅作为旧响应兼容回退。
+    serverEntries.value = normalizeEntries(raw)
     localEntries.value = cloneEntries(serverEntries.value)
     adjustPage()
   } catch (error) {
@@ -416,7 +445,6 @@ watch(() => props.show, (val) => {
     searchQuery.value = ''
     searchResults.value = []
     selectedUser.value = null
-    newRate.value = null
     newRatePercent.value = null
     batchPercent.value = null
     loadEntries()
@@ -456,7 +484,7 @@ const selectUser = (user: AdminUser) => {
 
 // 本地添加（或覆盖已有用户）
 const handleAddLocal = () => {
-  if (!selectedUser.value || newRate.value === null || !Number.isFinite(newRate.value) || newRate.value < 0) return
+  if (!selectedUser.value || newRatePercent.value === null || !Number.isFinite(newRatePercent.value) || newRatePercent.value < 0) return
   const user = selectedUser.value
   const idx = localEntries.value.findIndex(e => e.user_id === user.id)
   const entry: LocalEntry = {
@@ -465,7 +493,7 @@ const handleAddLocal = () => {
     user_email: user.email,
     user_notes: user.notes || '',
     user_status: user.status || 'active',
-    rate_multiplier: newRate.value,
+    rate_percent: newRatePercent.value,
     rpm_override: null
   }
   if (idx >= 0) {
@@ -475,19 +503,19 @@ const handleAddLocal = () => {
   }
   searchQuery.value = ''
   selectedUser.value = null
-  newRate.value = null
   newRatePercent.value = null
   adjustPage()
 }
 
 const updateNewRate = (value: string) => {
-  newRate.value = parseNonNegativeNumber(value)
-  newRatePercent.value = exclusiveRateToPercent(newRate.value, props.group?.rate_multiplier)
+  newRatePercent.value = exclusiveRateToPercent(
+    parseNonNegativeNumber(value),
+    props.group?.rate_multiplier
+  )
 }
 
 const updateNewRatePercent = (value: string) => {
   newRatePercent.value = parseNonNegativeNumber(value)
-  newRate.value = percentToExclusiveRate(newRatePercent.value, props.group?.rate_multiplier)
 }
 
 // 本地修改倍率
@@ -495,25 +523,25 @@ const updateLocalRate = (userId: number, value: string) => {
   const entry = localEntries.value.find(e => e.user_id === userId)
   if (!entry) return
   if (value.trim() === '') {
-    entry.rate_multiplier = null
+    entry.rate_percent = null
     return
   }
-  const num = parseFloat(value)
-  if (!Number.isFinite(num) || num < 0) return
-  entry.rate_multiplier = num
+  const actualRate = parseNonNegativeNumber(value)
+  const ratePercent = exclusiveRateToPercent(actualRate, props.group?.rate_multiplier)
+  if (ratePercent !== null) entry.rate_percent = ratePercent
 }
 
-const getLocalRatePercent = (entry: LocalEntry) =>
-  exclusiveRateToPercent(entry.rate_multiplier, props.group?.rate_multiplier)
+const getLocalActualRate = (entry: LocalEntry) =>
+  percentToExclusiveRate(entry.rate_percent, props.group?.rate_multiplier)
 
 const updateLocalRatePercent = (userId: number, value: string) => {
   const entry = localEntries.value.find(e => e.user_id === userId)
   if (!entry) return
   if (value.trim() === '') {
-    entry.rate_multiplier = null
+    entry.rate_percent = null
     return
   }
-  entry.rate_multiplier = percentToExclusiveRate(parseNonNegativeNumber(value), props.group?.rate_multiplier)
+  entry.rate_percent = parseNonNegativeNumber(value)
 }
 
 // 本地删除
@@ -526,18 +554,17 @@ const removeLocal = (userId: number) => {
 const applyBatchFactor = () => {
   if (!batchFactor.value || batchFactor.value <= 0) return
   for (const entry of localEntries.value) {
-    if (entry.rate_multiplier != null) {
-      entry.rate_multiplier = parseFloat((entry.rate_multiplier * batchFactor.value).toFixed(6))
+    if (entry.rate_percent != null) {
+      entry.rate_percent = parseFloat((entry.rate_percent * batchFactor.value).toFixed(6))
     }
   }
   batchFactor.value = null
 }
 
 const applyBatchPercent = () => {
-  if (batchPercent.value === null || batchPercent.value < 0 || !Number.isFinite(batchPercent.value) || !props.group || props.group.rate_multiplier <= 0) return
-  const actualRate = percentToExclusiveRate(batchPercent.value, props.group.rate_multiplier)
+  if (batchPercent.value === null || batchPercent.value < 0 || !Number.isFinite(batchPercent.value)) return
   for (const entry of localEntries.value) {
-    entry.rate_multiplier = actualRate
+    entry.rate_percent = batchPercent.value
   }
   batchPercent.value = null
 }
@@ -555,22 +582,22 @@ const handleCancel = () => {
   adjustPage()
 }
 
-// 保存：一次性提交所有数据（只提交 rate_multiplier；rpm_override 由独立弹窗管理）
+// 保存：一次性提交所有百分比真值；rpm_override 由独立弹窗管理。
 const handleSave = async () => {
   if (!props.group) return
-  const serverRates = new Map(serverEntries.value.map(e => [e.user_id, e.rate_multiplier ?? null]))
+  const serverRates = new Map(serverEntries.value.map(e => [e.user_id, e.rate_percent]))
   // 只有新增或改成显式 0 时确认；已有 0 配置未发生变化不应重复打扰管理员。
-  if (localEntries.value.some((e) => e.rate_multiplier === 0 && serverRates.get(e.user_id) !== 0)) {
+  if (localEntries.value.some((e) => e.rate_percent === 0 && serverRates.get(e.user_id) !== 0)) {
     const confirmed = window.confirm(t('admin.groups.zeroRateConfirm'))
     if (!confirmed) return
   }
   saving.value = true
   try {
     const entries = localEntries.value
-      .filter(e => e.rate_multiplier != null)
+      .filter(e => e.rate_percent != null)
       .map(e => ({
         user_id: e.user_id,
-        rate_multiplier: e.rate_multiplier as number
+        rate_percent: e.rate_percent as number
       }))
     await adminAPI.groups.batchSetGroupRateMultipliers(props.group.id, entries)
     appStore.showSuccess(t('admin.groups.rateSaved'))

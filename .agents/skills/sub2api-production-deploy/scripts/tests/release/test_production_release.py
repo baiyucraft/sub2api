@@ -1361,7 +1361,7 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         self.assertIn("precise_data_plan_query", assertion)
         self.assertIn("release_profile=${release_profile:-$profile}", assertion)
         self.assertIn("$profile == 240 || $profile == 241 || $profile == 242 || $profile == 243", assertion)
-        self.assertIn("if [[ $release_profile == 240 || $release_profile == 241 || $release_profile == 242 || $release_profile == 243 || $release_profile == 244 || $release_profile == 245 || $release_profile == 246 || $release_profile == 247 || $release_profile == 248 || $release_profile == 249 || $release_profile == 250 || $release_profile == 251 || $release_profile == 252 ]]; then", assertion)
+        self.assertIn("if [[ $release_profile == 240 || $release_profile == 241 || $release_profile == 242 || $release_profile == 243 || $release_profile == 244 || $release_profile == 245 || $release_profile == 246 || $release_profile == 247 || $release_profile == 248 || $release_profile == 249 || $release_profile == 250 || $release_profile == 251 || $release_profile == 252 || $release_profile == 253 ]]; then", assertion)
         self.assertNotIn("if [[ $profile == 240 ]]; then", assertion)
         self.assertIn("ROUND(k.source_rate_multiplier * COALESCE(c.recharge_rate, 1), 10)", assertion)
         self.assertGreater(switch.index('migration-195-assert.sh" postflight_db'), switch.index('docker compose "${candidate_compose_args[@]}"'))
@@ -1678,11 +1678,11 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         self.assertIn('migration-240-status', observation)
         self.assertIn('migration-241-status', precise_rate)
 
-    def test_current_profile_252_is_health_only_and_does_not_use_canary_credentials(self) -> None:
+    def test_current_profile_253_is_health_only_and_does_not_use_canary_credentials(self) -> None:
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
         preflight = (DEPLOY_ROOT / "maintenance" / "release" / "preflight.sh").read_text(encoding="utf-8")
         profiles = (DEPLOY_ROOT / "release" / "profiles.py").read_text(encoding="utf-8")
-        self.assertIn('[[ "$profile" == 252 ]]', validator)
+        self.assertIn('[[ "$profile" == 253 ]]', validator)
         self.assertIn('canary_verified:"not_checked"', validator)
         self.assertNotIn("candidate-canary.json", validator)
         self.assertNotIn("key='admin_api_key'", validator)
@@ -1696,19 +1696,17 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         self.assertNotIn("canary-api-key", v2)
         self.assertNotIn("CANARY_KEY_FILE", preflight)
         self.assertNotIn("canary-api-key", preflight)
-        self.assertNotIn('    "canary_api_key_id",', profiles[profiles.index('PROFILES["252"]'):])
+        self.assertNotIn('    "canary_api_key_id",', profiles[profiles.index('PROFILES["253"]'):])
 
-    def test_current_profile_252_version_contract_matches_vm_validator(self) -> None:
+    def test_current_profile_253_version_contract_matches_vm_validator(self) -> None:
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
         profiles = (DEPLOY_ROOT / "release" / "profiles.py").read_text(encoding="utf-8")
-        profile_block = profiles[profiles.index('PROFILES["252"]'):]
+        profile_block = profiles[profiles.index('PROFILES["253"]'):]
         self.assertIn('"version": "0.2.5-baiyu"', profile_block)
         self.assertIn('[[ "$version" == 0.2.5-baiyu ]]', validator)
-        self.assertIn('[[ $(jq -er \'.parent_profile\' "$manifest") == 251 ]]', validator)
-        self.assertIn('[[ $(jq -er \'.new_migrations | length\' "$manifest") == 3 ]]', validator)
-        self.assertIn('"274_opencode_go_platform.sql"', validator)
-        self.assertIn('"275_purge_unlimited_user_platform_quotas.sql"', validator)
-        self.assertIn('"276_api_key_scheduling_mode.sql"', validator)
+        self.assertIn('[[ $(jq -er \'.parent_profile\' "$manifest") == 252 ]]', validator)
+        self.assertIn('[[ $(jq -er \'.new_migrations | length\' "$manifest") == 1 ]]', validator)
+        self.assertIn('"277_user_group_rate_percent.sql"', validator)
 
     def test_profile_242_switch_uses_gate_v2_without_legacy_state_files(self) -> None:
         switch = self.script("switch.sh")
