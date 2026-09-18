@@ -44,6 +44,17 @@ class MigrationPlannerV2Test(unittest.TestCase):
         required_commands = next(line for line in validator.splitlines() if line.startswith("required_commands="))
         self.assertIn("tar", required_commands)
 
+    def test_vm_validator_preserves_proxy_and_forces_origin_tracking_ref(self) -> None:
+        validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
+        fetch = validator.index("git fetch --no-tags --depth=1 origin")
+        refspec = validator.index("+main:refs/remotes/origin/main", fetch)
+        reset = validator.index('git reset --hard "$commit"')
+
+        self.assertNotIn("env -u http_proxy", validator)
+        self.assertNotIn("+refs/heads/main:refs/remotes/origin/main", validator)
+        self.assertLess(fetch, refspec)
+        self.assertLess(refspec, reset)
+
     def test_vm_validator_persists_snapshot_plan_before_digest_checks(self) -> None:
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
         capture_exit = validator.index('printf \'%s\\n\' "$plan_before_exit" > "$state_dir/plan-before.exit"')
