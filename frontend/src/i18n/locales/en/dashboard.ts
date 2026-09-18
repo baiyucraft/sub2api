@@ -154,19 +154,6 @@ export default {
     disable: 'Disable',
     nameLabel: 'Name',
     namePlaceholder: 'My API Key',
-    platformLabel: 'Platform',
-    platforms: {
-      anthropic: 'Anthropic',
-      openai: 'OpenAI',
-      gemini: 'Gemini',
-      antigravity: 'Antigravity',
-      grok: 'Grok',
-      kimi: 'Kimi',
-      zhipu: 'Zhipu GLM',
-      deepseek: 'DeepSeek',
-      minimax: 'MiniMax',
-      composite: 'Composite'
-    },
     groupLabel: 'Group',
     providerLabel: 'Provider',
     providers: {
@@ -182,7 +169,6 @@ export default {
       other: 'Includes Gemini, Grok, Antigravity, OpenCode and mixed groups'
     },
     selectGroup: 'Select a group',
-    noGroupsAvailable: 'No groups are available to bind',
     statusLabel: 'Status',
     selectStatus: 'Select status',
     saving: 'Saving...',
