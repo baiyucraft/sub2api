@@ -97,6 +97,7 @@ type OpenAIAccountScheduleRequest struct {
 	// and compact_model_mapping; native remote compaction v2 leaves it false.
 	RequireCompact              bool
 	ExcludedIDs                 map[int64]struct{}
+	ExcludedConcurrencyTargets  map[string]struct{}
 	PreviousResponseExcludedIDs map[int64]struct{}
 	SeparatePreviousExclusions  bool
 }
@@ -445,6 +446,14 @@ func (s *defaultOpenAIAccountScheduler) Select(
 			return nil, decision, err
 		}
 		if selection != nil && selection.Account != nil {
+			if openAICapacityTargetKeyExcluded(req.ExcludedConcurrencyTargets, selection.Account) {
+				if selection.ReleaseFunc != nil {
+					selection.ReleaseFunc()
+				}
+				selection = nil
+			}
+		}
+		if selection != nil && selection.Account != nil {
 			compatible, _ := s.isAccountRequestCompatibleReason(ctx, selection.Account, req)
 			hasGroupMetadata := len(selection.Account.GroupIDs) > 0 || len(selection.Account.AccountGroups) > 0
 			groupCompatible := !hasGroupMetadata || openAIStickyAccountMatchesGroup(selection.Account, req.GroupID)
@@ -574,6 +583,9 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 		clearBinding()
 		return nil, false, nil
 	}
+	if openAICapacityTargetKeyExcluded(req.ExcludedConcurrencyTargets, account) {
+		return nil, false, nil
+	}
 	if shouldClearStickySession(account, req.RequestedModel) || account.Platform != NormalizeOpenAICompatiblePlatform(req.Platform) || !account.IsOpenAICompatible() || !account.IsSchedulable() {
 		clearBinding()
 		return nil, false, nil
@@ -591,6 +603,9 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 	account = s.service.recheckSelectedOpenAIAccountFromDB(ctx, account, req.GroupID, req.Platform, req.RequestedModel, req.RequireCompact, req.RequiredCapability)
 	if account == nil || !s.service.openAIAccountMatchesSchedulingGroup(account, req.GroupID) || !s.isAccountRequestCompatible(ctx, account, req) || !s.isAccountTransportCompatible(account, req.RequiredTransport) {
 		clearBinding()
+		return nil, false, nil
+	}
+	if openAICapacityTargetKeyExcluded(req.ExcludedConcurrencyTargets, account) {
 		return nil, false, nil
 	}
 	// Free-tier soft gate: sticky session must not pin an over-quota free OAuth account.
@@ -1481,6 +1496,9 @@ func (s *defaultOpenAIAccountScheduler) tryAcquireOpenAISelectionOrderWithBudget
 			continue
 		}
 		target := candidate.account.SchedulingConcurrencyTarget()
+		if _, excluded := req.ExcludedConcurrencyTargets[target.Key()]; excluded {
+			continue
+		}
 		if _, full := fullTargets[target.Key()]; full {
 			continue
 		}
@@ -1523,6 +1541,10 @@ func (s *defaultOpenAIAccountScheduler) tryAcquireOpenAISelectionOrderWithBudget
 		}
 
 		freshTarget := fresh.SchedulingConcurrencyTarget()
+		if _, excluded := req.ExcludedConcurrencyTargets[freshTarget.Key()]; excluded {
+			release(result)
+			continue
+		}
 		if freshTarget.Key() != target.Key() || freshTarget.Limit != target.Limit {
 			release(result)
 			result, attempted, acquireErr = s.tryAcquireOpenAIAccountSlot(ctx, fresh, budget)
@@ -1774,6 +1796,10 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 				filterStats.exclude("excluded")
 				continue
 			}
+		}
+		if openAICapacityTargetKeyExcluded(req.ExcludedConcurrencyTargets, account) {
+			filterStats.exclude("capacity_target_excluded")
+			continue
 		}
 		if !account.IsSchedulable() {
 			filterStats.exclude("not_schedulable")
@@ -2702,18 +2728,19 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerCore(
 			}
 			fallbackScheduler := &defaultOpenAIAccountScheduler{service: s, stats: newOpenAIAccountRuntimeStats()}
 			selection, _, err := fallbackScheduler.selectBySessionHash(ctx, OpenAIAccountScheduleRequest{
-				GroupID:                 groupID,
-				Platform:                platform,
-				SessionHash:             sessionHash,
-				StickyAccountID:         guardianParentAccountID,
-				PreserveStickyBinding:   true,
-				RequestedModel:          requestedModel,
-				RequiredTransport:       requiredTransport,
-				RequiredCapability:      requiredCapability,
-				RequiredImageCapability: requiredImageCapability,
-				RequireCompact:          requireCompact,
-				ExcludedIDs:             excludedIDs,
-				RequirePrivacySet:       s.openAIGroupRequiresPrivacySet(ctx, groupID),
+				GroupID:                    groupID,
+				Platform:                   platform,
+				SessionHash:                sessionHash,
+				StickyAccountID:            guardianParentAccountID,
+				PreserveStickyBinding:      true,
+				RequestedModel:             requestedModel,
+				RequiredTransport:          requiredTransport,
+				RequiredCapability:         requiredCapability,
+				RequiredImageCapability:    requiredImageCapability,
+				RequireCompact:             requireCompact,
+				ExcludedIDs:                excludedIDs,
+				ExcludedConcurrencyTargets: openAICapacityExcludedTargets(ctx),
+				RequirePrivacySet:          s.openAIGroupRequiresPrivacySet(ctx, groupID),
 			})
 			if err != nil {
 				return nil, decision, err
@@ -2826,6 +2853,7 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerCore(
 		ImageCostStaleAfterSeconds:  imageCostStale,
 		RequireCompact:              requireCompact,
 		ExcludedIDs:                 excludedIDs,
+		ExcludedConcurrencyTargets:  openAICapacityExcludedTargets(ctx),
 		PreviousResponseExcludedIDs: previousResponseExcludedIDs,
 		SeparatePreviousExclusions:  separatePreviousExclusions,
 	})
