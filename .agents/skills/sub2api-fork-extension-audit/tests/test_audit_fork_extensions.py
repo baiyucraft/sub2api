@@ -571,6 +571,52 @@ def test_real_catalog_registers_upstream_model_capability_sync() -> None:
         assert marker in invariants, marker
 
 
+def test_real_catalog_records_adopted_and_layered_extension_ownership() -> None:
+    catalog_path = REPO_ROOT / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml"
+    catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+    extensions = {item["id"]: item for item in catalog["extensions"]}
+
+    assert len(extensions) == len(catalog["extensions"])
+    assert extensions["prompt-security-audit"]["ownership"] == "upstream-adopted"
+    assert {"193_prompt_audit.sql", "194_prompt_audit_full_prompt.sql"} == set(
+        extensions["prompt-security-audit"]["migration_files"]
+    )
+    assert "upstream" in extensions["prompt-security-audit"]["description"].lower()
+    assert extensions["codex-gpt6-astra-catalog"]["ownership"] == "upstream-adopted"
+    assert "回归测试" in extensions["codex-gpt6-astra-catalog"]["description"]
+
+    layered = {
+        "registration-email-abuse-guard",
+        "user-balance-auto-notify",
+        "channel-monitor-v2",
+        "group-profit-control-display",
+        "quality-and-usage-aggregation",
+        "upstream-cost-attribution",
+        "shared-concurrency-loadfactor",
+    }
+    for extension_id in layered:
+        extension = extensions[extension_id]
+        assert extension["ownership"] == "fork"
+        text = " ".join([extension["description"], *extension["invariants"]]).lower()
+        assert "官方" in text or "upstream" in text, extension_id
+        assert "fork" in text, extension_id
+
+    assert "upstream-observation-and-precise-rate" not in extensions
+    assert extensions["upstream-observation-preference"]["migration_files"] == [
+        "240_upstream_observation_preference.sql"
+    ]
+    assert extensions["upstream-precise-effective-rate"]["migration_files"] == [
+        "241_precise_upstream_effective_rate.sql"
+    ]
+    assert set(extensions["fork-scheduling-compatibility-foundation"]["paths"]) == {
+        "backend/internal/forkscheduling/contracts.go",
+        "backend/internal/forkscheduling/contracts_test.go",
+        "backend/internal/forkscheduling/legacy/*.go",
+        "backend/internal/service/fork_scheduling_bridge.go",
+        "backend/internal/service/fork_scheduling_bridge_test.go",
+    }
+
+
 def test_real_catalog_registers_unreleased_adopted_upstream_tranche() -> None:
     catalog_path = REPO_ROOT / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml"
     catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
