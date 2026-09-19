@@ -138,6 +138,7 @@ func (h *GatewayHandler) WebSearch(c *gin.Context) {
 	var nativeResp *websearch.SearchResponse
 	var providerName string
 	var err error
+	var lastFailoverErr *service.UpstreamFailoverError
 
 	// Acquire + release holder for the whole handler (including failover retries).
 	defer func() {
@@ -197,6 +198,12 @@ func (h *GatewayHandler) WebSearch(c *gin.Context) {
 		if !errors.As(err, &failoverErr) || !failoverErr.ShouldRetryNextAccount() {
 			break
 		}
+		bindUpstreamFailoverAccount(c, account, failoverErr)
+		lastFailoverErr = failoverErr
+		if !allowUpstream429CapacitySwitch(c, h.settingService, h.cfg, account, failoverErr) {
+			h.handleFailoverExhausted(c, failoverErr, account.Platform, false)
+			return
+		}
 		failedAccounts[account.ID] = struct{}{}
 		if accountReleaseFunc != nil {
 			accountReleaseFunc()
@@ -205,6 +212,10 @@ func (h *GatewayHandler) WebSearch(c *gin.Context) {
 		account = nil
 	}
 	if err != nil || nativeResp == nil {
+		if lastFailoverErr != nil {
+			h.handleFailoverExhausted(c, lastFailoverErr, service.PlatformGrok, false)
+			return
+		}
 		if err != nil {
 			reqLog.Warn("gateway.web_search.upstream_failed", zap.Error(err))
 		}

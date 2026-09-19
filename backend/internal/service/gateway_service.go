@@ -705,6 +705,9 @@ type UpstreamFailoverError struct {
 	NextAccountAction        NextAccountAction
 	ClientStatusCode         int
 	ClientMessage            string
+	OriginAccountID          int64
+	OriginPlatform           string
+	OriginUpstreamBound      bool
 }
 
 func (e *UpstreamFailoverError) Error() string {
@@ -720,6 +723,23 @@ func (e *UpstreamFailoverError) ShouldRetryNextAccount() bool {
 
 func (e *UpstreamFailoverError) IsCredentialFailure() bool {
 	return e != nil && e.Stage == GatewayFailureStageAccountAuth
+}
+
+// BindOriginAccount attaches the selected physical account to a failover
+// error while the handler still owns that routing identity.
+func (e *UpstreamFailoverError) BindOriginAccount(account *Account) {
+	if e == nil || account == nil {
+		return
+	}
+	e.OriginAccountID = account.ID
+	e.OriginPlatform = account.Platform
+	e.OriginUpstreamBound = account.IsUpstreamBound()
+}
+
+// IsUpstreamBoundRateLimit is deliberately narrow: local user, API-key and
+// concurrency limits do not produce UpstreamFailoverError and never match it.
+func (e *UpstreamFailoverError) IsUpstreamBoundRateLimit() bool {
+	return e != nil && e.StatusCode == http.StatusTooManyRequests && e.OriginUpstreamBound
 }
 
 // ShouldReportAccountScheduleFailure prevents provider- and request-scoped

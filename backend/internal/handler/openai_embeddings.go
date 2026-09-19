@@ -230,6 +230,7 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 		if err != nil {
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
+				bindUpstreamFailoverAccount(c, account, failoverErr)
 				if c.Writer.Size() != writerSizeBeforeForward {
 					h.handleFailoverExhausted(c, failoverErr, true)
 					return
@@ -242,13 +243,17 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 					)
 					return
 				}
-				h.gatewayService.RecordOpenAIAccountSwitch()
-				failedAccountIDs[account.ID] = struct{}{}
-				lastFailoverErr = failoverErr
 				if switchCount >= maxAccountSwitches {
 					h.handleFailoverExhausted(c, failoverErr, false)
 					return
 				}
+				if !allowUpstream429CapacitySwitch(c, h.capacityFailoverProvider, h.cfg, account, failoverErr) {
+					h.handleFailoverExhausted(c, failoverErr, false)
+					return
+				}
+				h.gatewayService.RecordOpenAIAccountSwitch()
+				failedAccountIDs[account.ID] = struct{}{}
+				lastFailoverErr = failoverErr
 				switchCount++
 				service.ReportMonitorSwitchCount(c.Request.Context(), switchCount)
 				reqLog.Warn("openai_embeddings.upstream_failover_switching",

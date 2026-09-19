@@ -8,6 +8,7 @@
 | 全局模型别名同步 | 设置 API 兼容缺省字段并校验对象/字符串/空白；保存只写 `upstream_model_alias_rules` 不触发同步；sync_managed 下一次同步按真实模型生成 identity/alias 并保存 `auto_mapping`；manual 账号不受影响；手工映射目标消失清理、源消失但目标存在保留；失败保留旧映射和快照；成功触发 scheduler outbox/账号快照失效 |
 | NewAPI 兼容 | 旧 `data.id + Cookie`、新 `data.user.id + access_token`、Bearer 与 `New-Api-User`、无会话失败、三种认证模式互不影响 |
 | 共享并发 | 同上游多 Key 共享 slot/lease/queue/load，不同上游隔离，优先级来源解析，降低上限不终止已有请求 |
+| 容量故障转移 | 普通 OpenAI 等待队列满按共享并发目标换号；上游绑定账号 429 在同号重试耗尽后按账号换号；共享运行时开关/独立预算/可配置耗尽状态；设置关闭保留上游 429；流式与 WebSocket 不拼接跨账号语义输出；Ops 保留真实 upstream_status=429 |
 | LoadFactor | 普通账号硬并发使用 Concurrency，调度容量使用 LoadFactor 或回退；上游账号忽略派生账号字段；Priority/倍率同步不改 LoadFactor |
 | TTFT Guard | 仅带实际 group_id 分组上下文的真实业务可见首 Token 采样；状态按 group_id + account_id + canonical model 隔离；OpenAI/Composite 分组支持 inherit/enabled/disabled；策略写入与 group_changed outbox 原子化且幂等更新不发事件；各实例消费 group_changed 后清 policy cache 与该分组本地运行态；策略缓存失效期间的旧 DB 读取不得重新回填；全局设置通过 fork Redis 通道广播，远端刷新成功后只清配置变化的 inherit/global 状态，刷新失败和自定义策略均保留；无分组后台账号测试、健康探针和其他主动探针不采样、不进入分组 Guard；degradation 携带分组名、策略来源、三类触发原因和恢复倒计时 |
 | 健康探针 | OpenAI Responses、Anthropic Claude Code profile、Gemini 原生流；首文本、终止事件、challenge、截断流、超时和非 2xx 分类 |
