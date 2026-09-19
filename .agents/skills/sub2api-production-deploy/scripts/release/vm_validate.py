@@ -400,12 +400,17 @@ def main() -> None:
         # remote launcher ran. Preserve the input until repeated polls prove
         # that no handshake exists, and never launch a second worker.
         cleanup_remote_root = False
+        runner.run(
+            "local_vm",
+            f"for asset in /usr/local/libexec/sub2api-vm-validate /usr/local/libexec/sub2api-sign-gate /usr/local/libexec/sub2api-sign-dr-evidence; do test -f $asset && test ! -L $asset && test $(stat -c '%U:%G:%a' $asset) = root:root:700; done && test $(sha256sum /usr/local/libexec/sub2api-vm-validate | awk '{{print $1}}') = {manifest['vm_validator_sha256']} && test $(sha256sum /usr/local/libexec/sub2api-sign-gate | awk '{{print $1}}') = {manifest['vm_gate_signer_sha256']} && test $(sha256sum /usr/local/libexec/sub2api-sign-dr-evidence | awk '{{print $1}}') = {manifest['vm_dr_signer_sha256']} && printf 'validator_assets_verified=true\\n'",
+            {"validator_assets_verified"},
+            timeout=120,
+        )
         launch_error: BaseException | None = None
         try:
             start_result = runner.run(
                 "local_vm",
-                f"for asset in /usr/local/libexec/sub2api-vm-validate /usr/local/libexec/sub2api-sign-gate /usr/local/libexec/sub2api-sign-dr-evidence; do test -f $asset && test ! -L $asset && test $(stat -c '%U:%G:%a' $asset) = root:root:700; done && test $(sha256sum /usr/local/libexec/sub2api-vm-validate | awk '{{print $1}}') = {manifest['vm_validator_sha256']} && test $(sha256sum /usr/local/libexec/sub2api-sign-gate | awk '{{print $1}}') = {manifest['vm_gate_signer_sha256']} && test $(sha256sum /usr/local/libexec/sub2api-sign-dr-evidence | awk '{{print $1}}') = {manifest['vm_dr_signer_sha256']} && "
-                + _remote_vm_worker_script(
+                _remote_vm_worker_script(
                     remote_root=remote_root,
                     remote_manifest=remote_manifest,
                     remote_snapshot=remote_snapshot,
