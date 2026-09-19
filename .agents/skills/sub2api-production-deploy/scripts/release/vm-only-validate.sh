@@ -94,10 +94,11 @@ old_image_id=$(docker inspect -f '{{.Image}}' sub2api-dev)
 manifest_json=$(cat "$manifest")
 jq -cnS \
   --argjson manifest "$manifest_json" \
+  --arg profile "$profile" \
   --arg candidate_image_id "$candidate_image_id" \
   --arg candidate_archive_sha256 "$candidate_archive_sha256" \
   --argjson candidate_size "$candidate_size" \
-  '{gate_version:2,profile_id:253,manifest:$manifest,evidence:{candidate_image_id:$candidate_image_id,candidate_archive_sha256:$candidate_archive_sha256,candidate_size:$candidate_size,candidate_identity_verified:true,candidate_health:"pass",existing_app_health:"pass",vm_database_boundary:true,vm_redis_boundary:true,data_dev_boundary:true}}' >"$output_dir/gate.json"
+  '{gate_version:2,profile_id:($profile|tonumber),manifest:$manifest,evidence:{candidate_image_id:$candidate_image_id,candidate_archive_sha256:$candidate_archive_sha256,candidate_size:$candidate_size,candidate_identity_verified:true,candidate_health:"pass",existing_app_health:"pass",vm_database_boundary:true,vm_redis_boundary:true,data_dev_boundary:true}}' >"$output_dir/gate.json"
 chmod 400 "$output_dir/gate.json"
 /usr/local/libexec/sub2api-sign-gate "$output_dir/gate.json" "$output_dir/gate.sig"
 sha256sum "$output_dir/gate.json" "$output_dir/gate.sig" "$candidate_archive" >"$output_dir/SHA256SUMS"

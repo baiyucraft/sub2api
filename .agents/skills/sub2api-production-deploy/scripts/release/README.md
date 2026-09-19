@@ -212,8 +212,7 @@ profile 239 继续使用版本 `0.1.177-baiyu`，完整继承 profile 238 的 54
 migration 232 之后重新出现的非 Grok/Composite 视频价格，并增加数据库约束阻止再次漂移。
 profile 233–238 的历史证据保持不可变。
 
-VM Gate signer、DR signer、备份机 verifier/promoter 当前同时保留 profile 195、199、202、206、207、208、209、210、212、213、215、232、233、234、235、236、237、238 和 239
-合同。发布资产定向回归至少执行：
+VM Gate signer、DR signer、备份机 verifier/promoter 当前同时保留 legacy profile 195、199、202、206、207、208、209、210、212、213、215、232–241，以及 Gate v2 profile 242–254 合同；254 是当前 profile，VM signer 自测和备份机目录 bootstrap 都必须覆盖它。发布资产定向回归至少执行：
 
 ```text
 python -m pytest deploy/tests/release/test_release_core.py deploy/tests/release/test_production_release.py deploy/tests/release/test_signer_assets.py
