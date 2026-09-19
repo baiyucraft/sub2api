@@ -515,6 +515,18 @@ type OpenAIGatewayService struct {
 	// 剥离跨账号回带（openai_codex_turn_state.go）。
 	openaiCodexTurnStateOrigins sync.Map
 	openaiCodexTurnStateWrites  atomic.Uint64
+	// openaiCodexTickets: accountID\x00model → *openAICodexTicket，已验证的账号级 STATE 票据。
+	openaiCodexWatchdogRevoked   sync.Map // account/model -> revocation capture-time watermark
+	openaiCodexTickets           sync.Map
+	openaiCodexAccountMu         sync.Mutex
+	openaiCodexAccountJobs       map[int64]*codexAccountTicketJob
+	openaiCodexAccountWG         sync.WaitGroup
+	openaiCodexAccountStopping   bool
+	openaiCodexTicketLifecycleMu sync.Mutex
+	openaiCodexTicketCancel      context.CancelFunc
+	openaiCodexTicketContext     context.Context
+	openaiCodexTicketDone        chan struct{}
+	openaiCodexTicketStopped     bool
 }
 
 // SetRPMCache wires the shared account RPM counter into the OpenAI gateway.
@@ -635,6 +647,7 @@ func NewOpenAIGatewayService(
 		openAITokenProvider.SetAccountRuntimeBlocker(svc)
 	}
 	svc.logOpenAIWSModeBootstrap()
+	svc.StartOpenAICodexTicketHarvester()
 	return svc
 }
 
