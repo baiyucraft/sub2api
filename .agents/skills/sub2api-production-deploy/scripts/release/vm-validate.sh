@@ -46,8 +46,8 @@ if [[ "$manifest_schema" == 2 ]]; then
   [[ $(jq -er '.catalog_sha256' "$manifest") =~ ^[0-9a-f]{64}$ ]]
   [[ $(jq -er '.checksum_policy_sha256' "$manifest") =~ ^[0-9a-f]{64}$ ]]
   [[ $(jq -er '.parent_profile' "$manifest") == 253 ]]
-  [[ $(jq -er '.new_migrations | length' "$manifest") == 0 ]]
-  jq -e '.new_migrations == []' "$manifest" >/dev/null
+  [[ $(jq -er '.new_migrations | length' "$manifest") == 1 ]]
+  jq -e '.new_migrations == ["278_fork_group_ttft_guard_policies.sql"]' "$manifest" >/dev/null
   [[ -n "$production_snapshot" && -f "$production_snapshot" && ! -L "$production_snapshot" ]]
   [[ -n "$pre_gate_descriptor" && -f "$pre_gate_descriptor" && ! -L "$pre_gate_descriptor" ]]
   [[ -n "$space_cleaner" && -f "$space_cleaner" && ! -L "$space_cleaner" && -x "$space_cleaner" ]]
