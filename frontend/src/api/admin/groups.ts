@@ -23,6 +23,33 @@ export interface LiveCapability {
   reason?: string
 }
 
+export type GroupTTFTGuardPolicyMode = 'inherit' | 'enabled' | 'disabled'
+export type GroupTTFTGuardPolicySource = 'global' | 'group' | 'disabled'
+
+export interface GroupTTFTGuardPolicy {
+  group_id: number
+  group_name: string
+  group_platform: GroupPlatform
+  mode: GroupTTFTGuardPolicyMode
+  degradation_ttft_seconds: number | null
+  min_samples: number | null
+  enabled: boolean
+  effective_enabled: boolean
+  effective_degradation_ttft_seconds: number
+  effective_min_samples: number
+  global_enabled: boolean
+  global_degradation_ttft_seconds: number
+  global_min_samples: number
+  source: GroupTTFTGuardPolicySource
+  updated_at?: string
+}
+
+export interface UpdateGroupTTFTGuardPolicyRequest {
+  mode: GroupTTFTGuardPolicyMode
+  degradation_ttft_seconds?: number | null
+  min_samples?: number | null
+}
+
 /**
  * List all groups with pagination
  * @param page - Page number (default: 1)
@@ -91,6 +118,35 @@ export async function getByPlatform(platform: GroupPlatform): Promise<AdminGroup
 /** 获取当前 Sub2API 服务端的 Live 运行环境能力。 */
 export async function getLiveCapability(): Promise<LiveCapability> {
   const { data } = await apiClient.get<LiveCapability>('/admin/groups/live-capability')
+  return data
+}
+
+/** List effective TTFT Guard policies for OpenAI-capable groups. */
+export async function listTTFTGuardPolicies(): Promise<GroupTTFTGuardPolicy[]> {
+  const { data } = await apiClient.get<
+    GroupTTFTGuardPolicy[] | { items?: GroupTTFTGuardPolicy[]; policies?: GroupTTFTGuardPolicy[] }
+  >('/admin/groups/ttft-guard-policies')
+  if (Array.isArray(data)) return data
+  return data.items ?? data.policies ?? []
+}
+
+/** Get the configured and effective TTFT Guard policy for one group. */
+export async function getTTFTGuardPolicy(id: number): Promise<GroupTTFTGuardPolicy> {
+  const { data } = await apiClient.get<GroupTTFTGuardPolicy>(
+    `/admin/groups/${id}/ttft-guard-policy`
+  )
+  return data
+}
+
+/** Replace the TTFT Guard policy for one group. */
+export async function updateTTFTGuardPolicy(
+  id: number,
+  policy: UpdateGroupTTFTGuardPolicyRequest
+): Promise<GroupTTFTGuardPolicy> {
+  const { data } = await apiClient.put<GroupTTFTGuardPolicy>(
+    `/admin/groups/${id}/ttft-guard-policy`,
+    policy
+  )
   return data
 }
 
@@ -536,6 +592,9 @@ export const groupsAPI = {
   getByPlatform,
   getAllIncludingInactive,
   getLiveCapability,
+  listTTFTGuardPolicies,
+  getTTFTGuardPolicy,
+  updateTTFTGuardPolicy,
   getById,
   getModelAllowlistCandidates,
   create,

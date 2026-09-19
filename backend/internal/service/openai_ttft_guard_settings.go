@@ -127,17 +127,19 @@ func (s *SettingService) SetOpenAITTFTGuardSettings(ctx context.Context, setting
 		return fmt.Errorf("setting repository is unavailable")
 	}
 	s.openAITTFTGuardUpdateMu.Lock()
-	defer s.openAITTFTGuardUpdateMu.Unlock()
 	raw, err := json.Marshal(settings)
 	if err != nil {
+		s.openAITTFTGuardUpdateMu.Unlock()
 		return fmt.Errorf("marshal OpenAI TTFT guard settings: %w", err)
 	}
 	if err := s.settingRepo.Set(ctx, SettingKeyOpenAITTFTGuardSettings, string(raw)); err != nil {
+		s.openAITTFTGuardUpdateMu.Unlock()
 		return fmt.Errorf("set OpenAI TTFT guard settings: %w", err)
 	}
 	s.openAITTFTGuardRevision.Add(1)
 	s.storeOpenAITTFTGuardSnapshot(openAITTFTGuardSnapshot(settings), openAITTFTGuardConfigCacheTTL)
-	return nil
+	s.openAITTFTGuardUpdateMu.Unlock()
+	return s.notifyOpenAITTFTGuardGlobalUpdate(ctx)
 }
 
 // SetOpenAITTFTGuardAndProbeModels persists both upstream-management settings
@@ -177,17 +179,18 @@ func (s *SettingService) SetOpenAITTFTGuardProbeModelsAndInterval(ctx context.Co
 		return fmt.Errorf("marshal upstream probe models: %w", err)
 	}
 	s.openAITTFTGuardUpdateMu.Lock()
-	defer s.openAITTFTGuardUpdateMu.Unlock()
 	if err := s.settingRepo.SetMultiple(ctx, map[string]string{
 		SettingKeyOpenAITTFTGuardSettings:      string(ttftRaw),
 		SettingKeyUpstreamProbeModels:          string(probeRaw),
 		SettingKeyUpstreamProbeIntervalSeconds: strconv.Itoa(intervalSeconds),
 	}); err != nil {
+		s.openAITTFTGuardUpdateMu.Unlock()
 		return fmt.Errorf("set upstream management settings: %w", err)
 	}
 	s.openAITTFTGuardRevision.Add(1)
 	s.storeOpenAITTFTGuardSnapshot(openAITTFTGuardSnapshot(settings), openAITTFTGuardConfigCacheTTL)
-	return nil
+	s.openAITTFTGuardUpdateMu.Unlock()
+	return s.notifyOpenAITTFTGuardGlobalUpdate(ctx)
 }
 
 // SetOpenAITTFTGuardProbeModelsIntervalAndGuard atomically persists all
@@ -244,7 +247,6 @@ func (s *SettingService) setOpenAITTFTGuardProbeModelsIntervalAndGuard(ctx conte
 		return fmt.Errorf("marshal upstream probe models: %w", err)
 	}
 	s.openAITTFTGuardUpdateMu.Lock()
-	defer s.openAITTFTGuardUpdateMu.Unlock()
 	values := map[string]string{
 		SettingKeyOpenAITTFTGuardSettings:      string(ttftRaw),
 		SettingKeyUpstreamProbeModels:          string(probeRaw),
@@ -255,11 +257,13 @@ func (s *SettingService) setOpenAITTFTGuardProbeModelsIntervalAndGuard(ctx conte
 		values[SettingKeyUpstreamModelAliasRules] = aliasRaw
 	}
 	if err := s.settingRepo.SetMultiple(ctx, values); err != nil {
+		s.openAITTFTGuardUpdateMu.Unlock()
 		return fmt.Errorf("set upstream management settings: %w", err)
 	}
 	s.openAITTFTGuardRevision.Add(1)
 	s.storeOpenAITTFTGuardSnapshot(openAITTFTGuardSnapshot(settings), openAITTFTGuardConfigCacheTTL)
-	return nil
+	s.openAITTFTGuardUpdateMu.Unlock()
+	return s.notifyOpenAITTFTGuardGlobalUpdate(ctx)
 }
 
 // OpenAITTFTGuardConfigSnapshot implements OpenAITTFTGuardConfigProvider. It
@@ -298,9 +302,21 @@ func (s *SettingService) WarmOpenAITTFTGuardConfig(ctx context.Context) OpenAITT
 	return cached.snapshot
 }
 
-func (s *SettingService) refreshOpenAITTFTGuardConfig(ctx context.Context) {
+func (s *SettingService) RefreshOpenAITTFTGuardConfig(ctx context.Context) (OpenAITTFTGuardConfigSnapshot, bool) {
+	if s == nil {
+		return openAITTFTGuardSnapshot(DefaultOpenAITTFTGuardSettings()), false
+	}
+	ok := s.refreshOpenAITTFTGuardConfig(ctx)
+	cached, _ := s.openAITTFTGuardConfigCache.Load().(*cachedOpenAITTFTGuardConfig)
+	if cached == nil {
+		return openAITTFTGuardSnapshot(DefaultOpenAITTFTGuardSettings()), ok
+	}
+	return cached.snapshot, ok
+}
+
+func (s *SettingService) refreshOpenAITTFTGuardConfig(ctx context.Context) bool {
 	if s == nil || s.settingRepo == nil {
-		return
+		return false
 	}
 	revision := s.openAITTFTGuardRevision.Load()
 	dbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), openAITTFTGuardConfigDBTimeout)
@@ -308,26 +324,63 @@ func (s *SettingService) refreshOpenAITTFTGuardConfig(ctx context.Context) {
 
 	snapshot := openAITTFTGuardSnapshot(DefaultOpenAITTFTGuardSettings())
 	ttl := openAITTFTGuardConfigCacheTTL
+	refreshFailed := false
 	raw, err := s.settingRepo.GetValue(dbCtx, SettingKeyOpenAITTFTGuardSettings)
 	if err == nil {
 		settings, parseErr := parseOpenAITTFTGuardSettings(raw)
 		if parseErr == nil {
 			snapshot = openAITTFTGuardSnapshot(settings)
 		} else {
+			refreshFailed = true
 			ttl = openAITTFTGuardConfigErrorTTL
-			slog.Warn("failed to refresh OpenAI TTFT guard settings, disabling guard", "error", parseErr)
+			slog.Warn("failed to refresh OpenAI TTFT guard settings, preserving last valid config", "error", parseErr)
 		}
 	} else if !errors.Is(err, ErrSettingNotFound) {
+		refreshFailed = true
 		ttl = openAITTFTGuardConfigErrorTTL
-		slog.Warn("failed to refresh OpenAI TTFT guard settings, disabling guard", "error", err)
+		slog.Warn("failed to refresh OpenAI TTFT guard settings, preserving last valid config", "error", err)
+	}
+	if refreshFailed {
+		if cached, _ := s.openAITTFTGuardConfigCache.Load().(*cachedOpenAITTFTGuardConfig); cached != nil {
+			snapshot = cached.snapshot
+		}
 	}
 
 	// A PUT may have committed while this refresh was reading. Never overwrite
 	// the just-published snapshot with an older database observation.
 	if s.openAITTFTGuardRevision.Load() != revision {
-		return
+		return true
 	}
 	s.storeOpenAITTFTGuardSnapshot(snapshot, ttl)
+	return !refreshFailed
+}
+
+func (s *SettingService) SetOpenAITTFTGuardInvalidationBus(bus GroupTTFTGuardPolicyInvalidationBus) {
+	if s == nil {
+		return
+	}
+	s.openAITTFTGuardBusMu.Lock()
+	s.openAITTFTGuardBus = bus
+	s.openAITTFTGuardBusMu.Unlock()
+}
+
+func (s *SettingService) notifyOpenAITTFTGuardGlobalUpdate(ctx context.Context) error {
+	if s == nil {
+		return nil
+	}
+	s.openAITTFTGuardBusMu.RLock()
+	bus := s.openAITTFTGuardBus
+	s.openAITTFTGuardBusMu.RUnlock()
+	if bus == nil {
+		return nil
+	}
+	if err := bus.NotifyGlobalUpdate(ctx); err != nil {
+		// Persistence and the local hot snapshot have already committed. Do not
+		// report the save as failed after that point; remote instances retain
+		// their last valid snapshot and converge through the normal cache refresh.
+		slog.Warn("failed to publish OpenAI TTFT guard global invalidation", "error", err)
+	}
+	return nil
 }
 
 func (s *SettingService) storeOpenAITTFTGuardSnapshot(snapshot OpenAITTFTGuardConfigSnapshot, ttl time.Duration) {

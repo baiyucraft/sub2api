@@ -69,6 +69,8 @@ var ProviderSet = wire.NewSet(
 	NewAPIKeyRepository,
 	NewGroupRepository,
 	NewAdminGroupRepository,
+	NewGroupTTFTGuardPolicyRepository,
+	NewGroupTTFTGuardPolicyInvalidationBus,
 	NewCompositeModelRouteRepository,
 	NewAccountRepository,
 	NewAdminAccountRepository,

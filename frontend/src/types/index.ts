@@ -1515,8 +1515,12 @@ export interface Account {
 }
 
 export interface AccountTTFTGuardDegradation {
+  group_id?: number
+  group_name?: string
   model: string
   reason: string
+  policy_source?: 'global' | 'group' | 'disabled' | string
+  source?: 'global' | 'group' | 'disabled' | string
   threshold_ms: number
   last_ttft_ms: number
   ewma_ms: number

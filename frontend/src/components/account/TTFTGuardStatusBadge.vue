@@ -11,8 +11,8 @@
   >
     <div
       v-for="degradation in degradations"
-      :key="`${degradation.model}-${degradation.degraded_at}`"
-      class="min-w-0 max-w-[230px] break-inside-avoid"
+      :key="`${degradation.group_id ?? 'legacy'}-${degradation.model}-${degradation.degraded_at}`"
+      class="min-w-0 max-w-[280px] break-inside-avoid"
     >
       <HelpTooltip
         width-class="w-72 max-w-[calc(100vw-2rem)]"
@@ -20,17 +20,28 @@
       >
         <template #trigger>
           <span
-            class="inline-flex min-h-6 max-w-full min-w-0 items-center gap-1 whitespace-nowrap rounded border border-amber-300/80 bg-amber-50 px-1.5 py-0.5 text-xs font-medium leading-5 text-amber-800 dark:border-amber-700/70 dark:bg-amber-900/25 dark:text-amber-300"
-            :aria-label="`${degradation.model} · ${elapsedText(degradation)}`"
+            :class="[
+              'inline-flex min-h-6 max-w-full min-w-0 items-center gap-1 whitespace-nowrap rounded border px-1.5 py-0.5 text-xs font-medium leading-5',
+              badgeClass(degradation.reason)
+            ]"
+            :data-reason="degradation.reason"
+            :aria-label="`${groupText(degradation)} · ${degradation.model} · ${elapsedText(degradation)}`"
           >
             <Icon name="exclamationTriangle" size="xs" :stroke-width="2" />
+            <span class="min-w-0 truncate" :title="groupText(degradation)">{{ groupText(degradation) }}</span>
+            <span class="shrink-0 text-[10px] opacity-70">/</span>
             <span class="min-w-0 flex-1 truncate" :title="degradation.model">{{ degradation.model }}</span>
             <span class="shrink-0 text-[10px] opacity-80">·</span>
             <span class="shrink-0 text-[10px] tabular-nums opacity-90">{{ elapsedText(degradation) }}</span>
           </span>
         </template>
-        <div data-test="ttft-guard-tooltip" class="mb-1 font-medium text-amber-200">{{ degradation.model }}</div>
-        <div>{{ reasonText(degradation.reason) }}</div>
+        <div data-test="ttft-guard-tooltip" class="mb-1 font-medium" :class="tooltipAccentClass(degradation.reason)">
+          {{ groupText(degradation) }} / {{ degradation.model }}
+        </div>
+        <div>{{ t('admin.accounts.status.ttftGuard.group', { value: groupText(degradation) }) }}</div>
+        <div>{{ t('admin.accounts.status.ttftGuard.model', { value: degradation.model }) }}</div>
+        <div>{{ t('admin.accounts.status.ttftGuard.reason', { value: reasonText(degradation.reason) }) }}</div>
+        <div>{{ t('admin.accounts.status.ttftGuard.source', { value: policySourceText(degradation) }) }}</div>
         <div>{{ t('admin.accounts.status.ttftGuard.lastTTFT', { value: formatMilliseconds(degradation.last_ttft_ms) }) }}</div>
         <div>{{ t('admin.accounts.status.ttftGuard.ewma', { value: formatMilliseconds(degradation.ewma_ms) }) }}</div>
         <div>{{ t('admin.accounts.status.ttftGuard.threshold', { value: formatMilliseconds(degradation.threshold_ms) }) }}</div>
@@ -103,6 +114,34 @@ const reasonText = (reason: string) => {
     ewma: 'ewmaReason'
   }[reason]
   return t(`admin.accounts.status.ttftGuard.${key ?? 'unknownReason'}`)
+}
+
+const groupText = (degradation: AccountTTFTGuardDegradation) => {
+  if (degradation.group_name?.trim()) return degradation.group_name.trim()
+  if (degradation.group_id) return `#${degradation.group_id}`
+  return t('admin.accounts.status.ttftGuard.unknownGroup')
+}
+
+const policySourceText = (degradation: AccountTTFTGuardDegradation) => {
+  const source = degradation.policy_source ?? degradation.source ?? 'unknown'
+  const key = ['global', 'group', 'disabled'].includes(source) ? source : 'unknown'
+  return t(`admin.accounts.status.ttftGuard.sources.${key}`)
+}
+
+const badgeClass = (reason: string) => {
+  if (reason === 'critical_sample') {
+    return 'border-red-300/80 bg-red-50 text-red-800 dark:border-red-700/70 dark:bg-red-900/25 dark:text-red-300'
+  }
+  if (reason === 'ewma') {
+    return 'border-purple-300/80 bg-purple-50 text-purple-800 dark:border-purple-700/70 dark:bg-purple-900/25 dark:text-purple-300'
+  }
+  return 'border-amber-300/80 bg-amber-50 text-amber-800 dark:border-amber-700/70 dark:bg-amber-900/25 dark:text-amber-300'
+}
+
+const tooltipAccentClass = (reason: string) => {
+  if (reason === 'critical_sample') return 'text-red-200'
+  if (reason === 'ewma') return 'text-purple-200'
+  return 'text-amber-200'
 }
 
 </script>

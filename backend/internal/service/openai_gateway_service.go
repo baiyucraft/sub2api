@@ -485,6 +485,7 @@ type OpenAIGatewayService struct {
 	openaiScheduler                 OpenAIAccountScheduler
 	openaiTTFTGuard                 *openAITTFTGuard
 	openaiTTFTGuardConfigProvider   OpenAITTFTGuardConfigProvider
+	groupTTFTGuardPolicyResolver    GroupTTFTGuardPolicyResolver
 	openaiTTFTGuardUpstreamOnly     bool
 	openaiTTFTGuardEligibleAccounts sync.Map // accountID -> struct{}; populated from scheduler candidates
 	openaiWSPassthroughDialer       openAIWSClientDialer
