@@ -23,6 +23,8 @@ const {
   updatePanelRateLimitSettings,
   getGatewayRequestObserverSettings,
   updateGatewayRequestObserverSettings,
+  getGatewayCapacityFailoverSettings,
+  updateGatewayCapacityFailoverSettings,
   getStreamTimeoutSettings,
   getRectifierSettings,
   getBetaPolicySettings,
@@ -68,6 +70,12 @@ const {
     output_path: "/app/.tmp/maibon-probe-observation/requests.jsonl",
   }),
   updateGatewayRequestObserverSettings: vi.fn().mockImplementation(async (payload) => payload),
+  getGatewayCapacityFailoverSettings: vi.fn().mockResolvedValue({
+    enabled: false,
+    max_switches: 10,
+    exhausted_status_code: 503,
+  }),
+  updateGatewayCapacityFailoverSettings: vi.fn().mockImplementation(async (payload) => payload),
   getStreamTimeoutSettings: vi.fn(),
   getRectifierSettings: vi.fn(),
   getBetaPolicySettings: vi.fn(),
@@ -113,6 +121,8 @@ vi.mock("@/api", () => ({
       updatePanelRateLimitSettings,
       getGatewayRequestObserverSettings,
       updateGatewayRequestObserverSettings,
+      getGatewayCapacityFailoverSettings,
+      updateGatewayCapacityFailoverSettings,
       getStreamTimeoutSettings,
       getRectifierSettings,
       getBetaPolicySettings,
@@ -687,6 +697,8 @@ describe("admin SettingsView payment visible method controls", () => {
     updateRateLimit429CooldownSettings.mockReset();
     getGatewayRequestObserverSettings.mockReset();
     updateGatewayRequestObserverSettings.mockReset();
+    getGatewayCapacityFailoverSettings.mockReset();
+    updateGatewayCapacityFailoverSettings.mockReset();
     getStreamTimeoutSettings.mockReset();
     getRectifierSettings.mockReset();
     getBetaPolicySettings.mockReset();
@@ -741,6 +753,12 @@ describe("admin SettingsView payment visible method controls", () => {
       output_path: "/app/.tmp/maibon-probe-observation/requests.jsonl",
     });
     updateGatewayRequestObserverSettings.mockImplementation(async (payload) => payload);
+    getGatewayCapacityFailoverSettings.mockResolvedValue({
+      enabled: false,
+      max_switches: 10,
+      exhausted_status_code: 503,
+    });
+    updateGatewayCapacityFailoverSettings.mockImplementation(async (payload) => payload);
     getStreamTimeoutSettings.mockResolvedValue({
       enabled: true,
       action: "temp_unsched",
@@ -1671,6 +1689,71 @@ describe("admin SettingsView payment visible method controls", () => {
     expect(paymentHelpImageUpload).toBeDefined();
     expect(paymentHelpImageUpload?.attributes("data-upload-label")).toBe("上传图片");
     expect(paymentHelpImageUpload?.attributes("data-remove-label")).toBe("移除");
+  });
+
+  it("loads and saves gateway capacity failover runtime settings", async () => {
+    getGatewayCapacityFailoverSettings.mockResolvedValueOnce({
+      enabled: true,
+      max_switches: 5,
+      exhausted_status_code: 429,
+    });
+    const wrapper = mountView();
+    await flushPromises();
+    await openGatewayTab(wrapper);
+
+    const enabled = wrapper.get('[data-testid="capacity-failover-enabled"]');
+    const maxSwitches = wrapper.get('[data-testid="capacity-failover-max-switches"]');
+    const statusCode = wrapper.get('[data-testid="capacity-failover-exhausted-status-code"]');
+    expect((enabled.element as HTMLInputElement).checked).toBe(true);
+    expect((maxSwitches.element as HTMLInputElement).value).toBe("5");
+    expect((statusCode.element as HTMLInputElement).value).toBe("429");
+
+    await maxSwitches.setValue("2");
+    await statusCode.setValue("503");
+    await wrapper.get('[data-testid="capacity-failover-save"]').trigger("click");
+    await flushPromises();
+
+    expect(updateGatewayCapacityFailoverSettings).toHaveBeenCalledWith({
+      enabled: true,
+      max_switches: 2,
+      exhausted_status_code: 503,
+    });
+  });
+
+  it("disables capacity inputs with the switch and rejects invalid values", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    await openGatewayTab(wrapper);
+
+    const maxSwitches = wrapper.get('[data-testid="capacity-failover-max-switches"]');
+    const statusCode = wrapper.get('[data-testid="capacity-failover-exhausted-status-code"]');
+    expect((maxSwitches.element as HTMLInputElement).disabled).toBe(true);
+    expect((statusCode.element as HTMLInputElement).disabled).toBe(true);
+
+    await wrapper.get('[data-testid="capacity-failover-enabled"]').setValue(true);
+    expect((maxSwitches.element as HTMLInputElement).disabled).toBe(false);
+    await maxSwitches.setValue("1001");
+    expect(wrapper.get('[data-testid="capacity-failover-save"]').attributes("disabled")).toBeDefined();
+    expect(updateGatewayCapacityFailoverSettings).not.toHaveBeenCalled();
+  });
+
+  it.each([0, 1000])("accepts capacity switch boundary %s", async (maxSwitchesValue) => {
+    const wrapper = mountView();
+    await flushPromises();
+    await openGatewayTab(wrapper);
+
+    await wrapper.get('[data-testid="capacity-failover-enabled"]').setValue(true);
+    await wrapper
+      .get('[data-testid="capacity-failover-max-switches"]')
+      .setValue(String(maxSwitchesValue));
+    await wrapper.get('[data-testid="capacity-failover-save"]').trigger("click");
+    await flushPromises();
+
+    expect(updateGatewayCapacityFailoverSettings).toHaveBeenCalledWith({
+      enabled: true,
+      max_switches: maxSwitchesValue,
+      exhausted_status_code: 503,
+    });
   });
 
   it("normalizes null supported_types from API so provider card stays visible", async () => {

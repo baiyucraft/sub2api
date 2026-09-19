@@ -651,6 +651,9 @@ func registerSettingsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		// 网关请求观察器
 		adminSettings.GET("/request-observer", h.Admin.Setting.GetGatewayRequestObserverSettings)
 		adminSettings.PUT("/request-observer", h.Admin.Setting.UpdateGatewayRequestObserverSettings)
+		// OpenAI/OAuth account capacity failover runtime settings
+		adminSettings.GET("/gateway-capacity-failover", h.Admin.Setting.GetGatewayCapacityFailoverSettings)
+		adminSettings.PUT("/gateway-capacity-failover", h.Admin.Setting.UpdateGatewayCapacityFailoverSettings)
 		// 渠道定制与请求观察器聚合配置
 		adminSettings.GET("/channel-customization", h.Admin.Setting.GetGatewayChannelCustomizationSettings)
 		adminSettings.PUT("/channel-customization", h.Admin.Setting.UpdateGatewayChannelCustomizationSettings)

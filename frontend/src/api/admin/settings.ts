@@ -1422,6 +1422,29 @@ export interface GatewayRequestObserverSettings {
   output_path?: string;
 }
 
+export interface GatewayCapacityFailoverSettings {
+  enabled: boolean;
+  max_switches: number;
+  exhausted_status_code: number;
+}
+
+export async function getGatewayCapacityFailoverSettings(): Promise<GatewayCapacityFailoverSettings> {
+  const { data } = await apiClient.get<GatewayCapacityFailoverSettings>(
+    "/admin/settings/gateway-capacity-failover",
+  );
+  return data;
+}
+
+export async function updateGatewayCapacityFailoverSettings(
+  settings: GatewayCapacityFailoverSettings,
+): Promise<GatewayCapacityFailoverSettings> {
+  const { data } = await apiClient.put<GatewayCapacityFailoverSettings>(
+    "/admin/settings/gateway-capacity-failover",
+    settings,
+  );
+  return data;
+}
+
 export async function getGatewayRequestObserverSettings(): Promise<GatewayRequestObserverSettings> {
   const { data } = await apiClient.get<GatewayRequestObserverSettings>(
     "/admin/settings/request-observer",
@@ -1689,6 +1712,8 @@ export const settingsAPI = {
   updatePanelRateLimitSettings,
   getGatewayRequestObserverSettings,
   updateGatewayRequestObserverSettings,
+  getGatewayCapacityFailoverSettings,
+  updateGatewayCapacityFailoverSettings,
   getStreamTimeoutSettings,
   updateStreamTimeoutSettings,
   getRectifierSettings,

@@ -35,6 +35,14 @@ type capacityFullConcurrencyCache struct {
 	concurrencyCacheMock
 }
 
+type gatewayCapacityFailoverProviderStub struct {
+	settings service.GatewayCapacityFailoverSettings
+}
+
+func (s *gatewayCapacityFailoverProviderStub) GatewayCapacityFailoverSettingsSnapshot(context.Context) service.GatewayCapacityFailoverSettings {
+	return s.settings
+}
+
 func (c *capacityFullConcurrencyCache) IncrementAccountWaitCount(context.Context, int64, int) (bool, error) {
 	return false, nil
 }
@@ -55,6 +63,21 @@ func TestOpenAICapacityFailoverUsesIndependentSwitchBudget(t *testing.T) {
 	require.Equal(t, "api_error", gjson.GetBytes(w.Body.Bytes(), "error.type").String())
 	require.Equal(t, gatewayCapacityExhaustedCode, gjson.GetBytes(w.Body.Bytes(), "error.code").String())
 	require.Equal(t, gatewayCapacityExhaustedMessage, gjson.GetBytes(w.Body.Bytes(), "error.message").String())
+}
+
+func TestOpenAICapacityFailoverZeroBudgetIsUnlimited(t *testing.T) {
+	h := newOpenAICapacityTestHandler(0, http.StatusServiceUnavailable)
+	c, w := newOpenAICapacityTestContext()
+	failed := make(map[int64]struct{})
+
+	for id := int64(1); id <= 25; id++ {
+		account := &service.Account{ID: 1000 + id, Platform: service.PlatformOpenAI, Concurrency: 1}
+		require.True(t, h.handleOpenAICapacityFull(c, "gpt-test", account, failed, false, zap.NewNop()))
+	}
+
+	require.Empty(t, w.Body.Bytes())
+	require.Equal(t, 25, openAICapacityState(c).switchCount)
+	require.Len(t, failed, 25)
 }
 
 func TestOpenAICapacityFailoverExcludesSharedConcurrencyTargetOnce(t *testing.T) {
@@ -103,6 +126,28 @@ func TestOpenAICapacityFailoverEligibilityKeepsDisabledAndWebSocketBehavior(t *t
 	_, err := writtenContext.Writer.Write([]byte("x"))
 	require.NoError(t, err)
 	require.False(t, enabled.openAICapacityFailoverEligible(writtenContext, account, false))
+}
+
+func TestOpenAICapacityFailoverRuntimeProviderOverridesDeploymentConfig(t *testing.T) {
+	provider := &gatewayCapacityFailoverProviderStub{settings: service.GatewayCapacityFailoverSettings{
+		Enabled: true, MaxSwitches: 0, ExhaustedStatusCode: http.StatusTooManyRequests,
+	}}
+	h := &OpenAIGatewayHandler{
+		cfg: &config.Config{Gateway: config.GatewayConfig{Scheduling: config.GatewaySchedulingConfig{
+			CapacityFailoverEnabled: false, CapacityFailoverMaxSwitches: 9,
+			CapacityFailoverExhaustedStatusCode: http.StatusServiceUnavailable,
+		}}},
+		capacityFailoverProvider: provider,
+	}
+
+	enabled, maxSwitches, status := h.capacityFailoverConfig(context.Background())
+	require.True(t, enabled)
+	require.Zero(t, maxSwitches)
+	require.Equal(t, http.StatusTooManyRequests, status)
+
+	provider.settings.Enabled = false
+	enabled, _, _ = h.capacityFailoverConfig(context.Background())
+	require.False(t, enabled)
 }
 
 func TestAcquireResponsesAccountSlotCapacityFullBehavior(t *testing.T) {
@@ -162,12 +207,15 @@ func TestAcquireResponsesAccountSlotCapacityFullBehavior(t *testing.T) {
 
 func TestOpenAICapacityFailoverMetricsSnapshot(t *testing.T) {
 	before := SnapshotOpenAICapacityFailoverMetrics()
-	h := newOpenAICapacityTestHandler(0, http.StatusServiceUnavailable)
+	h := newOpenAICapacityTestHandler(1, http.StatusServiceUnavailable)
 	c, _ := newOpenAICapacityTestContext()
-	account := &service.Account{ID: 601, Platform: service.PlatformOpenAI, Concurrency: 1}
+	failed := make(map[int64]struct{})
+	accountA := &service.Account{ID: 601, Platform: service.PlatformOpenAI, Concurrency: 1}
+	accountB := &service.Account{ID: 602, Platform: service.PlatformOpenAI, Concurrency: 1}
 
-	require.False(t, h.handleOpenAICapacityFull(c, "gpt-test", account, map[int64]struct{}{}, false, zap.NewNop()))
+	require.True(t, h.handleOpenAICapacityFull(c, "gpt-test", accountA, failed, false, zap.NewNop()))
+	require.False(t, h.handleOpenAICapacityFull(c, "gpt-test", accountB, failed, false, zap.NewNop()))
 	after := SnapshotOpenAICapacityFailoverMetrics()
-	require.Equal(t, before.SwitchTotal, after.SwitchTotal)
+	require.Equal(t, before.SwitchTotal+1, after.SwitchTotal)
 	require.Equal(t, before.ExhaustedTotal+1, after.ExhaustedTotal)
 }

@@ -413,8 +413,8 @@ func TestLoadDefaultSchedulingConfig(t *testing.T) {
 	if cfg.Gateway.Scheduling.CapacityFailoverEnabled {
 		t.Fatalf("CapacityFailoverEnabled = true, want false")
 	}
-	if cfg.Gateway.Scheduling.CapacityFailoverMaxSwitches != 3 {
-		t.Fatalf("CapacityFailoverMaxSwitches = %d, want 3", cfg.Gateway.Scheduling.CapacityFailoverMaxSwitches)
+	if cfg.Gateway.Scheduling.CapacityFailoverMaxSwitches != 10 {
+		t.Fatalf("CapacityFailoverMaxSwitches = %d, want 10", cfg.Gateway.Scheduling.CapacityFailoverMaxSwitches)
 	}
 	if cfg.Gateway.Scheduling.CapacityFailoverExhaustedStatusCode != 503 {
 		t.Fatalf("CapacityFailoverExhaustedStatusCode = %d, want 503", cfg.Gateway.Scheduling.CapacityFailoverExhaustedStatusCode)
@@ -783,6 +783,18 @@ func TestLoadCapacityFailoverSchedulingConfigFromYAML(t *testing.T) {
 	require.True(t, cfg.Gateway.Scheduling.CapacityFailoverEnabled)
 	require.Equal(t, 5, cfg.Gateway.Scheduling.CapacityFailoverMaxSwitches)
 	require.Equal(t, 599, cfg.Gateway.Scheduling.CapacityFailoverExhaustedStatusCode)
+}
+
+func TestValidateCapacityFailoverMaxSwitchesBoundaries(t *testing.T) {
+	for _, maxSwitches := range []int{0, 1000} {
+		t.Run(fmt.Sprintf("max_switches_%d", maxSwitches), func(t *testing.T) {
+			resetViperWithJWTSecret(t)
+			cfg, err := Load()
+			require.NoError(t, err)
+			cfg.Gateway.Scheduling.CapacityFailoverMaxSwitches = maxSwitches
+			require.NoError(t, cfg.Validate())
+		})
+	}
 }
 
 func TestValidateCapacityFailoverExhaustedStatusCode(t *testing.T) {
@@ -2158,6 +2170,11 @@ func TestValidateConfigErrors(t *testing.T) {
 		{
 			name:    "gateway scheduling capacity failover max switches",
 			mutate:  func(c *Config) { c.Gateway.Scheduling.CapacityFailoverMaxSwitches = -1 },
+			wantErr: "gateway.scheduling.capacity_failover_max_switches",
+		},
+		{
+			name:    "gateway scheduling capacity failover max switches above range",
+			mutate:  func(c *Config) { c.Gateway.Scheduling.CapacityFailoverMaxSwitches = 1001 },
 			wantErr: "gateway.scheduling.capacity_failover_max_switches",
 		},
 		{

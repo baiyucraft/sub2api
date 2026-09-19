@@ -1469,7 +1469,7 @@ type GatewaySchedulingConfig struct {
 
 	// 账号等待队列满载时，是否在当前请求内切换到其他账号。
 	CapacityFailoverEnabled bool `mapstructure:"capacity_failover_enabled"`
-	// 单次请求因容量不足最多切换账号的次数。
+	// 单次请求因容量不足最多切换账号的次数；0 表示不限制。
 	CapacityFailoverMaxSwitches int `mapstructure:"capacity_failover_max_switches"`
 	// 所有候选账号容量耗尽时返回的 HTTP 状态码。
 	CapacityFailoverExhaustedStatusCode int `mapstructure:"capacity_failover_exhausted_status_code"`
@@ -2510,7 +2510,7 @@ func setDefaults() {
 	viper.SetDefault("gateway.scheduling.fallback_wait_timeout", 30*time.Second)
 	viper.SetDefault("gateway.scheduling.fallback_max_waiting", 100)
 	viper.SetDefault("gateway.scheduling.capacity_failover_enabled", false)
-	viper.SetDefault("gateway.scheduling.capacity_failover_max_switches", 3)
+	viper.SetDefault("gateway.scheduling.capacity_failover_max_switches", 10)
 	viper.SetDefault("gateway.scheduling.capacity_failover_exhausted_status_code", 503)
 	viper.SetDefault("gateway.scheduling.fallback_selection_mode", "last_used")
 	viper.SetDefault("gateway.scheduling.prefer_soonest_reset", false)
@@ -3651,8 +3651,8 @@ func (c *Config) Validate() error {
 	if c.Gateway.Scheduling.FallbackMaxWaiting <= 0 {
 		return fmt.Errorf("gateway.scheduling.fallback_max_waiting must be positive")
 	}
-	if c.Gateway.Scheduling.CapacityFailoverMaxSwitches < 0 {
-		return fmt.Errorf("gateway.scheduling.capacity_failover_max_switches must be non-negative")
+	if c.Gateway.Scheduling.CapacityFailoverMaxSwitches < 0 || c.Gateway.Scheduling.CapacityFailoverMaxSwitches > 1000 {
+		return fmt.Errorf("gateway.scheduling.capacity_failover_max_switches must be between 0-1000")
 	}
 	if c.Gateway.Scheduling.CapacityFailoverExhaustedStatusCode < 400 ||
 		c.Gateway.Scheduling.CapacityFailoverExhaustedStatusCode > 599 {
