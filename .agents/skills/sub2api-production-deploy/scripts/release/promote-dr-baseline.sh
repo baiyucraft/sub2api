@@ -7,8 +7,8 @@ drill_id=${2:?drill ID is required}
 input_dir=${3:?promotion input directory is required}
 test_mode=${SUB2API_PROMOTION_TEST_MODE:-false}
 test_root=${PROMOTION_TEST_ROOT:-}
-# Keep the immutable legacy profile contract visible for audit tooling; Gate
-# Gate v2 profiles 242 (historical) and 243 (current) are accepted by the active regex immediately below.
+# Keep the immutable legacy profile contract visible for audit tooling. Gate
+# v2 profiles 242-253 (historical) and 254 (current) are accepted below.
 # ^(195|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241)-
 # ^dr-(195|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241)-
 [[ $release_id =~ ^(195|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
