@@ -775,6 +775,8 @@ func ProvideOpenAIGatewayService(
 	settingService *SettingService,
 	userPlatformQuotaRepo UserPlatformQuotaRepository,
 	policyService *GroupTTFTGuardPolicyService,
+	lockCache LeaderLockCache,
+	db *sql.DB,
 ) *OpenAIGatewayService {
 	gateway := NewOpenAIGatewayService(
 		accountRepo,
@@ -800,6 +802,7 @@ func ProvideOpenAIGatewayService(
 		settingService,
 		userPlatformQuotaRepo,
 	)
+	gateway.SetCodexTicketHarvestLockBackends(lockCache, db)
 	gateway.SetGroupTTFTGuardPolicyResolver(policyService)
 	policyService.SetRuntimeInvalidator(gateway.InvalidateGroupTTFTGuardRuntime)
 	policyService.SetGlobalRuntimeInvalidator(gateway.InvalidateInheritedOpenAITTFTGuardRuntime)

@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"io"
 	"maps"
@@ -9,6 +11,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -16,8 +19,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var fakeCodexTicketSequence atomic.Uint64
+
 func fakeCodexTicketState(n int) string {
-	return openAICodexTicketStatePrefix + strings.Repeat("B", n-len(openAICodexTicketStatePrefix))
+	return fakeCodexTicketStateAt(n, time.Now().Add(-time.Minute))
+}
+
+func fakeCodexTicketStateAt(n int, issuedAt time.Time) string {
+	blocks := map[int]int{292: 10, 312: 11, 332: 12}[n]
+	if blocks == 0 {
+		return strings.Repeat("B", n)
+	}
+	raw := make([]byte, codexTicketEnvelopeFixedBytes+blocks*codexTicketEnvelopeBlockBytes)
+	raw[0] = codexTicketEnvelopeVersion
+	binary.BigEndian.PutUint64(raw[1:9], uint64(issuedAt.Unix()))
+	for i := 9; i < len(raw); i++ {
+		raw[i] = byte(i%251 + 1)
+	}
+	binary.BigEndian.PutUint64(raw[len(raw)-8:], fakeCodexTicketSequence.Add(1))
+	return base64.URLEncoding.EncodeToString(raw)
 }
 func ticketTestAccount(id int64) *Account {
 	proxyID := int64(7)
@@ -33,7 +53,21 @@ func ticketTestService(t *testing.T, cfg config.OpenAICodexTicketConfig, upstrea
 func verifiedTestTicket(account *Account, n int) *openAICodexTicket {
 	ac := codexAccountTicketConfigOf(account)
 	now := time.Now()
-	return &openAICodexTicket{AccountID: account.ID, Model: ac.Model, State: fakeCodexTicketState(n), Length: n, CapturedAt: now, ExpiresAt: now.Add(time.Hour), Verified: true, ConfigRevision: ac.Revision, FixedProxyFingerprint: codexTicketFixedProxyFingerprint(account)}
+	state := fakeCodexTicketState(n)
+	modelCfg, _ := ac.modelConfig(ac.Model)
+	envelope, _ := parseCodexTicketEnvelope(state, modelCfg.TicketPlan, now)
+	return &openAICodexTicket{AccountID: account.ID, Model: ac.Model, State: state, Length: len(state), CapturedAt: now, IssuedAt: envelope.IssuedAt, ExpiresAt: envelope.ExpiresAt, Verified: true, ConfigRevision: modelCfg.Revision, FixedProxyFingerprint: codexTicketFixedProxyFingerprint(account), Fingerprint: envelope.Fingerprint}
+}
+
+func retimeVerifiedTestTicket(t *testing.T, ticket *openAICodexTicket, plan string, issuedAt time.Time) {
+	t.Helper()
+	ticket.State = fakeCodexTicketStateAt(ticket.Length, issuedAt)
+	envelope, err := parseCodexTicketEnvelope(ticket.State, plan, time.Now())
+	require.NoError(t, err)
+	ticket.CapturedAt = issuedAt
+	ticket.IssuedAt = envelope.IssuedAt
+	ticket.ExpiresAt = envelope.ExpiresAt
+	ticket.Fingerprint = envelope.Fingerprint
 }
 func codexModelResponse(model string) *http.Response {
 	header := http.Header{}
@@ -106,7 +140,7 @@ func TestCodexAccountTicketSwitchIsolation(t *testing.T) {
 			headers := http.Header{}
 			headers.Set(openAICodexTurnStateHeader, "client-state")
 			err := svc.applyOpenAICodexTicket(context.Background(), account, ac.Model, headers)
-			require.Equal(t, tc.wantBlocked, err == ErrOpenAICodexTicketUnavailable)
+			require.NoError(t, err, "an existing client STATE must not be overwritten or rejected at injection time")
 			require.Equal(t, tc.wantBlocked, svc.openAICodexTicketBlocksAccount(account, ac.Model))
 			require.False(t, svc.openAICodexTicketBlocksAccount(account, "gpt-5.5"))
 			require.Equal(t, "client-state", headers.Get(openAICodexTurnStateHeader))
@@ -131,9 +165,11 @@ func TestCodexAccountTicketVerifiedBindingAndLength(t *testing.T) {
 		svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true}, nil)
 		svc.storeOpenAICodexTicket(context.Background(), account, ticket)
 		headers := http.Header{}
-		headers.Set(openAICodexTurnStateHeader, "stale")
 		require.NoError(t, svc.applyOpenAICodexTicket(context.Background(), account, ticket.Model, headers))
 		require.Equal(t, ticket.State, headers.Get(openAICodexTurnStateHeader))
+		headers.Set(openAICodexTurnStateHeader, "client-state")
+		require.NoError(t, svc.applyOpenAICodexTicket(context.Background(), account, ticket.Model, headers))
+		require.Equal(t, "client-state", headers.Get(openAICodexTurnStateHeader))
 		require.ErrorIs(t, svc.applyOpenAICodexTicket(context.Background(), ticketTestAccount(42), ticket.Model, http.Header{}), ErrOpenAICodexTicketUnavailable)
 		require.NoError(t, svc.applyOpenAICodexTicket(context.Background(), account, "gpt-5.6-sol", http.Header{}))
 	}

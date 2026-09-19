@@ -64,6 +64,17 @@ describe('locale key completeness', () => {
   const enKeys = new Set(flattenLeafKeys(en))
   const zhKeys = new Set(flattenLeafKeys(zh))
   const usedKeys = [...new Set(sourceKeys())].sort()
+  const dynamicKeys = [
+    'admin.accounts.stateTicket.models.astra',
+    'admin.accounts.stateTicket.models.sol',
+    'admin.accounts.stateTicket.models.terra',
+    'admin.accounts.stateTicket.states.disabled',
+    'admin.accounts.stateTicket.states.global_disabled',
+    'admin.accounts.stateTicket.states.waiting',
+    'admin.accounts.stateTicket.states.harvesting',
+    'admin.accounts.stateTicket.states.ready',
+    'admin.accounts.stateTicket.states.error',
+  ]
 
   it('keeps English and Chinese locale schemas identical', () => {
     expect([...enKeys].filter((key) => !zhKeys.has(key)).sort()).toEqual([])
@@ -86,5 +97,10 @@ describe('locale key completeness', () => {
   it('contains every statically referenced production key', () => {
     expect(missingKeys(usedKeys, enKeys), 'English locale is missing referenced keys').toEqual([])
     expect(missingKeys(usedKeys, zhKeys), 'Chinese locale is missing referenced keys').toEqual([])
+  })
+
+  it('contains the dynamic Codex STATE model and status keys', () => {
+    expect(missingKeys(dynamicKeys, enKeys), 'English locale is missing dynamic STATE keys').toEqual([])
+    expect(missingKeys(dynamicKeys, zhKeys), 'Chinese locale is missing dynamic STATE keys').toEqual([])
   })
 })

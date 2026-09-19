@@ -76,7 +76,11 @@ func TestCodexTicketWatchdogResponseRecoversWithoutReplayingBusiness(t *testing.
 			status, err = s.GetCodexAccountTicketStatus(context.Background(), 41)
 			require.NoError(t, err)
 			require.Equal(t, "ready", status.State)
-			require.Equal(t, int64(1), status.Watchdog.TriggerCount)
+			require.Equal(t, int64(2), status.Watchdog.TriggerCount)
+			s.invalidateCodexTicketFromResponse(receiptForCodexTicket(old), "model_mismatch")
+			status, err = s.GetCodexAccountTicketStatus(context.Background(), 41)
+			require.NoError(t, err)
+			require.Equal(t, int64(2), status.Watchdog.TriggerCount)
 			live, err := repo.GetByID(context.Background(), 41)
 			require.NoError(t, err)
 			require.Equal(t, a.ProxyID, live.ProxyID)
@@ -121,11 +125,11 @@ func TestCodexTicketWatchdogConcurrentSignalsDeduplicateAndBlockStaleTicket(t *t
 		t.Fatal("watchdog did not start a recovery probe")
 	}
 	require.Equal(t, int64(1), calls.Load())
-	require.Nil(t, s.lookupOpenAICodexTicket(a, old.Model), "old snapshot cannot reinsert the revoked ticket")
+	require.Nil(t, s.lookupOpenAICodexTicket(a, old.Model), "two strikes without ready reject active")
 	require.ErrorIs(t, s.applyOpenAICodexTicket(context.Background(), a, old.Model, http.Header{}), ErrOpenAICodexTicketUnavailable)
 	status, err := s.GetCodexAccountTicketStatus(context.Background(), 41)
 	require.NoError(t, err)
-	require.Equal(t, int64(1), status.Watchdog.TriggerCount)
+	require.Equal(t, int64(2), status.Watchdog.TriggerCount)
 	require.Equal(t, "harvesting", status.State)
 }
 
@@ -255,16 +259,22 @@ func TestCodexTicketWatchdogMultipleRevocationsCannotResurrectEarlierTicket(t *t
 	a.Extra[openAICodexTicketExtraKey(first.Model)] = first
 	s.openaiCodexAccountJobs = map[int64]*codexAccountTicketJob{41: {revision: first.ConfigRevision, harvestProxyURL: s.openAICodexTicketHarvestProxyURL(), retryAfter: time.Now().Add(time.Minute), lastError: "cooldown"}}
 	s.invalidateCodexTicketFromResponse(receiptForCodexTicket(first), "model_mismatch")
+	s.invalidateCodexTicketFromResponse(receiptForCodexTicket(first), "model_mismatch")
 	second := *first
+	second.State = fakeCodexTicketState(292)
+	second.Length = len(second.State)
+	envelope, err := parseCodexTicketEnvelope(second.State, codexTicketPlanPro, time.Now())
+	require.NoError(t, err)
+	second.IssuedAt, second.ExpiresAt, second.Fingerprint = envelope.IssuedAt, envelope.ExpiresAt, envelope.Fingerprint
 	second.CapturedAt = second.CapturedAt.Add(time.Millisecond)
-	second.ExpiresAt = second.CapturedAt.Add(time.Hour)
 	s.storeOpenAICodexTicket(context.Background(), a, &second)
+	s.invalidateCodexTicketFromResponse(receiptForCodexTicket(&second), "state_312")
 	s.invalidateCodexTicketFromResponse(receiptForCodexTicket(&second), "state_312")
 	require.Nil(t, s.lookupOpenAICodexTicket(a, first.Model), "a stale snapshot of A stays revoked after revoking B")
 	require.ErrorIs(t, s.applyOpenAICodexTicket(context.Background(), a, first.Model, http.Header{}), ErrOpenAICodexTicketUnavailable)
 	status, err := s.GetCodexAccountTicketStatus(context.Background(), 41)
 	require.NoError(t, err)
-	require.Equal(t, int64(2), status.Watchdog.TriggerCount)
+	require.Equal(t, int64(4), status.Watchdog.TriggerCount)
 }
 
 func TestCodexTicketWatchdogPreservesFailedHarvestCooldown(t *testing.T) {
@@ -278,7 +288,8 @@ func TestCodexTicketWatchdogPreservesFailedHarvestCooldown(t *testing.T) {
 	s.invalidateCodexTicketFromResponse(receiptForCodexTicket(old), "model_mismatch")
 	require.Same(t, job, s.openaiCodexAccountJobs[41])
 	require.False(t, job.running)
-	require.Nil(t, s.lookupOpenAICodexTicket(a, old.Model))
+	require.NotNil(t, s.lookupOpenAICodexTicket(a, old.Model))
+	require.Equal(t, 1, s.lookupOpenAICodexTicketSlot(a, old.Model).Strikes)
 }
 
 func TestCodexTicketWatchdogHarvestRejectsFixedReplay312Signal(t *testing.T) {

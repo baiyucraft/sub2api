@@ -17,6 +17,11 @@ import (
 )
 
 const codexTicketWatchdogExtraKey = "codex_ticket_watchdog"
+const codexTicketWatchdogExtraKeyPrefix = "codex_ticket_watchdog:"
+
+func codexTicketWatchdogExtraKeyForModel(model string) string {
+	return codexTicketWatchdogExtraKeyPrefix + normalizeOpenAICodexTicketModel(model)
+}
 
 // Persist only a small reason/timestamp summary, never response bodies or STATE.
 type CodexTicketWatchdogStatus struct {
@@ -27,9 +32,17 @@ type CodexTicketWatchdogStatus struct {
 }
 
 func codexTicketWatchdogStatusOf(account *Account, enabled bool) CodexTicketWatchdogStatus {
+	return codexTicketWatchdogStatusOfModel(account, openAICodexTicketDefaultModel, enabled)
+}
+
+func codexTicketWatchdogStatusOfModel(account *Account, model string, enabled bool) CodexTicketWatchdogStatus {
 	var status CodexTicketWatchdogStatus
 	if account != nil {
-		if raw, err := json.Marshal(account.Extra[codexTicketWatchdogExtraKey]); err == nil {
+		rawValue := account.Extra[codexTicketWatchdogExtraKeyForModel(model)]
+		if rawValue == nil && model == openAICodexTicketDefaultModel {
+			rawValue = account.Extra[codexTicketWatchdogExtraKey]
+		}
+		if raw, err := json.Marshal(rawValue); err == nil {
 			_ = json.Unmarshal(raw, &status)
 		}
 	}
@@ -49,13 +62,14 @@ type codexTicketReceipt struct {
 	fixedFingerprint string
 	stateHash        [32]byte
 	capturedAt       time.Time
+	version          uint64
 }
 
 type codexTicketReceiptContextKey struct{}
 
 func receiptForCodexTicket(ticket *openAICodexTicket) codexTicketReceipt {
 	return codexTicketReceipt{ticket.AccountID, ticket.Model, ticket.ConfigRevision,
-		ticket.FixedProxyFingerprint, sha256.Sum256([]byte(ticket.State)), ticket.CapturedAt}
+		ticket.FixedProxyFingerprint, sha256.Sum256([]byte(ticket.State)), ticket.CapturedAt, ticket.Version}
 }
 
 func (r codexTicketReceipt) matches(ticket *openAICodexTicket) bool {
@@ -64,19 +78,11 @@ func (r codexTicketReceipt) matches(ticket *openAICodexTicket) bool {
 	}
 	other := receiptForCodexTicket(ticket)
 	return r.accountID == other.accountID && r.model == other.model && r.revision == other.revision &&
-		r.fixedFingerprint == other.fixedFingerprint && r.stateHash == other.stateHash && r.capturedAt.Equal(other.capturedAt)
+		r.fixedFingerprint == other.fixedFingerprint && r.stateHash == other.stateHash && r.capturedAt.Equal(other.capturedAt) && r.version == other.version
 }
 
 func (s *OpenAIGatewayService) codexTicketRejectedByWatchdog(ticket *openAICodexTicket) bool {
-	if s == nil || ticket == nil {
-		return false
-	}
-	raw, ok := s.openaiCodexWatchdogRevoked.Load(openAICodexTicketKey(ticket.AccountID, ticket.Model))
-	if !ok {
-		return false
-	}
-	through, ok := raw.(time.Time)
-	return ok && !ticket.CapturedAt.After(through)
+	return false
 }
 
 func (s *OpenAIGatewayService) applyOpenAICodexTicketToRequest(ctx context.Context, account *Account, model string, req *http.Request) error {
@@ -94,19 +100,22 @@ func (s *OpenAIGatewayService) observeCodexTicketResponse(req *http.Request, res
 		return
 	}
 	var once sync.Once
-	trigger := func(reason string) {
-		once.Do(func() { s.invalidateCodexTicketFromResponse(*receipt, reason) })
+	complete := func(reason string) {
+		once.Do(func() { s.recordCodexTicketResponse(*receipt, reason) })
 	}
-	// 312 is an experimental refresh signal, not an asserted upstream revocation protocol.
-	if state := strings.TrimSpace(resp.Header.Get(openAICodexTurnStateHeader)); len(state) == 312 && validCodexTicketState(state) {
-		trigger("state_312")
+	if state := strings.TrimSpace(resp.Header.Get(openAICodexTurnStateHeader)); isCodexTicketAbnormalEnvelope(state, time.Now()) {
+		complete("state_312")
 	}
 	if resp.Body != nil {
-		resp.Body = &codexTicketWatchdogBody{ReadCloser: resp.Body, model: receipt.model, trigger: trigger}
+		resp.Body = &codexTicketWatchdogBody{ReadCloser: resp.Body, model: receipt.model, trigger: complete, success: func() { complete("") }}
 	}
 }
 
 func (s *OpenAIGatewayService) invalidateCodexTicketFromResponse(receipt codexTicketReceipt, reason string) {
+	s.recordCodexTicketResponse(receipt, reason)
+}
+
+func (s *OpenAIGatewayService) recordCodexTicketResponse(receipt codexTicketReceipt, reason string) {
 	// Do not depend on the downstream connection remaining alive after completion.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -120,38 +129,56 @@ func (s *OpenAIGatewayService) invalidateCodexTicketFromResponse(receipt codexTi
 		return
 	}
 	ac := codexAccountTicketConfigOf(account)
-	current := s.lookupOpenAICodexTicket(account, receipt.model)
-	if !ac.Enabled || !receipt.matches(current) {
+	modelCfg, configured := ac.modelConfig(receipt.model)
+	slot := s.lookupOpenAICodexTicketSlot(account, receipt.model)
+	if !configured || !modelCfg.Enabled || slot == nil || !receipt.matches(slot.Active) {
 		s.openaiCodexAccountMu.Unlock()
 		return
 	}
-	key := openAICodexTicketKey(account.ID, receipt.model)
-	// Keep the rejected identity in memory even if persisting the invalidation
-	// fails, so a stale scheduler/account snapshot cannot restore it.
-	through := receipt.capturedAt
-	if previous, ok := s.openaiCodexWatchdogRevoked.Load(key); ok {
-		if previousTime, ok := previous.(time.Time); ok && previousTime.After(through) {
-			through = previousTime
+	slot = cloneOpenAICodexTicketSlot(slot)
+	status := codexTicketWatchdogStatusOfModel(account, receipt.model, true)
+	updates := map[string]any{}
+	shouldHarvest := false
+	if reason == "" {
+		if slot.Strikes == 0 {
+			s.openaiCodexAccountMu.Unlock()
+			return
+		}
+		slot.Strikes = 0
+		slot.Version++
+	} else {
+		slot.Strikes++
+		slot.Version++
+		shouldHarvest = slot.Ready == nil
+		status.TriggerCount++
+		status.LastReason = reason
+		now := time.Now()
+		status.LastTriggeredAt = &now
+		updates[codexTicketWatchdogExtraKeyForModel(receipt.model)] = status
+		if slot.Strikes >= 2 {
+			if slot.Ready != nil && slot.Ready.validFor(account, ac, now) {
+				slot.Active, slot.Ready = slot.Ready, nil
+				slot.Active.Version = slot.Version
+				slot.Strikes = 0
+				shouldHarvest = false
+			} else {
+				slot.Active = nil
+				shouldHarvest = true
+			}
 		}
 	}
-	s.openaiCodexWatchdogRevoked.Store(key, through)
-	s.openaiCodexTickets.Delete(key)
-	status := codexTicketWatchdogStatusOf(account, true)
-	status.TriggerCount++
-	status.LastReason = reason
-	now := time.Now()
-	status.LastTriggeredAt = &now
-	persistErr := s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{
-		openAICodexTicketExtraKey(receipt.model): nil,
-		codexTicketWatchdogExtraKey:              status,
-	})
+	updates[openAICodexTicketExtraKey(receipt.model)] = slot
+	persistErr := s.accountRepo.UpdateExtra(ctx, account.ID, updates)
+	s.openaiCodexTickets.Store(openAICodexTicketKey(account.ID, receipt.model), slot)
 	s.openaiCodexAccountMu.Unlock()
 	if persistErr != nil {
 		logger.L().Warn("codex ticket watchdog invalidation persistence failed", zap.Int64("account_id", account.ID))
 	}
 	// Reuse any running harvest; preserve failure cooldown and bounded attempts.
 	// Successful jobs have no cooldown, so the first signal starts recovery now.
-	s.startCodexAccountTicketJob(ctx, account.ID, false)
+	if reason != "" && shouldHarvest {
+		s.startCodexAccountTicketModelJob(ctx, account.ID, receipt.model, false)
+	}
 }
 
 const codexTicketWatchdogBufferLimit = 1024 * 1024
@@ -163,6 +190,7 @@ type codexTicketWatchdogBody struct {
 	io.ReadCloser
 	model     string
 	trigger   func(string)
+	success   func()
 	mode      byte
 	buffer    []byte
 	data      []byte
@@ -318,5 +346,7 @@ func (b *codexTicketWatchdogBody) observeJSON(raw []byte) {
 	model := strings.TrimSpace(actual.String())
 	if model != "" && model != b.model {
 		b.trigger("model_mismatch")
+	} else if model == b.model && b.success != nil {
+		b.success()
 	}
 }
