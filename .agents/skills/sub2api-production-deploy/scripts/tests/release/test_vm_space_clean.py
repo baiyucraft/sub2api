@@ -180,6 +180,10 @@ class VMSpaceCleanTest(unittest.TestCase):
         self.assertIn('"$space_cleaner" dry-run "$commit"', validator[post_build:restore])
         self.assertIn('"$space_cleaner" apply "$commit"', validator[post_build:restore])
         self.assertIn('[[ "$prebuild_cleanup_applied" == false ]]', validator[post_build:restore])
+        self.assertIn('rm -f -- "$compatibility_path"', validator)
+        self.assertIn('rm -f -- "$recovery_path"', validator)
+        self.assertLess(validator.index('rm -f -- "$compatibility_path"'), validator.index('mark_v2_stage candidate_build'))
+        self.assertLess(validator.index('rm -f -- "$recovery_path"'), validator.index('docker exec -i sub2api-postgres /bin/sh -lc'))
 
 
 if __name__ == "__main__":

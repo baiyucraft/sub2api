@@ -124,6 +124,7 @@ if [[ "$manifest_schema" == 2 ]]; then
   loaded_old_image=$(gzip -dc "$compatibility_path" | docker load | sed -n 's/^Loaded image ID: //p' | tail -n1)
   [[ -z "$loaded_old_image" || "$loaded_old_image" == "$old_image_id" ]]
   [[ $(docker image inspect -f '{{.Id}}' "$old_image_id") == "$old_image_id" ]]
+  rm -f -- "$compatibility_path"
   build_log="$state_dir/build.log"
   : > "$build_log"
   chmod 600 "$build_log"
@@ -197,6 +198,7 @@ if [[ "$manifest_schema" == 2 ]]; then
   (cd "$recovery_dir" && sha256sum -c SHA256SUMS >/dev/null)
   [[ -s "$recovery_dir/database/sub2api.dump" && -s "$recovery_dir/redis/dump.rdb" ]]
   [[ $(sed -n 's/^current_image_id=//p' "$recovery_dir/manifest") == "$old_image_id" ]]
+  rm -f -- "$recovery_path"
   database_owner=$(docker exec sub2api-postgres sh -lc 'psql -X -A -t -U "${POSTGRES_USER:-postgres}" -d postgres -c "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname='"'"'sub2api_dev'"'"'"' | tr -d '\r')
   [[ "$database_owner" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]
   docker exec sub2api-postgres sh -lc "createdb -U \"\${POSTGRES_USER:-postgres}\" -O \"$database_owner\" $probe_db"
