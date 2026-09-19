@@ -14,9 +14,12 @@ import (
 )
 
 type codexTicketControlStub struct {
-	updated int
-	input   service.CodexAccountTicketUpdate
-	err     error
+	updated        int
+	input          service.CodexAccountTicketUpdate
+	harvested      int
+	harvestAccount int64
+	harvestModels  []string
+	err            error
 }
 
 func (s *codexTicketControlStub) GetCodexAccountTicketStatus(context.Context, int64) (*service.CodexAccountTicketStatus, error) {
@@ -27,7 +30,10 @@ func (s *codexTicketControlStub) ConfigureCodexAccountTicket(_ context.Context, 
 	s.input = in
 	return &service.CodexAccountTicketStatus{}, s.err
 }
-func (s *codexTicketControlStub) HarvestCodexAccountTicket(context.Context, int64) (*service.CodexAccountTicketStatus, error) {
+func (s *codexTicketControlStub) HarvestCodexAccountTicket(_ context.Context, accountID int64, models ...string) (*service.CodexAccountTicketStatus, error) {
+	s.harvested++
+	s.harvestAccount = accountID
+	s.harvestModels = append([]string(nil), models...)
 	return &service.CodexAccountTicketStatus{}, s.err
 }
 
@@ -38,6 +44,19 @@ func codexTicketControlRequest(t *testing.T, stub *codexTicketControlStub, body 
 	r := gin.New()
 	r.PUT("/accounts/:id/codex-ticket", h.UpdateCodexAccountTicket)
 	q := httptest.NewRequest(http.MethodPut, "/accounts/4/codex-ticket", strings.NewReader(body))
+	q.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, q)
+	return w
+}
+
+func codexTicketHarvestRequest(t *testing.T, stub *codexTicketControlStub, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	h := &AccountHandler{codexAccountTickets: stub}
+	r := gin.New()
+	r.POST("/accounts/:id/codex-ticket/harvest", h.HarvestCodexAccountTicket)
+	q := httptest.NewRequest(http.MethodPost, "/accounts/4/codex-ticket/harvest", strings.NewReader(body))
 	q.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, q)
@@ -78,4 +97,35 @@ func TestCodexTicketControlsPassManualPlan(t *testing.T) {
 	w = codexTicketControlRequest(t, s, `{"enabled":false,"ticket_plan":332}`)
 	require.Equal(t, http.StatusBadRequest, w.Code)
 	require.Equal(t, 1, s.updated)
+}
+
+func TestCodexTicketControlsPassModelsToService(t *testing.T) {
+	s := &codexTicketControlStub{}
+	w := codexTicketControlRequest(t, s, "{\"models\":{\"gpt-6-astra\":{\"enabled\":true,\"ticket_plan\":\"pro\"},\"gpt-5.6-sol\":{\"enabled\":false,\"ticket_plan\":\"team\"},\"gpt-5.6-terra\":{\"enabled\":true,\"ticket_plan\":\"team\"}}}")
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Equal(t, 1, s.updated)
+	require.Equal(t, map[string]service.CodexTicketModelUpdate{
+		"gpt-6-astra":   {Enabled: true, TicketPlan: "pro"},
+		"gpt-5.6-sol":   {Enabled: false, TicketPlan: "team"},
+		"gpt-5.6-terra": {Enabled: true, TicketPlan: "team"},
+	}, s.input.Models)
+}
+
+func TestCodexTicketControlsHarvestRequiresModel(t *testing.T) {
+	s := &codexTicketControlStub{}
+	w := codexTicketHarvestRequest(t, s, "{}")
+
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	require.Zero(t, s.harvested)
+}
+
+func TestCodexTicketControlsHarvestPassesModelToService(t *testing.T) {
+	s := &codexTicketControlStub{}
+	w := codexTicketHarvestRequest(t, s, "{\"model\":\"gpt-5.6-terra\"}")
+
+	require.Equal(t, http.StatusAccepted, w.Code)
+	require.Equal(t, 1, s.harvested)
+	require.Equal(t, int64(4), s.harvestAccount)
+	require.Equal(t, []string{"gpt-5.6-terra"}, s.harvestModels)
 }

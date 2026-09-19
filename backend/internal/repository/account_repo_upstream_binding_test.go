@@ -372,7 +372,8 @@ func expectAccountProbeStateRead(mock sqlmock.Sqlmock, account *service.Account)
 			"ollama_session",
 			"ollama_auto",
 			"ollama_snapshot",
-		}).AddRow(true, false, true, nil, nil, nil, nil, nil, nil))
+			"current_extra",
+		}).AddRow(true, false, true, nil, nil, nil, nil, nil, nil, nil))
 }
 
 func expectSchedulerAccountOutbox(mock sqlmock.Sqlmock, err error) {

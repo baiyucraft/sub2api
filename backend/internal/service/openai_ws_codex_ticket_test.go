@@ -86,15 +86,22 @@ func TestCodexTicketWSHTTPBridgeRechecksEveryTurn(t *testing.T) {
 			switch change {
 			case "refresh", "expire":
 				next := *ticket
-				next.CapturedAt = next.CapturedAt.Add(time.Millisecond)
-				next.ExpiresAt = next.CapturedAt.Add(time.Hour)
-				next.State = openAICodexTicketStatePrefix + strings.Repeat("C", next.Length-len(openAICodexTicketStatePrefix))
+				issuedAt := time.Now().Add(-time.Minute)
 				if change == "expire" {
-					next.CapturedAt = time.Now().Add(-2 * time.Hour)
-					next.ExpiresAt = time.Now().Add(-time.Hour)
+					issuedAt = time.Now().Add(-2 * time.Hour)
 					svc.openaiCodexTickets.Delete(openAICodexTicketKey(account.ID, ticket.Model))
 				}
-				require.NoError(t, repo.UpdateExtra(ctx, account.ID, map[string]any{openAICodexTicketExtraKey(next.Model): &next}))
+				next.State = fakeCodexTicketStateAt(next.Length, issuedAt)
+				envelope, parseErr := parseCodexTicketEnvelope(next.State, codexTicketPlanPro, time.Now())
+				require.NoError(t, parseErr)
+				next.CapturedAt = time.Now()
+				next.IssuedAt = envelope.IssuedAt
+				next.ExpiresAt = envelope.ExpiresAt
+				next.Fingerprint = envelope.Fingerprint
+				current := svc.lookupOpenAICodexTicketSlot(account, ticket.Model)
+				next.Version = current.Version + 1
+				persisted := &openAICodexTicketSlot{Active: &next, Version: next.Version}
+				require.NoError(t, repo.UpdateExtra(ctx, account.ID, map[string]any{openAICodexTicketExtraKey(next.Model): persisted}))
 				wantState = next.State
 			case "account_off":
 				ac := codexAccountTicketConfigOf(account)

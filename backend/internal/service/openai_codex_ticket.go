@@ -22,11 +22,11 @@ import (
 )
 
 const (
-	openAICodexTicketExtraKeyPrefix  = "codex_turn_ticket:"
-	openAICodexAstraMinVersion       = "0.153.4"
-	openAICodexTicketStatePrefix     = "gAAAAA"
-	openAICodexTicketDefaultModel    = "gpt-6-astra"
-	openAICodexTicketDefaultSolModel = "gpt-5.6-sol"
+	openAICodexTicketExtraKeyPrefix    = "codex_turn_ticket:"
+	openAICodexAstraMinVersion         = "0.153.4"
+	openAICodexTicketDefaultModel      = "gpt-6-astra"
+	openAICodexTicketDefaultSolModel   = "gpt-5.6-sol"
+	openAICodexTicketDefaultTerraModel = "gpt-5.6-terra"
 )
 
 // ErrOpenAICodexTicketUnavailable indicates an opted-in account has no verified
@@ -39,11 +39,21 @@ type openAICodexTicket struct {
 	State                 string    `json:"state"`
 	Length                int       `json:"length"`
 	CapturedAt            time.Time `json:"captured_at"`
+	IssuedAt              time.Time `json:"issued_at"`
 	ExpiresAt             time.Time `json:"expires_at"`
 	Attempts              int       `json:"attempts"`
 	Verified              bool      `json:"verified"`
 	ConfigRevision        string    `json:"config_revision"`
 	FixedProxyFingerprint string    `json:"fixed_proxy_fingerprint"`
+	Fingerprint           string    `json:"fingerprint"`
+	Version               uint64    `json:"version"`
+}
+
+type openAICodexTicketSlot struct {
+	Active  *openAICodexTicket `json:"active,omitempty"`
+	Ready   *openAICodexTicket `json:"ready,omitempty"`
+	Strikes int                `json:"strikes"`
+	Version uint64             `json:"version"`
 }
 
 func openAICodexTicketKey(accountID int64, model string) string {
@@ -83,7 +93,7 @@ func (s *OpenAIGatewayService) openAICodexTicketConfig() config.OpenAICodexTicke
 		cfg.HarvestAttemptTimeoutSeconds = 25
 	}
 	if len(cfg.Models) == 0 {
-		cfg.Models = []string{openAICodexTicketDefaultModel, openAICodexTicketDefaultSolModel}
+		cfg.Models = []string{openAICodexTicketDefaultModel, openAICodexTicketDefaultSolModel, openAICodexTicketDefaultTerraModel}
 	}
 	return cfg
 }
@@ -100,20 +110,24 @@ type OpenAICodexTicketStatus struct {
 
 func OpenAICodexTicketStatuses(account *Account, cfg config.OpenAICodexTicketConfig, now time.Time) []OpenAICodexTicketStatus {
 	ac := codexAccountTicketConfigOf(account)
-	if !cfg.Enabled || !isOpenAICodexTicketAccount(account) || !ac.Enabled {
+	if !cfg.Enabled || !isOpenAICodexTicketAccount(account) {
 		return nil
 	}
-	status := OpenAICodexTicketStatus{Model: ac.Model}
-	ticket := parseOpenAICodexTicketFromAny(account.ID, ac.Model, account.Extra[openAICodexTicketExtraKey(ac.Model)])
-	if ticket.validFor(account, ac, now) {
-		status.Ready = true
-		status.Length = ticket.Length
-		status.RemainingSeconds = int64(ticket.ExpiresAt.Sub(now) / time.Second)
-		expiry := ticket.ExpiresAt
-		status.ExpiresAt = &expiry
+	statuses := make([]OpenAICodexTicketStatus, 0, len(ac.enabledModels()))
+	for _, model := range ac.enabledModels() {
+		status := OpenAICodexTicketStatus{Model: model}
+		slot := parseOpenAICodexTicketSlotFromAny(account.ID, model, account.Extra[openAICodexTicketExtraKey(model)])
+		if slot != nil && slot.Active.validFor(account, ac, now) {
+			status.Ready = true
+			status.Length = slot.Active.Length
+			status.RemainingSeconds = int64(slot.Active.ExpiresAt.Sub(now) / time.Second)
+			expiry := slot.Active.ExpiresAt
+			status.ExpiresAt = &expiry
+		}
+		status.Blocked = !status.Ready
+		statuses = append(statuses, status)
 	}
-	status.Blocked = !status.Ready
-	return []OpenAICodexTicketStatus{status}
+	return statuses
 }
 
 func (s *OpenAIGatewayService) openAICodexTicketEnabled() bool {
@@ -144,27 +158,37 @@ func (s *OpenAIGatewayService) openAICodexTicketHarvestProxyURLContext(ctx conte
 	return strings.TrimSpace(s.openAICodexTicketConfig().HarvestProxyURL)
 }
 
-// Length alone is not proof of the returned model; validFor also enforces the manual plan.
 func (t *openAICodexTicket) valid(now time.Time, _ int) bool {
-	return t != nil && t.Verified && validCodexTicketState(t.State) && t.Length == len(t.State) &&
+	return t != nil && t.Verified && t.Length == len(t.State) &&
 		t.AccountID > 0 && t.Model != "" && t.ConfigRevision != "" && t.FixedProxyFingerprint != "" &&
-		!t.CapturedAt.IsZero() && !t.CapturedAt.After(now.Add(time.Minute)) && now.Before(t.ExpiresAt) &&
-		t.ExpiresAt.After(t.CapturedAt) && t.ExpiresAt.Sub(t.CapturedAt) <= time.Hour
+		!t.CapturedAt.IsZero() && !t.CapturedAt.After(now.Add(time.Minute))
 }
 func (t *openAICodexTicket) validFor(account *Account, ac codexAccountTicketConfig, now time.Time) bool {
-	return account != nil && ac.Enabled && t.valid(now, 0) && t.Length == codexTicketTargetLength(ac.TicketPlan) && t.AccountID == account.ID && t.Model == ac.Model &&
-		t.ConfigRevision == ac.Revision && t.FixedProxyFingerprint == codexTicketFixedProxyFingerprint(account)
-}
-func validCodexTicketState(state string) bool {
-	if len(state) < 32 || len(state) > 8192 || !strings.HasPrefix(state, openAICodexTicketStatePrefix) {
+	if account == nil || t == nil {
 		return false
 	}
-	for _, c := range state {
-		if (c < 'A' || c > 'Z') && (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '_' && c != '-' && c != '=' {
-			return false
-		}
+	modelCfg, ok := ac.modelConfig(t.Model)
+	if !ok || !modelCfg.Enabled || !t.valid(now, 0) || t.AccountID != account.ID ||
+		t.ConfigRevision != modelCfg.Revision || t.FixedProxyFingerprint != codexTicketFixedProxyFingerprint(account) {
+		return false
 	}
-	return true
+	envelope, err := parseCodexTicketEnvelope(t.State, modelCfg.TicketPlan, now)
+	if err != nil || !envelope.usableAt(now) {
+		return false
+	}
+	if !t.IssuedAt.IsZero() && !t.IssuedAt.Equal(envelope.IssuedAt) {
+		return false
+	}
+	if !t.ExpiresAt.IsZero() && !t.ExpiresAt.Equal(envelope.ExpiresAt) {
+		return false
+	}
+	return t.Fingerprint == "" || t.Fingerprint == envelope.Fingerprint
+}
+func validCodexTicketState(state string) bool {
+	now := time.Now()
+	_, proErr := parseCodexTicketEnvelope(state, codexTicketPlanPro, now)
+	_, teamErr := parseCodexTicketEnvelope(state, codexTicketPlanTeam, now)
+	return proErr == nil || teamErr == nil
 }
 
 func (t *openAICodexTicket) needsRefresh(now time.Time, refreshBefore time.Duration) bool {
@@ -175,44 +199,119 @@ func (t *openAICodexTicket) needsRefresh(now time.Time, refreshBefore time.Durat
 }
 
 func (s *OpenAIGatewayService) lookupOpenAICodexTicket(account *Account, model string) *openAICodexTicket {
+	slot := s.lookupOpenAICodexTicketSlot(account, model)
+	if slot == nil {
+		return nil
+	}
+	return slot.Active
+}
+
+func (s *OpenAIGatewayService) lookupOpenAICodexTicketSlot(account *Account, model string) *openAICodexTicketSlot {
 	if s == nil || account == nil || account.ID <= 0 {
 		return nil
 	}
+	model = normalizeOpenAICodexTicketModel(model)
 	ac := codexAccountTicketConfigOf(account)
-	if !ac.Enabled || ac.Model != normalizeOpenAICodexTicketModel(model) {
+	modelCfg, enabled := ac.modelConfig(model)
+	if !enabled || !modelCfg.Enabled {
 		return nil
 	}
 	now := time.Now()
 	key := openAICodexTicketKey(account.ID, model)
-	var memory *openAICodexTicket
+	var memory *openAICodexTicketSlot
 	if raw, ok := s.openaiCodexTickets.Load(key); ok {
-		memory, _ = raw.(*openAICodexTicket)
+		switch stored := raw.(type) {
+		case *openAICodexTicketSlot:
+			memory = stored
+		case *openAICodexTicket:
+			version := stored.Version
+			if version == 0 {
+				version = 1
+			}
+			memory = &openAICodexTicketSlot{Active: stored, Version: version}
+		}
 	}
-	persisted := parseOpenAICodexTicketFromAny(account.ID, model, account.Extra[openAICodexTicketExtraKey(model)])
-	if s.codexTicketRejectedByWatchdog(memory) {
-		memory = nil
+	persisted := parseOpenAICodexTicketSlotFromAny(account.ID, model, account.Extra[openAICodexTicketExtraKey(model)])
+	best := memory
+	if persisted != nil && (best == nil || persisted.Version > best.Version) {
+		best = persisted
 	}
-	if s.codexTicketRejectedByWatchdog(persisted) {
-		persisted = nil
+	if best == nil {
+		s.openaiCodexTickets.Delete(key)
+		return nil
 	}
-	if persisted.validFor(account, ac, now) && (!memory.validFor(account, ac, now) || persisted.CapturedAt.After(memory.CapturedAt)) {
-		s.openaiCodexTickets.Store(key, persisted)
-		return persisted
+	best = cloneOpenAICodexTicketSlot(best)
+	if s.codexTicketRejectedByWatchdog(best.Active) || !best.Active.validFor(account, ac, now) {
+		best.Active = nil
 	}
-	if memory.validFor(account, ac, now) {
-		return memory
+	if s.codexTicketRejectedByWatchdog(best.Ready) || !best.Ready.validFor(account, ac, now) {
+		best.Ready = nil
+	}
+	if best.Active == nil && best.Ready != nil {
+		best.Active, best.Ready = best.Ready, nil
+		best.Strikes = 0
+		best.Version++
+		best.Active.Version = best.Version
+		if s.accountRepo != nil {
+			writeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			_ = s.accountRepo.UpdateExtra(writeCtx, account.ID, map[string]any{openAICodexTicketExtraKey(model): best})
+			cancel()
+		}
+	}
+	if best.Active != nil {
+		s.openaiCodexTickets.Store(key, best)
+		return best
 	}
 	s.openaiCodexTickets.Delete(key)
 	return nil
 }
 
+func cloneOpenAICodexTicketSlot(slot *openAICodexTicketSlot) *openAICodexTicketSlot {
+	if slot == nil {
+		return nil
+	}
+	out := *slot
+	if slot.Active != nil {
+		active := *slot.Active
+		out.Active = &active
+	}
+	if slot.Ready != nil {
+		ready := *slot.Ready
+		out.Ready = &ready
+	}
+	return &out
+}
+
 func parseOpenAICodexTicketFromAny(accountID int64, model string, raw any) *openAICodexTicket {
+	slot := parseOpenAICodexTicketSlotFromAny(accountID, model, raw)
+	if slot == nil {
+		return nil
+	}
+	return slot.Active
+}
+
+func parseOpenAICodexTicketSlotFromAny(accountID int64, model string, raw any) *openAICodexTicketSlot {
 	if raw == nil {
 		return nil
 	}
 	b, err := json.Marshal(raw)
 	if err != nil {
 		return nil
+	}
+	var slot openAICodexTicketSlot
+	if err := json.Unmarshal(b, &slot); err == nil && (slot.Active != nil || slot.Ready != nil || slot.Version > 0) {
+		if slot.Active != nil && (slot.Active.AccountID != accountID || slot.Active.Model != model) {
+			slot.Active = nil
+		}
+		if slot.Ready != nil && (slot.Ready.AccountID != accountID || slot.Ready.Model != model) {
+			slot.Ready = nil
+		}
+		if slot.Active == nil && slot.Ready == nil {
+			return nil
+		}
+		normalizePersistedCodexTicket(slot.Active)
+		normalizePersistedCodexTicket(slot.Ready)
+		return &slot
 	}
 	var ticket openAICodexTicket
 	if err := json.Unmarshal(b, &ticket); err != nil {
@@ -228,22 +327,63 @@ func parseOpenAICodexTicketFromAny(accountID int64, model string, raw any) *open
 	if ticket.State == "" {
 		return nil
 	}
-	return &ticket
+	if ticket.Version == 0 {
+		ticket.Version = 1
+	}
+	normalizePersistedCodexTicket(&ticket)
+	return &openAICodexTicketSlot{Active: &ticket, Version: ticket.Version}
+}
+
+func normalizePersistedCodexTicket(ticket *openAICodexTicket) {
+	if ticket == nil {
+		return
+	}
+	envelope, err := parseCodexTicketEnvelopeShape(ticket.State, time.Now())
+	if err != nil {
+		return
+	}
+	if ticket.IssuedAt.IsZero() {
+		ticket.IssuedAt = envelope.IssuedAt
+	}
+	// #7338 persisted expiry from capture time. Upgrade legacy records to the
+	// envelope's immutable issuance window during read compatibility.
+	if ticket.ExpiresAt.IsZero() || ticket.Fingerprint == "" {
+		ticket.ExpiresAt = envelope.ExpiresAt
+	}
+	if ticket.Fingerprint == "" {
+		ticket.Fingerprint = envelope.Fingerprint
+	}
 }
 
 // storeOpenAICodexTicket is called only while the per-account mutation lock is held.
-func (s *OpenAIGatewayService) storeOpenAICodexTicket(ctx context.Context, account *Account, ticket *openAICodexTicket) {
+func (s *OpenAIGatewayService) storeOpenAICodexTicket(ctx context.Context, account *Account, ticket *openAICodexTicket) error {
 	if s == nil || account == nil || s.codexTicketRejectedByWatchdog(ticket) || !ticket.validFor(account, codexAccountTicketConfigOf(account), time.Now()) {
-		return
+		return ErrOpenAICodexTicketUnavailable
+	}
+	key := openAICodexTicketKey(account.ID, ticket.Model)
+	current := s.lookupOpenAICodexTicketSlot(account, ticket.Model)
+	slot := cloneOpenAICodexTicketSlot(current)
+	if slot == nil {
+		slot = &openAICodexTicketSlot{}
+	}
+	slot.Version++
+	ticket.Version = slot.Version
+	if slot.Active == nil || !slot.Active.validFor(account, codexAccountTicketConfigOf(account), time.Now()) {
+		slot.Active = ticket
+		slot.Ready = nil
+		slot.Strikes = 0
+	} else if slot.Active.Fingerprint != ticket.Fingerprint {
+		slot.Ready = ticket
 	}
 	if s.accountRepo != nil {
 		writeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
-		if err := s.accountRepo.UpdateExtra(writeCtx, account.ID, map[string]any{openAICodexTicketExtraKey(ticket.Model): ticket}); err != nil {
-			return
+		if err := s.accountRepo.UpdateExtra(writeCtx, account.ID, map[string]any{openAICodexTicketExtraKey(ticket.Model): slot}); err != nil {
+			return err
 		}
 	}
-	s.openaiCodexTickets.Store(openAICodexTicketKey(account.ID, ticket.Model), ticket)
+	s.openaiCodexTickets.Store(key, slot)
+	return nil
 }
 
 // applyOpenAICodexTicket 在出站请求上覆盖 x-codex-turn-state。
@@ -258,15 +398,23 @@ func (s *OpenAIGatewayService) applyOpenAICodexTicketWithReceipt(ctx context.Con
 	if s == nil || h == nil || !isOpenAICodexTicketAccount(account) || !s.openAICodexTicketEnabledContext(ctx) {
 		return nil, nil
 	}
+	// guardOpenAICodexTurnStateEcho already removed known cross-account STATE.
+	// A remaining client STATE belongs to this account or has unknown provenance;
+	// either way it has priority over a background ticket and is not watched.
+	if strings.TrimSpace(h.Get(openAICodexTurnStateHeader)) != "" {
+		return nil, nil
+	}
+	model = normalizeOpenAICodexTicketModel(model)
 	live, err := s.codexTicketLiveAccount(ctx, account)
 	if err != nil {
-		if codexAccountTicketConfigOf(account).Enabled {
+		if cfg, ok := codexAccountTicketConfigOf(account).modelConfig(model); ok && cfg.Enabled {
 			return nil, ErrOpenAICodexTicketUnavailable
 		}
 		return nil, nil
 	}
 	ac := codexAccountTicketConfigOf(live)
-	if !isOpenAICodexTicketAccount(live) || !ac.Enabled || ac.Model != normalizeOpenAICodexTicketModel(model) {
+	modelCfg, configured := ac.modelConfig(model)
+	if !isOpenAICodexTicketAccount(live) || !configured || !modelCfg.Enabled {
 		return nil, nil
 	}
 	// A scheduler snapshot with a different business proxy must be reselected.
@@ -323,13 +471,16 @@ func (s *OpenAIGatewayService) openAICodexTicketBlocksAccount(account *Account, 
 	live, err := s.codexTicketLiveAccount(ctx, account)
 	if err != nil {
 		ac := codexAccountTicketConfigOf(account)
-		return ac.Enabled && ac.Model == normalizeOpenAICodexTicketModel(outboundModel)
+		modelCfg, ok := ac.modelConfig(outboundModel)
+		return ok && modelCfg.Enabled
 	}
 	ac := codexAccountTicketConfigOf(live)
-	if !ac.Enabled || !isOpenAICodexTicketAccount(live) || ac.Model != normalizeOpenAICodexTicketModel(outboundModel) {
+	model := normalizeOpenAICodexTicketModel(outboundModel)
+	modelCfg, configured := ac.modelConfig(model)
+	if !configured || !modelCfg.Enabled || !isOpenAICodexTicketAccount(live) {
 		return false
 	}
-	return !s.lookupOpenAICodexTicket(live, ac.Model).validFor(live, ac, time.Now())
+	return !s.lookupOpenAICodexTicket(live, model).validFor(live, ac, time.Now())
 }
 
 func (s *OpenAIGatewayService) fireOpenAICodexTicketProbe(ctx context.Context, account *Account, token, model, proxyURL string, attemptTimeout time.Duration) (state string, status int, err error) {
@@ -498,20 +649,23 @@ func (s *OpenAIGatewayService) refreshOpenAICodexTickets(ctx context.Context) {
 	for i := range accounts {
 		account := &accounts[i]
 		ac := codexAccountTicketConfigOf(account)
-		if !codexAccountTicketEligible(account) || !ac.Enabled {
+		if !codexAccountTicketEligible(account) {
 			continue
 		}
-		ticket := s.lookupOpenAICodexTicket(account, ac.Model)
-		if ticket.validFor(account, ac, time.Now()) && !ticket.needsRefresh(time.Now(), 10*time.Minute) {
-			continue
+		for _, model := range ac.enabledModels() {
+			ticket := s.lookupOpenAICodexTicket(account, model)
+			if ticket.validFor(account, ac, time.Now()) && !ticket.needsRefresh(time.Now(), 10*time.Minute) {
+				continue
+			}
+			s.startCodexAccountTicketModelJob(ctx, account.ID, model, false)
 		}
-		s.startCodexAccountTicketJob(ctx, account.ID, false)
 	}
 }
 
 // IsOpenAICodexTicketExtraKey identifies server-managed ticket material.
 func IsOpenAICodexTicketExtraKey(key string) bool {
-	return key == codexTicketWatchdogExtraKey || key == codexAccountTicketConfigKey || strings.HasPrefix(key, openAICodexTicketExtraKeyPrefix)
+	return key == codexTicketWatchdogExtraKey || key == codexAccountTicketConfigKey ||
+		strings.HasPrefix(key, codexTicketWatchdogExtraKeyPrefix) || strings.HasPrefix(key, openAICodexTicketExtraKeyPrefix)
 }
 
 // MergeOpenAICodexTicketExtra preserves only persisted tickets, never summaries or

@@ -648,7 +648,7 @@ or mitigating upstream WebSocket issues.
 
 #### Account-level Codex STATE tickets
 
-Use explicit per-account STATE controls, manual Pro/Team selection, verified fixed-proxy replay and a response watchdog. See [Account-level Codex STATE tickets](docs/CODEX_ACCOUNT_STATE.md) for setup and upgrade behavior.
+Use explicit per-account STATE controls, model-isolated Astra/Sol/Terra lifecycle state, strict missing-ticket scheduling, verified fixed-proxy replay and a response watchdog. The baseline directly preserves the history and attribution of Sub2API PRs [#7315](https://github.com/Wei-Shaw/sub2api/pull/7315) and [#7338](https://github.com/Wei-Shaw/sub2api/pull/7338). `ccodex-sleep-state@26b22196` is the PR's original design reference and `@b18fabf9` is this fork's 2026-09-19 review point; reliability mechanisms are independently implemented without copying that GPL-3.0 project's source or dependencies. See [Account-level Codex STATE tickets](docs/CODEX_ACCOUNT_STATE.md) for exact commits, non-adopted behaviors and the long-term fork contract.
 
 #### Force OpenAI upstream HTTP/SSE
 

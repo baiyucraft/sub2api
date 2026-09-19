@@ -43,7 +43,7 @@ func TestCodexTicketEnabledRuntimeSettingOverridesYaml(t *testing.T) {
 	h = http.Header{}
 	h.Set(openAICodexTurnStateHeader, "client-state")
 	require.NoError(t, svc.applyOpenAICodexTicket(context.Background(), account, "gpt-6-astra", h))
-	require.Equal(t, fakeCodexTicketState(292), h.Get(openAICodexTurnStateHeader))
+	require.Equal(t, "client-state", h.Get(openAICodexTurnStateHeader))
 
 	repo.values[SettingKeyOpenAICodexTicketEnabled] = "false"
 	settings.InvalidateOpenAICodexTicketEnabledCache()

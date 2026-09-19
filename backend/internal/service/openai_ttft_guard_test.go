@@ -503,6 +503,31 @@ func TestOpenAIGatewayService_TTFTGuardFailOpenKeepsOnlyAccount(t *testing.T) {
 	}
 }
 
+func TestOpenAIGatewayService_TTFTGuardFailOpenStillHonorsCodexTicketStrictGate(t *testing.T) {
+	ctx := context.Background()
+	groupID := int64(100)
+	account := *ticketTestAccount(11)
+	account.Schedulable = true
+	account.Concurrency = 1
+	account.Priority = 2
+	account.GroupIDs = []int64{groupID}
+	svc := &OpenAIGatewayService{
+		accountRepo:        schedulerTestOpenAIAccountRepo{accounts: []Account{account}},
+		cfg:                &config.Config{Gateway: config.GatewayConfig{OpenAICodexTicket: config.OpenAICodexTicketConfig{Enabled: true}}},
+		rateLimitService:   newOpenAIAdvancedSchedulerRateLimitService("true"),
+		concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{}),
+	}
+	svc.SetOpenAITTFTGuardConfigProvider(openAITTFTGuardConfigProviderFunc(func() OpenAITTFTGuardConfigSnapshot {
+		return enabledOpenAITTFTGuardConfig(20*time.Second, 5)
+	}))
+	critical := 60_000
+	svc.ReportOpenAIAccountScheduleResultForGroup(&groupID, &account, openAICodexTicketDefaultModel, true, &critical)
+
+	selection, _, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "", openAICodexTicketDefaultModel, nil, OpenAIUpstreamTransportAny, false)
+	require.ErrorIs(t, err, ErrNoAvailableAccounts)
+	require.Nil(t, selection)
+}
+
 func TestOpenAIGatewayService_TTFTGuardDoesNotMutateCallerExclusions(t *testing.T) {
 	ctx := context.Background()
 	groupID := int64(100)
