@@ -168,8 +168,19 @@ class Audit:
         proc = subprocess.run(["git", "show", f"{ref}:{path}"], cwd=self.root, text=True, encoding="utf-8", errors="replace", capture_output=True)
         return proc.stdout if proc.returncode == 0 else None
 
+    def official_version(self, ref: str) -> str | None:
+        contract = self.catalog.get("version_contract", {})
+        commit = ref.lower() if SHA_RE.fullmatch(ref) else self.git("rev-parse", "--verify", f"{ref}^{{commit}}").lower()
+        release_versions = contract.get("official_release_versions", {})
+        if isinstance(release_versions, dict):
+            pinned = str(release_versions.get(commit, "")).strip()
+            if pinned:
+                return pinned
+        path = str(contract.get("upstream_path", "backend/cmd/server/VERSION")).strip()
+        return self.show(ref, path)
+
     def check_versions(self) -> None:
-        upstream = self.show(self.upstream_ref, "backend/cmd/server/VERSION")
+        upstream = self.official_version(self.upstream_ref)
         current = self.show(self.head, "backend/cmd/server/VERSION") or ""
         if upstream is None:
             self.add("blocker", "upstream_version_missing", "官方目标缺少 VERSION 文件")
@@ -294,7 +305,7 @@ class Audit:
             reconciliation = tranche.get("reconciliation", {})
             reconciliation_status = str(reconciliation.get("status", "pending")).strip()
             target_version = str(reconciliation.get("target_version", "")).strip()
-            upstream_version = (self.show(self.upstream_ref, "backend/cmd/server/VERSION") or "").strip()
+            upstream_version = (self.official_version(self.upstream_ref) or "").strip()
             upstream_key = self.version_key(upstream_version)
             target_key = self.version_key(target_version)
             official_key = self.version_key(official_version)

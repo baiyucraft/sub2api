@@ -629,4 +629,4 @@ def test_real_catalog_registers_unreleased_adopted_upstream_tranche() -> None:
     assert tranche["fork_version_at_adoption"] == "0.2.5-baiyu"
     assert tranche["commit_count"] == 52
     assert tranche["non_merge_commit_count"] == 27
-    assert tranche["reconciliation"]["target_version"] == "0.2.6"
+    assert tranche["reconciliation"]["target_version"] == "0.2.7"

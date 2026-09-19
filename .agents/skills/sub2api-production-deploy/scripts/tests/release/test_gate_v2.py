@@ -58,9 +58,9 @@ class GateV2Test(unittest.TestCase):
         (self.root / "candidate.tar.gz").write_bytes(archive)
         manifest = {
             "schema": 2,
-            "profile": "253",
-            "release_id": "253-aaaaaaaaaaaa-1-aaaaaaaa",
-            "version": "0.2.5-baiyu",
+            "profile": "254",
+            "release_id": "254-aaaaaaaaaaaa-1-aaaaaaaa",
+            "version": "0.2.7-baiyu",
             "commit_sha": "a" * 40,
             "expires_at": int(time.time()) + 3600,
             "release_asset_layout": LAYOUT_SKILL_V1,
@@ -98,7 +98,7 @@ class GateV2Test(unittest.TestCase):
             },
             "release_policy": {"canary_verified": "not_checked", "restore_points_verified": True},
         }
-        return {"gate_version": 2, "profile_id": 253, "manifest": manifest, "evidence": evidence}
+        return {"gate_version": 2, "profile_id": 254, "manifest": manifest, "evidence": evidence}
 
     def _sign(self, document: dict) -> None:
         payload = self.root / "gate.json"
@@ -109,7 +109,7 @@ class GateV2Test(unittest.TestCase):
             capture_output=True,
         )
 
-    def _verify(self, *, allow_historical_runner: bool = False, profile: str = "253") -> dict:
+    def _verify(self, *, allow_historical_runner: bool = False, profile: str = "254") -> dict:
         with (
             mock.patch("release.gate.validate_manifest_profile_contract"),
             mock.patch("release.gate.get_profile", return_value={}),
@@ -135,7 +135,7 @@ class GateV2Test(unittest.TestCase):
         document["profile_id"] = 246
         document["manifest"].update(profile="246", release_id="246-aaaaaaaaaaaa-1-aaaaaaaa", version="0.2.1-baiyu")
         self._sign(document)
-        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 253"):
+        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 254"):
             self._verify(profile="246")
         self.assertEqual(self._verify(profile="246", allow_historical_runner=True), document)
 
@@ -149,7 +149,7 @@ class GateV2Test(unittest.TestCase):
             mock.patch("release.gate.verify_gate_v2") as v2,
             self.assertRaises(subprocess.CalledProcessError),
         ):
-            verify_gate(self.root, self.public_key, "253", accepted_schemas=frozenset({1, 2}))
+            verify_gate(self.root, self.public_key, "254", accepted_schemas=frozenset({1, 2}))
         v1.assert_not_called()
         v2.assert_not_called()
 

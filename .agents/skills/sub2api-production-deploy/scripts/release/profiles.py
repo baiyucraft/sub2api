@@ -734,7 +734,24 @@ PROFILES["253"] = {
     },
 }
 
-CURRENT_RELEASE_PROFILE = "253"
+# Profile 253 is immutable. Official tag v0.2.7 identifies the release even
+# though that tagged source still carries VERSION=0.2.5. The release manifest
+# remains authoritative for the image build version, so no database migration
+# is added while the release lineage advances.
+PROFILES["254"] = {
+    **{key: PROFILES["253"][key] for key in _PROFILE_V2_RUNTIME_KEYS},
+    "name": "254",
+    "version": "0.2.7-baiyu",
+    "parent": "253",
+    "new_migrations": [],
+    "gate_schema": 2,
+    "release_policy": {
+        "compatibility_image": "production_current",
+        "migration_source": "database_state",
+    },
+}
+
+CURRENT_RELEASE_PROFILE = "254"
 
 
 def get_profile(name: str) -> dict:
