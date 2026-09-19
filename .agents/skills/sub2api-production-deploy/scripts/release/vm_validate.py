@@ -62,6 +62,8 @@ def _remote_vm_worker_script(
     remote_snapshot: str = "",
     remote_pre_gate_descriptor: str = "",
     remote_output: str,
+    remote_space_cleaner: str,
+    prebuild_cleanup_applied: bool,
     validator: str,
     release_id: str,
 ) -> str:
@@ -77,6 +79,7 @@ def _remote_vm_worker_script(
         "remote_root": remote_root,
         "remote_manifest": remote_manifest,
         "remote_output": remote_output,
+        "remote_space_cleaner": remote_space_cleaner,
         "validator": validator,
         "release_id": release_id,
     }.items()}
@@ -95,6 +98,8 @@ manifest={quoted["remote_manifest"]}
 snapshot={shlex.quote(remote_snapshot)}
 pre_gate_descriptor={shlex.quote(remote_pre_gate_descriptor)}
 output={quoted["remote_output"]}
+space_cleaner={quoted["remote_space_cleaner"]}
+prebuild_cleanup_applied={str(prebuild_cleanup_applied).lower()}
 release_id={quoted["release_id"]}
 install -d -o 0 -g 0 -m 700 "$worker_dir"
 [[ -d "$worker_dir" && ! -L "$worker_dir" && $(stat -c '%u:%g:%a' "$worker_dir") == 0:0:700 ]]
@@ -123,6 +128,8 @@ manifest={shlex.quote(remote_manifest)}
 snapshot={shlex.quote(remote_snapshot)}
 pre_gate_descriptor={shlex.quote(remote_pre_gate_descriptor)}
 output={shlex.quote(remote_output)}
+space_cleaner={shlex.quote(remote_space_cleaner)}
+prebuild_cleanup_applied={str(prebuild_cleanup_applied).lower()}
 release_id={shlex.quote(release_id)}
 state_write() {{
   local key=$1 value=$2
@@ -138,7 +145,7 @@ state_write start_token "$start_token"
 state_write pid "$$"
 state_write status running
 set +e
-"$validator" "$manifest" "$output" "$snapshot" "$pre_gate_descriptor" >>"$raw_log" 2>&1
+"$validator" "$manifest" "$output" "$snapshot" "$pre_gate_descriptor" "$space_cleaner" "$prebuild_cleanup_applied" >>"$raw_log" 2>&1
 exit_code=$?
 set -e
 gate_root=${{output%/output}}
@@ -335,7 +342,7 @@ def ensure_vm_space(runner: SSHRunner, cleaner: str, manifest: dict[str, object]
     command = f"{shlex.quote(cleaner)} dry-run {argument_text}"
     report = runner.run("local_vm", command, SPACE_FIELDS).values
     if report["space_status"] == "sufficient":
-        return report
+        return {**report, "cleanup_applied": "false"}
     if report["space_status"] != "insufficient":
         raise RuntimeError("VM space cleaner returned an invalid status")
     runner.run(
@@ -347,7 +354,7 @@ def ensure_vm_space(runner: SSHRunner, cleaner: str, manifest: dict[str, object]
     verified = runner.run("local_vm", command, SPACE_FIELDS).values
     if verified["space_status"] != "sufficient":
         raise RuntimeError("VM disk space remains insufficient after one allowlisted cleanup")
-    return verified
+    return {**verified, "cleanup_applied": "true"}
 
 
 def main() -> None:
@@ -395,7 +402,7 @@ def main() -> None:
             f"test $(sha256sum {shlex.quote(remote_cleaner)} | awk '{{print $1}}') = {shlex.quote(cleaner_checksum)} && printf 'space_cleaner_verified=true\\n'",
             {"space_cleaner_verified"},
         )
-        ensure_vm_space(runner, remote_cleaner, manifest)
+        space_report = ensure_vm_space(runner, remote_cleaner, manifest)
         # From this point onward a transport error cannot prove whether the
         # remote launcher ran. Preserve the input until repeated polls prove
         # that no handshake exists, and never launch a second worker.
@@ -416,6 +423,8 @@ def main() -> None:
                     remote_snapshot=remote_snapshot,
                     remote_pre_gate_descriptor=remote_pre_gate_descriptor,
                     remote_output=remote_output,
+                    remote_space_cleaner=remote_cleaner,
+                    prebuild_cleanup_applied=space_report["cleanup_applied"] == "true",
                     validator="/usr/local/libexec/sub2api-vm-validate",
                     release_id=str(manifest["release_id"]),
                 ),
