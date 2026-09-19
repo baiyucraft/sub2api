@@ -7,10 +7,7 @@ vi.mock('vue-i18n', async () => {
   return {
     ...actual,
     useI18n: () => ({
-      t: (key: string, params?: Record<string, unknown>) => {
-        if (key === 'admin.accounts.groupCountTotal') return `Groups: ${params?.count ?? 0}`
-        return key
-      }
+      t: (key: string) => key
     })
   }
 })
@@ -35,77 +32,50 @@ const mountCell = (props: Record<string, unknown> = {}) => mount(AccountGroupsCe
       },
       Icon: {
         props: ['filled'],
-        template: '<svg data-testid="preferred-icon" :data-filled="filled ? \'true\' : \'false\'" />'
+        template: `<svg data-testid="preferred-icon" :data-filled="filled ? 'true' : 'false'" />`
       }
     }
   }
 })
 
 describe('AccountGroupsCell preferred account pool', () => {
-  it('keeps the group cell compact and exposes long names through the title', () => {
+  it('keeps long group names constrained and exposes the full name through the title', () => {
     const wrapper = mountCell({
-      groups: [{ id: 1, name: 'gpt-混合稳定-这是一个很长的分组名称', platform: 'openai' }] as any
+      groups: [{ id: 1, name: 'gpt-mixed-stable-with-a-very-long-group-name', platform: 'openai' }] as any
     })
 
     expect(wrapper.find('.account-groups-cell').classes()).toEqual(
       expect.arrayContaining(['w-full', 'max-w-full', 'min-w-0'])
     )
     expect(wrapper.find('.group-badge').attributes('title')).toBe(
-      'gpt-混合稳定-这是一个很长的分组名称'
+      'gpt-mixed-stable-with-a-very-long-group-name'
     )
   })
 
-  it('turns groups that overflow the two-row cell into a visible +N entry', async () => {
-    let notifyResize: (() => void) | null = null
-    vi.stubGlobal('ResizeObserver', class {
-      constructor(callback: () => void) {
-        notifyResize = callback
-      }
-
-      observe() {}
-      disconnect() {}
-    })
-
+  it('renders every group and lets the row grow naturally', () => {
     const wrapper = mountCell({
       groups: [
-        { id: 1, name: 'gpt-低价-这是一个很长的分组名称', platform: 'openai' },
-        { id: 2, name: 'gpt-混合-这是一个很长的分组名称', platform: 'openai' },
-        { id: 3, name: 'gpt-pro-这是一个很长的分组名称', platform: 'openai' }
+        { id: 1, name: 'gpt-low-price-with-a-very-long-group-name', platform: 'openai' },
+        { id: 2, name: 'gpt-mixed-with-a-very-long-group-name', platform: 'openai' },
+        { id: 3, name: 'gpt-pro-with-a-very-long-group-name', platform: 'openai' }
       ] as any
     })
-    const container = wrapper.get('[data-testid="account-groups-list"]').element
 
-    Object.defineProperties(container, {
-      clientWidth: { configurable: true, value: 208 },
-      clientHeight: { configurable: true, value: 56 },
-      scrollHeight: {
-        configurable: true,
-        get: () => container.querySelectorAll('.group-badge').length > 2 ? 84 : 56
-      }
-    })
-
-    notifyResize?.()
-    await new Promise<void>(resolve => {
-      if (typeof window.requestAnimationFrame === 'function') {
-        window.requestAnimationFrame(() => resolve())
-      } else {
-        setTimeout(resolve, 0)
-      }
-    })
-    await new Promise(resolve => setTimeout(resolve, 0))
-    await wrapper.vm.$nextTick()
-
-    expect(wrapper.findAll('.group-badge')).toHaveLength(2)
-    expect(wrapper.text()).toContain('+1')
-    vi.unstubAllGlobals()
+    const container = wrapper.get('[data-testid="account-groups-list"]')
+    expect(container.classes()).toContain('flex-wrap')
+    expect(container.classes()).not.toContain('max-h-14')
+    expect(container.classes()).not.toContain('overflow-hidden')
+    expect(wrapper.findAll('.group-badge')).toHaveLength(3)
+    expect(wrapper.text()).not.toMatch(/\+\d+/)
+    expect(wrapper.find('[data-testid="account-groups-popover"]').exists()).toBe(false)
   })
 
   it('keeps existing calls read-only when preferred props are omitted', () => {
-    const wrapper = mountCell({ maxDisplay: 3 })
+    const wrapper = mountCell()
 
     expect(wrapper.findAll('[data-group-id]')).toHaveLength(0)
-    expect(wrapper.findAll('button')).toHaveLength(1)
-    expect(wrapper.text()).toContain('+2')
+    expect(wrapper.findAll('button')).toHaveLength(0)
+    expect(wrapper.findAll('.group-badge')).toHaveLength(4)
   })
 
   it('shows group-level preferred state without making the default display interactive', () => {
@@ -128,7 +98,7 @@ describe('AccountGroupsCell preferred account pool', () => {
     expect(icons[3].attributes('data-filled')).toBe('false')
   })
 
-  it('toggles each visible group independently and emits the next state', async () => {
+  it('toggles each group independently and emits the next state', async () => {
     const wrapper = mountCell({
       accountId: 42,
       preferredGroupIds: [1],
@@ -147,47 +117,17 @@ describe('AccountGroupsCell preferred account pool', () => {
     ])
   })
 
-  it('supports independent preferred toggles inside the +N popover', async () => {
+  it('supports toggling the last group inline', async () => {
     const wrapper = mountCell({
       accountId: 42,
       preferredGroupIds: [4],
-      interactive: true,
-      maxDisplay: 3
+      interactive: true
     })
 
-    await wrapper.find('button:not([data-group-id])').trigger('click')
+    const lastGroup = wrapper.get('button[data-group-id="4"]')
+    expect(lastGroup.find('[data-testid="preferred-icon"]').attributes('data-filled')).toBe('true')
 
-    const popoverButtons = document.querySelectorAll<HTMLButtonElement>(
-      '[data-testid="account-groups-popover"] button[data-group-id]'
-    )
-    expect(popoverButtons).toHaveLength(4)
-
-    popoverButtons[3].click()
-    await wrapper.vm.$nextTick()
-
-    expect(wrapper.emitted('toggle-preferred')).toEqual([[{ groupId: 4, preferred: false }]])
-  })
-
-  it('shows preferred state and supports toggling hidden groups in the +N popover', async () => {
-    const wrapper = mountCell({
-      accountId: 42,
-      preferredGroupIds: [4],
-      interactive: true,
-      maxDisplay: 3
-    })
-
-    await wrapper.find('button:not([data-group-id])').trigger('click')
-
-    const popovers = document.querySelectorAll('[data-testid="account-groups-popover"]')
-    const popover = popovers[popovers.length - 1]
-    expect(popover).not.toBeNull()
-
-    const hiddenGroup = popover?.querySelector<HTMLButtonElement>('button[data-group-id="4"]')
-    expect(hiddenGroup).not.toBeNull()
-    expect(hiddenGroup?.querySelector('[data-testid="preferred-icon"]')?.getAttribute('data-filled')).toBe('true')
-
-    hiddenGroup?.click()
-    await wrapper.vm.$nextTick()
+    await lastGroup.trigger('click')
 
     expect(wrapper.emitted('toggle-preferred')).toEqual([[{ groupId: 4, preferred: false }]])
   })
