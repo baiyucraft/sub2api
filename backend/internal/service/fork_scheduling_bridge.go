@@ -53,7 +53,7 @@ func (r legacyTTFTRuntime) Report(sample forkscheduling.TTFTSample, cfg forksche
 	if r.guard == nil {
 		return
 	}
-	r.guard.report(sample.AccountID, sample.Model, sample.Success, sample.FirstTokenMs, openAITTFTGuardConfigFromContract(cfg))
+	r.guard.report(sample.GroupID, sample.AccountID, sample.Model, sample.Success, sample.FirstTokenMs, openAITTFTGuardConfigFromContract(cfg))
 }
 
 func (r legacyTTFTRuntime) Exclusions(candidates []forkscheduling.CandidateView, callerExcluded map[int64]struct{}, cfg forkscheduling.TTFTConfig) map[int64]struct{} {
@@ -62,16 +62,16 @@ func (r legacyTTFTRuntime) Exclusions(candidates []forkscheduling.CandidateView,
 	}
 	legacyCandidates := make([]openAITTFTGuardCandidate, 0, len(candidates))
 	for _, candidate := range candidates {
-		legacyCandidates = append(legacyCandidates, openAITTFTGuardCandidate{accountID: candidate.ID, model: candidate.Model})
+		legacyCandidates = append(legacyCandidates, openAITTFTGuardCandidate{groupID: candidate.GroupID, accountID: candidate.ID, model: candidate.Model})
 	}
 	return r.guard.exclusions(legacyCandidates, callerExcluded, openAITTFTGuardConfigFromContract(cfg))
 }
 
-func (r legacyTTFTRuntime) Degradations(accountIDs []int64, cfg forkscheduling.TTFTConfig) map[int64][]forkscheduling.TTFTDegradation {
+func (r legacyTTFTRuntime) Degradations(accountIDs []int64) map[int64][]forkscheduling.TTFTDegradation {
 	if r.guard == nil {
 		return nil
 	}
-	degradations := r.guard.degradations(accountIDs, openAITTFTGuardConfigFromContract(cfg))
+	degradations := r.guard.degradations(accountIDs)
 	if len(degradations) == 0 {
 		return nil
 	}
@@ -80,6 +80,9 @@ func (r legacyTTFTRuntime) Degradations(accountIDs []int64, cfg forkscheduling.T
 		converted := make([]forkscheduling.TTFTDegradation, 0, len(items))
 		for _, item := range items {
 			converted = append(converted, forkscheduling.TTFTDegradation{
+				GroupID:                 item.GroupID,
+				GroupName:               item.GroupName,
+				PolicySource:            item.PolicySource,
 				Model:                   item.Model,
 				Reason:                  item.Reason,
 				ThresholdMs:             item.ThresholdMs,
@@ -99,7 +102,7 @@ func (r legacyTTFTRuntime) Degradations(accountIDs []int64, cfg forkscheduling.T
 }
 
 func openAITTFTGuardConfigFromContract(cfg forkscheduling.TTFTConfig) OpenAITTFTGuardConfigSnapshot {
-	return OpenAITTFTGuardConfigSnapshot{Enabled: cfg.Enabled, Threshold: cfg.Threshold, MinSamples: cfg.MinSamples}
+	return OpenAITTFTGuardConfigSnapshot{Enabled: cfg.Enabled, Threshold: cfg.Threshold, MinSamples: cfg.MinSamples, Source: cfg.Source, GroupName: cfg.GroupName}
 }
 
 type legacyHealthRuntime struct {

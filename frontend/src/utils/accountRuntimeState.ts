@@ -5,8 +5,11 @@ export const buildTTFTGuardDegradationKey = (account: Account): string => {
   return JSON.stringify(
     degradations
       .map((item) => ({
+        group_id: item.group_id ?? null,
+        group_name: item.group_name ?? '',
         model: item.model,
         reason: item.reason,
+        policy_source: item.policy_source ?? item.source ?? '',
         threshold_ms: item.threshold_ms,
         last_ttft_ms: item.last_ttft_ms,
         ewma_ms: item.ewma_ms,
@@ -17,7 +20,15 @@ export const buildTTFTGuardDegradationKey = (account: Account): string => {
         recovery_samples: item.recovery_samples,
         recovery_samples_required: item.recovery_samples_required
       }))
-      .sort((a, b) => a.model.localeCompare(b.model))
+      .sort((a, b) => {
+        const groupCompare = (a.group_id ?? 0) - (b.group_id ?? 0)
+        if (groupCompare !== 0) return groupCompare
+        const groupNameCompare = a.group_name.localeCompare(b.group_name)
+        if (groupNameCompare !== 0) return groupNameCompare
+        const modelCompare = a.model.localeCompare(b.model)
+        if (modelCompare !== 0) return modelCompare
+        return a.policy_source.localeCompare(b.policy_source)
+      })
   )
 }
 

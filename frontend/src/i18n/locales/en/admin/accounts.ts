@@ -280,6 +280,17 @@ export default {
           consecutiveElevated: 'Two consecutive TTFT samples reached 1.5x the degradation threshold',
           ewmaReason: 'Enough valid samples were collected and TTFT EWMA exceeded the threshold',
           unknownReason: 'TTFT degradation condition reached',
+          unknownGroup: 'Unknown group',
+          group: 'Group: {value}',
+          model: 'Model: {value}',
+          reason: 'Trigger: {value}',
+          source: 'Policy source: {value}',
+          sources: {
+            global: 'Inherited global',
+            group: 'Group override',
+            disabled: 'Disabled',
+            unknown: 'Unknown'
+          },
           lastTTFT: 'Latest TTFT: {value}',
           ewma: 'EWMA: {value}',
           threshold: 'Degradation threshold: {value}',

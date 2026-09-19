@@ -919,6 +919,45 @@ export default {
         sourceNone: '未配置上游来源',
         loadFailed: '优先账号池加载失败'
       },
+      ttftGuard: {
+        action: 'TTFT 保护',
+        title: '分组 TTFT 保护',
+        openHint: '配置该分组的 OpenAI 首 Token 延迟保护',
+        modeLabel: '策略模式',
+        inherit: '继承全局',
+        enabled: '分组自定义',
+        disabled: '已关闭',
+        inheritDescription: '自动跟随全局 TTFT Guard 开关和阈值',
+        enabledDescription: '为当前分组使用独立的阈值和样本数',
+        disabledDescription: '当前分组不采样，也不按 TTFT 排除账号',
+        summaries: {
+          inherit: '继承全局',
+          enabled: '分组自定义',
+          disabled: '已关闭'
+        },
+        globalValues: '全局配置',
+        customValues: '分组自定义值',
+        effectiveValues: '最终生效',
+        globalDisabled: '全局 TTFT Guard 已关闭',
+        valueSummary: '阈值 {threshold} 秒 · 最少 {samples} 个样本',
+        sourceLabel: '来源：{source}',
+        sources: {
+          global: '全局配置',
+          group: '分组自定义',
+          disabled: '已关闭'
+        },
+        threshold: '降级阈值',
+        thresholdHint: '允许 5–300 秒。单次达到 3 倍阈值时会立即摘除。',
+        minSamples: '最少样本数',
+        minSamplesHint: '允许 2–20。达到样本数后才启用 EWMA 趋势判断。',
+        thresholdInvalid: '降级阈值必须在 5–300 秒之间。',
+        minSamplesInvalid: '最少样本数必须是 2–20 之间的整数。',
+        inheritHint: '全局配置变化后，该分组会自动采用新的开关、阈值和样本数。',
+        disabledHint: '关闭后会清理该分组已有的 TTFT 降级状态；其他分组不受影响。',
+        saved: '分组 TTFT 保护策略已保存',
+        loadFailed: '加载分组 TTFT 保护策略失败',
+        saveFailed: '保存分组 TTFT 保护策略失败'
+      },
       form: {
         name: '名称',
         description: '描述',

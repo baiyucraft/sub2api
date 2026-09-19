@@ -17,8 +17,11 @@ vi.mock('vue-i18n', async () => {
 const makeDegradation = (
   overrides: Partial<AccountTTFTGuardDegradation> = {}
 ): AccountTTFTGuardDegradation => ({
+  group_id: 7,
+  group_name: 'Premium OpenAI',
   model: 'gpt-5.4-mini',
   reason: 'consecutive_elevated',
+  policy_source: 'group',
   threshold_ms: 20_000,
   last_ttft_ms: 34_700,
   ewma_ms: 28_120,
@@ -59,11 +62,15 @@ describe('TTFTGuardStatusBadge', () => {
     const wrapper = mountBadge([makeDegradation()])
     const badge = wrapper.find('span.inline-flex')
 
+    expect(badge.text()).toContain('Premium OpenAI')
     expect(badge.text()).toContain('gpt-5.4-mini')
     expect(badge.text()).toContain('10m11s')
-    expect(badge.attributes('aria-label')).toBe('gpt-5.4-mini · 10m11s')
+    expect(badge.attributes('aria-label')).toBe('Premium OpenAI · gpt-5.4-mini · 10m11s')
     expect(badge.classes()).toContain('whitespace-nowrap')
-    expect(badge.find('.truncate').text()).toBe('gpt-5.4-mini')
+    expect(badge.findAll('.truncate').map((item) => item.text())).toEqual([
+      'Premium OpenAI',
+      'gpt-5.4-mini'
+    ])
     expect(wrapper.find('.help-tooltip').attributes('data-trigger-class')).toBe('max-w-full min-w-0')
 
     wrapper.unmount()
@@ -74,6 +81,11 @@ describe('TTFTGuardStatusBadge', () => {
     const tooltip = wrapper.find('.ttft-tooltip')
 
     expect(tooltip.text()).toContain('admin.accounts.status.ttftGuard.consecutiveElevated')
+    expect(tooltip.text()).toContain('admin.accounts.status.ttftGuard.group')
+    expect(tooltip.text()).toContain('Premium OpenAI')
+    expect(tooltip.text()).toContain('admin.accounts.status.ttftGuard.model')
+    expect(tooltip.text()).toContain('admin.accounts.status.ttftGuard.source')
+    expect(tooltip.text()).toContain('admin.accounts.status.ttftGuard.sources.group')
     expect(tooltip.text()).toContain('34.7s')
     expect(tooltip.text()).toContain('28.1s')
     expect(tooltip.text()).toContain('20s')
@@ -96,6 +108,17 @@ describe('TTFTGuardStatusBadge', () => {
     wrapper.unmount()
   })
 
+  it.each([
+    ['critical_sample', 'border-red-300/80'],
+    ['consecutive_elevated', 'border-amber-300/80'],
+    ['ewma', 'border-purple-300/80']
+  ])('按 %s 原因应用对应状态色', (reason, colorClass) => {
+    const wrapper = mountBadge([makeDegradation({ reason })])
+    const badge = wrapper.find(`[data-reason="${reason}"]`)
+    expect(badge.classes()).toContain(colorClass)
+    wrapper.unmount()
+  })
+
   it('支持多个模型并在状态异步出现后启动计时', async () => {
     const wrapper = mountBadge([])
     await wrapper.setProps({
@@ -106,7 +129,7 @@ describe('TTFTGuardStatusBadge', () => {
     })
 
     expect(wrapper.findAll('.help-tooltip')).toHaveLength(2)
-    expect(wrapper.findAll('.truncate')).toHaveLength(2)
+    expect(wrapper.findAll('.truncate')).toHaveLength(4)
 
     vi.advanceTimersByTime(1000)
     await wrapper.vm.$nextTick()

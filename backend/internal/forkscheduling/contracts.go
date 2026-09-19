@@ -40,6 +40,7 @@ type GroupRelationView struct {
 // CandidateView is a safe copy of the values used by fork-only pool rules.
 type CandidateView struct {
 	ID          int64      `json:"id"`
+	GroupID     int64      `json:"group_id,omitempty"`
 	Model       string     `json:"model,omitempty"`
 	Priority    int        `json:"priority"`
 	Rate        float64    `json:"rate"`
@@ -154,9 +155,12 @@ type TTFTConfig struct {
 	Enabled    bool          `json:"enabled"`
 	Threshold  time.Duration `json:"threshold"`
 	MinSamples int           `json:"min_samples"`
+	Source     string        `json:"source,omitempty"`
+	GroupName  string        `json:"group_name,omitempty"`
 }
 
 type TTFTSample struct {
+	GroupID      int64  `json:"group_id"`
 	AccountID    int64  `json:"account_id"`
 	Model        string `json:"model"`
 	Success      bool   `json:"success"`
@@ -164,6 +168,9 @@ type TTFTSample struct {
 }
 
 type TTFTDegradation struct {
+	GroupID                 int64
+	GroupName               string
+	PolicySource            string
 	Model                   string
 	Reason                  string
 	ThresholdMs             int64
@@ -190,7 +197,7 @@ type TTFTExcluder interface {
 // TTFTDegradationReader is a read-only administrative view. Implementations
 // may perform bounded TTL cleanup but must not advance probe state.
 type TTFTDegradationReader interface {
-	Degradations(accountIDs []int64, cfg TTFTConfig) map[int64][]TTFTDegradation
+	Degradations(accountIDs []int64) map[int64][]TTFTDegradation
 }
 
 // TTFTRuntime is a convenience aggregate; consumers should depend on the
