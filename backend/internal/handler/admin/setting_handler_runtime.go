@@ -10,6 +10,43 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+type updateGatewayCapacityFailoverSettingsRequest struct {
+	Enabled             *bool `json:"enabled" binding:"required"`
+	MaxSwitches         *int  `json:"max_switches" binding:"required"`
+	ExhaustedStatusCode *int  `json:"exhausted_status_code" binding:"required"`
+}
+
+// GetGatewayCapacityFailoverSettings returns the DB-backed runtime override,
+// or the deployment fallback when no override has been saved.
+func (h *SettingHandler) GetGatewayCapacityFailoverSettings(c *gin.Context) {
+	settings, err := h.settingService.GetGatewayCapacityFailoverSettings(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, settings)
+}
+
+// UpdateGatewayCapacityFailoverSettings persists and immediately publishes the
+// capacity failover runtime configuration for the current instance.
+func (h *SettingHandler) UpdateGatewayCapacityFailoverSettings(c *gin.Context) {
+	var req updateGatewayCapacityFailoverSettingsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	settings := &service.GatewayCapacityFailoverSettings{
+		Enabled:             *req.Enabled,
+		MaxSwitches:         *req.MaxSwitches,
+		ExhaustedStatusCode: *req.ExhaustedStatusCode,
+	}
+	if err := h.settingService.SetGatewayCapacityFailoverSettings(c.Request.Context(), settings); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, settings)
+}
+
 // GetAdminAPIKey 获取管理员 API Key 状态
 // GET /api/v1/admin/settings/admin-api-key
 func (h *SettingHandler) GetAdminAPIKey(c *gin.Context) {

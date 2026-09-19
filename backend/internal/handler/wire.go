@@ -133,12 +133,14 @@ func ProvideOpenAIGatewayHandler(
 	contentModerationService *service.ContentModerationService,
 	opsService *service.OpsService,
 	grokQuotaService *service.GrokQuotaService,
+	settingService *service.SettingService,
 	cfg *config.Config,
 	coordinator *securityaudit.Coordinator,
 ) *OpenAIGatewayHandler {
 	gatewayService.SetPluginManager(pluginManager)
 	h := NewOpenAIGatewayHandler(gatewayService, concurrencyService, billingCacheService, apiKeyService,
 		usageRecordWorkerPool, errorPassthroughService, contentModerationService, opsService, cfg)
+	h.SetGatewayCapacityFailoverConfigProvider(settingService)
 	h.securityAuditCoordinator = coordinator
 	h.grokMediaEligibilityProber = grokQuotaService
 	return h

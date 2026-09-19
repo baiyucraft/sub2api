@@ -46,6 +46,7 @@ type OpenAIGatewayHandler struct {
 	concurrencyHelper          *ConcurrencyHelper
 	imageLimiter               *imageConcurrencyLimiter
 	maxAccountSwitches         int
+	capacityFailoverProvider   service.GatewayCapacityFailoverConfigProvider
 	cfg                        *config.Config
 }
 
@@ -371,6 +372,15 @@ func NewOpenAIGatewayHandler(
 		imageLimiter:             &imageConcurrencyLimiter{},
 		maxAccountSwitches:       maxAccountSwitches,
 		cfg:                      cfg,
+	}
+}
+
+// SetGatewayCapacityFailoverConfigProvider injects the narrow runtime setting
+// reader. The gateway service and upstream scheduler remain unaware of the
+// admin setting persistence mechanism.
+func (h *OpenAIGatewayHandler) SetGatewayCapacityFailoverConfigProvider(provider service.GatewayCapacityFailoverConfigProvider) {
+	if h != nil {
+		h.capacityFailoverProvider = provider
 	}
 }
 
@@ -2138,26 +2148,25 @@ func SnapshotOpenAICapacityFailoverMetrics() OpenAICapacityFailoverMetricsSnapsh
 	}
 }
 
-func (h *OpenAIGatewayHandler) capacityFailoverConfig() (enabled bool, maxSwitches, exhaustedStatus int) {
-	maxSwitches = 3
-	exhaustedStatus = http.StatusServiceUnavailable
-	if h == nil || h.cfg == nil {
-		return false, maxSwitches, exhaustedStatus
+func (h *OpenAIGatewayHandler) capacityFailoverConfig(ctx context.Context) (enabled bool, maxSwitches, exhaustedStatus int) {
+	settings := service.DefaultGatewayCapacityFailoverSettings(nil)
+	if h == nil {
+		return settings.Enabled, settings.MaxSwitches, settings.ExhaustedStatusCode
 	}
-	cfg := h.cfg.Gateway.Scheduling
-	enabled = cfg.CapacityFailoverEnabled
-	maxSwitches = cfg.CapacityFailoverMaxSwitches
-	if maxSwitches < 0 {
-		maxSwitches = 0
+	if h.capacityFailoverProvider != nil {
+		settings = h.capacityFailoverProvider.GatewayCapacityFailoverSettingsSnapshot(ctx)
+	} else {
+		settings = service.DefaultGatewayCapacityFailoverSettings(h.cfg)
 	}
-	if cfg.CapacityFailoverExhaustedStatusCode >= 400 && cfg.CapacityFailoverExhaustedStatusCode <= 599 {
-		exhaustedStatus = cfg.CapacityFailoverExhaustedStatusCode
-	}
-	return enabled, maxSwitches, exhaustedStatus
+	return settings.Enabled, settings.MaxSwitches, settings.ExhaustedStatusCode
 }
 
 func (h *OpenAIGatewayHandler) openAICapacityFailoverEligible(c *gin.Context, account *service.Account, streamStarted bool) bool {
-	enabled, _, _ := h.capacityFailoverConfig()
+	var ctx context.Context
+	if c != nil && c.Request != nil {
+		ctx = c.Request.Context()
+	}
+	enabled, _, _ := h.capacityFailoverConfig(ctx)
 	return enabled && account != nil && account.IsOpenAI() && c != nil && c.Request != nil &&
 		!isOpenAIWSUpgradeRequest(c.Request) && !streamStarted && !c.Writer.Written()
 }
@@ -2180,7 +2189,11 @@ func openAICapacityState(c *gin.Context) *openAICapacityFailoverState {
 }
 
 func (h *OpenAIGatewayHandler) writeOpenAICapacityExhausted(c *gin.Context, streamStarted bool, reqLog *zap.Logger, state *openAICapacityFailoverState) {
-	_, _, status := h.capacityFailoverConfig()
+	var ctx context.Context
+	if c != nil && c.Request != nil {
+		ctx = c.Request.Context()
+	}
+	_, _, status := h.capacityFailoverConfig(ctx)
 	markOpsRoutingCapacityLimited(c)
 	apiKeyID := int64(0)
 	groupID := int64(0)
@@ -2253,8 +2266,15 @@ func (h *OpenAIGatewayHandler) handleOpenAICapacityFull(
 		c.Request = c.Request.WithContext(service.WithOpenAICapacityExcludedTargets(c.Request.Context(), state.excludedTargets))
 	}
 
-	_, maxSwitches, _ := h.capacityFailoverConfig()
-	if state.switchCount >= maxSwitches {
+	var ctx context.Context
+	if c != nil && c.Request != nil {
+		ctx = c.Request.Context()
+	}
+	_, maxSwitches, _ := h.capacityFailoverConfig(ctx)
+	// A zero budget means unlimited capacity switches. Selection still
+	// terminates naturally because every full account and shared concurrency
+	// target is excluded from the current request.
+	if maxSwitches > 0 && state.switchCount >= maxSwitches {
 		h.writeOpenAICapacityExhausted(c, streamStarted, reqLog, state)
 		return false
 	}

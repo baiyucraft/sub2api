@@ -5282,6 +5282,94 @@
                 <Toggle v-model="form.allow_ungrouped_key_scheduling" />
               </div>
 
+              <div
+                class="space-y-4 border-t border-gray-100 pt-5 dark:border-dark-700"
+                data-testid="gateway-capacity-failover-settings"
+              >
+                <div v-if="gatewayCapacityFailoverLoading" class="flex items-center gap-2 text-gray-500">
+                  <div class="h-4 w-4 animate-spin rounded-full border-b-2 border-primary-600"></div>
+                  {{ t("common.loading") }}
+                </div>
+                <template v-else>
+                  <div class="flex items-center justify-between gap-4">
+                    <div>
+                      <label class="font-medium text-gray-900 dark:text-white">
+                        {{ t("admin.settings.scheduling.capacityFailoverEnabled") }}
+                      </label>
+                      <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                        {{ t("admin.settings.scheduling.capacityFailoverEnabledHint") }}
+                      </p>
+                    </div>
+                    <Toggle
+                      v-model="gatewayCapacityFailoverForm.enabled"
+                      data-testid="capacity-failover-enabled"
+                    />
+                  </div>
+
+                  <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div>
+                      <label
+                        class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                        for="capacity-failover-max-switches"
+                      >
+                        {{ t("admin.settings.scheduling.capacityFailoverMaxSwitches") }}
+                      </label>
+                      <input
+                        id="capacity-failover-max-switches"
+                        v-model.number="gatewayCapacityFailoverForm.max_switches"
+                        type="number"
+                        min="0"
+                        max="1000"
+                        step="1"
+                        class="input"
+                        :disabled="!gatewayCapacityFailoverForm.enabled"
+                        data-testid="capacity-failover-max-switches"
+                        @keydown.enter.prevent="saveGatewayCapacityFailoverSettings"
+                      />
+                      <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                        {{ t("admin.settings.scheduling.capacityFailoverMaxSwitchesHint") }}
+                      </p>
+                    </div>
+
+                    <div>
+                      <label
+                        class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                        for="capacity-failover-exhausted-status-code"
+                      >
+                        {{ t("admin.settings.scheduling.capacityFailoverExhaustedStatusCode") }}
+                      </label>
+                      <input
+                        id="capacity-failover-exhausted-status-code"
+                        v-model.number="gatewayCapacityFailoverForm.exhausted_status_code"
+                        type="number"
+                        min="400"
+                        max="599"
+                        step="1"
+                        class="input"
+                        :disabled="!gatewayCapacityFailoverForm.enabled"
+                        data-testid="capacity-failover-exhausted-status-code"
+                        @keydown.enter.prevent="saveGatewayCapacityFailoverSettings"
+                      />
+                      <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                        {{ t("admin.settings.scheduling.capacityFailoverExhaustedStatusCodeHint") }}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div class="flex justify-end">
+                    <button
+                      type="button"
+                      class="btn btn-primary btn-sm"
+                      :disabled="gatewayCapacityFailoverSaving || !gatewayCapacityFailoverFormValid"
+                      data-testid="capacity-failover-save"
+                      @click="saveGatewayCapacityFailoverSettings"
+                    >
+                      {{ gatewayCapacityFailoverSaving ? t("common.saving") : t("common.save") }}
+                    </button>
+                  </div>
+                </template>
+              </div>
+
               <div class="border-t border-gray-100 pt-4 dark:border-dark-700">
                 <div class="mb-3">
                   <label class="font-medium text-gray-900 dark:text-white">
@@ -9340,6 +9428,7 @@ import type {
   WebSearchProviderConfig,
   WebSearchTestResult,
   GatewayRequestObserverSettings,
+  GatewayCapacityFailoverSettings,
 } from "@/api/admin/settings";
 import type {
   AdminGroup,
@@ -9553,6 +9642,23 @@ const gatewayRequestObserverApiKeyNamesInput = ref("");
 const gatewayRequestObserverApiKeyIdsInput = ref("");
 const gatewayRequestObserverUserIdsInput = ref("");
 const gatewayRequestObserverUserEmailsInput = ref("");
+
+const gatewayCapacityFailoverLoading = ref(true);
+const gatewayCapacityFailoverSaving = ref(false);
+const gatewayCapacityFailoverForm = reactive<GatewayCapacityFailoverSettings>({
+  enabled: false,
+  max_switches: 10,
+  exhausted_status_code: 503,
+});
+const gatewayCapacityFailoverFormValid = computed(
+  () =>
+    Number.isInteger(gatewayCapacityFailoverForm.max_switches) &&
+    gatewayCapacityFailoverForm.max_switches >= 0 &&
+    gatewayCapacityFailoverForm.max_switches <= 1000 &&
+    Number.isInteger(gatewayCapacityFailoverForm.exhausted_status_code) &&
+    gatewayCapacityFailoverForm.exhausted_status_code >= 400 &&
+    gatewayCapacityFailoverForm.exhausted_status_code <= 599,
+);
 
 // OpenAI TTFT Guard 状态
 const openaiTTFTGuardLoading = ref(true);
@@ -12583,6 +12689,44 @@ async function saveGatewayRequestObserverSettings() {
   }
 }
 
+async function loadGatewayCapacityFailoverSettings() {
+  gatewayCapacityFailoverLoading.value = true;
+  try {
+    const settings = await adminAPI.settings.getGatewayCapacityFailoverSettings();
+    Object.assign(gatewayCapacityFailoverForm, settings);
+  } catch (_error: unknown) {
+    // Keep deployment-compatible defaults when the optional runtime setting cannot be loaded.
+  } finally {
+    gatewayCapacityFailoverLoading.value = false;
+  }
+}
+
+async function saveGatewayCapacityFailoverSettings() {
+  if (!gatewayCapacityFailoverFormValid.value) {
+    appStore.showError(t("admin.settings.scheduling.capacityFailoverInvalid"));
+    return;
+  }
+  gatewayCapacityFailoverSaving.value = true;
+  try {
+    const updated = await adminAPI.settings.updateGatewayCapacityFailoverSettings({
+      enabled: gatewayCapacityFailoverForm.enabled,
+      max_switches: gatewayCapacityFailoverForm.max_switches,
+      exhausted_status_code: gatewayCapacityFailoverForm.exhausted_status_code,
+    });
+    Object.assign(gatewayCapacityFailoverForm, updated);
+    appStore.showSuccess(t("admin.settings.scheduling.capacityFailoverSaved"));
+  } catch (error: unknown) {
+    appStore.showError(
+      extractApiErrorMessage(
+        error,
+        t("admin.settings.scheduling.capacityFailoverSaveFailed"),
+      ),
+    );
+  } finally {
+    gatewayCapacityFailoverSaving.value = false;
+  }
+}
+
 async function saveUpstreamBillingProbeSettings() {
   upstreamBillingProbeSaving.value = true;
   try {
@@ -13411,6 +13555,7 @@ onMounted(() => {
   loadSubscriptionGroups();
   loadAdminApiKey();
   loadUpstreamBillingProbeSettings();
+  loadGatewayCapacityFailoverSettings();
   loadOllamaCloudUsageSettings();
   loadOverloadCooldownSettings();
   loadRateLimit429CooldownSettings();
