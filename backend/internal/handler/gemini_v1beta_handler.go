@@ -664,7 +664,8 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		if err != nil {
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
-				failoverAction := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, account.GetPoolModeRetryCount(), failoverErr)
+				bindUpstreamFailoverAccount(c, account, failoverErr)
+				failoverAction := h.handleGatewayFailoverError(c, fs, account, failoverErr)
 				switch failoverAction {
 				case FailoverContinue:
 					continue
@@ -768,6 +769,10 @@ func parseGeminiModelAction(rest string) (model string, action string, err error
 func (h *GatewayHandler) handleGeminiFailoverExhausted(c *gin.Context, failoverErr *service.UpstreamFailoverError) {
 	if failoverErr == nil {
 		googleError(c, http.StatusBadGateway, "Upstream request failed")
+		return
+	}
+	if decision, ok := upstream429CapacityExhaustion(c, h.settingService, h.cfg, failoverErr); ok {
+		googleError(c, decision.statusCode, gatewayCapacityExhaustedMessage)
 		return
 	}
 

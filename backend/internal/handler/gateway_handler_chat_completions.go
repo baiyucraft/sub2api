@@ -310,11 +310,12 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		if err != nil {
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
+				bindUpstreamFailoverAccount(c, account, failoverErr)
 				if c.Writer.Size() != writerSizeBeforeForward {
 					h.handleCCFailoverExhausted(c, failoverErr, true)
 					return
 				}
-				action := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, account.GetPoolModeRetryCount(), failoverErr)
+				action := h.handleGatewayFailoverError(c, fs, account, failoverErr)
 				switch action {
 				case FailoverContinue:
 					continue
@@ -380,16 +381,32 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 
 // chatCompletionsErrorResponse writes an error in OpenAI Chat Completions format.
 func (h *GatewayHandler) chatCompletionsErrorResponse(c *gin.Context, status int, errType, message string) {
+	h.chatCompletionsErrorResponseWithCode(c, status, errType, "", message)
+}
+
+func (h *GatewayHandler) chatCompletionsErrorResponseWithCode(c *gin.Context, status int, errType, code, message string) {
+	errorBody := gin.H{
+		"type":    errType,
+		"message": message,
+	}
+	if strings.TrimSpace(code) != "" {
+		errorBody["code"] = code
+	}
 	c.JSON(status, gin.H{
-		"error": gin.H{
-			"type":    errType,
-			"message": message,
-		},
+		"error": errorBody,
 	})
 }
 
 // handleCCFailoverExhausted writes a failover-exhausted error in CC format.
 func (h *GatewayHandler) handleCCFailoverExhausted(c *gin.Context, lastErr *service.UpstreamFailoverError, streamStarted bool) {
+	if decision, ok := upstream429CapacityExhaustion(c, h.settingService, h.cfg, lastErr); ok {
+		if streamStarted {
+			h.handleStreamingAwareErrorWithCode(c, decision.statusCode, "api_error", gatewayCapacityExhaustedCode, gatewayCapacityExhaustedMessage, true)
+			return
+		}
+		h.chatCompletionsErrorResponseWithCode(c, decision.statusCode, "api_error", gatewayCapacityExhaustedCode, gatewayCapacityExhaustedMessage)
+		return
+	}
 	if streamStarted {
 		return
 	}

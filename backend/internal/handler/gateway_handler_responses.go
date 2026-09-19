@@ -297,12 +297,13 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		if err != nil {
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
+				bindUpstreamFailoverAccount(c, account, failoverErr)
 				// Can't failover if streaming content already sent
 				if c.Writer.Size() != writerSizeBeforeForward {
 					h.handleResponsesFailoverExhausted(c, failoverErr, true)
 					return
 				}
-				action := fs.HandleFailoverError(requestCtx, h.gatewayService, account.ID, account.Platform, account.GetPoolModeRetryCount(), failoverErr)
+				action := h.handleGatewayFailoverError(c, fs, account, failoverErr)
 				switch action {
 				case FailoverContinue:
 					continue
@@ -378,6 +379,17 @@ func (h *GatewayHandler) responsesErrorResponse(c *gin.Context, status int, code
 
 // handleResponsesFailoverExhausted writes a failover-exhausted error in Responses format.
 func (h *GatewayHandler) handleResponsesFailoverExhausted(c *gin.Context, lastErr *service.UpstreamFailoverError, streamStarted bool) {
+	if decision, ok := upstream429CapacityExhaustion(c, h.settingService, h.cfg, lastErr); ok {
+		if streamStarted {
+			service.MarkOpsStreamError(c, gatewayCapacityExhaustedCode, gatewayCapacityExhaustedMessage, decision.statusCode)
+			if c != nil && c.Writer != nil && (c.Writer.Size() <= 0 || gatewayStreamHasOnlyHeartbeats(c)) {
+				writeResponsesFailedSSE(c, gatewayCapacityExhaustedCode, "", gatewayCapacityExhaustedMessage)
+			}
+			return
+		}
+		h.responsesErrorResponse(c, decision.statusCode, gatewayCapacityExhaustedCode, gatewayCapacityExhaustedMessage)
+		return
+	}
 	if lastErr != nil {
 		copyFailoverRetryAfter(c, lastErr.ResponseHeaders)
 	}

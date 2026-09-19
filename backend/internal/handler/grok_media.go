@@ -396,6 +396,7 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 		if err != nil {
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
+				bindUpstreamFailoverAccount(c, account, failoverErr)
 				if failoverClientGone(c) {
 					reqLog.Info("grok_media.failover_aborted_client_disconnected",
 						zap.Int64("account_id", account.ID),
@@ -422,6 +423,7 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 					retryLimit := effectiveSameAccountRetryLimit(failoverErr, account)
 					if sameAccountRetryAllowed(failoverErr, sameAccountRetryCount[account.ID], retryLimit) {
 						sameAccountRetryCount[account.ID]++
+						noteUpstream429SameAccountRetry(c, account, failoverErr, sameAccountRetryCount[account.ID])
 						retryDelay := sameAccountRetryDelayFor(failoverErr, sameAccountRetryCount[account.ID])
 						reqLog.Warn("grok_media.pool_mode_same_account_retry",
 							zap.Int64("account_id", account.ID),
@@ -438,13 +440,17 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 						continue
 					}
 				}
-				h.gatewayService.RecordOpenAIAccountSwitch()
-				failedAccountIDs[account.ID] = struct{}{}
-				lastFailoverErr = failoverErr
 				if switchCount >= maxAccountSwitches {
 					h.handleFailoverExhausted(c, failoverErr, false)
 					return
 				}
+				if !allowUpstream429CapacitySwitch(c, h.capacityFailoverProvider, h.cfg, account, failoverErr) {
+					h.handleFailoverExhausted(c, failoverErr, false)
+					return
+				}
+				h.gatewayService.RecordOpenAIAccountSwitch()
+				failedAccountIDs[account.ID] = struct{}{}
+				lastFailoverErr = failoverErr
 				switchCount++
 				service.ReportMonitorSwitchCount(c.Request.Context(), switchCount)
 				if h.gatewayService.ShouldStopOpenAIOAuth429Failover(account, failoverErr.StatusCode, switchCount, &oauth429FailoverState) {
