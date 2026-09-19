@@ -540,14 +540,14 @@ gateway:
     # Fallback max waiting queue size
     # 兜底最大排队长度
     fallback_max_waiting: 100
-    # Switch to another OpenAI account when the selected account wait queue is full
-    # 所选 OpenAI 账号等待队列满时，在当前请求内切换其他账号（默认关闭）
+    # Deployment fallback: switch OpenAI accounts when the selected wait queue is full.
+    # 部署回退值：所选 OpenAI 账号等待队列满时切换账号；后台网关设置可覆盖。
     capacity_failover_enabled: false
-    # Maximum account switches caused only by account-capacity exhaustion
-    # 单次请求仅因账号容量不足允许的最大换号次数
-    capacity_failover_max_switches: 3
-    # Final HTTP status after all eligible accounts are at capacity (400-599)
-    # 所有候选账号容量耗尽后的最终 HTTP 状态码（400-599，业务错误码固定）
+    # Deployment fallback for capacity-only switches (0-1000; 0 means unlimited).
+    # 部署回退值：单次请求仅因账号容量不足允许的最大换号次数（0-1000；0 表示不限）。
+    capacity_failover_max_switches: 10
+    # Deployment fallback HTTP status after all candidates are at capacity (400-599).
+    # 部署回退值：所有候选账号容量耗尽后的最终状态码（业务错误码固定）。
     capacity_failover_exhausted_status_code: 503
     # Prefer the account whose session window resets soonest (use-it-or-lose-it).
     # 负载感知选择时优先用尽「会话窗口最早重置」的账号；false 保持

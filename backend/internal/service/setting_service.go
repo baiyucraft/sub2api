@@ -165,6 +165,14 @@ type SettingService struct {
 	openAITTFTGuardRevision    atomic.Uint64
 	openAITTFTGuardUpdateMu    sync.Mutex
 
+	// Gateway capacity failover is read on the request hot path. Keep a
+	// stale-while-revalidate snapshot so gateway handlers never query settings
+	// storage directly.
+	gatewayCapacityFailoverCache    atomic.Value // *cachedGatewayCapacityFailoverSettings
+	gatewayCapacityFailoverSF       singleflight.Group
+	gatewayCapacityFailoverRevision atomic.Uint64
+	gatewayCapacityFailoverUpdateMu sync.Mutex
+
 	channelMonitorRuntimeListenersMu sync.Mutex
 	channelMonitorRuntimeListeners   []func()
 
