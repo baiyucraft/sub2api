@@ -677,7 +677,7 @@ Invalid base URL: invalid url scheme: http
 
 #### 账号级 Codex STATE 票据
 
-支持账号独立开关、手动 Pro/Team 选择、固定业务代理复验及响应动态守护。配置步骤和升级行为见 [账号级 Codex STATE 说明](docs/CODEX_ACCOUNT_STATE.md)。
+支持账号独立开关、Astra/Sol/Terra 模型隔离、缺票 strict 调度、固定业务代理复验及响应动态守护。基础实现直接保留 Sub2API PR [#7315](https://github.com/Wei-Shaw/sub2api/pull/7315) 和 [#7338](https://github.com/Wei-Shaw/sub2api/pull/7338) 的提交历史与作者署名；`ccodex-sleep-state@26b22196` 是 PR 原始参考点，`@b18fabf9` 是本 fork 于 2026-09-19 的设计复核点，相关可靠性机制均在本项目中独立实现，不复制该 GPL-3.0 项目的源码或依赖。精确 commit、未采用行为和长期合同见 [账号级 Codex STATE 说明](docs/CODEX_ACCOUNT_STATE.md)。
 
 #### HTTP/2 (h2c) 与 HTTP/1.1 回退
 

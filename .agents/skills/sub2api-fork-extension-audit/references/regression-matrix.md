@@ -11,6 +11,9 @@
 | 容量故障转移 | 普通 OpenAI 等待队列满按共享并发目标换号；上游绑定账号 429 在同号重试耗尽后按账号换号；共享运行时开关/独立预算/可配置耗尽状态；设置关闭保留上游 429；流式与 WebSocket 不拼接跨账号语义输出；Ops 保留真实 upstream_status=429 |
 | LoadFactor | 普通账号硬并发使用 Concurrency，调度容量使用 LoadFactor 或回退；上游账号忽略派生账号字段；Priority/倍率同步不改 LoadFactor |
 | TTFT Guard | 仅带实际 group_id 分组上下文的真实业务可见首 Token 采样；状态按 group_id + account_id + canonical model 隔离；OpenAI/Composite 分组支持 inherit/enabled/disabled；策略写入与 group_changed outbox 原子化且幂等更新不发事件；各实例消费 group_changed 后清 policy cache 与该分组本地运行态；策略缓存失效期间的旧 DB 读取不得重新回填；全局设置通过 fork Redis 通道广播，远端刷新成功后只清配置变化的 inherit/global 状态，刷新失败和自定义策略均保留；无分组后台账号测试、健康探针和其他主动探针不采样、不进入分组 Guard；degradation 携带分组名、策略来源、三类触发原因和恢复倒计时 |
+| Codex STATE PR 基线 | 保留 PR #7315 head/merge 与 PR #7338 head/fork merge 的父历史和作者署名；#7315 由 #7338 历史带入，不重复合并；全局开关、动态代理采集、固定代理复验、持久化、watchdog、一小时生命周期、提前十分钟续期、八次尝试和五分钟冷却保持回归 |
+| Codex STATE fork 可靠性增强 | Astra/Sol/Terra 按账号、实际出站模型、revision、固定代理指纹隔离；严格 envelope、内部签发时间、Pro 10 块/Team 12 块；active/ready、连续两次异常、旧版本保护和续期失败保留 active；客户端同账号 STATE 优先、跨账号剥离、无客户端 STATE 才注入；缺票 strict 不被 TTFT fail-open 绕过；Redis/PostgreSQL 分布式采集锁；普通编辑保留、新建/导入/复制不继承、列表/导出/审计脱敏；HTTP 与 WS-to-HTTP bridge 回归，原生上游 WS 明确不支持 |
+| Codex STATE 参考负向边界 | ccodex-sleep-state 26b22196 为 #7338 原参考点、b18fabf9 为 2026-09-19 fork 审查点；仅作 GPL-3.0 设计参考且不得复制源码或依赖；不得引入其本地 Codex 配置接管、CCS/profile/Web 面板、订阅/代理节点池、纯内存 STATE、响应正文拦截、on_demand/standby 用户策略、本地 relay、原生上游 WS、账号暂停恢复或配置恢复行为 |
 | 健康探针 | OpenAI Responses、Anthropic Claude Code profile、Gemini 原生流；首文本、终止事件、challenge、截断流、超时和非 2xx 分类 |
 | Probe Guard | 默认 401/403、429/529、5xx、其他 4xx 规则；自定义错误码追加；阈值暂停、成功恢复、人工恢复与业务隔离 |
 | 健康趋势 | 列表 24 点、35 天保留、6h/24h/7d/30d 聚合、P50/P95、断点、Tooltip、中英文和暗色模式 |

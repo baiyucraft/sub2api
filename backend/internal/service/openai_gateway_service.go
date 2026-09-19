@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -447,6 +448,8 @@ type OpenAIGatewayService struct {
 	userRepo              UserRepository
 	userSubRepo           UserSubscriptionRepository
 	cache                 GatewayCache
+	lockCache             LeaderLockCache
+	db                    *sql.DB
 	cfg                   *config.Config
 	codexDetector         CodexClientRestrictionDetector
 	schedulerSnapshot     *SchedulerSnapshotService
@@ -520,6 +523,7 @@ type OpenAIGatewayService struct {
 	openaiCodexTickets           sync.Map
 	openaiCodexAccountMu         sync.Mutex
 	openaiCodexAccountJobs       map[int64]*codexAccountTicketJob
+	openaiCodexAccountModelJobs  map[string]*codexAccountTicketJob
 	openaiCodexAccountWG         sync.WaitGroup
 	openaiCodexAccountStopping   bool
 	openaiCodexTicketLifecycleMu sync.Mutex

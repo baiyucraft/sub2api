@@ -38,8 +38,7 @@ func TestCodexAccountTicketRejectionStopsRoundAndRetainsSavedTicket(t *testing.T
 				account, err := repo.GetByID(context.Background(), 41)
 				require.NoError(t, err)
 				old := verifiedTestTicket(account, 292)
-				old.CapturedAt = time.Now().Add(-52 * time.Minute)
-				old.ExpiresAt = old.CapturedAt.Add(time.Hour)
+				retimeVerifiedTestTicket(t, old, codexTicketPlanPro, time.Now().Add(-52*time.Minute))
 				require.NoError(t, repo.UpdateExtra(context.Background(), 41, map[string]any{openAICodexTicketExtraKey(old.Model): old}))
 				job := s.startCodexAccountTicketJob(context.Background(), 41, true)
 				select {
@@ -106,8 +105,7 @@ func TestCodexAccountTicketSaveFailurePreservesDurableTicket(t *testing.T) {
 	account, err := repo.GetByID(context.Background(), 41)
 	require.NoError(t, err)
 	old := verifiedTestTicket(account, 292)
-	old.CapturedAt = time.Now().Add(-52 * time.Minute)
-	old.ExpiresAt = old.CapturedAt.Add(time.Hour)
+	retimeVerifiedTestTicket(t, old, codexTicketPlanPro, time.Now().Add(-52*time.Minute))
 	require.NoError(t, repo.UpdateExtra(context.Background(), 41, map[string]any{openAICodexTicketExtraKey(old.Model): old}))
 	s.accountRepo = &codexTicketFailSaveRepo{repo}
 	waitCodexTicketJob(t, s.startCodexAccountTicketJob(context.Background(), 41, true))
@@ -132,8 +130,7 @@ func TestCodexAccountTicketStatusNeverAdvertisesUnusableSavedTicket(t *testing.T
 			global := true
 			switch scenario {
 			case "expired":
-				ticket.CapturedAt = time.Now().Add(-2 * time.Hour)
-				ticket.ExpiresAt = ticket.CapturedAt.Add(time.Hour)
+				retimeVerifiedTestTicket(t, ticket, codexTicketPlanPro, time.Now().Add(-2*time.Hour))
 			case "disabled":
 				ac := codexAccountTicketConfigOf(account)
 				ac.Enabled = false

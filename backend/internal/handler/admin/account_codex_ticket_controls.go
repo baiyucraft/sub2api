@@ -14,7 +14,7 @@ import (
 type codexAccountTicketManager interface {
 	GetCodexAccountTicketStatus(context.Context, int64) (*service.CodexAccountTicketStatus, error)
 	ConfigureCodexAccountTicket(context.Context, int64, service.CodexAccountTicketUpdate) (*service.CodexAccountTicketStatus, error)
-	HarvestCodexAccountTicket(context.Context, int64) (*service.CodexAccountTicketStatus, error)
+	HarvestCodexAccountTicket(context.Context, int64, ...string) (*service.CodexAccountTicketStatus, error)
 }
 
 func (h *AccountHandler) SetCodexAccountTicketService(s *service.OpenAIGatewayService) {
@@ -65,19 +65,24 @@ func (h *AccountHandler) UpdateCodexAccountTicket(c *gin.Context) {
 		return
 	}
 	var req struct {
-		TicketPlan string `json:"ticket_plan"`
-		Enabled    *bool  `json:"enabled"`
-		ProxyURL   string `json:"proxy_url"`
-		Model      string `json:"model"`
-		ClearProxy bool   `json:"clear_proxy"`
+		Models     map[string]service.CodexTicketModelUpdate `json:"models"`
+		TicketPlan string                                    `json:"ticket_plan"`
+		Enabled    *bool                                     `json:"enabled"`
+		ProxyURL   string                                    `json:"proxy_url"`
+		Model      string                                    `json:"model"`
+		ClearProxy bool                                      `json:"clear_proxy"`
 	}
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 16*1024)
-	if err := c.ShouldBindJSON(&req); err != nil || req.Enabled == nil {
-		response.BadRequest(c, "Invalid STATE settings; enabled is required")
+	if err := c.ShouldBindJSON(&req); err != nil || (len(req.Models) == 0 && req.Enabled == nil) {
+		response.BadRequest(c, "Invalid STATE settings; models or enabled is required")
 		return
 	}
+	enabled := false
+	if req.Enabled != nil {
+		enabled = *req.Enabled
+	}
 	status, err := h.codexAccountTickets.ConfigureCodexAccountTicket(c.Request.Context(), id, service.CodexAccountTicketUpdate{
-		TicketPlan: req.TicketPlan, Enabled: *req.Enabled, ProxyURL: req.ProxyURL, Model: req.Model, ClearProxy: req.ClearProxy,
+		Models: req.Models, TicketPlan: req.TicketPlan, Enabled: enabled, ProxyURL: req.ProxyURL, Model: req.Model, ClearProxy: req.ClearProxy,
 	})
 	if !codexTicketControlError(c, err) {
 		response.Success(c, status)
@@ -89,7 +94,15 @@ func (h *AccountHandler) HarvestCodexAccountTicket(c *gin.Context) {
 	if !ok {
 		return
 	}
-	status, err := h.codexAccountTickets.HarvestCodexAccountTicket(c.Request.Context(), id)
+	var req struct {
+		Model string `json:"model"`
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 4*1024)
+	if err := c.ShouldBindJSON(&req); err != nil || req.Model == "" {
+		response.BadRequest(c, "STATE model is required")
+		return
+	}
+	status, err := h.codexAccountTickets.HarvestCodexAccountTicket(c.Request.Context(), id, req.Model)
 	if !codexTicketControlError(c, err) {
 		response.Accepted(c, status)
 	}
