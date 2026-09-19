@@ -26,6 +26,7 @@ type GroupHandler struct {
 	adminService         service.AdminService
 	dashboardService     *service.DashboardService
 	groupCapacityService *service.GroupCapacityService
+	ttftGuardPolicies    service.GroupTTFTGuardPolicyManager
 	cfg                  *config.Config
 }
 
@@ -103,6 +104,73 @@ func NewGroupHandlerWithConfig(adminService service.AdminService, dashboardServi
 		groupCapacityService: groupCapacityService,
 		cfg:                  cfg,
 	}
+}
+
+func (h *GroupHandler) SetTTFTGuardPolicyService(manager service.GroupTTFTGuardPolicyManager) {
+	if h != nil {
+		h.ttftGuardPolicies = manager
+	}
+}
+
+func (h *GroupHandler) ListTTFTGuardPolicies(c *gin.Context) {
+	if h.rejectUnsupportedSimpleModeOperation(c, "advanced") {
+		return
+	}
+	if h.ttftGuardPolicies == nil {
+		response.ErrorFrom(c, infraerrors.InternalServer("GROUP_TTFT_GUARD_UNAVAILABLE", "group TTFT guard policy service is unavailable"))
+		return
+	}
+	policies, err := h.ttftGuardPolicies.ListPolicies(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, policies)
+}
+
+func (h *GroupHandler) GetTTFTGuardPolicy(c *gin.Context) {
+	if h.rejectUnsupportedSimpleModeOperation(c, "advanced") {
+		return
+	}
+	groupID, ok := parsePositiveIDParam(c, "id")
+	if !ok {
+		return
+	}
+	if h.ttftGuardPolicies == nil {
+		response.ErrorFrom(c, infraerrors.InternalServer("GROUP_TTFT_GUARD_UNAVAILABLE", "group TTFT guard policy service is unavailable"))
+		return
+	}
+	policy, err := h.ttftGuardPolicies.GetPolicy(c.Request.Context(), groupID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, policy)
+}
+
+func (h *GroupHandler) PutTTFTGuardPolicy(c *gin.Context) {
+	if h.rejectUnsupportedSimpleModeOperation(c, "advanced") {
+		return
+	}
+	groupID, ok := parsePositiveIDParam(c, "id")
+	if !ok {
+		return
+	}
+	if h.ttftGuardPolicies == nil {
+		response.ErrorFrom(c, infraerrors.InternalServer("GROUP_TTFT_GUARD_UNAVAILABLE", "group TTFT guard policy service is unavailable"))
+		return
+	}
+	var input service.GroupTTFTGuardPolicyInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		response.BadRequest(c, "Invalid request body: "+err.Error())
+		return
+	}
+	policy, err := h.ttftGuardPolicies.PutPolicy(c.Request.Context(), groupID, input)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, policy)
 }
 
 func (h *GroupHandler) isSimpleMode() bool {

@@ -9,7 +9,7 @@
 | NewAPI 兼容 | 旧 `data.id + Cookie`、新 `data.user.id + access_token`、Bearer 与 `New-Api-User`、无会话失败、三种认证模式互不影响 |
 | 共享并发 | 同上游多 Key 共享 slot/lease/queue/load，不同上游隔离，优先级来源解析，降低上限不终止已有请求 |
 | LoadFactor | 普通账号硬并发使用 Concurrency，调度容量使用 LoadFactor 或回退；上游账号忽略派生账号字段；Priority/倍率同步不改 LoadFactor |
-| TTFT Guard | 仅真实业务可见首 Token 采样，canonical model 隔离，主动探针 TTFT 不进入 Guard，状态列多模型展示和倒计时 |
+| TTFT Guard | 仅带实际 group_id 分组上下文的真实业务可见首 Token 采样；状态按 group_id + account_id + canonical model 隔离；OpenAI/Composite 分组支持 inherit/enabled/disabled；策略写入与 group_changed outbox 原子化且幂等更新不发事件；各实例消费 group_changed 后清 policy cache 与该分组本地运行态；策略缓存失效期间的旧 DB 读取不得重新回填；全局设置通过 fork Redis 通道广播，远端刷新成功后只清配置变化的 inherit/global 状态，刷新失败和自定义策略均保留；无分组后台账号测试、健康探针和其他主动探针不采样、不进入分组 Guard；degradation 携带分组名、策略来源、三类触发原因和恢复倒计时 |
 | 健康探针 | OpenAI Responses、Anthropic Claude Code profile、Gemini 原生流；首文本、终止事件、challenge、截断流、超时和非 2xx 分类 |
 | Probe Guard | 默认 401/403、429/529、5xx、其他 4xx 规则；自定义错误码追加；阈值暂停、成功恢复、人工恢复与业务隔离 |
 | 健康趋势 | 列表 24 点、35 天保留、6h/24h/7d/30d 聚合、P50/P95、断点、Tooltip、中英文和暗色模式 |
@@ -18,7 +18,7 @@
 | Channel Monitor V2 | managed Key 生命周期、倍率趋势、分组权限、隐私默认值、错误分类和缓存/rollup |
 | 质量与累计用量 | 质量仅展示不参与调度；coverage/backfill 完整后才允许 raw cleanup；日聚合时区正确 |
 | 图片成本路由与展示 | Key 快照 supported/status/stale、共享/独立倍率、1K/2K/4K 成本、免费成本 0、partial/stale/unknown 排序、prefer/strict、无价格回退、普通文本隔离、账号 hydration、API Key auth cache、scheduler cache、账号页与分组配置 UI；成本摘要必须结构化展示能力、倍率来源和分辨率成本；不得绕过健康、共享并发、TTFT Guard 或 Priority 约束 |
-| migration/profile/version | migration 233 语义、官方 migration 编号冲突按内容重编号、历史 profile 233–253 合同不可变；当前 profile 254 对应 `0.2.7-baiyu`、parent 为 253、`new_migrations=[]`，由 release manifest 绑定数据库 migration catalog 与生产兼容快照；用户专属倍率以 `rate_percent` 为业务真值，兼容绝对倍率按当前普通倍率派生；`VERSION = official release version + -baiyu`，源码 VERSION 滞后的正式 tag 必须按目标 commit 显式固定版本；fork VERSION 每变化一次都新增下一个连续 profile，不得回写旧 profile |
+| migration/profile/version | migration 233 语义、官方 migration 编号冲突按内容重编号、历史 profile 233–253 合同不可变；当前 profile 254 对应 `0.2.7-baiyu`、parent 为 253、`new_migrations=[278_fork_group_ttft_guard_policies.sql]`，由 release manifest 绑定数据库 migration catalog 与生产兼容快照；用户专属倍率以 `rate_percent` 为业务真值，兼容绝对倍率按当前普通倍率派生；`VERSION = official release version + -baiyu`，源码 VERSION 滞后的正式 tag 必须按目标 commit 显式固定版本；fork VERSION 每变化一次都新增下一个连续 profile，不得回写旧 profile |
 | 官方 Astra 支持 | 使用目标官方的识别、静态目录、live/pinned 能力和测试；默认 medium 与 low 至 max，live/pinned 额外能力不被 fork 旧规则裁剪；ultrafast 与推理 ultra 区分；Anthropic 桥接、指纹、0 倍率和共享并发单独回归 |
 | compact 账号列表与编辑 | 脱敏列表保留上游身份、能力和调度字段；按需详情不被列表刷新覆盖；模型同步 persisted 分支与官方元数据分支独立；图片回填和请求 ID 头字段只放宽精确白名单 |
 | 发布运维 skill | release pytest、日志合同、Git Bash、清理 dry-run/apply、profile signer/validator、8211 单实例与成功后收口 |

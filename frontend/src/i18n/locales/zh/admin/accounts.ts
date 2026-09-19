@@ -550,6 +550,17 @@ export default {
           consecutiveElevated: '连续 2 次首 Token 延迟达到降级阈值的 1.5 倍',
           ewmaReason: '有效样本达到门槛且首 Token 延迟趋势超过阈值',
           unknownReason: '达到首 Token 延迟降级条件',
+          unknownGroup: '未知分组',
+          group: '分组：{value}',
+          model: '模型：{value}',
+          reason: '触发原因：{value}',
+          source: '策略来源：{value}',
+          sources: {
+            global: '继承全局',
+            group: '分组自定义',
+            disabled: '已关闭',
+            unknown: '未知'
+          },
           lastTTFT: '最近首 Token：{value}',
           ewma: 'EWMA：{value}',
           threshold: '降级阈值：{value}',

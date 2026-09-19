@@ -84,7 +84,7 @@
     "version": "0.2.7-baiyu",
     "parent": "253",
     "gate_schema": 2,
-    "new_migrations": [],
+    "new_migrations": ["278_fork_group_ttft_guard_policies.sql"],
     "release_policy": {
       "compatibility_image": "production_current",
       "migration_source": "database_state"
@@ -151,7 +151,8 @@
     "274_opencode_go_platform.sql": "64bf7cfed85573467683f941584f63ddd8d390a41fd914d3add32ef0294c729e",
     "275_purge_unlimited_user_platform_quotas.sql": "03f5bba318b9fcd46e3b524491c5b0e343987384a031d9faae21cecce3bd3cab",
     "276_api_key_scheduling_mode.sql": "71404a0e238b2c7f4e05e747d237dc91c104f18d4c2674720102b1494f8604e4",
-    "277_user_group_rate_percent.sql": "7496e93f5f77c93637e0f68f13fc39e6f793a8968bd01371e357c952b44f47b7"
+    "277_user_group_rate_percent.sql": "7496e93f5f77c93637e0f68f13fc39e6f793a8968bd01371e357c952b44f47b7",
+    "278_fork_group_ttft_guard_policies.sql": "0637f2c51df53a76ea66730cc5f7127c1f20adf187ec649edda5f1993e42d207"
   },
   "migration_renames": {
     "official_221": "234_group_model_pricing.sql",
@@ -441,7 +442,7 @@
       "id": "fork-scheduling-compatibility-foundation", "title": "Fork 调度扩展兼容底座", "description": "只声明 internal/forkscheduling 的有界契约、纯 legacy 规则与 service bridge 解耦边界；底层 TTFT、健康、并发、RPM、优先池和重试能力由各自运行时合同拥有。", "ownership": "fork", "risk_level": "critical", "paths": ["backend/internal/forkscheduling/contracts.go", "backend/internal/forkscheduling/contracts_test.go", "backend/internal/forkscheduling/legacy/*.go", "backend/internal/service/fork_scheduling_bridge.go", "backend/internal/service/fork_scheduling_bridge_test.go"], "symbols": ["forkscheduling.Runtime", "legacy.Candidate", "ForkSchedulingRuntime", "legacyTTFTRuntime", "legacyHealthRuntime", "legacyCapacityRuntime"], "api_routes": [], "settings_keys": [], "migration_files": [], "required_tests": ["backend/internal/forkscheduling/*_test.go", "backend/internal/forkscheduling/legacy/*_test.go", "backend/internal/service/fork_scheduling_bridge_test.go"], "invariants": ["契约与 legacy 规则包只使用有界值对象和接口，不导入 service、handler、repository、Ent、Gin、Redis、官方 scheduler 或执行闭包", "官方 service 继续拥有 selector、handler、failover、健康持久化、槽位/lease、计费和 usage log；bridge 只负责窄值映射与可选能力装配", "TTFT 与健康 runtime 在同一 service 实例内复用既有状态；无 owner 的健康 runtime 只读，不成为第二个 Registry 写入者", "未注入 fork 能力时沿用 legacy fallback，不新增后台 goroutine、文件、网络或数据库操作", "候选视图不包含 API Key、Cookie、Token、请求体、响应体或完整凭据；快照和返回值拥有独立生命周期", "无数据库字段、migration、Redis key/lease 格式或生产配置变化，撤销 bridge 可回到原调用路径"]
     },
     {
-      "id": "ttft-guard", "title": "OpenAI TTFT Guard", "description": "按 account_id + canonical model 保护真实业务流量；主动探针 TTFT 不进入 Guard，模型临时排除统一显示在状态列。", "ownership": "fork", "risk_level": "critical", "paths": ["backend/internal/service/openai_ttft_guard*.go", "backend/internal/service/openai_account_scheduler.go", "backend/internal/handler/admin/setting_handler_openai_ttft_guard.go", "frontend/src/components/account/TTFTGuardStatusBadge.vue", "frontend/src/components/account/AccountStatusIndicator.vue"], "symbols": ["OpenAITTFTGuard", "reportOpenAITTFTGuard", "ttft_guard_degradations"], "api_routes": ["/settings/openai-ttft-guard"], "settings_keys": ["openai_ttft_guard_settings"], "migration_files": [], "required_tests": ["backend/internal/service/openai_ttft_guard_test.go", "frontend/src/components/account/__tests__/AccountStatusIndicator.spec.ts"], "invariants": ["只采样真实业务可见首 Token", "探针 TTFT 不调用 Guard 采样", "多模型状态独立"]
+      "id": "ttft-guard", "title": "OpenAI 分组级 TTFT Guard", "description": "按 group_id + account_id + canonical model 隔离真实业务 TTFT 状态；分组策略使用 fork 独立表并支持继承全局、自定义启用和单独停用。", "ownership": "fork", "risk_level": "critical", "paths": ["backend/migrations/278_fork_group_ttft_guard_policies.sql", "backend/internal/repository/group_ttft_guard_policy_repo.go", "backend/internal/repository/group_ttft_guard_policy_invalidation_bus.go", "backend/internal/service/group_ttft_guard_policy.go", "backend/internal/service/openai_ttft_guard*.go", "backend/internal/service/openai_account_scheduler.go", "backend/internal/handler/admin/group_handler.go", "backend/internal/server/routes/admin.go", "frontend/src/api/admin/groups.ts", "frontend/src/components/admin/group/GroupTTFTGuardPolicyModal.vue", "frontend/src/components/account/TTFTGuardStatusBadge.vue", "frontend/src/views/admin/GroupsView.vue"], "symbols": ["GroupTTFTGuardPolicyResolver", "GroupTTFTGuardResolvedPolicy", "GroupTTFTGuardPolicyInvalidationBus", "fork_group_ttft_guard_policies", "OpenAITTFTGuard", "reportOpenAITTFTGuard", "ttft_guard_degradations"], "api_routes": ["/admin/upstream-management/ttft-guard", "/admin/groups/ttft-guard-policies", "/admin/groups/:id/ttft-guard-policy"], "settings_keys": ["openai_ttft_guard_settings"], "migration_files": ["278_fork_group_ttft_guard_policies.sql"], "required_tests": ["backend/migrations/group_ttft_guard_policy_migration_test.go", "backend/internal/repository/group_ttft_guard_policy_repo_test.go", "backend/internal/repository/group_ttft_guard_policy_invalidation_bus_test.go", "backend/internal/service/group_ttft_guard_policy_test.go", "backend/internal/service/scheduler_snapshot_ttft_policy_test.go", "backend/internal/service/openai_ttft_guard_test.go", "backend/internal/handler/admin/group_handler_ttft_guard_policy_test.go", "frontend/src/api/admin/__tests__/groupsTTFTGuardPolicies.spec.ts", "frontend/src/components/admin/group/__tests__/GroupTTFTGuardPolicyModal.spec.ts", "frontend/src/components/account/__tests__/TTFTGuardStatusBadge.spec.ts"], "invariants": ["只采样带实际 group_id 的真实业务可见首 Token，无分组后台探针不得写入", "状态按 group_id + account_id + canonical model 隔离，分组间阈值、摘除、恢复探测和 fail-open 互不污染", "inherit 使用全局热快照中的开关与阈值，enabled 使用分组值，disabled 不采样不排除并清理该分组旧状态；全局变化不得改写自定义策略", "全局设置通过 fork Redis 通道广播；远端读取成功后只清配置变化的 global 状态，读取失败和自定义策略不得清理", "策略缓存失效期间启动的旧 DB 读取不得重新回填缓存", "仅 OpenAI 与 Composite 分组允许保存策略，Composite 只在实际调度平台为 OpenAI 时生效", "策略写入和 group_changed scheduler outbox 在同一事务；幂等写入不产生无意义事件", "各实例消费 group_changed 后清 policy cache，并通过本地 runtime invalidator 清该分组 TTFT 状态；缓存自然过期不得清运行态", "运行时 degradation 必须携带 group_id、group_name 与策略来源", "fork 策略表和管理 API 不向官方 groups 表增加字段，也不改变倍率、Priority、健康探针、模型限流或高级调度语义"]
     },
     {
       "id": "group-profit-control-display", "title": "分组利润控制与账号倍率上限展示", "description": "基于官方分组倍率、计费与利润控制链，fork 增加用户专属 rate_percent 真值、动态有效倍率、显式 0% 语义和管理端账号倍率上限预览；金额限额仍按分组原价计量。", "ownership": "fork", "risk_level": "high", "paths": ["backend/migrations/277_user_group_rate_percent.sql", "backend/internal/repository/user_group_rate_repo.go", "backend/internal/service/user_group_rate.go", "backend/internal/service/user_group_rate_resolver.go", "backend/internal/service/admin_group.go", "backend/internal/service/admin_user.go", "backend/internal/service/openai_profit_control.go", "backend/internal/service/gateway_profit_control.go", "backend/internal/service/billing_cache_service.go", "backend/internal/service/gateway_usage_billing.go", "backend/internal/service/openai_gateway_usage.go", "backend/internal/handler/admin/user_handler.go", "backend/internal/handler/dto/types.go", "backend/internal/handler/dto/mappers.go", "frontend/src/api/admin/groups.ts", "frontend/src/types/index.ts", "frontend/src/views/admin/GroupsView.vue", "frontend/src/views/admin/groupsProfitControl.ts", "frontend/src/components/admin/group/GroupRateMultipliersModal.vue", "frontend/src/components/admin/user/UserAllowedGroupsModal.vue", "frontend/src/i18n/locales/zh/admin/overview.ts", "frontend/src/i18n/locales/en/admin/overview.ts"], "symbols": ["rate_percent", "SyncUserGroupRatePercents", "ResolveUserGroupRateMultiplier", "ResolveWithExplicitZero", "CheckBillingEligibility", "buildUsageBillingCommand", "calculateProfitControlMaxAccountRate", "formatProfitControlMaxAccountRate"], "api_routes": ["/admin/users/:id", "/admin/groups/:id/rate-multipliers"], "settings_keys": [], "migration_files": ["277_user_group_rate_percent.sql"], "required_tests": ["backend/migrations/user_group_rate_percent_migration_test.go", "backend/internal/repository/user_group_rate_repo_test.go", "backend/internal/service/openai_profit_control_test.go", "backend/internal/service/openai_profit_control_pricing_test.go", "backend/internal/service/user_group_rate_resolver_test.go", "backend/internal/service/gateway_service_subscription_billing_test.go", "backend/internal/service/admin_service_group_rate_test.go", "backend/internal/service/admin_service_update_user_rpm_test.go", "frontend/src/api/admin/__tests__/groupsRateMultipliers.spec.ts", "frontend/src/components/admin/group/__tests__/GroupRateMultipliersModal.spec.ts", "frontend/src/components/admin/user/__tests__/UserAllowedGroupsModal.spec.ts", "frontend/src/views/admin/__tests__/groupsProfitControl.spec.ts"], "invariants": ["官方拥有基础分组倍率和利润控制，fork 只拥有 rate_percent、显式 0%、计费/配额分离与管理端预览扩展", "rate_percent 是用户专属倍率唯一业务真值，有效倍率始终等于分组普通倍率 × rate_percent ÷ 100", "分组普通倍率变化只刷新兼容 rate_multiplier 影子值和缓存，不得改写 rate_percent", "旧客户端提交 rate_multiplier 时服务端按当前普通倍率反算百分比；rate_percent 与 rate_multiplier 同时提交必须拒绝", "显式 0% 与 NULL 必须区分，NULL 表示回退分组默认倍率", "清空专属倍率不得删除同一用户分组关系上的 RPM override，批量替换必须事务化", "用户专属倍率显式 0 时 actual_cost/用户余额和订阅消费为 0，但 token、请求数、total_cost、原始成本、账号成本和统计保留", "API Key 配额、时间窗限速和用户×平台配额使用按分组原价计算的 quota_meter_cost", "显式 0 仅豁免当前用户-计费分组的利润控制，非 0 用户和其它分组继续执行利润门", "订阅高峰窗口内阈值叠加当前高峰因子", "管理端预览只读且向下保留四位", "未启用利润控制或配置无效时不展示伪造上限", "分组默认倍率仍必须大于 0"]
@@ -545,7 +546,8 @@
         "274_opencode_go_platform.sql",
         "275_purge_unlimited_user_platform_quotas.sql",
         "276_api_key_scheduling_mode.sql",
-        "277_user_group_rate_percent.sql"
+        "277_user_group_rate_percent.sql",
+        "278_fork_group_ttft_guard_policies.sql"
       ],
       "required_tests": [
         "backend/migrations/profile_233_migrations_test.go",
@@ -562,6 +564,7 @@
         "backend/migrations/daily_activity_recharge_events_migration_test.go",
         "backend/migrations/api_key_scheduling_mode_migration_test.go",
         "backend/migrations/user_group_rate_percent_migration_test.go",
+        "backend/migrations/group_ttft_guard_policy_migration_test.go",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_release_core.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_migration_planner_v2.py"
       ],
@@ -571,7 +574,7 @@
       ],
       "invariants": [
         "历史 profile 233–253 不回写",
-        "当前 profile 254 对应 0.2.7-baiyu，parent 为 253，new_migrations 为空；profile 253 保持 migration 277 的不可变历史合同",
+        "当前 profile 254 对应 0.2.7-baiyu，parent 为 253，new_migrations 精确为 [278_fork_group_ttft_guard_policies.sql]，其原始文件 SHA-256 必须与 migration_contracts 登记一致；profile 253 保持 migration 277 的不可变历史合同",
         "fork VERSION 每变化一次必须新增下一个连续整数 profile，即使无 migration 也使用 new_migrations=[]",
         "profile parent 必须指向此前当前 profile，禁止改写旧 profile 追随新版本",
         "官方 migration 按内容重编号，不覆盖 fork 已发布编号；本次官方 232/233/234 的四项依序重编号为 263–266",
@@ -579,10 +582,11 @@
         "fork VERSION 始终是官方正式版本 + -baiyu；正式 tag 源码 VERSION 滞后时按目标 commit 固定 release version",
         "审计目录的 migration checksum 绑定 Git 原始文件字节，发布 manifest checksum 绑定 strip 后的 SQL 文本，两种证据必须分别记录且不得混用",
         "官方新增迁移 242–245 的 SQL 语义与 checksum 固定，不能回写历史 profile",
-        "254 migration 必须验证未删除用户一次性开启、软删除用户不变、VM outbox 事件和用户认证缓存触发器合同",
+        "migration 254_enable_balance_notifications_for_existing_users.sql 必须验证未删除用户一次性开启、软删除用户不变、VM outbox 事件和用户认证缓存触发器合同；该文件编号不得与 release profile 254 混淆",
         "252_channel_monitor_streaming_ttft.sql 为可重复执行的 nullable TTFT 迁移，旧历史保持 NULL",
         "官方 0.2.5 的两个 238 migration 必须按内容重编号为 274–275，不得覆盖 fork 已使用的 238–273 编号；fork migration 276 作为已发布历史兼容列保持原字节和 checksum，当前运行时、API 和前端不再依赖 scheduling_mode",
-        "277_user_group_rate_percent.sql 将 rate_percent 设为专属倍率真值，旧 rate_multiplier 仅保留为触发器同步的兼容影子值；普通倍率变化不得反向污染百分比"
+        "277_user_group_rate_percent.sql 将 rate_percent 设为专属倍率真值，旧 rate_multiplier 仅保留为触发器同步的兼容影子值；普通倍率变化不得反向污染百分比",
+        "278_fork_group_ttft_guard_policies.sql 使用 fork 独立表保存分组策略，必须由 backend/migrations/group_ttft_guard_policy_migration_test.go 验证表名、级联外键、三态约束和阈值范围"
       ]
     },
     {

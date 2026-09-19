@@ -732,8 +732,10 @@ func ProvideSchedulerSnapshotService(
 	accountRepo AccountRepository,
 	groupRepo GroupRepository,
 	cfg *config.Config,
+	policyService *GroupTTFTGuardPolicyService,
 ) *SchedulerSnapshotService {
 	svc := NewSchedulerSnapshotService(cache, outboxRepo, accountRepo, groupRepo, cfg)
+	svc.groupTTFTGuardPolicies = policyService
 	// Scheduler snapshots use Redis fencing and distributed cleanup locks, so
 	// they can safely overlap with the active slot. Starting this service while
 	// the candidate is still gated lets migration outbox events reach Redis
@@ -745,6 +747,63 @@ func ProvideSchedulerSnapshotService(
 		return svc.WaitInitialReady(ctx)
 	})
 	return svc
+}
+
+// ProvideOpenAIGatewayService attaches the fork-owned group TTFT guard policy
+// boundary without changing the upstream constructor signature.
+func ProvideOpenAIGatewayService(
+	accountRepo AccountRepository,
+	usageLogRepo UsageLogRepository,
+	usageBillingRepo UsageBillingRepository,
+	userRepo UserRepository,
+	userSubRepo UserSubscriptionRepository,
+	userGroupRateRepo UserGroupRateRepository,
+	cache GatewayCache,
+	cfg *config.Config,
+	schedulerSnapshot *SchedulerSnapshotService,
+	concurrencyService *ConcurrencyService,
+	billingService *BillingService,
+	rateLimitService *RateLimitService,
+	billingCacheService *BillingCacheService,
+	httpUpstream HTTPUpstream,
+	deferredService *DeferredService,
+	openAITokenProvider *OpenAITokenProvider,
+	grokTokenProvider *GrokTokenProvider,
+	resolver *ModelPricingResolver,
+	channelService *ChannelService,
+	balanceNotifyService *BalanceNotifyService,
+	settingService *SettingService,
+	userPlatformQuotaRepo UserPlatformQuotaRepository,
+	policyService *GroupTTFTGuardPolicyService,
+) *OpenAIGatewayService {
+	gateway := NewOpenAIGatewayService(
+		accountRepo,
+		usageLogRepo,
+		usageBillingRepo,
+		userRepo,
+		userSubRepo,
+		userGroupRateRepo,
+		cache,
+		cfg,
+		schedulerSnapshot,
+		concurrencyService,
+		billingService,
+		rateLimitService,
+		billingCacheService,
+		httpUpstream,
+		deferredService,
+		openAITokenProvider,
+		grokTokenProvider,
+		resolver,
+		channelService,
+		balanceNotifyService,
+		settingService,
+		userPlatformQuotaRepo,
+	)
+	gateway.SetGroupTTFTGuardPolicyResolver(policyService)
+	policyService.SetRuntimeInvalidator(gateway.InvalidateGroupTTFTGuardRuntime)
+	policyService.SetGlobalRuntimeInvalidator(gateway.InvalidateInheritedOpenAITTFTGuardRuntime)
+	return gateway
 }
 
 // ProvideRateLimitService creates RateLimitService with optional dependencies.
@@ -1126,6 +1185,7 @@ var ProviderSet = wire.NewSet(
 	ProvideAPIKeyAuthCacheInvalidator,
 	ProvideAuthCacheInvalidationWorker,
 	NewGroupService,
+	NewGroupTTFTGuardPolicyService,
 	NewCompositeRouteResolver,
 	NewAccountService,
 	NewProxyService,
@@ -1139,7 +1199,7 @@ var ProviderSet = wire.NewSet(
 	NewAnnouncementService,
 	NewAdminService,
 	NewGatewayService,
-	NewOpenAIGatewayService,
+	ProvideOpenAIGatewayService,
 	wire.Bind(new(PluginAccountDirectory), new(*OpenAIGatewayService)),
 	ProvideImageStorageSettingService,
 	ProvideImageTaskService,

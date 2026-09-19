@@ -7,8 +7,11 @@ import {
 import type { Account, AccountTTFTGuardDegradation } from '@/types'
 
 const degradation = (model: string): AccountTTFTGuardDegradation => ({
+  group_id: 7,
+  group_name: 'Premium OpenAI',
   model,
   reason: 'ewma',
+  policy_source: 'group',
   threshold_ms: 20_000,
   last_ttft_ms: 24_000,
   ewma_ms: 21_000,
@@ -57,6 +60,29 @@ describe('accountRuntimeState', () => {
 
     expect(buildTTFTGuardDegradationKey(first)).toBe(buildTTFTGuardDegradationKey(reordered))
     expect(buildTTFTGuardDegradationKey(first)).not.toBe(buildTTFTGuardDegradationKey(changed))
+  })
+
+  it('降级签名区分同模型的分组身份与策略来源，并保持复合排序稳定', () => {
+    const groupA = degradation('gpt-5.4')
+    const groupB = {
+      ...degradation('gpt-5.4'),
+      group_id: 9,
+      group_name: 'Enterprise OpenAI',
+      policy_source: 'global'
+    }
+    const first = account({ ttft_guard_degradations: [groupB, groupA] })
+    const reordered = account({ ttft_guard_degradations: [groupA, groupB] })
+
+    expect(buildTTFTGuardDegradationKey(first)).toBe(buildTTFTGuardDegradationKey(reordered))
+    expect(buildTTFTGuardDegradationKey(account({
+      ttft_guard_degradations: [{ ...groupA, group_id: 8 }]
+    }))).not.toBe(buildTTFTGuardDegradationKey(account({ ttft_guard_degradations: [groupA] })))
+    expect(buildTTFTGuardDegradationKey(account({
+      ttft_guard_degradations: [{ ...groupA, group_name: 'Renamed Group' }]
+    }))).not.toBe(buildTTFTGuardDegradationKey(account({ ttft_guard_degradations: [groupA] })))
+    expect(buildTTFTGuardDegradationKey(account({
+      ttft_guard_degradations: [{ ...groupA, policy_source: 'global' }]
+    }))).not.toBe(buildTTFTGuardDegradationKey(account({ ttft_guard_degradations: [groupA] })))
   })
 
   it('局部更新缺少运行态时保留降级状态，显式空数组则清除', () => {

@@ -9,6 +9,18 @@ import (
 	"github.com/google/wire"
 )
 
+func ProvideAdminGroupHandler(
+	adminService service.AdminService,
+	dashboardService *service.DashboardService,
+	groupCapacityService *service.GroupCapacityService,
+	cfg *config.Config,
+	policyService *service.GroupTTFTGuardPolicyService,
+) *admin.GroupHandler {
+	h := admin.NewGroupHandlerWithConfig(adminService, dashboardService, groupCapacityService, cfg)
+	h.SetTTFTGuardPolicyService(policyService)
+	return h
+}
+
 // ProvideAdminHandlers creates the AdminHandlers struct
 func ProvideAdminHandlers(
 	dashboardHandler *admin.DashboardHandler,
@@ -280,7 +292,7 @@ var ProviderSet = wire.NewSet(
 	// Admin handlers
 	admin.NewDashboardHandler,
 	admin.NewUserHandler,
-	admin.NewGroupHandlerWithConfig,
+	ProvideAdminGroupHandler,
 	admin.ProvideAccountHandler,
 	admin.NewAnnouncementHandler,
 	admin.NewDataManagementHandler,

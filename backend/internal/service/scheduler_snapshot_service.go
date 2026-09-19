@@ -33,6 +33,8 @@ const (
 	outboxMaxIDErrorLogSampleInterval     = time.Minute
 )
 
+const SchedulerOutboxPayloadTTFTGuardPolicyChanged = "ttft_guard_policy_changed"
+
 // batchSeenKey tracks completed per-platform rebuilds and group lifecycle work
 // within one pollOutbox call.
 type batchSeenKey struct {
@@ -135,6 +137,7 @@ type SchedulerSnapshotService struct {
 	outboxRepo                   SchedulerOutboxRepository
 	accountRepo                  AccountRepository
 	groupRepo                    GroupRepository
+	groupTTFTGuardPolicies       GroupTTFTGuardPolicyEventInvalidator
 	cfg                          *config.Config
 	stopCh                       chan struct{}
 	stopOnce                     sync.Once
@@ -606,7 +609,7 @@ func (s *SchedulerSnapshotService) handleOutboxEvent(ctx context.Context, event 
 	case SchedulerOutboxEventAccountChanged:
 		return s.handleAccountEvent(ctx, event.AccountID, event.Payload, seen)
 	case SchedulerOutboxEventGroupChanged:
-		return s.handleGroupEvent(ctx, event.GroupID, seen)
+		return s.handleGroupEvent(ctx, event.GroupID, event.Payload, seen)
 	case SchedulerOutboxEventFullRebuild:
 		return s.triggerFullRebuild("outbox")
 	default:
@@ -816,8 +819,18 @@ func (s *SchedulerSnapshotService) handleAccountEvent(ctx context.Context, accou
 	return s.rebuildByAccount(ctx, account, groupIDs, "account_change", seen)
 }
 
-func (s *SchedulerSnapshotService) handleGroupEvent(ctx context.Context, groupID *int64, seen map[batchSeenKey]struct{}) error {
-	if groupID == nil || *groupID <= 0 || s.isRunModeSimple() {
+func (s *SchedulerSnapshotService) handleGroupEvent(ctx context.Context, groupID *int64, payload map[string]any, seen map[batchSeenKey]struct{}) error {
+	if groupID == nil || *groupID <= 0 {
+		return nil
+	}
+	policyChanged, _ := payload[SchedulerOutboxPayloadTTFTGuardPolicyChanged].(bool)
+	if policyChanged && s.groupTTFTGuardPolicies != nil {
+		s.groupTTFTGuardPolicies.Invalidate(*groupID)
+		if err := s.groupTTFTGuardPolicies.BroadcastInvalidation(ctx, *groupID); err != nil {
+			return fmt.Errorf("broadcast group TTFT guard policy invalidation: %w", err)
+		}
+	}
+	if s.isRunModeSimple() {
 		return nil
 	}
 	if seen != nil {

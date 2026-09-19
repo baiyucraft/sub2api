@@ -472,6 +472,21 @@
                 }}</span>
               </button>
               <button
+                v-if="!authStore.isSimpleMode && supportsGroupTTFTGuard(row.platform)"
+                data-testid="group-ttft-guard"
+                :title="t('admin.groups.ttftGuard.openHint')"
+                @click="handleTTFTGuardPolicy(row)"
+                :class="[
+                  'flex flex-col items-center gap-0.5 rounded-lg p-1.5 transition-colors hover:bg-gray-100 dark:hover:bg-dark-700',
+                  ttftGuardPolicyClass(ttftGuardPolicies.get(row.id))
+                ]"
+              >
+                <Icon name="clock" size="sm" />
+                <span class="max-w-28 truncate text-xs">
+                  {{ t('admin.groups.ttftGuard.action') }} · {{ ttftGuardPolicySummary(ttftGuardPolicies.get(row.id)) }}
+                </span>
+              </button>
+              <button
                 @click="handleDelete(row)"
                 class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400"
               >
@@ -4398,6 +4413,13 @@
       @close="showRPMOverridesModal = false"
       @success="loadGroups"
     />
+
+    <GroupTTFTGuardPolicyModal
+      :show="showTTFTGuardPolicyModal"
+      :group="ttftGuardPolicyGroup"
+      @close="showTTFTGuardPolicyModal = false"
+      @saved="handleTTFTGuardPolicySaved"
+    />
   </AppLayout>
 </template>
 
@@ -4439,6 +4461,7 @@ import PlatformIcon from "@/components/common/PlatformIcon.vue";
 import Icon from "@/components/icons/Icon.vue";
 import GroupRateMultipliersModal from "@/components/admin/group/GroupRateMultipliersModal.vue";
 import GroupRPMOverridesModal from "@/components/admin/group/GroupRPMOverridesModal.vue";
+import GroupTTFTGuardPolicyModal from "@/components/admin/group/GroupTTFTGuardPolicyModal.vue";
 import GroupCapacityBadge from "@/components/common/GroupCapacityBadge.vue";
 import ReasoningEffortPolicyFields from "@/components/admin/group/ReasoningEffortPolicyFields.vue";
 import HelpTooltip from "@/components/common/HelpTooltip.vue";
@@ -4455,6 +4478,7 @@ import {
   toNullableNumber,
 } from "@/components/admin/channel/types";
 import type { ChannelModelPricing } from "@/api/admin/channels";
+import type { GroupTTFTGuardPolicy } from "@/api/admin/groups";
 import { VueDraggable } from "vue-draggable-plus";
 import { createStableObjectKeyResolver } from "@/utils/stableObjectKey";
 import { extractApiErrorMessage } from "@/utils/apiError";
@@ -5040,6 +5064,9 @@ const showRateMultipliersModal = ref(false);
 const rateMultipliersGroup = ref<AdminGroup | null>(null);
 const showRPMOverridesModal = ref(false);
 const rpmOverridesGroup = ref<AdminGroup | null>(null);
+const showTTFTGuardPolicyModal = ref(false);
+const ttftGuardPolicyGroup = ref<AdminGroup | null>(null);
+const ttftGuardPolicies = ref<Map<number, GroupTTFTGuardPolicy>>(new Map());
 const preferredAccounts = ref<Account[]>([]);
 const preferredAccountIDs = ref<number[]>([]);
 const preferredAccountSearch = ref("");
@@ -5885,6 +5912,7 @@ const loadGroups = async () => {
     groups.value = response.items;
     pagination.total = response.total;
     pagination.pages = response.pages;
+    if (!authStore.isSimpleMode) void loadTTFTGuardPolicies();
     if (hasVisibleUsageSummaryConsumer.value) {
       loadUsageSummary();
     } else {
@@ -5913,6 +5941,19 @@ const loadGroups = async () => {
     if (abortController === currentController && !signal.aborted) {
       loading.value = false;
     }
+  }
+};
+
+const loadTTFTGuardPolicies = async () => {
+  const loader = adminAPI.groups.listTTFTGuardPolicies;
+  if (typeof loader !== "function") return;
+  try {
+    const policies = await loader();
+    ttftGuardPolicies.value = new Map(
+      policies.map((policy) => [policy.group_id, policy]),
+    );
+  } catch (error) {
+    console.error("Error loading group TTFT Guard policies:", error);
   }
 };
 
@@ -6812,6 +6853,32 @@ const handleRateMultipliers = (group: AdminGroup) => {
 const handleRPMOverrides = (group: AdminGroup) => {
   rpmOverridesGroup.value = group;
   showRPMOverridesModal.value = true;
+};
+
+const supportsGroupTTFTGuard = (platform: GroupPlatform) =>
+  platform === "openai" || platform === "composite";
+
+const ttftGuardPolicySummary = (policy?: GroupTTFTGuardPolicy) => {
+  const mode = policy?.mode ?? "inherit";
+  return t(`admin.groups.ttftGuard.summaries.${mode}`);
+};
+
+const ttftGuardPolicyClass = (policy?: GroupTTFTGuardPolicy) => {
+  const mode = policy?.mode ?? "inherit";
+  if (mode === "enabled") return "text-purple-600 dark:text-purple-400";
+  if (mode === "disabled") return "text-gray-400 dark:text-gray-500";
+  return "text-blue-600 dark:text-blue-400";
+};
+
+const handleTTFTGuardPolicy = (group: AdminGroup) => {
+  ttftGuardPolicyGroup.value = group;
+  showTTFTGuardPolicyModal.value = true;
+};
+
+const handleTTFTGuardPolicySaved = (policy: GroupTTFTGuardPolicy) => {
+  const next = new Map(ttftGuardPolicies.value);
+  next.set(policy.group_id, policy);
+  ttftGuardPolicies.value = next;
 };
 
 const handleDuplicate = async (group: AdminGroup) => {

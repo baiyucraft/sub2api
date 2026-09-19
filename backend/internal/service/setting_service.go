@@ -164,6 +164,8 @@ type SettingService struct {
 	openAITTFTGuardConfigSF    singleflight.Group
 	openAITTFTGuardRevision    atomic.Uint64
 	openAITTFTGuardUpdateMu    sync.Mutex
+	openAITTFTGuardBusMu       sync.RWMutex
+	openAITTFTGuardBus         GroupTTFTGuardPolicyInvalidationBus
 
 	// Gateway capacity failover is read on the request hot path. Keep a
 	// stale-while-revalidate snapshot so gateway handlers never query settings

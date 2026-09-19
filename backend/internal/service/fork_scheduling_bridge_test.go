@@ -21,13 +21,13 @@ func TestLegacyTTFTRuntimeSharesStateAcrossObserverReaderAndExcluder(t *testing.
 	runtime := legacyTTFTRuntime{guard: guard}
 	cfg := forkscheduling.TTFTConfig{Enabled: true, Threshold: 10 * time.Second, MinSamples: 2}
 	firstTokenMs := 30000
-	runtime.Report(forkscheduling.TTFTSample{AccountID: 7, Model: "gpt-5", Success: false, FirstTokenMs: &firstTokenMs}, cfg)
+	runtime.Report(forkscheduling.TTFTSample{GroupID: 100, AccountID: 7, Model: "gpt-5", Success: false, FirstTokenMs: &firstTokenMs}, cfg)
 
-	degradations := runtime.Degradations([]int64{7}, cfg)
+	degradations := runtime.Degradations([]int64{7})
 	if len(degradations[7]) != 1 || degradations[7][0].Reason != "critical_sample" {
 		t.Fatalf("degradations = %#v", degradations)
 	}
-	excluded := runtime.Exclusions([]forkscheduling.CandidateView{{ID: 7, Model: "gpt-5"}}, nil, cfg)
+	excluded := runtime.Exclusions([]forkscheduling.CandidateView{{GroupID: 100, ID: 7, Model: "gpt-5"}}, nil, cfg)
 	if _, ok := excluded[7]; !ok {
 		t.Fatalf("excluded accounts = %#v, want account 7", excluded)
 	}

@@ -2901,6 +2901,14 @@ func (s *OpenAIGatewayService) isOpenAIAccountTransportCompatible(account *Accou
 }
 
 func (s *OpenAIGatewayService) ReportOpenAIAccountScheduleResult(accountRef any, model string, success bool, firstTokenMs *int, observedErr ...error) bool {
+	return s.reportOpenAIAccountScheduleResult(nil, accountRef, model, success, firstTokenMs, observedErr...)
+}
+
+func (s *OpenAIGatewayService) ReportOpenAIAccountScheduleResultForGroup(groupID *int64, accountRef any, model string, success bool, firstTokenMs *int, observedErr ...error) bool {
+	return s.reportOpenAIAccountScheduleResult(groupID, accountRef, model, success, firstTokenMs, observedErr...)
+}
+
+func (s *OpenAIGatewayService) reportOpenAIAccountScheduleResult(groupID *int64, accountRef any, model string, success bool, firstTokenMs *int, observedErr ...error) bool {
 	var account *Account
 	var accountID int64
 	switch value := accountRef.(type) {
@@ -2925,7 +2933,9 @@ func (s *OpenAIGatewayService) ReportOpenAIAccountScheduleResult(accountRef any,
 			healthTripped = s.rateLimitService.ObserveOpenAIAPIKeyHealthFailure(context.Background(), account, observedErr[0])
 		}
 	}
-	s.reportOpenAITTFTGuard(accountID, model, success, firstTokenMs)
+	if groupID != nil && *groupID > 0 && ((account != nil && account.Platform == PlatformOpenAI) || (account == nil && s != nil && s.isOpenAITTFTGuardEligibleAccount(accountID))) {
+		s.reportOpenAITTFTGuard(*groupID, accountID, model, success, firstTokenMs)
+	}
 	if success {
 		s.openaiOAuth429RetryStartedAt.Delete(accountID)
 		s.clearOpenAIAccountModelTransientState(accountID, normalizeOpenAIAccountModelTransientModel(model))

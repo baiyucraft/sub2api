@@ -18,6 +18,31 @@ type openAITTFTGuardSettingsRepoStub struct {
 	getGate <-chan struct{}
 }
 
+type openAITTFTGuardInvalidationBusStub struct {
+	mu          sync.Mutex
+	globalCalls int
+	notifyErr   error
+}
+
+func (s *openAITTFTGuardInvalidationBusStub) NotifyUpdate(context.Context, int64) error {
+	return nil
+}
+
+func (s *openAITTFTGuardInvalidationBusStub) NotifyGlobalUpdate(context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.globalCalls++
+	return s.notifyErr
+}
+
+func (s *openAITTFTGuardInvalidationBusStub) SubscribeUpdates(context.Context, func(int64)) {}
+
+func (s *openAITTFTGuardInvalidationBusStub) calls() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.globalCalls
+}
+
 func (r *openAITTFTGuardSettingsRepoStub) Get(context.Context, string) (*Setting, error) {
 	return nil, ErrSettingNotFound
 }
@@ -120,7 +145,50 @@ func TestSetOpenAITTFTGuardSettingsPersistsAndPublishesImmediately(t *testing.T)
 	require.Equal(t, 8, snapshot.MinSamples)
 }
 
-func TestOpenAITTFTGuardRuntimeRefreshFailureDisablesGuard(t *testing.T) {
+func TestSetOpenAITTFTGuardSettingsPublishesGlobalInvalidation(t *testing.T) {
+	repo := &openAITTFTGuardSettingsRepoStub{values: map[string]string{}}
+	bus := &openAITTFTGuardInvalidationBusStub{}
+	svc := NewSettingService(repo, nil)
+	svc.SetOpenAITTFTGuardInvalidationBus(bus)
+
+	err := svc.SetOpenAITTFTGuardSettings(context.Background(), &OpenAITTFTGuardSettings{
+		Enabled: true, DegradationTTFTSeconds: 45, MinSamples: 8,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, 1, bus.calls())
+}
+
+func TestSetOpenAITTFTGuardSettingsDoesNotPublishGlobalInvalidationAfterFailedWrite(t *testing.T) {
+	repo := &openAITTFTGuardSettingsRepoStub{values: map[string]string{}, setErr: errors.New("write failed")}
+	bus := &openAITTFTGuardInvalidationBusStub{}
+	svc := NewSettingService(repo, nil)
+	svc.SetOpenAITTFTGuardInvalidationBus(bus)
+
+	err := svc.SetOpenAITTFTGuardSettings(context.Background(), &OpenAITTFTGuardSettings{
+		Enabled: true, DegradationTTFTSeconds: 45, MinSamples: 8,
+	})
+
+	require.Error(t, err)
+	require.Zero(t, bus.calls())
+}
+
+func TestSetOpenAITTFTGuardSettingsKeepsCommittedWriteWhenGlobalInvalidationFails(t *testing.T) {
+	repo := &openAITTFTGuardSettingsRepoStub{values: map[string]string{}}
+	bus := &openAITTFTGuardInvalidationBusStub{notifyErr: errors.New("publish failed")}
+	svc := NewSettingService(repo, nil)
+	svc.SetOpenAITTFTGuardInvalidationBus(bus)
+
+	err := svc.SetOpenAITTFTGuardSettings(context.Background(), &OpenAITTFTGuardSettings{
+		Enabled: true, DegradationTTFTSeconds: 45, MinSamples: 8,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, 1, bus.calls())
+	require.True(t, svc.OpenAITTFTGuardConfigSnapshot().Enabled, "the committed local snapshot remains active")
+}
+
+func TestOpenAITTFTGuardRuntimeRefreshFailurePreservesLastValidConfig(t *testing.T) {
 	repo := &openAITTFTGuardSettingsRepoStub{values: map[string]string{
 		SettingKeyOpenAITTFTGuardSettings: `{"enabled":true,"degradation_ttft_seconds":30,"min_samples":6}`,
 	}}
@@ -133,16 +201,19 @@ func TestOpenAITTFTGuardRuntimeRefreshFailureDisablesGuard(t *testing.T) {
 	svc.refreshOpenAITTFTGuardConfig(context.Background())
 
 	snapshot := svc.OpenAITTFTGuardConfigSnapshot()
-	require.False(t, snapshot.Enabled)
-	require.Equal(t, 20*time.Second, snapshot.Threshold)
-	require.Equal(t, 5, snapshot.MinSamples)
+	require.True(t, snapshot.Enabled)
+	require.Equal(t, 30*time.Second, snapshot.Threshold)
+	require.Equal(t, 6, snapshot.MinSamples)
 
 	repo.mu.Lock()
 	repo.values[SettingKeyOpenAITTFTGuardSettings] = `{"enabled":true,"degradation_ttft_seconds":30,"min_samples":6}`
 	repo.getErr = errors.New("read failed")
 	repo.mu.Unlock()
 	svc.refreshOpenAITTFTGuardConfig(context.Background())
-	require.False(t, svc.OpenAITTFTGuardConfigSnapshot().Enabled)
+	snapshot = svc.OpenAITTFTGuardConfigSnapshot()
+	require.True(t, snapshot.Enabled)
+	require.Equal(t, 30*time.Second, snapshot.Threshold)
+	require.Equal(t, 6, snapshot.MinSamples)
 }
 
 func TestOpenAITTFTGuardRuntimeColdReadDoesNotBlockOnDB(t *testing.T) {
