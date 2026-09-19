@@ -1101,6 +1101,21 @@ func ProvideAPIKeyService(
 	return svc
 }
 
+// ProvidePluginManager wires optional plugin host services to the shared
+// OpenAI account directory before any plugin runtime can start.
+func ProvidePluginManager(
+	repo PluginRepository,
+	encryptor SecretEncryptor,
+	cfg *config.Config,
+	hostInfo PluginHostInfo,
+	kvStore PluginKVStore,
+	accountDirectory PluginAccountDirectory,
+) *PluginManager {
+	manager := NewPluginManager(repo, encryptor, cfg, hostInfo, kvStore)
+	manager.SetAccountDirectory(accountDirectory)
+	return manager
+}
+
 // ProviderSet is the Wire provider set for all services
 var ProviderSet = wire.NewSet(
 	// Core services
@@ -1125,6 +1140,7 @@ var ProviderSet = wire.NewSet(
 	NewAdminService,
 	NewGatewayService,
 	NewOpenAIGatewayService,
+	wire.Bind(new(PluginAccountDirectory), new(*OpenAIGatewayService)),
 	ProvideImageStorageSettingService,
 	ProvideImageTaskService,
 	ProvideBatchImageModelPricingResolver,
@@ -1209,7 +1225,7 @@ var ProviderSet = wire.NewSet(
 	NewTLSFingerprintProfileService,
 	ProvideUpstreamConfigService,
 	ProvideUpstreamHealthProbeRunner,
-	NewPluginManager,
+	ProvidePluginManager,
 	NewDigestSessionStore,
 	ProvideIdempotencyCoordinator,
 	ProvideSystemOperationLockService,

@@ -327,13 +327,27 @@ func (s *RateLimitService) CheckErrorPolicy(ctx context.Context, account *Accoun
 	return ErrorPolicyNone
 }
 
+func shouldReportUpstreamHealthFailure(account *Account, statusCode int, responseBody []byte) bool {
+	if statusCode != http.StatusForbidden || account == nil {
+		return true
+	}
+	// HTML 403 from an OpenAI proxy/CDN is request/endpoint-scoped, not Key
+	// health evidence. Keep the account and upstream Key penalty paths aligned.
+	if account.Platform == PlatformOpenAI && isHTMLResponse(responseBody) {
+		return false
+	}
+	// Coding Plan quota and concurrency 403s are recoverable account-capacity
+	// signals. The account keeps its existing cooldown/failover handling, but
+	// the shared upstream Key must not be suspended as an authentication error.
+	upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(responseBody))
+	return !isCNProviderConcurrencyLimit403(account, upstreamMsg) &&
+		!isCNProviderQuotaExhausted403(account, responseBody, upstreamMsg)
+}
+
 // HandleUpstreamError 处理上游错误响应，标记账号状态
 // 返回是否应该停止该账号的调度
 func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Account, statusCode int, headers http.Header, responseBody []byte, requestedModel ...string) (shouldDisable bool) {
-	// HTML 403 from an OpenAI proxy/CDN is request/endpoint-scoped, not Key
-	// health evidence. Keep the account and upstream Key penalty paths aligned.
-	reportUpstreamHealthFailure := !(statusCode == http.StatusForbidden && account != nil && account.Platform == PlatformOpenAI && isHTMLResponse(responseBody))
-	if reportUpstreamHealthFailure {
+	if shouldReportUpstreamHealthFailure(account, statusCode, responseBody) {
 		ReportUpstreamTrafficFailure(ctx, account, statusCode)
 	}
 	ctx = withTempUnschedulableModel(ctx, requestedModel)
@@ -996,6 +1010,14 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, upst
 	// into the escalating 403 counter that can permanently mark the account error.
 	if isCNProviderConcurrencyLimit403(account, upstreamMsg) {
 		s.handleCNProviderConcurrencyLimit403(ctx, account)
+		return true
+	}
+	// Kimi 等 CN 供应商把 Coding Plan 配额窗口耗尽打成 403
+	// （error.type=access_terminated_error），这是窗口到期后自动恢复的限流
+	// 信号而非封禁：按 429 口径冷却到真实窗口重置点，避免落入下方通用 403
+	// 升级计数后被永久 SetError。
+	if isCNProviderQuotaExhausted403(account, responseBody, upstreamMsg) {
+		s.handleCNProviderQuotaExhausted403(ctx, account, upstreamMsg)
 		return true
 	}
 	// 国产供应商与 openai 同口径:HTML 403(CDN/代理拦截页)不构成账号失效证据,

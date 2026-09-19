@@ -30,6 +30,27 @@ def test_version_validation_respects_merge_phase(tmp_path, mode, fork, profile, 
     assert audit.findings[0]["level"] == ("blocker" if expected == "fork_version_mismatch" else "warning" if expected == "version_upgrade_required" else "pass")
 
 
+def test_version_validation_uses_pinned_release_version_when_source_file_lags(tmp_path):
+    upstream = "a" * 40
+    audit = module.Audit(tmp_path, "post-merge", upstream, None, tmp_path / "catalog.json")
+    audit.head = "b" * 40
+    audit.merge_base = "c" * 40
+    audit.catalog = {
+        "version_contract": {
+            "official_release_versions": {upstream: "0.2.7"},
+        },
+        "current_profile": {"version": "0.2.7-baiyu"},
+    }
+    versions = {upstream: "0.2.5", audit.head: "0.2.7-baiyu", audit.merge_base: "0.2.5"}
+    audit.show = lambda ref, path: versions[ref]
+
+    audit.check_versions()
+
+    assert audit.findings[0]["code"] == "version_contract"
+    assert audit.findings[0]["level"] == "pass"
+    assert audit.findings[0]["details"]["official"] == "0.2.7"
+
+
 def test_git_paths_are_unquoted_utf8(tmp_path):
     subprocess.run(["git", "init", "--quiet", str(tmp_path)], check=True)
     (tmp_path / "重磅推出活动.md").touch()

@@ -240,7 +240,11 @@ func TestRecordCyberPolicyEvent_InitialRuntimeSnapshotLoadFailureSkipsEvent(t *t
 		SettingKeyRiskControlEnabled:      "true",
 		SettingKeyContentModerationConfig: `{invalid`,
 	}}
-	svc := NewContentModerationService(settingRepo, repo, nil, nil, nil, nil, nil, nil)
+	// This test exercises the synchronous cyber-policy path only. Construct the
+	// service without a repository first so background moderation workers are not
+	// started and leaked across repeated test runs, then attach the test repo.
+	svc := NewContentModerationService(settingRepo, nil, nil, nil, nil, nil, nil, nil)
+	svc.repo = repo
 
 	svc.RecordCyberPolicyEvent(context.Background(), CyberPolicyRecordInput{
 		UserID: 1,
@@ -260,7 +264,11 @@ func TestRecordCyberPolicyEvent_RuntimeSnapshotRefreshFailureKeepsStaleScope(t *
 		SettingKeyRiskControlEnabled:      "true",
 		SettingKeyContentModerationConfig: `{"all_groups":true,"model_filter":{"type":"include","models":["gpt-5"]}}`,
 	}}
-	svc := NewContentModerationService(settingRepo, repo, nil, nil, nil, nil, nil, nil)
+	// This test exercises the synchronous cyber-policy path only. Construct the
+	// service without a repository first so background moderation workers are not
+	// started and leaked across repeated test runs, then attach the test repo.
+	svc := NewContentModerationService(settingRepo, nil, nil, nil, nil, nil, nil, nil)
+	svc.repo = repo
 	svc.runtimeCacheTTL = time.Minute
 
 	_, err := svc.loadRuntimeSnapshot(context.Background())
