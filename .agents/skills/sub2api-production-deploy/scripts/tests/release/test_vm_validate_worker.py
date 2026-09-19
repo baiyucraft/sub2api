@@ -79,6 +79,8 @@ class VMValidateWorkerTest(unittest.TestCase):
             remote_root="/opt/sub2api-deploy/release-input/validation.test",
             remote_manifest="/opt/sub2api-deploy/release-input/validation.test/manifest.json",
             remote_output="/opt/sub2api-deploy/release-gates/239-test/output",
+            remote_space_cleaner="/opt/sub2api-deploy/release-input/validation.test/vm-space-clean.sh",
+            prebuild_cleanup_applied=False,
             validator="/usr/local/libexec/sub2api-vm-validate",
             release_id="239-test",
         )
@@ -87,6 +89,8 @@ class VMValidateWorkerTest(unittest.TestCase):
         self.assertIn("printf 'launching", script)
         self.assertIn('nohup setsid "$wrapper" >>"$raw_log" 2>&1 </dev/null &', script)
         self.assertIn('>>"$raw_log" 2>&1', script)
+        self.assertIn('"$space_cleaner" "$prebuild_cleanup_applied"', script)
+        self.assertIn("prebuild_cleanup_applied=false", script)
         self.assertIn("/opt/sub2api-deploy/release-logs/239-test/vm-validate.raw.log", script)
         self.assertIn("0:0:700", script)
         self.assertIn("0:0:600:1", script)

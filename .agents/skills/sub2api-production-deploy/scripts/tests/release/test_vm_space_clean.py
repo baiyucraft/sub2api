@@ -64,18 +64,20 @@ class VMSpaceCleanTest(unittest.TestCase):
 
     def test_sufficient_space_only_runs_dry_run(self) -> None:
         runner = FakeRunner([report("sufficient")])
-        ensure_vm_space(runner, "/tmp/vm-space-clean.sh", manifest())
+        result = ensure_vm_space(runner, "/tmp/vm-space-clean.sh", manifest())
         self.assertEqual(len(runner.calls), 1)
         self.assertIn(" dry-run ", runner.calls[0][1])
         self.assertEqual(runner.calls[0][2], SPACE_FIELDS)
+        self.assertEqual(result["cleanup_applied"], "false")
 
     def test_insufficient_space_applies_once_then_rechecks_once(self) -> None:
         runner = FakeRunner([report("insufficient"), report("insufficient", "apply"), report("sufficient")])
-        ensure_vm_space(runner, "/tmp/vm-space-clean.sh", manifest())
+        result = ensure_vm_space(runner, "/tmp/vm-space-clean.sh", manifest())
         self.assertEqual(len(runner.calls), 3)
         self.assertIn(" dry-run ", runner.calls[0][1])
         self.assertIn(" apply ", runner.calls[1][1])
         self.assertIn(" dry-run ", runner.calls[2][1])
+        self.assertEqual(result["cleanup_applied"], "true")
 
     def test_cleanup_does_not_loop_when_space_remains_insufficient(self) -> None:
         runner = FakeRunner([report("insufficient"), report("insufficient", "apply"), report("insufficient")])
@@ -167,6 +169,17 @@ class VMSpaceCleanTest(unittest.TestCase):
         checksum_check = entry.index("space_cleaner_verified=true")
         cleanup_call = entry.index("ensure_vm_space(runner", checksum_check)
         self.assertLess(checksum_check, cleanup_call)
+
+    def test_gate_v2_rechecks_space_after_build_before_restore(self) -> None:
+        validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
+        build = validator.index('mark_v2_stage candidate_build')
+        post_build = validator.index('mark_v2_stage post_build_space', build)
+        restore = validator.index('mark_v2_stage restore_probe', post_build)
+        self.assertLess(build, post_build)
+        self.assertLess(post_build, restore)
+        self.assertIn('"$space_cleaner" dry-run "$commit"', validator[post_build:restore])
+        self.assertIn('"$space_cleaner" apply "$commit"', validator[post_build:restore])
+        self.assertIn('[[ "$prebuild_cleanup_applied" == false ]]', validator[post_build:restore])
 
 
 if __name__ == "__main__":

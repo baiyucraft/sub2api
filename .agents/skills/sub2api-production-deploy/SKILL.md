@@ -192,6 +192,7 @@ Gate 必须绑定 commit、origin、VM identity、validator、runner、发布资
 
 - Docker 使用 containerd image store 时，`docker system df` 的 image/cache 数字包含共享逻辑大小，不能与 `/var/lib/containerd` 的物理占用相加。空间判断必须同时记录 `df`、containerd snapshots、Docker volumes、BuildKit records 和 release-gates 归档。
 - VM Gate 构建前安装构建阶段失败 trap；构建失败、构建后空间断言失败或中断时，移除本次新 tag/image 并恢复构建前同名 tag。失败清理不得触碰原 candidate、当前 dev image 或 BuildKit cachemount。
+- Gate v2 在 Candidate 构建完成、生产恢复探针开始前必须重新执行版本化空间 dry-run；空间不足时仅在本次 Gate 尚未执行过清理的前提下，按同一 `max-used-space=1gb,reserved-space=1gb` 合同执行一次有界 BuildKit LRU GC 并再次核验。若构建前已经清理且构建后仍不足，必须以 `post_build_space` 失败停止，禁止第二次清理或继续进入 `pg_restore`。
 - VM Gate 正常构建持续复用 Go module/build cache；清理器要求 Docker 所在文件系统至少保留 8 GiB 可用空间。低于该下限时，版本化 `vm-space-clean.sh` 可在清理旧无引用 Sub2API 镜像后执行一次 `docker buildx prune --all --max-used-space 1gb --reserved-space 1gb`，由 BuildKit 按 LRU 回收未被运行时镜像占用的缓存。`--all` 只有同时具备 1 GB 缓存上限和 1 GB 私有缓存保留量时才允许；禁止缺少任一容量边界的扩大清理。
 - `release-gates` 保留当前待生产 candidate、当前 commit、失败证据和仍被本地 release 引用的归档；旧成功归档只有在本地 Gate 完整下载并校验后才能删除。匿名 PostgreSQL 卷即使 dangling 也不能自动删除。
 

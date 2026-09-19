@@ -14,6 +14,8 @@ manifest=${1:?manifest path is required}
 output_dir=${2:?output directory is required}
 production_snapshot=${3:-}
 pre_gate_descriptor=${4:-}
+space_cleaner=${5:-}
+prebuild_cleanup_applied=${6:-false}
 source_dir=/opt/sub2api-src
 deploy_dir=/opt/sub2api-deploy
 data_dir="$deploy_dir/data-dev"
@@ -50,6 +52,8 @@ if [[ "$manifest_schema" == 2 ]]; then
   ]' "$manifest" >/dev/null
   [[ -n "$production_snapshot" && -f "$production_snapshot" && ! -L "$production_snapshot" ]]
   [[ -n "$pre_gate_descriptor" && -f "$pre_gate_descriptor" && ! -L "$pre_gate_descriptor" ]]
+  [[ -n "$space_cleaner" && -f "$space_cleaner" && ! -L "$space_cleaner" && -x "$space_cleaner" ]]
+  [[ "$prebuild_cleanup_applied" == true || "$prebuild_cleanup_applied" == false ]]
   jq -e 'type == "object" and .schema == 1 and .restore_points_verified == true and (.production_recovery_path|type)=="string" and (.production_image_archive_path|type)=="string"' "$pre_gate_descriptor" >/dev/null
   recovery_path=$(jq -er '.production_recovery_path' "$pre_gate_descriptor")
   recovery_sha=$(jq -er '.production_recovery_sha256' "$pre_gate_descriptor")
@@ -154,6 +158,22 @@ if [[ "$manifest_schema" == 2 ]]; then
   printf 'candidate_cli_match=%s\n' "$candidate_cli_match" > "$state_dir/candidate-cli-contract"
   chmod 400 "$state_dir/candidate-cli-contract"
   [[ "$candidate_cli_match" == true ]]
+  mark_v2_stage post_build_space
+  post_build_space_dry_run="$state_dir/post-build-space-dry-run"
+  "$space_cleaner" dry-run "$commit" > "$post_build_space_dry_run"
+  chmod 400 "$post_build_space_dry_run"
+  post_build_space_status=$(sed -n 's/^space_status=//p' "$post_build_space_dry_run")
+  [[ "$post_build_space_status" == sufficient || "$post_build_space_status" == insufficient ]]
+  if [[ "$post_build_space_status" == insufficient ]]; then
+    [[ "$prebuild_cleanup_applied" == false ]]
+    post_build_space_apply="$state_dir/post-build-space-apply"
+    "$space_cleaner" apply "$commit" > "$post_build_space_apply"
+    chmod 400 "$post_build_space_apply"
+    post_build_space_verified="$state_dir/post-build-space-verified"
+    "$space_cleaner" dry-run "$commit" > "$post_build_space_verified"
+    chmod 400 "$post_build_space_verified"
+    [[ $(sed -n 's/^space_status=//p' "$post_build_space_verified") == sufficient ]]
+  fi
   probe_suffix=${release_id//[^a-zA-Z0-9]/}
   probe_db="sub2api_v2_${probe_suffix:0:24}"
   probe_dir="$state_dir/probe-data"
