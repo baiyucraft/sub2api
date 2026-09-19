@@ -94,6 +94,16 @@ class VMValidateWorkerTest(unittest.TestCase):
         self.assertNotIn('local key=$1 value=$2 tmp="$worker_dir/$key.tmp"', script)
         self.assertLess(script.index('state_write exit_code "$exit_code"'), script.index("state_write status exited"))
 
+    def test_validator_asset_preflight_is_separate_from_worker_launcher(self) -> None:
+        source = (DEPLOY_ROOT / "release" / "vm_validate.py").read_text(encoding="utf-8")
+        asset_check = source.index("validator_assets_verified=true")
+        launcher = source.index("start_result = runner.run(")
+        worker_script = source.index("_remote_vm_worker_script(", launcher)
+        self.assertLess(asset_check, launcher)
+        self.assertLess(launcher, worker_script)
+        self.assertIn('{"validator_assets_verified"}', source[asset_check - 120:asset_check + 120])
+        self.assertNotIn("for asset in /usr/local/libexec", source[worker_script:source.index("{\"worker_started", worker_script)])
+
     def test_poll_only_returns_structured_metadata(self) -> None:
         script = _poll_vm_worker_script(
             remote_root="/opt/sub2api-deploy/release-input/validation.test",
