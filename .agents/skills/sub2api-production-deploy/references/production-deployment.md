@@ -5,6 +5,7 @@
 - [文档用途](#文档用途)
 - [生产前置检查](#生产前置检查)
 - [运维资产变更](#运维资产变更)
+- [插件包部署](#插件包部署)
 - [备份门禁](#备份门禁)
 - [镜像切换](#镜像切换)
 - [双路径验收](#双路径验收)
@@ -55,6 +56,47 @@ ingress。发布完成后再运行同 profile、同完整 SHA 的 strict `doctor
 5. 验证目标 checksum、服务状态、备份行为和适用的健康路径。
 
 任何 `deploy/`、build、install、Compose、Docker 或 systemd 自动化是否影响当前运行路径无法证明时，改按 `dev-gated` 或 `build-chain`，不得使用本节绕过镜像门禁。
+
+## 插件包部署
+
+本节只适用于已证明为 `plugin-package` 的独立插件包。它不构建或切换宿主应用镜像、不新增 release profile、不创建应用 DR baseline；若同时改变宿主协议、管理壳、migration、部署配置或包校验，先按完整应用发布更新宿主。
+
+自动化入口为 `plugin-deploy-follow --commit <40位完整SHA>`。机器调用可改用 `plugin-deploy-start`，后台 worker 在包验证完成后自动执行 VM Gate 和生产安装或升级；`plugin-authorize` 只用于恢复旧版已停在授权检查点的 release，不是普通发布步骤。发布状态位于 `.tmp/plugin-releases/<plugin-id>-*/`，与宿主 `.tmp/releases/` 隔离，但两类生产写共用全局发布锁。签名和管理员 API Key 配置只从未提交的 `.ssh.local` 中读取：
+
+```yaml
+plugin_signing:
+  private_key: /工作区之外的/ed25519-pkcs8.pem
+  key_id: baiyu-codex-state-v1
+plugin_admin:
+  vm:
+    api_key: VM 接受的管理员 API Key
+  production:
+    api_key: 生产接受的管理员 API Key
+```
+
+插件自动发布不接受命令行密码、JWT、TOTP 或 API Key 参数。管理员 API Key 只从未提交的 `.ssh.local` 读取并经 SSH stdin 传给 loopback helper；宿主只为插件包 `upload`、`upgrade` 和 VM 首次安装回收所需 `delete` 放行该机器凭据，其他插件写接口继续要求真人会话 step-up。生产 loopback 必须先从 `/opt/sub2api/active-app` 读取并校验当前 `18080/18081` active port，再把另一个槽位仅作为连接失败后的只读核验回退；禁止固定命中 `18080` 或优先操作正在排空的旧槽位。任何上传或升级响应丢失都先进入 `blocked_reconciliation`，不得直接重传。
+
+### 首次安装
+
+1. 记录插件源码完整 SHA、插件 ID/版本、amd64/arm64 包 SHA256、manifest、签名 `key_id`、当前宿主版本和 Host API/features。
+2. 确认生产 `plugins.allow_unsigned=false`，并核验插件包使用受信的 Ed25519 签名。`baiyu.codex-state` 使用宿主内置且仅绑定该插件 ID 的 `baiyu-codex-state-v1` 公钥；私钥只保留在本机工作区外。更换 key ID 或公钥属于宿主信任根轮换，必须先发布并验证宿主，再发布新签名包。其他第三方插件仍使用 `trusted_publishers`。
+3. 先通过插件列表或详情证明同插件 ID 不存在，再由已确认发布计划中的管理员 API Key 调用 `POST /api/v1/admin/plugins/upload`，multipart 字段 `plugin`；只上传生产实际架构对应的包。JWT 管理会话仍走 step-up。当前宿主对部分 disabled、error 或 incompatible 安装仍可能接受同 ID upload 替换，但该路径没有升级维护事务，运维流程必须拒绝并改用 upgrade。
+4. 安装结果必须是同一插件 ID/版本、`signature_status=trusted`、兼容且 disabled。安装授权不包含保存秘密、enable、启用账号模型或真实采集。
+5. 核验 PostgreSQL 权威 installation/artifact 与当前实例本地恢复出的 binary SHA；再逐个当前服务实例核验相同版本、SHA 和 Health。不得只验证负载均衡随机命中的实例。
+
+### 在线升级
+
+1. 保留上一受信包、包 SHA、插件版本、runtime binary SHA、配置 revision、启用状态和受管范围摘要；受管范围只记录数量和规范化 digest，不记录账号名称或 ID 清单。VM 写入前必须按“版本 + runtime binary SHA”找到本地重新验签通过的精确旧包；只有同版本但 binary SHA 不同的包不能作为恢复证据。
+2. 禁止升级前主动停用 Scoped 插件。调用 `POST /api/v1/admin/plugins/:id/upgrade`，由宿主进入维护态、保留 strict、阻断新受管准入并按 PostgreSQL 请求守卫排空在途请求。
+3. 目标包必须同插件 ID、受信签名、宿主兼容、能力集合不变且不能移除既有 secret 保护；升级不能隐式改变 managed scope。
+4. 发布后逐实例核验目标版本、binary SHA、Health、配置 revision、启用状态和受管范围。数据库 artifact 发布成功但任一实例恢复失败时，整体最多为 partial/blocked，不能报告集群升级成功。
+5. 升级事务失败时核验 maintenance journal 已恢复旧 installation、旧 runtime 或明确的 recovery pending 状态；不得手工覆盖 `plugins.data_dir`、删除数据库记录或把 strict 改成放行。
+
+### 成功后的回退
+
+升级已经成功、随后发现业务回归时，使用保留的旧受信签名包再次调用同一 upgrade 接口，形成新的受控维护事务。禁止删除数据库、回写表、手工替换实例目录或复用主动停用绕过准入。若旧 manifest 会移除当前受保护的 `config_secrets` 字段，或新版本已经写入旧版本无法读取的插件私有状态格式，普通包回退必须停止，先制定秘密字段兼容、状态迁移或恢复方案。
+
+插件包首次安装、升级和回退仍必须由发布计划明确授权；确认后自动 runner 可连续完成 VM Gate 与生产包写入，不再在中途重复询问。上传完成后不自动执行真实采集；需要配置生产秘密、enable 或触发动作时分别明确授权，并在报告中记录 `real_collection_performed=false` 或本次获批结果。
 
 ## 备份门禁
 
@@ -112,7 +154,7 @@ preflight 或 postflight 任一不通过，禁止部分迁移和继续启动；�
 
 ## 镜像切换
 
-本节仅适用于应用产物类别。`ops-readonly-assets` 和不涉及应用镜像的 `ops-control-assets` 记录 `image_switch=not_applicable`。
+本节仅适用于应用产物类别。`ops-readonly-assets`、`plugin-package` 和不涉及应用镜像的 `ops-control-assets` 记录 `image_switch=not_applicable`。
 
 切换前重新确认：
 
@@ -193,6 +235,14 @@ checksum、实际文件集合漂移或校验失败统一归类为 `unsafe`。
 
 - `ops-readonly-assets` 只报告本次重新采集的白名单状态。
 - `ops-control-assets` 验证受影响的 unit、timer、备份、checksum、回滚入口和适用的双路径健康。
+
+插件包额外检查：
+
+- 管理 API 显示目标插件版本、trusted 签名、兼容状态和预期 enabled/disabled 状态。
+- 所有当前应用实例均恢复相同 binary SHA 并报告健康；不能只验证一条公网请求。
+- 首次安装没有自动保存秘密、扩大受管范围、启用账号模型或触发采集。
+- 升级期间 strict、在途排空和失败恢复状态符合预期；已可能发送到上游的请求没有自动重放。
+- 不执行真实账号或模型探针，除非发布计划另行明确授权；默认写 `real_collection_performed=false`。
 
 只通过 direct 而未通过 DMIT，不能报告“生产完全健康”。
 

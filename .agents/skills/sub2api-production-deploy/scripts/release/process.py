@@ -47,11 +47,10 @@ def check_output_hidden(command: Sequence[str], **kwargs: Any) -> bytes | str:
 def popen_detached_worker(command: Sequence[str], **kwargs: Any) -> subprocess.Popen[Any]:
     """Start the persistent worker with one process group and no console."""
 
-    options = {
-        "stdin": subprocess.DEVNULL,
-        "close_fds": True,
-        **kwargs,
-    }
+    if "stdin" in kwargs:
+        raise ValueError("detached workers cannot override stdin")
+    options = {"close_fds": True, **kwargs}
+    options["stdin"] = subprocess.DEVNULL
     if os.name == "nt":
         options.update(_windows_options(new_process_group=True, existing_flags=int(options.pop("creationflags", 0) or 0)))
     else:

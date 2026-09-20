@@ -740,6 +740,8 @@ def main() -> None:
     worker_parser.add_argument("--release-id", required=True)
     worker_parser.add_argument("--mode", dest="deployment_mode", choices=DEPLOYMENT_MODES, required=True)
     worker_parser.set_defaults(handler=lambda args: __import__("release.supervisor", fromlist=["worker"]).worker(args))
+    from .plugin_cli import register_commands as register_plugin_commands
+    register_plugin_commands(subparsers)
     args = parser.parse_args()
     result = args.handler(args)
     if isinstance(result, int) and result:

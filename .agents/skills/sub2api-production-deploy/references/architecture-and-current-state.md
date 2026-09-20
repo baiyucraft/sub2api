@@ -53,6 +53,11 @@
   本地发布器 -> DMIT SSH:1030
              -> DMIT 10.77.0.1:1080 HTTP CONNECT
              -> RackNerd SSH:1030
+
+独立插件包
+  管理员上传签名 .s2plugin -> RackNerd Sub2API 管理 API
+                           -> PostgreSQL 保存权威 artifact/installation
+                           -> 各应用实例按需复验并恢复到本地 plugins.data_dir
 ```
 
 正式业务域名是 `sub.baiyuapi.xyz`。公网业务只应使用 HTTPS；DMIT 是国内线路入口，不承载 Sub2API、数据库或备份。
@@ -82,6 +87,7 @@
 ## 网络与数据边界
 
 - RackNerd 的 PostgreSQL 和 Redis 是生产唯一数据源。
+- 插件 artifact、安装记录、加密配置、受管范围和维护 journal 也以 RackNerd PostgreSQL 为权威；各应用容器的 `plugins.data_dir` 只是实例本地运行副本，不用手工逐机分发，但发布后必须逐实例验证恢复。
 - VM 的 PostgreSQL、Redis、`data-dev` 必须是本地资源；SSH 隧道端口、RackNerd 地址、生产 DSN 一旦出现在 dev 容器配置中，立即停止验证。
 - DMIT 的 `80/443/1030` 是线路或管理入口；`1080` 只监听 WireGuard 地址并限制来源，发布器先建立 DMIT SSH 再使用 HTTP CONNECT。DMIT 只转发加密流量，不落盘、不接收备份资产。
 - RackNerd 的 `18443` 只接受 DMIT 转发；生产应用只监听 `127.0.0.1:18080/18081` 双槽之一，由 `/opt/sub2api/active-app` 和受管 Nginx upstream 指向当前 active slot，不直接暴露应用端口。

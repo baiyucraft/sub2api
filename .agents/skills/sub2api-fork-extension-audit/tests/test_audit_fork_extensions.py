@@ -571,6 +571,79 @@ def test_real_catalog_registers_upstream_model_capability_sync() -> None:
         assert marker in invariants, marker
 
 
+def test_real_catalog_registers_codex_state_package_contract() -> None:
+    catalog_path = REPO_ROOT / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml"
+    catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+    extensions = {item["id"]: item for item in catalog["extensions"]}
+
+    runtime = extensions["generic-plugin-runtime-v2"]
+    package = extensions["codex-state-plugin"]
+    contract = package["package_contract"]
+    source_lock = json.loads((REPO_ROOT / contract["source_lock"]).read_text(encoding="utf-8"))
+
+    assert package["api_routes"] == []
+    for route in (
+        "/api/v1/admin/plugins/upload",
+        "/api/v1/admin/plugins/:id/upgrade",
+        "/api/v1/admin/plugins/:id/enable",
+        "/api/v1/admin/plugins/:id/disable",
+        "/api/v1/admin/plugins/:id/config/secrets",
+    ):
+        assert route in runtime["api_routes"]
+
+    assert contract["plugin_id"] == "baiyu.codex-state"
+    assert contract["plugin_version"] == "0.1.0"
+    assert contract["release_mode"] == "plugin-package"
+    assert contract["default_state"] == "disabled"
+    assert contract["targets"] == ["linux-amd64", "linux-arm64"]
+    assert contract["signature"] == {
+        "algorithm": "ed25519",
+        "required_in_production": True,
+    }
+    assert contract["host_requirements"] == source_lock["host_requirements"]
+    assert source_lock["release_artifacts_audited"] is False
+    assert (REPO_ROOT / contract["package_tool"]).is_file()
+
+    invariants = "\n".join(package["invariants"])
+    for marker in (
+        "SHA256SUMS",
+        "allow_unsigned",
+        "首次安装保持disabled",
+        "同plugin_id不存在",
+        "config_secrets",
+        "单独授权",
+        "逐实例验证",
+    ):
+        assert marker in invariants, marker
+
+    regression = (
+        REPO_ROOT / ".agents/skills/sub2api-fork-extension-audit/references/regression-matrix.md"
+    ).read_text(encoding="utf-8")
+    assert "| 插件包安装与独立发布 |" in regression
+    for marker in (
+        "PostgreSQL artifact/installation",
+        "Ed25519",
+        "管理员 API Key 只允许 upload/upgrade/delete",
+        "逐实例核验",
+    ):
+        assert marker in regression, marker
+
+    runtime_invariants = "\n".join(runtime["invariants"])
+    for marker in (
+        "管理员API Key只允许upload/upgrade/delete",
+        "动作和测试继续要求step-up",
+        "baiyu-codex-state-v1",
+        "仅信任该插件ID",
+    ):
+        assert marker in runtime_invariants, marker
+
+    release_ops = extensions["release-operations-isolation"]
+    assert (
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/"
+        "test_plugin_package_release_contract.py"
+    ) in release_ops["required_tests"]
+
+
 def test_real_catalog_records_adopted_and_layered_extension_ownership() -> None:
     catalog_path = REPO_ROOT / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml"
     catalog = json.loads(catalog_path.read_text(encoding="utf-8"))

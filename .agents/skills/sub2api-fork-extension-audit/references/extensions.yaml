@@ -589,10 +589,20 @@
         "PluginAccountIdentityRevision"
       ],
       "api_routes": [
+        "/api/v1/plugin-ui/:token/*path",
+        "/api/v1/admin/plugins",
+        "/api/v1/admin/plugins/upload",
+        "/api/v1/admin/plugins/:id",
+        "/api/v1/admin/plugins/:id/enable",
+        "/api/v1/admin/plugins/:id/disable",
         "/api/v1/admin/plugins/:id/resources",
         "/api/v1/admin/plugins/:id/actions",
         "/api/v1/admin/plugins/:id/upgrade",
-        "/api/v1/admin/plugins/:id/config/secrets"
+        "/api/v1/admin/plugins/:id/config",
+        "/api/v1/admin/plugins/:id/config/secrets",
+        "/api/v1/admin/plugins/:id/test",
+        "/api/v1/admin/plugins/:id/status",
+        "/api/v1/admin/plugins/:id/ui-session"
       ],
       "settings_keys": [],
       "migration_files": [
@@ -637,6 +647,9 @@
         "resources/Health/配置校验不采集；actions带幂等ID且只在启用运行时执行；UI目录只返回白名单元数据",
         "签名清单config_secrets声明的秘密只在宿主可信弹窗编辑；普通配置加载/保存只回configured元数据，iframe不得接收已存或新输入凭据，旧插件兼容",
         "Forward完成通过进程隔离CompleteRequest或正常End确认，取消/EOF/Body.Close不冒充完成；维护租约及私有journal支持跨实例到期回滚，旧owner不能发布新包",
+        "首次安装通过/upload并保持disabled，调用前必须证明同plugin_id不存在；JWT管理会话仍需step-up，自动发布器的管理员API Key只允许upload/upgrade/delete包生命周期，配置、秘密、启停、动作和测试继续要求step-up；当前宿主即使兼容部分非运行状态同ID upload，也禁止用它绕过maintenance upgrade",
+        "PostgreSQL中的artifact和installation是跨实例权威状态；每个实例从数据库原包重新执行签名/manifest/逐文件SHA/路径/大小校验并恢复本地plugins.data_dir，单实例上传不能证明集群恢复完成",
+        "baiyu.codex-state使用宿主内置的baiyu-codex-state-v1 Ed25519公钥且仅信任该插件ID；私钥只在发布机工作区外，其他第三方插件继续通过trusted_publishers配置",
         "不维护插件链，不引入 PrepareRequest/ObserveResponse RPC"
       ]
     },
@@ -659,11 +672,40 @@
         "core.Guard",
         "remoteKey"
       ],
-      "api_routes": [
-        "/api/v1/admin/plugins/:id/actions"
-      ],
+      "api_routes": [],
       "settings_keys": [],
       "migration_files": [],
+      "package_contract": {
+        "plugin_id": "baiyu.codex-state",
+        "plugin_version": "0.1.0",
+        "release_mode": "plugin-package",
+        "default_state": "disabled",
+        "targets": ["linux-amd64", "linux-arm64"],
+        "source_lock": "plugins/codex-state/sources.lock.json",
+        "package_tool": "plugins/codex-state/tools/package/main.go",
+        "host_requirements": {
+          "sub2api": ">=0.2.7-baiyu",
+          "plugin_protocol": 1,
+          "transport_api": 1,
+          "ui_bridge": 1,
+          "host_service_api": 2,
+          "host_features": [
+            "scoped-routing.v1",
+            "admission.v1",
+            "resources.v1",
+            "actions.v1",
+            "state-cas.v1",
+            "leases.v1",
+            "oauth-like.v1",
+            "request-completion.v1",
+            "config-secrets.v1"
+          ]
+        },
+        "signature": {
+          "algorithm": "ed25519",
+          "required_in_production": true
+        }
+      },
       "required_tests": [
         "plugins/codex-state/core/*_test.go",
         "plugins/codex-state/rpcadapter/*_test.go",
@@ -683,7 +725,10 @@
         "真实插件进程回归通过loopback代理验证AdmitBatch/Forward、客户端STATE优先和SSE逐字节透传；插件票据回执持久化后经broker CompleteRequest恰好释放一次在途保护，不能以End或进程退出冒充该专项成功；合成暂停槽禁止采集、外联、直连或重放",
         "动态代理采集后逐可用业务出口复验，任一成功发布账号级共享票；无业务出口strict",
         "来源完整SHA、许可证和已审阅源码/发布包差异见sources.lock.json；更新时检查三个来源HEAD/release和锁定SHA差异，选择吸收而非覆盖",
-        "ccodex仅参考设计不复制代码；保留PR7315/7338原作者历史；只支持HTTP和WS HTTP bridge"
+        "ccodex仅参考设计不复制代码；保留PR7315/7338原作者历史；只支持HTTP和WS HTTP bridge",
+        "正式包必须同时提供Linux amd64/arm64、SHA256SUMS和受信Ed25519签名；未签名开发包不得通过修改生产allow_unsigned绕过",
+        "仅plugins/codex-state内的业务、UI、解析和状态机变化可独立发布插件包；Host API、管理壳、migration、包校验或部署配置变化必须发布宿主",
+        "首次安装保持disabled且调用/upload前必须证明同plugin_id不存在；既有安装只走upgrade，旧包移除当前config_secrets或无法读取新状态时停止普通回退；配置秘密、启用模型、手动动作和真实生产采集均需单独授权，多实例必须逐实例验证恢复版本、binary SHA、Health和受管范围"
       ]
     },
     {
@@ -847,7 +892,7 @@
       ]
     },
     {
-      "id": "release-operations-isolation", "title": "发布 skill 隔离、日志、清理与 8211 收口", "description": "fork 专用发布资产隔离在 production-deploy skill，完整日志、Windows Git Bash、VM/备份容量清理和 8211 单实例收口。", "ownership": "fork-operations", "risk_level": "critical", "paths": [".agents/skills/sub2api-production-deploy/**", "deploy/maintenance/181/**"], "symbols": ["skill-v1", "plan_sha256", "sub2api-dev", "8211", "backup-retention-clean.sh", "run-bash.ps1"], "api_routes": [], "settings_keys": [], "migration_files": [], "required_tests": [".agents/skills/sub2api-production-deploy/scripts/tests/release/test_doctor.py", ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_ssh_output.py", ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_backup_retention_clean.py", ".agents/skills/sub2api-production-deploy/scripts/tests/windows/test_run_bash.py"], "invariants": ["生产成功 verify-result 和 post-deploy doctor 后才关闭 8211", "经代理的 SSH 使用 10 秒 keepalive；RackNerd 纯只读 doctor 探针仅对 transport 丢失或 exit_code=-1 做有限重放，发布写命令禁止自动重放", "RackNerd 下载和上传均使用 8 个可续传分片，最多 8 条并发连接", "所有 SFTP 重试、分片保留和清理事件使用 stage=transfer，原始传输错误不得被日志异常覆盖", "清理先 dry-run 再绑定 plan_sha256 apply", "原始日志留在节点 root-only 目录"]
+      "id": "release-operations-isolation", "title": "发布 skill 隔离、日志、清理与 8211 收口", "description": "fork 专用发布资产隔离在 production-deploy skill，完整日志、Windows Git Bash、VM/备份容量清理和 8211 单实例收口。", "ownership": "fork-operations", "risk_level": "critical", "paths": [".agents/skills/sub2api-production-deploy/**", "deploy/maintenance/181/**"], "symbols": ["skill-v1", "plan_sha256", "sub2api-dev", "8211", "backup-retention-clean.sh", "run-bash.ps1"], "api_routes": [], "settings_keys": [], "migration_files": [], "required_tests": [".agents/skills/sub2api-production-deploy/scripts/tests/release/test_doctor.py", ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_ssh_output.py", ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_backup_retention_clean.py", ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_plugin_package_release_contract.py", ".agents/skills/sub2api-production-deploy/scripts/tests/windows/test_run_bash.py"], "invariants": ["生产成功 verify-result 和 post-deploy doctor 后才关闭 8211", "经代理的 SSH 使用 10 秒 keepalive；RackNerd 纯只读 doctor 探针仅对 transport 丢失或 exit_code=-1 做有限重放，发布写命令禁止自动重放", "RackNerd 下载和上传均使用 8 个可续传分片，最多 8 条并发连接", "所有 SFTP 重试、分片保留和清理事件使用 stage=transfer，原始传输错误不得被日志异常覆盖", "清理先 dry-run 再绑定 plan_sha256 apply", "原始日志留在节点 root-only 目录"]
     },
     {
       "id": "release-dmit-http-connect", "title": "生产发布经 DMIT 1080 中继", "description": "RackNerd 的发布命令、状态检查、镜像与恢复包传输统一经 DMIT SSH 和 WireGuard 地址上的 1080 HTTP CONNECT 代理，不允许回退到旧 8888、本机代理或直连。", "ownership": "fork-operations", "risk_level": "critical", "paths": [".agents/skills/sub2api-production-deploy/scripts/release/ssh.py", ".agents/skills/sub2api-production-deploy/scripts/racknerd_readonly_status.py", ".agents/skills/sub2api-production-deploy/SKILL.md", ".agents/skills/sub2api-production-deploy/references/operations-and-online-status.md"], "symbols": ["http_connect_via_ssh", "proxy_via", "_establish_http_connect", "10.77.0.1:1080"], "api_routes": [], "settings_keys": [], "migration_files": [], "required_tests": [".agents/skills/sub2api-production-deploy/scripts/tests/release/test_ssh_output.py", ".agents/skills/sub2api-production-deploy/scripts/test_racknerd_readonly_status.py"], "invariants": ["当前 RackNerd 路由必须先直连 DMIT SSH，再通过 1080 HTTP CONNECT 到 RackNerd 管理端口", "DMIT relay 必须是 direct 且不得递归代理", "HTTP CONNECT 非 200、响应超限、DMIT SSH 或 1080 不可用时 fail-closed", "命令、SFTP 上传下载、doctor 和恢复流程共用同一连接入口", "不得静默回退到本机 SOCKS、旧 8888 或 RackNerd 直连", "1080 只监听 WireGuard 地址；旧 8888 保持停止和禁用"]

@@ -61,3 +61,45 @@ func TestPluginAdminRoutesAuthenticationAndStepUp(t *testing.T) {
 		require.NotEqual(t, "/api/v1/admin/accounts/:id/codex-ticket/harvest", route.Path)
 	}
 }
+
+func TestPluginPackageWriteAuthAllowsAdminAPIKeyOnlyForPackageLifecycle(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	stepUpCalls := 0
+	stepUp := middleware.StepUpAuthMiddleware(func(c *gin.Context) {
+		stepUpCalls++
+		c.AbortWithStatus(http.StatusForbidden)
+	})
+
+	for _, tc := range []struct {
+		name          string
+		packageWrite  bool
+		authMethod    string
+		wantStatus    int
+		wantStepCalls int
+	}{
+		{name: "admin key package write", packageWrite: true, authMethod: "admin_api_key", wantStatus: http.StatusNoContent},
+		{name: "jwt package write", packageWrite: true, authMethod: "jwt", wantStatus: http.StatusForbidden, wantStepCalls: 1},
+		{name: "admin key ordinary sensitive write", authMethod: "admin_api_key", wantStatus: http.StatusForbidden, wantStepCalls: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stepUpCalls = 0
+			router := gin.New()
+			router.Use(func(c *gin.Context) {
+				c.Set("auth_method", tc.authMethod)
+				c.Next()
+			})
+			auth := gin.HandlerFunc(stepUp)
+			if tc.packageWrite {
+				auth = pluginPackageWriteAuth(stepUp)
+			}
+			router.POST("/write", auth, func(c *gin.Context) { c.Status(http.StatusNoContent) })
+
+			response := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPost, "/write", nil)
+			router.ServeHTTP(response, request)
+
+			require.Equal(t, tc.wantStatus, response.Code)
+			require.Equal(t, tc.wantStepCalls, stepUpCalls)
+		})
+	}
+}

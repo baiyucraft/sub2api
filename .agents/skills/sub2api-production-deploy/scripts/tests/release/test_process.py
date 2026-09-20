@@ -46,6 +46,11 @@ class ReleaseProcessTest(unittest.TestCase):
         self.assertTrue(popen.call_args.kwargs["start_new_session"])
         self.assertNotIn("creationflags", popen.call_args.kwargs)
 
+    def test_detached_worker_cannot_override_devnull_stdin(self) -> None:
+        with mock.patch.object(process.subprocess, "Popen") as popen, self.assertRaisesRegex(ValueError, "stdin"):
+            process.popen_detached_worker(["python", "worker.py"], stdin=process.subprocess.PIPE)
+        popen.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

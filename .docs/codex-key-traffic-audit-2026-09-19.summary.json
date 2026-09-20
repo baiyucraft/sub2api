@@ -1,0 +1,135 @@
+{
+  "snapshot_date": "2026-09-19",
+  "timezone": "Asia/Shanghai",
+  "ttft_supplement": {
+    "report": "codex-key-traffic-audit-2026-09-19-ttft.md",
+    "summary": "codex-key-traffic-audit-2026-09-19-ttft.summary.json",
+    "same_data_cutoff": true,
+    "fresh_production_query": false,
+    "conclusion": "未发现成功请求的固定首字阈值决定加减量；持续慢首字与错误、拥堵混杂，不能还原对方算法。"
+  },
+  "subject": {
+    "email": "<REDACTED-EMAIL>",
+    "user_id": "<REDACTED-USER-ID>",
+    "api_key_id": "<REDACTED-KEY-ID>",
+    "api_key_name": "<REDACTED-KEY-NAME>",
+    "group_name": "<REDACTED-GROUP>"
+  },
+  "targeted_follow_up": {
+    "noted_at": "2026-09-19",
+    "working_hypothesis": "对方收到429就减量；尚未证实实际调度规则，不推定503不会减量。",
+    "normal_account_local_queue": {
+      "status": "implemented_production_effect_unverified",
+      "note": "本地账号等待队列满时已有请求内换号修复，容量耗尽默认503；线上启用及此Key效果待核验，不代表所有429已修复。"
+    },
+    "upstream_pool_retry_exhaustion": {
+      "status": "pending_fix",
+      "note": "池模式已有内部重试及换号；这些尝试耗尽后普通上游429默认仍返回429，待单独确定出口处理策略。"
+    },
+    "scope": "针对本报告用户与Key跟进；本次仅记录，未修改代码行为或生产配置。"
+  },
+  "window": {
+    "requested_from": "2026-09-12T21:57:55+08:00",
+    "requested_to_exclusive": "2026-09-19T21:57:55+08:00",
+    "key_created_at": "2026-09-16T17:10:30+08:00",
+    "last_observed_record_at": "2026-09-19T19:43:28+08:00"
+  },
+  "counts": {
+    "usage_rows": 48873,
+    "ops_error_rows": 3828,
+    "recovered_200_rows": 2450,
+    "recovered_linked_to_usage": 2438,
+    "recovered_without_usage": 12,
+    "final_failure_records": 1360,
+    "client_cancelled_499_records": 18,
+    "merged_observation_records": 50263,
+    "narrow_probe_candidates": 575,
+    "business_observations_after_narrow_exclusion": 49688,
+    "business_intervals_with_estimated_start": 49660,
+    "business_records_missing_complete_start": 28,
+    "broad_probe_candidates": 734
+  },
+  "recorded_failure_status_counts": {
+    "400": 13,
+    "403": 1,
+    "429": 29,
+    "502": 150,
+    "503": 1167
+  },
+  "probe_candidates": {
+    "uptime_kuma": 323,
+    "go_nonstream_76_input_tokens": 211,
+    "go_nonstream_7_input_tokens": 41,
+    "additional_possible_padded_go_requests": 159,
+    "go_7_token_batches": {
+      "maximum_adjacent_completion_gap_seconds": 180,
+      "total_batches": 17,
+      "batches_with_complete_15_minute_windows": 15,
+      "business_traffic_increased": 10,
+      "business_traffic_decreased": 5,
+      "median_rpm_change": 3.8
+    }
+  },
+  "error_examples": [
+    {
+      "error_id": 234797,
+      "at": "2026-09-16T19:03:25+08:00",
+      "recorded_status": 429,
+      "error_category": "pending_queue_full",
+      "business_requests_before_15m": 537,
+      "business_requests_after_15m": 148,
+      "estimated_avg_inflight_before_15m": 13.914,
+      "estimated_avg_inflight_after_15m": 3.481
+    },
+    {
+      "error_id": 270142,
+      "at": "2026-09-17T20:47:42+08:00",
+      "recorded_status": 429,
+      "error_category": "pending_queue_full",
+      "business_requests_before_15m": 112,
+      "business_requests_after_15m": 3,
+      "estimated_avg_inflight_before_15m": 2.405,
+      "estimated_avg_inflight_after_15m": 0.218
+    },
+    {
+      "error_id": 268428,
+      "at": "2026-09-17T19:55:19+08:00",
+      "recorded_status": 502,
+      "error_category": "upstream_connection_error",
+      "business_requests_before_15m": 665,
+      "business_requests_after_15m": 61,
+      "estimated_avg_inflight_before_15m": 14.308,
+      "estimated_avg_inflight_after_15m": 1.873
+    },
+    {
+      "error_id": 230734,
+      "at": "2026-09-16T17:32:40+08:00",
+      "recorded_status": 429,
+      "error_category": "pending_queue_full_counterexample",
+      "business_requests_before_15m": 264,
+      "business_requests_after_15m": 233,
+      "estimated_avg_inflight_before_15m": 5.523,
+      "estimated_avg_inflight_after_15m": 5.425
+    }
+  ],
+  "probe_recovery_example": {
+    "first_test_completed_at": "2026-09-17T08:24:36+08:00",
+    "last_test_completed_at": "2026-09-17T08:24:57+08:00",
+    "models": ["gpt-5.5", "gpt-6-astra", "gpt-5.6-sol"],
+    "estimated_business_restart_at": "2026-09-17T08:25:23+08:00",
+    "business_requests_before_15m": 0,
+    "business_requests_after_15m": 71,
+    "estimated_avg_inflight_before_15m": 0,
+    "estimated_avg_inflight_after_15m": 1.836
+  },
+  "limitations": [
+    "仅为历史快照；Key实际存在不足完整一周。",
+    "并发为最终Forward和完整错误时延区间重建的估算，不是对方配置的并发上限。",
+    "错误案例采用窄口径探针排除；探针恢复案例采用宽口径排除，两者不能不加说明地混用。",
+    "记录状态可能是SSE流内错误映射，不保证等于实际HTTP状态码。",
+    "usage异步记账时间不等于准确请求结束时间。",
+    "统计仅覆盖可关联该Key的观测记录，不保证覆盖所有入口请求。",
+    "探针识别是特征推断；时间关联不能证明下游调度因果或固定加减并发算法。",
+    "统计截止之后未观测，不应当作零流量。"
+  ]
+}

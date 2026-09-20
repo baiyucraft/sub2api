@@ -5,6 +5,7 @@
 - [分类原则](#分类原则)
 - [分类决策](#分类决策)
 - [运维资产](#运维资产)
+- [独立插件包](#独立插件包)
 - [严格纯前端](#严格纯前端)
 - [构建链改动](#构建链改动)
 - [开发门禁改动](#开发门禁改动)
@@ -33,6 +34,11 @@
   |       +-- 是 -> ops-control-assets
   |       +-- 无法证明 -> dev-gated 或 build-chain
   |
+  +-- 仅独立插件目录，且宿主协议/管理壳/migration/部署配置/包校验均未变化？
+  |       |
+  |       +-- 是 -> plugin-package
+  |       +-- 无法证明 -> dev-gated 或 build-chain
+  |
   +-- 所有文件均在 frontend/ 且只含纯 UI？
   |       |
   |       +-- 是 -> frontend-direct
@@ -57,6 +63,11 @@ ops-readonly-assets:
 
 ops-control-assets:
   本地/隔离验证 -> review -> 用户确认 -> 目标资产更新或维护操作 -> 现场验收
+
+plugin-package:
+  干净完整源码 SHA -> 插件单测/UI 构建 -> Linux amd64/arm64 签名包
+    -> VM8211 插件安装/升级/回滚 Gate -> 用户确认 -> 生产管理 API 上传
+    -> 逐实例恢复与 Health 核验
 
 普通 dev-gated:
   RackNerd 完整构建 -> 按 image ID 传 VM -> sub2api-dev 验证
@@ -103,6 +114,32 @@ build-chain:
 `cleanup-production` 是本类别的固定维护入口：它不安装运行时资产、不切换应用，但会删除精确计划内的旧 full-SHA image 或无容器引用的 dangling layer，并执行容量有界 BuildKit GC，因此必须先 dry-run，并以同一 `plan_sha256` 绑定 apply；不能替换成 `image prune` 或 `system prune`。
 
 涉及 Dockerfile、Compose、build/install 脚本、当前自动化入口或应用 runtime 的变更，不属于纯运维资产，必须回到 `build-chain` 或 `dev-gated`。任何不确定情况从严处理。
+
+## 独立插件包
+
+只有以下条件全部成立，才允许 `plugin-package`：
+
+- 最终产品改动限定在一个独立插件目录及其插件私有测试、来源锁、许可和维护文档。
+- 不改变 `backend/pkg/pluginapi/`、宿主 `plugin_*` service/repository/handler、管理路由、宿主前端插件壳、migration、`plugins.*` 配置语义、Dockerfile 或 Compose。
+- 新包声明的 Host API、protocol、transport、UI Bridge 和全部必需 host features 已由当前生产宿主实现。
+- 插件版本独立递增；宿主 `VERSION` 和 release profile 不因纯插件包变化而改变。
+- 插件自己的 `go.mod/go.sum`、UI `package.json/pnpm-lock.yaml` 和包内打包工具仍可属于 `plugin-package`；它们只构建插件产物，不能被误判为宿主 Docker build-chain。共享工具链或根 workspace 变化仍从严升级分类。
+
+该类别的正式产物是受信签名的 `.s2plugin`，不是应用镜像。纯插件包发布不构建宿主镜像，不新增 release profile，也不生成应用 candidate image。必须：
+
+1. 从干净、已提交且可追溯的完整 40 位 SHA 构建，记录插件 ID、版本和来源锁。
+2. 构建 Linux amd64、arm64 两个包，核对 manifest、逐文件 SHA、`SHA256SUMS`、架构、许可证和敏感文件排除。
+3. 使用工作区和输出目录之外的 Ed25519 PKCS8 私钥签名；报告只记录 `key_id` 和验证结果，不复制私钥或公钥原文。
+4. 在 VM8211 当前兼容宿主上验证首次安装保持 disabled、配置 UI、秘密隔离、enable/disable、升级排空、失败回滚、数据库原包恢复和每个模拟实例的版本/binary SHA/Health。
+5. 生产远程写前单独取得授权。首次安装先通过 list/Get 证明同插件 ID 不存在，再使用 `POST /api/v1/admin/plugins/upload`；升级使用 `POST /api/v1/admin/plugins/:id/upgrade`，multipart 字段均为 `plugin`。即使当前宿主允许部分非运行状态的同 ID upload，也禁止用它绕过维护升级。
+6. PostgreSQL artifact/installation 是跨实例权威状态，本地 `plugins.data_dir` 只是校验后运行副本；不手工逐机复制包，但必须逐实例核验恢复完成。
+7. 保留上一已验证包、版本、SHA 和恢复证据。升级前不得主动停用 Scoped 插件来解除 strict；失败时确认旧 installation 快照、旧包、受管范围和运行态恢复。
+
+当前 `scripts/release.py deploy-*` 不实现插件包发布，不得用应用 Gate、candidate image 或 release profile 冒充插件包 Gate。
+
+上传包、保存秘密、启用插件、启用具体账号/模型和执行真实采集是不同授权。未获后续授权时，首次安装止于 disabled，升级只恢复原启用状态和原受管范围，不扩大配置。生产默认 `plugins.allow_unsigned=false`；禁止为安装开发包临时放宽。
+
+若 Host API、必需 feature、管理接口、宿主 iframe、migration、包校验或运行目录规则随插件一起变化，`plugin-package` 不成立。先按 `dev-gated` 或 `build-chain` 发布宿主，再对兼容插件包执行本节流程。
 
 ## 严格纯前端
 

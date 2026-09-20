@@ -24,6 +24,15 @@ description: 审计 Sub2API fork 相对官方 upstream/main 的扩展合同。�
 - post-merge 审计后读取 [regression-matrix.md](references/regression-matrix.md)，按报告列出的功能域执行最低测试。
 - 进入构建、Gate、VM 或生产阶段时改用 `sub2api-production-deploy` skill；本技能不替代发布门禁。
 
+## 插件宿主与插件包双层审计
+
+- 通用插件协议、Host API、管理路由、包校验、PostgreSQL 权威安装记录、跨实例请求守卫、maintenance journal 和 migration 属于宿主扩展；插件私有采集、解析、状态机、模型名单和 iframe UI 属于独立插件包。不得把两层所有权合并成一个模糊的“STATE 功能”。
+- 审计宿主时检查 `generic-plugin-runtime-v2`：旧 API 兼容、必需 feature 协商、上传/启停/升级路由、签名策略、受管范围、准入失败隔离、加密 CAS/lease、数据库原包恢复和跨实例升级回滚。
+- 审计插件包时检查 `codex-state-plugin`：插件 ID/版本、来源锁、许可证、双架构运行时、manifest 文件哈希、Ed25519 签名、Host API 2 与九项 feature、默认停用、STATE 私有生命周期和负向边界。
+- `POST /api/v1/admin/plugins/upload` 是首次安装；调用前必须证明同插件 ID 不存在，不能利用当前宿主对部分非运行状态同 ID upload 的兼容行为绕过 maintenance upgrade。`POST /api/v1/admin/plugins/:id/upgrade` 是已安装 Scoped 插件升级。上传、保存秘密、启用和真实采集是独立授权，审计不得把“包已安装”表述为“功能已启用”。
+- PostgreSQL 的 artifact 和 installation 是跨实例权威状态，本地 `plugins.data_dir` 只是校验后的运行副本。审计必须要求逐实例恢复/版本/二进制 SHA/Health 证据，不能以单实例上传成功证明整个集群完成升级。
+- 仅插件包变化可独立发版；Host API、管理壳、migration、部署配置或包校验变化仍是宿主应用发布。构建、VM 和生产证据由 `sub2api-production-deploy` 的 `plugin-package` 分类负责，本技能只校验扩展登记与最低回归映射。
+
 ## 官方修复优先
 
 - 审计本地兼容性修复或 workaround 时，主动检查目标 upstream commit 是否已包含同一故障域的官方修复；只有进入目标 commit 的代码才视为官方事实，开放中的 Issue、PR 或未合并 commit 仅作为设计参考。

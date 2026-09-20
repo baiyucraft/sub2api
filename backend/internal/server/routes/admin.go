@@ -854,22 +854,36 @@ func registerTLSFingerprintProfileRoutes(admin *gin.RouterGroup, h *handler.Hand
 
 func registerPluginRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAuth middleware.StepUpAuthMiddleware) {
 	plugins := admin.Group("/plugins")
+	packageWriteAuth := pluginPackageWriteAuth(stepUpAuth)
 	{
 		plugins.GET("", h.Admin.Plugin.List)
 		plugins.GET("/:id", h.Admin.Plugin.Get)
-		plugins.POST("/upload", gin.HandlerFunc(stepUpAuth), h.Admin.Plugin.Upload)
-		plugins.POST("/:id/upgrade", gin.HandlerFunc(stepUpAuth), h.Admin.Plugin.Upgrade)
+		plugins.POST("/upload", packageWriteAuth, h.Admin.Plugin.Upload)
+		plugins.POST("/:id/upgrade", packageWriteAuth, h.Admin.Plugin.Upgrade)
 		plugins.GET("/:id/resources", h.Admin.Plugin.Resources)
 		plugins.POST("/:id/actions", gin.HandlerFunc(stepUpAuth), h.Admin.Plugin.RunAction)
 		plugins.POST("/:id/enable", gin.HandlerFunc(stepUpAuth), h.Admin.Plugin.Enable)
 		plugins.POST("/:id/disable", gin.HandlerFunc(stepUpAuth), h.Admin.Plugin.Disable)
-		plugins.DELETE("/:id", gin.HandlerFunc(stepUpAuth), h.Admin.Plugin.Delete)
+		plugins.DELETE("/:id", packageWriteAuth, h.Admin.Plugin.Delete)
 		plugins.GET("/:id/config", h.Admin.Plugin.GetConfig)
 		plugins.GET("/:id/status", h.Admin.Plugin.Status)
 		plugins.PUT("/:id/config", gin.HandlerFunc(stepUpAuth), h.Admin.Plugin.SaveConfig)
 		plugins.PUT("/:id/config/secrets", gin.HandlerFunc(stepUpAuth), h.Admin.Plugin.SaveConfigSecrets)
 		plugins.POST("/:id/test", gin.HandlerFunc(stepUpAuth), h.Admin.Plugin.Test)
 		plugins.POST("/:id/ui-session", h.Admin.Plugin.CreateUISession)
+	}
+}
+
+// pluginPackageWriteAuth permits the already-authenticated administrator API key
+// only for package lifecycle operations used by the release controller. All other
+// plugin writes keep the ordinary step-up requirement.
+func pluginPackageWriteAuth(stepUpAuth middleware.StepUpAuthMiddleware) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if c.GetString("auth_method") == service.AuditAuthMethodAdminAPIKey {
+			c.Next()
+			return
+		}
+		gin.HandlerFunc(stepUpAuth)(c)
 	}
 }
 

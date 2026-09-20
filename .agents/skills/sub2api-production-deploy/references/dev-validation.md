@@ -16,7 +16,23 @@
 
 ## 适用范围
 
-本文对 `dev-gated` 和 `build-chain` 强制适用。`frontend-direct` 不要求为本次改动导入新的 VM candidate，但本地浏览器 smoke 必须把 API 代理到已验证的 VM Gate；生产后仍需浏览器 smoke。
+本文对 `dev-gated` 和 `build-chain` 强制适用。`plugin-package` 不导入新的宿主 candidate，但必须在 VM8211 当前已验证宿主上完成独立插件 Gate。`frontend-direct` 不要求为本次改动导入新的 VM candidate，但本地浏览器 smoke 必须把 API 代理到已验证的 VM Gate；生产后仍需浏览器 smoke。
+
+## 插件包 VM Gate
+
+`plugin-package` 使用 VM 本地 PostgreSQL、Redis 和 `data-dev/plugins`，禁止连接生产资源。验证前记录当前宿主完整版本、插件 Host API/features、原插件版本/状态、受管范围摘要和本地包目录 checksum；验证后至少证明：
+
+- Gate 使用生产等价的 `plugins.allow_unsigned=false` 和受信 Ed25519 公钥；未签名、未知 key ID 或签名不匹配必须在上传阶段拒绝，不能临时放宽。
+
+- amd64 包在 VM Linux 架构可安装，arm64 包完成静态 manifest/签名/文件哈希和宿主包测试；具备 arm64 运行环境时再执行真实进程 smoke，未执行必须写 `not_checked`。
+- 首次 `/api/v1/admin/plugins/upload` 前证明同插件 ID 不存在，上传后状态为 disabled，不自动保存秘密、不启用账号模型、不执行采集或外联；另设负向用例证明既有同 ID 安装必须走 upgrade，不能通过 upload 绕过维护流程。
+- 启用前拒绝缺失 Host API 2、九项 feature、不受信签名、错误插件 ID、错误架构和文件哈希不一致。
+- 配置、资源、状态、秘密弹窗及 iframe 不泄露凭据、STATE、请求体或内部持久状态；测试数据仅使用合成账号与 loopback 响应。
+- 升级保持受管范围并阻止新受管准入，跨实例在途登记排空后切换；失败恢复旧包、旧配置代次和旧运行态，不通过主动停用放行。
+- 删除某模拟实例的本地安装副本后，可从 PostgreSQL artifact 重新校验恢复相同版本和 binary SHA；单实例恢复失败不会被其他实例的健康掩盖。
+- Gate 结束后恢复 VM 原插件状态，删除临时模拟配置和凭据；保留旧/新包、SHA、脱敏验证结果和回滚证据。
+
+VM 插件 Gate 不得使用真实生产账号采集。用户只要求查看 UI 时也保持插件总开关和所有账号模型关闭。
 
 ## VM 边界
 

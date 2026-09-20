@@ -85,6 +85,17 @@ go run ./tools/package --out dist --signing-key /secure/path/publisher.pkcs8.pem
 
 默认目标为 Linux `amd64,arm64`，可使用 `--arches amd64` 或 `--arches arm64` 限定。工具构建运行时并读取已有 `ui/dist`，不会代替 UI 构建。它还强制读取 `LICENSE`、`THIRD_PARTY_NOTICES.md`、`sources.lock.json`、`MAINTENANCE.md` 并放入包内；本 README 不在当前打包清单中。输出包括 `.s2plugin`、运行时二进制和 `SHA256SUMS`，manifest 包含文件 SHA256 与可选签名。
 
+## 安装、升级与多实例
+
+仓库维护者可使用 `python .agents/skills/sub2api-production-deploy/scripts/release.py plugin-deploy-follow --commit <40位完整SHA>` 自动完成签名构建、本地校验、VM 插件 Gate、生产安装/升级与逐实例验真。该入口不会自动保存秘密、启用插件、启用账号模型或触发真实采集；首次安装保持 disabled。
+
+- 首次安装使用 `POST /api/v1/admin/plugins/upload`，multipart 字段为 `plugin`。上传前必须确认 `baiyu.codex-state` 尚未安装；不得在 disabled、error 或 incompatible 状态下用 upload 替代 upgrade。上传后的插件必须保持停用，先核验签名、兼容性和配置页面，再分别保存配置、秘密并显式启用。
+- 已安装的 Scoped 插件使用 `POST /api/v1/admin/plugins/:id/upgrade` 升级。升级前不能主动停用来解除 strict；宿主会保留受管范围、排空在途请求，并在失败时恢复旧包或保持明确不可用状态。
+- PostgreSQL 保存插件包原件、配置、受管范围和维护状态。每个宿主实例在 `${DATA_DIR}/plugins`（或 `plugins.data_dir`）维护自己的校验后副本；缺失或过期时从数据库原包重新校验恢复，不需要人工逐机复制。
+- 数据库发布成功不等于全部实例运行成功。多实例部署必须逐实例核对插件版本、二进制 SHA、运行时健康和受管范围；任一实例无法恢复时，受管账号模型保持 strict，不能静默绕过。
+- 生产默认拒绝未签名包。当前本地无密钥构建得到的是开发包，不能通过临时开启 `plugins.allow_unsigned` 安装到生产。
+- 仅更新本插件目录且不改变宿主能力时，插件包版本独立发布，宿主仍可保持 `0.2.7-baiyu`。Host API、管理路由、migration 或宿主 UI 壳变化仍需完整应用发布。
+
 ## 来源与维护
 
 固定源码基线见 [sources.lock.json](sources.lock.json)，维护流程见 [MAINTENANCE.md](MAINTENANCE.md)，许可文本与声明见 [LICENSE](LICENSE) 和 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。`ccodex-sleep-state` 仅供设计参考，本插件独立实现，不引入其源码或运行依赖。

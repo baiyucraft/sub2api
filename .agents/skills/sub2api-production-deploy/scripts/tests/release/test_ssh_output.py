@@ -113,6 +113,68 @@ class FakeSFTPClient(FakeClient):
 
 
 class SSHOutputTest(unittest.TestCase):
+    def test_sensitive_input_is_not_logged_and_is_zeroed(self) -> None:
+        sentinel = b"admin-password-and-totp"
+        secret = bytearray(sentinel)
+        client = FakeClient(b"result_status=verified\n")
+        runner = object.__new__(SSHRunner)
+        runner.connect = lambda _name, command_id=None: client
+        runner.release_id = "baiyu.codex-state-0.1.0-deadbeef"
+        runner.deployment_mode = "plugin-package"
+        events: list[dict[str, object]] = []
+        runner._emit = lambda _name, **event: events.append(event)
+        runner._wrap_remote_raw_logging = mock.Mock(side_effect=AssertionError("sensitive input must not use raw logs"))
+
+        result = runner.run_with_sensitive_input(
+            "racknerd",
+            "python3 /opt/sub2api/plugin-authorize.py",
+            {"result_status"},
+            secret,
+        )
+
+        self.assertEqual(result.values, {"result_status": "verified"})
+        self.assertEqual(secret, bytearray(len(sentinel)))
+        serialized = json.dumps(events)
+        self.assertNotIn(sentinel.decode(), serialized)
+        self.assertNotIn("input_bytes", serialized)
+        self.assertIn("sensitive", serialized)
+        runner._wrap_remote_raw_logging.assert_not_called()
+
+    def test_sensitive_input_is_zeroed_on_remote_failure_without_echoing_secret(self) -> None:
+        sentinel = b"failure-secret-sentinel"
+        secret = bytearray(sentinel)
+        client = FakeClient(b"", sentinel)
+        runner = object.__new__(SSHRunner)
+        runner.connect = lambda _name, command_id=None: client
+        runner.release_id = "baiyu.codex-state-0.1.0-deadbeef"
+        runner.deployment_mode = "plugin-package"
+        events: list[dict[str, object]] = []
+        runner._emit = lambda _name, **event: events.append(event)
+        runner._wrap_remote_raw_logging = mock.Mock(side_effect=AssertionError("sensitive input must not use raw logs"))
+
+        with self.assertRaises(RuntimeError) as raised:
+            runner.run_with_sensitive_input(
+                "racknerd",
+                "python3 /opt/sub2api/plugin-authorize.py",
+                {"result_status"},
+                secret,
+            )
+
+        self.assertEqual(secret, bytearray(len(sentinel)))
+        self.assertNotIn(sentinel.decode(), str(raised.exception))
+        self.assertNotIn(sentinel.decode(), json.dumps(events))
+        runner._wrap_remote_raw_logging.assert_not_called()
+
+    def test_sensitive_input_rejects_sensitive_return_fields_before_connecting(self) -> None:
+        runner = object.__new__(SSHRunner)
+        runner.connect = mock.Mock()
+        for field in ("token", "password", "authorization", "cookie", "body", "headers"):
+            secret = bytearray(b"short-lived-secret")
+            with self.subTest(field=field), self.assertRaisesRegex(ValueError, "sensitive"):
+                runner.run_with_sensitive_input("racknerd", "true", {field}, secret)
+            runner.connect.assert_not_called()
+            self.assertEqual(secret, bytearray(len(secret)))
+
     def test_all_structured_transfer_events_declare_stage(self) -> None:
         source = (DEPLOY_ROOT / "release" / "ssh.py").read_text(encoding="utf-8")
         tree = ast.parse(source)
