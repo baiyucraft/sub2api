@@ -284,6 +284,23 @@ class PluginAPIContractTest(unittest.TestCase):
         self.assertIn("remote_error_class=client_request", output)
         self.assertNotIn("sensitive-detail", output)
 
+    def test_remote_helper_classifies_validation_error_without_echoing_body(self) -> None:
+        module = load_plugin_api()
+        with tempfile.TemporaryDirectory() as temporary:
+            package = Path(temporary) / "plugin.s2plugin"
+            package.write_bytes(b"signed-package")
+
+            def urlopen(request, timeout=0):
+                if request.full_url.endswith("/admin/plugins"):
+                    return FakeHTTPResponse({"data": []})
+                raise urllib.error.HTTPError(request.full_url, 400, "bad request", {}, io.BytesIO(b'{"error":{"message":"manifest rejected: private"}}'))
+
+            config = remote_config(target_binary="b" * 64, base_urls=["http://only/api/v1"])
+            config["target_package"] = str(package)
+            output = execute_remote_helper(module, config, urlopen)
+        self.assertIn("remote_error_class=manifest_validation", output)
+        self.assertNotIn("manifest rejected", output)
+
 
 class FakeHTTPResponse:
     def __init__(self, payload: dict, status: int = 200) -> None:

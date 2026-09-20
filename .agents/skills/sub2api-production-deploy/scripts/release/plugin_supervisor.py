@@ -305,7 +305,15 @@ def authorize(args: argparse.Namespace) -> None:
         expected = int(result.values["instances_expected"])
         verified = int(result.values["instances_verified"])
         if expected < 1 or verified != expected or result.values["restoration_status"] not in {"removed", "restored", "unchanged"}:
-            state.fail("awaiting_vm_authorization", evidence={"instances_expected": expected, "instances_verified": verified})
+            state.fail(
+                "awaiting_vm_authorization",
+                evidence={
+                    "instances_expected": expected,
+                    "instances_verified": verified,
+                    "remote_error_status": result.values.get("remote_error_status", "none"),
+                    "remote_error_class": result.values.get("remote_error_class", "none"),
+                },
+            )
             raise RuntimeError("VM plugin Gate failed")
         _write_json(run_dir / "gate" / "vm-result.json", result.values)
         state.transition("vm_gate_verified", evidence={"operation": result.operation, "instances_verified": verified})
