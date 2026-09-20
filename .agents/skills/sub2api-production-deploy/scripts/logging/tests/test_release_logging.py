@@ -95,6 +95,15 @@ class EventLoggerTest(unittest.TestCase):
             self.assertNotEqual(first["command_id"], second["command_id"])
             self.assertEqual(len(path.read_text(encoding="utf-8").splitlines()), 2)
 
+    def test_plugin_package_mode_is_valid_for_independent_plugin_releases(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            logger = JSONLEventLogger(
+                Path(directory) / "events.jsonl",
+                EventContext("codex-state-release", "plugin-package", "vm"),
+            )
+            emitted = logger.emit(stage="plugin_gate", script="release.py", event="started", message="start")
+            self.assertEqual(emitted["deployment_mode"], "plugin-package")
+
     @unittest.skipIf(os.name == "nt", "symlink creation requires elevated Windows privileges")
     def test_symlink_log_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
