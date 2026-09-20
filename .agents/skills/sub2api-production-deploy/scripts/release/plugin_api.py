@@ -4,6 +4,7 @@ import base64
 import hashlib
 import json
 import posixpath
+import re
 import shlex
 from dataclasses import dataclass
 from typing import Iterable
@@ -31,6 +32,7 @@ PLUGIN_RESULT_FIELDS = {
     "write_uncertain",
     "remote_error_status",
     "remote_error_class",
+    "remote_error_code",
 }
 
 
@@ -58,7 +60,7 @@ def select_operation(existing: dict | None, target_version: str, target_binary_s
 
 
 _REMOTE_HELPER = r'''
-import hashlib, json, os, socket, sys, urllib.error, urllib.request, uuid
+import hashlib, json, os, re, socket, sys, urllib.error, urllib.request, uuid
 
 cfg = json.load(sys.stdin)
 plugin_key = cfg["plugin_id"]
@@ -168,6 +170,18 @@ def error_class(error):
         return "server_error"
     return "http_error"
 
+def error_code(error):
+    candidates = []
+    if isinstance(error.payload, dict):
+        candidates.append(error.payload.get("code"))
+        nested = error.payload.get("error")
+        if isinstance(nested, dict):
+            candidates.append(nested.get("code"))
+    for candidate in candidates:
+        if isinstance(candidate, str) and re.fullmatch(r"[A-Z][A-Z0-9_.-]{1,95}", candidate):
+            return candidate
+    return "none"
+
 def delete_plugin(installation_id):
     request(primary, "/admin/plugins/%s" % installation_id, "DELETE")
 
@@ -192,12 +206,14 @@ if restore_after and operation == "upgrade" and not restore_packages.get(restore
 write_uncertain = "false"
 remote_error_status = "none"
 remote_error_class = "none"
+remote_error_code = "none"
 if operation != "no-op":
     try:
         write_package(operation, before.get("id") if before else 0, target_package)
     except HTTPFailure as error:
         remote_error_status = str(error.status)
         remote_error_class = error_class(error)
+        remote_error_code = error_code(error)
     except (socket.timeout, TimeoutError, urllib.error.URLError):
         reconciled = current()
         if reconciled and reconciled.get("version") == target_version and reconciled.get("binary_sha256") == target_binary:
@@ -225,6 +241,7 @@ if write_uncertain == "true" or after is None or after.get("version") != target_
     print("write_uncertain=" + write_uncertain)
     print("remote_error_status=" + remote_error_status)
     print("remote_error_class=" + remote_error_class)
+    print("remote_error_code=" + remote_error_code)
     raise SystemExit(0)
 
 if operation == "install" and after.get("state") != "disabled":
@@ -285,6 +302,7 @@ print("restoration_status=" + restoration)
 print("write_uncertain=" + write_uncertain)
 print("remote_error_status=" + remote_error_status)
 print("remote_error_class=" + remote_error_class)
+print("remote_error_code=" + remote_error_code)
 '''
 
 
