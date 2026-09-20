@@ -29,6 +29,8 @@ PLUGIN_RESULT_FIELDS = {
     "instances_verified",
     "restoration_status",
     "write_uncertain",
+    "remote_error_status",
+    "remote_error_class",
 }
 
 
@@ -145,6 +147,17 @@ def write_package(operation, installation_id, path):
     endpoint = "/admin/plugins/upload" if operation == "install" else "/admin/plugins/%s/upgrade" % installation_id
     return request(primary, endpoint, "POST", raw=body, content_type=content_type, timeout=120)[1]
 
+def error_class(error):
+    if error.status in (401, 403):
+        return "authorization"
+    if error.status in (413,):
+        return "payload_too_large"
+    if 400 <= error.status < 500:
+        return "client_request"
+    if 500 <= error.status < 600:
+        return "server_error"
+    return "http_error"
+
 def delete_plugin(installation_id):
     request(primary, "/admin/plugins/%s" % installation_id, "DELETE")
 
@@ -167,9 +180,14 @@ if restore_after and operation == "upgrade" and not restore_packages.get(restore
     raise RuntimeError("trusted_previous_package_required")
 
 write_uncertain = "false"
+remote_error_status = "none"
+remote_error_class = "none"
 if operation != "no-op":
     try:
         write_package(operation, before.get("id") if before else 0, target_package)
+    except HTTPFailure as error:
+        remote_error_status = str(error.status)
+        remote_error_class = error_class(error)
     except (socket.timeout, TimeoutError, urllib.error.URLError):
         reconciled = current()
         if reconciled and reconciled.get("version") == target_version and reconciled.get("binary_sha256") == target_binary:
@@ -195,6 +213,8 @@ if write_uncertain == "true" or after is None or after.get("version") != target_
     print("instances_verified=0")
     print("restoration_status=not_started")
     print("write_uncertain=" + write_uncertain)
+    print("remote_error_status=" + remote_error_status)
+    print("remote_error_class=" + remote_error_class)
     raise SystemExit(0)
 
 if operation == "install" and after.get("state") != "disabled":
@@ -253,6 +273,8 @@ print("instances_expected=" + str(expected))
 print("instances_verified=" + str(verified))
 print("restoration_status=" + restoration)
 print("write_uncertain=" + write_uncertain)
+print("remote_error_status=" + remote_error_status)
+print("remote_error_class=" + remote_error_class)
 '''
 
 

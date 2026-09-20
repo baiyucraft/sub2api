@@ -79,6 +79,8 @@ def result_values(**changes: str) -> dict[str, str]:
         "instances_verified": "2",
         "restoration_status": "not_required",
         "write_uncertain": "false",
+        "remote_error_status": "none",
+        "remote_error_class": "none",
     }
     value.update(changes)
     return value
@@ -264,6 +266,24 @@ class PluginAPIContractTest(unittest.TestCase):
             execute_remote_helper(module, config, urlopen)
         self.assertEqual(writes, [])
 
+    def test_remote_helper_reports_sanitized_http_failure_class(self) -> None:
+        module = load_plugin_api()
+        with tempfile.TemporaryDirectory() as temporary:
+            package = Path(temporary) / "plugin.s2plugin"
+            package.write_bytes(b"signed-package")
+
+            def urlopen(request, timeout=0):
+                if request.full_url.endswith("/admin/plugins"):
+                    return FakeHTTPResponse({"data": []})
+                raise urllib.error.HTTPError(request.full_url, 400, "bad request", {}, io.BytesIO(b'{"error":{"code":"sensitive-detail"}}'))
+
+            config = remote_config(target_binary="b" * 64, base_urls=["http://only/api/v1"])
+            config["target_package"] = str(package)
+            output = execute_remote_helper(module, config, urlopen)
+        self.assertIn("remote_error_status=400", output)
+        self.assertIn("remote_error_class=client_request", output)
+        self.assertNotIn("sensitive-detail", output)
+
 
 class FakeHTTPResponse:
     def __init__(self, payload: dict, status: int = 200) -> None:
@@ -300,7 +320,11 @@ def execute_remote_helper(module, config: dict[str, object], urlopen) -> str:
         mock.patch("urllib.request.urlopen", side_effect=urlopen),
         contextlib.redirect_stdout(output),
     ):
-        exec(module._REMOTE_HELPER, {})
+        try:
+            exec(module._REMOTE_HELPER, {})
+        except SystemExit as error:
+            if error.code not in (0, None):
+                raise
     return output.getvalue()
 
 
