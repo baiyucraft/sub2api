@@ -569,6 +569,38 @@ describe('EditAccountModal', () => {
     expect(payload?.extra).toMatchObject({ images_url_to_b64_json: true, upstream_request_id_header: 'X-Upstream-Request-ID' })
   })
 
+  it('上游绑定国产账号可保存账号级 API 协议但不会回传地址和密钥', async () => {
+    authIsSimpleMode.value = false
+    const account = buildUpstreamBoundAccount()
+    account.platform = 'deepseek'
+    account.credentials = {
+      api_key: 'must-not-round-trip',
+      base_url: 'https://relay.example.com/v1',
+      api_protocol: 'adaptive',
+      model_mapping: { 'deepseek-v4-flash': 'deepseek-v4-flash' }
+    }
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account, { mode: 'upstream' })
+    await flushPromises()
+    const chatButton = wrapper
+      .findAll('button')
+      .find(button => button.text().includes('admin.accounts.cnProviders.apiProtocol.chatCompletions'))
+    expect(chatButton).toBeDefined()
+    await chatButton!.trigger('click')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    const credentials = updateAccountMock.mock.calls[0]?.[1]?.credentials
+    expect(credentials).toMatchObject({
+      api_protocol: 'chat_completions',
+      model_mapping: { 'deepseek-v4-flash': 'deepseek-v4-flash' }
+    })
+    expect(credentials).not.toHaveProperty('base_url')
+    expect(credentials).not.toHaveProperty('api_key')
+    expect(credentials).not.toHaveProperty('api_base_urls')
+  })
+
   it('同步托管账号将 A-A 放入白名单并支持删除账号级禁用规则', async () => {
     authIsSimpleMode.value = false
     const account = buildUpstreamBoundAccount()

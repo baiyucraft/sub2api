@@ -2407,7 +2407,7 @@ func (s *UpstreamConfigService) reconcileUpstreamAccounts(ctx context.Context, c
 		}
 		// 国产 OpenAI 兼容供应商默认按入站协议自适应选择转发端点。
 		// 上游 Key 当前只提供一个共享 base_url，因此这里只写协议模式；
-		// Chat Completions 仍复用 base_url，其他协议继续按账号运行时默认端点解析。
+		// 所有协议都保留在该绑定地址上，禁止把第三方 Key 回退到平台官方端点。
 		// 已存在账号的显式协议不会被这里覆盖，只有新同步生成的账号走该默认值。
 		if IsCNProvider(platform) {
 			credentials["api_protocol"] = APIProtocolAdaptive

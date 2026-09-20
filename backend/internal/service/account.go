@@ -1488,6 +1488,13 @@ func (a *Account) GetOpenAIBaseURL() string {
 	if !a.IsOpenAI() && !a.IsCNProvider() && !a.IsOpenCodeGo() {
 		return ""
 	}
+	// Bound accounts must keep the real upstream key origin ahead of stale
+	// provider defaults that may remain in historical api_base_urls snapshots.
+	if a.IsUpstreamBound() {
+		if baseURL := strings.TrimSpace(a.GetCredential("base_url")); baseURL != "" {
+			return baseURL
+		}
+	}
 	if a.IsMultiProtocolAPIKey() && a.IsAdaptiveAPIProtocol() {
 		if baseURLs, ok := a.Credentials["api_base_urls"].(map[string]any); ok {
 			if baseURL, ok := baseURLs[APIProtocolChatCompletions].(string); ok && strings.TrimSpace(baseURL) != "" {
@@ -1592,7 +1599,15 @@ func (a *Account) UsesNativeCNResponses() bool {
 	case APIProtocolResponses:
 		return true
 	case APIProtocolAdaptive:
-		return openai_compat.ResolveCNProtocolCapability(a.Extra, openai_compat.CNProtocolResponses) != openai_compat.CNProtocolCapabilityUnsupported
+		// OpenCode Go keeps model protocol_rules authoritative instead of using
+		// the generic CN probe capability snapshot.
+		if a.IsOpenCodeGo() {
+			return true
+		}
+		// Adaptive routing uses native Responses only after the real endpoint was
+		// positively probed. Unknown/not-configured accounts stay on the Chat
+		// Completions bridge so third-party keys never drift to an official host.
+		return openai_compat.ResolveCNProtocolCapability(a.Extra, openai_compat.CNProtocolResponses) == openai_compat.CNProtocolCapabilitySupported
 	default:
 		return false
 	}
@@ -1619,11 +1634,15 @@ func (a *Account) IsAdaptiveAPIProtocol() bool {
 }
 
 // GetCNProtocolBaseURL 返回国产供应商指定协议的上游 base URL。
-// adaptive 账号优先使用 api_base_urls 中的分协议地址，缺失时按平台和
-// account_mode 使用官方默认端点。base_url 继续作为 Chat Completions 地址兼容旧字段。
+// 上游绑定账号始终使用实际 Key 的共享 base_url；普通 adaptive 账号优先使用
+// api_base_urls 中的分协议地址，缺失时按平台和 account_mode 使用官方默认端点。
+// base_url 继续作为 Chat Completions 地址兼容旧字段。
 func (a *Account) GetCNProtocolBaseURL(protocol string) string {
 	if a == nil || !a.IsMultiProtocolAPIKey() {
 		return ""
+	}
+	if a.IsUpstreamBound() {
+		return strings.TrimSpace(a.GetCredential("base_url"))
 	}
 	if a.IsAdaptiveAPIProtocol() {
 		if baseURLs, ok := a.Credentials["api_base_urls"].(map[string]any); ok {
