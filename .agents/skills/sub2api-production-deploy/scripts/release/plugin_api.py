@@ -33,6 +33,9 @@ PLUGIN_RESULT_FIELDS = {
     "remote_error_status",
     "remote_error_class",
     "remote_error_code",
+    "remote_error_content_type",
+    "remote_error_body_bytes",
+    "remote_error_body_kind",
 }
 
 
@@ -78,10 +81,13 @@ headers = {
 }
 
 class HTTPFailure(Exception):
-    def __init__(self, status, payload):
+    def __init__(self, status, payload, content_type, body_bytes, body_kind):
         super().__init__("remote API request failed")
         self.status = status
         self.payload = payload
+        self.content_type = content_type
+        self.body_bytes = body_bytes
+        self.body_kind = body_kind
 
 def request(base, path, method="GET", payload=None, raw=None, content_type="application/json", timeout=45):
     request_headers = dict(headers)
@@ -102,7 +108,10 @@ def request(base, path, method="GET", payload=None, raw=None, content_type="appl
             parsed = json.loads(body) if body else {}
         except Exception:
             parsed = {}
-        raise HTTPFailure(error.code, parsed)
+        content_type = error.headers.get_content_type() if error.headers else "unknown"
+        stripped = body.lstrip()
+        body_kind = "json" if parsed else ("html" if stripped.startswith(b"<") else ("text" if body else "empty"))
+        raise HTTPFailure(error.code, parsed, content_type, len(body), body_kind)
 
 def select_primary():
     global primary
@@ -221,6 +230,9 @@ write_uncertain = "false"
 remote_error_status = "none"
 remote_error_class = "none"
 remote_error_code = "none"
+remote_error_content_type = "none"
+remote_error_body_bytes = "0"
+remote_error_body_kind = "none"
 if operation != "no-op":
     try:
         write_package(operation, before.get("id") if before else 0, target_package)
@@ -228,6 +240,9 @@ if operation != "no-op":
         remote_error_status = str(error.status)
         remote_error_class = error_class(error)
         remote_error_code = error_code(error)
+        remote_error_content_type = error.content_type
+        remote_error_body_bytes = str(error.body_bytes)
+        remote_error_body_kind = error.body_kind
     except (socket.timeout, TimeoutError, urllib.error.URLError):
         reconciled = current()
         if reconciled and reconciled.get("version") == target_version and reconciled.get("binary_sha256") == target_binary:
@@ -256,6 +271,9 @@ if write_uncertain == "true" or after is None or after.get("version") != target_
     print("remote_error_status=" + remote_error_status)
     print("remote_error_class=" + remote_error_class)
     print("remote_error_code=" + remote_error_code)
+    print("remote_error_content_type=" + remote_error_content_type)
+    print("remote_error_body_bytes=" + remote_error_body_bytes)
+    print("remote_error_body_kind=" + remote_error_body_kind)
     raise SystemExit(0)
 
 if operation == "install" and after.get("state") != "disabled":
@@ -317,6 +335,9 @@ print("write_uncertain=" + write_uncertain)
 print("remote_error_status=" + remote_error_status)
 print("remote_error_class=" + remote_error_class)
 print("remote_error_code=" + remote_error_code)
+print("remote_error_content_type=" + remote_error_content_type)
+print("remote_error_body_bytes=" + remote_error_body_bytes)
+print("remote_error_body_kind=" + remote_error_body_kind)
 '''
 
 
