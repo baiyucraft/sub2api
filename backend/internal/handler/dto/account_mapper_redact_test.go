@@ -149,9 +149,20 @@ func TestAccountFromServiceShallow_ProjectsPreferredGroupIDs(t *testing.T) {
 
 	shallow := AccountFromServiceShallow(src)
 	require.Equal(t, []int64{7, 11}, shallow.PreferredGroupIDs)
+	raw, err := json.Marshal(shallow)
+	require.NoError(t, err)
+	require.Contains(t, string(raw), `"preferred_group_ids":[7,11]`)
 
 	compact := AccountListItemFromAccount(shallow)
 	require.Equal(t, []int64{7, 11}, compact.PreferredGroupIDs)
+}
+
+func TestAccountFromServiceShallow_EmitsEmptyPreferredGroupIDs(t *testing.T) {
+	shallow := AccountFromServiceShallow(&service.Account{ID: 42})
+	require.NotNil(t, shallow)
+	raw, err := json.Marshal(shallow)
+	require.NoError(t, err)
+	require.Contains(t, string(raw), `"preferred_group_ids":[]`)
 }
 
 func TestAccountFromServiceShallow_ProjectsUpstreamSiteURL(t *testing.T) {
