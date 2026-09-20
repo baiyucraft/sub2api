@@ -69,7 +69,7 @@
 
       <div v-if="previewAccountCount > 0" class="space-y-3 rounded-lg border border-gray-200 p-4 dark:border-dark-700">
         <div class="text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.accounts.dataImportOverrides') }}</div>
-        <div class="grid gap-3 sm:grid-cols-2">
+        <div data-testid="data-import-numeric-overrides" class="grid gap-3 sm:grid-cols-3">
           <div>
             <label class="input-label">{{ t('admin.accounts.dataImportConcurrency') }}</label>
             <input v-model="overrideConcurrency" class="input" type="number" min="0" step="1" :placeholder="t('admin.accounts.dataImportKeepOriginal')" />
@@ -196,10 +196,10 @@ const groups = ref<AdminGroup[]>([])
 const groupsLoading = ref(false)
 const proxyIPGroupId = ref<number | null>(null)
 const proxyIPGroupEligible = ref(false)
-const overrideConcurrency = ref('4')
+const overrideConcurrency = ref('20')
 const overrideRateMultiplier = ref('0')
 const overridePriority = ref('1')
-const overrideCodexFingerprintMode = ref<'off' | 'device' | 'session' | 'full' | null>('device')
+const overrideCodexFingerprintMode = ref<'off' | 'device' | 'session' | 'full' | null>('session')
 const groupIds = ref<number[]>([])
 const preferredGroupIds = ref<number[]>([])
 const importPlatform = ref<AccountPlatform | 'mixed' | null>(null)
@@ -278,10 +278,10 @@ watch(
       result.value = null
       proxyIPGroupId.value = null
       proxyIPGroupEligible.value = false
-      overrideConcurrency.value = '4'
+      overrideConcurrency.value = '20'
       overrideRateMultiplier.value = '0'
       overridePriority.value = '1'
-      overrideCodexFingerprintMode.value = 'device'
+      overrideCodexFingerprintMode.value = 'session'
       groupIds.value = []
       preferredGroupIds.value = []
       importPlatform.value = null
