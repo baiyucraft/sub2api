@@ -312,6 +312,7 @@ def authorize(args: argparse.Namespace) -> None:
                     "instances_verified": verified,
                     "remote_error_status": result.values.get("remote_error_status", "none"),
                     "remote_error_class": result.values.get("remote_error_class", "none"),
+                    "remote_error_code": result.values.get("remote_error_code", "none"),
                 },
             )
             raise RuntimeError("VM plugin Gate failed")
