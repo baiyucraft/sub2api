@@ -177,7 +177,7 @@ func (h *SettingHandler) UpdateGatewayChannelCustomizationSettings(c *gin.Contex
 	rules := make([]service.GatewayChannelCustomizationRule, len(req.Rules))
 	for i, rule := range req.Rules {
 		rules[i] = service.GatewayChannelCustomizationRule{
-			Name: rule.Name, Enabled: rule.Enabled, APIKeyIDs: rule.APIKeyIDs,
+			Name: rule.Name, Enabled: rule.Enabled, Action: rule.Action, TargetGroupID: rule.TargetGroupID, APIKeyIDs: rule.APIKeyIDs,
 			APIKeyNames: rule.APIKeyNames, UserIDs: rule.UserIDs, UserEmails: rule.UserEmails,
 			Methods: rule.Methods, ExactPaths: rule.ExactPaths, PathPrefixes: rule.PathPrefixes,
 			UserAgentContains: rule.UserAgentContains, QueryParams: rule.QueryParams,
@@ -203,7 +203,7 @@ func gatewayChannelCustomizationResponse(bundle *service.GatewayChannelCustomiza
 	rules := make([]dto.GatewayChannelCustomizationRule, len(bundle.Rules))
 	for i, rule := range bundle.Rules {
 		rules[i] = dto.GatewayChannelCustomizationRule{
-			Name: rule.Name, Enabled: rule.Enabled, APIKeyIDs: rule.APIKeyIDs, APIKeyNames: rule.APIKeyNames,
+			Name: rule.Name, Enabled: rule.Enabled, Action: rule.Action, TargetGroupID: rule.TargetGroupID, APIKeyIDs: rule.APIKeyIDs, APIKeyNames: rule.APIKeyNames,
 			UserIDs: rule.UserIDs, UserEmails: rule.UserEmails, Methods: rule.Methods, ExactPaths: rule.ExactPaths,
 			PathPrefixes: rule.PathPrefixes, UserAgentContains: rule.UserAgentContains, QueryParams: rule.QueryParams,
 			RequestMessageMatchMode: rule.RequestMessageMatchMode,

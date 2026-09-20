@@ -533,10 +533,12 @@ type GatewayRequestObserverSettings struct {
 	OutputPath  string   `json:"output_path"`
 }
 
-// GatewayChannelCustomizationRule 渠道定制本地响应规则 DTO。
+// GatewayChannelCustomizationRule 渠道定制规则 DTO。
 type GatewayChannelCustomizationRule struct {
 	Name                    string              `json:"name"`
 	Enabled                 bool                `json:"enabled"`
+	Action                  string              `json:"action"`
+	TargetGroupID           *int64              `json:"target_group_id,omitempty"`
 	APIKeyIDs               []int64             `json:"api_key_ids"`
 	APIKeyNames             []string            `json:"api_key_names"`
 	UserIDs                 []int64             `json:"user_ids"`

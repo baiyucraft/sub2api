@@ -20,6 +20,8 @@ import (
 // GatewayRouteOptions contains optional post-auth middleware extensions.
 // The gateway package does not know which extension supplied them.
 type GatewayRouteOptions struct {
+	// PreAuthMiddleware runs immediately before API key authentication.
+	PreAuthMiddleware  []gin.HandlerFunc
 	PostAuthMiddleware []gin.HandlerFunc
 	// PostPolicyMiddleware runs after group/model admission and target
 	// resolution, but before the gateway handler performs billing or upstream
@@ -215,6 +217,7 @@ func RegisterGatewayRoutesWithOptions(
 	gateway.Use(clientRequestID)
 	gateway.Use(opsErrorLogger)
 	gateway.Use(endpointNorm)
+	gateway.Use(options.PreAuthMiddleware...)
 	gateway.Use(gin.HandlerFunc(apiKeyAuth))
 	// Billing is intentionally exempt from group/billing enforcement but still
 	// runs post-auth extensions so opt-in observers see authenticated probes.
@@ -375,9 +378,10 @@ func RegisterGatewayRoutesWithOptions(
 	gemini.Use(clientRequestID)
 	gemini.Use(opsErrorLogger)
 	gemini.Use(endpointNorm)
+	gemini.Use(options.PreAuthMiddleware...)
 	gemini.Use(middleware.APIKeyAuthWithSubscriptionGoogle(apiKeyService, subscriptionService, cfg))
-	gemini.Use(groupModelAllowlist)
 	gemini.Use(options.PostAuthMiddleware...)
+	gemini.Use(groupModelAllowlist)
 	gemini.Use(compositeGeminiTarget)
 	gemini.Use(requireGroupGoogle)
 	gemini.Use(options.PostPolicyMiddleware...)
@@ -399,13 +403,15 @@ func RegisterGatewayRoutesWithOptions(
 	// 根路径别名共用中间件链：白名单准入在 apiKeyAuth 之后、compositeTarget
 	// 之前，避免逐条路由手工维护链导致漏挂。
 	rootRoute := func(method, path string, limit gin.HandlerFunc, handler gin.HandlerFunc) {
-		if len(options.PostAuthMiddleware) == 0 && len(options.PostPolicyMiddleware) == 0 {
+		if len(options.PreAuthMiddleware) == 0 && len(options.PostAuthMiddleware) == 0 && len(options.PostPolicyMiddleware) == 0 {
 			r.Handle(method, path, limit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist, compositeTarget, requireGroupAnthropic, handler)
 			return
 		}
-		handlers := []gin.HandlerFunc{limit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist}
+		handlers := []gin.HandlerFunc{limit, clientRequestID, opsErrorLogger, endpointNorm}
+		handlers = append(handlers, options.PreAuthMiddleware...)
+		handlers = append(handlers, gin.HandlerFunc(apiKeyAuth))
 		handlers = append(handlers, options.PostAuthMiddleware...)
-		handlers = append(handlers, compositeTarget, requireGroupAnthropic)
+		handlers = append(handlers, groupModelAllowlist, compositeTarget, requireGroupAnthropic)
 		handlers = append(handlers, options.PostPolicyMiddleware...)
 		handlers = append(handlers, handler)
 		r.Handle(method, path, handlers...)
@@ -425,12 +431,14 @@ func RegisterGatewayRoutesWithOptions(
 	rootRoute(http.MethodGet, "/models/:model", bodyLimit, h.Gateway.Models)
 	rootRoute(http.MethodPost, "/messages/count_tokens", bodyLimit, countTokensHandler)
 	codexDirect := r.Group("/backend-api/codex")
-	if len(options.PostAuthMiddleware) == 0 && len(options.PostPolicyMiddleware) == 0 {
+	if len(options.PreAuthMiddleware) == 0 && len(options.PostAuthMiddleware) == 0 && len(options.PostPolicyMiddleware) == 0 {
 		codexDirect.Use(bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist, compositeTarget, requireGroupAnthropic)
 	} else {
-		codexDirect.Use(bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist)
+		codexDirect.Use(bodyLimit, clientRequestID, opsErrorLogger, endpointNorm)
+		codexDirect.Use(options.PreAuthMiddleware...)
+		codexDirect.Use(gin.HandlerFunc(apiKeyAuth))
 		codexDirect.Use(options.PostAuthMiddleware...)
-		codexDirect.Use(compositeTarget, requireGroupAnthropic)
+		codexDirect.Use(groupModelAllowlist, compositeTarget, requireGroupAnthropic)
 		codexDirect.Use(options.PostPolicyMiddleware...)
 	}
 	{
@@ -535,7 +543,8 @@ func RegisterGatewayRoutesWithOptions(
 	})
 
 	// Antigravity 模型列表
-	antigravityModelsHandlers := []gin.HandlerFunc{gin.HandlerFunc(apiKeyAuth)}
+	antigravityModelsHandlers := append([]gin.HandlerFunc{}, options.PreAuthMiddleware...)
+	antigravityModelsHandlers = append(antigravityModelsHandlers, gin.HandlerFunc(apiKeyAuth))
 	antigravityModelsHandlers = append(antigravityModelsHandlers, options.PostAuthMiddleware...)
 	antigravityModelsHandlers = append(antigravityModelsHandlers, requireGroupAnthropic)
 	antigravityModelsHandlers = append(antigravityModelsHandlers, options.PostPolicyMiddleware...)
@@ -549,9 +558,10 @@ func RegisterGatewayRoutesWithOptions(
 	antigravityV1.Use(opsErrorLogger)
 	antigravityV1.Use(endpointNorm)
 	antigravityV1.Use(middleware.ForcePlatform(service.PlatformAntigravity))
+	antigravityV1.Use(options.PreAuthMiddleware...)
 	antigravityV1.Use(gin.HandlerFunc(apiKeyAuth))
-	antigravityV1.Use(groupModelAllowlist)
 	antigravityV1.Use(options.PostAuthMiddleware...)
+	antigravityV1.Use(groupModelAllowlist)
 	antigravityV1.Use(requireGroupAnthropic)
 	antigravityV1.Use(options.PostPolicyMiddleware...)
 	{
@@ -567,9 +577,10 @@ func RegisterGatewayRoutesWithOptions(
 	antigravityV1Beta.Use(opsErrorLogger)
 	antigravityV1Beta.Use(endpointNorm)
 	antigravityV1Beta.Use(middleware.ForcePlatform(service.PlatformAntigravity))
+	antigravityV1Beta.Use(options.PreAuthMiddleware...)
 	antigravityV1Beta.Use(middleware.APIKeyAuthWithSubscriptionGoogle(apiKeyService, subscriptionService, cfg))
-	antigravityV1Beta.Use(groupModelAllowlist)
 	antigravityV1Beta.Use(options.PostAuthMiddleware...)
+	antigravityV1Beta.Use(groupModelAllowlist)
 	antigravityV1Beta.Use(requireGroupGoogle)
 	antigravityV1Beta.Use(options.PostPolicyMiddleware...)
 	{

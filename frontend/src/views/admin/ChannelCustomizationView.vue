@@ -87,8 +87,9 @@
                   <div class="mt-3 grid gap-3 text-sm text-gray-600 dark:text-gray-400 md:grid-cols-2 xl:grid-cols-4">
                     <div><span class="font-medium text-gray-700 dark:text-gray-300">{{ t('admin.customization.targets') }}:</span> {{ summarizeTargets(rule) }}</div>
                     <div><span class="font-medium text-gray-700 dark:text-gray-300">{{ t('admin.customization.conditions') }}:</span> {{ summarizeConditions(rule) }}</div>
-                    <div><span class="font-medium text-gray-700 dark:text-gray-300">{{ t('admin.customization.delay') }}:</span> {{ rule.min_delay_ms }}-{{ rule.max_delay_ms }}ms</div>
-                    <div><span class="font-medium text-gray-700 dark:text-gray-300">{{ t('admin.customization.response') }}:</span> {{ rule.status_code }} / {{ rule.content_type }}</div>
+                    <div><span class="font-medium text-gray-700 dark:text-gray-300">{{ t('admin.customization.action') }}:</span> {{ actionLabel(rule) }}</div>
+                    <div v-if="rule.action === 'group_mapping'" :data-testid="`customization-rule-target-group-${index}`"><span class="font-medium text-gray-700 dark:text-gray-300">{{ t('admin.customization.targetGroup') }}:</span> {{ targetGroupName(rule.target_group_id) }}</div>
+                    <div v-else><span class="font-medium text-gray-700 dark:text-gray-300">{{ t('admin.customization.response') }}:</span> {{ rule.status_code }} / {{ rule.content_type }} · {{ rule.min_delay_ms }}-{{ rule.max_delay_ms }}ms</div>
                   </div>
                 </div>
                 <div class="flex shrink-0 items-center gap-1">
@@ -139,9 +140,13 @@
     <BaseDialog :show="editingIndex !== null" :title="t('admin.customization.editRule')" width="extra-wide" @close="closeEditor">
       <form v-if="editingIndex !== null" id="channel-customization-rule-form" class="grid gap-5" data-testid="customization-rule-form" @submit.prevent="saveRuleDraft">
         <div class="grid gap-4 md:grid-cols-[1fr_9rem]"><label class="block text-sm"><span class="label">{{ t('admin.customization.ruleName') }}</span><input v-model.trim="draft.name" class="input" required /></label><label class="block text-sm"><span class="label">{{ t('admin.customization.enabled') }}</span><Toggle v-model="draft.enabled" :aria-label="t('admin.customization.enabled')" /></label></div>
+        <div class="grid gap-4 md:grid-cols-2">
+          <label class="block text-sm"><span class="label">{{ t('admin.customization.action') }}</span><select v-model="draft.action" class="input" data-testid="customization-action-select"><option value="local_response">{{ t('admin.customization.actionLocalResponse') }}</option><option value="group_mapping">{{ t('admin.customization.actionGroupMapping') }}</option></select></label>
+          <label v-if="draft.action === 'group_mapping'" class="block text-sm"><span class="label">{{ t('admin.customization.targetGroup') }}</span><select v-model.number="draft.target_group_id" class="input" data-testid="customization-target-group-select" required><option :value="0" disabled>{{ t('admin.customization.targetGroupPlaceholder') }}</option><option v-for="group in availableGroups" :key="group.id" :value="group.id">{{ group.name }} · {{ platformLabel(group.platform) }}</option></select><span class="mt-1 block text-xs text-gray-500 dark:text-gray-400">{{ t('admin.customization.targetGroupHint') }}</span></label>
+        </div>
         <div><p class="label">{{ t('admin.customization.targets') }}</p><div class="grid gap-4 md:grid-cols-2"><label class="block text-sm"><span class="label">{{ t('admin.customization.keyNames') }}</span><textarea v-model="draft.api_key_names" class="input min-h-20" :placeholder="t('admin.customization.keyNamesPlaceholder')" /></label><label class="block text-sm"><span class="label">{{ t('admin.customization.userEmails') }}</span><textarea v-model="draft.user_emails" class="input min-h-20" :placeholder="t('admin.customization.emailPlaceholder')" /></label><label class="block text-sm"><span class="label">{{ t('admin.customization.keyIds') }}</span><textarea v-model="draft.api_key_ids" class="input min-h-20" :placeholder="t('admin.customization.listPlaceholder')" /></label><label class="block text-sm"><span class="label">{{ t('admin.customization.userIds') }}</span><textarea v-model="draft.user_ids" class="input min-h-20" :placeholder="t('admin.customization.listPlaceholder')" /></label></div></div>
-        <div><p class="label">{{ t('admin.customization.conditions') }}</p><div class="grid gap-4 md:grid-cols-2"><label class="block text-sm"><span class="label">{{ t('admin.customization.methods') }}</span><textarea v-model="draft.methods" class="input min-h-20" placeholder="GET, POST" /></label><label class="block text-sm"><span class="label">{{ t('admin.customization.exactPaths') }}</span><textarea v-model="draft.exact_paths" class="input min-h-20" placeholder="/v1/models" /></label><label class="block text-sm"><span class="label">{{ t('admin.customization.pathPrefixes') }}</span><textarea v-model="draft.path_prefixes" class="input min-h-20" placeholder="/v1/" /></label><label class="block text-sm"><span class="label">{{ t('admin.customization.userAgentContains') }}</span><textarea v-model="draft.user_agent_contains" class="input min-h-20" /></label><label class="block text-sm md:col-span-2"><span class="label">{{ t('admin.customization.queryParams') }}</span><textarea v-model="draft.query_params" class="input min-h-20 font-mono text-sm" placeholder="check=health|ready" /></label><label class="block text-sm"><span class="label">{{ t('admin.customization.requestMessageMatchMode') }}</span><select v-model="draft.request_message_match_mode" class="input"><option value="exact">{{ t('admin.customization.requestMessageMatchExact') }}</option><option value="regex">{{ t('admin.customization.requestMessageMatchRegex') }}</option></select></label><label class="block text-sm"><span class="label">{{ t('admin.customization.requestMessageText') }}</span><input v-model="draft.request_message_text" class="input font-mono" :placeholder="t('admin.customization.requestMessageTextPlaceholder')" /><span class="mt-1 block text-xs text-gray-500 dark:text-gray-400">{{ t(draft.request_message_match_mode === 'regex' ? 'admin.customization.requestMessageRegexHint' : 'admin.customization.requestMessageTextHint') }}</span></label></div></div>
-        <div class="grid gap-4 border-t border-gray-100 pt-4 md:grid-cols-2 dark:border-dark-700"><label class="block text-sm"><span class="label">{{ t('admin.customization.minDelay') }}</span><input v-model.number="draft.min_delay_ms" class="input" type="number" min="0" max="10000" /></label><label class="block text-sm"><span class="label">{{ t('admin.customization.maxDelay') }}</span><input v-model.number="draft.max_delay_ms" class="input" type="number" min="0" max="10000" /></label><label class="block text-sm"><span class="label">{{ t('admin.customization.statusCode') }}</span><input v-model.number="draft.status_code" class="input" type="number" min="100" max="599" /></label><label class="block text-sm"><span class="label">{{ t('admin.customization.contentType') }}</span><input v-model.trim="draft.content_type" class="input" placeholder="application/json" /></label><label class="block text-sm md:col-span-2"><span class="label">{{ t('admin.customization.responseBody') }}</span><textarea v-model="draft.response_body" class="input min-h-32 resize-y font-mono text-sm" /></label></div>
+        <div><p class="label">{{ t('admin.customization.conditions') }}</p><div class="grid gap-4 md:grid-cols-2"><label class="block text-sm"><span class="label">{{ t('admin.customization.methods') }}</span><textarea v-model="draft.methods" class="input min-h-20" placeholder="GET, POST" /></label><label class="block text-sm"><span class="label">{{ t('admin.customization.exactPaths') }}</span><textarea v-model="draft.exact_paths" class="input min-h-20" placeholder="/v1/models" /></label><label class="block text-sm"><span class="label">{{ t('admin.customization.pathPrefixes') }}</span><textarea v-model="draft.path_prefixes" class="input min-h-20" placeholder="/v1/" /></label><label class="block text-sm"><span class="label">{{ t('admin.customization.userAgentContains') }}</span><textarea v-model="draft.user_agent_contains" class="input min-h-20" /></label><label class="block text-sm md:col-span-2"><span class="label">{{ t('admin.customization.queryParams') }}</span><textarea v-model="draft.query_params" class="input min-h-20 font-mono text-sm" placeholder="check=health|ready" /></label><label class="block text-sm"><span class="label">{{ t('admin.customization.requestMessageMatchMode') }}</span><select v-model="draft.request_message_match_mode" class="input" data-testid="customization-message-match-mode"><option value="exact">{{ t('admin.customization.requestMessageMatchExact') }}</option><option value="regex">{{ t('admin.customization.requestMessageMatchRegex') }}</option></select></label><label class="block text-sm"><span class="label">{{ t('admin.customization.requestMessageText') }}</span><input v-model="draft.request_message_text" class="input font-mono" :placeholder="t('admin.customization.requestMessageTextPlaceholder')" /><span class="mt-1 block text-xs text-gray-500 dark:text-gray-400">{{ t(draft.request_message_match_mode === 'regex' ? 'admin.customization.requestMessageRegexHint' : 'admin.customization.requestMessageTextHint') }}</span></label></div></div>
+        <div v-if="draft.action === 'local_response'" class="grid gap-4 border-t border-gray-100 pt-4 md:grid-cols-2 dark:border-dark-700" data-testid="customization-local-response-fields"><label class="block text-sm"><span class="label">{{ t('admin.customization.minDelay') }}</span><input v-model.number="draft.min_delay_ms" class="input" type="number" min="0" max="10000" /></label><label class="block text-sm"><span class="label">{{ t('admin.customization.maxDelay') }}</span><input v-model.number="draft.max_delay_ms" class="input" type="number" min="0" max="10000" /></label><label class="block text-sm"><span class="label">{{ t('admin.customization.statusCode') }}</span><input v-model.number="draft.status_code" class="input" type="number" min="100" max="599" /></label><label class="block text-sm"><span class="label">{{ t('admin.customization.contentType') }}</span><input v-model.trim="draft.content_type" class="input" placeholder="application/json" /></label><label class="block text-sm md:col-span-2"><span class="label">{{ t('admin.customization.responseBody') }}</span><textarea v-model="draft.response_body" class="input min-h-32 resize-y font-mono text-sm" /></label></div>
       </form>
       <template #footer><div class="flex justify-end gap-3"><button type="button" class="btn btn-secondary" @click="closeEditor">{{ t('admin.customization.cancel') }}</button><button type="submit" form="channel-customization-rule-form" class="btn btn-primary">{{ t('admin.customization.applyRule') }}</button></div></template>
     </BaseDialog>
@@ -149,7 +154,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
@@ -157,12 +162,15 @@ import Icon from '@/components/icons/Icon.vue'
 import Toggle from '@/components/common/Toggle.vue'
 import { adminAPI } from '@/api/admin'
 import type { ChannelCustomizationRule, ChannelCustomizationSettings } from '@/api/admin/channelCustomization'
+import type { AdminGroup } from '@/types'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { useAppStore } from '@/stores/app'
 
 interface RuleDraft {
   name: string
   enabled: boolean
+  action: 'local_response' | 'group_mapping'
+  target_group_id: number
   api_key_ids: string
   api_key_names: string
   user_ids: string
@@ -186,9 +194,12 @@ const appStore = useAppStore()
 const loading = ref(true)
 const saving = ref(false)
 const loadFailed = ref(false)
+const groupsLoadFailed = ref(false)
 const editingIndex = ref<number | null>(null)
 const newRulePending = ref(false)
 const rules = ref<ChannelCustomizationRule[]>([])
+const groups = ref<AdminGroup[]>([])
+const availableGroups = computed(() => groups.value.filter(group => group.status === 'active').slice().sort((a, b) => a.name.localeCompare(b.name)))
 const defaultObserverPath = '/app/.tmp/maibon-probe-observation/requests.jsonl'
 const observer = reactive({ enabled: false, api_key_ids: [] as number[], api_key_names: [] as string[], user_ids: [] as number[], user_emails: [] as string[], output_path: defaultObserverPath })
 const observerKeyNames = ref('')
@@ -198,7 +209,7 @@ const observerUserEmails = ref('')
 const draft = reactive<RuleDraft>(emptyDraft())
 
 function emptyDraft(): RuleDraft {
-  return { name: '', enabled: false, api_key_ids: '', api_key_names: '', user_ids: '', user_emails: '', methods: '', exact_paths: '', path_prefixes: '', user_agent_contains: '', query_params: '', request_message_match_mode: 'exact', request_message_text: '', min_delay_ms: 0, max_delay_ms: 0, status_code: 200, content_type: 'application/json', response_body: '' }
+  return { name: '', enabled: false, action: 'local_response', target_group_id: 0, api_key_ids: '', api_key_names: '', user_ids: '', user_emails: '', methods: '', exact_paths: '', path_prefixes: '', user_agent_contains: '', query_params: '', request_message_match_mode: 'exact', request_message_text: '', min_delay_ms: 0, max_delay_ms: 0, status_code: 200, content_type: 'application/json', response_body: '' }
 }
 
 function tokens(value: string): string[] {
@@ -255,6 +266,8 @@ function normalizeRule(rule: Partial<ChannelCustomizationRule> = {}): ChannelCus
   return {
     name: typeof value.name === 'string' ? value.name : '',
     enabled: value.enabled === true,
+    action: value.action === 'group_mapping' ? 'group_mapping' : 'local_response',
+    target_group_id: Number.isSafeInteger(Number(value.target_group_id)) && Number(value.target_group_id) > 0 ? Number(value.target_group_id) : null,
     api_key_ids: idList(value.api_key_ids),
     api_key_names: stringList(value.api_key_names),
     user_ids: idList(value.user_ids),
@@ -277,13 +290,13 @@ function normalizeRule(rule: Partial<ChannelCustomizationRule> = {}): ChannelCus
 
 function setDraft(rule: Partial<ChannelCustomizationRule> = {}) {
   const value = normalizeRule(rule)
-  Object.assign(draft, { name: value.name, enabled: value.enabled, api_key_ids: value.api_key_ids.join('\n'), api_key_names: value.api_key_names.join('\n'), user_ids: value.user_ids.join('\n'), user_emails: value.user_emails.join('\n'), methods: value.methods.join('\n'), exact_paths: value.exact_paths.join('\n'), path_prefixes: value.path_prefixes.join('\n'), user_agent_contains: value.user_agent_contains.join('\n'), query_params: formatQueryParams(value.query_params), request_message_match_mode: value.request_message_match_mode || 'exact', request_message_text: value.request_message_text || '', min_delay_ms: value.min_delay_ms, max_delay_ms: value.max_delay_ms, status_code: value.status_code, content_type: value.content_type, response_body: value.response_body })
+  Object.assign(draft, { name: value.name, enabled: value.enabled, action: value.action || 'local_response', target_group_id: value.target_group_id || 0, api_key_ids: value.api_key_ids.join('\n'), api_key_names: value.api_key_names.join('\n'), user_ids: value.user_ids.join('\n'), user_emails: value.user_emails.join('\n'), methods: value.methods.join('\n'), exact_paths: value.exact_paths.join('\n'), path_prefixes: value.path_prefixes.join('\n'), user_agent_contains: value.user_agent_contains.join('\n'), query_params: formatQueryParams(value.query_params), request_message_match_mode: value.request_message_match_mode || 'exact', request_message_text: value.request_message_text || '', min_delay_ms: value.min_delay_ms, max_delay_ms: value.max_delay_ms, status_code: value.status_code, content_type: value.content_type, response_body: value.response_body })
 }
 
 function draftRule(): ChannelCustomizationRule {
   const current = editingIndex.value !== null && !newRulePending.value ? rules.value[editingIndex.value] : undefined
   const requestMessageText = draft.request_message_match_mode === 'regex' ? draft.request_message_text : draft.request_message_text.trim()
-  return normalizeRule({ name: draft.name.trim(), enabled: draft.enabled, api_key_ids: ids(draft.api_key_ids), api_key_names: tokens(draft.api_key_names), user_ids: ids(draft.user_ids), user_emails: tokens(draft.user_emails).map(value => value.toLowerCase()), methods: tokens(draft.methods).map(value => value.toUpperCase()), exact_paths: tokens(draft.exact_paths), path_prefixes: tokens(draft.path_prefixes), user_agent_contains: tokens(draft.user_agent_contains), query_params: parseQueryParams(draft.query_params), request_message_match_mode: draft.request_message_match_mode, request_message_text: requestMessageText, min_delay_ms: Number(draft.min_delay_ms) || 0, max_delay_ms: Number(draft.max_delay_ms) || 0, status_code: Number(draft.status_code) || 200, content_type: draft.content_type.trim() || 'application/json', response_body: draft.response_body, hit_count: current?.hit_count || 0 })
+  return normalizeRule({ name: draft.name.trim(), enabled: draft.enabled, action: draft.action, target_group_id: draft.action === 'group_mapping' ? Number(draft.target_group_id) || null : null, api_key_ids: ids(draft.api_key_ids), api_key_names: tokens(draft.api_key_names), user_ids: ids(draft.user_ids), user_emails: tokens(draft.user_emails).map(value => value.toLowerCase()), methods: tokens(draft.methods).map(value => value.toUpperCase()), exact_paths: tokens(draft.exact_paths), path_prefixes: tokens(draft.path_prefixes), user_agent_contains: tokens(draft.user_agent_contains), query_params: parseQueryParams(draft.query_params), request_message_match_mode: draft.request_message_match_mode, request_message_text: requestMessageText, min_delay_ms: Number(draft.min_delay_ms) || 0, max_delay_ms: Number(draft.max_delay_ms) || 0, status_code: Number(draft.status_code) || 200, content_type: draft.content_type.trim() || 'application/json', response_body: draft.response_body, hit_count: current?.hit_count || 0 })
 }
 
 function normalizeSettings(data: Partial<ChannelCustomizationSettings> = {}) {
@@ -300,7 +313,22 @@ function normalizeSettings(data: Partial<ChannelCustomizationSettings> = {}) {
 async function loadSettings() {
   loading.value = true
   loadFailed.value = false
-  try { normalizeSettings(await adminAPI.channelCustomization.getSettings()) } catch (error) { loadFailed.value = true; appStore.showError(extractApiErrorMessage(error, t('admin.customization.loadError'))) } finally { loading.value = false }
+  groupsLoadFailed.value = false
+  try {
+    normalizeSettings(await adminAPI.channelCustomization.getSettings())
+    try {
+      groups.value = await adminAPI.groups.getAll()
+    } catch (error) {
+      groups.value = []
+      groupsLoadFailed.value = true
+      appStore.showError(extractApiErrorMessage(error, t('admin.customization.targetGroupsLoadError')))
+    }
+  } catch (error) {
+    loadFailed.value = true
+    appStore.showError(extractApiErrorMessage(error, t('admin.customization.loadError')))
+  } finally {
+    loading.value = false
+  }
 }
 
 function openCreate() { setDraft(); newRulePending.value = true; editingIndex.value = rules.value.length }
@@ -317,6 +345,9 @@ function removeRule(index: number) { rules.value.splice(index, 1); if (editingIn
 function moveRule(index: number, offset: number) { const target = index + offset; if (target < 0 || target >= rules.value.length) return; const [rule] = rules.value.splice(index, 1); rules.value.splice(target, 0, rule); if (editingIndex.value === index) editingIndex.value = target }
 function summarizeTargets(rule: ChannelCustomizationRule) { const values = [...rule.api_key_names, ...rule.user_emails, ...rule.api_key_ids.map(id => `key:${id}`), ...rule.user_ids.map(id => `user:${id}`)]; return values.length ? values.join(', ') : t('admin.customization.noTargets') }
 function summarizeConditions(rule: ChannelCustomizationRule) { const count = rule.methods.length + rule.exact_paths.length + rule.path_prefixes.length + rule.user_agent_contains.length + Object.keys(rule.query_params || {}).length + (rule.request_message_text ? 1 : 0); return count ? t('admin.customization.conditionCount', { count }) : t('admin.customization.noConditions') }
+function actionLabel(rule: ChannelCustomizationRule) { return t(rule.action === 'group_mapping' ? 'admin.customization.actionGroupMapping' : 'admin.customization.actionLocalResponse') }
+function targetGroupName(groupID?: number | null) { return availableGroups.value.find(group => group.id === groupID)?.name || t('admin.customization.unknownTargetGroup', { id: groupID || '-' }) }
+function platformLabel(platform: string) { return t(`platforms.${platform}`, platform) }
 
 function buildPayload(): ChannelCustomizationSettings {
   return { observer: { enabled: observer.enabled, api_key_ids: ids(observerKeyIds.value), api_key_names: tokens(observerKeyNames.value), user_ids: ids(observerUserIds.value), user_emails: tokens(observerUserEmails.value).map(value => value.toLowerCase()), output_path: observer.output_path }, rules: rules.value.map(normalizeRule) }
@@ -324,7 +355,7 @@ function buildPayload(): ChannelCustomizationSettings {
 
 async function saveSettings() {
   const payload = buildPayload()
-  const invalid = payload.rules.some(rule => !rule.name || (!rule.api_key_ids.length && !rule.api_key_names.length && !rule.user_ids.length && !rule.user_emails.length) || (!rule.methods.length && !rule.exact_paths.length && !rule.path_prefixes.length && !rule.user_agent_contains.length && !Object.keys(rule.query_params).length && !rule.request_message_text) || rule.min_delay_ms < 0 || rule.min_delay_ms > 10000 || rule.max_delay_ms < 0 || rule.max_delay_ms > 10000 || rule.max_delay_ms < rule.min_delay_ms || rule.status_code < 100 || rule.status_code > 599 || ([204, 205, 304].includes(rule.status_code) && rule.response_body.trim() !== ''))
+  const invalid = payload.rules.some(rule => !rule.name || (!rule.api_key_ids.length && !rule.api_key_names.length && !rule.user_ids.length && !rule.user_emails.length) || (!rule.methods.length && !rule.exact_paths.length && !rule.path_prefixes.length && !rule.user_agent_contains.length && !Object.keys(rule.query_params).length && !rule.request_message_text) || (rule.action === 'group_mapping' ? !rule.target_group_id || (!groupsLoadFailed.value && !availableGroups.value.some(group => group.id === rule.target_group_id)) : rule.min_delay_ms < 0 || rule.min_delay_ms > 10000 || rule.max_delay_ms < 0 || rule.max_delay_ms > 10000 || rule.max_delay_ms < rule.min_delay_ms || rule.status_code < 100 || rule.status_code > 599 || ([204, 205, 304].includes(rule.status_code) && rule.response_body.trim() !== '')))
   if (invalid) { appStore.showError(t('admin.customization.validationError')); return }
   saving.value = true
   try { normalizeSettings(await adminAPI.channelCustomization.updateSettings(payload)); appStore.showSuccess(t('admin.customization.saveSuccess')) } catch (error) { appStore.showError(extractApiErrorMessage(error, t('admin.customization.saveError'))) } finally { saving.value = false }
