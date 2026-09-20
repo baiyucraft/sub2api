@@ -153,13 +153,27 @@ def error_class(error):
     payload_text = json.dumps(error.payload, sort_keys=True, separators=(",", ":")).lower()
     for marker, category in (
         ("signature", "signature_validation"),
+        ("签名", "signature_validation"),
         ("manifest", "manifest_validation"),
+        ("清单", "manifest_validation"),
         ("compatib", "compatibility_validation"),
+        ("不兼容", "compatibility_validation"),
+        ("协议", "compatibility_validation"),
         ("duplicate", "duplicate_installation"),
+        ("重复", "duplicate_installation"),
         ("trust", "publisher_trust"),
+        ("信任", "publisher_trust"),
+        ("超过", "payload_too_large"),
+        ("too large", "payload_too_large"),
+        ("zip", "archive_validation"),
+        ("archive", "archive_validation"),
+        ("插件包", "package_validation"),
+        (".s2plugin", "multipart_upload"),
     ):
         if marker in payload_text:
             return category
+    if not error.payload:
+        return "empty_response"
     if error.status in (401, 403):
         return "authorization"
     if error.status in (413,):
