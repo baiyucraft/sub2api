@@ -116,8 +116,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 
 	wsDecision := s.getOpenAIWSProtocolResolver().Resolve(account)
 	forceHTTPBridge := account.Platform == PlatformGrok ||
-		(s.pluginManager != nil && s.pluginManager.ShouldRouteOpenAIOAuth(account)) ||
-		s.shouldBridgeOpenAICodexTicketAccount(ctx, account)
+		s.shouldBridgeOpenAIPluginAccount(account)
 	modeRouterV2Enabled := s != nil && s.cfg != nil && s.cfg.Gateway.OpenAIWS.ModeRouterV2Enabled
 	ingressMode := OpenAIWSIngressModeCtxPool
 	if modeRouterV2Enabled && !forceHTTPBridge {
@@ -1460,9 +1459,9 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		return true
 	}
 	for {
-		// A native connection may predate this account's opt-in. Its handshake
-		// cannot receive a newly harvested STATE; reconnect into the HTTP bridge.
-		if err := s.checkOpenAICodexTicketNativeTurn(ctx, account); err != nil {
+		// A native connection may predate the plugin's current managed scope.
+		// Reconnect into the HTTP bridge before sending the next turn.
+		if err := s.checkOpenAIPluginNativeTurn(account); err != nil {
 			return err
 		}
 		if turn > 1 && !skipBeforeTurn && hooks != nil && hooks.BeforeRequest != nil {
@@ -1962,26 +1961,14 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 	}
 }
 
-// Ticket-managed accounts use one HTTP request per turn so expiration, refresh,
-// and opt-out are evaluated by applyOpenAICodexTicket before each upstream write.
-// Account opt-in deliberately controls this independently of the global switch:
-// turning the global switch back on must not retain a native WS handshake.
-func (s *OpenAIGatewayService) shouldBridgeOpenAICodexTicketAccount(ctx context.Context, account *Account) bool {
-	if s == nil || !isOpenAICodexTicketAccount(account) {
-		return false
-	}
-	live, err := s.codexTicketLiveAccount(ctx, account)
-	if err != nil {
-		// A known managed account stays on the safe transport during a transient
-		// repository error; normal accounts retain their existing transport.
-		return codexAccountTicketConfigOf(account).Enabled
-	}
-	return isOpenAICodexTicketAccount(live) && codexAccountTicketConfigOf(live).Enabled
+// Managed accounts use HTTP so each turn evaluates the current plugin policy.
+func (s *OpenAIGatewayService) shouldBridgeOpenAIPluginAccount(account *Account) bool {
+	return s != nil && s.pluginManager != nil && s.pluginManager.ShouldRouteOpenAIOAuth(account)
 }
 
-func (s *OpenAIGatewayService) checkOpenAICodexTicketNativeTurn(ctx context.Context, account *Account) error {
-	if s.shouldBridgeOpenAICodexTicketAccount(ctx, account) {
-		return NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, "STATE ticket settings changed; reconnect to use the account's current ticket", nil)
+func (s *OpenAIGatewayService) checkOpenAIPluginNativeTurn(account *Account) error {
+	if s.shouldBridgeOpenAIPluginAccount(account) {
+		return NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, "Account plugin policy changed; reconnect to use HTTP bridge", nil)
 	}
 	return nil
 }

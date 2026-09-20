@@ -1,0 +1,66 @@
+package main
+
+import (
+	"archive/zip"
+	"bytes"
+	"io"
+	"strings"
+	"testing"
+)
+
+func TestArchiveIsDeterministicAndPreservesExecutableMode(t *testing.T) {
+	files := map[string][]byte{"ui/index.html": []byte("<main>STATE</main>"), "bin/plugin": []byte("binary"), "manifest.json": []byte(`{"id":"baiyu.codex-state"}`)}
+	one, err := archiveFiles(files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	two, err := archiveFiles(files)
+	if err != nil || !bytes.Equal(one, two) {
+		t.Fatal("archive is not deterministic", err)
+	}
+	reader, err := zip.NewReader(bytes.NewReader(one), int64(len(one)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reader.File) != len(files) {
+		t.Fatal("missing archive entries")
+	}
+	for _, file := range reader.File {
+		stream, err := file.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := io.ReadAll(stream)
+		_ = stream.Close()
+		if err != nil || !bytes.Equal(files[file.Name], data) {
+			t.Fatal("content mismatch", file.Name, err)
+		}
+		if strings.HasPrefix(file.Name, "bin/") && file.Mode().Perm() != 0700 {
+			t.Fatal("binary not executable")
+		}
+	}
+}
+
+func TestArchiveRejectsUnsafeMembers(t *testing.T) {
+	for _, name := range []string{"../secret", "/absolute", "ui/../../secret", `ui\escape`} {
+		if _, err := archiveFiles(map[string][]byte{name: []byte("x")}); err == nil {
+			t.Errorf("accepted %q", name)
+		}
+	}
+}
+
+func TestBuildEnvOverridesInheritedTarget(t *testing.T) {
+	t.Setenv("GOOS", "windows")
+	t.Setenv("GOARCH", "386")
+	t.Setenv("CGO_ENABLED", "1")
+	values := map[string][]string{}
+	for _, entry := range buildEnv("arm64") {
+		key, value, _ := strings.Cut(entry, "=")
+		values[strings.ToUpper(key)] = append(values[strings.ToUpper(key)], value)
+	}
+	for key, wanted := range map[string]string{"GOOS": "linux", "GOARCH": "arm64", "CGO_ENABLED": "0"} {
+		if len(values[key]) != 1 || values[key][0] != wanted {
+			t.Fatalf("%s: %v", key, values[key])
+		}
+	}
+}

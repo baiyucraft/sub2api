@@ -1874,7 +1874,8 @@ func (s *OpenAIGatewayService) fetchOpenAIModelsUpstream(ctx context.Context, re
 	} else {
 		handled := false
 		if s.pluginManager != nil {
-			resp, handled, err = s.pluginManager.RoundTripOpenAIOAuth(reqCtx, req, request.proxyURL, request.credentialAccount)
+			markOpenAIModelsDiscoveryRequest(req, request.credentialAccount)
+			resp, handled, err = s.roundTripOpenAIModelsDiscovery(req, request.proxyURL, request.credentialAccount)
 		}
 		if !handled {
 			client, clientErr := httpclient.GetClient(httpclient.Options{

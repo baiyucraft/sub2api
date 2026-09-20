@@ -26,4 +26,14 @@
 
 ## 敏感数据
 
-插件处理真实 OAuth Authorization 请求头，必须避免将请求头、请求体、代理凭据和上游敏感响应写入日志或诊断消息。UI 配置中不应出现 OAuth Token。
+插件进程可以处理真实 Authorization、出站身份和代理认证 URL，必须避免将请求头、请求体、代理凭据和上游敏感响应写入日志、错误、Health 或动作结果。UI 不接收账号 token、代理密码、lease owner 或持久状态原文。
+
+`ListResources` 使用字段白名单，读取不启动插件。`ResolveProxy` 和 `ResolveOutboundIdentity` 只存在于进程间 RPC；资源目录中的 `business_egress_configured` 不是网络探测或直连授权。
+
+## 状态与并发
+
+数据库持久 state value 使用宿主密钥加密，按连接绑定的 pluginKey/namespace/key 隔离；索引 key 和 namespace 不应含秘密。旧 Redis KV 没有加密 CAS 和 lease 语义。插件不持有数据库凭据，不能选择另一插件的所有者身份。
+
+使用 CAS 的当前版本更新或删除；tombstone 保留版本，旧版本不能重建覆盖。lease owner/fence 必须匹配同一槽位且仍有效，失去租约后停止工作。加密存储不能保护已经授予插件进程的明文，仍须信任发布者。
+
+Scoped 配置在持久提交后才能激活；AdmitBatch 与 Forward 必须校验配置代次及账号身份版本。受管请求在能力缺失、维护或恢复期间失败关闭。动作和升级需要管理员 step-up，超时不能当作未执行证明。

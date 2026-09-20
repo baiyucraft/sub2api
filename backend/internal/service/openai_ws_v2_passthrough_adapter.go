@@ -685,7 +685,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	if account == nil {
 		return errors.New("account is nil")
 	}
-	if err := s.checkOpenAICodexTicketNativeTurn(ctx, account); err != nil {
+	if err := s.checkOpenAIPluginNativeTurn(account); err != nil {
 		return err
 	}
 	if err := validateOpenAIWSBearerToken(account, token); err != nil {
@@ -988,7 +988,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			responseCreateAt := time.Time{}
 			acceptedTurn := false
 			if isResponseCreate {
-				if err := s.checkOpenAICodexTicketNativeTurn(ctx, account); err != nil {
+				if err := s.checkOpenAIPluginNativeTurn(account); err != nil {
 					return payload, nil, err
 				}
 				responseCreateAt = time.Now()

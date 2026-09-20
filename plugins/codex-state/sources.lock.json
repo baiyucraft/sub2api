@@ -1,0 +1,87 @@
+{
+  "version": 1,
+  "plugin_id": "baiyu.codex-state",
+  "recorded_at": "2026-09-20",
+  "scope": "pinned_source_baselines_and_license_evidence_only",
+  "release_artifacts_audited": false,
+  "automatic_source_updates": false,
+  "legacy_state_migration": false,
+  "update_policy": {
+    "check_all_repositories_before_every_update": true,
+    "check_default_branch_head": true,
+    "check_releases_and_resolved_tag_commits": true,
+    "diff_against_pinned_baseline": true,
+    "require_maintainer_approval_to_change_baseline": true,
+    "automatically_overwrite_implementation": false
+  },
+  "host_requirements": {
+    "sub2api": ">=0.2.7-baiyu",
+    "plugin_protocol": 1,
+    "transport_api": 1,
+    "ui_bridge": 1,
+    "host_service_api": 2,
+    "host_features": [
+      "scoped-routing.v1",
+      "admission.v1",
+      "resources.v1",
+      "actions.v1",
+      "state-cas.v1",
+      "leases.v1",
+      "oauth-like.v1",
+      "request-completion.v1",
+      "config-secrets.v1"
+    ]
+  },
+  "sources": [
+    {
+      "repository": "happy-loki/sub2api-codex-turn-state",
+      "url": "https://github.com/happy-loki/sub2api-codex-turn-state",
+      "commit": "c8e5483e06ab9de199c3848d9d46fccfc063f88a",
+      "role": "implementation_reference",
+      "license": {
+        "name": "GNU Lesser General Public License, version 3",
+        "path": "LICENSE",
+        "git_blob_sha": "153d416dc8d2d60076698ec3cbfce34d91436a03",
+        "url": "https://github.com/happy-loki/sub2api-codex-turn-state/blob/c8e5483e06ab9de199c3848d9d46fccfc063f88a/LICENSE",
+        "evidence": "license_text_at_pinned_commit",
+        "only_or_later_not_inferred": true
+      },
+      "adoption_policy": "review_each_change_and_record_file_level_provenance_before_adoption",
+      "release_artifacts_audited": false
+    },
+    {
+      "repository": "wangyunjeff/sub2api-state-kit",
+      "url": "https://github.com/wangyunjeff/sub2api-state-kit",
+      "commit": "9f2d20ba7db0f76a558ce2c28eefb20128eae562",
+      "role": "implementation_reference",
+      "license": {
+        "name": "GNU Lesser General Public License, version 3",
+        "path": "LICENSE",
+        "git_blob_sha": "153d416dc8d2d60076698ec3cbfce34d91436a03",
+        "url": "https://github.com/wangyunjeff/sub2api-state-kit/blob/9f2d20ba7db0f76a558ce2c28eefb20128eae562/LICENSE",
+        "evidence": "license_text_at_pinned_commit",
+        "only_or_later_not_inferred": true
+      },
+      "adoption_policy": "review_each_change_and_record_file_level_provenance_before_adoption",
+      "release_artifacts_audited": false
+    },
+    {
+      "repository": "gylive/ccodex-sleep-state",
+      "url": "https://github.com/gylive/ccodex-sleep-state",
+      "commit": "b18fabf9ad8e9d7af7d9d0306b623ba6091a39d6",
+      "role": "design_reference_only",
+      "license": {
+        "name": "GNU General Public License, version 3",
+        "path": "LICENSE",
+        "git_blob_sha": "f288702d2fa16d3cdf0035b15a9fcbc552cd88e7",
+        "url": "https://github.com/gylive/ccodex-sleep-state/blob/b18fabf9ad8e9d7af7d9d0306b623ba6091a39d6/LICENSE",
+        "evidence": "license_text_at_pinned_commit",
+        "only_or_later_not_inferred": true
+      },
+      "source_code_import_allowed": false,
+      "runtime_dependency_allowed": false,
+      "independent_implementation_required": true,
+      "release_artifacts_audited": false
+    }
+  ]
+}

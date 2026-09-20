@@ -106,6 +106,16 @@ func classifyUpstreamTransportError(err error) upstreamTransportErrorClass {
 //
 // passthrough tags the Ops error event for the OpenAI passthrough forward path.
 func (s *OpenAIGatewayService) handleOpenAIUpstreamTransportError(ctx context.Context, c *gin.Context, account *Account, err error, passthrough bool) error {
+	var admissionErr *PluginAdmissionError
+	if errors.As(err, &admissionErr) {
+		return &UpstreamFailoverError{
+			PluginAdmissionRejected: true,
+			StatusCode:              http.StatusServiceUnavailable,
+			ResponseBody:            []byte(`{"error":{"type":"api_error","message":"No available accounts for the requested model"}}`),
+			Scope:                   GatewayFailureScopeRequest,
+			Reason:                  "plugin_admission_rejected",
+		}
+	}
 	safeErr := sanitizeUpstreamErrorMessage(err.Error())
 	setOpsUpstreamError(c, 0, safeErr, "")
 	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{

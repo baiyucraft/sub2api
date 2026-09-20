@@ -174,6 +174,14 @@ func (s *AccountTestService) SetPluginManager(pluginManager *PluginManager) {
 	}
 }
 
+func (s *AccountTestService) preparePluginRequest(ctx context.Context, account *Account, model string, req *http.Request) error {
+	gateway := s.openaiGatewayService
+	if gateway == nil {
+		gateway = &OpenAIGatewayService{pluginManager: s.pluginManager}
+	}
+	return gateway.preparePluginRequest(ctx, account, model, req)
+}
+
 func (s *AccountTestService) SetOpenAIGatewayService(gateway *OpenAIGatewayService) {
 	if s != nil {
 		s.openaiGatewayService = gateway
@@ -919,6 +927,9 @@ func (s *AccountTestService) testOpenAIAccountConnectionWithEgress(c *gin.Contex
 		proxyURL = account.Proxy.URL()
 	}
 
+	if err := s.preparePluginRequest(ctx, account, extractOpenAIOutboundModel(payloadBytes), req); err != nil {
+		return s.sendErrorAndEnd(c, "Failed to prepare account test request")
+	}
 	resp, err := s.doOpenAIAccountTestUpstream(req, proxyURL, account, true)
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Request failed: %s", err.Error()))
@@ -2257,6 +2268,9 @@ func (s *AccountTestService) testOpenAICompactConnection(c *gin.Context, account
 		proxyURL = account.Proxy.URL()
 	}
 
+	if err := s.preparePluginRequest(ctx, account, extractOpenAIOutboundModel(payloadBytes), req); err != nil {
+		return s.sendErrorAndEnd(c, "Failed to prepare account test request")
+	}
 	resp, err := s.doOpenAIAccountTestUpstream(req, proxyURL, account, true)
 	if err != nil {
 		if s.accountRepo != nil {
@@ -3167,6 +3181,9 @@ func (s *AccountTestService) testOpenAIImageOAuth(c *gin.Context, ctx context.Co
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
+	}
+	if err := s.preparePluginRequest(ctx, account, extractOpenAIOutboundModel(responsesBody), req); err != nil {
+		return s.sendErrorAndEnd(c, "Failed to prepare image test request")
 	}
 	resp, err := s.doOpenAIAccountTestUpstream(req, proxyURL, account, false)
 	if err != nil {

@@ -150,7 +150,7 @@ func (h *OpenAIGatewayHandler) AlphaSearch(c *gin.Context) {
 			if h.handleOpenAICapacitySelectionExhausted(c, false, reqLog, failedAccountIDs, lastFailoverErr) {
 				return
 			}
-			if len(failedAccountIDs) == 0 {
+			if len(failedAccountIDs) == 0 || (lastFailoverErr != nil && lastFailoverErr.PluginAdmissionRejected) {
 				cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, requestedModel, requestedModel, service.PlatformOpenAI)
 				if !cls.ModelNotFound {
 					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
@@ -221,7 +221,9 @@ func (h *OpenAIGatewayHandler) AlphaSearch(c *gin.Context) {
 		}
 		bindUpstreamFailoverAccount(c, account, failoverErr)
 
-		h.gatewayService.ReportOpenAIAccountScheduleResultForGroup(apiKey.GroupID, account, openAIAccountScheduleModel(c, account, requestedModel, false, result), false, nil, err)
+		if !failoverErr.PluginAdmissionRejected {
+			h.gatewayService.ReportOpenAIAccountScheduleResultForGroup(apiKey.GroupID, account, openAIAccountScheduleModel(c, account, requestedModel, false, result), false, nil, err)
+		}
 		if c.Writer.Size() != writerSizeBeforeForward {
 			h.handleFailoverExhausted(c, failoverErr, true)
 			return
@@ -232,6 +234,15 @@ func (h *OpenAIGatewayHandler) AlphaSearch(c *gin.Context) {
 				zap.Int("upstream_status", failoverErr.StatusCode),
 			)
 			return
+		}
+		if failoverErr.PluginAdmissionRejected {
+			if !failoverErr.ShouldRetryNextAccount() {
+				h.handleFailoverExhausted(c, failoverErr, false)
+				return
+			}
+			failedAccountIDs[account.ID] = struct{}{}
+			lastFailoverErr = failoverErr
+			continue
 		}
 		if failoverErr.RetryableOnSameAccount {
 			retryLimit := account.GetPoolModeRetryCount()

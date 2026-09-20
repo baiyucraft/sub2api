@@ -106,21 +106,22 @@ describe('AccountUsageCell', () => {
     })
   })
 
-  it.each(['oauth', 'setup-token'] as const)('renders Codex ticket status for OpenAI %s accounts', async (type) => {
+  it.each(['oauth', 'setup-token'] as const)('ignores retired STATE summaries for OpenAI %s accounts', async (type) => {
     getUsage.mockResolvedValue({})
     const wrapper = mount(AccountUsageCell, {
       props: {
-        account: makeAccount({
+        account: { ...makeAccount({
           id: type === 'oauth' ? 9701 : 9702,
           platform: 'openai',
           type,
+        }),
           codex_turn_tickets: [
             { model: 'gpt-6-astra', ready: true, remaining_seconds: 2520, blocked: false },
             { model: 'gpt-5.6-sol', ready: false, remaining_seconds: 0, blocked: false },
             { model: 'gpt-5.6-terra', ready: false, remaining_seconds: 0, blocked: true },
             { model: 'custom-model', ready: true, remaining_seconds: 60, blocked: false },
           ],
-        }),
+        },
       },
       global: { stubs: {
         OpenAIQuotaResetCell: { template: '<div data-test="quota-reset" />' },
@@ -129,18 +130,13 @@ describe('AccountUsageCell', () => {
       } },
     })
     await flushPromises()
-    expect(wrapper.text()).toContain('42m00s')
-    expect(wrapper.text()).toContain('admin.accounts.openai.codexTurnTicketMissing')
-    expect(wrapper.text()).toContain('admin.accounts.openai.codexTurnTicketPaused')
-    expect(wrapper.text()).toContain('terra')
-    expect(wrapper.text()).toContain('1m00s')
+    expect(wrapper.text()).not.toContain('STATE')
+    expect(wrapper.text()).not.toContain('42m00s')
+    expect(wrapper.text()).not.toContain('codexTurnTicket')
     if (type === 'setup-token') {
       expect(getUsage).not.toHaveBeenCalled()
       expect(wrapper.find('[data-test="quota-reset"]').exists()).toBe(false)
     }
-    await wrapper.setProps({ account: { ...wrapper.props('account'), codex_turn_tickets: [] } })
-    expect(wrapper.text()).not.toContain('codexTurnTicket')
-    expect(wrapper.text()).not.toContain('42m00s')
     wrapper.unmount()
   })
 

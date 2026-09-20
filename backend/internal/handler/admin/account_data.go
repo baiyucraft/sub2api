@@ -455,6 +455,7 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 			continue
 		}
 		// Fingerprint seeds are system-managed and must never be imported/copied.
+		item.Extra = service.RedactOpenAICodexTicketExtra(item.Extra)
 		if item.Extra != nil {
 			delete(item.Extra, "codex_fingerprint_seed")
 			delete(item.Extra, "codex_import_replica_fingerprint_seed")

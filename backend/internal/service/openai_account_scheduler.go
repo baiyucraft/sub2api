@@ -404,6 +404,9 @@ func (s *defaultOpenAIAccountScheduler) Select(
 	ctx context.Context,
 	req OpenAIAccountScheduleRequest,
 ) (selection *AccountSelectionResult, decision OpenAIAccountScheduleDecision, err error) {
+	if s != nil && s.service != nil {
+		ctx = s.service.withOpenAISchedulingAdmission(ctx, req.RequestedModel, req.RequireCompact)
+	}
 	if s != nil && s.service != nil && s.service.openAIGroupRequiresPrivacySet(ctx, req.GroupID) {
 		req.RequirePrivacySet = true
 	}
@@ -551,6 +554,9 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 	ctx context.Context,
 	req OpenAIAccountScheduleRequest,
 ) (*AccountSelectionResult, bool, error) {
+	if s != nil && s.service != nil {
+		ctx = s.service.withOpenAISchedulingAdmission(ctx, req.RequestedModel, req.RequireCompact)
+	}
 	sessionHash := strings.TrimSpace(req.SessionHash)
 	if sessionHash == "" || s == nil || s.service == nil || s.service.cache == nil {
 		return nil, false, nil
@@ -1606,6 +1612,7 @@ func (s *defaultOpenAIAccountScheduler) tryFallbackToWeightedSticky(
 		// second direct sticky fallback here could jump to a more expensive tier.
 		return nil, nil
 	}
+	accounts := make([]Account, 0, 2)
 	for _, accountID := range []int64{req.StickyPreviousAccountID, req.StickyAccountID} {
 		if accountID <= 0 {
 			continue
@@ -1619,8 +1626,14 @@ func (s *defaultOpenAIAccountScheduler) tryFallbackToWeightedSticky(
 		if err != nil || account == nil {
 			continue
 		}
+		accounts = append(accounts, *account)
+	}
+	ctx = s.service.prefetchOpenAISchedulingAdmission(ctx, accounts, req.RequestedModel, req.RequireCompact)
+	for i := range accounts {
+		account := &accounts[i]
+		accountID := account.ID
 		if account.Platform != NormalizeOpenAICompatiblePlatform(req.Platform) || !account.IsOpenAICompatible() ||
-			!account.IsSchedulable() || s.service.isOpenAIAccountRequestRuntimeBlocked(account, req.RequestedModel, req.RequireCompact) {
+			!account.IsSchedulable() || s.service.isOpenAIAccountRequestRuntimeBlockedWithContext(ctx, account, req.RequestedModel, req.RequireCompact) {
 			continue
 		}
 		if req.GroupID != nil && s.service.schedulerSnapshot != nil {
@@ -1786,6 +1799,7 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		schedGroup, _ = s.service.schedulerSnapshot.GetGroupByID(ctx, *req.GroupID)
 	}
 
+	ctx = s.service.prefetchOpenAISchedulingAdmission(ctx, accounts, req.RequestedModel, req.RequireCompact)
 	filterStats := openAISelectionFilterStats{pool: len(accounts)}
 	filtered := make([]*Account, 0, len(accounts))
 	loadReq := make([]AccountWithConcurrency, 0, len(accounts))
@@ -1809,7 +1823,7 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 			filterStats.exclude("platform_mismatch")
 			continue
 		}
-		if s.service.isOpenAIAccountRequestRuntimeBlocked(account, req.RequestedModel, req.RequireCompact) {
+		if s.service.isOpenAIAccountRequestRuntimeBlockedWithContext(ctx, account, req.RequestedModel, req.RequireCompact) {
 			filterStats.exclude("runtime_blocked")
 			continue
 		}
@@ -2200,7 +2214,7 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatibleReason(ctx con
 	if req.RequirePrivacySet && !account.IsPrivacySet() {
 		return false, "privacy_not_set"
 	}
-	if s != nil && s.service != nil && s.service.isOpenAIAccountRequestRuntimeBlocked(account, req.RequestedModel, req.RequireCompact) {
+	if s != nil && s.service != nil && s.service.isOpenAIAccountRequestRuntimeBlockedWithContext(ctx, account, req.RequestedModel, req.RequireCompact) {
 		return false, "runtime_blocked"
 	}
 	if s != nil && s.service != nil && s.service.isOpenAIProxyStreamQuarantined(ctx, account) {
@@ -2686,6 +2700,7 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerCore(
 	useUpstreamTokenCost bool,
 ) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
 	ctx = s.withOpenAIQuotaAutoPauseContext(ctx)
+	ctx = s.withOpenAISchedulingAdmission(ctx, requestedModel, requireCompact)
 	ctx = s.withOpenAIGroupPrivacyRequirement(ctx, groupID)
 	// 分组利润控制：唯一文本调度入口的防御性装门。handler 文本
 	// 入口已在请求开始经 WithOpenAIRequestPricingContext 装门并固定 pricingAt，
