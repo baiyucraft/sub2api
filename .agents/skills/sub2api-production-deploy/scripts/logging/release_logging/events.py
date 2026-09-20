@@ -12,7 +12,7 @@ from typing import Any, Literal
 from .redact import redact_text, redact_value
 
 
-DeploymentMode = Literal["blue-green", "downtime", "not_applicable"]
+DeploymentMode = Literal["blue-green", "downtime", "plugin-package", "not_applicable"]
 Node = Literal["local", "vm", "racknerd", "dmit", "backup"]
 Stream = Literal["stdout", "stderr", "event"]
 Level = Literal["debug", "info", "warn", "error"]
@@ -60,7 +60,7 @@ class EventContext:
 
     def __post_init__(self) -> None:
         _safe_component("release_id", self.release_id)
-        if self.deployment_mode not in {"blue-green", "downtime", "not_applicable"}:
+        if self.deployment_mode not in {"blue-green", "downtime", "plugin-package", "not_applicable"}:
             raise ValueError("invalid deployment_mode")
         if self.node not in {"local", "vm", "racknerd", "dmit", "backup"}:
             raise ValueError("invalid node")
