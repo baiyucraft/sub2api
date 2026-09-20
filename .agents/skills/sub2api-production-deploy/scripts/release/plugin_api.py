@@ -33,9 +33,9 @@ PLUGIN_RESULT_FIELDS = {
     "remote_error_status",
     "remote_error_class",
     "remote_error_code",
-    "remote_error_content_type",
-    "remote_error_body_bytes",
-    "remote_error_body_kind",
+    "remote_response_media_type",
+    "remote_response_size",
+    "remote_response_format",
 }
 
 
@@ -230,9 +230,9 @@ write_uncertain = "false"
 remote_error_status = "none"
 remote_error_class = "none"
 remote_error_code = "none"
-remote_error_content_type = "none"
-remote_error_body_bytes = "0"
-remote_error_body_kind = "none"
+remote_response_media_type = "none"
+remote_response_size = "0"
+remote_response_format = "none"
 if operation != "no-op":
     try:
         write_package(operation, before.get("id") if before else 0, target_package)
@@ -240,9 +240,9 @@ if operation != "no-op":
         remote_error_status = str(error.status)
         remote_error_class = error_class(error)
         remote_error_code = error_code(error)
-        remote_error_content_type = error.content_type
-        remote_error_body_bytes = str(error.body_bytes)
-        remote_error_body_kind = error.body_kind
+        remote_response_media_type = error.content_type
+        remote_response_size = str(error.body_bytes)
+        remote_response_format = error.body_kind
     except (socket.timeout, TimeoutError, urllib.error.URLError):
         reconciled = current()
         if reconciled and reconciled.get("version") == target_version and reconciled.get("binary_sha256") == target_binary:
@@ -271,9 +271,9 @@ if write_uncertain == "true" or after is None or after.get("version") != target_
     print("remote_error_status=" + remote_error_status)
     print("remote_error_class=" + remote_error_class)
     print("remote_error_code=" + remote_error_code)
-    print("remote_error_content_type=" + remote_error_content_type)
-    print("remote_error_body_bytes=" + remote_error_body_bytes)
-    print("remote_error_body_kind=" + remote_error_body_kind)
+    print("remote_response_media_type=" + remote_response_media_type)
+    print("remote_response_size=" + remote_response_size)
+    print("remote_response_format=" + remote_response_format)
     raise SystemExit(0)
 
 if operation == "install" and after.get("state") != "disabled":
@@ -335,9 +335,9 @@ print("write_uncertain=" + write_uncertain)
 print("remote_error_status=" + remote_error_status)
 print("remote_error_class=" + remote_error_class)
 print("remote_error_code=" + remote_error_code)
-print("remote_error_content_type=" + remote_error_content_type)
-print("remote_error_body_bytes=" + remote_error_body_bytes)
-print("remote_error_body_kind=" + remote_error_body_kind)
+print("remote_response_media_type=" + remote_response_media_type)
+print("remote_response_size=" + remote_response_size)
+print("remote_response_format=" + remote_response_format)
 '''
 
 

@@ -83,9 +83,9 @@ def result_values(**changes: str) -> dict[str, str]:
         "remote_error_status": "none",
         "remote_error_class": "none",
         "remote_error_code": "none",
-        "remote_error_content_type": "none",
-        "remote_error_body_bytes": "0",
-        "remote_error_body_kind": "none",
+        "remote_response_media_type": "none",
+        "remote_response_size": "0",
+        "remote_response_format": "none",
     }
     value.update(changes)
     return value
@@ -338,9 +338,9 @@ class PluginAPIContractTest(unittest.TestCase):
             config = remote_config(target_binary="b" * 64, base_urls=["http://only/api/v1"])
             config["target_package"] = str(package)
             output = execute_remote_helper(module, config, urlopen)
-        self.assertIn("remote_error_content_type=text/html", output)
-        self.assertIn("remote_error_body_bytes=20", output)
-        self.assertIn("remote_error_body_kind=html", output)
+        self.assertIn("remote_response_media_type=text/html", output)
+        self.assertIn("remote_response_size=20", output)
+        self.assertIn("remote_response_format=html", output)
         self.assertNotIn("private", output)
 
 

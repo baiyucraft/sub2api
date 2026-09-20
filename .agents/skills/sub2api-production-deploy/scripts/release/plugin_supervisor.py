@@ -313,9 +313,9 @@ def authorize(args: argparse.Namespace) -> None:
                     "remote_error_status": result.values.get("remote_error_status", "none"),
                     "remote_error_class": result.values.get("remote_error_class", "none"),
                     "remote_error_code": result.values.get("remote_error_code", "none"),
-                    "remote_error_content_type": result.values.get("remote_error_content_type", "none"),
-                    "remote_error_body_bytes": result.values.get("remote_error_body_bytes", "0"),
-                    "remote_error_body_kind": result.values.get("remote_error_body_kind", "none"),
+                    "remote_response_media_type": result.values.get("remote_response_media_type", "none"),
+                    "remote_response_size": result.values.get("remote_response_size", "0"),
+                    "remote_response_format": result.values.get("remote_response_format", "none"),
                 },
             )
             raise RuntimeError("VM plugin Gate failed")
