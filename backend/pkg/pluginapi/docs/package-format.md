@@ -61,4 +61,4 @@ ui/assets/...
 
 签名对象是 `manifest.json` 的精确原始字节。发布者私钥不得进入插件包、源码仓库或 Sub2API 运行环境。部署者只配置 Base64 Ed25519 公钥。
 
-默认生产配置拒绝未签名包。官方 OpenAI Transport 使用宿主内置公钥验签，不需要配置；其他发布者仍需配置 `trusted_publishers`。`allow_unsigned` 只用于开发者自己构建的本地包。
+默认生产配置拒绝未签名包。官方 OpenAI Transport 使用宿主内置公钥验签；当前 fork 的 `baiyu.codex-state` 也使用仅绑定该插件 ID 的内置公钥。其他发布者仍需配置 `trusted_publishers`。`allow_unsigned` 只用于开发者自己构建的本地包。

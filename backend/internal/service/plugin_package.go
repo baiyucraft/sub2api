@@ -26,6 +26,9 @@ const (
 	builtInOpenAITransportPluginID           = "local.sub2api.openai-transport"
 	builtInOpenAITransportPublisherKeyID     = "sub2api-openai-transport-v1"
 	builtInOpenAITransportPublisherKeyBase64 = "MqzSXAoG0iVR5kKWrC+mqcCeExkrT6zAr2WpQ4sA+yc="
+	builtInCodexStatePluginID                 = "baiyu.codex-state"
+	builtInCodexStatePublisherKeyID           = "baiyu-codex-state-v1"
+	builtInCodexStatePublisherKeyBase64       = "C8XBc7JNYAxANwijdCjy0A54r5n2WfTSeQGSJIgD18M="
 )
 
 type PluginPackageInstaller struct {
@@ -290,12 +293,18 @@ func (i *PluginPackageInstaller) verifySignature(file *zip.File, manifestRaw []b
 }
 
 func trustedPluginPublisherKey(cfg *config.Config, keyID, pluginID string) string {
-	// 内置公钥是官方私有插件的固定信任根，不允许被部署配置覆盖。
+	// 内置公钥只信任其绑定的固定插件 ID，不允许被部署配置覆盖或跨插件复用。
 	if keyID == builtInOpenAITransportPublisherKeyID {
 		if pluginID != builtInOpenAITransportPluginID {
 			return ""
 		}
 		return builtInOpenAITransportPublisherKeyBase64
+	}
+	if keyID == builtInCodexStatePublisherKeyID {
+		if pluginID != builtInCodexStatePluginID {
+			return ""
+		}
+		return builtInCodexStatePublisherKeyBase64
 	}
 	if cfg == nil {
 		return ""

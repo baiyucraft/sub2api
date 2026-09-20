@@ -50,6 +50,10 @@ TRANSFER_SOCKET_TIMEOUT = 90
 PROXY_SSH_KEEPALIVE_SECONDS = 10
 DIRECT_SSH_KEEPALIVE_SECONDS = 30
 HTTP_CONNECT_MAX_HEADER_BYTES = 16 * 1024
+MAX_SENSITIVE_INPUT_BYTES = 64 * 1024
+SENSITIVE_FIELD_FRAGMENTS = {
+    "authorization", "body", "cookie", "credential", "header", "jwt", "password", "secret", "token", "totp",
+}
 REMOTE_EVENT_LOGS = {
     "local_vm": "/opt/sub2api-deploy/release-gates/{release_id}/logs/events.jsonl",
     "vm": "/opt/sub2api-deploy/release-gates/{release_id}/logs/events.jsonl",
@@ -162,7 +166,7 @@ class SSHRunner:
         path = getattr(self, "event_log_path", None)
         identifier = getattr(self, "release_id", None)
         mode = getattr(self, "deployment_mode", None)
-        if not path or not identifier or mode not in {"blue-green", "downtime"} or node not in REMOTE_EVENT_LOGS:
+        if not path or not identifier or mode not in {"blue-green", "downtime", "plugin-package"} or node not in REMOTE_EVENT_LOGS:
             return None
         event_node = "vm" if node == "local_vm" else node
         return JSONLEventLogger(pathlib.Path(path), EventContext(identifier, mode, event_node))
@@ -387,6 +391,106 @@ exit "$code"
                 )
             raise
         finally:
+            client.close()
+
+    def run_with_sensitive_input(
+        self,
+        name: str,
+        script: str,
+        allowed: Iterable[str],
+        data: bytearray,
+        timeout: int = 120,
+    ) -> SSHResult:
+        """Run a fixed remote helper without persisting or describing its input."""
+
+        if not isinstance(data, bytearray):
+            raise TypeError("sensitive input must use a mutable bytearray")
+        if len(data) > MAX_SENSITIVE_INPUT_BYTES:
+            for index in range(len(data)):
+                data[index] = 0
+            raise ValueError("sensitive input exceeds the maximum size")
+        allowlist = set(allowed)
+        for field in allowlist:
+            normalized = field.lower()
+            if any(fragment in normalized for fragment in SENSITIVE_FIELD_FRAGMENTS):
+                for index in range(len(data)):
+                    data[index] = 0
+                raise ValueError("sensitive output fields are not allowed")
+        if "set -x" in script or "set -o xtrace" in script:
+            for index in range(len(data)):
+                data[index] = 0
+            raise ValueError("sensitive remote helpers cannot enable shell tracing")
+
+        command_id = secrets.token_hex(8)
+        self._emit(
+            name,
+            stage="ssh_sensitive_command",
+            event="command_started",
+            message="Remote sensitive command started",
+            command_id=command_id,
+            details={"timeout_seconds": timeout, "input_mode": "sensitive", "allowed_fields": sorted(allowlist)},
+        )
+        client = self.connect(name)
+        try:
+            command = "bash -lc " + shlex.quote(script)
+            stdin, stdout, stderr = client.exec_command(command, timeout=timeout, get_pty=False)
+            if data:
+                stdin.write(bytes(data))
+                stdin.flush()
+            stdin.channel.shutdown_write()
+            output = stdout.read().decode("utf-8", "strict")
+            error_output = stderr.read().decode("utf-8", "replace")
+            exit_code = stdout.channel.recv_exit_status()
+            if exit_code:
+                self._emit(
+                    name,
+                    stage="ssh_sensitive_command",
+                    event="command_failed",
+                    message="Remote sensitive command returned a non-zero exit code",
+                    command_id=command_id,
+                    level="error",
+                    exit_code=exit_code,
+                    details={"output_present": bool(output), "stderr_present": bool(error_output)},
+                )
+                raise RuntimeError(f"{name} sensitive stage failed with exit code {exit_code}; remote output withheld")
+            if error_output.strip():
+                raise RuntimeError(f"{name} sensitive stage returned unexpected stderr")
+            values: dict[str, str] = {}
+            for line in output.splitlines():
+                if not line or "=" not in line:
+                    raise RuntimeError(f"{name} sensitive stage returned non-structured output")
+                key, value = line.split("=", 1)
+                if key not in allowlist:
+                    raise RuntimeError(f"{name} sensitive stage returned an undeclared field")
+                values[key] = value
+            missing = allowlist.difference(values)
+            if missing:
+                raise RuntimeError(f"{name} sensitive stage omitted required fields")
+            self._emit(
+                name,
+                stage="ssh_sensitive_command",
+                event="command_finished",
+                message="Remote sensitive command finished",
+                command_id=command_id,
+                exit_code=0,
+                details={"returned_fields": sorted(values)},
+            )
+            return SSHResult(values)
+        except BaseException as error:
+            self._emit(
+                name,
+                stage="ssh_sensitive_command",
+                event="command_failed",
+                message="Remote sensitive command failed",
+                command_id=command_id,
+                level="error",
+                exit_code=getattr(error, "returncode", 1),
+                details={"error_type": type(error).__name__},
+            )
+            raise
+        finally:
+            for index in range(len(data)):
+                data[index] = 0
             client.close()
 
     def read_release_events(self, name: str, release_id: str, max_bytes: int = MAX_EVENT_LOG_BYTES) -> bytes:

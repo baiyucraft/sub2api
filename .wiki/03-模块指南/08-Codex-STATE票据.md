@@ -62,13 +62,34 @@ owner: project
 
 ## 接口与秘密保护
 
-- 管理入口使用 `/api/v1/admin/plugins/:id` 下 `config`、`status`、`resources`、`actions` 和 `upgrade`。
+- 首次安装使用 `POST /api/v1/admin/plugins/upload`，multipart 字段为 `plugin`；调用前必须确认该插件 ID 尚未安装，新安装保持停用。当前宿主对部分非运行状态的同 ID 包仍可能接受 upload 替换，因此运维流程禁止用 upload 绕过带维护事务的 upgrade。管理入口使用 `/api/v1/admin/plugins/:id` 下 `config`、`status`、`resources`、`actions`、`enable`、`disable` 和 `upgrade`。
 - `GET /api/v1/admin/plugins/:id/resources` 只返回脱敏目录；`POST /api/v1/admin/plugins/:id/actions` 执行显式幂等操作。
 - `PUT /api/v1/admin/plugins/:id/config/secrets` 仅由宿主可信表单编辑签名清单声明的秘密字段。iframe 普通配置只收到空值和 configured 布尔标志，不接收代理凭据。
 - `plugin.resources` 和 `plugin.action` Bridge 只开放当前插件的管理员操作；动作必须包含幂等 ID。
 - UI/状态/日志不返回 STATE、OAuth token、完整代理凭据、请求正文或内部指纹。
 - 内置 `codex-ticket` 专用 API、采集器、账号表单和全局网关票据表单退场。
 - 历史 `accounts.extra` 票据字段仍做脱敏、导入剥离、普通编辑保留；不批量删除历史数据，也不自动迁移。
+
+## 部署与多实例恢复
+
+插件包原件、安装元数据、加密配置、受管范围和维护 journal 以 PostgreSQL 为权威状态。每个宿主实例将经过重新校验的运行副本放在 `plugins.data_dir`；未配置时使用 `${DATA_DIR}/plugins`，`DATA_DIR` 缺失时使用 `./data/plugins`。实例本地文件缺失、校验失败或版本落后时，从数据库原包恢复并重新执行签名、manifest、逐文件 SHA、路径和大小校验。运维人员不需要手工逐机分发 `.s2plugin`，但必须逐实例验证恢复结果、插件版本、二进制 SHA 和运行健康。
+
+独立插件包发布与宿主应用发布分开：
+
+```text
+仅 plugins/codex-state 内业务、UI、解析或状态机变化
+  -> 构建并签名 amd64/arm64 插件包
+  -> VM8211 模拟安装/升级/回滚
+  -> 生产显式授权后上传插件包
+  -> 不重建宿主镜像，不新增 release profile
+
+Host API、宿主管理壳、migration、包校验或部署配置变化
+  -> 完整应用 VM Gate
+  -> 发布宿主镜像
+  -> 再安装或升级兼容插件包
+```
+
+生产默认拒绝未签名包。`baiyu.codex-state` 使用宿主内置、仅绑定该插件 ID 的 `baiyu-codex-state-v1` Ed25519 公钥；对应私钥只保留在发布机工作区外，不进入仓库、插件包、VM 或生产服务器，也不能为其他插件签名。升级期间数据库维护锁保留受管范围并停止新受管准入，等待跨实例在途请求排空；失败恢复旧 installation 快照及旧包。首次安装、配置秘密、启用插件和真实采集是四个独立授权边界，上传成功不得自动启用或采集。
 
 ## WebSocket
 

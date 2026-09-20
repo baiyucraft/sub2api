@@ -6,6 +6,7 @@
 - [变更与门禁](#变更与门禁)
 - [代码与镜像](#代码与镜像)
 - [运维资产](#运维资产)
+- [插件包](#插件包)
 - [VM 验证](#vm-验证)
 - [生产备份与恢复点](#生产备份与恢复点)
 - [生产切换与验收](#生产切换与验收)
@@ -32,7 +33,7 @@
 ```text
 task_id:
 release_id: value | not_applicable
-task_type: release | rollback | backup | restore | drill | status | ops-change
+task_type: release | rollback | backup | restore | drill | status | ops-change | plugin-install | plugin-upgrade | plugin-rollback
 started_at:
 finished_at:
 reported_at:
@@ -57,7 +58,7 @@ reconciliation_status: not_required | resumed_candidate | coordinated_restore | 
 ## 变更与门禁
 
 ```text
-change_class: ops-readonly-assets | ops-control-assets | frontend-direct | dev-gated | build-chain
+change_class: ops-readonly-assets | ops-control-assets | plugin-package | frontend-direct | dev-gated | build-chain
 vm_gate_required: true | false
 vm_gate_status: pass | fail | not_required | not_checked
 classification_basis: 最终 diff 的脱敏摘要
@@ -83,7 +84,42 @@ source_load_tag_id_equal: pass | fail | not_checked | not_applicable
 running_candidate_image_id_equal: pass | fail | not_checked | not_applicable
 ```
 
-`not_applicable` 仅允许用于经过证明的 `ops-readonly-assets` 和不涉及应用镜像的 `ops-control-assets`。其他类别不得用它跳过镜像身份。
+`not_applicable` 仅允许用于经过证明的 `ops-readonly-assets`、`plugin-package` 和不涉及应用镜像的 `ops-control-assets`。其他类别不得用它跳过镜像身份。`plugin-package` 必须改填下一节的包身份，不能同时省略镜像和插件包证据。
+
+## 插件包
+
+`plugin-package` 任务必须填写；其他任务可写 `not_applicable`。多实例状态只报告计数、布尔值和摘要，不列出账号、代理、凭据或原始配置。
+
+```text
+plugin_id: value | not_applicable
+plugin_source_commit_sha: 完整 40 位 SHA | not_applicable
+plugin_previous_version: value | not_installed | not_applicable
+plugin_target_version: value | not_applicable
+package_arches: linux-amd64,linux-arm64 | value | not_applicable
+package_sha256: 每个架构的脱敏映射 | not_applicable
+runtime_binary_sha256: 每个架构的脱敏映射 | not_applicable
+signature_algorithm: ed25519 | not_applicable
+signature_key_id: value | not_applicable
+signature_status: trusted | rejected | not_checked | not_applicable
+host_version: value | not_applicable
+host_service_api: value | not_applicable
+host_features_status: pass | fail | not_checked | not_applicable
+compatibility_status: compatible | incompatible | not_checked | not_applicable
+installation_state: disabled | enabled | error | incompatible | not_checked | not_applicable
+runtime_health: pass | fail | not_running | not_checked | not_applicable
+config_revision_preserved: pass | fail | not_applicable | not_checked
+managed_scope_digest: sha256:... | empty | not_applicable | not_checked
+managed_scope_count: value | not_applicable | not_checked
+multi_instance_expected: value | not_applicable | not_checked
+multi_instance_restored: value | not_applicable | not_checked
+multi_instance_restore_status: pass | fail | partial | not_applicable | not_checked
+upgrade_drain_status: pass | fail | not_applicable | not_checked
+automatic_rollback_status: pass | fail | not_required | not_applicable | not_checked
+manual_rollback_status: pass | fail | not_required | not_applicable | not_checked
+plugin_enabled_before: true | false | not_installed | not_applicable | unknown
+plugin_enabled_after: true | false | not_applicable | unknown
+real_collection_performed: true | false | not_applicable | unknown
+```
 
 ## 运维资产
 

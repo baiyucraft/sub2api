@@ -1,0 +1,96 @@
+{
+  "snapshot_date": "2026-09-19",
+  "timezone": "Asia/Shanghai",
+  "subject": {"email": "<REDACTED-EMAIL>", "user_id": "<REDACTED-USER-ID>", "api_key_id": "<REDACTED-KEY-ID>", "api_key_name": "<REDACTED-KEY-NAME>", "group_name": "<REDACTED-GROUP>"},
+  "window": {
+    "requested_from": "2026-09-12T21:57:55+08:00",
+    "requested_to_exclusive": "2026-09-19T21:57:55+08:00",
+    "key_created_at": "2026-09-16T17:10:30+08:00",
+    "fresh_production_query_in_this_round": false
+  },
+  "provenance": {
+    "raw_series_sha256": "c3781b49f5d9ea7e70b164f76b0bcfa18be23ab6d2237fdaff1d3476742fb440",
+    "local_code_head": "a6be2645fffca32a2425d79f822902d7a5aedaff",
+    "historical_production_ttft_mode_verified": false
+  },
+  "sample": {
+    "usage_rows": 48873,
+    "broad_probe_candidates_excluded": 734,
+    "strict_success_proxy_rows": 45548,
+    "recovered_success_proxy_rows": 2368,
+    "strict_filter": "Non-probe, streaming, output>0, 0<TTFT<=duration, no linked error",
+    "strict_is_confirmed_client_completion": false,
+    "ttft_is_client_end_to_end_latency": false,
+    "first_event_time_formula": "usage.created_at-duration+TTFT"
+  },
+  "ttft_seconds": {
+    "strict": {"n": 45548, "p50": 4.3805, "p90": 13.69, "p95": 20.2423, "ge10s": 7337, "ge20s": 2335},
+    "recovered": {"n": 2368, "p50": 9.1355, "p90": 28.7653, "p95": 33.3079},
+    "gpt-6-astra": {"n": 23844, "p50": 5.181, "p90": 15.7592, "p95": 23.1558},
+    "gpt-5.6-sol": {"n": 19300, "p50": 3.843, "p90": 11.075, "p95": 17.0107},
+    "gpt-5.5": {"n": 2401, "p50": 2.89, "p90": 8.126, "p95": 14.797},
+    "codex-auto-review": {"n": 3, "p50": 2.472, "p90": 9.8568, "p95": 10.7799}
+  },
+  "event_method": {
+    "minimum_same_threshold_event_spacing_seconds": 1800,
+    "each_side_window_seconds": 900,
+    "minimum_before_business_arrivals": 10,
+    "exclude_trigger_from_arrivals_and_inflight": true,
+    "different_threshold_cohorts_overlap": true,
+    "traffic_population": "All observed business arrivals with reconstructable start after broad probe exclusion"
+  },
+  "slow_events": [
+    {"threshold_seconds": 10, "selected": 102, "eligible": 94, "median_after_before_ratio": 1.002, "down_at_least_25pct": 24, "up_at_least_25pct": 31, "other": 39},
+    {"threshold_seconds": 20, "selected": 87, "eligible": 80, "median_after_before_ratio": 1.062, "down_at_least_25pct": 23, "up_at_least_25pct": 29, "other": 28},
+    {"threshold_seconds": 30, "selected": 68, "eligible": 66, "median_after_before_ratio": 1.062, "down_at_least_25pct": 14, "up_at_least_25pct": 22, "other": 30},
+    {"threshold_seconds": 60, "selected": 47, "eligible": 45, "median_after_before_ratio": 1.007, "down_at_least_25pct": 8, "up_at_least_25pct": 13, "other": 24}
+  ],
+  "sensitivity": {
+    "ge30s_no_unrecovered_errors": {"eligible": 14, "median_after_before_ratio": 1.202, "down_at_least_25pct": 2, "up_at_least_25pct": 6, "other": 6},
+    "ge30s_descriptively_matched": {"pairs": 53, "slow_median_ratio": 1.050, "fast_median_ratio": 1.097, "median_log_ratio_difference": -0.004, "independent_experiment": false},
+    "ge60s_same_model": {"eligible": 43, "median_after_before_ratio": 0.893, "down_at_least_25pct": 16, "up_at_least_25pct": 11}
+  },
+  "no_unrecovered_error_examples": [
+    {"first_event_local": "2026-09-16T18:05:30+08:00", "model": "gpt-6-astra", "ttft_s": 32.488, "arrivals_before": 307, "arrivals_after": 177, "same_model_before": 180, "same_model_after": 137, "avg_inflight_before": 6.003, "avg_inflight_after": 4.345},
+    {"first_event_local": "2026-09-17T10:38:50+08:00", "model": "gpt-5.6-sol", "ttft_s": 43.720, "arrivals_before": 677, "arrivals_after": 874, "same_model_before": 571, "same_model_after": 701, "avg_inflight_before": 14.350, "avg_inflight_after": 18.546},
+    {"first_event_local": "2026-09-18T15:25:54+08:00", "model": "gpt-6-astra", "ttft_s": 87.249, "arrivals_before": 131, "arrivals_after": 187, "same_model_before": 46, "same_model_after": 118, "avg_inflight_before": 2.934, "avg_inflight_after": 3.692},
+    {"first_event_local": "2026-09-19T00:57:26+08:00", "model": "gpt-6-astra", "ttft_s": 1.992, "arrivals_before": 87, "arrivals_after": 11, "same_model_before": 85, "same_model_after": 11, "avg_inflight_before": 1.511, "avg_inflight_after": 0.520}
+  ],
+  "active_window_correlations": [
+    {"minutes": 5, "n": 555, "spearman_ttft_p50_vs_next_arrival_ratio": -0.0618},
+    {"minutes": 15, "n": 221, "spearman_ttft_p50_vs_next_arrival_ratio": -0.0077}
+  ],
+  "window_15m_bands": [
+    {"ttft_p50": "<3s", "n": 22, "median_next_current_arrivals": 1.2138},
+    {"ttft_p50": "3-5s", "n": 130, "median_next_current_arrivals": 1.0074},
+    {"ttft_p50": "5-10s", "n": 58, "median_next_current_arrivals": 1.0341},
+    {"ttft_p50": ">=10s", "n": 11, "median_next_current_arrivals": 0.8649, "with_unrecovered_error_current_or_next": 11}
+  ],
+  "congestion_example_15m_windows": [
+    {"start_local": "2026-09-18T22:30:00+08:00", "p50_ttft_s": 4.6365, "rpm": 56.733, "avg_inflight": 20.973, "unrecovered_errors": 1},
+    {"start_local": "2026-09-18T22:45:00+08:00", "p50_ttft_s": 10.246, "rpm": 41.467, "avg_inflight": 23.326, "unrecovered_errors": 11},
+    {"start_local": "2026-09-18T23:00:00+08:00", "p50_ttft_s": 11.761, "rpm": 26.8, "avg_inflight": 17.181, "unrecovered_errors": 6},
+    {"start_local": "2026-09-18T23:15:00+08:00", "p50_ttft_s": 3.658, "rpm": 2.4, "avg_inflight": 1.278, "unrecovered_errors": 0}
+  ],
+  "historical_error_context": [
+    {"error_id": 234797, "p50_before_s": 4.9905, "p50_after_s": 3.0435, "p90_before_s": 10.6738, "p90_after_s": 13.0537, "arrivals_before": 536, "arrivals_after": 147, "ttft_n_before": 534, "ttft_n_after": 148, "avg_inflight_before": 13.912, "avg_inflight_after": 3.48},
+    {"error_id": 270142, "p50_before_s": 4.8645, "p50_after_s": 6.653, "p90_before_s": 8.6139, "p90_after_s": 7.894, "arrivals_before": 112, "arrivals_after": 3, "ttft_n_before": 110, "ttft_n_after": 5, "avg_inflight_before": 2.405, "avg_inflight_after": 0.218},
+    {"error_id": 268428, "p50_before_s": 3.736, "p50_after_s": 3.7235, "p90_before_s": 8.0758, "p90_after_s": 9.2705, "arrivals_before": 662, "arrivals_after": 61, "ttft_n_before": 659, "ttft_n_after": 64, "avg_inflight_before": 14.304, "avg_inflight_after": 1.873},
+    {"error_id": 274244, "p50_before_s": 5.32, "p50_after_s": 7.295, "p90_before_s": 13.0896, "p90_after_s": 22.2292, "arrivals_before": 141, "arrivals_after": 62, "ttft_n_before": 137, "ttft_n_after": 63, "avg_inflight_before": 3.769, "avg_inflight_after": 2.715},
+    {"error_id": 274458, "p50_before_s": 5.019, "p50_after_s": 6.1485, "p90_before_s": 22.2745, "p90_after_s": 16.1018, "arrivals_before": 125, "arrivals_after": 59, "ttft_n_before": 106, "ttft_n_after": 48, "avg_inflight_before": 4.535, "avg_inflight_after": 1.673},
+    {"error_id": 230734, "p50_before_s": 3.6275, "p50_after_s": 4.2345, "p90_before_s": 11.1415, "p90_after_s": 10.1, "arrivals_before": 263, "arrivals_after": 233, "ttft_n_before": 256, "ttft_n_after": 236, "avg_inflight_before": 5.516, "avg_inflight_after": 5.425}
+  ],
+  "conclusion": "未发现固定首字阈值决定加减量；持续慢首字与错误拥堵混杂，不能据此还原对方调配算法，也不能断言首字完全无影响。",
+  "limits": [
+    "仅本站分得流量，缺少整体需求、其他供应商流量和路由权重。",
+    "首字为系统记录指标；前置排队、外层换号和客户端感知不完整。",
+    "成功代理样本不逐条证明客户端收到完整响应；usage可能包含部分流。",
+    "并发为区间重叠估算，不是实际配置上限；首字事件时点存在异步记账误差。",
+    "描述性匹配窗口可能重叠，时序样本不独立，不同阈值队列不能相加。",
+    "无错误仅指无相应已记录错误；未恢复错误筛选包括客户端取消记录。",
+    "历史错误状态可能为流内业务状态，不保证等于wire HTTP状态。",
+    "截至2026-09-19 21:57:55的右删失，不推断之后零流量。"
+  ],
+  "production_modified": false,
+  "business_code_modified": false
+}
