@@ -26,6 +26,9 @@ def load_plugin_api():
 class FakeRunner:
     def __init__(self, values: dict[str, str]) -> None:
         self.values = values
+        self.servers = {
+            "local_vm": {"host": "192.168.31.199"},
+        }
         self.uploads: list[tuple[str, Path, str, int]] = []
         self.sensitive_calls: list[dict[str, object]] = []
 
@@ -129,6 +132,19 @@ class PluginAPIContractTest(unittest.TestCase):
         self.assertEqual(
             payload["base_urls"],
             ["http://127.0.0.1:18081/api/v1", "http://127.0.0.1:18080/api/v1"],
+        )
+
+    def test_vm_base_url_uses_the_configured_ssh_host(self) -> None:
+        module = load_plugin_api()
+        client = module.PluginAPIClient(FakeRunner(result_values()))
+
+        self.assertEqual(
+            client._base_urls("local_vm"),
+            ["http://192.168.31.199:8211/api/v1"],
+        )
+        self.assertEqual(
+            client._base_urls("vm"),
+            ["http://192.168.31.199:8211/api/v1"],
         )
 
     def test_uncertain_write_is_reported_without_a_second_write_attempt(self) -> None:

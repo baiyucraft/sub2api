@@ -33,6 +33,8 @@ python .agents/skills/sub2api-production-deploy/scripts/release.py plugin-rollba
 
 插件 runner 从 `.ssh.local` 的 `plugin_signing.private_key` 与 `plugin_signing.key_id` 读取签名身份；Codex STATE 的 key ID 固定为 `baiyu-codex-state-v1`，私钥及其派生公钥必须匹配宿主内置且只绑定该插件 ID 的信任根，并且私钥必须位于工作区和 `.tmp/plugin-releases` 之外。从 `plugin_admin.vm.api_key` 与 `plugin_admin.production.api_key` 读取管理员 API Key。后台 worker 自动完成 VM 和生产 loopback 管理 API 操作，API Key 仅通过不落 raw log 的 SSH stdin 传入；`plugin-authorize` 仅用于兼容恢复旧版停在写检查点的 release。生产端先校验 `/opt/sub2api/active-app` 并优先操作当前 active slot；VM 升级前按旧版本和 runtime binary SHA 精确匹配、重新验签回滚包。首次安装不启用插件，升级保持原状态和受管范围。
 
+VM 插件管理 API 地址从 `.ssh.local` 的 `servers.local_vm.host` 解析，固定访问该主机的 `8211/api/v1`；不能使用 VM 自身的 `127.0.0.1:8211` 假设，因为 `sub2api-dev` 可能只通过 LAN 监听而没有 Docker host port binding。生产仍在 RackNerd 内按 active/standby loopback 端口解析，不受该规则影响。
+
 仅用于本地 VM `sub2api-dev:8211` 展示的隔离入口：
 
 ```text
