@@ -620,6 +620,32 @@ func TestCNAdaptiveProbeOptionalAnthropicFailureDoesNotFailAccount(t *testing.T)
 	require.Len(t, upstream.requests, 2)
 }
 
+func TestCNAdaptiveProbeUsesUpstreamBoundRelayForResponses(t *testing.T) {
+	upstream := &upstreamHealthProbeHTTPStub{}
+	configID, keyID := int64(10), int64(20)
+	account := &Account{ID: 923, Platform: PlatformDeepseek, Type: AccountTypeAPIKey, Concurrency: 1,
+		UpstreamConfigID: &configID, UpstreamKeyID: &keyID,
+		Credentials: map[string]any{
+			"api_key":      "secret",
+			"api_protocol": APIProtocolAdaptive,
+			"base_url":     "https://relay.example/v1",
+			"api_base_urls": map[string]any{
+				APIProtocolResponses: DefaultDeepseekBaseURL,
+			},
+			"model_mapping": map[string]any{"probe-model": "deepseek-v4-pro"},
+		},
+	}
+	svc := &AccountTestService{httpUpstream: upstream, cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}}}
+
+	result, err := svc.RunUpstreamHealthProbe(context.Background(), account, "probe-model")
+
+	require.NoError(t, err)
+	require.Equal(t, "success", result.Result)
+	require.Len(t, upstream.requests, 1)
+	require.Equal(t, "relay.example", upstream.requests[0].URL.Host)
+	require.Equal(t, "/v1/responses", upstream.requests[0].URL.Path)
+}
+
 func TestCNAdaptiveProbeReturnsConcreteFailingProtocol(t *testing.T) {
 	upstream := &adaptiveProbeFallbackStub{}
 	account := &Account{ID: 921, Platform: PlatformKimi, Type: AccountTypeAPIKey, Concurrency: 1, Credentials: map[string]any{

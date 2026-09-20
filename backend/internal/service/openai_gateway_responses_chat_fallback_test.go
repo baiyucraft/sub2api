@@ -60,6 +60,86 @@ func TestForwardResponses_ForceChatCompletionsRoutesNonStreamingToChatCompletion
 	require.False(t, result.Stream)
 }
 
+func TestForwardResponses_UpstreamBoundAdaptiveUnknownUsesRelayChatCompletions(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"deepseek-v4-flash","input":"hello","stream":false}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body: io.NopCloser(strings.NewReader(
+			`{"id":"chatcmpl_bound","object":"chat.completion","model":"deepseek-v4-flash","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}`,
+		)),
+	}}
+	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+	configID, keyID := int64(10), int64(20)
+	account := &Account{
+		ID: 202, Name: "bound-deepseek", Platform: PlatformDeepseek, Type: AccountTypeAPIKey, Concurrency: 1,
+		UpstreamConfigID: &configID, UpstreamKeyID: &keyID,
+		Credentials: map[string]any{
+			"api_key":       "relay-key",
+			"base_url":      "http://relay.example/v1",
+			"api_protocol":  APIProtocolAdaptive,
+			"model_mapping": map[string]any{"deepseek-v4-flash": "deepseek-v4-flash"},
+		},
+	}
+
+	result, err := svc.Forward(context.Background(), c, account, body)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "http://relay.example/v1/chat/completions", upstream.lastReq.URL.String())
+	require.Equal(t, "hello", gjson.GetBytes(upstream.lastBody, "messages.0.content").String())
+	require.Equal(t, "ok", gjson.Get(rec.Body.String(), "output.0.content.0.text").String())
+}
+
+func TestForwardResponses_UpstreamBoundAdaptiveUnknownPreservesCustomTools(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"deepseek-v4-flash","input":"fix it","stream":false,"tools":[{"type":"custom","name":"exec"}]}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body: io.NopCloser(strings.NewReader(
+			`{"id":"chatcmpl_bound_tools","object":"chat.completion","model":"deepseek-v4-flash","choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":"exec","arguments":"{\"input\":\"pwd\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}`,
+		)),
+	}}
+	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+	configID, keyID := int64(11), int64(21)
+	account := &Account{
+		ID: 203, Name: "bound-deepseek-tools", Platform: PlatformDeepseek, Type: AccountTypeAPIKey, Concurrency: 1,
+		UpstreamConfigID: &configID, UpstreamKeyID: &keyID,
+		Credentials: map[string]any{
+			"api_key":       "relay-key",
+			"base_url":      "http://relay.example/v1",
+			"api_protocol":  APIProtocolAdaptive,
+			"model_mapping": map[string]any{"deepseek-v4-flash": "deepseek-v4-flash"},
+		},
+	}
+
+	result, err := svc.Forward(context.Background(), c, account, body)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "http://relay.example/v1/chat/completions", upstream.lastReq.URL.String())
+	require.Equal(t, "function", gjson.GetBytes(upstream.lastBody, "tools.0.type").String())
+	require.Equal(t, "exec", gjson.GetBytes(upstream.lastBody, "tools.0.function.name").String())
+	require.Equal(t, "string", gjson.GetBytes(upstream.lastBody, "tools.0.function.parameters.properties.input.type").String())
+	require.Equal(t, "custom_tool_call", gjson.Get(rec.Body.String(), "output.0.type").String())
+	require.Equal(t, "exec", gjson.Get(rec.Body.String(), "output.0.name").String())
+	require.Equal(t, "pwd", gjson.Get(rec.Body.String(), "output.0.input").String())
+}
+
 // Scenario: 第三方无推理模型不收到兼容档位。
 func TestForwardResponses_ForceChatCompletionsOmitsNoneReasoningEffort(t *testing.T) {
 	gin.SetMode(gin.TestMode)
