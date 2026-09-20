@@ -148,6 +148,16 @@ def write_package(operation, installation_id, path):
     return request(primary, endpoint, "POST", raw=body, content_type=content_type, timeout=120)[1]
 
 def error_class(error):
+    payload_text = json.dumps(error.payload, sort_keys=True, separators=(",", ":")).lower()
+    for marker, category in (
+        ("signature", "signature_validation"),
+        ("manifest", "manifest_validation"),
+        ("compatib", "compatibility_validation"),
+        ("duplicate", "duplicate_installation"),
+        ("trust", "publisher_trust"),
+    ):
+        if marker in payload_text:
+            return category
     if error.status in (401, 403):
         return "authorization"
     if error.status in (413,):
