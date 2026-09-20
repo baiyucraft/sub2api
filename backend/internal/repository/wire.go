@@ -104,6 +104,7 @@ var ProviderSet = wire.NewSet(
 	NewUpstreamAuthSessionRepository,
 	NewPluginRepository,
 	NewPluginKVStore,
+	NewPluginRuntimeStateStore,
 	NewChannelRepository,
 	NewChannelMonitorRepository,
 	NewChannelMonitorV2Repository,

@@ -78,6 +78,20 @@ func newOpenAIWSUnsupportedModelSwitchError(model string) error {
 }
 
 func shouldReportOpenAIWSProxyAccountFailure(err error) bool {
+	var admissionErr *service.PluginAdmissionError
+	if errors.As(err, &admissionErr) {
+		return false
+	}
+	var failoverErr *service.UpstreamFailoverError
+	if errors.As(err, &failoverErr) && !failoverErr.ShouldReportAccountScheduleFailure() {
+		return false
+	}
+	// Native connections close locally when a plugin starts managing the account.
+	var closeErr *service.OpenAIWSClientCloseError
+	if errors.As(err, &closeErr) && closeErr.StatusCode() == coderws.StatusTryAgainLater &&
+		closeErr.Reason() == "Account plugin policy changed; reconnect to use HTTP bridge" {
+		return false
+	}
 	return err != nil && !errors.Is(err, errOpenAIWSUnsupportedModelSwitch) && !service.IsOpenAIWSSessionPreemptedError(err)
 }
 
@@ -689,7 +703,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 				zap.Error(openAICompatibleSelectionErrorForLog(err, requestPlatform)),
 				zap.Int("excluded_account_count", len(failedAccountIDs)),
 			)
-			if len(failedAccountIDs) == 0 {
+			if len(failedAccountIDs) == 0 || (lastFailoverErr != nil && lastFailoverErr.PluginAdmissionRejected) {
 				if legacyCompact && errors.Is(err, service.ErrNoAvailableCompactAccounts) {
 					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
 					h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "compact_not_supported", "No available accounts support /responses/compact", streamStarted)
@@ -899,7 +913,9 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 						return
 					}
 					if !openAIForwardMayFailover(c, writerSizeBeforeForward, failoverErr) {
-						h.gatewayService.ObserveOpenAIAccountHealthFailure(c.Request.Context(), account, err)
+						if !failoverErr.PluginAdmissionRejected {
+							h.gatewayService.ObserveOpenAIAccountHealthFailure(c.Request.Context(), account, err)
+						}
 						h.handleFailoverExhausted(c, failoverErr, true)
 						return
 					}
@@ -914,6 +930,11 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 					if !failoverErr.ShouldRetryNextAccount() {
 						h.handleFailoverExhausted(c, failoverErr, streamStarted)
 						return
+					}
+					if failoverErr.PluginAdmissionRejected {
+						failedAccountIDs[account.ID] = struct{}{}
+						lastFailoverErr = failoverErr
+						continue
 					}
 					if openAIFirstOutputFailoverExhausted(failoverErr, &firstOutputTimeoutSwitchCount) {
 						h.handleFailoverExhausted(c, failoverErr, streamStarted)
@@ -1338,7 +1359,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 				zap.Error(openAICompatibleSelectionErrorForLog(err, requestPlatform)),
 				zap.Int("excluded_account_count", len(failedAccountIDs)),
 			)
-			if len(failedAccountIDs) == 0 {
+			if len(failedAccountIDs) == 0 || (lastFailoverErr != nil && lastFailoverErr.PluginAdmissionRejected) {
 				if err != nil {
 					cls := classifyOpenAICompatibleNoAccountErrorFromGin(c, h.gatewayService, apiKey, currentRoutingModel, reqModel)
 					if !cls.ModelNotFound {
@@ -1492,7 +1513,9 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 						return
 					}
 					if c.Writer.Size() != writerSizeBeforeForward {
-						h.gatewayService.ObserveOpenAIAccountHealthFailure(c.Request.Context(), account, err)
+						if !failoverErr.PluginAdmissionRejected {
+							h.gatewayService.ObserveOpenAIAccountHealthFailure(c.Request.Context(), account, err)
+						}
 						h.handleAnthropicFailoverExhausted(c, failoverErr, true)
 						return
 					}
@@ -1502,6 +1525,11 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 					if !failoverErr.ShouldRetryNextAccount() {
 						h.handleAnthropicFailoverExhausted(c, failoverErr, streamStarted)
 						return
+					}
+					if failoverErr.PluginAdmissionRejected {
+						failedAccountIDs[account.ID] = struct{}{}
+						lastFailoverErr = failoverErr
+						continue
 					}
 					// 池模式：同账号重试
 					if failoverErr.RetryableOnSameAccount {
@@ -2935,7 +2963,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	var oauth429FailoverState service.OpenAIOAuth429FailoverState
 	wsAttemptMessage := append([]byte(nil), firstMessage...)
 	waitForWSSameAccountRetry := func(account *service.Account, failoverErr *service.UpstreamFailoverError) bool {
-		if account == nil || failoverErr == nil || failoverErr.StatusCode != http.StatusTooManyRequests || failoverErr.SameAccountRetryDeadline.IsZero() {
+		if account == nil || failoverErr == nil || failoverErr.PluginAdmissionRejected || failoverErr.StatusCode != http.StatusTooManyRequests || failoverErr.SameAccountRetryDeadline.IsZero() {
 			return false
 		}
 		retryLimit := effectiveSameAccountRetryLimit(failoverErr, account)
@@ -2973,6 +3001,11 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		}
 		if ctx.Err() != nil {
 			return false
+		}
+		if failoverErr.PluginAdmissionRejected {
+			failedAccountIDs[account.ID] = struct{}{}
+			lastFailoverErr = failoverErr
+			return ensureUserSlotHeld()
 		}
 		if switchCount >= maxAccountSwitches {
 			h.closeOpenAIWSFailoverExhausted(c, wsConn, failoverErr)
@@ -3043,7 +3076,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				zap.Error(openAICompatibleSelectionErrorForLog(err, requestPlatform)),
 				zap.Int("excluded_account_count", len(failedAccountIDs)),
 			)
-			if lastFailoverErr != nil {
+			if lastFailoverErr != nil && !lastFailoverErr.PluginAdmissionRejected {
 				h.closeOpenAIWSFailoverExhausted(c, wsConn, lastFailoverErr)
 			} else {
 				closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "no available account")
@@ -3051,7 +3084,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			return
 		}
 		if selection == nil || selection.Account == nil {
-			if lastFailoverErr != nil {
+			if lastFailoverErr != nil && !lastFailoverErr.PluginAdmissionRejected {
 				h.closeOpenAIWSFailoverExhausted(c, wsConn, lastFailoverErr)
 			} else {
 				closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "no available account")
@@ -3501,6 +3534,19 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				wsAttemptMessage = nextAttemptMessage
 				if retryCurrentTurn {
 					previousResponseID = ""
+					// Reselection must admit the current turn's model, including when a
+					// plugin starts managing that model after the connection was opened.
+					if model := strings.TrimSpace(gjson.GetBytes(retryPayload, "model").String()); model != "" {
+						reqModel = model
+					}
+					channelMappingWS, _ = h.gatewayService.ResolveChannelMappingAndRestrict(ctx, apiKey.GroupID, reqModel)
+					wsForwardModel = openAIChannelForwardModel(channelMappingWS, reqModel)
+					imageIntent = service.IsExplicitImageGenerationIntent("/v1/responses", reqModel, retryPayload)
+					requiredCapability = service.OpenAIEndpointCapabilityChatCompletions
+					if imageIntent && requestPlatform == service.PlatformOpenAI {
+						requiredCapability = service.OpenAIEndpointCapabilityResponses
+					}
+					ctx = service.WithGatewayInputTokenEstimate(ctx, service.EstimateGatewayInputTokens(retryPayload, "responses"))
 					reqLog.Warn("openai.websocket_current_turn_failover_retry",
 						zap.Int64("account_id", account.ID),
 						zap.Int("upstream_status", failoverErr.StatusCode),
@@ -4147,7 +4193,7 @@ func openAIForwardMayFailover(c *gin.Context, writerSizeBeforeForward int, failo
 	if service.OpenAICompactKeepaliveAdjustedWrittenSize(c) == writerSizeBeforeForward {
 		return true
 	}
-	return failoverErr != nil && failoverErr.SafeToFailoverAfterWrite
+	return failoverErr != nil && !failoverErr.PluginAdmissionRejected && failoverErr.SafeToFailoverAfterWrite
 }
 
 func openAIRequestAllowsFailoverReplay(c *gin.Context) bool {

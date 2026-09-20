@@ -7,6 +7,8 @@ export interface PluginCapability {
 }
 
 export interface PluginRequirements {
+  host_service_api?: number
+  host_features?: string[]
   sub2api: string
   recommended_sub2api_version?: string
   tested_sub2api_versions?: string[]
@@ -24,7 +26,12 @@ export interface PluginManifest {
   author?: string
   requires: PluginRequirements
   capabilities: PluginCapability[]
+  config_secrets?: string[]
   ui: { entrypoint: string }
+}
+
+export interface PluginConfig extends Record<string, unknown> {
+  _host_secrets?: Record<string, boolean>
 }
 
 export interface PluginCompatibility {
@@ -91,6 +98,32 @@ export interface PluginUISession {
   expires_at: string
 }
 
+export interface PluginResources {
+  accounts: Array<{
+    id: number
+    name: string
+    platform: string
+    account_type: string
+    group_ids: number[]
+    business_egress_configured: boolean
+  }>
+  groups: Array<{ id: number; name: string }>
+  proxies: Array<{ id: number; name: string; protocol: string; host: string; port: number }>
+}
+
+export interface PluginActionRequest {
+  action_id: string
+  name: string
+  payload: Record<string, unknown>
+}
+
+export interface PluginActionResult {
+  action_id: string
+  accepted: boolean
+  status: string
+  result?: unknown
+}
+
 export async function list(): Promise<PluginInstallation[]> {
   const { data } = await apiClient.get<PluginInstallation[]>('/admin/plugins')
   return data
@@ -103,6 +136,26 @@ export async function upload(file: File): Promise<PluginInstallation> {
     headers: { 'Content-Type': 'multipart/form-data' },
     timeout: 120000
   })
+  return data
+}
+
+export async function upgrade(id: number, file: File): Promise<PluginInstallation> {
+  const form = new FormData()
+  form.append('plugin', file)
+  const { data } = await apiClient.post<PluginInstallation>(`/admin/plugins/${id}/upgrade`, form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 120000
+  })
+  return data
+}
+
+export async function resources(id: number): Promise<PluginResources> {
+  const { data } = await apiClient.get<PluginResources>(`/admin/plugins/${id}/resources`)
+  return data
+}
+
+export async function action(id: number, request: PluginActionRequest): Promise<PluginActionResult> {
+  const { data } = await apiClient.post<PluginActionResult>(`/admin/plugins/${id}/actions`, request)
   return data
 }
 
@@ -127,16 +180,21 @@ export async function remove(id: number): Promise<void> {
   await apiClient.delete(`/admin/plugins/${id}`)
 }
 
-export async function getConfig(id: number): Promise<Record<string, unknown>> {
-  const { data } = await apiClient.get<Record<string, unknown>>(`/admin/plugins/${id}/config`)
+export async function getConfig(id: number): Promise<PluginConfig> {
+  const { data } = await apiClient.get<PluginConfig>(`/admin/plugins/${id}/config`)
   return data
 }
 
 export async function saveConfig(
   id: number,
   config: Record<string, unknown>
-): Promise<Record<string, unknown>> {
-  const { data } = await apiClient.put<Record<string, unknown>>(`/admin/plugins/${id}/config`, config)
+): Promise<PluginConfig> {
+  const { data } = await apiClient.put<PluginConfig>(`/admin/plugins/${id}/config`, config)
+  return data
+}
+
+export async function saveSecrets(id: number, values: Record<string, string>): Promise<PluginConfig> {
+  const { data } = await apiClient.put<PluginConfig>(`/admin/plugins/${id}/config/secrets`, { values })
   return data
 }
 
@@ -158,11 +216,15 @@ export async function createUISession(id: number): Promise<PluginUISession> {
 export default {
   list,
   upload,
+  upgrade,
+  resources,
+  action,
   enable,
   disable,
   remove,
   getConfig,
   saveConfig,
+  saveSecrets,
   test,
   status,
   createUISession

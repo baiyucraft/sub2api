@@ -27,6 +27,25 @@ ui/assets/...
 - `plugin_protocol`：进程握手协议。
 - `transport_api`：请求和响应帧协议。
 - `ui_bridge`：配置 UI 消息协议。
+- `host_service_api`：可选最低宿主服务 API，当前支持 1 和 2；省略保持旧插件兼容。
+- `host_features`：可选必需功能列表；宿主逐项核验，不能把未支持的功能当作可选提示。
+
+新 Scoped 插件的 `requires` 可声明：
+
+```json
+{
+  "sub2api": ">=0.1.179 <0.2.0",
+  "plugin_protocol": 1,
+  "transport_api": 1,
+  "ui_bridge": 1,
+  "host_service_api": 2,
+  "host_features": ["scoped-routing.v1", "admission.v1", "resources.v1", "actions.v1", "state-cas.v1", "leases.v1", "oauth-like.v1"]
+}
+```
+
+版本范围只是示例，发布者必须改成实际验证过的范围，并只保留真正需要的 features。Schema 允许将来增加的正整数 API 版本和功能名称；能否运行由宿主能力检查决定。
+
+`account_type` 支持 `oauth` 和 `setup-token`。声明后者必须同时在 `requires.host_features` 包含 `oauth-like.v1`；旧 OAuth 清单无需新增字段，API Key 和其他平台仍不在这项 capability 内。
 
 ## 签名
 

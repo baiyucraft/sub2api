@@ -175,6 +175,15 @@ output/
 .vite/
 # 本地闭源插件开发目录及构建产物不进入 Sub2API 仓库
 /plugins/
+!/plugins/
+/plugins/*
+!/plugins/codex-state/
+!/plugins/codex-state/scripts/
+!/plugins/codex-state/scripts/**
+!/plugins/codex-state/ui/tests/
+!/plugins/codex-state/ui/tests/**
+!/plugins/codex-state/ui/scripts/
+!/plugins/codex-state/ui/scripts/**
 
 # AstrBot 插件的纯单元测试属于本仓库交付物
 !astrbot/tests/

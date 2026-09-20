@@ -94,6 +94,9 @@ func (s *OpenAIGatewayService) buildOpenAIWSHeaders(
 	}
 
 	sessionResolution := resolveOpenAIWSSessionHeaders(c, promptCacheKey)
+	if err := s.checkOpenAIPluginNativeTurn(account); err != nil {
+		return nil, sessionResolution, err
+	}
 	if c != nil && c.Request != nil {
 		if v := strings.TrimSpace(c.Request.Header.Get("accept-language")); v != "" {
 			headers.Set("accept-language", v)
@@ -140,9 +143,6 @@ func (s *OpenAIGatewayService) buildOpenAIWSHeaders(
 	}
 	if state := strings.TrimSpace(turnState); state != "" {
 		headers.Set(openAIWSTurnStateHeader, state)
-	}
-	if err := s.applyOpenAICodexTicket(ctx, account, routingModel, headers); err != nil {
-		return nil, sessionResolution, err
 	}
 	if metadata := strings.TrimSpace(turnMetadata); metadata != "" {
 		headers.Set(openAIWSTurnMetadataHeader, metadata)

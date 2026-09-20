@@ -777,8 +777,6 @@ func ProvideOpenAIGatewayService(
 	settingService *SettingService,
 	userPlatformQuotaRepo UserPlatformQuotaRepository,
 	policyService *GroupTTFTGuardPolicyService,
-	lockCache LeaderLockCache,
-	db *sql.DB,
 ) *OpenAIGatewayService {
 	gateway := NewOpenAIGatewayService(
 		accountRepo,
@@ -804,7 +802,6 @@ func ProvideOpenAIGatewayService(
 		settingService,
 		userPlatformQuotaRepo,
 	)
-	gateway.SetCodexTicketHarvestLockBackends(lockCache, db)
 	gateway.SetOpenAIProxyGroupRepositories(proxyIPGroupRepo, proxyRepo)
 	gateway.SetGroupTTFTGuardPolicyResolver(policyService)
 	policyService.SetRuntimeInvalidator(gateway.InvalidateGroupTTFTGuardRuntime)
@@ -1166,8 +1163,8 @@ func ProvideAPIKeyService(
 	return svc
 }
 
-// ProvidePluginManager wires optional plugin host services to the shared
-// OpenAI account directory before any plugin runtime can start.
+// ProvidePluginManager wires host account and durable state services before
+// any plugin runtime can start.
 func ProvidePluginManager(
 	repo PluginRepository,
 	encryptor SecretEncryptor,
@@ -1175,9 +1172,11 @@ func ProvidePluginManager(
 	hostInfo PluginHostInfo,
 	kvStore PluginKVStore,
 	accountDirectory PluginAccountDirectory,
+	stateStore PluginStateStore,
 ) *PluginManager {
 	manager := NewPluginManager(repo, encryptor, cfg, hostInfo, kvStore)
 	manager.SetAccountDirectory(accountDirectory)
+	manager.SetStateStore(stateStore)
 	return manager
 }
 

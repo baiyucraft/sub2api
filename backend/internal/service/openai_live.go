@@ -148,7 +148,7 @@ func (s *OpenAIGatewayService) CreateLiveCall(
 	// 防御性装门按文本 D 过滤 Live 账号池且门与计费时刻不同源。
 	ctx = WithOpenAIProfitControlSuppressed(ctx)
 	var lastErr error
-	for attempt := 0; attempt <= 3; attempt++ {
+	for attempt := 0; attempt <= 3; {
 		selection, _, selectErr := s.SelectAccountWithSchedulerForCapability(
 			ctx,
 			identity.GroupID,
@@ -197,9 +197,19 @@ func (s *OpenAIGatewayService) CreateLiveCall(
 		selection.ReleaseFunc()
 		if createErr != nil {
 			s.releaseLiveTargetLease(concurrencyTarget, account.ID, identity.UserID, identity.APIKeyID, leaseID)
+			var failoverErr *UpstreamFailoverError
+			if errors.As(createErr, &failoverErr) && failoverErr.PluginAdmissionRejected {
+				if ctx.Err() != nil || !failoverErr.ShouldRetryNextAccount() {
+					return nil, createErr
+				}
+				excluded[account.ID] = struct{}{}
+				lastErr = createErr
+				continue
+			}
 			if !s.shouldFailoverLiveCreateError(account, createErr) {
 				return nil, createErr
 			}
+			attempt++
 			excluded[account.ID] = struct{}{}
 			lastErr = createErr
 			continue
@@ -303,9 +313,16 @@ func (s *OpenAIGatewayService) createUpstreamLiveCall(
 	upstreamReq.Header.Set("Accept", "application/sdp")
 	upstreamReq.Header.Set(liveAttestationHeader, attestation)
 	applyLiveUpstreamIdentityHeaders(upstreamReq.Header)
+	if err := s.preparePluginRequest(ctx, account, openAILivePluginModel(request.Session), upstreamReq); err != nil {
+		return nil, err
+	}
 
 	resp, err := s.doOpenAIUpstream(upstreamReq, resolveAccountProxyURL(account), account)
 	if err != nil {
+		var admissionErr *PluginAdmissionError
+		if errors.As(err, &admissionErr) {
+			return nil, s.handleOpenAIUpstreamTransportError(ctx, nil, account, err, false)
+		}
 		logLiveCreateStageFailure(ctx, account.ID, "upstream_transport", err)
 		return nil, err
 	}
@@ -334,6 +351,25 @@ func (s *OpenAIGatewayService) createUpstreamLiveCall(
 		CallID:   callID,
 		Location: resp.Header.Get("Location"),
 	}, nil
+}
+
+// Ambiguous or absent session models remain unknown to scoped admission.
+func openAILivePluginModel(session json.RawMessage) string {
+	model := ""
+	modelFields := 0
+	gjson.ParseBytes(session).ForEach(func(key, value gjson.Result) bool {
+		if strings.EqualFold(key.String(), "model") {
+			modelFields++
+			if key.String() == "model" && value.Type == gjson.String {
+				model = strings.TrimSpace(value.String())
+			}
+		}
+		return true
+	})
+	if modelFields != 1 {
+		return ""
+	}
+	return model
 }
 
 func logLiveCreateStageFailure(ctx context.Context, accountID int64, stage string, err error) {

@@ -503,17 +503,18 @@ func TestOpenAIGatewayService_TTFTGuardFailOpenKeepsOnlyAccount(t *testing.T) {
 	}
 }
 
-func TestOpenAIGatewayService_TTFTGuardFailOpenStillHonorsCodexTicketStrictGate(t *testing.T) {
+func TestOpenAIGatewayService_TTFTGuardFailOpenStillHonorsPluginStrictGate(t *testing.T) {
 	ctx := context.Background()
 	groupID := int64(100)
-	account := *ticketTestAccount(11)
+	account := Account{ID: 11, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive}
 	account.Schedulable = true
 	account.Concurrency = 1
 	account.Priority = 2
 	account.GroupIDs = []int64{groupID}
 	svc := &OpenAIGatewayService{
 		accountRepo:        schedulerTestOpenAIAccountRepo{accounts: []Account{account}},
-		cfg:                &config.Config{Gateway: config.GatewayConfig{OpenAICodexTicket: config.OpenAICodexTicketConfig{Enabled: true}}},
+		cfg:                &config.Config{},
+		pluginManager:      newUnavailableScopedGatewayPlugin(account.ID, "managed-model"),
 		rateLimitService:   newOpenAIAdvancedSchedulerRateLimitService("true"),
 		concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{}),
 	}
@@ -521,9 +522,9 @@ func TestOpenAIGatewayService_TTFTGuardFailOpenStillHonorsCodexTicketStrictGate(
 		return enabledOpenAITTFTGuardConfig(20*time.Second, 5)
 	}))
 	critical := 60_000
-	svc.ReportOpenAIAccountScheduleResultForGroup(&groupID, &account, openAICodexTicketDefaultModel, true, &critical)
+	svc.ReportOpenAIAccountScheduleResultForGroup(&groupID, &account, "managed-model", true, &critical)
 
-	selection, _, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "", openAICodexTicketDefaultModel, nil, OpenAIUpstreamTransportAny, false)
+	selection, _, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "", "managed-model", nil, OpenAIUpstreamTransportAny, false)
 	require.ErrorIs(t, err, ErrNoAvailableAccounts)
 	require.Nil(t, selection)
 }

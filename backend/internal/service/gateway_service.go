@@ -700,6 +700,7 @@ type GatewayFailureReason string
 // trigger account failover. Additive metadata keeps existing composite literals
 // source-compatible and preserves their legacy retry-next-account behavior.
 type UpstreamFailoverError struct {
+	PluginAdmissionRejected  bool // Pre-send request-local exclusion; not an upstream attempt.
 	StatusCode               int
 	ResponseBody             []byte        // 上游响应体，用于错误透传规则匹配
 	ResponseHeaders          http.Header   // 上游响应头，用于透传 cf-ray/cf-mitigated/content-type 等诊断信息
@@ -739,7 +740,7 @@ func (e *UpstreamFailoverError) IsCredentialFailure() bool {
 // BindOriginAccount attaches the selected physical account to a failover
 // error while the handler still owns that routing identity.
 func (e *UpstreamFailoverError) BindOriginAccount(account *Account) {
-	if e == nil || account == nil {
+	if e == nil || e.PluginAdmissionRejected || account == nil {
 		return
 	}
 	e.OriginAccountID = account.ID
@@ -750,14 +751,14 @@ func (e *UpstreamFailoverError) BindOriginAccount(account *Account) {
 // IsUpstreamBoundRateLimit is deliberately narrow: local user, API-key and
 // concurrency limits do not produce UpstreamFailoverError and never match it.
 func (e *UpstreamFailoverError) IsUpstreamBoundRateLimit() bool {
-	return e != nil && e.StatusCode == http.StatusTooManyRequests && e.OriginUpstreamBound
+	return e != nil && !e.PluginAdmissionRejected && e.StatusCode == http.StatusTooManyRequests && e.OriginUpstreamBound
 }
 
 // ShouldReportAccountScheduleFailure prevents provider- and request-scoped
 // credential failures from being misattributed to the selected account. Legacy
 // and inference failures retain their existing scheduler-health behavior.
 func (e *UpstreamFailoverError) ShouldReportAccountScheduleFailure() bool {
-	if e == nil {
+	if e == nil || e.PluginAdmissionRejected {
 		return false
 	}
 	return !e.IsCredentialFailure() || e.Scope == GatewayFailureScopeAccount

@@ -3,6 +3,21 @@ export default {
     title: '插件管理',
     description: '安装和管理独立运行的 OAuth 出站传输插件。API Key 流程不受影响。',
     upload: '安装插件',
+    upgrade: '升级',
+    upgradeSuccess: '插件升级成功',
+    minimumSDK: '宿主最低能力',
+    sdkRequirements: '协议 {plugin_protocol} / 传输 {transport_api} / UI Bridge {ui_bridge}',
+    actionUnavailable: '插件运行时才可执行操作',
+    bridgeRequestFailed: '插件请求失败，请刷新状态后再重试。',
+    secretsTitle: '{name} 凭据',
+    secretConfigured: '已配置',
+    secretNotConfigured: '未配置',
+    secretOperation: '操作',
+    secretKeep: '保留当前值',
+    secretReplace: '替换',
+    secretClear: '清空',
+    secretsLoadFailed: '无法读取凭据配置状态，请关闭弹窗后重试。',
+    secretsSaveFailed: '凭据保存失败，请关闭弹窗并核对当前状态后再重试。',
     uploadHint: '仅接受 .s2plugin 包；默认要求可信发布者签名。',
     runtimeNotice: '插件安装、启用、停用和配置由 Sub2API 宿主动态处理，通常不需要重启宿主实例。只有宿主版本或宿主配置本身变化时，才按部署方式执行重启。',
     menuNotice: '系统设置中的“插件管理”开关仅控制侧边栏菜单显示，不会停止已经加载或正在运行的插件。',
@@ -45,6 +60,6 @@ export default {
     fileRequired: '请选择 .s2plugin 文件',
     bridgeRejected: '插件 UI 消息校验失败',
     onlyOpenAI: '初期能力：仅 OpenAI OAuth 出站传输',
-    noAccountCoupling: '作用域为平台与账号类型，不修改账号数据，也不需要在账号页逐个开启。'
+    noAccountCoupling: '插件配置独立管理，账号凭据保持隔离。'
   }
 }

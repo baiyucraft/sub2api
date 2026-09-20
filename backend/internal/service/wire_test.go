@@ -8,6 +8,18 @@ import (
 	"github.com/zeromicro/go-zero/core/collection"
 )
 
+func TestProvidePluginManagerInjectsStateStore(t *testing.T) {
+	store := &struct{ PluginStateStore }{}
+	directory := &struct{ PluginAccountDirectory }{}
+	manager := ProvidePluginManager(nil, nil, nil, PluginHostInfo{}, nil, directory, store)
+	if manager.stateStore != store {
+		t.Fatal("plugin manager did not receive the durable state store")
+	}
+	if manager.accountDirectory != directory {
+		t.Fatal("plugin manager did not receive the account directory")
+	}
+}
+
 func TestProvideTimingWheelService_ReturnsError(t *testing.T) {
 	original := newTimingWheel
 	t.Cleanup(func() { newTimingWheel = original })

@@ -18,6 +18,7 @@ const (
 	PluginCapabilityOpenAIOAuthOutbound = "openai.oauth.outbound_transport.v1"
 	PluginStateDisabled                 = "disabled"
 	PluginStateStarting                 = "starting"
+	PluginStateUpgrading                = "upgrading"
 	PluginStateEnabled                  = "enabled"
 	PluginStateError                    = "error"
 	PluginStateIncompatible             = "incompatible"
@@ -42,9 +43,12 @@ type PluginManifest struct {
 	Runtimes      map[string]PluginRuntime `json:"runtimes"`
 	UI            PluginUIManifest         `json:"ui"`
 	Files         map[string]string        `json:"files"`
+	ConfigSecrets []string                 `json:"config_secrets,omitempty"`
 }
 
 type PluginRequirements struct {
+	HostServiceAPI            int      `json:"host_service_api,omitempty"`
+	HostFeatures              []string `json:"host_features,omitempty"`
 	Sub2API                   string   `json:"sub2api"`
 	RecommendedSub2APIVersion string   `json:"recommended_sub2api_version,omitempty"`
 	TestedSub2APIVersions     []string `json:"tested_sub2api_versions,omitempty"`
@@ -88,30 +92,52 @@ type PluginCompatibility struct {
 }
 
 type PluginInstallation struct {
-	ID              int64               `json:"id"`
-	PluginKey       string              `json:"plugin_key"`
-	Name            string              `json:"name"`
-	Version         string              `json:"version"`
-	Description     string              `json:"description"`
-	Author          string              `json:"author"`
-	Manifest        PluginManifest      `json:"manifest"`
-	ArtifactData    []byte              `json:"-"`
-	ArtifactPath    string              `json:"-"`
-	InstallPath     string              `json:"-"`
-	BinaryPath      string              `json:"-"`
-	BinarySHA256    string              `json:"binary_sha256"`
-	SignatureStatus string              `json:"signature_status"`
-	State           string              `json:"state"`
-	ConfigEncrypted string              `json:"-"`
-	LastError       string              `json:"last_error"`
-	InstalledBy     *int64              `json:"installed_by"`
-	InstalledAt     time.Time           `json:"installed_at"`
-	EnabledAt       *time.Time          `json:"enabled_at"`
-	UpdatedAt       time.Time           `json:"updated_at"`
-	Bindings        []PluginBinding     `json:"bindings"`
-	Compatibility   PluginCompatibility `json:"compatibility"`
-	RuntimeHealthy  bool                `json:"runtime_healthy"`
-	RuntimeMessage  string              `json:"runtime_message"`
+	ConfigRevision  uint64                `json:"config_revision"`
+	ManagedScope    []PluginManagedTarget `json:"managed_scope,omitempty"`
+	ID              int64                 `json:"id"`
+	PluginKey       string                `json:"plugin_key"`
+	Name            string                `json:"name"`
+	Version         string                `json:"version"`
+	Description     string                `json:"description"`
+	Author          string                `json:"author"`
+	Manifest        PluginManifest        `json:"manifest"`
+	ArtifactData    []byte                `json:"-"`
+	ArtifactPath    string                `json:"-"`
+	InstallPath     string                `json:"-"`
+	BinaryPath      string                `json:"-"`
+	BinarySHA256    string                `json:"binary_sha256"`
+	SignatureStatus string                `json:"signature_status"`
+	State           string                `json:"state"`
+	ConfigEncrypted string                `json:"-"`
+	LastError       string                `json:"last_error"`
+	InstalledBy     *int64                `json:"installed_by"`
+	InstalledAt     time.Time             `json:"installed_at"`
+	EnabledAt       *time.Time            `json:"enabled_at"`
+	UpdatedAt       time.Time             `json:"updated_at"`
+	Bindings        []PluginBinding       `json:"bindings"`
+	Compatibility   PluginCompatibility   `json:"compatibility"`
+	RuntimeHealthy  bool                  `json:"runtime_healthy"`
+	RuntimeMessage  string                `json:"runtime_message"`
+}
+
+// A nil scope is a legacy transport; an empty scope manages no requests.
+type PluginManagedTarget struct {
+	AccountID int64    `json:"account_id"`
+	Models    []string `json:"models"`
+}
+
+type PluginScopeRepository interface {
+	UpdateScopedConfig(ctx context.Context, id int64, encrypted, expectedBinarySHA256 string, expectedRevision uint64, scope []PluginManagedTarget) (uint64, error)
+	UpgradePackage(ctx context.Context, previous, replacement *PluginInstallation) error
+}
+
+// Request guards serialize admission with maintenance across all host instances.
+// A crashed host leaves a guard behind: an upgrade must abort rather than assume
+// that a possibly sent upstream request has finished.
+type PluginRequestGuardRepository interface {
+	BeginPluginRequest(ctx context.Context, id int64, sha string, revision uint64, requestID string) error
+	EndPluginRequest(ctx context.Context, id int64, requestID string) error
+	PluginRequestsInFlight(ctx context.Context, id int64) (int64, error)
 }
 
 type PluginBinding struct {
@@ -145,6 +171,25 @@ func (m PluginManifest) RuntimeKey() string {
 }
 
 func (m PluginManifest) Validate() error {
+	return m.validateForRuntime(m.RuntimeKey())
+}
+
+// Explicit targets are used by offline package checks; installation always
+// calls Validate and therefore requires the current process platform.
+func (m PluginManifest) validateForRuntime(runtimeKey string) error {
+	if len(m.ConfigSecrets) > 32 {
+		return errors.New("too many secret configuration fields")
+	}
+	seenSecrets := map[string]bool{}
+	if len(m.ConfigSecrets) > 0 && !pluginRequiresFeature(m, "config-secrets.v1") {
+		return errors.New("secret fields require config-secrets.v1")
+	}
+	for _, field := range m.ConfigSecrets {
+		if !isValidPluginKVSegment(field, 128) || field == "_host_secrets" || seenSecrets[field] {
+			return errors.New("invalid secret configuration field")
+		}
+		seenSecrets[field] = true
+	}
 	if m.SchemaVersion != 1 {
 		return fmt.Errorf("不支持的插件清单版本: %d", m.SchemaVersion)
 	}
@@ -168,14 +213,18 @@ func (m PluginManifest) Validate() error {
 	if len(m.Capabilities) == 0 {
 		return errors.New("插件必须声明至少一个能力")
 	}
+	if err := validatePluginHostRequirements(m.Requires); err != nil {
+		return err
+	}
 	for _, capability := range m.Capabilities {
-		if capability.ID != PluginCapabilityOpenAIOAuthOutbound || capability.Platform != PlatformOpenAI || capability.AccountType != AccountTypeOAuth {
+		allowedType := capability.AccountType == AccountTypeOAuth || (capability.AccountType == AccountTypeSetupToken && pluginRequiresFeature(m, "oauth-like.v1"))
+		if capability.ID != PluginCapabilityOpenAIOAuthOutbound || capability.Platform != PlatformOpenAI || !allowedType {
 			return fmt.Errorf("初期仅支持能力 %s", PluginCapabilityOpenAIOAuthOutbound)
 		}
 	}
-	runtimeEntry, ok := m.Runtimes[m.RuntimeKey()]
+	runtimeEntry, ok := m.Runtimes[runtimeKey]
 	if !ok || !safePluginRelativePath(runtimeEntry.Path) {
-		return fmt.Errorf("插件不支持当前运行平台 %s", m.RuntimeKey())
+		return fmt.Errorf("插件不支持当前运行平台 %s", runtimeKey)
 	}
 	if !safePluginRelativePath(m.UI.Entrypoint) || !strings.HasPrefix(m.UI.Entrypoint, "ui/") {
 		return errors.New("插件 UI 入口必须位于 ui/ 目录")
@@ -193,6 +242,34 @@ func (m PluginManifest) Validate() error {
 	}
 	if _, ok := m.Files[m.UI.Entrypoint]; !ok {
 		return errors.New("UI 入口未包含在文件哈希声明中")
+	}
+	return nil
+}
+
+func pluginRequiresFeature(manifest PluginManifest, feature string) bool {
+	for _, required := range manifest.Requires.HostFeatures {
+		if required == feature {
+			return true
+		}
+	}
+	return false
+}
+
+func validatePluginHostRequirements(required PluginRequirements) error {
+	if required.HostServiceAPI < 0 || required.HostServiceAPI > pluginv1.HostServiceAPIVersion {
+		return errors.New("插件需要更新的宿主服务 SDK")
+	}
+	for _, feature := range required.HostFeatures {
+		found := false
+		for _, supported := range pluginv1.HostFeatures {
+			if feature == supported {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("宿主不支持插件能力: %s", feature)
+		}
 	}
 	return nil
 }

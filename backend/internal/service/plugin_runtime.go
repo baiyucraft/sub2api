@@ -26,13 +26,16 @@ import (
 )
 
 type pluginRuntime struct {
-	installation *PluginInstallation
-	client       *hcplugin.Client
-	api          pluginv1.TransportPluginClient
-	inFlight     atomic.Int64
-	draining     atomic.Bool
-	done         chan struct{}
-	doneOnce     sync.Once
+	installation   *PluginInstallation
+	client         *hcplugin.Client
+	api            pluginv1.TransportPluginClient
+	inFlight       atomic.Int64
+	draining       atomic.Bool
+	exited         atomic.Bool
+	staged         atomic.Bool
+	requests       pluginRequestRegistry
+	scopedConfigMu sync.Mutex
+	scopedConfig   atomic.Pointer[pluginScopedConfig]
 }
 
 func startPluginRuntime(ctx context.Context, installation *PluginInstallation, startTimeout time.Duration, socketDir string, hostServices pluginv1.HostServiceServer) (*pluginRuntime, error) {
@@ -80,7 +83,14 @@ func startPluginRuntime(ctx context.Context, installation *PluginInstallation, s
 		installation: installation,
 		client:       client,
 		api:          api,
-		done:         make(chan struct{}),
+	}
+	go runtime.watchProcessExit()
+	if hostServices != nil {
+		wrapper := &pluginRequestHostServiceServer{HostServiceServer: hostServices, runtime: runtime}
+		if server, ok := hostServices.(*pluginHostServiceServer); ok {
+			wrapper.repository = server.runtimeAuthorityRepo
+		}
+		hostServices = wrapper
 	}
 	infoCtx, cancel := context.WithTimeout(ctx, startTimeout)
 	defer cancel()
@@ -104,7 +114,10 @@ func startPluginRuntime(ctx context.Context, installation *PluginInstallation, s
 	}
 	// 可选地把宿主服务（HostService）反向暴露给插件。这是叠加在传输契约之上的能力：
 	// 老插件不实现 InitHostServices（返回 Unimplemented），此处静默跳过，绝不阻断启动。
-	offerPluginHostServices(ctx, installation, api, transportClient.Broker, hostServices, startTimeout)
+	if err := offerPluginHostServices(ctx, installation, api, transportClient.Broker, hostServices, startTimeout); err != nil {
+		runtime.kill()
+		return nil, err
+	}
 	return runtime, nil
 }
 
@@ -119,9 +132,13 @@ func offerPluginHostServices(
 	broker *hcplugin.GRPCBroker,
 	hostServices pluginv1.HostServiceServer,
 	startTimeout time.Duration,
-) {
+) error {
+	required := installation != nil && (installation.Manifest.Requires.HostServiceAPI > 1 || len(installation.Manifest.Requires.HostFeatures) > 0)
 	if broker == nil || hostServices == nil || api == nil {
-		return
+		if required {
+			return errors.New("required plugin host services unavailable")
+		}
+		return nil
 	}
 	brokerID := broker.NextId()
 	go broker.AcceptAndServe(brokerID, func(opts []grpc.ServerOption) *grpc.Server {
@@ -133,23 +150,33 @@ func offerPluginHostServices(
 	defer cancel()
 	resp, err := api.InitHostServices(initCtx, &pluginv1.InitHostServicesRequest{
 		HostServiceId:         brokerID,
-		HostServiceApiVersion: pluginv1.HostServiceAPIVersion,
+		HostServiceApiVersion: pluginHostServiceVersion(installation),
+		HostFeatures:          pluginv1.HostFeatures,
 	})
 	pluginKey := ""
 	if installation != nil {
 		pluginKey = installation.PluginKey
 	}
 	if err != nil {
+		if required {
+			return errors.New("required plugin host services handshake failed")
+		}
 		if status.Code(err) == codes.Unimplemented {
 			slog.Debug("plugin_host_services_unimplemented", "plugin", pluginKey)
 		} else {
 			slog.Warn("plugin_host_services_init_failed", "plugin", pluginKey, "error", err)
 		}
-		return
+		return nil
+	}
+	if resp == nil || !resp.Ready {
+		if required {
+			return errors.New("plugin declined required host services")
+		}
 	}
 	if resp != nil && !resp.Ready {
 		slog.Debug("plugin_host_services_declined", "plugin", pluginKey, "message", resp.Message)
 	}
+	return nil
 }
 
 func (r *pluginRuntime) validateAndApplyConfig(ctx context.Context, configJSON []byte) error {
@@ -231,11 +258,11 @@ func (r *pluginRuntime) status(ctx context.Context) (*pluginv1.HealthResponse, e
 }
 
 func (r *pluginRuntime) beginRequest() bool {
-	if r == nil || r.draining.Load() {
+	if r == nil || r.draining.Load() || r.exited.Load() {
 		return false
 	}
 	r.inFlight.Add(1)
-	if r.draining.Load() {
+	if r.draining.Load() || r.exited.Load() {
 		r.finishRequest()
 		return false
 	}
@@ -243,9 +270,7 @@ func (r *pluginRuntime) beginRequest() bool {
 }
 
 func (r *pluginRuntime) finishRequest() {
-	if r.inFlight.Add(-1) == 0 && r.draining.Load() {
-		r.doneOnce.Do(func() { close(r.done) })
-	}
+	r.inFlight.Add(-1)
 }
 
 func (r *pluginRuntime) drain(timeout time.Duration) {
@@ -253,14 +278,19 @@ func (r *pluginRuntime) drain(timeout time.Duration) {
 		return
 	}
 	r.draining.Store(true)
-	if r.inFlight.Load() == 0 {
-		r.doneOnce.Do(func() { close(r.done) })
-	}
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
-	select {
-	case <-r.done:
-	case <-timer.C:
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	// Rollback may resume this runtime; a one-shot channel cannot represent
+	// the next drain generation after new requests have been admitted.
+	for r.inFlight.Load() > 0 {
+		select {
+		case <-ticker.C:
+		case <-timer.C:
+			r.kill()
+			return
+		}
 	}
 	r.kill()
 }
@@ -268,20 +298,37 @@ func (r *pluginRuntime) drain(timeout time.Duration) {
 func (r *pluginRuntime) kill() {
 	if r != nil && r.client != nil {
 		r.client.Kill()
+		if r.client.Exited() {
+			r.confirmProcessExit()
+		}
 	}
 }
 
 func (r *pluginRuntime) roundTrip(ctx context.Context, request *http.Request, proxyURL string, account *Account) (*http.Response, error) {
+	requestID, guarded := ctx.Value(pluginCompletionRequestIDKey{}).(string)
+	if guarded && !r.requests.contains(requestID) {
+		return nil, errors.New("plugin request completion registration unavailable")
+	}
 	if request == nil || request.URL == nil || account == nil {
+		if guarded {
+			r.requests.complete(requestID)
+		}
 		return nil, errors.New("插件出站请求参数不完整")
 	}
 	streamCtx, cancel := context.WithCancel(ctx)
 	stream, err := r.api.Forward(streamCtx)
 	if err != nil {
 		cancel()
+		// No Start frame was sent, so the plugin cannot own this request.
+		if guarded {
+			r.requests.complete(requestID)
+		}
 		return nil, normalizePluginRPCError(ctx, "创建插件转发流", err, false)
 	}
-	requestID := strconv.FormatInt(time.Now().UnixNano(), 36) + "-" + strconv.FormatInt(account.ID, 36)
+	if !guarded {
+		requestID = strconv.FormatInt(time.Now().UnixNano(), 36) + "-" + strconv.FormatInt(account.ID, 36)
+	}
+	metadata, _ := ctx.Value(pluginRequestMetadataKey{}).(pluginRequestMetadata)
 	if err := stream.Send(&pluginv1.ForwardRequest{Frame: &pluginv1.ForwardRequest_Start{Start: &pluginv1.ForwardRequestStart{
 		RequestId:          requestID,
 		Method:             request.Method,
@@ -295,6 +342,9 @@ func (r *pluginRuntime) roundTrip(ctx context.Context, request *http.Request, pr
 		AccountType:        account.Type,
 		ContentLength:      request.ContentLength,
 		HasBody:            request.Body != nil && request.Body != http.NoBody,
+		OutboundModel:      metadata.Model,
+		IdentityRevision:   metadata.IdentityRevision,
+		ConfigRevision:     metadata.ConfigRevision,
 	}}}); err != nil {
 		cancel()
 		// gRPC Send 返回错误时无法证明服务端没有收到元数据，必须禁止自动重放。
@@ -335,12 +385,18 @@ func (r *pluginRuntime) roundTrip(ctx context.Context, request *http.Request, pr
 		}
 	}
 	pipeReader, pipeWriter := io.Pipe()
+	finishBody := r.finishRequest
+	var confirmEnd func()
+	if guarded {
+		finishBody = func() {}
+		confirmEnd = func() { r.requests.complete(requestID) }
+	}
 	body := &pluginResponseBody{
 		reader: pipeReader,
 		cancel: cancel,
-		done:   r.finishRequest,
+		done:   finishBody,
 	}
-	go receivePluginResponseBody(stream, pipeWriter, sendErr)
+	go receivePluginResponseBody(stream, pipeWriter, sendErr, confirmEnd)
 	return &http.Response{
 		Status:        start.Status,
 		StatusCode:    int(start.StatusCode),
@@ -352,6 +408,13 @@ func (r *pluginRuntime) roundTrip(ctx context.Context, request *http.Request, pr
 		ContentLength: start.ContentLength,
 		Request:       request,
 	}, nil
+}
+
+func pluginHostServiceVersion(installation *PluginInstallation) uint32 {
+	if installation != nil && installation.Manifest.Requires.HostServiceAPI > 1 {
+		return pluginv1.HostServiceAPIVersion
+	}
+	return 1
 }
 
 type PluginTransportError struct {
@@ -413,7 +476,7 @@ func sendPluginRequestBody(stream pluginv1.TransportPlugin_ForwardClient, body i
 	return stream.CloseSend()
 }
 
-func receivePluginResponseBody(stream pluginv1.TransportPlugin_ForwardClient, writer *io.PipeWriter, sendErr <-chan error) {
+func receivePluginResponseBody(stream pluginv1.TransportPlugin_ForwardClient, writer *io.PipeWriter, sendErr <-chan error, confirmEnd func()) {
 	defer func() { _ = writer.Close() }()
 	for {
 		frame, err := stream.Recv()
@@ -431,6 +494,11 @@ func receivePluginResponseBody(stream pluginv1.TransportPlugin_ForwardClient, wr
 			continue
 		}
 		if frame.GetEnd() != nil {
+			// End is a completion acknowledgement, not just HTTP EOF. Plugins
+			// must finish request-owned state writes before emitting this frame.
+			if confirmEnd != nil {
+				confirmEnd()
+			}
 			select {
 			case err := <-sendErr:
 				if err != nil {

@@ -18,6 +18,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	pluginv1 "github.com/Wei-Shaw/sub2api/pkg/pluginapi/v1"
 	"github.com/gin-gonic/gin"
 )
 
@@ -78,6 +79,86 @@ func (h *PluginHandler) Upload(c *gin.Context) {
 		return
 	}
 	response.Created(c, plugin)
+}
+
+func (h *PluginHandler) Upgrade(c *gin.Context) {
+	id, ok := pluginIDParam(c)
+	if !ok {
+		return
+	}
+	maxBytes := h.manager.MaxUploadBytes()
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBytes+(1<<20))
+	defer func() {
+		if c.Request.MultipartForm != nil {
+			_ = c.Request.MultipartForm.RemoveAll()
+		}
+	}()
+	file, header, err := c.Request.FormFile("plugin")
+	if err != nil {
+		response.BadRequest(c, "请选择有效的 .s2plugin 文件")
+		return
+	}
+	defer func() { _ = file.Close() }()
+	if header.Size > maxBytes || !strings.HasSuffix(strings.ToLower(header.Filename), ".s2plugin") {
+		response.BadRequest(c, "插件包扩展名或大小无效")
+		return
+	}
+	var installedBy *int64
+	if subject, ok := middleware.GetAuthSubjectFromContext(c); ok && subject.UserID > 0 {
+		userID := subject.UserID
+		installedBy = &userID
+	}
+	plugin, err := h.manager.Upgrade(c.Request.Context(), id, file, installedBy)
+	if err != nil {
+		response.BadRequest(c, "插件升级失败")
+		return
+	}
+	response.Success(c, plugin)
+}
+
+func (h *PluginHandler) Resources(c *gin.Context) {
+	id, ok := pluginIDParam(c)
+	if !ok {
+		return
+	}
+	resources, err := h.manager.Resources(c.Request.Context(), id)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, resources)
+}
+
+type pluginActionRequest struct {
+	ActionID string          `json:"action_id"`
+	Name     string          `json:"name"`
+	Payload  json.RawMessage `json:"payload"`
+}
+
+func (h *PluginHandler) RunAction(c *gin.Context) {
+	id, ok := pluginIDParam(c)
+	if !ok {
+		return
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(c.Writer, c.Request.Body, service.PluginActionMaxPayloadBytes+4096))
+	decoder.DisallowUnknownFields()
+	var request pluginActionRequest
+	if err := decoder.Decode(&request); err != nil {
+		response.BadRequest(c, "插件动作参数无效")
+		return
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		response.BadRequest(c, "插件动作只能包含一个 JSON 对象")
+		return
+	}
+	result, err := h.manager.RunAction(c.Request.Context(), id, &pluginv1.RunActionRequest{
+		ActionId: request.ActionID, Name: request.Name, PayloadJson: request.Payload,
+	})
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, result)
 }
 
 type pluginEnableRequest struct {
@@ -181,6 +262,32 @@ func (h *PluginHandler) Test(c *gin.Context) {
 		return
 	}
 	response.Success(c, result)
+}
+
+func (h *PluginHandler) SaveConfigSecrets(c *gin.Context) {
+	id, ok := pluginIDParam(c)
+	if !ok {
+		return
+	}
+	var input struct {
+		Values map[string]string `json:"values"`
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(c.Writer, c.Request.Body, 256*1024))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&input); err != nil {
+		response.BadRequest(c, "invalid secret field update")
+		return
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		response.BadRequest(c, "invalid secret field update")
+		return
+	}
+	saved, err := h.manager.SaveConfigSecrets(c.Request.Context(), id, input.Values)
+	if err != nil {
+		response.BadRequest(c, "plugin secret configuration update failed")
+		return
+	}
+	c.Data(http.StatusOK, "application/json; charset=utf-8", saved)
 }
 
 // Status returns the plugin's passive runtime status for the config UI. It is

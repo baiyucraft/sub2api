@@ -138,7 +138,8 @@ type FailoverState struct {
 	// SwitchCount 也不前进的活锁。清空后必须把它们放回排除集。
 	profitVetoedAccountIDs map[int64]struct{}
 	// profitVetoCount 本次请求累计的利润否决次数，用于 maxProfitVetoAttempts 上限。
-	profitVetoCount int
+	profitVetoCount          int
+	pluginRejectedAccountIDs map[int64]struct{}
 }
 
 // NewFailoverState 创建 failover 状态
@@ -206,6 +207,14 @@ func (s *FailoverState) HandleFailoverError(
 	s.LastFailoverErr = failoverErr
 	if failoverErr == nil || !failoverErr.ShouldRetryNextAccount() {
 		return FailoverExhausted
+	}
+	if failoverErr.PluginAdmissionRejected {
+		if s.pluginRejectedAccountIDs == nil {
+			s.pluginRejectedAccountIDs = make(map[int64]struct{})
+		}
+		s.pluginRejectedAccountIDs[accountID] = struct{}{}
+		s.FailedAccountIDs[accountID] = struct{}{}
+		return FailoverContinue
 	}
 
 	// 同账号重试不算切换账号，粘性会话仅在实际切换时强制缓存计费。
@@ -280,6 +289,9 @@ func (s *FailoverState) HandleSelectionExhausted(ctx context.Context) FailoverAc
 	if ctx.Err() != nil {
 		return FailoverCanceled
 	}
+	if s.LastFailoverErr != nil && s.LastFailoverErr.PluginAdmissionRejected {
+		return FailoverExhausted
+	}
 
 	if s.LastFailoverErr != nil &&
 		s.LastFailoverErr.StatusCode == http.StatusServiceUnavailable &&
@@ -312,6 +324,9 @@ func (s *FailoverState) HandleSelectionExhausted(ctx context.Context) FailoverAc
 		// 利润门否决的账号不参与退避重试的解除：判定依据（冻结的下游倍率）在
 		// 同一请求内不变，放它们回池只会被再次否决。
 		for id := range s.profitVetoedAccountIDs {
+			s.FailedAccountIDs[id] = struct{}{}
+		}
+		for id := range s.pluginRejectedAccountIDs {
 			s.FailedAccountIDs[id] = struct{}{}
 		}
 		return FailoverContinue

@@ -1,107 +1,81 @@
 ---
-title: Codex STATE 票据
-description: 账号级 STATE 采集、三模型隔离、生命周期和来源边界
+title: Codex STATE 独立插件
+description: 独立包、账号模型票据、严格准入和维护更新边界
 updated: 2026-09-20
 owner: project
 ---
 
-# Codex STATE 票据
+# Codex STATE 独立插件
 
-本页记录 `openai-codex-state-tickets` 的长期维护合同。它区分直接合入的 PR 基线与 fork 独立增强，避免后续同步 upstream 或参考项目时误删、重复实现或引入许可证污染。
+`baiyu.codex-state` 位于 `plugins/codex-state/`，独立版本从 `0.1.0` 开始。宿主仍为 `0.2.7-baiyu`。插件默认关闭，不读取或迁移旧 STATE 配置、票据，不自动采集真实账号。
 
-## 来源与维护归属
+## 维护归属
 
-| 来源 | 固定点 | 本项目采用方式 |
+- 宿主只提供通用资源/身份/代理解析、`AdmitBatch`、流式 `Forward`、`RunAction`、加密持久状态、CAS 和租约；不包含模型名单、套餐块数、续期或打票业务。
+- 插件拥有采集、实际模型复验、严格 envelope、active/ready、watchdog、三模型配置和管理 UI。`core.Engine` 负责生命周期，`core.Guard` 绑定账号、模型、配置代次和身份；RPC 适配器不把这些业务类型引入宿主。
+- 在清单声明的 SDK 能力范围内，更新插件包即可更新业务；引入新的宿主能力必须先更新宿主。
+- 当前仅绑定一个出站插件，不建立插件链。
+
+## 来源
+
+| 来源 | 固定基线 | 采用方式 |
 | --- | --- | --- |
-| [Sub2API PR #7315](https://github.com/Wei-Shaw/sub2api/pull/7315) | head `3c2f05c957b4b93866318ec8695fc5a28fff70eb`；merge `49a39b6dc1abed30fd227611e8af1108bc427610` | 在既有 turn-state 转发与来源守卫上增加后台票据采集、存储、注入和模型门控基线；由 #7338 父历史带入，不重复合并 |
-| [Sub2API PR #7338](https://github.com/Wei-Shaw/sub2api/pull/7338) | head `09e112fb4997be666b10da48c3b5f65fb8d8b53b`；fork merge `a6be2645fffca32a2425d79f822902d7a5aedaff` | 账号级配置、动态代理采集、固定代理复验、持久化和 watchdog；普通 merge 保留作者与父历史 |
-| [`ccodex-sleep-state`](https://github.com/gylive/ccodex-sleep-state/tree/26b22196bf68b372d0daad9381f686a3321068d4) | `26b22196bf68b372d0daad9381f686a3321068d4` | #7338 原始设计参考点 |
-| [`ccodex-sleep-state`](https://github.com/gylive/ccodex-sleep-state/commit/b18fabf9ad8e9d7af7d9d0306b623ba6091a39d6) | `b18fabf9ad8e9d7af7d9d0306b623ba6091a39d6` | 2026-09-19 设计复核点，用于理解严格 envelope、不可变快照和 active/ready 状态机 |
+| Sub2API PR #7315 | head `3c2f05c957b4b93866318ec8695fc5a28fff70eb`；merge `49a39b6dc1abed30fd227611e8af1108bc427610` | 既有 STATE 基础；由 #7338 父历史带入 |
+| Sub2API PR #7338 | head `09e112fb4997be666b10da48c3b5f65fb8d8b53b`；fork merge `a6be2645fffca32a2425d79f822902d7a5aedaff` | 保留已合入作者与提交历史；本次迁移业务所有权 |
+| ccodex-sleep-state | `b18fabf9ad8e9d7af7d9d0306b623ba6091a39d6` / v0.4.0 | 严格 envelope、双票据和故障分类的设计参考；GPL，不复制实现或依赖 |
+| sub2api-codex-turn-state | `c8e5483e06ab9de199c3848d9d46fccfc063f88a` / v0.1.6 | 插件生命周期、任务取消和被动状态设计参考 |
+| sub2api-state-kit | 审阅源码 `9f2d20ba7db0f76a558ce2c28eefb20128eae562`；发布 v0.3.4 单独记录 | 包格式、界面、资源目录和动作设计参考；不把源码 SHA 冒充发布包身份 |
 
-参考项目采用 GPL-3.0，本项目采用 LGPL-3.0-or-later。fork 只借鉴公开机制和状态机思想，在现有 Sub2API service/repository/scheduler 边界内独立实现；不得复制参考项目整文件、函数实现或引入其实现依赖。代码注释、Wiki 和审计登记必须持续保留两个参考 commit，便于后续比较其设计变化。
+#7338 原始参考点 `26b22196bf68b372d0daad9381f686a3321068d4` 保留为历史来源。完整许可、采用机制、未采用行为与测试映射以插件 `sources.lock.json` 和 `THIRD_PARTY_NOTICES.md` 为准。
 
-PR #7338 尚未成为当前官方正式版本的 upstream 能力，因此 `openai-codex-state-tickets` 归属 `fork`。未来若官方合入相关 PR，应按功能域逐项核对，不得仅凭 PR 号相同就删除本 fork 的多模型、状态机、锁和客户端优先级增强。
+## 配置与状态
 
-### 已审查但未采用的参考行为
+管理员在插件页集中管理账号/分组筛选、Astra/Sol/Terra 独立开关及 Pro/Team 套餐、动态采集代理、拨号代理、票据状态、冷却和手动动作。保存停用草稿、查询资源、Health、配置校验都不触发采集；插件启用后才启动已开启任务。
 
-- 不接管本机 Codex 配置、CCS/profile 或参考项目的本地 Web 面板。
-- 不引入订阅导入、代理节点池、节点生命周期或独立随机出口管理。
-- 不采用纯内存 STATE；本项目继续使用私有 `accounts.extra` 快照。
-- 不因模型不匹配改写或拦截正式业务响应正文；watchdog 只观察完整响应。
-- 不采用参考项目的 `on_demand/standby` 用户刷新策略、本地 API-key relay 或单用户服务模型。
-- 不实现原生上游 WebSocket STATE 管理、账号暂停/恢复编排或本地配置恢复。
+每个账号、实际出站模型、配置代次、ChatGPT 身份对应唯一逻辑票据槽。代理 ID、URL、代理组成员不进入票据所有权，更换出口不销毁票据。账号身份改变则隔离旧票据。配置 revision 和受管账号/模型范围由宿主一次提交，插件不能通过陈旧配置绕过新准入。
 
-## 分层结构
+状态经宿主写入 PostgreSQL 加密表，插件没有数据库或 Redis 凭据。删除保留 tombstone 版本以防 CAS ABA；采集与变更使用数据库时钟租约和持锁代次；过期持有者不能覆盖新结果。旧 Redis KV API 不变，STATE 不使用它作为权威存储。
 
-```text
-全局网关开关与共享采集代理
-                ↓
-账号级 OAuth/setup-token 显式启用
-                ↓
-账号 + 规范出站模型 + 配置 revision + ChatGPT 身份
-                ↓
-active / ready / strikes / cooldown / immutable version
-                ↓
-客户端 STATE 优先级守卫 + strict 调度门控
-```
+## 生命周期
 
-全局开关只允许采集器运行，不自动启用任何账号。账号配置按 `gpt-6-astra`、`gpt-5.6-sol`、`gpt-5.6-terra` 三个规范出站模型隔离；模型映射后的实际出站模型决定票据域，不能按用户请求别名共用票据。
+- 严格 Base64 URL-safe envelope、版本、内部签发时间和密文块数校验；Pro 10 块、Team 12 块。格式正确仍须实际模型复验。
+- 内部签发时间起一小时 TTL，未来时间最多容忍 30 秒，最后 30 秒不分配新请求，提前十分钟续期。
+- 每轮最多八次采集，失败冷却五分钟。续期失败不能延长旧票有效期。
+- 新票先进入 ready；active 失效、不可用或同版本连续两次异常才晋升，不覆盖仍健康的 active。
+- watchdog 只观察完整成功响应。仅 2xx 头、EOF、不完整 SSE 都不算完成；正常目标模型响应清零 strikes。完成事件后的状态记账使用独立的有界收尾上下文。
+- 迟到响应只能影响其实际使用的 active 版本；任务取消、配置变化、身份变化和租约代次共同防止旧任务覆盖。
 
-旧单模型 `{enabled, model, ticket_plan}` 只作为读取兼容格式。首次显式保存后转换为模型映射；升级不能自动开启新增模型。
+## 客户端与出口
 
-## active / ready 生命周期
+宿主先运行已有客户端 `x-codex-turn-state` 来源守卫：已知跨账号票据剥离，同账号及守卫允许保留的客户端值优先；插件仅在缺失时注入 active。正式请求不改响应正文、不自动重放。
 
-- `active` 是新请求可读取的不可变快照；请求完成后的观察只能回报它实际使用的版本。
-- `ready` 是已经通过动态代理采集和账号业务出口复验的候选，不得在健康 active 仍可用时立即覆盖。
-- active 过期、不可用或同版本连续两次异常后，才允许晋升 ready。
-- 迟到旧响应、旧采集任务和旧配置 revision 不得作废或覆盖新版本。
-- 续期失败保留仍有效的 active，但不得延长原签发时间对应的有效期。
+动态代理负责采集，业务代理负责复验。单代理账号使用该代理；代理组按稳定可用成员顺序复验，任一成员成功即可发布账号级票据，组内共享，不创建每代理票据槽。正式转发必须使用宿主已经取得两级并发槽并选定的出口，插件不得更换出口。无可用业务出口时 strict 阻断。
 
-票据必须执行严格 Base64 URL-safe envelope 解析，校验版本字节、内部签发时间、密文块数和时间窗口。Pro 预期 10 个密文块，Team 预期 12 个密文块；292/332 仅是运营观察长度，不是唯一合法性依据。票据从内部签发时间起有效一小时，未来签发时间最多容忍 30 秒时钟偏差，最后 30 秒不再分配给新请求，提前十分钟续期。
+## 准入、停用与升级
 
-## 客户端 STATE 优先级
+- 按渠道、账号和 compact 映射后的实际出站模型准入，普通候选、粘性和回退均受约束，发送前再次验证。
+- 拒绝只排除当前请求的账号/模型，不扣上游错误重试预算，不改变账号健康、调度状态、计费或优先级。
+- 未受管账号/模型不依赖插件在线。明确停用恢复普通请求并保留配置、状态。
+- 插件崩溃、重启、升级保留受管范围并 strict；不得借用停用流程让维护窗口静默放行。
+- 专用升级接口验证签名、SDK 和插件 ID，保留旧包及状态，跨实例停止新受管准入并排空在途，失败恢复旧包。请求守卫异常残留不会被假定已经结束：升级应中止，由管理员核实旧实例和请求后恢复维护。
+- 配置切换或升级过程中，已可能发送到上游的业务请求不重放。
 
-出站处理顺序固定为：
+## 接口与秘密保护
 
-1. 客户端 STATE 已知由当前账号铸造时原样保留。
-2. 客户端 STATE 已知来自其他账号时剥离，防止 failover 后跨账号回放。
-3. 请求没有可用客户端 STATE 时，才注入当前账号和实际出站模型的 active。
-4. 显式启用的账号/模型没有 active 时执行 strict 阻断，只排除该账号/模型组合。
+- 管理入口使用 `/api/v1/admin/plugins/:id` 下 `config`、`status`、`resources`、`actions` 和 `upgrade`。
+- `GET /api/v1/admin/plugins/:id/resources` 只返回脱敏目录；`POST /api/v1/admin/plugins/:id/actions` 执行显式幂等操作。
+- `PUT /api/v1/admin/plugins/:id/config/secrets` 仅由宿主可信表单编辑签名清单声明的秘密字段。iframe 普通配置只收到空值和 configured 布尔标志，不接收代理凭据。
+- `plugin.resources` 和 `plugin.action` Bridge 只开放当前插件的管理员操作；动作必须包含幂等 ID。
+- UI/状态/日志不返回 STATE、OAuth token、完整代理凭据、请求正文或内部指纹。
+- 内置 `codex-ticket` 专用 API、采集器、账号表单和全局网关票据表单退场。
+- 历史 `accounts.extra` 票据字段仍做脱敏、导入剥离、普通编辑保留；不批量删除历史数据，也不自动迁移。
 
-strict 是调度硬门，不能被 TTFT Guard fail-open、成本回退或粘性恢复重新放入候选。它不修改账号全局 `schedulable`、健康状态或其它模型的可用性。后台采集失败不会重放正式业务请求。
+## WebSocket
 
-## 采集、锁与观察
+账号存在任一受管模型时走 HTTP bridge，每轮按实际模型决定是否经过插件。已有原生连接遇到新启用受管模型时要求重连。原生上游 WS 票据隔离不在本期范围，不能由 bridge 测试推断已经支持。
 
-采集先使用共享动态代理获得候选，再使用账号业务出口复验实际模型和完整成功响应。单代理账号使用该代理；代理组账号按稳定成员顺序尝试可用代表出口，任一代表成功即可发布账号级票据。HTTP 401、403、429 停止当轮；每轮最多八次尝试，失败冷却五分钟。
+## 后续更新
 
-多实例通过现有 Redis leader lock 和 PostgreSQL advisory lock 协调。锁键包含账号、规范出站模型、配置 revision 和 ChatGPT 身份，不包含代理 ID、URL、代理组或成员集合。多实例部署中两个锁后端都不可用时跳过当轮，禁止无锁并发采集；单实例测试可使用明确的本地运行边界，但不能把它解释为生产多实例保证。
+“更新此插件”先按 `plugins/codex-state/MAINTENANCE.md` 检查三个来源的 HEAD、release 和相对锁定 SHA 的差异，再选择性吸收，更新来源与回归映射。不得覆盖本地实现、清空历史来源或自动启用生产采集。
 
-watchdog 只把完整成功响应转换为观察：实际模型不符或合法异常 STATE 对当前 active 版本累计 strike，正常匹配响应清零；连续两次异常才触发拒绝或 ready 晋升。观察不得修改响应字节，迟到版本不得污染当前状态，日志、管理 API 和审计不得输出票据正文、代理凭据或原始响应体。
-
-## 数据和接口边界
-
-- 私有状态继续保存在 `accounts.extra`，不新增数据库 migration。
-- 普通账号编辑必须保留服务端管理字段；创建、导入、复制默认关闭且不复制票据。
-- STATE 始终按账号加模型维护一套 active/ready、strikes 和冷却；代理组成员不拥有独立票据槽。更换代理或调整成员不自动失效，OAuth/Setup Token 对应 ChatGPT 身份变化必须失效。
-- GET/PUT 保持 `/api/v1/admin/accounts/:id/codex-ticket`，手动采集保持 `/codex-ticket/harvest`；多模型采集必须明确 model。
-- 列表只返回脱敏摘要；导出、审计和普通详情不得返回 STATE、动态代理凭据、内部 revision 或固定代理指纹。
-- 数据库备份包含私有 Extra 时按密钥级数据保护。
-
-## 传输边界
-
-HTTP Responses、compact/compat 路径和 WebSocket-to-HTTP bridge 可以共享 HTTP 票据生命周期。原生上游 WebSocket 暂不支持 STATE 票据隔离：连接建立后已经绑定账号，不能安全地在连接中途更换账号或模型票据。
-
-任何未来原生 WS 支持必须单独设计连接级快照、关闭和重连语义，并增加专项回归；不能因为 HTTP bridge 测试通过就宣称原生 WS 已支持。
-
-## 后续 upstream 重核
-
-官方版本或新 PR 涉及 STATE 时，按以下顺序重核：
-
-1. 对比 PR #7315/#7338 的原始提交和官方最终实现。
-2. 分别判断采集、持久化、三模型隔离、active/ready、strict、锁、客户端 STATE 优先级和 WS 边界是否被完整覆盖。
-3. 官方完整覆盖的部分改归 upstream 维护；只覆盖一部分时保留 fork 扩展和专项测试。
-4. `ccodex-sleep-state` 后续版本只用于设计复核，许可证边界不因实现相似而取消。
-
-代理组的数据、会话绑定、两级并发和导入退场合同见 [OpenAI OAuth 账号代理组](./09-OpenAI-OAuth账号代理组.md)。
-
-机器可读路径、符号和最低测试以 `.agents/skills/sub2api-fork-extension-audit/references/extensions.yaml` 中的 `openai-codex-state-tickets` 为准。
+正式 VM Gate 要求干净、已提交且绑定完整 SHA 的源码。本次开发可产出本地测试和插件包，但不以旧 HEAD 或临时伪造身份替代本次 Gate。代理组独立合同见 [OpenAI OAuth 账号代理组](./09-OpenAI-OAuth账号代理组.md)。

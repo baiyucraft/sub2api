@@ -212,6 +212,9 @@ func (s *OpenAIGatewayService) buildNativeAnthropicUpstreamRequest(
 	account.ApplyHeaderOverrides(req.Header)
 	payloads := append([][]byte{body}, sessionBodies...)
 	applyOpenCodeSessionHeader(c, account, targetURL, req.Header, payloads...)
+	if err := s.preparePluginRequest(ctx, account, extractOpenAIOutboundModel(body), req); err != nil {
+		return nil, nil, err
+	}
 
 	return req, body, nil
 }

@@ -151,7 +151,7 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 				zap.Error(err),
 				zap.Int("excluded_account_count", len(failedAccountIDs)),
 			)
-			if len(failedAccountIDs) == 0 {
+			if len(failedAccountIDs) == 0 || (lastFailoverErr != nil && lastFailoverErr.PluginAdmissionRejected) {
 				cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, reqModel, reqModel, service.PlatformOpenAI)
 				if !cls.ModelNotFound {
 					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
@@ -236,13 +236,24 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 					h.handleFailoverExhausted(c, failoverErr, true)
 					return
 				}
-				h.gatewayService.ReportOpenAIAccountScheduleResultForGroup(apiKey.GroupID, account, openAIAccountScheduleModel(c, account, reqModel, false, result), false, nil, err)
+				if !failoverErr.PluginAdmissionRejected {
+					h.gatewayService.ReportOpenAIAccountScheduleResultForGroup(apiKey.GroupID, account, openAIAccountScheduleModel(c, account, reqModel, false, result), false, nil, err)
+				}
 				if failoverClientGone(c) {
 					reqLog.Info("openai_embeddings.failover_aborted_client_disconnected",
 						zap.Int64("account_id", account.ID),
 						zap.Int("upstream_status", failoverErr.StatusCode),
 					)
 					return
+				}
+				if failoverErr.PluginAdmissionRejected {
+					if !failoverErr.ShouldRetryNextAccount() {
+						h.handleFailoverExhausted(c, failoverErr, false)
+						return
+					}
+					failedAccountIDs[account.ID] = struct{}{}
+					lastFailoverErr = failoverErr
+					continue
 				}
 				if switchCount >= maxAccountSwitches {
 					h.handleFailoverExhausted(c, failoverErr, false)

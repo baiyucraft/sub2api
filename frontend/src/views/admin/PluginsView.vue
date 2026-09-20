@@ -35,7 +35,7 @@
             type="button"
             class="btn btn-primary"
             :disabled="uploading"
-            @click="fileInput?.click()"
+            @click="selectPackage()"
           >
             <Icon name="upload" size="sm" />
             {{ uploading ? t("common.processing") : t("admin.plugins.upload") }}
@@ -168,6 +168,14 @@
                 <dd class="font-mono text-gray-800 dark:text-gray-200">
                   {{ plugin.compatibility.recommended_sub2api_version || "-" }}
                 </dd>
+                <dt class="text-gray-500">{{ t('admin.plugins.minimumSDK') }}</dt>
+                <dd class="break-words font-mono text-gray-800 dark:text-gray-200" data-testid="plugin-minimum-sdk">
+                  {{ t('admin.plugins.sdkRequirements', { plugin_protocol: plugin.manifest.requires.plugin_protocol, transport_api: plugin.manifest.requires.transport_api, ui_bridge: plugin.manifest.requires.ui_bridge }) }}
+                  <span v-if="plugin.manifest.requires.host_service_api" class="block">Host Service API {{ plugin.manifest.requires.host_service_api }}</span>
+                  <ul v-if="plugin.manifest.requires.host_features?.length" class="mt-1 space-y-1">
+                    <li v-for="feature in plugin.manifest.requires.host_features" :key="feature">{{ feature }}</li>
+                  </ul>
+                </dd>
               </dl>
             </div>
 
@@ -238,6 +246,10 @@
           <div
             class="flex flex-wrap justify-end gap-2 border-t border-gray-100 px-5 py-4 dark:border-dark-700"
           >
+            <button type="button" class="btn btn-secondary btn-sm" :disabled="uploading || busyID === plugin.id" @click="selectPackage(plugin)">
+              <Icon name="upload" size="sm" />
+              {{ t('admin.plugins.upgrade') }}
+            </button>
             <button
               type="button"
               class="btn btn-secondary btn-sm"
@@ -290,6 +302,7 @@
           t('admin.plugins.configTitle', { name: configPlugin?.name || '' })
         "
         width="full"
+        :close-on-escape="!secretsEditor"
         @close="closeConfiguration"
       >
         <div
@@ -327,13 +340,16 @@
         </div>
       </BaseDialog>
 
+      <PluginSecretsDialog v-if="secretsEditor" :key="secretsEditor.generation" :name="configPlugin?.name || ''" :fields="secretsEditor.fields"
+        :configured="secretsConfigured" :loading="secretsLoading" :ready="secretsReady"
+        :saving="secretsSaving" :error="secretsError" @cancel="cancelSecretsEditor" @save="savePluginSecrets" />
       <TotpStepUpDialog :controller="pluginStepUp" />
     </div>
   </AppLayout>
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from "vue";
+import { onBeforeUnmount, onMounted, ref, shallowRef } from "vue";
 import { useI18n } from "vue-i18n";
 import {
   adminAPI,
@@ -345,6 +361,9 @@ import AppLayout from "@/components/layout/AppLayout.vue";
 import BaseDialog from "@/components/common/BaseDialog.vue";
 import Icon from "@/components/icons/Icon.vue";
 import TotpStepUpDialog from "@/components/auth/TotpStepUpDialog.vue";
+import PluginSecretsDialog from '@/components/admin/plugins/PluginSecretsDialog.vue';
+import { isSecretsEditRequest, parsePluginAction, pluginRunning, pluginSecretFields, preparePluginConfig,
+  projectPluginConfig, projectPluginResources, projectSecretFlags } from './pluginBridge';
 import {
   isStepUpBlocked,
   isStepUpCancelled,
@@ -361,9 +380,12 @@ interface PluginBridgeMessage {
   height?: unknown;
   level?: unknown;
   message?: unknown;
+  action_id?: unknown;
+  name?: unknown;
+  payload?: unknown;
 }
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 const appStore = useAppStore();
 const pluginStepUp = useStepUp();
 const plugins = ref<PluginInstallation[]>([]);
@@ -371,6 +393,7 @@ const loading = ref(false);
 const uploading = ref(false);
 const busyID = ref<number | null>(null);
 const fileInput = ref<HTMLInputElement | null>(null);
+const upgradeTarget = ref<PluginInstallation | null>(null);
 const rolloutValues = ref<Record<number, number>>({});
 const configPlugin = ref<PluginInstallation | null>(null);
 const uiSession = ref<PluginUISession | null>(null);
@@ -379,7 +402,95 @@ const uiLoading = ref(false);
 const uiError = ref("");
 const iframeHeight = ref(640);
 const pluginFrameLoaded = ref(false);
-const pendingBridgeRequests = new Map<string, number>();
+let configurationGeneration = 0;
+const pendingBridgeRequests = new Map<string, { timeout: number; request: PluginBridgeMessage }>();
+interface SecretsEditor {
+  generation: number;
+  request: PluginBridgeMessage;
+  session: PluginUISession;
+  pluginID: number;
+  fields: string[];
+}
+const secretsEditor = shallowRef<SecretsEditor | null>(null);
+const secretsConfigured = ref<Record<string, boolean>>({});
+const secretsLoading = ref(false);
+const secretsReady = ref(false);
+const secretsSaving = ref(false);
+const secretsError = ref('');
+let configWritePending = false;
+let secretsEditorGeneration = 0;
+
+function resetSecretsEditor(): void {
+  secretsEditor.value = null;
+  secretsConfigured.value = {};
+  secretsLoading.value = false;
+  secretsReady.value = false;
+  secretsSaving.value = false;
+  secretsError.value = '';
+}
+
+function currentSecretsEditor(editor: SecretsEditor): boolean {
+  return secretsEditor.value === editor && uiSession.value === editor.session && configPlugin.value?.id === editor.pluginID &&
+    pendingBridgeRequests.get(editor.request.request_id?.trim() || '')?.request === editor.request;
+}
+
+function cancelSecretsEditor(): void {
+  const editor = secretsEditor.value;
+  if (!editor || secretsSaving.value) return;
+  postBridgeResult(editor.request, { ok: false, code: 'cancelled' });
+  resetSecretsEditor();
+}
+
+async function openSecretsEditor(request: PluginBridgeMessage, session: PluginUISession, plugin: PluginInstallation): Promise<void> {
+  const fields = pluginSecretFields(plugin.manifest);
+  if (!fields.length || !isSecretsEditRequest(request) || secretsEditor.value || configWritePending) {
+    throw new Error(t('admin.plugins.bridgeRejected'));
+  }
+  const editor: SecretsEditor = { generation: ++secretsEditorGeneration, request, session, pluginID: plugin.id, fields };
+  secretsEditor.value = editor;
+  secretsConfigured.value = projectSecretFlags({}, fields);
+  secretsLoading.value = true;
+  try {
+    const config = await adminAPI.plugins.getConfig(plugin.id);
+    if (!currentSecretsEditor(editor)) return;
+    secretsConfigured.value = projectSecretFlags(config._host_secrets, fields);
+    secretsReady.value = true;
+  } catch {
+    if (currentSecretsEditor(editor)) secretsError.value = t('admin.plugins.secretsLoadFailed');
+  } finally {
+    if (currentSecretsEditor(editor)) secretsLoading.value = false;
+  }
+}
+
+async function savePluginSecrets(values: Record<string, string>): Promise<void> {
+  const editor = secretsEditor.value;
+  if (!editor || !currentSecretsEditor(editor) || !secretsReady.value || secretsSaving.value) return;
+  if (Object.entries(values).some(([field, value]) => !editor.fields.includes(field) || typeof value !== 'string')) return;
+  if (!Object.keys(values).length) {
+    postBridgeResult(editor.request, { ok: true, result: { configured: { ...secretsConfigured.value } } });
+    resetSecretsEditor();
+    return;
+  }
+  secretsSaving.value = true;
+  secretsError.value = '';
+  try {
+    const config = await pluginStepUp.run(() => {
+      if (!currentSecretsEditor(editor)) throw new Error(t('admin.plugins.bridgeRejected'));
+      return adminAPI.plugins.saveSecrets(editor.pluginID, values);
+    });
+    if (!currentSecretsEditor(editor)) return;
+    postBridgeResult(editor.request, { ok: true, result: { configured: projectSecretFlags(config._host_secrets, editor.fields) } });
+    resetSecretsEditor();
+  } catch (error: unknown) {
+    if (currentSecretsEditor(editor) && !isStepUpCancelled(error)) {
+      secretsError.value = t('admin.plugins.secretsSaveFailed');
+    }
+  } finally {
+    // These values came only from the trusted host dialog, never from the iframe.
+    for (const field of Object.keys(values)) delete values[field];
+    if (currentSecretsEditor(editor)) secretsSaving.value = false;
+  }
+}
 
 function errorMessage(error: unknown): string {
   if (typeof error === "object" && error !== null && "message" in error) {
@@ -420,6 +531,8 @@ async function loadPlugins(): Promise<void> {
 async function handleFileSelected(event: Event): Promise<void> {
   const target = event.target as HTMLInputElement;
   const file = target.files?.[0];
+  const upgradePlugin = upgradeTarget.value;
+  upgradeTarget.value = null;
   target.value = "";
   if (!file || !file.name.toLowerCase().endsWith(".s2plugin")) {
     appStore.showError(t("admin.plugins.fileRequired"));
@@ -427,14 +540,22 @@ async function handleFileSelected(event: Event): Promise<void> {
   }
   uploading.value = true;
   try {
-    await pluginStepUp.run(() => adminAPI.plugins.upload(file));
-    appStore.showSuccess(t("admin.plugins.uploadSuccess"));
+    await pluginStepUp.run(() => upgradePlugin
+      ? adminAPI.plugins.upgrade(upgradePlugin.id, file)
+      : adminAPI.plugins.upload(file));
+    if (upgradePlugin?.id === configPlugin.value?.id) closeConfiguration();
+    appStore.showSuccess(t(upgradePlugin ? 'admin.plugins.upgradeSuccess' : 'admin.plugins.uploadSuccess'));
     await loadPlugins();
   } catch (error: unknown) {
     reportSensitiveActionError(error);
   } finally {
     uploading.value = false;
   }
+}
+
+function selectPackage(plugin: PluginInstallation | null = null): void {
+  upgradeTarget.value = plugin;
+  fileInput.value?.click();
 }
 
 function currentRollout(plugin: PluginInstallation): number {
@@ -523,6 +644,7 @@ async function testPlugin(plugin: PluginInstallation): Promise<void> {
 }
 
 async function openConfiguration(plugin: PluginInstallation): Promise<void> {
+  const generation = ++configurationGeneration;
   configPlugin.value = plugin;
   uiSession.value = null;
   pluginFrameLoaded.value = false;
@@ -531,14 +653,17 @@ async function openConfiguration(plugin: PluginInstallation): Promise<void> {
   uiError.value = "";
   iframeHeight.value = 640;
   try {
-    uiSession.value = await adminAPI.plugins.createUISession(plugin.id);
+    const session = await adminAPI.plugins.createUISession(plugin.id);
+    if (generation === configurationGeneration) uiSession.value = session;
   } catch (error: unknown) {
+    if (generation !== configurationGeneration) return;
     uiLoading.value = false;
     uiError.value = errorMessage(error);
   }
 }
 
 function closeConfiguration(): void {
+  configurationGeneration++;
   clearPendingBridgeRequests();
   pluginFrameLoaded.value = false;
   configPlugin.value = null;
@@ -548,7 +673,8 @@ function closeConfiguration(): void {
 }
 
 function clearPendingBridgeRequests(): void {
-  for (const timeout of pendingBridgeRequests.values()) window.clearTimeout(timeout);
+  resetSecretsEditor();
+  for (const { timeout } of pendingBridgeRequests.values()) window.clearTimeout(timeout);
   pendingBridgeRequests.clear();
 }
 
@@ -560,11 +686,12 @@ function handlePluginFrameLoad(): void {
   uiLoading.value = false;
 }
 
-function registerBridgeRequest(requestID: string): void {
+function registerBridgeRequest(requestID: string, request: PluginBridgeMessage): void {
   const timeout = window.setTimeout(() => {
+    if (secretsEditor.value?.request === request) resetSecretsEditor();
     pendingBridgeRequests.delete(requestID);
-  }, 30_000);
-  pendingBridgeRequests.set(requestID, timeout);
+  }, request.type === 'plugin.secrets.edit' ? 10 * 60_000 : 30_000);
+  pendingBridgeRequests.set(requestID, { timeout, request });
 }
 
 function postBridgeResult(
@@ -573,9 +700,9 @@ function postBridgeResult(
 ): void {
   if (!pluginFrame.value?.contentWindow || !uiSession.value) return;
   const requestID = typeof request.request_id === "string" ? request.request_id.trim() : "";
-  const timeout = pendingBridgeRequests.get(requestID);
-  if (!requestID || timeout === undefined) return;
-  window.clearTimeout(timeout);
+  const pending = pendingBridgeRequests.get(requestID);
+  if (!requestID || !pending || pending.request !== request) return;
+  window.clearTimeout(pending.timeout);
   pendingBridgeRequests.delete(requestID);
   pluginFrame.value.contentWindow.postMessage(
     {
@@ -607,15 +734,21 @@ async function handleBridgeMessage(event: MessageEvent): Promise<void> {
   )
     return;
 
+  const pluginID = configPlugin.value.id;
+  const secretFields = pluginSecretFields(configPlugin.value.manifest);
+  const session = uiSession.value;
   const requestID = typeof message.request_id === "string" ? message.request_id.trim() : "";
   const expectsResponse =
     message.type === "config.load" ||
     message.type === "config.save" ||
     message.type === "config.test" ||
-    message.type === "plugin.status";
+    message.type === "plugin.status" ||
+    message.type === "plugin.resources" ||
+    message.type === 'plugin.secrets.edit' ||
+    message.type === "plugin.action";
   if (expectsResponse) {
-    if (!requestID || pendingBridgeRequests.has(requestID)) return;
-    registerBridgeRequest(requestID);
+    if (!requestID || requestID.length > 128 || pendingBridgeRequests.has(requestID) || pendingBridgeRequests.size >= 32) return;
+    registerBridgeRequest(requestID, message);
   }
 
   try {
@@ -624,32 +757,39 @@ async function handleBridgeMessage(event: MessageEvent): Promise<void> {
         uiLoading.value = false;
         break;
       case "config.load": {
-        const config = await adminAPI.plugins.getConfig(configPlugin.value.id);
-        postBridgeResult(message, { ok: true, config });
+        const config = await adminAPI.plugins.getConfig(pluginID);
+        postBridgeResult(message, { ok: true, config: projectPluginConfig(config, secretFields), host: { locale: locale?.value || 'en' } });
         break;
       }
       case "config.save": {
         if (
           !message.config ||
           typeof message.config !== "object" ||
-          Array.isArray(message.config)
+          Array.isArray(message.config) || secretsEditor.value || configWritePending
         ) {
           throw new Error(t("admin.plugins.bridgeRejected"));
         }
-        const config = await pluginStepUp.run(() =>
-          adminAPI.plugins.saveConfig(
-            configPlugin.value!.id,
-            message.config as Record<string, unknown>,
-          ),
-        );
-        postBridgeResult(message, { ok: true, config });
-        appStore.showSuccess(t("common.saved"));
+        const fields = secretFields;
+        configWritePending = true;
+        try {
+          const config = await pluginStepUp.run(() => {
+            if (uiSession.value !== session || pendingBridgeRequests.get(requestID)?.request !== message) throw new Error(t('admin.plugins.bridgeRejected'));
+            return adminAPI.plugins.saveConfig(pluginID, preparePluginConfig(message.config, fields));
+          });
+          postBridgeResult(message, { ok: true, config: projectPluginConfig(config, fields) });
+          if (uiSession.value === session) appStore.showSuccess(t('common.saved'));
+        } finally { configWritePending = false; }
+        break;
+      }
+      case 'plugin.secrets.edit': {
+        await openSecretsEditor(message, session, configPlugin.value);
         break;
       }
       case "config.test": {
-        const result = await pluginStepUp.run(() =>
-          adminAPI.plugins.test(configPlugin.value!.id),
-        );
+        const result = await pluginStepUp.run(() => {
+          if (uiSession.value !== session) throw new Error(t('admin.plugins.bridgeRejected'));
+          return adminAPI.plugins.test(pluginID);
+        });
         postBridgeResult(message, { ok: result.success, result });
         // A successful result is delivered back to the plugin UI, which owns how it
         // presents it (inline status, or an explicit ui.notify). Only force a host
@@ -665,7 +805,26 @@ async function handleBridgeMessage(event: MessageEvent): Promise<void> {
         // effects, so it is intentionally NOT step-up gated and never raises a host
         // toast — the plugin UI renders it however it likes. This is the generic
         // channel for any plugin to surface live state without abusing config.test.
-        const result = await adminAPI.plugins.status(configPlugin.value!.id);
+        const result = await adminAPI.plugins.status(pluginID);
+        postBridgeResult(message, { ok: true, result });
+        break;
+      }
+      case 'plugin.resources': {
+        const resources = projectPluginResources(await adminAPI.plugins.resources(pluginID));
+        postBridgeResult(message, { ok: true, resources });
+        break;
+      }
+      case 'plugin.action': {
+        const action = parsePluginAction(message);
+        if (!action) throw new Error(t('admin.plugins.bridgeRejected'));
+        if (!pluginRunning(configPlugin.value)) throw new Error(t('admin.plugins.actionUnavailable'));
+        const result = await pluginStepUp.run(async () => {
+          if (uiSession.value !== session) throw new Error(t('admin.plugins.bridgeRejected'));
+          const current = (await adminAPI.plugins.list()).find(p => p.id === pluginID);
+          if (!current || !pluginRunning(current)) throw new Error(t('admin.plugins.actionUnavailable'));
+          if (uiSession.value !== session) throw new Error(t('admin.plugins.bridgeRejected'));
+          return adminAPI.plugins.action(pluginID, action);
+        });
         postBridgeResult(message, { ok: true, result });
         break;
       }
@@ -691,7 +850,7 @@ async function handleBridgeMessage(event: MessageEvent): Promise<void> {
     if (isStepUpBlocked(error)) reportSensitiveActionError(error);
     postBridgeResult(message, {
       ok: false,
-      error: isStepUpCancelled(error) ? t("common.cancel") : errorMessage(error),
+      error: isStepUpCancelled(error) ? t("common.cancel") : t('admin.plugins.bridgeRequestFailed'),
     });
   }
 }

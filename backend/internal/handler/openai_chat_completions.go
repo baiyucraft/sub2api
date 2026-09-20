@@ -195,7 +195,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 				zap.Error(openAICompatibleSelectionErrorForLog(err, requestPlatform)),
 				zap.Int("excluded_account_count", len(failedAccountIDs)),
 			)
-			if len(failedAccountIDs) == 0 {
+			if len(failedAccountIDs) == 0 || (lastFailoverErr != nil && lastFailoverErr.PluginAdmissionRejected) {
 				cls := classifyOpenAICompatibleNoAccountErrorFromGin(c, h.gatewayService, apiKey, reqModel, reqModel)
 				cls = classifySelectionFailureError(err, cls)
 				if !cls.ModelNotFound {
@@ -346,7 +346,9 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 						return
 					}
 					if c.Writer.Size() != writerSizeBeforeForward {
-						h.gatewayService.ObserveOpenAIAccountHealthFailure(c.Request.Context(), account, err)
+						if !failoverErr.PluginAdmissionRejected {
+							h.gatewayService.ObserveOpenAIAccountHealthFailure(c.Request.Context(), account, err)
+						}
 						h.handleFailoverExhausted(c, failoverErr, true)
 						return
 					}
@@ -356,6 +358,11 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 					if !failoverErr.ShouldRetryNextAccount() {
 						h.handleFailoverExhausted(c, failoverErr, streamStarted)
 						return
+					}
+					if failoverErr.PluginAdmissionRejected {
+						failedAccountIDs[account.ID] = struct{}{}
+						lastFailoverErr = failoverErr
+						continue
 					}
 					// Pool mode: retry on the same account
 					if failoverErr.RetryableOnSameAccount {

@@ -1705,8 +1705,8 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         self.assertIn('"version": "0.2.7-baiyu"', profile_block)
         self.assertIn('[[ "$version" == 0.2.7-baiyu ]]', validator)
         self.assertIn('[[ $(jq -er \'.parent_profile\' "$manifest") == 253 ]]', validator)
-        self.assertIn('[[ $(jq -er \'.new_migrations | length\' "$manifest") == 2 ]]', validator)
-        self.assertIn('.new_migrations == ["278_fork_group_ttft_guard_policies.sql", "279_proxy_ip_groups.sql"]', validator)
+        self.assertIn('[[ $(jq -er \'.new_migrations | length\' "$manifest") == 3 ]]', validator)
+        self.assertIn('.new_migrations == ["278_fork_group_ttft_guard_policies.sql", "279_proxy_ip_groups.sql", "280_plugin_runtime_state.sql"]', validator)
 
     def test_profile_242_switch_uses_gate_v2_without_legacy_state_files(self) -> None:
         switch = self.script("switch.sh")

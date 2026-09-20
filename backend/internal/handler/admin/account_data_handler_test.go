@@ -676,3 +676,31 @@ func TestExportDataExcludesCodexTicketMaterial(t *testing.T) {
 	require.Contains(t, extra, "codex_turn_ticket:gpt-6-astra")
 	require.Contains(t, extra, "codex_harvest_proxy_url")
 }
+
+func TestImportDataStripsHistoricalCodexTicketMaterial(t *testing.T) {
+	router, adminSvc := setupAccountDataRouter()
+	extra := map[string]any{
+		"codex_turn_ticket:custom":     map[string]any{"state": "private-state"},
+		"codex_ticket_config":          map[string]any{"proxy_url": "http://private@host:8080"},
+		"codex_ticket_watchdog":        map[string]any{"last_reason": "private-watchdog"},
+		"codex_ticket_watchdog:custom": "private-model-watchdog",
+		"codex_harvest_proxy_url":      "http://private-legacy@host:8080", "custom": true,
+	}
+	body, err := json.Marshal(map[string]any{"data": map[string]any{
+		"type": dataType, "version": dataVersion, "proxies": []any{},
+		"accounts": []any{map[string]any{
+			"name": "legacy", "platform": service.PlatformOpenAI, "type": service.AccountTypeOAuth,
+			"credentials": map[string]any{"access_token": "token"}, "extra": extra, "concurrency": 1,
+		}},
+	}})
+	require.NoError(t, err)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/data", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.Len(t, adminSvc.createdAccounts, 1)
+	require.Equal(t, map[string]any{"custom": true}, adminSvc.createdAccounts[0].Extra)
+	require.NotContains(t, rec.Body.String(), "private-")
+	require.Len(t, extra, 6)
+}
