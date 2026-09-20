@@ -80,6 +80,9 @@ func (Proxy) Edges() []ent.Edge {
 		edge.To("backup_proxy", Proxy.Type).
 			Field("backup_proxy_id").
 			Unique(),
+		edge.From("proxy_ip_groups", ProxyIPGroup.Type).
+			Ref("proxies").
+			Through("proxy_ip_group_members", ProxyIPGroupMember.Type),
 	}
 }
 

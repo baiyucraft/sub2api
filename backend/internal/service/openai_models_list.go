@@ -19,6 +19,11 @@ func (s *OpenAIGatewayService) FetchOpenAIModelsList(ctx context.Context, accoun
 	if s == nil || account == nil {
 		return nil, infraerrors.New(http.StatusInternalServerError, "OPENAI_MODELS_ACCOUNT_REQUIRED", "OpenAI account is required")
 	}
+	resolvedAccount, err := s.resolveOpenAIModelDiscoveryEgress(ctx, account)
+	if err != nil {
+		return nil, err
+	}
+	account = resolvedAccount
 	credentialAccount, err := resolveCredentialAccount(ctx, s.accountRepo, account)
 	if err != nil {
 		return nil, fmt.Errorf("resolve model list credentials: %w", err)
@@ -69,6 +74,28 @@ func (s *OpenAIGatewayService) FetchOpenAIModelsList(ctx context.Context, accoun
 		return nil, invalidOpenAIModelsList(fmt.Errorf("upstream returned 304 without a cached catalog"))
 	}
 	return response, nil
+}
+
+func (s *OpenAIGatewayService) resolveOpenAIModelDiscoveryEgress(ctx context.Context, account *Account) (*Account, error) {
+	if account == nil {
+		return nil, infraerrors.New(http.StatusInternalServerError, "OPENAI_MODELS_ACCOUNT_REQUIRED", "OpenAI account is required")
+	}
+	if account.ProxyIPGroupID == nil {
+		return account, nil
+	}
+	// Request-local clones keep ProxyIPGroupID for attribution. A populated proxy
+	// therefore means the caller already resolved a representative member.
+	if account.ProxyID != nil && account.Proxy != nil {
+		return account, nil
+	}
+	representatives, err := s.OpenAIProxyGroupRepresentatives(ctx, account)
+	if err != nil {
+		return nil, infraerrors.Newf(http.StatusServiceUnavailable, "OPENAI_PROXY_GROUP_UNAVAILABLE", "cannot resolve proxy-group egress for model discovery: %v", err)
+	}
+	if len(representatives) == 0 || representatives[0] == nil || representatives[0].Proxy == nil {
+		return nil, infraerrors.New(http.StatusServiceUnavailable, OpenAIProxyGroupNoEgressCode, "OpenAI proxy group has no available egress for model discovery")
+	}
+	return representatives[0], nil
 }
 
 func invalidOpenAIModelsList(err error) error {

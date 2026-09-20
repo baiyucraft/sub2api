@@ -1,7 +1,7 @@
 ---
 title: Codex STATE 票据
 description: 账号级 STATE 采集、三模型隔离、生命周期和来源边界
-updated: 2026-09-19
+updated: 2026-09-20
 owner: project
 ---
 
@@ -38,7 +38,7 @@ PR #7338 尚未成为当前官方正式版本的 upstream 能力，因此 `opena
                 ↓
 账号级 OAuth/setup-token 显式启用
                 ↓
-账号 + 规范出站模型 + 配置 revision + 固定代理指纹
+账号 + 规范出站模型 + 配置 revision + ChatGPT 身份
                 ↓
 active / ready / strikes / cooldown / immutable version
                 ↓
@@ -52,7 +52,7 @@ active / ready / strikes / cooldown / immutable version
 ## active / ready 生命周期
 
 - `active` 是新请求可读取的不可变快照；请求完成后的观察只能回报它实际使用的版本。
-- `ready` 是已经通过动态代理采集和固定业务代理复验的候选，不得在健康 active 仍可用时立即覆盖。
+- `ready` 是已经通过动态代理采集和账号业务出口复验的候选，不得在健康 active 仍可用时立即覆盖。
 - active 过期、不可用或同版本连续两次异常后，才允许晋升 ready。
 - 迟到旧响应、旧采集任务和旧配置 revision 不得作废或覆盖新版本。
 - 续期失败保留仍有效的 active，但不得延长原签发时间对应的有效期。
@@ -72,9 +72,9 @@ strict 是调度硬门，不能被 TTFT Guard fail-open、成本回退或粘性�
 
 ## 采集、锁与观察
 
-采集先使用共享动态代理获得候选，再使用账号固定业务代理复验实际模型和完整成功响应。HTTP 401、403、429 停止当轮；每轮最多八次尝试，失败冷却五分钟。
+采集先使用共享动态代理获得候选，再使用账号业务出口复验实际模型和完整成功响应。单代理账号使用该代理；代理组账号按稳定成员顺序尝试可用代表出口，任一代表成功即可发布账号级票据。HTTP 401、403、429 停止当轮；每轮最多八次尝试，失败冷却五分钟。
 
-多实例通过现有 Redis leader lock 和 PostgreSQL advisory lock 协调。锁键包含账号、规范出站模型、配置 revision 和固定代理指纹。多实例部署中两个锁后端都不可用时跳过当轮，禁止无锁并发采集；单实例测试可使用明确的本地运行边界，但不能把它解释为生产多实例保证。
+多实例通过现有 Redis leader lock 和 PostgreSQL advisory lock 协调。锁键包含账号、规范出站模型、配置 revision 和 ChatGPT 身份，不包含代理 ID、URL、代理组或成员集合。多实例部署中两个锁后端都不可用时跳过当轮，禁止无锁并发采集；单实例测试可使用明确的本地运行边界，但不能把它解释为生产多实例保证。
 
 watchdog 只把完整成功响应转换为观察：实际模型不符或合法异常 STATE 对当前 active 版本累计 strike，正常匹配响应清零；连续两次异常才触发拒绝或 ready 晋升。观察不得修改响应字节，迟到版本不得污染当前状态，日志、管理 API 和审计不得输出票据正文、代理凭据或原始响应体。
 
@@ -82,6 +82,7 @@ watchdog 只把完整成功响应转换为观察：实际模型不符或合法�
 
 - 私有状态继续保存在 `accounts.extra`，不新增数据库 migration。
 - 普通账号编辑必须保留服务端管理字段；创建、导入、复制默认关闭且不复制票据。
+- STATE 始终按账号加模型维护一套 active/ready、strikes 和冷却；代理组成员不拥有独立票据槽。更换代理或调整成员不自动失效，OAuth/Setup Token 对应 ChatGPT 身份变化必须失效。
 - GET/PUT 保持 `/api/v1/admin/accounts/:id/codex-ticket`，手动采集保持 `/codex-ticket/harvest`；多模型采集必须明确 model。
 - 列表只返回脱敏摘要；导出、审计和普通详情不得返回 STATE、动态代理凭据、内部 revision 或固定代理指纹。
 - 数据库备份包含私有 Extra 时按密钥级数据保护。
@@ -100,5 +101,7 @@ HTTP Responses、compact/compat 路径和 WebSocket-to-HTTP bridge 可以共享 
 2. 分别判断采集、持久化、三模型隔离、active/ready、strict、锁、客户端 STATE 优先级和 WS 边界是否被完整覆盖。
 3. 官方完整覆盖的部分改归 upstream 维护；只覆盖一部分时保留 fork 扩展和专项测试。
 4. `ccodex-sleep-state` 后续版本只用于设计复核，许可证边界不因实现相似而取消。
+
+代理组的数据、会话绑定、两级并发和导入退场合同见 [OpenAI OAuth 账号代理组](./09-OpenAI-OAuth账号代理组.md)。
 
 机器可读路径、符号和最低测试以 `.agents/skills/sub2api-fork-extension-audit/references/extensions.yaml` 中的 `openai-codex-state-tickets` 为准。

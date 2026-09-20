@@ -13,6 +13,7 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/Wei-Shaw/sub2api/ent/account"
 	"github.com/Wei-Shaw/sub2api/ent/proxy"
+	"github.com/Wei-Shaw/sub2api/ent/proxyipgroup"
 )
 
 // ProxyCreate is the builder for creating a Proxy entity.
@@ -220,6 +221,21 @@ func (_c *ProxyCreate) AddPrimaryProxies(v ...*Proxy) *ProxyCreate {
 // SetBackupProxy sets the "backup_proxy" edge to the Proxy entity.
 func (_c *ProxyCreate) SetBackupProxy(v *Proxy) *ProxyCreate {
 	return _c.SetBackupProxyID(v.ID)
+}
+
+// AddProxyIPGroupIDs adds the "proxy_ip_groups" edge to the ProxyIPGroup entity by IDs.
+func (_c *ProxyCreate) AddProxyIPGroupIDs(ids ...int64) *ProxyCreate {
+	_c.mutation.AddProxyIPGroupIDs(ids...)
+	return _c
+}
+
+// AddProxyIPGroups adds the "proxy_ip_groups" edges to the ProxyIPGroup entity.
+func (_c *ProxyCreate) AddProxyIPGroups(v ...*ProxyIPGroup) *ProxyCreate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddProxyIPGroupIDs(ids...)
 }
 
 // Mutation returns the ProxyMutation object of the builder.
@@ -478,6 +494,26 @@ func (_c *ProxyCreate) createSpec() (*Proxy, *sqlgraph.CreateSpec) {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
 		_node.BackupProxyID = &nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.ProxyIPGroupsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   proxy.ProxyIPGroupsTable,
+			Columns: proxy.ProxyIPGroupsPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(proxyipgroup.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		createE := &ProxyIPGroupMemberCreate{config: _c.config, mutation: newProxyIPGroupMemberMutation(_c.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
 		_spec.Edges = append(_spec.Edges, edge)
 	}
 	return _node, _spec

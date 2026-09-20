@@ -13,5 +13,6 @@ owner: project
 - [分叉扩展与兼容性](./05-分叉扩展与兼容性.md)
 - [sub2新站参考能力迁移边界](./07-sub2新站参考能力迁移边界.md)
 - [Codex STATE 票据](./08-Codex-STATE票据.md)
+- [OpenAI OAuth 账号代理组](./09-OpenAI-OAuth账号代理组.md)
 
 页面只记录入口、职责、依赖和测试线索；细节以源码和 SSOT 为准。

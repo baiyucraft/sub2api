@@ -68,6 +68,10 @@ type Tx struct {
 	PromoCodeUsage *PromoCodeUsageClient
 	// Proxy is the client for interacting with the Proxy builders.
 	Proxy *ProxyClient
+	// ProxyIPGroup is the client for interacting with the ProxyIPGroup builders.
+	ProxyIPGroup *ProxyIPGroupClient
+	// ProxyIPGroupMember is the client for interacting with the ProxyIPGroupMember builders.
+	ProxyIPGroupMember *ProxyIPGroupMemberClient
 	// RedeemCode is the client for interacting with the RedeemCode builders.
 	RedeemCode *RedeemCodeClient
 	// SecuritySecret is the client for interacting with the SecuritySecret builders.
@@ -272,6 +276,8 @@ func (tx *Tx) init() {
 	tx.PromoCode = NewPromoCodeClient(tx.config)
 	tx.PromoCodeUsage = NewPromoCodeUsageClient(tx.config)
 	tx.Proxy = NewProxyClient(tx.config)
+	tx.ProxyIPGroup = NewProxyIPGroupClient(tx.config)
+	tx.ProxyIPGroupMember = NewProxyIPGroupMemberClient(tx.config)
 	tx.RedeemCode = NewRedeemCodeClient(tx.config)
 	tx.SecuritySecret = NewSecuritySecretClient(tx.config)
 	tx.Setting = NewSettingClient(tx.config)

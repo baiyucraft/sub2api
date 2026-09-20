@@ -20,8 +20,8 @@ vi.mock('@/api/admin', () => ({
     accounts: {
       importData: vi.fn()
     },
-    proxies: {
-      getAll: vi.fn()
+    proxyIpGroups: {
+      list: vi.fn()
     },
     groups: {
       getAll: vi.fn()
@@ -89,26 +89,24 @@ describe('ImportDataModal', () => {
     showWarning.mockReset()
     const { adminAPI } = await import('@/api/admin')
     vi.mocked(adminAPI.accounts.importData).mockReset()
-    vi.mocked(adminAPI.proxies.getAll).mockReset()
+    vi.mocked(adminAPI.proxyIpGroups.list).mockReset()
     vi.mocked(adminAPI.groups.getAll).mockReset()
-    vi.mocked(adminAPI.proxies.getAll).mockResolvedValue([
+    vi.mocked(adminAPI.proxyIpGroups.list).mockResolvedValue([
       {
         id: 12,
-        name: 'Hong Kong 1',
-        host: '127.0.0.1',
-        port: 8080,
-        status: 'active',
-        created_at: '2026-08-01T00:00:00Z'
+        name: 'Hong Kong pool',
+        member_count: 3,
+        per_ip_concurrency: 4
       } as never
     ])
     vi.mocked(adminAPI.groups.getAll).mockResolvedValue([])
   })
 
-  it('打开弹窗时加载当前可用代理', async () => {
+  it('打开弹窗时加载代理组', async () => {
     const { adminAPI } = await import('@/api/admin')
     mountModal()
     await flushPromises()
-    expect(adminAPI.proxies.getAll).toHaveBeenCalledTimes(1)
+    expect(adminAPI.proxyIpGroups.list).toHaveBeenCalledTimes(1)
   })
 
   it('未选择文件时提示错误', async () => {
@@ -232,7 +230,7 @@ describe('ImportDataModal', () => {
     expect(showSuccess).toHaveBeenCalledWith('admin.accounts.dataImportSuccess')
   })
 
-  it('creates one account copy per selected proxy', async () => {
+  it('为导入账号绑定所选代理组', async () => {
     const { adminAPI } = await import('@/api/admin')
     vi.mocked(adminAPI.accounts.importData).mockResolvedValue({
       proxy_created: 0,
@@ -248,62 +246,59 @@ describe('ImportDataModal', () => {
       makeJsonFile('accounts.json', JSON.stringify({
         exported_at: '2026-08-31T00:00:00Z',
         proxies: [],
-        accounts: [{ name: 'a' }, { name: 'b' }]
+        accounts: [
+          { name: 'a', platform: 'openai', type: 'oauth' },
+          { name: 'b', platform: 'openai', type: 'setup-token' }
+        ]
       }))
     ])
     await input.trigger('change')
     await flushPromises()
-    expect(wrapper.text()).toContain('admin.accounts.dataImportCompatMode')
-
-    const addButton = wrapper.findAll('button').find((button) => button.text() === 'admin.accounts.dataImportAddCopy')
-    expect(addButton).toBeDefined()
-    await addButton!.trigger('click')
-    expect(wrapper.text()).toContain('admin.accounts.dataImportCopyCount')
+    const groupSelect = wrapper.findAllComponents({ name: 'Select' })
+      .find(select => select.attributes('data-testid') === 'data-import-proxy-ip-group')
+    expect(groupSelect).toBeDefined()
+    groupSelect!.vm.$emit('update:modelValue', 12)
+    await flushPromises()
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
     expect(adminAPI.accounts.importData).toHaveBeenCalledWith(expect.objectContaining({
-      copy_proxy_ids: [12],
-      data: expect.objectContaining({ accounts: [{ name: 'a' }, { name: 'b' }] })
+      proxy_ip_group_id: 12,
+      data: expect.objectContaining({
+        accounts: [
+          { name: 'a', platform: 'openai', type: 'oauth' },
+          { name: 'b', platform: 'openai', type: 'setup-token' }
+        ]
+      })
     }))
   })
 
-  it('按创建时间和 ID 依次添加尚未选择的启用代理', async () => {
+  it('does not offer or submit a proxy group for non-OpenAI OAuth imports', async () => {
     const { adminAPI } = await import('@/api/admin')
-    vi.mocked(adminAPI.proxies.getAll).mockResolvedValue([
-      { id: 30, name: 'third', host: '3', port: 3, status: 'active', created_at: '2026-08-03T00:00:00Z' } as never,
-      { id: 20, name: 'second', host: '2', port: 2, status: 'active', created_at: '2026-08-02T00:00:00Z' } as never,
-      { id: 10, name: 'first', host: '1', port: 1, status: 'active', created_at: '2026-08-01T00:00:00Z' } as never,
-      { id: 5, name: 'inactive', host: '5', port: 5, status: 'inactive', created_at: '2026-07-01T00:00:00Z' } as never
-    ])
-
+    vi.mocked(adminAPI.accounts.importData).mockResolvedValue({
+      proxy_created: 0,
+      proxy_reused: 0,
+      proxy_failed: 0,
+      account_created: 1,
+      account_failed: 0
+    })
     const wrapper = mountModal()
     await flushPromises()
     const input = wrapper.find('input[type="file"]')
     setInputFiles(input.element, [
-      makeJsonFile('accounts.json', JSON.stringify({
-        exported_at: '2026-08-31T00:00:00Z',
+      makeJsonFile('anthropic.json', JSON.stringify({
+        exported_at: '2026-09-20T00:00:00Z',
         proxies: [],
-        accounts: [{ name: 'a', platform: 'openai' }]
+        accounts: [{ name: 'a', platform: 'anthropic', type: 'oauth' }]
       }))
     ])
     await input.trigger('change')
     await flushPromises()
 
-    const addButton = wrapper.findAll('button').find((button) => button.text() === 'admin.accounts.dataImportAddCopy')!
-    await addButton.trigger('click')
-    await addButton.trigger('click')
-    await addButton.trigger('click')
-
-    const proxySelects = wrapper.findAllComponents({ name: 'Select' })
-      .filter((select) => select.props('ariaLabel') === 'admin.accounts.dataImportSelectProxy')
-    expect(proxySelects.map((select) => select.props('modelValue'))).toEqual([10, 20, 30])
-    expect((proxySelects[0]!.props('options') as Array<{ value: number; disabled?: boolean }>))
-      .toEqual(expect.arrayContaining([
-        expect.objectContaining({ value: 20, disabled: true }),
-        expect.objectContaining({ value: 30, disabled: true })
-      ]))
-    expect(addButton.attributes('disabled')).toBeDefined()
+    expect(wrapper.find('[data-testid="data-import-proxy-ip-group"]').exists()).toBe(false)
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(adminAPI.accounts.importData.mock.calls[0]?.[0]).not.toHaveProperty('proxy_ip_group_id')
   })
 
   it('单平台导入提交默认覆盖值、分组和优先分组', async () => {

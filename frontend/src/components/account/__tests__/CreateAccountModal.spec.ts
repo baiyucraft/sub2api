@@ -53,6 +53,9 @@ vi.mock('@/api/admin', () => ({
     tlsFingerprintProfiles: {
       list: vi.fn().mockResolvedValue([]),
     },
+    proxyIpGroups: {
+      list: vi.fn().mockResolvedValue([]),
+    },
   },
 }))
 
@@ -115,6 +118,23 @@ const GroupSelectorStub = defineComponent({
   `,
 })
 
+const ProxyBindingSelectorStub = defineComponent({
+  name: 'ProxyBindingSelector',
+  emits: ['update:proxyId', 'update:proxyIpGroupId'],
+  template: `
+    <button
+      type="button"
+      data-testid="select-proxy-ip-group"
+      @click="$emit('update:proxyId', null); $emit('update:proxyIpGroupId', 77)"
+    >proxy group</button>
+  `,
+})
+
+const ProxySelectorStub = defineComponent({
+  name: 'ProxySelector',
+  template: '<div data-testid="single-proxy-selector" />',
+})
+
 const ModelWhitelistSelectorStub = defineComponent({
   name: 'ModelWhitelistSelector',
   props: {
@@ -144,7 +164,8 @@ function mountModal(groups: any[] = []) {
         Select: true,
         Icon: true,
         PlatformIcon: true,
-        ProxySelector: true,
+        ProxySelector: ProxySelectorStub,
+        ProxyBindingSelector: ProxyBindingSelectorStub,
         ProxyAdBanner: true,
         GroupSelector: GroupSelectorStub,
         ModelWhitelistSelector: ModelWhitelistSelectorStub,
@@ -289,6 +310,40 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
 
     expect(createAccountMock).toHaveBeenCalledTimes(1)
     expect(createAccountMock.mock.calls[0]?.[0]?.extra?.openai_long_context_billing_enabled).toBe(false)
+  })
+
+  it('shows proxy groups only for OpenAI OAuth and omits the field for API Key accounts', async () => {
+    const wrapper = mountModal()
+    expect(wrapper.find('[data-testid="select-proxy-ip-group"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="single-proxy-selector"]').exists()).toBe(true)
+
+    await selectButtonByText(wrapper, 'OpenAI')
+    expect(wrapper.find('[data-testid="select-proxy-ip-group"]').exists()).toBe(true)
+
+    await selectButtonByText(wrapper, 'API Key')
+    expect(wrapper.find('[data-testid="select-proxy-ip-group"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="single-proxy-selector"]').exists()).toBe(true)
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('proxy group account')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('test-api-key')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createAccountMock.mock.calls[0]?.[0]).not.toHaveProperty('proxy_ip_group_id')
+  })
+
+  it('submits the selected proxy group for an OpenAI Codex session import', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    await wrapper.get('[data-testid="select-proxy-ip-group"]').trigger('click')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Codex proxy group')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await wrapper.get('[data-testid="import-codex-session"]').trigger('click')
+    await flushPromises()
+
+    expect(importCodexSessionMock.mock.calls[0]?.[0]).toMatchObject({
+      proxy_id: null,
+      proxy_ip_group_id: 77,
+    })
   })
 
   it('omits the upstream request id header from extra when left empty', async () => {

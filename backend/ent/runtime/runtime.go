@@ -32,6 +32,8 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/promocode"
 	"github.com/Wei-Shaw/sub2api/ent/promocodeusage"
 	"github.com/Wei-Shaw/sub2api/ent/proxy"
+	"github.com/Wei-Shaw/sub2api/ent/proxyipgroup"
+	"github.com/Wei-Shaw/sub2api/ent/proxyipgroupmember"
 	"github.com/Wei-Shaw/sub2api/ent/redeemcode"
 	"github.com/Wei-Shaw/sub2api/ent/schema"
 	"github.com/Wei-Shaw/sub2api/ent/securitysecret"
@@ -238,51 +240,51 @@ func init() {
 	// account.DefaultExtra holds the default value on creation for the extra field.
 	account.DefaultExtra = accountDescExtra.Default.(func() map[string]interface{})
 	// accountDescUpstreamLifecycleOwner is the schema descriptor for upstream_lifecycle_owner field.
-	accountDescUpstreamLifecycleOwner := accountFields[12].Descriptor()
+	accountDescUpstreamLifecycleOwner := accountFields[13].Descriptor()
 	// account.DefaultUpstreamLifecycleOwner holds the default value on creation for the upstream_lifecycle_owner field.
 	account.DefaultUpstreamLifecycleOwner = accountDescUpstreamLifecycleOwner.Default.(string)
 	// account.UpstreamLifecycleOwnerValidator is a validator for the "upstream_lifecycle_owner" field. It is called by the builders before save.
 	account.UpstreamLifecycleOwnerValidator = accountDescUpstreamLifecycleOwner.Validators[0].(func(string) error)
 	// accountDescUpstreamArchiveReason is the schema descriptor for upstream_archive_reason field.
-	accountDescUpstreamArchiveReason := accountFields[13].Descriptor()
+	accountDescUpstreamArchiveReason := accountFields[14].Descriptor()
 	// account.UpstreamArchiveReasonValidator is a validator for the "upstream_archive_reason" field. It is called by the builders before save.
 	account.UpstreamArchiveReasonValidator = accountDescUpstreamArchiveReason.Validators[0].(func(string) error)
 	// accountDescConcurrency is the schema descriptor for concurrency field.
-	accountDescConcurrency := accountFields[14].Descriptor()
+	accountDescConcurrency := accountFields[15].Descriptor()
 	// account.DefaultConcurrency holds the default value on creation for the concurrency field.
 	account.DefaultConcurrency = accountDescConcurrency.Default.(int)
 	// accountDescRpmLimit is the schema descriptor for rpm_limit field.
-	accountDescRpmLimit := accountFields[15].Descriptor()
+	accountDescRpmLimit := accountFields[16].Descriptor()
 	// account.DefaultRpmLimit holds the default value on creation for the rpm_limit field.
 	account.DefaultRpmLimit = accountDescRpmLimit.Default.(int)
 	// accountDescProbeMinInputTokens is the schema descriptor for probe_min_input_tokens field.
-	accountDescProbeMinInputTokens := accountFields[16].Descriptor()
+	accountDescProbeMinInputTokens := accountFields[17].Descriptor()
 	// account.DefaultProbeMinInputTokens holds the default value on creation for the probe_min_input_tokens field.
 	account.DefaultProbeMinInputTokens = accountDescProbeMinInputTokens.Default.(int)
 	// accountDescPriority is the schema descriptor for priority field.
-	accountDescPriority := accountFields[18].Descriptor()
+	accountDescPriority := accountFields[19].Descriptor()
 	// account.DefaultPriority holds the default value on creation for the priority field.
 	account.DefaultPriority = accountDescPriority.Default.(int)
 	// accountDescRateMultiplier is the schema descriptor for rate_multiplier field.
-	accountDescRateMultiplier := accountFields[19].Descriptor()
+	accountDescRateMultiplier := accountFields[20].Descriptor()
 	// account.DefaultRateMultiplier holds the default value on creation for the rate_multiplier field.
 	account.DefaultRateMultiplier = accountDescRateMultiplier.Default.(float64)
 	// accountDescStatus is the schema descriptor for status field.
-	accountDescStatus := accountFields[21].Descriptor()
+	accountDescStatus := accountFields[22].Descriptor()
 	// account.DefaultStatus holds the default value on creation for the status field.
 	account.DefaultStatus = accountDescStatus.Default.(string)
 	// account.StatusValidator is a validator for the "status" field. It is called by the builders before save.
 	account.StatusValidator = accountDescStatus.Validators[0].(func(string) error)
 	// accountDescAutoPauseOnExpired is the schema descriptor for auto_pause_on_expired field.
-	accountDescAutoPauseOnExpired := accountFields[25].Descriptor()
+	accountDescAutoPauseOnExpired := accountFields[26].Descriptor()
 	// account.DefaultAutoPauseOnExpired holds the default value on creation for the auto_pause_on_expired field.
 	account.DefaultAutoPauseOnExpired = accountDescAutoPauseOnExpired.Default.(bool)
 	// accountDescSchedulable is the schema descriptor for schedulable field.
-	accountDescSchedulable := accountFields[26].Descriptor()
+	accountDescSchedulable := accountFields[27].Descriptor()
 	// account.DefaultSchedulable holds the default value on creation for the schedulable field.
 	account.DefaultSchedulable = accountDescSchedulable.Default.(bool)
 	// accountDescSessionWindowStatus is the schema descriptor for session_window_status field.
-	accountDescSessionWindowStatus := accountFields[34].Descriptor()
+	accountDescSessionWindowStatus := accountFields[35].Descriptor()
 	// account.SessionWindowStatusValidator is a validator for the "session_window_status" field. It is called by the builders before save.
 	account.SessionWindowStatusValidator = accountDescSessionWindowStatus.Validators[0].(func(string) error)
 	accountgroupFields := schema.AccountGroup{}.Fields()
@@ -1818,6 +1820,61 @@ func init() {
 	proxyDescExpiryWarnDays := proxyFields[10].Descriptor()
 	// proxy.DefaultExpiryWarnDays holds the default value on creation for the expiry_warn_days field.
 	proxy.DefaultExpiryWarnDays = proxyDescExpiryWarnDays.Default.(int)
+	proxyipgroupMixin := schema.ProxyIPGroup{}.Mixin()
+	proxyipgroupMixinHooks1 := proxyipgroupMixin[1].Hooks()
+	proxyipgroup.Hooks[0] = proxyipgroupMixinHooks1[0]
+	proxyipgroupMixinInters1 := proxyipgroupMixin[1].Interceptors()
+	proxyipgroup.Interceptors[0] = proxyipgroupMixinInters1[0]
+	proxyipgroupMixinFields0 := proxyipgroupMixin[0].Fields()
+	_ = proxyipgroupMixinFields0
+	proxyipgroupFields := schema.ProxyIPGroup{}.Fields()
+	_ = proxyipgroupFields
+	// proxyipgroupDescCreatedAt is the schema descriptor for created_at field.
+	proxyipgroupDescCreatedAt := proxyipgroupMixinFields0[0].Descriptor()
+	// proxyipgroup.DefaultCreatedAt holds the default value on creation for the created_at field.
+	proxyipgroup.DefaultCreatedAt = proxyipgroupDescCreatedAt.Default.(func() time.Time)
+	// proxyipgroupDescUpdatedAt is the schema descriptor for updated_at field.
+	proxyipgroupDescUpdatedAt := proxyipgroupMixinFields0[1].Descriptor()
+	// proxyipgroup.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	proxyipgroup.DefaultUpdatedAt = proxyipgroupDescUpdatedAt.Default.(func() time.Time)
+	// proxyipgroup.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	proxyipgroup.UpdateDefaultUpdatedAt = proxyipgroupDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// proxyipgroupDescName is the schema descriptor for name field.
+	proxyipgroupDescName := proxyipgroupFields[0].Descriptor()
+	// proxyipgroup.NameValidator is a validator for the "name" field. It is called by the builders before save.
+	proxyipgroup.NameValidator = func() func(string) error {
+		validators := proxyipgroupDescName.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(name string) error {
+			for _, fn := range fns {
+				if err := fn(name); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// proxyipgroupDescPerIPConcurrency is the schema descriptor for per_ip_concurrency field.
+	proxyipgroupDescPerIPConcurrency := proxyipgroupFields[1].Descriptor()
+	// proxyipgroup.DefaultPerIPConcurrency holds the default value on creation for the per_ip_concurrency field.
+	proxyipgroup.DefaultPerIPConcurrency = proxyipgroupDescPerIPConcurrency.Default.(int)
+	// proxyipgroup.PerIPConcurrencyValidator is a validator for the "per_ip_concurrency" field. It is called by the builders before save.
+	proxyipgroup.PerIPConcurrencyValidator = proxyipgroupDescPerIPConcurrency.Validators[0].(func(int) error)
+	proxyipgroupmemberFields := schema.ProxyIPGroupMember{}.Fields()
+	_ = proxyipgroupmemberFields
+	// proxyipgroupmemberDescPosition is the schema descriptor for position field.
+	proxyipgroupmemberDescPosition := proxyipgroupmemberFields[2].Descriptor()
+	// proxyipgroupmember.DefaultPosition holds the default value on creation for the position field.
+	proxyipgroupmember.DefaultPosition = proxyipgroupmemberDescPosition.Default.(int)
+	// proxyipgroupmember.PositionValidator is a validator for the "position" field. It is called by the builders before save.
+	proxyipgroupmember.PositionValidator = proxyipgroupmemberDescPosition.Validators[0].(func(int) error)
+	// proxyipgroupmemberDescCreatedAt is the schema descriptor for created_at field.
+	proxyipgroupmemberDescCreatedAt := proxyipgroupmemberFields[3].Descriptor()
+	// proxyipgroupmember.DefaultCreatedAt holds the default value on creation for the created_at field.
+	proxyipgroupmember.DefaultCreatedAt = proxyipgroupmemberDescCreatedAt.Default.(func() time.Time)
 	redeemcodeFields := schema.RedeemCode{}.Fields()
 	_ = redeemcodeFields
 	// redeemcodeDescCode is the schema descriptor for code field.

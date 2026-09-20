@@ -48,6 +48,9 @@ vi.mock('@/api/admin', () => ({
     },
     tlsFingerprintProfiles: {
       list: vi.fn().mockResolvedValue([])
+    },
+    proxyIpGroups: {
+      list: vi.fn().mockResolvedValue([])
     }
   }
 }))
@@ -172,15 +175,22 @@ const GroupSelectorStub = defineComponent({
   `
 })
 
+const ProxyBindingSelectorStub = defineComponent({
+  name: 'ProxyBindingSelector',
+  emits: ['update:proxyId', 'update:proxyIpGroupId'],
+  template: `
+    <div data-testid="proxy-binding-selector">
+      <button
+        type="button"
+        data-testid="select-proxy-ip-group"
+        @click="$emit('update:proxyId', null); $emit('update:proxyIpGroupId', 77)"
+      >proxy group</button>
+    </div>
+  `
+})
+
 const ProxySelectorStub = defineComponent({
   name: 'ProxySelector',
-  props: {
-    modelValue: {
-      type: Number,
-      default: null
-    }
-  },
-  emits: ['update:modelValue'],
   template: '<div data-testid="proxy-selector" />'
 })
 
@@ -383,6 +393,8 @@ function mountModal(
         Select: SelectStub,
         Icon: true,
         ProxySelector: ProxySelectorStub,
+        ProxyBindingSelector: ProxyBindingSelectorStub,
+        CodexAccountTicketSettings: true,
         GroupSelector: renderGroupSelector ? false : GroupSelectorStub,
         ModelWhitelistSelector: ModelWhitelistSelectorStub
       }
@@ -447,6 +459,38 @@ describe('EditAccountModal', () => {
     expect(wrapper.find('select[aria-label="admin.accounts.upstreamProvider.label"]').exists()).toBe(false)
     expect(wrapper.find('input[type="email"]').exists()).toBe(false)
     expect(wrapper.find('input[placeholder="admin.accounts.sub2apiLogin.passwordEditPlaceholder"]').exists()).toBe(false)
+  })
+
+  it('submits the selected proxy IP group and clears the single proxy binding', async () => {
+    const account = buildAccount()
+    account.type = 'oauth'
+    account.proxy_id = 12
+    updateAccountMock.mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+
+    const wrapper = mountModal(account)
+    await wrapper.get('[data-testid="select-proxy-ip-group"]').trigger('click')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(updateAccountMock.mock.calls[0]?.[1]).toMatchObject({
+      proxy_id: 0,
+      proxy_ip_group_id: 77,
+    })
+  })
+
+  it('keeps non-OAuth OpenAI accounts on the single proxy selector and omits proxy group updates', async () => {
+    const account = buildAccount()
+    updateAccountMock.mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+
+    const wrapper = mountModal(account)
+    expect(wrapper.find('[data-testid="proxy-selector"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="proxy-binding-selector"]').exists()).toBe(false)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(updateAccountMock.mock.calls[0]?.[1]).not.toHaveProperty('proxy_ip_group_id')
   })
 
   it('renders upstream config selectors for upstream-bound accounts', async () => {

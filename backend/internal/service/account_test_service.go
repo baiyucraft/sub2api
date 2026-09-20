@@ -757,6 +757,15 @@ func (s *AccountTestService) testBedrockAccountConnection(c *gin.Context, ctx co
 
 // testOpenAIAccountConnection tests an OpenAI account's connection
 func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account *Account, modelID string, prompt string, mode string) error {
+	resolvedAccount, releaseProxyEgress, err := acquireOpenAIManagementEgress(c.Request.Context(), s.openaiGatewayService, account)
+	if err != nil {
+		return s.sendErrorAndEnd(c, OpenAIProxyGroupNoEgressCode+": business egress is unavailable")
+	}
+	defer releaseProxyEgress()
+	return s.testOpenAIAccountConnectionWithEgress(c, resolvedAccount, modelID, prompt, mode)
+}
+
+func (s *AccountTestService) testOpenAIAccountConnectionWithEgress(c *gin.Context, account *Account, modelID string, prompt string, mode string) error {
 	ctx := c.Request.Context()
 	mode = normalizeAccountTestMode(mode)
 
@@ -932,7 +941,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 				return s.sendErrorAndEnd(c, fmt.Sprintf("Agent Identity task recovery failed: %s", err.Error()))
 			}
 			c.Request = c.Request.WithContext(markAgentIdentityTaskRecoveryTried(ctx))
-			return s.testOpenAIAccountConnection(c, account, modelID, prompt, mode)
+			return s.testOpenAIAccountConnectionWithEgress(c, account, modelID, prompt, mode)
 		}
 		if resp.StatusCode == http.StatusTooManyRequests {
 			s.reconcileOpenAI429State(ctx, account, resp.Header, body)

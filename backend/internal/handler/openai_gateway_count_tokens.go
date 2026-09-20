@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -14,6 +15,61 @@ import (
 	"github.com/tidwall/gjson"
 	"go.uber.org/zap"
 )
+
+func (h *OpenAIGatewayHandler) acquireOpenAITokenCountAdmission(
+	c *gin.Context,
+	account *service.Account,
+	sessionHash string,
+	reqLog *zap.Logger,
+	writeError openAISlotErrorWriter,
+) (*service.Account, func(), bool) {
+	if account == nil || h == nil || h.concurrencyHelper == nil || h.gatewayService == nil {
+		writeError(http.StatusServiceUnavailable, "api_error", "", "No available accounts")
+		return nil, nil, false
+	}
+
+	ctx := c.Request.Context()
+	accountRelease, acquired, err := h.concurrencyHelper.TryAcquireAccountSlotForAccount(ctx, account)
+	if err != nil {
+		reqLog.Warn("openai.token_count_account_slot_acquire_failed", zap.Int64("account_id", account.ID), zap.Error(err))
+		status, errType, code, message := concurrencyErrorResponse(err, "account")
+		writeError(status, errType, code, message)
+		return nil, nil, false
+	}
+	if !acquired {
+		markOpsRoutingCapacityLimited(c)
+		writeError(http.StatusServiceUnavailable, "api_error", gatewayCapacityExhaustedCode, gatewayCapacityExhaustedMessage)
+		return nil, nil, false
+	}
+
+	resolved, proxyRelease, err := h.gatewayService.AcquireOpenAIProxyGroupEgress(ctx, account, sessionHash)
+	if err != nil {
+		if accountRelease != nil {
+			accountRelease()
+		}
+		code := "openai_proxy_group_unavailable"
+		message := "Proxy group routing is temporarily unavailable"
+		switch {
+		case errors.Is(err, service.ErrOpenAIProxyGroupCapacityFull):
+			markOpsRoutingCapacityLimited(c)
+			code = gatewayCapacityExhaustedCode
+			message = gatewayCapacityExhaustedMessage
+		case errors.Is(err, service.ErrOpenAIProxyGroupNoEgress):
+			code = service.OpenAIProxyGroupNoEgressCode
+			message = "The selected account has no available proxy-group egress"
+		}
+		reqLog.Warn("openai.token_count_proxy_group_admission_failed",
+			zap.Int64("account_id", account.ID),
+			zap.String("code", code),
+			zap.Error(err),
+		)
+		writeError(http.StatusServiceUnavailable, "api_error", code, message)
+		return nil, nil, false
+	}
+
+	release := wrapReleaseOnDone(ctx, combineOpenAIReleaseFuncs(proxyRelease, accountRelease))
+	return resolved, release, true
+}
 
 // ResponsesInputTokens handles native OpenAI POST
 // /v1/responses/input_tokens requests without routing them through the normal
@@ -122,6 +178,19 @@ func (h *OpenAIGatewayHandler) ResponsesInputTokens(c *gin.Context) {
 		h.errorResponse(c, cls.Status, cls.ErrType, cls.Message)
 		return
 	}
+	account, release, admitted := h.acquireOpenAITokenCountAdmission(
+		c,
+		account,
+		sessionHash,
+		reqLog,
+		func(status int, errType, _ string, message string) {
+			h.errorResponse(c, status, errType, message)
+		},
+	)
+	if !admitted {
+		return
+	}
+	defer release()
 
 	setOpsSelectedAccount(c, account.ID, account.Platform)
 	if err := h.gatewayService.ForwardResponsesInputTokens(c.Request.Context(), c, account, forwardBody); err != nil {
@@ -295,6 +364,19 @@ func (h *OpenAIGatewayHandler) CountTokens(c *gin.Context) {
 		h.anthropicErrorResponse(c, cls.Status, cls.ErrType, cls.Message)
 		return
 	}
+	account, release, admitted := h.acquireOpenAITokenCountAdmission(
+		c,
+		account,
+		sessionHash,
+		reqLog,
+		func(status int, errType, _ string, message string) {
+			h.anthropicErrorResponse(c, status, errType, message)
+		},
+	)
+	if !admitted {
+		return
+	}
+	defer release()
 
 	setOpsSelectedAccount(c, account.ID, account.Platform)
 	forwardBody := mappedBodyForMessages(channelMapping.Mapped, channelMapping.MappedModel)

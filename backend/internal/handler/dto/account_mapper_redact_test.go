@@ -165,6 +165,29 @@ func TestAccountFromServiceShallow_EmitsEmptyPreferredGroupIDs(t *testing.T) {
 	require.Contains(t, string(raw), `"preferred_group_ids":[]`)
 }
 
+func TestAccountFromServiceShallowProjectsProxyIPGroupSummary(t *testing.T) {
+	groupID := int64(41)
+	src := &service.Account{
+		ID:             7,
+		ProxyIPGroupID: &groupID,
+		ProxyIPGroup: &service.ProxyIPGroup{
+			ID:               groupID,
+			Name:             "codex-pool",
+			PerIPConcurrency: 4,
+			ProxyIDs:         []int64{11, 12},
+		},
+	}
+
+	got := AccountFromServiceShallow(src)
+	require.NotNil(t, got.ProxyIPGroupID)
+	require.Equal(t, groupID, *got.ProxyIPGroupID)
+	require.NotNil(t, got.ProxyIPGroup)
+	require.Equal(t, []int64{11, 12}, got.ProxyIPGroup.ProxyIDs)
+
+	compact := AccountListItemFromAccount(got)
+	require.Equal(t, got.ProxyIPGroup, compact.ProxyIPGroup)
+}
+
 func TestAccountFromServiceShallow_ProjectsUpstreamSiteURL(t *testing.T) {
 	siteURL := "https://lcodex.cc"
 	configName := "LCodex Primary"

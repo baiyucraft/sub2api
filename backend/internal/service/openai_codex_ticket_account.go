@@ -76,25 +76,26 @@ type CodexAccountTicketUpdate struct {
 }
 
 type CodexAccountTicketStatus struct {
-	Models               map[string]CodexAccountTicketModelStatus `json:"models"`
-	Watchdog             CodexTicketWatchdogStatus                `json:"watchdog"`
-	TicketPlan           string                                   `json:"ticket_plan"`
-	TargetLength         int                                      `json:"target_length"`
-	Enabled              bool                                     `json:"enabled"`
-	GlobalEnabled        bool                                     `json:"global_enabled"`
-	Model                string                                   `json:"model"`
-	ProxyConfigured      bool                                     `json:"proxy_configured"`
-	ProxyDisplay         string                                   `json:"proxy_display"`
-	FixedProxyConfigured bool                                     `json:"fixed_proxy_configured"`
-	State                string                                   `json:"state"`
-	TicketUsable         bool                                     `json:"ticket_usable"`
-	Refreshing           bool                                     `json:"refreshing"`
-	CapturedAt           *time.Time                               `json:"captured_at,omitempty"`
-	RetryAfter           *time.Time                               `json:"retry_after,omitempty"`
-	RemainingSeconds     int64                                    `json:"remaining_seconds"`
-	ExpiresAt            *time.Time                               `json:"expires_at,omitempty"`
-	LastError            string                                   `json:"last_error"`
-	Attempts             int                                      `json:"attempts"`
+	Models                   map[string]CodexAccountTicketModelStatus `json:"models"`
+	Watchdog                 CodexTicketWatchdogStatus                `json:"watchdog"`
+	TicketPlan               string                                   `json:"ticket_plan"`
+	TargetLength             int                                      `json:"target_length"`
+	Enabled                  bool                                     `json:"enabled"`
+	GlobalEnabled            bool                                     `json:"global_enabled"`
+	Model                    string                                   `json:"model"`
+	ProxyConfigured          bool                                     `json:"proxy_configured"`
+	ProxyDisplay             string                                   `json:"proxy_display"`
+	FixedProxyConfigured     bool                                     `json:"fixed_proxy_configured"`
+	BusinessEgressConfigured bool                                     `json:"business_egress_configured"`
+	State                    string                                   `json:"state"`
+	TicketUsable             bool                                     `json:"ticket_usable"`
+	Refreshing               bool                                     `json:"refreshing"`
+	CapturedAt               *time.Time                               `json:"captured_at,omitempty"`
+	RetryAfter               *time.Time                               `json:"retry_after,omitempty"`
+	RemainingSeconds         int64                                    `json:"remaining_seconds"`
+	ExpiresAt                *time.Time                               `json:"expires_at,omitempty"`
+	LastError                string                                   `json:"last_error"`
+	Attempts                 int                                      `json:"attempts"`
 }
 
 type CodexAccountTicketSnapshotStatus struct {
@@ -241,14 +242,34 @@ func codexAccountTicketConfigOf(account *Account) codexAccountTicketConfig {
 }
 
 func codexAccountTicketEligible(account *Account) bool {
-	return isOpenAICodexTicketAccount(account) && account.Status == StatusActive && account.Proxy != nil && account.ProxyID != nil
+	return isOpenAICodexTicketAccount(account) && account.Status == StatusActive && codexTicketBusinessEgressConfigured(account)
+}
+
+func codexTicketBusinessEgressConfigured(account *Account) bool {
+	if account == nil {
+		return false
+	}
+	if account.ProxyID != nil {
+		// A request-local proxy-group clone intentionally carries both the
+		// persisted group identity and the resolved member proxy. Treat the
+		// resolved, active member as valid business egress while the database
+		// constraint continues to reject persisted dual bindings.
+		return account.Proxy != nil && account.Proxy.IsActive() && !account.Proxy.IsExpired(time.Now())
+	}
+	return account.ProxyIPGroupID != nil && account.ProxyIPGroup != nil && len(account.ProxyIPGroup.ProxyIDs) > 0
 }
 
 func codexTicketFixedProxyFingerprint(account *Account) string {
-	if account == nil || account.Proxy == nil || account.ProxyID == nil {
+	if account == nil {
 		return ""
 	}
-	raw := fmt.Sprintf("%d\x00%d\x00%s\x00%v", account.ID, *account.ProxyID, account.Proxy.URL(), account.Credentials["chatgpt_account_id"])
+	// Persisted field name is retained for compatibility with #7338 blobs, but
+	// the identity deliberately excludes proxy IDs, URLs and group membership.
+	// STATE belongs to the account/model and is invalidated only when the
+	// underlying ChatGPT identity changes.
+	raw := fmt.Sprintf("%d\x00%s\x00%s\x00%s", account.ID, account.Type,
+		strings.TrimSpace(account.GetCredential("chatgpt_account_id")),
+		strings.TrimSpace(account.GetCredential("chatgpt_user_id")))
 	digest := sha256.Sum256([]byte(raw))
 	return hex.EncodeToString(digest[:])
 }
@@ -348,11 +369,12 @@ func (s *OpenAIGatewayService) GetCodexAccountTicketStatus(ctx context.Context, 
 	pool := s.openAICodexTicketHarvestProxyURLContext(ctx)
 	poolConfigured := pool != "" && ValidateOpenAICodexTicketHarvestProxyURL(pool) == nil
 	status := &CodexAccountTicketStatus{
-		Models:               make(map[string]CodexAccountTicketModelStatus, len(codexTicketSupportedModels)),
-		GlobalEnabled:        s.openAICodexTicketEnabledContext(ctx),
-		ProxyConfigured:      poolConfigured,
-		FixedProxyConfigured: account.Proxy != nil && account.ProxyID != nil,
-		State:                "disabled",
+		Models:                   make(map[string]CodexAccountTicketModelStatus, len(codexTicketSupportedModels)),
+		GlobalEnabled:            s.openAICodexTicketEnabledContext(ctx),
+		ProxyConfigured:          poolConfigured,
+		FixedProxyConfigured:     codexTicketBusinessEgressConfigured(account),
+		BusinessEgressConfigured: codexTicketBusinessEgressConfigured(account),
+		State:                    "disabled",
 	}
 	if parsed, err := url.Parse(strings.ReplaceAll(pool, "{sid}", "%7Bsid%7D")); err == nil {
 		status.ProxyDisplay = parsed.Host
@@ -374,7 +396,7 @@ func (s *OpenAIGatewayService) GetCodexAccountTicketStatus(ctx context.Context, 
 				modelStatus.State = "global_disabled"
 			} else if !codexAccountTicketEligible(account) {
 				modelStatus.State = "error"
-				modelStatus.LastError = "Account must be active and have a fixed business proxy"
+				modelStatus.LastError = "Account must be active and have a usable business egress"
 			} else {
 				slot := s.lookupOpenAICodexTicketSlot(account, model)
 				if slot != nil {
@@ -509,9 +531,9 @@ func (s *OpenAIGatewayService) ConfigureCodexAccountTicket(ctx context.Context, 
 	for _, cfg := range next.Models {
 		hasEnabled = hasEnabled || cfg.Enabled
 	}
-	if hasEnabled && (pool == "" || ValidateOpenAICodexTicketHarvestProxyURL(pool) != nil || account.Proxy == nil || account.ProxyID == nil) {
+	if hasEnabled && (pool == "" || ValidateOpenAICodexTicketHarvestProxyURL(pool) != nil || !codexTicketBusinessEgressConfigured(account)) {
 		s.openaiCodexAccountMu.Unlock()
-		return nil, apperrors.BadRequest("CODEX_TICKET_PROXY_REQUIRED", "Configure the global dynamic proxy pool and this account's fixed business proxy first")
+		return nil, apperrors.BadRequest("CODEX_TICKET_PROXY_REQUIRED", "Configure the global dynamic proxy pool and this account's business egress first")
 	}
 	changedModels := make(map[string]bool)
 	for _, model := range codexTicketSupportedModels {
@@ -606,7 +628,7 @@ func (s *OpenAIGatewayService) HarvestCodexAccountTicket(ctx context.Context, id
 		return nil, apperrors.BadRequest("CODEX_TICKET_DISABLED", "Enable STATE tickets for the requested model first")
 	}
 	if !codexAccountTicketEligible(account) {
-		return nil, apperrors.BadRequest("CODEX_TICKET_ACCOUNT_INACTIVE", "Account must be active and have a fixed business proxy")
+		return nil, apperrors.BadRequest("CODEX_TICKET_ACCOUNT_INACTIVE", "Account must be active and have a usable business egress")
 	}
 	pool := s.openAICodexTicketHarvestProxyURLContext(ctx)
 	if pool == "" || ValidateOpenAICodexTicketHarvestProxyURL(pool) != nil {
@@ -760,12 +782,26 @@ func (s *OpenAIGatewayService) runCodexAccountTicketJob(ctx context.Context, id 
 			if ctx.Err() != nil || !s.openAICodexTicketEnabledContext(ctx) || s.openAICodexTicketHarvestProxyURLContext(ctx) != job.harvestProxyURL {
 				return
 			}
-			replayState, status, err := s.fireCodexAccountTicketProbe(ctx, account, token, model, account.Proxy.URL(), state, timeout)
-			if reason := codexTicketProbeRejection(status); reason != "" {
-				lastError = reason
+			representatives, representativeErr := s.OpenAIProxyGroupRepresentatives(ctx, account)
+			if representativeErr != nil || len(representatives) == 0 {
+				lastError = "Account has no usable business egress for STATE verification"
 				return
 			}
-			if err == nil && status == 200 && !isCodexTicketAbnormalEnvelope(replayState, time.Now()) {
+			verified := false
+			for _, representative := range representatives {
+				replayState, replayStatus, replayErr := s.fireCodexAccountTicketProbe(ctx, representative, token, model, representative.Proxy.URL(), state, timeout)
+				if reason := codexTicketProbeRejection(replayStatus); reason != "" {
+					lastError = reason
+					continue
+				}
+				if replayErr != nil || replayStatus != 200 || isCodexTicketAbnormalEnvelope(replayState, time.Now()) {
+					lastError = "STATE did not preserve the target model on a business egress"
+					continue
+				}
+				verified = true
+				break
+			}
+			if verified {
 				// Serialize against account opt-out/source changes; reread persistent values immediately before publication.
 				s.openaiCodexAccountMu.Lock()
 				live, readErr := s.codexTicketAccountByID(ctx, id)
@@ -788,7 +824,6 @@ func (s *OpenAIGatewayService) runCodexAccountTicketJob(ctx context.Context, id 
 				s.openaiCodexAccountMu.Unlock()
 				return
 			}
-			lastError = "STATE did not preserve the target model on this account's fixed proxy"
 		}
 		if attempt < codexTicketMaxAttempts {
 			timer := time.NewTimer(time.Second)

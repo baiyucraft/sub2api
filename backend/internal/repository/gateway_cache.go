@@ -15,6 +15,7 @@ import (
 )
 
 const stickySessionPrefix = "sticky_session:"
+const openAIProxyGroupBindingPrefix = "openai:ip_group_bind:"
 const openAIResponsesSessionWindowPrefix = "openai_responses_session_window:"
 const liveCallPrefix = "live:call:"
 
@@ -30,6 +31,45 @@ func NewGatewayCache(rdb *redis.Client) service.GatewayCache {
 // 格式: sticky_session:{groupID}:{sessionHash}
 func buildSessionKey(groupID int64, sessionHash string) string {
 	return fmt.Sprintf("%s%d:%s", stickySessionPrefix, groupID, sessionHash)
+}
+
+func buildOpenAIProxyGroupBindingKey(accountID int64, sessionHash string) string {
+	return fmt.Sprintf("%s%d:%s", openAIProxyGroupBindingPrefix, accountID, sessionHash)
+}
+
+func (c *gatewayCache) GetOpenAIProxyGroupBinding(ctx context.Context, accountID int64, sessionHash string) (int64, error) {
+	proxyID, err := c.rdb.Get(ctx, buildOpenAIProxyGroupBindingKey(accountID, sessionHash)).Int64()
+	if errors.Is(err, redis.Nil) {
+		return 0, service.ErrOpenAIProxyGroupBindingNotFound
+	}
+	return proxyID, err
+}
+
+var claimOpenAIProxyGroupBindingScript = redis.NewScript(`
+local bound = redis.call('GET', KEYS[1])
+if not bound then
+  redis.call('PSETEX', KEYS[1], ARGV[2], ARGV[1])
+  return tonumber(ARGV[1])
+end
+redis.call('PEXPIRE', KEYS[1], ARGV[2])
+return tonumber(bound)
+`)
+
+var deleteOpenAIProxyGroupBindingIfMatchScript = redis.NewScript(`
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+  return redis.call('DEL', KEYS[1])
+end
+return 0
+`)
+
+func (c *gatewayCache) ClaimOpenAIProxyGroupBinding(ctx context.Context, accountID int64, sessionHash string, proxyID int64, ttl time.Duration) (int64, error) {
+	return claimOpenAIProxyGroupBindingScript.Run(ctx, c.rdb,
+		[]string{buildOpenAIProxyGroupBindingKey(accountID, sessionHash)}, proxyID, ttl.Milliseconds()).Int64()
+}
+
+func (c *gatewayCache) DeleteOpenAIProxyGroupBindingIfMatch(ctx context.Context, accountID int64, sessionHash string, proxyID int64) error {
+	return deleteOpenAIProxyGroupBindingIfMatchScript.Run(ctx, c.rdb,
+		[]string{buildOpenAIProxyGroupBindingKey(accountID, sessionHash)}, proxyID).Err()
 }
 
 func buildOpenAIResponsesSessionWindowKey(groupID int64, sessionHash string) string {

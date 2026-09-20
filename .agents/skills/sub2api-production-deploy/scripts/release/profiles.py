@@ -736,7 +736,7 @@ PROFILES["253"] = {
 
 # Profile 253 is immutable. Official tag v0.2.7 identifies the release even
 # though that tagged source still carries VERSION=0.2.5. Profile 254 owns the
-# fork-only per-group TTFT Guard policy table.
+# fork-only per-group TTFT Guard policy table and OpenAI OAuth proxy groups.
 PROFILES["254"] = {
     **{key: PROFILES["253"][key] for key in _PROFILE_V2_RUNTIME_KEYS},
     "name": "254",
@@ -744,6 +744,7 @@ PROFILES["254"] = {
     "parent": "253",
     "new_migrations": [
         "278_fork_group_ttft_guard_policies.sql",
+        "279_proxy_ip_groups.sql",
     ],
     "gate_schema": 2,
     "release_policy": {

@@ -192,6 +192,9 @@ func createAccountRecord(ctx context.Context, client *dbent.Client, account *ser
 	if account.ProxyID != nil {
 		builder.SetProxyID(*account.ProxyID)
 	}
+	if account.ProxyIPGroupID != nil {
+		builder.SetProxyIPGroupID(*account.ProxyIPGroupID)
+	}
 	if account.UpstreamConfigID != nil {
 		builder.SetUpstreamConfigID(*account.UpstreamConfigID)
 	}
@@ -705,6 +708,11 @@ func buildAccountUpdate(client *dbent.Client, account *service.Account, schedula
 		builder.SetProxyID(*account.ProxyID)
 	} else {
 		builder.ClearProxyID()
+	}
+	if account.ProxyIPGroupID != nil {
+		builder.SetProxyIPGroupID(*account.ProxyIPGroupID)
+	} else {
+		builder.ClearProxyIPGroupID()
 	}
 	if account.UpstreamConfigID != nil {
 		builder.SetUpstreamConfigID(*account.UpstreamConfigID)
@@ -3921,12 +3929,16 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 
 	accountIDs := make([]int64, 0, len(accounts))
 	proxyIDs := make([]int64, 0, len(accounts))
+	proxyIPGroupIDs := make([]int64, 0, len(accounts))
 	upstreamConfigIDs := make([]int64, 0, len(accounts))
 	upstreamKeyIDs := make([]int64, 0, len(accounts))
 	for _, acc := range accounts {
 		accountIDs = append(accountIDs, acc.ID)
 		if acc.ProxyID != nil {
 			proxyIDs = append(proxyIDs, *acc.ProxyID)
+		}
+		if acc.ProxyIPGroupID != nil {
+			proxyIPGroupIDs = append(proxyIPGroupIDs, *acc.ProxyIPGroupID)
 		}
 		if acc.ProxyFallbackOriginID != nil {
 			proxyIDs = append(proxyIDs, *acc.ProxyFallbackOriginID)
@@ -3953,6 +3965,10 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 	if err != nil {
 		return nil, err
 	}
+	proxyIPGroupMap, err := loadProxyIPGroupsByIDs(ctx, r.client, proxyIPGroupIDs)
+	if err != nil {
+		return nil, err
+	}
 	groupsByAccount, groupIDsByAccount, accountGroupsByAccount, err := r.loadAccountGroups(ctx, accountIDs)
 	if err != nil {
 		return nil, err
@@ -3968,6 +3984,9 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 			if proxy, ok := proxyMap[*acc.ProxyID]; ok {
 				out.Proxy = proxy
 			}
+		}
+		if acc.ProxyIPGroupID != nil {
+			out.ProxyIPGroup = proxyIPGroupMap[*acc.ProxyIPGroupID]
 		}
 		if out.UpstreamConfigID != nil {
 			// A missing parent row (including a soft-deleted upstream hidden by
@@ -4322,6 +4341,7 @@ func accountEntityToService(m *dbent.Account) *service.Account {
 		Credentials:                  copyJSONMap(m.Credentials),
 		Extra:                        copyJSONMap(m.Extra),
 		ProxyID:                      m.ProxyID,
+		ProxyIPGroupID:               m.ProxyIPGroupID,
 		ProxyFallbackOriginID:        m.ProxyFallbackOriginID,
 		UpstreamConfigID:             m.UpstreamConfigID,
 		UpstreamKeyID:                m.UpstreamKeyID,

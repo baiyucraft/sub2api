@@ -753,6 +753,8 @@ func ProvideSchedulerSnapshotService(
 // boundary without changing the upstream constructor signature.
 func ProvideOpenAIGatewayService(
 	accountRepo AccountRepository,
+	proxyRepo ProxyRepository,
+	proxyIPGroupRepo ProxyIPGroupRepository,
 	usageLogRepo UsageLogRepository,
 	usageBillingRepo UsageBillingRepository,
 	userRepo UserRepository,
@@ -803,6 +805,7 @@ func ProvideOpenAIGatewayService(
 		userPlatformQuotaRepo,
 	)
 	gateway.SetCodexTicketHarvestLockBackends(lockCache, db)
+	gateway.SetOpenAIProxyGroupRepositories(proxyIPGroupRepo, proxyRepo)
 	gateway.SetGroupTTFTGuardPolicyResolver(policyService)
 	policyService.SetRuntimeInvalidator(gateway.InvalidateGroupTTFTGuardRuntime)
 	policyService.SetGlobalRuntimeInvalidator(gateway.InvalidateInheritedOpenAITTFTGuardRuntime)
@@ -1192,6 +1195,7 @@ var ProviderSet = wire.NewSet(
 	NewCompositeRouteResolver,
 	NewAccountService,
 	NewProxyService,
+	NewProxyIPGroupAdminService,
 	NewRedeemService,
 	NewPromoService,
 	NewUsageService,

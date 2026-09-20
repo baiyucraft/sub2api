@@ -66,6 +66,15 @@ type ConcurrencyTargetCache interface {
 	GetConcurrencyTargetWaitingCount(ctx context.Context, target ConcurrencyTarget) (int, error)
 }
 
+// AccountProxyConcurrencyCache owns the second-level slots used by OpenAI
+// proxy groups. It is intentionally optional so legacy cache implementations
+// and non-OpenAI schedulers do not need to understand proxy-group routing.
+type AccountProxyConcurrencyCache interface {
+	AcquireAccountProxySlot(ctx context.Context, accountID, proxyID int64, maxConcurrency int, requestID string) (bool, error)
+	ReleaseAccountProxySlot(ctx context.Context, accountID, proxyID int64, requestID string) error
+	GetAccountProxyConcurrency(ctx context.Context, accountID, proxyID int64) (int, error)
+}
+
 type APIKeyConcurrencyCache interface {
 	TrackAPIKeySlot(ctx context.Context, apiKeyID int64, requestID string) error
 	ReleaseAPIKeySlot(ctx context.Context, apiKeyID int64, requestID string) error
@@ -354,6 +363,53 @@ type UserLoadInfo struct {
 // Returns a release function that MUST be called when the request completes.
 func (s *ConcurrencyService) AcquireAccountSlot(ctx context.Context, accountID int64, maxConcurrency int) (*AcquireResult, error) {
 	return s.AcquireTargetSlot(ctx, ConcurrencyTarget{Kind: ConcurrencyTargetAccount, ID: accountID, Limit: maxConcurrency})
+}
+
+// AcquireAccountProxySlot reserves one proxy-member slot below the account
+// total-concurrency gate. Proxy-group accounts fail closed when the production
+// cache cannot provide this capability; callers must not silently bypass the
+// per-proxy limit.
+func (s *ConcurrencyService) AcquireAccountProxySlot(ctx context.Context, accountID, proxyID int64, maxConcurrency int) (*AcquireResult, error) {
+	if s == nil || s.cache == nil {
+		return nil, errors.New("account proxy concurrency cache unavailable")
+	}
+	cache, ok := s.cache.(AccountProxyConcurrencyCache)
+	if !ok {
+		return nil, errors.New("account proxy concurrency cache unsupported")
+	}
+	if accountID <= 0 || proxyID <= 0 || maxConcurrency <= 0 {
+		return nil, errors.New("invalid account proxy concurrency target")
+	}
+
+	requestID := generateRequestID()
+	acquired, err := cache.AcquireAccountProxySlot(ctx, accountID, proxyID, maxConcurrency, requestID)
+	if err != nil {
+		return nil, err
+	}
+	if !acquired {
+		return &AcquireResult{}, nil
+	}
+	return &AcquireResult{
+		Acquired: true,
+		ReleaseFunc: func() {
+			bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := cache.ReleaseAccountProxySlot(bgCtx, accountID, proxyID, requestID); err != nil {
+				logger.LegacyPrintf("service.concurrency", "Warning: failed to release account proxy slot %d/%d (req=%s): %v", accountID, proxyID, requestID, err)
+			}
+		},
+	}, nil
+}
+
+func (s *ConcurrencyService) GetAccountProxyConcurrency(ctx context.Context, accountID, proxyID int64) (int, error) {
+	if s == nil || s.cache == nil {
+		return 0, errors.New("account proxy concurrency cache unavailable")
+	}
+	cache, ok := s.cache.(AccountProxyConcurrencyCache)
+	if !ok {
+		return 0, errors.New("account proxy concurrency cache unsupported")
+	}
+	return cache.GetAccountProxyConcurrency(ctx, accountID, proxyID)
 }
 
 // AcquireTargetSlot reserves a slot from either an account-local pool or a

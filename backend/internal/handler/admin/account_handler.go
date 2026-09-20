@@ -69,6 +69,7 @@ type AccountHandler struct {
 	ollamaCloudUsage        *service.OllamaCloudUsageService
 	codexTicketSettings     *service.SettingService
 	codexAccountTickets     codexAccountTicketManager
+	proxyIPGroupService     *service.ProxyIPGroupAdminService
 	cfg                     *config.Config
 }
 
@@ -95,6 +96,10 @@ func (h *AccountHandler) SetOllamaCloudUsageService(usage *service.OllamaCloudUs
 // SetCodexTicketSettings supplies the live policy without mutating shared config.
 func (h *AccountHandler) SetCodexTicketSettings(settings *service.SettingService) {
 	h.codexTicketSettings = settings
+}
+
+func (h *AccountHandler) SetProxyIPGroupService(groupService *service.ProxyIPGroupAdminService) {
+	h.proxyIPGroupService = groupService
 }
 
 // NewAccountHandler creates a new admin account handler
@@ -145,6 +150,7 @@ type CreateAccountRequest struct {
 	Credentials             map[string]any `json:"credentials" binding:"required"`
 	Extra                   map[string]any `json:"extra"`
 	ProxyID                 *int64         `json:"proxy_id"`
+	ProxyIPGroupID          *int64         `json:"proxy_ip_group_id"`
 	UpstreamConfigID        *int64         `json:"upstream_config_id"`
 	UpstreamKeyID           *int64         `json:"upstream_key_id"`
 	Concurrency             int            `json:"concurrency"`
@@ -169,6 +175,7 @@ type UpdateAccountRequest struct {
 	Credentials              map[string]any                     `json:"credentials"`
 	Extra                    map[string]any                     `json:"extra"`
 	ProxyID                  *int64                             `json:"proxy_id"`
+	ProxyIPGroupID           *int64                             `json:"proxy_ip_group_id"`
 	UpstreamConfigID         *int64                             `json:"upstream_config_id"`
 	UpstreamKeyID            *int64                             `json:"upstream_key_id"`
 	Concurrency              *int                               `json:"concurrency"`
@@ -245,9 +252,18 @@ type AccountWithConcurrency struct {
 	UpstreamHealth                  *AccountUpstreamHealth               `json:"upstream_health,omitempty"`
 	AvailableActions                []string                             `json:"available_actions,omitempty"`
 	// 以下字段仅对 Anthropic OAuth/SetupToken 账号有效，且仅在启用相应功能时返回
-	CurrentWindowCost *float64 `json:"current_window_cost,omitempty"` // 当前窗口费用
-	ActiveSessions    *int     `json:"active_sessions,omitempty"`     // 当前活跃会话数
-	CurrentRPM        *int     `json:"current_rpm,omitempty"`         // 当前分钟 RPM 计数
+	CurrentWindowCost *float64               `json:"current_window_cost,omitempty"` // 当前窗口费用
+	ActiveSessions    *int                   `json:"active_sessions,omitempty"`     // 当前活跃会话数
+	CurrentRPM        *int                   `json:"current_rpm,omitempty"`         // 当前分钟 RPM 计数
+	ProxyConcurrency  []ProxyConcurrencyInfo `json:"proxy_concurrency,omitempty"`
+}
+
+type ProxyConcurrencyInfo struct {
+	ProxyID            int64  `json:"proxy_id"`
+	ProxyName          string `json:"proxy_name"`
+	CurrentConcurrency int    `json:"current_concurrency"`
+	Limit              int    `json:"limit"`
+	Available          bool   `json:"available"`
 }
 
 type AccountUpstreamHealth struct {
@@ -274,6 +290,7 @@ type AccountListItemWithConcurrency struct {
 	CurrentWindowCost               *float64                             `json:"current_window_cost,omitempty"`
 	ActiveSessions                  *int                                 `json:"active_sessions,omitempty"`
 	CurrentRPM                      *int                                 `json:"current_rpm,omitempty"`
+	ProxyConcurrency                []ProxyConcurrencyInfo               `json:"proxy_concurrency,omitempty"`
 }
 
 type simpleModeGroupReference struct {
@@ -505,10 +522,76 @@ func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, ac
 			item.CurrentRPM = &rpm
 		}
 	}
+	item.ProxyConcurrency = h.loadProxyConcurrency(ctx, []service.Account{*account})[account.ID]
 
 	h.enrichShadowParents(ctx, []AccountWithConcurrency{item})
 
 	return item
+}
+
+func (h *AccountHandler) loadProxyConcurrency(ctx context.Context, accounts []service.Account) map[int64][]ProxyConcurrencyInfo {
+	result := make(map[int64][]ProxyConcurrencyInfo)
+	proxyIDs := make([]int64, 0)
+	seen := make(map[int64]struct{})
+	for i := range accounts {
+		group := accounts[i].ProxyIPGroup
+		if group == nil {
+			continue
+		}
+		for _, proxyID := range group.ProxyIDs {
+			if proxyID <= 0 {
+				continue
+			}
+			if _, exists := seen[proxyID]; exists {
+				continue
+			}
+			seen[proxyID] = struct{}{}
+			proxyIDs = append(proxyIDs, proxyID)
+		}
+	}
+	if len(proxyIDs) == 0 {
+		return result
+	}
+	proxies, err := h.adminService.GetProxiesByIDs(ctx, proxyIDs)
+	if err != nil {
+		return result
+	}
+	proxyByID := make(map[int64]service.Proxy, len(proxies))
+	for _, proxy := range proxies {
+		proxyByID[proxy.ID] = proxy
+	}
+	now := time.Now()
+	for i := range accounts {
+		account := &accounts[i]
+		group := account.ProxyIPGroup
+		if group == nil {
+			continue
+		}
+		rows := make([]ProxyConcurrencyInfo, 0, len(group.ProxyIDs))
+		for _, proxyID := range group.ProxyIDs {
+			proxy, found := proxyByID[proxyID]
+			name := fmt.Sprintf("Proxy #%d", proxyID)
+			available := false
+			if found {
+				if trimmed := strings.TrimSpace(proxy.Name); trimmed != "" {
+					name = trimmed
+				}
+				available = proxy.IsActive() && !proxy.IsExpired(now)
+			}
+			current := 0
+			if h.concurrencyService != nil {
+				if value, getErr := h.concurrencyService.GetAccountProxyConcurrency(ctx, account.ID, proxyID); getErr == nil {
+					current = value
+				}
+			}
+			rows = append(rows, ProxyConcurrencyInfo{
+				ProxyID: proxyID, ProxyName: name, CurrentConcurrency: current,
+				Limit: group.PerIPConcurrency, Available: available,
+			})
+		}
+		result[account.ID] = rows
+	}
+	return result
 }
 
 func upstreamAccountAvailableActions(account *service.Account) []string {
@@ -941,6 +1024,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 	var windowCosts map[int64]float64
 	var activeSessions map[int64]int
 	var rpmCounts map[int64]int
+	proxyConcurrency := h.loadProxyConcurrency(c.Request.Context(), accounts)
 	// 双重门控：用户要看该列，且当前页确实有 OpenAI 账号，才进入昂贵的候选池打分路径。
 	var schedulerScores map[int64]*AccountSchedulerScore
 	var schedulerGroupScores map[int64][]AccountSchedulerGroupScore
@@ -1082,6 +1166,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 			SchedulerScore:        schedulerScores[acc.ID],
 			SchedulerScores:       schedulerGroupScores[acc.ID],
 			TTFTGuardDegradations: accountTTFTGuardDegradations,
+			ProxyConcurrency:      proxyConcurrency[acc.ID],
 		}
 		target := acc.SchedulingConcurrencyTarget()
 		item.SchedulerConcurrencyLimit = target.Limit
@@ -1148,6 +1233,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 				CurrentWindowCost:               item.CurrentWindowCost,
 				ActiveSessions:                  item.ActiveSessions,
 				CurrentRPM:                      item.CurrentRPM,
+				ProxyConcurrency:                item.ProxyConcurrency,
 			}
 		}
 		etag := buildAccountsListETag(compact, total, page, pageSize, platform, accountType, status, search, true, scope, c.Query("upstream_config_id"), c.Query("upstream_key_id"), preferredQuery, qualityFilterQuery)
@@ -1368,6 +1454,7 @@ func (h *AccountHandler) Create(c *gin.Context) {
 			Credentials:           req.Credentials,
 			Extra:                 req.Extra,
 			ProxyID:               req.ProxyID,
+			ProxyIPGroupID:        req.ProxyIPGroupID,
 			UpstreamConfigID:      req.UpstreamConfigID,
 			UpstreamKeyID:         req.UpstreamKeyID,
 			Concurrency:           req.Concurrency,
@@ -1503,6 +1590,7 @@ func (h *AccountHandler) Update(c *gin.Context) {
 		Credentials:              req.Credentials,
 		Extra:                    req.Extra,
 		ProxyID:                  req.ProxyID,
+		ProxyIPGroupID:           req.ProxyIPGroupID,
 		UpstreamConfigID:         req.UpstreamConfigID,
 		UpstreamKeyID:            req.UpstreamKeyID,
 		Concurrency:              req.Concurrency, // 指针类型，nil 表示未提供

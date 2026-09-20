@@ -28,6 +28,10 @@ const (
 	accountSlotKeyPrefix = "concurrency:account:"
 	// Upstream targets share one slot pool across all derived accounts/keys.
 	upstreamSlotKeyPrefix = "concurrency:upstream:"
+	// OpenAI proxy groups add a second-level slot below the account total gate.
+	// Format: concurrency:account-proxy:{accountID}:{proxyID}
+	accountProxySlotKeyPrefix     = "concurrency:account-proxy:"
+	liveAccountProxySlotKeyPrefix = "concurrency:live:account-proxy:"
 	// 格式: concurrency:user:{userID}
 	userSlotKeyPrefix = "concurrency:user:"
 	// 格式: concurrency:api_key:{apiKeyID}
@@ -391,6 +395,14 @@ func upstreamSlotKey(upstreamConfigID int64) string {
 	return fmt.Sprintf("%s%d", upstreamSlotKeyPrefix, upstreamConfigID)
 }
 
+func accountProxySlotKey(accountID, proxyID int64) string {
+	return fmt.Sprintf("%s%d:%d", accountProxySlotKeyPrefix, accountID, proxyID)
+}
+
+func liveAccountProxySlotKey(accountID, proxyID int64) string {
+	return fmt.Sprintf("%s%d:%d", liveAccountProxySlotKeyPrefix, accountID, proxyID)
+}
+
 func userSlotKey(userID int64) string {
 	return fmt.Sprintf("%s%d", userSlotKeyPrefix, userID)
 }
@@ -670,6 +682,32 @@ func (c *concurrencyCache) AcquireAccountSlot(ctx context.Context, accountID int
 		c.touchActiveIndexAt(ctx, accountActiveIndexKey, accountID, now+int64(c.slotTTLSeconds))
 	}
 	return result == 1, nil
+}
+
+func (c *concurrencyCache) AcquireAccountProxySlot(ctx context.Context, accountID, proxyID int64, maxConcurrency int, requestID string) (bool, error) {
+	result, _, err := runScriptInt64Pair(
+		ctx,
+		c.rdb,
+		acquireScript,
+		[]string{accountProxySlotKey(accountID, proxyID), liveAccountProxySlotKey(accountID, proxyID)},
+		maxConcurrency,
+		c.slotTTLSeconds,
+		requestID,
+	)
+	return result == 1, err
+}
+
+func (c *concurrencyCache) ReleaseAccountProxySlot(ctx context.Context, accountID, proxyID int64, requestID string) error {
+	return c.rdb.ZRem(ctx, accountProxySlotKey(accountID, proxyID), requestID).Err()
+}
+
+func (c *concurrencyCache) GetAccountProxyConcurrency(ctx context.Context, accountID, proxyID int64) (int, error) {
+	return getCountScript.Run(
+		ctx,
+		c.rdb,
+		[]string{accountProxySlotKey(accountID, proxyID), liveAccountProxySlotKey(accountID, proxyID)},
+		c.slotTTLSeconds,
+	).Int()
 }
 
 func (c *concurrencyCache) AcquireConcurrencyTargetSlot(ctx context.Context, target service.ConcurrencyTarget, requestID string) (bool, error) {

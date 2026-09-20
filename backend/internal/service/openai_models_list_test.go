@@ -20,6 +20,39 @@ func ordinaryModelsUpstreamResponse(body string) *http.Response {
 	return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}
 }
 
+func TestResolveOpenAIModelDiscoveryEgressUsesStableProxyGroupRepresentative(t *testing.T) {
+	svc, account := newProxyGroupTestService(
+		&proxyGroupBindingCacheStub{},
+		&proxyGroupConcurrencyCacheStub{},
+		[]int64{2, 1},
+		[]Proxy{
+			{ID: 2, Name: "proxy-2", Protocol: "http", Host: "127.0.0.2", Port: 8080, Status: StatusActive},
+			{ID: 1, Name: "proxy-1", Protocol: "http", Host: "127.0.0.1", Port: 8080, Status: StatusActive},
+		},
+	)
+
+	resolved, err := svc.resolveOpenAIModelDiscoveryEgress(context.Background(), account)
+	require.NoError(t, err)
+	require.NotNil(t, resolved.ProxyID)
+	require.EqualValues(t, 1, *resolved.ProxyID)
+	require.Equal(t, "http://127.0.0.1:8080", upstreamModelsProxyURL(resolved))
+}
+
+func TestOpenAIModelDiscoveryFailsClosedForEmptyProxyGroup(t *testing.T) {
+	svc, account := newProxyGroupTestService(
+		&proxyGroupBindingCacheStub{},
+		&proxyGroupConcurrencyCacheStub{},
+		nil,
+		nil,
+	)
+	account.Credentials = map[string]any{"access_token": "oauth-token"}
+
+	_, err := svc.FetchOpenAIModelsList(context.Background(), account)
+	require.Error(t, err)
+	_, err = svc.FetchCodexModelsManifest(context.Background(), account, CodexCanonicalClientVersion(), "")
+	require.Error(t, err)
+}
+
 func TestFetchOpenAIModelsListUsesStandardRequestAndIsolatesCodexCache(t *testing.T) {
 	var calls atomic.Int32
 	s := newCodexModelsAPIKeyTestService(&codexModelsHTTPUpstreamStub{do: func(req *http.Request, _ string, accountID int64, concurrency int) (*http.Response, error) {

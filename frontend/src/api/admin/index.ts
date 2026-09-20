@@ -8,6 +8,7 @@ import usersAPI from './users'
 import groupsAPI from './groups'
 import accountsAPI from './accounts'
 import proxiesAPI from './proxies'
+import proxyIpGroupsAPI from './proxyIpGroups'
 import redeemAPI from './redeem'
 import promoAPI from './promo'
 import announcementsAPI from './announcements'
@@ -50,6 +51,7 @@ export const adminAPI = {
   groups: groupsAPI,
   accounts: accountsAPI,
   proxies: proxiesAPI,
+  proxyIpGroups: proxyIpGroupsAPI,
   redeem: redeemAPI,
   promo: promoAPI,
   announcements: announcementsAPI,
@@ -90,6 +92,7 @@ export {
   groupsAPI,
   accountsAPI,
   proxiesAPI,
+  proxyIpGroupsAPI,
   redeemAPI,
   promoAPI,
   announcementsAPI,
