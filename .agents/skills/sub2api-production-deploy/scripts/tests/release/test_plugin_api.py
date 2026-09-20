@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+from email.message import Message
 import importlib
 import io
 import json
@@ -82,6 +83,9 @@ def result_values(**changes: str) -> dict[str, str]:
         "remote_error_status": "none",
         "remote_error_class": "none",
         "remote_error_code": "none",
+        "remote_error_content_type": "none",
+        "remote_error_body_bytes": "0",
+        "remote_error_body_kind": "none",
     }
     value.update(changes)
     return value
@@ -317,6 +321,27 @@ class PluginAPIContractTest(unittest.TestCase):
             config["target_package"] = str(package)
             output = execute_remote_helper(module, config, urlopen)
         self.assertIn("remote_error_code=PLUGIN_PACKAGE_INVALID", output)
+
+    def test_remote_helper_reports_only_http_body_metadata(self) -> None:
+        module = load_plugin_api()
+        with tempfile.TemporaryDirectory() as temporary:
+            package = Path(temporary) / "plugin.s2plugin"
+            package.write_bytes(b"signed-package")
+
+            def urlopen(request, timeout=0):
+                if request.full_url.endswith("/admin/plugins"):
+                    return FakeHTTPResponse({"data": []})
+                headers = Message()
+                headers["Content-Type"] = "text/html"
+                raise urllib.error.HTTPError(request.full_url, 400, "bad request", headers, io.BytesIO(b"<html>private</html>"))
+
+            config = remote_config(target_binary="b" * 64, base_urls=["http://only/api/v1"])
+            config["target_package"] = str(package)
+            output = execute_remote_helper(module, config, urlopen)
+        self.assertIn("remote_error_content_type=text/html", output)
+        self.assertIn("remote_error_body_bytes=20", output)
+        self.assertIn("remote_error_body_kind=html", output)
+        self.assertNotIn("private", output)
 
 
 class FakeHTTPResponse:
