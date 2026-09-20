@@ -80,6 +80,7 @@ export default {
     extraCostReversePrompt: '请输入冲正原因：',
     extraCostAdded: '额外成本已记录',
     extraCostSaveFailed: '新增额外成本失败',
+    extraCostRecordedRefreshFailed: '记录已保存，但成本流水刷新失败，请手动重试',
     extraCostReversedSuccess: '额外成本已冲正',
     extraCostReverseFailed: '额外成本冲正失败',
     usageAccountCost: '用量成本',
