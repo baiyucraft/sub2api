@@ -69,10 +69,35 @@ pnpm test
 
 1. 先完成 UI 构建，检查 `ui/dist/index.html` 和引用的 JS / CSS 均存在，不含 symlink、源码映射秘密或配置草稿。
 2. 确认插件根目录的 `LICENSE`、`THIRD_PARTY_NOTICES.md`、`sources.lock.json`、`MAINTENANCE.md` 已更新；工具会把它们放入 `.s2plugin`，缺失则失败。
-3. 从插件根运行 `go run ./tools/package --out dist`；需要签名时追加 `--signing-key /secure/path/publisher.pkcs8.pem --key-id publisher-id`。密钥为 Ed25519 PKCS8 PEM，必须位于源码和输出目录之外。默认构建 Linux amd64 / arm64，可通过 `--arches` 限定。
+3. 从插件根运行 `go run ./tools/package --out dist`；正式 fork 包追加 `--signing-key /secure/path/publisher.pkcs8.pem --key-id baiyu-codex-state-v1`。密钥为 Ed25519 PKCS8 PEM，必须位于源码和输出目录之外，且派生公钥必须匹配宿主内置并仅绑定 `baiyu.codex-state` 的信任根。默认构建 Linux amd64 / arm64，可通过 `--arches` 限定。
 4. 对实际产物单独检查 manifest、逐文件 SHA256、签名与受信公钥、架构、能力要求、依赖许可和对应源码。检查私钥、账号凭据、代理 URL、真实 STATE 与调试文件未进入包。不要把 `sources.lock.json` 的源码基线结论当成此步骤已完成。
-5. 保留前一已验证包和对应配置 / 状态的恢复方案，通过通用 `POST /api/v1/admin/plugins/:id/upgrade` 上传字段 `plugin`。不要在升级前主动停用来绕过升级流程；由宿主负责升级事务、运行态保留与失败处理。
-6. 发布、部署、生产操作及回滚必须遵守仓库相应门禁和单独授权。测试、生成包或签名本身不构成部署授权。对未签名本地包，不以关闭生产签名校验作为安装办法。
+5. 首次安装使用 `POST /api/v1/admin/plugins/upload`，multipart 字段 `plugin`；上传前先确认同一插件 ID 不存在，上传完成后保持停用。当前宿主对部分非运行状态的同 ID 包仍可能接受 upload 替换，但该路径禁止用于升级。升级保留前一已验证包和对应配置 / 状态的恢复方案，通过 `POST /api/v1/admin/plugins/:id/upgrade` 上传同名字段。不要在升级前主动停用来绕过升级流程；由宿主负责升级事务、运行态保留与失败处理。
+6. PostgreSQL 中的插件包原件和安装记录是跨实例权威状态，各实例只在 `plugins.data_dir` 或 `${DATA_DIR}/plugins` 保存自己的运行副本。发布后逐实例验证数据库记录、恢复出的二进制 SHA、版本和 Health；不得把单实例上传成功解释为所有实例已运行。
+7. 插件安装、秘密配置、启用、手动采集和生产真实采集是不同授权边界。首次安装保持 disabled；没有单独授权时不保存生产秘密、不启用模型、不执行采集。
+8. 发布、部署、生产操作及回滚必须遵守仓库 `sub2api-production-deploy` 的 `plugin-package` 门禁。测试、生成包或签名本身不构成部署授权。对未签名本地包，不以关闭生产签名校验作为安装办法。
+
+仓库自动发布入口为：
+
+```text
+python .agents/skills/sub2api-production-deploy/scripts/release.py plugin-deploy-follow --commit <40位完整SHA>
+```
+
+它从隔离 worktree 构建双架构签名包，完成本地验包，并从未提交的 `.ssh.local` 读取管理员 API Key 自动完成 VM8211 Gate 与生产包写入。非交互场景使用 `plugin-deploy-start`，随后用 `plugin-status`、`plugin-follow` 和 `plugin-verify-result` 收口；`plugin-authorize` 只用于兼容恢复旧检查点。不要把管理员 API Key、密码、JWT 或 TOTP 写入参数、环境变量、状态文件、事件日志或临时凭据文件。
+
+### 独立插件包发布证据
+
+只修改 `plugins/codex-state/` 且未改变 Host API、宿主管理壳、migration 或部署配置语义时，按独立插件包发布，不生成宿主镜像或 release profile。至少保留：
+
+- 干净、已提交的 40 位源码 SHA；
+- Linux amd64 与 arm64 包的精确文件名和 SHA256；
+- manifest 中的插件 ID、版本、Host API 与九项 feature；
+- Ed25519 `key_id` 和受信验证结果，不记录私钥或公钥原文；
+- VM8211 模拟首次安装、停用配置、启用、升级、失败恢复和多实例本地包恢复结果；
+- 生产升级前版本、目标版本、受管范围、逐实例健康和回滚结果。
+
+若最终 diff 触及 `backend/pkg/pluginapi/`、宿主 `plugin_*` 服务、管理路由/前端壳、migration 280 后续结构或插件部署配置，则不属于独立包更新，必须同时发布宿主并执行完整 VM Gate。
+
+使用旧包回退前还要比较新旧 manifest 的 `config_secrets` 和插件私有状态格式。旧包会删除当前受保护 secret 字段，或无法读取已写入状态时，宿主会拒绝或无法安全完成普通 upgrade 回退；此时停止操作，先制定秘密字段兼容或状态恢复方案。
 
 ## 许可证与证据范围
 

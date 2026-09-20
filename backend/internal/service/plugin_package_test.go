@@ -96,6 +96,18 @@ func TestBuiltInOpenAITransportPublisherDoesNotRequireConfiguration(t *testing.T
 	assert.Empty(t, trustedPluginPublisherKey(cfg, builtInOpenAITransportPublisherKeyID, "com.example.other-plugin"))
 }
 
+func TestBuiltInCodexStatePublisherIsScopedToForkPlugin(t *testing.T) {
+	cfg := testPluginConfig(t.TempDir(), false)
+	cfg.Plugins.TrustedPublishers[builtInCodexStatePublisherKeyID] = "不能覆盖内置公钥"
+
+	encodedKey := trustedPluginPublisherKey(cfg, builtInCodexStatePublisherKeyID, builtInCodexStatePluginID)
+	decodedKey, err := base64.StdEncoding.DecodeString(encodedKey)
+	require.NoError(t, err)
+	require.Len(t, decodedKey, ed25519.PublicKeySize)
+	assert.Equal(t, builtInCodexStatePublisherKeyBase64, encodedKey)
+	assert.Empty(t, trustedPluginPublisherKey(cfg, builtInCodexStatePublisherKeyID, "com.example.other-plugin"))
+}
+
 func TestPluginPackageInstallerRejectsPathTraversal(t *testing.T) {
 	cfg := testPluginConfig(t.TempDir(), true)
 	installer := NewPluginPackageInstaller(cfg, PluginHostInfo{Version: "0.1.179"})

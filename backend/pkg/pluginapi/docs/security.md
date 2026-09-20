@@ -17,7 +17,7 @@
 
 ## 部署要求
 
-- 官方 OpenAI Transport 使用宿主内置公钥；只向 `plugins.trusted_publishers` 添加经过审核的第三方公钥。
+- 官方 OpenAI Transport 和当前 fork 的 `baiyu.codex-state` 使用分别绑定固定插件 ID 的宿主内置公钥；只向 `plugins.trusted_publishers` 添加经过审核的其他第三方公钥。
 - 使用专用低权限系统用户运行 Sub2API。
 - 限制该用户的文件权限、出站网络和环境变量。
 - 不向插件环境注入无关密钥。

@@ -2,7 +2,7 @@
 
 本文面向希望为 Sub2API 开发、打包和发布插件的团队。插件是独立进程和静态 UI 组成的 `.s2plugin` 包，宿主通过稳定的 gRPC 协议调用它。本文以当前宿主已经定义的 `openai.oauth.outbound_transport.v1` 能力作为协议示例，说明开发者需要准备什么、哪些职责属于插件、哪些职责仍由 Sub2API 负责。
 
-本文不是一个可直接安装的完整插件，也不代表 Sub2API 已经发布对应的官方插件包。当前文档主要描述公开协议、宿主边界和开发流程。后续是否发布可安装包、支持哪些 Provider，以及如何提供示例仓库，都需要另行公告。
+本文描述公开协议、宿主边界、开发流程和独立插件包的安装升级合同。仓库中的 `plugins/codex-state/` 是一套可构建、可安装的 fork 插件实现，但不是官方通用示例，也不代表 Sub2API upstream 发布或维护该插件。公开协议始终以 `backend/pkg/pluginapi/` 为准。
 
 ## 1. 准备开发环境
 
@@ -21,7 +21,7 @@
 - `backend/pkg/pluginapi/docs/`：开发、UI Bridge、包格式和安全边界说明。
 - [通用宿主契约](../backend/pkg/pluginapi/docs/host-services.md)：Scoped 配置、准入、资源目录、动作、加密状态 CAS 和 lease。
 
-目前暂未提供可直接复制的官方示例源码。开发者可以按照本文的目录和协议说明创建自己的插件工程；示例仓库发布后，会在本文补充正式的获取地址、目录说明和版本要求。公开协议始终以 `backend/pkg/pluginapi/` 为准。
+目前仍未提供可直接复制的官方示例源码。开发者可以按照本文的目录和协议说明创建自己的插件工程；需要查看完整的 fork 实现时，可阅读 `plugins/codex-state/`，但不得把其中的 Codex STATE 业务常量当作通用 SDK 契约。
 
 ## 2. 创建插件工程
 
@@ -203,7 +203,7 @@ plugins:
     my-publisher-v1: "BASE64_ED25519_PUBLIC_KEY"
 ```
 
-`trusted_publishers` 是在宿主内置官方公钥之外追加的信任来源，不能覆盖内置公钥。`signature.json` 中的 `key_id` 必须与配置键完全一致。密钥轮换时先发布包含新公钥的宿主配置或版本，再发布新签名包，最后再停用旧密钥。
+`trusted_publishers` 是在宿主内置公钥之外追加的信任来源，不能覆盖内置公钥。当前 fork 还内置了仅绑定 `baiyu.codex-state` 的 `baiyu-codex-state-v1` 公钥；它不信任其他插件。`signature.json` 中的 `key_id` 必须与配置键或内置 key ID 完全一致。密钥轮换时先发布包含新公钥的宿主配置或版本，再发布新签名包，最后再停用旧密钥。
 
 开发阶段如需使用未签名包，只应在隔离的本地环境临时设置 `plugins.allow_unsigned: true`，测试完成后立即恢复为 `false`。
 
@@ -231,14 +231,20 @@ SUB2API_TEST_PLUGIN_PACKAGE=/absolute/path/my-openai-plugin.s2plugin \
 
 新设施还需覆盖旧 API 1 协商、缺失 features、Scoped 保存和激活失败、准入版本不一致、资源脱敏、动作幂等与取消、CAS/tombstone、跨插件隔离和 lease 过期后的旧 fence 写入。
 
-安装后先保持停用，确认清单兼容性、签名和诊断结果。旧插件继续按账号灰度；Scoped 插件按已提交的账号/模型范围启用，受管请求不可用时失败关闭。API Key 账号仍使用原有路径。
+首次安装使用 `POST /api/v1/admin/plugins/upload`，multipart 字段固定为 `plugin`。JWT 管理会话需要 step-up；自动发布器可使用已认证的管理员 API Key，但该例外只覆盖插件包 upload/upgrade/delete 生命周期，不覆盖启停、配置、秘密、动作或测试。调用前必须先通过插件列表或详情确认同一插件 ID 不存在；当前宿主对部分 disabled、error 或 incompatible 安装仍可能接受同 ID upload 替换，但该路径没有在线升级的维护 journal、在途排空和回滚合同，禁止把它当作升级入口。上传成功只表示包完成签名、清单、文件哈希、路径、大小和宿主兼容性校验；新安装保持停用，不能把上传成功写成已经启用或开始执行业务任务。
 
-管理员可经 step-up 使用 `POST /api/v1/admin/plugins/:id/upgrade` 上传同 ID、受信任且兼容的 Scoped 包。升级保留配置、能力绑定和持久状态身份，维护期间阻止受管新请求并等待在途请求完成；失败时恢复或保持明确不可用状态。旧非 Scoped 插件仍需显式停用后安装。
+插件包原件和安装元数据以 PostgreSQL 为跨实例权威状态，本实例将运行文件恢复到 `plugins.data_dir`；该配置留空时使用 `${DATA_DIR}/plugins`，`DATA_DIR` 未设置时使用 `./data/plugins`。其他实例在需要启动插件时从数据库读取原包、重新执行完整包校验并恢复自己的本地运行目录，因此不要求操作者手工向每台实例复制 `.s2plugin`。数据库中存在包也不等于全部实例已经成功恢复；多实例发布必须逐实例核验恢复、进程健康、版本和二进制 SHA。
+
+安装后先保持停用，确认清单兼容性、签名、九项必需 host feature 和诊断结果。保存配置、写入秘密、启用插件及真实外部动作分别属于独立管理操作；安装授权不能隐含授权启用或采集。旧插件继续按账号灰度；Scoped 插件按已提交的账号/模型范围启用，受管请求不可用时失败关闭。API Key 账号仍使用原有路径。
+
+管理员 JWT 会话可经 step-up 使用 `POST /api/v1/admin/plugins/:id/upgrade`；自动发布器也可使用管理员 API Key 调用该包生命周期接口。升级保留配置、能力绑定和持久状态身份，维护期间阻止受管新请求并等待在途请求完成；失败时恢复或保持明确不可用状态。旧非 Scoped 插件仍需显式停用后安装。
 
 管理扩展通过 `GET /api/v1/admin/plugins/:id/resources` 提供只读脱敏目录，通过
 `POST /api/v1/admin/plugins/:id/actions` 执行带幂等 ID 的显式操作。声明 `config_secrets`
 的包只允许宿主可信表单调用 `PUT /api/v1/admin/plugins/:id/config/secrets` 修改秘密；
 普通配置 Bridge 返回空值和 configured 布尔标志，不能把代理凭据传入 iframe。
+
+插件业务代码、插件 UI 或私有状态机在现有 Host API 能力范围内变化时，可以只发布新的签名插件包，不需要重建宿主镜像或修改宿主版本。若变更涉及 Host API、必需 feature、管理路由、宿主前端壳、数据库 migration、运行目录或包校验逻辑，则属于宿主发布，必须先完成对应的应用 VM Gate 和正式发布门禁。
 
 ## 9. 发布前检查清单
 
