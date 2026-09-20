@@ -100,6 +100,7 @@ export default {
       extraCostReversePrompt: 'Enter a reason for this reversal:',
       extraCostAdded: 'Extra cost recorded',
       extraCostSaveFailed: 'Failed to add extra cost',
+      extraCostRecordedRefreshFailed: 'The entry was saved, but the cost ledger could not be refreshed. Please retry manually.',
       extraCostReversedSuccess: 'Extra cost reversed',
       extraCostReverseFailed: 'Failed to reverse extra cost',
       usageAccountCost: 'Usage cost',
