@@ -262,7 +262,12 @@ class PluginAPIClient:
 
     def _base_urls(self, node: str) -> list[str]:
         if node in {"local_vm", "vm"}:
-            return ["http://127.0.0.1:8211/api/v1"]
+            ssh_node = "local_vm" if node == "vm" else node
+            config = self.runner.servers.get(ssh_node)
+            host = config.get("host") if isinstance(config, dict) else None
+            if not isinstance(host, str) or not host.strip():
+                raise RuntimeError("VM plugin API host is missing from .ssh.local")
+            return [f"http://{host.strip()}:8211/api/v1"]
         if node == "racknerd":
             result = self.runner.run(
                 node,
