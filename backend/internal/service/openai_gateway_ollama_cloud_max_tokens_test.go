@@ -445,6 +445,7 @@ func TestForwardResponsesClampUsesResponsesUpstreamBaseURL(t *testing.T) {
 			APIProtocolChatCompletions: "https://ollama.com/v1",
 			APIProtocolResponses:       "https://api.deepseek.com",
 		}
+		account = withAdaptiveResponsesSupported(account)
 		upstream, err := run(account)
 		require.Error(t, err)
 		require.Equal(t, "https://api.deepseek.com/responses", upstream.lastReq.URL.String())
@@ -458,6 +459,7 @@ func TestForwardResponsesClampUsesResponsesUpstreamBaseURL(t *testing.T) {
 			APIProtocolChatCompletions: "https://api.deepseek.com",
 			APIProtocolResponses:       "https://ollama.com/v1",
 		}
+		account = withAdaptiveResponsesSupported(account)
 		upstream, err := run(account)
 		require.Error(t, err)
 		require.Equal(t, "https://ollama.com/v1/responses", upstream.lastReq.URL.String())

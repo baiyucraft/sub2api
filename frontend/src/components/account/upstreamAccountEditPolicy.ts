@@ -1,5 +1,6 @@
 const EDITABLE_CREDENTIAL_KEYS = new Set([
   'account_scheduling_threshold',
+  'api_protocol',
   'compact_model_mapping',
   'custom_error_codes',
   'custom_error_codes_enabled',

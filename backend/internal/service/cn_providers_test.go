@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 
@@ -655,6 +656,26 @@ func TestSupportsNativeCNResponses(t *testing.T) {
 	require.False(t, (&Account{Platform: PlatformOpenAI}).SupportsNativeCNResponses())
 }
 
+func TestAdaptiveNativeCNResponsesRequiresConfirmedCapability(t *testing.T) {
+	t.Parallel()
+
+	account := &Account{
+		Platform: PlatformDeepseek,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":      "sk-relay",
+			"api_protocol": APIProtocolAdaptive,
+		},
+	}
+	require.False(t, account.UsesNativeCNResponses(), "unknown capability must use the Chat Completions fallback")
+
+	account.Extra = openai_compat.MergeCNProtocolCapability(account.Extra, openai_compat.CNProtocolResponses, openai_compat.CNProtocolCapabilitySupported)
+	require.True(t, account.UsesNativeCNResponses())
+
+	account.Extra = openai_compat.MergeCNProtocolCapability(account.Extra, openai_compat.CNProtocolResponses, openai_compat.CNProtocolCapabilityUnsupported)
+	require.False(t, account.UsesNativeCNResponses())
+}
+
 func TestAdaptiveProtocolBaseURLs(t *testing.T) {
 	t.Parallel()
 
@@ -708,6 +729,34 @@ func TestAdaptiveProtocolBaseURLOverrides(t *testing.T) {
 	require.Equal(t, "https://chat.example.com", account.GetCNProtocolBaseURL(APIProtocolChatCompletions))
 	require.Equal(t, "https://anthropic.example.com", account.GetAnthropicProtocolBaseURL())
 	require.Equal(t, "https://responses.example.com", account.GetCNProtocolBaseURL(APIProtocolResponses))
+}
+
+func TestUpstreamBoundAdaptiveProtocolNeverFallsBackToOfficialBaseURL(t *testing.T) {
+	t.Parallel()
+
+	configID, keyID := int64(7), int64(8)
+	account := &Account{
+		Platform:         PlatformDeepseek,
+		Type:             AccountTypeAPIKey,
+		UpstreamConfigID: &configID,
+		UpstreamKeyID:    &keyID,
+		Credentials: map[string]any{
+			"api_key":      "sk-relay",
+			"api_protocol": APIProtocolAdaptive,
+			"base_url":     "https://relay.example.com/v1",
+			// Historical UI data may contain official endpoints. Bound credentials
+			// must ignore them and keep every protocol on the real relay origin.
+			"api_base_urls": map[string]any{
+				APIProtocolChatCompletions: DefaultDeepseekBaseURL,
+				APIProtocolResponses:       DefaultDeepseekBaseURL,
+			},
+		},
+	}
+
+	require.Equal(t, "https://relay.example.com/v1", account.GetOpenAIBaseURL())
+	require.Equal(t, "https://relay.example.com/v1", account.GetCNProtocolBaseURL(APIProtocolChatCompletions))
+	require.Equal(t, "https://relay.example.com/v1", account.GetCNProtocolBaseURL(APIProtocolResponses))
+	require.Equal(t, "https://relay.example.com/v1", account.GetCNProtocolBaseURL(APIProtocolAnthropic))
 }
 
 // TestAnthropicProtocolBaseURL 验证 Anthropic 协议默认端点与协议感知的
@@ -829,6 +878,11 @@ func TestNormalizeDeepSeekResponsesRequestBody(t *testing.T) {
 	deepseekAdaptive := &Account{
 		Platform: PlatformDeepseek, Type: AccountTypeAPIKey,
 		Credentials: map[string]any{"api_protocol": APIProtocolAdaptive},
+		Extra: openai_compat.MergeCNProtocolCapability(
+			nil,
+			openai_compat.CNProtocolResponses,
+			openai_compat.CNProtocolCapabilitySupported,
+		),
 	}
 	adaptiveNormalized := normalizeDeepSeekResponsesRequestBody(deepseekAdaptive, body)
 	require.False(t, gjson.GetBytes(adaptiveNormalized, "store").Bool())
@@ -859,6 +913,11 @@ func TestNormalizeDeepSeekResponsesRequestBody(t *testing.T) {
 	kimiCodingAdaptive := &Account{
 		Platform: PlatformKimi, Type: AccountTypeAPIKey,
 		Credentials: map[string]any{"api_protocol": APIProtocolAdaptive, "account_mode": AccountModeCoding},
+		Extra: openai_compat.MergeCNProtocolCapability(
+			nil,
+			openai_compat.CNProtocolResponses,
+			openai_compat.CNProtocolCapabilitySupported,
+		),
 	}
 	kimiCodingNormalized := normalizeDeepSeekResponsesRequestBody(kimiCodingAdaptive, body)
 	require.False(t, gjson.GetBytes(kimiCodingNormalized, "store").Bool())

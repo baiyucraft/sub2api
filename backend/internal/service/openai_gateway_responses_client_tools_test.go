@@ -12,6 +12,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
@@ -170,6 +171,11 @@ func TestDeepSeekAdaptiveResponsesForwardRestoresClientToolsNonStreaming(t *test
 		ID:       5662,
 		Platform: PlatformDeepseek,
 		Type:     AccountTypeAPIKey,
+		Extra: openai_compat.MergeCNProtocolCapability(
+			nil,
+			openai_compat.CNProtocolResponses,
+			openai_compat.CNProtocolCapabilitySupported,
+		),
 		Credentials: map[string]any{
 			"api_key":      "test-key",
 			"api_protocol": APIProtocolAdaptive,

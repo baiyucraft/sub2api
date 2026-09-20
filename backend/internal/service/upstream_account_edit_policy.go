@@ -13,6 +13,7 @@ import (
 // upstream-management account editor.
 var upstreamAccountEditableCredentialKeys = map[string]struct{}{
 	"account_scheduling_threshold": {},
+	"api_protocol":                 {},
 	"compact_model_mapping":        {},
 	"custom_error_codes":           {},
 	"custom_error_codes_enabled":   {},
@@ -96,6 +97,12 @@ func validateUpstreamAccountEditableUpdate(input *UpdateAccountInput) error {
 }
 
 func validateUpstreamAccountEditableCredentialValues(credentials map[string]any) error {
+	if value, ok := credentials["api_protocol"]; ok {
+		protocol, valid := value.(string)
+		if !valid || (protocol != APIProtocolAdaptive && protocol != APIProtocolChatCompletions && protocol != APIProtocolAnthropic && protocol != APIProtocolResponses) {
+			return infraerrors.BadRequest("INVALID_UPSTREAM_ACCOUNT_API_PROTOCOL", "api_protocol must be adaptive, chat_completions, anthropic, or responses")
+		}
+	}
 	if value, ok := credentials["pool_mode"]; ok {
 		if _, valid := value.(bool); !valid {
 			return infraerrors.BadRequest("INVALID_UPSTREAM_ACCOUNT_POOL_MODE", "pool_mode must be a boolean")

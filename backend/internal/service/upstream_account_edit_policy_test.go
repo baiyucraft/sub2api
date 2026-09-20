@@ -11,6 +11,7 @@ func TestValidateUpstreamAccountEditableUpdate(t *testing.T) {
 	t.Run("accepts account-local behavior controls", func(t *testing.T) {
 		err := validateUpstreamAccountEditableUpdate(&UpdateAccountInput{
 			Credentials: map[string]any{
+				"api_protocol":                 APIProtocolChatCompletions,
 				"model_mapping":                map[string]any{"gpt": "gpt-upstream"},
 				"pool_mode":                    true,
 				"pool_mode_retry_count":        float64(4),
@@ -32,6 +33,8 @@ func TestValidateUpstreamAccountEditableUpdate(t *testing.T) {
 		"runtime extra":     {Extra: map[string]any{UpstreamBillingProbeExtraKey: map[string]any{}}},
 		"unlisted extra":    {Extra: map[string]any{"provider_runtime_marker": true}},
 		"pool mode type":    {Credentials: map[string]any{"pool_mode": "true"}},
+		"protocol type":     {Credentials: map[string]any{"api_protocol": true}},
+		"protocol value":    {Credentials: map[string]any{"api_protocol": "invalid"}},
 		"retry count range": {Credentials: map[string]any{"pool_mode_retry_count": float64(11)}},
 		"status code range": {Credentials: map[string]any{"pool_mode_retry_status_codes": []any{float64(99)}}},
 	} {
@@ -68,12 +71,14 @@ func TestMergeUpstreamAccountEditableCredentialsPreservesDerivedState(t *testing
 			"provider_marker": "derived",
 		},
 		map[string]any{
+			"api_protocol":  APIProtocolChatCompletions,
 			"model_mapping": map[string]any{"gpt": "gpt-upstream"},
 			"pool_mode":     true,
 		},
 	)
 
 	require.Equal(t, true, merged["pool_mode"])
+	require.Equal(t, APIProtocolChatCompletions, merged["api_protocol"])
 	require.Equal(t, map[string]any{"gpt": "gpt-upstream"}, merged["model_mapping"])
 	require.Equal(t, "derived", merged["provider_marker"])
 }

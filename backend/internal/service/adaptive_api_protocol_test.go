@@ -32,6 +32,15 @@ func adaptiveProtocolTestAccount(platform string, baseURLs map[string]any) *Acco
 	}
 }
 
+func withAdaptiveResponsesSupported(account *Account) *Account {
+	account.Extra = openai_compat.MergeCNProtocolCapability(
+		account.Extra,
+		openai_compat.CNProtocolResponses,
+		openai_compat.CNProtocolCapabilitySupported,
+	)
+	return account
+}
+
 func adaptiveProtocolTestContext(path string, body []byte) *gin.Context {
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
@@ -101,11 +110,11 @@ func TestAdaptiveProtocolRoutesResponsesShapedChatToNativeResponses(t *testing.T
 	body := []byte(`{"model":"deepseek-v4","input":"hello","max_output_tokens":32,"stream":false}`)
 	upstream := &httpUpstreamRecorder{err: errors.New("stop after capture")}
 	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
-	account := adaptiveProtocolTestAccount(PlatformDeepseek, map[string]any{
+	account := withAdaptiveResponsesSupported(adaptiveProtocolTestAccount(PlatformDeepseek, map[string]any{
 		APIProtocolChatCompletions: "http://chat.example",
 		APIProtocolAnthropic:       "http://anthropic.example",
 		APIProtocolResponses:       "http://responses.example",
-	})
+	}))
 
 	_, err := svc.ForwardAsChatCompletions(context.Background(), adaptiveProtocolTestContext("/v1/chat/completions", body), account, body, "", "")
 	require.Error(t, err)
@@ -136,11 +145,11 @@ func TestAdaptiveProtocolRoutesKimiResponsesShapedChatToNativeResponses(t *testi
 	body := []byte(`{"model":"k3-256k","input":"hello","max_output_tokens":32,"stream":false}`)
 	upstream := &httpUpstreamRecorder{err: errors.New("stop after capture")}
 	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
-	account := adaptiveProtocolTestAccount(PlatformKimi, map[string]any{
+	account := withAdaptiveResponsesSupported(adaptiveProtocolTestAccount(PlatformKimi, map[string]any{
 		APIProtocolChatCompletions: "http://chat.example",
 		APIProtocolAnthropic:       "http://anthropic.example",
 		APIProtocolResponses:       "http://responses.example/v1",
-	})
+	}))
 
 	_, err := svc.ForwardAsChatCompletions(context.Background(), adaptiveProtocolTestContext("/v1/chat/completions", body), account, body, "", "")
 	require.Error(t, err)
@@ -175,11 +184,11 @@ func TestAdaptiveProtocolRoutesKimiResponsesToNativeResponses(t *testing.T) {
 	body := []byte(`{"model":"k3-256k","input":"hello","store":true,"previous_response_id":"resp_old","stream":false}`)
 	upstream := &httpUpstreamRecorder{err: errors.New("stop after capture")}
 	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
-	account := adaptiveProtocolTestAccount(PlatformKimi, map[string]any{
+	account := withAdaptiveResponsesSupported(adaptiveProtocolTestAccount(PlatformKimi, map[string]any{
 		APIProtocolChatCompletions: "http://chat.example",
 		APIProtocolAnthropic:       "http://anthropic.example",
 		APIProtocolResponses:       "http://responses.example/v1",
-	})
+	}))
 
 	_, err := svc.Forward(context.Background(), adaptiveProtocolTestContext("/v1/responses", body), account, body)
 	require.Error(t, err)
@@ -195,11 +204,11 @@ func TestAdaptiveProtocolRoutesKimiCodingResponsesToNativeResponses(t *testing.T
 	body := []byte(`{"model":"k3-256k","input":"hello","stream":false}`)
 	upstream := &httpUpstreamRecorder{err: errors.New("stop after capture")}
 	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
-	account := adaptiveProtocolTestAccount(PlatformKimi, map[string]any{
+	account := withAdaptiveResponsesSupported(adaptiveProtocolTestAccount(PlatformKimi, map[string]any{
 		APIProtocolChatCompletions: "https://api.kimi.com/coding/v1",
 		APIProtocolAnthropic:       "https://api.kimi.com/coding",
 		APIProtocolResponses:       "https://api.kimi.com/coding/v1",
-	})
+	}))
 	account.Credentials["account_mode"] = AccountModeCoding
 
 	_, err := svc.Forward(context.Background(), adaptiveProtocolTestContext("/v1/responses", body), account, body)
@@ -213,11 +222,11 @@ func TestAdaptiveProtocolRoutesDeepSeekResponsesToNativeResponses(t *testing.T) 
 	body := []byte(`{"model":"deepseek-v4","input":"hello","max_output_tokens":32,"store":true,"previous_response_id":"resp_old","stream":false}`)
 	upstream := &httpUpstreamRecorder{err: errors.New("stop after capture")}
 	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
-	account := adaptiveProtocolTestAccount(PlatformDeepseek, map[string]any{
+	account := withAdaptiveResponsesSupported(adaptiveProtocolTestAccount(PlatformDeepseek, map[string]any{
 		APIProtocolChatCompletions: "http://chat.example",
 		APIProtocolAnthropic:       "http://anthropic.example",
 		APIProtocolResponses:       "http://responses.example",
-	})
+	}))
 
 	_, err := svc.Forward(context.Background(), adaptiveProtocolTestContext("/v1/responses", body), account, body)
 	require.Error(t, err)
@@ -275,10 +284,10 @@ func TestAdaptiveProtocolDoesNotRetryResponsesFailureAsChat(t *testing.T) {
 	body := []byte(`{"model":"deepseek-v4","input":"hello","stream":false}`)
 	upstream := &httpUpstreamRecorder{resp: newJSONResponse(http.StatusNotFound, `{"error":{"message":"responses endpoint not found"}}`)}
 	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
-	account := adaptiveProtocolTestAccount(PlatformDeepseek, map[string]any{
+	account := withAdaptiveResponsesSupported(adaptiveProtocolTestAccount(PlatformDeepseek, map[string]any{
 		APIProtocolChatCompletions: "http://chat.example",
 		APIProtocolResponses:       "http://responses.example",
-	})
+	}))
 
 	_, err := svc.ForwardAsChatCompletions(context.Background(), adaptiveProtocolTestContext("/v1/chat/completions", body), account, body, "", "")
 

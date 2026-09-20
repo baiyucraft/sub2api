@@ -5173,6 +5173,11 @@ const handleSubmit = async () => {
       if (isUpstreamBoundAccount.value) {
         delete newCredentials.base_url
         delete newCredentials.api_key
+        if (isCNApiKeyAccount.value) {
+          // Only the protocol is account-local. The bound key keeps ownership
+          // of the upstream URL and secret injected by the repository.
+          newCredentials.api_protocol = editApiProtocol.value
+        }
       } else {
         newCredentials.base_url = editBaseUrl.value.trim() || defaultBaseUrl.value
         if (isCNApiKeyAccount.value) {
