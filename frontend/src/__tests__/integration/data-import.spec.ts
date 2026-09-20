@@ -109,6 +109,27 @@ describe('ImportDataModal', () => {
     expect(adminAPI.proxyIpGroups.list).toHaveBeenCalledTimes(1)
   })
 
+  it('统一覆盖设置使用三列布局和新的默认值', async () => {
+    const wrapper = mountModal()
+    const input = wrapper.find('input[type="file"]')
+    setInputFiles(input.element, [
+      makeJsonFile('accounts.json', JSON.stringify({
+        exported_at: '2026-09-20T00:00:00Z',
+        proxies: [],
+        accounts: [{ name: 'a', platform: 'openai' }]
+      }))
+    ])
+    await input.trigger('change')
+    await flushPromises()
+
+    const overrideGrid = wrapper.get('[data-testid="data-import-numeric-overrides"]')
+    expect(overrideGrid.classes()).toContain('sm:grid-cols-3')
+    const numericInputs = overrideGrid.findAll('input[type="number"]')
+    expect((numericInputs[0]!.element as HTMLInputElement).value).toBe('20')
+    expect((numericInputs[1]!.element as HTMLInputElement).value).toBe('0')
+    expect((numericInputs[2]!.element as HTMLInputElement).value).toBe('1')
+  })
+
   it('未选择文件时提示错误', async () => {
     const wrapper = mountModal()
 
@@ -178,10 +199,10 @@ describe('ImportDataModal', () => {
         accounts: [{ name: 'a' }]
       }),
       skip_default_group_bind: true,
-      override_concurrency: 4,
+      override_concurrency: 20,
       override_rate_multiplier: 0,
       override_priority: 1,
-      override_codex_fingerprint_mode: 'device'
+      override_codex_fingerprint_mode: 'session'
     })
   })
 
@@ -222,10 +243,10 @@ describe('ImportDataModal', () => {
         accounts: [{ name: 'a' }, { name: 'b' }]
       }),
       skip_default_group_bind: true,
-      override_concurrency: 4,
+      override_concurrency: 20,
       override_rate_multiplier: 0,
       override_priority: 1,
-      override_codex_fingerprint_mode: 'device'
+      override_codex_fingerprint_mode: 'session'
     })
     expect(showSuccess).toHaveBeenCalledWith('admin.accounts.dataImportSuccess')
   })
@@ -335,10 +356,10 @@ describe('ImportDataModal', () => {
     await flushPromises()
 
     expect(adminAPI.accounts.importData).toHaveBeenCalledWith(expect.objectContaining({
-      override_concurrency: 4,
+      override_concurrency: 20,
       override_rate_multiplier: 0,
       override_priority: 1,
-      override_codex_fingerprint_mode: 'device',
+      override_codex_fingerprint_mode: 'session',
       group_ids: [101, 102],
       preferred_group_ids: [102]
     }))
@@ -375,7 +396,7 @@ describe('ImportDataModal', () => {
     expect(payload).not.toHaveProperty('override_concurrency')
     expect(payload).not.toHaveProperty('override_rate_multiplier')
     expect(payload).not.toHaveProperty('override_priority')
-    expect(payload.override_codex_fingerprint_mode).toBe('device')
+    expect(payload.override_codex_fingerprint_mode).toBe('session')
   })
 
   it('混合平台导入禁用并清空分组设置', async () => {
@@ -475,7 +496,7 @@ describe('ImportDataModal', () => {
       override_concurrency: 0,
       override_rate_multiplier: 0,
       override_priority: 1,
-      override_codex_fingerprint_mode: 'device'
+      override_codex_fingerprint_mode: 'session'
     }))
     expect(showError).not.toHaveBeenCalledWith('admin.accounts.dataImportFailed')
   })
