@@ -1,0 +1,22 @@
+<!doctype html>
+<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Codex STATE local fixture</title><style>body{margin:0;background:#f8faf9}iframe{width:100%;height:100vh;border:0}</style></head>
+<body><iframe id="plugin" title="Codex STATE" sandbox="allow-scripts" src="/dist/index.html#bridge_token=local-preview"></iframe>
+<script>
+const frame = document.getElementById('plugin');
+let config = new URLSearchParams(location.search).has('initial') ? {} : {version:1,enabled:false,harvest_proxy_url:'',dial_proxy_url:'',accounts:[]};
+const configured = {harvest_proxy_url:false,dial_proxy_url:false};
+const models = ['gpt-6-astra','gpt-5.6-sol','gpt-5.6-terra'];
+window.addEventListener('message',event=>{
+  const m=event.data;
+  if(event.source!==frame.contentWindow||event.origin!=='null'||m?.source!=='sub2api-plugin-ui'||m.bridge_token!=='local-preview')return;
+  let data;
+  if(m.type==='config.load')data={config:{...config,_host_secrets:configured},host:{locale:'zh'}};
+  if(m.type==='config.save'){config={...m.config,harvest_proxy_url:'',dial_proxy_url:''};data={config:{...config,_host_secrets:configured}};}
+  // This fixture carries no secrets and simulates keeping the current flags.
+  if(m.type==='plugin.secrets.edit')data={result:{configured}};
+  if(m.type==='plugin.resources')data={resources:{accounts:[{id:123,name:'Codex Pro / Primary',platform:'openai',account_type:'oauth',group_ids:[1],business_egress_configured:true},{id:124,name:'Team / Europe',platform:'openai',account_type:'oauth',group_ids:[2],business_egress_configured:false}],groups:[{id:1,name:'Pro'},{id:2,name:'Team'}],proxies:[]}};
+  if(m.type==='plugin.status')data={result:{healthy:true,status_json:JSON.stringify({running:true,accounts:[{account_id:123,models:Object.fromEntries(models.map((model,i)=>[model,{state:i===0?'ready':i===1?'cooldown':'disabled',active:i===0?{usable:true,remaining_seconds:2340,expires_at:new Date(Date.now()+2340000).toISOString()}:null,ready:i===0?{usable:true,remaining_seconds:3540,expires_at:new Date(Date.now()+3540000).toISOString()}:null,strikes:i,attempts:i+2,cooldown_until:i===1?new Date(Date.now()+600000).toISOString():null,last_error:i===1?'upstream_rejected':''}]))}],logs:[{at:new Date().toISOString(),account_id:123,model:models[0],code:'harvest_persisted'}]})}};
+  if(m.type==='plugin.action')data={result:{action_id:m.action_id,accepted:true,status:'queued'}};
+  if(data)frame.contentWindow.postMessage({source:'sub2api-plugin-host',bridge_token:'local-preview',type:m.type+'.result',request_id:m.request_id,ok:true,...data},'*');
+});
+</script></body></html>

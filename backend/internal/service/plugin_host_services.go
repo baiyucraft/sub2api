@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 
 	pluginv1 "github.com/Wei-Shaw/sub2api/pkg/pluginapi/v1"
@@ -38,12 +40,19 @@ type PluginKVStore interface {
 // PluginOutboundIdentity 是宿主为某账号解析出的、可直接用于出站请求的身份材料：
 // 访问令牌、宿主会附加的出站请求头，以及账号代理。
 type PluginOutboundIdentity struct {
-	AccountID   int64
-	Platform    string
-	AccountType string
-	ProxyURL    string
-	Token       string
-	Headers     http.Header
+	AccountID        int64
+	Platform         string
+	AccountType      string
+	ProxyURL         string
+	Token            string
+	Headers          http.Header
+	IdentityRevision string
+	Egresses         []PluginOutboundEgress
+}
+
+type PluginOutboundEgress struct {
+	ProxyID  int64
+	ProxyURL string
 }
 
 // PluginAccountDirectory 让插件枚举其能力所覆盖的账号，并按需解析这些账号的出站身份，
@@ -60,13 +69,18 @@ type PluginAccountDirectory interface {
 // 自己的实例；所有键值操作都被强制限定在该插件的命名空间内。
 type pluginHostServiceServer struct {
 	pluginv1.UnimplementedHostServiceServer
-	pluginKey string
-	store     PluginKVStore
-	directory PluginAccountDirectory
+	pluginKey            string
+	store                PluginKVStore
+	directory            PluginAccountDirectory
+	resources            PluginResourceDirectory
+	stateStore           PluginStateStore
+	runtimeAuthorityRepo PluginRepository
+	allowSetupToken      bool
 }
 
 func newPluginHostServiceServer(pluginKey string, store PluginKVStore, directory PluginAccountDirectory) *pluginHostServiceServer {
-	return &pluginHostServiceServer{pluginKey: pluginKey, store: store, directory: directory}
+	resources, _ := directory.(PluginResourceDirectory)
+	return &pluginHostServiceServer{pluginKey: pluginKey, store: store, directory: directory, resources: resources}
 }
 
 func (s *pluginHostServiceServer) ready() bool {
@@ -88,7 +102,7 @@ func (s *pluginHostServiceServer) KVGet(ctx context.Context, req *pluginv1.KVGet
 	}
 	value, found, err := s.store.Get(ctx, s.pluginKey, req.Namespace, req.Key)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "读取键值失败: %v", err)
+		return nil, status.Error(codes.Internal, "读取键值失败")
 	}
 	if !found {
 		return &pluginv1.KVGetResponse{Found: false}, nil
@@ -117,7 +131,7 @@ func (s *pluginHostServiceServer) KVSet(ctx context.Context, req *pluginv1.KVSet
 		return nil, err
 	}
 	if err := s.store.Set(ctx, s.pluginKey, req.Namespace, req.Key, req.Value, ttl); err != nil {
-		return nil, status.Errorf(codes.Internal, "写入键值失败: %v", err)
+		return nil, status.Error(codes.Internal, "写入键值失败")
 	}
 	return &pluginv1.KVSetResponse{}, nil
 }
@@ -136,7 +150,7 @@ func (s *pluginHostServiceServer) KVDelete(ctx context.Context, req *pluginv1.KV
 		return nil, err
 	}
 	if err := s.store.Delete(ctx, s.pluginKey, req.Namespace, req.Key); err != nil {
-		return nil, status.Errorf(codes.Internal, "删除键值失败: %v", err)
+		return nil, status.Error(codes.Internal, "删除键值失败")
 	}
 	return &pluginv1.KVDeleteResponse{}, nil
 }
@@ -165,7 +179,7 @@ func (s *pluginHostServiceServer) KVList(ctx context.Context, req *pluginv1.KVLi
 	}
 	keys, err := s.store.List(ctx, s.pluginKey, req.Namespace, req.KeyPrefix, limit)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "列举键值失败: %v", err)
+		return nil, status.Error(codes.Internal, "列举键值失败")
 	}
 	return &pluginv1.KVListResponse{Keys: keys}, nil
 }
@@ -177,9 +191,16 @@ func (s *pluginHostServiceServer) ListAccounts(ctx context.Context, req *pluginv
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "请求为空")
 	}
-	ids, err := s.directory.ListPluginAccounts(ctx, req.Platform, req.AccountType)
+	accountType := strings.TrimSpace(req.AccountType)
+	if !s.allowSetupToken {
+		if accountType != "" && accountType != AccountTypeOAuth {
+			return &pluginv1.ListAccountsResponse{}, nil
+		}
+		accountType = AccountTypeOAuth
+	}
+	ids, err := s.directory.ListPluginAccounts(ctx, req.Platform, accountType)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "列举账号失败: %v", err)
+		return nil, status.Error(codes.Internal, "列举账号失败")
 	}
 	return &pluginv1.ListAccountsResponse{AccountIds: ids}, nil
 }
@@ -193,20 +214,61 @@ func (s *pluginHostServiceServer) ResolveOutboundIdentity(ctx context.Context, r
 	}
 	identity, err := s.directory.ResolvePluginOutboundIdentity(ctx, req.AccountId)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "解析账号出站身份失败: %v", err)
+		return nil, status.Error(codes.Internal, "解析账号出站身份失败")
 	}
-	if identity == nil {
+	if identity == nil || !s.allowSetupToken && identity.AccountType != AccountTypeOAuth {
 		return &pluginv1.ResolveOutboundIdentityResponse{Found: false}, nil
 	}
+	egresses := make([]*pluginv1.OutboundEgress, 0, len(identity.Egresses))
+	for _, egress := range identity.Egresses {
+		egresses = append(egresses, &pluginv1.OutboundEgress{ProxyId: egress.ProxyID, ProxyUrl: egress.ProxyURL})
+	}
 	return &pluginv1.ResolveOutboundIdentityResponse{
-		Found:       true,
-		AccountId:   identity.AccountID,
-		Platform:    identity.Platform,
-		AccountType: identity.AccountType,
-		ProxyUrl:    identity.ProxyURL,
-		Token:       identity.Token,
-		Headers:     headersToPlugin(identity.Headers),
+		Found:            true,
+		AccountId:        identity.AccountID,
+		Platform:         identity.Platform,
+		AccountType:      identity.AccountType,
+		ProxyUrl:         identity.ProxyURL,
+		Token:            identity.Token,
+		Headers:          headersToPlugin(identity.Headers),
+		IdentityRevision: identity.IdentityRevision,
+		Egresses:         egresses,
 	}, nil
+}
+
+func (s *pluginHostServiceServer) ListResources(ctx context.Context, req *pluginv1.ListResourcesRequest) (*pluginv1.ListResourcesResponse, error) {
+	if s == nil || s.resources == nil || !isValidPluginKVSegment(s.pluginKey, pluginKVMaxPluginKeyLen) {
+		return nil, status.Error(codes.Unavailable, "资源目录不可用")
+	}
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "请求为空")
+	}
+	resources, err := s.resources.ListPluginResources(ctx)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "列举资源失败")
+	}
+	if resources == nil {
+		resources = newPluginResources()
+	}
+	raw, err := json.Marshal(resources)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "序列化资源失败")
+	}
+	return &pluginv1.ListResourcesResponse{ResourcesJson: raw}, nil
+}
+
+func (s *pluginHostServiceServer) ResolveProxy(ctx context.Context, req *pluginv1.ResolveProxyRequest) (*pluginv1.ResolveProxyResponse, error) {
+	if s == nil || s.resources == nil || !isValidPluginKVSegment(s.pluginKey, pluginKVMaxPluginKeyLen) {
+		return nil, status.Error(codes.Unavailable, "代理目录不可用")
+	}
+	if req == nil || req.ProxyId <= 0 {
+		return nil, status.Error(codes.InvalidArgument, "proxy_id 无效")
+	}
+	proxyURL, err := s.resources.ResolvePluginProxy(ctx, req.ProxyId)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "解析代理失败")
+	}
+	return &pluginv1.ResolveProxyResponse{Found: proxyURL != "", ProxyUrl: proxyURL}, nil
 }
 
 func pluginKVTTL(seconds int64) (time.Duration, error) {

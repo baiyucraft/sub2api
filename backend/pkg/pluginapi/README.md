@@ -8,6 +8,7 @@
 - [UI Bridge](docs/ui-bridge.md)：沙箱配置 UI 的消息结构和安全要求。
 - [包格式](docs/package-format.md)：清单、文件哈希、签名和版本规则。
 - [安全边界](docs/security.md)：进程权限、敏感数据和故障策略。
+- [通用宿主契约](docs/host-services.md)：Scoped 配置、准入、资源、动作、加密持久状态与 lease。
 
 ## 实体与运行方式
 
@@ -19,22 +20,22 @@
 
 独立进程是代码和发布边界，不是操作系统安全沙箱。插件拥有 Sub2API 服务用户所拥有的文件和网络权限，因此只应安装可信发布者的签名包。闭源二进制可提高源码分发门槛，但不能承诺无法反编译。
 
-## 初期能力边界
+## 能力边界
 
 当前只接受 `openai.oauth.outbound_transport.v1`：
 
-- 仅匹配 `platform=openai` 且 `account_type=oauth` 的上游 HTTP 请求。
+- 旧插件仅匹配 `platform=openai` 且 `account_type=oauth` 的上游 HTTP 请求；声明 `oauth-like.v1` 的新插件还可处理 Setup Token。
 - API Key 账号、其他 provider、OAuth 登录与 Token 刷新流程不进入插件。
 - 插件建立真实的上游 HTTP/TLS 连接并返回原始 HTTP 响应。
 - 命中插件的 OAuth WebSocket 账号会使用 Sub2API 现有 HTTP Bridge，不直接建立上游 WebSocket，避免绕过 v1 HTTP 插件协议。
 - Sub2API 继续负责响应状态处理、SSE 解析、错误映射、用量统计、计费和下游输出。
-- 灰度比例以账号 ID 稳定分桶，未命中的 OAuth 账号继续使用原有内置路径。
+- 旧插件的灰度比例以账号 ID 稳定分桶；Scoped 插件按已提交的账号和最终出站模型范围路由，并经 `AdmitBatch` 准入。受管范围内插件不可用时失败关闭。
 
 ## 宿主服务（HostService）
 
 `HostService` 是宿主经 go-plugin broker 反向暴露给插件的通用能力层，独立于具体插件类型，供有状态插件使用。它通过 `TransportPlugin.InitHostServices` 在运行时协商：宿主启动后把一个 broker 流 id 交给插件，插件用它拨号回宿主并获得 `HostServiceClient`。
 
-- **可选且向后兼容**：未实现 `InitHostServices` 的旧插件返回 `Unimplemented`，宿主静默跳过，转发能力不受影响。宿主服务有独立的 `HostServiceAPIVersion`，新增能力不会改变传输契约版本，也不会使既有插件失效。
+- **按声明协商**：旧插件省略要求或声明 API 1 时仍收到 API 1；未声明必需宿主功能时允许 `Unimplemented`。新插件使用 HostService API 2 和 `requires.host_features` 声明依赖；功能不足或握手失败会阻止启用。传输协议仍为 v1。
 - **随进程回收**：宿主服务实例与插件进程生命周期绑定，插件退出时 broker 关闭并自动 `GracefulStop`，无需插件手动清理。
 
 当前提供的通用设施：
@@ -44,6 +45,8 @@
   - **护栏**：`namespace` / `key` 仅允许 `[A-Za-z0-9._-]`；单值上限 256 KiB；`ttl_seconds` 为 0 表示不过期、正值有上限；`KVList` 返回条数有上限。
 
 新增宿主设施时，在 `HostService` 上追加 RPC 即可，无需改动传输契约或清单格式。
+
+API 2 还提供 `ListResources`、进程内 `ResolveProxy`、带身份版本和多个出口的 `ResolveOutboundIdentity`，以及数据库加密状态 `StateGet` / `StateCompareAndSwap` / `StateList` 和带 fence 的 lease。`TransportPlugin` 增加 `AdmitBatch` 和 `RunAction`。新设施需通过公开 feature 名称声明，具体字段和故障语义见[通用宿主契约](docs/host-services.md)。
 
 ## 包结构
 
@@ -69,6 +72,7 @@ ui/assets/...
 - `requires.recommended_sub2api_version`：建议使用的宿主版本。
 - `requires.tested_sub2api_versions`：发布者实际验证过的宿主版本。
 - `plugin_protocol`、`transport_api`、`ui_bridge`：三个独立协议版本。
+- 可选 `host_service_api`、`host_features`：最低宿主服务版本和必需功能；旧清单可继续省略。
 
 宿主版本超出范围时，插件可以安装并查看，但保持“不兼容”状态且不能启用。版本在范围内但未列入已测试版本时，管理员必须再次确认才能启用。
 
@@ -84,11 +88,13 @@ UI 可以发送以下消息。消息按语义分层，鉴权与副作用一致�
 | `config.save` | 写入配置 | 是 | `ValidateConfig` + `ApplyConfig` |
 | `config.test` | 主动测试配置/连通性（可产生副作用） | 是 | `TestConfig` |
 | `plugin.status` | 读取运行时状态（无副作用） | 否 | `Health`（`status_json`） |
+| `plugin.resources` | 读取无凭据的账号、分组、代理目录 | 否 | 宿主只读目录 |
+| `plugin.action` | 对已启用、运行中的插件执行动作 | 是 | `RunAction` |
 | `ui.resize` / `ui.notify` | 仅 UI 交互 | — | — |
 
 每个请求消息带 `request_id`，宿主以 `<type>.result` 返回结果。
 
-- 配置整体使用 Sub2API 的密钥加密后存入数据库；运行中插件会先验证并应用新配置，数据库写入失败时恢复旧配置。
+- 配置整体使用 Sub2API 的密钥加密后存入数据库。Scoped 插件先验证，再原子保存配置、范围和代次，最后激活；验证草稿不能启动后台工作。旧插件保留应用失败回滚的原有流程。
 - `config.test` 的结果由插件 UI 自行展示（内联或经 `ui.notify`），宿主不再对成功结果强制弹出提示，避免插件把它当作轻量状态轮询时刷屏。
 - `plugin.status` 是通用的**只读**状态通道：宿主经 `GET /admin/plugins/:id/status` 调用运行中插件的 `Health`，返回 `{healthy, message, status_json}`。`status_json` 是插件自定义的**不透明** JSON 快照（宿主不解析、不参与健康判定），插件必须以无副作用方式生成（不得应用配置、访问上游或触发探测），因此该端点只读、免二次验证。插件未运行时返回 `healthy=false` 且不含 `status_json`。这样带状态面板的插件无需滥用 `config.test` 即可展示实时状态。
 

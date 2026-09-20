@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"errors"
 	"net/http"
+	"sort"
 	"strings"
 )
 
@@ -21,9 +23,8 @@ func (s *OpenAIGatewayService) ListPluginAccounts(ctx context.Context, platform,
 	if p := strings.TrimSpace(platform); p != "" && p != PlatformOpenAI {
 		return nil, nil
 	}
-	if at := strings.TrimSpace(accountType); at != "" && at != AccountTypeOAuth {
-		// Setup-token style accounts are OAuth-like but not AccountTypeOAuth; the
-		// current binding only routes AccountTypeOAuth, so honour that filter.
+	accountType = strings.TrimSpace(accountType)
+	if accountType != "" && accountType != AccountTypeOAuth && accountType != AccountTypeSetupToken {
 		return nil, nil
 	}
 	accounts, err := s.accountRepo.ListByPlatform(ctx, PlatformOpenAI)
@@ -33,10 +34,11 @@ func (s *OpenAIGatewayService) ListPluginAccounts(ctx context.Context, platform,
 	ids := make([]int64, 0, len(accounts))
 	for i := range accounts {
 		account := accounts[i]
-		if account.Status == StatusActive && account.IsOpenAIOAuthLike() && !account.IsShadow() && account.Type == AccountTypeOAuth {
+		if eligiblePluginAccount(&account) && (accountType == "" || account.Type == accountType) {
 			ids = append(ids, account.ID)
 		}
 	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 	return ids, nil
 }
 
@@ -50,10 +52,24 @@ func (s *OpenAIGatewayService) ResolvePluginOutboundIdentity(ctx context.Context
 	}
 	account, err := s.accountRepo.GetByID(ctx, accountID)
 	if err != nil {
+		if errors.Is(err, ErrAccountNotFound) {
+			return nil, nil
+		}
 		return nil, err
 	}
-	if account == nil || account.Type != AccountTypeOAuth || !account.IsOpenAIOAuthLike() || account.IsShadow() {
+	if !eligiblePluginAccount(account) || account.ID != accountID {
 		return nil, nil
+	}
+	identityRevision := PluginAccountIdentityRevision(account)
+	egresses := []PluginOutboundEgress{}
+	representatives, err := s.OpenAIProxyGroupRepresentatives(ctx, account)
+	if err != nil && !errors.Is(err, ErrOpenAIProxyGroupNoEgress) {
+		return nil, errors.New("plugin egress unavailable")
+	}
+	for _, representative := range representatives {
+		if representative.Proxy != nil {
+			egresses = append(egresses, PluginOutboundEgress{ProxyID: representative.Proxy.ID, ProxyURL: representative.Proxy.URL()})
+		}
 	}
 	token, _, err := s.GetAccessToken(ctx, account)
 	if err != nil {
@@ -68,12 +84,18 @@ func (s *OpenAIGatewayService) ResolvePluginOutboundIdentity(ctx context.Context
 	}
 	ensureCodexIdentityHeaders(headers)
 	enforceCodexIdentityHeaders(headers)
+	proxyURL := ""
+	if len(egresses) > 0 {
+		proxyURL = egresses[0].ProxyURL
+	}
 	return &PluginOutboundIdentity{
-		AccountID:   account.ID,
-		Platform:    account.Platform,
-		AccountType: account.Type,
-		ProxyURL:    resolveAccountProxyURL(account),
-		Token:       token,
-		Headers:     headers,
+		AccountID:        account.ID,
+		Platform:         account.Platform,
+		AccountType:      account.Type,
+		ProxyURL:         proxyURL,
+		Token:            token,
+		Headers:          headers,
+		IdentityRevision: identityRevision,
+		Egresses:         egresses,
 	}, nil
 }

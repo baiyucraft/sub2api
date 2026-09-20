@@ -202,7 +202,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 				zap.Error(err),
 				zap.Int("excluded_account_count", len(failedAccountIDs)),
 			)
-			if len(failedAccountIDs) == 0 {
+			if len(failedAccountIDs) == 0 || (lastFailoverErr != nil && lastFailoverErr.PluginAdmissionRejected) {
 				cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, clientRequestModel, routingModel, service.PlatformOpenAI)
 				if !cls.ModelNotFound {
 					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
@@ -338,7 +338,9 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 				var failoverErr *service.UpstreamFailoverError
 				if errors.As(err, &failoverErr) {
 					bindUpstreamFailoverAccount(c, account, failoverErr)
-					h.gatewayService.ReportOpenAIAccountScheduleResultForGroup(apiKey.GroupID, account, openAIAccountScheduleModel(c, account, requestModel, false, result), false, nil, err)
+					if !failoverErr.PluginAdmissionRejected {
+						h.gatewayService.ReportOpenAIAccountScheduleResultForGroup(apiKey.GroupID, account, openAIAccountScheduleModel(c, account, requestModel, false, result), false, nil, err)
+					}
 					if service.OpenAIImagesJSONKeepaliveAdjustedWrittenSize(c) != writerSizeBeforeForward {
 						reqLog.Warn("openai.images.upstream_failover_skipped_after_flush",
 							zap.Int64("account_id", account.ID),
@@ -353,6 +355,15 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 							zap.Int("upstream_status", failoverErr.StatusCode),
 						)
 						return
+					}
+					if failoverErr.PluginAdmissionRejected {
+						if !failoverErr.ShouldRetryNextAccount() {
+							h.handleFailoverExhausted(c, failoverErr, streamStarted)
+							return
+						}
+						failedAccountIDs[account.ID] = struct{}{}
+						lastFailoverErr = failoverErr
+						continue
 					}
 					if failoverErr.RetryableOnSameAccount {
 						retryLimit := effectiveSameAccountRetryLimit(failoverErr, account)

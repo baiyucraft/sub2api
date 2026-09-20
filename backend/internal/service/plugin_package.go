@@ -184,6 +184,10 @@ func (i *PluginPackageInstaller) Install(ctx context.Context, reader io.Reader, 
 }
 
 func (i *PluginPackageInstaller) inspectArchive(archive *zip.Reader) (PluginManifest, []byte, string, error) {
+	return i.inspectArchiveForRuntime(archive, (PluginManifest{}).RuntimeKey())
+}
+
+func (i *PluginPackageInstaller) inspectArchiveForRuntime(archive *zip.Reader, runtimeKey string) (PluginManifest, []byte, string, error) {
 	if len(archive.File) == 0 || len(archive.File) > pluginArchiveMaxFiles {
 		return PluginManifest{}, nil, "", errors.New("插件包文件数量无效")
 	}
@@ -229,7 +233,7 @@ func (i *PluginPackageInstaller) inspectArchive(archive *zip.Reader) (PluginMani
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {
 		return PluginManifest{}, nil, "", errors.New("插件清单只能包含一个 JSON 对象")
 	}
-	if err := manifest.Validate(); err != nil {
+	if err := manifest.validateForRuntime(runtimeKey); err != nil {
 		return PluginManifest{}, nil, "", err
 	}
 	for path := range entries {

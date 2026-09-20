@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,6 +18,21 @@ import (
 	"github.com/tiktoken-go/tokenizer"
 	"go.uber.org/zap"
 )
+
+// SelectAccountForTokenCountWithExclusions preserves token-count eligibility
+// while allowing the handler to skip request-local plugin admission rejections.
+func (s *OpenAIGatewayService) SelectAccountForTokenCountWithExclusions(
+	ctx context.Context,
+	groupID *int64,
+	sessionHash string,
+	requestedModel string,
+	requiredCapability OpenAIEndpointCapability,
+	platform string,
+	excludedIDs map[int64]struct{},
+) (*Account, error) {
+	ctx = s.withOpenAIQuotaAutoPauseContext(WithOpenAIProfitControlSuppressed(ctx))
+	return s.selectAccountForModelWithExclusions(ctx, groupID, platform, sessionHash, requestedModel, excludedIDs, false, 0, requiredCapability, false)
+}
 
 const (
 	openAIResponsesInputItemTokenOverhead = 3
@@ -85,6 +101,10 @@ func (s *OpenAIGatewayService) ForwardResponsesInputTokens(
 	}
 	resp, err := s.doOpenAIUpstream(upstreamReq, proxyURL, account)
 	if err != nil {
+		var admissionErr *PluginAdmissionError
+		if errors.As(err, &admissionErr) {
+			return s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
+		}
 		safeErr := sanitizeUpstreamErrorMessage(err.Error())
 		setOpsUpstreamError(c, 0, safeErr, "")
 		writeOpenAIResponsesInputTokensError(c, http.StatusBadGateway, "upstream_error", "Upstream request failed")
@@ -325,6 +345,10 @@ func (s *OpenAIGatewayService) ForwardCountTokensAsAnthropic(
 	}
 	resp, err := s.doOpenAIUpstream(upstreamReq, proxyURL, account)
 	if err != nil {
+		var admissionErr *PluginAdmissionError
+		if errors.As(err, &admissionErr) {
+			return s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
+		}
 		safeErr := sanitizeUpstreamErrorMessage(err.Error())
 		setOpsUpstreamError(c, 0, safeErr, "")
 		writeAnthropicCountTokensError(c, http.StatusBadGateway, "upstream_error", "Upstream request failed")
@@ -475,6 +499,9 @@ func (s *OpenAIGatewayService) buildInputTokensUpstreamRequest(
 
 	// 账号级请求头覆写（仅 openai api_key 账号启用时生效；OAuth 路径 no-op）
 	account.ApplyHeaderOverrides(req.Header)
+	if err := s.preparePluginRequest(ctx, account, extractOpenAIOutboundModel(body), req); err != nil {
+		return nil, err
+	}
 
 	return req, nil
 }

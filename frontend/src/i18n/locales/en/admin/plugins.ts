@@ -3,6 +3,21 @@ export default {
     title: 'Plugin Management',
     description: 'Install and manage isolated OAuth outbound transport plugins. API Key flows are unchanged.',
     upload: 'Install plugin',
+    upgrade: 'Upgrade',
+    upgradeSuccess: 'Plugin upgraded',
+    minimumSDK: 'Minimum host capabilities',
+    sdkRequirements: 'Protocol {plugin_protocol} / Transport {transport_api} / UI Bridge {ui_bridge}',
+    actionUnavailable: 'Actions require a running plugin',
+    bridgeRequestFailed: 'The plugin request failed. Refresh its status before retrying.',
+    secretsTitle: '{name} credentials',
+    secretConfigured: 'Configured',
+    secretNotConfigured: 'Not configured',
+    secretOperation: 'Operation',
+    secretKeep: 'Keep current value',
+    secretReplace: 'Replace',
+    secretClear: 'Clear',
+    secretsLoadFailed: 'Credential status could not be loaded. Close this dialog and try again.',
+    secretsSaveFailed: 'Credentials could not be saved. Close this dialog and check the current status before retrying.',
     uploadHint: 'Only .s2plugin packages are accepted; trusted publisher signatures are required by default.',
     runtimeNotice: 'Plugin installation, enable/disable, and configuration are handled dynamically by the Sub2API host and normally do not require a host restart. Restart only when the host version or host configuration changes according to your deployment process.',
     menuNotice: 'The Plugin Management switch in System Settings controls only sidebar visibility; it does not stop loaded or running plugins.',
@@ -45,6 +60,6 @@ export default {
     fileRequired: 'Select a .s2plugin file',
     bridgeRejected: 'Plugin UI message validation failed',
     onlyOpenAI: 'Initial capability: OpenAI OAuth outbound transport only',
-    noAccountCoupling: 'The scope is platform and account type. Account records are not changed and no per-account toggle is required.'
+    noAccountCoupling: 'Plugin configuration is managed separately from account credentials.'
   }
 }

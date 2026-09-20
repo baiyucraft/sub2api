@@ -394,7 +394,6 @@ function mountModal(
         Icon: true,
         ProxySelector: ProxySelectorStub,
         ProxyBindingSelector: ProxyBindingSelectorStub,
-        CodexAccountTicketSettings: true,
         GroupSelector: renderGroupSelector ? false : GroupSelectorStub,
         ModelWhitelistSelector: ModelWhitelistSelectorStub
       }

@@ -64,6 +64,9 @@ func (r *pluginRepository) GetByKey(ctx context.Context, key string) (*service.P
 }
 
 func (r *pluginRepository) Install(ctx context.Context, plugin *service.PluginInstallation, bindings []service.PluginBinding) (*service.PluginInstallation, error) {
+	if plugin.State == service.PluginStateUpgrading {
+		return nil, service.ErrPluginStateChanged
+	}
 	manifestJSON, err := json.Marshal(plugin.Manifest)
 	if err != nil {
 		return nil, fmt.Errorf("序列化插件清单: %w", err)
@@ -131,7 +134,7 @@ func (r *pluginRepository) GetArtifact(ctx context.Context, id int64) ([]byte, e
 func (r *pluginRepository) Delete(ctx context.Context, id int64, expectedBinarySHA256 string) error {
 	result, err := r.db.ExecContext(ctx, `
 		DELETE FROM sub2api_plugin_installations p
-		WHERE p.id = $1 AND p.binary_sha256 = $2 AND p.state NOT IN ('starting', 'enabled')
+		WHERE p.id = $1 AND p.binary_sha256 = $2 AND p.state NOT IN ('starting', 'enabled', 'upgrading')
 		  AND NOT EXISTS (SELECT 1 FROM sub2api_plugin_bindings b WHERE b.plugin_id = p.id AND b.enabled = TRUE)
 	`, id, expectedBinarySHA256)
 	if err != nil {
@@ -151,7 +154,7 @@ func (r *pluginRepository) BeginEnable(ctx context.Context, id int64, binarySHA2
 	result, err := r.db.ExecContext(ctx, `
 		UPDATE sub2api_plugin_installations
 		SET state = 'starting', last_error = '', updated_at = NOW()
-		WHERE id = $1 AND binary_sha256 = $2 AND state = $3 AND state <> 'starting'
+		WHERE id = $1 AND binary_sha256 = $2 AND state = $3 AND state NOT IN ('starting', 'upgrading')
 	`, id, binarySHA256, expectedState)
 	if err != nil {
 		return err
@@ -171,6 +174,7 @@ func (r *pluginRepository) MarkRuntimeHealthy(ctx context.Context, id int64, bin
 		UPDATE sub2api_plugin_installations p
 		SET state = 'enabled', last_error = '', enabled_at = COALESCE(enabled_at, NOW()), updated_at = NOW()
 		WHERE p.id = $1 AND p.binary_sha256 = $2 AND p.config_encrypted = $3
+		  AND p.state <> 'upgrading'
 		  AND EXISTS (SELECT 1 FROM sub2api_plugin_bindings b WHERE b.plugin_id = p.id AND b.enabled = TRUE)
 	`, id, binarySHA256, configEncrypted)
 	if err != nil {
@@ -190,7 +194,7 @@ func (r *pluginRepository) UpdateState(ctx context.Context, id int64, state, las
 	result, err := r.db.ExecContext(ctx, `
 		UPDATE sub2api_plugin_installations
 		SET state = $2, last_error = $3, enabled_at = $4, updated_at = NOW()
-		WHERE id = $1 AND binary_sha256 = $5 AND state = $6
+		WHERE id = $1 AND binary_sha256 = $5 AND state = $6 AND state <> 'upgrading' AND $2 <> 'upgrading'
 	`, id, state, lastError, enabledAt, expectedBinarySHA256, expectedState)
 	if err != nil {
 		return err
@@ -208,8 +212,8 @@ func (r *pluginRepository) UpdateState(ctx context.Context, id int64, state, las
 func (r *pluginRepository) UpdateConfig(ctx context.Context, id int64, encrypted, expectedBinarySHA256 string) error {
 	result, err := r.db.ExecContext(ctx, `
 		UPDATE sub2api_plugin_installations
-		SET config_encrypted = $2, updated_at = NOW()
-		WHERE id = $1 AND binary_sha256 = $3
+		SET config_encrypted = $2, config_revision = config_revision + 1, updated_at = NOW()
+		WHERE id = $1 AND binary_sha256 = $3 AND state <> 'upgrading'
 	`, id, encrypted, expectedBinarySHA256)
 	if err != nil {
 		return err
@@ -242,7 +246,7 @@ func (r *pluginRepository) UpdateBindingsAndState(
 	result, err := tx.ExecContext(ctx, `
 		UPDATE sub2api_plugin_installations
 		SET state = $2, last_error = $3, enabled_at = $4, updated_at = NOW()
-		WHERE id = $1 AND ($5 = '' OR state = $5) AND binary_sha256 = $6
+		WHERE id = $1 AND ($5 = '' OR state = $5) AND binary_sha256 = $6 AND state <> 'upgrading' AND $2 <> 'upgrading'
 	`, pluginID, state, lastError, enabledAt, expectedState, expectedBinarySHA256)
 	if err != nil {
 		return err
@@ -284,7 +288,7 @@ const pluginSelectSQL = `
 	SELECT id, plugin_key, name, version, description, author, manifest,
 	       artifact_path, install_path, binary_path, binary_sha256,
 	       signature_status, state, config_encrypted, last_error,
-	       installed_by, installed_at, enabled_at, updated_at
+	       installed_by, installed_at, enabled_at, updated_at, config_revision, managed_scope
 	FROM sub2api_plugin_installations`
 
 type pluginScanner interface {
@@ -293,18 +297,23 @@ type pluginScanner interface {
 
 func scanPlugin(scanner pluginScanner) (*service.PluginInstallation, error) {
 	plugin := &service.PluginInstallation{}
+	var scopeJSON []byte
 	var manifestJSON []byte
 	if err := scanner.Scan(
 		&plugin.ID, &plugin.PluginKey, &plugin.Name, &plugin.Version, &plugin.Description,
 		&plugin.Author, &manifestJSON, &plugin.ArtifactPath, &plugin.InstallPath,
 		&plugin.BinaryPath, &plugin.BinarySHA256, &plugin.SignatureStatus, &plugin.State,
 		&plugin.ConfigEncrypted, &plugin.LastError, &plugin.InstalledBy, &plugin.InstalledAt,
-		&plugin.EnabledAt, &plugin.UpdatedAt,
+		&plugin.EnabledAt, &plugin.UpdatedAt, &plugin.ConfigRevision, &scopeJSON,
 	); err != nil {
 		return nil, err
 	}
 	if err := json.Unmarshal(manifestJSON, &plugin.Manifest); err != nil {
 		return nil, fmt.Errorf("解析插件清单: %w", err)
+	}
+	if scopeJSON != nil {
+		plugin.ManagedScope = make([]service.PluginManagedTarget, 0)
+		if err := json.Unmarshal(scopeJSON, &plugin.ManagedScope); err != nil { return nil, fmt.Errorf("decode plugin scope: %w", err) }
 	}
 	return plugin, nil
 }

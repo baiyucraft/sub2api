@@ -373,6 +373,7 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertEqual(current["new_migrations"], [
             "278_fork_group_ttft_guard_policies.sql",
             "279_proxy_ip_groups.sql",
+            "280_plugin_runtime_state.sql",
         ])
         self.assertEqual(profiles.CURRENT_RELEASE_PROFILE, "254")
         self.assertEqual(get_release_profile("254"), current)
@@ -389,12 +390,15 @@ class ReleaseCoreTest(unittest.TestCase):
         migration_names = [
             "278_fork_group_ttft_guard_policies.sql",
             "279_proxy_ip_groups.sql",
+            "280_plugin_runtime_state.sql",
         ]
         migration_tests = {
             "278_fork_group_ttft_guard_policies.sql":
                 "backend/migrations/group_ttft_guard_policy_migration_test.go",
             "279_proxy_ip_groups.sql":
                 "backend/migrations/proxy_ip_group_migration_test.go",
+            "280_plugin_runtime_state.sql":
+                "backend/migrations/plugin_runtime_state_migration_test.go",
         }
         current = get_profile("254")
         catalog_path = (
@@ -414,14 +418,23 @@ class ReleaseCoreTest(unittest.TestCase):
 
         self.assertEqual(current["new_migrations"], migration_names)
         self.assertEqual(catalog["current_profile"]["id"], "254")
+        self.assertEqual(catalog["current_profile"]["status"], "pending")
+        self.assertEqual(catalog["current_profile"]["version"], current["version"])
+        self.assertEqual(catalog["current_profile"]["parent"], "253")
         self.assertEqual(catalog["current_profile"]["new_migrations"], migration_names)
+        self.assertTrue(catalog["migration_assertions"]["backend/migrations/280_plugin_runtime_state.sql"])
         for migration_name in migration_names:
             migration_path = WORKSPACE / "backend" / "migrations" / migration_name
             actual_checksum = hashlib.sha256(migration_path.read_bytes()).hexdigest()
             self.assertEqual(catalog["migration_contracts"][migration_name], actual_checksum)
+            self.assertIn(migration_name, migration_contract["migration_files"])
             migration_test = migration_tests[migration_name]
             self.assertTrue((WORKSPACE / migration_test).is_file())
             self.assertIn(migration_test, migration_contract["required_tests"])
+            migration_sql = migration_path.read_text(encoding="utf-8")
+            for marker in catalog["migration_assertions"].get(f"backend/migrations/{migration_name}", []):
+                with self.subTest(migration=migration_name, marker=marker):
+                    self.assertIn(marker, migration_sql)
 
     def test_formal_tag_version_override_contract_is_documented_and_injected_by_manifest(self) -> None:
         skill = (DEPLOY_ROOT.parent / "SKILL.md").read_text(encoding="utf-8")

@@ -84,7 +84,7 @@
     "version": "0.2.7-baiyu",
     "parent": "253",
     "gate_schema": 2,
-    "new_migrations": ["278_fork_group_ttft_guard_policies.sql", "279_proxy_ip_groups.sql"],
+    "new_migrations": ["278_fork_group_ttft_guard_policies.sql", "279_proxy_ip_groups.sql", "280_plugin_runtime_state.sql"],
     "release_policy": {
       "compatibility_image": "production_current",
       "migration_source": "database_state"
@@ -153,7 +153,8 @@
     "276_api_key_scheduling_mode.sql": "71404a0e238b2c7f4e05e747d237dc91c104f18d4c2674720102b1494f8604e4",
     "277_user_group_rate_percent.sql": "7496e93f5f77c93637e0f68f13fc39e6f793a8968bd01371e357c952b44f47b7",
     "278_fork_group_ttft_guard_policies.sql": "0637f2c51df53a76ea66730cc5f7127c1f20adf187ec649edda5f1993e42d207",
-    "279_proxy_ip_groups.sql": "6d9e622320d7c4264f9ea501f1f56d3dc7124774d52ff2c3a263e538c4b4e039"
+    "279_proxy_ip_groups.sql": "6d9e622320d7c4264f9ea501f1f56d3dc7124774d52ff2c3a263e538c4b4e039",
+    "280_plugin_runtime_state.sql": "700479dfaf0ecee741ded67df3e670a53433a5a486a7c7b2d87d27c6d48d8341"
   },
   "migration_renames": {
     "official_221": "234_group_model_pricing.sql",
@@ -270,6 +271,39 @@
       "ADD COLUMN IF NOT EXISTS proxy_ip_group_id BIGINT",
       "accounts_proxy_source_exclusive",
       "CHECK (proxy_id IS NULL OR proxy_ip_group_id IS NULL)"
+    ],
+    "backend/migrations/280_plugin_runtime_state.sql": [
+      "ADD COLUMN IF NOT EXISTS config_revision BIGINT NOT NULL DEFAULT 0",
+      "ADD COLUMN IF NOT EXISTS managed_scope JSONB NULL",
+      "NULL preserves legacy full scope; [] means no managed targets for a new plugin.",
+      "DROP CONSTRAINT IF EXISTS sub2api_plugin_installations_state_check",
+      "ADD CONSTRAINT sub2api_plugin_installations_state_check",
+      "CHECK (state IN ('disabled', 'starting', 'enabled', 'error', 'incompatible', 'upgrading'))",
+      "CREATE TABLE IF NOT EXISTS sub2api_plugin_maintenance",
+      "plugin_id BIGINT PRIMARY KEY REFERENCES sub2api_plugin_installations(id) ON DELETE CASCADE",
+      "owner_token VARCHAR(128) NOT NULL CHECK (octet_length(owner_token) BETWEEN 32 AND 128)",
+      "previous_installation JSONB NOT NULL CHECK (jsonb_typeof(previous_installation) = 'object')",
+      "installed_sha256 VARCHAR(64) NOT NULL",
+      "installed_config_revision BIGINT NOT NULL CHECK (installed_config_revision >= 0)",
+      "ON sub2api_plugin_maintenance(expires_at)",
+      "CREATE TABLE IF NOT EXISTS sub2api_plugin_runtime_requests",
+      "plugin_id BIGINT NOT NULL REFERENCES sub2api_plugin_installations(id) ON DELETE CASCADE",
+      "request_id VARCHAR(64) NOT NULL",
+      "created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()",
+      "PRIMARY KEY (plugin_id, request_id)",
+      "CREATE TABLE IF NOT EXISTS sub2api_plugin_runtime_state",
+      "plugin_key VARCHAR(160) NOT NULL REFERENCES sub2api_plugin_installations(plugin_key) ON DELETE CASCADE",
+      "namespace VARCHAR(128) COLLATE \"C\" NOT NULL",
+      "key VARCHAR(512) COLLATE \"C\" NOT NULL",
+      "value_encrypted TEXT",
+      "version BIGINT NOT NULL CHECK (version > 0)",
+      "deleted BOOLEAN NOT NULL DEFAULT FALSE",
+      "CHECK ((deleted AND value_encrypted IS NULL) OR (NOT deleted AND value_encrypted IS NOT NULL))",
+      "CREATE TABLE IF NOT EXISTS sub2api_plugin_runtime_leases",
+      "owner_token TEXT NOT NULL DEFAULT ''",
+      "fence BIGINT NOT NULL DEFAULT 0 CHECK (fence >= 0)",
+      "expires_at TIMESTAMPTZ NOT NULL DEFAULT '-infinity'",
+      "PRIMARY KEY (plugin_key, namespace, key)"
     ]
   },
   "semantic_overlap": {
@@ -405,7 +439,7 @@
       "risk_level": "critical",
       "design_references": ["https://github.com/Go1c/sub2api/pull/423"],
       "adoption_mode": "independent-adaptation-for-0.2.7-baiyu",
-      "paths": ["backend/migrations/279_proxy_ip_groups.sql", "backend/ent/schema/account.go", "backend/ent/schema/proxy_ip_group.go", "backend/ent/schema/proxy_ip_group_member.go", "backend/internal/repository/proxy_ip_group_repo.go", "backend/internal/repository/concurrency_cache.go", "backend/internal/repository/gateway_cache.go", "backend/internal/service/proxy_ip_group.go", "backend/internal/service/openai_proxy_group.go", "backend/internal/service/concurrency_service.go", "backend/internal/service/openai_codex_ticket_account.go", "frontend/src/api/admin/proxyIpGroups.ts", "frontend/src/components/admin/proxy/ProxyIPGroupDialog.vue", "frontend/src/components/common/ProxyBindingSelector.vue", "frontend/src/components/admin/account/ImportDataModal.vue", "frontend/src/components/account/AccountCapacityCell.vue", "frontend/src/views/admin/ProxiesView.vue", "frontend/src/views/admin/AccountsView.vue", "frontend/src/types/index.ts"],
+      "paths": ["backend/migrations/279_proxy_ip_groups.sql", "backend/ent/schema/account.go", "backend/ent/schema/proxy_ip_group.go", "backend/ent/schema/proxy_ip_group_member.go", "backend/internal/repository/proxy_ip_group_repo.go", "backend/internal/repository/concurrency_cache.go", "backend/internal/repository/gateway_cache.go", "backend/internal/service/proxy_ip_group.go", "backend/internal/service/openai_proxy_group.go", "backend/internal/service/concurrency_service.go", "backend/internal/service/openai_plugin_account_directory.go", "frontend/src/api/admin/proxyIpGroups.ts", "frontend/src/components/admin/proxy/ProxyIPGroupDialog.vue", "frontend/src/components/common/ProxyBindingSelector.vue", "frontend/src/components/admin/account/ImportDataModal.vue", "frontend/src/components/account/AccountCapacityCell.vue", "frontend/src/views/admin/ProxiesView.vue", "frontend/src/views/admin/AccountsView.vue", "frontend/src/types/index.ts"],
       "symbols": ["ProxyIPGroupRepository", "ProxyIPGroupAdminService", "AccountProxyConcurrencyCache", "OpenAIProxyGroupNoEgressCode", "concurrency:account-proxy:", "openai:ip_group_bind:", "proxy_ip_group_id", "ProxyIPGroupDialog", "ProxyBindingSelector"],
       "api_routes": ["/admin/proxy-ip-groups"],
       "settings_keys": [],
@@ -469,17 +503,188 @@
     },
     {
       "id": "openai-codex-state-tickets",
-      "title": "OpenAI Codex 账号级 STATE 票据",
-      "description": "保留 PR #7315/#7338 的票据采集、业务出口复验和账号控制基线，并由 fork 独立维护 Astra/Sol/Terra 模型隔离、active/ready 状态机、strict 调度门、分布式采集锁和客户端 STATE 优先级；代理组始终共用账号级票据槽。",
+      "title": "历史 STATE 私有字段兼容与来源",
+      "description": "内置 STATE 运行时已由独立插件替代，只保留来源历史、客户端 STATE 来源守卫和旧私有字段保护；不迁移旧票据配置。",
       "ownership": "fork",
       "risk_level": "critical",
-      "paths": ["backend/internal/service/openai_codex_ticket*.go", "backend/internal/service/openai_codex_turn_state.go", "backend/internal/service/openai_gateway_*.go", "backend/internal/service/openai_account_runtime_block_fastpath.go", "backend/internal/service/openai_account_scheduler.go", "backend/internal/handler/admin/account_codex_ticket_controls.go", "backend/internal/handler/dto/mappers.go", "backend/internal/handler/dto/types.go", "backend/internal/repository/account_repo.go", "backend/internal/server/middleware/audit_log.go", "frontend/src/api/admin/codexTickets.ts", "frontend/src/components/account/CodexAccountTicketSettings.vue", "frontend/src/components/account/AccountUsageCell.vue", "frontend/src/views/admin/SettingsView.vue", "docs/CODEX_ACCOUNT_STATE.md"],
-      "symbols": ["OpenAICodexTicketStatus", "CodexAccountTicketStatus", "CodexAccountTicketModelStatus", "openAICodexTicketSlot", "parseCodexTicketEnvelope", "acquireCodexTicketHarvestLock", "applyOpenAICodexTicket", "isOpenAIAccountRequestRuntimeBlocked", "guardOpenAICodexTurnStateEcho", "openAICodexTurnStateHeader", "CodexAccountTicketSettings"],
-      "api_routes": ["/api/v1/admin/accounts/:id/codex-ticket", "/api/v1/admin/accounts/:id/codex-ticket/harvest", "/v1/responses", "/v1/responses/compact", "/v1/chat/completions", "/v1/messages"],
-      "settings_keys": ["openai_codex_ticket_enabled", "openai_codex_ticket_harvest_proxy_url"],
+      "paths": [
+        "backend/internal/service/openai_codex_ticket_privacy.go",
+        "backend/internal/service/openai_codex_ticket_privacy_test.go",
+        "backend/internal/service/openai_codex_turn_state.go",
+        "backend/internal/repository/account_repo.go",
+        "backend/internal/server/middleware/audit_log.go",
+        "backend/internal/handler/admin/account_data.go",
+        "backend/internal/handler/dto/mappers.go"
+      ],
+      "symbols": [
+        "MergeOpenAICodexTicketExtra",
+        "RedactOpenAICodexTicketExtra",
+        "guardOpenAICodexTurnStateEcho"
+      ],
+      "api_routes": [],
+      "settings_keys": [],
       "migration_files": [],
-      "required_tests": ["backend/internal/service/openai_codex_ticket_test.go", "backend/internal/service/openai_codex_ticket_envelope_test.go", "backend/internal/service/openai_codex_ticket_lock_test.go", "backend/internal/service/openai_codex_ticket_multimodel_test.go", "backend/internal/service/openai_codex_ticket_lifecycle_test.go", "backend/internal/service/openai_codex_ticket_retention_test.go", "backend/internal/service/openai_codex_ticket_watchdog_test.go", "backend/internal/service/openai_codex_turn_state_test.go", "backend/internal/service/openai_ws_codex_ticket_test.go", "backend/internal/service/openai_ttft_guard_test.go", "backend/internal/handler/admin/account_codex_ticket_controls_test.go", "backend/internal/handler/dto/account_mapper_redact_test.go", "backend/internal/server/middleware/codex_ticket_audit_test.go", "frontend/src/components/account/__tests__/CodexAccountTicketSettings.spec.ts", "frontend/src/components/account/__tests__/AccountUsageCell.spec.ts", "frontend/src/views/admin/__tests__/SettingsView.spec.ts"],
-      "invariants": ["直接合并来源固定为 PR #7315 head 3c2f05c957b4b93866318ec8695fc5a28fff70eb、其 merge 49a39b6dc1abed30fd227611e8af1108bc427610、PR #7338 head 09e112fb4997be666b10da48c3b5f65fb8d8b53b 与 fork merge a6be2645fffca32a2425d79f822902d7a5aedaff；#7315 由 #7338 父历史带入，不重复合并", "设计参考固定为 ccodex-sleep-state 26b22196bf68b372d0daad9381f686a3321068d4 与 b18fabf9ad8e9d7af7d9d0306b623ba6091a39d6；前者是 #7338 原参考点，后者是 2026-09-19 fork 审查点", "ccodex-sleep-state 为 GPL-3.0 设计参考；本 LGPL-3.0-or-later fork 不复制其整项目源码、函数实现或依赖，只在现有边界独立实现", "不采用参考项目的本地 Codex 配置接管、CCS/profile/Web 面板、订阅和代理节点池、纯内存 STATE、响应正文拦截、on_demand/standby 用户策略、本地 relay、原生上游 WebSocket STATE、账号暂停恢复或本地配置恢复", "全局总开关和账号模型开关默认关闭；新建、导入、复制账号不得自动启用或继承票据", "票据按 account_id + canonical outbound model + config revision + ChatGPT identity 隔离，Astra、Sol、Terra 不共享 active、ready、strikes 或 cooldown；代理 ID、URL、代理组和成员不进入票据所有权", "旧单模型 enabled/model/ticket_plan 只作为读取兼容格式，首次显式保存升级为模型映射且不自动开启新增模型", "active 是请求不可变快照，ready 只在 active 过期、不可用或同版本连续两次异常后晋升；迟到旧响应和旧采集任务不得污染新版本", "票据必须严格校验 Base64 URL-safe envelope、版本、内部签发时间和密文块数；Pro 10 块、Team 12 块，292/332 长度不能作为唯一合法性依据", "客户端同账号 STATE 优先保留，已知跨账号 STATE 先剥离，仅在无可用客户端 STATE 时注入后台 active", "显式启用模型缺少 active 时 strict 只排除该账号模型组合；TTFT fail-open、粘性和成本回退不得绕过", "采集使用 Redis leader lock 与 PostgreSQL advisory lock 按账号、模型、revision 和 ChatGPT 身份协调；多实例无法取得任一可靠锁时跳过当轮而非无锁并发", "单代理使用该出口复验；代理组按稳定成员顺序尝试可用代表出口，任一代表复验成功即可发布账号级 active/ready，组内其它成员复用同一票据且不保存每代理兼容状态", "OAuth 或 Setup Token 解析出的 ChatGPT 身份变化必须废弃旧票据；仅更换单代理、代理组或成员不得自动销毁票据", "采集和 watchdog 不重放正式业务请求，管理 API、列表、导出、审计和日志不得暴露 STATE、代理凭据、内部 revision 或原始响应体", "仅 HTTP 请求路径和 WebSocket-to-HTTP bridge 在合同范围；原生上游 WebSocket 暂不支持票据隔离，不得由 bridge 测试推断支持", "状态继续保存在 accounts.extra，不新增 migration；普通账号编辑保留服务端字段，数据库备份按密钥级数据保护"]
+      "required_tests": [
+        "backend/internal/service/openai_codex_ticket_privacy_test.go",
+        "backend/internal/service/openai_codex_turn_state_test.go",
+        "backend/internal/handler/dto/account_mapper_redact_test.go",
+        "backend/internal/server/middleware/codex_ticket_audit_test.go"
+      ],
+      "invariants": [
+        "直接合并来源固定为 PR #7315 head 3c2f05c957b4b93866318ec8695fc5a28fff70eb、其 merge 49a39b6dc1abed30fd227611e8af1108bc427610、PR #7338 head 09e112fb4997be666b10da48c3b5f65fb8d8b53b 与 fork merge a6be2645fffca32a2425d79f822902d7a5aedaff；#7315 由 #7338 父历史带入，不重复合并",
+        "设计参考固定为 ccodex-sleep-state 26b22196bf68b372d0daad9381f686a3321068d4 与 b18fabf9ad8e9d7af7d9d0306b623ba6091a39d6；前者是 #7338 原参考点，后者是 2026-09-19 fork 审查点",
+        "ccodex-sleep-state 为 GPL-3.0 设计参考；本 LGPL-3.0-or-later fork 不复制其整项目源码、函数实现或依赖，只在现有边界独立实现",
+        "不采用参考项目的本地 Codex 配置接管、CCS/profile/Web 面板、订阅和代理节点池、纯内存 STATE、响应正文拦截、on_demand/standby 用户策略、本地 relay、原生上游 WebSocket STATE、账号暂停恢复或本地配置恢复",
+        "旧 accounts.extra 票据、配置和代理凭据仅脱敏/保留，不执行旧任务，不自动迁移或批量删除",
+        "普通编辑保留旧私有字段；新建、导入与复制剥离外部票据，不泄露于列表、导出或审计",
+        "已合并 PR 作者与父历史保持不变；完整运行合同转移至 codex-state-plugin"
+      ]
+    },
+    {
+      "id": "generic-plugin-runtime-v2",
+      "title": "通用插件 SDK v2 与隔离持久状态",
+      "description": "宿主提供范围准入、身份资源、操作 Bridge、加密 CAS/租约与独立维护升级，不包含 STATE 解析和采集业务。",
+      "ownership": "fork",
+      "risk_level": "critical",
+      "paths": [
+        "backend/pkg/pluginapi/**",
+        "backend/internal/service/plugin_*.go",
+        "backend/internal/service/openai_plugin*.go",
+        "backend/internal/repository/plugin_*.go",
+        "backend/migrations/280_plugin_runtime_state.sql",
+        "backend/migrations/plugin_runtime_state_migration_test.go",
+        "backend/internal/handler/admin/plugin_handler.go",
+        "backend/internal/server/routes/admin.go",
+        "backend/internal/service/openai_account_runtime_block_fastpath.go",
+        "backend/internal/service/openai_gateway_outbound_model.go",
+        "backend/internal/service/openai_gateway_outbound_model_test.go",
+        "backend/internal/service/openai_gateway_admission*.go",
+        "backend/internal/service/openai_account_scheduler.go",
+        "backend/internal/service/openai_gateway_scheduling.go",
+        "backend/internal/service/openai_upstream_transport_error.go",
+        "backend/internal/service/openai_codex_models_service.go",
+        "backend/internal/service/openai_models_discovery_transport.go",
+        "backend/internal/service/openai_models_discovery_transport_test.go",
+        "backend/internal/service/openai_live.go",
+        "backend/internal/service/openai_ws_forwarder_ingress.go",
+        "backend/internal/service/openai_ws_forwarder_payload.go",
+        "backend/internal/service/openai_ws_http_bridge.go",
+        "backend/internal/service/openai_ws_plugin_scope_test.go",
+        "backend/internal/service/openai_ws_v2_passthrough_adapter.go",
+        "backend/internal/service/gateway_service.go",
+        "backend/internal/handler/failover_loop.go",
+        "backend/internal/handler/openai_plugin_admission_handler_test.go",
+        "backend/internal/handler/openai_plugin_admission_extended_handler_test.go",
+        "frontend/src/api/admin/plugins.ts",
+        "frontend/src/views/admin/PluginsView.vue",
+        "frontend/src/views/admin/pluginBridge.ts",
+        "docs/PLUGIN_DEVELOPMENT.md"
+      ],
+      "symbols": [
+        "AdmitBatch",
+        "RunAction",
+        "PluginStateStore",
+        "PluginRequestGuardRepository",
+        "PluginAdmissionRejected",
+        "PluginAccountIdentityRevision"
+      ],
+      "api_routes": [
+        "/api/v1/admin/plugins/:id/resources",
+        "/api/v1/admin/plugins/:id/actions",
+        "/api/v1/admin/plugins/:id/upgrade",
+        "/api/v1/admin/plugins/:id/config/secrets"
+      ],
+      "settings_keys": [],
+      "migration_files": [
+        "280_plugin_runtime_state.sql"
+      ],
+      "required_tests": [
+        "backend/internal/service/plugin_scoped_routing_test.go",
+        "backend/internal/service/plugin_host_compatibility_test.go",
+        "backend/internal/service/plugin_host_state_test.go",
+        "backend/internal/service/plugin_resources_test.go",
+        "backend/internal/service/plugin_manager_actions_test.go",
+        "backend/internal/service/plugin_config_secrets_test.go",
+        "backend/internal/service/plugin_request_lifecycle_test.go",
+        "backend/internal/service/plugin_upgrade_test.go",
+        "backend/internal/service/plugin_codex_process_forward_test.go",
+        "backend/internal/service/openai_gateway_admission_test.go",
+        "backend/internal/service/openai_gateway_outbound_model_test.go",
+        "backend/internal/service/openai_models_discovery_transport_test.go",
+        "backend/internal/service/openai_plugin_admission_live_test.go",
+        "backend/internal/service/openai_plugin_admission_routing_test.go",
+        "backend/internal/service/openai_plugin_admission_bridge_test.go",
+        "backend/internal/service/openai_ws_plugin_scope_test.go",
+        "backend/internal/handler/openai_plugin_admission_handler_test.go",
+        "backend/internal/handler/openai_plugin_admission_extended_handler_test.go",
+        "backend/internal/repository/plugin_repository_maintenance_test.go",
+        "backend/internal/repository/plugin_runtime_state_store_test.go",
+        "backend/internal/repository/plugin_runtime_state_store_integration_test.go",
+        "backend/migrations/plugin_runtime_state_migration_test.go",
+        "frontend/src/views/admin/__tests__/PluginsView.spec.ts"
+      ],
+      "invariants": [
+        "Host API v2能力显式协商，旧API1插件继续工作；缺少必需能力或存储时禁止启用",
+        "配置和受管账号/出站模型范围同事务提交；渠道、账号、compact模型映射后准入，发送前代次复核",
+        "候选池使用真实AdmitBatch并传播请求取消；准入结果只在当前调度轮复用，最终发送不以缓存allow替代权威复核",
+        "未受管请求不依赖插件在线；主动停用恢复普通请求，崩溃/重启/维护保留范围并strict",
+        "准入拒绝只排除当前请求账号模型，不增加上游重试预算、不记全账号健康失败、不改变计费或并发出口选择",
+        "仅fetchOpenAIModelsUpstream内部构造且绑定请求指针、完整URL、账号及身份的无正文目录GET可跳过scoped模型准入；克隆、变更、业务metadata或缺model业务请求不可借标记绕过，未知路由读取失败与取消fail-closed，API1传输和普通HTTP认证/代理/ETag不变",
+        "Live metadata来自实际Session唯一小写字符串model，不以计费默认值或未改写的账号映射伪造模型；受管账号缺失或歧义模型拒绝，无受管范围保留原请求；准入拒绝换号不耗上游重试预算且释放临时槽位/Live租约",
+        "受管模型账号使用HTTP bridge，每轮metadata与实际映射后的正文模型一致；既有原生WS新增受管范围时发送前拒绝当轮并要求重连，已输出或已发送业务不得重放",
+        "PostgreSQL加密状态以插件ID/namespace/key隔离；CAS保留删除版本，租约使用数据库时钟和持锁代次",
+        "正式转发登记跨实例在途保护；升级验证签名与SDK、保留旧包，排空失败恢复旧版本而不是放行；不自动重放可能已发送的请求",
+        "resources/Health/配置校验不采集；actions带幂等ID且只在启用运行时执行；UI目录只返回白名单元数据",
+        "签名清单config_secrets声明的秘密只在宿主可信弹窗编辑；普通配置加载/保存只回configured元数据，iframe不得接收已存或新输入凭据，旧插件兼容",
+        "Forward完成通过进程隔离CompleteRequest或正常End确认，取消/EOF/Body.Close不冒充完成；维护租约及私有journal支持跨实例到期回滚，旧owner不能发布新包",
+        "不维护插件链，不引入 PrepareRequest/ObserveResponse RPC"
+      ]
+    },
+    {
+      "id": "codex-state-plugin",
+      "title": "Codex STATE 独立插件",
+      "description": "baiyu.codex-state 0.1.0独立打包，宿主保持0.2.7-baiyu；在声明能力内可单独更新策略、解析、状态机和UI。",
+      "ownership": "fork",
+      "risk_level": "critical",
+      "paths": [
+        "plugins/codex-state/**",
+        "backend/internal/service/plugin_codex_package_test.go",
+        "backend/internal/service/plugin_codex_process_test.go",
+        "backend/internal/service/plugin_codex_process_forward_test.go",
+        ".wiki/03-模块指南/08-Codex-STATE票据.md"
+      ],
+      "symbols": [
+        "baiyu.codex-state",
+        "core.Engine",
+        "core.Guard",
+        "remoteKey"
+      ],
+      "api_routes": [
+        "/api/v1/admin/plugins/:id/actions"
+      ],
+      "settings_keys": [],
+      "migration_files": [],
+      "required_tests": [
+        "plugins/codex-state/core/*_test.go",
+        "plugins/codex-state/rpcadapter/*_test.go",
+        "plugins/codex-state/ui/tests/*.spec.ts",
+        "plugins/codex-state/tools/package/main_test.go",
+        "backend/internal/service/plugin_codex_package_test.go",
+        "backend/internal/service/plugin_codex_process_test.go",
+        "backend/internal/service/plugin_codex_process_forward_test.go"
+      ],
+      "invariants": [
+        "新插件和所有模型默认关闭；不读取、迁移或删除旧accounts.extra票据与配置",
+        "Astra/Sol/Terra独立账号模型配置、active/ready、strikes/任务/冷却；代理变化不改变所有权，ChatGPT身份变化失效",
+        "严格envelope/签发时间校验不代替业务出口实际模型复验；一小时TTL、未来30秒、末30秒不分配、提前10分钟续期、8次尝试、5分钟失败冷却",
+        "active健康时保留ready；同版本连续两次完整成功响应异常才晋升；旧任务和迟到观察不得污染新代次",
+        "只观察完整响应成功结束，2xx头、EOF和不完整流不计；正常匹配清零；完成记账不受下游取消丢失",
+        "宿主先做客户端STATE来源守卫，剩余客户端STATE优先；正式业务不改正文、不重放、不更换宿主选定的代理",
+        "真实插件进程回归通过loopback代理验证AdmitBatch/Forward、客户端STATE优先和SSE逐字节透传；插件票据回执持久化后经broker CompleteRequest恰好释放一次在途保护，不能以End或进程退出冒充该专项成功；合成暂停槽禁止采集、外联、直连或重放",
+        "动态代理采集后逐可用业务出口复验，任一成功发布账号级共享票；无业务出口strict",
+        "来源完整SHA、许可证和已审阅源码/发布包差异见sources.lock.json；更新时检查三个来源HEAD/release和锁定SHA差异，选择吸收而非覆盖",
+        "ccodex仅参考设计不复制代码；保留PR7315/7338原作者历史；只支持HTTP和WS HTTP bridge"
+      ]
     },
     {
       "id": "fork-scheduling-compatibility-foundation", "title": "Fork 调度扩展兼容底座", "description": "只声明 internal/forkscheduling 的有界契约、纯 legacy 规则与 service bridge 解耦边界；底层 TTFT、健康、并发、RPM、优先池和重试能力由各自运行时合同拥有。", "ownership": "fork", "risk_level": "critical", "paths": ["backend/internal/forkscheduling/contracts.go", "backend/internal/forkscheduling/contracts_test.go", "backend/internal/forkscheduling/legacy/*.go", "backend/internal/service/fork_scheduling_bridge.go", "backend/internal/service/fork_scheduling_bridge_test.go"], "symbols": ["forkscheduling.Runtime", "legacy.Candidate", "ForkSchedulingRuntime", "legacyTTFTRuntime", "legacyHealthRuntime", "legacyCapacityRuntime"], "api_routes": [], "settings_keys": [], "migration_files": [], "required_tests": ["backend/internal/forkscheduling/*_test.go", "backend/internal/forkscheduling/legacy/*_test.go", "backend/internal/service/fork_scheduling_bridge_test.go"], "invariants": ["契约与 legacy 规则包只使用有界值对象和接口，不导入 service、handler、repository、Ent、Gin、Redis、官方 scheduler 或执行闭包", "官方 service 继续拥有 selector、handler、failover、健康持久化、槽位/lease、计费和 usage log；bridge 只负责窄值映射与可选能力装配", "TTFT 与健康 runtime 在同一 service 实例内复用既有状态；无 owner 的健康 runtime 只读，不成为第二个 Registry 写入者", "未注入 fork 能力时沿用 legacy fallback，不新增后台 goroutine、文件、网络或数据库操作", "候选视图不包含 API Key、Cookie、Token、请求体、响应体或完整凭据；快照和返回值拥有独立生命周期", "无数据库字段、migration、Redis key/lease 格式或生产配置变化，撤销 bridge 可回到原调用路径"]
@@ -591,7 +796,8 @@
         "276_api_key_scheduling_mode.sql",
         "277_user_group_rate_percent.sql",
         "278_fork_group_ttft_guard_policies.sql",
-        "279_proxy_ip_groups.sql"
+        "279_proxy_ip_groups.sql",
+        "280_plugin_runtime_state.sql"
       ],
       "required_tests": [
         "backend/migrations/profile_233_migrations_test.go",
@@ -610,6 +816,7 @@
         "backend/migrations/user_group_rate_percent_migration_test.go",
         "backend/migrations/group_ttft_guard_policy_migration_test.go",
         "backend/migrations/proxy_ip_group_migration_test.go",
+        "backend/migrations/plugin_runtime_state_migration_test.go",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_release_core.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_migration_planner_v2.py"
       ],
@@ -619,7 +826,7 @@
       ],
       "invariants": [
         "历史 profile 233–253 不回写",
-        "当前 profile 254 对应 0.2.7-baiyu，parent 为 253，new_migrations 精确为 [278_fork_group_ttft_guard_policies.sql, 279_proxy_ip_groups.sql]，两项原始文件 SHA-256 必须与 migration_contracts 登记一致；profile 253 保持 migration 277 的不可变历史合同",
+        "当前 profile 254 对应 0.2.7-baiyu，parent 为 253，new_migrations 精确为 [278_fork_group_ttft_guard_policies.sql, 279_proxy_ip_groups.sql, 280_plugin_runtime_state.sql]，三项原始文件 SHA-256 必须与 migration_contracts 登记一致；profile 253 保持 migration 277 的不可变历史合同",
         "fork VERSION 每变化一次必须新增下一个连续整数 profile，即使无 migration 也使用 new_migrations=[]",
         "profile parent 必须指向此前当前 profile，禁止改写旧 profile 追随新版本",
         "官方 migration 按内容重编号，不覆盖 fork 已发布编号；本次官方 232/233/234 的四项依序重编号为 263–266",
@@ -632,7 +839,8 @@
         "官方 0.2.5 的两个 238 migration 必须按内容重编号为 274–275，不得覆盖 fork 已使用的 238–273 编号；fork migration 276 作为已发布历史兼容列保持原字节和 checksum，当前运行时、API 和前端不再依赖 scheduling_mode",
         "277_user_group_rate_percent.sql 将 rate_percent 设为专属倍率真值，旧 rate_multiplier 仅保留为触发器同步的兼容影子值；普通倍率变化不得反向污染百分比",
         "278_fork_group_ttft_guard_policies.sql 使用 fork 独立表保存分组策略，必须由 backend/migrations/group_ttft_guard_policy_migration_test.go 验证表名、级联外键、三态约束和阈值范围",
-        "279_proxy_ip_groups.sql 新增代理组、成员关系、账号绑定与单代理互斥约束；每代理并发默认 10、合法范围 1–1000，必须由 backend/migrations/proxy_ip_group_migration_test.go 验证结构合同，且原始文件 checksum 和 migration_assertions 同时通过"
+        "279_proxy_ip_groups.sql 新增代理组、成员关系、账号绑定与单代理互斥约束；每代理并发默认 10、合法范围 1–1000，必须由 backend/migrations/proxy_ip_group_migration_test.go 验证结构合同，且原始文件 checksum 和 migration_assertions 同时通过",
+        "280_plugin_runtime_state.sql 新增插件 config_revision、managed_scope、加密状态、租约、宿主私有请求登记和 maintenance journal；managed_scope 的 NULL 保持旧插件全范围语义，[] 表示新插件无受管目标；状态 tombstone 保留 revision，租约保留 fence，按 plugin_key/namespace/key 隔离；维护 journal 保存包含 artifact 和加密 config 的完整旧 installation 快照，维护发布需匹配 owner、DB 时间租约及 SHA/revision，过期恢复不得覆盖 live owner；upgrading 状态用于阻止新请求和普通配置、绑定、启停写入，未结束请求不得按时间自动清理，排空超时必须回滚旧版本而非推定完成；backend/migrations/plugin_runtime_state_migration_test.go、原始文件 checksum 和 migration_assertions 必须共同覆盖迁移合同"
       ]
     },
     {

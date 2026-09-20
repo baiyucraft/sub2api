@@ -64,15 +64,11 @@ func ProvideAdminHandlers(
 	extraCostHandler *admin.ExtraCostHandler,
 	upstreamBillingProbe *service.UpstreamBillingProbeService,
 	ollamaCloudUsage *service.OllamaCloudUsageService,
-	settingService *service.SettingService,
-	codexTicketGateway *service.OpenAIGatewayService,
 	proxyIPGroupService *service.ProxyIPGroupAdminService,
 ) *AdminHandlers {
 	accountHandler.SetUpstreamBillingProbeService(upstreamBillingProbe)
 	accountHandler.SetOllamaCloudUsageService(ollamaCloudUsage)
 	accountHandler.SetUpstreamHealthHistoryReader(upstreamConfigHandler)
-	accountHandler.SetCodexTicketSettings(settingService)
-	accountHandler.SetCodexAccountTicketService(codexTicketGateway)
 	accountHandler.SetProxyIPGroupService(proxyIPGroupService)
 	return &AdminHandlers{
 		Dashboard:              dashboardHandler,

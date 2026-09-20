@@ -71,6 +71,59 @@ func (h *OpenAIGatewayHandler) acquireOpenAITokenCountAdmission(
 	return resolved, release, true
 }
 
+// Only pre-send plugin admission rejection can retry a token-count request.
+func (h *OpenAIGatewayHandler) forwardOpenAITokenCountWithPluginFailover(
+	c *gin.Context,
+	apiKey *service.APIKey,
+	account *service.Account,
+	sessionHash, routingModel, requestedModel string,
+	reqLog *zap.Logger,
+	writeError openAISlotErrorWriter,
+	forward func(*service.Account) error,
+) {
+	excludedIDs := make(map[int64]struct{})
+	for {
+		resolved, release, admitted := h.acquireOpenAITokenCountAdmission(c, account, sessionHash, reqLog, writeError)
+		if !admitted {
+			return
+		}
+		account = resolved
+		setOpsSelectedAccount(c, account.ID, account.Platform)
+		err := func() error {
+			defer release()
+			return forward(account)
+		}()
+		var failoverErr *service.UpstreamFailoverError
+		if !errors.As(err, &failoverErr) || !failoverErr.PluginAdmissionRejected || c.Writer.Written() || failoverClientGone(c) {
+			return
+		}
+		if !failoverErr.ShouldRetryNextAccount() {
+			writeError(failoverErr.StatusCode, "api_error", "", "No available accounts for the requested model")
+			return
+		}
+		excludedIDs[account.ID] = struct{}{}
+		account, err = h.gatewayService.SelectAccountForTokenCountWithExclusions(
+			c.Request.Context(), apiKey.GroupID, sessionHash, routingModel,
+			service.OpenAIEndpointCapabilityChatCompletions, openAICompatibleRequestPlatform(c.Request.Context(), apiKey), excludedIDs,
+		)
+		if err != nil || account == nil {
+			if failoverClientGone(c) {
+				return
+			}
+			cls := classifyOpenAICompatibleNoAccountErrorFromGin(c, h.gatewayService, apiKey, routingModel, requestedModel)
+			if !cls.ModelNotFound {
+				if err != nil {
+					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
+				} else {
+					markOpsRoutingCapacityLimited(c)
+				}
+			}
+			writeError(cls.Status, cls.ErrType, "", cls.Message)
+			return
+		}
+	}
+}
+
 // ResponsesInputTokens handles native OpenAI POST
 // /v1/responses/input_tokens requests without routing them through the normal
 // Responses generation and usage-recording pipeline.
@@ -178,24 +231,25 @@ func (h *OpenAIGatewayHandler) ResponsesInputTokens(c *gin.Context) {
 		h.errorResponse(c, cls.Status, cls.ErrType, cls.Message)
 		return
 	}
-	account, release, admitted := h.acquireOpenAITokenCountAdmission(
+	h.forwardOpenAITokenCountWithPluginFailover(
 		c,
+		apiKey,
 		account,
 		sessionHash,
+		routingModel,
+		reqModel,
 		reqLog,
 		func(status int, errType, _ string, message string) {
 			h.errorResponse(c, status, errType, message)
 		},
+		func(account *service.Account) error {
+			err := h.gatewayService.ForwardResponsesInputTokens(c.Request.Context(), c, account, forwardBody)
+			if err != nil {
+				reqLog.Error("openai_input_tokens.forward_failed", zap.Int64("account_id", account.ID), zap.Error(err))
+			}
+			return err
+		},
 	)
-	if !admitted {
-		return
-	}
-	defer release()
-
-	setOpsSelectedAccount(c, account.ID, account.Platform)
-	if err := h.gatewayService.ForwardResponsesInputTokens(c.Request.Context(), c, account, forwardBody); err != nil {
-		reqLog.Error("openai_input_tokens.forward_failed", zap.Int64("account_id", account.ID), zap.Error(err))
-	}
 }
 
 // GrokCountTokens handles Anthropic-compatible count_tokens requests locally.
@@ -364,25 +418,25 @@ func (h *OpenAIGatewayHandler) CountTokens(c *gin.Context) {
 		h.anthropicErrorResponse(c, cls.Status, cls.ErrType, cls.Message)
 		return
 	}
-	account, release, admitted := h.acquireOpenAITokenCountAdmission(
+	forwardBody := mappedBodyForMessages(channelMapping.Mapped, channelMapping.MappedModel)
+	defaultMappedModel := preferredMappedModel
+	h.forwardOpenAITokenCountWithPluginFailover(
 		c,
+		apiKey,
 		account,
 		sessionHash,
+		currentRoutingModel,
+		reqModel,
 		reqLog,
 		func(status int, errType, _ string, message string) {
 			h.anthropicErrorResponse(c, status, errType, message)
 		},
+		func(account *service.Account) error {
+			err := h.gatewayService.ForwardCountTokensAsAnthropic(c.Request.Context(), c, account, forwardBody, defaultMappedModel)
+			if err != nil {
+				reqLog.Error("openai_count_tokens.forward_failed", zap.Int64("account_id", account.ID), zap.Error(err))
+			}
+			return err
+		},
 	)
-	if !admitted {
-		return
-	}
-	defer release()
-
-	setOpsSelectedAccount(c, account.ID, account.Platform)
-	forwardBody := mappedBodyForMessages(channelMapping.Mapped, channelMapping.MappedModel)
-	defaultMappedModel := preferredMappedModel
-
-	if err := h.gatewayService.ForwardCountTokensAsAnthropic(c.Request.Context(), c, account, forwardBody, defaultMappedModel); err != nil {
-		reqLog.Error("openai_count_tokens.forward_failed", zap.Int64("account_id", account.ID), zap.Error(err))
-	}
 }

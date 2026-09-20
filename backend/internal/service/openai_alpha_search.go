@@ -284,6 +284,9 @@ func (s *OpenAIGatewayService) buildOpenAIAlphaSearchResponsesWebSearchRequest(c
 	applyCodexAccountIdentityHeaders(req.Header, codexAccountIdentitySource(c, account), apiKeyID)
 	enforceCodexIdentityHeadersWithUA(req.Header, s.codexIdentityOverrideUA(account))
 	account.ApplyHeaderOverrides(req.Header)
+	if err := s.preparePluginRequest(ctx, account, extractOpenAIOutboundModel(body), req); err != nil {
+		return nil, err
+	}
 	return req, nil
 }
 
@@ -426,6 +429,9 @@ func (s *OpenAIGatewayService) buildOpenAIAlphaSearchRequest(ctx context.Context
 
 	account.ApplyHeaderOverrides(req.Header)
 	stripOpenAIAlphaSearchResponsesHeaders(req.Header)
+	if err := s.preparePluginRequest(ctx, account, extractOpenAIOutboundModel(body), req); err != nil {
+		return nil, err
+	}
 	return req, nil
 }
 

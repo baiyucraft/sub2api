@@ -332,7 +332,7 @@ func TestBuildHostServicesGatesDirectoryByCapability(t *testing.T) {
 
 func TestProvidePluginManagerInjectsAccountDirectory(t *testing.T) {
 	directory := &fakeAccountDirectory{}
-	manager := ProvidePluginManager(nil, nil, nil, PluginHostInfo{}, nil, directory)
+	manager := ProvidePluginManager(nil, nil, nil, PluginHostInfo{}, nil, directory, nil)
 
 	require.Same(t, directory, manager.accountDirectory)
 }
