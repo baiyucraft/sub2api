@@ -4048,7 +4048,13 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     ? newAccount.status
     : 'active'
   form.group_ids = newAccount.group_ids || []
-  form.preferred_group_ids = (newAccount.preferred_group_ids || []).filter((id) => form.group_ids.includes(id))
+  const preferredGroupIDs = Array.isArray(newAccount.preferred_group_ids)
+    ? newAccount.preferred_group_ids
+    : (newAccount.account_groups || [])
+        .filter((accountGroup) => accountGroup.scheduler_preferred)
+        .map((accountGroup) => accountGroup.group_id)
+  form.preferred_group_ids = Array.from(new Set(preferredGroupIDs))
+    .filter((id) => form.group_ids.includes(id))
   form.expires_at = newAccount.expires_at ?? null
 
   // Load intercept warmup requests setting (applies to all account types)

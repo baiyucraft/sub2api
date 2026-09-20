@@ -883,6 +883,54 @@ describe('EditAccountModal', () => {
     }))
   })
 
+  it('falls back to account group relations when the detail response omits preferred group IDs', async () => {
+    const account = buildAccount()
+    account.group_ids = [1, 7]
+    account.preferred_group_ids = undefined
+    account.account_groups = [
+      { account_id: 1, group_id: 1, priority: 1, scheduler_preferred: false },
+      { account_id: 1, group_id: 7, priority: 2, scheduler_preferred: true }
+    ]
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+
+    const wrapper = mountModal(account)
+    expect(wrapper.get('[data-testid="preferred-group-value"]').text()).toBe('7')
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(updateAccountMock).toHaveBeenCalledWith(1, expect.objectContaining({
+      group_ids: [1, 7],
+      preferred_group_ids: [7]
+    }))
+  })
+
+  it('renders a previously preferred group as starred in the real group selector', async () => {
+    const account = buildAccount()
+    account.group_ids = [7]
+    account.preferred_group_ids = undefined
+    account.account_groups = [
+      { account_id: 1, group_id: 7, priority: 1, scheduler_preferred: true }
+    ]
+
+    const wrapper = mountModal(account, true)
+    await wrapper.setProps({
+      groups: [{
+        id: 7,
+        name: 'Preferred OpenAI',
+        description: '',
+        platform: 'openai',
+        rate_multiplier: 1,
+        status: 'active'
+      }] as any
+    })
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="preferred-group-7"]').attributes('aria-label'))
+      .toContain('common.unmarkPreferredGroup')
+  })
+
   it('reopening the same account rehydrates the OpenAI whitelist from props', async () => {
     const account = buildAccount()
     updateAccountMock.mockReset()
