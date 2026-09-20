@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand"
+	"net/http"
 	"regexp"
 	"slices"
 	"strings"
@@ -14,6 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -60,6 +63,21 @@ type replayRequestBody struct {
 	original io.Closer
 }
 
+const customizationDecisionContextKey = "gateway_customization_decision"
+
+type customizationDecision struct {
+	state *customizationRuntimeState
+	rule  compiledCustomizationRule
+}
+
+type customizationTargetGroupResolver interface {
+	ResolveCustomizationTargetGroup(context.Context, *service.APIKey, int64) (*service.Group, error)
+}
+
+type customizationSubscriptionResolver interface {
+	GetActiveSubscription(context.Context, int64, int64) (*service.UserSubscription, error)
+}
+
 func (b *replayRequestBody) Close() error {
 	if b.original == nil {
 		return nil
@@ -99,39 +117,187 @@ func (s *CustomizationService) Apply(_ context.Context, settings service.Gateway
 	return nil
 }
 
-// Middleware 只在认证上下文中匹配目标；只有规则声明消息文本条件时才读取请求体。
-func (s *CustomizationService) Middleware() gin.HandlerFunc {
+// Middleware keeps the historical local-response middleware contract.
+func (s *CustomizationService) Middleware() gin.HandlerFunc { return s.LocalResponseMiddleware() }
+
+// MayMatchGroupMapping reports whether the request metadata could match an
+// enabled group-mapping rule. Target and message conditions are evaluated after
+// API key authentication; this preflight deliberately does not read the body.
+func (s *CustomizationService) MayMatchGroupMapping(c *gin.Context) bool {
+	if s == nil || c == nil {
+		return false
+	}
+	state := s.current.Load()
+	if state == nil {
+		return false
+	}
+	for _, rule := range state.rules {
+		if rule.rule.Action == service.GatewayChannelCustomizationActionGroupMapping && matchesCustomizationRequestMetadata(rule, c) {
+			return true
+		}
+	}
+	return false
+}
+
+// GroupMappingMiddleware applies a matched request-scoped group override after
+// authentication and before group/model admission. Billing introspection is
+// intentionally exempt so it continues to describe the API key's bound group.
+func (s *CustomizationService) GroupMappingMiddleware(apiKeyService customizationTargetGroupResolver, subscriptionService customizationSubscriptionResolver) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		state := s.current.Load()
-		if state == nil || len(state.rules) == 0 {
+		if isCustomizationBillingRequest(c) {
 			c.Next()
 			return
 		}
-		apiKey, _ := middleware.GetAPIKeyFromContext(c)
-		userID, userEmail := customizationUser(c, apiKey)
-		for _, rule := range state.rules {
-			if !matchesCustomizationRule(rule, c, apiKey, userID, userEmail) {
-				continue
-			}
-			if !waitCustomizationDelay(c.Request.Context(), rule.rule.MinDelayMs, rule.rule.MaxDelayMs) {
-				c.Abort()
+		decision := s.matchDecision(c)
+		if decision == nil || decision.rule.rule.Action != service.GatewayChannelCustomizationActionGroupMapping {
+			c.Next()
+			return
+		}
+		if s.current.Load() != decision.state {
+			c.Next()
+			return
+		}
+		s.incrementHit(decision.rule.fingerprint)
+		apiKey, ok := middleware.GetAPIKeyFromContext(c)
+		if !ok || apiKey == nil || decision.rule.rule.TargetGroupID == nil {
+			middleware.AbortWithRequestError(c, http.StatusForbidden, "CUSTOMIZATION_GROUP_MAPPING_UNAVAILABLE", "Request group mapping is unavailable")
+			return
+		}
+		if apiKeyService == nil {
+			middleware.AbortWithRequestError(c, http.StatusServiceUnavailable, "CUSTOMIZATION_GROUP_MAPPING_UNAVAILABLE", "Request group mapping is unavailable")
+			return
+		}
+		target, err := apiKeyService.ResolveCustomizationTargetGroup(c.Request.Context(), apiKey, *decision.rule.rule.TargetGroupID)
+		if err != nil {
+			status, code, message := customizationGroupMappingError(err)
+			middleware.AbortWithRequestError(c, status, code, message)
+			return
+		}
+		if !customizationTargetCompatible(c, target) {
+			middleware.AbortWithRequestError(c, http.StatusForbidden, "CUSTOMIZATION_TARGET_GROUP_INCOMPATIBLE", "Target group is incompatible with this gateway endpoint")
+			return
+		}
+
+		var subscription *service.UserSubscription
+		if target.IsSubscriptionType() {
+			if subscriptionService == nil {
+				middleware.AbortWithRequestError(c, http.StatusForbidden, "CUSTOMIZATION_TARGET_SUBSCRIPTION_REQUIRED", "No active subscription found for the target group")
 				return
 			}
-			if s.current.Load() != state {
-				c.Next()
+			subscription, err = subscriptionService.GetActiveSubscription(c.Request.Context(), apiKey.User.ID, target.ID)
+			if err != nil {
+				middleware.AbortWithRequestError(c, http.StatusForbidden, "CUSTOMIZATION_TARGET_SUBSCRIPTION_INVALID", "Target group subscription is unavailable")
 				return
 			}
-			s.incrementHit(rule.fingerprint)
-			c.Header("Content-Type", rule.rule.ContentType)
-			if rule.rule.Body == "" {
-				c.Status(rule.rule.StatusCode)
-			} else {
-				c.Data(rule.rule.StatusCode, rule.rule.ContentType, []byte(rule.rule.Body))
-			}
+		}
+
+		cloned := cloneCustomizationAPIKeyWithGroup(apiKey, target)
+		c.Set(string(middleware.ContextKeyAPIKey), cloned)
+		if subscription != nil {
+			c.Set(string(middleware.ContextKeySubscription), subscription)
+		} else {
+			c.Set(string(middleware.ContextKeySubscription), nil)
+		}
+		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), ctxkey.Group, target))
+		c.Next()
+	}
+}
+
+// LocalResponseMiddleware handles the historical short-circuit action after
+// group/model admission. It reuses the decision made by GroupMappingMiddleware.
+func (s *CustomizationService) LocalResponseMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		decision := s.matchDecision(c)
+		if decision == nil || decision.rule.rule.Action != service.GatewayChannelCustomizationActionLocalResponse {
+			c.Next()
+			return
+		}
+		rule := decision.rule
+		if !waitCustomizationDelay(c.Request.Context(), rule.rule.MinDelayMs, rule.rule.MaxDelayMs) {
 			c.Abort()
 			return
 		}
-		c.Next()
+		if s.current.Load() != decision.state {
+			c.Next()
+			return
+		}
+		s.incrementHit(rule.fingerprint)
+		c.Header("Content-Type", rule.rule.ContentType)
+		if rule.rule.Body == "" {
+			c.Status(rule.rule.StatusCode)
+		} else {
+			c.Data(rule.rule.StatusCode, rule.rule.ContentType, []byte(rule.rule.Body))
+		}
+		c.Abort()
+	}
+}
+
+func (s *CustomizationService) matchDecision(c *gin.Context) *customizationDecision {
+	if c == nil {
+		return nil
+	}
+	if cached, ok := c.Get(customizationDecisionContextKey); ok {
+		decision, _ := cached.(*customizationDecision)
+		return decision
+	}
+	state := s.current.Load()
+	if state == nil || len(state.rules) == 0 {
+		c.Set(customizationDecisionContextKey, (*customizationDecision)(nil))
+		return nil
+	}
+	apiKey, _ := middleware.GetAPIKeyFromContext(c)
+	userID, userEmail := customizationUser(c, apiKey)
+	for _, rule := range state.rules {
+		if matchesCustomizationRule(rule, c, apiKey, userID, userEmail) {
+			decision := &customizationDecision{state: state, rule: rule}
+			c.Set(customizationDecisionContextKey, decision)
+			return decision
+		}
+	}
+	c.Set(customizationDecisionContextKey, (*customizationDecision)(nil))
+	return nil
+}
+
+func isCustomizationBillingRequest(c *gin.Context) bool {
+	return c != nil && c.Request != nil && c.Request.URL != nil && c.Request.URL.Path == "/v1/sub2api/billing"
+}
+
+func cloneCustomizationAPIKeyWithGroup(apiKey *service.APIKey, group *service.Group) *service.APIKey {
+	if apiKey == nil || group == nil {
+		return apiKey
+	}
+	cloned := *apiKey
+	groupID := group.ID
+	cloned.GroupID = &groupID
+	cloned.Group = group
+	return &cloned
+}
+
+func customizationTargetCompatible(c *gin.Context, group *service.Group) bool {
+	if c == nil || c.Request == nil || c.Request.URL == nil || !service.IsGroupContextValid(group) {
+		return false
+	}
+	if forced, ok := middleware.GetForcePlatformFromContext(c); ok && forced != "" {
+		return group.Platform == forced || group.Platform == service.PlatformComposite
+	}
+	path := c.Request.URL.Path
+	if strings.HasPrefix(path, "/antigravity/") {
+		return group.Platform == service.PlatformAntigravity || group.Platform == service.PlatformComposite
+	}
+	if strings.HasPrefix(path, "/v1beta/") {
+		return group.Platform == service.PlatformGemini || group.Platform == service.PlatformComposite
+	}
+	return true
+}
+
+func customizationGroupMappingError(err error) (int, string, string) {
+	switch {
+	case errors.Is(err, service.ErrGroupNotAllowed):
+		return http.StatusForbidden, "CUSTOMIZATION_TARGET_GROUP_NOT_ALLOWED", "User is not allowed to use the target group"
+	case errors.Is(err, service.ErrCustomizationTargetGroupInactive):
+		return http.StatusForbidden, "CUSTOMIZATION_TARGET_GROUP_INACTIVE", "Target group is not active"
+	default:
+		return http.StatusBadRequest, "CUSTOMIZATION_TARGET_GROUP_INVALID", "Target group does not exist or cannot be loaded"
 	}
 }
 
@@ -191,6 +357,13 @@ func compileCustomizationRules(rules []service.GatewayChannelCustomizationRule) 
 }
 
 func matchesCustomizationRule(rule compiledCustomizationRule, c *gin.Context, apiKey *service.APIKey, userID int64, userEmail string) bool {
+	if !matchesCustomizationTarget(rule, apiKey, userID, userEmail) {
+		return false
+	}
+	return matchesCustomizationRequestConditions(rule, c)
+}
+
+func matchesCustomizationTarget(rule compiledCustomizationRule, apiKey *service.APIKey, userID int64, userEmail string) bool {
 	targetMatched := false
 	if apiKey != nil {
 		_, targetMatched = rule.apiKeyIDs[apiKey.ID]
@@ -207,7 +380,23 @@ func matchesCustomizationRule(rule compiledCustomizationRule, c *gin.Context, ap
 	if !targetMatched {
 		return false
 	}
+	return true
+}
 
+func matchesCustomizationRequestConditions(rule compiledCustomizationRule, c *gin.Context) bool {
+	if !matchesCustomizationRequestMetadata(rule, c) {
+		return false
+	}
+	if rule.rule.RequestMessageText != "" && !matchesRequestMessageText(c, rule) {
+		return false
+	}
+	return true
+}
+
+func matchesCustomizationRequestMetadata(rule compiledCustomizationRule, c *gin.Context) bool {
+	if c == nil || c.Request == nil || c.Request.URL == nil {
+		return false
+	}
 	request := c.Request
 	methodMatched := len(rule.methods) == 0
 	if !methodMatched {
@@ -254,9 +443,6 @@ func matchesCustomizationRule(rule compiledCustomizationRule, c *gin.Context, ap
 		}
 	}
 	if !methodMatched || !pathMatched || !uaMatched || !queryMatched {
-		return false
-	}
-	if rule.rule.RequestMessageText != "" && !matchesRequestMessageText(c, rule) {
 		return false
 	}
 	return true
@@ -306,7 +492,7 @@ func requestBodyMatchesMessageText(body []byte, rule compiledCustomizationRule) 
 	if rule.rule.RequestMessageMatchMode == service.GatewayChannelCustomizationRequestMessageMatchModeRegex {
 		return rule.requestMessagePattern != nil && rule.requestMessagePattern.MatchString(texts[0])
 	}
-	return texts[0] == rule.rule.RequestMessageText
+	return strings.TrimSpace(texts[0]) == strings.TrimSpace(rule.rule.RequestMessageText)
 }
 
 func fullRequestMessagePattern(pattern string) string {
@@ -517,8 +703,14 @@ func customizationHitFingerprint(rule service.GatewayChannelCustomizationRule) s
 	if matchMode == service.GatewayChannelCustomizationRequestMessageMatchModeExact {
 		requestMessageText = strings.TrimSpace(requestMessageText)
 	}
+	action := rule.Action
+	if action == "" {
+		action = service.GatewayChannelCustomizationActionLocalResponse
+	}
 	payload := struct {
 		Name                    string              `json:"name"`
+		Action                  string              `json:"action"`
+		TargetGroupID           *int64              `json:"target_group_id,omitempty"`
 		APIKeyIDs               []int64             `json:"api_key_ids"`
 		APIKeyNames             []string            `json:"api_key_names"`
 		UserIDs                 []int64             `json:"user_ids"`
@@ -532,6 +724,8 @@ func customizationHitFingerprint(rule service.GatewayChannelCustomizationRule) s
 		RequestMessageText      string              `json:"request_message_text"`
 	}{
 		Name:                    strings.TrimSpace(rule.Name),
+		Action:                  action,
+		TargetGroupID:           rule.TargetGroupID,
 		APIKeyIDs:               sortedInt64s(rule.APIKeyIDs),
 		APIKeyNames:             sortedLowerStrings(rule.APIKeyNames),
 		UserIDs:                 sortedInt64s(rule.UserIDs),

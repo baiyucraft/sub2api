@@ -20,9 +20,13 @@ export interface ChannelCustomizationQueryParams {
   [name: string]: string[]
 }
 
+export type ChannelCustomizationAction = 'local_response' | 'group_mapping'
+
 export interface ChannelCustomizationRule {
   name: string
   enabled: boolean
+  action?: ChannelCustomizationAction
+  target_group_id?: number | null
   api_key_ids: number[]
   api_key_names: string[]
   user_ids: number[]

@@ -1499,6 +1499,164 @@ func TestAPIKeyAuthQuotaErrorKeepsLegacyFormatOutsideResponses(t *testing.T) {
 	requireAPIKeyAuthError(t, w, "API_KEY_QUOTA_EXHAUSTED", "API key 额度已用完")
 }
 
+func TestDeferredGroupBillingUsesFinalMappedGroup(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Run("inactive original group does not block active mapped group", func(t *testing.T) {
+		original := &service.Group{ID: 1, Platform: service.PlatformOpenAI, Status: service.StatusDisabled, Hydrated: true}
+		target := &service.Group{ID: 2, Platform: service.PlatformOpenAI, Status: service.StatusActive, Hydrated: true}
+		user := &service.User{ID: 11, Role: service.RoleUser, Status: service.StatusActive, Balance: 10}
+		apiKey := &service.APIKey{ID: 101, UserID: user.ID, Key: "deferred-group", Status: service.StatusActive, User: user, GroupID: &original.ID, Group: original}
+		repo := &stubApiKeyRepo{
+			getByKey:       func(context.Context, string) (*service.APIKey, error) { clone := *apiKey; return &clone, nil },
+			updateLastUsed: func(context.Context, int64, time.Time) error { return nil },
+		}
+		cfg := &config.Config{RunMode: config.RunModeStandard}
+		apiKeyService := service.NewAPIKeyService(repo, nil, nil, nil, nil, nil, cfg)
+
+		router := gin.New()
+		router.Use(DeferAPIKeyGroupBilling())
+		router.Use(gin.HandlerFunc(NewAPIKeyAuthMiddleware(apiKeyService, nil, cfg)))
+		router.Use(func(c *gin.Context) {
+			key, _ := GetAPIKeyFromContext(c)
+			clone := *key
+			clone.GroupID, clone.Group = &target.ID, target
+			c.Set(string(ContextKeyAPIKey), &clone)
+			c.Next()
+		})
+		router.Use(FinalAPIKeyGroupBilling(nil, cfg))
+		router.POST("/v1/responses", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+		request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+		request.Header.Set("x-api-key", apiKey.Key)
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		require.Equal(t, http.StatusOK, response.Code)
+	})
+
+	t.Run("zero balance may use valid mapped subscription", func(t *testing.T) {
+		original := &service.Group{ID: 1, Platform: service.PlatformOpenAI, Status: service.StatusActive, Hydrated: true, SubscriptionType: service.SubscriptionTypeStandard}
+		target := &service.Group{ID: 2, Platform: service.PlatformOpenAI, Status: service.StatusActive, Hydrated: true, SubscriptionType: service.SubscriptionTypeSubscription}
+		user := &service.User{ID: 12, Role: service.RoleUser, Status: service.StatusActive, Balance: 0}
+		apiKey := &service.APIKey{ID: 102, UserID: user.ID, Key: "deferred-subscription", Status: service.StatusActive, User: user, GroupID: &original.ID, Group: original}
+		repo := &stubApiKeyRepo{
+			getByKey:       func(context.Context, string) (*service.APIKey, error) { clone := *apiKey; return &clone, nil },
+			updateLastUsed: func(context.Context, int64, time.Time) error { return nil },
+		}
+		cfg := &config.Config{RunMode: config.RunModeStandard}
+		apiKeyService := service.NewAPIKeyService(repo, nil, nil, nil, nil, nil, cfg)
+		subscription := &service.UserSubscription{
+			ID: 201, UserID: user.ID, GroupID: target.ID, Status: service.SubscriptionStatusActive,
+			ExpiresAt:          time.Now().Add(time.Hour),
+			DailyWindowStart:   ptrTime(time.Now()),
+			WeeklyWindowStart:  ptrTime(time.Now()),
+			MonthlyWindowStart: ptrTime(time.Now()),
+		}
+		subscriptionRepo := &stubUserSubscriptionRepo{
+			getActive: func(context.Context, int64, int64) (*service.UserSubscription, error) {
+				clone := *subscription
+				return &clone, nil
+			},
+		}
+		subscriptionService := service.NewSubscriptionService(nil, subscriptionRepo, nil, nil, cfg)
+		t.Cleanup(subscriptionService.Stop)
+
+		router := gin.New()
+		router.Use(DeferAPIKeyGroupBilling())
+		router.Use(gin.HandlerFunc(NewAPIKeyAuthMiddleware(apiKeyService, subscriptionService, cfg)))
+		router.Use(func(c *gin.Context) {
+			key, _ := GetAPIKeyFromContext(c)
+			clone := *key
+			clone.GroupID, clone.Group = &target.ID, target
+			c.Set(string(ContextKeyAPIKey), &clone)
+			c.Next()
+		})
+		router.Use(FinalAPIKeyGroupBilling(subscriptionService, cfg))
+		router.POST("/v1/responses", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+		request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+		request.Header.Set("x-api-key", apiKey.Key)
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		require.Equal(t, http.StatusOK, response.Code)
+	})
+
+	t.Run("mapped standard group still requires balance", func(t *testing.T) {
+		original := &service.Group{ID: 1, Platform: service.PlatformOpenAI, Status: service.StatusActive, Hydrated: true, SubscriptionType: service.SubscriptionTypeSubscription}
+		target := &service.Group{ID: 2, Platform: service.PlatformOpenAI, Status: service.StatusActive, Hydrated: true, SubscriptionType: service.SubscriptionTypeStandard}
+		user := &service.User{ID: 13, Role: service.RoleUser, Status: service.StatusActive, Balance: 0}
+		apiKey := &service.APIKey{ID: 103, UserID: user.ID, Key: "deferred-standard", Status: service.StatusActive, User: user, GroupID: &original.ID, Group: original}
+		repo := &stubApiKeyRepo{
+			getByKey:       func(context.Context, string) (*service.APIKey, error) { clone := *apiKey; return &clone, nil },
+			updateLastUsed: func(context.Context, int64, time.Time) error { return nil },
+		}
+		cfg := &config.Config{RunMode: config.RunModeStandard}
+		apiKeyService := service.NewAPIKeyService(repo, nil, nil, nil, nil, nil, cfg)
+
+		router := gin.New()
+		router.Use(DeferAPIKeyGroupBilling())
+		router.Use(gin.HandlerFunc(NewAPIKeyAuthMiddleware(apiKeyService, nil, cfg)))
+		router.Use(func(c *gin.Context) {
+			key, _ := GetAPIKeyFromContext(c)
+			clone := *key
+			clone.GroupID, clone.Group = &target.ID, target
+			c.Set(string(ContextKeyAPIKey), &clone)
+			c.Next()
+		})
+		router.Use(FinalAPIKeyGroupBilling(nil, cfg))
+		router.POST("/v1/responses", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+		request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+		request.Header.Set("x-api-key", apiKey.Key)
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		require.Equal(t, http.StatusForbidden, response.Code)
+		requireAPIKeyAuthError(t, response, "INSUFFICIENT_BALANCE", "Insufficient account balance")
+	})
+
+	t.Run("responses quota error keeps OpenAI compatible shape", func(t *testing.T) {
+		group := &service.Group{ID: 2, Platform: service.PlatformOpenAI, Status: service.StatusActive, Hydrated: true}
+		user := &service.User{ID: 14, Role: service.RoleUser, Status: service.StatusActive, Balance: 10}
+		apiKey := &service.APIKey{ID: 104, UserID: user.ID, Key: "deferred-quota", Status: service.StatusAPIKeyQuotaExhausted, User: user, GroupID: &group.ID, Group: group}
+		repo := &stubApiKeyRepo{
+			getByKey:       func(context.Context, string) (*service.APIKey, error) { clone := *apiKey; return &clone, nil },
+			updateLastUsed: func(context.Context, int64, time.Time) error { return nil },
+		}
+		cfg := &config.Config{RunMode: config.RunModeStandard}
+		apiKeyService := service.NewAPIKeyService(repo, nil, nil, nil, nil, nil, cfg)
+
+		router := gin.New()
+		router.Use(DeferAPIKeyGroupBilling())
+		router.Use(gin.HandlerFunc(NewAPIKeyAuthMiddleware(apiKeyService, nil, cfg)))
+		postAuthCalled := false
+		router.Use(func(c *gin.Context) {
+			postAuthCalled = true
+			c.Next()
+		})
+		router.Use(FinalAPIKeyGroupBilling(nil, cfg))
+		router.POST("/v1/responses", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+		request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+		request.Header.Set("x-api-key", apiKey.Key)
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+
+		require.Equal(t, http.StatusTooManyRequests, response.Code)
+		var payload struct {
+			Error struct {
+				Type string `json:"type"`
+				Code string `json:"code"`
+			} `json:"error"`
+		}
+		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &payload))
+		require.Equal(t, "insufficient_quota", payload.Error.Type)
+		require.Equal(t, "insufficient_quota", payload.Error.Code)
+		require.False(t, postAuthCalled)
+	})
+}
+
+func ptrTime(value time.Time) *time.Time { return &value }
+
 func newAuthTestRouter(apiKeyService *service.APIKeyService, subscriptionService *service.SubscriptionService, cfg *config.Config) *gin.Engine {
 	router := gin.New()
 	router.Use(gin.HandlerFunc(NewAPIKeyAuthMiddleware(apiKeyService, subscriptionService, cfg)))

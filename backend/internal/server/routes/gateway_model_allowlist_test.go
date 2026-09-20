@@ -130,6 +130,42 @@ func TestGatewayRoutesGroupModelAllowlistAllowsListedCompositeModel(t *testing.T
 	require.NotEqual(t, http.StatusNotFound, w.Code, "allowlisted model must pass admission: %s", w.Body.String())
 }
 
+func TestGatewayRoutesPostAuthGroupMappingRunsBeforeModelAllowlist(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	original := allowlistGroup(service.PlatformOpenAI, true, "gpt-5.5")
+	target := allowlistGroup(service.PlatformOpenAI, true, "gpt-5.4")
+	original.ID, target.ID = 1, 2
+	original.Hydrated, target.Hydrated = true, true
+	RegisterGatewayRoutesWithOptions(
+		router,
+		&handler.Handlers{Gateway: &handler.GatewayHandler{}, OpenAIGateway: &handler.OpenAIGatewayHandler{}, AsyncImage: handler.NewAsyncImageHandler(nil, nil)},
+		servermiddleware.APIKeyAuthMiddleware(func(c *gin.Context) {
+			groupID := original.ID
+			c.Set(string(servermiddleware.ContextKeyAPIKey), &service.APIKey{GroupID: &groupID, Group: original})
+			c.Next()
+		}),
+		nil, nil, nil, nil, nil,
+		&config.Config{Gateway: config.GatewayConfig{MaxBodySize: 1024 * 1024, TextMaxBodySize: 1024 * 1024}},
+		GatewayRouteOptions{PostAuthMiddleware: []gin.HandlerFunc{func(c *gin.Context) {
+			key, _ := servermiddleware.GetAPIKeyFromContext(c)
+			cloned := *key
+			groupID := target.ID
+			cloned.GroupID, cloned.Group = &groupID, target
+			c.Set(string(servermiddleware.ContextKeyAPIKey), &cloned)
+			c.Next()
+		}}},
+	)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.5","input":"hi"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusNotFound, w.Code)
+	require.Contains(t, w.Body.String(), "not available for this group", "the mapped group must be visible to the allowlist middleware")
+}
+
 func TestGatewayRoutesGroupModelAllowlistCoversRootAliasRoutes(t *testing.T) {
 	router := newGatewayRoutesTestRouterWithGroup(allowlistGroup(service.PlatformOpenAI, true, "gpt-5.4"))
 

@@ -161,13 +161,19 @@ func registerRoutes(
 	routes.RegisterAdminRoutes(v1, h, adminAuth, auditLog, stepUpAuth, settingService, panelRateLimiter)
 	options := routes.GatewayRouteOptions{}
 	if requestObserver != nil || customization != nil {
-		// Observer must wrap the customization short-circuit, while both remain
-		// after the existing group/model admission middleware.
+		// Group mapping must run immediately after authentication so all existing
+		// group/model admission and routing decisions observe the temporary group.
+		if customization != nil {
+			options.PreAuthMiddleware = append(options.PreAuthMiddleware, middleware2.DeferAPIKeyGroupBilling(customization.MayMatchGroupMapping))
+			options.PostAuthMiddleware = append(options.PostAuthMiddleware, customization.GroupMappingMiddleware(apiKeyService, subscriptionService))
+			options.PostAuthMiddleware = append(options.PostAuthMiddleware, middleware2.FinalAPIKeyGroupBilling(subscriptionService, cfg))
+		}
+		// Observer wraps the local-response short-circuit after policy admission.
 		if requestObserver != nil {
 			options.PostPolicyMiddleware = append(options.PostPolicyMiddleware, requestObserver.Middleware())
 		}
 		if customization != nil {
-			options.PostPolicyMiddleware = append(options.PostPolicyMiddleware, customization.Middleware())
+			options.PostPolicyMiddleware = append(options.PostPolicyMiddleware, customization.LocalResponseMiddleware())
 		}
 	}
 	routes.RegisterGatewayRoutesWithOptions(r, h, apiKeyAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg, options)

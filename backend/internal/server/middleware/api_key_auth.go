@@ -157,6 +157,18 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 			AbortWithError(c, 401, "USER_INACTIVE", "User account is not active")
 			return
 		}
+		billingInfoRequest := c.Request.URL.Path == "/v1/sub2api/billing"
+		// Optional fork extensions may need to replace the request-scoped group
+		// after identity authentication. In that mode, defer all group and billing
+		// admission until the final group has been selected.
+		if cfg.RunMode != config.RunModeSimple && shouldDeferAPIKeyGroupBilling(c) && !skipAPIKeyBillingForRequest(c) {
+			if abortIfAPIKeyUsageUnavailable(c, apiKey) {
+				return
+			}
+			setDeferredAuthenticatedAPIKeyContext(c, apiKey, apiKeyService, billingInfoRequest)
+			c.Next()
+			return
+		}
 		if abortIfAPIKeyGroupUnavailable(c, apiKey) {
 			return
 		}
@@ -165,7 +177,6 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 		}
 		ctx := context.WithValue(c.Request.Context(), ctxkey.UserID, apiKey.User.ID)
 		c.Request = c.Request.WithContext(ctx)
-		billingInfoRequest := c.Request.URL.Path == "/v1/sub2api/billing"
 		// Async image task polling only reads data that already belongs to the
 		// authenticated key and must remain available after the completed
 		// generation consumes the key's remaining balance.
@@ -314,6 +325,29 @@ func abortWithAPIKeyQuotaError(c *gin.Context) {
 		return
 	}
 	AbortWithError(c, http.StatusTooManyRequests, "API_KEY_QUOTA_EXHAUSTED", message)
+}
+
+func abortIfAPIKeyUsageUnavailable(c *gin.Context, apiKey *service.APIKey) bool {
+	if apiKey == nil {
+		return false
+	}
+	switch apiKey.Status {
+	case service.StatusAPIKeyQuotaExhausted:
+		abortWithAPIKeyQuotaError(c)
+		return true
+	case service.StatusAPIKeyExpired:
+		AbortWithError(c, http.StatusForbidden, "API_KEY_EXPIRED", "API key 已过期")
+		return true
+	}
+	if apiKey.IsExpired() {
+		AbortWithError(c, http.StatusForbidden, "API_KEY_EXPIRED", "API key 已过期")
+		return true
+	}
+	if apiKey.IsQuotaExhausted() {
+		abortWithAPIKeyQuotaError(c)
+		return true
+	}
+	return false
 }
 
 func isOpenAICompatibleAPIKeyRequest(c *gin.Context) bool {

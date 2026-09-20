@@ -25,6 +25,8 @@ const (
 const (
 	GatewayChannelCustomizationRequestMessageMatchModeExact = "exact"
 	GatewayChannelCustomizationRequestMessageMatchModeRegex = "regex"
+	GatewayChannelCustomizationActionLocalResponse          = "local_response"
+	GatewayChannelCustomizationActionGroupMapping           = "group_mapping"
 )
 
 var gatewayCustomizationMethodPattern = regexp.MustCompile(`^[A-Z][A-Z0-9!#$%&'*+.^_` + "`" + `|~-]*$`)
@@ -35,10 +37,12 @@ type GatewayChannelCustomizationSettings struct {
 	Rules []GatewayChannelCustomizationRule `json:"rules"`
 }
 
-// GatewayChannelCustomizationRule 描述一个认证后请求的本地响应规则。
+// GatewayChannelCustomizationRule 描述一个认证后请求的定制动作规则。
 type GatewayChannelCustomizationRule struct {
 	Name                    string              `json:"name"`
 	Enabled                 bool                `json:"enabled"`
+	Action                  string              `json:"action"`
+	TargetGroupID           *int64              `json:"target_group_id,omitempty"`
 	APIKeyIDs               []int64             `json:"api_key_ids"`
 	APIKeyNames             []string            `json:"api_key_names"`
 	UserIDs                 []int64             `json:"user_ids"`
@@ -95,6 +99,20 @@ func normalizeAndValidateGatewayCustomizationRule(rule *GatewayChannelCustomizat
 	if !validUTF8AndMax(rule.Name, gatewayChannelCustomizationMaxStringBytes) {
 		return infraerrors.BadRequest("INVALID_GATEWAY_CHANNEL_CUSTOMIZATION_RULE", fmt.Sprintf("rule %d name is too long or invalid", index+1))
 	}
+	rule.Action = strings.ToLower(strings.TrimSpace(rule.Action))
+	if rule.Action == "" {
+		rule.Action = GatewayChannelCustomizationActionLocalResponse
+	}
+	if rule.Action != GatewayChannelCustomizationActionLocalResponse && rule.Action != GatewayChannelCustomizationActionGroupMapping {
+		return infraerrors.BadRequest("INVALID_GATEWAY_CHANNEL_CUSTOMIZATION_ACTION", fmt.Sprintf("rule %d action must be %q or %q", index+1, GatewayChannelCustomizationActionLocalResponse, GatewayChannelCustomizationActionGroupMapping))
+	}
+	if rule.Action == GatewayChannelCustomizationActionGroupMapping {
+		if rule.TargetGroupID == nil || *rule.TargetGroupID <= 0 {
+			return infraerrors.BadRequest("INVALID_GATEWAY_CHANNEL_CUSTOMIZATION_TARGET_GROUP", fmt.Sprintf("rule %d target group is required", index+1))
+		}
+	} else {
+		rule.TargetGroupID = nil
+	}
 	var err error
 	if rule.APIKeyIDs, err = normalizeCustomizationIDs(rule.APIKeyIDs, index, "API key IDs"); err != nil {
 		return err
@@ -147,27 +165,35 @@ func normalizeAndValidateGatewayCustomizationRule(rule *GatewayChannelCustomizat
 	if err := normalizeCustomizationQueryParams(rule, index); err != nil {
 		return err
 	}
-	if rule.StatusCode == 0 {
+	if rule.Action == GatewayChannelCustomizationActionLocalResponse {
+		if rule.StatusCode == 0 {
+			rule.StatusCode = http.StatusOK
+		}
+		if rule.StatusCode < 200 || rule.StatusCode > 599 {
+			return infraerrors.BadRequest("INVALID_GATEWAY_CHANNEL_CUSTOMIZATION_RESPONSE", fmt.Sprintf("rule %d status code must be between 200 and 599", index+1))
+		}
+		rule.ContentType = strings.TrimSpace(rule.ContentType)
+		if rule.ContentType == "" {
+			rule.ContentType = "application/json"
+		}
+		if !validUTF8AndMax(rule.ContentType, gatewayChannelCustomizationMaxStringBytes) {
+			return infraerrors.BadRequest("INVALID_GATEWAY_CHANNEL_CUSTOMIZATION_RESPONSE", fmt.Sprintf("rule %d content type is too long or invalid", index+1))
+		}
+		if !utf8.ValidString(rule.Body) || len([]byte(rule.Body)) > gatewayChannelCustomizationMaxBodyBytes {
+			return infraerrors.BadRequest("INVALID_GATEWAY_CHANNEL_CUSTOMIZATION_RESPONSE", fmt.Sprintf("rule %d body must be valid UTF-8 and at most %d bytes", index+1, gatewayChannelCustomizationMaxBodyBytes))
+		}
+		if rule.MinDelayMs < 0 || rule.MinDelayMs > gatewayChannelCustomizationMaxDelayMs || rule.MaxDelayMs < 0 || rule.MaxDelayMs > gatewayChannelCustomizationMaxDelayMs || rule.MinDelayMs > rule.MaxDelayMs {
+			return infraerrors.BadRequest("INVALID_GATEWAY_CHANNEL_CUSTOMIZATION_DELAY", fmt.Sprintf("rule %d delay must be between 0 and %d milliseconds", index+1, gatewayChannelCustomizationMaxDelayMs))
+		}
+		if statusMustNotHaveBody(rule.StatusCode) && rule.Body != "" {
+			return infraerrors.BadRequest("INVALID_GATEWAY_CHANNEL_CUSTOMIZATION_RESPONSE", fmt.Sprintf("rule %d status code %d cannot have a response body", index+1, rule.StatusCode))
+		}
+	} else {
 		rule.StatusCode = http.StatusOK
-	}
-	if rule.StatusCode < 200 || rule.StatusCode > 599 {
-		return infraerrors.BadRequest("INVALID_GATEWAY_CHANNEL_CUSTOMIZATION_RESPONSE", fmt.Sprintf("rule %d status code must be between 200 and 599", index+1))
-	}
-	rule.ContentType = strings.TrimSpace(rule.ContentType)
-	if rule.ContentType == "" {
 		rule.ContentType = "application/json"
-	}
-	if !validUTF8AndMax(rule.ContentType, gatewayChannelCustomizationMaxStringBytes) {
-		return infraerrors.BadRequest("INVALID_GATEWAY_CHANNEL_CUSTOMIZATION_RESPONSE", fmt.Sprintf("rule %d content type is too long or invalid", index+1))
-	}
-	if !utf8.ValidString(rule.Body) || len([]byte(rule.Body)) > gatewayChannelCustomizationMaxBodyBytes {
-		return infraerrors.BadRequest("INVALID_GATEWAY_CHANNEL_CUSTOMIZATION_RESPONSE", fmt.Sprintf("rule %d body must be valid UTF-8 and at most %d bytes", index+1, gatewayChannelCustomizationMaxBodyBytes))
-	}
-	if rule.MinDelayMs < 0 || rule.MinDelayMs > gatewayChannelCustomizationMaxDelayMs || rule.MaxDelayMs < 0 || rule.MaxDelayMs > gatewayChannelCustomizationMaxDelayMs || rule.MinDelayMs > rule.MaxDelayMs {
-		return infraerrors.BadRequest("INVALID_GATEWAY_CHANNEL_CUSTOMIZATION_DELAY", fmt.Sprintf("rule %d delay must be between 0 and %d milliseconds", index+1, gatewayChannelCustomizationMaxDelayMs))
-	}
-	if statusMustNotHaveBody(rule.StatusCode) && rule.Body != "" {
-		return infraerrors.BadRequest("INVALID_GATEWAY_CHANNEL_CUSTOMIZATION_RESPONSE", fmt.Sprintf("rule %d status code %d cannot have a response body", index+1, rule.StatusCode))
+		rule.Body = ""
+		rule.MinDelayMs = 0
+		rule.MaxDelayMs = 0
 	}
 	if rule.Enabled && (!hasCustomizationTarget(*rule) || !hasCustomizationCondition(*rule)) {
 		return infraerrors.BadRequest("INVALID_GATEWAY_CHANNEL_CUSTOMIZATION_RULE", fmt.Sprintf("enabled rule %d requires at least one target and one request condition", index+1))
