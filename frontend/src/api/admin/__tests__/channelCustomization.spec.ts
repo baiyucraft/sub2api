@@ -19,6 +19,8 @@ const settings: channelCustomization.ChannelCustomizationSettings = {
     {
       name: 'maibon probe',
       enabled: true,
+      action: 'group_mapping',
+      target_group_id: 2,
       api_key_ids: [12],
       api_key_names: ['maibon-gpt'],
       user_ids: [],

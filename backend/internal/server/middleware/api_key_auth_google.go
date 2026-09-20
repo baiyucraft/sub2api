@@ -3,6 +3,7 @@ package middleware
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -113,6 +114,14 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 			abortWithGoogleError(c, 401, "User account is not active")
 			return
 		}
+		if cfg.RunMode != config.RunModeSimple && shouldDeferAPIKeyGroupBilling(c) && !skipAPIKeyBillingForRequest(c) {
+			if abortIfGoogleAPIKeyUsageUnavailable(c, apiKey) {
+				return
+			}
+			setDeferredAuthenticatedAPIKeyContext(c, apiKey, apiKeyService, false)
+			c.Next()
+			return
+		}
 		if code, message, ok := validateAPIKeyGroupAvailable(apiKey); !ok {
 			service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonAPIKeyGroupUnavailable)
 			if code == "GROUP_DELETED" {
@@ -218,6 +227,29 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 		_ = apiKeyService.TouchLastUsed(c.Request.Context(), apiKey.ID)
 		c.Next()
 	}
+}
+
+func abortIfGoogleAPIKeyUsageUnavailable(c *gin.Context, apiKey *service.APIKey) bool {
+	if apiKey == nil {
+		return false
+	}
+	switch apiKey.Status {
+	case service.StatusAPIKeyQuotaExhausted:
+		abortWithGoogleError(c, http.StatusTooManyRequests, "API key 额度已用完")
+		return true
+	case service.StatusAPIKeyExpired:
+		abortWithGoogleError(c, http.StatusForbidden, "API key 已过期")
+		return true
+	}
+	if apiKey.IsExpired() {
+		abortWithGoogleError(c, http.StatusForbidden, "API key 已过期")
+		return true
+	}
+	if apiKey.IsQuotaExhausted() {
+		abortWithGoogleError(c, http.StatusTooManyRequests, "API key 额度已用完")
+		return true
+	}
+	return false
 }
 
 // extractAPIKeyForGoogle extracts API key for Google/Gemini endpoints.
