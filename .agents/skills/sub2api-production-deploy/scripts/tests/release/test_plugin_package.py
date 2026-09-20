@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 import sys
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
@@ -14,10 +15,31 @@ def load_plugin_api():
     try:
         return importlib.import_module("release.plugin_api")
     except ModuleNotFoundError as error:
-        raise AssertionError("release.plugin_api must implement package installation decisions") from error
+            raise AssertionError("release.plugin_api must implement package installation decisions") from error
+
+
+def load_plugin_package():
+    try:
+        return importlib.import_module("release.plugin_package")
+    except ModuleNotFoundError as error:
+        raise AssertionError("release.plugin_package must implement plugin packaging") from error
 
 
 class PluginPackageDecisionTest(unittest.TestCase):
+    def test_windows_resolves_cmd_shim_for_detached_worker(self) -> None:
+        module = load_plugin_package()
+        with mock.patch.object(module.os, "name", "nt"), mock.patch.object(
+            module.shutil, "which", side_effect=lambda name: "C:/node/" + name if name == "corepack.cmd" else None
+        ):
+            self.assertEqual(module._pnpm_command(), ["C:/node/corepack.cmd", "pnpm"])
+
+    def test_missing_package_manager_fails_with_actionable_error(self) -> None:
+        module = load_plugin_package()
+        with mock.patch.object(module.shutil, "which", return_value=None), self.assertRaisesRegex(
+            RuntimeError, "pnpm or corepack"
+        ):
+            module._pnpm_command()
+
     def test_missing_plugin_selects_disabled_first_install(self) -> None:
         module = load_plugin_api()
         self.assertEqual(module.select_operation(None, "0.1.0", "a" * 64), "install")
