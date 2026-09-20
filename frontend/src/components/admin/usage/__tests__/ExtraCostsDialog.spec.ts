@@ -144,6 +144,48 @@ describe('ExtraCostsDialog amount input', () => {
     wrapper.unmount()
   })
 
+  it('normalizes a legacy RFC3339 accounting day before refreshing the ledger', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 6, 13, 23, 30, 0))
+    create.mockResolvedValue({ id: 1, cost_date: '2026-07-14T00:00:00Z' })
+    const { wrapper } = await openDialog()
+    await wrapper.get('#extra-cost-amount').setValue('5')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(list).toHaveBeenLastCalledWith({
+      start_date: '2026-07-14',
+      end_date: '2026-07-14',
+      page: 1,
+      page_size: 10
+    })
+    wrapper.unmount()
+  })
+
+  it('keeps the saved state and restores the previous range when post-create refresh fails', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 6, 13, 12, 0, 0))
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    list
+      .mockResolvedValueOnce({ items: [], total: 0, daily_total: 0, range_total: 0 })
+      .mockRejectedValueOnce(new Error('refresh failed'))
+    create.mockResolvedValue({ id: 1, cost_date: '2026-07-14T00:00:00Z' })
+
+    const { wrapper } = await openDialog()
+    await wrapper.get('#extra-cost-amount').setValue('5')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(showSuccess).toHaveBeenCalledWith('admin.dashboard.extraCostAdded')
+    expect(showError).toHaveBeenCalledWith('admin.dashboard.extraCostRecordedRefreshFailed')
+    expect(showError).not.toHaveBeenCalledWith('admin.dashboard.extraCostSaveFailed')
+    expect(wrapper.emitted('changed')).toHaveLength(1)
+    const dateInputs = wrapper.findAll('input[type="date"]')
+    expect((dateInputs[0].element as HTMLInputElement).value).toBe('2026-07-13')
+    expect((dateInputs[1].element as HTMLInputElement).value).toBe('2026-07-13')
+    wrapper.unmount()
+  })
+
   it('returns to today after reversing from a historical range', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date(2026, 6, 13, 12, 0, 0))

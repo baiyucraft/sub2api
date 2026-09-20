@@ -37,7 +37,7 @@ func TestExtraCostRepositoryCreateWritesOccurrenceTime(t *testing.T) {
 		ON CONFLICT DO NOTHING
 		RETURNING id, cost_date, amount, category, notes, created_by, created_at, reversal_of, idempotency_key, rule_version`)).
 		WithArgs(entry.CostDate, entry.Amount, entry.Category, entry.Notes, nil, occurredAt, nil, entry.IdempotencyKey, entry.RuleVersion).
-		WillReturnRows(extraCostRows().AddRow(1, entry.CostDate, entry.Amount, entry.Category, entry.Notes, nil, occurredAt, nil, entry.IdempotencyKey, entry.RuleVersion))
+		WillReturnRows(extraCostRows().AddRow(1, time.Date(2026, 9, 18, 0, 0, 0, 0, time.UTC), []byte("3.50000000"), entry.Category, entry.Notes, nil, occurredAt, nil, entry.IdempotencyKey, entry.RuleVersion))
 
 	created, err := repo.Create(context.Background(), entry)
 	if err != nil {
@@ -45,6 +45,12 @@ func TestExtraCostRepositoryCreateWritesOccurrenceTime(t *testing.T) {
 	}
 	if !created.CreatedAt.Equal(occurredAt) {
 		t.Fatalf("CreatedAt = %v, want %v", created.CreatedAt, occurredAt)
+	}
+	if created.CostDate != entry.CostDate {
+		t.Fatalf("CostDate = %q, want %q", created.CostDate, entry.CostDate)
+	}
+	if created.Amount != entry.Amount {
+		t.Fatalf("Amount = %v, want %v", created.Amount, entry.Amount)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
@@ -131,15 +137,33 @@ func TestExtraCostRepositoryListOrdersByOccurrenceTime(t *testing.T) {
 	defer db.Close()
 	repo := &extraCostRepository{db: db}
 
+	createdAt := time.Date(2026, 9, 20, 14, 30, 0, 0, time.FixedZone("CST", 8*60*60))
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*) FROM extra_cost_entries WHERE 1=1")).
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	mock.ExpectQuery(`ORDER BY created_at DESC, id DESC LIMIT \$1 OFFSET \$2`).
 		WithArgs(20, 0).
-		WillReturnRows(extraCostRows())
+		WillReturnRows(extraCostRows().AddRow(
+			37,
+			time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC),
+			[]byte("12.34000000"),
+			service.ExtraCostCategoryAccount,
+			"purchase",
+			nil,
+			createdAt,
+			nil,
+			"list-key",
+			service.ExtraCostRuleVersion,
+		))
 
-	_, _, err = repo.List(context.Background(), service.ExtraCostFilter{Page: 1, PageSize: 20})
+	items, total, err := repo.List(context.Background(), service.ExtraCostFilter{Page: 1, PageSize: 20})
 	if err != nil {
 		t.Fatalf("List() error = %v", err)
+	}
+	if total != 1 || len(items) != 1 {
+		t.Fatalf("List() returned total=%d items=%d, want 1 and 1", total, len(items))
+	}
+	if items[0].CostDate != "2026-09-20" || items[0].Amount != 12.34 || !items[0].CreatedAt.Equal(createdAt) {
+		t.Fatalf("List() item = %+v, want normalized PostgreSQL values", items[0])
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

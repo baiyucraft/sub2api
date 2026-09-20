@@ -151,9 +151,10 @@ const resetLedgerDate = (date: string) => {
   pagination.page = 1
 }
 const resetLedgerToToday = () => resetLedgerDate(today())
+const normalizeLedgerDate = (value?: string) => value?.trim().match(/^(\d{4}-\d{2}-\d{2})/)?.[1] || today()
 
-async function load(): Promise<void> {
-  if (!props.show) return
+async function load(options: { showError?: boolean } = {}): Promise<boolean> {
+  if (!props.show) return false
   loading.value = true
   try {
     const response = await adminAPI.extraCosts.list({ ...filters, page: pagination.page, page_size: pagination.page_size })
@@ -161,9 +162,13 @@ async function load(): Promise<void> {
     total.value = response.total || 0
     dayTotal.value = response.daily_total ?? entries.value.filter((entry) => entry.cost_date === today()).reduce((sum, entry) => sum + entry.amount, 0)
     rangeTotal.value = response.range_total ?? entries.value.reduce((sum, entry) => sum + entry.amount, 0)
+    return true
   } catch (error) {
     console.error('Failed to load extra costs:', error)
-    appStore.showError(t('admin.dashboard.extraCostsLoadFailed'))
+    if (options.showError !== false) {
+      appStore.showError(t('admin.dashboard.extraCostsLoadFailed'))
+    }
+    return false
   } finally {
     loading.value = false
   }
@@ -177,8 +182,14 @@ async function submit(): Promise<void> {
     appStore.showSuccess(t('admin.dashboard.extraCostAdded'))
     form.amount = ''
     form.notes = ''
-    resetLedgerDate(created.cost_date || today())
-    await load()
+    const previousRange = { startDate: filters.start_date, endDate: filters.end_date, page: pagination.page }
+    resetLedgerDate(normalizeLedgerDate(created.cost_date))
+    if (!await load({ showError: false })) {
+      filters.start_date = previousRange.startDate
+      filters.end_date = previousRange.endDate
+      pagination.page = previousRange.page
+      appStore.showError(t('admin.dashboard.extraCostRecordedRefreshFailed'))
+    }
     emit('changed')
   } catch (error) {
     console.error('Failed to create extra cost:', error)
@@ -195,8 +206,14 @@ async function reverseEntry(entry: ExtraCostEntry): Promise<void> {
   try {
     const reversed = await adminAPI.extraCosts.reverse(entry.id, { reason: reason.trim(), idempotency_key: `extra-cost-reverse-${entry.id}-${Date.now()}` })
     appStore.showSuccess(t('admin.dashboard.extraCostReversedSuccess'))
-    resetLedgerDate(reversed.cost_date || today())
-    await load()
+    const previousRange = { startDate: filters.start_date, endDate: filters.end_date, page: pagination.page }
+    resetLedgerDate(normalizeLedgerDate(reversed.cost_date))
+    if (!await load({ showError: false })) {
+      filters.start_date = previousRange.startDate
+      filters.end_date = previousRange.endDate
+      pagination.page = previousRange.page
+      appStore.showError(t('admin.dashboard.extraCostRecordedRefreshFailed'))
+    }
     emit('changed')
   } catch (error) {
     console.error('Failed to reverse extra cost:', error)

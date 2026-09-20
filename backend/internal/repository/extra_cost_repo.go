@@ -242,10 +242,14 @@ type extraCostScanner interface{ Scan(dest ...any) error }
 
 func scanExtraCostRow(row extraCostScanner) (service.ExtraCostEntry, error) {
 	var e service.ExtraCostEntry
+	var costDate extraCostDate
 	var createdBy, reversalOf sql.NullInt64
 	var createdAt sql.NullTime
 	var idempotency, ruleVersion sql.NullString
-	err := row.Scan(&e.ID, &e.CostDate, &e.Amount, &e.Category, &e.Notes, &createdBy, &createdAt, &reversalOf, &idempotency, &ruleVersion)
+	if err := row.Scan(&e.ID, &costDate, &e.Amount, &e.Category, &e.Notes, &createdBy, &createdAt, &reversalOf, &idempotency, &ruleVersion); err != nil {
+		return e, err
+	}
+	e.CostDate = string(costDate)
 	if createdBy.Valid {
 		e.CreatedBy = &createdBy.Int64
 	}
@@ -259,7 +263,35 @@ func scanExtraCostRow(row extraCostScanner) (service.ExtraCostEntry, error) {
 		e.IdempotencyKey = idempotency.String
 	}
 	e.RuleVersion = ruleVersion.String
-	return e, err
+	return e, nil
+}
+
+type extraCostDate string
+
+func (d *extraCostDate) Scan(value any) error {
+	switch date := value.(type) {
+	case time.Time:
+		*d = extraCostDate(date.Format("2006-01-02"))
+		return nil
+	case string:
+		return d.scanString(date)
+	case []byte:
+		return d.scanString(string(date))
+	default:
+		return fmt.Errorf("scan extra cost date: unsupported value type %T", value)
+	}
+}
+
+func (d *extraCostDate) scanString(value string) error {
+	value = strings.TrimSpace(value)
+	for _, layout := range []string{"2006-01-02", time.RFC3339Nano} {
+		parsed, err := time.Parse(layout, value)
+		if err == nil {
+			*d = extraCostDate(parsed.Format("2006-01-02"))
+			return nil
+		}
+	}
+	return fmt.Errorf("scan extra cost date: invalid date %q", value)
 }
 
 func nullableString(value string) any {
