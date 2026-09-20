@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -563,6 +564,7 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 		Credentials:         input.Credentials,
 		Extra:               accountExtra,
 		ProxyID:             input.ProxyID,
+		ProxyIPGroupID:      input.ProxyIPGroupID,
 		UpstreamConfigID:    input.UpstreamConfigID,
 		UpstreamKeyID:       input.UpstreamKeyID,
 		Concurrency:         normalizeAccountConcurrency(input.Platform, input.Type, input.Concurrency),
@@ -617,6 +619,37 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 	return account, nil
 }
 
+func (s *adminServiceImpl) validateOpenAIProxyGroupBinding(ctx context.Context, account *Account) error {
+	if account == nil {
+		return errors.New("account is required")
+	}
+	if account.ProxyID != nil && *account.ProxyID <= 0 {
+		account.ProxyID = nil
+	}
+	if account.ProxyIPGroupID != nil && *account.ProxyIPGroupID <= 0 {
+		account.ProxyIPGroupID = nil
+	}
+	if account.ProxyID != nil && account.ProxyIPGroupID != nil {
+		return infraerrors.BadRequest("ACCOUNT_PROXY_BINDING_CONFLICT", "proxy_id and proxy_ip_group_id are mutually exclusive")
+	}
+	if account.ProxyIPGroupID == nil {
+		return nil
+	}
+	if !account.IsOpenAIOAuthLike() {
+		return proxyIPGroupAccountTypeError()
+	}
+	if s == nil || s.entClient == nil {
+		return errors.New("proxy IP group repository is unavailable")
+	}
+	if _, err := s.entClient.ProxyIPGroup.Get(ctx, *account.ProxyIPGroupID); err != nil {
+		if dbent.IsNotFound(err) {
+			return ErrProxyIPGroupNotFound
+		}
+		return fmt.Errorf("get proxy IP group: %w", err)
+	}
+	return nil
+}
+
 func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccountInput) (*Account, error) {
 	if input == nil {
 		return nil, errors.New("account create input is required")
@@ -629,6 +662,14 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 		input.GroupIDs = groupIDs
 	}
 	if err := s.normalizeUpstreamAccountInput(ctx, input); err != nil {
+		return nil, err
+	}
+	if input.ProxyIPGroupID != nil && *input.ProxyIPGroupID <= 0 {
+		input.ProxyIPGroupID = nil
+	}
+	if err := s.validateOpenAIProxyGroupBinding(ctx, &Account{
+		Platform: input.Platform, Type: input.Type, ProxyID: input.ProxyID, ProxyIPGroupID: input.ProxyIPGroupID,
+	}); err != nil {
 		return nil, err
 	}
 	if trimUpstreamNameWhitespace(input.Name) == "" {
@@ -765,7 +806,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		return nil, err
 	}
 	if account.IsUpstreamBound() {
-		if input.Name != "" || input.Type != "" || input.ProxyID != nil || input.UpstreamConfigID != nil || input.UpstreamKeyID != nil ||
+		if input.Name != "" || input.Type != "" || input.ProxyID != nil || input.ProxyIPGroupID != nil || input.UpstreamConfigID != nil || input.UpstreamKeyID != nil ||
 			input.Concurrency != nil || input.Priority != nil || input.RateMultiplier != nil || input.LoadFactor != nil || input.ProbeEnabled != nil || input.RateSyncEnabled != nil {
 			return nil, infraerrors.BadRequest("UPSTREAM_ACCOUNT_DERIVED_FIELDS_READ_ONLY", "upstream account identity, credentials, proxy, concurrency, rate, and priority are managed by the upstream config or key; load factor is not configurable for upstream accounts")
 		}
@@ -972,6 +1013,21 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 			account.ProxyID = input.ProxyID
 		}
 		account.Proxy = nil // 清除关联对象，防止 GORM Save 时根据 Proxy.ID 覆盖 ProxyID
+		account.ProxyIPGroupID = nil
+		account.ProxyIPGroup = nil
+	}
+	if input.ProxyIPGroupID != nil && !account.IsCredentialShadow() {
+		if *input.ProxyIPGroupID <= 0 {
+			account.ProxyIPGroupID = nil
+		} else {
+			account.ProxyIPGroupID = input.ProxyIPGroupID
+		}
+		account.ProxyIPGroup = nil
+		account.ProxyID = nil
+		account.Proxy = nil
+	}
+	if err := s.validateOpenAIProxyGroupBinding(ctx, account); err != nil {
+		return nil, err
 	}
 	if input.UpstreamConfigID != nil {
 		if *input.UpstreamConfigID == 0 {
@@ -1128,8 +1184,8 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 
 	// 将 proxy 变更传播到 spark 影子账号（同步；Update 内部已触发调度快照）。
 	// 影子自身 proxy 不可独立编辑(见上),故对影子的更新不触发传播。
-	if input.ProxyID != nil && !account.IsCredentialShadow() {
-		if err := s.propagateProxyToShadows(ctx, id, account.ProxyID); err != nil {
+	if (input.ProxyID != nil || input.ProxyIPGroupID != nil) && !account.IsCredentialShadow() {
+		if err := s.propagateEgressToShadows(ctx, id, account.ProxyID, account.ProxyIPGroupID); err != nil {
 			return nil, err
 		}
 	}
@@ -1879,6 +1935,7 @@ func (s *adminServiceImpl) CreateShadow(ctx context.Context, parentID int64, opt
 		ParentAccountID: &parentID,
 		QuotaDimension:  QuotaDimensionSpark,
 		ProxyID:         parent.ProxyID,
+		ProxyIPGroupID:  parent.ProxyIPGroupID,
 		Priority:        priority,
 		Concurrency:     concurrency,
 		Schedulable:     true,
@@ -1921,6 +1978,23 @@ func (s *adminServiceImpl) CreateShadow(ctx context.Context, parentID int64, opt
 // Calling this for a non-parent account is a harmless no-op.
 func (s *adminServiceImpl) propagateProxyToShadows(ctx context.Context, parentID int64, proxyID *int64) error {
 	return propagateAccountProxyToShadows(ctx, s.accountRepo, parentID, proxyID)
+}
+
+func (s *adminServiceImpl) propagateEgressToShadows(ctx context.Context, parentID int64, proxyID, proxyIPGroupID *int64) error {
+	shadows, err := s.accountRepo.ListShadowsByParent(ctx, parentID)
+	if err != nil {
+		return fmt.Errorf("list spark shadows for egress propagation: %w", err)
+	}
+	for _, shadow := range shadows {
+		shadow.ProxyID = proxyID
+		shadow.ProxyIPGroupID = proxyIPGroupID
+		shadow.Proxy = nil
+		shadow.ProxyIPGroup = nil
+		if err := s.accountRepo.Update(ctx, shadow); err != nil {
+			return fmt.Errorf("update spark shadow %d egress: %w", shadow.ID, err)
+		}
+	}
+	return nil
 }
 
 // propagateAccountProxyToShadows 把母账号的 proxy 同步到其所有 spark 影子(影子 proxy 恒继承母账号)。

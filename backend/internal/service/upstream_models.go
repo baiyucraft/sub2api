@@ -208,6 +208,11 @@ func (s *AccountTestService) FetchUpstreamSupportedModels(ctx context.Context, a
 // snapshot. When no model is complete, the existing account snapshot is left
 // untouched.
 func (s *AccountTestService) SyncUpstreamModelCatalog(ctx context.Context, account *Account) (*UpstreamModelCatalog, error) {
+	resolvedAccount, err := s.resolveUpstreamModelDiscoveryEgress(ctx, account)
+	if err != nil {
+		return nil, err
+	}
+	account = resolvedAccount
 	models, body, err := s.fetchUpstreamModelList(ctx, account)
 	liveListAvailable := err == nil
 	if err != nil {
@@ -731,6 +736,11 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 	if account == nil {
 		return nil, nil, newUpstreamModelSyncConfigError("Account is required", nil)
 	}
+	resolvedAccount, err := s.resolveUpstreamModelDiscoveryEgress(ctx, account)
+	if err != nil {
+		return nil, nil, err
+	}
+	account = resolvedAccount
 
 	if account.Platform == PlatformAntigravity && account.Type != AccountTypeAPIKey {
 		models, err := s.fetchAntigravityOAuthUpstreamModels(ctx, account)
@@ -784,6 +794,23 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 	}
 
 	return models, body, nil
+}
+
+func (s *AccountTestService) resolveUpstreamModelDiscoveryEgress(ctx context.Context, account *Account) (*Account, error) {
+	if account == nil || account.ProxyIPGroupID == nil {
+		return account, nil
+	}
+	if account.ProxyID != nil && account.Proxy != nil {
+		return account, nil
+	}
+	if s == nil || s.openaiGatewayService == nil {
+		return nil, newUpstreamModelSyncConfigError("OpenAI proxy-group model discovery is not configured", ErrOpenAIProxyGroupBindingUnavailable)
+	}
+	resolved, err := s.openaiGatewayService.resolveOpenAIModelDiscoveryEgress(ctx, account)
+	if err != nil {
+		return nil, newUpstreamModelSyncUpstreamError("OpenAI proxy group has no available model-discovery egress", err)
+	}
+	return resolved, nil
 }
 
 func (s *AccountTestService) buildUpstreamModelsRequest(ctx context.Context, account *Account) (*http.Request, error) {

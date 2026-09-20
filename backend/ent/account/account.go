@@ -36,6 +36,8 @@ const (
 	FieldExtra = "extra"
 	// FieldProxyID holds the string denoting the proxy_id field in the database.
 	FieldProxyID = "proxy_id"
+	// FieldProxyIPGroupID holds the string denoting the proxy_ip_group_id field in the database.
+	FieldProxyIPGroupID = "proxy_ip_group_id"
 	// FieldProxyFallbackOriginID holds the string denoting the proxy_fallback_origin_id field in the database.
 	FieldProxyFallbackOriginID = "proxy_fallback_origin_id"
 	// FieldUpstreamConfigID holds the string denoting the upstream_config_id field in the database.
@@ -100,6 +102,8 @@ const (
 	EdgeGroups = "groups"
 	// EdgeProxy holds the string denoting the proxy edge name in mutations.
 	EdgeProxy = "proxy"
+	// EdgeProxyIPGroup holds the string denoting the proxy_ip_group edge name in mutations.
+	EdgeProxyIPGroup = "proxy_ip_group"
 	// EdgeUpstreamConfig holds the string denoting the upstream_config edge name in mutations.
 	EdgeUpstreamConfig = "upstream_config"
 	// EdgeUpstreamKey holds the string denoting the upstream_key edge name in mutations.
@@ -128,6 +132,13 @@ const (
 	ProxyInverseTable = "proxies"
 	// ProxyColumn is the table column denoting the proxy relation/edge.
 	ProxyColumn = "proxy_id"
+	// ProxyIPGroupTable is the table that holds the proxy_ip_group relation/edge.
+	ProxyIPGroupTable = "accounts"
+	// ProxyIPGroupInverseTable is the table name for the ProxyIPGroup entity.
+	// It exists in this package in order to avoid circular dependency with the "proxyipgroup" package.
+	ProxyIPGroupInverseTable = "proxy_ip_groups"
+	// ProxyIPGroupColumn is the table column denoting the proxy_ip_group relation/edge.
+	ProxyIPGroupColumn = "proxy_ip_group_id"
 	// UpstreamConfigTable is the table that holds the upstream_config relation/edge.
 	UpstreamConfigTable = "accounts"
 	// UpstreamConfigInverseTable is the table name for the UpstreamConfig entity.
@@ -186,6 +197,7 @@ var Columns = []string{
 	FieldCredentials,
 	FieldExtra,
 	FieldProxyID,
+	FieldProxyIPGroupID,
 	FieldProxyFallbackOriginID,
 	FieldUpstreamConfigID,
 	FieldUpstreamKeyID,
@@ -360,6 +372,11 @@ func ByProxyID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldProxyID, opts...).ToFunc()
 }
 
+// ByProxyIPGroupID orders the results by the proxy_ip_group_id field.
+func ByProxyIPGroupID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldProxyIPGroupID, opts...).ToFunc()
+}
+
 // ByProxyFallbackOriginID orders the results by the proxy_fallback_origin_id field.
 func ByProxyFallbackOriginID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldProxyFallbackOriginID, opts...).ToFunc()
@@ -531,6 +548,13 @@ func ByProxyField(field string, opts ...sql.OrderTermOption) OrderOption {
 	}
 }
 
+// ByProxyIPGroupField orders the results by proxy_ip_group field.
+func ByProxyIPGroupField(field string, opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newProxyIPGroupStep(), sql.OrderByField(field, opts...))
+	}
+}
+
 // ByUpstreamConfigField orders the results by upstream_config field.
 func ByUpstreamConfigField(field string, opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -619,6 +643,13 @@ func newProxyStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(ProxyInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.M2O, false, ProxyTable, ProxyColumn),
+	)
+}
+func newProxyIPGroupStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(ProxyIPGroupInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.M2O, false, ProxyIPGroupTable, ProxyIPGroupColumn),
 	)
 }
 func newUpstreamConfigStep() *sqlgraph.Step {

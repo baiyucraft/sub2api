@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/imroc/req/v3"
 	"github.com/stretchr/testify/require"
@@ -16,6 +17,8 @@ import (
 
 type openaiOAuthClientRefreshStub struct {
 	refreshCalls int32
+	lastProxyURL string
+	response     *openai.TokenResponse
 }
 
 func (s *openaiOAuthClientRefreshStub) ExchangeCode(ctx context.Context, code, codeVerifier, redirectURI, proxyURL, clientID string) (*openai.TokenResponse, error) {
@@ -29,7 +32,24 @@ func (s *openaiOAuthClientRefreshStub) RefreshToken(ctx context.Context, refresh
 
 func (s *openaiOAuthClientRefreshStub) RefreshTokenWithClientID(ctx context.Context, refreshToken, proxyURL string, clientID string) (*openai.TokenResponse, error) {
 	atomic.AddInt32(&s.refreshCalls, 1)
+	s.lastProxyURL = proxyURL
+	if s.response != nil {
+		return s.response, nil
+	}
 	return nil, errors.New("not implemented")
+}
+
+type openAIManagementEgressResolverStub struct {
+	resolved *Account
+	err      error
+	releases int32
+}
+
+func (s *openAIManagementEgressResolverStub) AcquireOpenAIManagementEgress(_ context.Context, _ *Account) (*Account, func(), error) {
+	if s.err != nil {
+		return nil, nil, s.err
+	}
+	return s.resolved, func() { atomic.AddInt32(&s.releases, 1) }, nil
 }
 
 func TestOpenAIOAuthService_RefreshAccountToken_NoRefreshTokenUsesExistingAccessToken(t *testing.T) {
@@ -104,6 +124,48 @@ func TestOpenAIOAuthService_RefreshAccountToken_PATIgnoresStaleRefreshToken(t *t
 	require.Empty(t, info.RefreshToken)
 	require.Equal(t, int32(1), atomic.LoadInt32(&whoamiCalls))
 	require.Zero(t, atomic.LoadInt32(&client.refreshCalls), "PAT accounts must not call OAuth refresh even if stale refresh_token remains")
+}
+
+func TestOpenAIOAuthService_RefreshAccountTokenUsesManagementEgress(t *testing.T) {
+	client := &openaiOAuthClientRefreshStub{response: &openai.TokenResponse{AccessToken: "new-token", ExpiresIn: 3600}}
+	svc := NewOpenAIOAuthService(nil, client)
+	groupID := int64(41)
+	proxyID := int64(7)
+	account := &Account{
+		ID:             77,
+		Platform:       PlatformOpenAI,
+		Type:           AccountTypeOAuth,
+		ProxyIPGroupID: &groupID,
+		Credentials: map[string]any{
+			"refresh_token": "refresh-token",
+		},
+	}
+	resolved := cloneAccountWithProxy(account, Proxy{
+		ID:       proxyID,
+		Protocol: "http",
+		Host:     "127.0.0.1",
+		Port:     18080,
+		Status:   StatusActive,
+	})
+	resolver := &openAIManagementEgressResolverStub{resolved: resolved}
+	svc.SetOpenAIManagementEgressResolver(resolver)
+
+	info, err := svc.RefreshAccountToken(context.Background(), account)
+	require.NoError(t, err)
+	require.Equal(t, "new-token", info.AccessToken)
+	require.Equal(t, "http://127.0.0.1:18080", client.lastProxyURL)
+	require.Equal(t, int32(1), atomic.LoadInt32(&resolver.releases))
+}
+
+func TestOpenAIOAuthService_RefreshAccountTokenProxyGroupFailsClosedWithoutResolver(t *testing.T) {
+	svc := NewOpenAIOAuthService(nil, &openaiOAuthClientRefreshStub{})
+	groupID := int64(41)
+	account := &Account{ID: 77, Platform: PlatformOpenAI, Type: AccountTypeOAuth, ProxyIPGroupID: &groupID}
+
+	_, err := svc.RefreshAccountToken(context.Background(), account)
+	require.Error(t, err)
+	require.Equal(t, http.StatusServiceUnavailable, infraerrors.Code(err))
+	require.Equal(t, OpenAIProxyGroupNoEgressCode, infraerrors.Reason(err))
 }
 
 func TestOpenAITokenRefresher_NeedsRefresh_SkipsAccountWithoutRefreshToken(t *testing.T) {

@@ -70,6 +70,7 @@ const DataTableStub = defineComponent({
   template: `
     <div>
       <div v-for="row in data" :key="row.id" :data-account-name="row.name">
+        <slot name="cell-proxy" :row="row" />
         <slot name="cell-groups" :row="row" />
         <slot name="cell-actions" :row="row" />
       </div>
@@ -198,6 +199,30 @@ describe('admin AccountsView lite account list', () => {
     await flushPromises()
 
     expect(wrapper.get('[data-test="account-groups"]').text()).toBe('codex')
+    wrapper.unmount()
+  })
+
+  it('renders proxy IP group metadata in the proxy column', async () => {
+    listAccounts.mockResolvedValue({
+      items: [{
+        ...listRow,
+        proxy_ip_group: {
+          id: 9,
+          name: 'Hong Kong pool',
+          member_count: 3,
+          per_ip_concurrency: 4,
+        },
+      }],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      pages: 1,
+    })
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Hong Kong pool')
+    expect(wrapper.text()).toContain('admin.accounts.proxyGroupSummary')
     wrapper.unmount()
   })
 

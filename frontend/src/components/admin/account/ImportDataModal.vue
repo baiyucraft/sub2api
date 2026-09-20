@@ -51,49 +51,20 @@
         />
       </div>
 
-      <div v-if="previewAccountCount > 0" class="space-y-3 rounded-xl border border-gray-200 p-4 dark:border-dark-700">
-        <div class="flex items-center justify-between gap-3">
-          <div>
-            <div class="text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.accounts.dataImportCopyProxies') }}</div>
-            <div class="text-xs text-gray-500 dark:text-dark-400">
-              {{ copyProxyIds.length
-                ? t('admin.accounts.dataImportCopyCount', { count: previewAccountCount * copyProxyIds.length })
-                : t('admin.accounts.dataImportCompatMode') }}
-            </div>
-          </div>
-          <button type="button" class="btn btn-ghost shrink-0" :disabled="!canAddCopyProxy" @click="addCopyProxy">
-            {{ t('admin.accounts.dataImportAddCopy') }}
-          </button>
+      <div v-if="previewAccountCount > 0 && proxyIPGroupEligible" class="space-y-3 rounded-xl border border-gray-200 p-4 dark:border-dark-700">
+        <div>
+          <div class="text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.accounts.dataImportProxyGroup') }}</div>
+          <div class="text-xs text-gray-500 dark:text-dark-400">{{ t('admin.accounts.dataImportProxyGroupHint') }}</div>
         </div>
-        <div v-if="proxiesLoading" class="text-xs text-gray-500 dark:text-dark-400">{{ t('common.loading') }}</div>
-        <div v-else-if="copyProxyIds.length" class="space-y-2">
-          <div v-for="(proxyId, index) in copyProxyIds" :key="`copy-proxy-${index}`" class="flex items-center gap-2">
-            <span class="w-6 text-center text-xs text-gray-500">{{ index + 1 }}</span>
-            <div class="min-w-0 flex-1">
-              <Select
-                :model-value="proxyId"
-                :options="copyProxyOptions(index)"
-                :placeholder="t('admin.accounts.dataImportSelectProxy')"
-                searchable
-                :aria-label="t('admin.accounts.dataImportSelectProxy')"
-                @update:model-value="(value) => setCopyProxy(index, value)"
-              />
-            </div>
-            <button
-              type="button"
-              class="btn btn-secondary inline-flex h-9 w-9 items-center justify-center p-0"
-              :aria-label="t('admin.accounts.dataImportRemoveCopy')"
-              :title="t('admin.accounts.dataImportRemoveCopy')"
-              @click="removeCopyProxy(index)"
-            >
-              <Icon name="x" size="sm" />
-            </button>
-          </div>
-          <div v-if="previewName" class="text-xs text-gray-500 dark:text-dark-400">
-            {{ t('admin.accounts.dataImportPreviewName', { name: previewName }) }}
-          </div>
-        </div>
-        <div v-else class="text-xs text-gray-500 dark:text-dark-400">{{ t('admin.accounts.dataImportCompatMode') }}</div>
+        <Select
+          v-model="proxyIPGroupId"
+          :options="proxyIPGroupOptions"
+          :placeholder="t('admin.accounts.dataImportSelectProxyGroup')"
+          :loading="proxyIPGroupsLoading"
+          searchable
+          clearable
+          data-testid="data-import-proxy-ip-group"
+        />
       </div>
 
       <div v-if="previewAccountCount > 0" class="space-y-3 rounded-lg border border-gray-200 p-4 dark:border-dark-700">
@@ -194,10 +165,9 @@ import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Select, { type SelectOption } from '@/components/common/Select.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
-import Icon from '@/components/icons/Icon.vue'
 import { adminAPI } from '@/api/admin'
 import { useAppStore } from '@/stores/app'
-import type { AccountPlatform, AdminDataImportResult, AdminDataPayload, AdminGroup, Proxy } from '@/types'
+import type { AccountPlatform, AdminDataImportResult, AdminDataPayload, AdminGroup, ProxyIPGroup } from '@/types'
 
 interface Props {
   show: boolean
@@ -220,11 +190,12 @@ const dragDepth = ref(0)
 const dragActive = computed(() => dragDepth.value > 0)
 const hasCreatedData = ref(false)
 const result = ref<AdminDataImportResult | null>(null)
-const proxies = ref<Proxy[]>([])
-const proxiesLoading = ref(false)
+const proxyIPGroups = ref<ProxyIPGroup[]>([])
+const proxyIPGroupsLoading = ref(false)
 const groups = ref<AdminGroup[]>([])
 const groupsLoading = ref(false)
-const copyProxyIds = ref<number[]>([])
+const proxyIPGroupId = ref<number | null>(null)
+const proxyIPGroupEligible = ref(false)
 const overrideConcurrency = ref('4')
 const overrideRateMultiplier = ref('0')
 const overridePriority = ref('1')
@@ -233,8 +204,6 @@ const groupIds = ref<number[]>([])
 const preferredGroupIds = ref<number[]>([])
 const importPlatform = ref<AccountPlatform | 'mixed' | null>(null)
 const previewAccountCount = ref(0)
-const previewName = ref('')
-const previewBaseName = ref('')
 
 const fileInput = ref<HTMLInputElement | null>(null)
 const selectedFilesLabel = computed(() => {
@@ -245,13 +214,14 @@ const selectedFilesLabel = computed(() => {
 const fileListTitle = computed(() => files.value.map((item) => item.name).join(', '))
 
 const errorItems = computed(() => result.value?.errors || [])
-const nextUnusedProxyId = computed(() => {
-  const selected = new Set(copyProxyIds.value)
-  return proxies.value.find((proxy) => !selected.has(proxy.id))?.id
-})
-const canAddCopyProxy = computed(() => (
-  !proxiesLoading.value && copyProxyIds.value.length < 50 && nextUnusedProxyId.value !== undefined
-))
+const proxyIPGroupOptions = computed<SelectOption[]>(() => proxyIPGroups.value.map(group => ({
+  value: group.id,
+  label: t('admin.accounts.proxyBinding.groupOption', {
+    name: group.name,
+    count: group.member_count ?? group.proxy_ids?.length ?? group.members?.length ?? 0,
+    limit: group.per_ip_concurrency
+  })
+})))
 const codexFingerprintOptions = computed<SelectOption[]>(() => [
   { value: 'off', label: t('admin.accounts.codexFingerprintOff') },
   { value: 'device', label: t('admin.accounts.codexFingerprintDevice') },
@@ -262,17 +232,6 @@ const codexFingerprintOptions = computed<SelectOption[]>(() => [
 const optionalNumberInputText = (value: unknown): string => {
   if (value === null || value === undefined) return ''
   return String(value).trim()
-}
-
-const copyProxyOptions = (currentIndex: number): SelectOption[] => {
-  const selectedElsewhere = new Set(
-    copyProxyIds.value.filter((_, index) => index !== currentIndex)
-  )
-  return proxies.value.map((proxy) => ({
-    value: proxy.id,
-    label: proxy.name || `${proxy.host}:${proxy.port}`,
-    disabled: selectedElsewhere.has(proxy.id)
-  }))
 }
 
 const SUPPORTED_ACCOUNT_PLATFORMS = new Set<AccountPlatform>([
@@ -301,6 +260,14 @@ const resolveImportPlatform = (payloads: AdminDataPayload[]): AccountPlatform | 
   return platforms.size > 1 ? 'mixed' : null
 }
 
+const supportsProxyIPGroupImport = (payloads: AdminDataPayload[]): boolean => {
+  const accounts = payloads.flatMap(payload => payload.accounts)
+  return accounts.length > 0 && accounts.every(account =>
+    String(account.platform || '').trim().toLowerCase() === 'openai' &&
+    (account.type === 'oauth' || account.type === 'setup-token')
+  )
+}
+
 watch(
   () => props.show,
   (open) => {
@@ -309,7 +276,8 @@ watch(
       dragDepth.value = 0
       hasCreatedData.value = false
       result.value = null
-      copyProxyIds.value = []
+      proxyIPGroupId.value = null
+      proxyIPGroupEligible.value = false
       overrideConcurrency.value = '4'
       overrideRateMultiplier.value = '0'
       overridePriority.value = '1'
@@ -318,29 +286,14 @@ watch(
       preferredGroupIds.value = []
       importPlatform.value = null
       previewAccountCount.value = 0
-      previewName.value = ''
-      previewBaseName.value = ''
-      proxiesLoading.value = true
+      proxyIPGroupsLoading.value = true
       groupsLoading.value = true
-      Promise.resolve().then(() => adminAPI.proxies.getAll()).then((items) => {
-        proxies.value = items
-          .filter((proxy) => proxy.status === 'active')
-          .sort((left, right) => {
-            const leftCreatedAt = Date.parse(left.created_at)
-            const rightCreatedAt = Date.parse(right.created_at)
-            if (Number.isFinite(leftCreatedAt) && Number.isFinite(rightCreatedAt) && leftCreatedAt !== rightCreatedAt) {
-              return leftCreatedAt - rightCreatedAt
-            }
-            if (Number.isFinite(leftCreatedAt) !== Number.isFinite(rightCreatedAt)) {
-              return Number.isFinite(leftCreatedAt) ? -1 : 1
-            }
-            return left.id - right.id
-          })
-        if (files.value.length) void updatePreview(files.value)
+      Promise.resolve().then(() => adminAPI.proxyIpGroups.list()).then((items) => {
+        proxyIPGroups.value = items
       }).catch(() => {
-        proxies.value = []
+        proxyIPGroups.value = []
       }).finally(() => {
-        proxiesLoading.value = false
+        proxyIPGroupsLoading.value = false
       })
       Promise.resolve().then(() => adminAPI.groups.getAll()).then((items) => {
         groups.value = items
@@ -356,30 +309,6 @@ watch(
   },
   { immediate: true }
 )
-
-watch([copyProxyIds, proxies], () => {
-  if (!previewBaseName.value || !copyProxyIds.value.length) return
-  const suffix = proxies.value.find((item) => item.id === copyProxyIds.value[0])
-  if (!suffix) return
-  previewName.value = `${previewBaseName.value} - ${suffix.name || `${suffix.host}:${suffix.port}`}`
-}, { deep: true })
-
-const addCopyProxy = () => {
-  if (!canAddCopyProxy.value || nextUnusedProxyId.value === undefined) return
-  copyProxyIds.value.push(nextUnusedProxyId.value)
-}
-
-const setCopyProxy = (index: number, value: unknown) => {
-  const id = Number(value)
-  if (!Number.isInteger(id) || id <= 0) return
-  if (copyProxyIds.value.some((selectedId, selectedIndex) => selectedIndex !== index && selectedId === id)) return
-  copyProxyIds.value[index] = id
-}
-
-const removeCopyProxy = (index: number) => {
-  copyProxyIds.value.splice(index, 1)
-  if (copyProxyIds.value.length === 0) previewName.value = ''
-}
 
 const openFilePicker = () => {
   fileInput.value?.click()
@@ -421,9 +350,9 @@ const setSelectedFiles = (sourceFiles: FileList | File[] | null | undefined) => 
   files.value = picked
   result.value = null
   previewAccountCount.value = 0
-  previewName.value = ''
-  previewBaseName.value = ''
   importPlatform.value = null
+  proxyIPGroupId.value = null
+  proxyIPGroupEligible.value = false
   groupIds.value = []
   preferredGroupIds.value = []
   void updatePreview(picked)
@@ -431,7 +360,6 @@ const setSelectedFiles = (sourceFiles: FileList | File[] | null | undefined) => 
 
 const updatePreview = async (sourceFiles: File[]) => {
   let count = 0
-  let firstName = ''
   const payloads: AdminDataPayload[] = []
   for (const sourceFile of sourceFiles) {
     try {
@@ -439,22 +367,21 @@ const updatePreview = async (sourceFiles: File[]) => {
       if (isValidDataPayload(parsed)) {
         payloads.push(parsed)
         count += parsed.accounts.length
-        if (!firstName && parsed.accounts[0]?.name) firstName = parsed.accounts[0].name
       }
     } catch {
       // Full validation and user-facing errors remain in handleImport.
     }
   }
   const nextPlatform = resolveImportPlatform(payloads)
+  const nextProxyIPGroupEligible = supportsProxyIPGroupImport(payloads)
   if (nextPlatform !== importPlatform.value) {
     groupIds.value = []
     preferredGroupIds.value = []
   }
+  if (!nextProxyIPGroupEligible) proxyIPGroupId.value = null
   importPlatform.value = nextPlatform
+  proxyIPGroupEligible.value = nextProxyIPGroupEligible
   previewAccountCount.value = count
-  const proxy = proxies.value.find((item) => item.id === copyProxyIds.value[0])
-  previewBaseName.value = firstName
-  previewName.value = firstName && proxy ? `${firstName} - ${proxy.name || `${proxy.host}:${proxy.port}`}` : ''
 }
 
 const handleDragEnter = () => {
@@ -544,16 +471,6 @@ const handleImport = async () => {
 
   importing.value = true
   try {
-    if (copyProxyIds.value.length > 0) {
-      const validProxyIds = new Set(proxies.value.map((proxy) => proxy.id))
-      if (
-        new Set(copyProxyIds.value).size !== copyProxyIds.value.length ||
-        copyProxyIds.value.some((id) => !Number.isInteger(id) || id <= 0 || !validProxyIds.has(id))
-      ) {
-        appStore.showError(t('admin.accounts.dataImportInvalidProxy'))
-        return
-      }
-    }
     let concurrencyOverride: number | undefined
     const concurrencyText = optionalNumberInputText(overrideConcurrency.value)
     if (concurrencyText !== '') {
@@ -600,6 +517,13 @@ const handleImport = async () => {
     }
     const dataPayload = mergeDataPayloads(dataPayloads)
     const resolvedPlatform = resolveImportPlatform(dataPayloads)
+    const resolvedProxyIPGroupEligible = supportsProxyIPGroupImport(dataPayloads)
+    proxyIPGroupEligible.value = resolvedProxyIPGroupEligible
+    if (!resolvedProxyIPGroupEligible) proxyIPGroupId.value = null
+    if (proxyIPGroupId.value !== null && !proxyIPGroups.value.some(group => group.id === proxyIPGroupId.value)) {
+      appStore.showError(t('admin.accounts.dataImportInvalidProxyGroup'))
+      return
+    }
     if (resolvedPlatform !== importPlatform.value) {
       importPlatform.value = resolvedPlatform
       groupIds.value = []
@@ -610,7 +534,9 @@ const handleImport = async () => {
       data: dataPayload,
       skip_default_group_bind: true
     }
-    if (copyProxyIds.value.length > 0) importOptions.copy_proxy_ids = [...copyProxyIds.value]
+    if (resolvedProxyIPGroupEligible && proxyIPGroupId.value !== null) {
+      importOptions.proxy_ip_group_id = proxyIPGroupId.value
+    }
     if (concurrencyOverride !== undefined) importOptions.override_concurrency = concurrencyOverride
     if (rateOverride !== undefined) importOptions.override_rate_multiplier = rateOverride
     if (priorityOverride !== undefined) importOptions.override_priority = priorityOverride

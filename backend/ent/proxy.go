@@ -59,9 +59,13 @@ type ProxyEdges struct {
 	PrimaryProxies []*Proxy `json:"primary_proxies,omitempty"`
 	// BackupProxy holds the value of the backup_proxy edge.
 	BackupProxy *Proxy `json:"backup_proxy,omitempty"`
+	// ProxyIPGroups holds the value of the proxy_ip_groups edge.
+	ProxyIPGroups []*ProxyIPGroup `json:"proxy_ip_groups,omitempty"`
+	// ProxyIPGroupMembers holds the value of the proxy_ip_group_members edge.
+	ProxyIPGroupMembers []*ProxyIPGroupMember `json:"proxy_ip_group_members,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [3]bool
+	loadedTypes [5]bool
 }
 
 // AccountsOrErr returns the Accounts value or an error if the edge
@@ -91,6 +95,24 @@ func (e ProxyEdges) BackupProxyOrErr() (*Proxy, error) {
 		return nil, &NotFoundError{label: proxy.Label}
 	}
 	return nil, &NotLoadedError{edge: "backup_proxy"}
+}
+
+// ProxyIPGroupsOrErr returns the ProxyIPGroups value or an error if the edge
+// was not loaded in eager-loading.
+func (e ProxyEdges) ProxyIPGroupsOrErr() ([]*ProxyIPGroup, error) {
+	if e.loadedTypes[3] {
+		return e.ProxyIPGroups, nil
+	}
+	return nil, &NotLoadedError{edge: "proxy_ip_groups"}
+}
+
+// ProxyIPGroupMembersOrErr returns the ProxyIPGroupMembers value or an error if the edge
+// was not loaded in eager-loading.
+func (e ProxyEdges) ProxyIPGroupMembersOrErr() ([]*ProxyIPGroupMember, error) {
+	if e.loadedTypes[4] {
+		return e.ProxyIPGroupMembers, nil
+	}
+	return nil, &NotLoadedError{edge: "proxy_ip_group_members"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -240,6 +262,16 @@ func (_m *Proxy) QueryPrimaryProxies() *ProxyQuery {
 // QueryBackupProxy queries the "backup_proxy" edge of the Proxy entity.
 func (_m *Proxy) QueryBackupProxy() *ProxyQuery {
 	return NewProxyClient(_m.config).QueryBackupProxy(_m)
+}
+
+// QueryProxyIPGroups queries the "proxy_ip_groups" edge of the Proxy entity.
+func (_m *Proxy) QueryProxyIPGroups() *ProxyIPGroupQuery {
+	return NewProxyClient(_m.config).QueryProxyIPGroups(_m)
+}
+
+// QueryProxyIPGroupMembers queries the "proxy_ip_group_members" edge of the Proxy entity.
+func (_m *Proxy) QueryProxyIPGroupMembers() *ProxyIPGroupMemberQuery {
+	return NewProxyClient(_m.config).QueryProxyIPGroupMembers(_m)
 }
 
 // Update returns a builder for updating this Proxy.

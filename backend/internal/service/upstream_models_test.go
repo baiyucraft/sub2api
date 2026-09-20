@@ -229,6 +229,48 @@ func TestFetchUpstreamSupportedModelsParsesOpenAIOAuthManifest(t *testing.T) {
 	require.Equal(t, "Bearer openai-oauth-token", upstream.lastReq.Header.Get("Authorization"))
 }
 
+func TestFetchUpstreamSupportedModelsUsesProxyGroupRepresentative(t *testing.T) {
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"models":[{"slug":"gpt-5.6-sol"}]}`)),
+	}}
+	gateway, account := newProxyGroupTestService(
+		&proxyGroupBindingCacheStub{},
+		&proxyGroupConcurrencyCacheStub{},
+		[]int64{8},
+		[]Proxy{{ID: 8, Name: "models-egress", Protocol: "http", Host: "127.0.0.8", Port: 18080, Status: StatusActive}},
+	)
+	account.Credentials = map[string]any{"access_token": "openai-oauth-token"}
+	svc := &AccountTestService{
+		httpUpstream:         upstream,
+		cfg:                  upstreamModelSyncTestConfig(),
+		openaiGatewayService: gateway,
+	}
+
+	models, err := svc.FetchUpstreamSupportedModels(context.Background(), account)
+	require.NoError(t, err)
+	require.Equal(t, []string{"gpt-5.6-sol"}, models)
+	require.Equal(t, "http://127.0.0.8:18080", upstream.lastProxyURL)
+}
+
+func TestFetchUpstreamSupportedModelsFailsClosedForProxyGroupWithoutResolver(t *testing.T) {
+	groupID := int64(42)
+	upstream := &httpUpstreamRecorder{}
+	svc := &AccountTestService{httpUpstream: upstream, cfg: upstreamModelSyncTestConfig()}
+	account := &Account{
+		ID:             13,
+		Platform:       PlatformOpenAI,
+		Type:           AccountTypeOAuth,
+		ProxyIPGroupID: &groupID,
+		Credentials:    map[string]any{"access_token": "openai-oauth-token"},
+	}
+
+	_, err := svc.FetchUpstreamSupportedModels(context.Background(), account)
+	require.Error(t, err)
+	require.Nil(t, upstream.lastReq, "proxy-group discovery must not fall back to a direct request")
+}
+
 func TestExtractGrokUpstreamModelIDs(t *testing.T) {
 	t.Parallel()
 

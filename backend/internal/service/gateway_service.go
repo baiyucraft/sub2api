@@ -453,6 +453,8 @@ var allowedHeaders = map[string]bool{
 // cache implementation (e.g. redis.Nil), mirroring ErrRefreshTokenNotFound.
 var ErrStickySessionNotFound = errors.New("sticky session not found")
 
+var ErrOpenAIProxyGroupBindingNotFound = errors.New("openai proxy group binding not found")
+
 // ErrReasoningContentNotFound is returned by GatewayCache.GetReasoningContent
 // when no cached reasoning content exists for the reasoning item ID.
 var ErrReasoningContentNotFound = errors.New("reasoning content not found")
@@ -501,6 +503,15 @@ type GatewayCache interface {
 	// ErrReasoningContentNotFound，使 service 层无需依赖具体缓存实现即可
 	// 区分"未缓存"与真实读取失败。
 	GetReasoningContent(ctx context.Context, itemID string) (string, error)
+}
+
+// OpenAIProxyGroupBindingCache is an optional Redis-backed extension used by
+// OpenAI OAuth/setup-token proxy groups. Group accounts fail closed when this
+// capability is unavailable; ordinary single-proxy accounts never use it.
+type OpenAIProxyGroupBindingCache interface {
+	GetOpenAIProxyGroupBinding(ctx context.Context, accountID int64, sessionHash string) (int64, error)
+	ClaimOpenAIProxyGroupBinding(ctx context.Context, accountID int64, sessionHash string, proxyID int64, ttl time.Duration) (int64, error)
+	DeleteOpenAIProxyGroupBindingIfMatch(ctx context.Context, accountID int64, sessionHash string, proxyID int64) error
 }
 
 // derefGroupID safely dereferences *int64 to int64, returning 0 if nil

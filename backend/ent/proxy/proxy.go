@@ -49,6 +49,10 @@ const (
 	EdgePrimaryProxies = "primary_proxies"
 	// EdgeBackupProxy holds the string denoting the backup_proxy edge name in mutations.
 	EdgeBackupProxy = "backup_proxy"
+	// EdgeProxyIPGroups holds the string denoting the proxy_ip_groups edge name in mutations.
+	EdgeProxyIPGroups = "proxy_ip_groups"
+	// EdgeProxyIPGroupMembers holds the string denoting the proxy_ip_group_members edge name in mutations.
+	EdgeProxyIPGroupMembers = "proxy_ip_group_members"
 	// Table holds the table name of the proxy in the database.
 	Table = "proxies"
 	// AccountsTable is the table that holds the accounts relation/edge.
@@ -66,6 +70,18 @@ const (
 	BackupProxyTable = "proxies"
 	// BackupProxyColumn is the table column denoting the backup_proxy relation/edge.
 	BackupProxyColumn = "backup_proxy_id"
+	// ProxyIPGroupsTable is the table that holds the proxy_ip_groups relation/edge. The primary key declared below.
+	ProxyIPGroupsTable = "proxy_ip_group_members"
+	// ProxyIPGroupsInverseTable is the table name for the ProxyIPGroup entity.
+	// It exists in this package in order to avoid circular dependency with the "proxyipgroup" package.
+	ProxyIPGroupsInverseTable = "proxy_ip_groups"
+	// ProxyIPGroupMembersTable is the table that holds the proxy_ip_group_members relation/edge.
+	ProxyIPGroupMembersTable = "proxy_ip_group_members"
+	// ProxyIPGroupMembersInverseTable is the table name for the ProxyIPGroupMember entity.
+	// It exists in this package in order to avoid circular dependency with the "proxyipgroupmember" package.
+	ProxyIPGroupMembersInverseTable = "proxy_ip_group_members"
+	// ProxyIPGroupMembersColumn is the table column denoting the proxy_ip_group_members relation/edge.
+	ProxyIPGroupMembersColumn = "proxy_id"
 )
 
 // Columns holds all SQL columns for proxy fields.
@@ -86,6 +102,12 @@ var Columns = []string{
 	FieldBackupProxyID,
 	FieldExpiryWarnDays,
 }
+
+var (
+	// ProxyIPGroupsPrimaryKey and ProxyIPGroupsColumn2 are the table columns denoting the
+	// primary key for the proxy_ip_groups relation (M2M).
+	ProxyIPGroupsPrimaryKey = []string{"proxy_ip_group_id", "proxy_id"}
+)
 
 // ValidColumn reports if the column name is valid (part of the table columns).
 func ValidColumn(column string) bool {
@@ -245,6 +267,34 @@ func ByBackupProxyField(field string, opts ...sql.OrderTermOption) OrderOption {
 		sqlgraph.OrderByNeighborTerms(s, newBackupProxyStep(), sql.OrderByField(field, opts...))
 	}
 }
+
+// ByProxyIPGroupsCount orders the results by proxy_ip_groups count.
+func ByProxyIPGroupsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newProxyIPGroupsStep(), opts...)
+	}
+}
+
+// ByProxyIPGroups orders the results by proxy_ip_groups terms.
+func ByProxyIPGroups(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newProxyIPGroupsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
+// ByProxyIPGroupMembersCount orders the results by proxy_ip_group_members count.
+func ByProxyIPGroupMembersCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newProxyIPGroupMembersStep(), opts...)
+	}
+}
+
+// ByProxyIPGroupMembers orders the results by proxy_ip_group_members terms.
+func ByProxyIPGroupMembers(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newProxyIPGroupMembersStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
 func newAccountsStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
@@ -264,5 +314,19 @@ func newBackupProxyStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(Table, FieldID),
 		sqlgraph.Edge(sqlgraph.M2O, false, BackupProxyTable, BackupProxyColumn),
+	)
+}
+func newProxyIPGroupsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(ProxyIPGroupsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.M2M, true, ProxyIPGroupsTable, ProxyIPGroupsPrimaryKey...),
+	)
+}
+func newProxyIPGroupMembersStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(ProxyIPGroupMembersInverseTable, ProxyIPGroupMembersColumn),
+		sqlgraph.Edge(sqlgraph.O2M, true, ProxyIPGroupMembersTable, ProxyIPGroupMembersColumn),
 	)
 }

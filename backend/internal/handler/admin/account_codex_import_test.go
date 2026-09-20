@@ -648,6 +648,29 @@ func TestImportCodexSessionsAccessTokenOnlySameWorkspaceDifferentUsersCreatesTwo
 	}
 }
 
+func TestImportCodexSessionsPassesProxyGroupToCreatedAccount(t *testing.T) {
+	svc := newCodexImportMemoryAdminService(nil)
+	handler := NewAccountHandler(svc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	proxyGroupID := int64(77)
+	req := CodexSessionImportRequest{
+		ProxyIPGroupID:       &proxyGroupID,
+		SkipDefaultGroupBind: boolPtr(true),
+	}
+	entries := []codexImportEntry{{Index: 1, Value: buildCodexAccessOnlyImportValue(t, "workspace-1", "user-1")}}
+
+	result, err := handler.importCodexSessions(context.Background(), req, entries)
+	if err != nil {
+		t.Fatalf("importCodexSessions error = %v", err)
+	}
+	if result.Created != 1 || len(svc.createdAccounts) != 1 {
+		t.Fatalf("result=%+v created=%d, want one created account", result, len(svc.createdAccounts))
+	}
+	created := svc.createdAccounts[0]
+	if created.ProxyID != nil || created.ProxyIPGroupID == nil || *created.ProxyIPGroupID != proxyGroupID {
+		t.Fatalf("created proxy binding = proxy:%v group:%v, want group %d", created.ProxyID, created.ProxyIPGroupID, proxyGroupID)
+	}
+}
+
 func TestImportCodexSessionsAccessTokenOnlySameWorkspaceAndUserDifferentTokensCreatesTwoAccounts(t *testing.T) {
 	svc := newCodexImportMemoryAdminService(nil)
 	handler := NewAccountHandler(svc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
@@ -720,6 +743,30 @@ func TestImportCodexSessionsAccessTokenOnlySameUserUpdatesExisting(t *testing.T)
 	}
 	if got := svc.updatedAccounts[0].input.Extra["openai_long_context_billing_enabled"]; got != false {
 		t.Fatalf("openai_long_context_billing_enabled = %v, want false", got)
+	}
+}
+
+func TestImportCodexSessionsPassesProxyGroupToUpdatedAccount(t *testing.T) {
+	existingToken := buildCodexAccessToken(t, "workspace-1", "user-1", time.Now().Add(time.Hour))
+	svc := newCodexImportMemoryAdminService([]service.Account{{
+		ID: 10, Name: "existing", Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth,
+		Credentials: map[string]any{"chatgpt_account_id": "workspace-1", "chatgpt_user_id": "user-1", "access_token": existingToken},
+	}})
+	handler := NewAccountHandler(svc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	proxyGroupID := int64(88)
+	req := CodexSessionImportRequest{ProxyIPGroupID: &proxyGroupID, SkipDefaultGroupBind: boolPtr(true)}
+	entries := []codexImportEntry{{Index: 1, Value: map[string]any{"access_token": existingToken}}}
+
+	result, err := handler.importCodexSessions(context.Background(), req, entries)
+	if err != nil {
+		t.Fatalf("importCodexSessions error = %v", err)
+	}
+	if result.Updated != 1 || len(svc.updatedAccounts) != 1 {
+		t.Fatalf("result=%+v updated=%d, want one updated account", result, len(svc.updatedAccounts))
+	}
+	updated := svc.updatedAccounts[0].input
+	if updated.ProxyID != nil || updated.ProxyIPGroupID == nil || *updated.ProxyIPGroupID != proxyGroupID {
+		t.Fatalf("updated proxy binding = proxy:%v group:%v, want group %d", updated.ProxyID, updated.ProxyIPGroupID, proxyGroupID)
 	}
 }
 

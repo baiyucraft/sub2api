@@ -69,7 +69,7 @@ func TestAdminUpdateAccountPreservesExistingSeedAndStripsUserSeed(t *testing.T) 
 	require.Equal(t, "value", updated.Extra["custom"])
 }
 
-func TestAdminUpdateAccountPreservesImportReplicaSeedAndStripsUserValue(t *testing.T) {
+func TestAdminUpdateAccountPreservesDeprecatedReplicaResidueAndStripsUserValue(t *testing.T) {
 	accountID := int64(205)
 	repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{
 		accountID: {

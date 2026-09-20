@@ -73,6 +73,7 @@ func RegisterAdminRoutes(
 
 		// 代理管理
 		registerProxyRoutes(admin, h, stepUpAuth)
+		registerProxyIPGroupRoutes(admin, h)
 
 		// 卡密管理
 		registerRedeemCodeRoutes(admin, h)
@@ -605,6 +606,18 @@ func registerProxyRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAuth
 		proxies.GET("/:id/accounts", h.Admin.Proxy.GetProxyAccounts)
 		proxies.POST("/batch-delete", h.Admin.Proxy.BatchDelete)
 		proxies.POST("/batch", h.Admin.Proxy.BatchCreate)
+	}
+}
+
+func registerProxyIPGroupRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	groups := admin.Group("/proxy-ip-groups")
+	{
+		groups.GET("", h.Admin.ProxyIPGroup.List)
+		groups.GET("/:id", h.Admin.ProxyIPGroup.GetByID)
+		groups.POST("", h.Admin.ProxyIPGroup.Create)
+		groups.PUT("/:id", h.Admin.ProxyIPGroup.Update)
+		groups.PUT("/:id/members", h.Admin.ProxyIPGroup.UpdateMembers)
+		groups.DELETE("/:id", h.Admin.ProxyIPGroup.Delete)
 	}
 }
 
