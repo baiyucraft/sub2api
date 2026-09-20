@@ -780,6 +780,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		if slotResult != openAISlotAcquireOK {
 			return
 		}
+		account = selection.Account
 		if allowed, _, _ := h.acquireOpenAIAccountRPM(c, account, accountReleaseFunc, failedAccountIDs, reqLog); !allowed {
 			continue
 		}
@@ -1391,6 +1392,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		if slotResult != openAISlotAcquireOK {
 			return
 		}
+		account = selection.Account
 		if allowed, _, _ := h.acquireOpenAIAccountRPM(c, account, accountReleaseFunc, failedAccountIDs, reqLog); !allowed {
 			continue
 		}
@@ -2477,6 +2479,64 @@ func maxIntDurationSeconds(d time.Duration) int {
 
 type openAISlotErrorWriter func(status int, errType, code, message string)
 
+func combineOpenAIReleaseFuncs(proxyRelease, accountRelease func()) func() {
+	if proxyRelease == nil {
+		return accountRelease
+	}
+	if accountRelease == nil {
+		return proxyRelease
+	}
+	return func() {
+		proxyRelease()
+		accountRelease()
+	}
+}
+
+func (h *OpenAIGatewayHandler) finalizeOpenAIAccountAdmission(
+	ctx context.Context,
+	groupID *int64,
+	sessionHash string,
+	selection *service.AccountSelectionResult,
+	accountRelease func(),
+	bindSticky bool,
+	reqLog *zap.Logger,
+	writeError openAISlotErrorWriter,
+) (func(), openAISlotAcquireResult) {
+	account := selection.Account
+	resolved, proxyRelease, err := h.gatewayService.AcquireOpenAIProxyGroupEgress(ctx, account, sessionHash)
+	if err != nil {
+		if accountRelease != nil {
+			accountRelease()
+		}
+		if errors.Is(err, service.ErrOpenAIProxyGroupCapacityFull) {
+			reqLog.Info("openai.proxy_group_capacity_full", zap.Int64("account_id", account.ID))
+			return nil, openAISlotAcquireCapacityFull
+		}
+		code := "openai_proxy_group_unavailable"
+		message := "Proxy group routing is temporarily unavailable"
+		if errors.Is(err, service.ErrOpenAIProxyGroupNoEgress) {
+			code = service.OpenAIProxyGroupNoEgressCode
+			message = "The selected account has no available proxy-group egress"
+		}
+		reqLog.Warn("openai.proxy_group_admission_failed", zap.Int64("account_id", account.ID), zap.String("code", code), zap.Error(err))
+		writeError(http.StatusServiceUnavailable, "api_error", code, message)
+		return nil, openAISlotAcquireFailed
+	}
+	selection.Account = resolved
+	if bindSticky {
+		if err := h.gatewayService.BindStickySessionAfterProfitAdmission(ctx, groupID, sessionHash, resolved.ID); err != nil {
+			reqLog.Warn("openai.bind_sticky_session_after_profit_admission_failed", zap.Int64("account_id", resolved.ID), zap.Error(err))
+		}
+	}
+	if resolved.ProxyIPGroupID != nil && resolved.ProxyID != nil {
+		reqLog.Debug("openai.proxy_group_member_admitted",
+			zap.Int64("account_id", resolved.ID),
+			zap.Int64("proxy_id", *resolved.ProxyID),
+		)
+	}
+	return wrapReleaseOnDone(ctx, combineOpenAIReleaseFuncs(proxyRelease, accountRelease)), openAISlotAcquireOK
+}
+
 // acquireOpenAIAccountSlot centralizes scheduler selection admission. The
 // optional error writer lets non-Responses endpoints retain their wire format
 // while sharing the same WaitPlan, cancellation, and release semantics.
@@ -2517,13 +2577,8 @@ func (h *OpenAIGatewayHandler) acquireOpenAIAccountSlot(
 		account = latest
 		selection.Account = latest
 		// 调度器已抢槽路径无门时由选号内部完成 eager 绑定；门下选号内部
-		// 推迟绑定，这里在终检通过后补准入后绑定。
-		if selection.ProfitGateActive() {
-			if err := h.gatewayService.BindStickySessionAfterProfitAdmission(ctx, groupID, sessionHash, account.ID); err != nil {
-				reqLog.Warn("openai.bind_sticky_session_after_profit_admission_failed", zap.Int64("account_id", account.ID), zap.Error(err))
-			}
-		}
-		return wrapReleaseOnDone(ctx, selection.ReleaseFunc), openAISlotAcquireOK
+		// 推迟绑定，这里在代理成员也完成准入后补绑定。
+		return h.finalizeOpenAIAccountAdmission(ctx, groupID, sessionHash, selection, selection.ReleaseFunc, selection.ProfitGateActive(), reqLog, writeError)
 	}
 	if selection.WaitPlan == nil {
 		markOpsRoutingCapacityLimited(c)
@@ -2551,10 +2606,7 @@ func (h *OpenAIGatewayHandler) acquireOpenAIAccountSlot(
 		}
 		account = latest
 		selection.Account = latest
-		if err := h.gatewayService.BindStickySessionAfterProfitAdmission(ctx, groupID, sessionHash, account.ID); err != nil {
-			reqLog.Warn("openai.bind_sticky_session_after_profit_admission_failed", zap.Int64("account_id", account.ID), zap.Error(err))
-		}
-		return wrapReleaseOnDone(ctx, fastReleaseFunc), openAISlotAcquireOK
+		return h.finalizeOpenAIAccountAdmission(ctx, groupID, sessionHash, selection, fastReleaseFunc, true, reqLog, writeError)
 	}
 
 	canWait, waitErr := h.concurrencyHelper.IncrementAccountWaitCountForAccount(ctx, account, selection.WaitPlan.MaxWaiting)
@@ -2609,10 +2661,7 @@ func (h *OpenAIGatewayHandler) acquireOpenAIAccountSlot(
 	}
 	account = latest
 	selection.Account = latest
-	if err := h.gatewayService.BindStickySessionAfterProfitAdmission(ctx, groupID, sessionHash, account.ID); err != nil {
-		reqLog.Warn("openai.bind_sticky_session_after_profit_admission_failed", zap.Int64("account_id", account.ID), zap.Error(err))
-	}
-	return wrapReleaseOnDone(ctx, accountReleaseFunc), openAISlotAcquireOK
+	return h.finalizeOpenAIAccountAdmission(ctx, groupID, sessionHash, selection, accountReleaseFunc, true, reqLog, writeError)
 }
 
 // ResponsesWebSocket handles OpenAI Responses API WebSocket ingress endpoint
@@ -2878,6 +2927,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	ctx = service.WithOpenAIGuardianParentAffinity(ctx, c, firstMessage, reqModel)
 	maxAccountSwitches := h.maxAccountSwitches
 	switchCount := 0
+	capacitySwitchCount := 0
 	profitVetoCount := 0
 	failedAccountIDs := make(map[int64]struct{})
 	sameAccountRetryCount := make(map[int64]int)
@@ -3066,6 +3116,40 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			selection.Account = latest
 			accountReleaseFunc = fastReleaseFunc
 		}
+		resolvedAccount, proxyReleaseFunc, proxyErr := h.gatewayService.AcquireOpenAIProxyGroupEgress(admissionCtx, account, sessionHash)
+		if proxyErr != nil {
+			if accountReleaseFunc != nil {
+				accountReleaseFunc()
+			}
+			if errors.Is(proxyErr, service.ErrOpenAIProxyGroupCapacityFull) {
+				enabled, maxSwitches, _ := h.capacityFailoverConfig(admissionCtx)
+				if enabled && (maxSwitches == 0 || capacitySwitchCount < maxSwitches) {
+					failedAccountIDs[account.ID] = struct{}{}
+					capacitySwitchCount++
+					openAICapacityFailoverSwitchTotal.Add(1)
+					reqLog.Info("gateway_capacity_failover",
+						zap.Int64("api_key_id", apiKey.ID),
+						zap.Int64("account_id", account.ID),
+						zap.String("model", wsForwardModel),
+						zap.String("concurrency_target", fmt.Sprintf("account-proxy-group:%d", account.ID)),
+						zap.Int("switch_count", capacitySwitchCount),
+						zap.Int("max_switches", maxSwitches),
+						zap.Bool("websocket_handshake", true),
+					)
+					continue
+				}
+			}
+			reason := "proxy group routing is temporarily unavailable"
+			if errors.Is(proxyErr, service.ErrOpenAIProxyGroupCapacityFull) {
+				reason = "account proxy capacity is busy, please retry later"
+			}
+			reqLog.Warn("openai.websocket_proxy_group_admission_failed", zap.Int64("account_id", account.ID), zap.Error(proxyErr))
+			closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, reason)
+			return
+		}
+		account = resolvedAccount
+		selection.Account = resolvedAccount
+		accountReleaseFunc = combineOpenAIReleaseFuncs(proxyReleaseFunc, accountReleaseFunc)
 		// 准入完成：门并入连接 ctx，turn 级复核与 failover 重选共用。
 		ctx = admissionCtx
 		// Account selection starts a fresh upstream attempt. Clear any model
@@ -3245,6 +3329,18 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					}
 					return service.NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, "account is busy, please retry later", nil)
 				}
+				resolvedAccount, proxyReleaseFunc, proxyErr := h.gatewayService.AcquireOpenAIProxyGroupEgress(ctx, account, sessionHash)
+				if proxyErr != nil {
+					if accountReleaseFunc != nil {
+						accountReleaseFunc()
+					}
+					if userReleaseFunc != nil {
+						userReleaseFunc()
+					}
+					return service.NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, "account proxy capacity is unavailable, please retry later", proxyErr)
+				}
+				account = resolvedAccount
+				accountReleaseFunc = combineOpenAIReleaseFuncs(proxyReleaseFunc, accountReleaseFunc)
 				currentUserRelease = wrapReleaseOnDone(ctx, userReleaseFunc)
 				currentAccountRelease = wrapReleaseOnDone(ctx, accountReleaseFunc)
 				if allowed, retryAfter, rpmErr := h.gatewayService.TryAcquireAccountRPM(ctx, account); !allowed {
@@ -3428,7 +3524,20 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 							closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "account is busy, please retry later")
 							return
 						}
-						currentAccountRelease = wrapReleaseOnDone(ctx, accountRelease)
+						resolvedAccount, proxyRelease, proxyErr := h.gatewayService.AcquireOpenAIProxyGroupEgress(ctx, account, sessionHash)
+						if proxyErr != nil {
+							if accountRelease != nil {
+								accountRelease()
+							}
+							reqLog.Warn("openai.websocket_same_account_retry_proxy_unavailable",
+								zap.Int64("account_id", account.ID),
+								zap.Error(proxyErr),
+							)
+							closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "account proxy capacity is unavailable, please retry later")
+							return
+						}
+						account = resolvedAccount
+						currentAccountRelease = wrapReleaseOnDone(ctx, combineOpenAIReleaseFuncs(proxyRelease, accountRelease))
 					}
 					wsFirstMessage = wsAttemptMessage
 					continue

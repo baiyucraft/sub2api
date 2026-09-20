@@ -412,6 +412,7 @@ type CreateAccountInput struct {
 	Credentials         map[string]any
 	Extra               map[string]any
 	ProxyID             *int64
+	ProxyIPGroupID      *int64
 	UpstreamConfigID    *int64
 	UpstreamKeyID       *int64
 	Concurrency         int
@@ -450,6 +451,7 @@ type UpdateAccountInput struct {
 	Credentials              map[string]any
 	Extra                    map[string]any
 	ProxyID                  *int64
+	ProxyIPGroupID           *int64
 	UpstreamConfigID         *int64
 	UpstreamKeyID            *int64
 	Concurrency              *int     // 使用指针区分"未提供"和"设置为0"

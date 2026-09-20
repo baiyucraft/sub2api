@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -74,6 +75,12 @@ func setupAccountDataRouterWithService(adminSvc service.AdminService) *gin.Engin
 		nil,
 		nil,
 	)
+	if importSvc, ok := adminSvc.(*accountDataImportAdminService); ok {
+		h.SetProxyIPGroupService(service.NewProxyIPGroupAdminService(
+			&accountDataProxyIPGroupRepo{groups: importSvc.proxyGroupsByID},
+			nil,
+		))
+	}
 
 	router.GET("/api/v1/admin/accounts/data", h.ExportData)
 	router.POST("/api/v1/admin/accounts/data", h.ImportData)
@@ -82,16 +89,50 @@ func setupAccountDataRouterWithService(adminSvc service.AdminService) *gin.Engin
 
 type accountDataImportAdminService struct {
 	*stubAdminService
-	groupsByID    map[int64]*service.Group
-	nextAccountID int64
+	groupsByID      map[int64]*service.Group
+	proxyGroupsByID map[int64]*service.ProxyIPGroup
+	nextAccountID   int64
 }
 
 func newAccountDataImportAdminService() *accountDataImportAdminService {
 	return &accountDataImportAdminService{
 		stubAdminService: newStubAdminService(),
 		groupsByID:       make(map[int64]*service.Group),
+		proxyGroupsByID:  make(map[int64]*service.ProxyIPGroup),
 		nextAccountID:    300,
 	}
+}
+
+type accountDataProxyIPGroupRepo struct {
+	groups map[int64]*service.ProxyIPGroup
+}
+
+func (r *accountDataProxyIPGroupRepo) GetByID(_ context.Context, id int64) (*service.ProxyIPGroup, error) {
+	group, ok := r.groups[id]
+	if !ok {
+		return nil, service.ErrProxyIPGroupNotFound
+	}
+	clone := *group
+	clone.ProxyIDs = append([]int64(nil), group.ProxyIDs...)
+	return &clone, nil
+}
+
+func (r *accountDataProxyIPGroupRepo) List(context.Context) ([]service.ProxyIPGroup, error) {
+	return nil, nil
+}
+
+func (r *accountDataProxyIPGroupRepo) Create(context.Context, *service.ProxyIPGroup) error {
+	return nil
+}
+
+func (r *accountDataProxyIPGroupRepo) Update(context.Context, *service.ProxyIPGroup) error {
+	return nil
+}
+
+func (r *accountDataProxyIPGroupRepo) Delete(context.Context, int64) error { return nil }
+
+func (r *accountDataProxyIPGroupRepo) CountAccounts(context.Context, int64) (int64, error) {
+	return 0, nil
 }
 
 func (s *accountDataImportAdminService) GetGroup(_ context.Context, id int64) (*service.Group, error) {
@@ -380,62 +421,32 @@ func TestImportDataReusesProxyAndSkipsDefaultGroup(t *testing.T) {
 	require.True(t, adminSvc.createdAccounts[0].SkipDefaultGroupBind)
 }
 
-func TestImportDataCopiesAccountsPerProxyAndAppliesOverrides(t *testing.T) {
+func TestImportDataRejectsDeprecatedCopyProxyIDs(t *testing.T) {
 	router, adminSvc := setupAccountDataRouter()
-	adminSvc.proxies = []service.Proxy{
-		{ID: 11, Name: "HK", Protocol: "http", Host: "127.0.0.1", Port: 8001, Status: service.StatusActive},
-		{ID: 12, Name: "US", Protocol: "http", Host: "127.0.0.1", Port: 8002, Status: service.StatusActive},
-	}
 	data := map[string]any{
 		"data": map[string]any{
 			"type": dataType, "version": dataVersion, "proxies": []any{},
 			"accounts": []any{map[string]any{
 				"name": "codex", "platform": service.PlatformOpenAI, "type": service.AccountTypeOAuth,
-				"credentials": map[string]any{"token": "x"}, "extra": map[string]any{
-					"codex_fingerprint_seed":                "should-not-copy",
-					"codex_import_replica_fingerprint_seed": "forged",
-				},
+				"credentials": map[string]any{"token": "x"},
 				"concurrency": 2, "rate_multiplier": 0.5,
 			}},
 		},
-		"copy_proxy_ids":                  []int64{11, 12, 11},
-		"override_concurrency":            0,
-		"override_priority":               1,
-		"override_rate_multiplier":        0,
-		"override_codex_fingerprint_mode": "session",
+		"copy_proxy_ids": []int64{11, 12, 11},
 	}
 	body, _ := json.Marshal(data)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/data", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.Len(t, adminSvc.createdAccounts, 2)
-	require.Equal(t, "codex - HK", adminSvc.createdAccounts[0].Name)
-	require.Equal(t, "codex - US", adminSvc.createdAccounts[1].Name)
-	require.Equal(t, int64(11), *adminSvc.createdAccounts[0].ProxyID)
-	require.Equal(t, int64(12), *adminSvc.createdAccounts[1].ProxyID)
-	require.Equal(t, 0, adminSvc.createdAccounts[0].Concurrency)
-	require.Equal(t, 1, adminSvc.createdAccounts[0].Priority)
-	require.NotNil(t, adminSvc.createdAccounts[0].RateMultiplier)
-	require.Equal(t, float64(0), *adminSvc.createdAccounts[0].RateMultiplier)
-	require.Equal(t, "session", adminSvc.createdAccounts[0].Extra["codex_fingerprint_mode"])
-	require.NotContains(t, adminSvc.createdAccounts[0].Extra, "codex_fingerprint_seed")
-	require.NotEmpty(t, adminSvc.createdAccounts[0].Extra["openai_device_id"])
-	require.Equal(t, adminSvc.createdAccounts[0].Extra["openai_device_id"], adminSvc.createdAccounts[1].Extra["openai_device_id"])
-	require.NotEqual(t, "forged", adminSvc.createdAccounts[0].Extra["codex_import_replica_fingerprint_seed"])
-	require.Equal(t,
-		adminSvc.createdAccounts[0].Extra["codex_import_replica_fingerprint_seed"],
-		adminSvc.createdAccounts[1].Extra["codex_import_replica_fingerprint_seed"],
-	)
+	require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+	require.Contains(t, rec.Body.String(), `"reason":"COPY_PROXY_IMPORT_DEPRECATED"`)
+	require.Empty(t, adminSvc.createdAccounts)
 }
 
-func TestImportDataBindsNormalizedPreferredGroupsForEveryProxyCopy(t *testing.T) {
+func TestImportDataUsesProxyGroupAndBindsNormalizedPreferredGroups(t *testing.T) {
 	adminSvc := newAccountDataImportAdminService()
-	adminSvc.proxies = []service.Proxy{
-		{ID: 11, Name: "HK", Status: service.StatusActive},
-		{ID: 12, Name: "US", Status: service.StatusActive},
-	}
+	adminSvc.proxyGroupsByID[22] = &service.ProxyIPGroup{ID: 22, Name: "Asia", PerIPConcurrency: 10, ProxyIDs: []int64{11, 12}}
 	adminSvc.groupsByID[7] = &service.Group{ID: 7, Platform: service.PlatformOpenAI, Status: service.StatusActive}
 	adminSvc.groupsByID[9] = &service.Group{ID: 9, Platform: service.PlatformComposite, Status: service.StatusActive}
 	router := setupAccountDataRouterWithService(adminSvc)
@@ -448,10 +459,13 @@ func TestImportDataBindsNormalizedPreferredGroupsForEveryProxyCopy(t *testing.T)
 				"credentials": map[string]any{"token": "x"}, "concurrency": 2, "priority": 50,
 			}},
 		},
-		"copy_proxy_ids":      []int64{11, 12},
-		"override_priority":   1,
-		"group_ids":           []int64{7, 9, 7},
-		"preferred_group_ids": []int64{9, 9},
+		"proxy_ip_group_id":               22,
+		"override_concurrency":            4,
+		"override_priority":               1,
+		"override_rate_multiplier":        0,
+		"override_codex_fingerprint_mode": "session",
+		"group_ids":                       []int64{7, 9, 7},
+		"preferred_group_ids":             []int64{9, 9},
 	})
 	require.NoError(t, err)
 	rec := httptest.NewRecorder()
@@ -460,15 +474,23 @@ func TestImportDataBindsNormalizedPreferredGroupsForEveryProxyCopy(t *testing.T)
 	router.ServeHTTP(rec, req)
 
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	require.Len(t, adminSvc.createdAccounts, 2)
-	for i := range adminSvc.createdAccounts {
-		require.Equal(t, []int64{7, 9}, adminSvc.createdAccounts[i].GroupIDs)
-		require.NotNil(t, adminSvc.createdAccounts[i].PreferredGroupIDs)
-		require.Equal(t, []int64{9}, *adminSvc.createdAccounts[i].PreferredGroupIDs)
-		require.True(t, adminSvc.createdAccounts[i].SkipDefaultGroupBind)
-		require.False(t, adminSvc.createdAccounts[i].SkipMixedChannelCheck)
-		require.Equal(t, 1, adminSvc.createdAccounts[i].Priority)
-	}
+	require.Len(t, adminSvc.createdAccounts, 1)
+	created := adminSvc.createdAccounts[0]
+	require.Nil(t, created.ProxyID)
+	require.NotNil(t, created.ProxyIPGroupID)
+	require.Equal(t, int64(22), *created.ProxyIPGroupID)
+	require.Equal(t, []int64{7, 9}, created.GroupIDs)
+	require.NotNil(t, created.PreferredGroupIDs)
+	require.Equal(t, []int64{9}, *created.PreferredGroupIDs)
+	require.True(t, created.SkipDefaultGroupBind)
+	require.False(t, created.SkipMixedChannelCheck)
+	require.Equal(t, 4, created.Concurrency)
+	require.Equal(t, 1, created.Priority)
+	require.NotNil(t, created.RateMultiplier)
+	require.Equal(t, float64(0), *created.RateMultiplier)
+	require.Equal(t, "session", created.Extra["codex_fingerprint_mode"])
+	require.NotContains(t, created.Extra, "codex_fingerprint_seed")
+	require.NotContains(t, created.Extra, "codex_import_replica_fingerprint_seed")
 }
 
 func TestImportDataExplicitEmptyGroupsSuppressDefaultBinding(t *testing.T) {
@@ -603,38 +625,11 @@ func TestImportDataRejectsInvalidGroupSelectionsBeforeCreation(t *testing.T) {
 	}
 }
 
-func TestNormalizeDataImportOptionsDeduplicatesBeforeCopyProxyLimit(t *testing.T) {
-	proxyIDs := make([]int64, 0, maxImportCopyProxySlots+2)
-	for id := int64(1); id <= maxImportCopyProxySlots; id++ {
-		proxyIDs = append(proxyIDs, id)
-	}
-	proxyIDs = append(proxyIDs, 1, 2)
-	req := DataImportRequest{CopyProxyIDs: proxyIDs}
-
-	require.NoError(t, normalizeDataImportOptions(&req))
-	require.Len(t, req.CopyProxyIDs, maxImportCopyProxySlots)
-	require.Equal(t, int64(1), req.CopyProxyIDs[0])
-	require.Equal(t, int64(maxImportCopyProxySlots), req.CopyProxyIDs[len(req.CopyProxyIDs)-1])
-
-	req.CopyProxyIDs = append(req.CopyProxyIDs, int64(maxImportCopyProxySlots+1))
+func TestNormalizeDataImportOptionsRejectsDeprecatedCopyProxyIDs(t *testing.T) {
+	req := DataImportRequest{CopyProxyIDs: []int64{1, 2, 1}}
 	err := normalizeDataImportOptions(&req)
-	require.EqualError(t, err, "copy_proxy_ids must contain at most 50 proxies")
-}
-
-func TestImportDataRejectsUnavailableCopyProxyBeforeCreation(t *testing.T) {
-	router, adminSvc := setupAccountDataRouter()
-	adminSvc.proxies = []service.Proxy{{ID: 1, Name: "disabled", Status: service.StatusDisabled}}
-	data := map[string]any{
-		"data":           map[string]any{"type": dataType, "version": dataVersion, "proxies": []any{}, "accounts": []any{}},
-		"copy_proxy_ids": []int64{1},
-	}
-	body, _ := json.Marshal(data)
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/data", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	router.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-	require.Empty(t, adminSvc.createdAccounts)
+	require.Error(t, err)
+	require.Equal(t, "COPY_PROXY_IMPORT_DEPRECATED", infraerrors.Reason(err))
 }
 
 func TestImportDataIgnoresCodexOverrideForNonOpenAIAccounts(t *testing.T) {

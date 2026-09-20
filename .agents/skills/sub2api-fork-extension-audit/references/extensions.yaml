@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "catalog_version": "2026-09-19",
+  "catalog_version": "2026-09-20",
   "version_contract": {
     "upstream_path": "backend/cmd/server/VERSION",
     "fork_suffix": "-baiyu",
@@ -84,7 +84,7 @@
     "version": "0.2.7-baiyu",
     "parent": "253",
     "gate_schema": 2,
-    "new_migrations": ["278_fork_group_ttft_guard_policies.sql"],
+    "new_migrations": ["278_fork_group_ttft_guard_policies.sql", "279_proxy_ip_groups.sql"],
     "release_policy": {
       "compatibility_image": "production_current",
       "migration_source": "database_state"
@@ -152,7 +152,8 @@
     "275_purge_unlimited_user_platform_quotas.sql": "03f5bba318b9fcd46e3b524491c5b0e343987384a031d9faae21cecce3bd3cab",
     "276_api_key_scheduling_mode.sql": "71404a0e238b2c7f4e05e747d237dc91c104f18d4c2674720102b1494f8604e4",
     "277_user_group_rate_percent.sql": "7496e93f5f77c93637e0f68f13fc39e6f793a8968bd01371e357c952b44f47b7",
-    "278_fork_group_ttft_guard_policies.sql": "0637f2c51df53a76ea66730cc5f7127c1f20adf187ec649edda5f1993e42d207"
+    "278_fork_group_ttft_guard_policies.sql": "0637f2c51df53a76ea66730cc5f7127c1f20adf187ec649edda5f1993e42d207",
+    "279_proxy_ip_groups.sql": "6d9e622320d7c4264f9ea501f1f56d3dc7124774d52ff2c3a263e538c4b4e039"
   },
   "migration_renames": {
     "official_221": "234_group_model_pricing.sql",
@@ -257,6 +258,18 @@
       "DEFAULT 'cache_first'",
       "api_keys_scheduling_mode_check",
       "speed_first"
+    ],
+    "backend/migrations/279_proxy_ip_groups.sql": [
+      "CREATE TABLE IF NOT EXISTS proxy_ip_groups",
+      "per_ip_concurrency INTEGER NOT NULL DEFAULT 10",
+      "per_ip_concurrency BETWEEN 1 AND 1000",
+      "created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()",
+      "CREATE TABLE IF NOT EXISTS proxy_ip_group_members",
+      "proxy_ip_group_id BIGINT NOT NULL REFERENCES proxy_ip_groups(id) ON DELETE CASCADE",
+      "proxy_id BIGINT NOT NULL REFERENCES proxies(id) ON DELETE RESTRICT",
+      "ADD COLUMN IF NOT EXISTS proxy_ip_group_id BIGINT",
+      "accounts_proxy_source_exclusive",
+      "CHECK (proxy_id IS NULL OR proxy_ip_group_id IS NULL)"
     ]
   },
   "semantic_overlap": {
@@ -382,7 +395,23 @@
       "id": "upstream-edit-policy", "title": "上游派生账号编辑白名单", "description": "上游派生账号的身份、Key、URL、代理、倍率和 Priority 受保护，只允许局部运行行为字段。", "ownership": "fork", "risk_level": "high", "paths": ["backend/internal/service/upstream_account_edit_policy.go", "backend/internal/service/admin_upstream_account.go", "backend/internal/handler/admin/account_handler.go", "frontend/src/components/account/upstreamAccountEditPolicy.ts", "frontend/src/components/account/EditAccountModal.vue"], "symbols": ["validateUpstreamAccountEditableUpdate", "upstreamAccountEditableCredentialKeys"], "api_routes": ["/accounts"], "settings_keys": [], "migration_files": [], "required_tests": ["backend/internal/service/upstream_account_edit_policy.go", "frontend/src/components/account/__tests__/EditAccountModal.spec.ts"], "invariants": ["普通账号编辑不受影响", "批量编辑不能扩大上游白名单"]
     },
     {
-      "id": "account-import-copy-proxies", "title": "账号导入按代理复制、统一覆盖与指纹组复用", "description": "管理员导入账号时可按不重复代理槽位创建独立账号副本，统一覆盖并发、账号倍率、优先级和 Codex 指纹模式，并为单平台批次精确设置分组优先星标。", "ownership": "fork", "risk_level": "high", "paths": ["backend/internal/handler/admin/account_data.go", "backend/internal/handler/admin/account_data_handler_test.go", "backend/internal/repository/account_repo.go", "backend/internal/service/account.go", "backend/internal/service/admin_account.go", "backend/internal/service/openai_codex_fingerprint.go", "frontend/src/api/admin/accounts.ts", "frontend/src/components/admin/account/ImportDataModal.vue", "frontend/src/components/common/GroupSelector.vue", "frontend/src/__tests__/integration/data-import.spec.ts", "frontend/src/i18n/locales/zh/admin/accounts.ts", "frontend/src/i18n/locales/en/admin/accounts.ts"], "symbols": ["DataImportRequest", "CopyProxyIDs", "OverrideConcurrency", "OverrideRateMultiplier", "OverridePriority", "OverrideCodexFingerprintMode", "PreferredGroupIDs", "CreateWithAccountGroups", "CodexImportFingerprintBatch", "GetOpenAIDeviceID", "copyProxyIds"], "api_routes": ["/admin/accounts/data"], "settings_keys": [], "migration_files": [], "required_tests": ["backend/internal/handler/admin/account_data_handler_test.go", "backend/internal/repository/account_repo_duplicate_integration_test.go", "backend/internal/service/openai_codex_fingerprint_test.go", "frontend/src/__tests__/integration/data-import.spec.ts"], "invariants": ["未提供 copy_proxy_ids 时保留 JSON 中的单代理和账号名", "每个去重后的复制代理为每个源账号创建一个独立账号且不额外保留原账号", "重复 copy_proxy_ids 按首次出现顺序去重，前端不允许选择重复启用代理", "副本名称为原账号名 - 代理名，代理名为空时使用 host:port", "并发和账号倍率允许数值 0，优先级必须大于等于 1；未提供覆盖值时保留 JSON 原值", "单平台导入可显式同时提交 group_ids 与 preferred_group_ids 并在账号创建事务内精确保存关系和星标，混合平台批次拒绝非空分组", "Codex 指纹模式只覆盖 OpenAI OAuth 或 Setup Token 账号", "codex_fingerprint_seed 不从导入数据复制且每个数据库账号保持独立", "device 模式下同一源账号的代理副本共享设备 ID，跨源设备 ID 不冲突；session 模式还共享稳定会话身份和客户端会话对应线程；full 模式不扩大复用"]
+      "id": "account-import-copy-proxies", "title": "账号导入按代理复制（协议拒绝残留）", "description": "历史导入协议曾按代理创建独立账号副本；代理组上线后新建能力已删除，只保留旧 copy_proxy_ids 字段识别与稳定拒绝，历史副本和旧共享指纹字段不自动清理。", "ownership": "fork", "risk_level": "high", "lifecycle": "deprecated", "support_mode": "protocol-reject-only", "paths": ["backend/internal/handler/admin/account_data.go", "backend/internal/handler/admin/account_data_handler_test.go", "backend/internal/service/openai_codex_fingerprint.go", "frontend/src/api/admin/accounts.ts", "frontend/src/components/admin/account/ImportDataModal.vue", "frontend/src/components/common/GroupSelector.vue", "frontend/src/__tests__/integration/data-import.spec.ts", "frontend/src/i18n/locales/zh/admin/accounts.ts", "frontend/src/i18n/locales/en/admin/accounts.ts"], "symbols": ["DataImportRequest", "CopyProxyIDs", "OverrideConcurrency", "OverrideRateMultiplier", "OverridePriority", "OverrideCodexFingerprintMode", "PreferredGroupIDs", "codexImportReplicaFingerprintSeedExtraKey"], "api_routes": ["/admin/accounts/data"], "settings_keys": [], "migration_files": [], "required_tests": ["backend/internal/handler/admin/account_data_handler_test.go", "backend/internal/service/account_codex_fingerprint_seed_lifecycle_test.go", "backend/internal/service/openai_codex_fingerprint_test.go", "frontend/src/__tests__/integration/data-import.spec.ts"], "invariants": ["非空 copy_proxy_ids 只作为旧客户端协议输入识别，必须返回稳定错误 COPY_PROXY_IMPORT_DEPRECATED，不得静默创建单条账号或继续复制", "新导入不再写入 codex_import_replica_fingerprint_seed，每个启用指纹收敛的新账号只生成自己的 codex_fingerprint_seed", "历史 codex_import_replica_fingerprint_seed 不做 migration 清理、普通编辑保持原值、外部请求不能写入，但运行时不得再用其派生 installation、session 或 thread 身份", "历史复制账号不自动归并、不自动停用、不自动删除；管理员显式建立代理组并处理副本", "并发、账号倍率、优先级、Codex 指纹模式、代理组、账号分组和优先星标覆盖能力由普通单账号导入继续维护", "管理端不得重新暴露复制代理入口，旧复制逻辑不得成为代理组失败时的隐式回退"]
+    },
+    {
+      "id": "openai-oauth-proxy-groups",
+      "title": "OpenAI OAuth 账号代理组",
+      "description": "参考 Go1c/sub2api PR #423 的一账号多代理设计，在当前 0.2.7-baiyu 边界内独立适配代理组、会话粘性、账号总闸与每代理并发槽，并保持 Codex STATE 为账号加模型唯一票据槽。",
+      "ownership": "fork",
+      "risk_level": "critical",
+      "design_references": ["https://github.com/Go1c/sub2api/pull/423"],
+      "adoption_mode": "independent-adaptation-for-0.2.7-baiyu",
+      "paths": ["backend/migrations/279_proxy_ip_groups.sql", "backend/ent/schema/account.go", "backend/ent/schema/proxy_ip_group.go", "backend/ent/schema/proxy_ip_group_member.go", "backend/internal/repository/proxy_ip_group_repo.go", "backend/internal/repository/concurrency_cache.go", "backend/internal/repository/gateway_cache.go", "backend/internal/service/proxy_ip_group.go", "backend/internal/service/openai_proxy_group.go", "backend/internal/service/concurrency_service.go", "backend/internal/service/openai_codex_ticket_account.go", "frontend/src/api/admin/proxyIpGroups.ts", "frontend/src/components/admin/proxy/ProxyIPGroupDialog.vue", "frontend/src/components/common/ProxyBindingSelector.vue", "frontend/src/components/admin/account/ImportDataModal.vue", "frontend/src/components/account/AccountCapacityCell.vue", "frontend/src/views/admin/ProxiesView.vue", "frontend/src/views/admin/AccountsView.vue", "frontend/src/types/index.ts"],
+      "symbols": ["ProxyIPGroupRepository", "ProxyIPGroupAdminService", "AccountProxyConcurrencyCache", "OpenAIProxyGroupNoEgressCode", "concurrency:account-proxy:", "openai:ip_group_bind:", "proxy_ip_group_id", "ProxyIPGroupDialog", "ProxyBindingSelector"],
+      "api_routes": ["/admin/proxy-ip-groups"],
+      "settings_keys": [],
+      "migration_files": ["279_proxy_ip_groups.sql"],
+      "required_tests": ["backend/migrations/proxy_ip_group_migration_test.go", "backend/internal/repository/gateway_cache_proxy_group_test.go", "backend/internal/repository/proxy_ip_group_repo_test.go", "backend/internal/service/openai_proxy_group_test.go", "backend/internal/handler/dto/account_mapper_redact_test.go", "frontend/src/api/__tests__/admin.proxyIpGroups.spec.ts", "frontend/src/components/admin/proxy/__tests__/ProxyIPGroupDialog.spec.ts", "frontend/src/components/common/__tests__/ProxyBindingSelector.spec.ts", "frontend/src/components/account/__tests__/AccountCapacityCell.spec.ts", "frontend/src/__tests__/integration/data-import.spec.ts"],
+      "invariants": ["设计只参考 Go1c/sub2api PR #423；代码按当前 0.2.7-baiyu 的账号、调度、并发和 STATE 边界独立适配，不把参考 PR 视为已合入 upstream 的事实", "accounts.proxy_id 与 proxy_ip_group_id 互斥；代理组只允许 OpenAI OAuth 和 Setup Token 账号，空组或无可用出口返回 503/openai_proxy_group_no_egress，禁止意外直连", "一个代理可属于多个组；停用、过期或删除代理不参与出站，使用中的组不得删除", "账号 concurrency 是全部出口共享总闸，per_ip_concurrency 是 account_id + proxy_id 的附加上限，Redis key 和调度身份使用代理 ID 而非展示名", "可靠 SessionHash 按账号绑定代理且 TTL 对齐现有会话粘性；首次绑定必须以 Redis 原子 claim 决定唯一赢家，失效绑定必须比较代理 ID 后删除，不能覆盖或删除并发请求建立的新绑定；绑定代理仅并发满时不改绑，失效或移出组才重新绑定；无 SessionHash 不写绑定", "代理组绑定或并发 Redis 能力不可用时 fail-closed，普通单代理账号不受影响；全部成员满载作为请求级容量失败交给现有账号容量换号", "STATE 所有权固定为 account_id + outbound_model；代理 ID、URL、组成员和组变更不进入票据有效性，不产生每代理票据槽", "动态代理采集后的候选依次由可用业务出口代表复验，任一代表成功即可发布账号级 active/ready；ChatGPT 身份变化必须废弃旧票据", "导入选择代理组后每个源账号只创建一条记录并忽略导入文件单代理；混合平台或非 OpenAI OAuth/Setup Token 批次不得统一绑定代理组", "列表和管理 API 只返回代理组摘要及脱敏并发标签，不返回代理密码、完整 URL、STATE 或内部指纹"]
     },
     {
       "id": "codex-gpt6-astra-catalog",
@@ -441,7 +470,7 @@
     {
       "id": "openai-codex-state-tickets",
       "title": "OpenAI Codex 账号级 STATE 票据",
-      "description": "保留 PR #7315/#7338 的票据采集、固定代理复验和账号控制基线，并由 fork 独立维护 Astra/Sol/Terra 模型隔离、active/ready 状态机、strict 调度门、分布式采集锁和客户端 STATE 优先级。",
+      "description": "保留 PR #7315/#7338 的票据采集、业务出口复验和账号控制基线，并由 fork 独立维护 Astra/Sol/Terra 模型隔离、active/ready 状态机、strict 调度门、分布式采集锁和客户端 STATE 优先级；代理组始终共用账号级票据槽。",
       "ownership": "fork",
       "risk_level": "critical",
       "paths": ["backend/internal/service/openai_codex_ticket*.go", "backend/internal/service/openai_codex_turn_state.go", "backend/internal/service/openai_gateway_*.go", "backend/internal/service/openai_account_runtime_block_fastpath.go", "backend/internal/service/openai_account_scheduler.go", "backend/internal/handler/admin/account_codex_ticket_controls.go", "backend/internal/handler/dto/mappers.go", "backend/internal/handler/dto/types.go", "backend/internal/repository/account_repo.go", "backend/internal/server/middleware/audit_log.go", "frontend/src/api/admin/codexTickets.ts", "frontend/src/components/account/CodexAccountTicketSettings.vue", "frontend/src/components/account/AccountUsageCell.vue", "frontend/src/views/admin/SettingsView.vue", "docs/CODEX_ACCOUNT_STATE.md"],
@@ -450,7 +479,7 @@
       "settings_keys": ["openai_codex_ticket_enabled", "openai_codex_ticket_harvest_proxy_url"],
       "migration_files": [],
       "required_tests": ["backend/internal/service/openai_codex_ticket_test.go", "backend/internal/service/openai_codex_ticket_envelope_test.go", "backend/internal/service/openai_codex_ticket_lock_test.go", "backend/internal/service/openai_codex_ticket_multimodel_test.go", "backend/internal/service/openai_codex_ticket_lifecycle_test.go", "backend/internal/service/openai_codex_ticket_retention_test.go", "backend/internal/service/openai_codex_ticket_watchdog_test.go", "backend/internal/service/openai_codex_turn_state_test.go", "backend/internal/service/openai_ws_codex_ticket_test.go", "backend/internal/service/openai_ttft_guard_test.go", "backend/internal/handler/admin/account_codex_ticket_controls_test.go", "backend/internal/handler/dto/account_mapper_redact_test.go", "backend/internal/server/middleware/codex_ticket_audit_test.go", "frontend/src/components/account/__tests__/CodexAccountTicketSettings.spec.ts", "frontend/src/components/account/__tests__/AccountUsageCell.spec.ts", "frontend/src/views/admin/__tests__/SettingsView.spec.ts"],
-      "invariants": ["直接合并来源固定为 PR #7315 head 3c2f05c957b4b93866318ec8695fc5a28fff70eb、其 merge 49a39b6dc1abed30fd227611e8af1108bc427610、PR #7338 head 09e112fb4997be666b10da48c3b5f65fb8d8b53b 与 fork merge a6be2645fffca32a2425d79f822902d7a5aedaff；#7315 由 #7338 父历史带入，不重复合并", "设计参考固定为 ccodex-sleep-state 26b22196bf68b372d0daad9381f686a3321068d4 与 b18fabf9ad8e9d7af7d9d0306b623ba6091a39d6；前者是 #7338 原参考点，后者是 2026-09-19 fork 审查点", "ccodex-sleep-state 为 GPL-3.0 设计参考；本 LGPL-3.0-or-later fork 不复制其整项目源码、函数实现或依赖，只在现有边界独立实现", "不采用参考项目的本地 Codex 配置接管、CCS/profile/Web 面板、订阅和代理节点池、纯内存 STATE、响应正文拦截、on_demand/standby 用户策略、本地 relay、原生上游 WebSocket STATE、账号暂停恢复或本地配置恢复", "全局总开关和账号模型开关默认关闭；新建、导入、复制账号不得自动启用或继承票据", "票据按 account_id + canonical outbound model + config revision + fixed proxy fingerprint 隔离，Astra、Sol、Terra 不共享 active、ready、strikes 或 cooldown", "旧单模型 enabled/model/ticket_plan 只作为读取兼容格式，首次显式保存升级为模型映射且不自动开启新增模型", "active 是请求不可变快照，ready 只在 active 过期、不可用或同版本连续两次异常后晋升；迟到旧响应和旧采集任务不得污染新版本", "票据必须严格校验 Base64 URL-safe envelope、版本、内部签发时间和密文块数；Pro 10 块、Team 12 块，292/332 长度不能作为唯一合法性依据", "客户端同账号 STATE 优先保留，已知跨账号 STATE 先剥离，仅在无可用客户端 STATE 时注入后台 active", "显式启用模型缺少 active 时 strict 只排除该账号模型组合；TTFT fail-open、粘性和成本回退不得绕过", "采集使用 Redis leader lock 与 PostgreSQL advisory lock 按账号、模型、revision、代理指纹协调；多实例无法取得任一可靠锁时跳过当轮而非无锁并发", "采集和 watchdog 不重放正式业务请求，管理 API、列表、导出、审计和日志不得暴露 STATE、代理凭据、内部 revision 或原始响应体", "仅 HTTP 请求路径和 WebSocket-to-HTTP bridge 在合同范围；原生上游 WebSocket 暂不支持票据隔离，不得由 bridge 测试推断支持", "状态继续保存在 accounts.extra，不新增 migration；普通账号编辑保留服务端字段，数据库备份按密钥级数据保护"]
+      "invariants": ["直接合并来源固定为 PR #7315 head 3c2f05c957b4b93866318ec8695fc5a28fff70eb、其 merge 49a39b6dc1abed30fd227611e8af1108bc427610、PR #7338 head 09e112fb4997be666b10da48c3b5f65fb8d8b53b 与 fork merge a6be2645fffca32a2425d79f822902d7a5aedaff；#7315 由 #7338 父历史带入，不重复合并", "设计参考固定为 ccodex-sleep-state 26b22196bf68b372d0daad9381f686a3321068d4 与 b18fabf9ad8e9d7af7d9d0306b623ba6091a39d6；前者是 #7338 原参考点，后者是 2026-09-19 fork 审查点", "ccodex-sleep-state 为 GPL-3.0 设计参考；本 LGPL-3.0-or-later fork 不复制其整项目源码、函数实现或依赖，只在现有边界独立实现", "不采用参考项目的本地 Codex 配置接管、CCS/profile/Web 面板、订阅和代理节点池、纯内存 STATE、响应正文拦截、on_demand/standby 用户策略、本地 relay、原生上游 WebSocket STATE、账号暂停恢复或本地配置恢复", "全局总开关和账号模型开关默认关闭；新建、导入、复制账号不得自动启用或继承票据", "票据按 account_id + canonical outbound model + config revision + ChatGPT identity 隔离，Astra、Sol、Terra 不共享 active、ready、strikes 或 cooldown；代理 ID、URL、代理组和成员不进入票据所有权", "旧单模型 enabled/model/ticket_plan 只作为读取兼容格式，首次显式保存升级为模型映射且不自动开启新增模型", "active 是请求不可变快照，ready 只在 active 过期、不可用或同版本连续两次异常后晋升；迟到旧响应和旧采集任务不得污染新版本", "票据必须严格校验 Base64 URL-safe envelope、版本、内部签发时间和密文块数；Pro 10 块、Team 12 块，292/332 长度不能作为唯一合法性依据", "客户端同账号 STATE 优先保留，已知跨账号 STATE 先剥离，仅在无可用客户端 STATE 时注入后台 active", "显式启用模型缺少 active 时 strict 只排除该账号模型组合；TTFT fail-open、粘性和成本回退不得绕过", "采集使用 Redis leader lock 与 PostgreSQL advisory lock 按账号、模型、revision 和 ChatGPT 身份协调；多实例无法取得任一可靠锁时跳过当轮而非无锁并发", "单代理使用该出口复验；代理组按稳定成员顺序尝试可用代表出口，任一代表复验成功即可发布账号级 active/ready，组内其它成员复用同一票据且不保存每代理兼容状态", "OAuth 或 Setup Token 解析出的 ChatGPT 身份变化必须废弃旧票据；仅更换单代理、代理组或成员不得自动销毁票据", "采集和 watchdog 不重放正式业务请求，管理 API、列表、导出、审计和日志不得暴露 STATE、代理凭据、内部 revision 或原始响应体", "仅 HTTP 请求路径和 WebSocket-to-HTTP bridge 在合同范围；原生上游 WebSocket 暂不支持票据隔离，不得由 bridge 测试推断支持", "状态继续保存在 accounts.extra，不新增 migration；普通账号编辑保留服务端字段，数据库备份按密钥级数据保护"]
     },
     {
       "id": "fork-scheduling-compatibility-foundation", "title": "Fork 调度扩展兼容底座", "description": "只声明 internal/forkscheduling 的有界契约、纯 legacy 规则与 service bridge 解耦边界；底层 TTFT、健康、并发、RPM、优先池和重试能力由各自运行时合同拥有。", "ownership": "fork", "risk_level": "critical", "paths": ["backend/internal/forkscheduling/contracts.go", "backend/internal/forkscheduling/contracts_test.go", "backend/internal/forkscheduling/legacy/*.go", "backend/internal/service/fork_scheduling_bridge.go", "backend/internal/service/fork_scheduling_bridge_test.go"], "symbols": ["forkscheduling.Runtime", "legacy.Candidate", "ForkSchedulingRuntime", "legacyTTFTRuntime", "legacyHealthRuntime", "legacyCapacityRuntime"], "api_routes": [], "settings_keys": [], "migration_files": [], "required_tests": ["backend/internal/forkscheduling/*_test.go", "backend/internal/forkscheduling/legacy/*_test.go", "backend/internal/service/fork_scheduling_bridge_test.go"], "invariants": ["契约与 legacy 规则包只使用有界值对象和接口，不导入 service、handler、repository、Ent、Gin、Redis、官方 scheduler 或执行闭包", "官方 service 继续拥有 selector、handler、failover、健康持久化、槽位/lease、计费和 usage log；bridge 只负责窄值映射与可选能力装配", "TTFT 与健康 runtime 在同一 service 实例内复用既有状态；无 owner 的健康 runtime 只读，不成为第二个 Registry 写入者", "未注入 fork 能力时沿用 legacy fallback，不新增后台 goroutine、文件、网络或数据库操作", "候选视图不包含 API Key、Cookie、Token、请求体、响应体或完整凭据；快照和返回值拥有独立生命周期", "无数据库字段、migration、Redis key/lease 格式或生产配置变化，撤销 bridge 可回到原调用路径"]
@@ -561,7 +590,8 @@
         "275_purge_unlimited_user_platform_quotas.sql",
         "276_api_key_scheduling_mode.sql",
         "277_user_group_rate_percent.sql",
-        "278_fork_group_ttft_guard_policies.sql"
+        "278_fork_group_ttft_guard_policies.sql",
+        "279_proxy_ip_groups.sql"
       ],
       "required_tests": [
         "backend/migrations/profile_233_migrations_test.go",
@@ -579,6 +609,7 @@
         "backend/migrations/api_key_scheduling_mode_migration_test.go",
         "backend/migrations/user_group_rate_percent_migration_test.go",
         "backend/migrations/group_ttft_guard_policy_migration_test.go",
+        "backend/migrations/proxy_ip_group_migration_test.go",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_release_core.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_migration_planner_v2.py"
       ],
@@ -588,7 +619,7 @@
       ],
       "invariants": [
         "历史 profile 233–253 不回写",
-        "当前 profile 254 对应 0.2.7-baiyu，parent 为 253，new_migrations 精确为 [278_fork_group_ttft_guard_policies.sql]，其原始文件 SHA-256 必须与 migration_contracts 登记一致；profile 253 保持 migration 277 的不可变历史合同",
+        "当前 profile 254 对应 0.2.7-baiyu，parent 为 253，new_migrations 精确为 [278_fork_group_ttft_guard_policies.sql, 279_proxy_ip_groups.sql]，两项原始文件 SHA-256 必须与 migration_contracts 登记一致；profile 253 保持 migration 277 的不可变历史合同",
         "fork VERSION 每变化一次必须新增下一个连续整数 profile，即使无 migration 也使用 new_migrations=[]",
         "profile parent 必须指向此前当前 profile，禁止改写旧 profile 追随新版本",
         "官方 migration 按内容重编号，不覆盖 fork 已发布编号；本次官方 232/233/234 的四项依序重编号为 263–266",
@@ -600,7 +631,8 @@
         "252_channel_monitor_streaming_ttft.sql 为可重复执行的 nullable TTFT 迁移，旧历史保持 NULL",
         "官方 0.2.5 的两个 238 migration 必须按内容重编号为 274–275，不得覆盖 fork 已使用的 238–273 编号；fork migration 276 作为已发布历史兼容列保持原字节和 checksum，当前运行时、API 和前端不再依赖 scheduling_mode",
         "277_user_group_rate_percent.sql 将 rate_percent 设为专属倍率真值，旧 rate_multiplier 仅保留为触发器同步的兼容影子值；普通倍率变化不得反向污染百分比",
-        "278_fork_group_ttft_guard_policies.sql 使用 fork 独立表保存分组策略，必须由 backend/migrations/group_ttft_guard_policy_migration_test.go 验证表名、级联外键、三态约束和阈值范围"
+        "278_fork_group_ttft_guard_policies.sql 使用 fork 独立表保存分组策略，必须由 backend/migrations/group_ttft_guard_policy_migration_test.go 验证表名、级联外键、三态约束和阈值范围",
+        "279_proxy_ip_groups.sql 新增代理组、成员关系、账号绑定与单代理互斥约束；每代理并发默认 10、合法范围 1–1000，必须由 backend/migrations/proxy_ip_group_migration_test.go 验证结构合同，且原始文件 checksum 和 migration_assertions 同时通过"
       ]
     },
     {

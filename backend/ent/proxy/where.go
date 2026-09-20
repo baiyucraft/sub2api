@@ -959,6 +959,52 @@ func HasBackupProxyWith(preds ...predicate.Proxy) predicate.Proxy {
 	})
 }
 
+// HasProxyIPGroups applies the HasEdge predicate on the "proxy_ip_groups" edge.
+func HasProxyIPGroups() predicate.Proxy {
+	return predicate.Proxy(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.M2M, true, ProxyIPGroupsTable, ProxyIPGroupsPrimaryKey...),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasProxyIPGroupsWith applies the HasEdge predicate on the "proxy_ip_groups" edge with a given conditions (other predicates).
+func HasProxyIPGroupsWith(preds ...predicate.ProxyIPGroup) predicate.Proxy {
+	return predicate.Proxy(func(s *sql.Selector) {
+		step := newProxyIPGroupsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasProxyIPGroupMembers applies the HasEdge predicate on the "proxy_ip_group_members" edge.
+func HasProxyIPGroupMembers() predicate.Proxy {
+	return predicate.Proxy(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, true, ProxyIPGroupMembersTable, ProxyIPGroupMembersColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasProxyIPGroupMembersWith applies the HasEdge predicate on the "proxy_ip_group_members" edge with a given conditions (other predicates).
+func HasProxyIPGroupMembersWith(preds ...predicate.ProxyIPGroupMember) predicate.Proxy {
+	return predicate.Proxy(func(s *sql.Selector) {
+		step := newProxyIPGroupMembersStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // And groups predicates with the AND operator between them.
 func And(predicates ...predicate.Proxy) predicate.Proxy {
 	return predicate.Proxy(sql.AndPredicates(predicates...))

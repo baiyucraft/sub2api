@@ -12,8 +12,11 @@
 | LoadFactor | 普通账号硬并发使用 Concurrency，调度容量使用 LoadFactor 或回退；上游账号忽略派生账号字段；Priority/倍率同步不改 LoadFactor |
 | TTFT Guard | 仅带实际 group_id 分组上下文的真实业务可见首 Token 采样；状态按 group_id + account_id + canonical model 隔离；OpenAI/Composite 分组支持 inherit/enabled/disabled；策略写入与 group_changed outbox 原子化且幂等更新不发事件；各实例消费 group_changed 后清 policy cache 与该分组本地运行态；策略缓存失效期间的旧 DB 读取不得重新回填；全局设置通过 fork Redis 通道广播，远端刷新成功后只清配置变化的 inherit/global 状态，刷新失败和自定义策略均保留；无分组后台账号测试、健康探针和其他主动探针不采样、不进入分组 Guard；degradation 携带分组名、策略来源、三类触发原因和恢复倒计时 |
 | Codex STATE PR 基线 | 保留 PR #7315 head/merge 与 PR #7338 head/fork merge 的父历史和作者署名；#7315 由 #7338 历史带入，不重复合并；全局开关、动态代理采集、固定代理复验、持久化、watchdog、一小时生命周期、提前十分钟续期、八次尝试和五分钟冷却保持回归 |
-| Codex STATE fork 可靠性增强 | Astra/Sol/Terra 按账号、实际出站模型、revision、固定代理指纹隔离；严格 envelope、内部签发时间、Pro 10 块/Team 12 块；active/ready、连续两次异常、旧版本保护和续期失败保留 active；客户端同账号 STATE 优先、跨账号剥离、无客户端 STATE 才注入；缺票 strict 不被 TTFT fail-open 绕过；Redis/PostgreSQL 分布式采集锁；普通编辑保留、新建/导入/复制不继承、列表/导出/审计脱敏；HTTP 与 WS-to-HTTP bridge 回归，原生上游 WS 明确不支持 |
+| Codex STATE fork 可靠性增强 | Astra/Sol/Terra 按账号、实际出站模型、revision、ChatGPT identity 隔离，代理 ID/URL/组成员不进入票据所有权；严格 envelope、内部签发时间、Pro 10 块/Team 12 块；active/ready、连续两次异常、旧版本保护和续期失败保留 active；客户端同账号 STATE 优先、跨账号剥离、无客户端 STATE 才注入；缺票 strict 不被 TTFT fail-open 绕过；Redis/PostgreSQL 分布式采集锁；普通编辑保留、新建/导入不继承、列表/导出/审计脱敏；HTTP 与 WS-to-HTTP bridge 回归，原生上游 WS 明确不支持 |
 | Codex STATE 参考负向边界 | ccodex-sleep-state 26b22196 为 #7338 原参考点、b18fabf9 为 2026-09-19 fork 审查点；仅作 GPL-3.0 设计参考且不得复制源码或依赖；不得引入其本地 Codex 配置接管、CCS/profile/Web 面板、订阅/代理节点池、纯内存 STATE、响应正文拦截、on_demand/standby 用户策略、本地 relay、原生上游 WS、账号暂停恢复或配置恢复行为 |
+| OpenAI OAuth 代理组 | 参考 Go1c/sub2api PR #423、按 0.2.7-baiyu 独立适配；单代理/代理组互斥，OAuth/Setup Token 类型限制，空组/Redis 故障 fail-closed；会话稳定绑定、绑定代理满载不改绑、失效后重绑；账号总闸加 account+proxy 每代理槽；全部成员满进入现有容量换号；列表只返回脱敏摘要与每代理并发标签；HTTP/SSE/JSON/compact/Chat/Messages/Embeddings/Images/Alpha Search/quota/OAuth/WS 握手出口一致 |
+| 账号级 STATE 与代理组 | STATE 所有权固定为 account_id + outbound_model + revision + ChatGPT identity，不包含代理 ID/URL/组成员；动态代理采集后依次使用组内可用代表复验，任一成功发布账号级 active/ready；更换代理或成员不失效，ChatGPT 身份变化必须失效；组无可用出口时 strict 阻断，不创建每代理票据槽 |
+| 导入复制代理协议残留 | `account-import-copy-proxies` 为 deprecated/protocol-reject-only；管理端不再提供复制入口，非空 `copy_proxy_ids` 固定返回 `COPY_PROXY_IMPORT_DEPRECATED`；新导入每源账号只创建一条并可统一绑定代理组；旧共享指纹字段不再参与身份派生，历史副本不自动合并、停用或删除 |
 | 健康探针 | OpenAI Responses、Anthropic Claude Code profile、Gemini 原生流；首文本、终止事件、challenge、截断流、超时和非 2xx 分类 |
 | Probe Guard | 默认 401/403、429/529、5xx、其他 4xx 规则；自定义错误码追加；阈值暂停、成功恢复、人工恢复与业务隔离 |
 | 健康趋势 | 列表 24 点、35 天保留、6h/24h/7d/30d 聚合、P50/P95、断点、Tooltip、中英文和暗色模式 |
@@ -22,7 +25,7 @@
 | Channel Monitor V2 | managed Key 生命周期、倍率趋势、分组权限、隐私默认值、错误分类和缓存/rollup |
 | 质量与累计用量 | 质量仅展示不参与调度；coverage/backfill 完整后才允许 raw cleanup；日聚合时区正确 |
 | 图片成本路由与展示 | Key 快照 supported/status/stale、共享/独立倍率、1K/2K/4K 成本、免费成本 0、partial/stale/unknown 排序、prefer/strict、无价格回退、普通文本隔离、账号 hydration、API Key auth cache、scheduler cache、账号页与分组配置 UI；成本摘要必须结构化展示能力、倍率来源和分辨率成本；不得绕过健康、共享并发、TTFT Guard 或 Priority 约束 |
-| migration/profile/version | migration 233 语义、官方 migration 编号冲突按内容重编号、历史 profile 233–253 合同不可变；当前 profile 254 对应 `0.2.7-baiyu`、parent 为 253、`new_migrations=[278_fork_group_ttft_guard_policies.sql]`，由 release manifest 绑定数据库 migration catalog 与生产兼容快照；用户专属倍率以 `rate_percent` 为业务真值，兼容绝对倍率按当前普通倍率派生；`VERSION = official release version + -baiyu`，源码 VERSION 滞后的正式 tag 必须按目标 commit 显式固定版本；fork VERSION 每变化一次都新增下一个连续 profile，不得回写旧 profile |
+| migration/profile/version | migration 233 语义、官方 migration 编号冲突按内容重编号、历史 profile 233–253 合同不可变；当前 profile 254 对应 `0.2.7-baiyu`、parent 为 253、`new_migrations=[278_fork_group_ttft_guard_policies.sql,279_proxy_ip_groups.sql]`，由 release manifest 绑定数据库 migration catalog 与生产兼容快照；migration 279 默认每代理并发 10、范围 1–1000、单代理/代理组互斥；用户专属倍率以 `rate_percent` 为业务真值，兼容绝对倍率按当前普通倍率派生；`VERSION = official release version + -baiyu`，源码 VERSION 滞后的正式 tag 必须按目标 commit 显式固定版本；fork VERSION 每变化一次都新增下一个连续 profile，不得回写旧 profile |
 | 官方 Astra 支持 | 使用目标官方的识别、静态目录、live/pinned 能力和测试；默认 medium 与 low 至 max，live/pinned 额外能力不被 fork 旧规则裁剪；ultrafast 与推理 ultra 区分；Anthropic 桥接、指纹、0 倍率和共享并发单独回归 |
 | compact 账号列表与编辑 | 脱敏列表保留上游身份、能力和调度字段；按需详情不被列表刷新覆盖；模型同步 persisted 分支与官方元数据分支独立；图片回填和请求 ID 头字段只放宽精确白名单 |
 | 发布运维 skill | release pytest、日志合同、Git Bash、清理 dry-run/apply、profile signer/validator、8211 单实例与成功后收口 |

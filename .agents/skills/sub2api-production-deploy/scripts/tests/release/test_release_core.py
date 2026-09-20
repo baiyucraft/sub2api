@@ -370,7 +370,10 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertEqual(historical_253["new_migrations"], ["277_user_group_rate_percent.sql"])
         self.assertEqual(current["version"], "0.2.7-baiyu")
         self.assertEqual(current["parent"], "253")
-        self.assertEqual(current["new_migrations"], ["278_fork_group_ttft_guard_policies.sql"])
+        self.assertEqual(current["new_migrations"], [
+            "278_fork_group_ttft_guard_policies.sql",
+            "279_proxy_ip_groups.sql",
+        ])
         self.assertEqual(profiles.CURRENT_RELEASE_PROFILE, "254")
         self.assertEqual(get_release_profile("254"), current)
         with self.assertRaises(ValueError):
@@ -382,9 +385,17 @@ class ReleaseCoreTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             get_release_profile("245")
 
-    def test_profile_254_ttft_guard_migration_matches_fork_catalog(self) -> None:
-        migration_name = "278_fork_group_ttft_guard_policies.sql"
-        migration_test = "backend/migrations/group_ttft_guard_policy_migration_test.go"
+    def test_profile_254_pending_migrations_match_fork_catalog(self) -> None:
+        migration_names = [
+            "278_fork_group_ttft_guard_policies.sql",
+            "279_proxy_ip_groups.sql",
+        ]
+        migration_tests = {
+            "278_fork_group_ttft_guard_policies.sql":
+                "backend/migrations/group_ttft_guard_policy_migration_test.go",
+            "279_proxy_ip_groups.sql":
+                "backend/migrations/proxy_ip_group_migration_test.go",
+        }
         current = get_profile("254")
         catalog_path = (
             WORKSPACE
@@ -395,19 +406,22 @@ class ReleaseCoreTest(unittest.TestCase):
             / "extensions.yaml"
         )
         catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
-        migration_path = WORKSPACE / "backend" / "migrations" / migration_name
-        actual_checksum = hashlib.sha256(migration_path.read_bytes()).hexdigest()
         migration_contract = next(
             extension
             for extension in catalog["extensions"]
             if extension["id"] == "migration-profile-contract"
         )
 
-        self.assertEqual(current["new_migrations"], [migration_name])
+        self.assertEqual(current["new_migrations"], migration_names)
         self.assertEqual(catalog["current_profile"]["id"], "254")
-        self.assertEqual(catalog["current_profile"]["new_migrations"], [migration_name])
-        self.assertEqual(catalog["migration_contracts"][migration_name], actual_checksum)
-        self.assertIn(migration_test, migration_contract["required_tests"])
+        self.assertEqual(catalog["current_profile"]["new_migrations"], migration_names)
+        for migration_name in migration_names:
+            migration_path = WORKSPACE / "backend" / "migrations" / migration_name
+            actual_checksum = hashlib.sha256(migration_path.read_bytes()).hexdigest()
+            self.assertEqual(catalog["migration_contracts"][migration_name], actual_checksum)
+            migration_test = migration_tests[migration_name]
+            self.assertTrue((WORKSPACE / migration_test).is_file())
+            self.assertIn(migration_test, migration_contract["required_tests"])
 
     def test_formal_tag_version_override_contract_is_documented_and_injected_by_manifest(self) -> None:
         skill = (DEPLOY_ROOT.parent / "SKILL.md").read_text(encoding="utf-8")

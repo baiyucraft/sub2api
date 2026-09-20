@@ -1045,6 +1045,42 @@ export interface Proxy {
   updated_at: string
 }
 
+export interface ProxyIPGroupSummary {
+  id: number
+  name: string
+  member_count?: number
+  per_ip_concurrency: number
+  proxy_ids?: number[]
+}
+
+export interface ProxyIPGroup extends ProxyIPGroupSummary {
+  member_count: number
+  proxy_ids?: number[]
+  members?: Proxy[]
+  created_at?: string
+  updated_at?: string
+}
+
+export interface CreateProxyIPGroupRequest {
+  name: string
+  proxy_ids: number[]
+  per_ip_concurrency: number
+}
+
+export interface UpdateProxyIPGroupRequest {
+  name?: string
+  proxy_ids?: number[]
+  per_ip_concurrency?: number
+}
+
+export interface ProxyConcurrencyInfo {
+  proxy_id: number
+  proxy_name: string
+  current_concurrency: number
+  limit: number
+  available: boolean
+}
+
 export interface ProxyAccountSummary {
   id: number
   name: string
@@ -1344,6 +1380,9 @@ export interface Account {
     }
   } & Record<string, unknown>)
   proxy_id: number | null
+  proxy_ip_group_id?: number | null
+  proxy_ip_group?: ProxyIPGroupSummary | null
+  proxy_concurrency?: ProxyConcurrencyInfo[]
   upstream_config_id?: number | null
   upstream_key_id?: number | null
   upstream_site_url?: string | null
@@ -1788,6 +1827,7 @@ export interface CreateAccountRequest {
   upstream_config_id?: number | null
   upstream_key_id?: number | null
   proxy_id?: number | null
+  proxy_ip_group_id?: number | null
   concurrency?: number
   rpm_limit?: number
   probe_min_input_tokens?: number
@@ -1810,6 +1850,7 @@ export interface UpdateAccountRequest {
   upstream_config_id?: number | null
   upstream_key_id?: number | null
   proxy_id?: number | null
+  proxy_ip_group_id?: number | null
   concurrency?: number
   rpm_limit?: number
   probe_min_input_tokens?: number
@@ -1944,6 +1985,7 @@ export interface CodexSessionImportRequest {
   notes?: string | null
   group_ids?: number[]
   proxy_id?: number | null
+  proxy_ip_group_id?: number | null
   concurrency?: number
   priority?: number
   rate_multiplier?: number
@@ -1963,6 +2005,7 @@ export interface OpenAICodexPATCreateRequest {
   notes?: string | null
   group_ids?: number[]
   proxy_id?: number | null
+  proxy_ip_group_id?: number | null
   concurrency?: number
   priority?: number
   rate_multiplier?: number

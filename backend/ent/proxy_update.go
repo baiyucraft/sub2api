@@ -14,6 +14,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/account"
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
 	"github.com/Wei-Shaw/sub2api/ent/proxy"
+	"github.com/Wei-Shaw/sub2api/ent/proxyipgroup"
 )
 
 // ProxyUpdate is the builder for updating Proxy entities.
@@ -282,6 +283,21 @@ func (_u *ProxyUpdate) SetBackupProxy(v *Proxy) *ProxyUpdate {
 	return _u.SetBackupProxyID(v.ID)
 }
 
+// AddProxyIPGroupIDs adds the "proxy_ip_groups" edge to the ProxyIPGroup entity by IDs.
+func (_u *ProxyUpdate) AddProxyIPGroupIDs(ids ...int64) *ProxyUpdate {
+	_u.mutation.AddProxyIPGroupIDs(ids...)
+	return _u
+}
+
+// AddProxyIPGroups adds the "proxy_ip_groups" edges to the ProxyIPGroup entity.
+func (_u *ProxyUpdate) AddProxyIPGroups(v ...*ProxyIPGroup) *ProxyUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddProxyIPGroupIDs(ids...)
+}
+
 // Mutation returns the ProxyMutation object of the builder.
 func (_u *ProxyUpdate) Mutation() *ProxyMutation {
 	return _u.mutation
@@ -333,6 +349,27 @@ func (_u *ProxyUpdate) RemovePrimaryProxies(v ...*Proxy) *ProxyUpdate {
 func (_u *ProxyUpdate) ClearBackupProxy() *ProxyUpdate {
 	_u.mutation.ClearBackupProxy()
 	return _u
+}
+
+// ClearProxyIPGroups clears all "proxy_ip_groups" edges to the ProxyIPGroup entity.
+func (_u *ProxyUpdate) ClearProxyIPGroups() *ProxyUpdate {
+	_u.mutation.ClearProxyIPGroups()
+	return _u
+}
+
+// RemoveProxyIPGroupIDs removes the "proxy_ip_groups" edge to ProxyIPGroup entities by IDs.
+func (_u *ProxyUpdate) RemoveProxyIPGroupIDs(ids ...int64) *ProxyUpdate {
+	_u.mutation.RemoveProxyIPGroupIDs(ids...)
+	return _u
+}
+
+// RemoveProxyIPGroups removes "proxy_ip_groups" edges to ProxyIPGroup entities.
+func (_u *ProxyUpdate) RemoveProxyIPGroups(v ...*ProxyIPGroup) *ProxyUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveProxyIPGroupIDs(ids...)
 }
 
 // Save executes the query and returns the number of nodes affected by the update operation.
@@ -600,6 +637,63 @@ func (_u *ProxyUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 		for _, k := range nodes {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.ProxyIPGroupsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   proxy.ProxyIPGroupsTable,
+			Columns: proxy.ProxyIPGroupsPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(proxyipgroup.FieldID, field.TypeInt64),
+			},
+		}
+		createE := &ProxyIPGroupMemberCreate{config: _u.config, mutation: newProxyIPGroupMemberMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedProxyIPGroupsIDs(); len(nodes) > 0 && !_u.mutation.ProxyIPGroupsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   proxy.ProxyIPGroupsTable,
+			Columns: proxy.ProxyIPGroupsPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(proxyipgroup.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		createE := &ProxyIPGroupMemberCreate{config: _u.config, mutation: newProxyIPGroupMemberMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.ProxyIPGroupsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   proxy.ProxyIPGroupsTable,
+			Columns: proxy.ProxyIPGroupsPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(proxyipgroup.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		createE := &ProxyIPGroupMemberCreate{config: _u.config, mutation: newProxyIPGroupMemberMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
@@ -875,6 +969,21 @@ func (_u *ProxyUpdateOne) SetBackupProxy(v *Proxy) *ProxyUpdateOne {
 	return _u.SetBackupProxyID(v.ID)
 }
 
+// AddProxyIPGroupIDs adds the "proxy_ip_groups" edge to the ProxyIPGroup entity by IDs.
+func (_u *ProxyUpdateOne) AddProxyIPGroupIDs(ids ...int64) *ProxyUpdateOne {
+	_u.mutation.AddProxyIPGroupIDs(ids...)
+	return _u
+}
+
+// AddProxyIPGroups adds the "proxy_ip_groups" edges to the ProxyIPGroup entity.
+func (_u *ProxyUpdateOne) AddProxyIPGroups(v ...*ProxyIPGroup) *ProxyUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddProxyIPGroupIDs(ids...)
+}
+
 // Mutation returns the ProxyMutation object of the builder.
 func (_u *ProxyUpdateOne) Mutation() *ProxyMutation {
 	return _u.mutation
@@ -926,6 +1035,27 @@ func (_u *ProxyUpdateOne) RemovePrimaryProxies(v ...*Proxy) *ProxyUpdateOne {
 func (_u *ProxyUpdateOne) ClearBackupProxy() *ProxyUpdateOne {
 	_u.mutation.ClearBackupProxy()
 	return _u
+}
+
+// ClearProxyIPGroups clears all "proxy_ip_groups" edges to the ProxyIPGroup entity.
+func (_u *ProxyUpdateOne) ClearProxyIPGroups() *ProxyUpdateOne {
+	_u.mutation.ClearProxyIPGroups()
+	return _u
+}
+
+// RemoveProxyIPGroupIDs removes the "proxy_ip_groups" edge to ProxyIPGroup entities by IDs.
+func (_u *ProxyUpdateOne) RemoveProxyIPGroupIDs(ids ...int64) *ProxyUpdateOne {
+	_u.mutation.RemoveProxyIPGroupIDs(ids...)
+	return _u
+}
+
+// RemoveProxyIPGroups removes "proxy_ip_groups" edges to ProxyIPGroup entities.
+func (_u *ProxyUpdateOne) RemoveProxyIPGroups(v ...*ProxyIPGroup) *ProxyUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveProxyIPGroupIDs(ids...)
 }
 
 // Where appends a list predicates to the ProxyUpdate builder.
@@ -1223,6 +1353,63 @@ func (_u *ProxyUpdateOne) sqlSave(ctx context.Context) (_node *Proxy, err error)
 		for _, k := range nodes {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.ProxyIPGroupsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   proxy.ProxyIPGroupsTable,
+			Columns: proxy.ProxyIPGroupsPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(proxyipgroup.FieldID, field.TypeInt64),
+			},
+		}
+		createE := &ProxyIPGroupMemberCreate{config: _u.config, mutation: newProxyIPGroupMemberMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedProxyIPGroupsIDs(); len(nodes) > 0 && !_u.mutation.ProxyIPGroupsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   proxy.ProxyIPGroupsTable,
+			Columns: proxy.ProxyIPGroupsPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(proxyipgroup.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		createE := &ProxyIPGroupMemberCreate{config: _u.config, mutation: newProxyIPGroupMemberMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.ProxyIPGroupsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   proxy.ProxyIPGroupsTable,
+			Columns: proxy.ProxyIPGroupsPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(proxyipgroup.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		createE := &ProxyIPGroupMemberCreate{config: _u.config, mutation: newProxyIPGroupMemberMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	_node = &Proxy{config: _u.config}

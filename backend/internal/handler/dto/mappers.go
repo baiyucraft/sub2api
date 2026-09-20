@@ -265,6 +265,8 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 		Extra:                     extra,
 		OllamaCloudUsage:          ollamaCloudUsage,
 		ProxyID:                   a.ProxyID,
+		ProxyIPGroupID:            a.ProxyIPGroupID,
+		ProxyIPGroup:              ProxyIPGroupFromService(a.ProxyIPGroup),
 		ProxyFallbackOriginID:     a.ProxyFallbackOriginID,
 		ProxyFallbackOriginName:   a.ProxyFallbackOriginName,
 		UpstreamConfigID:          a.UpstreamConfigID,
@@ -629,7 +631,8 @@ func AccountListItemFromAccount(a *Account) *AccountListItem {
 		ID:                        a.ID, Name: a.Name, Notes: a.Notes, Platform: a.Platform, Type: a.Type,
 		Credentials: a.Credentials, CredentialsStatus: a.CredentialsStatus, Extra: a.Extra,
 		OllamaCloudUsage: a.OllamaCloudUsage, CodexTurnTickets: a.CodexTurnTickets,
-		ProxyID: a.ProxyID, ProxyFallbackOriginID: a.ProxyFallbackOriginID, ProxyFallbackOriginName: a.ProxyFallbackOriginName,
+		ProxyID: a.ProxyID, ProxyIPGroupID: a.ProxyIPGroupID, ProxyIPGroup: a.ProxyIPGroup,
+		ProxyFallbackOriginID: a.ProxyFallbackOriginID, ProxyFallbackOriginName: a.ProxyFallbackOriginName,
 		Concurrency: a.Concurrency, RPMLimit: a.RPMLimit, ProbeMinInputTokens: a.ProbeMinInputTokens, LoadFactor: a.LoadFactor, Priority: a.Priority, RateMultiplier: a.RateMultiplier,
 		Status: a.Status, ErrorMessage: a.ErrorMessage, LastUsedAt: a.LastUsedAt, ExpiresAt: a.ExpiresAt,
 		AutoPauseOnExpired: a.AutoPauseOnExpired, CreatedAt: a.CreatedAt, UpdatedAt: a.UpdatedAt,
@@ -701,6 +704,18 @@ func ProxyFromService(p *service.Proxy) *Proxy {
 		FallbackMode:   p.FallbackMode,
 		BackupProxyID:  p.BackupProxyID,
 		ExpiryWarnDays: p.ExpiryWarnDays,
+	}
+}
+
+func ProxyIPGroupFromService(group *service.ProxyIPGroup) *ProxyIPGroup {
+	if group == nil {
+		return nil
+	}
+	return &ProxyIPGroup{
+		ID:               group.ID,
+		Name:             group.Name,
+		PerIPConcurrency: group.PerIPConcurrency,
+		ProxyIDs:         append([]int64(nil), group.ProxyIDs...),
 	}
 }
 

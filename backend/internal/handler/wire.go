@@ -37,6 +37,7 @@ func ProvideAdminHandlers(
 	grokOAuthHandler *admin.GrokOAuthHandler,
 	cnProviderHandler *admin.CNProviderHandler,
 	proxyHandler *admin.ProxyHandler,
+	proxyIPGroupHandler *admin.ProxyIPGroupHandler,
 	redeemHandler *admin.RedeemHandler,
 	promoHandler *admin.PromoHandler,
 	settingHandler *admin.SettingHandler,
@@ -65,12 +66,14 @@ func ProvideAdminHandlers(
 	ollamaCloudUsage *service.OllamaCloudUsageService,
 	settingService *service.SettingService,
 	codexTicketGateway *service.OpenAIGatewayService,
+	proxyIPGroupService *service.ProxyIPGroupAdminService,
 ) *AdminHandlers {
 	accountHandler.SetUpstreamBillingProbeService(upstreamBillingProbe)
 	accountHandler.SetOllamaCloudUsageService(ollamaCloudUsage)
 	accountHandler.SetUpstreamHealthHistoryReader(upstreamConfigHandler)
 	accountHandler.SetCodexTicketSettings(settingService)
 	accountHandler.SetCodexAccountTicketService(codexTicketGateway)
+	accountHandler.SetProxyIPGroupService(proxyIPGroupService)
 	return &AdminHandlers{
 		Dashboard:              dashboardHandler,
 		User:                   userHandler,
@@ -86,6 +89,7 @@ func ProvideAdminHandlers(
 		GrokOAuth:              grokOAuthHandler,
 		CNProvider:             cnProviderHandler,
 		Proxy:                  proxyHandler,
+		ProxyIPGroup:           proxyIPGroupHandler,
 		Redeem:                 redeemHandler,
 		Promo:                  promoHandler,
 		Setting:                settingHandler,
@@ -308,6 +312,7 @@ var ProviderSet = wire.NewSet(
 	admin.NewGrokOAuthHandler,
 	admin.NewCNProviderHandler,
 	admin.NewProxyHandler,
+	admin.NewProxyIPGroupHandler,
 	admin.NewRedeemHandler,
 	admin.NewPromoHandler,
 	ProvideAdminSettingHandler,

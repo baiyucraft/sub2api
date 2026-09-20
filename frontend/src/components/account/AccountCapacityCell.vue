@@ -14,6 +14,20 @@
       </svg>
     </CapacityBadge>
 
+    <div v-if="proxyConcurrency.length" class="flex max-w-[220px] flex-wrap gap-1 pt-0.5" data-testid="proxy-concurrency-list">
+      <span
+        v-for="item in proxyConcurrency"
+        :key="item.proxy_id"
+        class="inline-flex min-w-0 items-center gap-1 rounded-md px-1.5 py-px text-[10px] font-medium leading-tight"
+        :class="proxyConcurrencyClass(item)"
+        :title="proxyConcurrencyTooltip(item)"
+        data-testid="proxy-concurrency-badge"
+      >
+        <span class="max-w-[92px] truncate">{{ item.proxy_name }}</span>
+        <span class="font-mono tabular-nums">{{ item.current_concurrency }}/{{ item.limit }}</span>
+      </span>
+    </div>
+
     <!-- 5h窗口费用限制 -->
     <CapacityBadge v-if="showWindowCost" :color-class="windowCostClass" :tooltip="windowCostTooltip" :current="'$' + formatCost(currentWindowCost)" :max="'$' + formatCost(account.window_cost_limit)">
       <svg class="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -45,7 +59,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { Account } from '@/types'
+import type { Account, ProxyConcurrencyInfo } from '@/types'
 import CapacityBadge from '@/components/account/CapacityBadge.vue'
 import QuotaBadge from '@/components/account/QuotaBadge.vue'
 
@@ -160,6 +174,40 @@ const accountRpmClass = computed(() => {
   if (current >= limit * 0.8) return 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400'
   return 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400'
 })
+
+const proxyConcurrency = computed<ProxyConcurrencyInfo[]>(() => {
+  if (!Array.isArray(props.account.proxy_concurrency)) return []
+  return props.account.proxy_concurrency
+    .filter(item => Number.isInteger(item?.proxy_id) && item.proxy_id > 0)
+    .map(item => ({
+      ...item,
+      proxy_name: String(item.proxy_name || '').trim() || t('admin.accounts.capacity.proxyConcurrency.unnamed', { id: item.proxy_id }),
+      current_concurrency: Math.max(0, Number.isFinite(item.current_concurrency) ? item.current_concurrency : 0),
+      limit: Math.max(0, Number.isFinite(item.limit) ? item.limit : 0),
+      available: item.available === true
+    }))
+})
+
+const proxyConcurrencyClass = (item: ProxyConcurrencyInfo) => {
+  if (!item.available || item.limit < 1 || item.current_concurrency >= item.limit) {
+    return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+  }
+  if (item.current_concurrency > 0) {
+    return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
+  }
+  return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+}
+
+const proxyConcurrencyTooltip = (item: ProxyConcurrencyInfo) => t(
+  item.available
+    ? 'admin.accounts.capacity.proxyConcurrency.available'
+    : 'admin.accounts.capacity.proxyConcurrency.unavailable',
+  {
+    name: item.proxy_name,
+    current: item.current_concurrency,
+    limit: item.limit
+  }
+)
 const accountRpmTooltip = computed(() => {
   if (!showAccountRpmLimit.value) return ''
   const current = accountCurrentRPM.value

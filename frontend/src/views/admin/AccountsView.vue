@@ -423,14 +423,26 @@
           </template>
           <template #cell-proxy="{ row }">
             <div class="flex flex-col gap-1">
-              <div v-if="row.proxy" class="flex items-center gap-2">
+              <div v-if="row.proxy_ip_group" class="flex min-w-0 flex-col gap-0.5">
+                <div class="flex min-w-0 items-center gap-1.5">
+                  <Icon name="server" size="sm" class="shrink-0 text-primary-500" />
+                  <span class="truncate text-sm font-medium text-gray-700 dark:text-gray-200">{{ row.proxy_ip_group.name }}</span>
+                </div>
+                <span class="text-xs text-gray-500 dark:text-dark-400">
+                  {{ t('admin.accounts.proxyGroupSummary', {
+                    count: row.proxy_ip_group.member_count ?? row.proxy_ip_group.proxy_ids?.length ?? 0,
+                    limit: row.proxy_ip_group.per_ip_concurrency
+                  }) }}
+                </span>
+              </div>
+              <div v-else-if="row.proxy" class="flex items-center gap-2">
                 <span class="text-sm text-gray-700 dark:text-gray-300">{{ row.proxy.name }}</span>
                 <span v-if="row.proxy.country_code" class="text-xs text-gray-500 dark:text-gray-400">
                   ({{ row.proxy.country_code }})
                 </span>
               </div>
               <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
-              <div v-if="row.proxy && row.proxy.expires_at" class="flex items-center gap-2 text-xs">
+              <div v-if="!row.proxy_ip_group && row.proxy && row.proxy.expires_at" class="flex items-center gap-2 text-xs">
                 <span class="text-gray-600 dark:text-gray-300">{{ formatDateTime(row.proxy.expires_at) }}</span>
                 <span :class="proxyExpiryBadge(row.proxy)">{{ proxyExpiryText(row.proxy) }}</span>
               </div>

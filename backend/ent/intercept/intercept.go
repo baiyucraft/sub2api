@@ -36,6 +36,8 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/promocode"
 	"github.com/Wei-Shaw/sub2api/ent/promocodeusage"
 	"github.com/Wei-Shaw/sub2api/ent/proxy"
+	"github.com/Wei-Shaw/sub2api/ent/proxyipgroup"
+	"github.com/Wei-Shaw/sub2api/ent/proxyipgroupmember"
 	"github.com/Wei-Shaw/sub2api/ent/redeemcode"
 	"github.com/Wei-Shaw/sub2api/ent/securitysecret"
 	"github.com/Wei-Shaw/sub2api/ent/setting"
@@ -846,6 +848,60 @@ func (f TraverseProxy) Traverse(ctx context.Context, q ent.Query) error {
 	return fmt.Errorf("unexpected query type %T. expect *ent.ProxyQuery", q)
 }
 
+// The ProxyIPGroupFunc type is an adapter to allow the use of ordinary function as a Querier.
+type ProxyIPGroupFunc func(context.Context, *ent.ProxyIPGroupQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f ProxyIPGroupFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.ProxyIPGroupQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.ProxyIPGroupQuery", q)
+}
+
+// The TraverseProxyIPGroup type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseProxyIPGroup func(context.Context, *ent.ProxyIPGroupQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseProxyIPGroup) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseProxyIPGroup) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.ProxyIPGroupQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.ProxyIPGroupQuery", q)
+}
+
+// The ProxyIPGroupMemberFunc type is an adapter to allow the use of ordinary function as a Querier.
+type ProxyIPGroupMemberFunc func(context.Context, *ent.ProxyIPGroupMemberQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f ProxyIPGroupMemberFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.ProxyIPGroupMemberQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.ProxyIPGroupMemberQuery", q)
+}
+
+// The TraverseProxyIPGroupMember type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseProxyIPGroupMember func(context.Context, *ent.ProxyIPGroupMemberQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseProxyIPGroupMember) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseProxyIPGroupMember) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.ProxyIPGroupMemberQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.ProxyIPGroupMemberQuery", q)
+}
+
 // The RedeemCodeFunc type is an adapter to allow the use of ordinary function as a Querier.
 type RedeemCodeFunc func(context.Context, *ent.RedeemCodeQuery) (ent.Value, error)
 
@@ -1524,6 +1580,10 @@ func NewQuery(q ent.Query) (Query, error) {
 		return &query[*ent.PromoCodeUsageQuery, predicate.PromoCodeUsage, promocodeusage.OrderOption]{typ: ent.TypePromoCodeUsage, tq: q}, nil
 	case *ent.ProxyQuery:
 		return &query[*ent.ProxyQuery, predicate.Proxy, proxy.OrderOption]{typ: ent.TypeProxy, tq: q}, nil
+	case *ent.ProxyIPGroupQuery:
+		return &query[*ent.ProxyIPGroupQuery, predicate.ProxyIPGroup, proxyipgroup.OrderOption]{typ: ent.TypeProxyIPGroup, tq: q}, nil
+	case *ent.ProxyIPGroupMemberQuery:
+		return &query[*ent.ProxyIPGroupMemberQuery, predicate.ProxyIPGroupMember, proxyipgroupmember.OrderOption]{typ: ent.TypeProxyIPGroupMember, tq: q}, nil
 	case *ent.RedeemCodeQuery:
 		return &query[*ent.RedeemCodeQuery, predicate.RedeemCode, redeemcode.OrderOption]{typ: ent.TypeRedeemCode, tq: q}, nil
 	case *ent.SecuritySecretQuery:
