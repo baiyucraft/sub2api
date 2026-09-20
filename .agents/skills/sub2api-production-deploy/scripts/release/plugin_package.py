@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import os
 import re
 import shutil
 import tempfile
@@ -81,6 +82,32 @@ def resolve_signing_config() -> tuple[Path, str]:
     return key_path, key_id
 
 
+def _pnpm_command() -> list[str]:
+    """Return an executable pnpm command for the current release host.
+
+    On Windows, ``corepack`` and ``pnpm`` are usually ``.cmd`` shims. Passing
+    the bare command name to ``CreateProcess`` is not reliable for the
+    detached worker environment, so resolve the shim explicitly before
+    spawning it through the centralized process helper.
+    """
+
+    if os.name == "nt":
+        corepack = shutil.which("corepack.cmd")
+        if corepack:
+            return [corepack, "pnpm"]
+        pnpm = shutil.which("pnpm.cmd")
+        if pnpm:
+            return [pnpm]
+    else:
+        corepack = shutil.which("corepack")
+        if corepack:
+            return [corepack, "pnpm"]
+        pnpm = shutil.which("pnpm")
+        if pnpm:
+            return [pnpm]
+    raise RuntimeError("pnpm or corepack is required to build the plugin UI")
+
+
 def _read_archive(path: Path, expected_arch: str, public_key) -> PackageIdentity:
     if not path.is_file() or path.is_symlink():
         raise RuntimeError("plugin package is not a regular file")
@@ -141,8 +168,9 @@ def build_packages(source_commit: str, output_dir: Path) -> dict[str, PackageIde
             if not plugin_root.is_dir():
                 raise RuntimeError("plugin source directory is missing at the selected commit")
             ui_root = plugin_root / "ui"
-            run_hidden(["corepack", "pnpm", "install", "--frozen-lockfile"], cwd=ui_root, check=True)
-            run_hidden(["corepack", "pnpm", "run", "build"], cwd=ui_root, check=True)
+            pnpm = _pnpm_command()
+            run_hidden([*pnpm, "install", "--frozen-lockfile"], cwd=ui_root, check=True)
+            run_hidden([*pnpm, "run", "build"], cwd=ui_root, check=True)
             run_hidden(["go", "test", "-p", "2", "./..."], cwd=plugin_root, check=True)
             run_hidden(
                 [
