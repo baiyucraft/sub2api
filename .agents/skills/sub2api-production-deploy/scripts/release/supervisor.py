@@ -33,6 +33,7 @@ from release_logging import EventContext, JSONLEventLogger, LogQuery, query_even
 
 DEPLOY_ROOT = SCRIPTS_ROOT
 COORDINATED_RESTORE = MAINTENANCE_ROOT / "restore.sh"
+COORDINATED_CLEANUP = MAINTENANCE_ROOT / "cleanup-state.sh"
 RELEASE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.-]{0,127}$")
 MAX_JSON_BYTES = 2 * 1024 * 1024
 STATUS_FIELDS = (
@@ -773,7 +774,9 @@ printf 'backup_units_restored=true\nrelease_claim_reconciled=true\nplaintext_sta
             raise RuntimeError(f"coordinated recovery is not allowed: {inspection['decision']}")
         else:
             runner = SSHRunner()
-            remote_temp = None
+            remote_temp = runner.create_temp_dir("racknerd", "/opt/sub2api/releases", "coordinated-restore")
+            remote_cleanup = f"{remote_temp}/cleanup-state.sh"
+            runner.upload_file("racknerd", COORDINATED_CLEANUP, remote_cleanup, 0o500)
             try:
                 restore_already_applied = (
                     inspection.get("ingress_transaction") == "recovery_restored"
@@ -790,7 +793,6 @@ printf 'backup_units_restored=true\nrelease_claim_reconciled=true\nplaintext_sta
                         "application_health": "pass",
                     }
                 else:
-                    remote_temp = runner.create_temp_dir("racknerd", "/opt/sub2api/releases", "coordinated-restore")
                     remote_restore = f"{remote_temp}/restore.sh"
                     runner.upload_file("racknerd", COORDINATED_RESTORE, remote_restore, 0o500)
                     restore = runner.run(
@@ -812,7 +814,7 @@ else
 fi
 chmod 600 "$stderr_file"
 /opt/sub2api/releases/.active-release/assets/restore-backup-units.sh 2>>"$stderr_file"
-/opt/sub2api/releases/.active-release/assets/cleanup-state.sh 2>>"$stderr_file"
+{remote_cleanup} 2>>"$stderr_file"
 /opt/sub2api/releases/.active-release/assets/reconcile.sh 2>>"$stderr_file"
 test -f {release_dir}/.recovered/marker
 test -f {release_dir}/.recovered/plaintext-cleaned
@@ -832,8 +834,7 @@ printf 'backup_units_restored=true\nrelease_claim_reconciled=true\nplaintext_sta
                     timeout=900,
                 ).values
             finally:
-                if remote_temp is not None:
-                    runner.run("racknerd", f"rm -rf {remote_temp} && printf 'cleanup=true\\n'", {"cleanup"})
+                runner.run("racknerd", f"rm -rf {remote_temp} && printf 'cleanup=true\\n'", {"cleanup"})
             values = {**restore, **finished}
             recovery_stage = "recovered_after_coordinated_restore"
     else:
