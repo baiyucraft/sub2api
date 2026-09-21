@@ -14,17 +14,17 @@
       </svg>
     </CapacityBadge>
 
-    <div v-if="proxyConcurrency.length" class="flex max-w-[220px] flex-wrap gap-1 pt-0.5" data-testid="proxy-concurrency-list">
+    <div v-if="proxyConcurrency.length" class="flex max-w-[280px] flex-wrap gap-1.5 pt-1" data-testid="proxy-concurrency-list">
       <span
         v-for="item in proxyConcurrency"
         :key="item.proxy_id"
-        class="inline-flex min-w-0 items-center gap-1 rounded-md px-1.5 py-px text-[10px] font-medium leading-tight"
+        class="inline-flex min-w-0 items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-medium leading-5"
         :class="proxyConcurrencyClass(item)"
         :title="proxyConcurrencyTooltip(item)"
         data-testid="proxy-concurrency-badge"
       >
-        <span class="max-w-[92px] truncate">{{ item.proxy_name }}</span>
-        <span class="font-mono tabular-nums">{{ item.current_concurrency }}/{{ item.limit }}</span>
+        <span class="max-w-[120px] truncate">{{ item.proxy_name }}</span>
+        <span class="font-mono tabular-nums whitespace-nowrap">{{ item.current_concurrency }}/{{ item.limit }}</span>
       </span>
     </div>
 
