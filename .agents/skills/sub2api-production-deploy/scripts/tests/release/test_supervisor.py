@@ -382,10 +382,17 @@ class SupervisorTest(unittest.TestCase):
         with mock.patch.object(supervisor, "_inspect_reconciliation", return_value=inspection), mock.patch.object(supervisor, "SSHRunner", return_value=ssh), mock.patch("builtins.print"):
             supervisor.reconcile(argparse.Namespace(release_id=identifier, mode="coordinated-recover"))
 
-        ssh.upload_file.assert_called_once_with(
+        self.assertEqual(ssh.upload_file.call_count, 2)
+        ssh.upload_file.assert_any_call(
             "racknerd",
             supervisor.COORDINATED_RESTORE,
             "/opt/sub2api/releases/coordinated-restore.abcdefgh/restore.sh",
+            0o500,
+        )
+        ssh.upload_file.assert_any_call(
+            "racknerd",
+            supervisor.COORDINATED_CLEANUP,
+            "/opt/sub2api/releases/coordinated-restore.abcdefgh/cleanup-state.sh",
             0o500,
         )
         restore_command = ssh.run.call_args_list[0].args[1]
@@ -393,7 +400,7 @@ class SupervisorTest(unittest.TestCase):
         self.assertIn("/coordinated-restore.abcdefgh/restore.sh", restore_command)
         finish_command = ssh.run.call_args_list[1].args[1]
         self.assertIn("restore-backup-units.sh", finish_command)
-        self.assertIn("cleanup-state.sh", finish_command)
+        self.assertIn("/coordinated-restore.abcdefgh/cleanup-state.sh", finish_command)
         self.assertIn("reconcile.sh", finish_command)
         self.assertIn("reconcile.stderr", finish_command)
         self.assertEqual(finish_command.count('2>>"$stderr_file"'), 3)
@@ -436,6 +443,7 @@ class SupervisorTest(unittest.TestCase):
             "candidate_image_id": "sha256:" + "b" * 64,
         }
         ssh = mock.Mock()
+        ssh.create_temp_dir.return_value = "/opt/sub2api/releases/coordinated-restore.abcdefgh"
         ssh.run.return_value.values = {
             "backup_units_restored": "true",
             "release_claim_reconciled": "true",
@@ -446,11 +454,17 @@ class SupervisorTest(unittest.TestCase):
         with mock.patch.object(supervisor, "_inspect_reconciliation", return_value=inspection), mock.patch.object(supervisor, "SSHRunner", return_value=ssh), mock.patch("builtins.print"):
             supervisor.reconcile(argparse.Namespace(release_id=identifier, mode="coordinated-recover"))
 
-        ssh.create_temp_dir.assert_not_called()
-        ssh.upload_file.assert_not_called()
-        self.assertEqual(ssh.run.call_count, 1)
-        self.assertNotIn("coordinated-restore", ssh.run.call_args.args[1])
-        self.assertIn("cleanup-state.sh", ssh.run.call_args.args[1])
+        ssh.create_temp_dir.assert_called_once()
+        ssh.upload_file.assert_called_once_with(
+            "racknerd",
+            supervisor.COORDINATED_CLEANUP,
+            "/opt/sub2api/releases/coordinated-restore.abcdefgh/cleanup-state.sh",
+            0o500,
+        )
+        self.assertEqual(ssh.run.call_count, 2)
+        finish_command = ssh.run.call_args_list[0].args[1]
+        self.assertNotIn("/restore.sh", finish_command)
+        self.assertIn("/coordinated-restore.abcdefgh/cleanup-state.sh", finish_command)
 
     def test_coordinated_recovery_rejects_active_runner(self) -> None:
         inspection = {"decision": "coordinated_restore_required", "runner_alive": True}
