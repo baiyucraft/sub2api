@@ -356,7 +356,7 @@ class PluginAPIClient:
         if node == "racknerd":
             result = self.runner.run(
                 node,
-                """set -Eeuo pipefail
+                r"""set -Eeuo pipefail
 slot=/opt/sub2api/active-app
 upstream=/etc/nginx/conf.d/sub2api-release-upstream.conf
 test -f "$slot" && test ! -L "$slot"
