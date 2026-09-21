@@ -32,6 +32,10 @@ describe('AccountCapacityCell proxy concurrency', () => {
     expect(badges[0]!.classes()).toContain('bg-emerald-100')
     expect(badges[1]!.classes()).toContain('bg-amber-100')
     expect(badges[2]!.classes()).toContain('bg-red-100')
+    expect(badges[0]!.classes()).toContain('text-xs')
+    expect(badges[0]!.classes()).toContain('px-2')
+    expect(badges[0]!.classes()).toContain('py-0.5')
+    expect(badges[0]!.find('span').classes()).toContain('max-w-[120px]')
   })
 
   it('normalizes malformed concurrency rows and falls back to the proxy id', () => {
