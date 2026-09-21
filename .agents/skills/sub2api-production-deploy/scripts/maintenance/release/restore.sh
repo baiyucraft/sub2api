@@ -293,7 +293,10 @@ if [[ ${redis_appendonly,,} == yes ]]; then
   chmod 600 "$redis_source/appendonlydir/appendonly.aof.1.incr.aof" "$redis_source/appendonlydir/appendonly.aof.manifest"
 fi
 docker start sub2api-redis >/dev/null
-for _ in $(seq 1 60); do
+# Large verified RDB/AOF recovery points can take longer than the ordinary
+# container health start period. Keep the wait bounded, but allow enough time
+# for Redis to finish loading before fail-closed recovery stops the stack.
+for _ in $(seq 1 180); do
   [[ $(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' sub2api-redis) == healthy ]] && break
   sleep 1
 done

@@ -1419,6 +1419,20 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         self.assertLess(restore.index(checksum_check), restore.index(aof_seed))
         self.assertLess(restore.index(aof_seed), restore.index(redis_start))
 
+    def test_coordinated_restore_allows_slow_verified_redis_startup(self) -> None:
+        restore = self.script("restore.sh")
+
+        self.assertIn("for _ in $(seq 1 180); do", restore)
+        self.assertNotIn("for _ in $(seq 1 60); do", restore)
+        self.assertLess(
+            restore.index("docker start sub2api-redis"),
+            restore.index("for _ in $(seq 1 180); do"),
+        )
+        self.assertLess(
+            restore.index("for _ in $(seq 1 180); do"),
+            restore.index("redis_password=$(docker inspect sub2api-redis"),
+        )
+
     def test_migration_195_preflight_precedes_switch_and_commit_is_reconciled(self) -> None:
         production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
         switch = self.script("switch.sh")
