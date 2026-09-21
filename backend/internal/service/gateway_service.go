@@ -511,6 +511,7 @@ type GatewayCache interface {
 type OpenAIProxyGroupBindingCache interface {
 	GetOpenAIProxyGroupBinding(ctx context.Context, accountID int64, sessionHash string) (int64, error)
 	ClaimOpenAIProxyGroupBinding(ctx context.Context, accountID int64, sessionHash string, proxyID int64, ttl time.Duration) (int64, error)
+	ReplaceOpenAIProxyGroupBindingIfMatch(ctx context.Context, accountID int64, sessionHash string, oldProxyID, newProxyID int64, ttl time.Duration) (bool, error)
 	DeleteOpenAIProxyGroupBindingIfMatch(ctx context.Context, accountID int64, sessionHash string, proxyID int64) error
 }
 

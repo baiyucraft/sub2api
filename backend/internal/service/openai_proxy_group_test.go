@@ -51,6 +51,17 @@ func (c *proxyGroupBindingCacheStub) ClaimOpenAIProxyGroupBinding(_ context.Cont
 	return proxyID, nil
 }
 
+func (c *proxyGroupBindingCacheStub) ReplaceOpenAIProxyGroupBindingIfMatch(_ context.Context, accountID int64, sessionHash string, oldProxyID, newProxyID int64, _ time.Duration) (bool, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	key := c.key(accountID, sessionHash)
+	if c.bindings[key] != oldProxyID {
+		return false, nil
+	}
+	c.bindings[key] = newProxyID
+	return true, nil
+}
+
 func (c *proxyGroupBindingCacheStub) DeleteOpenAIProxyGroupBindingIfMatch(_ context.Context, accountID int64, sessionHash string, proxyID int64) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -230,20 +241,21 @@ func TestAcquireOpenAIProxyGroupEgressKeepsSameSessionBinding(t *testing.T) {
 	requireProxyCalls(t, concurrencyCache, 1, 1)
 }
 
-func TestAcquireOpenAIProxyGroupEgressDoesNotRebindFullBoundProxy(t *testing.T) {
+func TestAcquireOpenAIProxyGroupEgressRebindsFullBoundProxy(t *testing.T) {
 	bindingCache := &proxyGroupBindingCacheStub{bindings: map[string]int64{"101:session-a": 1}}
 	concurrencyCache := &proxyGroupConcurrencyCacheStub{available: map[int64]bool{1: false, 2: true}}
 	svc, account := newProxyGroupTestService(bindingCache, concurrencyCache, []int64{1, 2}, proxyGroupTestProxies())
 
 	resolved, release, err := svc.AcquireOpenAIProxyGroupEgress(context.Background(), account, "session-a")
-	if resolved != nil || release != nil {
-		t.Fatalf("expected no resolved egress on full bound proxy, got account=%#v release=%v", resolved, release != nil)
+	if err != nil {
+		t.Fatalf("expected fallback proxy egress, got %v", err)
 	}
-	requireProxyGroupError(t, err, ErrOpenAIProxyGroupCapacityFull)
-	if got := bindingCache.boundProxyID(account.ID, "session-a"); got != 1 {
-		t.Fatalf("expected binding to stay on proxy 1, got %d", got)
+	requireResolvedProxy(t, resolved, 2)
+	if got := bindingCache.boundProxyID(account.ID, "session-a"); got != 2 {
+		t.Fatalf("expected binding to move to proxy 2, got %d", got)
 	}
-	requireProxyCalls(t, concurrencyCache, 1)
+	requireProxyCalls(t, concurrencyCache, 1, 2)
+	release()
 }
 
 func TestAcquireOpenAIProxyGroupEgressNewSessionSkipsFullMember(t *testing.T) {

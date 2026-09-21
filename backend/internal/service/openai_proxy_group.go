@@ -10,6 +10,8 @@ import (
 	"time"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"go.uber.org/zap"
 )
 
 const OpenAIProxyGroupNoEgressCode = "openai_proxy_group_no_egress"
@@ -193,33 +195,38 @@ func (s *OpenAIGatewayService) AcquireOpenAIProxyGroupEgress(ctx context.Context
 
 	sessionHash = strings.TrimSpace(sessionHash)
 	for attempt := 0; attempt < 3; attempt++ {
+		boundProxyID := int64(0)
 		if sessionHash != "" {
-			boundProxyID, bindErr := bindingCache.GetOpenAIProxyGroupBinding(ctx, account.ID, sessionHash)
+			boundID, bindErr := bindingCache.GetOpenAIProxyGroupBinding(ctx, account.ID, sessionHash)
 			switch {
-			case bindErr == nil && boundProxyID > 0:
-				if proxy, found := proxyByID(members, boundProxyID); found {
+			case bindErr == nil && boundID > 0:
+				boundProxyID = boundID
+				if proxy, found := proxyByID(members, boundID); found {
 					result, acquireErr := s.concurrencyService.AcquireAccountProxySlot(ctx, account.ID, proxy.ID, group.PerIPConcurrency)
 					if acquireErr != nil {
 						return nil, nil, fmt.Errorf("%w: acquire bound proxy slot: %v", ErrOpenAIProxyGroupBindingUnavailable, acquireErr)
 					}
-					if result == nil || !result.Acquired {
-						return nil, nil, ErrOpenAIProxyGroupCapacityFull
-					}
-					claimedID, refreshErr := bindingCache.ClaimOpenAIProxyGroupBinding(ctx, account.ID, sessionHash, proxy.ID, stickySessionTTL)
-					if refreshErr != nil {
-						result.ReleaseFunc()
-						return nil, nil, fmt.Errorf("%w: refresh proxy binding: %v", ErrOpenAIProxyGroupBindingUnavailable, refreshErr)
-					}
-					if claimedID != proxy.ID {
+					if result != nil && result.Acquired {
+						claimedID, refreshErr := bindingCache.ClaimOpenAIProxyGroupBinding(ctx, account.ID, sessionHash, proxy.ID, stickySessionTTL)
+						if refreshErr != nil {
+							result.ReleaseFunc()
+							return nil, nil, fmt.Errorf("%w: refresh proxy binding: %v", ErrOpenAIProxyGroupBindingUnavailable, refreshErr)
+						}
+						if claimedID == proxy.ID {
+							return cloneAccountWithProxy(account, proxy), result.ReleaseFunc, nil
+						}
 						result.ReleaseFunc()
 						continue
 					}
-					return cloneAccountWithProxy(account, proxy), result.ReleaseFunc, nil
+					// The sticky member is locally full. Continue below and try
+					// another member before declaring the whole proxy group full.
 				}
-				if deleteErr := bindingCache.DeleteOpenAIProxyGroupBindingIfMatch(ctx, account.ID, sessionHash, boundProxyID); deleteErr != nil {
-					return nil, nil, fmt.Errorf("%w: delete stale proxy binding: %v", ErrOpenAIProxyGroupBindingUnavailable, deleteErr)
+				if _, found := proxyByID(members, boundID); !found {
+					if deleteErr := bindingCache.DeleteOpenAIProxyGroupBindingIfMatch(ctx, account.ID, sessionHash, boundID); deleteErr != nil {
+						return nil, nil, fmt.Errorf("%w: delete stale proxy binding: %v", ErrOpenAIProxyGroupBindingUnavailable, deleteErr)
+					}
+					boundProxyID = 0
 				}
-				continue
 			case errors.Is(bindErr, ErrOpenAIProxyGroupBindingNotFound):
 				// New session; select the first member with available capacity below.
 			case bindErr != nil:
@@ -229,6 +236,10 @@ func (s *OpenAIGatewayService) AcquireOpenAIProxyGroupEgress(ctx context.Context
 
 		contention := false
 		for _, proxy := range members {
+			if proxy.ID == boundProxyID {
+				// The sticky member was already attempted above and was locally full.
+				continue
+			}
 			result, acquireErr := s.concurrencyService.AcquireAccountProxySlot(ctx, account.ID, proxy.ID, group.PerIPConcurrency)
 			if acquireErr != nil {
 				return nil, nil, fmt.Errorf("%w: acquire proxy slot: %v", ErrOpenAIProxyGroupBindingUnavailable, acquireErr)
@@ -237,7 +248,17 @@ func (s *OpenAIGatewayService) AcquireOpenAIProxyGroupEgress(ctx context.Context
 				continue
 			}
 			if sessionHash != "" {
-				claimedID, bindErr := bindingCache.ClaimOpenAIProxyGroupBinding(ctx, account.ID, sessionHash, proxy.ID, stickySessionTTL)
+				var claimedID int64
+				var bindErr error
+				if boundProxyID > 0 {
+					var replaced bool
+					replaced, bindErr = bindingCache.ReplaceOpenAIProxyGroupBindingIfMatch(ctx, account.ID, sessionHash, boundProxyID, proxy.ID, stickySessionTTL)
+					if replaced {
+						claimedID = proxy.ID
+					}
+				} else {
+					claimedID, bindErr = bindingCache.ClaimOpenAIProxyGroupBinding(ctx, account.ID, sessionHash, proxy.ID, stickySessionTTL)
+				}
 				if bindErr != nil {
 					result.ReleaseFunc()
 					return nil, nil, fmt.Errorf("%w: write proxy binding: %v", ErrOpenAIProxyGroupBindingUnavailable, bindErr)
@@ -247,6 +268,16 @@ func (s *OpenAIGatewayService) AcquireOpenAIProxyGroupEgress(ctx context.Context
 					contention = true
 					break
 				}
+			}
+			if boundProxyID > 0 && proxy.ID != boundProxyID {
+				logger.FromContext(ctx).Debug("openai.proxy_group_member_capacity_overflow",
+					zap.Int64("account_id", account.ID),
+					zap.Int64("proxy_group_id", *account.ProxyIPGroupID),
+					zap.Int64("bound_proxy_id", boundProxyID),
+					zap.Int64("selected_proxy_id", proxy.ID),
+					zap.Int("per_proxy_concurrency", group.PerIPConcurrency),
+					zap.String("proxy_member_switch_reason", "local_capacity_full"),
+				)
 			}
 			return cloneAccountWithProxy(account, proxy), result.ReleaseFunc, nil
 		}
