@@ -1766,6 +1766,9 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         self.assertIn('2> "$candidate_plan_stderr"', preflight)
         self.assertIn("candidate_plan_stderr=$(mktemp", preflight)
         self.assertIn("if [[ $code -eq 0 ]]; then", preflight)
+        self.assertIn("production_current_commit_sha=", preflight)
+        self.assertIn('--arg commit "$production_current_commit_sha"', preflight)
+        self.assertIn("production_current_commit_sha:$commit", preflight)
         self.assertLess(
             preflight.index('[[ -z $candidate_plan_tmp ]] || rm -f -- "$candidate_plan_tmp"'),
             preflight.index('rm -f "$preflight_failure_file"'),
@@ -1960,7 +1963,7 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         )
         self.assertIn('preflight_phase=context', preflight)
         self.assertIn(
-            "jq -cSn --arg image \"$active_image\" --argjson rows \"$snapshot_rows\"",
+            "jq -cSn --arg image \"$active_image\" --arg commit \"$production_current_commit_sha\" --argjson rows \"$snapshot_rows\"",
             preflight,
         )
 

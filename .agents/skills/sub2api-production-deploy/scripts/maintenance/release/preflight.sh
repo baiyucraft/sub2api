@@ -67,7 +67,13 @@ if [[ $manifest_schema == 2 ]]; then
   [[ "$active_image" == "$(jq -er '.evidence.production_current_image_id' "$active_claim/gate.json")" ]]
   snapshot_rows=$(docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT COALESCE(json_agg(json_build_object('filename',filename,'checksum',checksum) ORDER BY filename),'[]'::json) FROM schema_migrations" | tr -d '\r\n')
   printf '%s' "$snapshot_rows" | jq -e 'type == "array"' >/dev/null
-  current_snapshot_sha=$(printf '%s' "$(jq -cSn --arg image "$active_image" --argjson rows "$snapshot_rows" '{current_image_id:$image,schema_migrations:$rows}')" | sha256sum | awk '{print $1}')
+  production_current_commit_sha=
+  image_ref=$(docker inspect -f '{{.Config.Image}}' "$active_container")
+  if [[ $image_ref =~ -([0-9a-f]{40})$ ]] &&
+     [[ $(docker image inspect -f '{{.Id}}' "$image_ref" 2>/dev/null || true) == "$active_image" ]]; then
+    production_current_commit_sha=${BASH_REMATCH[1]}
+  fi
+  current_snapshot_sha=$(printf '%s' "$(jq -cSn --arg image "$active_image" --arg commit "$production_current_commit_sha" --argjson rows "$snapshot_rows" '{current_image_id:$image,production_current_commit_sha:$commit,schema_migrations:$rows}')" | sha256sum | awk '{print $1}')
   [[ "$current_snapshot_sha" == "$(jq -er '.evidence.production_snapshot_sha256' "$active_claim/gate.json")" ]]
   [[ $(jq -er '.evidence.catalog_sha256' "$active_claim/gate.json") == "$(jq -er '.manifest.catalog_sha256' "$active_claim/gate.json")" ]]
   [[ $(jq -er '.evidence.checksum_policy_sha256' "$active_claim/gate.json") == "$(jq -er '.manifest.checksum_policy_sha256' "$active_claim/gate.json")" ]]
