@@ -62,9 +62,26 @@ end
 return 0
 `)
 
+var replaceOpenAIProxyGroupBindingIfMatchScript = redis.NewScript(`
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+  redis.call('PSETEX', KEYS[1], ARGV[3], ARGV[2])
+  return 1
+end
+return 0
+`)
+
 func (c *gatewayCache) ClaimOpenAIProxyGroupBinding(ctx context.Context, accountID int64, sessionHash string, proxyID int64, ttl time.Duration) (int64, error) {
 	return claimOpenAIProxyGroupBindingScript.Run(ctx, c.rdb,
 		[]string{buildOpenAIProxyGroupBindingKey(accountID, sessionHash)}, proxyID, ttl.Milliseconds()).Int64()
+}
+
+func (c *gatewayCache) ReplaceOpenAIProxyGroupBindingIfMatch(ctx context.Context, accountID int64, sessionHash string, oldProxyID, newProxyID int64, ttl time.Duration) (bool, error) {
+	result, err := replaceOpenAIProxyGroupBindingIfMatchScript.Run(ctx, c.rdb,
+		[]string{buildOpenAIProxyGroupBindingKey(accountID, sessionHash)}, oldProxyID, newProxyID, ttl.Milliseconds()).Int64()
+	if err != nil {
+		return false, err
+	}
+	return result == 1, nil
 }
 
 func (c *gatewayCache) DeleteOpenAIProxyGroupBindingIfMatch(ctx context.Context, accountID int64, sessionHash string, proxyID int64) error {

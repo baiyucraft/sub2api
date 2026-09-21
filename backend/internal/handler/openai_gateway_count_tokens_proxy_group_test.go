@@ -56,6 +56,15 @@ func (c *tokenCountAdmissionCache) ClaimOpenAIProxyGroupBinding(_ context.Contex
 	return proxyID, nil
 }
 
+func (c *tokenCountAdmissionCache) ReplaceOpenAIProxyGroupBindingIfMatch(_ context.Context, accountID int64, sessionHash string, oldProxyID, newProxyID int64, _ time.Duration) (bool, error) {
+	key := tokenCountBindingKey(accountID, sessionHash)
+	if c.bindings[key] != oldProxyID {
+		return false, nil
+	}
+	c.bindings[key] = newProxyID
+	return true, nil
+}
+
 func (c *tokenCountAdmissionCache) DeleteOpenAIProxyGroupBindingIfMatch(_ context.Context, accountID int64, sessionHash string, proxyID int64) error {
 	key := tokenCountBindingKey(accountID, sessionHash)
 	if c.bindings[key] == proxyID {

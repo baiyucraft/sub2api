@@ -46,7 +46,17 @@ func TestGatewayCacheOpenAIProxyGroupBindingClaimAndCompareDelete(t *testing.T) 
 	require.NoError(t, err)
 	require.Equal(t, firstProxy, bound, "a stale contender must not delete the winning binding")
 
-	require.NoError(t, cache.DeleteOpenAIProxyGroupBindingIfMatch(ctx, accountID, sessionHash, firstProxy))
+	replaced, err := cache.ReplaceOpenAIProxyGroupBindingIfMatch(ctx, accountID, sessionHash, secondProxy, firstProxy, 5*time.Minute)
+	require.NoError(t, err)
+	require.False(t, replaced, "a stale replacement must not overwrite the winning binding")
+	replaced, err = cache.ReplaceOpenAIProxyGroupBindingIfMatch(ctx, accountID, sessionHash, firstProxy, secondProxy, 5*time.Minute)
+	require.NoError(t, err)
+	require.True(t, replaced)
+	bound, err = cache.GetOpenAIProxyGroupBinding(ctx, accountID, sessionHash)
+	require.NoError(t, err)
+	require.Equal(t, secondProxy, bound)
+
+	require.NoError(t, cache.DeleteOpenAIProxyGroupBindingIfMatch(ctx, accountID, sessionHash, secondProxy))
 	_, err = cache.GetOpenAIProxyGroupBinding(ctx, accountID, sessionHash)
 	require.ErrorIs(t, err, service.ErrOpenAIProxyGroupBindingNotFound)
 }
