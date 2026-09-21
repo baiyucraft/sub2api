@@ -212,6 +212,7 @@ def start(args: argparse.Namespace, *, announce: bool = True) -> str:
     command = [
         sys.executable, str(ENTRYPOINT), "_deploy-worker",
         "--profile", args.profile, "--commit", commit, "--release-id", identifier, "--mode", deployment_mode,
+        "--recovery-gate-mode", getattr(args, "recovery_gate_mode", "auto"),
     ]
     try:
         with _open_raw_log(run_dir / "logs" / "runner.stdout.log") as stdout, _open_raw_log(run_dir / "logs" / "runner.stderr.log") as stderr:
@@ -294,6 +295,7 @@ def worker(args: argparse.Namespace) -> None:
                 argparse.Namespace(
                     profile=args.profile, commit=args.commit, release_id=args.release_id,
                     deployment_mode=deployment_mode,
+                    recovery_gate_mode=getattr(args, "recovery_gate_mode", "auto"),
                 ),
                 acquire_lock=False,
             )
@@ -602,6 +604,176 @@ def verify_result(args: argparse.Namespace) -> None:
     print(canonical_json(verified_result_view(args.release_id)).decode("ascii"))
 
 
+RECOVERY_STAGES = {
+    "recovered",
+    "recovered_after_interruption",
+    "recovered_after_coordinated_restore",
+}
+
+
+def _recovery_evidence(production: dict[str, Any]) -> dict[str, Any]:
+    stage = production.get("stage")
+    history = production.get("history")
+    if stage not in RECOVERY_STAGES or not isinstance(history, list):
+        raise RuntimeError("production recovery history is missing")
+    merged: dict[str, Any] = {}
+    final_stage_present = False
+    for event in history:
+        if not isinstance(event, dict) or event.get("stage") not in RECOVERY_STAGES:
+            continue
+        if event.get("stage") == stage:
+            final_stage_present = True
+        evidence = event.get("evidence")
+        if isinstance(evidence, dict):
+            merged.update(evidence)
+    if not final_stage_present or not merged:
+        raise RuntimeError("production recovery evidence is missing")
+    return merged
+
+
+def recovered_result_view(identifier: str) -> dict[str, Any]:
+    run_dir = _run_dir(identifier)
+    manifest = _read_json(run_dir / "manifest.json", required=True) or {}
+    runner = _read_json(run_dir / "runner.json", required=True) or {}
+    vm = _read_json(run_dir / "state.json", required=True) or {}
+    release_state = _read_json(run_dir / "release-state.json", required=True) or {}
+    production = _read_json(run_dir / "gate" / "production-result.json", required=True) or {}
+    if _runner_alive(runner) or runner.get("status") != "recovered":
+        raise RuntimeError("release runner is not terminal recovered")
+    document = verify_gate(
+        run_dir / "gate",
+        TRUSTED_VM_PUBLIC_KEY,
+        str(manifest.get("profile")),
+        allow_expired=True,
+        allow_historical_runner=True,
+    )
+    if document["manifest"] != manifest or manifest.get("release_id") != identifier:
+        raise RuntimeError("manifest and signed Gate identity differ")
+    if vm.get("release_id") != identifier or vm.get("stage") != "vm_validate" or vm.get("status") != "verified":
+        raise RuntimeError("VM Gate state is not verified")
+    if (
+        release_state.get("release_id") != identifier
+        or release_state.get("stage") != "production_release"
+        or release_state.get("status") != "recovered"
+    ):
+        raise RuntimeError("production orchestration state is not recovered")
+    if production.get("release_id") != identifier or production.get("status") != "recovered" or production.get("stage") not in RECOVERY_STAGES:
+        raise RuntimeError("production result is not recovered")
+
+    evidence = _recovery_evidence(production)
+    expected = {
+        "release_claim_reconciled": "true",
+        "plaintext_state_removed": "true",
+    }
+    if production["stage"] == "recovered_after_coordinated_restore":
+        expected.update({
+            "backup_units_restored": "true",
+            "application_health": "pass",
+        })
+    missing = [key for key, value in expected.items() if evidence.get(key) != value]
+    if (
+        production["stage"] == "recovered_after_coordinated_restore"
+        and evidence.get("coordinated_restore") not in {"verified", "already_restored"}
+    ):
+        missing.append("coordinated_restore")
+    if missing:
+        raise RuntimeError(f"recovery evidence is incomplete: {','.join(sorted(missing))}")
+
+    candidate = document["evidence"]["candidate_image_id"]
+    validate_image_id(candidate)
+    restored = evidence.get("restored_image_id")
+    if production["stage"] == "recovered_after_coordinated_restore":
+        try:
+            validate_image_id(restored)
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError("recovery evidence restored image is invalid") from exc
+        if restored == candidate:
+            raise RuntimeError("recovery evidence restored the candidate image")
+    release_dir = f"/opt/sub2api/releases/{identifier}"
+    candidate_name = f"sub2api-candidate-{identifier}"
+    script = f"""set -Eeuo pipefail
+recovered={shlex.quote(release_dir + '/.recovered')}
+test -d "$recovered"
+test ! -L "$recovered"
+for file in marker plaintext-cleaned release_id gate.json CLAIM_SHA256SUMS; do
+  test -f "$recovered/$file"
+  test ! -L "$recovered/$file"
+done
+grep -Fxq {shlex.quote(f'release_id={identifier}')} "$recovered/release_id"
+grep -Fxq {shlex.quote(f'release_id={identifier}')} "$recovered/marker"
+(cd "$recovered" && sha256sum -c CLAIM_SHA256SUMS >/dev/null)
+test "$(jq -er '.manifest.release_id' "$recovered/gate.json")" = {shlex.quote(identifier)}
+test "$(jq -er '.evidence.candidate_image_id' "$recovered/gate.json")" = {shlex.quote(candidate)}
+test ! -e /opt/sub2api/releases/.active-release
+test ! -L /opt/sub2api/releases/.active-release
+if docker inspect {shlex.quote(candidate_name)} >/dev/null 2>&1; then exit 1; fi
+test -f /opt/sub2api/active-app
+test ! -L /opt/sub2api/active-app
+active_container=$(sed -n 's/^container=//p' /opt/sub2api/active-app)
+active_slot_image_id=$(sed -n 's/^image_id=//p' /opt/sub2api/active-app)
+test -n "$active_container"
+test -n "$active_slot_image_id"
+test "$(docker inspect -f '{{{{.State.Health.Status}}}}' "$active_container")" = healthy
+running_image_id=$(docker inspect -f '{{{{.Image}}}}' "$active_container")
+test "$active_slot_image_id" = "$running_image_id"
+test "$running_image_id" != {shlex.quote(candidate)}
+test "$(systemctl is-active nginx)" = active
+test "$(systemctl is-enabled sub2api-backup.timer)" = enabled
+test "$(systemctl is-active sub2api-backup.timer)" = active
+printf 'recovery_marker_verified=true\nrelease_claim_reconciled=true\nactive_slot_verified=true\napplication_health=pass\nnginx_active=true\nbackup_timer_enabled=true\nbackup_timer_active=true\ncandidate_absent=true\nrunning_image_id=%s\n' "$running_image_id"
+"""
+    remote = SSHRunner().run(
+        "racknerd",
+        script,
+        {
+            "recovery_marker_verified",
+            "release_claim_reconciled",
+            "active_slot_verified",
+            "application_health",
+            "nginx_active",
+            "backup_timer_enabled",
+            "backup_timer_active",
+            "candidate_absent",
+            "running_image_id",
+        },
+        timeout=300,
+    ).values
+    remote_expected = {
+        "recovery_marker_verified": "true",
+        "release_claim_reconciled": "true",
+        "active_slot_verified": "true",
+        "application_health": "pass",
+        "nginx_active": "true",
+        "backup_timer_enabled": "true",
+        "backup_timer_active": "true",
+        "candidate_absent": "true",
+    }
+    remote_missing = [key for key, value in remote_expected.items() if remote.get(key) != value]
+    running = remote.get("running_image_id")
+    try:
+        validate_image_id(running)
+    except (TypeError, ValueError):
+        remote_missing.append("running_image_id")
+    if running == candidate:
+        remote_missing.append("running_image_id")
+    if isinstance(restored, str) and restored != running:
+        remote_missing.append("restored_image_id")
+    if remote_missing:
+        raise RuntimeError(f"remote recovery evidence is incomplete: {','.join(sorted(set(remote_missing)))}")
+    return {
+        "release_id": identifier,
+        "status": "recovered",
+        "recovery_stage": production["stage"],
+        "candidate_image_id": candidate,
+        "running_image_id": running,
+        "claim_final_state": "recovered",
+    }
+
+
+def verify_recovery_result(args: argparse.Namespace) -> None:
+    print(canonical_json(recovered_result_view(args.release_id)).decode("ascii"))
+
+
 def _inspect_reconciliation(identifier: str) -> dict[str, Any]:
     run_dir = _run_dir(identifier)
     manifest = _read_json(run_dir / "manifest.json", required=True) or {}
@@ -613,7 +785,7 @@ def _inspect_reconciliation(identifier: str) -> dict[str, Any]:
     candidate = document["evidence"]["candidate_image_id"]
     release_dir = f"/opt/sub2api/releases/{identifier}"
     state_dir = f"/opt/sub2api/backups/release-state/{identifier}"
-    script = f"""set -Eeuo pipefail
+    script = rf"""set -Eeuo pipefail
 active=/opt/sub2api/releases/.active-release
 claim=absent
 if test -L "$active"; then claim=unsafe

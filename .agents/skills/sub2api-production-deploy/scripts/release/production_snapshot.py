@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import re
 from typing import Any
 
 from .migration_planner import plan_migrations
@@ -15,9 +16,14 @@ test -f "$slot" && test ! -L "$slot"
 active_container=$(sed -n 's/^container=//p' "$slot")
 test "$active_container" && [[ "$active_container" =~ ^[A-Za-z0-9_.-]{1,100}$ ]]
 image=$(docker inspect -f '{{.Image}}' "$active_container")
+image_ref=$(docker inspect -f '{{.Config.Image}}' "$active_container")
+production_current_commit_sha=
+if [[ $image_ref =~ -([0-9a-f]{40})$ ]] && [[ $(docker image inspect -f '{{.Id}}' "$image_ref" 2>/dev/null || true) == "$image" ]]; then
+  production_current_commit_sha=${BASH_REMATCH[1]}
+fi
 rows=$(docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT COALESCE(json_agg(json_build_object('filename',filename,'checksum',checksum) ORDER BY filename),'[]'::json) FROM schema_migrations" | tr -d '\r\n')
 test "$image" = sha256:* && printf '%s' "$rows" | jq -e 'type == "array" and all(.[]; type == "object" and (.filename|type)=="string" and (.checksum|type)=="string")' >/dev/null
-payload=$(jq -cn --arg image "$image" --argjson rows "$rows" '{current_image_id:$image, schema_migrations:$rows}')
+payload=$(jq -cn --arg image "$image" --arg commit "$production_current_commit_sha" --argjson rows "$rows" '{current_image_id:$image,production_current_commit_sha:$commit,schema_migrations:$rows}')
 encoded=$(printf '%s' "$payload" | base64 | tr -d '\r\n')
 printf 'snapshot_b64=%s\n' "$encoded"
 '''
@@ -28,8 +34,13 @@ def decode_snapshot(value: str) -> dict[str, Any]:
         data = json.loads(base64.b64decode(value).decode("utf-8"))
     except Exception as exc:
         raise RuntimeError("production snapshot is invalid") from exc
-    if not isinstance(data, dict) or not isinstance(data.get("schema_migrations"), list):
+    if not isinstance(data, dict) or set(data) != {"current_image_id", "production_current_commit_sha", "schema_migrations"}:
         raise RuntimeError("production snapshot shape is invalid")
+    if not isinstance(data.get("schema_migrations"), list):
+        raise RuntimeError("production snapshot shape is invalid")
+    commit = data.get("production_current_commit_sha")
+    if not isinstance(commit, str) or (commit and not re.fullmatch(r"[0-9a-f]{40}", commit)):
+        raise RuntimeError("production snapshot commit is invalid")
     return data
 
 
@@ -46,6 +57,7 @@ def snapshot_sha256(snapshot: dict[str, Any]) -> str:
     """Digest the immutable production image + schema_migrations snapshot."""
     payload = {
         "current_image_id": snapshot.get("current_image_id"),
+        "production_current_commit_sha": snapshot.get("production_current_commit_sha", ""),
         "schema_migrations": snapshot.get("schema_migrations", []),
     }
     # The snapshot is persisted with canonical_json(), which recursively sorts

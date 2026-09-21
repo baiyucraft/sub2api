@@ -31,7 +31,7 @@
 | migration/profile/version | migration 233 语义、官方 migration 编号冲突按内容重编号、历史 profile 233–253 合同不可变；当前 profile 254 对应 `0.2.7-baiyu`、parent 为 253、`new_migrations=[278_fork_group_ttft_guard_policies.sql,279_proxy_ip_groups.sql,280_plugin_runtime_state.sql]`，由 release manifest 绑定数据库 migration catalog 与生产兼容快照；migration 279 默认每代理并发 10、范围 1–1000、单代理/代理组互斥；migration 280 包含插件隔离加密状态、CAS、带代次租约、在途请求及可恢复升级日志；用户专属倍率以 `rate_percent` 为业务真值，兼容绝对倍率按当前普通倍率派生；`VERSION = official release version + -baiyu`，源码 VERSION 滞后的正式 tag 必须按目标 commit 显式固定版本；fork VERSION 每变化一次都新增下一个连续 profile，不得回写旧 profile |
 | 官方 Astra 支持 | 使用目标官方的识别、静态目录、live/pinned 能力和测试；默认 medium 与 low 至 max，live/pinned 额外能力不被 fork 旧规则裁剪；ultrafast 与推理 ultra 区分；Anthropic 桥接、指纹、0 倍率和共享并发单独回归 |
 | compact 账号列表与编辑 | 脱敏列表保留上游身份、能力和调度字段；按需详情不被列表刷新覆盖；模型同步 persisted 分支与官方元数据分支独立；图片回填和请求 ID 头字段只放宽精确白名单 |
-| 发布运维 skill | release pytest、日志合同、Git Bash、清理 dry-run/apply、profile signer/validator、8211 单实例与成功后收口 |
+| 发布运维 skill | `fast/specialized/full` 三层门禁及 0–2/5–15/20–60 分钟预算；`full` 普通发布非阻塞、恢复链变化时阻塞；Redis 惰性过期单调不等式；helper bundle 原子版本；PostgreSQL/Redis/Compose/app/Nginx/backup units/claim/cleanup 幂等 checkpoint；`verify-result` 与 `verify-recovery-result` 分离；release pytest、supervisor/production/skill-pitfalls、日志合同、Git Bash、清理 dry-run/apply、profile signer/validator、8211 单实例与成功后收口 |
 | 发布 DMIT 中继 | `test_ssh_output.py`、`test_racknerd_readonly_status.py`；验证 DMIT direct SSH、1080 HTTP CONNECT、RackNerd host key、代理失败 fail-closed，以及命令/SFTP 共用连接入口 |
 | AstrBot 渠道状态插件 | `python -m pytest astrbot/tests -q`；V2 snapshot 优先、V1 history 回退、平台分组、普通倍率、不泄露管理员 API Key、/status 与定时推送均为单图 |
 

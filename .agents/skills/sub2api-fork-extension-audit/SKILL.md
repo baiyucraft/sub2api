@@ -33,6 +33,19 @@ description: 审计 Sub2API fork 相对官方 upstream/main 的扩展合同。�
 - PostgreSQL 的 artifact 和 installation 是跨实例权威状态，本地 `plugins.data_dir` 只是校验后的运行副本。审计必须要求逐实例恢复/版本/二进制 SHA/Health 证据，不能以单实例上传成功证明整个集群完成升级。
 - 仅插件包变化可独立发版；Host API、管理壳、migration、部署配置或包校验变化仍是宿主应用发布。构建、VM 和生产证据由 `sub2api-production-deploy` 的 `plugin-package` 分类负责，本技能只校验扩展登记与最低回归映射。
 
+## 发布恢复合同审计
+
+当目标差异触及 `.agents/skills/sub2api-production-deploy/**`、备份格式、migration/profile、Compose、ingress 事务或恢复状态机时，审计必须核对 `release-operations-isolation`：
+
+- 三层门禁名称和预算固定为 `fast=0-2min`、`specialized=5-15min`、`full=20-60min`；`full` 不阻塞普通发布，但恢复链自身变化时是硬门禁。
+- 触发矩阵必须覆盖 migration、PostgreSQL/Redis、Compose、backup、restore/cleanup/reconcile、ingress、发布状态机和真实恢复事故修复。
+- Redis 恢复使用总键、TTL 键和永久键单调不等式，禁止恢复旧的精确差值等式。
+- orchestrator、restore、cleanup、reconcile 作为同一 helper bundle 绑定完整 commit 和 SHA-256；禁止新旧 helper 混用。
+- 协调恢复按 PostgreSQL、Redis、Compose、应用、Nginx、backup units、claim 和 state cleanup checkpoint 幂等续跑。
+- `verify-result` 与 `verify-recovery-result` 分离，不得放宽或互相替代。
+
+本技能仍只检查登记、路径、文档和最低测试映射，不执行门禁、恢复或演练。
+
 ## 官方修复优先
 
 - 审计本地兼容性修复或 workaround 时，主动检查目标 upstream commit 是否已包含同一故障域的官方修复；只有进入目标 commit 的代码才视为官方事实，开放中的 Issue、PR 或未合并 commit 仅作为设计参考。

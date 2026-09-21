@@ -4,6 +4,7 @@
 
 - [分类原则](#分类原则)
 - [分类决策](#分类决策)
+- [三层门禁映射](#三层门禁映射)
 - [运维资产](#运维资产)
 - [独立插件包](#独立插件包)
 - [严格纯前端](#严格纯前端)
@@ -79,6 +80,22 @@ build-chain:
 ```
 
 禁止为了“重新构建”而破坏同一镜像身份；验证通过的镜像就是生产候选。同一 commit 重新构建也可能得到不同 image ID，same commit 不等于 same candidate；只有同一 release 的 Gate、归档和 image ID 三者同时匹配，才可称为复用 candidate。
+
+## 三层门禁映射
+
+三层门禁按最终 diff 叠加到变更分类上，预算不是超时：
+
+| 最终变更 | `fast` 0–2 分钟 | `specialized` 5–15 分钟 | `full` 20–60 分钟 |
+| --- | --- | --- | --- |
+| 纯文档、固定字段只读巡检 | 适用 | 不适用 | 不适用 |
+| 纯前端、独立插件包、普通无迁移后端 | 适用 | 仅既有分类要求的 VM/插件 Gate | 定期演练逾期只告警 |
+| migration、数据库或 Redis 行为、Compose、部署配置 | 适用 | 强制 | 定期；恢复格式或信任链变化时强制 |
+| restore、cleanup、reconcile、backup、ingress 事务、发布状态机和 helper | 适用 | 强制并包含故障注入 | 本次发布前强制 |
+| 真实恢复事故后的修复 | 适用 | 强制复现事故边界 | 修复进入生产前强制 |
+
+`fast` 至少验证完整 SHA、变更分类、文档/manifest 引用、shell/Python/YAML 语法、helper bundle 闭包和适用的定向测试。`specialized` 必须使用当前 commit 的同一 helper 原子版本，在 VM 或批准的隔离环境执行真实 PostgreSQL/Redis/Compose 恢复以及幂等断点续跑。`full` 使用真实加密恢复资产完成端到端恢复、验真和临时材料销毁，不得用 fixture 或 signer 自测代替。
+
+完整灾备演练建议至少每 30 天一次。逾期不阻塞普通 frontend、plugin-package 或无恢复链变化的应用发布，但必须在报告中明确 `full_gate_status=overdue`；恢复链、备份格式或恢复信任链自身发生变化时，逾期演练成为 blocker。
 
 ## 运维资产
 

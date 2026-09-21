@@ -90,6 +90,23 @@ RackNerd -> PostgreSQL + Redis + 加密备份源
 
 详细分类和构建规则见 [change-classification-and-build.md](references/change-classification-and-build.md)。VM 的连接隔离和测试清单见 [dev-validation.md](references/dev-validation.md)。
 
+## 三层发布门禁
+
+所有实际发布先按最终 diff 选择门禁层级；下列时间是正常情况下的额外预算，不是强制超时，也不能用于终止仍在健康推进的 runner：
+
+| 层级 | 稳定名称 | 触发范围 | 预计额外时间 | 阻塞语义 |
+| --- | --- | --- | --- | --- |
+| L1 | `fast` | 每次应用、插件或运维资产发布 | 0–2 分钟 | 必须通过；只做静态合同、身份、语法、引用和定向快速检查 |
+| L2 | `specialized` | migration、PostgreSQL/Redis、Compose、备份格式、restore/cleanup/reconcile、ingress 事务、发布状态机或 helper 变化 | 5–15 分钟 | 对命中范围的发布必须通过；在 VM/隔离环境执行生产快照恢复和受影响链路验证 |
+| L3 | `full` | 定期完整灾备演练；恢复链重大变化或真实恢复事故后追加 | 20–60 分钟 | 不阻塞普通发布；本次修改恢复链、备份格式或恢复信任链时升级为发布前硬门禁 |
+
+- `full` 建议至少每 30 天执行一次，并记录 `last_full_drill_at`、`next_full_drill_due_at` 和实测 RTO。逾期只对普通发布告警，不得伪造成已演练；对恢复链自身变更则必须先完成当次完整演练。
+- `fast`、`specialized`、`full` 是叠加关系，不替代既有变更分类、VM Gate、签名 Gate、备份、迁移和生产验收。
+- 恢复 helper 必须作为原子版本单元记录完整 commit 与 bundle SHA-256，至少包含 orchestrator、restore、cleanup 和 reconcile；禁止新 supervisor 调用事故 release 内的旧 helper。
+- 协调恢复按 PostgreSQL、Redis、Compose、应用健康、Nginx、备份 units、claim reconciliation 和 state cleanup 保存幂等 checkpoint。已完成阶段只能复核后跳过，不得重复恢复数据。
+- `verify-result` 只验真候选成功上线；恢复旧版本必须使用独立的 `verify-recovery-result`，不得放宽或复用候选验真器。
+- `--recovery-gate-mode full` 只显式选择完整门禁的 VM 恢复部分，并绑定 `full` 分类、真实生产恢复包和旧镜像兼容检查；它不等于已经完成生产级灾备故障注入。完整定期演练仍按备份与恢复 reference 执行独立运维步骤并记录 `drill_id`、RTO 和最终验真。
+
 ## 执行顺序
 
 1. 读取强制 reference，执行 `git rev-parse --verify` 校验目标 commit，检查 Git 状态并记录完整 commit SHA。
@@ -141,7 +158,7 @@ python .agents/skills/sub2api-production-deploy/scripts/release.py wait <release
 python .agents/skills/sub2api-production-deploy/scripts/release.py verify-result <release_id>
 ```
 
-`doctor` 和 `bootstrap-production` 可独立用于诊断和首次初始化；日常只执行 `deploy-start`。它启动的 worker 必须先检查本地、VM 与外部节点，再幂等 bootstrap RackNerd，最后检查 RackNerd；通过后才在 VM 唯一构建 candidate，并完成 VM 本地 PostgreSQL、Redis、`data-dev` 的正向迁移和真实恢复。只有 VM 签名 Gate 验证通过后，才允许向 RackNerd 传输同一 image ID。RackNerd 不得重新构建 candidate。
+`doctor` 和 `bootstrap-production` 可独立用于诊断和首次初始化；日常只执行 `deploy-start`。它启动的 worker 必须先检查本地、VM 与外部节点，再幂等 bootstrap RackNerd，最后检查 RackNerd；通过后才在 VM 唯一构建 candidate。`fast` 使用 VM 本地隔离 PostgreSQL、Redis 和 `data-dev` 完成候选检查，不准备或恢复生产恢复包；`specialized` 与显式 `full` 才传输真实生产恢复包和旧生产镜像，并执行 PostgreSQL/Redis 恢复及旧镜像兼容检查。只有 VM 签名 Gate 验证通过后，才允许向 RackNerd 传输同一 candidate image ID。RackNerd 不得重新构建 candidate。
 
 独立插件包使用同一入口文件下的插件专属命令，不复用宿主 `deploy-*` 状态或 image Gate：
 

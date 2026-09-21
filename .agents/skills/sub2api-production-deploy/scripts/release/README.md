@@ -12,11 +12,40 @@ python .agents/skills/sub2api-production-deploy/scripts/release.py bootstrap-pro
 python .agents/skills/sub2api-production-deploy/scripts/release.py deploy-follow --profile <profile> --commit <40位完整SHA> --mode blue-green|downtime --lang zh-CN
 python .agents/skills/sub2api-production-deploy/scripts/release.py follow <release_id> --lang zh-CN
 python .agents/skills/sub2api-production-deploy/scripts/release.py deploy-start --profile <profile> --commit <40位完整SHA> --mode blue-green|downtime
+python .agents/skills/sub2api-production-deploy/scripts/release.py deploy-follow --profile <profile> --commit <40位完整SHA> --mode blue-green|downtime --recovery-gate-mode full --lang zh-CN
 python .agents/skills/sub2api-production-deploy/scripts/release.py status <release_id>
 python .agents/skills/sub2api-production-deploy/scripts/release.py wait <release_id> --timeout 900
 python .agents/skills/sub2api-production-deploy/scripts/release.py verify-result <release_id>
 python .agents/skills/sub2api-production-deploy/scripts/release.py logs <release_id> --node all --tail 100
 ```
+
+## 三层发布门禁
+
+三层门禁叠加到现有变更分类，不替代 VM Gate、签名 Gate、备份或生产验收：
+
+| 层级 | 预计额外时间 | 触发规则 |
+| --- | --- | --- |
+| `fast` | 0–2 分钟 | 每次实际发布；完整 SHA、分类、语法、引用、helper bundle 和定向快速检查 |
+| `specialized` | 5–15 分钟 | migration、PG/Redis、Compose、backup、restore/cleanup/reconcile、ingress 或发布状态机变化 |
+| `full` | 20–60 分钟 | 至少每 30 天完整演练；恢复链重大变化或真实事故修复时发布前强制 |
+
+`full` 逾期不阻塞普通发布，但必须报告 `overdue`；恢复链、备份格式或恢复信任链自身变化时，未通过 `full` 不得进入生产。时间预算不是 timeout，不授权杀死仍在推进的 runner。
+
+默认 `--recovery-gate-mode auto` 根据生产完整 commit、最终 diff 和 pending migration 在 `fast`/`specialized` 间分类。显式 `--recovery-gate-mode full` 会执行并签名完整门禁的 VM 恢复部分，但不会自动完成生产级故障注入、独立 `drill_id`、RTO 测量或灾备演练收口；这些仍按备份恢复运维步骤单独执行。
+
+协调恢复命令链为：
+
+```text
+python .agents/skills/sub2api-production-deploy/scripts/release.py reconcile-inspect <release_id>
+python .agents/skills/sub2api-production-deploy/scripts/release.py reconcile <release_id> --mode coordinated-recover
+python .agents/skills/sub2api-production-deploy/scripts/release.py status <release_id>
+python .agents/skills/sub2api-production-deploy/scripts/release.py wait <release_id> --timeout 900
+python .agents/skills/sub2api-production-deploy/scripts/release.py verify-recovery-result <release_id>
+```
+
+`verify-result` 只验证候选上线；`verify-recovery-result` 只验证恢复旧版本。不得放宽或复用 `verify-result` 接受 recovered release。
+
+恢复 orchestrator、restore、cleanup 和 reconcile 作为同一 helper bundle 记录完整 commit 与 SHA-256。恢复按 `postgres_restored`、`redis_restored`、`compose_restored`、`app_healthy`、`nginx_restored`、`backup_units_restored`、`claim_reconciled`、`state_cleanup` 幂等续跑；已完成阶段复核后跳过，不能因 cleanup 中断而重复恢复数据库。
 
 独立 `.s2plugin` 发布入口：
 
@@ -98,7 +127,8 @@ python .agents/skills/sub2api-production-deploy/scripts/release.py cleanup-produ
 
 ```text
 VM 唯一构建 candidate
-  -> VM 本地 PostgreSQL/Redis/data-dev 迁移与恢复验证
+  -> fast: VM 本地隔离 PostgreSQL/Redis/data-dev 候选检查
+  -> specialized/full: 额外恢复真实生产 PostgreSQL/Redis 快照并验证旧镜像兼容
   -> VM 签名 Gate
   -> RackNerd 验签并导入同一镜像
   -> 在线保存 release state、持久 mask、协调恢复点和异地校验

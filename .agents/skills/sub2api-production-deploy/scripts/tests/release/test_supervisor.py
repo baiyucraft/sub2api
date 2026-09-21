@@ -256,6 +256,154 @@ class SupervisorTest(unittest.TestCase):
             result = supervisor.verified_result_view(identifier)
         self.assertEqual(result["status"], "verified")
 
+    def recovered_release(self, identifier: str, *, stage: str = "recovered_after_coordinated_restore") -> tuple[Path, dict, str, str]:
+        run_dir = self.minimum_release(identifier)
+        candidate = "sha256:" + "b" * 64
+        restored = "sha256:" + "a" * 64
+        self.write(identifier, "runner.json", {"status": "recovered", "pid": 123, "process_token": "token", "exit_code": 1})
+        self.write(identifier, "state.json", {"release_id": identifier, "stage": "vm_validate", "status": "verified"})
+        self.write(identifier, "release-state.json", {"release_id": identifier, "stage": "production_release", "status": "recovered"})
+        evidence = {"release_claim_reconciled": "true", "plaintext_state_removed": "true"}
+        if stage == "recovered_after_coordinated_restore":
+            evidence.update({
+                "backup_units_restored": "true",
+                "restored_image_id": restored,
+                "coordinated_restore": "verified",
+                "application_health": "pass",
+            })
+        self.write(identifier, "gate/production-result.json", {
+            "release_id": identifier,
+            "stage": stage,
+            "status": "recovered",
+            "history": [{"stage": stage, "evidence": evidence}],
+        })
+        document = {
+            "manifest": {"release_id": identifier, "profile": "198", "commit_sha": "a" * 40, "deployment_mode": "blue-green"},
+            "evidence": {"candidate_image_id": candidate},
+        }
+        return run_dir, document, candidate, restored
+
+    def test_verify_result_remains_candidate_only(self) -> None:
+        identifier = "198-aaaaaaaaaaaa-1-deadbeef"
+        self.recovered_release(identifier)
+        with mock.patch.object(supervisor, "_runner_alive", return_value=False):
+            with self.assertRaisesRegex(RuntimeError, "not successfully terminal"):
+                supervisor.verified_result_view(identifier)
+
+    def test_recovered_result_accepts_independently_verified_recovery(self) -> None:
+        identifier = "198-aaaaaaaaaaaa-1-deadbeef"
+        _, document, candidate, restored = self.recovered_release(identifier)
+        ssh = mock.Mock()
+        ssh.run.return_value.values = {
+            "recovery_marker_verified": "true",
+            "release_claim_reconciled": "true",
+            "active_slot_verified": "true",
+            "application_health": "pass",
+            "nginx_active": "true",
+            "backup_timer_enabled": "true",
+            "backup_timer_active": "true",
+            "candidate_absent": "true",
+            "running_image_id": restored,
+        }
+        with mock.patch.object(supervisor, "_runner_alive", return_value=False), mock.patch.object(
+            supervisor, "verify_gate", return_value=document
+        ), mock.patch.object(supervisor, "SSHRunner", return_value=ssh):
+            result = supervisor.recovered_result_view(identifier)
+
+        self.assertEqual(result, {
+            "release_id": identifier,
+            "status": "recovered",
+            "recovery_stage": "recovered_after_coordinated_restore",
+            "candidate_image_id": candidate,
+            "running_image_id": restored,
+            "claim_final_state": "recovered",
+        })
+        script = ssh.run.call_args.args[1]
+        self.assertIn('grep -Fxq release_id=198-aaaaaaaaaaaa-1-deadbeef "$recovered/marker"', script)
+        self.assertIn("sha256sum -c CLAIM_SHA256SUMS", script)
+        self.assertIn('test "$active_slot_image_id" = "$running_image_id"', script)
+        self.assertIn("systemctl is-active sub2api-backup.timer", script)
+        self.assertIn("running_image_id", ssh.run.call_args.args[2])
+
+    def test_recovered_result_merges_prior_coordinated_restore_evidence(self) -> None:
+        identifier = "198-aaaaaaaaaaaa-1-deadbeef"
+        _, document, _, restored = self.recovered_release(identifier)
+        production = json.loads((self.root / identifier / "gate" / "production-result.json").read_text(encoding="utf-8"))
+        production["history"].append({
+            "stage": "recovered_after_coordinated_restore",
+            "evidence": {
+                "backup_units_restored": "true",
+                "release_claim_reconciled": "true",
+                "plaintext_state_removed": "true",
+            },
+        })
+        self.write(identifier, "gate/production-result.json", production)
+        ssh = mock.Mock()
+        ssh.run.return_value.values = {
+            "recovery_marker_verified": "true",
+            "release_claim_reconciled": "true",
+            "active_slot_verified": "true",
+            "application_health": "pass",
+            "nginx_active": "true",
+            "backup_timer_enabled": "true",
+            "backup_timer_active": "true",
+            "candidate_absent": "true",
+            "running_image_id": restored,
+        }
+        with mock.patch.object(supervisor, "_runner_alive", return_value=False), mock.patch.object(
+            supervisor, "verify_gate", return_value=document
+        ), mock.patch.object(supervisor, "SSHRunner", return_value=ssh):
+            result = supervisor.recovered_result_view(identifier)
+
+        self.assertEqual(result["running_image_id"], restored)
+
+    def test_recovered_result_rejects_invalid_restored_image_before_ssh(self) -> None:
+        identifier = "198-aaaaaaaaaaaa-1-deadbeef"
+        _, document, _, _ = self.recovered_release(identifier)
+        production = json.loads((self.root / identifier / "gate" / "production-result.json").read_text(encoding="utf-8"))
+        production["history"][0]["evidence"]["restored_image_id"] = "invalid"
+        self.write(identifier, "gate/production-result.json", production)
+        with mock.patch.object(supervisor, "_runner_alive", return_value=False), mock.patch.object(
+            supervisor, "verify_gate", return_value=document
+        ), mock.patch.object(supervisor, "SSHRunner") as ssh:
+            with self.assertRaisesRegex(RuntimeError, "restored image is invalid"):
+                supervisor.recovered_result_view(identifier)
+        ssh.assert_not_called()
+
+    def test_recovered_result_rejects_missing_local_recovery_evidence(self) -> None:
+        identifier = "198-aaaaaaaaaaaa-1-deadbeef"
+        _, document, _, _ = self.recovered_release(identifier)
+        production = json.loads((self.root / identifier / "gate" / "production-result.json").read_text(encoding="utf-8"))
+        production["history"][0]["evidence"].pop("plaintext_state_removed")
+        self.write(identifier, "gate/production-result.json", production)
+        with mock.patch.object(supervisor, "_runner_alive", return_value=False), mock.patch.object(
+            supervisor, "verify_gate", return_value=document
+        ), mock.patch.object(supervisor, "SSHRunner") as ssh:
+            with self.assertRaisesRegex(RuntimeError, "recovery evidence is incomplete"):
+                supervisor.recovered_result_view(identifier)
+        ssh.assert_not_called()
+
+    def test_recovered_result_rejects_candidate_still_running(self) -> None:
+        identifier = "198-aaaaaaaaaaaa-1-deadbeef"
+        _, document, candidate, _ = self.recovered_release(identifier)
+        ssh = mock.Mock()
+        ssh.run.return_value.values = {
+            "recovery_marker_verified": "true",
+            "release_claim_reconciled": "true",
+            "active_slot_verified": "true",
+            "application_health": "pass",
+            "nginx_active": "true",
+            "backup_timer_enabled": "true",
+            "backup_timer_active": "true",
+            "candidate_absent": "false",
+            "running_image_id": candidate,
+        }
+        with mock.patch.object(supervisor, "_runner_alive", return_value=False), mock.patch.object(
+            supervisor, "verify_gate", return_value=document
+        ), mock.patch.object(supervisor, "SSHRunner", return_value=ssh):
+            with self.assertRaisesRegex(RuntimeError, "remote recovery evidence is incomplete"):
+                supervisor.recovered_result_view(identifier)
+
     def test_claim_only_interruption_decision(self) -> None:
         identifier = "198-aaaaaaaaaaaa-1-deadbeef"
         run_dir = self.minimum_release(identifier)

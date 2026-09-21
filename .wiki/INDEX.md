@@ -1,7 +1,7 @@
 ---
 title: Sub2API 项目 Wiki
 description: Sub2API AI API 网关的开发、运行和接口知识入口
-updated: 2026-08-24
+updated: 2026-09-21
 owner: project
 ---
 
@@ -35,6 +35,7 @@ Sub2API 是面向订阅配额分发和管理的 AI API 网关，负责 API Key �
 - [数据与任务](./03-模块指南/04-数据与任务.md)
 - [分叉扩展与兼容性](./03-模块指南/05-分叉扩展与兼容性.md)
 - [OpenAI OAuth 账号代理组](./03-模块指南/09-OpenAI-OAuth账号代理组.md)
+- [发布与协调恢复](./03-模块指南/10-发布与协调恢复.md)
 
 ## 维护入口
 

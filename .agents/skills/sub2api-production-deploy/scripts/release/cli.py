@@ -26,6 +26,8 @@ from .production_bootstrap import bootstrap_production
 from .migration_planner import plan_migrations
 from .production_snapshot import decode_snapshot, snapshot_sha256
 from .process import run_hidden
+from .recovery_gate import classify as classify_recovery_gate
+from .recovery_gate import require_full, require_specialized, unproven_report
 from .state import TERMINAL_STATES, RunLock, RunState
 
 
@@ -38,6 +40,24 @@ from release_logging.retention import ReleaseLogRecord, build_retention_plan, ve
 
 
 DEPLOYMENT_MODES = ("blue-green", "downtime")
+
+
+def _recovery_gate_report(
+    commit: str,
+    production_snapshot: dict,
+    migration_catalog: list[dict[str, str]],
+    requested_mode: str = "auto",
+) -> dict:
+    base_commit = production_snapshot.get("production_current_commit_sha") or None
+    report = classify_recovery_gate(WORKSPACE, base_commit, commit)
+    plan = plan_migrations(migration_catalog, production_snapshot.get("schema_migrations", []))
+    if plan.get("pending"):
+        report = require_specialized(report, "pending_migrations")
+    if requested_mode == "full":
+        report = require_full(report)
+    elif requested_mode != "auto":
+        raise ValueError("recovery Gate mode must be auto or full")
+    return report
 
 
 def _deployment_mode(args: argparse.Namespace | None = None, manifest: dict | None = None) -> str:
@@ -213,7 +233,7 @@ def prepare_pre_gate_inputs(runner, identifier: str, image_id: str) -> tuple[Pat
         raise
 
 
-def create_vm_gate(profile_name: str, commit: str, deployment_mode: str, identifier: str | None = None, acquire_lock: bool = True, production_current_image_id: str | None = None, production_snapshot: dict | None = None, pre_gate_input: Path | None = None) -> Path:
+def create_vm_gate(profile_name: str, commit: str, deployment_mode: str, identifier: str | None = None, acquire_lock: bool = True, production_current_image_id: str | None = None, production_snapshot: dict | None = None, pre_gate_input: Path | None = None, recovery_gate: dict | None = None) -> Path:
     # Historical profiles remain constructible for audit/old-package checks;
     # ProductionRelease rejects their Gate v1 documents for new publishing.
     profile = get_profile(profile_name)
@@ -256,12 +276,17 @@ def create_vm_gate(profile_name: str, commit: str, deployment_mode: str, identif
                 raise RuntimeError("immutable production snapshot differs from release workspace")
         else:
             atomic_write(production_snapshot_path, snapshot_bytes, 0o400)
-        if pre_gate_input is None or not pre_gate_input.is_file() or pre_gate_input.is_symlink():
-            raise RuntimeError("Gate v2 pre-Gate restore input is missing")
-        if pre_gate_input_path.exists() or pre_gate_input_path.is_symlink():
-            raise RuntimeError("Gate v2 pre-Gate restore input path is unsafe")
-        shutil.copyfile(pre_gate_input, pre_gate_input_path)
-        manifest = bind_production_snapshot(manifest, production_current_image_id, snapshot_digest)
+        recovery_gate = recovery_gate or unproven_report(commit)
+        gate_mode = str(recovery_gate.get("mode", ""))
+        if gate_mode in {"specialized", "full"}:
+            if pre_gate_input is None or not pre_gate_input.is_file() or pre_gate_input.is_symlink():
+                raise RuntimeError("recovery Gate pre-Gate restore input is missing")
+            if pre_gate_input_path.exists() or pre_gate_input_path.is_symlink():
+                raise RuntimeError("recovery Gate pre-Gate restore input path is unsafe")
+            shutil.copyfile(pre_gate_input, pre_gate_input_path)
+        elif gate_mode != "fast":
+            raise RuntimeError("Gate v2 recovery classification is missing or invalid")
+        manifest = bind_production_snapshot(manifest, production_current_image_id, snapshot_digest, recovery_gate)
         atomic_write(manifest_path, canonical_json(manifest) + b"\n", 0o600)
     if manifest.get("deployment_mode") != deployment_mode:
         raise RuntimeError("immutable manifest deployment mode does not match")
@@ -335,11 +360,19 @@ def vm_validate(args: argparse.Namespace) -> None:
             production_doctor = doctor.run(("racknerd",), require_ingress_policy=False)
             production_snapshot = decode_snapshot(production_doctor["production_snapshot_b64"])
             production_image_id = str(production_doctor.get("production_current_image_id", ""))
-            pre_gate_input, rack_pre_gate_dir, vm_pre_gate_dir = prepare_pre_gate_inputs(
-                runner,
-                identifier,
-                production_image_id,
+            current_manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+            recovery_gate = _recovery_gate_report(
+                args.commit,
+                production_snapshot,
+                current_manifest.get("migration_catalog", []),
+                getattr(args, "recovery_gate_mode", "auto"),
             )
+            if recovery_gate["mode"] != "fast":
+                pre_gate_input, rack_pre_gate_dir, vm_pre_gate_dir = prepare_pre_gate_inputs(
+                    runner,
+                    identifier,
+                    production_image_id,
+                )
             logger.emit(stage="vm_preflight", script="release.cli", event="stage_finished", message="VM Gate v2 preflight verified", exit_code=0)
             gate = create_vm_gate(
                 args.profile,
@@ -350,6 +383,7 @@ def vm_validate(args: argparse.Namespace) -> None:
                 production_current_image_id=production_image_id,
                 production_snapshot=production_snapshot,
                 pre_gate_input=pre_gate_input,
+                recovery_gate=recovery_gate,
             )
         except BaseException as error:
             latest_state = RunState.load(state.path)
@@ -440,19 +474,28 @@ def deploy(args: argparse.Namespace, acquire_lock: bool = True) -> None:
         profile_for_deploy = get_profile(args.profile)
         if profile_for_deploy.get("gate_schema") == 2:
             production_snapshot = decode_snapshot(production_doctor["production_snapshot_b64"])
-            pre_gate_input, rack_pre_gate_dir, vm_pre_gate_dir = prepare_pre_gate_inputs(
-                runner,
-                identifier,
-                str(production_doctor.get("production_current_image_id", "")),
+            current_manifest = json.loads((RUN_ROOT / identifier / "manifest.json").read_text(encoding="utf-8"))
+            recovery_gate = _recovery_gate_report(
+                args.commit,
+                production_snapshot,
+                current_manifest.get("migration_catalog", []),
+                getattr(args, "recovery_gate_mode", "auto"),
             )
+            if recovery_gate["mode"] != "fast":
+                pre_gate_input, rack_pre_gate_dir, vm_pre_gate_dir = prepare_pre_gate_inputs(
+                    runner,
+                    identifier,
+                    str(production_doctor.get("production_current_image_id", "")),
+                )
         else:
             production_snapshot = None
+            recovery_gate = None
             pre_gate_input = None
             rack_pre_gate_dir = vm_pre_gate_dir = None
         if logger:
             logger.emit(stage="doctor", script="release.cli", event="stage_finished", message="Production doctor verified", exit_code=0)
         try:
-            gate = create_vm_gate(args.profile, args.commit, deployment_mode, identifier=identifier, acquire_lock=False, production_current_image_id=production_doctor.get("production_current_image_id"), production_snapshot=production_snapshot, pre_gate_input=pre_gate_input)
+            gate = create_vm_gate(args.profile, args.commit, deployment_mode, identifier=identifier, acquire_lock=False, production_current_image_id=production_doctor.get("production_current_image_id"), production_snapshot=production_snapshot, pre_gate_input=pre_gate_input, recovery_gate=recovery_gate)
         finally:
             if rack_pre_gate_dir and vm_pre_gate_dir and pre_gate_input:
                 runner.run("racknerd", f"rm -rf {shlex.quote(rack_pre_gate_dir)} && printf 'pre_gate_input_removed=true\\n'", {"pre_gate_input_removed"})
@@ -663,6 +706,7 @@ def main() -> None:
     validate_parser.add_argument("--profile", default=CURRENT_RELEASE_PROFILE)
     validate_parser.add_argument("--commit", required=True)
     validate_parser.add_argument("--mode", dest="deployment_mode", choices=DEPLOYMENT_MODES, required=True)
+    validate_parser.add_argument("--recovery-gate-mode", choices=("auto", "full"), default="auto")
     validate_parser.set_defaults(handler=vm_validate)
     vm_only_validate_parser = subparsers.add_parser("vm-only-validate")
     vm_only_validate_parser.add_argument("--profile", default=CURRENT_RELEASE_PROFILE)
@@ -676,6 +720,7 @@ def main() -> None:
     deploy_parser.add_argument("--profile", default=CURRENT_RELEASE_PROFILE)
     deploy_parser.add_argument("--commit", required=True)
     deploy_parser.add_argument("--mode", dest="deployment_mode", choices=DEPLOYMENT_MODES)
+    deploy_parser.add_argument("--recovery-gate-mode", choices=("auto", "full"), default="auto")
     deploy_parser.set_defaults(handler=deploy)
     release_parser = subparsers.add_parser("release")
     release_parser.add_argument("--profile", default=CURRENT_RELEASE_PROFILE)
@@ -696,11 +741,13 @@ def main() -> None:
     start_parser.add_argument("--profile", default=CURRENT_RELEASE_PROFILE)
     start_parser.add_argument("--commit", required=True)
     start_parser.add_argument("--mode", dest="deployment_mode", choices=DEPLOYMENT_MODES)
+    start_parser.add_argument("--recovery-gate-mode", choices=("auto", "full"), default="auto")
     start_parser.set_defaults(handler=lambda args: __import__("release.supervisor", fromlist=["start"]).start(args))
     follow_start_parser = subparsers.add_parser("deploy-follow")
     follow_start_parser.add_argument("--profile", default=CURRENT_RELEASE_PROFILE)
     follow_start_parser.add_argument("--commit", required=True)
     follow_start_parser.add_argument("--mode", dest="deployment_mode", choices=DEPLOYMENT_MODES)
+    follow_start_parser.add_argument("--recovery-gate-mode", choices=("auto", "full"), default="auto")
     follow_start_parser.add_argument("--lang", choices=("zh-CN",), default="zh-CN")
     follow_start_parser.add_argument("--heartbeat", type=int, default=60)
     follow_start_parser.set_defaults(handler=lambda args: __import__("release.observer", fromlist=["deploy_follow"]).deploy_follow(args))
@@ -716,6 +763,9 @@ def main() -> None:
     verify_parser = subparsers.add_parser("verify-result")
     verify_parser.add_argument("release_id")
     verify_parser.set_defaults(handler=lambda args: __import__("release.supervisor", fromlist=["verify_result"]).verify_result(args))
+    verify_recovery_parser = subparsers.add_parser("verify-recovery-result")
+    verify_recovery_parser.add_argument("release_id")
+    verify_recovery_parser.set_defaults(handler=lambda args: __import__("release.supervisor", fromlist=["verify_recovery_result"]).verify_recovery_result(args))
     cleanup_parser = subparsers.add_parser("cleanup-production")
     cleanup_parser.add_argument("release_id")
     cleanup_parser.add_argument("--mode", choices=("dry-run", "apply"), default="dry-run")
@@ -739,6 +789,7 @@ def main() -> None:
     worker_parser.add_argument("--commit", required=True)
     worker_parser.add_argument("--release-id", required=True)
     worker_parser.add_argument("--mode", dest="deployment_mode", choices=DEPLOYMENT_MODES, required=True)
+    worker_parser.add_argument("--recovery-gate-mode", choices=("auto", "full"), default="auto")
     worker_parser.set_defaults(handler=lambda args: __import__("release.supervisor", fromlist=["worker"]).worker(args))
     from .plugin_cli import register_commands as register_plugin_commands
     register_plugin_commands(subparsers)
