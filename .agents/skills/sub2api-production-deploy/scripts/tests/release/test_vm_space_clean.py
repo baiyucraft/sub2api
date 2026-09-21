@@ -185,6 +185,36 @@ class VMSpaceCleanTest(unittest.TestCase):
         self.assertLess(validator.index('rm -f -- "$compatibility_path"'), validator.index('mark_v2_stage candidate_build'))
         self.assertLess(validator.index('rm -f -- "$recovery_path"'), validator.index('docker exec -i sub2api-postgres /bin/sh -lc'))
 
+    def test_redis_restore_probe_is_validated_and_diagnosed_before_cleanup(self) -> None:
+        validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
+        self.assertIn("write_redis_probe_diagnostics()", validator)
+        self.assertIn("redis-check-rdb", validator)
+        self.assertIn("rdb_validation_failed", validator)
+        self.assertIn('redis-probe-diagnostics', validator)
+        for field in (
+            "container_status",
+            "exit_code",
+            "oom_killed",
+            "health_status",
+            "redis_ping",
+            "redis_loading",
+            "log_bytes",
+            "log_error_lines",
+            "log_loading_lines",
+        ):
+            self.assertIn(f"printf '{field}=", validator)
+        self.assertIn('redis_wait_seconds=$((180 + (redis_rdb_bytes / 10485760) * 60))', validator)
+        self.assertIn('(( redis_wait_seconds > 600 )) && redis_wait_seconds=600', validator)
+        self.assertLess(
+            validator.index(': > "$state_dir/validator.stderr"'),
+            validator.index('on_v2_failure()'),
+        )
+        self.assertLess(
+            validator.index('write_redis_probe_diagnostics "$probe_redis" "$redis_probe_diagnostics"'),
+            validator.index('wait_for_redis_ready "$probe_redis" "$redis_wait_seconds"'),
+        )
+        self.assertIn('wait_for_redis_ready "$probe_redis" 180 "$state_dir/redis-probe-diagnostics"', validator)
+
 
 if __name__ == "__main__":
     unittest.main()

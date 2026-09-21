@@ -11,18 +11,75 @@ docker info >/dev/null 2>&1
 git --version >/dev/null 2>&1
 
 wait_for_redis_ready() {
-  local container=$1 max_seconds=${2:-180}
+  local container=$1 max_seconds=${2:-180} diagnostics_path=${3:-}
   local state loading ping
   for _ in $(seq 1 "$max_seconds"); do
     state=$(docker inspect -f '{{.State.Status}}' "$container" 2>/dev/null || true)
-    [[ "$state" == running ]] || return 1
+    if [[ "$state" != running ]]; then
+      [[ -z "$diagnostics_path" ]] || write_redis_probe_diagnostics "$container" "$diagnostics_path" container_not_running "$max_seconds"
+      return 1
+    fi
     ping=$(docker exec "$container" redis-cli PING 2>/dev/null | tr -d '\r' || true)
     [[ "$ping" == PONG ]] && return 0
+    if [[ "$ping" == NOAUTH* || "$ping" == ERR* ]]; then
+      [[ -z "$diagnostics_path" ]] || write_redis_probe_diagnostics "$container" "$diagnostics_path" redis_command_rejected "$max_seconds"
+      return 1
+    fi
     loading=$(docker exec "$container" redis-cli INFO persistence 2>/dev/null | sed -n 's/^loading:\([01]\)\r*$/\1/p' || true)
-    [[ -z "$loading" || "$loading" == 1 ]] || return 1
+    if [[ -n "$loading" && "$loading" != 1 ]]; then
+      [[ -z "$diagnostics_path" ]] || write_redis_probe_diagnostics "$container" "$diagnostics_path" redis_reported_not_loading "$max_seconds"
+      return 1
+    fi
     sleep 1
   done
+  [[ -z "$diagnostics_path" ]] || write_redis_probe_diagnostics "$container" "$diagnostics_path" startup_timeout "$max_seconds"
   return 1
+}
+
+write_redis_probe_diagnostics() {
+  local container=$1 path=$2 reason=$3 wait_seconds=$4
+  local state=absent exit_code=unknown oom_killed=unknown health=none restart_count=unknown
+  local ping_result=unavailable loading=unknown log_bytes=0 log_error_lines=0 log_loading_lines=0
+  local log_file=
+  state=$(docker inspect -f '{{.State.Status}}' "$container" 2>/dev/null || true)
+  [[ -n "$state" ]] || state=absent
+  exit_code=$(docker inspect -f '{{.State.ExitCode}}' "$container" 2>/dev/null || true)
+  [[ -n "$exit_code" ]] || exit_code=unknown
+  oom_killed=$(docker inspect -f '{{.State.OOMKilled}}' "$container" 2>/dev/null || true)
+  [[ -n "$oom_killed" ]] || oom_killed=unknown
+  health=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$container" 2>/dev/null || true)
+  [[ -n "$health" ]] || health=unknown
+  restart_count=$(docker inspect -f '{{.RestartCount}}' "$container" 2>/dev/null || true)
+  [[ -n "$restart_count" ]] || restart_count=unknown
+  ping_result=$(docker exec "$container" redis-cli PING 2>/dev/null | tr -d '\r\n' | cut -c1-80 || true)
+  [[ -n "$ping_result" ]] || ping_result=unavailable
+  loading=$(docker exec "$container" redis-cli INFO persistence 2>/dev/null | sed -n 's/^loading:\([01]\)\r*$/\1/p' | head -n1 || true)
+  [[ -n "$loading" ]] || loading=unknown
+  log_file=$(mktemp 2>/dev/null || true)
+  if [[ -n "$log_file" ]]; then
+    docker logs --tail 200 "$container" >"$log_file" 2>&1 || true
+    log_bytes=$(wc -c <"$log_file" | tr -d '[:space:]')
+    log_error_lines=$(grep -Eic 'error|fatal|panic|permission denied|unknown option|invalid' "$log_file" || true)
+    log_loading_lines=$(grep -Eic 'loading|rdb|aof' "$log_file" || true)
+    rm -f -- "$log_file"
+  fi
+  {
+    printf 'reason=%s\n' "$reason"
+    printf 'wait_seconds=%s\n' "$wait_seconds"
+    printf 'container_status=%s\n' "$state"
+    printf 'exit_code=%s\n' "$exit_code"
+    printf 'oom_killed=%s\n' "$oom_killed"
+    printf 'health_status=%s\n' "$health"
+    printf 'restart_count=%s\n' "$restart_count"
+    printf 'redis_ping=%s\n' "$ping_result"
+    printf 'redis_loading=%s\n' "$loading"
+    printf 'log_bytes=%s\n' "$log_bytes"
+    printf 'log_error_lines=%s\n' "$log_error_lines"
+    printf 'log_loading_lines=%s\n' "$log_loading_lines"
+  } >"$path.tmp"
+  chmod 600 "$path.tmp"
+  mv -T -- "$path.tmp" "$path"
+  chmod 400 "$path"
 }
 
 manifest=${1:?manifest path is required}
@@ -96,6 +153,9 @@ if [[ "$manifest_schema" == 2 ]]; then
   [[ "$output_dir" == "$state_dir/output" ]]
   [[ ! -e "$state_dir" && ! -L "$state_dir" ]]
   install -d -m 700 "$state_root" "$state_dir" "$output_dir"
+  : > "$state_dir/validator.stderr"
+  chmod 600 "$state_dir/validator.stderr"
+  exec 2>"$state_dir/validator.stderr"
   install -m 400 "$manifest" "$state_dir/manifest.json"
   manifest="$state_dir/manifest.json"
   printf '%s\n' preflight > "$state_dir/stage"
@@ -253,17 +313,27 @@ SQL
   sed -i '/^database:/,/^[^[:space:]]/ s/^[[:space:]]*host:[[:space:]]*.*/  host: sub2api-postgres/' "$probe_dir/config.yaml"
   redis_image=$(docker inspect -f '{{.Config.Image}}' sub2api-redis)
   redis_volume_args=()
+  redis_probe_diagnostics="$state_dir/redis-probe-diagnostics"
+  redis_wait_seconds=180
   if [[ "$recovery_gate_mode" != fast ]]; then
     install -d -m 700 "$probe_redis_data"
     install -m 600 "$recovery_dir/redis/dump.rdb" "$probe_redis_data/dump.rdb"
+    if ! docker run --rm --entrypoint redis-check-rdb -v "$probe_redis_data/dump.rdb:/tmp/probe.rdb:ro" "$redis_image" /tmp/probe.rdb >/dev/null 2>&1; then
+      write_redis_probe_diagnostics "$probe_redis" "$redis_probe_diagnostics" rdb_validation_failed "$redis_wait_seconds"
+      exit 1
+    fi
     redis_uid=$(docker run --rm --entrypoint sh "$redis_image" -lc 'id -u redis 2>/dev/null || id -u' | tr -d '\r')
     redis_gid=$(docker run --rm --entrypoint sh "$redis_image" -lc 'id -g redis 2>/dev/null || id -g' | tr -d '\r')
     [[ "$redis_uid" =~ ^[0-9]+$ && "$redis_gid" =~ ^[0-9]+$ ]]
     chown -R "$redis_uid:$redis_gid" "$probe_redis_data"
     redis_volume_args=(-v "$probe_redis_data:/data")
+    redis_rdb_bytes=$(stat -c '%s' "$probe_redis_data/dump.rdb")
+    [[ "$redis_rdb_bytes" =~ ^[0-9]+$ ]]
+    redis_wait_seconds=$((180 + (redis_rdb_bytes / 10485760) * 60))
+    (( redis_wait_seconds > 600 )) && redis_wait_seconds=600
   fi
   docker run -d --name "$probe_redis" --network "$probe_network" --network-alias probe-redis "${redis_volume_args[@]}" "$redis_image" redis-server --save '' --appendonly no >/dev/null
-  wait_for_redis_ready "$probe_redis" 180
+  wait_for_redis_ready "$probe_redis" "$redis_wait_seconds" "$redis_probe_diagnostics"
   if [[ "$recovery_gate_mode" != fast ]]; then
     redis_backup_keys=$(sed -n 's/^redis_keys=//p' "$recovery_dir/manifest")
     redis_backup_expires=$(sed -n 's/^redis_expires=//p' "$recovery_dir/manifest")
@@ -572,6 +642,9 @@ install -d -m 700 "$state_root"
 exec 9>"$state_root/release.lock"
 flock -n 9
 install -d -m 700 "$state_dir" "$state_dir/backup" "$output_dir"
+: > "$state_dir/validator.stderr"
+chmod 600 "$state_dir/validator.stderr"
+exec 2>"$state_dir/validator.stderr"
 install -m 400 "$manifest" "$state_dir/manifest.json"
 manifest="$state_dir/manifest.json"
 mark_stage() {
@@ -815,7 +888,6 @@ on_failure() {
   exit "$code"
 }
 trap 'on_failure $LINENO' ERR INT TERM
-exec 2>"$state_dir/validator.stderr"
 
 mark_stage isolated_database
 install -d -m 700 "$probe_dir"
@@ -830,7 +902,7 @@ sed -i '/^database:/,/^[^[:space:]]/ s/^[[:space:]]*host:[[:space:]]*.*/  host: 
 
 mark_stage isolated_redis
 docker run -d --name "$probe_redis" --network "$probe_network" --network-alias probe-redis "$redis_image" redis-server --save '' --appendonly no >/dev/null 2>&1
-wait_for_redis_ready "$probe_redis" 180
+wait_for_redis_ready "$probe_redis" 180 "$state_dir/redis-probe-diagnostics"
 sed -i '/^redis:/,/^[^[:space:]]/ s/^[[:space:]]*host:[[:space:]]*.*/  host: probe-redis/' "$probe_dir/config.yaml"
 sed -i '/^redis:/,/^[^[:space:]]/ s/^[[:space:]]*port:[[:space:]]*.*/  port: 6379/' "$probe_dir/config.yaml"
 sed -i '/^redis:/,/^[^[:space:]]/ s/^[[:space:]]*password:[[:space:]]*.*/  password: ""/' "$probe_dir/config.yaml"
