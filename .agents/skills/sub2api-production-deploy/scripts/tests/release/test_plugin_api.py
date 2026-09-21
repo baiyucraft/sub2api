@@ -31,6 +31,7 @@ class FakeRunner:
             "local_vm": {"host": "192.168.31.199"},
         }
         self.uploads: list[tuple[str, Path, str, int]] = []
+        self.run_calls: list[dict[str, object]] = []
         self.sensitive_calls: list[dict[str, object]] = []
 
     def create_temp_dir(self, node: str, base: str, label: str) -> str:
@@ -40,6 +41,7 @@ class FakeRunner:
         ssh_module = importlib.import_module("release.ssh")
         if node != "racknerd" or set(allowed) != {"active_port"}:
             raise AssertionError("unexpected read-only slot lookup")
+        self.run_calls.append({"node": node, "script": script, "allowed": set(allowed), "timeout": timeout})
         return ssh_module.SSHResult({"active_port": "18081"})
 
     def upload_file(self, node: str, local_path: Path, remote_path: str, mode: int) -> None:
@@ -153,6 +155,21 @@ class PluginAPIContractTest(unittest.TestCase):
             client._base_urls("vm"),
             ["http://192.168.31.199:8211/api/v1"],
         )
+
+    def test_racknerd_slot_check_preserves_sed_backreference(self) -> None:
+        module = load_plugin_api()
+        runner = FakeRunner(result_values())
+        client = module.PluginAPIClient(runner)
+
+        self.assertEqual(
+            client._base_urls("racknerd"),
+            ["http://127.0.0.1:18081/api/v1", "http://127.0.0.1:18080/api/v1"],
+        )
+        self.assertEqual(len(runner.run_calls), 1)
+        script = runner.run_calls[0]["script"]
+        self.assertIsInstance(script, str)
+        self.assertIn(r"$/\1/p'", script)
+        self.assertNotIn("$/\x01/p'", script)
 
     def test_uncertain_write_is_reported_without_a_second_write_attempt(self) -> None:
         module = load_plugin_api()
