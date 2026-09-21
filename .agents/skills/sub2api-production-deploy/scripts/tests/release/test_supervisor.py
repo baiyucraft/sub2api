@@ -419,6 +419,39 @@ class SupervisorTest(unittest.TestCase):
         production = json.loads((self.root / identifier / "gate" / "production-result.json").read_text(encoding="utf-8"))
         self.assertEqual(production["status"], "recovered")
 
+    def test_coordinated_recovery_resumes_cleanup_without_restoring_data_again(self) -> None:
+        identifier = "198-aaaaaaaaaaaa-1-deadbeef"
+        self.minimum_release(identifier)
+        self.write(identifier, "runner.json", {"status": "blocked_reconciliation", "pid": 123, "process_token": "token", "exit_code": 1})
+        self.write(identifier, "release-state.json", {"schema": 1, "release_id": identifier, "stage": "production_release", "status": "blocked_reconciliation", "history": []})
+        self.write(identifier, "gate/production-result.json", {"release_id": identifier, "stage": "blocked_reconciliation", "status": "blocked_reconciliation", "history": []})
+        inspection = {
+            "decision": "coordinated_restore_required",
+            "runner_alive": False,
+            "ingress_transaction": "recovery_restored",
+            "app_health": "healthy",
+            "nginx_active": "true",
+            "backup_timer_enabled": "true",
+            "running_image_id": "sha256:" + "a" * 64,
+            "candidate_image_id": "sha256:" + "b" * 64,
+        }
+        ssh = mock.Mock()
+        ssh.run.return_value.values = {
+            "backup_units_restored": "true",
+            "release_claim_reconciled": "true",
+            "plaintext_state_removed": "true",
+            "state_cleanup": "recovery_point_preserved",
+        }
+
+        with mock.patch.object(supervisor, "_inspect_reconciliation", return_value=inspection), mock.patch.object(supervisor, "SSHRunner", return_value=ssh), mock.patch("builtins.print"):
+            supervisor.reconcile(argparse.Namespace(release_id=identifier, mode="coordinated-recover"))
+
+        ssh.create_temp_dir.assert_not_called()
+        ssh.upload_file.assert_not_called()
+        self.assertEqual(ssh.run.call_count, 1)
+        self.assertNotIn("coordinated-restore", ssh.run.call_args.args[1])
+        self.assertIn("cleanup-state.sh", ssh.run.call_args.args[1])
+
     def test_coordinated_recovery_rejects_active_runner(self) -> None:
         inspection = {"decision": "coordinated_restore_required", "runner_alive": True}
         with mock.patch.object(supervisor, "_inspect_reconciliation", return_value=inspection):

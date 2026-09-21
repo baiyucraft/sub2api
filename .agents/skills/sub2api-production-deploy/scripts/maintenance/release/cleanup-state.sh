@@ -32,7 +32,7 @@ assert_ingress_transaction_cleanup_state() {
       [[ ! -e $state_dir/nginx-recovery-restored && ! -L $state_dir/nginx-recovery-restored ]]
     else
       [[ -f $state_dir/nginx-recovery-restored && ! -L $state_dir/nginx-recovery-restored ]]
-      [[ ! -e $txn/applied && ! -L $txn/applied ]]
+      [[ ! -e $txn/rollback-complete && ! -L $txn/rollback-complete ]]
     fi
   fi
 }
@@ -53,6 +53,15 @@ assert_cleanup_state() {
     has_txn=true
     [[ -f $txn/applied ]] && has_applied=true
     [[ -f $txn/rollback-complete ]] && has_rollback=true
+  fi
+
+  # A coordinated restore writes nginx-recovery-restored only after restoring
+  # and validating the exact pre-release Nginx snapshot. The earlier ingress
+  # applied marker is then stale transaction history and can be consumed here.
+  if [[ $active_claim != "$release_dir/.consumed" && $has_recovery == true &&
+        $has_applied == true && $has_rollback == false ]]; then
+    rm -f -- "$txn/applied"
+    has_applied=false
   fi
 
   if [[ $active_claim == "$release_dir/.consumed" ]]; then
