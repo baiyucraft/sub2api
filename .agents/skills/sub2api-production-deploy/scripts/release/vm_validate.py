@@ -387,9 +387,15 @@ def main() -> None:
         if not production_snapshot_path.is_file() or production_snapshot_path.is_symlink():
             raise RuntimeError("Gate v2 immutable production snapshot is missing")
         runner.upload("local_vm", production_snapshot_path.read_bytes(), remote_snapshot, 0o400)
-        if not pre_gate_descriptor_path.is_file() or pre_gate_descriptor_path.is_symlink():
-            raise RuntimeError("Gate v2 pre-Gate restore descriptor is missing")
-        runner.upload_file("local_vm", pre_gate_descriptor_path, remote_pre_gate_descriptor, 0o400)
+        recovery_mode = (manifest.get("recovery_gate") or {}).get("mode")
+        if recovery_mode not in {"fast", "specialized", "full"}:
+            raise RuntimeError("Gate v2 recovery classification is missing or invalid")
+        if recovery_mode in {"specialized", "full"}:
+            if not pre_gate_descriptor_path.is_file() or pre_gate_descriptor_path.is_symlink():
+                raise RuntimeError("recovery Gate pre-Gate restore descriptor is missing")
+            runner.upload_file("local_vm", pre_gate_descriptor_path, remote_pre_gate_descriptor, 0o400)
+        else:
+            runner.upload("local_vm", b"{}\n", remote_pre_gate_descriptor, 0o400)
     else:
         runner.upload("local_vm", b"{}\n", remote_snapshot, 0o400)
         runner.upload("local_vm", b"{}\n", remote_pre_gate_descriptor, 0o400)

@@ -51,9 +51,10 @@ signed_gate_status: verified | fail | not_applicable | not_checked
 production_result_stage: production_verified | production_verified_after_reconciliation | value | not_applicable | not_checked
 production_result_status: verified | failed | recovered | blocked_reconciliation | not_applicable | not_checked
 reconciliation_status: not_required | resumed_candidate | coordinated_restore | blocked | not_checked
+recovery_verification_status: verified | fail | not_available | blocked | not_applicable | not_checked
 ```
 
-`production_result_stage` 是最后执行阶段，`production_result_status` 是顶层结论；二者不得互换。正式 reconciliation 成功时通常是 `stage=production_verified_after_reconciliation,status=verified`。原 deploy 非零仍必须保留在 `release_runner_exit`，不能被 reconciliation 的成功退出码覆盖。
+`production_result_stage` 是最后执行阶段，`production_result_status` 是顶层结论；二者不得互换。正式 reconciliation 继续候选成功时通常是 `stage=production_verified_after_reconciliation,status=verified`；协调恢复旧版本则是 `status=recovered`，并且必须由独立 `verify-recovery-result` 产生 `recovery_verification_status=verified`。原 deploy 非零仍必须保留在 `release_runner_exit`，不能被 reconciliation 的成功退出码覆盖。
 
 ## 变更与门禁
 
@@ -64,7 +65,14 @@ vm_gate_status: pass | fail | not_required | not_checked
 classification_basis: 最终 diff 的脱敏摘要
 migration_class: no-migration | backward-compatible | incompatible
 rollback_mode: image-only | coordinated-data-restore | not_applicable
+gate_tier: fast | specialized | full
+gate_trigger: 脱敏触发原因
+estimated_gate_minutes: 0-2 | 5-15 | 20-60
+actual_gate_minutes: 实测值 | not_finished | not_applicable
+full_gate_status: pass | fail | overdue | not_due | not_required | not_checked
 ```
+
+`full_gate_status=overdue` 不阻塞普通发布，但必须显式报告；本次变更涉及恢复链、备份格式或恢复信任链时，`full` 是硬门禁，未通过不能进入生产。预计时间不是 runner timeout。
 
 ## 代码与镜像
 
@@ -240,6 +248,9 @@ failure_stage: value | none
 migration_committed: true | false | unknown | not_applicable
 recovery_branch: resume-old | coordinated-data-restore | blocked_reconciliation | not_applicable
 active_claim_final_state: consumed | recovered | active | absent | not_applicable | not_checked
+recovery_helper_bundle_sha256: 小写 64 位 SHA-256 | not_applicable | not_checked
+recovery_checkpoint_status: complete | partial | inconsistent | not_applicable | not_checked
+recovery_last_checkpoint: postgres_restored | redis_restored | compose_restored | app_healthy | nginx_restored | backup_units_restored | claim_reconciled | state_cleanup | not_applicable | not_checked
 ```
 
 如果 direct 通过但 DMIT 未通过，整体不能写 `success`。
@@ -299,6 +310,8 @@ measured_rpo: 实测数值 | not_measured
 target_rto: 已确认数值 | not_defined
 measured_rto: 实测数值 | not_measured
 drill_id:
+last_full_drill_at: ISO-8601 with timezone | not_available
+next_full_drill_due_at: ISO-8601 with timezone | not_defined
 retention_policy_verified: pass | fail | unknown
 capacity_risk: none | degraded | unknown
 open_items:

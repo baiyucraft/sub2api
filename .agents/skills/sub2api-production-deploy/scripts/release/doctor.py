@@ -143,7 +143,7 @@ printf 'vm_ready=true\nvm_free_bytes=%s\nvm_database_bytes=%s\nvm_release_unit_s
         trust_sha = sha256_file(TRUSTED_KEY)
         snapshot_query = r'''snapshot_rows=$(docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT COALESCE(json_agg(json_build_object('filename',filename,'checksum',checksum) ORDER BY filename),'[]'::json) FROM schema_migrations" | tr -d '\r\n')
 printf '%s' "$snapshot_rows" | jq -e 'type == "array" and all(.[]; (type == "object" and (.filename|type)=="string" and (.checksum|type)=="string"))' >/dev/null
-snapshot_payload=$(jq -cn --arg image "$active_image" --argjson rows "$snapshot_rows" '{current_image_id:$image,schema_migrations:$rows}')
+snapshot_payload=$(jq -cn --arg image "$active_image" --arg commit "$production_current_commit_sha" --argjson rows "$snapshot_rows" '{current_image_id:$image,production_current_commit_sha:$commit,schema_migrations:$rows}')
 snapshot_b64=$(printf '%s' "$snapshot_payload" | base64 -w0)
 '''
         if profile.get("gate_schema") == 2:
@@ -174,6 +174,11 @@ active_image=$(sed -n 's/^image_id=//p' "$active_slot")
 [[ $active_image =~ ^sha256:[0-9a-f]{{64}}$ ]]
 for container in "$active_container" sub2api-postgres sub2api-redis; do test "$(docker inspect -f '{{{{.State.Health.Status}}}}' "$container")" = healthy; done
 test "$(docker inspect -f '{{{{.Image}}}}' "$active_container")" = "$active_image"
+active_image_ref=$(docker inspect -f '{{{{.Config.Image}}}}' "$active_container")
+production_current_commit_sha=
+if [[ $active_image_ref =~ -([0-9a-f]{{40}})$ ]] && [[ $(docker image inspect -f '{{{{.Id}}}}' "$active_image_ref" 2>/dev/null || true) == "$active_image" ]]; then
+  production_current_commit_sha=${{BASH_REMATCH[1]}}
+fi
 grep -Fq "server 127.0.0.1:$active_port;" /etc/nginx/conf.d/sub2api-release-upstream.conf
 require_ingress_policy={str(require_ingress_policy).lower()}
 assert_ingress_policy() {{
@@ -245,11 +250,11 @@ fi
 [[ $backup_ssh_code != 255 ]]
 free_bytes=$(df -PB1 /var/lib/docker 2>/dev/null | awk 'NR==2{{print $4}}' || df -PB1 / | awk 'NR==2{{print $4}}')
 test "$free_bytes" -ge {profile['minimum_rack_free_bytes']}
-printf 'racknerd_ready=true\nracknerd_free_bytes=%s\nbackup_protocol_ready=true\nnginx_ingress_policy=%s\nproduction_migration_status=%s\nproduction_current_image_id=%s\nproduction_snapshot_b64=%s\n' "$free_bytes" "$nginx_ingress_policy" "$production_migration_status" "$active_image" "$snapshot_b64"
+printf 'racknerd_ready=true\nracknerd_free_bytes=%s\nbackup_protocol_ready=true\nnginx_ingress_policy=%s\nproduction_migration_status=%s\nproduction_current_image_id=%s\nproduction_current_commit_sha=%s\nproduction_snapshot_b64=%s\n' "$free_bytes" "$nginx_ingress_policy" "$production_migration_status" "$active_image" "$production_current_commit_sha" "$snapshot_b64"
 """
         return self._run_racknerd_readonly(
             script,
-            {"racknerd_ready", "racknerd_free_bytes", "backup_protocol_ready", "nginx_ingress_policy", "production_migration_status", "production_current_image_id", "production_snapshot_b64"},
+            {"racknerd_ready", "racknerd_free_bytes", "backup_protocol_ready", "nginx_ingress_policy", "production_migration_status", "production_current_image_id", "production_current_commit_sha", "production_snapshot_b64"},
             timeout=300,
         )
 

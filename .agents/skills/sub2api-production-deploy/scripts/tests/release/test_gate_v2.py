@@ -71,6 +71,15 @@ class GateV2Test(unittest.TestCase):
             "release_asset_sha256": self._assets(),
             "production_current_image_id": image,
             "production_snapshot_sha256": snapshot,
+            "recovery_gate": {
+                "schema": 1,
+                "mode": "specialized",
+                "base_commit": "f" * 40,
+                "target_commit": "a" * 40,
+                "reason_codes": ["migration_changed"],
+                "changed_paths_sha256": "1" * 64,
+                "estimated_extra_seconds": 600,
+            },
             "migration_catalog": catalog,
             "catalog_sha256": catalog_sha256(catalog),
             "checksum_policy_sha256": checksum_policy_sha256(),
@@ -129,6 +138,30 @@ class GateV2Test(unittest.TestCase):
         document = self._document()
         self._sign(document)
         self.assertEqual(self._verify(), document)
+
+    def test_fast_gate_requires_non_restore_evidence(self) -> None:
+        document = self._document()
+        document["manifest"]["recovery_gate"].update(
+            mode="fast",
+            reason_codes=["ordinary_change"],
+            estimated_extra_seconds=0,
+        )
+        document["evidence"]["vm_restore_verified"] = False
+        document["evidence"]["release_policy"]["restore_points_verified"] = False
+        self._sign(document)
+        self.assertEqual(self._verify(), document)
+
+    def test_fast_gate_cannot_claim_restore_verification(self) -> None:
+        document = self._document()
+        document["manifest"]["recovery_gate"].update(
+            mode="fast",
+            reason_codes=["ordinary_change"],
+            estimated_extra_seconds=0,
+        )
+        document["evidence"]["release_policy"]["restore_points_verified"] = False
+        self._sign(document)
+        with self.assertRaisesRegex(RuntimeError, "must not claim"):
+            self._verify()
 
     def test_historical_runner_is_allowed_only_for_recovery(self) -> None:
         document = self._document()

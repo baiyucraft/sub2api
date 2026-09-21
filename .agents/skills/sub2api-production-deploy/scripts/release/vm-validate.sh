@@ -10,6 +10,21 @@ done
 docker info >/dev/null 2>&1
 git --version >/dev/null 2>&1
 
+wait_for_redis_ready() {
+  local container=$1 max_seconds=${2:-180}
+  local state loading ping
+  for _ in $(seq 1 "$max_seconds"); do
+    state=$(docker inspect -f '{{.State.Status}}' "$container" 2>/dev/null || true)
+    [[ "$state" == running ]] || return 1
+    ping=$(docker exec "$container" redis-cli PING 2>/dev/null | tr -d '\r' || true)
+    [[ "$ping" == PONG ]] && return 0
+    loading=$(docker exec "$container" redis-cli INFO persistence 2>/dev/null | sed -n 's/^loading:\([01]\)\r*$/\1/p' || true)
+    [[ -z "$loading" || "$loading" == 1 ]] || return 1
+    sleep 1
+  done
+  return 1
+}
+
 manifest=${1:?manifest path is required}
 output_dir=${2:?output directory is required}
 production_snapshot=${3:-}
@@ -48,27 +63,32 @@ if [[ "$manifest_schema" == 2 ]]; then
   [[ $(jq -er '.parent_profile' "$manifest") == 253 ]]
   [[ $(jq -er '.new_migrations | length' "$manifest") == 3 ]]
   jq -e '.new_migrations == ["278_fork_group_ttft_guard_policies.sql", "279_proxy_ip_groups.sql", "280_plugin_runtime_state.sql"]' "$manifest" >/dev/null
+  recovery_gate_mode=$(jq -er '.recovery_gate.mode' "$manifest")
+  [[ "$recovery_gate_mode" == fast || "$recovery_gate_mode" == specialized || "$recovery_gate_mode" == full ]]
   [[ -n "$production_snapshot" && -f "$production_snapshot" && ! -L "$production_snapshot" ]]
-  [[ -n "$pre_gate_descriptor" && -f "$pre_gate_descriptor" && ! -L "$pre_gate_descriptor" ]]
   [[ -n "$space_cleaner" && -f "$space_cleaner" && ! -L "$space_cleaner" && -x "$space_cleaner" ]]
   [[ "$prebuild_cleanup_applied" == true || "$prebuild_cleanup_applied" == false ]]
-  jq -e 'type == "object" and .schema == 1 and .restore_points_verified == true and (.production_recovery_path|type)=="string" and (.production_image_archive_path|type)=="string"' "$pre_gate_descriptor" >/dev/null
-  recovery_path=$(jq -er '.production_recovery_path' "$pre_gate_descriptor")
-  recovery_sha=$(jq -er '.production_recovery_sha256' "$pre_gate_descriptor")
-  compatibility_path=$(jq -er '.production_image_archive_path' "$pre_gate_descriptor")
-  compatibility_sha=$(jq -er '.production_image_archive_sha256' "$pre_gate_descriptor")
-  [[ "$recovery_path" =~ ^/opt/sub2api-deploy/release-input/pre-gate\.[A-Za-z0-9]+/production-recovery\.tar$ ]]
-  [[ "$compatibility_path" =~ ^/opt/sub2api-deploy/release-input/pre-gate\.[A-Za-z0-9]+/production-current-image\.tar\.gz$ ]]
-  [[ "$recovery_sha" =~ ^[0-9a-f]{64}$ && "$compatibility_sha" =~ ^[0-9a-f]{64}$ ]]
-  [[ -f "$recovery_path" && ! -L "$recovery_path" && -f "$compatibility_path" && ! -L "$compatibility_path" ]]
-  [[ $(sha256sum "$recovery_path" | awk '{print $1}') == "$recovery_sha" ]]
-  [[ $(sha256sum "$compatibility_path" | awk '{print $1}') == "$compatibility_sha" ]]
+  recovery_path= recovery_sha= compatibility_path= compatibility_sha=
+  if [[ "$recovery_gate_mode" != fast ]]; then
+    [[ -n "$pre_gate_descriptor" && -f "$pre_gate_descriptor" && ! -L "$pre_gate_descriptor" ]]
+    jq -e 'type == "object" and .schema == 1 and .restore_points_verified == true and (.production_recovery_path|type)=="string" and (.production_image_archive_path|type)=="string"' "$pre_gate_descriptor" >/dev/null
+    recovery_path=$(jq -er '.production_recovery_path' "$pre_gate_descriptor")
+    recovery_sha=$(jq -er '.production_recovery_sha256' "$pre_gate_descriptor")
+    compatibility_path=$(jq -er '.production_image_archive_path' "$pre_gate_descriptor")
+    compatibility_sha=$(jq -er '.production_image_archive_sha256' "$pre_gate_descriptor")
+    [[ "$recovery_path" =~ ^/opt/sub2api-deploy/release-input/pre-gate\.[A-Za-z0-9]+/production-recovery\.tar$ ]]
+    [[ "$compatibility_path" =~ ^/opt/sub2api-deploy/release-input/pre-gate\.[A-Za-z0-9]+/production-current-image\.tar\.gz$ ]]
+    [[ "$recovery_sha" =~ ^[0-9a-f]{64}$ && "$compatibility_sha" =~ ^[0-9a-f]{64}$ ]]
+    [[ -f "$recovery_path" && ! -L "$recovery_path" && -f "$compatibility_path" && ! -L "$compatibility_path" ]]
+    [[ $(sha256sum "$recovery_path" | awk '{print $1}') == "$recovery_sha" ]]
+    [[ $(sha256sum "$compatibility_path" | awk '{print $1}') == "$compatibility_sha" ]]
+  fi
   # The production snapshot digest is a cross-language contract.  Keep the
   # VM validator on jq's canonical sorted-key representation so it matches
   # production_snapshot.snapshot_sha256() and remains stable after persistence.
-  snapshot_digest=$(jq -cS '{current_image_id, schema_migrations}' "$production_snapshot" | tr -d '\n' | sha256sum | awk '{print $1}')
+  snapshot_digest=$(jq -cS '{current_image_id, production_current_commit_sha, schema_migrations}' "$production_snapshot" | tr -d '\n' | sha256sum | awk '{print $1}')
   [[ "$snapshot_digest" == "$(jq -er '.production_snapshot_sha256' "$manifest")" ]]
-  jq -e 'type == "object" and (.current_image_id|type)=="string" and (.schema_migrations|type)=="array"' "$production_snapshot" >/dev/null
+  jq -e 'type == "object" and (.current_image_id|type)=="string" and (.production_current_commit_sha|type)=="string" and (.schema_migrations|type)=="array"' "$production_snapshot" >/dev/null
   [[ $(jq -er '.current_image_id' "$production_snapshot") == "$(jq -er '.production_current_image_id' "$manifest")" ]]
   [[ $(jq -er '.migration_catalog | map(.filename) == (map(.filename) | sort)' "$manifest") == true ]]
   [[ $(jq -er '.migration_catalog | map(select((.filename|type)!="string" or (.checksum|type)!="string")) | length' "$manifest") == 0 ]]
@@ -119,10 +139,12 @@ if [[ "$manifest_schema" == 2 ]]; then
     [[ -f "$source_dir/$relative" && ! -L "$source_dir/$relative" ]]
     [[ $(sha256sum "$source_dir/$relative" | awk '{print $1}') == "$expected" ]]
   done < <(jq -r '.release_asset_sha256 | to_entries[] | [.key,.value] | @tsv' "$manifest")
-  loaded_old_image=$(gzip -dc "$compatibility_path" | docker load | sed -n 's/^Loaded image ID: //p' | tail -n1)
-  [[ -z "$loaded_old_image" || "$loaded_old_image" == "$old_image_id" ]]
-  [[ $(docker image inspect -f '{{.Id}}' "$old_image_id") == "$old_image_id" ]]
-  rm -f -- "$compatibility_path"
+  if [[ "$recovery_gate_mode" != fast ]]; then
+    loaded_old_image=$(gzip -dc "$compatibility_path" | docker load | sed -n 's/^Loaded image ID: //p' | tail -n1)
+    [[ -z "$loaded_old_image" || "$loaded_old_image" == "$old_image_id" ]]
+    [[ $(docker image inspect -f '{{.Id}}' "$old_image_id") == "$old_image_id" ]]
+    rm -f -- "$compatibility_path"
+  fi
   build_log="$state_dir/build.log"
   : > "$build_log"
   chmod 600 "$build_log"
@@ -190,18 +212,27 @@ if [[ "$manifest_schema" == 2 ]]; then
     rm -rf "$probe_dir" "$recovery_dir" "$probe_redis_data"
   }
   trap cleanup_v2 EXIT
-  mark_v2_stage restore_probe
-  install -d -m 700 "$recovery_dir"
-  tar -C "$recovery_dir" -xf "$recovery_path"
-  (cd "$recovery_dir" && sha256sum -c SHA256SUMS >/dev/null)
-  [[ -s "$recovery_dir/database/sub2api.dump" && -s "$recovery_dir/redis/dump.rdb" ]]
-  [[ $(sed -n 's/^current_image_id=//p' "$recovery_dir/manifest") == "$old_image_id" ]]
-  rm -f -- "$recovery_path"
+  if [[ "$recovery_gate_mode" == fast ]]; then
+    mark_v2_stage fast_probe
+  else
+    mark_v2_stage restore_probe
+    install -d -m 700 "$recovery_dir"
+    tar -C "$recovery_dir" -xf "$recovery_path"
+    (cd "$recovery_dir" && sha256sum -c SHA256SUMS >/dev/null)
+    [[ -s "$recovery_dir/database/sub2api.dump" && -s "$recovery_dir/redis/dump.rdb" ]]
+    [[ $(sed -n 's/^current_image_id=//p' "$recovery_dir/manifest") == "$old_image_id" ]]
+    rm -f -- "$recovery_path"
+  fi
   database_owner=$(docker exec sub2api-postgres sh -lc 'psql -X -A -t -U "${POSTGRES_USER:-postgres}" -d postgres -c "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname='"'"'sub2api_dev'"'"'"' | tr -d '\r')
   [[ "$database_owner" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]
   docker exec sub2api-postgres sh -lc "createdb -U \"\${POSTGRES_USER:-postgres}\" -O \"$database_owner\" $probe_db"
   install -d -m 700 "$probe_dir"
-  docker exec -i sub2api-postgres /bin/sh -lc "pg_restore --exit-on-error --no-owner -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db" < "$recovery_dir/database/sub2api.dump"
+  if [[ "$recovery_gate_mode" == fast ]]; then
+    docker exec sub2api-postgres sh -lc 'pg_dump -Fc -Z 1 -U "${POSTGRES_USER:-postgres}" -d sub2api_dev' | \
+      docker exec -i sub2api-postgres /bin/sh -lc "pg_restore --exit-on-error --no-owner -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db"
+  else
+    docker exec -i sub2api-postgres /bin/sh -lc "pg_restore --exit-on-error --no-owner -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db" < "$recovery_dir/database/sub2api.dump"
+  fi
   # pg_restore --no-owner makes the restoring role own restored objects.  The
   # application role is intentionally the probe database owner, so normalize
   # its table/sequence privileges inside this isolated database before running
@@ -212,34 +243,42 @@ GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO :"db_owner";
 SQL
   docker network create "$probe_network" >/dev/null
   docker network connect --alias sub2api-postgres "$probe_network" sub2api-postgres
-  cp -a "$recovery_dir/config/data/." "$probe_dir/"
+  if [[ "$recovery_gate_mode" == fast ]]; then
+    cp -a "$data_dir/." "$probe_dir/"
+  else
+    cp -a "$recovery_dir/config/data/." "$probe_dir/"
+  fi
   [[ -f "$probe_dir/config.yaml" && ! -L "$probe_dir/config.yaml" ]]
   sed -i "/^database:/,/^[^[:space:]]/ s/^[[:space:]]*dbname:[[:space:]]*.*/  dbname: $probe_db/" "$probe_dir/config.yaml"
   sed -i '/^database:/,/^[^[:space:]]/ s/^[[:space:]]*host:[[:space:]]*.*/  host: sub2api-postgres/' "$probe_dir/config.yaml"
   redis_image=$(docker inspect -f '{{.Config.Image}}' sub2api-redis)
-  install -d -m 700 "$probe_redis_data"
-  install -m 600 "$recovery_dir/redis/dump.rdb" "$probe_redis_data/dump.rdb"
-  redis_uid=$(docker run --rm --entrypoint sh "$redis_image" -lc 'id -u redis 2>/dev/null || id -u' | tr -d '\r')
-  redis_gid=$(docker run --rm --entrypoint sh "$redis_image" -lc 'id -g redis 2>/dev/null || id -g' | tr -d '\r')
-  [[ "$redis_uid" =~ ^[0-9]+$ && "$redis_gid" =~ ^[0-9]+$ ]]
-  chown -R "$redis_uid:$redis_gid" "$probe_redis_data"
-  docker run -d --name "$probe_redis" --network "$probe_network" --network-alias probe-redis -v "$probe_redis_data:/data" "$redis_image" redis-server --save '' --appendonly no >/dev/null
-  for _ in $(seq 1 30); do
-    [[ $(docker exec "$probe_redis" redis-cli PING 2>/dev/null | tr -d '\r') == PONG ]] && break
-    sleep 1
-  done
-  [[ $(docker exec "$probe_redis" redis-cli PING 2>/dev/null | tr -d '\r') == PONG ]]
-  redis_backup_keys=$(sed -n 's/^redis_keys=//p' "$recovery_dir/manifest")
-  redis_backup_expires=$(sed -n 's/^redis_expires=//p' "$recovery_dir/manifest")
-  redis_already_expired=$(sed -n 's/^redis_already_expired=//p' "$recovery_dir/manifest")
-  redis_restored_keys=$(docker exec "$probe_redis" redis-cli DBSIZE | tr -d '\r')
-  redis_keyspace=$(docker exec "$probe_redis" redis-cli INFO keyspace | tr -d '\r')
-  redis_restored_expires=$(printf '%s\n' "$redis_keyspace" | sed -n 's/^db[0-9]*:keys=[0-9]*,expires=\([0-9]*\).*/\1/p' | awk '{sum += $1} END {print sum + 0}')
-  [[ $redis_backup_keys =~ ^[0-9]+$ && $redis_backup_expires =~ ^[0-9]+$ && $redis_already_expired =~ ^[0-9]+$ ]]
-  [[ $redis_restored_keys =~ ^[0-9]+$ && $redis_restored_expires =~ ^[0-9]+$ ]]
-  [[ $redis_backup_keys -ge $redis_restored_keys && $redis_backup_expires -ge $redis_restored_expires ]]
-  [[ $((redis_backup_keys - redis_restored_keys)) -eq $((redis_backup_expires - redis_restored_expires)) ]]
-  [[ $((redis_backup_keys - redis_restored_keys)) -ge $redis_already_expired ]]
+  redis_volume_args=()
+  if [[ "$recovery_gate_mode" != fast ]]; then
+    install -d -m 700 "$probe_redis_data"
+    install -m 600 "$recovery_dir/redis/dump.rdb" "$probe_redis_data/dump.rdb"
+    redis_uid=$(docker run --rm --entrypoint sh "$redis_image" -lc 'id -u redis 2>/dev/null || id -u' | tr -d '\r')
+    redis_gid=$(docker run --rm --entrypoint sh "$redis_image" -lc 'id -g redis 2>/dev/null || id -g' | tr -d '\r')
+    [[ "$redis_uid" =~ ^[0-9]+$ && "$redis_gid" =~ ^[0-9]+$ ]]
+    chown -R "$redis_uid:$redis_gid" "$probe_redis_data"
+    redis_volume_args=(-v "$probe_redis_data:/data")
+  fi
+  docker run -d --name "$probe_redis" --network "$probe_network" --network-alias probe-redis "${redis_volume_args[@]}" "$redis_image" redis-server --save '' --appendonly no >/dev/null
+  wait_for_redis_ready "$probe_redis" 180
+  if [[ "$recovery_gate_mode" != fast ]]; then
+    redis_backup_keys=$(sed -n 's/^redis_keys=//p' "$recovery_dir/manifest")
+    redis_backup_expires=$(sed -n 's/^redis_expires=//p' "$recovery_dir/manifest")
+    redis_already_expired=$(sed -n 's/^redis_already_expired=//p' "$recovery_dir/manifest")
+    redis_restored_keys=$(docker exec "$probe_redis" redis-cli DBSIZE | tr -d '\r')
+    redis_keyspace=$(docker exec "$probe_redis" redis-cli INFO keyspace | tr -d '\r')
+    redis_restored_expires=$(printf '%s\n' "$redis_keyspace" | sed -n 's/^db[0-9]*:keys=[0-9]*,expires=\([0-9]*\).*/\1/p' | awk '{sum += $1} END {print sum + 0}')
+    [[ $redis_backup_keys =~ ^[0-9]+$ && $redis_backup_expires =~ ^[0-9]+$ && $redis_already_expired =~ ^[0-9]+$ ]]
+    [[ $redis_restored_keys =~ ^[0-9]+$ && $redis_restored_expires =~ ^[0-9]+$ ]]
+    [[ $redis_already_expired -le $redis_backup_expires && $redis_backup_expires -le $redis_backup_keys ]]
+    [[ $redis_backup_keys -ge $redis_restored_keys && $redis_backup_expires -ge $redis_restored_expires ]]
+    redis_backup_persistent=$((redis_backup_keys - redis_backup_expires))
+    redis_restored_persistent=$((redis_restored_keys - redis_restored_expires))
+    [[ $redis_restored_persistent -ge $redis_backup_persistent ]]
+  fi
   sed -i '/^redis:/,/^[^[:space:]]/ s/^[[:space:]]*host:[[:space:]]*.*/  host: probe-redis/' "$probe_dir/config.yaml"
   sed -i '/^redis:/,/^[^[:space:]]/ s/^[[:space:]]*port:[[:space:]]*.*/  port: 6379/' "$probe_dir/config.yaml"
   sed -i '/^redis:/,/^[^[:space:]]/ s/^[[:space:]]*password:[[:space:]]*.*/  password: ""/' "$probe_dir/config.yaml"
@@ -274,12 +313,17 @@ SQL
   plan_before_pending=$(printf '%s' "$plan_before" | jq -c '.pending | map({filename,checksum})')
   actual_plan_pending=$(printf '%s' "$actual_plan" | jq -c '.pending | map({filename,checksum})')
   [[ "$plan_before_pending" == "$actual_plan_pending" ]]
+  if [[ "$recovery_gate_mode" == fast ]]; then
+    [[ $(printf '%s' "$plan_before" | jq -r '.pending | length') == 0 ]]
+  fi
   migration_assertion_dir="$source_dir/.agents/skills/sub2api-production-deploy/scripts/maintenance/release"
   hook_context="$state_dir/migration-hook-context.sh"
   printf 'profile=%q\nstate_dir=%q\n' "$profile" "$state_dir" > "$hook_context"
   chmod 400 "$hook_context"
-  printf '%s  recovery-point.age\n' "$recovery_sha" > "$state_dir/recovery-point.age.sha256"
-  chmod 400 "$state_dir/recovery-point.age.sha256"
+  if [[ "$recovery_gate_mode" != fast ]]; then
+    printf '%s  recovery-point.age\n' "$recovery_sha" > "$state_dir/recovery-point.age.sha256"
+    chmod 400 "$state_dir/recovery-point.age.sha256"
+  fi
   hook_results_file="$state_dir/hook-results.json"
   printf '{}\n' > "$hook_results_file"
   chmod 600 "$hook_results_file"
@@ -369,16 +413,18 @@ SQL
       254_*) run_hook_v2 "$filename" migration-254-assert.sh postflight verified ;;
     esac
   done
-  mark_v2_stage old_image_health
-  docker image inspect "$old_image_id" >/dev/null
-  docker run -d --name "$old_probe_app" --network="$probe_network" -e SERVER_HOST=0.0.0.0 -e SERVER_PORT=8080 -e UPSTREAM_SYNC_AUTO_ENABLED=false -v "$probe_dir:/app/data" --health-cmd 'wget -q -T 5 -O /dev/null http://127.0.0.1:8080/health || exit 1' --health-interval 5s --health-timeout 5s --health-start-period 5s --health-retries 12 "$old_image_id" >/dev/null
-  for _ in $(seq 1 90); do
-    [[ $(docker inspect -f '{{.State.Health.Status}}' "$old_probe_app") == healthy ]] && break
-    sleep 2
-  done
-  [[ $(docker inspect -f '{{.Image}}' "$old_probe_app") == "$old_image_id" ]]
-  [[ $(docker inspect -f '{{.State.Health.Status}}' "$old_probe_app") == healthy ]]
-  docker rm -f "$old_probe_app" >/dev/null
+  if [[ "$recovery_gate_mode" != fast ]]; then
+    mark_v2_stage old_image_health
+    docker image inspect "$old_image_id" >/dev/null
+    docker run -d --name "$old_probe_app" --network="$probe_network" -e SERVER_HOST=0.0.0.0 -e SERVER_PORT=8080 -e UPSTREAM_SYNC_AUTO_ENABLED=false -v "$probe_dir:/app/data" --health-cmd 'wget -q -T 5 -O /dev/null http://127.0.0.1:8080/health || exit 1' --health-interval 5s --health-timeout 5s --health-start-period 5s --health-retries 12 "$old_image_id" >/dev/null
+    for _ in $(seq 1 90); do
+      [[ $(docker inspect -f '{{.State.Health.Status}}' "$old_probe_app") == healthy ]] && break
+      sleep 2
+    done
+    [[ $(docker inspect -f '{{.Image}}' "$old_probe_app") == "$old_image_id" ]]
+    [[ $(docker inspect -f '{{.State.Health.Status}}' "$old_probe_app") == healthy ]]
+    docker rm -f "$old_probe_app" >/dev/null
+  fi
   mark_v2_stage candidate_health
   docker run -d --name "$probe_app" --network="$probe_network" -e SERVER_HOST=0.0.0.0 -e SERVER_PORT=8080 -e UPSTREAM_SYNC_AUTO_ENABLED=false -p 127.0.0.1::8080 -v "$probe_dir:/app/data" --health-cmd 'wget -q -T 5 -O /dev/null http://127.0.0.1:8080/health || exit 1' --health-interval 5s --health-timeout 5s --health-start-period 5s --health-retries 12 "$candidate_image_id" >/dev/null
   for _ in $(seq 1 90); do
@@ -397,7 +443,12 @@ SQL
     run_hook_v2 195_upstream_scheduling_monitor_rates.sql migration-195-assert.sh postflight_runtime verified
   fi
   integration_verified=true
-  vm_restore_verified=true
+  vm_restore_verified=false
+  restore_points_verified=false
+  if [[ "$recovery_gate_mode" != fast ]]; then
+    vm_restore_verified=true
+    restore_points_verified=true
+  fi
   mark_v2_stage candidate_archive
   candidate_archive="$state_dir/candidate.tar.gz"
   docker save "$candidate_image_id" | gzip -1 > "$candidate_archive"
@@ -405,8 +456,8 @@ SQL
   candidate_size=$(stat -c '%s' "$candidate_archive")
   [[ "$candidate_size" =~ ^[1-9][0-9]*$ ]]
   pending_json=$(printf '%s' "$plan_before" | jq --slurpfile hooks "$hook_results_file" '[.pending[] | . as $item | ($hooks[0][.filename] // null) as $result | if $result == null then {filename,checksum} else {filename,checksum,preflight:true,postflight:true,hook_results:$result,rollback_policy:"coordinated_restore"} end]')
-  jq -n --slurpfile m "$manifest" --arg image "$candidate_image_id" --arg archive "$candidate_archive_sha" --arg old_image_id "$old_image_id" --arg snapshot_sha "$(jq -r '.production_snapshot_sha256' "$manifest")" --argjson size "$candidate_size" --argjson pending "$pending_json" --argjson plan_before "$(cat "$state_dir/plan-before.json")" \
-    '{gate_version:2,profile_id:($m[0].profile|tonumber),manifest:$m[0],evidence:{candidate_image_id:$image,candidate_archive_sha256:$archive,candidate_size:$size,integration_verified:true,vm_restore_verified:true,vm_database_boundary:true,vm_redis_boundary:true,data_dev_boundary:true,production_current_image_id:$old_image_id,production_snapshot_sha256:$snapshot_sha,catalog_sha256:$m[0].catalog_sha256,checksum_policy_sha256:$m[0].checksum_policy_sha256,checksum_policy_version:"sub2api-migration-checksum-policy-v1",migration_evidence:{database_high_watermark:($plan_before.database_high_watermark // null),pending:$pending,existing_checksums_verified:true,isolated_upgrade_verified:true,final_schema_verified:true},release_policy:{canary_verified:"not_checked",restore_points_verified:true}}}' > "$output_dir/gate.json"
+  jq -n --slurpfile m "$manifest" --arg image "$candidate_image_id" --arg archive "$candidate_archive_sha" --arg old_image_id "$old_image_id" --arg snapshot_sha "$(jq -r '.production_snapshot_sha256' "$manifest")" --argjson size "$candidate_size" --argjson pending "$pending_json" --argjson plan_before "$(cat "$state_dir/plan-before.json")" --argjson vm_restore_verified "$vm_restore_verified" --argjson restore_points_verified "$restore_points_verified" \
+    '{gate_version:2,profile_id:($m[0].profile|tonumber),manifest:$m[0],evidence:{candidate_image_id:$image,candidate_archive_sha256:$archive,candidate_size:$size,integration_verified:true,vm_restore_verified:$vm_restore_verified,vm_database_boundary:true,vm_redis_boundary:true,data_dev_boundary:true,production_current_image_id:$old_image_id,production_snapshot_sha256:$snapshot_sha,catalog_sha256:$m[0].catalog_sha256,checksum_policy_sha256:$m[0].checksum_policy_sha256,checksum_policy_version:"sub2api-migration-checksum-policy-v1",migration_evidence:{database_high_watermark:($plan_before.database_high_watermark // null),pending:$pending,existing_checksums_verified:true,isolated_upgrade_verified:true,final_schema_verified:true},release_policy:{canary_verified:"not_checked",restore_points_verified:$restore_points_verified}}}' > "$output_dir/gate.json"
   chmod 400 "$output_dir/gate.json"
   install -m 400 "$candidate_archive" "$output_dir/candidate.tar.gz"
   /usr/local/libexec/sub2api-sign-gate "$output_dir/gate.json" "$output_dir/gate.sig"
@@ -779,11 +830,7 @@ sed -i '/^database:/,/^[^[:space:]]/ s/^[[:space:]]*host:[[:space:]]*.*/  host: 
 
 mark_stage isolated_redis
 docker run -d --name "$probe_redis" --network "$probe_network" --network-alias probe-redis "$redis_image" redis-server --save '' --appendonly no >/dev/null 2>&1
-for _ in $(seq 1 30); do
-  [[ $(docker exec "$probe_redis" redis-cli PING 2>/dev/null | tr -d '\r') == PONG ]] && break
-  sleep 1
-done
-[[ $(docker exec "$probe_redis" redis-cli PING 2>/dev/null | tr -d '\r') == PONG ]]
+wait_for_redis_ready "$probe_redis" 180
 sed -i '/^redis:/,/^[^[:space:]]/ s/^[[:space:]]*host:[[:space:]]*.*/  host: probe-redis/' "$probe_dir/config.yaml"
 sed -i '/^redis:/,/^[^[:space:]]/ s/^[[:space:]]*port:[[:space:]]*.*/  port: 6379/' "$probe_dir/config.yaml"
 sed -i '/^redis:/,/^[^[:space:]]/ s/^[[:space:]]*password:[[:space:]]*.*/  password: ""/' "$probe_dir/config.yaml"

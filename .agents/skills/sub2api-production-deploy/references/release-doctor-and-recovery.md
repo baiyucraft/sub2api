@@ -49,6 +49,38 @@ python .agents/skills/sub2api-production-deploy/scripts/release.py verify-result
 python .agents/skills/sub2api-production-deploy/scripts/release.py doctor --profile <profile> --commit <40位完整SHA>
 ```
 
+`verify-result` 只接受候选成功上线的 `verified` 终态，不得放宽为接受恢复旧版本的 `recovered`。协调恢复使用独立验真入口：
+
+```text
+python .agents/skills/sub2api-production-deploy/scripts/release.py reconcile-inspect <release_id>
+python .agents/skills/sub2api-production-deploy/scripts/release.py reconcile <release_id> --mode coordinated-recover
+python .agents/skills/sub2api-production-deploy/scripts/release.py status <release_id>
+python .agents/skills/sub2api-production-deploy/scripts/release.py wait <release_id> --timeout 900
+python .agents/skills/sub2api-production-deploy/scripts/release.py verify-recovery-result <release_id>
+python .agents/skills/sub2api-production-deploy/scripts/release.py doctor --profile <profile> --commit <40位完整SHA>
+```
+
+`verify-recovery-result` 是恢复专用稳定合同：它必须核对恢复点绑定的旧 image、PostgreSQL/Redis 恢复证据、Compose 渲染、应用和 Nginx 健康、backup units、active claim 已清除、`.recovered`/明文清理 marker、ingress transaction 收口及 post-recovery doctor。不得改用 `verify-result` 或手工修改状态文件冒充验真完成。
+
+### 恢复 helper 原子版本与 checkpoint
+
+当前 commit 的恢复 orchestrator、`restore.sh`、`cleanup-state.sh` 和 `reconcile.sh` 必须作为一个不可拆分的 helper bundle 暂存、校验和调用；manifest、runner 状态和最终报告记录同一个 `recovery_helper_bundle_sha256`。事故 release 内的旧 helper 只保留作证据，不得被新版 supervisor 继续调用。
+
+协调恢复至少保存以下语义 checkpoint；具体文件名可以演进，但语义、顺序和幂等性不能漂移：
+
+```text
+postgres_restored
+redis_restored
+compose_restored
+app_healthy
+nginx_restored
+backup_units_restored
+claim_reconciled
+state_cleanup
+```
+
+续跑前逐项复核已完成 checkpoint，满足现场不变量时跳过；复核失败则 fail-closed。禁止因为 finish/cleanup 阶段中断而重复恢复 PostgreSQL 或 Redis。
+
 - 首次修复发布不要先运行独立的 strict `doctor`。当 pre-Gate doctor 只报告
   `nginx_ingress_policy=needs_update` 时，由 `deploy-start`/`deploy-follow` 内部的宽松
   pre-Gate 检查继续进入签名 Gate、停写、恢复点和 ingress apply；严格 `doctor` 放在
@@ -183,7 +215,7 @@ profile 232 使用版本 `0.1.173-baiyu`，在 profile 215 后追加 216–232�
 成功判定必须同时满足：
 
 ```text
-`verify-result` 输出 status=verified，或正式 reconciliation 入口输出 recovered
+`verify-result` 输出 status=verified，或正式 reconciliation 入口输出 recovered 且 `verify-recovery-result` 通过
   + state.json: vm_validate / verified
   + production-result.json: stage=production_verified 或 production_verified_after_reconciliation
                             AND status=verified

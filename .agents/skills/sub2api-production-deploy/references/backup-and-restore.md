@@ -135,15 +135,17 @@ redis_restored_dbsize
 redis_restored_expiring_keys
 ```
 
-严格满足：
+Redis 会惰性清理已经逻辑过期的键，恢复后 `DBSIZE` 与 TTL 键数不保证同步下降。恢复验收必须满足以下单调不等式：
 
 ```text
-redis_backup_dbsize - redis_restored_dbsize
-==
-redis_backup_expiring_keys - redis_restored_expiring_keys
+redis_restored_dbsize <= redis_backup_dbsize
+redis_restored_expiring_keys <= redis_backup_expiring_keys
+(redis_restored_dbsize - redis_restored_expiring_keys)
+>=
+(redis_backup_dbsize - redis_backup_expiring_keys)
 ```
 
-该等式用于解释备份生成与隔离恢复期间自然过期的 TTL key。只比较总 key 数、只比较 expiring key 数、允许近似误差，或仅凭 `PING`/容器健康放行都不合格；任一计数缺失、为负数、类型错误或等式不成立，`redis_ttl_reconciliation` 必须为 `fail`，旧 `verified` 基线保持不变。
+第三条保证备份中的永久键没有丢失；前两条允许备份生成与隔离恢复期间自然过期及惰性清理。该判定不能替代 artifact checksum、`redis-check-rdb`/AOF 完整性、认证来源、Redis 启动、`PING` 和 keyspace 可读性。任一计数缺失、为负数、类型错误、永久键减少或单调不等式不成立时，`redis_ttl_reconciliation` 必须为 `fail`，旧 `verified` 基线保持不变。
 
 ## 受限接收与原子晋升
 
@@ -227,6 +229,12 @@ candidate-created
 
 ## 恢复演练
 
+恢复演练分为 `specialized` 与 `full`：前者在恢复相关变更时执行受影响链路，正常预算 5–15 分钟；后者使用真实加密恢复资产完成端到端灾备验证，正常预算 20–60 分钟。预算仅用于计划和报告，不是强制超时。
+
+`full` 不阻塞普通发布，建议至少每 30 天一次；当本次变更涉及恢复链、备份格式、恢复信任链，或用于修复真实恢复事故时，`full` 升级为生产前硬门禁。每次演练必须绑定完整 commit、恢复 helper bundle SHA-256、恢复资产 checksum 和唯一 `drill_id`。
+
+发布入口的 `--recovery-gate-mode full` 只完成完整门禁的 VM 恢复部分：绑定 `full` 分类、传输真实生产恢复包和旧镜像，并执行隔离 PostgreSQL/Redis 恢复与兼容检查。它不自动生成独立灾备 `drill_id`，也不替代下述生产级故障注入、RTO 测量和最终演练验真。
+
 恢复演练至少覆盖：
 
 - 解密 key 可用性。
@@ -237,6 +245,8 @@ candidate-created
 - Redis 密码来源可证明且未泄露，备份/恢复 `DBSIZE` 与 TTL key 数严格对账。
 - 关键计数、migration 和版本一致性。
 - 临时材料销毁。
+- PostgreSQL、Redis、Compose、应用、Nginx、备份 units、claim 与 state cleanup checkpoint 均可幂等恢复；已完成阶段复核后跳过。
+- orchestrator、restore、cleanup 和 reconcile 来自同一原子 helper bundle，不调用历史 release 内的旧版本。
 
 演练只能记录版本、时间、大小、checksum、计数、状态和耗时，不记录数据库值、token、DSN 或解密后的配置。
 
@@ -251,6 +261,13 @@ target_rto: 已确认数值或 not_defined
 measured_rto: 本次实际测量或 not_measured
 checked_at: ISO-8601 with timezone
 drill_id: 恢复演练编号
+gate_tier: specialized | full
+gate_trigger: 脱敏触发原因
+estimated_minutes: 5-15 | 20-60
+actual_minutes: 本次实测
+recovery_helper_bundle_sha256: 小写 64 位 SHA-256
+last_full_drill_at: ISO-8601 with timezone | not_available
+next_full_drill_due_at: ISO-8601 with timezone | not_defined
 ```
 
 “每日生成”不能自动推导为“已达成 24 小时 RPO”；RTO 必须来自真实恢复演练。

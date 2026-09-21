@@ -3,6 +3,7 @@
 ## 目录
 
 - [适用范围](#适用范围)
+- [三层门禁在 VM 的执行](#三层门禁在-vm-的执行)
 - [VM 边界](#vm-边界)
 - [浏览器联调边界](#浏览器联调边界)
 - [进入 VM 前](#进入-vm-前)
@@ -17,6 +18,23 @@
 ## 适用范围
 
 本文对 `dev-gated` 和 `build-chain` 强制适用。`plugin-package` 不导入新的宿主 candidate，但必须在 VM8211 当前已验证宿主上完成独立插件 Gate。`frontend-direct` 不要求为本次改动导入新的 VM candidate，但本地浏览器 smoke 必须把 API 代理到已验证的 VM Gate；生产后仍需浏览器 smoke。
+
+## 三层门禁在 VM 的执行
+
+- `fast` 预算 0–2 分钟，所有实际发布都执行。它不启动完整灾备恢复，只验证完整 SHA、变更分类、语法、引用、helper bundle 清单/checksum 和适用的快速测试。
+- `specialized` 预算 5–15 分钟。命中 migration、PostgreSQL/Redis、Compose、备份、restore/cleanup/reconcile、ingress 或发布状态机时，必须在 VM/隔离环境执行受影响恢复链。
+- `full` 预算 20–60 分钟。`--recovery-gate-mode full` 只显式执行并签名完整门禁的 VM 恢复部分；生产级故障注入、独立 `drill_id`、RTO 测量和演练收口仍按备份恢复运维步骤执行。完整演练不阻塞普通发布；恢复链重大变化、恢复格式/信任链变化或真实恢复事故修复时，必须在生产前完成。
+
+`specialized` 最少覆盖以下故障注入：
+
+1. Redis 从启动到健康超过 60 秒但在恢复预算内最终成功。
+2. Redis 惰性过期导致总键数与 TTL 键数不同步下降，但永久键不丢失。
+3. PostgreSQL/Redis/应用已恢复，cleanup 前 runner 中断；续跑只完成剩余 checkpoint。
+4. `recovery_restored` 与过期 ingress `applied` marker 并存时，经过现场复核后安全收口。
+5. 当前 orchestrator 只调用同一 helper bundle 中的 restore/cleanup/reconcile，拒绝事故 release 内旧 helper。
+6. 每个恢复 checkpoint 重放均幂等；已完成的数据恢复不得再次执行。
+
+门禁结果必须记录层级、触发原因、预计和实际耗时、helper bundle SHA-256、checkpoint 摘要与完整演练到期状态。预算不是 kill timeout；长阶段仍按 runner 自身 timeout 和结构化进度判断。
 
 ## 插件包 VM Gate
 
