@@ -130,6 +130,18 @@ class DoctorTest(unittest.TestCase):
         self.assertIn("require_ingress_policy=false", script)
         self.assertIn("nginx_ingress_policy=needs_update", script)
 
+    def test_racknerd_snapshot_allowlists_verified_production_commit(self) -> None:
+        runner = mock.Mock()
+        runner.run.return_value.values = {"racknerd_ready": "true"}
+        ReleaseDoctor("182", runner=runner).check_racknerd(require_ingress_policy=False)
+        script = runner.run.call_args.args[1]
+        allowed = runner.run.call_args.args[2]
+        self.assertIn("active_image_ref=$(docker inspect -f '{{.Config.Image}}'", script)
+        self.assertIn("production_current_commit_sha=", script)
+        self.assertIn("docker image inspect -f '{{.Id}}'", script)
+        self.assertIn("production_current_commit_sha:$commit", script)
+        self.assertIn("production_current_commit_sha", allowed)
+
     def test_run_forwards_ingress_policy_mode_only_to_racknerd(self) -> None:
         doctor = ReleaseDoctor("182", runner=mock.Mock())
         doctor.check_racknerd = mock.Mock(return_value={"racknerd_ready": "true"})

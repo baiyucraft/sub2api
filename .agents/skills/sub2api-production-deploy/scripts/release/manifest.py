@@ -29,7 +29,8 @@ from .paths import (
     deploy_asset_path,
     skill_asset_path,
 )
-from .profiles import CURRENT_RELEASE_PROFILE
+from .profiles import CURRENT_RELEASE_PROFILE, get_profile
+from .recovery_gate import unproven_report, validate_report
 
 
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
@@ -316,6 +317,8 @@ def validate_manifest_profile_contract(manifest: dict[str, Any], profile: dict[s
             validate_image_id(str(manifest["production_current_image_id"]))
             if not re.fullmatch(r"[0-9a-f]{64}", str(manifest["production_snapshot_sha256"])):
                 raise RuntimeError("manifest production snapshot checksum is invalid")
+            if manifest.get("recovery_gate") is not None:
+                validate_report(manifest["recovery_gate"], target_commit=commit)
         if manifest.get("parent_profile") != profile.get("parent"):
             raise RuntimeError("manifest parent profile does not match")
         if manifest.get("new_migrations") != profile.get("new_migrations"):
@@ -377,6 +380,8 @@ def create_manifest(commit: str, profile: dict[str, Any], release_id: str, deplo
     if schema == 2:
         if production_current_image_id is not None:
             validate_image_id(production_current_image_id)
+        if production_snapshot_sha256 is not None and not re.fullmatch(r"[0-9a-f]{64}", production_snapshot_sha256):
+            raise ValueError("production snapshot checksum is invalid")
         catalog = discover_migration_catalog(root, commit)
         manifest.update({
             "parent_profile": profile.get("parent"),
@@ -388,10 +393,8 @@ def create_manifest(commit: str, profile: dict[str, Any], release_id: str, deplo
         })
         if production_current_image_id is not None:
             manifest["production_current_image_id"] = production_current_image_id
-        if production_snapshot_sha256 is not None:
-            if not re.fullmatch(r"[0-9a-f]{64}", production_snapshot_sha256):
-                raise ValueError("production snapshot checksum is invalid")
             manifest["production_snapshot_sha256"] = production_snapshot_sha256
+            manifest["recovery_gate"] = unproven_report(commit)
     else:
         manifest.update({
             "migration_sha256": migration_checksums(profile, commit),
@@ -451,19 +454,34 @@ def create_vm_only_manifest(
     }
 
 
-def bind_production_snapshot(manifest: dict[str, Any], image_id: str, snapshot_sha256: str) -> dict[str, Any]:
+def bind_production_snapshot(
+    manifest: dict[str, Any],
+    image_id: str,
+    snapshot_sha256: str,
+    recovery_gate: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Bind the point-in-time production baseline before VM Gate starts."""
     if manifest.get("schema") != 2 or manifest.get("profile") != CURRENT_RELEASE_PROFILE:
         raise RuntimeError("production snapshot binding requires Gate v2")
     validate_image_id(image_id)
     if not re.fullmatch(r"[0-9a-f]{64}", snapshot_sha256):
         raise ValueError("production snapshot checksum is invalid")
+    target_commit = validate_commit(str(manifest.get("commit_sha", "")))
+    report = validate_report(
+        recovery_gate or unproven_report(target_commit),
+        target_commit=target_commit,
+    )
     value = dict(manifest)
-    for field, incoming in (("production_current_image_id", image_id), ("production_snapshot_sha256", snapshot_sha256)):
+    for field, incoming in (
+        ("production_current_image_id", image_id),
+        ("production_snapshot_sha256", snapshot_sha256),
+        ("recovery_gate", report),
+    ):
         current = value.get(field)
         if current is not None and current != incoming:
             raise RuntimeError(f"manifest {field} already bound to a different value")
         value[field] = incoming
+    validate_manifest_profile_contract(value, get_profile(str(value.get("profile", ""))))
     return value
 
 

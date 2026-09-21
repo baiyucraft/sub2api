@@ -18,6 +18,7 @@ sys.path.insert(0, str(DEPLOY_ROOT))
 from release.atomic import atomic_write, canonical_json
 from release.gate import verify_gate
 from release.manifest import (
+    bind_production_snapshot,
     git_blob_sha256,
     is_release_asset_relative_path,
     manifest_release_asset_layout,
@@ -26,6 +27,8 @@ from release.manifest import (
     release_asset_relative_paths_from_commit,
     release_unit_relative_paths,
 )
+from release.production_snapshot import snapshot_sha256
+from release.recovery_gate import changed_paths_sha256
 from release.paths import LAYOUT_DEPLOY_V1, LAYOUT_SKILL_V1, WORKSPACE
 from release import profiles
 from release.profiles import get_profile, get_release_profile
@@ -33,6 +36,70 @@ from release.state import RunLock, RunState
 
 
 class ReleaseCoreTest(unittest.TestCase):
+    def test_production_snapshot_digest_binds_current_commit(self) -> None:
+        snapshot = {
+            "current_image_id": "sha256:" + "a" * 64,
+            "production_current_commit_sha": "b" * 40,
+            "schema_migrations": [],
+        }
+        changed = dict(snapshot, production_current_commit_sha="c" * 40)
+        self.assertNotEqual(snapshot_sha256(snapshot), snapshot_sha256(changed))
+
+    def test_manifest_atomically_binds_recovery_gate_report(self) -> None:
+        target = "a" * 40
+        manifest = {"schema": 2, "profile": "254", "commit_sha": target}
+        report = {
+            "schema": 1,
+            "mode": "fast",
+            "base_commit": "b" * 40,
+            "target_commit": target,
+            "reason_codes": ["ordinary_change"],
+            "changed_paths_sha256": changed_paths_sha256(["backend/example.go"]),
+            "estimated_extra_seconds": 0,
+        }
+        with mock.patch("release.manifest.validate_manifest_profile_contract") as validate:
+            bound = bind_production_snapshot(
+                manifest,
+                "sha256:" + "c" * 64,
+                "d" * 64,
+                report,
+            )
+        self.assertNotIn("recovery_gate", manifest)
+        self.assertEqual(bound["recovery_gate"], report)
+        self.assertEqual(
+            set(bound["recovery_gate"]),
+            {
+                "schema",
+                "mode",
+                "base_commit",
+                "target_commit",
+                "reason_codes",
+                "changed_paths_sha256",
+                "estimated_extra_seconds",
+            },
+        )
+        validate.assert_called_once()
+
+        conflicting = dict(bound)
+        conflicting["recovery_gate"] = dict(report, mode="specialized", estimated_extra_seconds=600)
+        with (
+            mock.patch("release.manifest.validate_manifest_profile_contract"),
+            self.assertRaisesRegex(RuntimeError, "already bound"),
+        ):
+            bind_production_snapshot(
+                conflicting,
+                "sha256:" + "c" * 64,
+                "d" * 64,
+                report,
+            )
+
+    def test_manifest_uses_specialized_when_production_commit_is_unproven(self) -> None:
+        manifest = {"schema": 2, "profile": "254", "commit_sha": "a" * 40}
+        with mock.patch("release.manifest.validate_manifest_profile_contract"):
+            bound = bind_production_snapshot(manifest, "sha256:" + "b" * 64, "c" * 64)
+        self.assertEqual(bound["recovery_gate"]["mode"], "specialized")
+        self.assertEqual(bound["recovery_gate"]["reason_codes"], ["production_commit_unproven"])
+
     def test_versioned_sources_do_not_contain_shell_prompt_noise(self) -> None:
         marker = "[ERROR] - (starship::print): Under a 'dumb' terminal (TERM=dumb)."
         polluted: list[str] = []

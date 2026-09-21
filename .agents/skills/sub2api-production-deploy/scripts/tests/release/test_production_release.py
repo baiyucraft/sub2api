@@ -1146,7 +1146,7 @@ class ReleaseClaimScriptTest(unittest.TestCase):
 
     def test_vm_gate_signing_rejects_empty_or_partial_payloads(self) -> None:
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
-        self.assertIn("snapshot_digest=$(jq -cS '{current_image_id, schema_migrations}'", validator)
+        self.assertIn("snapshot_digest=$(jq -cS '{current_image_id, production_current_commit_sha, schema_migrations}'", validator)
         self.assertIn('gate_payload_tmp="$output_dir/gate.payload.tmp"', validator)
         self.assertIn('[[ -s $gate_payload_tmp ]] || fail_gate_signing gate_signing_payload', validator)
         self.assertIn('[[ -s $gate_json_tmp ]] || fail_gate_signing gate_signing_canonicalize', validator)

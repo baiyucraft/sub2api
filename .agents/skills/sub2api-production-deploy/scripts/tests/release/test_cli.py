@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import sys
 import tempfile
 import time
@@ -18,6 +19,66 @@ from release import cli
 
 
 class DeployCommandTest(unittest.TestCase):
+    def test_recovery_gate_report_keeps_ordinary_change_fast(self) -> None:
+        fast = {
+            "schema": 1,
+            "mode": "fast",
+            "base_commit": "b" * 40,
+            "target_commit": "a" * 40,
+            "reason_codes": ["ordinary_change"],
+            "changed_paths_sha256": "c" * 64,
+            "estimated_extra_seconds": 0,
+        }
+        with mock.patch.object(cli, "classify_recovery_gate", return_value=fast):
+            report = cli._recovery_gate_report(
+                "a" * 40,
+                {"production_current_commit_sha": "b" * 40, "schema_migrations": []},
+                [],
+            )
+        self.assertEqual(report, fast)
+
+    def test_recovery_gate_report_escalates_pending_migrations(self) -> None:
+        fast = {
+            "schema": 1,
+            "mode": "fast",
+            "base_commit": "b" * 40,
+            "target_commit": "a" * 40,
+            "reason_codes": ["ordinary_change"],
+            "changed_paths_sha256": "c" * 64,
+            "estimated_extra_seconds": 0,
+        }
+        catalog = [{"filename": "001.sql", "checksum": "d" * 64, "non_transactional": False}]
+        with mock.patch.object(cli, "classify_recovery_gate", return_value=fast):
+            report = cli._recovery_gate_report(
+                "a" * 40,
+                {"production_current_commit_sha": "b" * 40, "schema_migrations": []},
+                catalog,
+            )
+        self.assertEqual(report["mode"], "specialized")
+        self.assertIn("pending_migrations", report["reason_codes"])
+
+    def test_verify_recovery_result_command_exposes_help(self) -> None:
+        result = subprocess.run(
+            [sys.executable, str(DEPLOY_ROOT / "release.py"), "verify-recovery-result", "--help"],
+            cwd=DEPLOY_ROOT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("release_id", result.stdout)
+
+    def test_verify_recovery_result_command_dispatches_to_supervisor(self) -> None:
+        from release import supervisor
+
+        with mock.patch.object(sys, "argv", ["release.py", "verify-recovery-result", "release-123"]), mock.patch.object(
+            supervisor, "verify_recovery_result"
+        ) as verify:
+            cli.main()
+
+        verify.assert_called_once()
+        self.assertEqual(verify.call_args.args[0].release_id, "release-123")
+
     def test_large_pre_gate_asset_uses_local_staging_and_checksum(self) -> None:
         payload = b"recovery-payload"
         expected = __import__("hashlib").sha256(payload).hexdigest()
@@ -192,6 +253,15 @@ class DeployCommandTest(unittest.TestCase):
             production_current_image_id=production_image,
             production_snapshot=production_snapshot,
             pre_gate_input=descriptor,
+            recovery_gate={
+                "schema": 1,
+                "mode": "specialized",
+                "base_commit": None,
+                "target_commit": "a" * 40,
+                "reason_codes": ["production_commit_unproven"],
+                "changed_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+                "estimated_extra_seconds": 600,
+            },
         )
         runner.run.assert_any_call(
             "racknerd",
@@ -205,6 +275,69 @@ class DeployCommandTest(unittest.TestCase):
         )
         descriptor.unlink.assert_called_once_with(missing_ok=True)
         production.assert_not_called()
+
+    def test_gate_v2_fast_vm_validate_skips_production_restore_inputs(self) -> None:
+        args = argparse.Namespace(
+            profile="242",
+            commit="a" * 40,
+            deployment_mode="blue-green",
+            recovery_gate_mode="auto",
+        )
+        production_image = "sha256:" + "b" * 64
+        production_snapshot = {
+            "schema": 1,
+            "production_current_commit_sha": "c" * 40,
+            "schema_migrations": [],
+        }
+        recovery_gate = {
+            "schema": 1,
+            "mode": "fast",
+            "base_commit": "c" * 40,
+            "target_commit": "a" * 40,
+            "reason_codes": ["ordinary_change"],
+            "changed_paths_sha256": "d" * 64,
+            "estimated_extra_seconds": 0,
+        }
+        gate = Path("gate")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "releases"
+            runner = mock.Mock()
+            doctor_instance = mock.Mock()
+            doctor_instance._ssh.return_value = runner
+            doctor_instance.run.side_effect = [
+                {},
+                {},
+                {"production_current_image_id": production_image, "production_snapshot_b64": "encoded"},
+            ]
+            with (
+                mock.patch.object(cli, "RUN_ROOT", root),
+                mock.patch.object(cli, "get_profile", return_value={"name": "242", "gate_schema": 2}),
+                mock.patch.object(cli, "create_manifest", return_value={"release_id": "placeholder"}),
+                mock.patch.object(cli, "release_id", return_value="242-aaaaaaaaaaaa-1-deadbeef"),
+                mock.patch.object(cli, "ReleaseDoctor", return_value=doctor_instance),
+                mock.patch.object(cli, "install_vm_validator"),
+                mock.patch.object(cli, "bootstrap_production"),
+                mock.patch.object(cli, "decode_snapshot", return_value=production_snapshot),
+                mock.patch.object(cli, "_recovery_gate_report", return_value=recovery_gate),
+                mock.patch.object(cli, "prepare_pre_gate_inputs") as prepare,
+                mock.patch.object(cli, "create_vm_gate", return_value=gate) as create_gate,
+                mock.patch("builtins.print"),
+            ):
+                cli.vm_validate(args)
+
+        prepare.assert_not_called()
+        create_gate.assert_called_once_with(
+            "242",
+            "a" * 40,
+            "blue-green",
+            identifier="242-aaaaaaaaaaaa-1-deadbeef",
+            acquire_lock=False,
+            production_current_image_id=production_image,
+            production_snapshot=production_snapshot,
+            pre_gate_input=None,
+            recovery_gate=recovery_gate,
+        )
+        runner.run.assert_not_called()
 
     def test_gate_v2_vm_validate_preserves_terminal_gate_failure_state(self) -> None:
         args = argparse.Namespace(profile="242", commit="a" * 40, deployment_mode="downtime")

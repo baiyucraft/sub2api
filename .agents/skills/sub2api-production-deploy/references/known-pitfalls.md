@@ -366,3 +366,13 @@
 - **空间清理边界**：空间不足时先 dry-run，再使用同一计划 checksum apply；只运行版本化 cleaner，最多一次，并保留 candidate、旧运行 image、Gate、恢复点和失败 release 证据。禁止 `docker system prune`、删卷、删 PostgreSQL/Redis、`data-dev` 或备份；BuildKit GC 必须同时具备明确的 `max-used-space` 与 `reserved-space`。
 - **输出与身份安全**：doctor/status/follow 只输出白名单字段和脱敏摘要，不回显完整 snapshot、环境变量、原始日志、请求头或凭据。PowerShell 发布参数不要依赖易被解释的 `HEAD^{commit}` 文本，必须由现场 `git rev-parse` 生成并贯穿全流程的完整 40 位小写 SHA。
 - **状态**：已由 release `242-a15fefb7a6a5-1787786100-53f9251e` 的 VM Gate、`verify-result` 和 post-deploy doctor 复核；真实模型/Provider 流式能力仍按合同记为 `not_checked`。
+
+## 协调恢复串行缺陷导致多轮恢复
+
+- 现象：发布在 `migration_and_switch` 中断后进入 fail-closed；协调恢复先后遇到 Redis 60 秒等待超时、TTL 精确等式误判、恢复成功后的 ingress marker 收口冲突，以及新版 supervisor 调用事故 release 内旧 cleanup helper。前三个缺陷逐项修复后才暴露下一个，表现为多次重试。
+- 根因：恢复链只覆盖静态/mock 路径，没有用接近生产体量的 Redis、惰性过期、cleanup 中断和新旧 helper 混用执行端到端恢复；恢复过程也缺少足够细的幂等 checkpoint 与独立恢复验真。
+- 修复合同：Redis 健康等待使用有界长等待并在健康后立即继续；TTL 验收使用总键、TTL 键和永久键的单调不等式；`recovery_restored` 可在严格复核后消费过期 ingress `applied` marker；orchestrator、restore、cleanup、reconcile 必须来自同一 helper bundle。
+- 断点合同：按 PostgreSQL、Redis、Compose、应用、Nginx、backup units、claim 和 state cleanup 保存 checkpoint。业务恢复后只剩 cleanup 时，只执行幂等收口，不重做数据库恢复。
+- 验真合同：候选成功使用 `verify-result`；恢复旧版本使用 `verify-recovery-result`，两者不能互相替代或放宽。
+- 预防门禁：每次发布执行 `fast` 0–2 分钟；恢复相关改动执行 `specialized` 5–15 分钟和故障注入；`full` 20–60 分钟至少每 30 天执行一次，不阻塞普通发布，但恢复链自身变更或真实事故修复必须在生产前通过。
+- 状态：本次已知四类缺陷已修复；长期文档已固化门禁和恢复边界，CLI 使用独立 `verify-recovery-result` 验真 recovered release。

@@ -1,7 +1,7 @@
 ---
 title: 模块指南
 description: 启动、请求、数据和运维模块阅读路径
-updated: 2026-08-24
+updated: 2026-09-21
 owner: project
 ---
 
@@ -14,5 +14,6 @@ owner: project
 - [sub2新站参考能力迁移边界](./07-sub2新站参考能力迁移边界.md)
 - [Codex STATE 独立插件](./08-Codex-STATE票据.md)
 - [OpenAI OAuth 账号代理组](./09-OpenAI-OAuth账号代理组.md)
+- [发布与协调恢复](./10-发布与协调恢复.md)
 
 页面只记录入口、职责、依赖和测试线索；细节以源码和 SSOT 为准。

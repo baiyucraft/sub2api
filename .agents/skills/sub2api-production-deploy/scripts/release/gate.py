@@ -382,10 +382,22 @@ def verify_gate_v2(bundle_dir: Path, public_key: Path, expected_profile: str, al
     if not allow_expired and int(manifest.get("expires_at", 0)) < int(time.time()):
         raise RuntimeError("gate has expired")
     if any(evidence.get(field) is not True for field in (
-        "integration_verified", "vm_restore_verified", "vm_database_boundary",
-        "vm_redis_boundary", "data_dev_boundary",
+        "integration_verified", "vm_database_boundary", "vm_redis_boundary", "data_dev_boundary",
     )):
-        raise RuntimeError("Gate v2 lacks VM restore or integration evidence")
+        raise RuntimeError("Gate v2 lacks VM integration evidence")
+    recovery_mode = (manifest.get("recovery_gate") or {}).get("mode")
+    if recovery_mode is None:
+        # Signed Gate v2 bundles created before recovery-gate classification
+        # always ran the production restore probe.
+        recovery_mode = "specialized"
+    if recovery_mode == "fast":
+        if evidence.get("vm_restore_verified") is not False:
+            raise RuntimeError("fast Gate must not claim production restore verification")
+    elif recovery_mode in {"specialized", "full"}:
+        if evidence.get("vm_restore_verified") is not True:
+            raise RuntimeError("recovery Gate lacks VM restore evidence")
+    else:
+        raise RuntimeError("Gate v2 recovery classification is invalid")
     baseline_image = evidence.get("production_current_image_id")
     validate_image_id(baseline_image)
     if baseline_image != manifest.get("production_current_image_id"):
@@ -408,7 +420,8 @@ def verify_gate_v2(bundle_dir: Path, public_key: Path, expected_profile: str, al
     release_policy = evidence.get("release_policy")
     if not isinstance(release_policy, dict) or set(release_policy) != {"canary_verified", "restore_points_verified"}:
         raise RuntimeError("Gate v2 release policy evidence is invalid")
-    if release_policy.get("canary_verified") not in {True, "not_checked"} or release_policy.get("restore_points_verified") is not True:
+    expected_restore_points = recovery_mode in {"specialized", "full"}
+    if release_policy.get("canary_verified") not in {True, "not_checked"} or release_policy.get("restore_points_verified") is not expected_restore_points:
         raise RuntimeError("Gate v2 release policy is not verified")
     archive_path = bundle_dir / "candidate.tar.gz"
     if not archive_path.is_file():
