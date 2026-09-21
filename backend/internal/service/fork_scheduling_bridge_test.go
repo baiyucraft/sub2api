@@ -33,6 +33,48 @@ func TestLegacyTTFTRuntimeSharesStateAcrossObserverReaderAndExcluder(t *testing.
 	}
 }
 
+func TestLegacyTTFTRuntimeInheritedGlobalStateSharesAcrossGroupIDs(t *testing.T) {
+	guard := newOpenAITTFTGuard()
+	runtime := legacyTTFTRuntime{guard: guard}
+	cfg := forkscheduling.TTFTConfig{Enabled: true, Threshold: 10 * time.Second, MinSamples: 2, Source: GroupTTFTGuardSourceGlobal}
+	firstTokenMs := 30000
+	runtime.Report(forkscheduling.TTFTSample{GroupID: 100, AccountID: 7, Model: "gpt-5", Success: true, FirstTokenMs: &firstTokenMs}, cfg)
+
+	excluded := runtime.Exclusions([]forkscheduling.CandidateView{{GroupID: 200, ID: 7, Model: "gpt-5"}}, nil, cfg)
+	if _, ok := excluded[7]; !ok {
+		t.Fatalf("excluded accounts = %#v, want shared global account 7", excluded)
+	}
+	if guard.size() != 1 {
+		t.Fatalf("guard size = %d, want one shared global entry", guard.size())
+	}
+}
+
+func TestLegacyTTFTRuntimeCustomStateRemainsScopedByGroupID(t *testing.T) {
+	guard := newOpenAITTFTGuard()
+	runtime := legacyTTFTRuntime{guard: guard}
+	cfg := forkscheduling.TTFTConfig{Enabled: true, Threshold: 10 * time.Second, MinSamples: 2, Source: GroupTTFTGuardSourceGroup}
+	firstTokenMs := 30000
+	runtime.Report(forkscheduling.TTFTSample{GroupID: 100, AccountID: 7, Model: "gpt-5", Success: true, FirstTokenMs: &firstTokenMs}, cfg)
+
+	excluded := runtime.Exclusions([]forkscheduling.CandidateView{{GroupID: 200, ID: 7, Model: "gpt-5"}}, nil, cfg)
+	if _, ok := excluded[7]; ok {
+		t.Fatalf("excluded accounts = %#v, custom state leaked across groups", excluded)
+	}
+}
+
+func TestLegacyTTFTRuntimeEmptySourceDefaultsToGlobalScope(t *testing.T) {
+	guard := newOpenAITTFTGuard()
+	runtime := legacyTTFTRuntime{guard: guard}
+	cfg := forkscheduling.TTFTConfig{Enabled: true, Threshold: 10 * time.Second, MinSamples: 2}
+	firstTokenMs := 30000
+	runtime.Report(forkscheduling.TTFTSample{GroupID: 100, AccountID: 7, Model: "gpt-5", Success: true, FirstTokenMs: &firstTokenMs}, cfg)
+
+	excluded := runtime.Exclusions([]forkscheduling.CandidateView{{GroupID: 200, ID: 7, Model: "gpt-5"}}, nil, cfg)
+	if _, ok := excluded[7]; !ok {
+		t.Fatalf("excluded accounts = %#v, empty source must remain global-compatible", excluded)
+	}
+}
+
 func TestLegacyHealthRuntimeDelegatesToOneRegistry(t *testing.T) {
 	registry := &UpstreamHealthRegistry{items: make(map[int64]UpstreamHealthSnapshot)}
 	runtime := legacyHealthRuntime{registry: registry, owner: testLegacyHealthRuntimeOwner{registry: registry}}

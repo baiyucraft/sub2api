@@ -110,9 +110,41 @@ func TestOpenAITTFTGuard_ProbeCadenceIsIsolatedByGroupAndCanonicalModel(t *testi
 	require.NotContains(t, guard.exclusions(modelB, nil, cfg), int64(2))
 }
 
+func TestOpenAITTFTGuard_InheritedGlobalProbeCadenceIsSharedAcrossGroups(t *testing.T) {
+	guard := newOpenAITTFTGuard()
+	cfg := enabledOpenAITTFTGuardConfig(20*time.Second, 5)
+	critical := 60_000
+	guard.report(100, 1, "gpt-test", true, &critical, cfg)
+	groupOne := []openAITTFTGuardCandidate{{groupID: 100, accountID: 1, model: "gpt-test"}}
+	groupTwo := []openAITTFTGuardCandidate{{groupID: 200, accountID: 1, model: "gpt-test"}}
+
+	for i := 1; i < openAITTFTGuardProbeEvery; i++ {
+		require.Contains(t, guard.exclusions(groupOne, nil, cfg), int64(1))
+	}
+	require.NotContains(t, guard.exclusions(groupTwo, nil, cfg), int64(1), "inherited groups must share recovery probe cadence")
+}
+
+func TestOpenAITTFTGuard_CustomProbeCadenceIsIsolatedAcrossGroups(t *testing.T) {
+	guard := newOpenAITTFTGuard()
+	cfg := enabledOpenAITTFTGuardConfig(20*time.Second, 5)
+	cfg.Source = GroupTTFTGuardSourceGroup
+	critical := 60_000
+	guard.report(100, 1, "gpt-test", true, &critical, cfg)
+	guard.report(200, 1, "gpt-test", true, &critical, cfg)
+	groupOne := []openAITTFTGuardCandidate{{groupID: 100, accountID: 1, model: "gpt-test"}}
+	groupTwo := []openAITTFTGuardCandidate{{groupID: 200, accountID: 1, model: "gpt-test"}}
+
+	for i := 1; i < openAITTFTGuardProbeEvery; i++ {
+		require.Contains(t, guard.exclusions(groupOne, nil, cfg), int64(1))
+	}
+	require.Contains(t, guard.exclusions(groupTwo, nil, cfg), int64(1), "custom groups must keep independent recovery probe cadence")
+	require.NotContains(t, guard.exclusions(groupOne, nil, cfg), int64(1))
+}
+
 func TestOpenAITTFTGuard_ClearGroupRemovesAllModelProbeState(t *testing.T) {
 	guard := newOpenAITTFTGuard()
 	cfg := enabledOpenAITTFTGuardConfig(20*time.Second, 5)
+	cfg.Source = GroupTTFTGuardSourceGroup
 	critical := 60_000
 	guard.report(100, 1, "model-a", true, &critical, cfg)
 	guard.report(100, 2, "model-b", true, &critical, cfg)
@@ -124,10 +156,10 @@ func TestOpenAITTFTGuard_ClearGroupRemovesAllModelProbeState(t *testing.T) {
 	guard.clearGroup(100)
 
 	for key := range guard.entries {
-		require.NotEqual(t, int64(100), key.groupID)
+		require.NotEqual(t, int64(100), key.scopeID)
 	}
 	for key := range guard.groupProbes {
-		require.NotEqual(t, int64(100), key.groupID)
+		require.NotEqual(t, int64(100), key.scopeID)
 	}
 	require.True(t, guard.isDegraded(200, 3, "model-c"), "clearing one group must not remove another group's state")
 }
@@ -135,6 +167,7 @@ func TestOpenAITTFTGuard_ClearGroupRemovesAllModelProbeState(t *testing.T) {
 func TestOpenAITTFTGuard_GroupNameChangePreservesRuntimeState(t *testing.T) {
 	guard := newOpenAITTFTGuard()
 	cfg := enabledOpenAITTFTGuardConfig(20*time.Second, 5)
+	cfg.Source = GroupTTFTGuardSourceGroup
 	cfg.GroupName = "before"
 	critical := 60_000
 	guard.report(100, 1, "gpt-test", true, &critical, cfg)
@@ -149,7 +182,7 @@ func TestOpenAITTFTGuard_GroupNameChangePreservesRuntimeState(t *testing.T) {
 	require.Equal(t, uint64(1), snapshots[1][0].SampleCount)
 }
 
-func TestOpenAITTFTGuard_StateIsIsolatedByGroupAndModel(t *testing.T) {
+func TestOpenAITTFTGuard_InheritedGlobalStateIsSharedAcrossGroupsAndIsolatedByModel(t *testing.T) {
 	guard := newOpenAITTFTGuard()
 	cfg := enabledOpenAITTFTGuardConfig(20*time.Second, 5)
 	critical := 60_000
@@ -158,10 +191,23 @@ func TestOpenAITTFTGuard_StateIsIsolatedByGroupAndModel(t *testing.T) {
 	groupOne := guard.exclusions([]openAITTFTGuardCandidate{{groupID: 100, accountID: 7, model: "gpt-slow"}}, nil, cfg)
 	groupTwo := guard.exclusions([]openAITTFTGuardCandidate{{groupID: 200, accountID: 7, model: "gpt-slow"}}, nil, cfg)
 	require.Contains(t, groupOne, int64(7))
-	require.NotContains(t, groupTwo, int64(7))
+	require.Contains(t, groupTwo, int64(7))
+	require.Len(t, guard.entries, 1, "inherited groups must share one runtime entry")
 
 	otherModel := guard.exclusions([]openAITTFTGuardCandidate{{groupID: 100, accountID: 7, model: "gpt-fast"}}, nil, cfg)
 	require.NotContains(t, otherModel, int64(7))
+}
+
+func TestOpenAITTFTGuard_CustomStateIsIsolatedByGroupAndModel(t *testing.T) {
+	guard := newOpenAITTFTGuard()
+	cfg := enabledOpenAITTFTGuardConfig(20*time.Second, 5)
+	cfg.Source = GroupTTFTGuardSourceGroup
+	critical := 60_000
+	guard.report(100, 7, "gpt-slow", true, &critical, cfg)
+
+	require.Contains(t, guard.exclusions([]openAITTFTGuardCandidate{{groupID: 100, accountID: 7, model: "gpt-slow"}}, nil, cfg), int64(7))
+	require.NotContains(t, guard.exclusions([]openAITTFTGuardCandidate{{groupID: 200, accountID: 7, model: "gpt-slow"}}, nil, cfg), int64(7))
+	require.NotContains(t, guard.exclusions([]openAITTFTGuardCandidate{{groupID: 100, accountID: 7, model: "gpt-fast"}}, nil, cfg), int64(7))
 }
 
 func TestOpenAITTFTGuard_DifferentGroupThresholdsAreIndependent(t *testing.T) {
@@ -195,6 +241,37 @@ func TestOpenAITTFTGuard_GlobalChangeClearsOnlyInheritedGroups(t *testing.T) {
 
 	require.False(t, guard.isDegraded(101, 7, "gpt-test"))
 	require.True(t, guard.isDegraded(202, 7, "gpt-test"))
+}
+
+func TestOpenAITTFTGuard_DisabledGroupDoesNotClearInheritedGlobalState(t *testing.T) {
+	guard := newOpenAITTFTGuard()
+	global := enabledOpenAITTFTGuardConfig(20*time.Second, 5)
+	critical := 60_000
+	guard.report(101, 7, "gpt-test", true, &critical, global)
+
+	disabled := global
+	disabled.Enabled = false
+	disabled.Source = GroupTTFTGuardSourceDisabled
+	guard.clearForConfig(202, disabled)
+
+	require.Contains(t, guard.exclusions([]openAITTFTGuardCandidate{{groupID: 303, accountID: 7, model: "gpt-test"}}, nil, global), int64(7))
+}
+
+func TestOpenAITTFTGuard_GlobalSnapshotUsesMostRecentSampleGroup(t *testing.T) {
+	guard := newOpenAITTFTGuard()
+	cfg := enabledOpenAITTFTGuardConfig(20*time.Second, 5)
+	critical := 60_000
+	cfg.GroupName = "first"
+	guard.report(101, 7, "gpt-test", true, &critical, cfg)
+	cfg.GroupName = "second"
+	guard.report(202, 7, "gpt-test", true, &critical, cfg)
+
+	items := guard.degradations([]int64{7})[7]
+	require.Len(t, items, 1)
+	require.Equal(t, int64(202), items[0].GroupID)
+	require.Equal(t, "second", items[0].GroupName)
+	require.Equal(t, GroupTTFTGuardSourceGlobal, items[0].PolicySource)
+	require.Equal(t, uint64(2), items[0].SampleCount)
 }
 
 func TestOpenAITTFTGuard_TTLAndLRU(t *testing.T) {
@@ -234,7 +311,7 @@ func TestOpenAITTFTGuard_DegradationSnapshots(t *testing.T) {
 	aDegradedAt := now
 	guard.report(100, 2, "other-model", true, &critical, cfg)
 
-	key, ok := openAITTFTGuardKeyFor(100, 1, "a-model")
+	key, ok := openAITTFTGuardKeyFor(0, 1, "a-model")
 	require.True(t, ok)
 	touchedAt := guard.entries[key].lastTouchedAt
 	snapshots := guard.degradations([]int64{2, 1, 1, 0})
@@ -367,11 +444,15 @@ func TestNormalizeOpenAITTFTGuardConfig_InvalidProviderFailsOpen(t *testing.T) {
 }
 
 type openAITTFTGuardPolicyResolverStub struct {
-	policy GroupTTFTGuardResolvedPolicy
-	err    error
+	policy   GroupTTFTGuardResolvedPolicy
+	policies map[int64]GroupTTFTGuardResolvedPolicy
+	err      error
 }
 
-func (s *openAITTFTGuardPolicyResolverStub) Resolve(context.Context, int64) (GroupTTFTGuardResolvedPolicy, error) {
+func (s *openAITTFTGuardPolicyResolverStub) Resolve(_ context.Context, groupID int64) (GroupTTFTGuardResolvedPolicy, error) {
+	if policy, ok := s.policies[groupID]; ok {
+		return policy, s.err
+	}
 	return s.policy, s.err
 }
 
@@ -805,7 +886,7 @@ func TestOpenAIGatewayService_TTFTGuardUnknownOrStalePreviousResponseUsesOverlay
 	}
 }
 
-func TestOpenAIGatewayService_TTFTGuardKeepsStateIndependentAcrossGroups(t *testing.T) {
+func TestOpenAIGatewayService_TTFTGuardSharesInheritedGlobalStateAcrossGroups(t *testing.T) {
 	for _, advanced := range []bool{false, true} {
 		t.Run(map[bool]string{false: "legacy", true: "advanced"}[advanced], func(t *testing.T) {
 			groupOne := int64(911)
@@ -839,11 +920,49 @@ func TestOpenAIGatewayService_TTFTGuardKeepsStateIndependentAcrossGroups(t *test
 			selectionTwo, _, err := svc.SelectAccountWithScheduler(context.Background(), &groupTwo, "", "", "gpt-test", nil, OpenAIUpstreamTransportAny, false)
 			require.NoError(t, err)
 			require.NotNil(t, selectionTwo)
-			require.Equal(t, int64(61), selectionTwo.Account.ID)
+			require.Equal(t, int64(63), selectionTwo.Account.ID)
 			if selectionTwo.ReleaseFunc != nil {
 				selectionTwo.ReleaseFunc()
 			}
 		})
+	}
+}
+
+func TestOpenAIGatewayService_TTFTGuardKeepsCustomStateIndependentAcrossGroups(t *testing.T) {
+	groupOne := int64(913)
+	groupTwo := int64(914)
+	accounts := []Account{
+		{ID: 64, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 2, GroupIDs: []int64{groupOne, groupTwo}},
+		{ID: 65, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 3, GroupIDs: []int64{groupOne}},
+		{ID: 66, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 3, GroupIDs: []int64{groupTwo}},
+	}
+	resolver := &openAITTFTGuardPolicyResolverStub{policies: map[int64]GroupTTFTGuardResolvedPolicy{
+		groupOne: {GroupID: groupOne, GroupName: "strict", Enabled: true, Threshold: 20 * time.Second, MinSamples: 5, Source: GroupTTFTGuardSourceGroup},
+		groupTwo: {GroupID: groupTwo, GroupName: "lenient", Enabled: true, Threshold: 20 * time.Second, MinSamples: 5, Source: GroupTTFTGuardSourceGroup},
+	}}
+	svc := &OpenAIGatewayService{
+		accountRepo:                  schedulerGroupAwareOpenAIAccountRepo{schedulerTestOpenAIAccountRepo{accounts: accounts}},
+		cfg:                          &config.Config{},
+		rateLimitService:             newOpenAIAdvancedSchedulerRateLimitService("true"),
+		concurrencyService:           NewConcurrencyService(schedulerTestConcurrencyCache{}),
+		groupTTFTGuardPolicyResolver: resolver,
+	}
+	svc.SetOpenAITTFTGuardUpstreamOnly(false)
+	critical := 60_000
+	svc.ReportOpenAIAccountScheduleResultForGroup(&groupOne, &accounts[0], "gpt-test", true, &critical)
+
+	selectionOne, _, err := svc.SelectAccountWithScheduler(context.Background(), &groupOne, "", "", "gpt-test", nil, OpenAIUpstreamTransportAny, false)
+	require.NoError(t, err)
+	require.Equal(t, int64(65), selectionOne.Account.ID)
+	if selectionOne.ReleaseFunc != nil {
+		selectionOne.ReleaseFunc()
+	}
+
+	selectionTwo, _, err := svc.SelectAccountWithScheduler(context.Background(), &groupTwo, "", "", "gpt-test", nil, OpenAIUpstreamTransportAny, false)
+	require.NoError(t, err)
+	require.Equal(t, int64(64), selectionTwo.Account.ID)
+	if selectionTwo.ReleaseFunc != nil {
+		selectionTwo.ReleaseFunc()
 	}
 }
 
