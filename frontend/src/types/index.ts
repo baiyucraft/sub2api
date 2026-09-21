@@ -1435,7 +1435,7 @@ export interface Account {
   overload_until: string | null
   temp_unschedulable_until: string | null
   temp_unschedulable_reason: string | null
-  /** Runtime TTFT Guard state, scoped to account + canonical mapped model. */
+  /** Runtime TTFT Guard state, scoped globally or by group plus account and canonical mapped model. */
   ttft_guard_degradations?: AccountTTFTGuardDegradation[]
   upstream_health?: {
     key_id: number
