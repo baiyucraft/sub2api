@@ -773,16 +773,32 @@ printf 'backup_units_restored=true\nrelease_claim_reconciled=true\nplaintext_sta
             raise RuntimeError(f"coordinated recovery is not allowed: {inspection['decision']}")
         else:
             runner = SSHRunner()
-            remote_temp = runner.create_temp_dir("racknerd", "/opt/sub2api/releases", "coordinated-restore")
-            remote_restore = f"{remote_temp}/restore.sh"
-            runner.upload_file("racknerd", COORDINATED_RESTORE, remote_restore, 0o500)
+            remote_temp = None
             try:
-                restore = runner.run(
-                    "racknerd",
-                    f"RELEASE_DIR={release_dir} {remote_restore}",
-                    {"coordinated_restore", "restored_image_id", "application_health"},
-                    timeout=2400,
-                ).values
+                restore_already_applied = (
+                    inspection.get("ingress_transaction") == "recovery_restored"
+                    and inspection.get("app_health") == "healthy"
+                    and inspection.get("nginx_active") == "true"
+                    and inspection.get("backup_timer_enabled") == "true"
+                    and inspection.get("running_image_id") not in {None, "unknown"}
+                    and inspection.get("running_image_id") != inspection.get("candidate_image_id")
+                )
+                if restore_already_applied:
+                    restore = {
+                        "coordinated_restore": "already_restored",
+                        "restored_image_id": inspection["running_image_id"],
+                        "application_health": "pass",
+                    }
+                else:
+                    remote_temp = runner.create_temp_dir("racknerd", "/opt/sub2api/releases", "coordinated-restore")
+                    remote_restore = f"{remote_temp}/restore.sh"
+                    runner.upload_file("racknerd", COORDINATED_RESTORE, remote_restore, 0o500)
+                    restore = runner.run(
+                        "racknerd",
+                        f"RELEASE_DIR={release_dir} {remote_restore}",
+                        {"coordinated_restore", "restored_image_id", "application_health"},
+                        timeout=2400,
+                    ).values
                 state_dir = f"/opt/sub2api/backups/release-state/{identifier}"
                 finish_script = f"""set -Eeuo pipefail
 export RELEASE_DIR={release_dir}
@@ -816,7 +832,8 @@ printf 'backup_units_restored=true\nrelease_claim_reconciled=true\nplaintext_sta
                     timeout=900,
                 ).values
             finally:
-                runner.run("racknerd", f"rm -rf {remote_temp} && printf 'cleanup=true\\n'", {"cleanup"})
+                if remote_temp is not None:
+                    runner.run("racknerd", f"rm -rf {remote_temp} && printf 'cleanup=true\\n'", {"cleanup"})
             values = {**restore, **finished}
             recovery_stage = "recovered_after_coordinated_restore"
     else:

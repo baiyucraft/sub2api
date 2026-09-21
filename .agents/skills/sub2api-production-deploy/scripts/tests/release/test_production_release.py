@@ -2167,6 +2167,9 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         self.assertIn("inactive|failed", restore)
         self.assertIn("(( failed == 0 )) || exit 125", restore)
         self.assertNotIn("! -name recovery-point.tar", cleanup)
+        self.assertIn('rm -f -- "$txn/applied"', cleanup)
+        self.assertIn('$has_recovery == true', cleanup)
+        self.assertIn('$has_rollback == false', cleanup)
 
     def test_racknerd_verifier_does_not_hairpin_through_dmit(self) -> None:
         verify = self.script("verify.sh")
