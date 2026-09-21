@@ -205,6 +205,8 @@ class VMSpaceCleanTest(unittest.TestCase):
             self.assertIn(f"printf '{field}=", validator)
         self.assertIn('redis_wait_seconds=$((180 + (redis_rdb_bytes / 10485760) * 60))', validator)
         self.assertIn('(( redis_wait_seconds > 600 )) && redis_wait_seconds=600', validator)
+        self.assertIn('if [[ -n "$loading" && "$loading" != 0 && "$loading" != 1 ]]; then', validator)
+        self.assertNotIn('if [[ -n "$loading" && "$loading" != 1 ]]; then', validator)
         self.assertLess(
             validator.index(': > "$state_dir/validator.stderr"'),
             validator.index('on_v2_failure()'),

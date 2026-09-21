@@ -26,8 +26,8 @@ wait_for_redis_ready() {
       return 1
     fi
     loading=$(docker exec "$container" redis-cli INFO persistence 2>/dev/null | sed -n 's/^loading:\([01]\)\r*$/\1/p' || true)
-    if [[ -n "$loading" && "$loading" != 1 ]]; then
-      [[ -z "$diagnostics_path" ]] || write_redis_probe_diagnostics "$container" "$diagnostics_path" redis_reported_not_loading "$max_seconds"
+    if [[ -n "$loading" && "$loading" != 0 && "$loading" != 1 ]]; then
+      [[ -z "$diagnostics_path" ]] || write_redis_probe_diagnostics "$container" "$diagnostics_path" redis_loading_state_invalid "$max_seconds"
       return 1
     fi
     sleep 1
