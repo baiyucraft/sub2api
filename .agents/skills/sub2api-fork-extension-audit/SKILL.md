@@ -26,12 +26,21 @@ description: 审计 Sub2API fork 相对官方 upstream/main 的扩展合同。�
 
 ## 插件宿主与插件包双层审计
 
-- 通用插件协议、Host API、管理路由、包校验、PostgreSQL 权威安装记录、跨实例请求守卫、maintenance journal 和 migration 属于宿主扩展；插件私有采集、解析、状态机、模型名单和 iframe UI 属于独立插件包。不得把两层所有权合并成一个模糊的“STATE 功能”。
+- 通用插件协议、Host API、Manifest 解析、管理路由、原生管理页渲染器、包校验、PostgreSQL 权威安装记录、跨实例请求守卫、maintenance journal 和 migration 属于宿主扩展；插件私有采集、解析、状态机、模型名单、v1 iframe UI 或 v2 声明式页面定义属于独立插件包。不得把两层所有权合并成一个模糊的“STATE 功能”。
 - 审计宿主时检查 `generic-plugin-runtime-v2`：旧 API 兼容、必需 feature 协商、上传/启停/升级路由、签名策略、受管范围、准入失败隔离、加密 CAS/lease、数据库原包恢复和跨实例升级回滚。
 - 审计插件包时检查 `codex-state-plugin`：插件 ID/版本、来源锁、许可证、双架构运行时、manifest 文件哈希、Ed25519 签名、Host API 2 与九项 feature、默认停用、STATE 私有生命周期和负向边界。
 - `POST /api/v1/admin/plugins/upload` 是首次安装；调用前必须证明同插件 ID 不存在，不能利用当前宿主对部分非运行状态同 ID upload 的兼容行为绕过 maintenance upgrade。`POST /api/v1/admin/plugins/:id/upgrade` 是已安装 Scoped 插件升级。上传、保存秘密、启用和真实采集是独立授权，审计不得把“包已安装”表述为“功能已启用”。
 - PostgreSQL 的 artifact 和 installation 是跨实例权威状态，本地 `plugins.data_dir` 只是校验后的运行副本。审计必须要求逐实例恢复/版本/二进制 SHA/Health 证据，不能以单实例上传成功证明整个集群完成升级。
 - 仅插件包变化可独立发版；Host API、管理壳、migration、部署配置或包校验变化仍是宿主应用发布。构建、VM 和生产证据由 `sub2api-production-deploy` 的 `plugin-package` 分类负责，本技能只校验扩展登记与最低回归映射。
+
+### 原生管理页合同
+
+- Manifest v1 的 `ui.entrypoint` 必须继续按 sandbox iframe + Bridge 解释；升级宿主不能要求旧包改写 manifest，也不能把旧入口隐式视为 native。
+- Manifest v2 只允许 `ui.type=native|iframe|none`。`native` 必须声明 `ui.definition` 和 `requires.admin_ui=1`；`iframe` 使用 `entrypoint`；`none` 不暴露页面入口。非法组合在安装阶段拒绝。
+- Native 定义必须位于包内 `ui/`、列入签名文件哈希并在安装时完整解析。宿主只渲染允许的声明式组件、JSON Pointer 和有限条件；任意 JavaScript、HTML、远程资源、自由表达式、动态模块和宿主 DOM 访问均为 blocker。
+- 公共路由固定为 `/admin/plugins/:pluginKey`。插件不能注册任意 Vue 路由或孙页面；复杂布局在单页内部使用 Tabs、折叠区和局部导航。`pluginKey` 是稳定 URL 身份，数据库数字 ID 只用于受权管理 API。
+- `GET /api/v1/admin/plugins/by-key/:pluginKey` 和 `GET /api/v1/admin/plugins/:id/admin-ui` 属于宿主管理接口。Native 页面不创建 UI Session；定义缓存必须绑定安装 ID 与 binary SHA，并在升级、卸载或 artifact 身份变化时失效。
+- Manifest schema/parser、Admin UI API、宿主路由、原生渲染器、安全校验或宿主插件壳变化均按宿主应用发布；只有当前生产宿主已经支持所需 `admin_ui` 版本时，插件包内声明式定义变化才允许 `plugin-package`。
 
 ## 发布恢复合同审计
 

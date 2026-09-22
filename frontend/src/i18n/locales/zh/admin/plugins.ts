@@ -61,5 +61,14 @@ export default {
     bridgeRejected: '插件 UI 消息校验失败',
     onlyOpenAI: '初期能力：仅 OpenAI OAuth 出站传输',
     noAccountCoupling: '插件配置独立管理，账号凭据保持隔离。'
+    ,nativePageTitle: '插件页面'
+    ,nativePageDescription: '由宿主安全渲染的插件管理页面。'
+    ,nativePageLoadFailed: '插件页面加载失败，请返回插件管理后重试。'
+    ,nativePageNotFound: '插件不存在或已卸载。'
+    ,nativePageUnavailable: '该插件没有可用的原生管理页面。'
+    ,backToList: '返回插件管理'
+    ,unsavedNativeConfig: '有未保存的插件配置修改。'
+    ,nativeActionConfirm: '确定要执行此操作吗？'
+    ,leaveNativePageConfirm: '插件配置有未保存的修改，确定要离开此页面吗？'
   }
 }

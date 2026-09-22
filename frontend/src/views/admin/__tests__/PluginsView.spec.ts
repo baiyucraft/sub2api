@@ -65,6 +65,10 @@ vi.mock('@/composables/useStepUp', () => ({
   stepUpBlockReason: () => '',
 }))
 
+vi.mock('vue-router', () => ({
+  useRouter: () => ({ push: vi.fn() }),
+}))
+
 vi.mock('vue-i18n', async (importOriginal) => ({
   ...(await importOriginal<typeof import('vue-i18n')>()),
   useI18n: () => ({ t: (key: string) => key }),
@@ -119,6 +123,7 @@ const plugin = {
     plugin_protocol: 1,
     transport_api: 1,
     ui_bridge: 1,
+    admin_ui: 0,
   },
   runtime_healthy: false,
   runtime_message: '',

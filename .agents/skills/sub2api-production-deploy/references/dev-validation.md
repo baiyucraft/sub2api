@@ -44,8 +44,10 @@
 
 - amd64 包在 VM Linux 架构可安装，arm64 包完成静态 manifest/签名/文件哈希和宿主包测试；具备 arm64 运行环境时再执行真实进程 smoke，未执行必须写 `not_checked`。
 - 首次 `/api/v1/admin/plugins/upload` 前证明同插件 ID 不存在，上传后状态为 disabled，不自动保存秘密、不启用账号模型、不执行采集或外联；另设负向用例证明既有同 ID 安装必须走 upgrade，不能通过 upload 绕过维护流程。
-- 启用前拒绝缺失 Host API 2、九项 feature、不受信签名、错误插件 ID、错误架构和文件哈希不一致。
-- 配置、资源、状态、秘密弹窗及 iframe 不泄露凭据、STATE、请求体或内部持久状态；测试数据仅使用合成账号与 loopback 响应。
+- 启用前拒绝缺失 Host API 2、九项 feature、`admin_ui` 版本不足、不受信签名、错误插件 ID、错误架构和文件哈希不一致；Manifest v1 入口继续按 iframe 处理，v2 仅接受 `native/iframe/none` 的合法组合。
+- Native 包定义必须位于 `ui/` 并进入签名哈希，安装阶段拒绝路径穿越、超限定义、重复页面/组件 ID、未允许图标/动作、非法数据绑定、脚本、HTML、远程资源和自由表达式；双架构定义必须语义一致。
+- 配置、资源、状态、秘密弹窗、iframe 和 Native 渲染页不泄露凭据、STATE、请求体或内部持久状态；Native 页只能访问 `config/resources/status/local draft`，测试数据仅使用合成账号与 loopback 响应。
+- Native 页通过 `/admin/plugins/:pluginKey` 深链接加载，验证返回、插件管理侧栏高亮、停用态、定义损坏错误态、未保存草稿提醒、2～60 秒轮询暂停和 Action 幂等；不得创建 iframe UI Session。
 - 升级保持受管范围并阻止新受管准入，跨实例在途登记排空后切换；失败恢复旧包、旧配置代次和旧运行态，不通过主动停用放行。
 - 删除某模拟实例的本地安装副本后，可从 PostgreSQL artifact 重新校验恢复相同版本和 binary SHA；单实例恢复失败不会被其他实例的健康掩盖。
 - Gate 结束后恢复 VM 原插件状态，删除临时模拟配置和凭据；保留旧/新包、SHA、脱敏验证结果和回滚证据。

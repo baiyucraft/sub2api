@@ -588,6 +588,19 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/plugins/:pluginKey',
+    name: 'AdminPluginNativePage',
+    component: () => import('@/views/admin/NativePluginPage.vue'),
+    props: true,
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Plugin Page',
+      titleKey: 'admin.plugins.nativePageTitle',
+      descriptionKey: 'admin.plugins.nativePageDescription'
+    }
+  },
+  {
     path: '/admin/announcements',
     name: 'AdminAnnouncements',
     component: () => import('@/views/admin/AnnouncementsView.vue'),

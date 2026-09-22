@@ -61,5 +61,14 @@ export default {
     bridgeRejected: 'Plugin UI message validation failed',
     onlyOpenAI: 'Initial capability: OpenAI OAuth outbound transport only',
     noAccountCoupling: 'Plugin configuration is managed separately from account credentials.'
+    ,nativePageTitle: 'Plugin page'
+    ,nativePageDescription: 'A host-rendered plugin administration page.'
+    ,nativePageLoadFailed: 'The plugin page could not be loaded. Return to Plugin Management and try again.'
+    ,nativePageNotFound: 'The plugin does not exist or has been uninstalled.'
+    ,nativePageUnavailable: 'This plugin does not provide a native administration page.'
+    ,backToList: 'Back to Plugin Management'
+    ,unsavedNativeConfig: 'You have unsaved plugin configuration changes.'
+    ,nativeActionConfirm: 'Are you sure you want to perform this action?'
+    ,leaveNativePageConfirm: 'You have unsaved plugin configuration changes. Leave this page?'
   }
 }

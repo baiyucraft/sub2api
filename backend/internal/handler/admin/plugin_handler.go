@@ -2,6 +2,7 @@ package admin
 
 import (
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -53,6 +54,41 @@ func (h *PluginHandler) Get(c *gin.Context) {
 		return
 	}
 	response.Success(c, plugin)
+}
+
+func (h *PluginHandler) GetByKey(c *gin.Context) {
+	key := strings.TrimSpace(c.Param("pluginKey"))
+	if key == "" || len(key) > 160 {
+		response.BadRequest(c, "插件 key 无效")
+		return
+	}
+	plugin, err := h.manager.GetByKey(c.Request.Context(), key)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			response.NotFound(c, "插件不存在")
+			return
+		}
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, plugin)
+}
+
+func (h *PluginHandler) AdminUI(c *gin.Context) {
+	id, ok := pluginIDParam(c)
+	if !ok {
+		return
+	}
+	definition, err := h.manager.AdminUI(c.Request.Context(), id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			response.NotFound(c, "插件不存在")
+			return
+		}
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, definition)
 }
 
 func (h *PluginHandler) Upload(c *gin.Context) {

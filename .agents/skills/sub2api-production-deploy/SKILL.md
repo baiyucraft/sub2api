@@ -21,6 +21,7 @@ description: 面向 Sub2API fork 的构建、开发门禁、应用与独立插�
 - 只有最终 diff 严格限定在 `frontend/`，且只包含 UI、样式、静态资源或前端测试时，才允许不导入新的 candidate 到 VM；浏览器 smoke 仍应把 API 代理到已验证的 VM Gate 服务。
 - 所有会生成或切换应用产物的类别都走仓库根 `Dockerfile` 的完整后端发布流水线；只有严格的 `ops-readonly-assets` 或 `ops-control-assets` 可以按分类规则不构建应用镜像。
 - 仅独立插件业务代码/UI变化且宿主 Host API、管理壳、migration、部署配置和包校验逻辑均未变化时，使用 `plugin-package`：不构建宿主镜像、不新增 release profile，但必须构建并签名目标架构插件包，完成 VM 插件 Gate 和生产独立授权。任何宿主边界变化都升级为 `dev-gated` 或 `build-chain`。
+- 原生插件管理页属于宿主边界：Manifest parser/schema、`admin_ui` 能力协商、`/admin/plugins/:pluginKey` 路由、宿主声明式渲染器、Admin UI API、绑定/安全校验、宿主插件壳或 v1 iframe 兼容修复均不是 `plugin-package`，必须按 `dev-gated` 或 `build-chain` 发布，并在 VM Gate 回归 v1 iframe。只有当前生产宿主已实现并验证目标 `admin_ui` 版本时，插件包内的 `ui.definition` 或插件私有页面内容变化才可按 `plugin-package` 发布。
 - 当前 `scripts/release.py deploy-*` 只管理宿主应用镜像发布，不能作为插件包上传、升级或回退入口，也不能生成虚假的插件 Gate。插件包按管理 API 合同单独执行并使用插件专属报告字段。
 - 生产插件包必须使用受信 Ed25519 签名，禁止通过临时开启 `plugins.allow_unsigned` 安装开发包。首次安装前必须证明同插件 ID 不存在；当前宿主即使允许部分非运行状态的同 ID upload，也禁止用该路径绕过 upgrade 的维护事务。首次安装、秘密配置、enable、手动动作和真实采集属于不同写授权；上传不得自动启用。
 - 禁止 `docker system prune`、缺少缓存上限或保留量的 builder prune、删除卷、数据库、Redis、`data` 或备份目录。VM 空间低于 8 GiB 时只允许执行仓库版本化清理器中的一次容量有界 BuildKit GC：按 LRU 将可回收私有缓存压到 1 GB，并保留至少 1 GB 私有 BuildKit 缓存；不得手工扩大范围。

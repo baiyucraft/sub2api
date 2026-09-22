@@ -16,6 +16,9 @@ import (
 
 const (
 	PluginCapabilityOpenAIOAuthOutbound = "openai.oauth.outbound_transport.v1"
+	PluginUITypeNative                  = "native"
+	PluginUITypeIframe                  = "iframe"
+	PluginUITypeNone                    = "none"
 	PluginStateDisabled                 = "disabled"
 	PluginStateStarting                 = "starting"
 	PluginStateUpgrading                = "upgrading"
@@ -54,7 +57,8 @@ type PluginRequirements struct {
 	TestedSub2APIVersions     []string `json:"tested_sub2api_versions,omitempty"`
 	PluginProtocol            int      `json:"plugin_protocol"`
 	TransportAPI              int      `json:"transport_api"`
-	UIBridge                  int      `json:"ui_bridge"`
+	UIBridge                  int      `json:"ui_bridge,omitempty"`
+	AdminUI                   int      `json:"admin_ui,omitempty"`
 }
 
 type PluginCapability struct {
@@ -68,7 +72,9 @@ type PluginRuntime struct {
 }
 
 type PluginUIManifest struct {
-	Entrypoint string `json:"entrypoint"`
+	Type       string `json:"type,omitempty"`
+	Entrypoint string `json:"entrypoint,omitempty"`
+	Definition string `json:"definition,omitempty"`
 }
 
 type PluginSignature struct {
@@ -89,6 +95,7 @@ type PluginCompatibility struct {
 	PluginProtocol     int    `json:"plugin_protocol"`
 	TransportAPI       int    `json:"transport_api"`
 	UIBridge           int    `json:"ui_bridge"`
+	AdminUI            int    `json:"admin_ui"`
 }
 
 type PluginInstallation struct {
@@ -190,7 +197,7 @@ func (m PluginManifest) validateForRuntime(runtimeKey string) error {
 		}
 		seenSecrets[field] = true
 	}
-	if m.SchemaVersion != 1 {
+	if m.SchemaVersion != 1 && m.SchemaVersion != 2 {
 		return fmt.Errorf("不支持的插件清单版本: %d", m.SchemaVersion)
 	}
 	if !pluginIDPattern.MatchString(m.ID) || len(m.ID) > 160 {
@@ -206,9 +213,11 @@ func (m PluginManifest) validateForRuntime(runtimeKey string) error {
 		return errors.New("插件必须声明 requires.sub2api")
 	}
 	if m.Requires.PluginProtocol != pluginv1.ProtocolVersion ||
-		m.Requires.TransportAPI != pluginv1.TransportAPIVersion ||
-		m.Requires.UIBridge != pluginv1.UIBridgeVersion {
-		return errors.New("插件协议、传输 API 或 UI Bridge 版本与当前宿主不兼容")
+		m.Requires.TransportAPI != pluginv1.TransportAPIVersion {
+		return errors.New("插件协议或传输 API 版本与当前宿主不兼容")
+	}
+	if err := m.validateUI(); err != nil {
+		return err
 	}
 	if len(m.Capabilities) == 0 {
 		return errors.New("插件必须声明至少一个能力")
@@ -226,9 +235,6 @@ func (m PluginManifest) validateForRuntime(runtimeKey string) error {
 	if !ok || !safePluginRelativePath(runtimeEntry.Path) {
 		return fmt.Errorf("插件不支持当前运行平台 %s", runtimeKey)
 	}
-	if !safePluginRelativePath(m.UI.Entrypoint) || !strings.HasPrefix(m.UI.Entrypoint, "ui/") {
-		return errors.New("插件 UI 入口必须位于 ui/ 目录")
-	}
 	if len(m.Files) == 0 {
 		return errors.New("插件清单必须声明文件哈希")
 	}
@@ -240,10 +246,73 @@ func (m PluginManifest) validateForRuntime(runtimeKey string) error {
 	if _, ok := m.Files[runtimeEntry.Path]; !ok {
 		return errors.New("运行时二进制未包含在文件哈希声明中")
 	}
-	if _, ok := m.Files[m.UI.Entrypoint]; !ok {
-		return errors.New("UI 入口未包含在文件哈希声明中")
+	if uiPath := m.UIFile(); uiPath != "" {
+		if _, ok := m.Files[uiPath]; !ok {
+			return errors.New("插件 UI 文件未包含在文件哈希声明中")
+		}
 	}
 	return nil
+}
+
+func (m PluginManifest) UIType() string {
+	if m.SchemaVersion == 1 {
+		return PluginUITypeIframe
+	}
+	return m.UI.Type
+}
+
+func (m PluginManifest) UIFile() string {
+	switch m.UIType() {
+	case PluginUITypeIframe:
+		return m.UI.Entrypoint
+	case PluginUITypeNative:
+		return m.UI.Definition
+	default:
+		return ""
+	}
+}
+
+func (m PluginManifest) validateUI() error {
+	if m.SchemaVersion == 1 {
+		if m.UI.Type != "" || m.UI.Definition != "" {
+			return errors.New("Manifest v1 仅支持 ui.entrypoint")
+		}
+		if m.Requires.UIBridge != pluginv1.UIBridgeVersion || m.Requires.AdminUI != 0 {
+			return errors.New("Manifest v1 的 UI Bridge 版本与当前宿主不兼容")
+		}
+		if !safePluginUIPath(m.UI.Entrypoint) {
+			return errors.New("插件 UI 入口必须位于 ui/ 目录")
+		}
+		return nil
+	}
+
+	switch m.UI.Type {
+	case PluginUITypeNative:
+		if m.UI.Entrypoint != "" || !safePluginUIPath(m.UI.Definition) {
+			return errors.New("原生插件页面必须且只能声明 ui.definition")
+		}
+		if m.Requires.AdminUI != pluginv1.AdminUIVersion || m.Requires.UIBridge != 0 {
+			return errors.New("原生插件页面需要 requires.admin_ui=1 且不能声明 ui_bridge")
+		}
+	case PluginUITypeIframe:
+		if m.UI.Definition != "" || !safePluginUIPath(m.UI.Entrypoint) {
+			return errors.New("iframe 插件页面必须且只能声明 ui.entrypoint")
+		}
+		if m.Requires.UIBridge != pluginv1.UIBridgeVersion || m.Requires.AdminUI != 0 {
+			return errors.New("iframe 插件页面需要 requires.ui_bridge=1 且不能声明 admin_ui")
+		}
+	case PluginUITypeNone:
+		if m.UI.Entrypoint != "" || m.UI.Definition != "" || m.Requires.UIBridge != 0 || m.Requires.AdminUI != 0 {
+			return errors.New("无管理页面插件不能声明 UI 文件或 UI 协议版本")
+		}
+	default:
+		return errors.New("Manifest v2 必须声明 ui.type 为 native、iframe 或 none")
+	}
+	return nil
+}
+
+func safePluginUIPath(path string) bool {
+	return safePluginRelativePath(path) && strings.HasPrefix(path, "ui/")
 }
 
 func pluginRequiresFeature(manifest PluginManifest, feature string) bool {

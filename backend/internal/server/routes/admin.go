@@ -857,6 +857,7 @@ func registerPluginRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAut
 	packageWriteAuth := pluginPackageWriteAuth(stepUpAuth)
 	{
 		plugins.GET("", h.Admin.Plugin.List)
+		plugins.GET("/by-key/:pluginKey", h.Admin.Plugin.GetByKey)
 		plugins.GET("/:id", h.Admin.Plugin.Get)
 		plugins.POST("/upload", packageWriteAuth, h.Admin.Plugin.Upload)
 		plugins.POST("/:id/upgrade", packageWriteAuth, h.Admin.Plugin.Upgrade)
@@ -867,6 +868,7 @@ func registerPluginRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAut
 		plugins.DELETE("/:id", packageWriteAuth, h.Admin.Plugin.Delete)
 		plugins.GET("/:id/config", h.Admin.Plugin.GetConfig)
 		plugins.GET("/:id/status", h.Admin.Plugin.Status)
+		plugins.GET("/:id/admin-ui", h.Admin.Plugin.AdminUI)
 		plugins.PUT("/:id/config", gin.HandlerFunc(stepUpAuth), h.Admin.Plugin.SaveConfig)
 		plugins.PUT("/:id/config/secrets", gin.HandlerFunc(stepUpAuth), h.Admin.Plugin.SaveConfigSecrets)
 		plugins.POST("/:id/test", gin.HandlerFunc(stepUpAuth), h.Admin.Plugin.Test)

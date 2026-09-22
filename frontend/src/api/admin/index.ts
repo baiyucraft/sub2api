@@ -141,5 +141,8 @@ export type {
   PluginInstallation,
   PluginCompatibility,
   PluginUISession,
+  NativePluginAdminUI,
+  NativePluginUINode,
+  NativePluginUITableColumn,
   PluginTestResult
 } from './plugins'

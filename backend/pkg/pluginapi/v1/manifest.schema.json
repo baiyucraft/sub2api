@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://sub2api.local/schemas/plugin-manifest-v1.json",
-  "title": "Sub2API Plugin Manifest v1",
+  "title": "Sub2API Plugin Manifest v1/v2",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "id", "name", "version", "requires", "capabilities", "runtimes", "ui", "files"],
   "properties": {
-    "schema_version": { "const": 1 },
+    "schema_version": { "enum": [1, 2] },
     "id": { "type": "string", "maxLength": 160, "pattern": "^[a-z0-9]+([._-][a-z0-9]+)+$" },
     "name": { "type": "string", "minLength": 1, "maxLength": 160 },
     "version": { "type": "string", "pattern": "^v?(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?(\\+[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$" },
@@ -19,14 +19,15 @@
     "requires": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["sub2api", "plugin_protocol", "transport_api", "ui_bridge"],
+      "required": ["sub2api", "plugin_protocol", "transport_api"],
       "properties": {
         "sub2api": { "type": "string", "minLength": 1 },
         "recommended_sub2api_version": { "type": "string" },
         "tested_sub2api_versions": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
         "plugin_protocol": { "const": 1 },
         "transport_api": { "const": 1 },
-        "ui_bridge": { "const": 1 },
+        "ui_bridge": { "type": "integer", "minimum": 0, "maximum": 1 },
+        "admin_ui": { "type": "integer", "minimum": 0, "maximum": 1 },
         "host_service_api": { "type": "integer", "minimum": 1 },
         "host_features": {
           "type": "array",
@@ -65,17 +66,64 @@
     "ui": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["entrypoint"],
-      "properties": { "entrypoint": { "type": "string", "pattern": "^ui/.+" } }
+      "properties": {
+        "type": { "enum": ["native", "iframe", "none"] },
+        "entrypoint": { "type": "string", "pattern": "^ui/.+" },
+        "definition": { "type": "string", "pattern": "^ui/.+" }
+      }
     },
     "files": {
       "type": "object",
-      "minProperties": 2,
+      "minProperties": 1,
       "propertyNames": { "$ref": "#/$defs/safePath" },
       "additionalProperties": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
     }
   },
   "allOf": [
+    {
+      "if": { "properties": { "schema_version": { "const": 1 } }, "required": ["schema_version"] },
+      "then": {
+        "properties": {
+          "requires": { "required": ["ui_bridge"], "properties": { "ui_bridge": { "const": 1 }, "admin_ui": { "const": 0 } } },
+        "ui": { "required": ["entrypoint"], "properties": { "entrypoint": { "$ref": "#/$defs/safeUIPath" }, "type": { "not": {} }, "definition": { "not": {} } } }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "schema_version": { "const": 2 } }, "required": ["schema_version"] },
+      "then": {
+        "properties": {
+          "ui": {
+            "oneOf": [
+              {
+                "required": ["type", "definition"],
+                "properties": { "type": { "const": "native" }, "definition": { "$ref": "#/$defs/safeUIPath" }, "entrypoint": { "not": {} } }
+              },
+              {
+                "required": ["type", "entrypoint"],
+                "properties": { "type": { "const": "iframe" }, "entrypoint": { "$ref": "#/$defs/safeUIPath" }, "definition": { "not": {} } }
+              },
+              {
+                "required": ["type"],
+                "properties": { "type": { "const": "none" }, "entrypoint": { "not": {} }, "definition": { "not": {} } }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "schema_version": { "const": 2 }, "ui": { "properties": { "type": { "const": "native" } } } }, "required": ["schema_version", "ui"] },
+      "then": { "properties": { "requires": { "required": ["admin_ui"], "properties": { "admin_ui": { "const": 1 }, "ui_bridge": { "const": 0 } } } } }
+    },
+    {
+      "if": { "properties": { "schema_version": { "const": 2 }, "ui": { "properties": { "type": { "const": "iframe" } } } }, "required": ["schema_version", "ui"] },
+      "then": { "properties": { "requires": { "required": ["ui_bridge"], "properties": { "ui_bridge": { "const": 1 }, "admin_ui": { "const": 0 } } } } }
+    },
+    {
+      "if": { "properties": { "schema_version": { "const": 2 }, "ui": { "properties": { "type": { "const": "none" } } } }, "required": ["schema_version", "ui"] },
+      "then": { "properties": { "requires": { "properties": { "ui_bridge": { "const": 0 }, "admin_ui": { "const": 0 } } } } }
+    },
     {
       "if": { "properties": { "config_secrets": { "minItems": 1 } }, "required": ["config_secrets"] },
       "then": { "properties": { "requires": { "properties": { "host_features": { "contains": { "const": "config-secrets.v1" } } }, "required": ["host_features"] } } }
@@ -109,6 +157,10 @@
       "type": "string",
       "minLength": 1,
       "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$"
+    },
+    "safeUIPath": {
+      "type": "string",
+      "pattern": "^ui/(?!.*(?:^|/)\\.\\.(?:/|$)).+$"
     }
   }
 }

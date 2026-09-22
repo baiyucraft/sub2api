@@ -1,6 +1,7 @@
 package service
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -42,6 +43,16 @@ type pluginRoute struct {
 	oauthLike      bool
 }
 
+type pluginAdminUICacheKey struct {
+	id  int64
+	sha string
+}
+
+type pluginAdminUICacheEntry struct {
+	definitionHash string
+	definition     *NativePluginAdminUI
+}
+
 // PluginManager 管理插件安装、配置、进程生命周期和 OpenAI OAuth 能力绑定。
 type PluginManager struct {
 	repo      PluginRepository
@@ -60,6 +71,7 @@ type PluginManager struct {
 	mu                 sync.Mutex
 	runtimes           map[int64]*pluginRuntime
 	localInstallations map[int64]*PluginInstallation
+	adminUICache       map[pluginAdminUICacheKey]pluginAdminUICacheEntry
 	started            bool
 	reconcileCancel    context.CancelFunc
 	reconcileDone      chan struct{}
@@ -76,6 +88,7 @@ func NewPluginManager(repo PluginRepository, encryptor SecretEncryptor, cfg *con
 		kvStore:            kvStore,
 		runtimes:           make(map[int64]*pluginRuntime),
 		localInstallations: make(map[int64]*PluginInstallation),
+		adminUICache:       make(map[pluginAdminUICacheKey]pluginAdminUICacheEntry),
 	}
 }
 
@@ -184,6 +197,24 @@ func (m *PluginManager) Get(ctx context.Context, id int64) (*PluginInstallation,
 	return installation, nil
 }
 
+func (m *PluginManager) GetByKey(ctx context.Context, key string) (*PluginInstallation, error) {
+	installation, err := m.repo.GetByKey(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	installation.Compatibility = EvaluatePluginCompatibility(installation.Manifest, m.hostInfo)
+	m.mu.Lock()
+	runtime := m.runtimes[installation.ID]
+	m.mu.Unlock()
+	installation.RuntimeHealthy = runtime != nil && !runtime.client.Exited()
+	if installation.RuntimeHealthy {
+		installation.RuntimeMessage = "插件进程运行中"
+	} else if route := m.route.Load(); route != nil && route.pluginID == installation.ID {
+		installation.RuntimeMessage = route.unavailable
+	}
+	return installation, nil
+}
+
 func (m *PluginManager) Install(ctx context.Context, reader io.Reader, installedBy *int64) (*PluginInstallation, error) {
 	m.operationMu.Lock()
 	defer m.operationMu.Unlock()
@@ -222,6 +253,7 @@ func (m *PluginManager) Install(ctx context.Context, reader io.Reader, installed
 	local.ConfigEncrypted = installed.ConfigEncrypted
 	local.Bindings = append([]PluginBinding(nil), installed.Bindings...)
 	m.mu.Lock()
+	m.invalidateAdminUICacheLocked(installed.ID)
 	localPrevious := m.localInstallations[installed.ID]
 	m.localInstallations[installed.ID] = &local
 	m.mu.Unlock()
@@ -726,6 +758,7 @@ func (m *PluginManager) Delete(ctx context.Context, id int64) error {
 	runtime := m.removeRuntimeLocked(id)
 	local := m.localInstallations[id]
 	delete(m.localInstallations, id)
+	m.invalidateAdminUICacheLocked(id)
 	m.mu.Unlock()
 	if runtime != nil {
 		runtime.drain(10 * time.Second)
@@ -735,6 +768,91 @@ func (m *PluginManager) Delete(ctx context.Context, id int64) error {
 		cleanupErr = errors.Join(cleanupErr, m.cleanupInstallationFiles(local))
 	}
 	return cleanupErr
+}
+
+func (m *PluginManager) invalidateAdminUICacheLocked(id int64) {
+	for key := range m.adminUICache {
+		if key.id == id {
+			delete(m.adminUICache, key)
+		}
+	}
+}
+
+func (m *PluginManager) invalidateAdminUICache(id int64) {
+	m.mu.Lock()
+	m.invalidateAdminUICacheLocked(id)
+	m.mu.Unlock()
+}
+
+// AdminUI returns a verified, normalized native admin page definition. It never
+// starts a plugin process and reads the persisted artifact so every instance
+// performs the same SHA-256 check.
+func (m *PluginManager) AdminUI(ctx context.Context, id int64) (*NativePluginAdminUI, error) {
+	installation, err := m.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if installation.Manifest.UIType() != PluginUITypeNative {
+		return nil, fmt.Errorf("插件没有原生管理页面")
+	}
+	definitionPath := installation.Manifest.UI.Definition
+	expectedHash := installation.Manifest.Files[definitionPath]
+	key := pluginAdminUICacheKey{id: id, sha: installation.BinarySHA256}
+	m.mu.Lock()
+	cached, found := m.adminUICache[key]
+	m.mu.Unlock()
+	if found && cached.definitionHash == expectedHash && cached.definition != nil {
+		return cloneNativePluginAdminUI(cached.definition)
+	}
+	artifact, err := m.repo.GetArtifact(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	archive, err := zip.NewReader(bytes.NewReader(artifact), int64(len(artifact)))
+	if err != nil {
+		return nil, fmt.Errorf("读取插件包: %w", err)
+	}
+	var definitionRaw []byte
+	for _, file := range archive.File {
+		if strings.ReplaceAll(file.Name, "\\", "/") == definitionPath {
+			definitionRaw, err = readPluginZipFile(file, PluginAdminUIDefinitionMaxBytes)
+			break
+		}
+	}
+	if err != nil {
+		return nil, fmt.Errorf("读取原生插件页面定义: %w", err)
+	}
+	if definitionRaw == nil {
+		return nil, errors.New("原生插件页面定义文件不存在")
+	}
+	digest := sha256.Sum256(definitionRaw)
+	actualHash := hex.EncodeToString(digest[:])
+	if actualHash != expectedHash {
+		return nil, errors.New("原生插件页面定义文件哈希不匹配")
+	}
+	definition, err := ParseNativePluginAdminUI(definitionRaw, installation.Manifest)
+	if err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	m.adminUICache[key] = pluginAdminUICacheEntry{definitionHash: actualHash, definition: definition}
+	m.mu.Unlock()
+	return cloneNativePluginAdminUI(definition)
+}
+
+func cloneNativePluginAdminUI(definition *NativePluginAdminUI) (*NativePluginAdminUI, error) {
+	if definition == nil {
+		return nil, errors.New("原生插件页面定义为空")
+	}
+	raw, err := json.Marshal(definition)
+	if err != nil {
+		return nil, err
+	}
+	var clone NativePluginAdminUI
+	if err := json.Unmarshal(raw, &clone); err != nil {
+		return nil, err
+	}
+	return &clone, nil
 }
 
 func (m *PluginManager) GetConfig(ctx context.Context, id int64) (json.RawMessage, error) {
@@ -950,7 +1068,8 @@ func (m *PluginManager) CreateUIAssetToken(ctx context.Context, id int64, ttl ti
 	if ttl <= 0 || ttl > time.Hour {
 		return "", time.Time{}, errors.New("插件 UI 会话有效期无效")
 	}
-	if _, err := m.repo.GetByID(ctx, id); err != nil {
+	_, err := m.repo.GetByID(ctx, id)
+	if err != nil {
 		return "", time.Time{}, err
 	}
 	expires := time.Now().Add(ttl)
