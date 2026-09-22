@@ -27,6 +27,7 @@ type CodexSessionImportRequest struct {
 	Name                    string         `json:"name"`
 	Notes                   *string        `json:"notes"`
 	GroupIDs                []int64        `json:"group_ids"`
+	PreferredGroupIDs       *[]int64       `json:"preferred_group_ids"`
 	ProxyID                 *int64         `json:"proxy_id"`
 	ProxyIPGroupID          *int64         `json:"proxy_ip_group_id"`
 	Concurrency             *int           `json:"concurrency"`
@@ -296,6 +297,7 @@ func (h *AccountHandler) importCodexSessions(ctx context.Context, req CodexSessi
 			if len(req.GroupIDs) > 0 {
 				groupIDs := append([]int64(nil), req.GroupIDs...)
 				updateInput.GroupIDs = &groupIDs
+				updateInput.PreferredGroupIDs = req.PreferredGroupIDs
 				updateInput.SkipMixedChannelCheck = skipMixedChannelCheck
 			}
 			updated, updateErr := h.adminService.UpdateAccount(ctx, existing.ID, updateInput)
@@ -346,6 +348,7 @@ func (h *AccountHandler) importCodexSessions(ctx context.Context, req CodexSessi
 			RateMultiplier:        req.RateMultiplier,
 			LoadFactor:            req.LoadFactor,
 			GroupIDs:              req.GroupIDs,
+			PreferredGroupIDs:     req.PreferredGroupIDs,
 			ExpiresAt:             effectiveExpiresAt,
 			AutoPauseOnExpired:    autoPauseOnExpired,
 			SkipDefaultGroupBind:  skipDefaultGroupBind,

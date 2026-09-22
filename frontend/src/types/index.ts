@@ -1832,6 +1832,7 @@ export interface CreateAccountRequest {
   priority?: number
   rate_multiplier?: number // Account billing multiplier (>=0, 0 means free)
   group_ids?: number[]
+  preferred_group_ids?: number[]
   expires_at?: number | null
   auto_pause_on_expired?: boolean
   upstream_billing_probe_enabled?: boolean
@@ -1981,6 +1982,7 @@ export interface CodexSessionImportRequest {
   name?: string
   notes?: string | null
   group_ids?: number[]
+  preferred_group_ids?: number[]
   proxy_id?: number | null
   proxy_ip_group_id?: number | null
   concurrency?: number
@@ -2001,6 +2003,7 @@ export interface OpenAICodexPATCreateRequest {
   name?: string
   notes?: string | null
   group_ids?: number[]
+  preferred_group_ids?: number[]
   proxy_id?: number | null
   proxy_ip_group_id?: number | null
   concurrency?: number
