@@ -31,7 +31,13 @@ func (m *PluginManager) Upgrade(ctx context.Context, id int64, reader io.Reader,
 	if previous.State == PluginStateStarting || previous.State == PluginStateUpgrading {
 		return nil, ErrPluginStateChanged
 	}
-	if !pluginRequiresFeature(previous.Manifest, "scoped-routing.v1") {
+	// Legacy v1 plugins have no scoped admission/maintenance contract while
+	// running, so an enabled legacy installation must still be disabled and
+	// reinstalled explicitly. A disabled legacy installation with no enabled
+	// binding has no in-flight scoped requests to drain and can be upgraded
+	// through the normal maintenance transaction, preserving its config and
+	// installation identity.
+	if !legacyPluginUpgradeAllowed(previous) {
 		return nil, errors.New("legacy plugin upgrades require explicit disable and install")
 	}
 	replacement, err := m.installer.Install(ctx, reader, installedBy)
@@ -204,6 +210,16 @@ func (m *PluginManager) Upgrade(ctx context.Context, id int64, reader io.Reader,
 		oldRuntime.drain(10 * time.Second)
 	}
 	return m.Get(ctx, id)
+}
+
+func legacyPluginUpgradeAllowed(previous *PluginInstallation) bool {
+	if previous == nil {
+		return false
+	}
+	if pluginRequiresFeature(previous.Manifest, "scoped-routing.v1") {
+		return true
+	}
+	return previous.State == PluginStateDisabled && !hasEnabledOpenAIBinding(previous.Bindings)
 }
 
 func pluginRuntimeMatchesInstallation(runtime *pluginRuntime, installation *PluginInstallation) bool {
