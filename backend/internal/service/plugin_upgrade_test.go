@@ -114,3 +114,44 @@ func TestPluginUpgradeRollbackOnlyResumesExactPackage(t *testing.T) {
 		})
 	}
 }
+
+func TestLegacyPluginUpgradeOnlyAllowsDisabledUnboundInstallation(t *testing.T) {
+	legacy := &PluginInstallation{
+		Manifest: PluginManifest{SchemaVersion: 1},
+		State:    PluginStateDisabled,
+	}
+	if !legacyPluginUpgradeAllowed(legacy) {
+		t.Fatal("disabled legacy installation should be upgradeable through maintenance")
+	}
+
+	for _, state := range []string{PluginStateEnabled, PluginStateError, PluginStateStarting, PluginStateUpgrading} {
+		legacy.State = state
+		if legacyPluginUpgradeAllowed(legacy) {
+			t.Fatalf("legacy installation in state %q must require explicit disable and install", state)
+		}
+	}
+
+	legacy.State = PluginStateDisabled
+	legacy.Bindings = []PluginBinding{{
+		Capability:     PluginCapabilityOpenAIOAuthOutbound,
+		Platform:       PlatformOpenAI,
+		AccountType:    AccountTypeOAuth,
+		Enabled:        true,
+		RolloutPercent: 100,
+	}}
+	if legacyPluginUpgradeAllowed(legacy) {
+		t.Fatal("legacy installation with an enabled binding must not bypass explicit disable")
+	}
+}
+
+func TestScopedPluginUpgradeRemainsAllowedByMaintenancePolicy(t *testing.T) {
+	for _, state := range []string{PluginStateDisabled, PluginStateEnabled, PluginStateError} {
+		installation := &PluginInstallation{
+			Manifest: PluginManifest{Requires: PluginRequirements{HostFeatures: []string{"scoped-routing.v1"}}},
+			State:    state,
+		}
+		if !legacyPluginUpgradeAllowed(installation) {
+			t.Fatalf("scoped plugin in state %q should continue to use the maintenance path", state)
+		}
+	}
+}
