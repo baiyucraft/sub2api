@@ -14,6 +14,10 @@ const Version = "0.1.0"
 
 var Models = []string{"gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra"}
 
+func defaultConfig() Config {
+	return Config{Version: 1, Accounts: []AccountConfig{}}
+}
+
 type Config struct {
 	Version         int             `json:"version"`
 	Enabled         bool            `json:"enabled"`
@@ -35,6 +39,12 @@ type ModelConfig struct {
 // Validate is deliberately pure: no host, credentials, transport or goroutine.
 // Unknown fields include user-supplied revision fields and are rejected.
 func Validate(raw []byte) (Config, error) {
+	// Manifest v1 installations may have been created before the plugin had a
+	// configuration document. Treat that empty document as a disabled v1
+	// configuration so a v1 -> v2 package upgrade can migrate it safely.
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("{}")) || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return defaultConfig(), nil
+	}
 	var cfg Config
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
@@ -70,6 +80,20 @@ func Validate(raw []byte) (Config, error) {
 		}
 	}
 	return cfg, nil
+}
+
+// Normalize returns the canonical persisted representation used by the host
+// when validating an upgrade or saving a configuration draft.
+func Normalize(raw []byte) (Config, []byte, error) {
+	cfg, err := Validate(raw)
+	if err != nil {
+		return Config{}, nil, err
+	}
+	canonical, err := json.Marshal(cfg)
+	if err != nil {
+		return Config{}, nil, err
+	}
+	return cfg, canonical, nil
 }
 
 func supportedModel(model string) bool {
