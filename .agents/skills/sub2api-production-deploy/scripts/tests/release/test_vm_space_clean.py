@@ -185,6 +185,17 @@ class VMSpaceCleanTest(unittest.TestCase):
         self.assertLess(validator.index('rm -f -- "$compatibility_path"'), validator.index('mark_v2_stage candidate_build'))
         self.assertLess(validator.index('rm -f -- "$recovery_path"'), validator.index('docker exec -i sub2api-postgres /bin/sh -lc'))
 
+    def test_gate_v2_protects_old_image_until_gate_cleanup(self) -> None:
+        validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
+        self.assertIn('old_image_tag="sub2api:vm-old-$release_id"', validator)
+        self.assertIn('docker tag "$old_image_id" "$old_image_tag"', validator)
+        self.assertIn('[[ $(docker image inspect -f \'{{.Id}}\' "$old_image_tag") == "$old_image_id" ]]', validator)
+        self.assertIn('cleanup_old_image_tag || true', validator)
+        self.assertIn('cleanup_old_image_tag', validator[validator.index('mark_v2_stage old_image_tag_cleanup'):])
+        self.assertLess(validator.index('protect_old_image'), validator.index('rm -f -- "$compatibility_path"'))
+        self.assertLess(validator.index('assert_old_image_protected', validator.index('mark_v2_stage old_image_health')), validator.index('docker image inspect "$old_image_id"'))
+        self.assertLess(validator.index('mark_v2_stage old_image_tag_cleanup'), validator.index('exit 0', validator.index('mark_v2_stage old_image_tag_cleanup')))
+
     def test_redis_restore_probe_is_validated_and_diagnosed_before_cleanup(self) -> None:
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
         self.assertIn("write_redis_probe_diagnostics()", validator)
