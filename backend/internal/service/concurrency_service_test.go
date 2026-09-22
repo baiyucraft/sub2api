@@ -60,6 +60,44 @@ type ingressLeaseCacheForTest struct {
 	releaseIngressCalls  int
 }
 
+type accountProxyConcurrencyCacheForTest struct {
+	stubConcurrencyCacheForTest
+	proxyLoads     map[int64]int
+	proxyLoadErr   error
+	proxyLoadCalls []int64
+}
+
+func (c *accountProxyConcurrencyCacheForTest) AcquireAccountProxySlot(context.Context, int64, int64, int, string) (bool, error) {
+	return true, nil
+}
+
+func (c *accountProxyConcurrencyCacheForTest) ReleaseAccountProxySlot(context.Context, int64, int64, string) error {
+	return nil
+}
+
+func (c *accountProxyConcurrencyCacheForTest) GetAccountProxyConcurrency(_ context.Context, _ int64, proxyID int64) (int, error) {
+	c.proxyLoadCalls = append(c.proxyLoadCalls, proxyID)
+	if c.proxyLoadErr != nil {
+		return 0, c.proxyLoadErr
+	}
+	return c.proxyLoads[proxyID], nil
+}
+
+type accountProxyBatchConcurrencyCacheForTest struct {
+	accountProxyConcurrencyCacheForTest
+	batchLoads map[int64]int
+	batchErr   error
+	batchCalls int
+}
+
+func (c *accountProxyBatchConcurrencyCacheForTest) GetAccountProxyConcurrencyBatch(_ context.Context, _ int64, _ []int64) (map[int64]int, error) {
+	c.batchCalls++
+	if c.batchErr != nil {
+		return nil, c.batchErr
+	}
+	return c.batchLoads, nil
+}
+
 func (c *ingressLeaseCacheForTest) AcquireOpenAIWSIngressLease(ctx context.Context, apiKeyID int64, maxConnections int, leaseID string) (bool, error) {
 	c.acquireIngressCalls++
 	if c.acquireIngressFn != nil {
@@ -598,6 +636,27 @@ func TestGetAccountConcurrencyBatch(t *testing.T) {
 	for _, id := range []int64{1, 2, 3} {
 		require.Equal(t, 3, result[id])
 	}
+}
+
+func TestGetAccountProxyConcurrencyBatchFallsBackToPointReads(t *testing.T) {
+	cache := &accountProxyConcurrencyCacheForTest{proxyLoads: map[int64]int{11: 2, 12: 1}}
+	svc := NewConcurrencyService(cache)
+
+	result, err := svc.GetAccountProxyConcurrencyBatch(context.Background(), 7, []int64{11, 12})
+	require.NoError(t, err)
+	require.Equal(t, map[int64]int{11: 2, 12: 1}, result)
+	require.Equal(t, []int64{11, 12}, cache.proxyLoadCalls)
+}
+
+func TestGetAccountProxyConcurrencyBatchUsesOptionalBatchCache(t *testing.T) {
+	cache := &accountProxyBatchConcurrencyCacheForTest{batchLoads: map[int64]int{11: 3, 12: 0}}
+	svc := NewConcurrencyService(cache)
+
+	result, err := svc.GetAccountProxyConcurrencyBatch(context.Background(), 7, []int64{11, 12})
+	require.NoError(t, err)
+	require.Equal(t, map[int64]int{11: 3, 12: 0}, result)
+	require.Equal(t, 1, cache.batchCalls)
+	require.Empty(t, cache.proxyLoadCalls)
 }
 
 func TestIncrementAccountWaitCount_FailOpen(t *testing.T) {
