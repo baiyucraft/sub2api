@@ -1,5 +1,9 @@
 # Codex STATE UI
 
+当前插件默认使用宿主 Native 管理页，定义文件位于插件根目录的 `ui/admin-ui.json`。宿主以声明式组件渲染概览、账号表、批量模型设置和运行日志；该文件参与 manifest 文件哈希与签名校验。
+
+`ui/index.html`、`dist/` 和本目录的 Vue UI 仍保留为旧 iframe 回滚依据，不是当前默认管理入口。Native 页面不能访问宿主内部组件、管理 API、Cookie 或浏览器持久化存储。
+
 独立 Vue/Vite 包，不导入宿主内部组件，不访问管理 API、Cookie 或存储。
 
 ```sh
@@ -20,4 +24,4 @@ Bridge 使用 `config.load`、`config.save`、`plugin.resources`、`plugin.statu
 
 状态与日志严格投影已知诊断码，未知错误统一隐藏。测试覆盖恶意回传原文、保存时剔除秘密、秘密操作与普通保存隔离、首次保存、取消和会话失效；测试通过状态以实际验证记录为准。
 
-状态契约对应 `../core/status.go`：`status_json.running`、`accounts[].models`、`active/ready` 元数据、`cooldown_until` 及 `logs[].code`。诊断码新增时需同步 `src/contracts.ts` 与两种语言字典。
+状态契约对应 `../core/status.go`：`status_json.running`、`accounts[].models`、`active/ready` 元数据、`cooldown_until` 及 `logs[].id/at/account_id/model/level/code`。日志级别由插件按脱敏诊断码分类，不能携带原始错误正文。诊断码新增时需同步 `src/contracts.ts` 与两种语言字典。

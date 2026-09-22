@@ -1,6 +1,8 @@
 package service
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -78,4 +80,15 @@ func TestManifestV2UIContract(t *testing.T) {
 		manifest.UI = ui
 		require.Error(t, manifest.validateForRuntime(manifest.RuntimeKey()))
 	}
+}
+
+func TestCodexStateNativeDefinitionStaysWithinHostContract(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "plugins", "codex-state", "ui", "admin-ui.json"))
+	require.NoError(t, err)
+	manifest := testPluginManifest(nil)
+	manifest.ConfigSecrets = []string{"harvest_proxy_url", "dial_proxy_url"}
+	definition, err := ParseNativePluginAdminUI(raw, manifest)
+	require.NoError(t, err)
+	require.Equal(t, "Codex STATE", definition.Title)
+	require.NotEmpty(t, definition.Layout)
 }
