@@ -1428,6 +1428,32 @@ export interface GatewayCapacityFailoverSettings {
   exhausted_status_code: number;
 }
 
+export interface OpenAIOAuthModelMismatchRule {
+  source: string;
+  target: string;
+}
+
+export interface OpenAIOAuthModelMismatchRulesSettings {
+  rules: OpenAIOAuthModelMismatchRule[];
+}
+
+export async function getOpenAIOAuthModelMismatchRules(): Promise<OpenAIOAuthModelMismatchRulesSettings> {
+  const { data } = await apiClient.get<OpenAIOAuthModelMismatchRulesSettings>(
+    "/admin/settings/openai-oauth-model-mismatch-rules",
+  );
+  return data;
+}
+
+export async function updateOpenAIOAuthModelMismatchRules(
+  settings: OpenAIOAuthModelMismatchRulesSettings,
+): Promise<OpenAIOAuthModelMismatchRulesSettings> {
+  const { data } = await apiClient.put<OpenAIOAuthModelMismatchRulesSettings>(
+    "/admin/settings/openai-oauth-model-mismatch-rules",
+    settings,
+  );
+  return data;
+}
+
 export async function getGatewayCapacityFailoverSettings(): Promise<GatewayCapacityFailoverSettings> {
   const { data } = await apiClient.get<GatewayCapacityFailoverSettings>(
     "/admin/settings/gateway-capacity-failover",
@@ -1714,6 +1740,8 @@ export const settingsAPI = {
   updateGatewayRequestObserverSettings,
   getGatewayCapacityFailoverSettings,
   updateGatewayCapacityFailoverSettings,
+  getOpenAIOAuthModelMismatchRules,
+  updateOpenAIOAuthModelMismatchRules,
   getStreamTimeoutSettings,
   updateStreamTimeoutSettings,
   getRectifierSettings,

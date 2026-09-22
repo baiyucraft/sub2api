@@ -172,6 +172,9 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	user := input.User
 	account := input.Account
 	subscription := input.Subscription
+	if account != nil {
+		MaybeAutoDisableOpenAIOAuthModel(ctx, s.settingService, s.accountRepo, account, result.Model, upstreamSentModel(result.Model, result.UpstreamModel), result.UpstreamResponseModel, result.UpstreamResponseModelConflict)
+	}
 	if !input.CyberBlocked {
 		ReportUpstreamTrafficSuccess(ctx, account, http.StatusOK)
 	}
