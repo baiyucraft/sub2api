@@ -1,0 +1,731 @@
+{
+  "schema_version": 1,
+  "title": "Codex STATE",
+  "description": "Manage account and model scoped STATE tickets.",
+  "title_key": "page_title",
+  "description_key": "page_description",
+  "poll_interval_seconds": 10,
+  "translations": {
+    "en": {
+      "page_title": "Codex STATE",
+      "page_description": "Manage account and model scoped STATE tickets.",
+      "runtime": "Runtime",
+      "runtime_description": "Managed account models remain fail-closed while the plugin is unavailable.",
+      "enabled": "Enable Codex STATE",
+      "runtime_status": "Runtime status",
+      "save": "Save",
+      "refresh": "Refresh",
+      "edit_proxy_credentials": "Edit proxy credentials",
+      "overview": "Overview",
+      "accounts": "Accounts",
+      "run_logs": "Run logs",
+      "configured_accounts": "Configured accounts",
+      "no_business_egress": "No business egress",
+      "active_strikes": "Active strikes",
+      "model_readiness": "Model readiness",
+      "account": "Account",
+      "astra": "Astra",
+      "sol": "Sol",
+      "terra": "Terra",
+      "search_account": "Search account name or ID",
+      "filter_group": "Filter by group",
+      "all_groups": "All groups",
+      "managed_accounts": "Managed accounts",
+      "configured_only": "Only show configured accounts",
+      "id": "ID",
+      "name": "Name",
+      "platform": "Platform",
+      "type": "Type",
+      "egress": "Egress",
+      "available": "Available",
+      "configured": "Configured",
+      "state": "State",
+      "ticket_plan": "Ticket plan",
+      "active": "Active",
+      "ready": "Ready",
+      "remaining": "Remaining",
+      "strikes": "Strikes",
+      "attempts": "Attempts",
+      "refreshing": "Refreshing",
+      "cooldown_until": "Cooldown until",
+      "last_error": "Last diagnostic",
+      "level": "Level",
+      "all_levels": "All levels",
+      "all_accounts": "All accounts",
+      "all_models": "All models",
+      "info": "Info",
+      "error": "Error",
+      "harvest_astra": "Harvest Astra",
+      "cancel_astra": "Cancel Astra",
+      "harvest_sol": "Harvest Sol",
+      "cancel_sol": "Cancel Sol",
+      "harvest_terra": "Harvest Terra",
+      "cancel_terra": "Cancel Terra",
+      "bulk_settings": "Bulk model settings",
+      "bulk_settings_description": "Each button changes only the named field for the selected accounts. Other model settings remain unchanged.",
+      "enable": "Enable",
+      "disable": "Disable",
+      "pro_plan": "Set Pro",
+      "team_plan": "Set Team",
+      "apply_selected": "Apply to selected accounts",
+      "bulk_confirm": "Apply this explicit change to the selected accounts?",
+      "cancel_confirm": "Cancel the harvest for this account?",
+      "time": "Time",
+      "model": "Model",
+      "diagnostic_code": "Diagnostic code",
+      "logs_description": "Only allowlisted, redacted diagnostic codes are shown; STATE, tokens, proxy credentials and raw errors are never displayed."
+    },
+    "zh": {
+      "page_title": "Codex STATE",
+      "page_description": "管理按账号和模型隔离的 STATE 票据。",
+      "runtime": "运行状态",
+      "runtime_description": "插件不可用时，受管账号模型保持严格阻断，不会静默放行。",
+      "enabled": "启用 Codex STATE",
+      "runtime_status": "运行状态",
+      "save": "保存",
+      "refresh": "刷新",
+      "edit_proxy_credentials": "编辑代理凭据",
+      "overview": "概览",
+      "accounts": "账号",
+      "run_logs": "运行日志",
+      "configured_accounts": "已配置账号",
+      "no_business_egress": "没有业务出口",
+      "active_strikes": "当前异常次数",
+      "model_readiness": "模型就绪状态",
+      "account": "账号",
+      "astra": "Astra",
+      "sol": "Sol",
+      "terra": "Terra",
+      "search_account": "搜索账号名称或 ID",
+      "filter_group": "按分组筛选",
+      "all_groups": "全部分组",
+      "managed_accounts": "受管账号",
+      "configured_only": "仅显示已配置账号",
+      "id": "ID",
+      "name": "名称",
+      "platform": "平台",
+      "type": "类型",
+      "egress": "业务出口",
+      "available": "可用",
+      "configured": "已配置",
+      "state": "状态",
+      "ticket_plan": "套餐",
+      "active": "Active",
+      "ready": "Ready",
+      "remaining": "剩余时间",
+      "strikes": "异常次数",
+      "attempts": "采集尝试",
+      "refreshing": "采集中",
+      "cooldown_until": "冷却截止",
+      "last_error": "最近诊断",
+      "level": "级别",
+      "all_levels": "全部级别",
+      "all_accounts": "全部账号",
+      "all_models": "全部模型",
+      "info": "信息",
+      "error": "错误",
+      "harvest_astra": "采集 Astra",
+      "cancel_astra": "取消 Astra",
+      "harvest_sol": "采集 Sol",
+      "cancel_sol": "取消 Sol",
+      "harvest_terra": "采集 Terra",
+      "cancel_terra": "取消 Terra",
+      "bulk_settings": "批量模型设置",
+      "bulk_settings_description": "每个按钮只修改选定账号的明确字段，其他模型设置保持不变。",
+      "enable": "启用",
+      "disable": "停用",
+      "pro_plan": "设为 Pro",
+      "team_plan": "设为 Team",
+      "apply_selected": "应用到选定账号",
+      "bulk_confirm": "确认将此项明确修改应用到选定账号？",
+      "cancel_confirm": "确认取消该账号的采集任务？",
+      "time": "时间",
+      "model": "模型",
+      "diagnostic_code": "诊断码",
+      "logs_description": "这里只显示允许列表内的脱敏诊断码；不会展示 STATE、令牌、代理凭据或原始错误。"
+    }
+  },
+  "layout": [
+    {
+      "type": "section",
+      "id": "global",
+      "title": "Runtime",
+      "title_key": "runtime",
+      "description": "Managed account models remain fail-closed while the plugin is unavailable.",
+      "description_key": "runtime_description",
+      "children": [
+        {
+          "type": "grid",
+          "id": "global-fields",
+          "children": [
+            {
+              "type": "switch",
+              "id": "enabled",
+              "title": "Enable Codex STATE",
+              "title_key": "enabled",
+              "bind": "/config/enabled",
+              "write": "/config/enabled"
+            },
+            {
+              "type": "badge",
+              "id": "running",
+              "title": "Runtime status",
+              "title_key": "runtime_status",
+              "bind": "/status/running"
+            }
+          ]
+        },
+        {
+          "type": "action_group",
+          "id": "global-actions",
+          "children": [
+            {
+              "type": "button",
+              "id": "save",
+              "title": "Save",
+              "title_key": "save",
+              "icon": "check",
+              "action": "config.save"
+            },
+            {
+              "type": "button",
+              "id": "refresh",
+              "title": "Refresh",
+              "title_key": "refresh",
+              "icon": "refresh",
+              "action": "config.refresh"
+            },
+            {
+              "type": "button",
+              "id": "secrets",
+              "title": "Edit proxy credentials",
+              "title_key": "edit_proxy_credentials",
+              "icon": "key",
+              "action": "plugin.secrets.edit"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "tabs",
+      "id": "content-tabs",
+      "children": [
+        {
+          "type": "section",
+          "id": "overview",
+          "title": "Overview",
+          "title_key": "overview",
+          "icon": "chartBar",
+          "children": [
+            {
+              "type": "grid",
+              "id": "overview-stats",
+              "children": [
+                { "type": "stat", "id": "account-count", "title": "Configured accounts", "title_key": "configured_accounts", "bind": "/status/summary/configured_accounts", "format": "count" },
+                { "type": "stat", "id": "no-egress-count", "title": "No business egress", "title_key": "no_business_egress", "bind": "/status/summary/no_egress_accounts", "format": "count" },
+                { "type": "stat", "id": "strike-count", "title": "Active strikes", "title_key": "active_strikes", "bind": "/status/summary/strike_count", "format": "count" }
+              ]
+            },
+            {
+              "type": "table",
+              "id": "model-summary",
+              "title": "Model readiness",
+              "title_key": "model_readiness",
+              "bind": "/status/accounts",
+              "columns": [
+                { "key": "account_id", "label": "Account", "label_key": "account", "bind": "/item/account_id" },
+                { "key": "astra", "label": "Astra", "label_key": "astra", "bind": "/item/models/gpt-6-astra/state" },
+                { "key": "sol", "label": "Sol", "label_key": "sol", "bind": "/item/models/gpt-5.6-sol/state" },
+                { "key": "terra", "label": "Terra", "label_key": "terra", "bind": "/item/models/gpt-5.6-terra/state" }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "section",
+          "id": "accounts",
+          "title": "Accounts",
+          "title_key": "accounts",
+          "icon": "users",
+          "children": [
+            {
+              "type": "search",
+              "id": "account-search",
+              "title": "Search account name or ID",
+              "title_key": "search_account",
+              "write": "/local/account_query"
+            },
+            {
+              "type": "select",
+              "id": "account-group-filter",
+              "title": "Filter by group",
+              "title_key": "filter_group",
+              "write": "/local/account_group",
+              "options": [ { "value": "__all__", "label": "All groups", "label_key": "all_groups" } ],
+              "options_bind": "/resources/groups"
+            },
+            {
+              "type": "checkbox",
+              "id": "configured-only",
+              "title": "Only show configured accounts",
+              "title_key": "configured_only",
+              "write": "/local/configured_only"
+            },
+            {
+              "type": "data_table",
+              "id": "account-table",
+              "title": "Managed accounts",
+              "title_key": "managed_accounts",
+              "bind": "/status/accounts",
+              "row_key": "account_id",
+              "page_size": 20,
+              "search_bind": "/local/account_query",
+              "filter_bind": "/local/account_group",
+              "filter_key": "group_ids",
+              "filter_options_bind": "/resources/groups",
+              "presence_filter_bind": "/local/configured_only",
+              "presence_key": "configured",
+              "selection_bind": "/local/selected_account_ids",
+              "columns": [
+                { "key": "account_id", "label": "ID", "label_key": "id", "bind": "/item/account_id" },
+                { "key": "name", "label": "Name", "label_key": "name", "bind": "/item/name" },
+                { "key": "account_type", "label": "Type", "label_key": "type", "bind": "/item/account_type" },
+                { "key": "configured", "label": "Configured", "label_key": "configured", "bind": "/item/configured", "format": "boolean" },
+                { "key": "available", "label": "Available", "label_key": "available", "bind": "/item/available", "format": "boolean" },
+                { "key": "business_egress_configured", "label": "Egress", "label_key": "egress", "bind": "/item/business_egress_configured", "format": "boolean" },
+                { "key": "astra", "label": "Astra", "label_key": "astra", "bind": "/item/models/gpt-6-astra/state" },
+                { "key": "sol", "label": "Sol", "label_key": "sol", "bind": "/item/models/gpt-5.6-sol/state" },
+                { "key": "terra", "label": "Terra", "label_key": "terra", "bind": "/item/models/gpt-5.6-terra/state" }
+              ],
+              "children": [
+                {
+                  "type": "section",
+                  "id": "astra-details",
+                  "title": "Astra",
+                  "title_key": "astra",
+                  "children": [
+                    { "type": "grid", "id": "astra-detail-grid", "children": [
+                      { "type": "stat", "id": "astra-state", "title": "State", "title_key": "state", "bind": "/item/models/gpt-6-astra/state" },
+                      { "type": "stat", "id": "astra-plan", "title": "Ticket plan", "title_key": "ticket_plan", "bind": "/item/models/gpt-6-astra/ticket_plan" },
+                      { "type": "stat", "id": "astra-active", "title": "Active", "title_key": "active", "bind": "/item/models/gpt-6-astra/active/remaining_seconds", "format": "duration" },
+                      { "type": "stat", "id": "astra-ready", "title": "Ready", "title_key": "ready", "bind": "/item/models/gpt-6-astra/ready/remaining_seconds", "format": "duration" },
+                      { "type": "stat", "id": "astra-strikes", "title": "Strikes", "title_key": "strikes", "bind": "/item/models/gpt-6-astra/strikes", "format": "count" },
+                      { "type": "stat", "id": "astra-attempts", "title": "Attempts", "title_key": "attempts", "bind": "/item/models/gpt-6-astra/attempts", "format": "count" },
+                      { "type": "stat", "id": "astra-refreshing", "title": "Refreshing", "title_key": "refreshing", "bind": "/item/models/gpt-6-astra/refreshing", "format": "boolean" },
+                      { "type": "stat", "id": "astra-cooldown", "title": "Cooldown until", "title_key": "cooldown_until", "bind": "/item/models/gpt-6-astra/cooldown_until", "format": "date" },
+                      { "type": "stat", "id": "astra-error", "title": "Last diagnostic", "title_key": "last_error", "bind": "/item/models/gpt-6-astra/last_error" }
+                    ] }
+                  ]
+                },
+                {
+                  "type": "section",
+                  "id": "sol-details",
+                  "title": "Sol",
+                  "title_key": "sol",
+                  "children": [
+                    { "type": "grid", "id": "sol-detail-grid", "children": [
+                      { "type": "stat", "id": "sol-state", "title": "State", "title_key": "state", "bind": "/item/models/gpt-5.6-sol/state" },
+                      { "type": "stat", "id": "sol-plan", "title": "Ticket plan", "title_key": "ticket_plan", "bind": "/item/models/gpt-5.6-sol/ticket_plan" },
+                      { "type": "stat", "id": "sol-active", "title": "Active", "title_key": "active", "bind": "/item/models/gpt-5.6-sol/active/remaining_seconds", "format": "duration" },
+                      { "type": "stat", "id": "sol-ready", "title": "Ready", "title_key": "ready", "bind": "/item/models/gpt-5.6-sol/ready/remaining_seconds", "format": "duration" },
+                      { "type": "stat", "id": "sol-strikes", "title": "Strikes", "title_key": "strikes", "bind": "/item/models/gpt-5.6-sol/strikes", "format": "count" },
+                      { "type": "stat", "id": "sol-attempts", "title": "Attempts", "title_key": "attempts", "bind": "/item/models/gpt-5.6-sol/attempts", "format": "count" },
+                      { "type": "stat", "id": "sol-refreshing", "title": "Refreshing", "title_key": "refreshing", "bind": "/item/models/gpt-5.6-sol/refreshing", "format": "boolean" },
+                      { "type": "stat", "id": "sol-cooldown", "title": "Cooldown until", "title_key": "cooldown_until", "bind": "/item/models/gpt-5.6-sol/cooldown_until", "format": "date" },
+                      { "type": "stat", "id": "sol-error", "title": "Last diagnostic", "title_key": "last_error", "bind": "/item/models/gpt-5.6-sol/last_error" }
+                    ] }
+                  ]
+                },
+                {
+                  "type": "section",
+                  "id": "terra-details",
+                  "title": "Terra",
+                  "title_key": "terra",
+                  "children": [
+                    { "type": "grid", "id": "terra-detail-grid", "children": [
+                      { "type": "stat", "id": "terra-state", "title": "State", "title_key": "state", "bind": "/item/models/gpt-5.6-terra/state" },
+                      { "type": "stat", "id": "terra-plan", "title": "Ticket plan", "title_key": "ticket_plan", "bind": "/item/models/gpt-5.6-terra/ticket_plan" },
+                      { "type": "stat", "id": "terra-active", "title": "Active", "title_key": "active", "bind": "/item/models/gpt-5.6-terra/active/remaining_seconds", "format": "duration" },
+                      { "type": "stat", "id": "terra-ready", "title": "Ready", "title_key": "ready", "bind": "/item/models/gpt-5.6-terra/ready/remaining_seconds", "format": "duration" },
+                      { "type": "stat", "id": "terra-strikes", "title": "Strikes", "title_key": "strikes", "bind": "/item/models/gpt-5.6-terra/strikes", "format": "count" },
+                      { "type": "stat", "id": "terra-attempts", "title": "Attempts", "title_key": "attempts", "bind": "/item/models/gpt-5.6-terra/attempts", "format": "count" },
+                      { "type": "stat", "id": "terra-refreshing", "title": "Refreshing", "title_key": "refreshing", "bind": "/item/models/gpt-5.6-terra/refreshing", "format": "boolean" },
+                      { "type": "stat", "id": "terra-cooldown", "title": "Cooldown until", "title_key": "cooldown_until", "bind": "/item/models/gpt-5.6-terra/cooldown_until", "format": "date" },
+                      { "type": "stat", "id": "terra-error", "title": "Last diagnostic", "title_key": "last_error", "bind": "/item/models/gpt-5.6-terra/last_error" }
+                    ] }
+                  ]
+                }
+              ],
+              "row_actions": [
+                {
+                  "type": "button",
+                  "id": "harvest-row",
+                  "title": "Harvest Astra",
+                  "title_key": "harvest_astra",
+                  "icon": "play",
+                  "action": "harvest",
+                  "values": { "model": "gpt-6-astra" },
+                  "payload": { "account_id": "/item/account_id" },
+                  "condition": { "op": "truthy", "path": "/item/models/gpt-6-astra/enabled" }
+                },
+                {
+                  "type": "button",
+                  "id": "cancel-row",
+                  "title": "Cancel Astra",
+                  "title_key": "cancel_astra",
+                  "description": "Cancel the Astra harvest for this account?",
+                  "description_key": "cancel_confirm",
+                  "icon": "x",
+                  "action": "cancel",
+                  "values": { "model": "gpt-6-astra" },
+                  "payload": { "account_id": "/item/account_id" },
+                  "condition": { "op": "truthy", "path": "/item/models/gpt-6-astra/enabled" },
+                  "confirm": true
+                },
+                {
+                  "type": "button",
+                  "id": "harvest-sol-row",
+                  "title": "Harvest Sol",
+                  "title_key": "harvest_sol",
+                  "icon": "play",
+                  "action": "harvest",
+                  "values": { "model": "gpt-5.6-sol" },
+                  "payload": { "account_id": "/item/account_id" },
+                  "condition": { "op": "truthy", "path": "/item/models/gpt-5.6-sol/enabled" }
+                },
+                {
+                  "type": "button",
+                  "id": "cancel-sol-row",
+                  "title": "Cancel Sol",
+                  "title_key": "cancel_sol",
+                  "description": "Cancel the Sol harvest for this account?",
+                  "description_key": "cancel_confirm",
+                  "icon": "x",
+                  "action": "cancel",
+                  "values": { "model": "gpt-5.6-sol" },
+                  "payload": { "account_id": "/item/account_id" },
+                  "condition": { "op": "truthy", "path": "/item/models/gpt-5.6-sol/enabled" },
+                  "confirm": true
+                },
+                {
+                  "type": "button",
+                  "id": "harvest-terra-row",
+                  "title": "Harvest Terra",
+                  "title_key": "harvest_terra",
+                  "icon": "play",
+                  "action": "harvest",
+                  "values": { "model": "gpt-5.6-terra" },
+                  "payload": { "account_id": "/item/account_id" },
+                  "condition": { "op": "truthy", "path": "/item/models/gpt-5.6-terra/enabled" }
+                },
+                {
+                  "type": "button",
+                  "id": "cancel-terra-row",
+                  "title": "Cancel Terra",
+                  "title_key": "cancel_terra",
+                  "description": "Cancel the Terra harvest for this account?",
+                  "description_key": "cancel_confirm",
+                  "icon": "x",
+                  "action": "cancel",
+                  "values": { "model": "gpt-5.6-terra" },
+                  "payload": { "account_id": "/item/account_id" },
+                  "condition": { "op": "truthy", "path": "/item/models/gpt-5.6-terra/enabled" },
+                  "confirm": true
+                }
+              ]
+            },
+            {
+              "type": "section",
+              "id": "bulk-editor",
+              "title": "Bulk model settings",
+              "title_key": "bulk_settings",
+              "description": "Each button changes only the named field for the selected accounts. Other model settings remain unchanged.",
+              "description_key": "bulk_settings_description",
+              "children": [
+                {
+                  "type": "grid",
+                  "id": "bulk-astra",
+                  "title": "Astra",
+                  "title_key": "astra",
+                  "children": [
+                    {
+                      "type": "button",
+                      "id": "bulk-astra-enable",
+                      "title": "Enable",
+                      "title_key": "enable",
+                      "icon": "check",
+                      "action": "accounts.bulk_update",
+                      "payload": { "account_ids": "/local/selected_account_ids" },
+                      "values": { "models": { "gpt-6-astra": { "enabled": true } } },
+                      "condition": { "op": "nonempty", "path": "/local/selected_account_ids" },
+                      "apply_result": "config",
+                      "confirm": true,
+                      "description": "Apply this explicit change to the selected accounts?",
+                      "description_key": "bulk_confirm"
+                    },
+                    {
+                      "type": "button",
+                      "id": "bulk-astra-disable",
+                      "title": "Disable",
+                      "title_key": "disable",
+                      "icon": "x",
+                      "action": "accounts.bulk_update",
+                      "payload": { "account_ids": "/local/selected_account_ids" },
+                      "values": { "models": { "gpt-6-astra": { "enabled": false } } },
+                      "condition": { "op": "nonempty", "path": "/local/selected_account_ids" },
+                      "apply_result": "config",
+                      "confirm": true,
+                      "description": "Apply this explicit change to the selected accounts?",
+                      "description_key": "bulk_confirm"
+                    },
+                    {
+                      "type": "button",
+                      "id": "bulk-astra-pro",
+                      "title": "Set Pro",
+                      "title_key": "pro_plan",
+                      "icon": "star",
+                      "action": "accounts.bulk_update",
+                      "payload": { "account_ids": "/local/selected_account_ids" },
+                      "values": { "models": { "gpt-6-astra": { "ticket_plan": "pro" } } },
+                      "condition": { "op": "nonempty", "path": "/local/selected_account_ids" },
+                      "apply_result": "config",
+                      "confirm": true,
+                      "description": "Apply this explicit change to the selected accounts?",
+                      "description_key": "bulk_confirm"
+                    },
+                    {
+                      "type": "button",
+                      "id": "bulk-astra-team",
+                      "title": "Set Team",
+                      "title_key": "team_plan",
+                      "icon": "users",
+                      "action": "accounts.bulk_update",
+                      "payload": { "account_ids": "/local/selected_account_ids" },
+                      "values": { "models": { "gpt-6-astra": { "ticket_plan": "team" } } },
+                      "condition": { "op": "nonempty", "path": "/local/selected_account_ids" },
+                      "apply_result": "config",
+                      "confirm": true,
+                      "description": "Apply this explicit change to the selected accounts?",
+                      "description_key": "bulk_confirm"
+                    }
+                  ]
+                },
+                {
+                  "type": "grid",
+                  "id": "bulk-sol",
+                  "title": "Sol",
+                  "title_key": "sol",
+                  "children": [
+                    {
+                      "type": "button",
+                      "id": "bulk-sol-enable",
+                      "title": "Enable",
+                      "title_key": "enable",
+                      "icon": "check",
+                      "action": "accounts.bulk_update",
+                      "payload": { "account_ids": "/local/selected_account_ids" },
+                      "values": { "models": { "gpt-5.6-sol": { "enabled": true } } },
+                      "condition": { "op": "nonempty", "path": "/local/selected_account_ids" },
+                      "apply_result": "config",
+                      "confirm": true,
+                      "description": "Apply this explicit change to the selected accounts?",
+                      "description_key": "bulk_confirm"
+                    },
+                    {
+                      "type": "button",
+                      "id": "bulk-sol-disable",
+                      "title": "Disable",
+                      "title_key": "disable",
+                      "icon": "x",
+                      "action": "accounts.bulk_update",
+                      "payload": { "account_ids": "/local/selected_account_ids" },
+                      "values": { "models": { "gpt-5.6-sol": { "enabled": false } } },
+                      "condition": { "op": "nonempty", "path": "/local/selected_account_ids" },
+                      "apply_result": "config",
+                      "confirm": true,
+                      "description": "Apply this explicit change to the selected accounts?",
+                      "description_key": "bulk_confirm"
+                    },
+                    {
+                      "type": "button",
+                      "id": "bulk-sol-pro",
+                      "title": "Set Pro",
+                      "title_key": "pro_plan",
+                      "icon": "star",
+                      "action": "accounts.bulk_update",
+                      "payload": { "account_ids": "/local/selected_account_ids" },
+                      "values": { "models": { "gpt-5.6-sol": { "ticket_plan": "pro" } } },
+                      "condition": { "op": "nonempty", "path": "/local/selected_account_ids" },
+                      "apply_result": "config",
+                      "confirm": true,
+                      "description": "Apply this explicit change to the selected accounts?",
+                      "description_key": "bulk_confirm"
+                    },
+                    {
+                      "type": "button",
+                      "id": "bulk-sol-team",
+                      "title": "Set Team",
+                      "title_key": "team_plan",
+                      "icon": "users",
+                      "action": "accounts.bulk_update",
+                      "payload": { "account_ids": "/local/selected_account_ids" },
+                      "values": { "models": { "gpt-5.6-sol": { "ticket_plan": "team" } } },
+                      "condition": { "op": "nonempty", "path": "/local/selected_account_ids" },
+                      "apply_result": "config",
+                      "confirm": true,
+                      "description": "Apply this explicit change to the selected accounts?",
+                      "description_key": "bulk_confirm"
+                    }
+                  ]
+                },
+                {
+                  "type": "grid",
+                  "id": "bulk-terra",
+                  "title": "Terra",
+                  "title_key": "terra",
+                  "children": [
+                    {
+                      "type": "button",
+                      "id": "bulk-terra-enable",
+                      "title": "Enable",
+                      "title_key": "enable",
+                      "icon": "check",
+                      "action": "accounts.bulk_update",
+                      "payload": { "account_ids": "/local/selected_account_ids" },
+                      "values": { "models": { "gpt-5.6-terra": { "enabled": true } } },
+                      "condition": { "op": "nonempty", "path": "/local/selected_account_ids" },
+                      "apply_result": "config",
+                      "confirm": true,
+                      "description": "Apply this explicit change to the selected accounts?",
+                      "description_key": "bulk_confirm"
+                    },
+                    {
+                      "type": "button",
+                      "id": "bulk-terra-disable",
+                      "title": "Disable",
+                      "title_key": "disable",
+                      "icon": "x",
+                      "action": "accounts.bulk_update",
+                      "payload": { "account_ids": "/local/selected_account_ids" },
+                      "values": { "models": { "gpt-5.6-terra": { "enabled": false } } },
+                      "condition": { "op": "nonempty", "path": "/local/selected_account_ids" },
+                      "apply_result": "config",
+                      "confirm": true,
+                      "description": "Apply this explicit change to the selected accounts?",
+                      "description_key": "bulk_confirm"
+                    },
+                    {
+                      "type": "button",
+                      "id": "bulk-terra-pro",
+                      "title": "Set Pro",
+                      "title_key": "pro_plan",
+                      "icon": "star",
+                      "action": "accounts.bulk_update",
+                      "payload": { "account_ids": "/local/selected_account_ids" },
+                      "values": { "models": { "gpt-5.6-terra": { "ticket_plan": "pro" } } },
+                      "condition": { "op": "nonempty", "path": "/local/selected_account_ids" },
+                      "apply_result": "config",
+                      "confirm": true,
+                      "description": "Apply this explicit change to the selected accounts?",
+                      "description_key": "bulk_confirm"
+                    },
+                    {
+                      "type": "button",
+                      "id": "bulk-terra-team",
+                      "title": "Set Team",
+                      "title_key": "team_plan",
+                      "icon": "users",
+                      "action": "accounts.bulk_update",
+                      "payload": { "account_ids": "/local/selected_account_ids" },
+                      "values": { "models": { "gpt-5.6-terra": { "ticket_plan": "team" } } },
+                      "condition": { "op": "nonempty", "path": "/local/selected_account_ids" },
+                      "apply_result": "config",
+                      "confirm": true,
+                      "description": "Apply this explicit change to the selected accounts?",
+                      "description_key": "bulk_confirm"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "section",
+          "id": "logs",
+          "title": "Run logs",
+          "title_key": "run_logs",
+          "icon": "document",
+          "children": [
+            {
+              "type": "grid",
+              "id": "log-filters",
+              "children": [
+                {
+                  "type": "select",
+                  "id": "log-level-filter",
+                  "title": "Level",
+                  "title_key": "level",
+                  "write": "/local/log_level",
+                  "options": [
+                    { "value": "__all__", "label": "All levels", "label_key": "all_levels" },
+                    { "value": "info", "label": "Info", "label_key": "info" },
+                    { "value": "error", "label": "Error", "label_key": "error" }
+                  ]
+                },
+                {
+                  "type": "select",
+                  "id": "log-account-filter",
+                  "title": "Account",
+                  "title_key": "account",
+                  "write": "/local/log_account",
+                  "options": [ { "value": "__all__", "label": "All accounts", "label_key": "all_accounts" } ],
+                  "options_bind": "/resources/accounts"
+                },
+                {
+                  "type": "select",
+                  "id": "log-model-filter",
+                  "title": "Model",
+                  "title_key": "model",
+                  "write": "/local/log_model",
+                  "options": [
+                    { "value": "__all__", "label": "All models", "label_key": "all_models" },
+                    { "value": "gpt-6-astra", "label": "Astra", "label_key": "astra" },
+                    { "value": "gpt-5.6-sol", "label": "Sol", "label_key": "sol" },
+                    { "value": "gpt-5.6-terra", "label": "Terra", "label_key": "terra" }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "data_table",
+              "id": "logs-table",
+              "title": "Run logs",
+              "title_key": "run_logs",
+              "description": "Only allowlisted, redacted diagnostic codes are shown; STATE, tokens, proxy credentials and raw errors are never displayed.",
+              "description_key": "logs_description",
+              "bind": "/status/logs",
+              "row_key": "id",
+              "page_size": 25,
+              "sort_key": "at",
+              "sort_desc": true,
+              "filters": [
+                { "bind": "/local/log_level", "key": "level" },
+                { "bind": "/local/log_account", "key": "account_id" },
+                { "bind": "/local/log_model", "key": "model" }
+              ],
+              "columns": [
+                { "key": "at", "label": "Time", "label_key": "time", "bind": "/item/at", "format": "date" },
+                { "key": "account_id", "label": "Account", "label_key": "account", "bind": "/item/account_id" },
+                { "key": "model", "label": "Model", "label_key": "model", "bind": "/item/model" },
+                { "key": "level", "label": "Level", "label_key": "level", "bind": "/item/level" },
+                { "key": "code", "label": "Diagnostic code", "label_key": "diagnostic_code", "bind": "/item/code" }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

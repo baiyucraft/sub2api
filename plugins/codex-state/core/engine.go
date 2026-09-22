@@ -38,18 +38,21 @@ type job struct {
 }
 
 type Engine struct {
-	host       Host
-	prober     Prober
-	opts       Options
-	mu         sync.RWMutex
-	current    snapshot
-	cancel     context.CancelFunc
-	closed     bool
-	jobs       map[string]*job
-	blocked    map[string]Guard
-	logs       []Log
-	identities map[int64]string
-	wg         sync.WaitGroup
+	host        Host
+	prober      Prober
+	opts        Options
+	mu          sync.RWMutex
+	current     snapshot
+	cancel      context.CancelFunc
+	closed      bool
+	jobs        map[string]*job
+	blocked     map[string]Guard
+	logs        []Log
+	nextLogID   uint64
+	identities  map[int64]string
+	bulkActions map[string]Action
+	bulkResults map[string]ActionResult
+	wg          sync.WaitGroup
 }
 
 func New(host Host, prober Prober, opts Options) *Engine {
@@ -74,7 +77,7 @@ func New(host Host, prober Prober, opts Options) *Engine {
 	if opts.RetryDelay <= 0 {
 		opts.RetryDelay = time.Second
 	}
-	return &Engine{host: host, prober: prober, opts: opts, jobs: map[string]*job{}, blocked: map[string]Guard{}, identities: map[int64]string{}}
+	return &Engine{host: host, prober: prober, opts: opts, jobs: map[string]*job{}, blocked: map[string]Guard{}, identities: map[int64]string{}, bulkActions: map[string]Action{}, bulkResults: map[string]ActionResult{}}
 }
 
 func randomID() string {

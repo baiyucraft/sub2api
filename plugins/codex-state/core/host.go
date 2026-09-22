@@ -78,10 +78,20 @@ type Host interface {
 	LeaseRelease(context.Context, Lease) error
 }
 
+type DirectoryAccount struct {
+	AccountID                int64
+	Present                  bool
+	Name                     string
+	AccountType              string
+	GroupIDs                 []int64
+	BusinessEgressConfigured bool
+}
+
 // StatusDirectory is a credential-free live resource projection. Health uses
-// this optional read to avoid advertising tickets for deleted/inactive accounts.
+// this optional read to combine account metadata with ticket status without
+// exposing account extras, credentials or proxy URLs.
 type StatusDirectory interface {
-	AvailableAccounts(context.Context) (map[int64]bool, error)
+	DirectoryAccounts(context.Context) ([]DirectoryAccount, error)
 }
 
 type ProbeRequest struct {

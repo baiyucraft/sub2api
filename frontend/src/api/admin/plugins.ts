@@ -100,8 +100,8 @@ export interface PluginUISession {
   expires_at: string
 }
 
-export type NativePluginBindingRoot = 'config' | 'resources' | 'status' | 'local' | 'item'
-export type NativePluginConditionOp = 'eq' | 'ne' | 'truthy' | 'falsy' | 'in'
+export type NativePluginBindingRoot = 'config' | 'resources' | 'status' | 'local' | 'item' | 'secrets'
+export type NativePluginConditionOp = 'eq' | 'ne' | 'truthy' | 'falsy' | 'nonempty' | 'empty' | 'in'
 
 export interface NativePluginUICondition {
   op: NativePluginConditionOp
@@ -112,12 +112,27 @@ export interface NativePluginUICondition {
 export interface NativePluginUIOption {
   value: string
   label: string
+  label_key?: string
 }
 
 export interface NativePluginUITableColumn {
   key: string
   label: string
+  label_key?: string
   bind?: string
+  format?: 'count' | 'boolean' | 'date' | 'duration'
+}
+
+export interface NativePluginUITableFilter {
+  bind: string
+  key: string
+  all_value?: string
+}
+
+export interface NativePluginUIValidation {
+  op: 'required' | 'min_length' | 'max_length' | 'in'
+  value?: unknown
+  message: string
 }
 
 export interface NativePluginUINode {
@@ -126,14 +141,34 @@ export interface NativePluginUINode {
   icon?: string
   title?: string
   description?: string
+  title_key?: string
+  description_key?: string
   bind?: string
+  format?: 'count' | 'boolean' | 'date' | 'duration'
   write?: string
   condition?: NativePluginUICondition
   children?: NativePluginUINode[]
   options?: NativePluginUIOption[]
+  options_bind?: string
   columns?: NativePluginUITableColumn[]
+  row_actions?: NativePluginUINode[]
+  selection_bind?: string
+  search_bind?: string
+  filter_bind?: string
+  filter_key?: string
+  filter_options_bind?: string
+  filters?: NativePluginUITableFilter[]
+  presence_filter_bind?: string
+  presence_key?: string
+  row_key?: string
+  page_size?: number
+  sort_key?: string
+  sort_desc?: boolean
   action?: string
   payload?: Record<string, string>
+  values?: Record<string, unknown>
+  validation?: NativePluginUIValidation[]
+  apply_result?: 'config'
   confirm?: boolean
   read_only?: boolean
 }
@@ -142,6 +177,9 @@ export interface NativePluginAdminUI {
   schema_version: number
   title: string
   description: string
+  title_key?: string
+  description_key?: string
+  translations?: Record<string, Record<string, string>>
   poll_interval_seconds: number
   layout: NativePluginUINode[]
 }

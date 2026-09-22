@@ -29,6 +29,7 @@ description: 审计 Sub2API fork 相对官方 upstream/main 的扩展合同。�
 - 通用插件协议、Host API、Manifest 解析、管理路由、原生管理页渲染器、包校验、PostgreSQL 权威安装记录、跨实例请求守卫、maintenance journal 和 migration 属于宿主扩展；插件私有采集、解析、状态机、模型名单、v1 iframe UI 或 v2 声明式页面定义属于独立插件包。不得把两层所有权合并成一个模糊的“STATE 功能”。
 - 审计宿主时检查 `generic-plugin-runtime-v2`：旧 API 兼容、必需 feature 协商、上传/启停/升级路由、签名策略、受管范围、准入失败隔离、加密 CAS/lease、数据库原包恢复和跨实例升级回滚。
 - 审计插件包时检查 `codex-state-plugin`：插件 ID/版本、来源锁、许可证、双架构运行时、manifest 文件哈希、Ed25519 签名、Host API 2 与九项 feature、默认停用、STATE 私有生命周期和负向边界。
+- 当前 `codex-state-plugin` 默认是 Manifest v2 Native 页面：`ui/admin-ui.json` 属于插件私有声明式页面，宿主只负责通用渲染；页面必须有 `en` / `zh` 翻译，固定覆盖概览、账号表、筛选与跨页选择、模型批量明确按钮和脱敏日志表格。账号表只能绑定固定白名单字段，不能用整对象 `key_value` 展示；`accounts.bulk_update` 只覆盖用户明确点击的 `enabled` 或 `ticket_plan` 字段，返回的规范化 `result.config` 由宿主回填并保存。旧 `ui/index.html` / `ui/dist` 只作 iframe 回滚依据，双架构包中的 Native 定义必须语义和字节一致，不得把 Native 页面专用能力写进宿主业务判断。
 - `POST /api/v1/admin/plugins/upload` 是首次安装；调用前必须证明同插件 ID 不存在，不能利用当前宿主对部分非运行状态同 ID upload 的兼容行为绕过 maintenance upgrade。`POST /api/v1/admin/plugins/:id/upgrade` 是已安装 Scoped 插件升级。上传、保存秘密、启用和真实采集是独立授权，审计不得把“包已安装”表述为“功能已启用”。
 - PostgreSQL 的 artifact 和 installation 是跨实例权威状态，本地 `plugins.data_dir` 只是校验后的运行副本。审计必须要求逐实例恢复/版本/二进制 SHA/Health 证据，不能以单实例上传成功证明整个集群完成升级。
 - 仅插件包变化可独立发版；Host API、管理壳、migration、部署配置或包校验变化仍是宿主应用发布。构建、VM 和生产证据由 `sub2api-production-deploy` 的 `plugin-package` 分类负责，本技能只校验扩展登记与最低回归映射。

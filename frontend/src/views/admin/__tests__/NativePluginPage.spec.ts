@@ -85,6 +85,7 @@ vi.mock('vue-router', () => ({
   useRoute: () => state.route,
   useRouter: () => state.router,
   onBeforeRouteLeave: (guard: () => boolean | Promise<boolean>) => { state.leaveGuard = guard },
+  onBeforeRouteUpdate: (guard: () => boolean | Promise<boolean>) => { state.leaveGuard = guard },
 }))
 
 import NativePluginPage from '../NativePluginPage.vue'

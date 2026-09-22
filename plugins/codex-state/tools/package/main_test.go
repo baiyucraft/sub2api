@@ -3,6 +3,7 @@ package main
 import (
 	"archive/zip"
 	"bytes"
+	"encoding/json"
 	"io"
 	"strings"
 	"testing"
@@ -62,5 +63,42 @@ func TestBuildEnvOverridesInheritedTarget(t *testing.T) {
 		if len(values[key]) != 1 || values[key][0] != wanted {
 			t.Fatalf("%s: %v", key, values[key])
 		}
+	}
+}
+
+func TestNativeManifestIncludesDefinitionAndCapability(t *testing.T) {
+	hashes := map[string]string{
+		"bin/codex-state-linux-amd64": "binary-sha",
+		"ui/admin-ui.json":            "admin-ui-sha",
+		"ui/index.html":               "iframe-fallback-sha",
+	}
+	manifest := buildManifest("amd64", "bin/codex-state-linux-amd64", hashes)
+	raw, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		SchemaVersion int `json:"schema_version"`
+		Requires      struct {
+			UIBridge int `json:"ui_bridge"`
+			AdminUI  int `json:"admin_ui"`
+		} `json:"requires"`
+		UI struct {
+			Type       string `json:"type"`
+			Definition string `json:"definition"`
+		} `json:"ui"`
+		Files map[string]string `json:"files"`
+	}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.SchemaVersion != 2 || decoded.Requires.AdminUI != 1 || decoded.Requires.UIBridge != 0 {
+		t.Fatalf("unexpected native requirements: %+v", decoded)
+	}
+	if decoded.UI.Type != "native" || decoded.UI.Definition != "ui/admin-ui.json" {
+		t.Fatalf("unexpected native UI declaration: %+v", decoded.UI)
+	}
+	if decoded.Files[decoded.UI.Definition] != "admin-ui-sha" || decoded.Files["ui/index.html"] != "iframe-fallback-sha" {
+		t.Fatalf("native definition or iframe fallback missing from signed files: %#v", decoded.Files)
 	}
 }

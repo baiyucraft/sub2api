@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -18,7 +19,14 @@ import (
 
 const namespace = "codex-state-v1"
 
-func (h *Host) AvailableAccounts(ctx context.Context) (map[int64]bool, error) {
+const (
+	maxDirectoryResourcesBytes = 4 << 20
+	maxDirectoryAccounts       = 10000
+	maxDirectoryGroups         = 256
+	maxDirectoryNameRunes      = 256
+)
+
+func (h *Host) DirectoryAccounts(ctx context.Context) ([]core.DirectoryAccount, error) {
 	client, err := h.connection(nil)
 	if err != nil {
 		return nil, err
@@ -32,21 +40,44 @@ func (h *Host) AvailableAccounts(ctx context.Context) (map[int64]bool, error) {
 	}
 	var resources struct {
 		Accounts []struct {
-			ID          int64  `json:"id"`
-			Platform    string `json:"platform"`
-			AccountType string `json:"account_type"`
+			ID                       int64   `json:"id"`
+			Name                     string  `json:"name"`
+			Platform                 string  `json:"platform"`
+			AccountType              string  `json:"account_type"`
+			GroupIDs                 []int64 `json:"group_ids"`
+			BusinessEgressConfigured bool    `json:"business_egress_configured"`
 		} `json:"accounts"`
 	}
-	if json.Unmarshal(response.ResourcesJson, &resources) != nil {
+	if len(response.ResourcesJson) > maxDirectoryResourcesBytes || json.Unmarshal(response.ResourcesJson, &resources) != nil || len(resources.Accounts) > maxDirectoryAccounts {
 		return nil, core.ErrUnavailable
 	}
-	available := map[int64]bool{}
+	accounts := make([]core.DirectoryAccount, 0, len(resources.Accounts))
 	for _, account := range resources.Accounts {
 		if account.ID > 0 && account.Platform == "openai" && (account.AccountType == "oauth" || account.AccountType == "setup-token") {
-			available[account.ID] = true
+			groups := make([]int64, 0, len(account.GroupIDs))
+			seenGroups := make(map[int64]struct{}, len(account.GroupIDs))
+			for _, groupID := range account.GroupIDs {
+				if groupID <= 0 {
+					continue
+				}
+				if _, ok := seenGroups[groupID]; ok {
+					continue
+				}
+				seenGroups[groupID] = struct{}{}
+				groups = append(groups, groupID)
+				if len(groups) == maxDirectoryGroups {
+					break
+				}
+			}
+			sort.Slice(groups, func(i, j int) bool { return groups[i] < groups[j] })
+			name := []rune(strings.TrimSpace(account.Name))
+			if len(name) > maxDirectoryNameRunes {
+				name = name[:maxDirectoryNameRunes]
+			}
+			accounts = append(accounts, core.DirectoryAccount{AccountID: account.ID, Present: true, Name: string(name), AccountType: account.AccountType, GroupIDs: groups, BusinessEgressConfigured: account.BusinessEgressConfigured})
 		}
 	}
-	return available, nil
+	return accounts, nil
 }
 
 type Host struct {

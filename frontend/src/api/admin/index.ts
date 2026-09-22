@@ -144,5 +144,6 @@ export type {
   NativePluginAdminUI,
   NativePluginUINode,
   NativePluginUITableColumn,
+  NativePluginUIValidation,
   PluginTestResult
 } from './plugins'

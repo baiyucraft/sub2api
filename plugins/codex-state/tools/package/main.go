@@ -117,6 +117,11 @@ func run(out, keyFile, keyID string, arches []string) error {
 			}
 			files[name] = content
 		}
+		adminUI, err := os.ReadFile("ui/admin-ui.json")
+		if err != nil {
+			return errors.New("native admin UI definition unavailable")
+		}
+		files["ui/admin-ui.json"] = adminUI
 		if len(files["ui/index.html"]) == 0 {
 			return errors.New("missing UI entrypoint")
 		}
@@ -124,14 +129,7 @@ func run(out, keyFile, keyID string, arches []string) error {
 		for name, content := range files {
 			hashes[name] = digest(content)
 		}
-		manifest := map[string]any{
-			"schema_version": 1, "id": "baiyu.codex-state", "name": "Codex STATE", "version": core.Version, "author": "Baiyu fork contributors",
-			"description":    "Account/model scoped Codex STATE lifecycle and transport",
-			"requires":       map[string]any{"sub2api": ">=0.2.7-baiyu", "recommended_sub2api_version": "0.2.7-baiyu", "tested_sub2api_versions": []string{"0.2.7-baiyu"}, "plugin_protocol": 1, "transport_api": 1, "ui_bridge": 1, "host_service_api": 2, "host_features": pluginv1.HostFeatures},
-			"capabilities":   []map[string]string{{"id": "openai.oauth.outbound_transport.v1", "platform": "openai", "account_type": "oauth"}},
-			"config_secrets": []string{"harvest_proxy_url", "dial_proxy_url"},
-			"runtimes":       map[string]any{"linux-" + arch: map[string]string{"path": binaryPath}}, "ui": map[string]string{"entrypoint": "ui/index.html"}, "files": hashes,
-		}
+		manifest := buildManifest(arch, binaryPath, hashes)
 		raw, err := json.Marshal(manifest)
 		if err != nil {
 			return err
@@ -153,6 +151,19 @@ func run(out, keyFile, keyID string, arches []string) error {
 		fmt.Printf("package=%s signed=%t\n", filepath.Join(out, name), key != nil)
 	}
 	return os.WriteFile(filepath.Join(out, "SHA256SUMS"), []byte(sums.String()), 0o600)
+}
+
+func buildManifest(arch, binaryPath string, hashes map[string]string) map[string]any {
+	return map[string]any{
+		"schema_version": 2, "id": "baiyu.codex-state", "name": "Codex STATE", "version": core.Version, "author": "Baiyu fork contributors",
+		"description":    "Account/model scoped Codex STATE lifecycle and transport",
+		"requires":       map[string]any{"sub2api": ">=0.2.7-baiyu", "recommended_sub2api_version": "0.2.7-baiyu", "tested_sub2api_versions": []string{"0.2.7-baiyu"}, "plugin_protocol": 1, "transport_api": 1, "ui_bridge": 0, "admin_ui": 1, "host_service_api": 2, "host_features": pluginv1.HostFeatures},
+		"capabilities":   []map[string]string{{"id": "openai.oauth.outbound_transport.v1", "platform": "openai", "account_type": "oauth"}},
+		"config_secrets": []string{"harvest_proxy_url", "dial_proxy_url"},
+		"runtimes":       map[string]any{"linux-" + arch: map[string]string{"path": binaryPath}},
+		"ui":             map[string]string{"type": "native", "definition": "ui/admin-ui.json"},
+		"files":          hashes,
+	}
 }
 
 func buildEnv(arch string) []string {
