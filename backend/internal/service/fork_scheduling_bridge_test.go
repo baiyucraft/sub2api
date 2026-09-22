@@ -49,7 +49,7 @@ func TestLegacyTTFTRuntimeInheritedGlobalStateSharesAcrossGroupIDs(t *testing.T)
 	}
 }
 
-func TestLegacyTTFTRuntimeCustomStateRemainsScopedByGroupID(t *testing.T) {
+func TestLegacyTTFTRuntimeCustomStateCascadesByThresholdAcrossGroups(t *testing.T) {
 	guard := newOpenAITTFTGuard()
 	runtime := legacyTTFTRuntime{guard: guard}
 	cfg := forkscheduling.TTFTConfig{Enabled: true, Threshold: 10 * time.Second, MinSamples: 2, Source: GroupTTFTGuardSourceGroup}
@@ -57,8 +57,8 @@ func TestLegacyTTFTRuntimeCustomStateRemainsScopedByGroupID(t *testing.T) {
 	runtime.Report(forkscheduling.TTFTSample{GroupID: 100, AccountID: 7, Model: "gpt-5", Success: true, FirstTokenMs: &firstTokenMs}, cfg)
 
 	excluded := runtime.Exclusions([]forkscheduling.CandidateView{{GroupID: 200, ID: 7, Model: "gpt-5"}}, nil, cfg)
-	if _, ok := excluded[7]; ok {
-		t.Fatalf("excluded accounts = %#v, custom state leaked across groups", excluded)
+	if _, ok := excluded[7]; !ok {
+		t.Fatalf("excluded accounts = %#v, equal custom thresholds must cascade", excluded)
 	}
 }
 
