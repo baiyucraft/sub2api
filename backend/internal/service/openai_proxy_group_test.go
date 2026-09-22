@@ -81,12 +81,13 @@ type proxyGroupConcurrencyCacheStub struct {
 	ConcurrencyCache
 	mu           sync.Mutex
 	available    map[int64]bool
+	loadErr      error
 	acquireCalls []int64
 	active       map[int64]map[string]struct{}
 	releases     map[int64]int
 }
 
-func (c *proxyGroupConcurrencyCacheStub) AcquireAccountProxySlot(_ context.Context, _ int64, proxyID int64, _ int, requestID string) (bool, error) {
+func (c *proxyGroupConcurrencyCacheStub) AcquireAccountProxySlot(_ context.Context, _ int64, proxyID int64, maxConcurrency int, requestID string) (bool, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.acquireCalls = append(c.acquireCalls, proxyID)
@@ -98,6 +99,9 @@ func (c *proxyGroupConcurrencyCacheStub) AcquireAccountProxySlot(_ context.Conte
 	}
 	if c.active[proxyID] == nil {
 		c.active[proxyID] = make(map[string]struct{})
+	}
+	if len(c.active[proxyID]) >= maxConcurrency {
+		return false, nil
 	}
 	c.active[proxyID][requestID] = struct{}{}
 	return true, nil
@@ -117,7 +121,22 @@ func (c *proxyGroupConcurrencyCacheStub) ReleaseAccountProxySlot(_ context.Conte
 func (c *proxyGroupConcurrencyCacheStub) GetAccountProxyConcurrency(_ context.Context, _ int64, proxyID int64) (int, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.loadErr != nil {
+		return 0, c.loadErr
+	}
 	return len(c.active[proxyID]), nil
+}
+
+func (c *proxyGroupConcurrencyCacheStub) seedActive(proxyID int64, count int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.active == nil {
+		c.active = make(map[int64]map[string]struct{})
+	}
+	c.active[proxyID] = make(map[string]struct{}, count)
+	for i := 0; i < count; i++ {
+		c.active[proxyID][fmt.Sprintf("seed-%d-%d", proxyID, i)] = struct{}{}
+	}
 }
 
 func (c *proxyGroupConcurrencyCacheStub) calls() []int64 {
@@ -186,7 +205,11 @@ func newProxyGroupTestService(bindingCache *proxyGroupBindingCacheStub, concurre
 }
 
 func proxyGroupTestProxies() []Proxy {
-	return []Proxy{{ID: 2, Name: "proxy-2", Status: StatusActive}, {ID: 1, Name: "proxy-1", Status: StatusActive}}
+	return []Proxy{
+		{ID: 3, Name: "proxy-3", Status: StatusActive},
+		{ID: 2, Name: "proxy-2", Status: StatusActive},
+		{ID: 1, Name: "proxy-1", Status: StatusActive},
+	}
 }
 
 func requireProxyGroupError(t *testing.T, err, target error) {
@@ -225,20 +248,72 @@ func TestAcquireOpenAIProxyGroupEgressKeepsSameSessionBinding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first acquire failed: %v", err)
 	}
-	requireResolvedProxy(t, first, 1)
+	firstProxyID := *first.ProxyID
 	releaseFirst()
 
 	second, releaseSecond, err := svc.AcquireOpenAIProxyGroupEgress(context.Background(), account, "session-a")
 	if err != nil {
 		t.Fatalf("second acquire failed: %v", err)
 	}
-	requireResolvedProxy(t, second, 1)
+	requireResolvedProxy(t, second, firstProxyID)
 	releaseSecond()
 
-	if got := bindingCache.boundProxyID(account.ID, "session-a"); got != 1 {
-		t.Fatalf("expected session binding to proxy 1, got %d", got)
+	if got := bindingCache.boundProxyID(account.ID, "session-a"); got != firstProxyID {
+		t.Fatalf("expected session binding to proxy %d, got %d", firstProxyID, got)
 	}
-	requireProxyCalls(t, concurrencyCache, 1, 1)
+	requireProxyCalls(t, concurrencyCache, firstProxyID, firstProxyID)
+}
+
+func TestAcquireOpenAIProxyGroupEgressNewSessionUsesLeastLoadedMember(t *testing.T) {
+	bindingCache := &proxyGroupBindingCacheStub{bindings: make(map[string]int64)}
+	concurrencyCache := &proxyGroupConcurrencyCacheStub{available: map[int64]bool{1: true, 2: true, 3: true}}
+	concurrencyCache.seedActive(1, 4)
+	svc, account := newProxyGroupTestService(bindingCache, concurrencyCache, []int64{1, 2, 3}, proxyGroupTestProxies())
+	svc.proxyIPGroupRepo.(*proxyGroupRepoStub).group.PerIPConcurrency = 10
+
+	resolved, release, err := svc.AcquireOpenAIProxyGroupEgress(context.Background(), account, "new-session")
+	if err != nil {
+		t.Fatalf("acquire failed: %v", err)
+	}
+	if *resolved.ProxyID == 1 {
+		t.Fatalf("expected one of the idle members, got overloaded proxy 1")
+	}
+	release()
+}
+
+func TestAcquireOpenAIProxyGroupEgressEqualLoadSessionsAreSpread(t *testing.T) {
+	bindingCache := &proxyGroupBindingCacheStub{bindings: make(map[string]int64)}
+	concurrencyCache := &proxyGroupConcurrencyCacheStub{available: map[int64]bool{1: true, 2: true, 3: true}}
+	svc, account := newProxyGroupTestService(bindingCache, concurrencyCache, []int64{1, 2, 3}, proxyGroupTestProxies())
+	svc.proxyIPGroupRepo.(*proxyGroupRepoStub).group.PerIPConcurrency = 10
+
+	selected := make(map[int64]struct{})
+	for i := 0; i < 24; i++ {
+		resolved, release, err := svc.AcquireOpenAIProxyGroupEgress(context.Background(), account, fmt.Sprintf("spread-%d", i))
+		if err != nil {
+			t.Fatalf("acquire %d failed: %v", i, err)
+		}
+		selected[*resolved.ProxyID] = struct{}{}
+		release()
+	}
+	if len(selected) < 2 {
+		t.Fatalf("expected equal-load sessions to use multiple proxies, got %v", selected)
+	}
+}
+
+func TestAcquireOpenAIProxyGroupEgressKeepsNonFullStickyMemberDespiteLoad(t *testing.T) {
+	bindingCache := &proxyGroupBindingCacheStub{bindings: map[string]int64{"101:session-a": 1}}
+	concurrencyCache := &proxyGroupConcurrencyCacheStub{available: map[int64]bool{1: true, 2: true, 3: true}}
+	concurrencyCache.seedActive(1, 4)
+	svc, account := newProxyGroupTestService(bindingCache, concurrencyCache, []int64{1, 2, 3}, proxyGroupTestProxies())
+	svc.proxyIPGroupRepo.(*proxyGroupRepoStub).group.PerIPConcurrency = 10
+
+	resolved, release, err := svc.AcquireOpenAIProxyGroupEgress(context.Background(), account, "session-a")
+	if err != nil {
+		t.Fatalf("acquire failed: %v", err)
+	}
+	requireResolvedProxy(t, resolved, 1)
+	release()
 }
 
 func TestAcquireOpenAIProxyGroupEgressRebindsFullBoundProxy(t *testing.T) {
@@ -278,7 +353,9 @@ func TestAcquireOpenAIProxyGroupEgressNewSessionSkipsFullMember(t *testing.T) {
 func TestAcquireOpenAIProxyGroupEgressConcurrentClaimKeepsWinner(t *testing.T) {
 	bindingCache := &proxyGroupBindingCacheStub{bindings: map[string]int64{"101:session-a": 2}, missOnce: true}
 	concurrencyCache := &proxyGroupConcurrencyCacheStub{available: map[int64]bool{1: true, 2: true}}
+	concurrencyCache.seedActive(2, 1)
 	svc, account := newProxyGroupTestService(bindingCache, concurrencyCache, []int64{1, 2}, proxyGroupTestProxies())
+	svc.proxyIPGroupRepo.(*proxyGroupRepoStub).group.PerIPConcurrency = 2
 
 	resolved, release, err := svc.AcquireOpenAIProxyGroupEgress(context.Background(), account, "session-a")
 	if err != nil {
@@ -332,7 +409,27 @@ func TestAcquireOpenAIProxyGroupEgressAllMembersFull(t *testing.T) {
 		t.Fatalf("expected no egress when all members are full, got account=%#v release=%v", resolved, release != nil)
 	}
 	requireProxyGroupError(t, err, ErrOpenAIProxyGroupCapacityFull)
-	requireProxyCalls(t, concurrencyCache, 1, 2)
+	calls := concurrencyCache.calls()
+	if len(calls) != 2 || calls[0] == calls[1] {
+		t.Fatalf("expected both proxy members to be attempted once, got %v", calls)
+	}
+}
+
+func TestAcquireOpenAIProxyGroupEgressSnapshotFailureFallsBackToStableOrder(t *testing.T) {
+	bindingCache := &proxyGroupBindingCacheStub{bindings: make(map[string]int64)}
+	concurrencyCache := &proxyGroupConcurrencyCacheStub{
+		available: map[int64]bool{1: true, 2: true},
+		loadErr:   errors.New("redis read failed"),
+	}
+	svc, account := newProxyGroupTestService(bindingCache, concurrencyCache, []int64{2, 1}, proxyGroupTestProxies())
+
+	resolved, release, err := svc.AcquireOpenAIProxyGroupEgress(context.Background(), account, "fallback")
+	if err != nil {
+		t.Fatalf("expected stable-order fallback, got %v", err)
+	}
+	requireResolvedProxy(t, resolved, 1)
+	requireProxyCalls(t, concurrencyCache, 1)
+	release()
 }
 
 func TestAcquireOpenAIProxyGroupEgressReleaseFreesSlot(t *testing.T) {
@@ -359,6 +456,7 @@ func TestAcquireOpenAIProxyGroupEgressReleaseFreesSlot(t *testing.T) {
 }
 
 func TestAcquireOpenAIManagementEgressSkipsFullMemberWithoutBinding(t *testing.T) {
+	openAIProxyGroupTieCounter.Store(0)
 	bindingCache := &proxyGroupBindingCacheStub{bindings: make(map[string]int64)}
 	concurrencyCache := &proxyGroupConcurrencyCacheStub{available: map[int64]bool{1: false, 2: true}}
 	svc, account := newProxyGroupTestService(bindingCache, concurrencyCache, []int64{1, 2}, proxyGroupTestProxies())
@@ -377,6 +475,29 @@ func TestAcquireOpenAIManagementEgressSkipsFullMemberWithoutBinding(t *testing.T
 	if got := concurrencyCache.releaseCount(2); got != 1 {
 		t.Fatalf("expected management proxy slot release, got %d", got)
 	}
+}
+
+func TestAcquireOpenAIManagementEgressUsesLeastLoadedMembers(t *testing.T) {
+	openAIProxyGroupTieCounter.Store(0)
+	bindingCache := &proxyGroupBindingCacheStub{bindings: make(map[string]int64)}
+	concurrencyCache := &proxyGroupConcurrencyCacheStub{available: map[int64]bool{1: true, 2: true, 3: true}}
+	svc, account := newProxyGroupTestService(bindingCache, concurrencyCache, []int64{1, 2, 3}, proxyGroupTestProxies())
+	svc.proxyIPGroupRepo.(*proxyGroupRepoStub).group.PerIPConcurrency = 10
+
+	first, releaseFirst, err := svc.AcquireOpenAIManagementEgress(context.Background(), account)
+	if err != nil {
+		t.Fatalf("first management acquire failed: %v", err)
+	}
+	second, releaseSecond, err := svc.AcquireOpenAIManagementEgress(context.Background(), account)
+	if err != nil {
+		releaseFirst()
+		t.Fatalf("second management acquire failed: %v", err)
+	}
+	if *first.ProxyID == *second.ProxyID {
+		t.Fatalf("expected the second management request to use an idle member, both selected %d", *first.ProxyID)
+	}
+	releaseSecond()
+	releaseFirst()
 }
 
 func TestAcquireOpenAIManagementEgressFailsClosedWithoutConcurrency(t *testing.T) {

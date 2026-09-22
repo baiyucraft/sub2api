@@ -710,6 +710,55 @@ func (c *concurrencyCache) GetAccountProxyConcurrency(ctx context.Context, accou
 	).Int()
 }
 
+func (c *concurrencyCache) GetAccountProxyConcurrencyBatch(ctx context.Context, accountID int64, proxyIDs []int64) (map[int64]int, error) {
+	if len(proxyIDs) == 0 {
+		return map[int64]int{}, nil
+	}
+
+	now, err := c.rdb.Time(ctx).Result()
+	if err != nil {
+		return nil, fmt.Errorf("redis TIME: %w", err)
+	}
+	regularCutoff := now.Unix() - int64(c.slotTTLSeconds)
+	liveCutoff := now.Unix() - liveLeaseTTLSeconds
+
+	type proxyCmd struct {
+		proxyID int64
+		regular *redis.IntCmd
+		live    *redis.IntCmd
+	}
+	seen := make(map[int64]struct{}, len(proxyIDs))
+	cmds := make([]proxyCmd, 0, len(proxyIDs))
+	pipe := c.rdb.Pipeline()
+	for _, proxyID := range proxyIDs {
+		if proxyID <= 0 {
+			continue
+		}
+		if _, exists := seen[proxyID]; exists {
+			continue
+		}
+		seen[proxyID] = struct{}{}
+		regularKey := accountProxySlotKey(accountID, proxyID)
+		liveKey := liveAccountProxySlotKey(accountID, proxyID)
+		pipe.ZRemRangeByScore(ctx, regularKey, "-inf", strconv.FormatInt(regularCutoff, 10))
+		pipe.ZRemRangeByScore(ctx, liveKey, "-inf", strconv.FormatInt(liveCutoff, 10))
+		cmds = append(cmds, proxyCmd{
+			proxyID: proxyID,
+			regular: pipe.ZCard(ctx, regularKey),
+			live:    pipe.ZCard(ctx, liveKey),
+		})
+	}
+	if _, err := pipe.Exec(ctx); err != nil && !errors.Is(err, redis.Nil) {
+		return nil, fmt.Errorf("pipeline exec: %w", err)
+	}
+
+	result := make(map[int64]int, len(cmds))
+	for _, cmd := range cmds {
+		result[cmd.proxyID] = int(cmd.regular.Val() + cmd.live.Val())
+	}
+	return result, nil
+}
+
 func (c *concurrencyCache) AcquireConcurrencyTargetSlot(ctx context.Context, target service.ConcurrencyTarget, requestID string) (bool, error) {
 	slotKey, liveKey, _, indexKey, id := targetKeys(target)
 	if target.Limit <= 0 {

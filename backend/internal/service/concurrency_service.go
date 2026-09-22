@@ -75,6 +75,13 @@ type AccountProxyConcurrencyCache interface {
 	GetAccountProxyConcurrency(ctx context.Context, accountID, proxyID int64) (int, error)
 }
 
+// AccountProxyConcurrencyBatchCache is an optional production optimization
+// for proxy-group load balancing. Legacy caches may continue implementing only
+// AccountProxyConcurrencyCache; ConcurrencyService falls back to point reads.
+type AccountProxyConcurrencyBatchCache interface {
+	GetAccountProxyConcurrencyBatch(ctx context.Context, accountID int64, proxyIDs []int64) (map[int64]int, error)
+}
+
 type APIKeyConcurrencyCache interface {
 	TrackAPIKeySlot(ctx context.Context, apiKeyID int64, requestID string) error
 	ReleaseAPIKeySlot(ctx context.Context, apiKeyID int64, requestID string) error
@@ -410,6 +417,38 @@ func (s *ConcurrencyService) GetAccountProxyConcurrency(ctx context.Context, acc
 		return 0, errors.New("account proxy concurrency cache unsupported")
 	}
 	return cache.GetAccountProxyConcurrency(ctx, accountID, proxyID)
+}
+
+func (s *ConcurrencyService) GetAccountProxyConcurrencyBatch(ctx context.Context, accountID int64, proxyIDs []int64) (map[int64]int, error) {
+	if s == nil || s.cache == nil {
+		return nil, errors.New("account proxy concurrency cache unavailable")
+	}
+	cache, ok := s.cache.(AccountProxyConcurrencyCache)
+	if !ok {
+		return nil, errors.New("account proxy concurrency cache unsupported")
+	}
+	if accountID <= 0 {
+		return nil, errors.New("invalid account proxy concurrency target")
+	}
+	if len(proxyIDs) == 0 {
+		return map[int64]int{}, nil
+	}
+	if batchCache, ok := s.cache.(AccountProxyConcurrencyBatchCache); ok {
+		return batchCache.GetAccountProxyConcurrencyBatch(ctx, accountID, proxyIDs)
+	}
+
+	result := make(map[int64]int, len(proxyIDs))
+	for _, proxyID := range proxyIDs {
+		if proxyID <= 0 {
+			continue
+		}
+		count, err := cache.GetAccountProxyConcurrency(ctx, accountID, proxyID)
+		if err != nil {
+			return nil, err
+		}
+		result[proxyID] = count
+	}
+	return result, nil
 }
 
 // AcquireTargetSlot reserves a slot from either an account-local pool or a

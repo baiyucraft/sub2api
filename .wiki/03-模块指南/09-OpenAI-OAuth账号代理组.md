@@ -1,7 +1,7 @@
 ---
 title: OpenAI OAuth 账号代理组
-description: 一账号多代理、两级并发、会话粘性与账号级 STATE 合同
-updated: 2026-09-20
+description: 一账号多代理、两级并发、会话粘性、负载均衡与账号级 STATE 合同
+updated: 2026-09-22
 owner: project
 ---
 
@@ -29,7 +29,7 @@ owner: project
 
 账号 `concurrency` 是组内全部出口共享的总闸；组级 `per_ip_concurrency` 是每个 `account_id + proxy_id` 的附加上限。Redis 成员槽键为 `concurrency:account-proxy:{accountID}:{proxyID}`，标签名称只用于展示，不能进入并发或调度身份。
 
-可靠 `SessionHash` 使用 `账号 ID + SessionHash` 绑定成员，TTL 对齐现有会话粘性。同一会话保留首次可用代理；并发新请求通过 Redis Lua 原子 claim 决定首次绑定的唯一赢家，后续竞争者只续期且必须服从已有绑定。失效绑定使用“代理 ID 匹配才删除”的比较删除，避免迟到请求删掉其他请求刚建立的新绑定。绑定成员仅并发满时不得改绑，只有停用、过期、删除或移出组时才重新选择。新会话按稳定代理 ID 顺序选择首个有容量成员；没有可靠 SessionHash 时按请求选择且不写绑定。WebSocket 在握手阶段固定出口，连接建立后不切换。
+可靠 `SessionHash` 使用 `账号 ID + SessionHash` 绑定成员，TTL 对齐现有会话粘性。同一会话保留首次可用代理；并发新请求通过 Redis Lua 原子 claim 决定首次绑定的唯一赢家，后续竞争者只续期且必须服从已有绑定。失效绑定使用“代理 ID 匹配才删除”的比较删除，避免迟到请求删掉其他请求刚建立的新绑定。绑定成员未满时不因其他成员更空闲而迁移；绑定成员仅并发满、失效或移出组时才重新选择。新会话批量读取组内成员实时并发，按当前占用最少优先选择；相同负载使用 `SessionHash` 稳定打散，无 `SessionHash` 的管理请求使用进程内轮转起点。并发快照失败时回退到现有成员顺序尝试，但最终槽位准入仍由 Redis 原子操作决定。没有可靠 SessionHash 时按请求选择且不写绑定。WebSocket 在握手阶段固定出口，连接建立后不切换。
 
 代理组绑定或成员并发 Redis 能力不可用时必须 fail-closed，普通单代理账号不受影响。所有成员均满载时先释放账号总槽，再把结果作为请求级容量失败交给现有账号容量换号；该过程不修改账号优先级、分组优先池、健康或上游错误 failover 语义。
 

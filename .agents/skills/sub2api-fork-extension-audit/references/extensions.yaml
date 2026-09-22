@@ -434,18 +434,18 @@
     {
       "id": "openai-oauth-proxy-groups",
       "title": "OpenAI OAuth 账号代理组",
-      "description": "参考 Go1c/sub2api PR #423 的一账号多代理设计，在当前 0.2.7-baiyu 边界内独立适配代理组、会话粘性、账号总闸与每代理并发槽，并保持 Codex STATE 为账号加模型唯一票据槽。",
+      "description": "参考 Go1c/sub2api PR #423 的一账号多代理设计，在当前 0.2.7-baiyu 边界内独立适配代理组、会话粘性、实时最少并发分配、账号总闸与每代理并发槽，并保持 Codex STATE 为账号加模型唯一票据槽。",
       "ownership": "fork",
       "risk_level": "critical",
       "design_references": ["https://github.com/Go1c/sub2api/pull/423"],
       "adoption_mode": "independent-adaptation-for-0.2.7-baiyu",
       "paths": ["backend/migrations/279_proxy_ip_groups.sql", "backend/ent/schema/account.go", "backend/ent/schema/proxy_ip_group.go", "backend/ent/schema/proxy_ip_group_member.go", "backend/internal/repository/proxy_ip_group_repo.go", "backend/internal/repository/concurrency_cache.go", "backend/internal/repository/gateway_cache.go", "backend/internal/service/proxy_ip_group.go", "backend/internal/service/openai_proxy_group.go", "backend/internal/service/concurrency_service.go", "backend/internal/service/openai_plugin_account_directory.go", "frontend/src/api/admin/proxyIpGroups.ts", "frontend/src/components/admin/proxy/ProxyIPGroupDialog.vue", "frontend/src/components/common/ProxyBindingSelector.vue", "frontend/src/components/admin/account/ImportDataModal.vue", "frontend/src/components/account/AccountCapacityCell.vue", "frontend/src/views/admin/ProxiesView.vue", "frontend/src/views/admin/AccountsView.vue", "frontend/src/types/index.ts"],
-      "symbols": ["ProxyIPGroupRepository", "ProxyIPGroupAdminService", "AccountProxyConcurrencyCache", "OpenAIProxyGroupNoEgressCode", "concurrency:account-proxy:", "openai:ip_group_bind:", "proxy_ip_group_id", "ProxyIPGroupDialog", "ProxyBindingSelector"],
+      "symbols": ["ProxyIPGroupRepository", "ProxyIPGroupAdminService", "AccountProxyConcurrencyCache", "AccountProxyConcurrencyBatchCache", "OpenAIProxyGroupNoEgressCode", "concurrency:account-proxy:", "openai:ip_group_bind:", "proxy_ip_group_id", "ProxyIPGroupDialog", "ProxyBindingSelector"],
       "api_routes": ["/admin/proxy-ip-groups"],
       "settings_keys": [],
       "migration_files": ["279_proxy_ip_groups.sql"],
       "required_tests": ["backend/migrations/proxy_ip_group_migration_test.go", "backend/internal/repository/gateway_cache_proxy_group_test.go", "backend/internal/repository/proxy_ip_group_repo_test.go", "backend/internal/service/openai_proxy_group_test.go", "backend/internal/handler/dto/account_mapper_redact_test.go", "frontend/src/api/__tests__/admin.proxyIpGroups.spec.ts", "frontend/src/components/admin/proxy/__tests__/ProxyIPGroupDialog.spec.ts", "frontend/src/components/common/__tests__/ProxyBindingSelector.spec.ts", "frontend/src/components/account/__tests__/AccountCapacityCell.spec.ts", "frontend/src/__tests__/integration/data-import.spec.ts"],
-      "invariants": ["设计只参考 Go1c/sub2api PR #423；代码按当前 0.2.7-baiyu 的账号、调度、并发和 STATE 边界独立适配，不把参考 PR 视为已合入 upstream 的事实", "accounts.proxy_id 与 proxy_ip_group_id 互斥；代理组只允许 OpenAI OAuth 和 Setup Token 账号，空组或无可用出口返回 503/openai_proxy_group_no_egress，禁止意外直连", "一个代理可属于多个组；停用、过期或删除代理不参与出站，使用中的组不得删除", "账号 concurrency 是全部出口共享总闸，per_ip_concurrency 是 account_id + proxy_id 的附加上限，Redis key 和调度身份使用代理 ID 而非展示名", "可靠 SessionHash 按账号绑定代理且 TTL 对齐现有会话粘性；首次绑定必须以 Redis 原子 claim 决定唯一赢家，失效绑定必须比较代理 ID 后删除，不能覆盖或删除并发请求建立的新绑定；绑定代理仅并发满时不改绑，失效或移出组才重新绑定；无 SessionHash 不写绑定", "代理组绑定或并发 Redis 能力不可用时 fail-closed，普通单代理账号不受影响；全部成员满载作为请求级容量失败交给现有账号容量换号", "STATE 所有权固定为 account_id + outbound_model；代理 ID、URL、组成员和组变更不进入票据有效性，不产生每代理票据槽", "动态代理采集后的候选依次由可用业务出口代表复验，任一代表成功即可发布账号级 active/ready；ChatGPT 身份变化必须废弃旧票据", "导入选择代理组后每个源账号只创建一条记录并忽略导入文件单代理；混合平台或非 OpenAI OAuth/Setup Token 批次不得统一绑定代理组", "列表和管理 API 只返回代理组摘要及脱敏并发标签，不返回代理密码、完整 URL、STATE 或内部指纹"]
+      "invariants": ["设计只参考 Go1c/sub2api PR #423；代码按当前 0.2.7-baiyu 的账号、调度、并发和 STATE 边界独立适配，不把参考 PR 视为已合入 upstream 的事实", "accounts.proxy_id 与 proxy_ip_group_id 互斥；代理组只允许 OpenAI OAuth 和 Setup Token 账号，空组或无可用出口返回 503/openai_proxy_group_no_egress，禁止意外直连", "一个代理可属于多个组；停用、过期或删除代理不参与出站，使用中的组不得删除", "账号 concurrency 是全部出口共享总闸，per_ip_concurrency 是 account_id + proxy_id 的附加上限，Redis key 和调度身份使用代理 ID 而非展示名", "可靠 SessionHash 按账号绑定代理且 TTL 对齐现有会话粘性；首次绑定必须以 Redis 原子 claim 决定唯一赢家，失效绑定必须比较代理 ID 后删除，不能覆盖或删除并发请求建立的新绑定；已有绑定未满不因其他成员更空闲而迁移，新会话按实时并发最少优先且同负载打散，绑定代理并发满、失效或移出组才重新绑定；无 SessionHash 不写绑定", "代理成员并发快照支持批量读取，生产 Redis 使用 pipeline；快照失败时回退成员顺序尝试，但最终并发准入仍由原子槽位操作决定", "代理组绑定或并发 Redis 能力不可用时 fail-closed，普通单代理账号不受影响；全部成员满载作为请求级容量失败交给现有账号容量换号", "STATE 所有权固定为 account_id + outbound_model；代理 ID、URL、组成员和组变更不进入票据有效性，不产生每代理票据槽", "动态代理采集后的候选依次由可用业务出口代表复验，任一代表成功即可发布账号级 active/ready；ChatGPT 身份变化必须废弃旧票据", "导入选择代理组后每个源账号只创建一条记录并忽略导入文件单代理；混合平台或非 OpenAI OAuth/Setup Token 批次不得统一绑定代理组", "列表和管理 API 只返回代理组摘要及脱敏并发标签，不返回代理密码、完整 URL、STATE 或内部指纹"]
     },
     {
       "id": "codex-gpt6-astra-catalog",
@@ -697,7 +697,8 @@
           "sub2api": ">=0.2.7-baiyu",
           "plugin_protocol": 1,
           "transport_api": 1,
-          "ui_bridge": 1,
+          "ui_bridge": 0,
+          "admin_ui": 1,
           "host_service_api": 2,
           "host_features": [
             "scoped-routing.v1",
@@ -720,6 +721,7 @@
         "plugins/codex-state/core/*_test.go",
         "plugins/codex-state/rpcadapter/*_test.go",
         "plugins/codex-state/ui/tests/*.spec.ts",
+        "plugins/codex-state/ui/admin-ui.json",
         "plugins/codex-state/tools/package/main_test.go",
         "backend/internal/service/plugin_codex_package_test.go",
         "backend/internal/service/plugin_codex_process_test.go",
@@ -737,7 +739,10 @@
         "来源完整SHA、许可证和已审阅源码/发布包差异见sources.lock.json；更新时检查三个来源HEAD/release和锁定SHA差异，选择吸收而非覆盖",
         "ccodex仅参考设计不复制代码；保留PR7315/7338原作者历史；只支持HTTP和WS HTTP bridge",
         "正式包必须同时提供Linux amd64/arm64、SHA256SUMS和受信Ed25519签名；未签名开发包不得通过修改生产allow_unsigned绕过",
-        "仅plugins/codex-state内的业务、UI、解析和状态机变化可独立发布插件包；Host API、管理壳、migration、包校验或部署配置变化必须发布宿主",
+        "Manifest v2 Native 页面是当前默认管理入口；ui/admin-ui.json 必须包含 en/zh 翻译、概览/账号表/批量明确按钮/脱敏日志结构，旧 ui/dist 和 ui/index.html 只作 Manifest v1 iframe 回滚依据",
+        "accounts.bulk_update 只能提交用户明确点击的 enabled 或 ticket_plan 字段，result.config 回填后再保存；不得以整对象绑定或默认 checkbox 覆盖未修改配置",
+        "Native 页面和旧 iframe 均不得暴露 STATE、OAuth token、代理凭据、完整代理 URL、请求体或内部指纹；日志只允许时间、账号、模型和脱敏诊断码",
+        "仅plugins/codex-state内的业务、Native定义、解析和状态机变化可独立发布插件包；Host API、管理壳、migration、包校验或部署配置变化必须发布宿主",
         "首次安装保持disabled且调用/upload前必须证明同plugin_id不存在；既有安装只走upgrade，旧包移除当前config_secrets或无法读取新状态时停止普通回退；配置秘密、启用模型、手动动作和真实生产采集均需单独授权，多实例必须逐实例验证恢复版本、binary SHA、Health和受管范围"
       ]
     },

@@ -50,6 +50,32 @@ func (s *ConcurrencyCacheSuite) apiKeyConcurrencyCache() apiKeyConcurrencyCacheF
 	return cache
 }
 
+func (s *ConcurrencyCacheSuite) TestAccountProxyConcurrencyBatch_ReturnsCurrentMemberLoads() {
+	proxyCache, ok := any(s.rawCache).(service.AccountProxyConcurrencyCache)
+	require.True(s.T(), ok)
+	batchCache, ok := any(s.rawCache).(service.AccountProxyConcurrencyBatchCache)
+	require.True(s.T(), ok)
+
+	accountID := int64(7001)
+	for _, requestID := range []string{"proxy-11-a", "proxy-11-b"} {
+		acquired, err := proxyCache.AcquireAccountProxySlot(s.ctx, accountID, 11, 10, requestID)
+		require.NoError(s.T(), err)
+		require.True(s.T(), acquired)
+	}
+	acquired, err := proxyCache.AcquireAccountProxySlot(s.ctx, accountID, 12, 10, "proxy-12-a")
+	require.NoError(s.T(), err)
+	require.True(s.T(), acquired)
+
+	loads, err := batchCache.GetAccountProxyConcurrencyBatch(s.ctx, accountID, []int64{11, 12, 13, 11, 0})
+	require.NoError(s.T(), err)
+	require.Equal(s.T(), map[int64]int{11: 2, 12: 1, 13: 0}, loads)
+
+	require.NoError(s.T(), proxyCache.ReleaseAccountProxySlot(s.ctx, accountID, 11, "proxy-11-a"))
+	loads, err = batchCache.GetAccountProxyConcurrencyBatch(s.ctx, accountID, []int64{11, 12})
+	require.NoError(s.T(), err)
+	require.Equal(s.T(), map[int64]int{11: 1, 12: 1}, loads)
+}
+
 func (s *ConcurrencyCacheSuite) TestUpstreamTarget_SharedLimitLoadAndIsolation() {
 	cache, ok := s.cache.(service.ConcurrencyTargetCache)
 	require.True(s.T(), ok)
