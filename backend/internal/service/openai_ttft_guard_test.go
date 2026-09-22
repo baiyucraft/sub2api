@@ -126,19 +126,22 @@ func TestOpenAITTFTGuard_InheritedGlobalProbeCadenceIsSharedAcrossGroups(t *test
 
 func TestOpenAITTFTGuard_CustomProbeCadenceIsIsolatedAcrossGroups(t *testing.T) {
 	guard := newOpenAITTFTGuard()
-	cfg := enabledOpenAITTFTGuardConfig(20*time.Second, 5)
-	cfg.Source = GroupTTFTGuardSourceGroup
-	critical := 60_000
-	guard.report(100, 1, "gpt-test", true, &critical, cfg)
-	guard.report(200, 1, "gpt-test", true, &critical, cfg)
+	groupOneCfg := enabledOpenAITTFTGuardConfig(10*time.Second, 5)
+	groupOneCfg.Source = GroupTTFTGuardSourceGroup
+	groupTwoCfg := enabledOpenAITTFTGuardConfig(20*time.Second, 5)
+	groupTwoCfg.Source = GroupTTFTGuardSourceGroup
+	groupOneCritical := 30_000
+	groupTwoCritical := 60_000
+	guard.report(100, 1, "gpt-test", true, &groupOneCritical, groupOneCfg)
+	guard.report(200, 2, "gpt-test", true, &groupTwoCritical, groupTwoCfg)
 	groupOne := []openAITTFTGuardCandidate{{groupID: 100, accountID: 1, model: "gpt-test"}}
-	groupTwo := []openAITTFTGuardCandidate{{groupID: 200, accountID: 1, model: "gpt-test"}}
+	groupTwo := []openAITTFTGuardCandidate{{groupID: 200, accountID: 2, model: "gpt-test"}}
 
 	for i := 1; i < openAITTFTGuardProbeEvery; i++ {
-		require.Contains(t, guard.exclusions(groupOne, nil, cfg), int64(1))
+		require.Contains(t, guard.exclusions(groupOne, nil, groupOneCfg), int64(1))
 	}
-	require.Contains(t, guard.exclusions(groupTwo, nil, cfg), int64(1), "custom groups must keep independent recovery probe cadence")
-	require.NotContains(t, guard.exclusions(groupOne, nil, cfg), int64(1))
+	require.Contains(t, guard.exclusions(groupTwo, nil, groupTwoCfg), int64(2), "custom groups must keep independent recovery probe cadence")
+	require.NotContains(t, guard.exclusions(groupOne, nil, groupOneCfg), int64(1))
 }
 
 func TestOpenAITTFTGuard_ClearGroupRemovesAllModelProbeState(t *testing.T) {
@@ -198,16 +201,70 @@ func TestOpenAITTFTGuard_InheritedGlobalStateIsSharedAcrossGroupsAndIsolatedByMo
 	require.NotContains(t, otherModel, int64(7))
 }
 
-func TestOpenAITTFTGuard_CustomStateIsIsolatedByGroupAndModel(t *testing.T) {
+func TestOpenAITTFTGuard_CustomStateIsScopedByGroupAndCascadesByThreshold(t *testing.T) {
+	guard := newOpenAITTFTGuard()
+	sourceCfg := enabledOpenAITTFTGuardConfig(20*time.Second, 5)
+	sourceCfg.Source = GroupTTFTGuardSourceGroup
+	critical := 60_000
+	guard.report(100, 7, "gpt-slow", true, &critical, sourceCfg)
+
+	require.Contains(t, guard.exclusions([]openAITTFTGuardCandidate{{groupID: 100, accountID: 7, model: "gpt-slow"}}, nil, sourceCfg), int64(7))
+	require.Contains(t, guard.exclusions([]openAITTFTGuardCandidate{{groupID: 200, accountID: 7, model: "gpt-slow"}}, nil, sourceCfg), int64(7), "equal thresholds cascade to another custom group")
+	require.NotContains(t, guard.exclusions([]openAITTFTGuardCandidate{{groupID: 100, accountID: 7, model: "gpt-fast"}}, nil, sourceCfg), int64(7))
+}
+
+func TestOpenAITTFTGuard_LargerThresholdCascadesToStricterGroupsWithoutTargetProbe(t *testing.T) {
+	guard := newOpenAITTFTGuard()
+	sourceCfg := enabledOpenAITTFTGuardConfig(30*time.Second, 20)
+	sourceCfg.Source = GroupTTFTGuardSourceGroup
+	targetCfg := enabledOpenAITTFTGuardConfig(20*time.Second, 2)
+	targetCfg.Source = GroupTTFTGuardSourceGroup
+	critical := 90_000
+	guard.report(100, 7, "gpt-test", true, &critical, sourceCfg)
+
+	candidate := []openAITTFTGuardCandidate{{groupID: 200, accountID: 7, model: "gpt-test"}}
+	for i := 0; i < openAITTFTGuardProbeEvery+2; i++ {
+		require.Contains(t, guard.exclusions(candidate, nil, targetCfg), int64(7), "target scope must not probe around a cascaded exclusion")
+	}
+
+	lenientCfg := enabledOpenAITTFTGuardConfig(40*time.Second, 2)
+	lenientCfg.Source = GroupTTFTGuardSourceGroup
+	require.NotContains(t, guard.exclusions(candidate, nil, lenientCfg), int64(7), "a stricter source must not exclude a more lenient group")
+}
+
+func TestOpenAITTFTGuard_CascadeClearsWhenSourceRecovers(t *testing.T) {
+	guard := newOpenAITTFTGuard()
+	sourceCfg := enabledOpenAITTFTGuardConfig(30*time.Second, 5)
+	sourceCfg.Source = GroupTTFTGuardSourceGroup
+	targetCfg := enabledOpenAITTFTGuardConfig(20*time.Second, 5)
+	targetCfg.Source = GroupTTFTGuardSourceGroup
+	critical := 90_000
+	fast := 10_000
+	guard.report(100, 7, "gpt-test", true, &critical, sourceCfg)
+	candidate := []openAITTFTGuardCandidate{{groupID: 200, accountID: 7, model: "gpt-test"}}
+	require.Contains(t, guard.exclusions(candidate, nil, targetCfg), int64(7))
+
+	for i := 0; i < openAITTFTGuardRecoverySamples; i++ {
+		guard.report(100, 7, "gpt-test", true, &fast, sourceCfg)
+	}
+	require.NotContains(t, guard.exclusions(candidate, nil, targetCfg), int64(7), "target scope follows source recovery")
+}
+
+func TestOpenAITTFTGuard_EqualThresholdUsesDeterministicRecoverySource(t *testing.T) {
 	guard := newOpenAITTFTGuard()
 	cfg := enabledOpenAITTFTGuardConfig(20*time.Second, 5)
 	cfg.Source = GroupTTFTGuardSourceGroup
 	critical := 60_000
-	guard.report(100, 7, "gpt-slow", true, &critical, cfg)
+	guard.report(100, 1, "gpt-test", true, &critical, cfg)
 
-	require.Contains(t, guard.exclusions([]openAITTFTGuardCandidate{{groupID: 100, accountID: 7, model: "gpt-slow"}}, nil, cfg), int64(7))
-	require.NotContains(t, guard.exclusions([]openAITTFTGuardCandidate{{groupID: 200, accountID: 7, model: "gpt-slow"}}, nil, cfg), int64(7))
-	require.NotContains(t, guard.exclusions([]openAITTFTGuardCandidate{{groupID: 100, accountID: 7, model: "gpt-fast"}}, nil, cfg), int64(7))
+	groupOne := []openAITTFTGuardCandidate{{groupID: 100, accountID: 1, model: "gpt-test"}}
+	groupTwo := []openAITTFTGuardCandidate{{groupID: 200, accountID: 1, model: "gpt-test"}}
+	for i := 0; i < openAITTFTGuardProbeEvery-1; i++ {
+		require.Contains(t, guard.exclusions(groupOne, nil, cfg), int64(1))
+		require.Contains(t, guard.exclusions(groupTwo, nil, cfg), int64(1), "other equal-threshold scopes remain cascaded")
+	}
+	require.NotContains(t, guard.exclusions(groupOne, nil, cfg), int64(1), "source scope owns recovery probing")
+	require.Contains(t, guard.exclusions(groupTwo, nil, cfg), int64(1), "cascade must not be bypassed by target probing")
 }
 
 func TestOpenAITTFTGuard_DifferentGroupThresholdsAreIndependent(t *testing.T) {
@@ -928,7 +985,7 @@ func TestOpenAIGatewayService_TTFTGuardSharesInheritedGlobalStateAcrossGroups(t 
 	}
 }
 
-func TestOpenAIGatewayService_TTFTGuardKeepsCustomStateIndependentAcrossGroups(t *testing.T) {
+func TestOpenAIGatewayService_TTFTGuardCascadesEqualThresholdAcrossGroups(t *testing.T) {
 	groupOne := int64(913)
 	groupTwo := int64(914)
 	accounts := []Account{
@@ -960,7 +1017,7 @@ func TestOpenAIGatewayService_TTFTGuardKeepsCustomStateIndependentAcrossGroups(t
 
 	selectionTwo, _, err := svc.SelectAccountWithScheduler(context.Background(), &groupTwo, "", "", "gpt-test", nil, OpenAIUpstreamTransportAny, false)
 	require.NoError(t, err)
-	require.Equal(t, int64(64), selectionTwo.Account.ID)
+	require.Equal(t, int64(66), selectionTwo.Account.ID)
 	if selectionTwo.ReleaseFunc != nil {
 		selectionTwo.ReleaseFunc()
 	}
