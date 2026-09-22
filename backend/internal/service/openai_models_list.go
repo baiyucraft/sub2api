@@ -41,6 +41,10 @@ func (s *OpenAIGatewayService) FetchOpenAIModelsList(ctx context.Context, accoun
 		if err != nil {
 			return nil, invalidOpenAIModelsList(err)
 		}
+		body, err = filterOpenAIOAuthAutoDisabledModelsBody(body, account)
+		if err != nil {
+			return nil, invalidOpenAIModelsList(err)
+		}
 		return &OpenAIModelsResponse{Body: body, ETag: codexModelsManifestBodyETag(body)}, nil
 	}
 	req, err := buildOpenAIAPIKeyModelsRequest(ctx, credentialAccount, s.validateUpstreamBaseURL)
@@ -74,6 +78,36 @@ func (s *OpenAIGatewayService) FetchOpenAIModelsList(ctx context.Context, accoun
 		return nil, invalidOpenAIModelsList(fmt.Errorf("upstream returned 304 without a cached catalog"))
 	}
 	return response, nil
+}
+
+func filterOpenAIOAuthAutoDisabledModelsBody(body []byte, account *Account) ([]byte, error) {
+	if account == nil || !account.IsOpenAIOAuth() || len(account.OpenAIOAuthAutoDisabledModels()) == 0 {
+		return body, nil
+	}
+	envelope, entries, err := modelCatalogEntries(body, "data")
+	if err != nil {
+		return nil, err
+	}
+	filtered := make([]json.RawMessage, 0, len(entries))
+	for _, raw := range entries {
+		var entry map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &entry); err != nil {
+			return nil, err
+		}
+		var id string
+		if err := json.Unmarshal(entry["id"], &id); err != nil {
+			return nil, err
+		}
+		if account.IsOpenAIOAuthModelAutoDisabled(id) {
+			continue
+		}
+		filtered = append(filtered, raw)
+	}
+	envelope["data"], err = json.Marshal(filtered)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(envelope)
 }
 
 func (s *OpenAIGatewayService) resolveOpenAIModelDiscoveryEgress(ctx context.Context, account *Account) (*Account, error) {

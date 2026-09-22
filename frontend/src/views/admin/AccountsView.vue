@@ -41,6 +41,17 @@
               >
                 <Icon name="beaker" size="md" />
               </button>
+              <button
+                v-if="props.scope !== 'upstream'"
+                type="button"
+                class="btn btn-secondary px-2.5"
+                data-test="openai-oauth-model-mismatch-settings"
+                :title="t('admin.accounts.oauthModelMismatchRules.title')"
+                :aria-label="t('admin.accounts.oauthModelMismatchRules.title')"
+                @click="showOpenAIOAuthModelMismatchRules = true"
+              >
+                <Icon name="cog" size="md" />
+              </button>
             </template>
             <template #after>
               <!-- Auto Refresh Dropdown -->
@@ -683,6 +694,10 @@
       :probe-only="true"
       @close="showUpstreamProbeSettings = false"
     />
+    <OpenAIOAuthModelMismatchRulesDialog
+      :show="showOpenAIOAuthModelMismatchRules"
+      @close="showOpenAIOAuthModelMismatchRules = false"
+    />
   </AppLayout>
 </template>
 
@@ -753,6 +768,7 @@ const ScheduledTestsPanel = defineAsyncComponent(() => import('@/components/admi
 const UpstreamKeyEventsDialog = defineAsyncComponent(() => import('@/components/admin/account/UpstreamKeyEventsDialog.vue'))
 const UpstreamRateTrendDialog = defineAsyncComponent(() => import('@/components/admin/account/UpstreamRateTrendDialog.vue'))
 const UpstreamManagementSettingsDialog = defineAsyncComponent(() => import('@/components/admin/account/UpstreamManagementSettingsDialog.vue'))
+const OpenAIOAuthModelMismatchRulesDialog = defineAsyncComponent(() => import('@/components/admin/account/OpenAIOAuthModelMismatchRulesDialog.vue'))
 const ErrorPassthroughRulesModal = defineAsyncComponent(() => import('@/components/admin/ErrorPassthroughRulesModal.vue'))
 const TLSFingerprintProfilesModal = defineAsyncComponent(() => import('@/components/admin/TLSFingerprintProfilesModal.vue'))
 
@@ -845,6 +861,7 @@ const authStore = useAuthStore()
 
 const showUpstreamManagementSettings = ref(false)
 const showUpstreamProbeSettings = ref(false)
+const showOpenAIOAuthModelMismatchRules = ref(false)
 const probingKeyIDs = reactive(new Set<number>())
 const togglingObservationKeyIDs = reactive(new Set<number>())
 const togglingPreferredAccounts = reactive(new Set<string>())

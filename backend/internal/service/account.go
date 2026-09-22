@@ -23,6 +23,9 @@ import (
 )
 
 const (
+	// OpenAIOAuthAutoDisabledModelsExtraKey stores models automatically disabled after a configured upstream mapping.
+	OpenAIOAuthAutoDisabledModelsExtraKey = "openai_oauth_auto_disabled_models"
+
 	AccountUpstreamProviderKey     = "upstream_provider"
 	AccountUpstreamProviderSub2API = "sub2api"
 	AccountUpstreamProviderNewAPI  = "newapi"
@@ -993,9 +996,15 @@ func (a *Account) IsModelSupported(requestedModel string) bool {
 	if a.IsOpenAIPassthroughEnabled() {
 		return true
 	}
+	if a.IsOpenAIOAuth() && a.IsOpenAIOAuthModelAutoDisabled(requestedModel) {
+		return false
+	}
 	mapping := a.schedulableModelMapping(time.Now().UTC())
 	if len(mapping) == 0 {
 		if a.IsOpenAIOAuth() {
+			if snapshot := openAIOAuthModelSyncSnapshotForAccount(a); snapshot != nil && snapshot.Status == "available" && len(snapshot.Models) > 0 {
+				return openAIOAuthModelSyncSnapshotContains(snapshot, requestedModel)
+			}
 			return isOpenAIOAuthServableModel(requestedModel)
 		}
 		if a.Platform == PlatformDeepseek {
@@ -1008,6 +1017,57 @@ func (a *Account) IsModelSupported(requestedModel string) bool {
 	}
 	normalized := normalizeRequestedModelForLookup(a.Platform, requestedModel)
 	return normalized != requestedModel && mappingSupportsRequestedModel(mapping, normalized)
+}
+
+// OpenAIOAuthAutoDisabledModels returns the administrator/runtime models that
+// were automatically disabled after a configured upstream response mapping.
+func (a *Account) OpenAIOAuthAutoDisabledModels() []string {
+	if a == nil || !a.IsOpenAIOAuth() || a.Extra == nil {
+		return nil
+	}
+	raw, ok := a.Extra[OpenAIOAuthAutoDisabledModelsExtraKey]
+	if !ok {
+		return nil
+	}
+	var result []string
+	switch values := raw.(type) {
+	case []string:
+		result = append(result, values...)
+	case []any:
+		for _, value := range values {
+			if model, ok := value.(string); ok {
+				result = append(result, model)
+			}
+		}
+	}
+	seen := make(map[string]struct{}, len(result))
+	filtered := result[:0]
+	for _, model := range result {
+		model = strings.TrimSpace(model)
+		if model == "" {
+			continue
+		}
+		key := strings.ToLower(model)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		filtered = append(filtered, model)
+	}
+	return filtered
+}
+
+func (a *Account) IsOpenAIOAuthModelAutoDisabled(model string) bool {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return false
+	}
+	for _, disabled := range a.OpenAIOAuthAutoDisabledModels() {
+		if strings.EqualFold(disabled, model) {
+			return true
+		}
+	}
+	return false
 }
 
 // GetMappedModel 获取映射后的模型名（支持通配符，最长优先匹配）

@@ -844,6 +844,20 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		if err := ValidateUpstreamRequestIDHeaderExtra(normalizedExtra); err != nil {
 			return nil, err
 		}
+		if rawDisabled, exists := normalizedExtra[OpenAIOAuthAutoDisabledModelsExtraKey]; exists {
+			if account.Platform != PlatformOpenAI || account.Type != AccountTypeOAuth {
+				return nil, infraerrors.BadRequest("OPENAI_OAUTH_AUTO_DISABLED_MODELS_ACCOUNT_INVALID", "automatic OAuth model disable state is only editable for OpenAI OAuth accounts")
+			}
+			models, validationErr := validateOpenAIOAuthAutoDisabledModels(rawDisabled)
+			if validationErr != nil {
+				return nil, validationErr
+			}
+			normalizedExtra[OpenAIOAuthAutoDisabledModelsExtraKey] = models
+		} else if existing, exists := account.Extra[OpenAIOAuthAutoDisabledModelsExtraKey]; exists {
+			// Ordinary edits must not clear runtime auto-disable state merely because
+			// an older client omitted the new field from its full Extra payload.
+			normalizedExtra[OpenAIOAuthAutoDisabledModelsExtraKey] = existing
+		}
 	}
 	previousProbeIdentity := upstreamBillingProbeIdentity(account)
 	previousOllamaUsageIdentity := ollamaCloudUsageIdentity(account)
@@ -1209,6 +1223,20 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 // UpdateAccountExtra 仅对 Extra JSONB 做 key 级合并，避免覆盖其它运行态键
 // （如 model_rate_limits / passive_usage_* 等）。
 func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, updates map[string]any) error {
+	if rawDisabled, exists := updates[OpenAIOAuthAutoDisabledModelsExtraKey]; exists {
+		account, err := s.accountRepo.GetByID(ctx, id)
+		if err != nil {
+			return err
+		}
+		if account.Platform != PlatformOpenAI || account.Type != AccountTypeOAuth {
+			return infraerrors.BadRequest("OPENAI_OAUTH_AUTO_DISABLED_MODELS_ACCOUNT_INVALID", "automatic OAuth model disable state is only editable for OpenAI OAuth accounts")
+		}
+		models, validationErr := validateOpenAIOAuthAutoDisabledModels(rawDisabled)
+		if validationErr != nil {
+			return validationErr
+		}
+		updates[OpenAIOAuthAutoDisabledModelsExtraKey] = models
+	}
 	updates = MergeOpenAICodexTicketExtra(updates, nil)
 	updates = sanitizedCodexFingerprintExtraUpdates(updates)
 	updates = stripOpenAIAutoResetCreditManagedExtra(updates, true)

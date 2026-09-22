@@ -823,6 +823,51 @@
               </button>
             </div>
           </div>
+          <div
+            v-if="account.platform === 'openai' && account.type === 'oauth'"
+            class="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/40 dark:bg-amber-900/20"
+            data-testid="openai-oauth-auto-disabled-models"
+          >
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <p class="text-xs font-semibold text-amber-800 dark:text-amber-300">
+                  {{ t('admin.accounts.openai.oauthAutoDisabled.title') }}
+                </p>
+                <p class="mt-1 text-xs text-amber-700 dark:text-amber-400">
+                  {{ t('admin.accounts.openai.oauthAutoDisabled.description') }}
+                </p>
+              </div>
+              <span class="text-xs text-amber-700 dark:text-amber-400">
+                {{ openAIOAuthModelSync?.status === 'available'
+                  ? t('admin.accounts.openai.oauthAutoDisabled.syncAvailable')
+                  : openAIOAuthModelSync?.status === 'error'
+                    ? t('admin.accounts.openai.oauthAutoDisabled.syncError')
+                    : t('admin.accounts.openai.oauthAutoDisabled.syncPending') }}
+              </span>
+            </div>
+            <div v-if="openAIOAuthAutoDisabledModels.length > 0" class="mt-3 space-y-2">
+              <div
+                v-for="model in openAIOAuthAutoDisabledModels"
+                :key="model"
+                class="flex items-center justify-between gap-3 rounded border border-amber-200 bg-white px-2 py-1.5 text-xs dark:border-amber-800 dark:bg-dark-700"
+              >
+                <span class="font-mono text-gray-700 dark:text-gray-200">{{ model }}</span>
+                <button
+                  type="button"
+                  class="text-primary-600 hover:text-primary-700 dark:text-primary-400"
+                  @click="openAIOAuthAutoDisabledModels = openAIOAuthAutoDisabledModels.filter(item => item !== model)"
+                >
+                  {{ t('admin.accounts.openai.oauthAutoDisabled.restore') }}
+                </button>
+              </div>
+            </div>
+            <p v-else class="mt-3 text-xs text-gray-600 dark:text-gray-400">
+              {{ t('admin.accounts.openai.oauthAutoDisabled.empty') }}
+            </p>
+            <p v-if="openAIOAuthModelSync?.error" class="mt-2 text-xs text-red-600 dark:text-red-400">
+              {{ t('admin.accounts.openai.oauthAutoDisabled.syncErrorDetail', { error: openAIOAuthModelSync.error }) }}
+            </p>
+          </div>
         </template>
       </div>
 
@@ -3363,6 +3408,8 @@ const modelRestrictionMode = ref<'whitelist' | 'mapping' | 'combined'>('whitelis
 const allowedModels = ref<string[]>([])
 const upstreamAutoModelMapping = ref<Record<string, string>>({})
 const upstreamLoadedCustomRules = ref<UpstreamModelCustomRule[]>([])
+const openAIOAuthAutoDisabledModels = ref<string[]>([])
+const openAIOAuthModelSync = ref<{ status?: string; updated_at?: string; error?: string } | null>(null)
 const upstreamModelCustomRules = computed<UpstreamModelCustomRule[]>(() =>
   isSyncManagedUpstreamAccount.value
     ? buildUpstreamModelCustomRules(
@@ -4064,10 +4111,32 @@ const syncFormFromAccount = (newAccount: Account | null) => {
 
   // Load intercept warmup requests setting (applies to all account types)
   const credentials = newAccount.credentials as Record<string, unknown> | undefined
+  const extra = newAccount.extra as Record<string, unknown> | undefined
   upstreamAutoModelMapping.value = { ...(newAccount.upstream_model_sync?.auto_mapping || {}) }
   upstreamLoadedCustomRules.value = normalizeUpstreamModelCustomRules(
     newAccount.upstream_model_custom_rules
   )
+  const oauthAutoDisabled = Array.isArray(extra?.openai_oauth_auto_disabled_models)
+    ? extra.openai_oauth_auto_disabled_models
+        .filter((model): model is string => typeof model === 'string')
+        .map(model => model.trim())
+        .filter(Boolean)
+    : []
+  openAIOAuthAutoDisabledModels.value = Array.from(new Set(oauthAutoDisabled))
+  const oauthSync = extra?.openai_oauth_model_sync
+  openAIOAuthModelSync.value = oauthSync && typeof oauthSync === 'object'
+    ? {
+        status: typeof (oauthSync as Record<string, unknown>).status === 'string'
+          ? (oauthSync as Record<string, unknown>).status as string
+          : undefined,
+        updated_at: typeof (oauthSync as Record<string, unknown>).updated_at === 'string'
+          ? (oauthSync as Record<string, unknown>).updated_at as string
+          : undefined,
+        error: typeof (oauthSync as Record<string, unknown>).error === 'string'
+          ? (oauthSync as Record<string, unknown>).error as string
+          : undefined
+      }
+    : null
   interceptWarmupRequests.value = credentials?.intercept_warmup_requests === true
   autoPauseOnExpired.value = newAccount.auto_pause_on_expired === true
   editVertexProjectId.value = ''
@@ -4083,7 +4152,6 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   // Load mixed scheduling setting (only for antigravity accounts)
   mixedScheduling.value = false
   allowOverages.value = false
-	const extra = newAccount.extra as Record<string, unknown> | undefined
 	mixedScheduling.value = extra?.mixed_scheduling === true
 	allowOverages.value = extra?.allow_overages === true
 	upstreamRequestIdHeader.value = readUpstreamRequestIdHeader(extra)
@@ -5746,6 +5814,7 @@ const handleSubmit = async () => {
         } else {
           delete newExtra.codex_fingerprint_mode
         }
+        newExtra.openai_oauth_auto_disabled_models = [...openAIOAuthAutoDisabledModels.value]
       }
 
       updatePayload.extra = newExtra

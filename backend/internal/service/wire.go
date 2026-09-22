@@ -474,6 +474,9 @@ func ProvideAccountTestService(
 	service.agentIdentityWS = openAIGatewayService
 	service.SetOpenAIGatewayService(openAIGatewayService)
 	service.SetSettingService(settingService)
+	if settingService != nil {
+		settingService.SetOpenAIOAuthModelSyncScheduler(service)
+	}
 	service.SetPluginManager(pluginManager)
 	return service
 }

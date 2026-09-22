@@ -17,6 +17,7 @@ import (
 	_ "image/png"
 	"io"
 	"log"
+	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -239,6 +240,74 @@ func (s *AccountTestService) FetchOpenAIAccountModels(ctx context.Context, accou
 		}
 	}
 	return payload.Data, nil
+}
+
+// ScheduleOpenAIOAuthModelSync refreshes one OAuth account's live model
+// catalog asynchronously. The request path has already persisted the disable
+// marker before this callback is invoked, so a slow or failed discovery never
+// delays or changes the completed user response.
+func (s *AccountTestService) ScheduleOpenAIOAuthModelSync(accountID int64) {
+	if s == nil || accountID <= 0 || s.accountRepo == nil || s.openaiGatewayService == nil {
+		return
+	}
+	key := fmt.Sprintf("openai-oauth-model-sync:%d", accountID)
+	go func() {
+		_, _, _ = s.upstreamModelSyncSF.Do(key, func() (any, error) {
+			ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+			defer cancel()
+			account, err := s.accountRepo.GetByID(ctx, accountID)
+			if err != nil || account == nil || !account.IsOpenAIOAuth() {
+				if err == nil {
+					err = fmt.Errorf("account is not an OpenAI OAuth account")
+				}
+				s.persistOpenAIOAuthModelSyncFailure(ctx, accountID, err)
+				return nil, err
+			}
+			models, err := s.FetchOpenAIAccountModels(ctx, account)
+			if err != nil {
+				s.persistOpenAIOAuthModelSyncFailure(ctx, accountID, err)
+				return nil, err
+			}
+			modelIDs := make([]string, 0, len(models))
+			seen := make(map[string]struct{}, len(models))
+			for _, model := range models {
+				id := strings.TrimSpace(model.ID)
+				if id == "" {
+					continue
+				}
+				key := strings.ToLower(id)
+				if _, exists := seen[key]; exists {
+					continue
+				}
+				seen[key] = struct{}{}
+				modelIDs = append(modelIDs, id)
+			}
+			if len(modelIDs) == 0 {
+				err = fmt.Errorf("upstream returned no supported models")
+				s.persistOpenAIOAuthModelSyncFailure(ctx, accountID, err)
+				return nil, err
+			}
+			snapshot := newOpenAIOAuthModelSyncSnapshot("available", modelIDs, nil)
+			if err := s.accountRepo.UpdateExtra(ctx, accountID, map[string]any{OpenAIOAuthModelSyncExtraKey: snapshot}); err != nil {
+				slog.Warn("openai_oauth_model_sync_persist_failed", "account_id", accountID, "error", err)
+				return nil, err
+			}
+			account.SetOpenAIOAuthModelSyncSnapshot(snapshot)
+			slog.Info("openai_oauth_model_sync_completed", "account_id", accountID, "model_count", len(modelIDs))
+			return snapshot, nil
+		})
+	}()
+}
+
+func (s *AccountTestService) persistOpenAIOAuthModelSyncFailure(ctx context.Context, accountID int64, syncErr error) {
+	if s == nil || s.accountRepo == nil || syncErr == nil {
+		return
+	}
+	snapshot := newOpenAIOAuthModelSyncSnapshot("error", nil, syncErr)
+	if err := s.accountRepo.UpdateExtra(ctx, accountID, map[string]any{OpenAIOAuthModelSyncExtraKey: snapshot}); err != nil {
+		slog.Warn("openai_oauth_model_sync_failure_persist_failed", "account_id", accountID, "error", err)
+	}
+	slog.Warn("openai_oauth_model_sync_failed", "account_id", accountID, "error", syncErr)
 }
 
 // NewAccountTestService creates a new AccountTestService

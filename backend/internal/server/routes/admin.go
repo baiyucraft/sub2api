@@ -682,6 +682,8 @@ func registerSettingsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		// OpenAI OAuth image-tool unavailable cooldown configuration
 		adminSettings.GET("/openai-images-oauth-unavailable-cooldown", h.Admin.Setting.GetOpenAIImagesOAuthUnavailableCooldownSettings)
 		adminSettings.PUT("/openai-images-oauth-unavailable-cooldown", h.Admin.Setting.UpdateOpenAIImagesOAuthUnavailableCooldownSettings)
+		adminSettings.GET("/openai-oauth-model-mismatch-rules", h.Admin.Setting.GetOpenAIOAuthModelMismatchRules)
+		adminSettings.PUT("/openai-oauth-model-mismatch-rules", h.Admin.Setting.UpdateOpenAIOAuthModelMismatchRules)
 		// 面板 API 限流配置
 		adminSettings.GET("/panel-rate-limit", h.Admin.Setting.GetPanelRateLimitSettings)
 		adminSettings.PUT("/panel-rate-limit", h.Admin.Setting.UpdatePanelRateLimitSettings)
