@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime"
 	"net/http"
 	"os"
@@ -146,7 +147,16 @@ func (h *PluginHandler) Upgrade(c *gin.Context) {
 	}
 	plugin, err := h.manager.Upgrade(c.Request.Context(), id, file, installedBy)
 	if err != nil {
-		response.BadRequest(c, "插件升级失败")
+		stage, ok := service.PluginUpgradeFailureDetails(err)
+		if !ok {
+			stage = "unknown"
+		}
+		// Keep the response stable and phase-only. Underlying errors may contain
+		// plugin configuration, proxy credentials, or runtime transport details.
+		slog.Error("plugin_upgrade_failed", "plugin_id", id, "stage", stage)
+		response.ErrorWithDetails(c, http.StatusBadRequest, "插件升级失败", "PLUGIN_UPGRADE_FAILED", map[string]string{
+			"stage": stage,
+		})
 		return
 	}
 	response.Success(c, plugin)
