@@ -17,10 +17,11 @@ import (
 
 type simpleModeAccountService struct {
 	*stubAdminService
-	account     service.Account
-	createCalls int
-	updateCalls int
-	bulkCalls   int
+	account         service.Account
+	createCalls     int
+	updateCalls     int
+	bulkCalls       int
+	lastCreateInput *service.CreateAccountInput
 }
 
 func (s *simpleModeAccountService) GetAccount(context.Context, int64) (*service.Account, error) {
@@ -31,6 +32,7 @@ func (s *simpleModeAccountService) CreateAccount(ctx context.Context, input *ser
 	if err := s.ValidateAccountGroupBindings(ctx, input.GroupIDs); err != nil {
 		return nil, err
 	}
+	s.lastCreateInput = input
 	s.createCalls++
 	return &s.account, nil
 }
@@ -213,6 +215,25 @@ func TestAccountHandlerSimpleModePreservesBasicGroupBinding(t *testing.T) {
 	r.ServeHTTP(res, req)
 	require.Equal(t, http.StatusOK, res.Code, res.Body.String())
 	require.Equal(t, 1, svc.createCalls)
+}
+
+func TestAccountHandlerCreatePassesPreferredGroupIDs(t *testing.T) {
+	svc := &simpleModeAccountService{stubAdminService: newStubAdminService(), account: service.Account{ID: 3}}
+	svc.groups = []service.Group{{ID: 7, Platform: service.PlatformAnthropic}, {ID: 8, Platform: service.PlatformAnthropic}}
+	h := NewAccountHandler(svc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	h.cfg = &config.Config{RunMode: config.RunModeSimple}
+	r := gin.New()
+	r.POST("/accounts", h.Create)
+	res := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/accounts", bytes.NewBufferString(`{"name":"account","platform":"anthropic","type":"apikey","credentials":{"key":"x"},"group_ids":[7,8],"preferred_group_ids":[8]}`))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(res, req)
+
+	require.Equal(t, http.StatusOK, res.Code, res.Body.String())
+	require.NotNil(t, svc.lastCreateInput)
+	require.Equal(t, []int64{7, 8}, svc.lastCreateInput.GroupIDs)
+	require.NotNil(t, svc.lastCreateInput.PreferredGroupIDs)
+	require.Equal(t, []int64{8}, *svc.lastCreateInput.PreferredGroupIDs)
 }
 
 func TestAccountHandlerSimpleModeBatchPrevalidatesAllGroupsAtomically(t *testing.T) {

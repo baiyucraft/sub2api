@@ -3729,6 +3729,7 @@
         <!-- Group Selection - 仅标准模式显示 -->
         <GroupSelector
           v-model="form.group_ids"
+          v-model:preferred-group-ids="form.preferred_group_ids"
           :groups="groups"
           :platform="form.platform"
           :mixed-scheduling="mixedScheduling"
@@ -5017,6 +5018,7 @@ const form = reactive({
   priority: 1,
   rate_multiplier: 1,
   group_ids: [] as number[],
+  preferred_group_ids: [] as number[],
   expires_at: null as number | null
 })
 
@@ -5672,6 +5674,7 @@ const resetForm = () => {
   form.priority = 1
   form.rate_multiplier = 1
   form.group_ids = []
+  form.preferred_group_ids = []
   form.expires_at = null
   accountCategory.value = 'oauth-based'
   addMethod.value = 'oauth'
@@ -6286,6 +6289,7 @@ const handleSubmit = async () => {
       proxy_id: null,
       proxy_ip_group_id: null,
       group_ids: form.group_ids,
+      preferred_group_ids: form.preferred_group_ids,
       upstream_config_id: upstreamConfig.id,
       upstream_key_id: upstreamKey.id,
       auto_pause_on_expired: autoPauseOnExpired.value
@@ -6400,6 +6404,7 @@ const handleSubmit = async () => {
   await doCreateAccount({
     ...form,
     group_ids: form.group_ids,
+    preferred_group_ids: form.preferred_group_ids,
     extra: withUpstreamRequestIdHeader(extra),
     upstream_billing_probe_enabled: upstreamBillingAutoProbeEnabled.value,
     auto_pause_on_expired: autoPauseOnExpired.value
@@ -6532,6 +6537,7 @@ const createAccountAndFinish = async (
     priority: form.priority,
     rate_multiplier: form.rate_multiplier,
     group_ids: form.group_ids,
+    preferred_group_ids: form.preferred_group_ids,
     expires_at: form.expires_at,
     // 上游倍率探测对全部 API-key 平台开放（antigravity upstream 走本 helper）；
     // 非 apikey 类型（bedrock/oauth）不传，后端不动作。
@@ -6601,6 +6607,7 @@ const handleGrokValidateRT = async (refreshTokenInput: string) => {
           priority: form.priority,
           rate_multiplier: form.rate_multiplier,
           group_ids: form.group_ids,
+          preferred_group_ids: form.preferred_group_ids,
           expires_at: form.expires_at,
           auto_pause_on_expired: autoPauseOnExpired.value
         })
@@ -6663,6 +6670,7 @@ const handleGrokImportSSO = async (ssoInput: string) => {
       notes: form.notes || undefined,
       proxy_id: form.proxy_id,
       group_ids: form.group_ids,
+      preferred_group_ids: form.preferred_group_ids,
       credentials,
       concurrency: form.concurrency,
       load_factor: form.load_factor ?? undefined,
@@ -6780,6 +6788,7 @@ const handleGrokAuthorizePassword = async (emailPasswordInput: string) => {
           priority: form.priority,
           rate_multiplier: form.rate_multiplier,
           group_ids: form.group_ids,
+          preferred_group_ids: form.preferred_group_ids,
           expires_at: form.expires_at,
           auto_pause_on_expired: autoPauseOnExpired.value
         })
@@ -6882,6 +6891,7 @@ const handleOpenAIExchange = async (authCode: string) => {
         priority: form.priority,
         rate_multiplier: form.rate_multiplier,
         group_ids: form.group_ids,
+        preferred_group_ids: form.preferred_group_ids,
         expires_at: form.expires_at,
         auto_pause_on_expired: autoPauseOnExpired.value
       })
@@ -6988,6 +6998,7 @@ const handleOpenAIImportCodexSession = async (content: string) => {
       priority: form.priority,
       rate_multiplier: form.rate_multiplier,
       group_ids: form.group_ids,
+      preferred_group_ids: form.preferred_group_ids,
       expires_at: form.expires_at,
       auto_pause_on_expired: autoPauseOnExpired.value,
       credential_extras: Object.keys(credentialExtras).length > 0 ? credentialExtras : undefined,
@@ -7067,6 +7078,7 @@ const handleOpenAIImportCodexPAT = async (accessToken: string) => {
       priority: form.priority,
       rate_multiplier: form.rate_multiplier,
       group_ids: form.group_ids,
+      preferred_group_ids: form.preferred_group_ids,
       expires_at: form.expires_at,
       auto_pause_on_expired: autoPauseOnExpired.value,
       credential_extras: Object.keys(credentialExtras).length > 0 ? credentialExtras : undefined,
@@ -7168,6 +7180,7 @@ const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string)
             priority: form.priority,
             rate_multiplier: form.rate_multiplier,
             group_ids: form.group_ids,
+            preferred_group_ids: form.preferred_group_ids,
             expires_at: form.expires_at,
             auto_pause_on_expired: autoPauseOnExpired.value
           })
@@ -7269,6 +7282,7 @@ const handleAntigravityValidateRT = async (refreshTokenInput: string) => {
           priority: form.priority,
           rate_multiplier: form.rate_multiplier,
           group_ids: form.group_ids,
+          preferred_group_ids: form.preferred_group_ids,
           expires_at: form.expires_at,
           auto_pause_on_expired: autoPauseOnExpired.value
         })
@@ -7652,6 +7666,7 @@ const handleCookieAuth = async (sessionKey: string) => {
           priority: form.priority,
           rate_multiplier: form.rate_multiplier,
           group_ids: form.group_ids,
+          preferred_group_ids: form.preferred_group_ids,
           expires_at: form.expires_at,
           auto_pause_on_expired: autoPauseOnExpired.value
         })
