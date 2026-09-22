@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"net/http"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
@@ -20,7 +22,13 @@ var (
 	ErrOpenAIProxyGroupNoEgress           = errors.New("openai proxy group has no usable egress")
 	ErrOpenAIProxyGroupCapacityFull       = errors.New("openai proxy group capacity full")
 	ErrOpenAIProxyGroupBindingUnavailable = errors.New("openai proxy group binding unavailable")
+	openAIProxyGroupTieCounter            atomic.Uint64
 )
+
+type openAIProxyGroupCandidate struct {
+	proxy       Proxy
+	concurrency int
+}
 
 type OpenAIManagementEgressResolver interface {
 	AcquireOpenAIManagementEgress(ctx context.Context, account *Account) (*Account, func(), error)
@@ -95,6 +103,111 @@ func proxyByID(proxies []Proxy, proxyID int64) (Proxy, bool) {
 	return Proxy{}, false
 }
 
+func openAIProxyGroupTieOffset(sessionHash string, size int) int {
+	if size <= 1 {
+		return 0
+	}
+	if sessionHash != "" {
+		h := fnv.New64a()
+		_, _ = h.Write([]byte(sessionHash))
+		return int(h.Sum64() % uint64(size))
+	}
+	return int((openAIProxyGroupTieCounter.Add(1) - 1) % uint64(size))
+}
+
+func rotateOpenAIProxyGroupTies(candidates []openAIProxyGroupCandidate, sessionHash string) {
+	for start := 0; start < len(candidates); {
+		end := start + 1
+		for end < len(candidates) && candidates[end].concurrency == candidates[start].concurrency {
+			end++
+		}
+		offset := openAIProxyGroupTieOffset(sessionHash, end-start)
+		if offset > 0 {
+			rotated := append([]openAIProxyGroupCandidate(nil), candidates[start+offset:end]...)
+			rotated = append(rotated, candidates[start:start+offset]...)
+			copy(candidates[start:end], rotated)
+		}
+		start = end
+	}
+}
+
+func (s *OpenAIGatewayService) orderOpenAIProxyGroupCandidates(
+	ctx context.Context,
+	account *Account,
+	group *ProxyIPGroup,
+	members []Proxy,
+	excludedProxyID int64,
+	sessionHash string,
+) ([]openAIProxyGroupCandidate, bool) {
+	proxyIDs := make([]int64, 0, len(members))
+	for _, proxy := range members {
+		if proxy.ID != excludedProxyID {
+			proxyIDs = append(proxyIDs, proxy.ID)
+		}
+	}
+
+	loads, err := s.concurrencyService.GetAccountProxyConcurrencyBatch(ctx, account.ID, proxyIDs)
+	if err != nil {
+		logger.FromContext(ctx).Warn("openai.proxy_group_concurrency_snapshot_failed",
+			zap.Int64("account_id", account.ID),
+			zap.Int64("proxy_group_id", group.ID),
+			zap.Int("candidate_count", len(proxyIDs)),
+			zap.Bool("concurrency_snapshot_failed", true),
+			zap.Error(err),
+		)
+		fallback := make([]openAIProxyGroupCandidate, 0, len(proxyIDs))
+		for _, proxy := range members {
+			if proxy.ID != excludedProxyID {
+				fallback = append(fallback, openAIProxyGroupCandidate{proxy: proxy, concurrency: -1})
+			}
+		}
+		return fallback, true
+	}
+
+	candidates := make([]openAIProxyGroupCandidate, 0, len(proxyIDs))
+	for _, proxy := range members {
+		if proxy.ID == excludedProxyID {
+			continue
+		}
+		current := loads[proxy.ID]
+		if current >= group.PerIPConcurrency {
+			continue
+		}
+		candidates = append(candidates, openAIProxyGroupCandidate{proxy: proxy, concurrency: current})
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].concurrency != candidates[j].concurrency {
+			return candidates[i].concurrency < candidates[j].concurrency
+		}
+		return candidates[i].proxy.ID < candidates[j].proxy.ID
+	})
+	rotateOpenAIProxyGroupTies(candidates, sessionHash)
+	return candidates, false
+}
+
+func logOpenAIProxyGroupSelection(
+	ctx context.Context,
+	accountID int64,
+	groupID int64,
+	candidate openAIProxyGroupCandidate,
+	candidateCount int,
+	stickyBindingReused bool,
+	switchReason string,
+	snapshotFailed bool,
+) {
+	logger.FromContext(ctx).Debug("openai.proxy_group_member_selected",
+		zap.Int64("account_id", accountID),
+		zap.Int64("proxy_group_id", groupID),
+		zap.Int64("selected_proxy_id", candidate.proxy.ID),
+		zap.Int("selected_proxy_concurrency", candidate.concurrency),
+		zap.Int("candidate_count", candidateCount),
+		zap.String("balance_strategy", "least_concurrency"),
+		zap.Bool("sticky_binding_reused", stickyBindingReused),
+		zap.String("proxy_member_switch_reason", switchReason),
+		zap.Bool("concurrency_snapshot_failed", snapshotFailed),
+	)
+}
+
 func (s *OpenAIGatewayService) loadOpenAIProxyGroupMembers(ctx context.Context, account *Account) (*ProxyIPGroup, []Proxy, error) {
 	if account == nil || account.ProxyIPGroupID == nil || *account.ProxyIPGroupID <= 0 {
 		return nil, nil, nil
@@ -162,15 +275,17 @@ func (s *OpenAIGatewayService) AcquireOpenAIManagementEgress(ctx context.Context
 	if s == nil || s.concurrencyService == nil {
 		return nil, nil, ErrOpenAIProxyGroupBindingUnavailable
 	}
-	for _, proxy := range members {
-		result, acquireErr := s.concurrencyService.AcquireAccountProxySlot(ctx, account.ID, proxy.ID, group.PerIPConcurrency)
+	candidates, snapshotFailed := s.orderOpenAIProxyGroupCandidates(ctx, account, group, members, 0, "")
+	for _, candidate := range candidates {
+		result, acquireErr := s.concurrencyService.AcquireAccountProxySlot(ctx, account.ID, candidate.proxy.ID, group.PerIPConcurrency)
 		if acquireErr != nil {
 			return nil, nil, fmt.Errorf("%w: acquire management proxy slot: %v", ErrOpenAIProxyGroupBindingUnavailable, acquireErr)
 		}
 		if result == nil || !result.Acquired {
 			continue
 		}
-		return cloneAccountWithProxy(account, proxy), result.ReleaseFunc, nil
+		logOpenAIProxyGroupSelection(ctx, account.ID, group.ID, candidate, len(candidates), false, "", snapshotFailed)
+		return cloneAccountWithProxy(account, candidate.proxy), result.ReleaseFunc, nil
 	}
 	return nil, nil, ErrOpenAIProxyGroupCapacityFull
 }
@@ -213,6 +328,7 @@ func (s *OpenAIGatewayService) AcquireOpenAIProxyGroupEgress(ctx context.Context
 							return nil, nil, fmt.Errorf("%w: refresh proxy binding: %v", ErrOpenAIProxyGroupBindingUnavailable, refreshErr)
 						}
 						if claimedID == proxy.ID {
+							logOpenAIProxyGroupSelection(ctx, account.ID, group.ID, openAIProxyGroupCandidate{proxy: proxy, concurrency: -1}, len(members), true, "", false)
 							return cloneAccountWithProxy(account, proxy), result.ReleaseFunc, nil
 						}
 						result.ReleaseFunc()
@@ -235,12 +351,9 @@ func (s *OpenAIGatewayService) AcquireOpenAIProxyGroupEgress(ctx context.Context
 		}
 
 		contention := false
-		for _, proxy := range members {
-			if proxy.ID == boundProxyID {
-				// The sticky member was already attempted above and was locally full.
-				continue
-			}
-			result, acquireErr := s.concurrencyService.AcquireAccountProxySlot(ctx, account.ID, proxy.ID, group.PerIPConcurrency)
+		candidates, snapshotFailed := s.orderOpenAIProxyGroupCandidates(ctx, account, group, members, boundProxyID, sessionHash)
+		for _, candidate := range candidates {
+			result, acquireErr := s.concurrencyService.AcquireAccountProxySlot(ctx, account.ID, candidate.proxy.ID, group.PerIPConcurrency)
 			if acquireErr != nil {
 				return nil, nil, fmt.Errorf("%w: acquire proxy slot: %v", ErrOpenAIProxyGroupBindingUnavailable, acquireErr)
 			}
@@ -252,34 +365,41 @@ func (s *OpenAIGatewayService) AcquireOpenAIProxyGroupEgress(ctx context.Context
 				var bindErr error
 				if boundProxyID > 0 {
 					var replaced bool
-					replaced, bindErr = bindingCache.ReplaceOpenAIProxyGroupBindingIfMatch(ctx, account.ID, sessionHash, boundProxyID, proxy.ID, stickySessionTTL)
+					replaced, bindErr = bindingCache.ReplaceOpenAIProxyGroupBindingIfMatch(ctx, account.ID, sessionHash, boundProxyID, candidate.proxy.ID, stickySessionTTL)
 					if replaced {
-						claimedID = proxy.ID
+						claimedID = candidate.proxy.ID
 					}
 				} else {
-					claimedID, bindErr = bindingCache.ClaimOpenAIProxyGroupBinding(ctx, account.ID, sessionHash, proxy.ID, stickySessionTTL)
+					claimedID, bindErr = bindingCache.ClaimOpenAIProxyGroupBinding(ctx, account.ID, sessionHash, candidate.proxy.ID, stickySessionTTL)
 				}
 				if bindErr != nil {
 					result.ReleaseFunc()
 					return nil, nil, fmt.Errorf("%w: write proxy binding: %v", ErrOpenAIProxyGroupBindingUnavailable, bindErr)
 				}
-				if claimedID != proxy.ID {
+				if claimedID != candidate.proxy.ID {
 					result.ReleaseFunc()
 					contention = true
 					break
 				}
 			}
-			if boundProxyID > 0 && proxy.ID != boundProxyID {
+			switchReason := ""
+			if boundProxyID > 0 && candidate.proxy.ID != boundProxyID {
+				switchReason = "local_capacity_full"
 				logger.FromContext(ctx).Debug("openai.proxy_group_member_capacity_overflow",
 					zap.Int64("account_id", account.ID),
 					zap.Int64("proxy_group_id", *account.ProxyIPGroupID),
 					zap.Int64("bound_proxy_id", boundProxyID),
-					zap.Int64("selected_proxy_id", proxy.ID),
+					zap.Int64("selected_proxy_id", candidate.proxy.ID),
+					zap.Int("selected_proxy_concurrency", candidate.concurrency),
 					zap.Int("per_proxy_concurrency", group.PerIPConcurrency),
 					zap.String("proxy_member_switch_reason", "local_capacity_full"),
+					zap.Int("candidate_count", len(candidates)),
+					zap.String("balance_strategy", "least_concurrency"),
+					zap.Bool("concurrency_snapshot_failed", snapshotFailed),
 				)
 			}
-			return cloneAccountWithProxy(account, proxy), result.ReleaseFunc, nil
+			logOpenAIProxyGroupSelection(ctx, account.ID, group.ID, candidate, len(candidates), false, switchReason, snapshotFailed)
+			return cloneAccountWithProxy(account, candidate.proxy), result.ReleaseFunc, nil
 		}
 		if !contention {
 			return nil, nil, ErrOpenAIProxyGroupCapacityFull
