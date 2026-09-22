@@ -27,6 +27,7 @@ ARG COREPACK_NPM_REGISTRY
 ENV COREPACK_NPM_REGISTRY=${COREPACK_NPM_REGISTRY}
 
 WORKDIR /app/frontend
+ENV NODE_OPTIONS=--max-old-space-size=1536
 
 # Install pnpm at the exact lockfile-compatible version. Resolving the major
 # tag makes Corepack query npm's version metadata and is fragile in restricted
