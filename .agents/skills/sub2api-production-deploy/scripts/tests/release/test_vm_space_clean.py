@@ -188,6 +188,9 @@ class VMSpaceCleanTest(unittest.TestCase):
     def test_gate_v2_protects_old_image_until_gate_cleanup(self) -> None:
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
         self.assertIn('old_image_tag="sub2api:vm-old-$release_id"', validator)
+        self.assertIn("existing_old_image_id=$(docker image inspect -f '{{.Id}}' \"$old_image_tag\" 2>/dev/null || true)", validator)
+        self.assertIn('[[ "$existing_old_image_id" == "$old_image_id" ]]', validator)
+        self.assertIn('old_image_tag_created=true\n      return 0', validator)
         self.assertIn('docker tag "$old_image_id" "$old_image_tag"', validator)
         self.assertIn('[[ $(docker image inspect -f \'{{.Id}}\' "$old_image_tag") == "$old_image_id" ]]', validator)
         self.assertIn('cleanup_old_image_tag || true', validator)

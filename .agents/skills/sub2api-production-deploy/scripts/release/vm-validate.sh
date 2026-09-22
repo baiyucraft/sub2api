@@ -173,7 +173,15 @@ if [[ "$manifest_schema" == 2 ]]; then
   }
   protect_old_image() {
     [[ "$old_image_tag_created" == false ]]
-    [[ -z "$(docker image inspect "$old_image_tag" 2>/dev/null || true)" ]]
+    existing_old_image_id=$(docker image inspect -f '{{.Id}}' "$old_image_tag" 2>/dev/null || true)
+    if [[ -n "$existing_old_image_id" ]]; then
+      # A detached/restarted validator may leave the release tag behind. Reuse
+      # it only when it still protects the exact production image; a mismatch
+      # remains fail-closed.
+      [[ "$existing_old_image_id" == "$old_image_id" ]]
+      old_image_tag_created=true
+      return 0
+    fi
     docker tag "$old_image_id" "$old_image_tag" >/dev/null
     old_image_tag_created=true
     [[ $(docker image inspect -f '{{.Id}}' "$old_image_tag") == "$old_image_id" ]]
