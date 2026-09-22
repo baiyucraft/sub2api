@@ -6,13 +6,59 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"log/slog"
 	"reflect"
 	"time"
 )
 
 const pluginUpgradeDrainTimeout = 60 * time.Minute
 const pluginUpgradeLeaseTTL = time.Minute
+
+// PluginUpgradeError records the maintenance phase without exposing the
+// wrapped package/config/runtime error to the HTTP client.
+type PluginUpgradeError struct {
+	Stage string
+	Err   error
+}
+
+func (e *PluginUpgradeError) Error() string {
+	if e == nil {
+		return "plugin upgrade failed"
+	}
+	if e.Err == nil {
+		return fmt.Sprintf("plugin upgrade failed at %s", e.Stage)
+	}
+	return fmt.Sprintf("plugin upgrade failed at %s: %v", e.Stage, e.Err)
+}
+
+func (e *PluginUpgradeError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
+// PluginUpgradeFailureDetails returns only a stable phase classification.
+func PluginUpgradeFailureDetails(err error) (stage string, ok bool) {
+	var upgradeErr *PluginUpgradeError
+	if !errors.As(err, &upgradeErr) || upgradeErr == nil || upgradeErr.Stage == "" {
+		return "unknown", false
+	}
+	return upgradeErr.Stage, true
+}
+
+func pluginUpgradeFailure(stage string, err error) error {
+	if err == nil {
+		return nil
+	}
+	var upgradeErr *PluginUpgradeError
+	if errors.As(err, &upgradeErr) {
+		return err
+	}
+	return &PluginUpgradeError{Stage: stage, Err: err}
+}
 
 // Upgrade preserves bindings and scope. A database-time lease owns the private
 // rollback journal; another instance can recover it only after lease expiry.
@@ -22,14 +68,14 @@ func (m *PluginManager) Upgrade(ctx context.Context, id int64, reader io.Reader,
 	repo, ok := m.repo.(PluginMaintenanceRepository)
 	guards, guardOK := m.repo.(PluginRequestGuardRepository)
 	if !ok || !guardOK {
-		return nil, errors.New("plugin maintenance storage unavailable")
+		return nil, pluginUpgradeFailure("maintenance_contract", errors.New("plugin maintenance storage unavailable"))
 	}
 	previous, err := m.repo.GetByID(ctx, id)
 	if err != nil {
-		return nil, err
+		return nil, pluginUpgradeFailure("load_previous", err)
 	}
 	if previous.State == PluginStateStarting || previous.State == PluginStateUpgrading {
-		return nil, ErrPluginStateChanged
+		return nil, pluginUpgradeFailure("validate_previous_state", ErrPluginStateChanged)
 	}
 	// Legacy v1 plugins have no scoped admission/maintenance contract while
 	// running, so an enabled legacy installation must still be disabled and
@@ -38,19 +84,19 @@ func (m *PluginManager) Upgrade(ctx context.Context, id int64, reader io.Reader,
 	// through the normal maintenance transaction, preserving its config and
 	// installation identity.
 	if !legacyPluginUpgradeAllowed(previous) {
-		return nil, errors.New("legacy plugin upgrades require explicit disable and install")
+		return nil, pluginUpgradeFailure("validate_previous_state", errors.New("legacy plugin upgrades require explicit disable and install"))
 	}
 	replacement, err := m.installer.Install(ctx, reader, installedBy)
 	if err != nil {
-		return nil, err
+		return nil, pluginUpgradeFailure("install_package", err)
 	}
 	// Failed and previous packages are retained; rollback never depends on a
 	// mutable remote artifact or a file being downloaded again.
 	if replacement.PluginKey != previous.PluginKey || replacement.SignatureStatus != PluginSignatureTrusted || !replacement.Compatibility.Compatible || !pluginRequiresFeature(replacement.Manifest, "scoped-routing.v1") {
-		return nil, errors.New("upgrade requires a trusted compatible package with the same plugin ID and scoped capability")
+		return nil, pluginUpgradeFailure("validate_package", errors.New("upgrade requires a trusted compatible package with the same plugin ID and scoped capability"))
 	}
 	if !reflect.DeepEqual(previous.Manifest.SortedCapabilities(), replacement.Manifest.SortedCapabilities()) {
-		return nil, errors.New("upgrade cannot change granted plugin capabilities")
+		return nil, pluginUpgradeFailure("validate_package", errors.New("upgrade cannot change granted plugin capabilities"))
 	}
 	for _, secret := range previous.Manifest.ConfigSecrets {
 		found := false
@@ -58,12 +104,12 @@ func (m *PluginManager) Upgrade(ctx context.Context, id int64, reader io.Reader,
 			found = found || field == secret
 		}
 		if !found {
-			return nil, errors.New("upgrade cannot remove existing secret field protections")
+			return nil, pluginUpgradeFailure("validate_package", errors.New("upgrade cannot remove existing secret field protections"))
 		}
 	}
 	configJSON, err := m.decryptConfig(previous)
 	if err != nil {
-		return nil, err
+		return nil, pluginUpgradeFailure("decrypt_config", err)
 	}
 	replacement.ID = id
 	replacement.ConfigEncrypted = previous.ConfigEncrypted
@@ -74,7 +120,7 @@ func (m *PluginManager) Upgrade(ctx context.Context, id int64, reader io.Reader,
 	replacement.State = PluginStateUpgrading
 	candidate, err := m.newRuntime(ctx, replacement)
 	if err != nil {
-		return nil, err
+		return nil, pluginUpgradeFailure("start_runtime", err)
 	}
 	// Validation/health may run, but this candidate cannot obtain credentials,
 	// acquire leases or mutate shared state until the maintenance commit wins.
@@ -89,15 +135,15 @@ func (m *PluginManager) Upgrade(ctx context.Context, id int64, reader io.Reader,
 	canonical, scope, err := candidate.validateScopedConfig(validateCtx, configJSON)
 	cancel()
 	if err != nil {
-		return nil, err
+		return nil, pluginUpgradeFailure("validate_config", err)
 	}
 	if !reflect.DeepEqual(scope, previous.ManagedScope) && !(len(scope) == 0 && len(previous.ManagedScope) == 0) {
-		return nil, errors.New("upgrade configuration changes managed scope; save it explicitly first")
+		return nil, pluginUpgradeFailure("validate_scope", errors.New("upgrade configuration changes managed scope; save it explicitly first"))
 	}
 	if !bytes.Equal(canonical, configJSON) {
 		replacement.ConfigEncrypted, err = m.encryptor.Encrypt(string(canonical))
 		if err != nil {
-			return nil, err
+			return nil, pluginUpgradeFailure("persist_normalized_config", err)
 		}
 		var before, after any
 		if json.Unmarshal(configJSON, &before) != nil || json.Unmarshal(canonical, &after) != nil || !reflect.DeepEqual(before, after) {
@@ -108,11 +154,11 @@ func (m *PluginManager) Upgrade(ctx context.Context, id int64, reader io.Reader,
 	err = candidate.applyScopedConfig(validateCtx, canonical, replacement.ConfigRevision, false)
 	cancel()
 	if err != nil {
-		return nil, err
+		return nil, pluginUpgradeFailure("apply_config", err)
 	}
 	owner := rand.Text() + rand.Text()
 	if err = repo.BeginPluginMaintenance(ctx, previous, owner, pluginUpgradeLeaseTTL); err != nil {
-		return nil, err
+		return nil, pluginUpgradeFailure("acquire_maintenance", err)
 	}
 	maintCtx, stopMaintenance := context.WithCancel(ctx)
 	defer stopMaintenance()
@@ -170,17 +216,17 @@ func (m *PluginManager) Upgrade(ctx context.Context, id int64, reader io.Reader,
 		err = oldRuntime.pauseScopedConfig(pauseCtx)
 		stop()
 		if err != nil {
-			return nil, restore(err)
+			return nil, pluginUpgradeFailure("pause_runtime", restore(err))
 		}
 	}
 	drainCtx, stop := context.WithTimeout(maintCtx, pluginUpgradeDrainTimeout)
 	err = waitPluginRequestsDrained(drainCtx, guards, id)
 	stop()
 	if err != nil {
-		return nil, restore(err)
+		return nil, pluginUpgradeFailure("drain_requests", restore(err))
 	}
 	if err = repo.PublishPluginMaintenance(maintCtx, &locked, replacement, owner); err != nil {
-		return nil, restore(err)
+		return nil, pluginUpgradeFailure("publish_installation", restore(err))
 	}
 	activateCtx, stop := context.WithTimeout(maintCtx, 30*time.Second)
 	err = candidate.applyScopedConfig(activateCtx, canonical, replacement.ConfigRevision, hasEnabledOpenAIBinding(previous.Bindings))
@@ -189,12 +235,12 @@ func (m *PluginManager) Upgrade(ctx context.Context, id int64, reader io.Reader,
 	}
 	stop()
 	if err != nil {
-		return nil, restore(err)
+		return nil, pluginUpgradeFailure("activate_runtime", restore(err))
 	}
 	installed := *replacement
 	installed.State = previous.State
 	if err = repo.FinishPluginMaintenance(maintCtx, &installed, owner); err != nil {
-		return nil, restore(err)
+		return nil, pluginUpgradeFailure("finish_maintenance", restore(err))
 	}
 	candidate.staged.Store(false)
 	m.mu.Lock()
@@ -209,7 +255,15 @@ func (m *PluginManager) Upgrade(ctx context.Context, id int64, reader io.Reader,
 	if oldRuntime != nil {
 		oldRuntime.drain(10 * time.Second)
 	}
-	return m.Get(ctx, id)
+	result, err := m.Get(ctx, id)
+	if err != nil {
+		// FinishPluginMaintenance has already committed the replacement. Do not
+		// turn a post-commit readback outage into a false upgrade failure that
+		// would invite an unsafe retry of the same package.
+		slog.Warn("plugin_upgrade_post_commit_readback_failed", "plugin_id", id)
+		return &installed, nil
+	}
+	return result, nil
 }
 
 func legacyPluginUpgradeAllowed(previous *PluginInstallation) bool {

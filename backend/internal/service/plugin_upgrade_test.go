@@ -2,11 +2,36 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"testing"
 	"time"
 )
+
+func TestPluginUpgradeFailureDetailsExposeOnlyStableStage(t *testing.T) {
+	secret := errors.New("proxy password=secret-token")
+	err := pluginUpgradeFailure("activate_runtime", secret)
+	stage, ok := PluginUpgradeFailureDetails(err)
+	if !ok || stage != "activate_runtime" {
+		t.Fatalf("stage=%q ok=%t", stage, ok)
+	}
+	if !errors.Is(err, secret) {
+		t.Fatal("wrapped upgrade error should preserve the internal cause")
+	}
+	if got, ok := PluginUpgradeFailureDetails(fmt.Errorf("outer: %w", err)); !ok || got != "activate_runtime" {
+		t.Fatalf("wrapped stage=%q ok=%t", got, ok)
+	}
+	if got := (&PluginUpgradeError{Stage: "activate_runtime", Err: secret}).Error(); got == "" {
+		t.Fatal("upgrade error should retain an internal diagnostic string")
+	}
+}
+
+func TestPluginUpgradeFailureDetailsUnknownForUnclassifiedError(t *testing.T) {
+	if stage, ok := PluginUpgradeFailureDetails(errors.New("unclassified")); ok || stage != "unknown" {
+		t.Fatalf("stage=%q ok=%t", stage, ok)
+	}
+}
 
 type upgradeReviewRepository struct {
 	PluginRepository
