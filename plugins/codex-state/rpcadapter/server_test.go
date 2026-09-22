@@ -53,7 +53,7 @@ func (h *wireHost) CompleteRequest(ctx context.Context, r *pluginv1.CompleteRequ
 }
 
 func (h *wireHost) ListResources(context.Context, *pluginv1.ListResourcesRequest, ...grpc.CallOption) (*pluginv1.ListResourcesResponse, error) {
-	return &pluginv1.ListResourcesResponse{ResourcesJson: []byte(`{"accounts":[{"id":123,"platform":"openai","account_type":"setup-token"}]}`)}, nil
+	return &pluginv1.ListResourcesResponse{ResourcesJson: []byte(`{"accounts":[{"id":123,"platform":"openai","account_type":"setup-token","business_egress_configured":true}]}`)}, nil
 }
 func (h *wireHost) ResolveOutboundIdentity(_ context.Context, r *pluginv1.ResolveOutboundIdentityRequest, _ ...grpc.CallOption) (*pluginv1.ResolveOutboundIdentityResponse, error) {
 	h.mu.Lock()

@@ -28,22 +28,59 @@ type fakeHost struct {
 	conflicts           int
 	identityReads       int
 	actionFinalFailure  bool
+	directory           []DirectoryAccount
+	directoryErr        error
 }
 
 func newHost() *fakeHost {
 	return &fakeHost{identities: map[int64]Identity{123: {AccountID: 123, Revision: "identity-1", Eligible: true, Egresses: []Egress{{ProxyURL: "http://egress-one:8080"}, {ProxyURL: "http://egress-two:8080"}}, Headers: http.Header{"Authorization": {"Bearer secret-token"}}}}, state: map[string]StoredState{}, leases: map[string]Lease{}, fences: map[string]uint64{}, revision: "1"}
 }
 
-func (h *fakeHost) AvailableAccounts(context.Context) (map[int64]bool, error) {
+func (h *fakeHost) DirectoryAccounts(context.Context) ([]DirectoryAccount, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	available := map[int64]bool{}
+	if h.directory != nil || h.directoryErr != nil {
+		return append([]DirectoryAccount(nil), h.directory...), h.directoryErr
+	}
+	available := []DirectoryAccount{}
 	for id, identity := range h.identities {
 		if identity.Eligible {
-			available[id] = true
+			available = append(available, DirectoryAccount{AccountID: id, Name: "account", AccountType: "oauth", BusinessEgressConfigured: len(identity.Egresses) > 0})
 		}
 	}
 	return available, nil
+}
+
+func TestStatusMergesDirectoryAccountsAndConfiguredFallback(t *testing.T) {
+	h := newHost()
+	h.directory = []DirectoryAccount{
+		{AccountID: 123, Present: true, Name: "OAuth account", AccountType: "oauth", GroupIDs: []int64{7, 7, 3}, BusinessEgressConfigured: true},
+		{AccountID: 456, Present: true, Name: "Unconfigured account", AccountType: "setup-token", GroupIDs: []int64{9}, BusinessEgressConfigured: true},
+	}
+	e := engineFor(t, h, nil, "", Options{})
+	status := e.Status(context.Background())
+	if len(status.Accounts) != 2 || status.Accounts[0].AccountID != 123 || status.Accounts[1].AccountID != 456 {
+		t.Fatalf("unexpected accounts: %#v", status.Accounts)
+	}
+	if !status.Accounts[0].Configured || status.Accounts[1].Configured {
+		t.Fatalf("configured projection mismatch: %#v", status.Accounts)
+	}
+	if got := status.Accounts[0].GroupIDs; len(got) != 2 || got[0] != 3 || got[1] != 7 {
+		t.Fatalf("group IDs were not normalized: %#v", got)
+	}
+	if status.Accounts[1].Models[testModel].Enabled {
+		t.Fatal("directory-only account inherited configured model")
+	}
+}
+
+func TestStatusKeepsConfiguredAccountWhenDirectoryUnavailable(t *testing.T) {
+	h := newHost()
+	h.directoryErr = ErrUnavailable
+	e := engineFor(t, h, nil, "", Options{})
+	status := e.Status(context.Background())
+	if len(status.Accounts) != 1 || !status.Accounts[0].Configured || !status.Accounts[0].Available {
+		t.Fatalf("directory failure incorrectly removed configured account: %#v", status)
+	}
 }
 func (h *fakeHost) valid(g Guard) error {
 	identity := h.identities[g.AccountID]
@@ -623,7 +660,7 @@ func TestCancelAndIdentityChangeIgnoreLateProbe(t *testing.T) {
 			}
 			switch change {
 			case "cancel":
-				_, err := e.RunAction(context.Background(), Action{Name: "cancel", ActionID: "cancel-1", Payload: ActionPayload{123, testModel}})
+				_, err := e.RunAction(context.Background(), Action{Name: "cancel", ActionID: "cancel-1", Payload: ActionPayload{AccountID: 123, Model: testModel}})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -654,7 +691,7 @@ func TestActionsIdempotentAfterPartialJournalAndRestart(t *testing.T) {
 	h := newHost()
 	e := engineFor(t, h, nil, "", Options{})
 	h.seed(baseSlot(time.Now()))
-	action := Action{Name: "cancel", ActionID: "durable-id", Payload: ActionPayload{123, testModel}}
+	action := Action{Name: "cancel", ActionID: "durable-id", Payload: ActionPayload{AccountID: 123, Model: testModel}}
 	h.mu.Lock()
 	h.actionFinalFailure = true
 	h.mu.Unlock()
@@ -684,6 +721,45 @@ func TestActionsIdempotentAfterPartialJournalAndRestart(t *testing.T) {
 	h.mu.Unlock()
 	if before != after {
 		t.Fatal("health resolved credentials")
+	}
+}
+
+func TestBulkUpdateOnlyOverwritesExplicitFieldsAndIsIdempotent(t *testing.T) {
+	h := newHost()
+	e := engineFor(t, h, nil, "http://secret-proxy:80", Options{})
+	enabled := true
+	action := Action{
+		Name:     "accounts.bulk_update",
+		ActionID: "bulk-1",
+		Payload: ActionPayload{
+			AccountIDs: []int64{123, 123, 456},
+			Models: map[string]BulkModelPatch{
+				"gpt-5.6-sol": {Enabled: &enabled, TicketPlan: "__unchanged"},
+			},
+		},
+	}
+	result, err := e.RunAction(context.Background(), action)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Config == nil || result.Config.HarvestProxyURL != "" || result.Config.DialProxyURL != "" {
+		t.Fatalf("bulk result exposed secrets: %#v", result.Config)
+	}
+	if len(result.Config.Accounts) != 2 {
+		t.Fatalf("accounts=%#v", result.Config.Accounts)
+	}
+	if !result.Config.Accounts[0].Models["gpt-5.6-sol"].Enabled || result.Config.Accounts[0].Models["gpt-5.6-sol"].TicketPlan != "team" {
+		t.Fatalf("explicit and implicit fields were not preserved: %#v", result.Config.Accounts[0])
+	}
+	if result.Config.Accounts[1].AccountID != 456 || !result.Config.Accounts[1].Models["gpt-5.6-sol"].Enabled {
+		t.Fatalf("new account was not normalized: %#v", result.Config.Accounts[1])
+	}
+	duplicate, err := e.RunAction(context.Background(), action)
+	if err != nil || !duplicate.Duplicate || duplicate.Config == nil {
+		t.Fatalf("duplicate=%#v err=%v", duplicate, err)
+	}
+	if _, err = e.RunAction(context.Background(), Action{Name: "accounts.bulk_update", ActionID: "bulk-1", Payload: ActionPayload{AccountIDs: []int64{123}, Models: map[string]BulkModelPatch{"gpt-6-astra": {TicketPlan: "team"}}}}); !errors.Is(err, ErrActionConflict) {
+		t.Fatalf("action id reuse was accepted: %v", err)
 	}
 }
 

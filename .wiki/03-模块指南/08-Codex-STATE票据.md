@@ -32,7 +32,9 @@ owner: project
 
 管理员在插件页集中管理账号/分组筛选、Astra/Sol/Terra 独立开关及 Pro/Team 套餐、动态采集代理、拨号代理、票据状态、冷却和手动动作。保存停用草稿、查询资源、Health、配置校验都不触发采集；插件启用后才启动已开启任务。
 
-当前 Codex STATE 包仍使用 Manifest v1 iframe UI。宿主原生管理页合同见[插件宿主与原生管理页](./11-插件宿主与原生管理页.md)；后续迁移需要单独更新插件包并通过对应 `admin_ui` 兼容 Gate，本次登记不表示现有生产插件已经改为 Native UI。
+当前 Codex STATE 包默认使用 Manifest v2 Native UI，页面定义为 `plugins/codex-state/ui/admin-ui.json`。页面包含概览、账号/分组筛选、仅显示已配置筛选、跨页账号选择、模型批量明确按钮和支持级别/账号/模型筛选的脱敏日志表格；批量 Action 只提交用户明确点击的 `enabled` 或 `ticket_plan` 字段，避免未修改字段被默认值覆盖。账号状态表直接使用插件的 `/status/accounts` 投影，展开行只显示 active/ready 的时间、异常次数、冷却和脱敏诊断字段，不使用整对象展示。旧 `ui/dist` 和 `ui/index.html` 仍随包保留，仅作为 Manifest v1 iframe 回滚与兼容依据，不是当前默认入口。
+
+Native 页面使用宿主 `/admin/plugins/:pluginKey` 单页面路由和 `admin_ui` 能力；插件不注册额外路由。宿主只渲染安全声明式组件，页面定义、双语翻译、动作名、绑定和日志列均在安装时校验。宿主渲染器、Manifest parser、Admin UI API 和 iframe 兼容仍属于宿主发布边界；仅在当前宿主已支持该协议时，Native 定义内容才可按独立插件包发布。
 
 每个账号、实际出站模型、配置代次、ChatGPT 身份对应唯一逻辑票据槽。代理 ID、URL、代理组成员不进入票据所有权，更换出口不销毁票据。账号身份改变则隔离旧票据。配置 revision 和受管账号/模型范围由宿主一次提交，插件不能通过陈旧配置绕过新准入。
 
