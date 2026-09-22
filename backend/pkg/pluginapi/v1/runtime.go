@@ -14,6 +14,8 @@ const (
 	TransportAPIVersion = 1
 	// UIBridgeVersion 是插件管理页与沙箱 UI 的消息协议版本。
 	UIBridgeVersion = 1
+	// AdminUIVersion 是宿主原生声明式管理页协议版本。
+	AdminUIVersion = 1
 	// HostServiceAPIVersion 是宿主反向服务（HostService）的契约版本。它独立于
 	// TransportAPIVersion：宿主服务是叠加在传输契约之上的可选能力，通过
 	// InitHostServices 在运行时协商，因此新增宿主能力不会使既有插件失效。

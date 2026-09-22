@@ -3,6 +3,7 @@ package admin
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"mime/multipart"
@@ -24,6 +25,11 @@ type pluginHandlerReadRepo struct {
 }
 
 func (r *pluginHandlerReadRepo) GetByID(context.Context, int64) (*service.PluginInstallation, error) {
+	r.calls++
+	return &service.PluginInstallation{ID: 7, State: service.PluginStateDisabled}, r.err
+}
+
+func (r *pluginHandlerReadRepo) GetByKey(context.Context, string) (*service.PluginInstallation, error) {
 	r.calls++
 	return &service.PluginInstallation{ID: 7, State: service.PluginStateDisabled}, r.err
 }
@@ -55,6 +61,8 @@ func newPluginHandlerTestRouter(repo *pluginHandlerReadRepo) *gin.Engine {
 	router.GET("/plugins/:id/resources", h.Resources)
 	router.POST("/plugins/:id/actions", h.RunAction)
 	router.POST("/plugins/:id/upgrade", h.Upgrade)
+	router.GET("/plugins/by-key/:pluginKey", h.GetByKey)
+	router.GET("/plugins/:id/admin-ui", h.AdminUI)
 	return router
 }
 
@@ -109,6 +117,14 @@ func TestPluginHandlerNewEndpointsDoNotReflectBackendErrors(t *testing.T) {
 	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/plugins/7/resources", nil))
 	require.Equal(t, http.StatusServiceUnavailable, response.Code)
 	require.NotContains(t, response.Body.String(), "secret")
+}
+
+func TestPluginHandlerNativePageLookupReturnsNotFound(t *testing.T) {
+	router := newPluginHandlerTestRouter(&pluginHandlerReadRepo{err: sql.ErrNoRows})
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/plugins/by-key/missing", nil))
+	require.Equal(t, http.StatusNotFound, response.Code)
+	require.NotContains(t, response.Body.String(), "no rows")
 }
 
 func TestPluginHandlerUpgradeRejectsInvalidPackageBeforeManager(t *testing.T) {

@@ -26,9 +26,9 @@ const (
 	builtInOpenAITransportPluginID           = "local.sub2api.openai-transport"
 	builtInOpenAITransportPublisherKeyID     = "sub2api-openai-transport-v1"
 	builtInOpenAITransportPublisherKeyBase64 = "MqzSXAoG0iVR5kKWrC+mqcCeExkrT6zAr2WpQ4sA+yc="
-	builtInCodexStatePluginID                 = "baiyu.codex-state"
-	builtInCodexStatePublisherKeyID           = "baiyu-codex-state-v1"
-	builtInCodexStatePublisherKeyBase64       = "C8XBc7JNYAxANwijdCjy0A54r5n2WfTSeQGSJIgD18M="
+	builtInCodexStatePluginID                = "baiyu.codex-state"
+	builtInCodexStatePublisherKeyID          = "baiyu-codex-state-v1"
+	builtInCodexStatePublisherKeyBase64      = "C8XBc7JNYAxANwijdCjy0A54r5n2WfTSeQGSJIgD18M="
 )
 
 type PluginPackageInstaller struct {
@@ -238,6 +238,23 @@ func (i *PluginPackageInstaller) inspectArchiveForRuntime(archive *zip.Reader, r
 	}
 	if err := manifest.validateForRuntime(runtimeKey); err != nil {
 		return PluginManifest{}, nil, "", err
+	}
+	if manifest.UIType() == PluginUITypeNative {
+		definitionFile := entries[manifest.UI.Definition]
+		if definitionFile == nil {
+			return PluginManifest{}, nil, "", errors.New("原生插件页面定义文件不存在")
+		}
+		definition, err := readPluginZipFile(definitionFile, PluginAdminUIDefinitionMaxBytes)
+		if err != nil {
+			return PluginManifest{}, nil, "", fmt.Errorf("读取原生插件页面定义: %w", err)
+		}
+		digest := sha256.Sum256(definition)
+		if hex.EncodeToString(digest[:]) != manifest.Files[manifest.UI.Definition] {
+			return PluginManifest{}, nil, "", errors.New("原生插件页面定义文件哈希不匹配")
+		}
+		if _, err := ParseNativePluginAdminUI(definition, manifest); err != nil {
+			return PluginManifest{}, nil, "", err
+		}
 	}
 	for path := range entries {
 		if path == pluginManifestFilename || path == pluginSignatureFilename {

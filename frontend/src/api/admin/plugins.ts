@@ -14,7 +14,8 @@ export interface PluginRequirements {
   tested_sub2api_versions?: string[]
   plugin_protocol: number
   transport_api: number
-  ui_bridge: number
+  ui_bridge?: number
+  admin_ui?: number
 }
 
 export interface PluginManifest {
@@ -27,7 +28,7 @@ export interface PluginManifest {
   requires: PluginRequirements
   capabilities: PluginCapability[]
   config_secrets?: string[]
-  ui: { entrypoint: string }
+  ui: { type?: 'native' | 'iframe' | 'none'; entrypoint?: string; definition?: string }
 }
 
 export interface PluginConfig extends Record<string, unknown> {
@@ -45,6 +46,7 @@ export interface PluginCompatibility {
   plugin_protocol: number
   transport_api: number
   ui_bridge: number
+  admin_ui: number
 }
 
 export interface PluginBinding {
@@ -96,6 +98,52 @@ export interface PluginUISession {
   bridge_token: string
   ui_bridge_version: number
   expires_at: string
+}
+
+export type NativePluginBindingRoot = 'config' | 'resources' | 'status' | 'local' | 'item'
+export type NativePluginConditionOp = 'eq' | 'ne' | 'truthy' | 'falsy' | 'in'
+
+export interface NativePluginUICondition {
+  op: NativePluginConditionOp
+  path: string
+  value?: unknown
+}
+
+export interface NativePluginUIOption {
+  value: string
+  label: string
+}
+
+export interface NativePluginUITableColumn {
+  key: string
+  label: string
+  bind?: string
+}
+
+export interface NativePluginUINode {
+  type: string
+  id?: string
+  icon?: string
+  title?: string
+  description?: string
+  bind?: string
+  write?: string
+  condition?: NativePluginUICondition
+  children?: NativePluginUINode[]
+  options?: NativePluginUIOption[]
+  columns?: NativePluginUITableColumn[]
+  action?: string
+  payload?: Record<string, string>
+  confirm?: boolean
+  read_only?: boolean
+}
+
+export interface NativePluginAdminUI {
+  schema_version: number
+  title: string
+  description: string
+  poll_interval_seconds: number
+  layout: NativePluginUINode[]
 }
 
 export interface PluginResources {
@@ -213,6 +261,16 @@ export async function createUISession(id: number): Promise<PluginUISession> {
   return data
 }
 
+export async function byKey(pluginKey: string): Promise<PluginInstallation> {
+  const { data } = await apiClient.get<PluginInstallation>(`/admin/plugins/by-key/${encodeURIComponent(pluginKey)}`)
+  return data
+}
+
+export async function adminUI(id: number): Promise<NativePluginAdminUI> {
+  const { data } = await apiClient.get<NativePluginAdminUI>(`/admin/plugins/${id}/admin-ui`)
+  return data
+}
+
 export default {
   list,
   upload,
@@ -227,5 +285,7 @@ export default {
   saveSecrets,
   test,
   status,
-  createUISession
+  createUISession,
+  byKey,
+  adminUI
 }

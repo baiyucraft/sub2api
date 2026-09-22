@@ -35,7 +35,7 @@
   |       +-- 是 -> ops-control-assets
   |       +-- 无法证明 -> dev-gated 或 build-chain
   |
-  +-- 仅独立插件目录，且宿主协议/管理壳/migration/部署配置/包校验均未变化？
+  +-- 仅独立插件目录，且宿主协议/Manifest parser/管理壳/原生渲染器/API/migration/部署配置/包校验均未变化？
   |       |
   |       +-- 是 -> plugin-package
   |       +-- 无法证明 -> dev-gated 或 build-chain
@@ -137,17 +137,17 @@ build-chain:
 只有以下条件全部成立，才允许 `plugin-package`：
 
 - 最终产品改动限定在一个独立插件目录及其插件私有测试、来源锁、许可和维护文档。
-- 不改变 `backend/pkg/pluginapi/`、宿主 `plugin_*` service/repository/handler、管理路由、宿主前端插件壳、migration、`plugins.*` 配置语义、Dockerfile 或 Compose。
-- 新包声明的 Host API、protocol、transport、UI Bridge 和全部必需 host features 已由当前生产宿主实现。
+- 不改变 `backend/pkg/pluginapi/`、宿主 `plugin_*` service/repository/handler、Manifest parser/schema、Admin UI API、`/admin/plugins/:pluginKey` 路由、原生声明式渲染器、宿主前端插件壳、v1 iframe 兼容、migration、`plugins.*` 配置语义、Dockerfile 或 Compose。
+- 新包声明的 Host API、protocol、transport、UI Bridge、`admin_ui` 和全部必需 host features 已由当前生产宿主实现；Native 页面只能使用已发布的受控组件和绑定能力。
 - 插件版本独立递增；宿主 `VERSION` 和 release profile 不因纯插件包变化而改变。
 - 插件自己的 `go.mod/go.sum`、UI `package.json/pnpm-lock.yaml` 和包内打包工具仍可属于 `plugin-package`；它们只构建插件产物，不能被误判为宿主 Docker build-chain。共享工具链或根 workspace 变化仍从严升级分类。
 
 该类别的正式产物是受信签名的 `.s2plugin`，不是应用镜像。纯插件包发布不构建宿主镜像，不新增 release profile，也不生成应用 candidate image。必须：
 
 1. 从干净、已提交且可追溯的完整 40 位 SHA 构建，记录插件 ID、版本和来源锁。
-2. 构建 Linux amd64、arm64 两个包，核对 manifest、逐文件 SHA、`SHA256SUMS`、架构、许可证和敏感文件排除。
+2. 构建 Linux amd64、arm64 两个包，核对 manifest、逐文件 SHA、`SHA256SUMS`、架构、许可证和敏感文件排除；若声明 Manifest v2 Native UI，核对 `ui.definition` 位于 `ui/`、进入签名哈希、通过大小/深度/节点/文本/图标/绑定/动作校验，且两架构定义语义一致。
 3. 使用工作区和输出目录之外的 Ed25519 PKCS8 私钥签名；报告只记录 `key_id` 和验证结果，不复制私钥或公钥原文。
-4. 在 VM8211 当前兼容宿主上验证首次安装保持 disabled、配置 UI、秘密隔离、enable/disable、升级排空、失败回滚、数据库原包恢复和每个模拟实例的版本/binary SHA/Health。
+4. 在 VM8211 当前兼容宿主上验证首次安装保持 disabled、按 UI 类型选择入口、v1 iframe 回归、Native 单页深链接/停用态/错误态/草稿与 Action、秘密隔离、enable/disable、升级排空、失败回滚、数据库原包恢复和每个模拟实例的版本/binary SHA/Health。
 5. 生产远程写前单独取得授权。首次安装先通过 list/Get 证明同插件 ID 不存在，再使用 `POST /api/v1/admin/plugins/upload`；升级使用 `POST /api/v1/admin/plugins/:id/upgrade`，multipart 字段均为 `plugin`。即使当前宿主允许部分非运行状态的同 ID upload，也禁止用它绕过维护升级。
 6. PostgreSQL artifact/installation 是跨实例权威状态，本地 `plugins.data_dir` 只是校验后运行副本；不手工逐机复制包，但必须逐实例核验恢复完成。
 7. 保留上一已验证包、版本、SHA 和恢复证据。升级前不得主动停用 Scoped 插件来解除 strict；失败时确认旧 installation 快照、旧包、受管范围和运行态恢复。
@@ -156,7 +156,7 @@ build-chain:
 
 上传包、保存秘密、启用插件、启用具体账号/模型和执行真实采集是不同授权。未获后续授权时，首次安装止于 disabled，升级只恢复原启用状态和原受管范围，不扩大配置。生产默认 `plugins.allow_unsigned=false`；禁止为安装开发包临时放宽。
 
-若 Host API、必需 feature、管理接口、宿主 iframe、migration、包校验或运行目录规则随插件一起变化，`plugin-package` 不成立。先按 `dev-gated` 或 `build-chain` 发布宿主，再对兼容插件包执行本节流程。
+若 Host API、必需 feature、Manifest parser/schema、`admin_ui`、管理接口、`/admin/plugins/:pluginKey` 路由、原生渲染器、宿主 iframe、migration、包校验或运行目录规则随插件一起变化，`plugin-package` 不成立。先按 `dev-gated` 或 `build-chain` 发布宿主，再对兼容插件包执行本节流程。
 
 ## 严格纯前端
 

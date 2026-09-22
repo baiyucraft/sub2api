@@ -193,6 +193,7 @@ func (m *PluginManager) Upgrade(ctx context.Context, id int64, reader io.Reader,
 	candidate.staged.Store(false)
 	m.mu.Lock()
 	m.localInstallations[id] = &installed
+	m.invalidateAdminUICacheLocked(id)
 	delete(m.runtimes, id)
 	if hasEnabledOpenAIBinding(previous.Bindings) {
 		m.publishRuntimeLocked(&installed, candidate)

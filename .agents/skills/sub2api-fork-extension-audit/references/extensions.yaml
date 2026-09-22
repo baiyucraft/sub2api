@@ -542,8 +542,8 @@
     },
     {
       "id": "generic-plugin-runtime-v2",
-      "title": "通用插件 SDK v2 与隔离持久状态",
-      "description": "宿主提供范围准入、身份资源、操作 Bridge、加密 CAS/租约与独立维护升级，不包含 STATE 解析和采集业务。",
+      "title": "通用插件 SDK v2、原生管理页与隔离持久状态",
+      "description": "宿主提供范围准入、身份资源、Manifest v2 原生管理页、操作 Bridge、加密 CAS/租约与独立维护升级，不包含 STATE 解析和采集业务。",
       "ownership": "fork",
       "risk_level": "critical",
       "paths": [
@@ -555,6 +555,8 @@
         "backend/migrations/plugin_runtime_state_migration_test.go",
         "backend/internal/handler/admin/plugin_handler.go",
         "backend/internal/server/routes/admin.go",
+        "backend/internal/service/plugin_manifest.go",
+        "backend/pkg/pluginapi/v1/manifest.schema.json",
         "backend/internal/service/openai_account_runtime_block_fastpath.go",
         "backend/internal/service/openai_gateway_outbound_model.go",
         "backend/internal/service/openai_gateway_outbound_model_test.go",
@@ -576,6 +578,7 @@
         "backend/internal/handler/openai_plugin_admission_handler_test.go",
         "backend/internal/handler/openai_plugin_admission_extended_handler_test.go",
         "frontend/src/api/admin/plugins.ts",
+        "frontend/src/router/index.ts",
         "frontend/src/views/admin/PluginsView.vue",
         "frontend/src/views/admin/pluginBridge.ts",
         "docs/PLUGIN_DEVELOPMENT.md"
@@ -591,6 +594,7 @@
       "api_routes": [
         "/api/v1/plugin-ui/:token/*path",
         "/api/v1/admin/plugins",
+        "/api/v1/admin/plugins/by-key/:pluginKey",
         "/api/v1/admin/plugins/upload",
         "/api/v1/admin/plugins/:id",
         "/api/v1/admin/plugins/:id/enable",
@@ -602,7 +606,8 @@
         "/api/v1/admin/plugins/:id/config/secrets",
         "/api/v1/admin/plugins/:id/test",
         "/api/v1/admin/plugins/:id/status",
-        "/api/v1/admin/plugins/:id/ui-session"
+        "/api/v1/admin/plugins/:id/ui-session",
+        "/api/v1/admin/plugins/:id/admin-ui"
       ],
       "settings_keys": [],
       "migration_files": [
@@ -635,6 +640,10 @@
       ],
       "invariants": [
         "Host API v2能力显式协商，旧API1插件继续工作；缺少必需能力或存储时禁止启用",
+        "Manifest v1的ui.entrypoint继续使用sandbox iframe和Bridge；Manifest v2仅允许native/iframe/none，native必须声明ui.definition与requires.admin_ui=1，非法组合安装阶段拒绝",
+        "Native定义位于包内ui目录并进入签名文件哈希；宿主只执行受控声明式组件、JSON Pointer和有限条件，禁止任意JavaScript、HTML、远程资源、自由表达式、动态模块和宿主DOM访问",
+        "原生插件只有/admin/plugins/:pluginKey一个宿主子页面，不注册任意路由或孙页面；多功能在单页Tabs/折叠区表达，旧iframe插件继续使用现有弹窗",
+        "Admin UI定义缓存绑定plugin installation ID与binary SHA，升级、卸载或artifact身份变化必须失效；native页面不创建UI Session，秘密正文仍只在宿主可信弹窗处理",
         "配置和受管账号/出站模型范围同事务提交；渠道、账号、compact模型映射后准入，发送前代次复核",
         "候选池使用真实AdmitBatch并传播请求取消；准入结果只在当前调度轮复用，最终发送不以缓存allow替代权威复核",
         "未受管请求不依赖插件在线；主动停用恢复普通请求，崩溃/重启/维护保留范围并strict",
@@ -650,6 +659,7 @@
         "首次安装通过/upload并保持disabled，调用前必须证明同plugin_id不存在；JWT管理会话仍需step-up，自动发布器的管理员API Key只允许upload/upgrade/delete包生命周期，配置、秘密、启停、动作和测试继续要求step-up；当前宿主即使兼容部分非运行状态同ID upload，也禁止用它绕过maintenance upgrade",
         "PostgreSQL中的artifact和installation是跨实例权威状态；每个实例从数据库原包重新执行签名/manifest/逐文件SHA/路径/大小校验并恢复本地plugins.data_dir，单实例上传不能证明集群恢复完成",
         "baiyu.codex-state使用宿主内置的baiyu-codex-state-v1 Ed25519公钥且仅信任该插件ID；私钥只在发布机工作区外，其他第三方插件继续通过trusted_publishers配置",
+        "Manifest parser/schema、admin-ui接口、宿主路由、原生渲染器或安全校验变化属于宿主发布；仅当前宿主已支持目标admin_ui版本时，插件声明式定义变化才允许独立插件包发布",
         "不维护插件链，不引入 PrepareRequest/ObserveResponse RPC"
       ]
     },
