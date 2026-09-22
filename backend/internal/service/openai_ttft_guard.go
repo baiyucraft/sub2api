@@ -402,6 +402,7 @@ func (g *openAITTFTGuard) exclusions(candidates []openAITTFTGuardCandidate, call
 	g.deleteExpiredLocked(now)
 
 	degradedByModel := make(map[string][]int64)
+	cascadeExcluded := make(map[int64]struct{})
 	seen := make(map[openAITTFTGuardKey]struct{}, len(candidates))
 	for _, candidate := range candidates {
 		if _, excluded := callerExcluded[candidate.accountID]; excluded {
@@ -412,6 +413,15 @@ func (g *openAITTFTGuard) exclusions(candidates []openAITTFTGuardCandidate, call
 		}
 		key, ok := openAITTFTGuardKeyFor(scopeID, candidate.accountID, candidate.model)
 		if !ok {
+			continue
+		}
+		// A degradation recorded by a different scope with an equal or larger
+		// effective threshold is sufficient evidence for this stricter scope.
+		// Cascade exclusions are deliberately not added to degradedByModel: the
+		// source scope owns recovery probing, so a target scope must not probe its
+		// way around an inherited exclusion.
+		if g.hasTTFTThresholdCascadeLocked(candidate.accountID, key.model, scopeID, cfg.Threshold) {
+			cascadeExcluded[candidate.accountID] = struct{}{}
 			continue
 		}
 		entry := g.entries[key]
@@ -425,7 +435,7 @@ func (g *openAITTFTGuard) exclusions(candidates []openAITTFTGuardCandidate, call
 		seen[key] = struct{}{}
 		degradedByModel[key.model] = append(degradedByModel[key.model], candidate.accountID)
 	}
-	if len(degradedByModel) == 0 {
+	if len(degradedByModel) == 0 && len(cascadeExcluded) == 0 {
 		return nil
 	}
 	models := make([]string, 0, len(degradedByModel))
@@ -434,7 +444,10 @@ func (g *openAITTFTGuard) exclusions(candidates []openAITTFTGuardCandidate, call
 	}
 	sort.Strings(models)
 
-	excluded := make(map[int64]struct{}, len(candidates))
+	excluded := cascadeExcluded
+	if excluded == nil {
+		excluded = make(map[int64]struct{}, len(candidates))
+	}
 	for _, model := range models {
 		degraded := degradedByModel[model]
 		sort.Slice(degraded, func(i, j int) bool { return degraded[i] < degraded[j] })
@@ -457,6 +470,35 @@ func (g *openAITTFTGuard) exclusions(candidates []openAITTFTGuardCandidate, call
 		}
 	}
 	return excluded
+}
+
+// hasTTFTThresholdCascadeLocked reports whether an active TTFT scope has
+// already degraded the same account/model at an equal or larger threshold.
+// The caller must hold g.mu. Equal-threshold scopes use the lowest scope ID as
+// the deterministic recovery owner; other equal-threshold scopes are derived
+// exclusions and do not get independent recovery probes.
+func (g *openAITTFTGuard) hasTTFTThresholdCascadeLocked(accountID int64, model string, targetScopeID int64, targetThreshold time.Duration) bool {
+	if g == nil || accountID <= 0 || model == "" || targetThreshold <= 0 {
+		return false
+	}
+	equalThresholdSource := int64(0)
+	equalThresholdFound := false
+	for key, entry := range g.entries {
+		if key.accountID != accountID || key.model != model || entry == nil || !entry.degraded || !entry.config.Enabled {
+			continue
+		}
+		if entry.config.Threshold > targetThreshold {
+			return true
+		}
+		if entry.config.Threshold == targetThreshold && (!equalThresholdFound || key.scopeID < equalThresholdSource) {
+			equalThresholdSource = key.scopeID
+			equalThresholdFound = true
+		}
+	}
+	// Equal-threshold scopes cascade too, but only the deterministic lowest
+	// scope owns the recovery probe. This prevents two equal-threshold native
+	// degradations from blocking each other's recovery indefinitely.
+	return equalThresholdFound && equalThresholdSource != targetScopeID
 }
 
 func (g *openAITTFTGuard) isDegraded(groupID, accountID int64, model string) bool {
