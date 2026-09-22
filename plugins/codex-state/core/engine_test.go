@@ -285,6 +285,33 @@ func TestValidateRejectsRevisionAndDoesNotStartWork(t *testing.T) {
 	}
 }
 
+func TestValidateNormalizesLegacyEmptyConfig(t *testing.T) {
+	for _, raw := range []string{
+		`{}`,
+		`null`,
+		`{"harvest_proxy_url":"","dial_proxy_url":""}`,
+		`{"harvest_proxy_url":""}`,
+	} {
+		cfg, err := Validate([]byte(raw))
+		if err != nil {
+			t.Fatalf("legacy config %s: %v", raw, err)
+		}
+		if cfg.Version != 1 || cfg.Enabled || len(cfg.Accounts) != 0 {
+			t.Fatalf("legacy config %s was not normalized: %#v", raw, cfg)
+		}
+	}
+	for _, raw := range []string{
+		`{"harvest_proxy_url":"http://proxy:80"}`,
+		`{"enabled":false}`,
+		`{"accounts":[]}`,
+		`{"unknown":""}`,
+	} {
+		if _, err := Validate([]byte(raw)); err == nil {
+			t.Fatalf("accepted non-empty legacy config %s", raw)
+		}
+	}
+}
+
 func TestEnvelopeInternalTimeAndPlan(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	for _, tc := range []struct {

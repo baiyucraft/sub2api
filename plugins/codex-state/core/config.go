@@ -18,6 +18,27 @@ func defaultConfig() Config {
 	return Config{Version: 1, Accounts: []AccountConfig{}}
 }
 
+func isLegacyEmptyConfig(raw []byte) bool {
+	trimmed := bytes.TrimSpace(raw)
+	if bytes.Equal(trimmed, []byte("null")) {
+		return true
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(trimmed, &fields) != nil || fields == nil {
+		return false
+	}
+	for key, value := range fields {
+		if key != "harvest_proxy_url" && key != "dial_proxy_url" {
+			return false
+		}
+		var text string
+		if json.Unmarshal(value, &text) != nil || text != "" {
+			return false
+		}
+	}
+	return true
+}
+
 type Config struct {
 	Version         int             `json:"version"`
 	Enabled         bool            `json:"enabled"`
@@ -42,7 +63,7 @@ func Validate(raw []byte) (Config, error) {
 	// Manifest v1 installations may have been created before the plugin had a
 	// configuration document. Treat that empty document as a disabled v1
 	// configuration so a v1 -> v2 package upgrade can migrate it safely.
-	if bytes.Equal(bytes.TrimSpace(raw), []byte("{}")) || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+	if isLegacyEmptyConfig(raw) {
 		return defaultConfig(), nil
 	}
 	var cfg Config
