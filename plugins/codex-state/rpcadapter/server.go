@@ -93,11 +93,10 @@ func (s *Server) Health(ctx context.Context, _ *pluginv1.HealthRequest) (*plugin
 	return &pluginv1.HealthResponse{Healthy: true, Message: "ready", StatusJson: string(raw)}, nil
 }
 func (s *Server) ValidateConfig(_ context.Context, r *pluginv1.ValidateConfigRequest) (*pluginv1.ValidateConfigResponse, error) {
-	cfg, err := core.Validate(r.GetConfigJson())
+	cfg, raw, err := core.Normalize(r.GetConfigJson())
 	if err != nil {
 		return &pluginv1.ValidateConfigResponse{Message: err.Error(), ScopedRouting: true}, nil
 	}
-	raw, _ := json.Marshal(cfg)
 	result := &pluginv1.ValidateConfigResponse{Valid: true, NormalizedConfigJson: raw, ScopedRouting: true}
 	if cfg.Enabled {
 		for _, account := range cfg.Accounts {
