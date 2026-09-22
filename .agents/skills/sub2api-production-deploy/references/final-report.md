@@ -103,6 +103,10 @@ plugin_id: value | not_applicable
 plugin_source_commit_sha: 完整 40 位 SHA | not_applicable
 plugin_previous_version: value | not_installed | not_applicable
 plugin_target_version: value | not_applicable
+plugin_ui_type: native | iframe | none | mixed | not_applicable
+plugin_admin_ui_version: value | not_required | unsupported | not_applicable
+plugin_admin_ui_definition_sha256: value | not_applicable
+plugin_admin_ui_architecture_consistent: pass | fail | not_checked | not_applicable
 package_arches: linux-amd64,linux-arm64 | value | not_applicable
 package_sha256: 每个架构的脱敏映射 | not_applicable
 runtime_binary_sha256: 每个架构的脱敏映射 | not_applicable

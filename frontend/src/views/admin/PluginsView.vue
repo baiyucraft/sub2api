@@ -122,9 +122,10 @@
               </p>
             </div>
             <button
+              v-if="plugin.manifest.ui?.type !== 'none'"
               type="button"
               class="btn btn-secondary btn-sm"
-              @click="openConfiguration(plugin)"
+              @click="openPluginConfiguration(plugin)"
             >
               <Icon name="cog" size="sm" />
               {{ t("admin.plugins.configure") }}
@@ -350,6 +351,7 @@
 
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, shallowRef } from "vue";
+import { useRouter } from 'vue-router';
 import { useI18n } from "vue-i18n";
 import {
   adminAPI,
@@ -386,6 +388,7 @@ interface PluginBridgeMessage {
 }
 
 const { t, locale } = useI18n();
+const router = useRouter();
 const appStore = useAppStore();
 const pluginStepUp = useStepUp();
 const plugins = ref<PluginInstallation[]>([]);
@@ -568,6 +571,15 @@ function currentRollout(plugin: PluginInstallation): number {
 
 function hasEnabledBinding(plugin: PluginInstallation): boolean {
   return plugin.bindings.some((binding) => binding.enabled);
+}
+
+function openPluginConfiguration(plugin: PluginInstallation): void {
+  if (plugin.manifest.ui?.type === 'native') {
+    void router.push(`/admin/plugins/${encodeURIComponent(plugin.plugin_key)}`)
+    return
+  }
+  if (plugin.manifest.ui?.type === 'none') return
+  openConfiguration(plugin)
 }
 
 function setRollout(id: number, event: Event): void {
