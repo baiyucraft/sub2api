@@ -162,6 +162,8 @@ if [[ "$manifest_schema" == 2 ]]; then
   old_image_id=$(jq -er '.production_current_image_id' "$manifest")
   [[ "$old_image_id" =~ ^sha256:[0-9a-f]{64}$ ]]
   tag="sub2api:baiyu-$version-$commit"
+  old_image_tag="sub2api:vm-old-$release_id"
+  old_image_tag_created=false
   v2_stage=preflight
   mark_v2_stage() {
     v2_stage=$1
@@ -169,14 +171,32 @@ if [[ "$manifest_schema" == 2 ]]; then
     chmod 600 "$state_dir/stage.tmp"
     mv -T -- "$state_dir/stage.tmp" "$state_dir/stage"
   }
+  protect_old_image() {
+    [[ "$old_image_tag_created" == false ]]
+    [[ -z "$(docker image inspect "$old_image_tag" 2>/dev/null || true)" ]]
+    docker tag "$old_image_id" "$old_image_tag" >/dev/null
+    old_image_tag_created=true
+    [[ $(docker image inspect -f '{{.Id}}' "$old_image_tag") == "$old_image_id" ]]
+  }
+  assert_old_image_protected() {
+    [[ "$old_image_tag_created" == true ]]
+    [[ $(docker image inspect -f '{{.Id}}' "$old_image_tag") == "$old_image_id" ]]
+  }
+  cleanup_old_image_tag() {
+    [[ "$old_image_tag_created" == true ]] || return 0
+    docker image rm "$old_image_tag" >/dev/null 2>&1 || true
+    ! docker image inspect "$old_image_tag" >/dev/null 2>&1
+    old_image_tag_created=false
+  }
   on_v2_failure() {
     code=$?
     failed_line=${BASH_LINENO[0]:-0}
+    trap - ERR INT TERM
     printf 'vm_v2_%s\n' "$v2_stage" > "$state_dir/failure-category"
     printf '%s\n' "$failed_line" > "$state_dir/failure-line"
     printf 'status=%s stage=%s\n' "$code" "$v2_stage" > "$state_dir/failure-detail"
     chmod 400 "$state_dir/failure-category" "$state_dir/failure-line" "$state_dir/failure-detail"
-    docker tag "$old_image_id" "$tag" >/dev/null 2>&1 || true
+    cleanup_old_image_tag || true
     docker image rm "${candidate_image_id:-}" >/dev/null 2>&1 || true
     exit "$code"
   }
@@ -203,6 +223,8 @@ if [[ "$manifest_schema" == 2 ]]; then
     loaded_old_image=$(gzip -dc "$compatibility_path" | docker load | sed -n 's/^Loaded image ID: //p' | tail -n1)
     [[ -z "$loaded_old_image" || "$loaded_old_image" == "$old_image_id" ]]
     [[ $(docker image inspect -f '{{.Id}}' "$old_image_id") == "$old_image_id" ]]
+    protect_old_image
+    assert_old_image_protected
     rm -f -- "$compatibility_path"
   fi
   build_log="$state_dir/build.log"
@@ -485,6 +507,7 @@ SQL
   done
   if [[ "$recovery_gate_mode" != fast ]]; then
     mark_v2_stage old_image_health
+    assert_old_image_protected
     docker image inspect "$old_image_id" >/dev/null
     docker run -d --name "$old_probe_app" --network="$probe_network" -e SERVER_HOST=0.0.0.0 -e SERVER_PORT=8080 -e UPSTREAM_SYNC_AUTO_ENABLED=false -v "$probe_dir:/app/data" --health-cmd 'wget -q -T 5 -O /dev/null http://127.0.0.1:8080/health || exit 1' --health-interval 5s --health-timeout 5s --health-start-period 5s --health-retries 12 "$old_image_id" >/dev/null
     for _ in $(seq 1 90); do
@@ -520,6 +543,9 @@ SQL
     restore_points_verified=true
   fi
   mark_v2_stage candidate_archive
+  if [[ "$recovery_gate_mode" != fast ]]; then
+    assert_old_image_protected
+  fi
   candidate_archive="$state_dir/candidate.tar.gz"
   docker save "$candidate_image_id" | gzip -1 > "$candidate_archive"
   candidate_archive_sha=$(sha256sum "$candidate_archive" | awk '{print $1}')
@@ -534,6 +560,10 @@ SQL
   sha256sum "$output_dir/gate.json" "$output_dir/gate.sig" "$output_dir/candidate.tar.gz" > "$output_dir/SHA256SUMS"
   chmod 400 "$output_dir/gate.sig" "$candidate_archive" "$output_dir/SHA256SUMS"
   printf 'candidate_image_id=%s\ncandidate_archive_sha256=%s\n' "$candidate_image_id" "$candidate_archive_sha"
+  if [[ "$recovery_gate_mode" != fast ]]; then
+    mark_v2_stage old_image_tag_cleanup
+    cleanup_old_image_tag
+  fi
   exit 0
 fi
 [[ $release_id =~ ^(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
