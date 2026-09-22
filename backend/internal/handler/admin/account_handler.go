@@ -153,6 +153,7 @@ type CreateAccountRequest struct {
 	RateMultiplier          *float64       `json:"rate_multiplier"`
 	LoadFactor              *int           `json:"load_factor"`
 	GroupIDs                []int64        `json:"group_ids"`
+	PreferredGroupIDs       *[]int64       `json:"preferred_group_ids"`
 	ExpiresAt               *int64         `json:"expires_at"`
 	AutoPauseOnExpired      *bool          `json:"auto_pause_on_expired"`
 	ProbeEnabled            *bool          `json:"upstream_billing_probe_enabled"`
@@ -1445,6 +1446,7 @@ func (h *AccountHandler) Create(c *gin.Context) {
 			RateMultiplier:        req.RateMultiplier,
 			LoadFactor:            req.LoadFactor,
 			GroupIDs:              req.GroupIDs,
+			PreferredGroupIDs:     req.PreferredGroupIDs,
 			ExpiresAt:             req.ExpiresAt,
 			AutoPauseOnExpired:    req.AutoPauseOnExpired,
 			ProbeEnabled:          req.ProbeEnabled,
@@ -2536,6 +2538,7 @@ func (h *AccountHandler) BatchCreate(c *gin.Context) {
 				RateMultiplier:        item.RateMultiplier,
 				LoadFactor:            item.LoadFactor,
 				GroupIDs:              item.GroupIDs,
+				PreferredGroupIDs:     item.PreferredGroupIDs,
 				ExpiresAt:             item.ExpiresAt,
 				AutoPauseOnExpired:    item.AutoPauseOnExpired,
 				SkipMixedChannelCheck: skipCheck,

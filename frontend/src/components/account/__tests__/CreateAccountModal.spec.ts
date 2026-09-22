@@ -105,16 +105,29 @@ const GroupSelectorStub = defineComponent({
       type: Array,
       default: () => [],
     },
+    preferredGroupIds: {
+      type: Array,
+      default: () => [],
+    },
   },
-  emits: ['update:modelValue'],
+  emits: ['update:modelValue', 'update:preferredGroupIds'],
   template: `
-    <button
-      type="button"
-      data-testid="select-pricing-groups"
-      @click="$emit('update:modelValue', [1, 2])"
-    >
-      groups
-    </button>
+    <div>
+      <button
+        type="button"
+        data-testid="select-pricing-groups"
+        @click="$emit('update:modelValue', [1, 2])"
+      >
+        groups
+      </button>
+      <button
+        type="button"
+        data-testid="select-preferred-group"
+        @click="$emit('update:preferredGroupIds', [2])"
+      >
+        preferred
+      </button>
+    </div>
   `,
 })
 
@@ -310,6 +323,46 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
 
     expect(createAccountMock).toHaveBeenCalledTimes(1)
     expect(createAccountMock.mock.calls[0]?.[0]?.extra?.openai_long_context_billing_enabled).toBe(false)
+  })
+
+  it('submits the selected preferred group when creating an account', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    await selectButtonByText(wrapper, 'API Key')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('preferred account')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('test-api-key')
+    await wrapper.get('[data-testid="select-pricing-groups"]').trigger('click')
+    await wrapper.get('[data-testid="select-preferred-group"]').trigger('click')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    expect(createAccountMock.mock.calls[0]?.[0]).toMatchObject({
+      group_ids: [1, 2],
+      preferred_group_ids: [2],
+    })
+  })
+
+  it('clears preferred groups when the create dialog is reopened', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    await selectButtonByText(wrapper, 'API Key')
+    await wrapper.get('[data-testid="select-pricing-groups"]').trigger('click')
+    await wrapper.get('[data-testid="select-preferred-group"]').trigger('click')
+
+    await wrapper.setProps({ show: false })
+    await wrapper.setProps({ show: true })
+    await selectButtonByText(wrapper, 'OpenAI')
+    await selectButtonByText(wrapper, 'API Key')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('reopened account')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('test-api-key')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createAccountMock.mock.calls[0]?.[0]).toMatchObject({
+      group_ids: [],
+      preferred_group_ids: [],
+    })
   })
 
   it('shows proxy groups only for OpenAI OAuth and omits the field for API Key accounts', async () => {
