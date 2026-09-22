@@ -736,6 +736,9 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	user := input.User
 	account := input.Account
 	subscription := input.Subscription
+	if account != nil && result != nil {
+		MaybeAutoDisableOpenAIOAuthModel(ctx, s.settingService, s.accountRepo, account, result.Model, upstreamSentModel(result.Model, result.UpstreamModel), result.UpstreamResponseModel, result.UpstreamResponseModelConflict)
+	}
 	ReportUpstreamTrafficSuccess(ctx, account, http.StatusOK)
 	ApplyForwardImageBillingResolution(result)
 	logServiceTierBillingDowngrade("service.gateway", account, result.RequestID, ApplyForwardServiceTierBillingResolution(result))

@@ -122,6 +122,14 @@ type DefaultSubscriptionGroupReader interface {
 // proxyURLs maps proxy ID to resolved URL for provider-level proxy support.
 type WebSearchManagerBuilder func(cfg *WebSearchEmulationConfig, proxyURLs map[int64]string)
 
+// OpenAIOAuthModelSyncScheduler is the narrow callback used by the gateway to
+// schedule a best-effort OAuth model catalog refresh after a confirmed model
+// mismatch. The callback must return immediately; the implementation owns its
+// background context and singleflight protection.
+type OpenAIOAuthModelSyncScheduler interface {
+	ScheduleOpenAIOAuthModelSync(accountID int64)
+}
+
 // SettingService 系统设置服务
 type SettingService struct {
 	settingRepo                 SettingRepository
@@ -182,6 +190,31 @@ type SettingService struct {
 	gatewayRequestObserverRuntime        GatewayRequestObserverRuntime
 	gatewayChannelCustomizationRuntimeMu sync.RWMutex
 	gatewayChannelCustomizationRuntime   GatewayChannelCustomizationRuntime
+
+	openAIOAuthModelSyncSchedulerMu sync.RWMutex
+	openAIOAuthModelSyncScheduler   OpenAIOAuthModelSyncScheduler
+}
+
+// SetOpenAIOAuthModelSyncScheduler wires the asynchronous OAuth model refresh
+// without making the request gateways depend directly on the account-test
+// service. This keeps the setting-backed rule evaluator usable in unit tests
+// and during staged service construction.
+func (s *SettingService) SetOpenAIOAuthModelSyncScheduler(scheduler OpenAIOAuthModelSyncScheduler) {
+	if s == nil {
+		return
+	}
+	s.openAIOAuthModelSyncSchedulerMu.Lock()
+	s.openAIOAuthModelSyncScheduler = scheduler
+	s.openAIOAuthModelSyncSchedulerMu.Unlock()
+}
+
+func (s *SettingService) openAIOAuthModelSyncSchedulerSnapshot() OpenAIOAuthModelSyncScheduler {
+	if s == nil {
+		return nil
+	}
+	s.openAIOAuthModelSyncSchedulerMu.RLock()
+	defer s.openAIOAuthModelSyncSchedulerMu.RUnlock()
+	return s.openAIOAuthModelSyncScheduler
 }
 
 func (s *SettingService) SetGatewayRequestObserverRuntime(runtime GatewayRequestObserverRuntime) {
