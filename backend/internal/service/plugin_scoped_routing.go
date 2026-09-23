@@ -138,13 +138,14 @@ func (m *PluginManager) saveScopedConfig(ctx context.Context, installation *Plug
 		if m.accountDirectory == nil {
 			return nil, errors.New("account directory unavailable")
 		}
-		ids, err := m.accountDirectory.ListPluginAccounts(ctx, PlatformOpenAI, "")
+		directoryScope := pluginAccountScopeFromManifest(installation.Manifest)
+		infos, err := m.accountDirectory.ListPluginAccounts(ctx, directoryScope, PlatformOpenAI, "")
 		if err != nil {
 			return nil, errors.New("account directory unavailable")
 		}
 		allowed := map[int64]bool{}
-		for _, id := range ids {
-			allowed[id] = true
+		for _, info := range infos {
+			allowed[info.ID] = true
 		}
 		for _, target := range scope {
 			if !allowed[target.AccountID] {

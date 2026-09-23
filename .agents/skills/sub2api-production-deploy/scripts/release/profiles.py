@@ -755,7 +755,25 @@ PROFILES["254"] = {
     },
 }
 
-CURRENT_RELEASE_PROFILE = "254"
+# Profile 254 is immutable. Official 0.2.8 adds three upstream migrations.
+PROFILES["255"] = {
+    **{key: PROFILES["254"][key] for key in _PROFILE_V2_RUNTIME_KEYS},
+    "name": "255",
+    "version": "0.2.8-baiyu",
+    "parent": "254",
+    "new_migrations": [
+        "281_content_moderation_engine_meta.sql",
+        "282_channel_reasoning_effort_multipliers.sql",
+        "283_affiliate_ledger_operation_id.sql",
+    ],
+    "gate_schema": 2,
+    "release_policy": {
+        "compatibility_image": "production_current",
+        "migration_source": "database_state",
+    },
+}
+
+CURRENT_RELEASE_PROFILE = "255"
 
 
 def get_profile(name: str) -> dict:

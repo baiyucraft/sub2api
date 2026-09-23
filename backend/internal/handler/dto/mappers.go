@@ -254,6 +254,10 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 	if state := service.OllamaCloudUsageStateFromAccount(a); state.Eligible {
 		ollamaCloudUsage = state
 	}
+	var openCodeGoUsage *service.OpenCodeGoUsageState
+	if state := service.OpenCodeGoUsageStateFromAccount(a); state.Eligible {
+		openCodeGoUsage = state
+	}
 	out := &Account{
 		ID:                        a.ID,
 		Name:                      a.Name,
@@ -264,6 +268,7 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 		CredentialsStatus:         credsStatus,
 		Extra:                     extra,
 		OllamaCloudUsage:          ollamaCloudUsage,
+		OpenCodeGoUsage:           openCodeGoUsage,
 		ProxyID:                   a.ProxyID,
 		ProxyIPGroupID:            a.ProxyIPGroupID,
 		ProxyIPGroup:              ProxyIPGroupFromService(a.ProxyIPGroup),
@@ -568,7 +573,9 @@ func redactAccountManagedExtra(extra map[string]any) map[string]any {
 			key == "sub2api_upstream_rate_multiplier",
 			key == service.OllamaCloudUsageSessionExtraKey,
 			key == service.OllamaCloudUsageAutoRefreshExtraKey,
-			key == service.OllamaCloudUsageSnapshotExtraKey:
+			key == service.OllamaCloudUsageSnapshotExtraKey,
+			key == service.OpenCodeGoUsageAutoRefreshExtraKey,
+			key == service.OpenCodeGoUsageSnapshotExtraKey:
 			continue
 		case service.IsOpenAICodexTicketPrivateExtraKey(key):
 			continue
@@ -630,8 +637,8 @@ func AccountListItemFromAccount(a *Account) *AccountListItem {
 		UpstreamSchedulingEnabled: a.UpstreamSchedulingEnabled,
 		ID:                        a.ID, Name: a.Name, Notes: a.Notes, Platform: a.Platform, Type: a.Type,
 		Credentials: a.Credentials, CredentialsStatus: a.CredentialsStatus, Extra: a.Extra,
-		OllamaCloudUsage: a.OllamaCloudUsage,
-		ProxyID:          a.ProxyID, ProxyIPGroupID: a.ProxyIPGroupID, ProxyIPGroup: a.ProxyIPGroup,
+		OllamaCloudUsage: a.OllamaCloudUsage, OpenCodeGoUsage: a.OpenCodeGoUsage,
+		ProxyID: a.ProxyID, ProxyIPGroupID: a.ProxyIPGroupID, ProxyIPGroup: a.ProxyIPGroup,
 		ProxyFallbackOriginID: a.ProxyFallbackOriginID, ProxyFallbackOriginName: a.ProxyFallbackOriginName,
 		Concurrency: a.Concurrency, RPMLimit: a.RPMLimit, ProbeMinInputTokens: a.ProbeMinInputTokens, LoadFactor: a.LoadFactor, Priority: a.Priority, RateMultiplier: a.RateMultiplier,
 		Status: a.Status, ErrorMessage: a.ErrorMessage, LastUsedAt: a.LastUsedAt, ExpiresAt: a.ExpiresAt,

@@ -20,6 +20,13 @@
 6. 若目标 upstream 尚未包含修复，只能记录候选 PR 和预期采用方式；不得把未合并 PR 宣称为当前官方修复，也不得仅因其存在就提前删除 fork 保护。
 7. 语义重叠候选的人工结论只允许记录为“完整覆盖”“部分覆盖”“相邻独立”或“无法确定”。完整/部分覆盖仍需绑定实现与测试证据；无法确定时保留现有 fork 行为并继续复核。
 
+### 先 fork 后官方的重核
+
+当 fork 提前引入的提交后来进入固定官方目标时，先确认官方 commit 是该目标祖先，再按模型识别、协议转换、路由、计费、前端入口等故障域逐项对照两侧实现、边界条件和测试。完整覆盖项转为官方维护；部分覆盖只保留最小 fork 增量；未覆盖项继续由精确扩展 ID、路径、不变量和测试登记。原 fork 提交及作者保留在 Git 历史中，不因维护归属变化删除或改写。patch-id、共同路径和标题只提供候选证据，不代替语义结论，也不得扩大 `registered_support_paths` 等路径豁免。
+
+- 固定目标 `a3eb7ef302961cba716dc78b39b93b60c467db0e` 包含 PR #7509 的官方 merge `4318a63bd886b1a64c49015979c61bf34eca19ff`；本地提前引入的 `f9633c4f51c15cfc7460d610e899431d0a7c1aaa`、`6bf1ab9197e747ddbdd14798f36fef4a2a8561e1` 已由官方覆盖。以官方模型、协议转换、计费和前端测试为基线，不重复维护同义实现，保留两条本地 Git 历史。
+- Grok 4.7 不能认定为“官方未覆盖”：目标包含官方 `935db68517f8beef407db3da016eaef1799fce25`，本地提前引入是 `c41574a3ab1eaa05b4d9b61bec97ca87d9c782d5`。官方已有 xAI 模型与别名、Grok 路由与推理、价格 JSON/回退计费和前端白名单；仍需逐故障域验证 Codex 图像输入、OpenCode Go、runtime build 映射和相关边界测试。只将实证完整覆盖项转官方维护，未覆盖增量留 fork。
+
 ## 未正式发布批次的保留与重核
 
 1. fork 已通过真实 merge commit 采用、但尚未进入正式 tag 的 upstream 批次，登记到 `extensions.yaml.adopted_upstream_tranches`；base、tip、merge commit、提交数和采用时 VERSION 都是不可省略的证据。
@@ -41,6 +48,7 @@
 4. 禁止对高风险文件直接整文件选择 `ours` 或 `theirs`。确有必要时记录理由、受影响扩展 ID 和专项测试。
 4. 先保留 Ent schema 与 wire 源定义的业务语义，再重新生成；生成文件不能反向覆盖源定义。
 5. 官方 migration 编号与 fork 冲突时按 SQL 内容和 profile manifest 对照，不能按同名文件覆盖。
+6. 本轮官方新增的 `238b_content_moderation_engine_meta.sql`、`239_channel_reasoning_effort_multipliers.sql`、`240_affiliate_ledger_operation_id.sql` 只在 fork 对应新文件重编号为 `281_content_moderation_engine_meta.sql`、`282_channel_reasoning_effort_multipliers.sql`、`283_affiliate_ledger_operation_id.sql`，SQL 字节不变。fork 已有历史 238、`239_reconcile_non_grok_video_pricing.sql`、`240_upstream_observation_preference.sql` 不回写；Go runner 和 release planner 均按完整 filename 排序并按 filename+checksum 校验已应用项，因此 282 的回填在 265 的列创建后执行。必须核对 profile、catalog 原始字节 checksum、迁移测试文件名和新库/升级库执行顺序。
 
 ## 合并后
 

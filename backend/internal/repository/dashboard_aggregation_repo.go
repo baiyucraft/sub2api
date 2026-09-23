@@ -326,7 +326,10 @@ func (r *dashboardAggregationRepository) CleanupUsageLogs(ctx context.Context, c
 		if err := r.cleanupPartitionedUsageLogs(ctx, cutoff); err != nil {
 			return err
 		}
-	} else if err := r.cleanupUsageLogsBatches(ctx, cutoff); err != nil {
+	}
+	// Remove the expired part of the boundary partition as well, so a retention
+	// window measured in days does not silently round up to a whole month.
+	if err := r.cleanupUsageLogsBatches(ctx, cutoff); err != nil {
 		return err
 	}
 	return r.SyncGroupUsageRollups(ctx, service.GroupUsageTodayStart(r.now()))
@@ -342,6 +345,7 @@ func (r *dashboardAggregationRepository) cleanupUsageLogsBatches(ctx context.Con
 		} else {
 			affected, err = r.cleanupUsageLogsBatch(ctx, cutoff)
 		}
+
 		if err != nil {
 			return err
 		}
@@ -379,14 +383,14 @@ func cleanupUsageLogsBatchWithCoverageAndRollupInvalidation(ctx context.Context,
 	}
 	rows, err := tx.QueryContext(ctx, `
 		WITH victims AS (
-			SELECT ctid
+			SELECT tableoid, ctid
 			FROM usage_logs
 			WHERE created_at < $1
 			ORDER BY created_at ASC, id ASC
 			LIMIT $2
 		)
 		DELETE FROM usage_logs
-		WHERE ctid IN (SELECT ctid FROM victims)
+		WHERE (tableoid, ctid) IN (SELECT tableoid, ctid FROM victims)
 		RETURNING created_at
 	`, cutoff.UTC(), usageLogsCleanupBatchSize)
 	if err != nil {

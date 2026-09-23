@@ -1769,8 +1769,19 @@ func (x *ListAccountsRequest) GetAccountType() string {
 }
 
 type ListAccountsResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	AccountIds    []int64                `protobuf:"varint,1,rep,packed,name=account_ids,json=accountIds,proto3" json:"account_ids,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// account_ids is retained for plugins built against host_service_api_version 1.
+	// The host keeps filling it (the ids of the accounts in `accounts`) so those
+	// plugins keep working; new plugins should read `accounts` instead.
+	AccountIds []int64 `protobuf:"varint,1,rep,packed,name=account_ids,json=accountIds,proto3" json:"account_ids,omitempty"`
+	// accounts carries the allowlisted scheduling metadata for every account in the
+	// plugin's scope — including active accounts that are currently NOT
+	// schedulable because they are paused (rate-limited / temp-unschedulable /
+	// overloaded). This lets a plugin make its own decisions (e.g. skip paused
+	// accounts) instead of hammering them. (Administratively disabled / expired
+	// accounts are already excluded upstream by the host.) Available when
+	// host_service_api_version >= 2.
+	Accounts      []*AccountInfo `protobuf:"bytes,2,rep,name=accounts,proto3" json:"accounts,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1812,6 +1823,128 @@ func (x *ListAccountsResponse) GetAccountIds() []int64 {
 	return nil
 }
 
+func (x *ListAccountsResponse) GetAccounts() []*AccountInfo {
+	if x != nil {
+		return x.Accounts
+	}
+	return nil
+}
+
+// AccountInfo is the host's readable, non-secret view of one account. It never
+// contains credentials (token / refresh_token / cookies); use
+// ResolveOutboundIdentity for those.
+//
+// The typed fields are a small, stable decision core. Additional fields are
+// exposed only after an explicit security review and allowlist change.
+type AccountInfo struct {
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Id          int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	Platform    string                 `protobuf:"bytes,2,opt,name=platform,proto3" json:"platform,omitempty"`
+	AccountType string                 `protobuf:"bytes,3,opt,name=account_type,json=accountType,proto3" json:"account_type,omitempty"`
+	Name        string                 `protobuf:"bytes,4,opt,name=name,proto3" json:"name,omitempty"`
+	// status is the coarse lifecycle state: active / disabled / error / expired.
+	Status string `protobuf:"bytes,5,opt,name=status,proto3" json:"status,omitempty"`
+	// schedulable is the host-authoritative decision (IsSchedulable) — false when
+	// the account is active but paused for ANY reason (rate limit,
+	// temp-unschedulable, overload, expiry auto-pause, quota). This is the primary
+	// signal a plugin should use to skip an account so it stops probing paused ones.
+	Schedulable bool `protobuf:"varint,6,opt,name=schedulable,proto3" json:"schedulable,omitempty"`
+	IsShadow    bool `protobuf:"varint,7,opt,name=is_shadow,json=isShadow,proto3" json:"is_shadow,omitempty"`
+	// metadata_json is a host-produced JSON object containing only the expiry,
+	// rate-limit, overload and temporary-unschedulable timestamps. Times are
+	// RFC3339 strings (JSON null when unset). It never contains Credentials,
+	// Extra, proxy details, arbitrary error text or future Account fields.
+	MetadataJson  []byte `protobuf:"bytes,20,opt,name=metadata_json,json=metadataJson,proto3" json:"metadata_json,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AccountInfo) Reset() {
+	*x = AccountInfo{}
+	mi := &file_plugin_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AccountInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AccountInfo) ProtoMessage() {}
+
+func (x *AccountInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_plugin_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AccountInfo.ProtoReflect.Descriptor instead.
+func (*AccountInfo) Descriptor() ([]byte, []int) {
+	return file_plugin_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *AccountInfo) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *AccountInfo) GetPlatform() string {
+	if x != nil {
+		return x.Platform
+	}
+	return ""
+}
+
+func (x *AccountInfo) GetAccountType() string {
+	if x != nil {
+		return x.AccountType
+	}
+	return ""
+}
+
+func (x *AccountInfo) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *AccountInfo) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *AccountInfo) GetSchedulable() bool {
+	if x != nil {
+		return x.Schedulable
+	}
+	return false
+}
+
+func (x *AccountInfo) GetIsShadow() bool {
+	if x != nil {
+		return x.IsShadow
+	}
+	return false
+}
+
+func (x *AccountInfo) GetMetadataJson() []byte {
+	if x != nil {
+		return x.MetadataJson
+	}
+	return nil
+}
+
 type ResolveOutboundIdentityRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	AccountId     int64                  `protobuf:"varint,1,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
@@ -1821,7 +1954,7 @@ type ResolveOutboundIdentityRequest struct {
 
 func (x *ResolveOutboundIdentityRequest) Reset() {
 	*x = ResolveOutboundIdentityRequest{}
-	mi := &file_plugin_proto_msgTypes[29]
+	mi := &file_plugin_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1833,7 +1966,7 @@ func (x *ResolveOutboundIdentityRequest) String() string {
 func (*ResolveOutboundIdentityRequest) ProtoMessage() {}
 
 func (x *ResolveOutboundIdentityRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_plugin_proto_msgTypes[29]
+	mi := &file_plugin_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1846,7 +1979,7 @@ func (x *ResolveOutboundIdentityRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolveOutboundIdentityRequest.ProtoReflect.Descriptor instead.
 func (*ResolveOutboundIdentityRequest) Descriptor() ([]byte, []int) {
-	return file_plugin_proto_rawDescGZIP(), []int{29}
+	return file_plugin_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *ResolveOutboundIdentityRequest) GetAccountId() int64 {
@@ -1873,7 +2006,7 @@ type ResolveOutboundIdentityResponse struct {
 
 func (x *ResolveOutboundIdentityResponse) Reset() {
 	*x = ResolveOutboundIdentityResponse{}
-	mi := &file_plugin_proto_msgTypes[30]
+	mi := &file_plugin_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1885,7 +2018,7 @@ func (x *ResolveOutboundIdentityResponse) String() string {
 func (*ResolveOutboundIdentityResponse) ProtoMessage() {}
 
 func (x *ResolveOutboundIdentityResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_plugin_proto_msgTypes[30]
+	mi := &file_plugin_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1898,7 +2031,7 @@ func (x *ResolveOutboundIdentityResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolveOutboundIdentityResponse.ProtoReflect.Descriptor instead.
 func (*ResolveOutboundIdentityResponse) Descriptor() ([]byte, []int) {
-	return file_plugin_proto_rawDescGZIP(), []int{30}
+	return file_plugin_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *ResolveOutboundIdentityResponse) GetFound() bool {
@@ -1974,7 +2107,7 @@ type ManagedTarget struct {
 
 func (x *ManagedTarget) Reset() {
 	*x = ManagedTarget{}
-	mi := &file_plugin_proto_msgTypes[31]
+	mi := &file_plugin_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1986,7 +2119,7 @@ func (x *ManagedTarget) String() string {
 func (*ManagedTarget) ProtoMessage() {}
 
 func (x *ManagedTarget) ProtoReflect() protoreflect.Message {
-	mi := &file_plugin_proto_msgTypes[31]
+	mi := &file_plugin_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1999,7 +2132,7 @@ func (x *ManagedTarget) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ManagedTarget.ProtoReflect.Descriptor instead.
 func (*ManagedTarget) Descriptor() ([]byte, []int) {
-	return file_plugin_proto_rawDescGZIP(), []int{31}
+	return file_plugin_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *ManagedTarget) GetAccountId() int64 {
@@ -2027,7 +2160,7 @@ type AdmissionCandidate struct {
 
 func (x *AdmissionCandidate) Reset() {
 	*x = AdmissionCandidate{}
-	mi := &file_plugin_proto_msgTypes[32]
+	mi := &file_plugin_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2039,7 +2172,7 @@ func (x *AdmissionCandidate) String() string {
 func (*AdmissionCandidate) ProtoMessage() {}
 
 func (x *AdmissionCandidate) ProtoReflect() protoreflect.Message {
-	mi := &file_plugin_proto_msgTypes[32]
+	mi := &file_plugin_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2052,7 +2185,7 @@ func (x *AdmissionCandidate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AdmissionCandidate.ProtoReflect.Descriptor instead.
 func (*AdmissionCandidate) Descriptor() ([]byte, []int) {
-	return file_plugin_proto_rawDescGZIP(), []int{32}
+	return file_plugin_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *AdmissionCandidate) GetAccountId() int64 {
@@ -2089,7 +2222,7 @@ type AdmissionDecision struct {
 
 func (x *AdmissionDecision) Reset() {
 	*x = AdmissionDecision{}
-	mi := &file_plugin_proto_msgTypes[33]
+	mi := &file_plugin_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2101,7 +2234,7 @@ func (x *AdmissionDecision) String() string {
 func (*AdmissionDecision) ProtoMessage() {}
 
 func (x *AdmissionDecision) ProtoReflect() protoreflect.Message {
-	mi := &file_plugin_proto_msgTypes[33]
+	mi := &file_plugin_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2114,7 +2247,7 @@ func (x *AdmissionDecision) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AdmissionDecision.ProtoReflect.Descriptor instead.
 func (*AdmissionDecision) Descriptor() ([]byte, []int) {
-	return file_plugin_proto_rawDescGZIP(), []int{33}
+	return file_plugin_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *AdmissionDecision) GetAccountId() int64 {
@@ -2162,7 +2295,7 @@ type AdmitBatchRequest struct {
 
 func (x *AdmitBatchRequest) Reset() {
 	*x = AdmitBatchRequest{}
-	mi := &file_plugin_proto_msgTypes[34]
+	mi := &file_plugin_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2174,7 +2307,7 @@ func (x *AdmitBatchRequest) String() string {
 func (*AdmitBatchRequest) ProtoMessage() {}
 
 func (x *AdmitBatchRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_plugin_proto_msgTypes[34]
+	mi := &file_plugin_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2187,7 +2320,7 @@ func (x *AdmitBatchRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AdmitBatchRequest.ProtoReflect.Descriptor instead.
 func (*AdmitBatchRequest) Descriptor() ([]byte, []int) {
-	return file_plugin_proto_rawDescGZIP(), []int{34}
+	return file_plugin_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *AdmitBatchRequest) GetConfigRevision() uint64 {
@@ -2214,7 +2347,7 @@ type AdmitBatchResponse struct {
 
 func (x *AdmitBatchResponse) Reset() {
 	*x = AdmitBatchResponse{}
-	mi := &file_plugin_proto_msgTypes[35]
+	mi := &file_plugin_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2226,7 +2359,7 @@ func (x *AdmitBatchResponse) String() string {
 func (*AdmitBatchResponse) ProtoMessage() {}
 
 func (x *AdmitBatchResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_plugin_proto_msgTypes[35]
+	mi := &file_plugin_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2239,7 +2372,7 @@ func (x *AdmitBatchResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AdmitBatchResponse.ProtoReflect.Descriptor instead.
 func (*AdmitBatchResponse) Descriptor() ([]byte, []int) {
-	return file_plugin_proto_rawDescGZIP(), []int{35}
+	return file_plugin_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *AdmitBatchResponse) GetConfigRevision() uint64 {
@@ -2268,7 +2401,7 @@ type RunActionRequest struct {
 
 func (x *RunActionRequest) Reset() {
 	*x = RunActionRequest{}
-	mi := &file_plugin_proto_msgTypes[36]
+	mi := &file_plugin_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2280,7 +2413,7 @@ func (x *RunActionRequest) String() string {
 func (*RunActionRequest) ProtoMessage() {}
 
 func (x *RunActionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_plugin_proto_msgTypes[36]
+	mi := &file_plugin_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2293,7 +2426,7 @@ func (x *RunActionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunActionRequest.ProtoReflect.Descriptor instead.
 func (*RunActionRequest) Descriptor() ([]byte, []int) {
-	return file_plugin_proto_rawDescGZIP(), []int{36}
+	return file_plugin_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *RunActionRequest) GetActionId() string {
@@ -2336,7 +2469,7 @@ type RunActionResponse struct {
 
 func (x *RunActionResponse) Reset() {
 	*x = RunActionResponse{}
-	mi := &file_plugin_proto_msgTypes[37]
+	mi := &file_plugin_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2348,7 +2481,7 @@ func (x *RunActionResponse) String() string {
 func (*RunActionResponse) ProtoMessage() {}
 
 func (x *RunActionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_plugin_proto_msgTypes[37]
+	mi := &file_plugin_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2361,7 +2494,7 @@ func (x *RunActionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunActionResponse.ProtoReflect.Descriptor instead.
 func (*RunActionResponse) Descriptor() ([]byte, []int) {
-	return file_plugin_proto_rawDescGZIP(), []int{37}
+	return file_plugin_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *RunActionResponse) GetActionId() string {
@@ -2402,7 +2535,7 @@ type OutboundEgress struct {
 
 func (x *OutboundEgress) Reset() {
 	*x = OutboundEgress{}
-	mi := &file_plugin_proto_msgTypes[38]
+	mi := &file_plugin_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2414,7 +2547,7 @@ func (x *OutboundEgress) String() string {
 func (*OutboundEgress) ProtoMessage() {}
 
 func (x *OutboundEgress) ProtoReflect() protoreflect.Message {
-	mi := &file_plugin_proto_msgTypes[38]
+	mi := &file_plugin_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2427,7 +2560,7 @@ func (x *OutboundEgress) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OutboundEgress.ProtoReflect.Descriptor instead.
 func (*OutboundEgress) Descriptor() ([]byte, []int) {
-	return file_plugin_proto_rawDescGZIP(), []int{38}
+	return file_plugin_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *OutboundEgress) GetProxyId() int64 {
@@ -2452,7 +2585,7 @@ type ListResourcesRequest struct {
 
 func (x *ListResourcesRequest) Reset() {
 	*x = ListResourcesRequest{}
-	mi := &file_plugin_proto_msgTypes[39]
+	mi := &file_plugin_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2464,7 +2597,7 @@ func (x *ListResourcesRequest) String() string {
 func (*ListResourcesRequest) ProtoMessage() {}
 
 func (x *ListResourcesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_plugin_proto_msgTypes[39]
+	mi := &file_plugin_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2477,7 +2610,7 @@ func (x *ListResourcesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListResourcesRequest.ProtoReflect.Descriptor instead.
 func (*ListResourcesRequest) Descriptor() ([]byte, []int) {
-	return file_plugin_proto_rawDescGZIP(), []int{39}
+	return file_plugin_proto_rawDescGZIP(), []int{40}
 }
 
 type ListResourcesResponse struct {
@@ -2489,7 +2622,7 @@ type ListResourcesResponse struct {
 
 func (x *ListResourcesResponse) Reset() {
 	*x = ListResourcesResponse{}
-	mi := &file_plugin_proto_msgTypes[40]
+	mi := &file_plugin_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2501,7 +2634,7 @@ func (x *ListResourcesResponse) String() string {
 func (*ListResourcesResponse) ProtoMessage() {}
 
 func (x *ListResourcesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_plugin_proto_msgTypes[40]
+	mi := &file_plugin_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2514,7 +2647,7 @@ func (x *ListResourcesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListResourcesResponse.ProtoReflect.Descriptor instead.
 func (*ListResourcesResponse) Descriptor() ([]byte, []int) {
-	return file_plugin_proto_rawDescGZIP(), []int{40}
+	return file_plugin_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *ListResourcesResponse) GetResourcesJson() []byte {
@@ -2533,7 +2666,7 @@ type ResolveProxyRequest struct {
 
 func (x *ResolveProxyRequest) Reset() {
 	*x = ResolveProxyRequest{}
-	mi := &file_plugin_proto_msgTypes[41]
+	mi := &file_plugin_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2545,7 +2678,7 @@ func (x *ResolveProxyRequest) String() string {
 func (*ResolveProxyRequest) ProtoMessage() {}
 
 func (x *ResolveProxyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_plugin_proto_msgTypes[41]
+	mi := &file_plugin_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2558,7 +2691,7 @@ func (x *ResolveProxyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolveProxyRequest.ProtoReflect.Descriptor instead.
 func (*ResolveProxyRequest) Descriptor() ([]byte, []int) {
-	return file_plugin_proto_rawDescGZIP(), []int{41}
+	return file_plugin_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *ResolveProxyRequest) GetProxyId() int64 {
@@ -2578,7 +2711,7 @@ type ResolveProxyResponse struct {
 
 func (x *ResolveProxyResponse) Reset() {
 	*x = ResolveProxyResponse{}
-	mi := &file_plugin_proto_msgTypes[42]
+	mi := &file_plugin_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2590,7 +2723,7 @@ func (x *ResolveProxyResponse) String() string {
 func (*ResolveProxyResponse) ProtoMessage() {}
 
 func (x *ResolveProxyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_plugin_proto_msgTypes[42]
+	mi := &file_plugin_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2603,7 +2736,7 @@ func (x *ResolveProxyResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolveProxyResponse.ProtoReflect.Descriptor instead.
 func (*ResolveProxyResponse) Descriptor() ([]byte, []int) {
-	return file_plugin_proto_rawDescGZIP(), []int{42}
+	return file_plugin_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *ResolveProxyResponse) GetFound() bool {
@@ -2630,7 +2763,7 @@ type StateGetRequest struct {
 
 func (x *StateGetRequest) Reset() {
 	*x = StateGetRequest{}
-	mi := &file_plugin_proto_msgTypes[43]
+	mi := &file_plugin_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2642,7 +2775,7 @@ func (x *StateGetRequest) String() string {
 func (*StateGetRequest) ProtoMessage() {}
 
 func (x *StateGetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_plugin_proto_msgTypes[43]
+	mi := &file_plugin_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2655,7 +2788,7 @@ func (x *StateGetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StateGetRequest.ProtoReflect.Descriptor instead.
 func (*StateGetRequest) Descriptor() ([]byte, []int) {
-	return file_plugin_proto_rawDescGZIP(), []int{43}
+	return file_plugin_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *StateGetRequest) GetNamespace() string {
@@ -2683,7 +2816,7 @@ type StateGetResponse struct {
 
 func (x *StateGetResponse) Reset() {
 	*x = StateGetResponse{}
-	mi := &file_plugin_proto_msgTypes[44]
+	mi := &file_plugin_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2695,7 +2828,7 @@ func (x *StateGetResponse) String() string {
 func (*StateGetResponse) ProtoMessage() {}
 
 func (x *StateGetResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_plugin_proto_msgTypes[44]
+	mi := &file_plugin_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2708,7 +2841,7 @@ func (x *StateGetResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StateGetResponse.ProtoReflect.Descriptor instead.
 func (*StateGetResponse) Descriptor() ([]byte, []int) {
-	return file_plugin_proto_rawDescGZIP(), []int{44}
+	return file_plugin_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *StateGetResponse) GetFound() bool {
@@ -2748,7 +2881,7 @@ type StateCompareAndSwapRequest struct {
 
 func (x *StateCompareAndSwapRequest) Reset() {
 	*x = StateCompareAndSwapRequest{}
-	mi := &file_plugin_proto_msgTypes[45]
+	mi := &file_plugin_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2760,7 +2893,7 @@ func (x *StateCompareAndSwapRequest) String() string {
 func (*StateCompareAndSwapRequest) ProtoMessage() {}
 
 func (x *StateCompareAndSwapRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_plugin_proto_msgTypes[45]
+	mi := &file_plugin_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2773,7 +2906,7 @@ func (x *StateCompareAndSwapRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StateCompareAndSwapRequest.ProtoReflect.Descriptor instead.
 func (*StateCompareAndSwapRequest) Descriptor() ([]byte, []int) {
-	return file_plugin_proto_rawDescGZIP(), []int{45}
+	return file_plugin_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *StateCompareAndSwapRequest) GetNamespace() string {
@@ -2841,7 +2974,7 @@ type StateCompareAndSwapResponse struct {
 
 func (x *StateCompareAndSwapResponse) Reset() {
 	*x = StateCompareAndSwapResponse{}
-	mi := &file_plugin_proto_msgTypes[46]
+	mi := &file_plugin_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2853,7 +2986,7 @@ func (x *StateCompareAndSwapResponse) String() string {
 func (*StateCompareAndSwapResponse) ProtoMessage() {}
 
 func (x *StateCompareAndSwapResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_plugin_proto_msgTypes[46]
+	mi := &file_plugin_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2866,7 +2999,7 @@ func (x *StateCompareAndSwapResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StateCompareAndSwapResponse.ProtoReflect.Descriptor instead.
 func (*StateCompareAndSwapResponse) Descriptor() ([]byte, []int) {
-	return file_plugin_proto_rawDescGZIP(), []int{46}
+	return file_plugin_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *StateCompareAndSwapResponse) GetVersion() uint64 {
@@ -2888,7 +3021,7 @@ type StateListRequest struct {
 
 func (x *StateListRequest) Reset() {
 	*x = StateListRequest{}
-	mi := &file_plugin_proto_msgTypes[47]
+	mi := &file_plugin_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2900,7 +3033,7 @@ func (x *StateListRequest) String() string {
 func (*StateListRequest) ProtoMessage() {}
 
 func (x *StateListRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_plugin_proto_msgTypes[47]
+	mi := &file_plugin_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2913,7 +3046,7 @@ func (x *StateListRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StateListRequest.ProtoReflect.Descriptor instead.
 func (*StateListRequest) Descriptor() ([]byte, []int) {
-	return file_plugin_proto_rawDescGZIP(), []int{47}
+	return file_plugin_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *StateListRequest) GetNamespace() string {
@@ -2954,7 +3087,7 @@ type StateListResponse struct {
 
 func (x *StateListResponse) Reset() {
 	*x = StateListResponse{}
-	mi := &file_plugin_proto_msgTypes[48]
+	mi := &file_plugin_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2966,7 +3099,7 @@ func (x *StateListResponse) String() string {
 func (*StateListResponse) ProtoMessage() {}
 
 func (x *StateListResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_plugin_proto_msgTypes[48]
+	mi := &file_plugin_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2979,7 +3112,7 @@ func (x *StateListResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StateListResponse.ProtoReflect.Descriptor instead.
 func (*StateListResponse) Descriptor() ([]byte, []int) {
-	return file_plugin_proto_rawDescGZIP(), []int{48}
+	return file_plugin_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *StateListResponse) GetKeys() []string {
@@ -3009,7 +3142,7 @@ type LeaseRequest struct {
 
 func (x *LeaseRequest) Reset() {
 	*x = LeaseRequest{}
-	mi := &file_plugin_proto_msgTypes[49]
+	mi := &file_plugin_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3021,7 +3154,7 @@ func (x *LeaseRequest) String() string {
 func (*LeaseRequest) ProtoMessage() {}
 
 func (x *LeaseRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_plugin_proto_msgTypes[49]
+	mi := &file_plugin_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3034,7 +3167,7 @@ func (x *LeaseRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LeaseRequest.ProtoReflect.Descriptor instead.
 func (*LeaseRequest) Descriptor() ([]byte, []int) {
-	return file_plugin_proto_rawDescGZIP(), []int{49}
+	return file_plugin_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *LeaseRequest) GetNamespace() string {
@@ -3084,7 +3217,7 @@ type LeaseResponse struct {
 
 func (x *LeaseResponse) Reset() {
 	*x = LeaseResponse{}
-	mi := &file_plugin_proto_msgTypes[50]
+	mi := &file_plugin_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3096,7 +3229,7 @@ func (x *LeaseResponse) String() string {
 func (*LeaseResponse) ProtoMessage() {}
 
 func (x *LeaseResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_plugin_proto_msgTypes[50]
+	mi := &file_plugin_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3109,7 +3242,7 @@ func (x *LeaseResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LeaseResponse.ProtoReflect.Descriptor instead.
 func (*LeaseResponse) Descriptor() ([]byte, []int) {
-	return file_plugin_proto_rawDescGZIP(), []int{50}
+	return file_plugin_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *LeaseResponse) GetAcquired() bool {
@@ -3149,7 +3282,7 @@ type CompleteRequestRequest struct {
 
 func (x *CompleteRequestRequest) Reset() {
 	*x = CompleteRequestRequest{}
-	mi := &file_plugin_proto_msgTypes[51]
+	mi := &file_plugin_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3161,7 +3294,7 @@ func (x *CompleteRequestRequest) String() string {
 func (*CompleteRequestRequest) ProtoMessage() {}
 
 func (x *CompleteRequestRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_plugin_proto_msgTypes[51]
+	mi := &file_plugin_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3174,7 +3307,7 @@ func (x *CompleteRequestRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CompleteRequestRequest.ProtoReflect.Descriptor instead.
 func (*CompleteRequestRequest) Descriptor() ([]byte, []int) {
-	return file_plugin_proto_rawDescGZIP(), []int{51}
+	return file_plugin_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *CompleteRequestRequest) GetRequestId() string {
@@ -3192,7 +3325,7 @@ type CompleteRequestResponse struct {
 
 func (x *CompleteRequestResponse) Reset() {
 	*x = CompleteRequestResponse{}
-	mi := &file_plugin_proto_msgTypes[52]
+	mi := &file_plugin_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3204,7 +3337,7 @@ func (x *CompleteRequestResponse) String() string {
 func (*CompleteRequestResponse) ProtoMessage() {}
 
 func (x *CompleteRequestResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_plugin_proto_msgTypes[52]
+	mi := &file_plugin_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3217,7 +3350,7 @@ func (x *CompleteRequestResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CompleteRequestResponse.ProtoReflect.Descriptor instead.
 func (*CompleteRequestResponse) Descriptor() ([]byte, []int) {
-	return file_plugin_proto_rawDescGZIP(), []int{52}
+	return file_plugin_proto_rawDescGZIP(), []int{53}
 }
 
 var File_plugin_proto protoreflect.FileDescriptor
@@ -3355,10 +3488,20 @@ const file_plugin_proto_rawDesc = "" +
 	"\x04keys\x18\x01 \x03(\tR\x04keys\"T\n" +
 	"\x13ListAccountsRequest\x12\x1a\n" +
 	"\bplatform\x18\x01 \x01(\tR\bplatform\x12!\n" +
-	"\faccount_type\x18\x02 \x01(\tR\vaccountType\"7\n" +
+	"\faccount_type\x18\x02 \x01(\tR\vaccountType\"s\n" +
 	"\x14ListAccountsResponse\x12\x1f\n" +
 	"\vaccount_ids\x18\x01 \x03(\x03R\n" +
-	"accountIds\"?\n" +
+	"accountIds\x12:\n" +
+	"\baccounts\x18\x02 \x03(\v2\x1e.sub2api.plugin.v1.AccountInfoR\baccounts\"\xec\x01\n" +
+	"\vAccountInfo\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x1a\n" +
+	"\bplatform\x18\x02 \x01(\tR\bplatform\x12!\n" +
+	"\faccount_type\x18\x03 \x01(\tR\vaccountType\x12\x12\n" +
+	"\x04name\x18\x04 \x01(\tR\x04name\x12\x16\n" +
+	"\x06status\x18\x05 \x01(\tR\x06status\x12 \n" +
+	"\vschedulable\x18\x06 \x01(\bR\vschedulable\x12\x1b\n" +
+	"\tis_shadow\x18\a \x01(\bR\bisShadow\x12#\n" +
+	"\rmetadata_json\x18\x14 \x01(\fR\fmetadataJson\"?\n" +
 	"\x1eResolveOutboundIdentityRequest\x12\x1d\n" +
 	"\n" +
 	"account_id\x18\x01 \x01(\x03R\taccountId\"\xec\x03\n" +
@@ -3512,7 +3655,7 @@ func file_plugin_proto_rawDescGZIP() []byte {
 	return file_plugin_proto_rawDescData
 }
 
-var file_plugin_proto_msgTypes = make([]protoimpl.MessageInfo, 56)
+var file_plugin_proto_msgTypes = make([]protoimpl.MessageInfo, 57)
 var file_plugin_proto_goTypes = []any{
 	(*GetInfoRequest)(nil),                  // 0: sub2api.plugin.v1.GetInfoRequest
 	(*GetInfoResponse)(nil),                 // 1: sub2api.plugin.v1.GetInfoResponse
@@ -3543,102 +3686,104 @@ var file_plugin_proto_goTypes = []any{
 	(*KVListResponse)(nil),                  // 26: sub2api.plugin.v1.KVListResponse
 	(*ListAccountsRequest)(nil),             // 27: sub2api.plugin.v1.ListAccountsRequest
 	(*ListAccountsResponse)(nil),            // 28: sub2api.plugin.v1.ListAccountsResponse
-	(*ResolveOutboundIdentityRequest)(nil),  // 29: sub2api.plugin.v1.ResolveOutboundIdentityRequest
-	(*ResolveOutboundIdentityResponse)(nil), // 30: sub2api.plugin.v1.ResolveOutboundIdentityResponse
-	(*ManagedTarget)(nil),                   // 31: sub2api.plugin.v1.ManagedTarget
-	(*AdmissionCandidate)(nil),              // 32: sub2api.plugin.v1.AdmissionCandidate
-	(*AdmissionDecision)(nil),               // 33: sub2api.plugin.v1.AdmissionDecision
-	(*AdmitBatchRequest)(nil),               // 34: sub2api.plugin.v1.AdmitBatchRequest
-	(*AdmitBatchResponse)(nil),              // 35: sub2api.plugin.v1.AdmitBatchResponse
-	(*RunActionRequest)(nil),                // 36: sub2api.plugin.v1.RunActionRequest
-	(*RunActionResponse)(nil),               // 37: sub2api.plugin.v1.RunActionResponse
-	(*OutboundEgress)(nil),                  // 38: sub2api.plugin.v1.OutboundEgress
-	(*ListResourcesRequest)(nil),            // 39: sub2api.plugin.v1.ListResourcesRequest
-	(*ListResourcesResponse)(nil),           // 40: sub2api.plugin.v1.ListResourcesResponse
-	(*ResolveProxyRequest)(nil),             // 41: sub2api.plugin.v1.ResolveProxyRequest
-	(*ResolveProxyResponse)(nil),            // 42: sub2api.plugin.v1.ResolveProxyResponse
-	(*StateGetRequest)(nil),                 // 43: sub2api.plugin.v1.StateGetRequest
-	(*StateGetResponse)(nil),                // 44: sub2api.plugin.v1.StateGetResponse
-	(*StateCompareAndSwapRequest)(nil),      // 45: sub2api.plugin.v1.StateCompareAndSwapRequest
-	(*StateCompareAndSwapResponse)(nil),     // 46: sub2api.plugin.v1.StateCompareAndSwapResponse
-	(*StateListRequest)(nil),                // 47: sub2api.plugin.v1.StateListRequest
-	(*StateListResponse)(nil),               // 48: sub2api.plugin.v1.StateListResponse
-	(*LeaseRequest)(nil),                    // 49: sub2api.plugin.v1.LeaseRequest
-	(*LeaseResponse)(nil),                   // 50: sub2api.plugin.v1.LeaseResponse
-	(*CompleteRequestRequest)(nil),          // 51: sub2api.plugin.v1.CompleteRequestRequest
-	(*CompleteRequestResponse)(nil),         // 52: sub2api.plugin.v1.CompleteRequestResponse
-	nil,                                     // 53: sub2api.plugin.v1.ForwardRequestStart.HeadersEntry
-	nil,                                     // 54: sub2api.plugin.v1.ForwardResponseStart.HeadersEntry
-	nil,                                     // 55: sub2api.plugin.v1.ResolveOutboundIdentityResponse.HeadersEntry
+	(*AccountInfo)(nil),                     // 29: sub2api.plugin.v1.AccountInfo
+	(*ResolveOutboundIdentityRequest)(nil),  // 30: sub2api.plugin.v1.ResolveOutboundIdentityRequest
+	(*ResolveOutboundIdentityResponse)(nil), // 31: sub2api.plugin.v1.ResolveOutboundIdentityResponse
+	(*ManagedTarget)(nil),                   // 32: sub2api.plugin.v1.ManagedTarget
+	(*AdmissionCandidate)(nil),              // 33: sub2api.plugin.v1.AdmissionCandidate
+	(*AdmissionDecision)(nil),               // 34: sub2api.plugin.v1.AdmissionDecision
+	(*AdmitBatchRequest)(nil),               // 35: sub2api.plugin.v1.AdmitBatchRequest
+	(*AdmitBatchResponse)(nil),              // 36: sub2api.plugin.v1.AdmitBatchResponse
+	(*RunActionRequest)(nil),                // 37: sub2api.plugin.v1.RunActionRequest
+	(*RunActionResponse)(nil),               // 38: sub2api.plugin.v1.RunActionResponse
+	(*OutboundEgress)(nil),                  // 39: sub2api.plugin.v1.OutboundEgress
+	(*ListResourcesRequest)(nil),            // 40: sub2api.plugin.v1.ListResourcesRequest
+	(*ListResourcesResponse)(nil),           // 41: sub2api.plugin.v1.ListResourcesResponse
+	(*ResolveProxyRequest)(nil),             // 42: sub2api.plugin.v1.ResolveProxyRequest
+	(*ResolveProxyResponse)(nil),            // 43: sub2api.plugin.v1.ResolveProxyResponse
+	(*StateGetRequest)(nil),                 // 44: sub2api.plugin.v1.StateGetRequest
+	(*StateGetResponse)(nil),                // 45: sub2api.plugin.v1.StateGetResponse
+	(*StateCompareAndSwapRequest)(nil),      // 46: sub2api.plugin.v1.StateCompareAndSwapRequest
+	(*StateCompareAndSwapResponse)(nil),     // 47: sub2api.plugin.v1.StateCompareAndSwapResponse
+	(*StateListRequest)(nil),                // 48: sub2api.plugin.v1.StateListRequest
+	(*StateListResponse)(nil),               // 49: sub2api.plugin.v1.StateListResponse
+	(*LeaseRequest)(nil),                    // 50: sub2api.plugin.v1.LeaseRequest
+	(*LeaseResponse)(nil),                   // 51: sub2api.plugin.v1.LeaseResponse
+	(*CompleteRequestRequest)(nil),          // 52: sub2api.plugin.v1.CompleteRequestRequest
+	(*CompleteRequestResponse)(nil),         // 53: sub2api.plugin.v1.CompleteRequestResponse
+	nil,                                     // 54: sub2api.plugin.v1.ForwardRequestStart.HeadersEntry
+	nil,                                     // 55: sub2api.plugin.v1.ForwardResponseStart.HeadersEntry
+	nil,                                     // 56: sub2api.plugin.v1.ResolveOutboundIdentityResponse.HeadersEntry
 }
 var file_plugin_proto_depIdxs = []int32{
-	31, // 0: sub2api.plugin.v1.ValidateConfigResponse.managed_targets:type_name -> sub2api.plugin.v1.ManagedTarget
-	53, // 1: sub2api.plugin.v1.ForwardRequestStart.headers:type_name -> sub2api.plugin.v1.ForwardRequestStart.HeadersEntry
+	32, // 0: sub2api.plugin.v1.ValidateConfigResponse.managed_targets:type_name -> sub2api.plugin.v1.ManagedTarget
+	54, // 1: sub2api.plugin.v1.ForwardRequestStart.headers:type_name -> sub2api.plugin.v1.ForwardRequestStart.HeadersEntry
 	11, // 2: sub2api.plugin.v1.ForwardRequest.start:type_name -> sub2api.plugin.v1.ForwardRequestStart
-	54, // 3: sub2api.plugin.v1.ForwardResponseStart.headers:type_name -> sub2api.plugin.v1.ForwardResponseStart.HeadersEntry
+	55, // 3: sub2api.plugin.v1.ForwardResponseStart.headers:type_name -> sub2api.plugin.v1.ForwardResponseStart.HeadersEntry
 	13, // 4: sub2api.plugin.v1.ForwardResponse.start:type_name -> sub2api.plugin.v1.ForwardResponseStart
 	14, // 5: sub2api.plugin.v1.ForwardResponse.end:type_name -> sub2api.plugin.v1.ForwardResponseEnd
 	15, // 6: sub2api.plugin.v1.ForwardResponse.error:type_name -> sub2api.plugin.v1.ForwardResponseError
-	55, // 7: sub2api.plugin.v1.ResolveOutboundIdentityResponse.headers:type_name -> sub2api.plugin.v1.ResolveOutboundIdentityResponse.HeadersEntry
-	38, // 8: sub2api.plugin.v1.ResolveOutboundIdentityResponse.egresses:type_name -> sub2api.plugin.v1.OutboundEgress
-	32, // 9: sub2api.plugin.v1.AdmitBatchRequest.candidates:type_name -> sub2api.plugin.v1.AdmissionCandidate
-	33, // 10: sub2api.plugin.v1.AdmitBatchResponse.decisions:type_name -> sub2api.plugin.v1.AdmissionDecision
-	10, // 11: sub2api.plugin.v1.ForwardRequestStart.HeadersEntry.value:type_name -> sub2api.plugin.v1.HeaderValues
-	10, // 12: sub2api.plugin.v1.ForwardResponseStart.HeadersEntry.value:type_name -> sub2api.plugin.v1.HeaderValues
-	10, // 13: sub2api.plugin.v1.ResolveOutboundIdentityResponse.HeadersEntry.value:type_name -> sub2api.plugin.v1.HeaderValues
-	0,  // 14: sub2api.plugin.v1.TransportPlugin.GetInfo:input_type -> sub2api.plugin.v1.GetInfoRequest
-	2,  // 15: sub2api.plugin.v1.TransportPlugin.Health:input_type -> sub2api.plugin.v1.HealthRequest
-	4,  // 16: sub2api.plugin.v1.TransportPlugin.ValidateConfig:input_type -> sub2api.plugin.v1.ValidateConfigRequest
-	6,  // 17: sub2api.plugin.v1.TransportPlugin.ApplyConfig:input_type -> sub2api.plugin.v1.ApplyConfigRequest
-	8,  // 18: sub2api.plugin.v1.TransportPlugin.TestConfig:input_type -> sub2api.plugin.v1.TestConfigRequest
-	12, // 19: sub2api.plugin.v1.TransportPlugin.Forward:input_type -> sub2api.plugin.v1.ForwardRequest
-	17, // 20: sub2api.plugin.v1.TransportPlugin.InitHostServices:input_type -> sub2api.plugin.v1.InitHostServicesRequest
-	34, // 21: sub2api.plugin.v1.TransportPlugin.AdmitBatch:input_type -> sub2api.plugin.v1.AdmitBatchRequest
-	36, // 22: sub2api.plugin.v1.TransportPlugin.RunAction:input_type -> sub2api.plugin.v1.RunActionRequest
-	19, // 23: sub2api.plugin.v1.HostService.KVGet:input_type -> sub2api.plugin.v1.KVGetRequest
-	21, // 24: sub2api.plugin.v1.HostService.KVSet:input_type -> sub2api.plugin.v1.KVSetRequest
-	23, // 25: sub2api.plugin.v1.HostService.KVDelete:input_type -> sub2api.plugin.v1.KVDeleteRequest
-	25, // 26: sub2api.plugin.v1.HostService.KVList:input_type -> sub2api.plugin.v1.KVListRequest
-	27, // 27: sub2api.plugin.v1.HostService.ListAccounts:input_type -> sub2api.plugin.v1.ListAccountsRequest
-	29, // 28: sub2api.plugin.v1.HostService.ResolveOutboundIdentity:input_type -> sub2api.plugin.v1.ResolveOutboundIdentityRequest
-	39, // 29: sub2api.plugin.v1.HostService.ListResources:input_type -> sub2api.plugin.v1.ListResourcesRequest
-	41, // 30: sub2api.plugin.v1.HostService.ResolveProxy:input_type -> sub2api.plugin.v1.ResolveProxyRequest
-	43, // 31: sub2api.plugin.v1.HostService.StateGet:input_type -> sub2api.plugin.v1.StateGetRequest
-	45, // 32: sub2api.plugin.v1.HostService.StateCompareAndSwap:input_type -> sub2api.plugin.v1.StateCompareAndSwapRequest
-	47, // 33: sub2api.plugin.v1.HostService.StateList:input_type -> sub2api.plugin.v1.StateListRequest
-	49, // 34: sub2api.plugin.v1.HostService.AcquireLease:input_type -> sub2api.plugin.v1.LeaseRequest
-	49, // 35: sub2api.plugin.v1.HostService.RenewLease:input_type -> sub2api.plugin.v1.LeaseRequest
-	49, // 36: sub2api.plugin.v1.HostService.ReleaseLease:input_type -> sub2api.plugin.v1.LeaseRequest
-	51, // 37: sub2api.plugin.v1.HostService.CompleteRequest:input_type -> sub2api.plugin.v1.CompleteRequestRequest
-	1,  // 38: sub2api.plugin.v1.TransportPlugin.GetInfo:output_type -> sub2api.plugin.v1.GetInfoResponse
-	3,  // 39: sub2api.plugin.v1.TransportPlugin.Health:output_type -> sub2api.plugin.v1.HealthResponse
-	5,  // 40: sub2api.plugin.v1.TransportPlugin.ValidateConfig:output_type -> sub2api.plugin.v1.ValidateConfigResponse
-	7,  // 41: sub2api.plugin.v1.TransportPlugin.ApplyConfig:output_type -> sub2api.plugin.v1.ApplyConfigResponse
-	9,  // 42: sub2api.plugin.v1.TransportPlugin.TestConfig:output_type -> sub2api.plugin.v1.TestConfigResponse
-	16, // 43: sub2api.plugin.v1.TransportPlugin.Forward:output_type -> sub2api.plugin.v1.ForwardResponse
-	18, // 44: sub2api.plugin.v1.TransportPlugin.InitHostServices:output_type -> sub2api.plugin.v1.InitHostServicesResponse
-	35, // 45: sub2api.plugin.v1.TransportPlugin.AdmitBatch:output_type -> sub2api.plugin.v1.AdmitBatchResponse
-	37, // 46: sub2api.plugin.v1.TransportPlugin.RunAction:output_type -> sub2api.plugin.v1.RunActionResponse
-	20, // 47: sub2api.plugin.v1.HostService.KVGet:output_type -> sub2api.plugin.v1.KVGetResponse
-	22, // 48: sub2api.plugin.v1.HostService.KVSet:output_type -> sub2api.plugin.v1.KVSetResponse
-	24, // 49: sub2api.plugin.v1.HostService.KVDelete:output_type -> sub2api.plugin.v1.KVDeleteResponse
-	26, // 50: sub2api.plugin.v1.HostService.KVList:output_type -> sub2api.plugin.v1.KVListResponse
-	28, // 51: sub2api.plugin.v1.HostService.ListAccounts:output_type -> sub2api.plugin.v1.ListAccountsResponse
-	30, // 52: sub2api.plugin.v1.HostService.ResolveOutboundIdentity:output_type -> sub2api.plugin.v1.ResolveOutboundIdentityResponse
-	40, // 53: sub2api.plugin.v1.HostService.ListResources:output_type -> sub2api.plugin.v1.ListResourcesResponse
-	42, // 54: sub2api.plugin.v1.HostService.ResolveProxy:output_type -> sub2api.plugin.v1.ResolveProxyResponse
-	44, // 55: sub2api.plugin.v1.HostService.StateGet:output_type -> sub2api.plugin.v1.StateGetResponse
-	46, // 56: sub2api.plugin.v1.HostService.StateCompareAndSwap:output_type -> sub2api.plugin.v1.StateCompareAndSwapResponse
-	48, // 57: sub2api.plugin.v1.HostService.StateList:output_type -> sub2api.plugin.v1.StateListResponse
-	50, // 58: sub2api.plugin.v1.HostService.AcquireLease:output_type -> sub2api.plugin.v1.LeaseResponse
-	50, // 59: sub2api.plugin.v1.HostService.RenewLease:output_type -> sub2api.plugin.v1.LeaseResponse
-	50, // 60: sub2api.plugin.v1.HostService.ReleaseLease:output_type -> sub2api.plugin.v1.LeaseResponse
-	52, // 61: sub2api.plugin.v1.HostService.CompleteRequest:output_type -> sub2api.plugin.v1.CompleteRequestResponse
-	38, // [38:62] is the sub-list for method output_type
-	14, // [14:38] is the sub-list for method input_type
-	14, // [14:14] is the sub-list for extension type_name
-	14, // [14:14] is the sub-list for extension extendee
-	0,  // [0:14] is the sub-list for field type_name
+	29, // 7: sub2api.plugin.v1.ListAccountsResponse.accounts:type_name -> sub2api.plugin.v1.AccountInfo
+	56, // 8: sub2api.plugin.v1.ResolveOutboundIdentityResponse.headers:type_name -> sub2api.plugin.v1.ResolveOutboundIdentityResponse.HeadersEntry
+	39, // 9: sub2api.plugin.v1.ResolveOutboundIdentityResponse.egresses:type_name -> sub2api.plugin.v1.OutboundEgress
+	33, // 10: sub2api.plugin.v1.AdmitBatchRequest.candidates:type_name -> sub2api.plugin.v1.AdmissionCandidate
+	34, // 11: sub2api.plugin.v1.AdmitBatchResponse.decisions:type_name -> sub2api.plugin.v1.AdmissionDecision
+	10, // 12: sub2api.plugin.v1.ForwardRequestStart.HeadersEntry.value:type_name -> sub2api.plugin.v1.HeaderValues
+	10, // 13: sub2api.plugin.v1.ForwardResponseStart.HeadersEntry.value:type_name -> sub2api.plugin.v1.HeaderValues
+	10, // 14: sub2api.plugin.v1.ResolveOutboundIdentityResponse.HeadersEntry.value:type_name -> sub2api.plugin.v1.HeaderValues
+	0,  // 15: sub2api.plugin.v1.TransportPlugin.GetInfo:input_type -> sub2api.plugin.v1.GetInfoRequest
+	2,  // 16: sub2api.plugin.v1.TransportPlugin.Health:input_type -> sub2api.plugin.v1.HealthRequest
+	4,  // 17: sub2api.plugin.v1.TransportPlugin.ValidateConfig:input_type -> sub2api.plugin.v1.ValidateConfigRequest
+	6,  // 18: sub2api.plugin.v1.TransportPlugin.ApplyConfig:input_type -> sub2api.plugin.v1.ApplyConfigRequest
+	8,  // 19: sub2api.plugin.v1.TransportPlugin.TestConfig:input_type -> sub2api.plugin.v1.TestConfigRequest
+	12, // 20: sub2api.plugin.v1.TransportPlugin.Forward:input_type -> sub2api.plugin.v1.ForwardRequest
+	17, // 21: sub2api.plugin.v1.TransportPlugin.InitHostServices:input_type -> sub2api.plugin.v1.InitHostServicesRequest
+	35, // 22: sub2api.plugin.v1.TransportPlugin.AdmitBatch:input_type -> sub2api.plugin.v1.AdmitBatchRequest
+	37, // 23: sub2api.plugin.v1.TransportPlugin.RunAction:input_type -> sub2api.plugin.v1.RunActionRequest
+	19, // 24: sub2api.plugin.v1.HostService.KVGet:input_type -> sub2api.plugin.v1.KVGetRequest
+	21, // 25: sub2api.plugin.v1.HostService.KVSet:input_type -> sub2api.plugin.v1.KVSetRequest
+	23, // 26: sub2api.plugin.v1.HostService.KVDelete:input_type -> sub2api.plugin.v1.KVDeleteRequest
+	25, // 27: sub2api.plugin.v1.HostService.KVList:input_type -> sub2api.plugin.v1.KVListRequest
+	27, // 28: sub2api.plugin.v1.HostService.ListAccounts:input_type -> sub2api.plugin.v1.ListAccountsRequest
+	30, // 29: sub2api.plugin.v1.HostService.ResolveOutboundIdentity:input_type -> sub2api.plugin.v1.ResolveOutboundIdentityRequest
+	40, // 30: sub2api.plugin.v1.HostService.ListResources:input_type -> sub2api.plugin.v1.ListResourcesRequest
+	42, // 31: sub2api.plugin.v1.HostService.ResolveProxy:input_type -> sub2api.plugin.v1.ResolveProxyRequest
+	44, // 32: sub2api.plugin.v1.HostService.StateGet:input_type -> sub2api.plugin.v1.StateGetRequest
+	46, // 33: sub2api.plugin.v1.HostService.StateCompareAndSwap:input_type -> sub2api.plugin.v1.StateCompareAndSwapRequest
+	48, // 34: sub2api.plugin.v1.HostService.StateList:input_type -> sub2api.plugin.v1.StateListRequest
+	50, // 35: sub2api.plugin.v1.HostService.AcquireLease:input_type -> sub2api.plugin.v1.LeaseRequest
+	50, // 36: sub2api.plugin.v1.HostService.RenewLease:input_type -> sub2api.plugin.v1.LeaseRequest
+	50, // 37: sub2api.plugin.v1.HostService.ReleaseLease:input_type -> sub2api.plugin.v1.LeaseRequest
+	52, // 38: sub2api.plugin.v1.HostService.CompleteRequest:input_type -> sub2api.plugin.v1.CompleteRequestRequest
+	1,  // 39: sub2api.plugin.v1.TransportPlugin.GetInfo:output_type -> sub2api.plugin.v1.GetInfoResponse
+	3,  // 40: sub2api.plugin.v1.TransportPlugin.Health:output_type -> sub2api.plugin.v1.HealthResponse
+	5,  // 41: sub2api.plugin.v1.TransportPlugin.ValidateConfig:output_type -> sub2api.plugin.v1.ValidateConfigResponse
+	7,  // 42: sub2api.plugin.v1.TransportPlugin.ApplyConfig:output_type -> sub2api.plugin.v1.ApplyConfigResponse
+	9,  // 43: sub2api.plugin.v1.TransportPlugin.TestConfig:output_type -> sub2api.plugin.v1.TestConfigResponse
+	16, // 44: sub2api.plugin.v1.TransportPlugin.Forward:output_type -> sub2api.plugin.v1.ForwardResponse
+	18, // 45: sub2api.plugin.v1.TransportPlugin.InitHostServices:output_type -> sub2api.plugin.v1.InitHostServicesResponse
+	36, // 46: sub2api.plugin.v1.TransportPlugin.AdmitBatch:output_type -> sub2api.plugin.v1.AdmitBatchResponse
+	38, // 47: sub2api.plugin.v1.TransportPlugin.RunAction:output_type -> sub2api.plugin.v1.RunActionResponse
+	20, // 48: sub2api.plugin.v1.HostService.KVGet:output_type -> sub2api.plugin.v1.KVGetResponse
+	22, // 49: sub2api.plugin.v1.HostService.KVSet:output_type -> sub2api.plugin.v1.KVSetResponse
+	24, // 50: sub2api.plugin.v1.HostService.KVDelete:output_type -> sub2api.plugin.v1.KVDeleteResponse
+	26, // 51: sub2api.plugin.v1.HostService.KVList:output_type -> sub2api.plugin.v1.KVListResponse
+	28, // 52: sub2api.plugin.v1.HostService.ListAccounts:output_type -> sub2api.plugin.v1.ListAccountsResponse
+	31, // 53: sub2api.plugin.v1.HostService.ResolveOutboundIdentity:output_type -> sub2api.plugin.v1.ResolveOutboundIdentityResponse
+	41, // 54: sub2api.plugin.v1.HostService.ListResources:output_type -> sub2api.plugin.v1.ListResourcesResponse
+	43, // 55: sub2api.plugin.v1.HostService.ResolveProxy:output_type -> sub2api.plugin.v1.ResolveProxyResponse
+	45, // 56: sub2api.plugin.v1.HostService.StateGet:output_type -> sub2api.plugin.v1.StateGetResponse
+	47, // 57: sub2api.plugin.v1.HostService.StateCompareAndSwap:output_type -> sub2api.plugin.v1.StateCompareAndSwapResponse
+	49, // 58: sub2api.plugin.v1.HostService.StateList:output_type -> sub2api.plugin.v1.StateListResponse
+	51, // 59: sub2api.plugin.v1.HostService.AcquireLease:output_type -> sub2api.plugin.v1.LeaseResponse
+	51, // 60: sub2api.plugin.v1.HostService.RenewLease:output_type -> sub2api.plugin.v1.LeaseResponse
+	51, // 61: sub2api.plugin.v1.HostService.ReleaseLease:output_type -> sub2api.plugin.v1.LeaseResponse
+	53, // 62: sub2api.plugin.v1.HostService.CompleteRequest:output_type -> sub2api.plugin.v1.CompleteRequestResponse
+	39, // [39:63] is the sub-list for method output_type
+	15, // [15:39] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_plugin_proto_init() }
@@ -3663,7 +3808,7 @@ func file_plugin_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_plugin_proto_rawDesc), len(file_plugin_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   56,
+			NumMessages:   57,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

@@ -261,8 +261,8 @@ func TestRunUpstreamHealthProbeUsesProviderStreamingProfiles(t *testing.T) {
 			assert: func(t *testing.T, req *http.Request, body []byte) {
 				require.Equal(t, "https://anthropic.example/v1/messages?beta=true", req.URL.String())
 				require.Equal(t, "anthropic-secret", req.Header.Get("x-api-key"))
-				require.Equal(t, claude.DefaultHeaders["User-Agent"], req.Header.Get("User-Agent"))
-				require.Equal(t, claude.DefaultHeaders["X-App"], req.Header.Get("X-App"))
+				require.Equal(t, claude.DefaultHeaders()["User-Agent"], req.Header.Get("User-Agent"))
+				require.Equal(t, claude.DefaultHeaders()["X-App"], req.Header.Get("X-App"))
 				require.Equal(t, claude.APIKeyBetaHeader, req.Header.Get("anthropic-beta"))
 				require.Equal(t, claudeCodeSystemPrompt, gjson.GetBytes(body, "system.0.text").String())
 				require.NotEmpty(t, gjson.GetBytes(body, "metadata.user_id").String())

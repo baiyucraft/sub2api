@@ -1,10 +1,10 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 
-const { status } = vi.hoisted(() => ({ status: vi.fn() }))
+const { status, showError } = vi.hoisted(() => ({ status: vi.fn(), showError: vi.fn() }))
 vi.mock('@/api/channelMonitor', () => ({ status }))
 vi.mock('@/stores/app', () => ({
-  useAppStore: () => ({ showError: vi.fn() }),
+  useAppStore: () => ({ showError }),
 }))
 vi.mock('@/composables/useChannelMonitorFormat', () => ({
   useChannelMonitorFormat: () => ({
@@ -97,5 +97,41 @@ describe('MonitorDetailDialog', () => {
     expect(wrapper.get('[data-test="trend-time-column"]').text()).toContain('2026-07-18T00:00:00Z|2026-07-19T00:00:00Z')
     expect(wrapper.text()).toContain('0.030x')
     expect(wrapper.text()).toContain('0.028x')
+  })
+})
+
+beforeEach(() => { status.mockReset(); showError.mockReset() })
+function deferred() {
+  let resolve!: (value: unknown) => void
+  let reject!: (value: unknown) => void
+  const promise = new Promise((res, rej) => { resolve = res; reject = rej })
+  return { promise, resolve, reject }
+}
+const detail = (model: string) => ({ models: [{ model, latest_status: 'operational' }] })
+function open() {
+  return mount(MonitorDetailDialog, { props: { show: true, monitorId: 1, title: 'Monitor', range: '24h' },
+    global: { stubs: { BaseDialog: { props: ['show'], template: '<div v-if="show"><slot /></div>' }, TrendChart: true } } })
+}
+describe('monitor detail request ownership', () => {
+  it('keeps the new monitor response when the old response arrives last', async () => {
+    const old = deferred()
+    status.mockReturnValueOnce(old.promise).mockResolvedValueOnce(detail('new-model'))
+    const w = open(); await w.setProps({ monitorId: 2 }); await flushPromises()
+    old.resolve(detail('old-model')); await flushPromises()
+    expect(w.text()).toContain('new-model'); expect(w.text()).not.toContain('old-model')
+  })
+  it('ignores a previous failure while the current monitor is loading', async () => {
+    const old = deferred(); const current = deferred()
+    status.mockReturnValueOnce(old.promise).mockReturnValueOnce(current.promise)
+    const w = open(); await w.setProps({ show: false }); await w.setProps({ show: true })
+    old.reject(new Error('old failure')); await flushPromises()
+    expect(showError).not.toHaveBeenCalled(); expect(w.text()).toContain('common.loading')
+    current.resolve(detail('current')); await flushPromises(); expect(w.text()).toContain('current')
+  })
+  it('reports a failure for the current monitor', async () => {
+    status.mockRejectedValueOnce(new Error('current failure'))
+    const w = open(); await flushPromises()
+    expect(showError).toHaveBeenCalledWith('current failure')
+    expect(w.text()).toContain('channelStatus.detailLoadError')
   })
 })
