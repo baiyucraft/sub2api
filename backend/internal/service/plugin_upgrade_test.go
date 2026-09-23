@@ -41,6 +41,7 @@ func TestPluginUpgradeFailureReasonDoesNotExposeInternalError(t *testing.T) {
 	}{
 		{fmt.Errorf("%w: %w", errPluginValidationRPC, secret), "validation_rpc"},
 		{errPluginValidationEmpty, "validation_empty"},
+		{fmt.Errorf("%w: %w", errPluginValidationRejected, errPluginValidationBlank), "validation_rejected_empty_object"},
 		{errPluginValidationRejected, "validation_rejected"},
 		{errPluginValidationCapability, "scoped_routing_missing"},
 		{errPluginValidationNormalized, "normalized_config_invalid"},
