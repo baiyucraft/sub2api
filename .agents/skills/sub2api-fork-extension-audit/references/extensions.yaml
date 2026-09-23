@@ -330,7 +330,25 @@
     "backend/internal/service/openai_gateway_apikey_item_id_test.go": "保留 fork 的 ctc/fc 命名空间回归夹具；官方同一实现已在 openai_responses_item_id.go 合并，后续补充测试覆盖 tool_search、空 ID 和 WebSocket 兼容行为。",
     "backend/internal/service/openai_codex_models_service.go": "逐块合并后与官方 ab99d56e9626e6cd731592dae8553c9758a0efa2 一致：官方 Astra 识别、默认目录与 live/pinned 能力已覆盖 fork workaround，删除重复 helper；保留专项 Astra 清单、别名、metadata、pinned 和推理策略回归。"
   },
-  "registered_support_paths": [".agents/skills/sub2api-production-deploy/**", ".agents/skills/sub2api-fork-extension-audit/**", "backend/**", "frontend/**", "deploy/**", "Dockerfile", "DEV_GUIDE.md", "README*.md", "docs/**", "openspec/**", "重磅推出活动.md", ".gitignore", ".gitattributes", ".dockerignore"],
+  "composed_marker_evidence": {
+    "CustomizationService.MayMatchGroupMapping": ["customization.MayMatchGroupMapping"],
+    "GatewayRouteOptions.PreAuthMiddleware": ["PreAuthMiddleware  []gin.HandlerFunc"],
+    "GatewayRouteOptions.PostAuthMiddleware": ["PostAuthMiddleware []gin.HandlerFunc"],
+    "/v1/*": ["gateway := r.Group(\"/v1\")", "gateway.Use(options.PreAuthMiddleware...)", "gateway.Use(options.PostAuthMiddleware...)"],
+    "/v1beta/*": ["gemini := r.Group(\"/v1beta\")", "gemini.Use(options.PreAuthMiddleware...)", "gemini.Use(options.PostAuthMiddleware...)"],
+    "/antigravity/v1/*": ["antigravityV1 := r.Group(\"/antigravity/v1\")", "antigravityV1.Use(options.PreAuthMiddleware...)", "antigravityV1.Use(options.PostAuthMiddleware...)"],
+    "/antigravity/v1beta/*": ["antigravityV1Beta := r.Group(\"/antigravity/v1beta\")", "antigravityV1Beta.Use(options.PreAuthMiddleware...)", "antigravityV1Beta.Use(options.PostAuthMiddleware...)"],
+    "/backend-api/codex/*": ["codexDirect := r.Group(\"/backend-api/codex\")", "codexDirect.Use(options.PreAuthMiddleware...)", "codexDirect.Use(options.PostAuthMiddleware...)"],
+    "/antigravity/v1beta/models/*": ["antigravityV1Beta := r.Group(\"/antigravity/v1beta\")", "antigravityV1Beta.POST(\"/models/*modelAction\""],
+    "/api/v1/plugin-ui/:token/*path": ["v1.GET(\"/plugin-ui/:token/*path\""],
+    "/api/v1/admin/plugins/:id/enable": ["plugins := admin.Group(\"/plugins\")", "plugins.POST(\"/:id/enable\""],
+    "/api/v1/admin/plugins/:id/disable": ["plugins := admin.Group(\"/plugins\")", "plugins.POST(\"/:id/disable\""],
+    "/api/v1/admin/plugins/:id/test": ["plugins := admin.Group(\"/plugins\")", "plugins.POST(\"/:id/test\""],
+    "/api/v1/admin/plugins/:id/status": ["plugins := admin.Group(\"/plugins\")", "plugins.GET(\"/:id/status\""],
+    "/api/v1/admin/plugins/:id/ui-session": ["plugins := admin.Group(\"/plugins\")", "plugins.POST(\"/:id/ui-session\""],
+    "/admin/groups/:id/ttft-guard-policy": ["groups := admin.Group(\"/groups\")", "groups.GET(\"/:id/ttft-guard-policy\"", "groups.PUT(\"/:id/ttft-guard-policy\""]
+  },
+  "registered_support_paths": [".agents/skills/sub2api-production-deploy/**", ".agents/skills/sub2api-fork-extension-audit/**", "backend/**", "frontend/**", "deploy/**", "Dockerfile", "Makefile", "DEV_GUIDE.md", "README*.md", "docs/**", ".docs/codex-key-traffic-audit-2026-09-19-ttft.md", ".docs/codex-key-traffic-audit-2026-09-19-ttft.summary.json", ".docs/codex-key-traffic-audit-2026-09-19.md", ".docs/codex-key-traffic-audit-2026-09-19.summary.json", "openspec/**", "重磅推出活动.md", ".gitignore", ".gitattributes", ".dockerignore"],
   "extensions": [
     {
       "id": "upstream-config-management",
