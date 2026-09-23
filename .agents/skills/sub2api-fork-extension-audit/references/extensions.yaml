@@ -1012,7 +1012,7 @@
     {
       "id": "astrbot-channel-status-plugin",
       "title": "AstrBot 渠道状态插件",
-      "description": "独立 AstrBot 插件：通过统一事件 API 拉取渠道快照并渲染一张完整状态图；优先 V2 snapshot，失败后回退 V1 monitor history；支持 /status 与定时推送。",
+      "description": "独立 AstrBot 插件：通过统一事件 API 拉取渠道状态；/status 与定时推送按平台发送简洁文本，管理监控列表批量提供主模型近 24 小时可用率。",
       "ownership": "fork",
       "risk_level": "medium",
       "paths": [
@@ -1023,19 +1023,23 @@
         "astrbot/metadata.yaml",
         "astrbot/renderer.py",
         "astrbot/requirements.txt",
-        "astrbot/tests/test_plugin.py"
+        "astrbot/tests/test_plugin.py",
+        "backend/internal/service/channel_monitor_aggregator.go",
+        "backend/internal/service/channel_monitor_types.go",
+        "backend/internal/handler/admin/channel_monitor_handler.go"
       ],
-      "symbols": ["Main", "Sub2APIClient", "ChannelSnapshot", "render_status_svg", "format_status", "fetch_snapshots"],
-      "api_routes": [],
+      "symbols": ["Main", "Sub2APIClient", "ChannelSnapshot", "format_status_pages", "fetch_snapshots", "BatchMonitorStatusSummary", "Availability24h"],
+      "api_routes": ["/api/v1/admin/channel-monitors", "/api/v1/admin/channel-monitors/:id/history"],
       "settings_keys": [],
       "migration_files": [],
-      "required_tests": ["astrbot/tests/test_plugin.py"],
+      "required_tests": ["astrbot/tests/test_plugin.py", "backend/internal/service/channel_monitor_rate_aggregator_test.go", "backend/internal/handler/admin/channel_monitor_availability_test.go"],
       "invariants": [
         "使用 AstrBot 统一事件 API，不依赖 OneBot 专用接口",
-        "不在日志、图片或消息中泄露管理员 API Key",
-        "优先请求 V2 snapshot，失败后再回退 V1 monitor history",
-        "/status 与定时推送都发送一张完整状态图",
-        "状态图按平台分组，展示模型、延迟、可用性、分组和普通倍率",
+        "不在日志或消息中泄露管理员 API Key",
+        "V2 snapshot 仅探测可用性；渠道详情从 V1 admin list 与主模型最近 10 次 history 读取",
+        "/status 与定时推送都发送纯文本，完整渠道块分页且每页末尾为更新时间",
+        "按平台分组，展示渠道名称、当前状态、分组普通倍率、首字耗时和近 24 小时可用率",
+        "24 小时可用率来自管理列表按主模型批量聚合；无历史为 null，老版接口缺字段时显示 —，不得用 7 天可用率代替",
         "插件独立于 Sub2API 主服务进程，不改变网关计费、调度或账号生命周期"
       ]
     }

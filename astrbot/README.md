@@ -4,15 +4,16 @@
 
 ## 功能
 
-- QQ 官方机器人和 Telegram 群聊中使用 /status 查询 Sub2API 渠道状态。
+- QQ 官方机器人和 Telegram 群聊中使用 /status 查询 Sub2API 渠道状态；查询和定时推送均发送纯文本，不需要图片渲染服务。
 - 按配置间隔向 QQ 群、Telegram 群或频道发送状态，默认每 3600 秒一次。
 - 预留 QQ 官方机器人入群欢迎监听，当前是否生效取决于适配器是否透传成员加入事件。
-- V2 监控快照接口可用时先探测，渠道明细使用 V1 管理监控接口，并自动读取历史数据。
+- V2 监控快照接口可用时先探测，渠道明细使用 V1 管理监控接口，并按主模型读取最近 10 次探测记录。
+- 文本按平台展示；每渠道显示最近 10 次状态、当前状态、名称、分组普通倍率、首字耗时和真实的近 24 小时可用率。老版管理接口没有 `availability_24h` 或无探测记录时显示 `—`，不会改用 7 天可用率。
 - 状态接口超时、鉴权失败、空数据或服务不可用时返回可读文本，不会泄漏管理 API Key。
 
 ## 安装
 
-将整个 astrbot 目录复制到 AstrBot 的插件目录，例如 data/plugins/sub2api_astrbot/，确保 main.py、client.py、renderer.py、metadata.yaml 和 _conf_schema.json 位于同一层。重启 AstrBot 后在插件配置中填写参数。
+将整个 astrbot 目录复制到 AstrBot 的插件目录，例如 data/plugins/sub2api_astrbot/，确保 main.py、client.py、renderer.py、metadata.yaml 和 _conf_schema.json 位于同一层。重启 AstrBot 后在插件配置中填写参数。更新已有安装时不要覆盖 AstrBot 的插件配置。
 
 ## 配置重点
 

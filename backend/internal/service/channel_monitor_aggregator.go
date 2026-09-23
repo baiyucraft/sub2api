@@ -37,14 +37,24 @@ func (s *ChannelMonitorService) BatchMonitorStatusSummary(
 		slog.Warn("channel_monitor: batch compute availability failed", "error", err)
 		availMap = map[int64][]*ChannelMonitorAvailability{}
 	}
+	avail24h, err := s.repo.ComputeAvailabilityForMonitors(ctx, ids, monitorAvailability24Hours)
+	if err != nil {
+		slog.Warn("channel_monitor: batch compute 24h availability failed", "error", err)
+		avail24h = map[int64][]*ChannelMonitorAvailability{}
+	}
 
 	for _, id := range ids {
-		out[id] = buildStatusSummary(
+		summary := buildStatusSummary(
 			indexLatestByModel(latestMap[id]),
 			indexAvailabilityByModel(availMap[id]),
 			primaryByID[id],
 			extrasByID[id],
 		)
+		if row := indexAvailabilityByModel(avail24h[id])[primaryByID[id]]; row != nil && row.TotalChecks > 0 {
+			value := row.AvailabilityPct
+			summary.Availability24h = &value
+		}
+		out[id] = summary
 	}
 	return out
 }

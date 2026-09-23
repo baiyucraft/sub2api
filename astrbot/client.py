@@ -74,7 +74,7 @@ class Sub2APIClient:
         return unwrap_response(payload)
 
     async def _fetch_history(self, session: aiohttp.ClientSession, monitor_id: Any, model: Any = None) -> tuple[dict[str, Any], ...]:
-        params: dict[str, Any] = {"limit": 60}
+        params: dict[str, Any] = {"limit": 10}
         if model:
             params["model"] = model
         async with self.history_semaphore:
