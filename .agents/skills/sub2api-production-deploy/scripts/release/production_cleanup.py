@@ -23,6 +23,16 @@ PRODUCTION_CLEAN_FIELDS = {
     "release_id",
     "current_image_id",
     "pre_switch_image_id",
+    "candidate_archive_retention_days",
+    "candidate_archive_min_count",
+    "candidate_archive_cutoff_epoch",
+    "candidate_archive_count_before",
+    "candidate_archive_count_after",
+    "candidate_archive_candidate_count",
+    "candidate_archive_candidate_count_after",
+    "candidate_archive_candidate_bytes",
+    "candidate_archive_removed",
+    "candidate_archive_removed_bytes",
     "root_free_before_bytes",
     "root_free_after_bytes",
     "root_free_delta_bytes",
@@ -67,6 +77,16 @@ def validate_cleanup_evidence(
     if expected_plan_sha256 is not None and values["plan_sha256"] != expected_plan_sha256:
         raise RuntimeError("production cleanup returned a different plan checksum")
     unsigned_fields = {
+        "candidate_archive_retention_days",
+        "candidate_archive_min_count",
+        "candidate_archive_cutoff_epoch",
+        "candidate_archive_count_before",
+        "candidate_archive_count_after",
+        "candidate_archive_candidate_count",
+        "candidate_archive_candidate_count_after",
+        "candidate_archive_candidate_bytes",
+        "candidate_archive_removed",
+        "candidate_archive_removed_bytes",
         "root_free_before_bytes",
         "root_free_after_bytes",
         "containerd_free_before_bytes",
@@ -85,6 +105,29 @@ def validate_cleanup_evidence(
     if any(not re.fullmatch(r"-?[0-9]+", values[field]) for field in signed_fields):
         raise RuntimeError("production cleanup returned an invalid signed measurement")
     numbers = {field: int(values[field]) for field in unsigned_fields | signed_fields}
+    if numbers["candidate_archive_retention_days"] != 3 or numbers["candidate_archive_min_count"] != 3:
+        raise RuntimeError("production cleanup returned an invalid candidate archive retention policy")
+    if numbers["candidate_archive_count_after"] != numbers["candidate_archive_count_before"] - numbers["candidate_archive_removed"]:
+        raise RuntimeError("production cleanup returned an inconsistent candidate archive count")
+    if numbers["candidate_archive_removed"] > numbers["candidate_archive_candidate_count"]:
+        raise RuntimeError("production cleanup removed more candidate archives than planned")
+    if numbers["candidate_archive_removed_bytes"] > numbers["candidate_archive_candidate_bytes"]:
+        raise RuntimeError("production cleanup removed more candidate archive bytes than planned")
+    if mode == "dry-run":
+        if (
+            numbers["candidate_archive_removed"] != 0
+            or numbers["candidate_archive_removed_bytes"] != 0
+            or numbers["candidate_archive_count_after"] != numbers["candidate_archive_count_before"]
+            or numbers["candidate_archive_candidate_count_after"] != numbers["candidate_archive_candidate_count"]
+        ):
+            raise RuntimeError("production cleanup dry-run changed candidate archive state")
+    elif (
+        numbers["candidate_archive_removed"] != numbers["candidate_archive_candidate_count"]
+        or numbers["candidate_archive_candidate_count_after"] != 0
+    ):
+        raise RuntimeError("production cleanup did not converge candidate archive candidates")
+    elif numbers["candidate_archive_removed_bytes"] != numbers["candidate_archive_candidate_bytes"]:
+        raise RuntimeError("production cleanup did not converge candidate archive bytes")
     if numbers["root_free_after_bytes"] - numbers["root_free_before_bytes"] != numbers["root_free_delta_bytes"]:
         raise RuntimeError("production cleanup returned an inconsistent root filesystem delta")
     if (

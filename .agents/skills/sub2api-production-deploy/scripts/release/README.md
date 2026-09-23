@@ -100,7 +100,7 @@ python .agents/skills/sub2api-production-deploy/scripts/release.py cleanup-produ
 
 该脚本只处理 `/srv/sub2api-backups/releases` 中满足校验、无指针引用、无恢复/协调标记且 checksum 完整的历史 bundle。默认 `KEEP_LATEST_PROFILE_ONLY=true`、`KEEP_RECENT_RELEASES=1`：仅保留最高版本 profile 的最新一个 bundle，其余历史 profile 和同一 profile 的旧 bundle 进入候选，不受 30 天窗口限制；`candidates`、`promotion-input`、`verified-bundles` 等元数据目录会跳过，candidate/verified/recovery/baseline 等指针始终保护。需要恢复旧的按 profile 保留策略时，显式设置 `KEEP_LATEST_PROFILE_ONLY=false`。apply 不接受未出现在同一次 dry-run 候选清单中的 release ID。
 
-该命令保留 current、pre-switch、所有容器引用和 recovery point 镜像；残留 migration 容器只报告不删除。它只删除 full-SHA tag 的零引用旧 Sub2API image，并以容量边界 `max-used-space=2gb,reserved-space=2gb` 执行一次 BuildKit LRU GC。禁止 volume/image/system prune，实际释放只看 `df` 前后差值。
+该命令保留 current、pre-switch、所有容器引用和 recovery point 镜像；残留 migration 容器只报告不删除。除旧镜像外，生产清理器默认保留最近 3 天内全部 `candidate.tar.gz`，若不足 3 个则补足最近 3 个；当前 release、带 `.recovered`/`.reconciliation` 标记和非单链接归档不进入候选。镜像保护集合仍独立保护 current、pre-switch 和 recovery point 的 image。apply 只删除 dry-run 计划中的归档文件，不删除 release 目录、Gate、marker、volume、数据库或 Redis。旧镜像仍以容量边界 `max-used-space=2gb,reserved-space=2gb` 执行一次 BuildKit LRU GC。禁止 volume/image/system prune，实际释放只看 `df` 前后差值。
 
 `deploy-follow` 是日常人工发布入口：它只创建一个隐藏 worker，并在同一控制台用中文显示阶段变化和长阶段心跳。关闭窗口或观察器超时不会中止 runner，重新连接必须使用 `follow <release_id>`。`deploy-start` 仍是机器接口，可用于脚本或只启动后台 runner。
 
