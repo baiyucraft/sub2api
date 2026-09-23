@@ -6,15 +6,15 @@ from typing import Any
 
 from astrbot.api import AstrBotConfig, logger
 from astrbot.api.event import AstrMessageEvent, MessageChain, filter
-from astrbot.api.message_components import At, Image, Plain
+from astrbot.api.message_components import At, Plain
 from astrbot.api.star import Context, Star
 
 try:
     from .client import Sub2APIClient, Sub2APIError
-    from .renderer import format_status, render_status_svg, split_pages, svg_html_document
+    from .renderer import format_status_pages
 except ImportError:
     from client import Sub2APIClient, Sub2APIError
-    from renderer import format_status, render_status_svg, split_pages, svg_html_document
+    from renderer import format_status_pages
 
 
 def _as_bool(value: Any, default: bool = False) -> bool:
@@ -89,23 +89,7 @@ class Main(Star):
             snapshots = None
             pages = ["Sub2API 渠道状态查询失败，请稍后重试。"]
         if snapshots is not None:
-            pages = []
-            html_render = getattr(self, "html_render", None)
-            image_result = getattr(event, "image_result", None)
-            if snapshots and callable(html_render) and callable(image_result):
-                try:
-                    svg = render_status_svg(snapshots)
-                    image_path = await html_render(
-                        svg_html_document(svg),
-                        {},
-                        return_url=False,
-                        options={"type": "png", "full_page": True, "animations": "disabled"},
-                    )
-                    await event.send(image_result(image_path))
-                    return
-                except Exception:
-                    logger.warning("Sub2API 状态图片渲染失败，回退文本")
-            pages = split_pages(format_status(snapshots))
+            pages = format_status_pages(snapshots)
         for page in pages:
             await event.send(MessageChain().message(page))
 
@@ -116,19 +100,7 @@ class Main(Star):
         return f"{platform}:GroupMessage:{target}"
 
     async def _send_status_targets(self, snapshots: tuple[Any, ...]) -> None:
-        image_path: str | None = None
-        html_render = getattr(self, "html_render", None)
-        if snapshots and callable(html_render):
-            try:
-                image_path = await html_render(
-                    svg_html_document(render_status_svg(snapshots)),
-                    {},
-                    return_url=False,
-                    options={"type": "png", "full_page": True, "animations": "disabled"},
-                )
-            except Exception:
-                logger.warning("定时状态图片渲染失败，回退文本")
-        pages = split_pages(format_status(snapshots)) if image_path is None else []
+        pages = format_status_pages(snapshots)
         targets = [
             ("qq_official", parse_ids(self.config.get("qq_status_group_ids"))),
             ("telegram", parse_ids(self.config.get("telegram_status_chat_ids"))),
@@ -137,11 +109,8 @@ class Main(Star):
             for target in items:
                 origin = self._origin(platform, target)
                 try:
-                    if image_path is not None:
-                        await self.context.send_message(origin, MessageChain([Image.fromFileSystem(image_path)]))
-                    else:
-                        for page in pages:
-                            await self.context.send_message(origin, MessageChain().message(page))
+                    for page in pages:
+                        await self.context.send_message(origin, MessageChain().message(page))
                 except Exception as exc:
                     logger.warning("定时状态发送失败（平台=%s，目标=%s）：%s", platform, target, exc)
 
