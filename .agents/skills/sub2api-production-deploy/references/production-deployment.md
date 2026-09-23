@@ -87,6 +87,7 @@ plugin_admin:
 ### 在线升级
 
 1. 保留上一受信包、包 SHA、插件版本、runtime binary SHA、配置 revision、启用状态和受管范围摘要；受管范围只记录数量和规范化 digest，不记录账号名称或 ID 清单。VM 写入前必须按“版本 + runtime binary SHA”找到本地重新验签通过的精确旧包；只有同版本但 binary SHA 不同的包不能作为恢复证据。
+   目标包和回滚包即使插件版本、原文件名相同，也必须暂存到不同的远端路径；目标固定使用 `candidate.s2plugin`，回滚路径按包 SHA-256 命名。上传完成后确认两条路径和字节身份分别对应目标与旧包，禁止让回滚包覆盖目标包。
 2. 禁止升级前主动停用 Scoped 插件。调用 `POST /api/v1/admin/plugins/:id/upgrade`，由宿主进入维护态、保留 strict、阻断新受管准入并按 PostgreSQL 请求守卫排空在途请求。
 3. 目标包必须同插件 ID、受信签名、宿主兼容、能力集合不变且不能移除既有 secret 保护；升级不能隐式改变 managed scope。
 4. 发布后逐实例核验目标版本、binary SHA、Health、配置 revision、启用状态和受管范围。数据库 artifact 发布成功但任一实例恢复失败时，整体最多为 partial/blocked，不能报告集群升级成功。
