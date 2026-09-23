@@ -361,4 +361,5 @@ python .agents/skills/sub2api-production-deploy/scripts/release.py cleanup-produ
 3. 保护 current、pre-switch、所有容器状态引用的 image 和全部 recovery point `pre-image-id`。残留 `sub2api-migrate-*` 是 reconciliation 证据，只报告数量，不删除容器或对应 image。
 4. 候选只允许所有 tag 都匹配 Sub2API full-40-SHA 发布 tag 的零容器引用 image。dry-run 用稳定候选 ID 集生成 `plan_sha256`；apply 缺 checksum、checksum 漂移或删除后候选不为空均失败。
 5. apply 删除候选 image 后，允许执行一次 `docker buildx prune --all --max-used-space 2gb --reserved-space 2gb`。禁止 `docker image prune`、`docker system prune`、强制删 image、删除 volume 或扩大到 migration/container/recovery artifacts。
-6. image inspect size 和 BuildKit 逻辑大小只作分类观察，不能承诺物理释放量；最终以根文件系统及 containerd 所在文件系统的 `df -PB1` 前后差值验收。释放未达预期不授权自动第二轮或扩大范围。
+6. candidate archive 使用固定 retention：保留最近 3 天内全部 `candidate.tar.gz`，若窗口内不足 3 个则补足最近 3 个；当前 release、带 `.recovered`/`.reconciliation` 标记和非单链接文件的归档不得删除。镜像保护集合仍独立保护 current、pre-switch 和 recovery point 的 image。apply 只删除 dry-run 计划中的归档文件，不删除 release 目录、Gate、marker 或其他证据。
+7. image inspect size、candidate archive 文件大小和 BuildKit 逻辑大小只作分类观察，不能承诺物理释放量；最终以根文件系统及 containerd 所在文件系统的 `df -PB1` 前后差值验收。释放未达预期不授权自动第二轮或扩大范围。

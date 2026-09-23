@@ -34,6 +34,16 @@ def cleanup_report(release_id: str = "199-aaaaaaaaaaaa-1-deadbeef") -> dict[str,
         "release_id": release_id,
         "current_image_id": "sha256:" + "a" * 64,
         "pre_switch_image_id": "sha256:" + "b" * 64,
+        "candidate_archive_retention_days": "3",
+        "candidate_archive_min_count": "3",
+        "candidate_archive_cutoff_epoch": "1000",
+        "candidate_archive_count_before": "12",
+        "candidate_archive_count_after": "12",
+        "candidate_archive_candidate_count": "9",
+        "candidate_archive_candidate_count_after": "9",
+        "candidate_archive_candidate_bytes": "900",
+        "candidate_archive_removed": "0",
+        "candidate_archive_removed_bytes": "0",
         "root_free_before_bytes": "100",
         "root_free_after_bytes": "100",
         "root_free_delta_bytes": "0",
@@ -234,6 +244,37 @@ class ProductionSpaceCleanTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "root filesystem delta"):
             validate_cleanup_evidence(values, identity, "dry-run", None)
 
+    def test_cleanup_evidence_rejects_invalid_candidate_archive_policy(self) -> None:
+        identity = CleanupIdentity(
+            "199-aaaaaaaaaaaa-1-deadbeef",
+            "sha256:" + "a" * 64,
+            "sha256:" + "b" * 64,
+        )
+        values = cleanup_report()
+        values["candidate_archive_retention_days"] = "30"
+        with self.assertRaisesRegex(RuntimeError, "retention policy"):
+            validate_cleanup_evidence(values, identity, "dry-run", None)
+
+    def test_cleanup_evidence_requires_candidate_archive_byte_convergence(self) -> None:
+        identity = CleanupIdentity(
+            "199-aaaaaaaaaaaa-1-deadbeef",
+            "sha256:" + "a" * 64,
+            "sha256:" + "b" * 64,
+        )
+        values = cleanup_report()
+        values.update(
+            {
+                "cleanup_mode": "apply",
+                "cleanup_status": "completed",
+                "candidate_archive_count_after": "3",
+                "candidate_archive_candidate_count_after": "0",
+                "candidate_archive_removed": "9",
+                "candidate_archive_removed_bytes": "899",
+            }
+        )
+        with self.assertRaisesRegex(RuntimeError, "candidate archive bytes"):
+            validate_cleanup_evidence(values, identity, "apply", values["plan_sha256"])
+
     def test_cleanup_evidence_requires_apply_to_remove_all_candidates(self) -> None:
         identity = CleanupIdentity(
             "199-aaaaaaaaaaaa-1-deadbeef",
@@ -245,6 +286,10 @@ class ProductionSpaceCleanTest(unittest.TestCase):
             {
                 "cleanup_mode": "apply",
                 "cleanup_status": "completed",
+                "candidate_archive_count_after": "3",
+                "candidate_archive_candidate_count_after": "0",
+                "candidate_archive_removed": "9",
+                "candidate_archive_removed_bytes": "900",
                 "removed_images": "29",
                 "image_candidates_after": "1",
                 "build_cache_gc_attempted": "true",
@@ -281,6 +326,17 @@ class ProductionSpaceCleanTest(unittest.TestCase):
         self.assertIn("image_candidate_logical_bytes", script)
         self.assertIn("expected_plan_sha256", script)
         self.assertIn("plan_sha256", script)
+        self.assertIn("candidate_archive_retention_days=3", script)
+        self.assertIn("candidate_archive_min_count=3", script)
+        self.assertIn("candidate_archive_cutoff_epoch", script)
+        self.assertIn("candidate_archive_candidates", script)
+        self.assertIn("candidate_archive_removed_bytes", script)
+        self.assertIn("find \"$release_root\" -mindepth 3 -maxdepth 3 -type f -path '*/.consumed/candidate.tar.gz'", script)
+        self.assertIn('path="$release_root/$candidate_release/.consumed/candidate.tar.gz"', script)
+        self.assertIn("stat -c '%h'", script)
+        self.assertIn(".recovered", script)
+        self.assertIn(".reconciliation", script)
+        self.assertIn("rm -f -- \"$path\"", script)
         self.assertNotIn("image_reclaimable_bytes", script)
         self.assertIn("root_free_delta_bytes", script)
         self.assertIn("containerd_free_delta_bytes", script)
