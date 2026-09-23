@@ -104,6 +104,100 @@ func TestCustomizationGroupMappingOverridesOnlyRequestContextAndReplaysBody(t *t
 	require.Equal(t, []int64{1}, customization.HitCounts([]service.GatewayChannelCustomizationRule{rule}))
 }
 
+func TestCustomizationGroupMappingMatchesRequestModelWithoutMessageCondition(t *testing.T) {
+	targetGroupID := int64(22)
+	targetGroup := &service.Group{ID: targetGroupID, Name: "gpt-pro", Platform: service.PlatformOpenAI, Status: service.StatusActive, Hydrated: true}
+	customization := NewCustomizationService()
+	rule := service.GatewayChannelCustomizationRule{
+		Name: "map-astra", Enabled: true, Action: service.GatewayChannelCustomizationActionGroupMapping,
+		TargetGroupID: &targetGroupID, APIKeyNames: []string{"maibon-gpt"}, Models: []string{"gpt-6-astra"},
+	}
+	require.NoError(t, customization.Apply(context.Background(), service.GatewayChannelCustomizationSettings{Rules: []service.GatewayChannelCustomizationRule{rule}}))
+
+	tests := []struct {
+		name         string
+		apiKey       string
+		body         string
+		mapped       bool
+		expectedBody string
+	}{
+		{name: "exact model", apiKey: "maibon-gpt", body: `{"model":"gpt-6-astra","input":"anything"}`, mapped: true},
+		{name: "case and whitespace insensitive", apiKey: "maibon-gpt", body: `{"model":"  GPT-6-ASTRA ","input":"anything"}`, mapped: true},
+		{name: "different model", apiKey: "maibon-gpt", body: `{"model":"gpt-5.6-luna","input":"anything"}`},
+		{name: "missing model", apiKey: "maibon-gpt", body: `{"input":"anything"}`},
+		{name: "different key", apiKey: "other-key", body: `{"model":"gpt-6-astra","input":"anything"}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resolver := &customizationTargetResolverStub{group: targetGroup}
+			var downstreamBody string
+			router := gin.New()
+			router.Use(func(c *gin.Context) {
+				c.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{Name: tt.apiKey, UserID: 42})
+				c.Next()
+			})
+			router.Use(customization.GroupMappingMiddleware(resolver, nil))
+			router.POST("/v1/responses", func(c *gin.Context) {
+				raw, err := io.ReadAll(c.Request.Body)
+				require.NoError(t, err)
+				downstreamBody = string(raw)
+				c.String(http.StatusOK, "downstream")
+			})
+
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(tt.body)))
+
+			require.Equal(t, http.StatusOK, recorder.Code)
+			require.Equal(t, tt.body, downstreamBody)
+			if tt.mapped {
+				require.Equal(t, 1, resolver.calls)
+			} else {
+				require.Zero(t, resolver.calls)
+			}
+		})
+	}
+}
+
+func TestCustomizationGroupMappingModelAndMessageConditionsUseAND(t *testing.T) {
+	targetGroupID := int64(22)
+	customization := NewCustomizationService()
+	rule := service.GatewayChannelCustomizationRule{
+		Name: "map-astra-animation", Enabled: true, Action: service.GatewayChannelCustomizationActionGroupMapping,
+		TargetGroupID: &targetGroupID, APIKeyNames: []string{"maibon-gpt"}, Models: []string{"gpt-6-astra"},
+		RequestMessageText: "create animation",
+	}
+	require.NoError(t, customization.Apply(context.Background(), service.GatewayChannelCustomizationSettings{Rules: []service.GatewayChannelCustomizationRule{rule}}))
+
+	for _, tt := range []struct {
+		name   string
+		body   string
+		mapped bool
+	}{
+		{name: "both conditions match", body: `{"model":"gpt-6-astra","input":"create animation"}`, mapped: true},
+		{name: "model matches only", body: `{"model":"gpt-6-astra","input":"other"}`},
+		{name: "message matches only", body: `{"model":"gpt-5.6-luna","input":"create animation"}`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			resolver := &customizationTargetResolverStub{group: &service.Group{ID: targetGroupID, Name: "gpt-pro", Platform: service.PlatformOpenAI, Status: service.StatusActive, Hydrated: true}}
+			router := gin.New()
+			router.Use(func(c *gin.Context) {
+				c.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{Name: "maibon-gpt", UserID: 42})
+				c.Next()
+			})
+			router.Use(customization.GroupMappingMiddleware(resolver, nil))
+			router.POST("/v1/responses", func(c *gin.Context) { c.Status(http.StatusNoContent) })
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(tt.body)))
+			if tt.mapped {
+				require.Equal(t, 1, resolver.calls)
+			} else {
+				require.Zero(t, resolver.calls)
+			}
+		})
+	}
+}
+
 func TestCustomizationMayMatchGroupMappingUsesRequestMetadataWithoutReadingBody(t *testing.T) {
 	targetGroupID := int64(22)
 	customization := NewCustomizationService()

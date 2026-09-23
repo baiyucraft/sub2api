@@ -63,6 +63,22 @@ func TestNormalizeGatewayChannelCustomizationSettingsAcceptsGroupMappingTarget(t
 	require.Equal(t, float64(88), wire["target_group_id"])
 }
 
+func TestNormalizeGatewayChannelCustomizationSettingsNormalizesModelsAsRequestCondition(t *testing.T) {
+	settings := decodeGatewayChannelCustomizationSettings(t, `{
+		"rules": [{
+			"name": "map-by-model",
+			"enabled": true,
+			"action": "group_mapping",
+			"target_group_id": 88,
+			"api_key_names": ["maibon-gpt"],
+			"models": [" gpt-6-astra ", "GPT-6-ASTRA", ""]
+		}]
+	}`)
+
+	require.NoError(t, NormalizeGatewayChannelCustomizationSettings(&settings))
+	require.Equal(t, []string{"gpt-6-astra"}, settings.Rules[0].Models)
+}
+
 func TestNormalizeGatewayChannelCustomizationSettingsRejectsUnknownAction(t *testing.T) {
 	settings := decodeGatewayChannelCustomizationSettings(t, `{
 		"rules": [{
