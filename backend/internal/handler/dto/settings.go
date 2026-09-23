@@ -546,6 +546,7 @@ type GatewayChannelCustomizationRule struct {
 	Methods                 []string            `json:"methods"`
 	ExactPaths              []string            `json:"exact_paths"`
 	PathPrefixes            []string            `json:"path_prefixes"`
+	Models                  []string            `json:"models"`
 	UserAgentContains       []string            `json:"user_agent_contains"`
 	QueryParams             map[string][]string `json:"query_params"`
 	RequestMessageMatchMode string              `json:"request_message_match_mode"`

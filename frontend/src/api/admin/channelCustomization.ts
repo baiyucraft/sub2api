@@ -34,6 +34,7 @@ export interface ChannelCustomizationRule {
   methods: string[]
   exact_paths: string[]
   path_prefixes: string[]
+  models: string[]
   user_agent_contains: string[]
   query_params: ChannelCustomizationQueryParams
   request_message_match_mode?: 'exact' | 'regex'
