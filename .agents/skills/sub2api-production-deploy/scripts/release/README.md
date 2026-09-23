@@ -2,7 +2,7 @@
 
 ## Fork 版本命名
 
-Fork 版本号默认使用官方源码 `VERSION` 并追加 `-baiyu`，不补写或重复 `0.1.` 前缀。例如官方源版本为 `0.176` 时，fork 版本必须是 `0.176-baiyu`。若目标 40 位 commit 被精确正式 SemVer tag（`vX.Y.Z`）指向而 tag 内源码 `VERSION` 明确滞后，可以该精确 tag 版本作为源版本覆盖；必须证明 tag 精确解析到目标 commit，禁止使用分支名、预期版本或移动 tag。release manifest 的 profile 版本通过 `--build-arg VERSION` 写入候选镜像并由 validator 复核。最终 fork 版本每变化一次，就新增下一个连续整数 profile，parent 指向上一个当前 profile；即使没有 migration 也必须创建新 profile并使用 `new_migrations=[]`。历史 profile 的版本、parent、Gate、candidate、migration 和 checksum 不回写。当前映射为 profile 242 → `0.1.183-baiyu`（历史）、243 → `0.1.184-baiyu`（历史）、244 → `0.1.185-baiyu`（历史）、245 → `0.2.0-baiyu`（历史，新增 migration 256–262，其中 260/261 为每日活动与充值来源事件，262 为额外成本审计流水）、246 → `0.2.1-baiyu`（历史，parent 245，官方 migration 232/233/234/234 原字节重编号为 263–266）、247 -> 0.2.2-baiyu (historical, parent 246, official migration 235 renumbered to 267); 248 -> 0.2.3-baiyu (historical, parent 247, official migration 236 renumbered to 268); 249 -> 0.2.4-baiyu (historical, parent 248, official MiniMax migration renumbered to 269); 250 -> 0.2.4-baiyu (historical, parent 249, account RPM migration 270); 251 -> 0.2.4-baiyu (historical, parent 250, migrations 271–273 for native Zhipu monitor mode, model-level upstream routes, and probe minimum input tokens); 252 -> 0.2.5-baiyu (historical, parent 251, migrations 274–276); 253 -> 0.2.5-baiyu (historical, parent 252, migration 277 for user group rate percentage persistence); 254 -> 0.2.7-baiyu (current, parent 253, migration 278 for fork group TTFT Guard policies; official tag v0.2.7 overrides the lagging source VERSION for release identity).
+Fork 版本号默认使用官方源码 `VERSION` 并追加 `-baiyu`，不补写或重复 `0.1.` 前缀。例如官方源版本为 `0.176` 时，fork 版本必须是 `0.176-baiyu`。若目标 40 位 commit 被精确正式 SemVer tag（`vX.Y.Z`）指向而 tag 内源码 `VERSION` 明确滞后，可以该精确 tag 版本作为源版本覆盖；必须证明 tag 精确解析到目标 commit，禁止使用分支名、预期版本或移动 tag。release manifest 的 profile 版本通过 `--build-arg VERSION` 写入候选镜像并由 validator 复核。最终 fork 版本每变化一次，就新增下一个连续整数 profile，parent 指向上一个当前 profile；即使没有 migration 也必须创建新 profile并使用 `new_migrations=[]`。历史 profile 的版本、parent、Gate、candidate、migration 和 checksum 不回写。当前映射为 profile 242 → `0.1.183-baiyu`（历史）、243 → `0.1.184-baiyu`（历史）、244 → `0.1.185-baiyu`（历史）、245 → `0.2.0-baiyu`（历史，新增 migration 256–262，其中 260/261 为每日活动与充值来源事件，262 为额外成本审计流水）、246 → `0.2.1-baiyu`（历史，parent 245，官方 migration 232/233/234/234 原字节重编号为 263–266）、247 -> 0.2.2-baiyu (historical, parent 246, official migration 235 renumbered to 267); 248 -> 0.2.3-baiyu (historical, parent 247, official migration 236 renumbered to 268); 249 -> 0.2.4-baiyu (historical, parent 248, official MiniMax migration renumbered to 269); 250 -> 0.2.4-baiyu (historical, parent 249, account RPM migration 270); 251 -> 0.2.4-baiyu (historical, parent 250, migrations 271–273 for native Zhipu monitor mode, model-level upstream routes, and probe minimum input tokens); 252 -> 0.2.5-baiyu (historical, parent 251, migrations 274–276); 253 -> 0.2.5-baiyu (historical, parent 252, migration 277 for user group rate percentage persistence); 254 -> 0.2.7-baiyu (historical, parent 253, migrations 278–280 for fork group TTFT Guard policies, proxy IP groups, and plugin runtime state; official tag v0.2.7 overrides the lagging source VERSION for release identity); 255 -> 0.2.8-baiyu (current, parent 254, upstream migrations 281_content_moderation_engine_meta.sql, 282_channel_reasoning_effort_multipliers.sql, 283_affiliate_ledger_operation_id.sql; official 238b/239/240 renumbered to the local sequence). Profile 254 identity and checksums remain immutable.
 
 标准入口（启动后调用端可断开）：
 
@@ -67,8 +67,8 @@ VM 插件管理 API 地址从 `.ssh.local` 的 `servers.local_vm.host` 解析，
 仅用于本地 VM `sub2api-dev:8211` 展示的隔离入口：
 
 ```text
-python .agents/skills/sub2api-production-deploy/scripts/release.py vm-only-validate --profile 254 --commit <40位完整SHA>
-python .agents/skills/sub2api-production-deploy/scripts/release.py vm-only-switch --profile 254 --gate .tmp/releases/<release-id>/vm-only-gate
+python .agents/skills/sub2api-production-deploy/scripts/release.py vm-only-validate --profile 255 --commit <40位完整SHA>
+python .agents/skills/sub2api-production-deploy/scripts/release.py vm-only-switch --profile 255 --gate .tmp/releases/<release-id>/vm-only-gate
 ```
 
 该入口只连接 `local_vm`，不读取生产快照、不连接 DMIT、RackNerd 或备份机；
@@ -259,7 +259,7 @@ profile 239 继续使用版本 `0.1.177-baiyu`，完整继承 profile 238 的 54
 migration 232 之后重新出现的非 Grok/Composite 视频价格，并增加数据库约束阻止再次漂移。
 profile 233–238 的历史证据保持不可变。
 
-VM Gate signer、DR signer、备份机 verifier/promoter 当前同时保留 legacy profile 195、199、202、206、207、208、209、210、212、213、215、232–241，以及 Gate v2 profile 242–254 合同；254 是当前 profile，VM signer 自测和备份机目录 bootstrap 都必须覆盖它。发布资产定向回归至少执行：
+VM Gate signer、DR signer、备份机 verifier/promoter 当前同时保留 legacy profile 195、199、202、206、207、208、209、210、212、213、215、232–241，以及 Gate v2 profile 242–255 合同；254 为历史 profile，255 是当前 profile，VM signer 自测和备份机目录 bootstrap 都必须覆盖它。发布资产定向回归至少执行：
 
 ```text
 python -m pytest deploy/tests/release/test_release_core.py deploy/tests/release/test_production_release.py deploy/tests/release/test_signer_assets.py
