@@ -205,22 +205,27 @@ const rateSeries = computed(() => [{
   pointRadius: 0,
   pointHoverRadius: 4,
 }])
+let requestVersion = 0
 
 async function load(id: number) {
+  const version = ++requestVersion
   detail.value = null
   loading.value = true
   try {
-    detail.value = await fetchChannelMonitorDetail(id, props.range)
+    const result = await fetchChannelMonitorDetail(id, props.range)
+    if (version === requestVersion) detail.value = result
   } catch (err: unknown) {
+    if (version !== requestVersion) return
     appStore.showError(extractApiErrorMessage(err, t('channelStatus.detailLoadError')))
   } finally {
-    loading.value = false
+    if (version === requestVersion) loading.value = false
   }
 }
 
 watch(
   () => [props.show, props.monitorId, props.range] as const,
-  ([show, id]) => {
+  ([show, id], _, onCleanup) => {
+    onCleanup(() => { requestVersion++ })
     if (!show) {
       detail.value = null
       return

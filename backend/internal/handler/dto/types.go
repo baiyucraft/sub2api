@@ -222,6 +222,7 @@ type Account struct {
 	CredentialsStatus         map[string]bool                   `json:"credentials_status,omitempty"`
 	Extra                     map[string]any                    `json:"extra"`
 	OllamaCloudUsage          *service.OllamaCloudUsageState    `json:"ollama_cloud_usage,omitempty"`
+	OpenCodeGoUsage           *service.OpenCodeGoUsageState     `json:"opencode_go_usage,omitempty"`
 	ProxyID                   *int64                            `json:"proxy_id"`
 	ProxyIPGroupID            *int64                            `json:"proxy_ip_group_id,omitempty"`
 	ProxyIPGroup              *ProxyIPGroup                     `json:"proxy_ip_group,omitempty"`
@@ -432,6 +433,7 @@ type AccountListItem struct {
 	CredentialsStatus map[string]bool                `json:"credentials_status,omitempty"`
 	Extra             map[string]any                 `json:"extra,omitempty"`
 	OllamaCloudUsage  *service.OllamaCloudUsageState `json:"ollama_cloud_usage,omitempty"`
+	OpenCodeGoUsage   *service.OpenCodeGoUsageState  `json:"opencode_go_usage,omitempty"`
 
 	ProxyID                 *int64        `json:"proxy_id"`
 	ProxyIPGroupID          *int64        `json:"proxy_ip_group_id,omitempty"`

@@ -1,11 +1,12 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 
 import GroupRateMultipliersModal from '../GroupRateMultipliersModal.vue'
 
-const { getGroupRateMultipliers, batchSetGroupRateMultipliers, showSuccess, showError } = vi.hoisted(() => ({
+const { getGroupRateMultipliers, batchSetGroupRateMultipliers, listUsers, showSuccess, showError } = vi.hoisted(() => ({
   getGroupRateMultipliers: vi.fn(),
   batchSetGroupRateMultipliers: vi.fn(),
+  listUsers: vi.fn(),
   showSuccess: vi.fn(),
   showError: vi.fn(),
 }))
@@ -13,7 +14,7 @@ const { getGroupRateMultipliers, batchSetGroupRateMultipliers, showSuccess, show
 vi.mock('@/api/admin', () => ({
   adminAPI: {
     groups: { getGroupRateMultipliers, batchSetGroupRateMultipliers },
-    users: { list: vi.fn() },
+    users: { list: listUsers },
   },
 }))
 
@@ -69,13 +70,19 @@ const mountModal = async () => {
 }
 
 describe('GroupRateMultipliersModal percentage persistence', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
   beforeEach(() => {
     getGroupRateMultipliers.mockReset()
     batchSetGroupRateMultipliers.mockReset()
+    listUsers.mockReset()
     showSuccess.mockReset()
     showError.mockReset()
     getGroupRateMultipliers.mockResolvedValue([serverEntry])
     batchSetGroupRateMultipliers.mockResolvedValue({ message: 'ok' })
+    listUsers.mockResolvedValue({ items: [{ id: 8, email: 'new@example.test', status: 'active' }] })
     vi.spyOn(window, 'confirm').mockReturnValue(true)
   })
 
@@ -134,5 +141,35 @@ describe('GroupRateMultipliersModal percentage persistence', () => {
     await clearWrapper.get('[data-test="save-rate-multipliers"]').trigger('click')
     await flushPromises()
     expect(batchSetGroupRateMultipliers).toHaveBeenLastCalledWith(3, [])
+  })
+
+  it.each(['', '-1', 'invalid'])('does not add invalid new percentage %j', async (value) => {
+    const wrapper = await mountModal()
+    await wrapper.get('input[type="text"]').setValue('new')
+    await new Promise(resolve => setTimeout(resolve, 350))
+    await flushPromises()
+    await wrapper.findAll('button').find(b => b.text().includes('new@example.test'))!.trigger('click')
+    await wrapper.get('[data-test="new-rate-percent-input"]').setValue('100')
+    await wrapper.get('[data-test="new-rate-percent-input"]').setValue(value)
+    const add = wrapper.findAll('button').find(b => b.text() === 'common.add')!
+    expect(add.attributes('disabled')).toBeDefined()
+    await add.trigger('click')
+    expect(wrapper.find('[data-test="entry-rate-percent-8"]').exists()).toBe(false)
+  })
+
+  it.each([0, 25, 100])('saves new percentage %s including explicit zero', async (value) => {
+    const wrapper = await mountModal()
+    await wrapper.get('input[type="text"]').setValue('new')
+    await new Promise(resolve => setTimeout(resolve, 350))
+    await flushPromises()
+    await wrapper.findAll('button').find(b => b.text().includes('new@example.test'))!.trigger('click')
+    await wrapper.get('[data-test="new-rate-percent-input"]').setValue(String(value))
+    await wrapper.findAll('button').find(b => b.text() === 'common.add')!.trigger('click')
+    expect((wrapper.get('[data-test="entry-rate-percent-8"]').element as HTMLInputElement).value).toBe(String(value))
+    await wrapper.get('[data-test="save-rate-multipliers"]').trigger('click')
+    await flushPromises()
+    expect(showError).not.toHaveBeenCalled()
+    if (value === 0) expect(window.confirm).toHaveBeenCalled()
+    expect(batchSetGroupRateMultipliers).toHaveBeenCalledWith(3, expect.arrayContaining([{ user_id: 8, rate_percent: value }]))
   })
 })

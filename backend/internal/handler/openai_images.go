@@ -169,7 +169,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 			sessionHash,
 			routingModel,
 			failedAccountIDs,
-			parsed.RequiredCapability,
+			parsed.RequiredCapabilityForModel(channelMapping.MappedModel),
 			parsed.SizeTier,
 			func() string {
 				if apiKey.Group != nil && apiKey.Group.AllowImageGeneration && apiKey.Group.ImageCostRoutingEnabled {

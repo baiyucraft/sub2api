@@ -1,14 +1,38 @@
 {
   "schema": 1,
-  "catalog_version": "2026-09-21",
+  "catalog_version": "2026-09-23",
   "version_contract": {
     "upstream_path": "backend/cmd/server/VERSION",
     "fork_suffix": "-baiyu",
     "format": "official release version + -baiyu",
     "official_release_versions": {
-      "aea725f2ea644d5592d0bbb1d63b607efa7e200a": "0.2.7"
+      "aea725f2ea644d5592d0bbb1d63b607efa7e200a": "0.2.7",
+      "a3eb7ef302961cba716dc78b39b93b60c467db0e": "0.2.8"
     }
   },
+  "upstream_overlap_reviews": [
+    {
+      "id": "upstream-pr-7509-gpt6-sol-luna-opus55",
+      "target_commit": "a3eb7ef302961cba716dc78b39b93b60c467db0e",
+      "official_merge_commit": "4318a63bd886b1a64c49015979c61bf34eca19ff",
+      "fork_source_commits": ["f9633c4f51c15cfc7460d610e899431d0a7c1aaa", "6bf1ab9197e747ddbdd14798f36fef4a2a8561e1"],
+      "status": "upstream_covered",
+      "maintenance": "upstream",
+      "evidence": ["官方目标包含 PR #7509 的合并提交，模型、协议转换、计费和前端入口已由官方实现及回归测试覆盖", "保留 fork 提前引入的两个提交及作者的 Git 历史，不重复维护同义实现"],
+      "required_tests": ["backend/internal/service/billing_service_test.go", "backend/internal/service/openai_codex_models_service_test.go", "backend/internal/service/gateway_forward_as_responses_test.go", "frontend/src/composables/__tests__/useModelWhitelist.spec.ts"]
+    },
+    {
+      "id": "grok-4.7-domain-review",
+      "target_commit": "a3eb7ef302961cba716dc78b39b93b60c467db0e",
+      "official_source_commit": "935db68517f8beef407db3da016eaef1799fce25",
+      "fork_source_commit": "c41574a3ab1eaa05b4d9b61bec97ca87d9c782d5",
+      "status": "domain_review_required",
+      "evidence": ["官方目标已有 grok-4.7 的 xAI 模型与别名、Grok 路由和推理档位、计费回退与价格 JSON、OpenCode Go 目录及前端白名单", "本地与官方提交涉及相同的 12 个文件，但 patch-id 不同，不能仅凭文件重叠判定所有 fork 行为被覆盖"],
+      "review_domains": ["模型目录和别名", "Grok Responses/Chat 路由与推理档位", "默认定价、长上下文和缓存", "Codex 图像输入、OpenCode Go、runtime build 映射", "前端模型白名单和预设"],
+      "maintenance_rule": "逐故障域对照 fork 与官方目标实现及测试；完整覆盖项归官方维护，未覆盖或部分覆盖的最小 fork 增量绑定现有或新增精确扩展 ID、路径、不变量和回归测试；不得新增整目录豁免",
+      "required_tests": ["backend/internal/pkg/xai/models_test.go", "backend/internal/service/billing_service_test.go", "backend/internal/service/openai_responses_tool_schema_test.go", "frontend/src/composables/__tests__/useModelWhitelist.spec.ts"]
+    }
+  ],
   "adopted_upstream_tranches": [
     {
       "id": "upstream-main-2026-09-18-unreleased-0.2.5",
@@ -76,21 +100,25 @@
     "247": {"version":"0.2.2-baiyu","parent":"246","gate_schema":2,"new_migrations":["267_group_model_allowlist.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
     "248": {"version":"0.2.3-baiyu","parent":"247","gate_schema":2,"new_migrations":["268_group_model_allowlist_repair.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
     "252": {"version":"0.2.5-baiyu","parent":"251","gate_schema":2,"new_migrations":["274_opencode_go_platform.sql","275_purge_unlimited_user_platform_quotas.sql","276_api_key_scheduling_mode.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
-    "253": {"version":"0.2.5-baiyu","parent":"252","gate_schema":2,"new_migrations":["277_user_group_rate_percent.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}}
+    "253": {"version":"0.2.5-baiyu","parent":"252","gate_schema":2,"new_migrations":["277_user_group_rate_percent.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
+    "254": {"version":"0.2.7-baiyu","parent":"253","gate_schema":2,"new_migrations":["278_fork_group_ttft_guard_policies.sql","279_proxy_ip_groups.sql","280_plugin_runtime_state.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}}
   },
   "current_profile": {
-    "id": "254",
+    "id": "255",
     "status": "pending",
-    "version": "0.2.7-baiyu",
-    "parent": "253",
+    "version": "0.2.8-baiyu",
+    "parent": "254",
     "gate_schema": 2,
-    "new_migrations": ["278_fork_group_ttft_guard_policies.sql", "279_proxy_ip_groups.sql", "280_plugin_runtime_state.sql"],
+    "new_migrations": ["281_content_moderation_engine_meta.sql", "282_channel_reasoning_effort_multipliers.sql", "283_affiliate_ledger_operation_id.sql"],
     "release_policy": {
       "compatibility_image": "production_current",
       "migration_source": "database_state"
     }
   },
   "migration_contracts": {
+    "281_content_moderation_engine_meta.sql": "0ca7cbaf70c5365dc9f2d580bb324f35a5bef77de2543299068b6e902d19b644",
+    "282_channel_reasoning_effort_multipliers.sql": "12a03c49e6c9c15edbbc992e36cbc140da849556176569fd987ade49610707ac",
+    "283_affiliate_ledger_operation_id.sql": "74da6bfc98405c437891be026cc53dc1f1909f89d2fc79c426bdfffcd709d38f",
     "159_upstream_configs.sql": "9df20ba0512a2f8b10fcea84d3483c04075edef2d8457be8751f6c124f9e3466",
     "173_upstream_operations.sql": "047365e6a5f9bf92e7c64f5d354a5500ccaa67115cac817873abd69b157da065",
     "174_upstream_operations_indexes_notx.sql": "a77368341122ff2cff9390a6a9b9bc3f8301fe86a77a3773ffa715fe328cd80a",
@@ -157,6 +185,9 @@
     "280_plugin_runtime_state.sql": "700479dfaf0ecee741ded67df3e670a53433a5a486a7c7b2d87d27c6d48d8341"
   },
   "migration_renames": {
+    "official_238b_content_moderation_engine_meta": "281_content_moderation_engine_meta.sql",
+    "official_239_channel_reasoning_effort_multipliers": "282_channel_reasoning_effort_multipliers.sql",
+    "official_240_affiliate_ledger_operation_id": "283_affiliate_ledger_operation_id.sql",
     "official_221": "234_group_model_pricing.sql",
     "official_222": "235_group_usage_daily_rollups.sql",
     "official_223": "236_group_usage_rollup_timezone.sql",
@@ -175,6 +206,9 @@
     "official_238_purge_unlimited_user_platform_quotas": "275_purge_unlimited_user_platform_quotas.sql"
   },
   "migration_assertions": {
+    "backend/migrations/281_content_moderation_engine_meta.sql": ["ADD COLUMN IF NOT EXISTS engine_meta JSONB"],
+    "backend/migrations/282_channel_reasoning_effort_multipliers.sql": ["reasoning_effort_multipliers", "max_reasoning_effort_multiplier", "channel_model_pricing", "channel_account_stats_model_pricing"],
+    "backend/migrations/283_affiliate_ledger_operation_id.sql": ["ADD COLUMN IF NOT EXISTS operation_id VARCHAR(64)", "CREATE UNIQUE INDEX IF NOT EXISTS idx_user_affiliate_ledger_operation_id"],
     "backend/migrations/233_upstream_management.sql": [
       "CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_upstream_key_id_active",
       "CREATE TABLE IF NOT EXISTS upstream_health_observations",
@@ -805,7 +839,7 @@
     {
       "id": "migration-profile-contract",
       "title": "Migration、profile、版本与历史证据",
-      "description": "维护 fork migration、官方重编号、历史 profile 233–253、当前 profile 254、版本递增、checksum 和 compatibility identity。",
+      "description": "维护 fork migration、官方重编号、历史 profile 233–254、当前 profile 255、版本递增、checksum 和 compatibility identity。",
       "ownership": "fork",
       "risk_level": "critical",
       "paths": [
@@ -833,11 +867,15 @@
         "0.2.3-baiyu",
         "0.2.4-baiyu",
         "0.2.5-baiyu",
-        "0.2.7-baiyu"
+        "0.2.7-baiyu",
+        "0.2.8-baiyu"
       ],
       "api_routes": [],
       "settings_keys": [],
       "migration_files": [
+        "281_content_moderation_engine_meta.sql",
+        "282_channel_reasoning_effort_multipliers.sql",
+        "283_affiliate_ledger_operation_id.sql",
         "233_upstream_management.sql",
         "234_group_model_pricing.sql",
         "235_group_usage_daily_rollups.sql",
@@ -890,6 +928,10 @@
         "backend/migrations/precise_upstream_effective_rate_migration_test.go",
         "backend/migrations/channel_monitor_streaming_ttft_migration_test.go",
         "backend/migrations/profile_254_migrations_test.go",
+        "backend/migrations/content_moderation_engine_meta_test.go",
+        "backend/migrations/channel_reasoning_effort_multipliers_migration_test.go",
+        "backend/internal/repository/channel_reasoning_effort_migration_integration_test.go",
+        "backend/internal/repository/affiliate_repo_test.go",
         "backend/migrations/group_force_openai_fast_migration_test.go",
         "backend/migrations/group_free_openai_fast_migration_test.go",
         "backend/migrations/daily_activity_recharge_events_migration_test.go",
@@ -906,11 +948,11 @@
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_production_release.py"
       ],
       "invariants": [
-        "历史 profile 233–253 不回写",
-        "当前 profile 254 对应 0.2.7-baiyu，parent 为 253，new_migrations 精确为 [278_fork_group_ttft_guard_policies.sql, 279_proxy_ip_groups.sql, 280_plugin_runtime_state.sql]，三项原始文件 SHA-256 必须与 migration_contracts 登记一致；profile 253 保持 migration 277 的不可变历史合同",
+        "历史 profile 233–254 不回写；profile 254 对应 0.2.7-baiyu，parent 为 253，new_migrations 精确为 [278_fork_group_ttft_guard_policies.sql, 279_proxy_ip_groups.sql, 280_plugin_runtime_state.sql]，三项原始文件 SHA-256 必须与 migration_contracts 登记一致",
+        "当前 profile 255 对应 0.2.8-baiyu，parent 为 254，new_migrations 精确为 [281_content_moderation_engine_meta.sql, 282_channel_reasoning_effort_multipliers.sql, 283_affiliate_ledger_operation_id.sql]；官方原始 238b/239/240 按内容仅重编号新文件，SQL 字节不变，先执行历史 265/278–280 再执行 281–283；三项 Git 原始字节 checksum 与 migration_contracts 一致",
         "fork VERSION 每变化一次必须新增下一个连续整数 profile，即使无 migration 也使用 new_migrations=[]",
         "profile parent 必须指向此前当前 profile，禁止改写旧 profile 追随新版本",
-        "官方 migration 按内容重编号，不覆盖 fork 已发布编号；本次官方 232/233/234 的四项依序重编号为 263–266",
+        "官方 migration 按内容重编号，不覆盖 fork 已发布编号；此前官方 232/233/234 的四项依序重编号为 263–266",
         "255_account_proxy_bindings.sql 是单账号多代理回退后保留的无害兼容残留，代码不得重新依赖该表",
         "fork VERSION 始终是官方正式版本 + -baiyu；正式 tag 源码 VERSION 滞后时按目标 commit 固定 release version",
         "审计目录的 migration checksum 绑定 Git 原始文件字节，发布 manifest checksum 绑定 strip 后的 SQL 文本，两种证据必须分别记录且不得混用",
@@ -934,10 +976,10 @@
       "id": "prompt-security-audit", "title": "Prompt 输入与安全审计扩展", "description": "Prompt audit 运行时与安全审计实现采用 upstream；fork 仅保留官方 migration 181/182 到本地 193/194 的编号适配和对应集成回归。", "ownership": "upstream-adopted", "risk_level": "medium", "paths": ["backend/internal/securityaudit/**", "backend/migrations/193_prompt_audit.sql", "backend/migrations/194_prompt_audit_full_prompt.sql"], "symbols": ["prompt_audit_", "package securityaudit"], "api_routes": [], "settings_keys": [], "migration_files": ["193_prompt_audit.sql", "194_prompt_audit_full_prompt.sql"], "required_tests": ["backend/internal/securityaudit/prompt_config_test.go", "backend/internal/securityaudit/prompt_repository_integration_test.go"], "invariants": ["securityaudit 运行时代码保持与采用的 upstream 实现一致，不建立 fork 分支", "fork migration 193/194 分别对应 upstream 181/182，只适配文件名和 profile 编号，不改变 SQL 与运行语义", "不把 prompt 原文写入发布日志"]
     },
     {
-      "id": "upstream-observation-preference", "title": "上游观测偏好持久化", "description": "将管理员关闭或开启观测作为 upstream Key 的持久化偏好，控制定时探针参与范围，同时保留手动探测能力。", "ownership": "fork", "risk_level": "high", "paths": ["backend/ent/schema/upstream_key.go", "backend/internal/service/upstream_health.go", "backend/internal/service/upstream_config.go", "backend/migrations/240_upstream_observation_preference.sql", ".agents/skills/sub2api-production-deploy/scripts/maintenance/release/migration-240-assert.sh"], "symbols": ["observation_enabled", "UpstreamHealthRegistry"], "api_routes": ["/admin/upstream-management/keys", "/keys/:id/observation"], "settings_keys": [], "migration_files": ["240_upstream_observation_preference.sql"], "required_tests": ["backend/internal/service/upstream_health_service_test.go", "backend/migrations/observation_preference_migration_test.go", ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_release_core.py"], "invariants": ["管理员关闭观测后同步、重启、软归档和恢复均保持关闭，只有管理员主动开启才能恢复定时探针", "关闭观测的 Key 仍允许手动探测但不执行定时探针", "观测偏好冲突或不可证明的历史回填在 preflight 阶段 fail-closed", "migration 240 与 profile 240 已成为不可变历史证据，当前 profile 254 只继承该合同"]
+    "id": "upstream-observation-preference", "title": "上游观测偏好持久化", "description": "将管理员关闭或开启观测作为 upstream Key 的持久化偏好，控制定时探针参与范围，同时保留手动探测能力。", "ownership": "fork", "risk_level": "high", "paths": ["backend/ent/schema/upstream_key.go", "backend/internal/service/upstream_health.go", "backend/internal/service/upstream_config.go", "backend/migrations/240_upstream_observation_preference.sql", ".agents/skills/sub2api-production-deploy/scripts/maintenance/release/migration-240-assert.sh"], "symbols": ["observation_enabled", "UpstreamHealthRegistry"], "api_routes": ["/admin/upstream-management/keys", "/keys/:id/observation"], "settings_keys": [], "migration_files": ["240_upstream_observation_preference.sql"], "required_tests": ["backend/internal/service/upstream_health_service_test.go", "backend/migrations/observation_preference_migration_test.go", ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_release_core.py"], "invariants": ["管理员关闭观测后同步、重启、软归档和恢复均保持关闭，只有管理员主动开启才能恢复定时探针", "关闭观测的 Key 仍允许手动探测但不执行定时探针", "观测偏好冲突或不可证明的历史回填在 preflight 阶段 fail-closed", "migration 240 与 profile 240 已成为不可变历史证据，当前 profile 255 只继承该合同"]
     },
     {
-      "id": "upstream-precise-effective-rate", "title": "上游精确实际倍率", "description": "以 source_rate × recharge_rate 的十位十进制定点结果作为当前 Key、派生账号、图片成本、usage 快照和同 Priority 调度排序的权威实际倍率。", "ownership": "fork", "risk_level": "critical", "paths": ["backend/ent/schema/upstream_key.go", "backend/ent/schema/account.go", "backend/ent/schema/usage_log.go", "backend/internal/service/upstream_config.go", "backend/internal/service/upstream_key_image_pricing.go", "backend/internal/service/openai_account_scheduler.go", "backend/internal/repository/account_repo.go", "backend/migrations/241_precise_upstream_effective_rate.sql", ".agents/skills/sub2api-production-deploy/scripts/maintenance/release/migration-241-assert.sh"], "symbols": ["source_rate_multiplier", "rate_multiplier", "NormalizeUpstreamActualRate", "effective_rate"], "api_routes": ["/admin/upstream-management/keys"], "settings_keys": [], "migration_files": ["241_precise_upstream_effective_rate.sql"], "required_tests": ["backend/internal/service/upstream_operations_test.go", "backend/migrations/precise_upstream_effective_rate_migration_test.go", ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_release_core.py"], "invariants": ["effective rate 始终等于 source rate × recharge rate，保留 10 位小数，0 为合法值且不向上取整到两位", "Priority 仍为整数层级，同 Priority 内按精确 effective rate 决胜，0.045 必须排在 0.05 前", "图片最终成本、未来 usage 快照、Redis scheduler metadata 和调度日志使用精确实际倍率，历史 usage 不回算", "不可表示倍率在 preflight 阶段 fail-closed", "migration 241 与 profile 240 已成为不可变历史证据，当前 profile 254 只继承该合同"]
+      "id": "upstream-precise-effective-rate", "title": "上游精确实际倍率", "description": "以 source_rate × recharge_rate 的十位十进制定点结果作为当前 Key、派生账号、图片成本、usage 快照和同 Priority 调度排序的权威实际倍率。", "ownership": "fork", "risk_level": "critical", "paths": ["backend/ent/schema/upstream_key.go", "backend/ent/schema/account.go", "backend/ent/schema/usage_log.go", "backend/internal/service/upstream_config.go", "backend/internal/service/upstream_key_image_pricing.go", "backend/internal/service/openai_account_scheduler.go", "backend/internal/repository/account_repo.go", "backend/migrations/241_precise_upstream_effective_rate.sql", ".agents/skills/sub2api-production-deploy/scripts/maintenance/release/migration-241-assert.sh"], "symbols": ["source_rate_multiplier", "rate_multiplier", "NormalizeUpstreamActualRate", "effective_rate"], "api_routes": ["/admin/upstream-management/keys"], "settings_keys": [], "migration_files": ["241_precise_upstream_effective_rate.sql"], "required_tests": ["backend/internal/service/upstream_operations_test.go", "backend/migrations/precise_upstream_effective_rate_migration_test.go", ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_release_core.py"], "invariants": ["effective rate 始终等于 source rate × recharge rate，保留 10 位小数，0 为合法值且不向上取整到两位", "Priority 仍为整数层级，同 Priority 内按精确 effective rate 决胜，0.045 必须排在 0.05 前", "图片最终成本、未来 usage 快照、Redis scheduler metadata 和调度日志使用精确实际倍率，历史 usage 不回算", "不可表示倍率在 preflight 阶段 fail-closed", "migration 241 与 profile 240 已成为不可变历史证据，当前 profile 255 只继承该合同"]
     },
     {
       "id": "upstream-model-alias-sync", "title": "全局上游模型别名同步", "description": "在上游管理设置中维护全局 source→target 模型别名，并在 sync_managed 账号下一次模型同步时与自动 identity 映射、管理员手工映射合并。", "ownership": "fork", "risk_level": "high", "paths": ["backend/internal/service/upstream_config.go", "backend/internal/service/upstream_model_sync.go", "backend/internal/service/upstream_model_alias_rules.go", "backend/internal/service/openai_gateway_*.go", "backend/internal/repository/account_repo.go", "backend/internal/handler/admin/upstream_management_handler.go", "frontend/src/api/admin/upstreamManagement.ts", "frontend/src/components/admin/account/UpstreamManagementSettingsDialog.vue", "frontend/src/i18n/locales/zh/admin/upstreamManagement.ts", "frontend/src/i18n/locales/en/admin/upstreamManagement.ts"], "symbols": ["NormalizeUpstreamModelAliasRules", "SettingKeyUpstreamModelAliasRules", "SyncUpstreamAccountModels", "PersistUpstreamModelSync"], "api_routes": ["/admin/upstream-management/settings"], "settings_keys": ["upstream_model_alias_rules"], "migration_files": [], "required_tests": ["backend/internal/service/upstream_model_alias_rules.go", "backend/internal/service/upstream_model_sync_test.go", "backend/internal/service/upstream_management_settings_test.go", "frontend/src/components/admin/account/UpstreamManagementSettingsDialog.vue"], "invariants": ["全局别名只作用于 sync_managed 上游账号，manual 账号保持手工映射语义", "保存设置只更新配置，不立即触发全量模型同步", "source 存在时生成 identity，source 缺失且 target 存在时生成 alias，两者均不存在时不生成", "自动映射按上一次 auto_mapping 快照识别并重算，管理员手工映射不被别名覆盖", "手工映射目标模型消失时清理，源模型消失但目标仍存在时保留", "同步失败保留旧 model_mapping 和 auto_mapping，不产生半更新状态", "成功映射、auto_mapping、同步状态、scheduler outbox 和账号快照失效保持原子可见", "别名规则、同步日志和状态不得包含 Token、Cookie、认证头、URL 或上游响应正文", "不新增 migration，profile 233–240 历史证据保持不变"]
