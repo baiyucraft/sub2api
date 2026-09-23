@@ -392,13 +392,18 @@ printf 'active_port=%s\n' "$active_port"
             base_urls = self._base_urls(node)
             base = "/tmp" if node in {"local_vm", "vm"} else "/opt/sub2api"
             remote_dir = self.runner.create_temp_dir(node, base, "plugin-release")
-            remote_target = posixpath.join(remote_dir, identity.path.name)
+            # Target and rollback archives may share a versioned filename.
+            # Distinct staging names prevent the rollback upload from replacing
+            # the bytes that the upgrade endpoint will read.
+            remote_target = posixpath.join(remote_dir, "candidate.s2plugin")
             self.runner.upload_file(node, identity.path, remote_target, 0o400)
             restore_map: dict[str, str] = {}
             for previous in previous_packages:
                 if previous.arch != identity.arch or previous.signature_status != "trusted":
                     raise RuntimeError("previous plugin package identity is not trusted for this architecture")
-                remote_previous = posixpath.join(remote_dir, previous.path.name)
+                if not re.fullmatch(r"[0-9a-f]{64}", previous.package_sha256):
+                    raise RuntimeError("previous plugin package SHA-256 is invalid")
+                remote_previous = posixpath.join(remote_dir, f"rollback-{previous.package_sha256}.s2plugin")
                 self.runner.upload_file(node, previous.path, remote_previous, 0o400)
                 restore_map[f"{previous.version}:{previous.binary_sha256}"] = remote_previous
 

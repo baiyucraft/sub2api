@@ -31,6 +31,7 @@ class FakeRunner:
             "local_vm": {"host": "192.168.31.199"},
         }
         self.uploads: list[tuple[str, Path, str, int]] = []
+        self.remote_files: dict[str, bytes] = {}
         self.run_calls: list[dict[str, object]] = []
         self.sensitive_calls: list[dict[str, object]] = []
 
@@ -46,6 +47,7 @@ class FakeRunner:
 
     def upload_file(self, node: str, local_path: Path, remote_path: str, mode: int) -> None:
         self.uploads.append((node, local_path, remote_path, mode))
+        self.remote_files[remote_path] = local_path.read_bytes()
 
     def run_with_sensitive_input(self, node, script, allowed, data, timeout=120):
         module = load_plugin_api()
@@ -223,6 +225,35 @@ class PluginAPIContractTest(unittest.TestCase):
             [f"0.0.9:{'d' * 64}"],
         )
         self.assertEqual(len(runner.uploads), 2)
+
+    def test_same_version_rollback_does_not_replace_candidate_bytes(self) -> None:
+        module = load_plugin_api()
+        runner = FakeRunner(result_values())
+        client = module.PluginAPIClient(runner)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            candidate = root / "candidate" / "baiyu.codex-state-0.1.0-linux-amd64.s2plugin"
+            rollback = root / "rollback" / candidate.name
+            candidate.parent.mkdir()
+            rollback.parent.mkdir()
+            candidate.write_bytes(b"signed-new-package")
+            rollback.write_bytes(b"signed-old-package")
+            previous = module.PackageIdentity(
+                path=rollback, arch="amd64", version="0.1.0",
+                package_sha256="c" * 64, binary_sha256="d" * 64,
+                key_id="production-key", signature_status="trusted",
+            )
+            client.apply(
+                node="local_vm", identity=self.identity(candidate),
+                credentials=module.encode_credentials("admin-key"),
+                restore_after=True, previous_packages=[previous],
+            )
+        payload = json.loads(runner.sensitive_calls[0]["data_before_clear"])
+        candidate_path = payload["target_package"]
+        rollback_path = payload["restore_packages"][f"0.1.0:{'d' * 64}"]
+        self.assertNotEqual(candidate_path, rollback_path)
+        self.assertEqual(runner.remote_files[candidate_path], b"signed-new-package")
+        self.assertEqual(runner.remote_files[rollback_path], b"signed-old-package")
 
     def test_remote_helper_uses_the_first_port_that_accepts_the_admin_api_key(self) -> None:
         module = load_plugin_api()
