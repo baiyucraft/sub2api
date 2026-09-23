@@ -49,27 +49,6 @@ func PluginUpgradeFailureDetails(err error) (stage string, ok bool) {
 	return upgradeErr.Stage, true
 }
 
-// PluginUpgradeFailureReason is a fixed, non-sensitive classification for
-// operator diagnostics. Never return the plugin response or RPC error text.
-func PluginUpgradeFailureReason(err error) string {
-	for _, candidate := range []struct {
-		target error
-		name   string
-	}{
-		{errPluginValidationRPC, "validation_rpc"},
-		{errPluginValidationEmpty, "validation_empty"},
-		{errPluginValidationRejected, "validation_rejected"},
-		{errPluginValidationCapability, "scoped_routing_missing"},
-		{errPluginValidationNormalized, "normalized_config_invalid"},
-		{errPluginValidationScope, "managed_scope_invalid"},
-	} {
-		if errors.Is(err, candidate.target) {
-			return candidate.name
-		}
-	}
-	return "unclassified"
-}
-
 func pluginUpgradeFailure(stage string, err error) error {
 	if err == nil {
 		return nil

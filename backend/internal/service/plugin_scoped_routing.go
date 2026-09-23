@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"sort"
 	"strings"
@@ -19,15 +18,6 @@ type pluginRequestMetadata struct {
 	ConfigRevision          uint64
 }
 type pluginRequestMetadataKey struct{}
-
-var (
-	errPluginValidationRPC        = errors.New("plugin scoped validation RPC failed")
-	errPluginValidationEmpty      = errors.New("plugin scoped validation returned no response")
-	errPluginValidationRejected   = errors.New("plugin scoped validation rejected configuration")
-	errPluginValidationCapability = errors.New("plugin scoped validation omitted scoped routing")
-	errPluginValidationNormalized = errors.New("plugin scoped validation returned invalid normalized configuration")
-	errPluginValidationScope      = errors.New("plugin scoped validation returned invalid scope")
-)
 
 type PluginAdmissionError struct {
 	AccountID int64
@@ -93,33 +83,21 @@ func normalizePluginScope(targets []*pluginv1.ManagedTarget) ([]PluginManagedTar
 
 func (r *pluginRuntime) validateScopedConfig(ctx context.Context, raw []byte) ([]byte, []PluginManagedTarget, error) {
 	validation, err := r.api.ValidateConfig(ctx, &pluginv1.ValidateConfigRequest{ConfigJson: raw})
-	if err != nil {
-		return nil, nil, fmt.Errorf("%w: %w", errPluginValidationRPC, err)
-	}
-	if validation == nil {
-		return nil, nil, errPluginValidationEmpty
-	}
-	if !validation.Valid {
-		return nil, nil, errPluginValidationRejected
-	}
-	if !validation.ScopedRouting {
-		return nil, nil, errPluginValidationCapability
+	if err != nil || validation == nil || !validation.Valid || !validation.ScopedRouting {
+		return nil, nil, errors.New("plugin scoped configuration validation failed")
 	}
 	canonical := validation.NormalizedConfigJson
 	if len(canonical) == 0 {
 		canonical = raw
 	}
 	if len(canonical) > pluginConfigMaxBytes || !json.Valid(canonical) {
-		return nil, nil, errPluginValidationNormalized
+		return nil, nil, errors.New("invalid normalized plugin configuration")
 	}
 	var object map[string]json.RawMessage
 	if json.Unmarshal(canonical, &object) != nil || object == nil {
-		return nil, nil, errPluginValidationNormalized
+		return nil, nil, errors.New("plugin configuration must be an object")
 	}
 	scope, err := normalizePluginScope(validation.ManagedTargets)
-	if err != nil {
-		return nil, nil, fmt.Errorf("%w: %w", errPluginValidationScope, err)
-	}
 	return canonical, scope, err
 }
 

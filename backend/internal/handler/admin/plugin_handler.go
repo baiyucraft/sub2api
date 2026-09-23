@@ -153,7 +153,7 @@ func (h *PluginHandler) Upgrade(c *gin.Context) {
 		}
 		// Keep the response stable and phase-only. Underlying errors may contain
 		// plugin configuration, proxy credentials, or runtime transport details.
-		slog.Error("plugin_upgrade_failed", "plugin_id", id, "stage", stage, "reason", service.PluginUpgradeFailureReason(err))
+		slog.Error("plugin_upgrade_failed", "plugin_id", id, "stage", stage)
 		response.ErrorWithDetails(c, http.StatusBadRequest, "插件升级失败", "PLUGIN_UPGRADE_FAILED", map[string]string{
 			"stage": stage,
 		})
