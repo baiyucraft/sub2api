@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 trap 'rc=$?; printf "vm_validate_failure_line=%s status=%s\\n" "$LINENO" "$rc"; exit "$rc"' ERR
-# Legacy Gate v1 profile allowlist; Gate v2 current profile is 254 and 242-253 remain historical.
+# Legacy Gate v1 profile allowlist; Gate v2 current profile is 255 and 242-254 remain historical.
 
 required_commands=(awk chmod cp curl date df diff docker find flock git grep gzip head id install jq ln mkdir mv rm sed seq sha256sum sleep sort ss stat tar tr xargs)
 for command_name in "${required_commands[@]}"; do
@@ -108,18 +108,23 @@ test_tag="sub2api:vm-test-$commit"
 profile=$(jq -er '.profile' "$manifest")
 manifest_schema=$(jq -er '.schema' "$manifest")
 if [[ "$manifest_schema" == 2 ]]; then
-  [[ "$profile" == 254 ]]
-  [[ "$release_id" =~ ^254-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
-  [[ "$version" == 0.2.7-baiyu ]]
+  [[ "$profile" == 254 || "$profile" == 255 ]]
+  [[ "$release_id" =~ ^(254|255)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
   [[ $(jq -er '.release_asset_layout' "$manifest") == skill-v1 ]]
   [[ $(jq -er '.vm_identity' "$manifest") == sub2api-dev ]]
   [[ $(jq -er '.origin' "$manifest") == https://github.com/baiyucraft/sub2api.git ]]
   [[ $(jq -er '.migration_catalog | type' "$manifest") == array ]]
   [[ $(jq -er '.catalog_sha256' "$manifest") =~ ^[0-9a-f]{64}$ ]]
   [[ $(jq -er '.checksum_policy_sha256' "$manifest") =~ ^[0-9a-f]{64}$ ]]
-  [[ $(jq -er '.parent_profile' "$manifest") == 253 ]]
-  [[ $(jq -er '.new_migrations | length' "$manifest") == 3 ]]
-  jq -e '.new_migrations == ["278_fork_group_ttft_guard_policies.sql", "279_proxy_ip_groups.sql", "280_plugin_runtime_state.sql"]' "$manifest" >/dev/null
+  if [[ "$profile" == 254 ]]; then
+    [[ "$version" == 0.2.7-baiyu ]]
+    [[ $(jq -er '.parent_profile' "$manifest") == 253 ]]
+    jq -e '.new_migrations == ["278_fork_group_ttft_guard_policies.sql", "279_proxy_ip_groups.sql", "280_plugin_runtime_state.sql"]' "$manifest" >/dev/null
+  else
+    [[ "$version" == 0.2.8-baiyu ]]
+    [[ $(jq -er '.parent_profile' "$manifest") == 254 ]]
+    jq -e '.new_migrations == ["281_content_moderation_engine_meta.sql", "282_channel_reasoning_effort_multipliers.sql", "283_affiliate_ledger_operation_id.sql"]' "$manifest" >/dev/null
+  fi
   recovery_gate_mode=$(jq -er '.recovery_gate.mode' "$manifest")
   [[ "$recovery_gate_mode" == fast || "$recovery_gate_mode" == specialized || "$recovery_gate_mode" == full ]]
   [[ -n "$production_snapshot" && -f "$production_snapshot" && ! -L "$production_snapshot" ]]
@@ -574,8 +579,8 @@ SQL
   fi
   exit 0
 fi
-[[ $release_id =~ ^(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
-[[ $profile == 182 || $profile == 187 || $profile == 191 || $profile == 192 || $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 || $profile == 240 || $profile == 241 || $profile == 242 || $profile == 243 || $profile == 244 || $profile == 245 || $profile == 246 || $profile == 247 || $profile == 248 || $profile == 249 || $profile == 250 || $profile == 251 || $profile == 252 || $profile == 253 || $profile == 254 ]]
+[[ $release_id =~ ^(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
+[[ $profile == 182 || $profile == 187 || $profile == 191 || $profile == 192 || $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 || $profile == 240 || $profile == 241 || $profile == 242 || $profile == 243 || $profile == 244 || $profile == 245 || $profile == 246 || $profile == 247 || $profile == 248 || $profile == 249 || $profile == 250 || $profile == 251 || $profile == 252 || $profile == 253 || $profile == 254 || $profile == 255 ]]
 [[ $release_id == "$profile-${commit:0:12}-"* ]]
 [[ $(jq -er '.schema' "$manifest") == 1 ]]
 [[ $(jq -er '.version' "$manifest") == "$version" ]]
