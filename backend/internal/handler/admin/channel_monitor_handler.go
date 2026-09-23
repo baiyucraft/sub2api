@@ -119,6 +119,7 @@ type channelMonitorResponse struct {
 	PrimaryStatus       string                               `json:"primary_status"`
 	PrimaryLatencyMs    *int                                 `json:"primary_latency_ms"`
 	PrimaryTTFTMs       *int                                 `json:"primary_ttft_ms"`
+	Availability24h     *float64                             `json:"availability_24h"`
 	Availability7d      float64                              `json:"availability_7d"`
 	ExtraModelsStatus   []dto.ChannelMonitorExtraModelStatus `json:"extra_models_status"`
 	// 请求自定义快照：前端编辑 / 展示「高级设置」用
@@ -317,6 +318,7 @@ func buildListItemResponse(m *service.ChannelMonitor, summary service.MonitorSta
 	resp.PrimaryStatus = summary.PrimaryStatus
 	resp.PrimaryLatencyMs = summary.PrimaryLatencyMs
 	resp.PrimaryTTFTMs = service.NormalizeChannelMonitorTTFT(summary.PrimaryTTFTMs)
+	resp.Availability24h = summary.Availability24h
 	resp.Availability7d = summary.Availability7d
 	resp.LatestQuota = summary.LatestQuota
 	resp.ExtraModelsStatus = make([]dto.ChannelMonitorExtraModelStatus, 0, len(summary.ExtraModels))

@@ -16,6 +16,8 @@ type monitorRateRepositoryStub struct {
 	rateQueryCalls      int
 	availabilityWindows []int
 	availabilityIDs     [][]int64
+	no24h               bool
+	zero24h             bool
 }
 
 func (s *monitorRateRepositoryStub) ListEnabled(context.Context) ([]*ChannelMonitor, error) {
@@ -31,9 +33,36 @@ func (s *monitorRateRepositoryStub) ComputeAvailabilityForMonitors(_ context.Con
 	s.availabilityIDs = append(s.availabilityIDs, append([]int64(nil), ids...))
 	out := make(map[int64][]*ChannelMonitorAvailability, len(ids))
 	for _, id := range ids {
-		out[id] = []*ChannelMonitorAvailability{{Model: "gpt", AvailabilityPct: float64(windowDays)}}
+		if windowDays == monitorAvailability24Hours && s.no24h {
+			continue
+		}
+		pct := float64(windowDays)
+		if windowDays == monitorAvailability24Hours && s.zero24h {
+			pct = 0
+		}
+		out[id] = []*ChannelMonitorAvailability{{Model: "gpt", TotalChecks: 10, AvailabilityPct: pct}}
 	}
 	return out, nil
+}
+
+func TestBatchMonitorStatusSummaryIncludesReal24hAndMissingHistory(t *testing.T) {
+	repo := &monitorRateRepositoryStub{}
+	svc := NewChannelMonitorService(repo, nil)
+	query := func() MonitorStatusSummary {
+		return svc.BatchMonitorStatusSummary(context.Background(), []int64{1}, map[int64]string{1: "gpt"}, nil)[1]
+	}
+	summary := query()
+	require.Equal(t, []int{monitorAvailability7Days, monitorAvailability24Hours}, repo.availabilityWindows)
+	require.NotNil(t, summary.Availability24h)
+	require.Equal(t, 1.0, *summary.Availability24h)
+	require.Equal(t, 7.0, summary.Availability7d)
+	repo.zero24h = true
+	summary = query()
+	require.NotNil(t, summary.Availability24h)
+	require.Zero(t, *summary.Availability24h)
+
+	repo.no24h = true
+	require.Nil(t, query().Availability24h)
 }
 
 func (s *monitorRateRepositoryStub) ListRecentHistoryForMonitors(context.Context, []int64, map[int64]string, int) (map[int64][]*ChannelMonitorHistoryEntry, error) {

@@ -301,7 +301,8 @@ type MonitorStatusSummary struct {
 	PrimaryStatus    string // 空字符串表示无历史
 	PrimaryLatencyMs *int
 	PrimaryTTFTMs    *int
-	Availability7d   float64 // 0-100，无历史时为 0
+	Availability24h  *float64 // nil if no primary-model probe in the past 24 hours
+	Availability7d   float64  // 0-100，无历史时为 0
 	ExtraModels      []ExtraModelStatus
 	LatestQuota      *domain.MonitorQuotaSnapshot // 主模型最近配额快照（配额模式）
 }
