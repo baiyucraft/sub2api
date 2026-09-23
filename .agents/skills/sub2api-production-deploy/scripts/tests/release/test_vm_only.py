@@ -17,6 +17,7 @@ sys.path.insert(0, str(DEPLOY_ROOT))
 from release.atomic import canonical_json
 from release.gate import verify_gate_v2, verify_vm_only_gate
 from release.manifest import create_vm_only_manifest
+from release.profiles import CURRENT_RELEASE_PROFILE, get_profile
 
 
 class VMOnlyGateTest(unittest.TestCase):
@@ -38,13 +39,13 @@ class VMOnlyGateTest(unittest.TestCase):
             "schema": 2,
             "vm_only_schema": 1,
             "scope": "vm-only",
-            "release_id": "254-aaaaaaaaaaaa-1-aaaaaaaa",
+            "release_id": "255-aaaaaaaaaaaa-1-aaaaaaaa",
             "created_at": int(time.time()),
             "expires_at": int(time.time()) + 3600,
             "commit_sha": "a" * 40,
             "origin": "https://github.com/baiyucraft/sub2api.git",
-            "profile": "254",
-            "version": "0.2.7-baiyu",
+            "profile": CURRENT_RELEASE_PROFILE,
+            "version": get_profile(CURRENT_RELEASE_PROFILE)["version"],
             "vm_identity": "sub2api-dev",
             "vm_port": 8211,
             "vm_data": "/opt/sub2api-deploy/data-dev",
@@ -63,30 +64,48 @@ class VMOnlyGateTest(unittest.TestCase):
             "vm_redis_boundary": True,
             "data_dev_boundary": True,
         }
-        document = {"gate_version": 2, "profile_id": 254, "manifest": manifest, "evidence": evidence}
+        document = {"gate_version": 2, "profile_id": int(CURRENT_RELEASE_PROFILE), "manifest": manifest, "evidence": evidence}
         (self.root / "gate.json").write_bytes(canonical_json(document) + b"\n")
         subprocess.run(["openssl", "pkeyutl", "-sign", "-inkey", str(self.private_key), "-rawin", "-in", str(self.root / "gate.json"), "-out", str(self.root / "gate.sig")], check=True, capture_output=True)
         return self.root
 
     def test_vm_only_gate_is_verified_by_separate_contract(self) -> None:
         bundle = self._bundle()
-        with mock.patch("release.gate.get_profile", return_value={"gate_schema": 2, "version": "0.2.7-baiyu", "origin": "https://github.com/baiyucraft/sub2api.git"}):
-            self.assertEqual(verify_vm_only_gate(bundle, self.public_key, "254")["manifest"]["scope"], "vm-only")
+        with mock.patch("release.gate.get_profile", return_value={"gate_schema": 2, "version": get_profile(CURRENT_RELEASE_PROFILE)["version"], "origin": "https://github.com/baiyucraft/sub2api.git"}):
+            self.assertEqual(verify_vm_only_gate(bundle, self.public_key, CURRENT_RELEASE_PROFILE)["manifest"]["scope"], "vm-only")
+
+    def test_historical_vm_only_gate_is_rejected(self) -> None:
+        bundle = self._bundle()
+        gate_path = bundle / "gate.json"
+        document = json.loads(gate_path.read_text(encoding="utf-8"))
+        document["profile_id"] = 254
+        document["manifest"].update(
+            release_id="254-aaaaaaaaaaaa-1-aaaaaaaa",
+            profile="254",
+            version="0.2.7-baiyu",
+        )
+        gate_path.write_bytes(canonical_json(document) + b"\n")
+        subprocess.run(
+            ["openssl", "pkeyutl", "-sign", "-inkey", str(self.private_key), "-rawin", "-in", str(gate_path), "-out", str(bundle / "gate.sig")],
+            check=True, capture_output=True,
+        )
+        with self.assertRaisesRegex(RuntimeError, "only accepts the current"):
+            verify_vm_only_gate(bundle, self.public_key, "254")
 
     def test_vm_only_gate_is_not_accepted_as_production_gate(self) -> None:
         bundle = self._bundle()
         with self.assertRaises(Exception):
-            verify_gate_v2(bundle, self.public_key, "254")
+            verify_gate_v2(bundle, self.public_key, CURRENT_RELEASE_PROFILE)
 
     def test_vm_only_manifest_has_no_production_snapshot_fields(self) -> None:
         profile = {
-            "name": "254",
-            "version": "0.2.7-baiyu",
+            "name": CURRENT_RELEASE_PROFILE,
+            "version": get_profile(CURRENT_RELEASE_PROFILE)["version"],
             "origin": "https://github.com/baiyucraft/sub2api.git",
             "gate_ttl_seconds": 3600,
         }
         with mock.patch("release.manifest.check_output_hidden", return_value="https://github.com/baiyucraft/sub2api.git"):
-            manifest = create_vm_only_manifest("a" * 40, profile, "254-aaaaaaaaaaaa-1-aaaaaaaa", "b" * 40, "c" * 64, "d" * 64)
+            manifest = create_vm_only_manifest("a" * 40, profile, "255-aaaaaaaaaaaa-1-aaaaaaaa", "b" * 40, "c" * 64, "d" * 64)
         self.assertNotIn("production_current_image_id", manifest)
         self.assertNotIn("production_snapshot_sha256", manifest)
 

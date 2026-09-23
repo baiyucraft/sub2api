@@ -20,7 +20,7 @@ profile=$(jq -er '.profile' "$manifest")
 commit=$(jq -er '.commit_sha' "$manifest")
 version=$(jq -er '.version' "$manifest")
 release_id=$(jq -er '.release_id' "$manifest")
-[[ $scope == vm-only && $profile == 254 && $release_id == "254-${commit:0:12}-"* ]]
+[[ $scope == vm-only && $profile == 255 && $release_id == "255-${commit:0:12}-"* ]]
 [[ $commit =~ ^[0-9a-f]{40}$ ]]
 [[ $(jq -er '.vm_identity' "$manifest") == sub2api-dev ]]
 [[ $(jq -er '.vm_port' "$manifest") == 8211 ]]
