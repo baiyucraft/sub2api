@@ -58,7 +58,6 @@ func PluginUpgradeFailureReason(err error) string {
 	}{
 		{errPluginValidationRPC, "validation_rpc"},
 		{errPluginValidationEmpty, "validation_empty"},
-		{errPluginValidationBlank, "validation_rejected_empty_object"},
 		{errPluginValidationRejected, "validation_rejected"},
 		{errPluginValidationCapability, "scoped_routing_missing"},
 		{errPluginValidationNormalized, "normalized_config_invalid"},
