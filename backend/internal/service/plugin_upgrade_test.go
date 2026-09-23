@@ -33,6 +33,30 @@ func TestPluginUpgradeFailureDetailsUnknownForUnclassifiedError(t *testing.T) {
 	}
 }
 
+func TestPluginUpgradeFailureReasonDoesNotExposeInternalError(t *testing.T) {
+	secret := errors.New("proxy password=secret-token")
+	for _, test := range []struct {
+		err  error
+		want string
+	}{
+		{fmt.Errorf("%w: %w", errPluginValidationRPC, secret), "validation_rpc"},
+		{errPluginValidationEmpty, "validation_empty"},
+		{errPluginValidationRejected, "validation_rejected"},
+		{errPluginValidationCapability, "scoped_routing_missing"},
+		{errPluginValidationNormalized, "normalized_config_invalid"},
+		{errPluginValidationScope, "managed_scope_invalid"},
+		{secret, "unclassified"},
+	} {
+		got := PluginUpgradeFailureReason(pluginUpgradeFailure("validate_config", test.err))
+		if got != test.want {
+			t.Errorf("reason=%q, want %q", got, test.want)
+		}
+		if got == secret.Error() {
+			t.Fatal("diagnostic classification leaked the wrapped error")
+		}
+	}
+}
+
 type upgradeReviewRepository struct {
 	PluginRepository
 	installations []*PluginInstallation
