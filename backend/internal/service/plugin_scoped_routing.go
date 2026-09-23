@@ -24,7 +24,6 @@ var (
 	errPluginValidationRPC        = errors.New("plugin scoped validation RPC failed")
 	errPluginValidationEmpty      = errors.New("plugin scoped validation returned no response")
 	errPluginValidationRejected   = errors.New("plugin scoped validation rejected configuration")
-	errPluginValidationBlank      = errors.New("plugin scoped validation rejected empty object")
 	errPluginValidationCapability = errors.New("plugin scoped validation omitted scoped routing")
 	errPluginValidationNormalized = errors.New("plugin scoped validation returned invalid normalized configuration")
 	errPluginValidationScope      = errors.New("plugin scoped validation returned invalid scope")
@@ -101,9 +100,6 @@ func (r *pluginRuntime) validateScopedConfig(ctx context.Context, raw []byte) ([
 		return nil, nil, errPluginValidationEmpty
 	}
 	if !validation.Valid {
-		if strings.TrimSpace(string(raw)) == "{}" {
-			return nil, nil, fmt.Errorf("%w: %w", errPluginValidationRejected, errPluginValidationBlank)
-		}
 		return nil, nil, errPluginValidationRejected
 	}
 	if !validation.ScopedRouting {
