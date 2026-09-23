@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 
 import UserAllowedGroupsModal from '../UserAllowedGroupsModal.vue'
@@ -23,6 +23,8 @@ vi.mock('@/stores/app', () => ({
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({ t: (key: string) => key }),
 }))
+
+afterEach(() => vi.restoreAllMocks())
 
 const group = {
   id: 3,
@@ -115,5 +117,68 @@ describe('UserAllowedGroupsModal percentage persistence', () => {
     expect(updateUser).toHaveBeenLastCalledWith(7, expect.objectContaining({
       group_rate_percents: { 3: null },
     }))
+  })
+})
+
+const response = { items: [group] }
+async function openDialog() {
+  const wrapper = mount(UserAllowedGroupsModal, {
+    props: { show: false, user: user as never },
+    global: { stubs: { BaseDialog: { props: ['show'], template: '<div v-if="show"><slot /><slot name="footer" /></div>' }, PlatformIcon: true } }
+  })
+  await wrapper.setProps({ show: true })
+  return wrapper
+}
+
+describe('UserAllowedGroupsModal load readiness', () => {
+  beforeEach(() => {
+    listGroups.mockReset()
+    updateUser.mockReset()
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    listGroups.mockResolvedValue(response)
+    updateUser.mockResolvedValue(undefined)
+  })
+
+  it('cannot save an empty configuration while groups are loading', async () => {
+    let resolve!: (value: typeof response) => void
+    listGroups.mockReturnValueOnce(new Promise(res => { resolve = res }))
+    const wrapper = await openDialog()
+    const save = wrapper.get('button.btn-primary')
+    expect(save.attributes('disabled')).toBeDefined()
+    await save.trigger('click')
+    expect(updateUser).not.toHaveBeenCalled()
+    resolve(response)
+    await flushPromises()
+    expect(save.attributes('disabled')).toBeUndefined()
+  })
+
+  it('cannot save after loading fails', async () => {
+    listGroups.mockRejectedValueOnce(new Error('Offline'))
+    const wrapper = await openDialog()
+    await flushPromises()
+    const save = wrapper.get('button.btn-primary')
+    expect(save.attributes('disabled')).toBeDefined()
+    await save.trigger('click')
+    expect(updateUser).not.toHaveBeenCalled()
+  })
+
+  it('does not reuse a previous successful load after reopening fails', async () => {
+    const wrapper = await openDialog()
+    await flushPromises()
+    await wrapper.setProps({ show: false })
+    listGroups.mockRejectedValueOnce(new Error('Offline'))
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+    expect(wrapper.get('button.btn-primary').attributes('disabled')).toBeDefined()
+    expect(updateUser).not.toHaveBeenCalled()
+  })
+
+  it('preserves existing grants and rates on a successful save', async () => {
+    const wrapper = await openDialog()
+    await flushPromises()
+    await wrapper.get('button.btn-primary').trigger('click')
+    await flushPromises()
+    expect(updateUser).toHaveBeenCalledWith(7, { allowed_groups: [3], restrict_public_groups: false, group_rate_percents: { 3: 50 } })
+    expect(wrapper.emitted('success')).toHaveLength(1)
   })
 })

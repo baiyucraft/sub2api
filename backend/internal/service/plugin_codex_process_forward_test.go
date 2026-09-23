@@ -437,11 +437,17 @@ type codexProcessDirectory struct {
 	unexpected atomic.Int64
 }
 
-func (d *codexProcessDirectory) ListPluginAccounts(context.Context, string, string) ([]int64, error) {
-	return []int64{codexProcessAccountID}, nil
+func (d *codexProcessDirectory) ListPluginAccounts(_ context.Context, scope PluginAccountScope, _, _ string) ([]PluginAccountInfo, error) {
+	if !scope.Contains(PlatformOpenAI, AccountTypeOAuth) {
+		return nil, nil
+	}
+	return []PluginAccountInfo{{ID: codexProcessAccountID, Platform: PlatformOpenAI, AccountType: AccountTypeOAuth}}, nil
 }
 
-func (d *codexProcessDirectory) ResolvePluginOutboundIdentity(_ context.Context, id int64) (*PluginOutboundIdentity, error) {
+func (d *codexProcessDirectory) ResolvePluginOutboundIdentity(_ context.Context, scope PluginAccountScope, id int64) (*PluginOutboundIdentity, error) {
+	if !scope.Contains(PlatformOpenAI, AccountTypeOAuth) {
+		return nil, nil
+	}
 	if id != codexProcessAccountID {
 		d.unexpected.Add(1)
 		return nil, errors.New("unexpected synthetic identity")

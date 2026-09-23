@@ -148,7 +148,8 @@ func TestPluginOutboundIdentityUsesLiveAccountAndSortedGroupEgress(t *testing.T)
 			{ID: 4, Status: StatusActive, ExpiresAt: &expired}, {ID: 3, Status: "inactive"},
 			{ID: 2, Status: StatusActive, Protocol: "http", Host: "two", Port: 2}, {ID: 1, Status: StatusActive, Protocol: "http", Host: "one", Port: 1},
 		}}}}
-	identity, err := gateway.ResolvePluginOutboundIdentity(context.Background(), 7)
+	scope := newPluginAccountScope(pluginAccountScopeEntry{Platform: PlatformOpenAI, AccountType: AccountTypeSetupToken})
+	identity, err := gateway.ResolvePluginOutboundIdentity(context.Background(), scope, 7)
 	require.NoError(t, err)
 	require.NotNil(t, identity)
 	require.Equal(t, []PluginOutboundEgress{{ProxyID: 1, ProxyURL: "http://one:1"}, {ProxyID: 2, ProxyURL: "http://two:2"}}, identity.Egresses)
@@ -159,27 +160,27 @@ func TestPluginOutboundIdentityUsesLiveAccountAndSortedGroupEgress(t *testing.T)
 	resources, err := gateway.ListPluginResources(context.Background())
 	require.NoError(t, err)
 	require.False(t, resources.Accounts[0].BusinessEgressConfigured)
-	identity, err = gateway.ResolvePluginOutboundIdentity(context.Background(), 7)
+	identity, err = gateway.ResolvePluginOutboundIdentity(context.Background(), scope, 7)
 	require.NoError(t, err)
 	require.Empty(t, identity.Egresses)
 	require.Empty(t, identity.ProxyURL)
 	accountRepo.accounts[0].ProxyIPGroupID = nil
-	identity, err = gateway.ResolvePluginOutboundIdentity(context.Background(), 7)
+	identity, err = gateway.ResolvePluginOutboundIdentity(context.Background(), scope, 7)
 	require.NoError(t, err)
 	require.Empty(t, identity.Egresses)
 	require.Empty(t, identity.ProxyURL)
 	accountRepo.accounts[0].Status = "inactive"
-	identity, err = gateway.ResolvePluginOutboundIdentity(context.Background(), 7)
+	identity, err = gateway.ResolvePluginOutboundIdentity(context.Background(), scope, 7)
 	require.NoError(t, err)
 	require.Nil(t, identity)
-	identity, err = gateway.ResolvePluginOutboundIdentity(context.Background(), 999)
+	identity, err = gateway.ResolvePluginOutboundIdentity(context.Background(), scope, 999)
 	require.NoError(t, err)
 	require.Nil(t, identity)
 }
 
 func TestPluginHostResourcesAndLegacyOAuthBoundary(t *testing.T) {
 	gateway := &OpenAIGatewayService{accountRepo: &pluginResourceAccountRepo{accounts: []Account{pluginTestAccount(1, AccountTypeOAuth), pluginTestAccount(2, AccountTypeSetupToken)}}}
-	server := newPluginHostServiceServer("test.plugin", nil, gateway)
+	server := newPluginHostServiceServer("test.plugin", nil, gateway, newPluginAccountScope(pluginAccountScopeEntry{Platform: PlatformOpenAI, AccountType: AccountTypeOAuth}))
 	ctx := context.Background()
 	list, err := server.ListAccounts(ctx, &pluginv1.ListAccountsRequest{})
 	require.NoError(t, err)
@@ -188,6 +189,7 @@ func TestPluginHostResourcesAndLegacyOAuthBoundary(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, identity.Found)
 	server.allowSetupToken = true
+	server.scope = newPluginAccountScope(pluginAccountScopeEntry{Platform: PlatformOpenAI, AccountType: AccountTypeOAuth}, pluginAccountScopeEntry{Platform: PlatformOpenAI, AccountType: AccountTypeSetupToken})
 	list, err = server.ListAccounts(ctx, &pluginv1.ListAccountsRequest{})
 	require.NoError(t, err)
 	require.Equal(t, []int64{1, 2}, list.AccountIds)
@@ -212,7 +214,7 @@ func TestPluginResourceErrorsDoNotExposeBackendSecrets(t *testing.T) {
 	secretErr := errors.New("http://user:secret-password@proxy token=secret-token")
 	repo := &pluginResourceAccountRepo{err: secretErr}
 	gateway := &OpenAIGatewayService{accountRepo: repo, proxyRepo: &pluginResourceProxyRepo{err: secretErr}}
-	server := newPluginHostServiceServer("test.plugin", nil, gateway)
+	server := newPluginHostServiceServer("test.plugin", nil, gateway, newPluginAccountScope(pluginAccountScopeEntry{Platform: PlatformOpenAI, AccountType: AccountTypeOAuth}))
 	_, err := server.ListResources(context.Background(), &pluginv1.ListResourcesRequest{})
 	require.Equal(t, codes.Internal, status.Code(err))
 	require.NotContains(t, err.Error(), "secret")
@@ -230,7 +232,7 @@ func TestPluginHostIdentityResponseIncludesRevisionAndAllEgresses(t *testing.T) 
 		IdentityRevision: "identity-revision", Token: "internal-only-token",
 		Egresses: []PluginOutboundEgress{{ProxyID: 1, ProxyURL: "http://one:1"}, {ProxyID: 2, ProxyURL: "http://two:2"}},
 	}}
-	server := newPluginHostServiceServer("test.plugin", nil, directory)
+	server := newPluginHostServiceServer("test.plugin", nil, directory, newPluginAccountScope(pluginAccountScopeEntry{Platform: PlatformOpenAI, AccountType: AccountTypeOAuth}))
 	response, err := server.ResolveOutboundIdentity(context.Background(), &pluginv1.ResolveOutboundIdentityRequest{AccountId: 7})
 	require.NoError(t, err)
 	require.Equal(t, directory.identity.IdentityRevision, response.IdentityRevision)

@@ -12,7 +12,7 @@ description: 审计 Sub2API fork 相对官方 upstream/main 的扩展合同。�
 - 只执行只读 Git 和文件检查；不得 fetch、merge、checkout、reset、代码生成、格式化、构建、VM Gate 或生产操作。
 - 必须由操作者明确提供官方目标的 40 位完整 commit SHA；短 SHA、未知对象、脏工作区和未解决冲突均为 blocker。
 - 不得用整文件 `ours` 或 `theirs` 解决高风险冲突。确需整文件选择时，在合并记录中说明理由并绑定专项回归测试。
-- profile 233–253、已发布 migration、checksum 和 compatibility identity 是不可变历史证据；profile 254 是当前 pending 合同。
+- profile 233–254、已发布 migration、checksum 和 compatibility identity 是不可变历史证据；profile 255 是当前 pending 合同，版本 `0.2.8-baiyu`、parent 254。254 的三项 278–280 原合同不得改写。
 - Fork 版本必须等于目标官方正式版本加 `-baiyu`。通常以目标源码 `VERSION` 为准；若正式 annotated tag 的发布流程只在构建阶段写入版本、标签源码文件滞后，则必须在目录中用目标 commit 精确固定 release version，禁止按 tag 名或预期版本猜测。
 - 报告只写入 `.tmp/fork-extension-audit/`，不得修改 tracked 文件。
 
@@ -61,6 +61,9 @@ description: 审计 Sub2API fork 相对官方 upstream/main 的扩展合同。�
 - 审计本地兼容性修复或 workaround 时，主动检查目标 upstream commit 是否已包含同一故障域的官方修复；只有进入目标 commit 的代码才视为官方事实，开放中的 Issue、PR 或未合并 commit 仅作为设计参考。
 - 官方修复完整覆盖本地修复时，以官方实现和官方测试为基线，建议删除重复的 fork 实现；官方仅部分覆盖时，只保留可证明仍有必要的最小 fork 增量。
 - 按故障域分别判断覆盖关系，不得因为官方修复了相邻问题，就回退仍在解决另一独立错误的本地修改。详细判定和测试要求见 [merge-workflow.md](references/merge-workflow.md)。
+- 对先 fork 后官方的提交，核对固定官方目标与官方修复 commit 的祖先关系，再逐故障域对照实现和测试；完整覆盖归官方维护，未覆盖/部分覆盖的最小增量继续绑定精确 fork 扩展。保留原 fork 提交和作者历史，不以 patch-id、文件同名或目录豁免代替语义重核。
+- 本轮固定目标 `a3eb7ef302961cba716dc78b39b93b60c467db0e` 中 PR #7509 merge `4318a63bd886b1a64c49015979c61bf34eca19ff` 已覆盖本地 `f9633c4f51c15cfc7460d610e899431d0a7c1aaa` 和 `6bf1ab9197e747ddbdd14798f36fef4a2a8561e1`。Grok 4.7 目标已有官方 `935db68517f8beef407db3da016eaef1799fce25`，本地 `c41574a3ab1eaa05b4d9b61bec97ca87d9c782d5` 只可逐域裁决，不能写成官方未覆盖。
+- 目标新增的官方 `238b_content_moderation_engine_meta.sql`、`239_channel_reasoning_effort_multipliers.sql`、`240_affiliate_ledger_operation_id.sql` 在 fork 只重编号为 `281_content_moderation_engine_meta.sql`、`282_channel_reasoning_effort_multipliers.sql`、`283_affiliate_ledger_operation_id.sql`，SQL 字节不变；profile 255、catalog 原始 checksum 和测试引用使用新名。历史 238/239/240 原文件与数据库记录不可改写；发布前仍需对新库及升级库验证执行顺序和 Gate。
 
 ## 语义重叠候选
 

@@ -1312,19 +1312,20 @@ func (m *PluginManager) SetAccountDirectory(directory PluginAccountDirectory) {
 
 // buildHostServices 为单个插件构造绑定其 pluginKey 的宿主服务端点。返回 nil（未配置
 // 键值存储或缺少 pluginKey）时，startPluginRuntime 不会向插件暴露任何宿主服务。
-// 账号目录（会向插件交付账号凭据）只对「清单声明了 OpenAI OAuth 出站能力」的插件开放，
-// 从而把凭据暴露面收敛到本就要处理这些账号的插件。
+// 账号目录（会向插件交付账号凭据与白名单元数据）只对「清单声明的能力授予了账号范围」的
+// 插件开放，且严格限定在该范围内，从而把暴露面收敛到本就要处理这些账号的插件。
 func (m *PluginManager) buildHostServices(installation *PluginInstallation) pluginv1.HostServiceServer {
 	if m.kvStore == nil || installation == nil || strings.TrimSpace(installation.PluginKey) == "" {
 		return nil
 	}
+	scope := pluginAccountScopeFromManifest(installation.Manifest)
 	var directory PluginAccountDirectory
-	if pluginDeclaresOpenAIOAuthCapability(installation.Manifest) {
+	if !scope.Empty() && pluginDeclaresOpenAIOAuthCapability(installation.Manifest) {
 		m.mu.Lock()
 		directory = m.accountDirectory
 		m.mu.Unlock()
 	}
-	server := newPluginHostServiceServer(installation.PluginKey, m.kvStore, directory)
+	server := newPluginHostServiceServer(installation.PluginKey, m.kvStore, directory, scope)
 	server.stateStore = m.stateStore
 	server.allowSetupToken = pluginRequiresFeature(installation.Manifest, "oauth-like.v1")
 	server.runtimeAuthorityRepo = m.repo
@@ -1344,6 +1345,31 @@ func pluginDeclaresOpenAIOAuthCapability(manifest PluginManifest) bool {
 		}
 	}
 	return false
+}
+
+// pluginCapabilityAccountScopeGrants 把「能力 id」映射到它授予的账号范围条目。这是
+// 唯一放宽账号可见性的通用入口：为需要账号访问的新能力扩权只需在此加一行，无需新增
+// RPC 或按插件定制目录实现。授予的范围以能力 id 为准并被固定，清单无法通过声明不同的
+// platform/account_type 来扩大它。
+var pluginCapabilityAccountScopeGrants = map[string]pluginAccountScopeEntry{
+	PluginCapabilityOpenAIOAuthOutbound: {Platform: PlatformOpenAI, AccountType: AccountTypeOAuth},
+}
+
+// pluginAccountScopeFromManifest 从（安装期已校验的）清单声明能力推导出账号可见范围
+// （各能力授予范围的并集）。
+func pluginAccountScopeFromManifest(manifest PluginManifest) PluginAccountScope {
+	entries := make([]pluginAccountScopeEntry, 0, len(manifest.Capabilities))
+	for _, capability := range manifest.Capabilities {
+		grant, ok := pluginCapabilityAccountScopeGrants[capability.ID]
+		if !ok {
+			continue
+		}
+		entries = append(entries, grant)
+		if grant.Platform == PlatformOpenAI && grant.AccountType == AccountTypeOAuth && pluginRequiresFeature(manifest, "oauth-like.v1") {
+			entries = append(entries, pluginAccountScopeEntry{Platform: PlatformOpenAI, AccountType: AccountTypeSetupToken})
+		}
+	}
+	return newPluginAccountScope(entries...)
 }
 
 func (m *PluginManager) removeRuntimeLocked(id int64) *pluginRuntime {
