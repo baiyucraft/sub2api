@@ -192,7 +192,7 @@ class Audit:
             # Only a verified pre-merge baseline may defer the target version.
             # Post-merge always requires the exact target upstream version.
             suffix = self.catalog.get("version_contract", {}).get("fork_suffix", "-baiyu")
-            base_version = (self.show(self.merge_base, "backend/cmd/server/VERSION") or "").strip()
+            base_version = (self.official_version(self.merge_base) or "").strip()
             if (self.mode == "pre-merge" and base_version and fork == base_version + suffix
                     and fork == self.catalog.get("current_profile", {}).get("version")):
                 self.add("warning", "version_upgrade_required", "合并前版本与现有基线一致；合并后必须升级 VERSION 和连续 profile", official=official, fork=fork, expected=expected)
@@ -520,13 +520,21 @@ class Audit:
                 self.add("pass", "migration_semantic_markers", "关键迁移语义标记存在", path=path)
 
     def check_extensions(self) -> None:
+        marker_evidence = self.catalog.get("composed_marker_evidence", {})
         for ext in self.catalog.get("extensions", []):
             eid = ext["id"]
             missing_paths = [pattern for pattern in ext.get("paths", []) if not self.path_exists(pattern)]
             if missing_paths:
                 self.add("blocker", "extension_path_missing", f"扩展 {eid} 的登记路径不存在", extension_id=eid, paths=missing_paths)
             for field in ("symbols", "api_routes", "settings_keys"):
-                missing = [value for value in ext.get(field, []) if not self.grep(value)]
+                missing = [
+                    value for value in ext.get(field, [])
+                    if not self.grep(value) and not (
+                        isinstance(marker_evidence.get(value), list)
+                        and marker_evidence[value]
+                        and all(self.grep(part) for part in marker_evidence[value])
+                    )
+                ]
                 if missing:
                     self.add("blocker", "extension_marker_missing", f"扩展 {eid} 的 {field} 标记不存在", extension_id=eid, field=field, values=missing)
             missing_tests = [pattern for pattern in ext.get("required_tests", []) if not self.path_exists(pattern)]
