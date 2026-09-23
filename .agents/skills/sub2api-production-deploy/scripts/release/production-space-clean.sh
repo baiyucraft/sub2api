@@ -18,7 +18,7 @@ else
   [[ $expected_plan_sha256 == - ]]
 fi
 
-required_commands=(awk curl cut df docker flock grep mktemp ps rm sha256sum sort systemctl tr wc)
+required_commands=(awk curl cut date df docker find flock grep mktemp ps rm sha256sum sort stat systemctl tr wc)
 for command_name in "${required_commands[@]}"; do
   command -v "$command_name" >/dev/null 2>&1 || exit 127
 done
@@ -43,6 +43,19 @@ consumed_dir="$release_dir/.consumed"
 release_state_dir="$state_root/$release_id"
 build_cache_max_used_space=2gb
 build_cache_reserved_space=2gb
+candidate_archive_retention_days=3
+candidate_archive_min_count=3
+candidate_archive_cutoff_epoch=0
+candidate_archive_count_before=0
+candidate_archive_count_after=0
+candidate_archive_candidate_count=0
+candidate_archive_candidate_count_after=0
+candidate_archive_candidate_bytes=0
+candidate_archive_removed=0
+candidate_archive_removed_bytes=0
+candidate_archive_records="$work_dir/candidate-archive-records"
+candidate_archive_sorted="$work_dir/candidate-archive-sorted"
+candidate_archive_candidates="$work_dir/candidate-archive-candidates"
 
 assert_release_idle() {
   [[ ! -e $active_claim && ! -L $active_claim ]]
@@ -110,6 +123,73 @@ assert_services() {
   [[ $(systemctl is-enabled sub2api-backup.timer) == enabled ]]
   [[ $(docker image inspect -f '{{.Id}}' "$pre_switch_image") == "$pre_switch_image" ]]
   [[ $(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:$active_port/health") == 200 ]]
+}
+
+write_candidate_archive_records() {
+  local path relative evidence_path release_dir candidate_release mtime size links
+  : > "$candidate_archive_records"
+  while IFS= read -r -d '' path; do
+    [[ -f $path && ! -L $path ]] || continue
+    relative=${path#"$release_root/"}
+    candidate_release=${relative%%/*}
+    evidence_path=${relative#*/}
+    evidence_path=${evidence_path%/candidate.tar.gz}
+    [[ $evidence_path == .consumed ]] || continue
+    release_dir="$release_root/$candidate_release"
+    [[ -d $release_dir && ! -L $release_dir ]] || continue
+    [[ $candidate_release =~ ^(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]] || continue
+    mtime=$(stat -c '%Y' "$path")
+    size=$(stat -c '%s' "$path")
+    links=$(stat -c '%h' "$path")
+    [[ $mtime =~ ^[0-9]+$ && $size =~ ^[0-9]+$ && $links =~ ^[0-9]+$ ]] || exit 1
+    # A hard-linked archive has another evidence owner; leave it untouched.
+    printf '%s\t%s\t%s\t%s\n' "$mtime" "$size" "$links" "$candidate_release" >> "$candidate_archive_records"
+  done < <(find "$release_root" -mindepth 3 -maxdepth 3 -type f -path '*/.consumed/candidate.tar.gz' -print0 | LC_ALL=C sort -z)
+}
+
+select_candidate_archive_sets() {
+  local cutoff_epoch=$1
+  local rank=0 mtime size links candidate_release
+  : > "$candidate_archive_sorted"
+  : > "$candidate_archive_candidates"
+  LC_ALL=C sort -t $'\t' -k1,1nr -k4,4r "$candidate_archive_records" > "$candidate_archive_sorted"
+  while IFS=$'\t' read -r mtime size links candidate_release; do
+    [[ -n $candidate_release ]] || continue
+    rank=$((rank + 1))
+    if [[ $links != 1 ]] || (( mtime >= cutoff_epoch )) || (( rank <= candidate_archive_min_count )) || [[ $candidate_release == "$release_id" ]] || [[ -e "$release_root/$candidate_release/.recovered" || -L "$release_root/$candidate_release/.recovered" ]] || [[ -e "$release_root/$candidate_release/.reconciliation" || -L "$release_root/$candidate_release/.reconciliation" ]]; then
+      continue
+    fi
+    printf '%s\t%s\t%s\t%s\n' "$mtime" "$size" "$links" "$candidate_release" >> "$candidate_archive_candidates"
+  done < "$candidate_archive_sorted"
+}
+
+build_candidate_archive_plan() {
+  candidate_archive_cutoff_epoch=$(( $(date +%s) - candidate_archive_retention_days * 86400 ))
+  write_candidate_archive_records
+  select_candidate_archive_sets "$candidate_archive_cutoff_epoch"
+  candidate_archive_count_before=$(awk 'NF {count++} END {print count+0}' "$candidate_archive_records")
+  candidate_archive_candidate_count=$(awk 'NF {count++} END {print count+0}' "$candidate_archive_candidates")
+  candidate_archive_candidate_bytes=$(awk -F '\t' '{total += $2} END {printf "%.0f\n", total+0}' "$candidate_archive_candidates")
+}
+
+remove_candidate_archives() {
+  local mtime size links candidate_release path removed=0 removed_bytes=0
+  while IFS=$'\t' read -r mtime size links candidate_release; do
+    [[ -n $candidate_release ]] || continue
+    path="$release_root/$candidate_release/.consumed/candidate.tar.gz"
+    [[ -f $path && ! -L $path ]] || exit 1
+    [[ $(stat -c '%Y' "$path") == "$mtime" ]] || exit 1
+    [[ $(stat -c '%s' "$path") == "$size" ]] || exit 1
+    [[ $(stat -c '%h' "$path") == "$links" && $links == 1 ]] || exit 1
+    assert_release_idle
+    assert_release_marker
+    assert_services
+    rm -f -- "$path"
+    [[ ! -e $path && ! -L $path ]] || exit 1
+    removed=$((removed + 1))
+    removed_bytes=$((removed_bytes + size))
+  done < "$candidate_archive_candidates"
+  printf '%s\t%s\n' "$removed" "$removed_bytes"
 }
 
 write_container_images() {
@@ -209,10 +289,17 @@ migration_evidence_containers=$(docker ps -a --format '{{.Names}}' | awk '$0 ~ /
 list_image_candidates > "$work_dir/image-candidate-ids"
 image_candidates=$(awk 'NF {count++} END {print count+0}' "$work_dir/image-candidate-ids")
 image_candidate_logical_bytes=$(awk -F '\t' '{total += $2} END {printf "%.0f\n", total+0}' "$work_dir/image-candidates")
+build_candidate_archive_plan
 {
   printf 'release_id=%s\n' "$release_id"
   printf 'current_image_id=%s\n' "$expected_current_image"
   printf 'pre_switch_image_id=%s\n' "$pre_switch_image"
+  printf 'candidate_archive_retention_days=%s\n' "$candidate_archive_retention_days"
+  printf 'candidate_archive_min_count=%s\n' "$candidate_archive_min_count"
+  printf 'candidate_archive_records\n'
+  cat "$candidate_archive_sorted"
+  printf 'candidate_archive_candidates\n'
+  cat "$candidate_archive_candidates"
   printf '%s\n' image_candidates
   cat "$work_dir/image-candidate-ids"
 } > "$work_dir/cleanup-plan"
@@ -225,6 +312,7 @@ build_cache_gc_attempted=false
 
 if [[ $mode == apply ]]; then
   [[ $plan_sha256 == "$expected_plan_sha256" ]]
+  read -r candidate_archive_removed candidate_archive_removed_bytes < <(remove_candidate_archives)
   removed_images=$(remove_image_candidates)
   assert_release_idle
   assert_release_marker
@@ -243,6 +331,28 @@ else
   cleanup_status=ready
 fi
 
+if [[ $mode == apply ]]; then
+  write_candidate_archive_records
+  select_candidate_archive_sets "$candidate_archive_cutoff_epoch"
+  candidate_archive_count_after=$(awk 'NF {count++} END {print count+0}' "$candidate_archive_records")
+  candidate_archive_candidate_count_after=$(awk 'NF {count++} END {print count+0}' "$candidate_archive_candidates")
+else
+  candidate_archive_count_after=$candidate_archive_count_before
+  candidate_archive_candidate_count_after=$candidate_archive_candidate_count
+fi
+[[ $candidate_archive_removed =~ ^[0-9]+$ ]]
+[[ $candidate_archive_removed_bytes =~ ^[0-9]+$ ]]
+[[ $candidate_archive_count_after =~ ^[0-9]+$ ]]
+[[ $candidate_archive_candidate_count_after =~ ^[0-9]+$ ]]
+[[ $candidate_archive_removed -le $candidate_archive_candidate_count ]]
+[[ $candidate_archive_count_after -eq $((candidate_archive_count_before - candidate_archive_removed)) ]]
+if [[ $mode == dry-run ]]; then
+  [[ $candidate_archive_removed == 0 && $candidate_archive_removed_bytes == 0 ]]
+else
+  [[ $candidate_archive_removed == $candidate_archive_candidate_count ]]
+  [[ $candidate_archive_candidate_count_after == 0 ]]
+fi
+
 list_image_candidates > "$work_dir/image-candidate-ids-after"
 image_candidates_after=$(awk 'NF {count++} END {print count+0}' "$work_dir/image-candidate-ids-after")
 build_cache_records_after=$(docker buildx du --format '{{json .}}' 2>/dev/null | wc -l | tr -d ' ')
@@ -257,6 +367,16 @@ printf 'plan_sha256=%s\n' "$plan_sha256"
 printf 'release_id=%s\n' "$release_id"
 printf 'current_image_id=%s\n' "$expected_current_image"
 printf 'pre_switch_image_id=%s\n' "$pre_switch_image"
+printf 'candidate_archive_retention_days=%s\n' "$candidate_archive_retention_days"
+printf 'candidate_archive_min_count=%s\n' "$candidate_archive_min_count"
+printf 'candidate_archive_cutoff_epoch=%s\n' "$candidate_archive_cutoff_epoch"
+printf 'candidate_archive_count_before=%s\n' "$candidate_archive_count_before"
+printf 'candidate_archive_count_after=%s\n' "$candidate_archive_count_after"
+printf 'candidate_archive_candidate_count=%s\n' "$candidate_archive_candidate_count"
+printf 'candidate_archive_candidate_count_after=%s\n' "$candidate_archive_candidate_count_after"
+printf 'candidate_archive_candidate_bytes=%s\n' "$candidate_archive_candidate_bytes"
+printf 'candidate_archive_removed=%s\n' "$candidate_archive_removed"
+printf 'candidate_archive_removed_bytes=%s\n' "$candidate_archive_removed_bytes"
 printf 'root_free_before_bytes=%s\n' "$root_free_before_bytes"
 printf 'root_free_after_bytes=%s\n' "$root_free_after_bytes"
 printf 'root_free_delta_bytes=%s\n' "$root_free_delta_bytes"

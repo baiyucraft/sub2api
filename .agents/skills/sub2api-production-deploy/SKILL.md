@@ -26,7 +26,7 @@ description: 面向 Sub2API fork 的构建、开发门禁、应用与独立插�
 - 当前 `scripts/release.py deploy-*` 只管理宿主应用镜像发布，不能作为插件包上传、升级或回退入口，也不能生成虚假的插件 Gate。插件包按管理 API 合同单独执行并使用插件专属报告字段。
 - 生产插件包必须使用受信 Ed25519 签名，禁止通过临时开启 `plugins.allow_unsigned` 安装开发包。首次安装前必须证明同插件 ID 不存在；当前宿主即使允许部分非运行状态的同 ID upload，也禁止用该路径绕过 upgrade 的维护事务。首次安装、秘密配置、enable、手动动作和真实采集属于不同写授权；上传不得自动启用。
 - 禁止 `docker system prune`、缺少缓存上限或保留量的 builder prune、删除卷、数据库、Redis、`data` 或备份目录。VM 空间低于 8 GiB 时只允许执行仓库版本化清理器中的一次容量有界 BuildKit GC：按 LRU 将可回收私有缓存压到 1 GB，并保留至少 1 GB 私有 BuildKit 缓存；不得手工扩大范围。
-- 生产空间清理只能使用 `cleanup-production`：先 dry-run，再把原样 `plan_sha256` 传入 apply。只删所有 tag 均为 full-SHA 发布 tag，或完全无 tag 的 dangling Sub2API layer，且没有任何容器引用、不属于运行镜像、pre-switch 或恢复点；退出的 migration 容器及其镜像作为 reconciliation 证据保留。生产 BuildKit GC 固定为 `max-used-space=2gb,reserved-space=2gb`，禁止扩大范围。
+- 生产空间清理只能使用 `cleanup-production`：先 dry-run，再把原样 `plan_sha256` 传入 apply。候选包括满足保护条件的旧 `candidate.tar.gz` 归档，以及所有 tag 均为 full-SHA 发布 tag、或完全无 tag 的 dangling Sub2API layer。candidate 归档默认保留最近 3 天内全部文件；若窗口内不足 3 个则补足最近 3 个；当前 release、带恢复/协调标记和非单链接文件始终保护。只删没有任何容器引用、不属于运行镜像、pre-switch 或恢复点的旧镜像；退出的 migration 容器及其镜像作为 reconciliation 证据保留。生产 BuildKit GC 固定为 `max-used-space=2gb,reserved-space=2gb`，禁止扩大范围。
 - 备份机空间清理只能使用版本化 `backup-retention-clean.sh` 与 `backup-release-retention-clean.sh`：先 dry-run，再用同一 `plan_sha256` apply。daily 默认至少保留最新 1 组；release 默认只保留最高版本 profile 的最新 1 个恢复包，历史 profile 和同一 profile 的旧包进入候选，但 candidate/verified/recovery/baseline 等指针及恢复标记始终保护。清理后仍低于 5 GiB 时必须扩容或人工审核，禁止扩大删除范围。
 - 若备份目录已无早于 15 天的 daily 自动清理候选且仍至少保留最新 1 组，而宿主机 systemd journal 占用异常，可使用版本化 `backup-host-space-clean.sh`：只将 `/var/log/journal` 容量压到 1 GiB，apply 必须绑定 dry-run 的 `plan_sha256`，并要求清理后至少保留 `5 GiB + 512 MiB` 上传余量。该脚本禁止删除、遍历或改写 `/srv/sub2api-backups` 内任何备份资产。
 - VM 空间必须按 Docker/containerd、`/tmp`、源码、构建/恢复副本和回滚预留计算峰值；清理最多一次，不能用 `du` 或 Snap 缓存推断可回收空间。
@@ -239,7 +239,7 @@ Gate 必须绑定 commit、origin、VM identity、validator、runner、发布资
 
 - `cleanup-production` 属于 `ops-control-assets`，不构建、不切换应用镜像。它要求本地签名 Gate 和 terminal verified `production-result.json`，并在生产重新绑定 `.consumed` marker、运行镜像及同 release 的 `pre-image-id`；任一证据不唯一或不一致立即停止。
 - 清理与 `prepare.sh` 共用 `/run/lock/sub2api-production-release.lock`，同时独占备份全局锁。存在 active claim、异常 `.prepared`、正在构建、活动备份或服务不健康时整体停止。
-- 保护集合包含 current、pre-switch、所有状态的容器引用镜像及全部 release recovery point 的 `pre-image-id`。`sub2api-migrate-*` 只计数、不删除；`.consumed/.recovered`、candidate archive、Gate、volume、PostgreSQL、Redis、data 和备份均不在清理范围。
+- 保护集合包含 current、pre-switch、所有状态的容器引用镜像及全部 release recovery point 的 `pre-image-id`。`sub2api-migrate-*` 只计数、不删除；`.recovered/.reconciliation`、Gate、volume、PostgreSQL、Redis、data 和备份均不在清理范围。candidate archive 只按上述 3 天/3 次 retention 规则处理，release 目录、`.consumed`、marker 和其他 Gate 文件始终保留。
 - dry-run 生成候选集 `plan_sha256`；apply 必须携带同一 checksum，候选漂移即停止。每张镜像删除前重新核验保护集合和 full-SHA tag，删除不使用 `-f`。逻辑 image size 只作观察，实际释放量只用清理前后同一文件系统的 `df -PB1` 差值报告。
 
 ### Release workspace 与 runner 恢复
