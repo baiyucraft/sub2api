@@ -50,6 +50,7 @@ type GatewayChannelCustomizationRule struct {
 	Methods                 []string            `json:"methods"`
 	ExactPaths              []string            `json:"exact_paths"`
 	PathPrefixes            []string            `json:"path_prefixes"`
+	Models                  []string            `json:"models"`
 	UserAgentContains       []string            `json:"user_agent_contains"`
 	QueryParams             map[string][]string `json:"query_params"`
 	RequestMessageMatchMode string              `json:"request_message_match_mode"`
@@ -125,6 +126,7 @@ func normalizeAndValidateGatewayCustomizationRule(rule *GatewayChannelCustomizat
 	rule.Methods = normalizeCustomizationMethods(rule.Methods)
 	rule.ExactPaths = normalizeCustomizationPaths(rule.ExactPaths)
 	rule.PathPrefixes = normalizeCustomizationPaths(rule.PathPrefixes)
+	rule.Models = normalizeCustomizationStrings(rule.Models)
 	rule.UserAgentContains = normalizeCustomizationStrings(rule.UserAgentContains)
 	rule.RequestMessageMatchMode = strings.ToLower(strings.TrimSpace(rule.RequestMessageMatchMode))
 	if rule.RequestMessageMatchMode == "" {
@@ -149,6 +151,9 @@ func normalizeAndValidateGatewayCustomizationRule(rule *GatewayChannelCustomizat
 		return err
 	}
 	if err := validateCustomizationStringList(rule.PathPrefixes, index, "path prefixes"); err != nil {
+		return err
+	}
+	if err := validateCustomizationStringList(rule.Models, index, "models"); err != nil {
 		return err
 	}
 	if err := validateCustomizationStringList(rule.UserAgentContains, index, "user agent conditions"); err != nil {
@@ -445,7 +450,7 @@ func hasCustomizationTarget(rule GatewayChannelCustomizationRule) bool {
 }
 
 func hasCustomizationCondition(rule GatewayChannelCustomizationRule) bool {
-	return len(rule.Methods) > 0 || len(rule.ExactPaths) > 0 || len(rule.PathPrefixes) > 0 || len(rule.UserAgentContains) > 0 || len(rule.QueryParams) > 0 || rule.RequestMessageText != ""
+	return len(rule.Methods) > 0 || len(rule.ExactPaths) > 0 || len(rule.PathPrefixes) > 0 || len(rule.Models) > 0 || len(rule.UserAgentContains) > 0 || len(rule.QueryParams) > 0 || rule.RequestMessageText != ""
 }
 
 func statusMustNotHaveBody(status int) bool {

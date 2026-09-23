@@ -17,7 +17,7 @@ vi.mock('@/stores/app', () => ({ useAppStore: () => ({ showError, showSuccess })
 
 const messages = { en: { common: { loading: 'Loading', saving: 'Saving', error: 'Error' }, admin: { channels: { customization: new Proxy({}, { get: (_, key) => String(key) }) } } } }
 const i18n = createI18n({ legacy: false, locale: 'en', messages })
-const rule = { name: 'maibon', enabled: true, api_key_ids: [], api_key_names: ['maibon-gpt'], user_ids: [], user_emails: ['1069167864@qq.com'], methods: ['GET'], exact_paths: ['/v1/models'], path_prefixes: [], user_agent_contains: [], query_params: {}, min_delay_ms: 100, max_delay_ms: 300, status_code: 200, content_type: 'application/json', response_body: '{}', hit_count: 12 }
+const rule = { name: 'maibon', enabled: true, api_key_ids: [], api_key_names: ['maibon-gpt'], user_ids: [], user_emails: ['1069167864@qq.com'], methods: ['GET'], exact_paths: ['/v1/models'], path_prefixes: [], models: [], user_agent_contains: [], query_params: {}, min_delay_ms: 100, max_delay_ms: 300, status_code: 200, content_type: 'application/json', response_body: '{}', hit_count: 12 }
 
 function mountView() {
   return mount(ChannelCustomizationView, {
@@ -106,6 +106,43 @@ describe('ChannelCustomizationView', () => {
     await wrapper.get('header button.btn-primary').trigger('click')
     expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({
       rules: [expect.objectContaining({ action: 'local_response', request_message_match_mode: 'regex', request_message_text: '^hi$' })]
+    }))
+  })
+
+  it('loads and saves request model conditions', async () => {
+    getSettings.mockResolvedValueOnce({
+      observer: { enabled: true, api_key_ids: [], api_key_names: [], user_ids: [], user_emails: [], output_path: '.tmp/observer.jsonl' },
+      rules: [{ ...rule, models: ['gpt-6-astra'] }]
+    })
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('[data-testid="customization-rule-0"] button[title="admin.customization.edit"]').trigger('click')
+
+    const modelField = wrapper.get('[data-testid="customization-rule-form"] textarea.font-mono')
+    expect((modelField.element as HTMLTextAreaElement).value).toBe('gpt-6-astra')
+    await modelField.setValue('gpt-6-astra\ngpt-5.6-luna')
+    await wrapper.get('[data-testid="customization-rule-form"]').trigger('submit')
+    await wrapper.get('header button.btn-primary').trigger('click')
+
+    expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      rules: [expect.objectContaining({ models: ['gpt-6-astra', 'gpt-5.6-luna'] })]
+    }))
+  })
+
+  it('allows a model-only condition when saving a rule', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('[data-testid="customization-create-rule"]').trigger('click')
+    const form = wrapper.get('[data-testid="customization-rule-form"]')
+    await form.get('input.input').setValue('map-astra')
+    await form.findAll('textarea').at(0)?.setValue('maibon-gpt')
+    await form.get('textarea.font-mono').setValue('gpt-6-astra')
+    await form.trigger('submit')
+    await wrapper.get('header button.btn-primary').trigger('click')
+
+    expect(showError).not.toHaveBeenCalled()
+    expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      rules: expect.arrayContaining([expect.objectContaining({ name: 'map-astra', models: ['gpt-6-astra'] })])
     }))
   })
 

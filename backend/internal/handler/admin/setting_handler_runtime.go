@@ -180,6 +180,7 @@ func (h *SettingHandler) UpdateGatewayChannelCustomizationSettings(c *gin.Contex
 			Name: rule.Name, Enabled: rule.Enabled, Action: rule.Action, TargetGroupID: rule.TargetGroupID, APIKeyIDs: rule.APIKeyIDs,
 			APIKeyNames: rule.APIKeyNames, UserIDs: rule.UserIDs, UserEmails: rule.UserEmails,
 			Methods: rule.Methods, ExactPaths: rule.ExactPaths, PathPrefixes: rule.PathPrefixes,
+			Models:            rule.Models,
 			UserAgentContains: rule.UserAgentContains, QueryParams: rule.QueryParams,
 			RequestMessageMatchMode: rule.RequestMessageMatchMode,
 			RequestMessageText:      rule.RequestMessageText,
@@ -205,7 +206,7 @@ func gatewayChannelCustomizationResponse(bundle *service.GatewayChannelCustomiza
 		rules[i] = dto.GatewayChannelCustomizationRule{
 			Name: rule.Name, Enabled: rule.Enabled, Action: rule.Action, TargetGroupID: rule.TargetGroupID, APIKeyIDs: rule.APIKeyIDs, APIKeyNames: rule.APIKeyNames,
 			UserIDs: rule.UserIDs, UserEmails: rule.UserEmails, Methods: rule.Methods, ExactPaths: rule.ExactPaths,
-			PathPrefixes: rule.PathPrefixes, UserAgentContains: rule.UserAgentContains, QueryParams: rule.QueryParams,
+			PathPrefixes: rule.PathPrefixes, Models: rule.Models, UserAgentContains: rule.UserAgentContains, QueryParams: rule.QueryParams,
 			RequestMessageMatchMode: rule.RequestMessageMatchMode,
 			RequestMessageText:      rule.RequestMessageText,
 			StatusCode:              rule.StatusCode, ContentType: rule.ContentType, ResponseBody: rule.Body,

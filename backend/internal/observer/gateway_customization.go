@@ -50,6 +50,7 @@ type compiledCustomizationRule struct {
 	methods               map[string]struct{}
 	exactPaths            map[string]struct{}
 	pathPrefixes          []string
+	models                map[string]struct{}
 	userAgentContains     []string
 	queryParams           map[string]map[string]struct{}
 	requestMessagePattern *regexp.Regexp
@@ -316,6 +317,7 @@ func compileCustomizationRules(rules []service.GatewayChannelCustomizationRule) 
 			methods:           make(map[string]struct{}, len(rule.Methods)),
 			exactPaths:        make(map[string]struct{}, len(rule.ExactPaths)),
 			pathPrefixes:      append([]string(nil), rule.PathPrefixes...),
+			models:            make(map[string]struct{}, len(rule.Models)),
 			userAgentContains: append([]string(nil), rule.UserAgentContains...),
 			queryParams:       make(map[string]map[string]struct{}, len(rule.QueryParams)),
 		}
@@ -336,6 +338,9 @@ func compileCustomizationRules(rules []service.GatewayChannelCustomizationRule) 
 		}
 		for _, path := range rule.ExactPaths {
 			item.exactPaths[path] = struct{}{}
+		}
+		for _, model := range rule.Models {
+			item.models[strings.ToLower(strings.TrimSpace(model))] = struct{}{}
 		}
 		for key, values := range rule.QueryParams {
 			item.queryParams[key] = make(map[string]struct{}, len(values))
@@ -387,7 +392,17 @@ func matchesCustomizationRequestConditions(rule compiledCustomizationRule, c *gi
 	if !matchesCustomizationRequestMetadata(rule, c) {
 		return false
 	}
-	if rule.rule.RequestMessageText != "" && !matchesRequestMessageText(c, rule) {
+	if len(rule.models) == 0 && rule.rule.RequestMessageText == "" {
+		return true
+	}
+	body, ok := readCustomizationRequestBody(c)
+	if !ok {
+		return false
+	}
+	if len(rule.models) > 0 && !requestBodyMatchesModel(body, rule) {
+		return false
+	}
+	if rule.rule.RequestMessageText != "" && !requestBodyMatchesMessageText(body, rule) {
 		return false
 	}
 	return true
@@ -449,19 +464,44 @@ func matchesCustomizationRequestMetadata(rule compiledCustomizationRule, c *gin.
 }
 
 func matchesRequestMessageText(c *gin.Context, rule compiledCustomizationRule) bool {
-	if c == nil || c.Request == nil || c.Request.Body == nil {
+	body, ok := readCustomizationRequestBody(c)
+	if !ok {
 		return false
+	}
+	return requestBodyMatchesMessageText(body, rule)
+}
+
+func readCustomizationRequestBody(c *gin.Context) ([]byte, bool) {
+	if c == nil || c.Request == nil || c.Request.Body == nil {
+		return nil, false
 	}
 	original := c.Request.Body
-	prefix, err := io.ReadAll(io.LimitReader(original, customizationRequestBodyMaxBytes+1))
+	body, err := io.ReadAll(io.LimitReader(original, customizationRequestBodyMaxBytes+1))
 	c.Request.Body = &replayRequestBody{
-		Reader:   io.MultiReader(bytes.NewReader(prefix), original),
+		Reader:   io.MultiReader(bytes.NewReader(body), original),
 		original: original,
 	}
-	if err != nil || len(prefix) > customizationRequestBodyMaxBytes {
+	if err != nil || len(body) > customizationRequestBodyMaxBytes {
+		return nil, false
+	}
+	return body, true
+}
+
+func requestBodyMatchesModel(body []byte, rule compiledCustomizationRule) bool {
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(body, &root); err != nil {
 		return false
 	}
-	return requestBodyMatchesMessageText(prefix, rule)
+	raw, ok := root["model"]
+	if !ok {
+		return false
+	}
+	var model string
+	if err := json.Unmarshal(raw, &model); err != nil {
+		return false
+	}
+	_, ok = rule.models[strings.ToLower(strings.TrimSpace(model))]
+	return ok
 }
 
 func requestBodyMatchesMessageText(body []byte, rule compiledCustomizationRule) bool {
@@ -625,6 +665,7 @@ func serviceCloneGatewayCustomizationSettings(in service.GatewayChannelCustomiza
 		rule.Methods = append([]string(nil), rule.Methods...)
 		rule.ExactPaths = append([]string(nil), rule.ExactPaths...)
 		rule.PathPrefixes = append([]string(nil), rule.PathPrefixes...)
+		rule.Models = append([]string(nil), rule.Models...)
 		rule.UserAgentContains = append([]string(nil), rule.UserAgentContains...)
 		rule.QueryParams = make(map[string][]string, len(rule.QueryParams))
 		for key, values := range rule.QueryParams {
@@ -718,6 +759,7 @@ func customizationHitFingerprint(rule service.GatewayChannelCustomizationRule) s
 		Methods                 []string            `json:"methods"`
 		ExactPaths              []string            `json:"exact_paths"`
 		PathPrefixes            []string            `json:"path_prefixes"`
+		Models                  []string            `json:"models"`
 		UserAgentContains       []string            `json:"user_agent_contains"`
 		QueryParams             map[string][]string `json:"query_params"`
 		RequestMessageMatchMode string              `json:"request_message_match_mode"`
@@ -733,6 +775,7 @@ func customizationHitFingerprint(rule service.GatewayChannelCustomizationRule) s
 		Methods:                 sortedStrings(rule.Methods),
 		ExactPaths:              sortedStrings(rule.ExactPaths),
 		PathPrefixes:            sortedStrings(rule.PathPrefixes),
+		Models:                  sortedLowerStrings(rule.Models),
 		UserAgentContains:       sortedStrings(rule.UserAgentContains),
 		QueryParams:             query,
 		RequestMessageMatchMode: matchMode,
