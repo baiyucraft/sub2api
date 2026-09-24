@@ -25,4 +25,13 @@ describe.each([
     get.mockResolvedValue({ data })
     await expect(load()).resolves.toBe(data)
   })
+
+  it('accepts a mixed real-proxy and virtual proxy-group response', async () => {
+    const items = [
+      { id: 7, name: 'real proxy' },
+      { id: -12, name: 'group proxy', binding_type: 'proxy_ip_group', proxy_ip_group_id: 12 },
+    ]
+    get.mockResolvedValue({ data: items })
+    await expect(getAll()).resolves.toBe(items)
+  })
 })

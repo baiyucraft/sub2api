@@ -656,6 +656,9 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	if input == nil {
 		return nil, errors.New("account create input is required")
 	}
+	if err := normalizeAdminProxyBinding(&input.ProxyID, &input.ProxyIPGroupID); err != nil {
+		return nil, err
+	}
 	if input.PreferredGroupIDs != nil {
 		groupIDs := append([]int64(nil), input.GroupIDs...)
 		if err := normalizeAdminAccountGroupSelection(&groupIDs, input.PreferredGroupIDs); err != nil {
@@ -665,6 +668,9 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	}
 	if err := s.normalizeUpstreamAccountInput(ctx, input); err != nil {
 		return nil, err
+	}
+	if input.ProxyID != nil && *input.ProxyID == 0 {
+		input.ProxyID = nil
 	}
 	if input.ProxyIPGroupID != nil && *input.ProxyIPGroupID <= 0 {
 		input.ProxyIPGroupID = nil
@@ -796,6 +802,9 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *UpdateAccountInput) (*Account, error) {
 	if input == nil {
 		return nil, errors.New("account update input is required")
+	}
+	if err := normalizeAdminProxyBinding(&input.ProxyID, &input.ProxyIPGroupID); err != nil {
+		return nil, err
 	}
 	if err := normalizeAdminAccountGroupSelection(input.GroupIDs, input.PreferredGroupIDs); err != nil {
 		return nil, err
@@ -1032,20 +1041,20 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 			account.ProxyID = nil
 		} else {
 			account.ProxyID = input.ProxyID
+			account.ProxyIPGroupID = nil
+			account.ProxyIPGroup = nil
 		}
 		account.Proxy = nil // 清除关联对象，防止 GORM Save 时根据 Proxy.ID 覆盖 ProxyID
-		account.ProxyIPGroupID = nil
-		account.ProxyIPGroup = nil
 	}
 	if input.ProxyIPGroupID != nil && !account.IsCredentialShadow() {
 		if *input.ProxyIPGroupID <= 0 {
 			account.ProxyIPGroupID = nil
 		} else {
 			account.ProxyIPGroupID = input.ProxyIPGroupID
+			account.ProxyID = nil
+			account.Proxy = nil
 		}
 		account.ProxyIPGroup = nil
-		account.ProxyID = nil
-		account.Proxy = nil
 	}
 	if err := s.validateOpenAIProxyGroupBinding(ctx, account); err != nil {
 		return nil, err

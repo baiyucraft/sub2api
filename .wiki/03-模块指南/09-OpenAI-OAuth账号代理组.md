@@ -1,7 +1,7 @@
 ---
 title: OpenAI OAuth 账号代理组
 description: 一账号多代理、两级并发、会话粘性、负载均衡与账号级 STATE 合同
-updated: 2026-09-22
+updated: 2026-09-24
 owner: project
 ---
 
@@ -14,6 +14,23 @@ owner: project
 迁移 `279_proxy_ip_groups.sql` 新增代理组、成员关系和 `accounts.proxy_ip_group_id`。账号的 `proxy_id` 与 `proxy_ip_group_id` 互斥，一个账号最多绑定一个代理组，一个代理可以加入多个组。代理组的 `per_ip_concurrency` 默认 `10`，合法范围 `1–1000`。
 
 代理组只允许 OpenAI OAuth 和 Setup Token 账号使用。停用、过期或删除的代理不参与出站；使用中的代理组不得删除。空组或没有可用成员时禁止直连，返回 HTTP 503，稳定业务错误码为 `openai_proxy_group_no_egress`。账号响应只返回组名、成员数量、代理标签和并发摘要，不返回密码、完整 URL、STATE 或内部指纹。
+
+## 管理端混合代理目录
+
+沿用原生 `GET /api/v1/admin/proxies` 与 `GET /api/v1/admin/proxies/all`，不新增路由。两个接口默认返回真实代理与代理组虚拟行的混合目录；分页接口的 `total` 应计入虚拟行，`/all?with_count=true` 仍保留计数分支。真实代理的管理员 DTO 原有凭据字段不得因混合目录而扩大到虚拟组行。
+
+| 行类型 | `id` | `binding_type` | `proxy_ip_group_id` |
+| --- | --- | --- | --- |
+| 真实代理 | 正数真实代理 ID | `proxy` | `null` 或省略 |
+| 代理组虚拟行 | `-groupID` | `proxy_ip_group` | 正数代理组 ID |
+
+虚拟行是绑定选择器，不是 `proxies` 表记录，不得承载成员代理的密码、完整 URL、STATE 或内部指纹，也不得传给真实代理详情、测试、编辑、删除和出站操作。新客户端优先依据 `binding_type` 分流；负 `id` 加正数 `proxy_ip_group_id` 仅作兼容识别，其他使用代理列表的旧客户端仍必须保留“正数 ID 才是真实代理”的校验。
+
+### 账号创建/更新输入
+
+新客户端优先提交正数 `proxy_ip_group_id`。旧客户端提交的 `proxy_id > 0` 仅表示真实代理，须按真实代理存在性校验；`proxy_id < 0` 仅兼容虚拟组行，服务层将其归一为 `proxy_ip_group_id = -proxy_id`，同时清空 `proxy_id`，再进行组存在性、OpenAI OAuth/Setup Token 类型和互斥校验；负数绝不能作为真实代理 ID 查询或持久化。`proxy_id = 0` 显式清空单代理，更新请求省略字段则保持原绑定。显式 `proxy_ip_group_id` 仍按组字段的清空/绑定语义处理；两种绑定不得同时持久化，歧义或冲突输入应拒绝，不能静默丢失一方。
+
+兼容归一化只针对账号创建/更新绑定，不自动扩展到 OAuth 授权阶段、真实代理 CRUD、批量代理操作或其它消费者；这些路径的 `proxy_id` 仍只接受正数真实代理 ID。A 管理页请求原生分页目录时附加 `binding_type=proxy`，只取真实代理并保持原有管理分页；B 客户端省略该参数即可获得混合目录。
 
 ## 出站与两级并发
 
@@ -56,4 +73,5 @@ account_id + canonical outbound model + config revision + ChatGPT identity
 - 机器可读合同：`.agents/skills/sub2api-fork-extension-audit/references/extensions.yaml` 中的 `openai-oauth-proxy-groups`。
 - migration 279 的原始文件 SHA-256 登记在 `migration_contracts`，当前 pending profile 254 同时包含 migration 278 和 279。
 - 最低回归必须覆盖代理组 CRUD、账号类型与互斥校验、会话粘性、两级并发、容量换号、Redis fail-closed、各 OpenAI HTTP 入口和 WS 握手、账号级 STATE、导入废弃字段及脱敏展示。
+- 新增混合列表与绑定回归：两个原生列表默认返回真实/虚拟行及类型字段，分页 `total`、`with_count`、正数旧客户端校验、负数创建/更新归一、零值清空、类型/组存在性/互斥拒绝和虚拟行不进入真实代理操作。
 - upstream 后续出现相同功能时，按数据结构、调度边界、STATE 所有权和失败语义逐项判断完整或部分覆盖，不能只按 PR 标题删除本扩展。

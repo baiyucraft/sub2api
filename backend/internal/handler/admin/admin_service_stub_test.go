@@ -644,6 +644,10 @@ func (s *stubAdminService) ListProxiesWithAccountCount(ctx context.Context, page
 	return s.proxyCounts, int64(len(s.proxyCounts)), nil
 }
 
+func (s *stubAdminService) ListRealProxiesWithAccountCount(ctx context.Context, page, pageSize int, protocol, status, search string, sortBy, sortOrder string) ([]service.ProxyWithAccountCount, int64, error) {
+	return s.ListProxiesWithAccountCount(ctx, page, pageSize, protocol, status, search, sortBy, sortOrder)
+}
+
 func (s *stubAdminService) GetAllProxies(ctx context.Context) ([]service.Proxy, error) {
 	return s.proxies, nil
 }

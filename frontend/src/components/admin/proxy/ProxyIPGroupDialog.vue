@@ -117,6 +117,7 @@ import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Select, { type SelectOption } from '@/components/common/Select.vue'
 import Icon from '@/components/icons/Icon.vue'
 import type { Proxy, ProxyIPGroup } from '@/types'
+import { filterRealProxies } from '@/utils/proxy'
 
 const props = defineProps<{ show: boolean }>()
 const emit = defineEmits<{
@@ -164,7 +165,7 @@ const loadData = async () => {
       adminAPI.proxies.getAll()
     ])
     groups.value = groupRows
-    proxies.value = proxyRows
+    proxies.value = filterRealProxies(proxyRows)
     if (editingId.value) {
       const refreshed = groupRows.find(group => group.id === editingId.value)
       if (refreshed) await startEdit(refreshed)

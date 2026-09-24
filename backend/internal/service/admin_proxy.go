@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
+	"strings"
 	"time"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
@@ -16,29 +18,64 @@ import (
 
 // Proxy management implementations
 func (s *adminServiceImpl) ListProxies(ctx context.Context, page, pageSize int, protocol, status, search string, sortBy, sortOrder string) ([]Proxy, int64, error) {
-	params := pagination.PaginationParams{Page: page, PageSize: pageSize, SortBy: sortBy, SortOrder: sortOrder}
-	proxies, result, err := s.proxyRepo.ListWithFilters(ctx, params, protocol, status, search)
+	if s.proxyIPGroupRepo == nil {
+		params := pagination.PaginationParams{Page: page, PageSize: pageSize, SortBy: sortBy, SortOrder: sortOrder}
+		proxies, result, err := s.proxyRepo.ListWithFilters(ctx, params, protocol, status, search)
+		if err != nil {
+			return nil, 0, err
+		}
+		return proxies, result.Total, nil
+	}
+
+	proxies, err := s.listNativeProxyBindings(ctx, protocol, status, search, sortBy, sortOrder, false)
 	if err != nil {
 		return nil, 0, err
 	}
-	return proxies, result.Total, nil
+	total := int64(len(proxies))
+	proxies = paginateProxySlice(proxies, page, pageSize)
+	return proxies, total, nil
 }
 
 func (s *adminServiceImpl) ListProxiesWithAccountCount(ctx context.Context, page, pageSize int, protocol, status, search string, sortBy, sortOrder string) ([]ProxyWithAccountCount, int64, error) {
+	if s.proxyIPGroupRepo == nil {
+		return s.ListRealProxiesWithAccountCount(ctx, page, pageSize, protocol, status, search, sortBy, sortOrder)
+	}
+
+	proxies, err := s.listNativeProxyBindingsWithAccountCount(ctx, protocol, status, search, sortBy, sortOrder, true, false)
+	if err != nil {
+		return nil, 0, err
+	}
+	total := int64(len(proxies))
+	proxies = paginateProxySlice(proxies, page, pageSize)
+	return proxies, total, nil
+}
+
+func (s *adminServiceImpl) ListRealProxiesWithAccountCount(ctx context.Context, page, pageSize int, protocol, status, search string, sortBy, sortOrder string) ([]ProxyWithAccountCount, int64, error) {
 	params := pagination.PaginationParams{Page: page, PageSize: pageSize, SortBy: sortBy, SortOrder: sortOrder}
 	proxies, result, err := s.proxyRepo.ListWithFiltersAndAccountCount(ctx, params, protocol, status, search)
 	if err != nil {
 		return nil, 0, err
+	}
+	for i := range proxies {
+		proxies[i].BindingType = proxyBindingTypeProxy
+		id := proxies[i].ID
+		proxies[i].ProxyID = &id
 	}
 	s.attachProxyLatency(ctx, proxies)
 	return proxies, result.Total, nil
 }
 
 func (s *adminServiceImpl) GetAllProxies(ctx context.Context) ([]Proxy, error) {
-	return s.proxyRepo.ListActive(ctx)
+	if s.proxyIPGroupRepo == nil {
+		return s.proxyRepo.ListActive(ctx)
+	}
+	return s.listNativeProxyBindings(ctx, "", "", "", "id", "desc", true)
 }
 
 func (s *adminServiceImpl) GetAllProxiesWithAccountCount(ctx context.Context) ([]ProxyWithAccountCount, error) {
+	if s.proxyIPGroupRepo != nil {
+		return s.listNativeProxyBindingsWithAccountCount(ctx, "", "", "", "id", "desc", true, true)
+	}
 	proxies, err := s.proxyRepo.ListActiveWithAccountCount(ctx)
 	if err != nil {
 		return nil, err
@@ -47,11 +84,225 @@ func (s *adminServiceImpl) GetAllProxiesWithAccountCount(ctx context.Context) ([
 	return proxies, nil
 }
 
+const (
+	proxyBindingTypeProxy        = "proxy"
+	proxyBindingTypeProxyIPGroup = "proxy_ip_group"
+	proxyGroupProtocol           = "proxy_ip_group"
+	proxyGroupStatusAvailable    = "available"
+	proxyGroupStatusUnavailable  = "unavailable"
+)
+
+func validateAdminRealProxyID(id int64) error {
+	if id < 0 {
+		return infraerrors.BadRequest("PROXY_IP_GROUP_VIRTUAL_OPERATION_UNSUPPORTED", "virtual proxy-group IDs are only valid for account binding")
+	}
+	return nil
+}
+
+func paginateProxySlice[T any](items []T, page, pageSize int) []T {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = len(items)
+	}
+	start := (page - 1) * pageSize
+	if start >= len(items) {
+		return []T{}
+	}
+	end := start + pageSize
+	if end > len(items) {
+		end = len(items)
+	}
+	return items[start:end]
+}
+
+func (s *adminServiceImpl) listAllFilteredProxies(ctx context.Context, protocol, status, search, sortBy, sortOrder string, withCount bool) ([]ProxyWithAccountCount, error) {
+	const batchSize = 500
+	var out []ProxyWithAccountCount
+	for page := 1; ; page++ {
+		params := pagination.PaginationParams{Page: page, PageSize: batchSize, SortBy: sortBy, SortOrder: sortOrder}
+		var items []ProxyWithAccountCount
+		var total int64
+		var err error
+		if withCount {
+			var result *pagination.PaginationResult
+			items, result, err = s.proxyRepo.ListWithFiltersAndAccountCount(ctx, params, protocol, status, search)
+			if result != nil {
+				total = result.Total
+			}
+		} else {
+			var plain []Proxy
+			var result *pagination.PaginationResult
+			plain, result, err = s.proxyRepo.ListWithFilters(ctx, params, protocol, status, search)
+			for i := range plain {
+				items = append(items, ProxyWithAccountCount{Proxy: plain[i]})
+			}
+			if result != nil {
+				total = result.Total
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, items...)
+		if len(items) == 0 || int64(len(out)) >= total {
+			break
+		}
+	}
+	return out, nil
+}
+
+func (s *adminServiceImpl) listNativeProxyBindings(ctx context.Context, protocol, status, search, sortBy, sortOrder string, activeOnly bool) ([]Proxy, error) {
+	items, err := s.listNativeProxyBindingsWithAccountCount(ctx, protocol, status, search, sortBy, sortOrder, false, activeOnly)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Proxy, 0, len(items))
+	for i := range items {
+		out = append(out, items[i].Proxy)
+	}
+	return out, nil
+}
+
+func (s *adminServiceImpl) listNativeProxyBindingsWithAccountCount(ctx context.Context, protocol, status, search, sortBy, sortOrder string, withCount, activeOnly bool) ([]ProxyWithAccountCount, error) {
+	realStatus := status
+	if activeOnly {
+		realStatus = StatusActive
+	}
+	realItems, err := s.listAllFilteredProxies(ctx, protocol, realStatus, search, sortBy, sortOrder, withCount)
+	if err != nil {
+		return nil, err
+	}
+	groups, err := s.proxyIPGroupRepo.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	memberIDs := make([]int64, 0)
+	for _, group := range groups {
+		memberIDs = append(memberIDs, group.ProxyIDs...)
+	}
+	memberProxies, err := s.proxyRepo.ListByIDs(ctx, memberIDs)
+	if err != nil {
+		return nil, err
+	}
+	proxyByID := make(map[int64]Proxy, len(memberProxies))
+	for i := range memberProxies {
+		proxyByID[memberProxies[i].ID] = memberProxies[i]
+	}
+	now := time.Now()
+	for _, group := range groups {
+		if !matchesProxyBindingFilter(group.Name, proxyGroupProtocol, groupBindingStatus(group, proxyByID, now), protocol, status, search) {
+			continue
+		}
+		available := 0
+		for _, proxyID := range group.ProxyIDs {
+			member, ok := proxyByID[proxyID]
+			if ok && member.IsActive() && !member.IsExpired(now) {
+				available++
+			}
+		}
+		groupID := group.ID
+		virtualID := -group.ID
+		item := ProxyWithAccountCount{Proxy: Proxy{
+			ID: virtualID, Name: group.Name, Protocol: proxyGroupProtocol,
+			Status: groupBindingStatus(group, proxyByID, now), BindingType: proxyBindingTypeProxyIPGroup,
+			ProxyIPGroupID: &groupID, MemberCount: len(group.ProxyIDs),
+			AvailableMemberCount: available, PerIPConcurrency: group.PerIPConcurrency,
+			CreatedAt: group.CreatedAt, UpdatedAt: group.UpdatedAt,
+		}}
+		if withCount {
+			item.AccountCount, err = s.proxyIPGroupRepo.CountAccounts(ctx, group.ID)
+			if err != nil {
+				return nil, err
+			}
+		}
+		realItems = append(realItems, item)
+	}
+	for i := range realItems {
+		if realItems[i].BindingType == "" {
+			realItems[i].BindingType = proxyBindingTypeProxy
+			id := realItems[i].ID
+			realItems[i].ProxyID = &id
+		}
+	}
+	sortProxyBindings(realItems, sortBy, sortOrder)
+	if withCount {
+		s.attachProxyLatency(ctx, realItems)
+	}
+	return realItems, nil
+}
+
+func groupBindingStatus(group ProxyIPGroup, members map[int64]Proxy, now time.Time) string {
+	for _, proxyID := range group.ProxyIDs {
+		if proxy, ok := members[proxyID]; ok && proxy.IsActive() && !proxy.IsExpired(now) {
+			return proxyGroupStatusAvailable
+		}
+	}
+	return proxyGroupStatusUnavailable
+}
+
+func matchesProxyBindingFilter(name, bindingProtocol, bindingStatus, protocol, status, search string) bool {
+	if protocol != "" && protocol != bindingProtocol {
+		return false
+	}
+	if status != "" && status != bindingStatus {
+		return false
+	}
+	search = strings.ToLower(strings.TrimSpace(search))
+	return search == "" || strings.Contains(strings.ToLower(name), search)
+}
+
+func sortProxyBindings(items []ProxyWithAccountCount, sortBy, sortOrder string) {
+	desc := strings.EqualFold(sortOrder, "desc")
+	sort.SliceStable(items, func(i, j int) bool {
+		cmp := 0
+		switch strings.ToLower(sortBy) {
+		case "name":
+			cmp = strings.Compare(strings.ToLower(items[i].Name), strings.ToLower(items[j].Name))
+		case "account_count":
+			if items[i].AccountCount < items[j].AccountCount {
+				cmp = -1
+			} else if items[i].AccountCount > items[j].AccountCount {
+				cmp = 1
+			}
+		case "created_at":
+			if items[i].CreatedAt.Before(items[j].CreatedAt) {
+				cmp = -1
+			} else if items[i].CreatedAt.After(items[j].CreatedAt) {
+				cmp = 1
+			}
+		default:
+			if items[i].ID < items[j].ID {
+				cmp = -1
+			} else if items[i].ID > items[j].ID {
+				cmp = 1
+			}
+		}
+		if cmp == 0 {
+			return items[i].ID < items[j].ID
+		}
+		if desc {
+			return cmp > 0
+		}
+		return cmp < 0
+	})
+}
+
 func (s *adminServiceImpl) GetProxy(ctx context.Context, id int64) (*Proxy, error) {
+	if err := validateAdminRealProxyID(id); err != nil {
+		return nil, err
+	}
 	return s.proxyRepo.GetByID(ctx, id)
 }
 
 func (s *adminServiceImpl) GetProxiesByIDs(ctx context.Context, ids []int64) ([]Proxy, error) {
+	for _, id := range ids {
+		if err := validateAdminRealProxyID(id); err != nil {
+			return nil, err
+		}
+	}
 	return s.proxyRepo.ListByIDs(ctx, ids)
 }
 
@@ -94,6 +345,9 @@ func (s *adminServiceImpl) CreateProxy(ctx context.Context, input *CreateProxyIn
 }
 
 func (s *adminServiceImpl) UpdateProxy(ctx context.Context, id int64, input *UpdateProxyInput) (*Proxy, error) {
+	if err := validateAdminRealProxyID(id); err != nil {
+		return nil, err
+	}
 	if !isJSONTimeInRange(input.ExpiresAt) {
 		return nil, infraerrors.BadRequest("PROXY_EXPIRY_INVALID", "proxy expiry year must be between 0 and 9999")
 	}
@@ -159,6 +413,9 @@ func (s *adminServiceImpl) UpdateProxy(ctx context.Context, id int64, input *Upd
 }
 
 func (s *adminServiceImpl) DeleteProxy(ctx context.Context, id int64) error {
+	if err := validateAdminRealProxyID(id); err != nil {
+		return err
+	}
 	count, err := s.proxyRepo.CountAccountsByProxyID(ctx, id)
 	if err != nil {
 		return err
@@ -176,6 +433,13 @@ func (s *adminServiceImpl) BatchDeleteProxies(ctx context.Context, ids []int64) 
 	}
 
 	for _, id := range ids {
+		if err := validateAdminRealProxyID(id); err != nil {
+			result.Skipped = append(result.Skipped, ProxyBatchDeleteSkipped{
+				ID:     id,
+				Reason: infraerrors.Message(err),
+			})
+			continue
+		}
 		count, err := s.proxyRepo.CountAccountsByProxyID(ctx, id)
 		if err != nil {
 			result.Skipped = append(result.Skipped, ProxyBatchDeleteSkipped{
@@ -205,6 +469,9 @@ func (s *adminServiceImpl) BatchDeleteProxies(ctx context.Context, ids []int64) 
 }
 
 func (s *adminServiceImpl) GetProxyAccounts(ctx context.Context, proxyID int64) ([]ProxyAccountSummary, error) {
+	if err := validateAdminRealProxyID(proxyID); err != nil {
+		return nil, err
+	}
 	return s.proxyRepo.ListAccountSummariesByProxyID(ctx, proxyID)
 }
 
@@ -213,6 +480,9 @@ func (s *adminServiceImpl) CheckProxyExists(ctx context.Context, host string, po
 }
 
 func (s *adminServiceImpl) TestProxy(ctx context.Context, id int64) (*ProxyTestResult, error) {
+	if err := validateAdminRealProxyID(id); err != nil {
+		return nil, err
+	}
 	proxy, err := s.proxyRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -257,6 +527,9 @@ func (s *adminServiceImpl) TestProxy(ctx context.Context, id int64) (*ProxyTestR
 }
 
 func (s *adminServiceImpl) CheckProxyQuality(ctx context.Context, id int64) (*ProxyQualityCheckResult, error) {
+	if err := validateAdminRealProxyID(id); err != nil {
+		return nil, err
+	}
 	proxy, err := s.proxyRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -556,7 +829,12 @@ func (s *adminServiceImpl) attachProxyLatency(ctx context.Context, proxies []Pro
 
 	ids := make([]int64, 0, len(proxies))
 	for i := range proxies {
-		ids = append(ids, proxies[i].ID)
+		if proxies[i].ID > 0 {
+			ids = append(ids, proxies[i].ID)
+		}
+	}
+	if len(ids) == 0 {
+		return
 	}
 
 	latencies, err := s.proxyLatencyCache.GetProxyLatencies(ctx, ids)

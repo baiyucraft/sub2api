@@ -1642,6 +1642,7 @@ import upstreamAPI, {
 import { useAppStore } from '@/stores/app'
 import type { AdminGroup, Proxy } from '@/types'
 import { extractApiErrorCode, extractApiErrorMetadata } from '@/utils/apiError'
+import { filterRealProxies } from '@/utils/proxy'
 import {
   parseUpstreamTokenPaste,
   type ParsedTokenCandidate
@@ -2220,7 +2221,7 @@ async function handleSchedulingChange(item: UpstreamConfig, enabled: boolean) {
 async function loadProxies() {
   loadingProxies.value = true
   try {
-    proxies.value = await adminAPI.proxies.getAllWithCount()
+    proxies.value = filterRealProxies(await adminAPI.proxies.getAllWithCount())
   } catch (error: any) {
     proxies.value = []
     appStore.showError(apiErrorMessage(error, t('admin.upstreamConfigs.messages.loadProxiesFailed')))

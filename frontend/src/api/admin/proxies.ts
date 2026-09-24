@@ -6,6 +6,7 @@
 import { apiClient } from '../client'
 import type {
   Proxy,
+  ProxyListItem,
   ProxyAccountSummary,
   ProxyQualityCheckResult,
   CreateProxyRequest,
@@ -15,7 +16,7 @@ import type {
   AdminDataImportResult
 } from '@/types'
 
-function assertProxyArray(value: unknown): asserts value is Proxy[] {
+function assertProxyArray(value: unknown): asserts value is ProxyListItem[] {
   if (!Array.isArray(value)) {
     throw new Error('Invalid proxy list response')
   }
@@ -32,6 +33,7 @@ export async function list(
   page: number = 1,
   pageSize: number = 20,
   filters?: {
+    binding_type?: 'proxy'
     protocol?: string
     status?: 'active' | 'inactive' | 'expired'
     search?: string
@@ -41,8 +43,8 @@ export async function list(
   options?: {
     signal?: AbortSignal
   }
-): Promise<PaginatedResponse<Proxy>> {
-  const { data } = await apiClient.get<PaginatedResponse<Proxy>>('/admin/proxies', {
+): Promise<PaginatedResponse<ProxyListItem>> {
+  const { data } = await apiClient.get<PaginatedResponse<ProxyListItem>>('/admin/proxies', {
     params: {
       page,
       page_size: pageSize,
@@ -58,8 +60,8 @@ export async function list(
  * Get all active proxies (without pagination)
  * @returns List of all active proxies
  */
-export async function getAll(): Promise<Proxy[]> {
-  const { data } = await apiClient.get<Proxy[]>('/admin/proxies/all')
+export async function getAll(): Promise<ProxyListItem[]> {
+  const { data } = await apiClient.get<ProxyListItem[]>('/admin/proxies/all')
   assertProxyArray(data)
   return data
 }
@@ -68,8 +70,8 @@ export async function getAll(): Promise<Proxy[]> {
  * Get all active proxies with account count (sorted by creation time desc)
  * @returns List of all active proxies with account count
  */
-export async function getAllWithCount(): Promise<Proxy[]> {
-  const { data } = await apiClient.get<Proxy[]>('/admin/proxies/all', {
+export async function getAllWithCount(): Promise<ProxyListItem[]> {
+  const { data } = await apiClient.get<ProxyListItem[]>('/admin/proxies/all', {
     params: { with_count: 'true' }
   })
   assertProxyArray(data)

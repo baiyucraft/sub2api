@@ -20,7 +20,34 @@ async function openSelector() {
   return wrapper
 }
 
+async function openMixedSelector() {
+  const wrapper = mount(ProxySelector, {
+    props: {
+      modelValue: null,
+      proxies: [
+        { id: 1, name: 'Real proxy', host: 'localhost', port: 8080, protocol: 'http' },
+        { id: -9, name: 'Group proxy', binding_type: 'proxy_ip_group', proxy_ip_group_id: 9 },
+      ],
+    },
+    global: { stubs: { Icon: true } },
+  })
+  await wrapper.get('.select-trigger').trigger('click')
+  return wrapper
+}
+
 describe('proxy connection tests', () => {
+  it('hides virtual proxy-group rows and excludes them from batch testing', async () => {
+    testProxy.mockResolvedValue({ success: true, country: 'US' })
+    const wrapper = await openMixedSelector()
+
+    expect(wrapper.text()).toContain('Real proxy')
+    expect(wrapper.text()).not.toContain('Group proxy')
+    await wrapper.get('.batch-test-btn').trigger('click')
+    await flushPromises()
+    expect(testProxy).toHaveBeenCalledTimes(1)
+    expect(testProxy).toHaveBeenCalledWith(1)
+  })
+
   it('does not restart an individual test when a batch is started', async () => {
     let finish!: (result: object) => void
     testProxy.mockImplementation((id: number) => id === 1

@@ -698,19 +698,25 @@ func ProxyFromService(p *service.Proxy) *Proxy {
 		return nil
 	}
 	return &Proxy{
-		ID:             p.ID,
-		Name:           p.Name,
-		Protocol:       p.Protocol,
-		Host:           p.Host,
-		Port:           p.Port,
-		Username:       p.Username,
-		Status:         p.Status,
-		CreatedAt:      p.CreatedAt,
-		UpdatedAt:      p.UpdatedAt,
-		ExpiresAt:      p.ExpiresAt,
-		FallbackMode:   p.FallbackMode,
-		BackupProxyID:  p.BackupProxyID,
-		ExpiryWarnDays: p.ExpiryWarnDays,
+		ID:                   p.ID,
+		Name:                 p.Name,
+		BindingType:          p.BindingType,
+		ProxyID:              p.ProxyID,
+		ProxyIPGroupID:       p.ProxyIPGroupID,
+		Protocol:             p.Protocol,
+		Host:                 p.Host,
+		Port:                 p.Port,
+		Username:             p.Username,
+		Status:               p.Status,
+		CreatedAt:            p.CreatedAt,
+		UpdatedAt:            p.UpdatedAt,
+		ExpiresAt:            p.ExpiresAt,
+		FallbackMode:         p.FallbackMode,
+		BackupProxyID:        p.BackupProxyID,
+		ExpiryWarnDays:       p.ExpiryWarnDays,
+		MemberCount:          p.MemberCount,
+		AvailableMemberCount: p.AvailableMemberCount,
+		PerIPConcurrency:     p.PerIPConcurrency,
 	}
 }
 

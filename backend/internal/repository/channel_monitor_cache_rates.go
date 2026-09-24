@@ -24,9 +24,10 @@ func (r *channelMonitorRepository) BatchPrimaryCacheRates(
 	return r.batchPrimaryCacheRates(ctx, monitors, rateRange, now, nil)
 }
 
-// BatchPrimaryCacheRatesForGroups applies V1 display aliases only when the
-// source group is visible to the current viewer. A nil map means unrestricted
-// access (used by internal callers); a non-nil map is an explicit user scope.
+// BatchPrimaryCacheRatesForGroups applies V1 cache-rate mappings only when all
+// related groups are visible to the current viewer. A nil map means
+// unrestricted access (used by internal callers); a non-nil map is an explicit
+// user scope.
 func (r *channelMonitorRepository) BatchPrimaryCacheRatesForGroups(
 	ctx context.Context, monitors []*service.ChannelMonitor, rateRange string, now time.Time, allowedGroupIDs map[int64]struct{},
 ) (map[int64]float64, error) {
@@ -51,7 +52,8 @@ func (r *channelMonitorRepository) batchPrimaryCacheRates(
 	if cfg == nil || !cfg.Enabled {
 		return rates, nil
 	}
-	byTarget := make(map[monitorCacheTarget][]int64)
+	monitorTargets := make(map[int64][]monitorCacheTarget)
+	queryTargets := make(map[monitorCacheTarget]struct{})
 	var groups []int64
 	var platforms, models []string
 	for _, monitor := range monitors {
@@ -59,24 +61,39 @@ func (r *channelMonitorRepository) batchPrimaryCacheRates(
 			continue
 		}
 		displayGroupID := *monitor.GroupID
-		sourceGroupID := service.ChannelMonitorV1CacheRateSourceGroup(displayGroupID, cfg.V1CacheRateSourceGroups)
-		if allowedGroupIDs != nil && sourceGroupID != displayGroupID {
-			if _, visible := allowedGroupIDs[sourceGroupID]; !visible {
-				sourceGroupID = displayGroupID
-			}
-		}
-		target := monitorCacheTarget{sourceGroupID, strings.ToLower(strings.TrimSpace(monitor.Provider)), strings.TrimSpace(monitor.PrimaryModel)}
-		if target.platform == "" || target.model == "" || target.model == "quota" {
+		platform := strings.ToLower(strings.TrimSpace(monitor.Provider))
+		model := strings.TrimSpace(monitor.PrimaryModel)
+		if platform == "" || model == "" || model == "quota" {
 			continue
 		}
-		if _, exists := byTarget[target]; !exists {
+
+		relatedGroups := service.ChannelMonitorV1CacheRateRelatedGroups(displayGroupID, cfg.V1CacheRateSourceGroups)
+		if allowedGroupIDs != nil {
+			visibleGroups := relatedGroups[:0]
+			for _, groupID := range relatedGroups {
+				if groupID == displayGroupID {
+					visibleGroups = append(visibleGroups, groupID)
+					continue
+				}
+				if _, visible := allowedGroupIDs[groupID]; visible {
+					visibleGroups = append(visibleGroups, groupID)
+				}
+			}
+			relatedGroups = visibleGroups
+		}
+		for _, groupID := range relatedGroups {
+			target := monitorCacheTarget{groupID, platform, model}
+			monitorTargets[monitor.ID] = append(monitorTargets[monitor.ID], target)
+			if _, exists := queryTargets[target]; exists {
+				continue
+			}
+			queryTargets[target] = struct{}{}
 			groups = append(groups, target.groupID)
 			platforms = append(platforms, target.platform)
 			models = append(models, target.model)
 		}
-		byTarget[target] = append(byTarget[target], monitor.ID)
 	}
-	if len(byTarget) == 0 {
+	if len(queryTargets) == 0 {
 		return rates, nil
 	}
 	wm, err := v2.GetAggregationWatermark(ctx)
@@ -105,6 +122,7 @@ func (r *channelMonitorRepository) batchPrimaryCacheRates(
 		return nil, fmt.Errorf("load monitor cache rates: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
+	ratesByTarget := make(map[monitorCacheTarget]float64, len(queryTargets))
 	for rows.Next() {
 		var target monitorCacheTarget
 		var samples, input, created, read int64
@@ -112,9 +130,22 @@ func (r *channelMonitorRepository) batchPrimaryCacheRates(
 			return nil, err
 		}
 		if rate, ok := monitorCacheRate(samples, input, created, read, cfg.HealthThresholds.MinimumSample); ok {
-			for _, id := range byTarget[target] {
-				rates[id] = rate
+			ratesByTarget[target] = rate
+		}
+	}
+	for monitorID, targets := range monitorTargets {
+		var best float64
+		found := false
+		for _, target := range targets {
+			rate, ok := ratesByTarget[target]
+			if !ok || (found && rate <= best) {
+				continue
 			}
+			best = rate
+			found = true
+		}
+		if found {
+			rates[monitorID] = best
 		}
 	}
 	return rates, rows.Err()
