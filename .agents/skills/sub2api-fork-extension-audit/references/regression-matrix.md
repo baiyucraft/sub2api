@@ -116,6 +116,13 @@ DataTable 高频 ResizeObserver 通知只触发一帧测量
 图片成本摘要字段缺失、partial、stale 和免费成本 0 的结构化展示
 ```
 
+## V1 渠道状态缓存率与展示分组
+
+- V1 主动探针与 V2 用量后台汇总同时启用，但 V2 专用页面/API 仍只在 V2 模式放行。
+- `go test ./internal/repository ./internal/service ./internal/handler ./internal/server/routes -run 'Test(MonitorCache|BatchPrimaryCacheRates|ListUserView_|ChannelMonitorRuntimeActiveProbesAllowed|ChannelMonitorModeV2Guard)' -count=1`（在 backend 下执行）。
+- `vitest run src/utils/__tests__/channelMonitorGrouping.spec.ts src/components/user/__tests__/MonitorCard.quota.spec.ts src/components/user/__tests__/MonitorCardGrid.spec.ts src/components/user/__tests__/MonitorTimeline.ttft.spec.ts`（在 frontend 下执行）。
+- 重点核对当前用户无权分组、监控未绑定分组、零分母、未满 `minimum_sample`、15d/30d 回填未完成都不显示百分比；四类导航和卡片原始厂商标识一致，详情仍保留探针延迟。
+
 ## 额外成本金额输入
 
 - `ExtraCostsDialog` 的金额状态接受 `string | number`；原生数字输入事件不得触发 `trim is not a function` 或卸载弹窗。

@@ -50,10 +50,11 @@
       :primary-label="t('monitorCommon.ttft')"
       :primary-value="formatTTFT(item.primary_ttft_ms)"
       primary-unit="ms"
-      secondary-icon="clock"
-      :secondary-label="t('monitorCommon.totalLatency')"
-      :secondary-value="formatLatency(item.primary_latency_ms)"
-      secondary-unit="ms"
+      secondary-icon="database"
+      :secondary-label="t('channelStatus.cacheRate')"
+      :secondary-value="item.primary_cache_rate == null ? t('channelStatus.insufficientSamples') : formatMonitorPercent(item.primary_cache_rate)"
+      secondary-unit=""
+      :secondary-compact="item.primary_cache_rate == null"
       tertiary-icon="globe"
       :tertiary-label="t('monitorCommon.endpointPing')"
       :tertiary-value="formatLatency(item.primary_ping_latency_ms)"
@@ -98,6 +99,7 @@ import MonitorAvailabilityRow from './MonitorAvailabilityRow.vue'
 import MonitorTimeline from './MonitorTimeline.vue'
 import GroupRateTrend from './GroupRateTrend.vue'
 import MonitorQuotaView from '@/components/common/MonitorQuotaView.vue'
+import { formatMonitorPercent } from '@/features/channel-monitor-v2/monitorFormat'
 
 // 图标配色与 utils/platformColors.ts 的平台色对齐（新 4 家）。
 const PROVIDER_TINT: Record<string, string> = {

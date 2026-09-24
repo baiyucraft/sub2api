@@ -6,15 +6,22 @@ function monitor(id: number, provider: string, current_public_rate?: number | nu
 }
 
 describe('groupMonitorItems', () => {
-  it('groups by provider and keeps the configured provider order', () => {
+  it('groups into the four user-facing categories in their configured order', () => {
     const groups = groupMonitorItems([
       monitor(3, 'anthropic') as never,
       monitor(1, 'openai') as never,
       monitor(2, 'openai') as never,
+      monitor(4, 'kimi') as never,
+      monitor(5, 'zhipu') as never,
+      monitor(6, 'deepseek') as never,
+      monitor(7, 'minimax') as never,
+      monitor(8, 'grok') as never,
     ])
 
-    expect(groups.map((group) => group.provider)).toEqual(['openai', 'anthropic'])
+    expect(groups.map((group) => group.provider)).toEqual(['openai', 'anthropic', '__domestic__', '__other__'])
     expect(groups[0].items.map((item) => item.id)).toEqual([1, 2])
+    expect(groups[2].items.map((item) => item.id)).toEqual([4, 5, 6, 7])
+    expect(groups[2].items.map((item) => item.provider)).toEqual(['kimi', 'zhipu', 'deepseek', 'minimax'])
   })
 
   it('places blank and unknown providers in the trailing other group', () => {
@@ -24,8 +31,8 @@ describe('groupMonitorItems', () => {
       monitor(3, 'gemini') as never,
     ])
 
-    expect(groups.map((group) => group.provider)).toEqual(['gemini', '__other__'])
-    expect(groups[1].items.map((item) => item.id)).toEqual([1, 2])
+    expect(groups.map((group) => group.provider)).toEqual(['__other__'])
+    expect(groups[0].items.map((item) => item.id)).toEqual([1, 2, 3])
   })
 
   it('sorts each platform by current rate, keeps missing rates last, and breaks ties by id', () => {

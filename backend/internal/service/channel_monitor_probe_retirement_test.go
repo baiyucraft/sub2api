@@ -60,4 +60,8 @@ func TestChannelMonitorRuntimeActiveProbesAllowed(t *testing.T) {
 	require.True(t, (ChannelMonitorRuntime{Enabled: true, Mode: ChannelMonitorModeV1}).ActiveProbesAllowed())
 	require.False(t, (ChannelMonitorRuntime{Enabled: true, Mode: ChannelMonitorModeV2}).ActiveProbesAllowed())
 	require.True(t, (ChannelMonitorRuntime{Enabled: true, Mode: ChannelMonitorModeV2}).PassiveAggregationAllowed())
+	require.False(t, (ChannelMonitorRuntime{Enabled: true, Mode: ChannelMonitorModeV1}).PassiveAggregationAllowed())
+	require.True(t, (ChannelMonitorRuntime{Enabled: true, Mode: ChannelMonitorModeV1}).UsageAggregationAllowed())
+	require.True(t, (ChannelMonitorRuntime{Enabled: true, Mode: ChannelMonitorModeV2}).UsageAggregationAllowed())
+	require.False(t, (ChannelMonitorRuntime{Enabled: false, Mode: ChannelMonitorModeV1}).UsageAggregationAllowed())
 }

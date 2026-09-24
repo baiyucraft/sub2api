@@ -190,7 +190,7 @@ func (s *ChannelMonitorV2Aggregator) passiveAggregationAllowed(ctx context.Conte
 		// Fail closed without settings: do not aggregate under ambiguous mode.
 		return false
 	}
-	return s.settings.GetChannelMonitorRuntime(ctx).PassiveAggregationAllowed()
+	return s.settings.GetChannelMonitorRuntime(ctx).UsageAggregationAllowed()
 }
 
 func (s *ChannelMonitorV2Aggregator) wait(interval time.Duration) bool {
