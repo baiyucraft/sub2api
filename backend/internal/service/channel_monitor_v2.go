@@ -42,7 +42,10 @@ type ChannelMonitorV2Config struct {
 	RefreshIntervalSeconds int                              `json:"refresh_interval_seconds"`
 	Platforms              []ChannelMonitorV2PlatformConfig `json:"platforms"`
 	GroupIDs               []int64                          `json:"group_ids"`
-	HealthThresholds       ChannelMonitorV2HealthThresholds `json:"health_thresholds"`
+	// Maps a displayed V1 group to the passive usage group whose cache rate is shown.
+	// This does not change V2 dimensions, billing, or usage attribution.
+	V1CacheRateSourceGroups map[int64]int64                  `json:"v1_cache_rate_source_groups,omitempty"`
+	HealthThresholds        ChannelMonitorV2HealthThresholds `json:"health_thresholds"`
 	// IgnoredErrorCategories are excluded from error_rate / health scoring.
 	// They still appear in the error breakdown with ignored=true (greyed in UI).
 	// Unknown categories always roll into "other" via the taxonomy classifier.
@@ -759,6 +762,10 @@ func normalizeChannelMonitorV2Config(cfg *ChannelMonitorV2Config) error {
 	if err != nil {
 		return err
 	}
+	cfg.V1CacheRateSourceGroups, err = NormalizeChannelMonitorV1CacheRateSourceGroups(cfg.V1CacheRateSourceGroups)
+	if err != nil {
+		return err
+	}
 	cfg.IgnoredErrorCategories = normalizeChannelMonitorV2IgnoredCategories(cfg.IgnoredErrorCategories)
 	cfg.HealthThresholds = NormalizeChannelMonitorV2HealthThresholds(cfg.HealthThresholds)
 	seen := make(map[string]struct{}, len(cfg.Platforms))
@@ -776,6 +783,58 @@ func normalizeChannelMonitorV2Config(cfg *ChannelMonitorV2Config) error {
 	}
 	sort.Slice(cfg.Platforms, func(i, j int) bool { return cfg.Platforms[i].Platform < cfg.Platforms[j].Platform })
 	return nil
+}
+
+// NormalizeChannelMonitorV1CacheRateSourceGroups rejects invalid IDs, self references,
+// and cycles so a bad config cannot make cache-rate lookup loop indefinitely.
+func NormalizeChannelMonitorV1CacheRateSourceGroups(in map[int64]int64) (map[int64]int64, error) {
+	out := make(map[int64]int64, len(in))
+	for displayGroupID, sourceGroupID := range in {
+		if displayGroupID <= 0 || sourceGroupID <= 0 {
+			return nil, fmt.Errorf("%w: v1_cache_rate_source_groups must use positive group IDs", ErrChannelMonitorV2InvalidConfig)
+		}
+		if displayGroupID == sourceGroupID {
+			return nil, fmt.Errorf("%w: v1_cache_rate_source_groups cannot reference itself", ErrChannelMonitorV2InvalidConfig)
+		}
+		out[displayGroupID] = sourceGroupID
+	}
+	for start := range out {
+		seen := map[int64]struct{}{start: {}}
+		current := start
+		for {
+			next, ok := out[current]
+			if !ok {
+				break
+			}
+			if _, exists := seen[next]; exists {
+				return nil, fmt.Errorf("%w: v1_cache_rate_source_groups contains a cycle", ErrChannelMonitorV2InvalidConfig)
+			}
+			seen[next] = struct{}{}
+			current = next
+		}
+	}
+	return out, nil
+}
+
+// ChannelMonitorV1CacheRateSourceGroup resolves a displayed group to its configured
+// source group. Invalid maps fail closed to the displayed group.
+func ChannelMonitorV1CacheRateSourceGroup(displayGroupID int64, aliases map[int64]int64) int64 {
+	if displayGroupID <= 0 {
+		return displayGroupID
+	}
+	seen := map[int64]struct{}{displayGroupID: {}}
+	current := displayGroupID
+	for {
+		next, ok := aliases[current]
+		if !ok || next <= 0 {
+			return current
+		}
+		if _, exists := seen[next]; exists {
+			return displayGroupID
+		}
+		seen[next] = struct{}{}
+		current = next
+	}
 }
 
 // DefaultChannelMonitorV2IgnoredErrorCategories are factory defaults for

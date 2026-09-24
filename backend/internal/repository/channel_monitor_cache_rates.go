@@ -21,29 +21,22 @@ type monitorCacheTarget struct {
 func (r *channelMonitorRepository) BatchPrimaryCacheRates(
 	ctx context.Context, monitors []*service.ChannelMonitor, rateRange string, now time.Time,
 ) (map[int64]float64, error) {
-	rates := make(map[int64]float64)
-	byTarget := make(map[monitorCacheTarget][]int64)
-	var groups []int64
-	var platforms, models []string
-	for _, monitor := range monitors {
-		if monitor == nil || monitor.GroupID == nil || *monitor.GroupID <= 0 {
-			continue
-		}
-		target := monitorCacheTarget{*monitor.GroupID, strings.ToLower(strings.TrimSpace(monitor.Provider)), strings.TrimSpace(monitor.PrimaryModel)}
-		if target.platform == "" || target.model == "" || target.model == "quota" {
-			continue
-		}
-		if _, exists := byTarget[target]; !exists {
-			groups = append(groups, target.groupID)
-			platforms = append(platforms, target.platform)
-			models = append(models, target.model)
-		}
-		byTarget[target] = append(byTarget[target], monitor.ID)
-	}
-	if len(byTarget) == 0 {
-		return rates, nil
-	}
+	return r.batchPrimaryCacheRates(ctx, monitors, rateRange, now, nil)
+}
 
+// BatchPrimaryCacheRatesForGroups applies V1 display aliases only when the
+// source group is visible to the current viewer. A nil map means unrestricted
+// access (used by internal callers); a non-nil map is an explicit user scope.
+func (r *channelMonitorRepository) BatchPrimaryCacheRatesForGroups(
+	ctx context.Context, monitors []*service.ChannelMonitor, rateRange string, now time.Time, allowedGroupIDs map[int64]struct{},
+) (map[int64]float64, error) {
+	return r.batchPrimaryCacheRates(ctx, monitors, rateRange, now, allowedGroupIDs)
+}
+
+func (r *channelMonitorRepository) batchPrimaryCacheRates(
+	ctx context.Context, monitors []*service.ChannelMonitor, rateRange string, now time.Time, allowedGroupIDs map[int64]struct{},
+) (map[int64]float64, error) {
+	rates := make(map[int64]float64)
 	window, bucket, err := monitorCacheWindow(rateRange)
 	if err != nil {
 		return nil, err
@@ -56,6 +49,34 @@ func (r *channelMonitorRepository) BatchPrimaryCacheRates(
 		return nil, fmt.Errorf("load cache sample threshold: %w", err)
 	}
 	if cfg == nil || !cfg.Enabled {
+		return rates, nil
+	}
+	byTarget := make(map[monitorCacheTarget][]int64)
+	var groups []int64
+	var platforms, models []string
+	for _, monitor := range monitors {
+		if monitor == nil || monitor.GroupID == nil || *monitor.GroupID <= 0 {
+			continue
+		}
+		displayGroupID := *monitor.GroupID
+		sourceGroupID := service.ChannelMonitorV1CacheRateSourceGroup(displayGroupID, cfg.V1CacheRateSourceGroups)
+		if allowedGroupIDs != nil && sourceGroupID != displayGroupID {
+			if _, visible := allowedGroupIDs[sourceGroupID]; !visible {
+				sourceGroupID = displayGroupID
+			}
+		}
+		target := monitorCacheTarget{sourceGroupID, strings.ToLower(strings.TrimSpace(monitor.Provider)), strings.TrimSpace(monitor.PrimaryModel)}
+		if target.platform == "" || target.model == "" || target.model == "quota" {
+			continue
+		}
+		if _, exists := byTarget[target]; !exists {
+			groups = append(groups, target.groupID)
+			platforms = append(platforms, target.platform)
+			models = append(models, target.model)
+		}
+		byTarget[target] = append(byTarget[target], monitor.ID)
+	}
+	if len(byTarget) == 0 {
 		return rates, nil
 	}
 	wm, err := v2.GetAggregationWatermark(ctx)

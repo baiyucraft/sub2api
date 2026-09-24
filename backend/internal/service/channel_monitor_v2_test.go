@@ -181,6 +181,22 @@ func TestChannelMonitorV2ConfigValidation(t *testing.T) {
 	require.ErrorIs(t, normalizeChannelMonitorV2Config(&cfg), ErrChannelMonitorV2InvalidConfig)
 }
 
+func TestChannelMonitorV1CacheRateSourceGroupsValidationAndResolution(t *testing.T) {
+	aliases, err := NormalizeChannelMonitorV1CacheRateSourceGroups(map[int64]int64{8: 7, 9: 8})
+	require.NoError(t, err)
+	require.Equal(t, int64(7), ChannelMonitorV1CacheRateSourceGroup(9, aliases))
+	require.Equal(t, int64(7), ChannelMonitorV1CacheRateSourceGroup(7, aliases))
+
+	_, err = NormalizeChannelMonitorV1CacheRateSourceGroups(map[int64]int64{7: 7})
+	require.ErrorIs(t, err, ErrChannelMonitorV2InvalidConfig)
+	_, err = NormalizeChannelMonitorV1CacheRateSourceGroups(map[int64]int64{7: 8, 8: 7})
+	require.ErrorIs(t, err, ErrChannelMonitorV2InvalidConfig)
+	err = normalizeChannelMonitorV2Config(&ChannelMonitorV2Config{
+		V1CacheRateSourceGroups: map[int64]int64{0: 7},
+	})
+	require.ErrorIs(t, err, ErrChannelMonitorV2InvalidConfig)
+}
+
 func TestChannelMonitorV2ErrorTaxonomyPriority(t *testing.T) {
 	tests := []struct {
 		name string

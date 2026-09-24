@@ -45,6 +45,35 @@ func TestMonitorCacheWindowUsesExistingV2RollupTiers(t *testing.T) {
 	}
 }
 
+func TestBatchPrimaryCacheRatesUsesConfiguredV1SourceGroup(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+	now := time.Date(2026, 9, 20, 12, 30, 0, 0, time.UTC)
+	mock.ExpectQuery("FROM channel_monitor_v2_config").WillReturnRows(
+		sqlmock.NewRows([]string{"version", "enabled", "refresh_interval_seconds", "platforms", "group_ids", "ignored_error_categories", "health_thresholds", "updated_at", "updated_by"}).
+			AddRow(1, true, 60, `[]`, `{}`, `{}`, `{"minimum_sample":50,"_v1_cache_rate_source_groups":{"8":7}}`, now, nil),
+	)
+	start := now.Truncate(time.Hour).Add(time.Hour).Add(-24 * time.Hour)
+	mock.ExpectQuery("FROM channel_monitor_v2_watermarks").WillReturnRows(
+		sqlmock.NewRows([]string{"usage_coverage_start", "error_coverage_start", "data_through", "last_successful_at", "backfill_cursor"}).
+			AddRow(start, start, now, now, start),
+	)
+	mock.ExpectQuery("FROM channel_monitor_v2_metrics_rollup").
+		WithArgs(start, now.Truncate(time.Hour).Add(time.Hour), 3600, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"group_id", "platform", "model", "success_requests", "input_tokens", "cache_creation_tokens", "cache_read_tokens"}).
+			AddRow(int64(7), "openai", "gpt", 50, 60, 20, 20))
+
+	sourceGroup, displayedGroup := int64(7), int64(8)
+	monitors := []*service.ChannelMonitor{{ID: 1, GroupID: &sourceGroup, Provider: "openai", PrimaryModel: "gpt"}, {ID: 2, GroupID: &displayedGroup, Provider: "openai", PrimaryModel: "gpt"}}
+	repo := &channelMonitorRepository{db: db}
+	rates, err := repo.BatchPrimaryCacheRatesForGroups(context.Background(), monitors, service.MonitorRateRange24Hours, now, map[int64]struct{}{sourceGroup: {}, displayedGroup: {}})
+	require.NoError(t, err)
+	require.InDelta(t, 0.2, rates[1], 0.0001)
+	require.InDelta(t, 0.2, rates[2], 0.0001)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestBatchPrimaryCacheRatesFiltersByVisibleGroupPlatformAndModel(t *testing.T) {
 	for _, tc := range []struct {
 		name        string

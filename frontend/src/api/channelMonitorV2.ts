@@ -104,6 +104,8 @@ export interface MonitorConfig {
   refresh_interval_seconds: 60 | 300
   platforms: Array<{ platform: string; enabled: boolean; models: string[] }>
   group_ids: number[]
+  /** V1 display group id -> passive usage group id for cache-rate display. */
+  v1_cache_rate_source_groups?: Record<string, number>
   health_thresholds: {
     minimum_sample: number
     warning_error_rate: number

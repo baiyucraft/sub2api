@@ -97,7 +97,11 @@ func (s *ChannelMonitorService) ListUserView(
 	cacheRates := map[int64]float64{}
 	if s.cacheRateReader != nil {
 		var cacheErr error
-		cacheRates, cacheErr = s.cacheRateReader.BatchPrimaryCacheRates(ctx, monitors, rateRange, time.Now().UTC())
+		if scoped, ok := s.cacheRateReader.(ChannelMonitorScopedCacheRateReader); ok {
+			cacheRates, cacheErr = scoped.BatchPrimaryCacheRatesForGroups(ctx, monitors, rateRange, time.Now().UTC(), allowedGroupIDs)
+		} else {
+			cacheRates, cacheErr = s.cacheRateReader.BatchPrimaryCacheRates(ctx, monitors, rateRange, time.Now().UTC())
+		}
 		if cacheErr != nil {
 			slog.Warn("channel_monitor: batch load cache rates failed", "error", cacheErr)
 		}
