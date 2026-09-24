@@ -98,7 +98,8 @@ const detailTitle = computed(() => {
 const groupedItems = computed(() => groupMonitorItems(items.value))
 const platformNavItems = computed(() => groupedItems.value.map((group) => ({
   value: group.provider,
-  label: group.provider === '__other__' ? t('channelStatus.otherPlatform') : providerLabel(group.provider),
+  label: group.provider === '__domestic__' ? t('channelStatus.domesticModels')
+    : group.provider === '__other__' ? t('channelStatus.otherPlatform') : providerLabel(group.provider),
 })))
 
 // ── Loaders ──

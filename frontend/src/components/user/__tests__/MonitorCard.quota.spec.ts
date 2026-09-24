@@ -41,7 +41,7 @@ function mountCard(item: UserMonitorView) {
   return mount(MonitorCard, {
     props: {
       item,
-      window: '7d',
+      range: '7d',
       availabilityValue: 100,
       countdownSeconds: 0,
     },
@@ -110,5 +110,22 @@ describe('MonitorCard quota snapshot visibility', () => {
   it('keeps a distinct group label for legacy or manual monitors', () => {
     const wrapper = mountCard(makeItem({ name: '监控渠道', group_name: 'gpt-plus' }))
     expect(wrapper.get('[data-testid="monitor-group-label"]').text()).toBe('gpt-plus')
+  })
+
+  it('shows the V2-format cache rate instead of probe duration and preserves provider identity', () => {
+    const wrapper = mountCard(makeItem({ provider: 'kimi', primary_cache_rate: 0.245, primary_latency_ms: 12345 }))
+    const metrics = wrapper.getComponent({ name: 'MonitorMetricPair' })
+    expect(metrics.props('secondaryLabel')).toBe('channelStatus.cacheRate')
+    expect(metrics.props('secondaryValue')).toBe('24.5%')
+    expect(metrics.props('secondaryIcon')).toBe('database')
+    expect(metrics.props('tertiaryLabel')).toBe('monitorCommon.endpointPing')
+    expect(wrapper.text()).toContain('monitorCommon.providers.kimi')
+  })
+
+  it('shows insufficient samples for a missing cache rate without inventing zero', () => {
+    const wrapper = mountCard(makeItem({ primary_cache_rate: null }))
+    const metrics = wrapper.getComponent({ name: 'MonitorMetricPair' })
+    expect(metrics.props('secondaryValue')).toBe('channelStatus.insufficientSamples')
+    expect(metrics.props('secondaryCompact')).toBe(true)
   })
 })

@@ -132,6 +132,8 @@ const platforms = computed(() => props.platforms ?? [])
 const activePlatform = computed(() => props.activePlatform ?? '')
 
 function platformIconValue(value: string): GroupPlatform | undefined {
+  if (value === '__domestic__') return 'composite'
+  if (value === '__other__') return undefined
   return value as GroupPlatform
 }
 

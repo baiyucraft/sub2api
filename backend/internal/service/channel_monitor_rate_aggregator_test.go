@@ -10,6 +10,9 @@ import (
 
 type monitorRateRepositoryStub struct {
 	ChannelMonitorRepository
+	cacheMonitors       []*ChannelMonitor
+	cacheRange          string
+	cacheRates          map[int64]float64
 	monitors            []*ChannelMonitor
 	seriesByGroup       map[int64]GroupRateSnapshotSeries
 	requestedGroupIDs   []int64
@@ -18,6 +21,12 @@ type monitorRateRepositoryStub struct {
 	availabilityIDs     [][]int64
 	no24h               bool
 	zero24h             bool
+}
+
+func (s *monitorRateRepositoryStub) BatchPrimaryCacheRates(_ context.Context, monitors []*ChannelMonitor, rateRange string, _ time.Time) (map[int64]float64, error) {
+	s.cacheMonitors = append([]*ChannelMonitor(nil), monitors...)
+	s.cacheRange = rateRange
+	return s.cacheRates, nil
 }
 
 func (s *monitorRateRepositoryStub) ListEnabled(context.Context) ([]*ChannelMonitor, error) {
@@ -141,7 +150,7 @@ func TestListUserView_InvalidRateRangeFailsBeforeRepositoryQuery(t *testing.T) {
 func TestListUserView_FiltersBeforeBatchAggregationAndUsesSelectedWindow(t *testing.T) {
 	allowedGroupID := int64(7)
 	deniedGroupID := int64(8)
-	repo := &monitorRateRepositoryStub{monitors: []*ChannelMonitor{
+	repo := &monitorRateRepositoryStub{cacheRates: map[int64]float64{2: 0.25, 3: 0.99}, monitors: []*ChannelMonitor{
 		{ID: 1, PrimaryModel: "gpt", CredentialMode: ChannelMonitorCredentialManual},
 		{ID: 2, PrimaryModel: "gpt", GroupID: &allowedGroupID, CredentialMode: ChannelMonitorCredentialManagedLocal},
 		{ID: 3, PrimaryModel: "gpt", GroupID: &deniedGroupID, CredentialMode: ChannelMonitorCredentialManagedLocal},
@@ -158,6 +167,12 @@ func TestListUserView_FiltersBeforeBatchAggregationAndUsesSelectedWindow(t *test
 	}
 	require.Equal(t, float64(monitorAvailability15Days), views[0].Availability)
 	require.Equal(t, float64(monitorAvailability7Days), views[0].Availability7d)
+	require.Equal(t, MonitorRateRange15Days, repo.cacheRange)
+	require.Len(t, repo.cacheMonitors, 2)
+	require.Equal(t, []int64{1, 2}, []int64{repo.cacheMonitors[0].ID, repo.cacheMonitors[1].ID})
+	require.Nil(t, views[0].PrimaryCacheRate)
+	require.NotNil(t, views[1].PrimaryCacheRate)
+	require.InDelta(t, 0.25, *views[1].PrimaryCacheRate, 0.0001)
 }
 
 func TestListUserView_SevenDayRangeReusesSingleAvailabilityQuery(t *testing.T) {

@@ -32,6 +32,7 @@ export interface UserMonitorView {
   primary_status: MonitorStatus
   primary_latency_ms: number | null
   primary_ttft_ms?: number | null
+  primary_cache_rate?: number | null
   primary_ping_latency_ms: number | null
   availability: number
   availability_7d: number

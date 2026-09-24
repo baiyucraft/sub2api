@@ -185,9 +185,10 @@ type UserMonitorView struct {
 	PrimaryStatus        string
 	PrimaryLatencyMs     *int
 	PrimaryTTFTMs        *int
-	PrimaryPingLatencyMs *int    // 主模型最近一次 ping 延迟
-	Availability         float64 // 当前选择窗口，0-100
-	Availability7d       float64 // 兼容字段，0-100
+	PrimaryCacheRate     *float64 // nil when usage cannot be attributed or samples are insufficient
+	PrimaryPingLatencyMs *int     // 主模型最近一次 ping 延迟
+	Availability         float64  // 当前选择窗口，0-100
+	Availability7d       float64  // 兼容字段，0-100
 	ExtraModels          []ExtraModelStatus
 	Timeline             []UserMonitorTimelinePoint // 主模型最近 N 个历史点（按 checked_at DESC，最新在前）
 	ShowGroupRate        bool

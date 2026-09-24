@@ -78,4 +78,21 @@ describe('MonitorCardGrid', () => {
     expect(headings[0].attributes('id')).toBe('monitor-platform-openai')
     expect(headings[1].attributes('id')).toBe('monitor-platform-anthropic')
   })
+
+  it('labels a domestic category without changing the provider of its cards', () => {
+    const wrapper = mount(MonitorCardGrid, {
+      props: {
+        range: '24h', countdownSeconds: 0, loading: false,
+        groups: [{ provider: '__domestic__', items: [{ id: 2, provider: 'deepseek' } as never] }],
+      },
+      global: {
+        stubs: {
+          EmptyState: true,
+          MonitorCard: { name: 'MonitorCard', props: ['item'], template: '<div data-test="card" />' },
+        },
+      },
+    })
+    expect(wrapper.find('h2').text()).toBe('channelStatus.domesticModels')
+    expect(wrapper.getComponent({ name: 'MonitorCard' }).props('item').provider).toBe('deepseek')
+  })
 })

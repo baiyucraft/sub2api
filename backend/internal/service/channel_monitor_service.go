@@ -66,6 +66,11 @@ type ChannelMonitorRepository interface {
 	UpdateAggregationWatermark(ctx context.Context, date time.Time) error
 }
 
+// ChannelMonitorCacheRateReader reads per-monitor rates from usage aggregates.
+type ChannelMonitorCacheRateReader interface {
+	BatchPrimaryCacheRates(ctx context.Context, monitors []*ChannelMonitor, rateRange string, now time.Time) (map[int64]float64, error)
+}
+
 // channelMonitorRuntimeReader is the optional settings view used to gate V1
 // active probes by channel_monitor_enabled + channel_monitor_mode.
 type channelMonitorRuntimeReader interface {
@@ -75,6 +80,7 @@ type channelMonitorRuntimeReader interface {
 // ChannelMonitorService 渠道监控管理服务。
 type ChannelMonitorService struct {
 	repo              ChannelMonitorRepository
+	cacheRateReader   ChannelMonitorCacheRateReader
 	encryptor         SecretEncryptor
 	managedKeyService ManagedMonitorKeyService
 	managedSettings   ManagedMonitorSettings
@@ -100,7 +106,11 @@ const ChannelMonitorDuplicateOperationIDMetadataKey = "sub2api:duplicate_operati
 
 // NewChannelMonitorService 创建渠道监控服务实例。
 func NewChannelMonitorService(repo ChannelMonitorRepository, encryptor SecretEncryptor) *ChannelMonitorService {
-	return &ChannelMonitorService{repo: repo, encryptor: encryptor}
+	s := &ChannelMonitorService{repo: repo, encryptor: encryptor}
+	if reader, ok := repo.(ChannelMonitorCacheRateReader); ok {
+		s.cacheRateReader = reader
+	}
+	return s
 }
 
 // SetManagedMonitorDependencies wires the optional managed-local monitor
