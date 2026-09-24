@@ -137,6 +137,15 @@ export default {
       tabV2: 'V2 数据监控配置',
       tabV1Active: 'V1 主动探测',
       tabV1History: 'V1 历史（当前模式未启用探测）',
+      v1CacheRateAliases: {
+        title: 'V1 缓存率来源映射',
+        hint: '仅影响 V1 渠道卡片展示，不合并真实用量、计费或 V2 数据。',
+        description: '将一个展示分组的缓存率指向另一个分组。来源分组需要有可用的 V2 汇总。',
+        add: '添加映射',
+        uses: '显示来源',
+        empty: '未配置来源映射',
+        notEnoughGroups: '至少需要两个分组才能配置来源映射。',
+      },
     },
   },
 }

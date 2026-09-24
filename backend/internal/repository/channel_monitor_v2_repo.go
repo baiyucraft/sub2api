@@ -46,6 +46,7 @@ func (r *channelMonitorV2Repository) GetConfig(ctx context.Context) (*service.Ch
 	if len(thresholds) > 0 {
 		_ = json.Unmarshal(thresholds, &cfg.HealthThresholds)
 	}
+	cfg.V1CacheRateSourceGroups = decodeV1CacheRateSourceGroups(thresholds)
 	cfg.HealthThresholds = service.NormalizeChannelMonitorV2HealthThresholds(cfg.HealthThresholds)
 	return &cfg, nil
 }
@@ -59,7 +60,7 @@ func (r *channelMonitorV2Repository) UpdateConfig(ctx context.Context, cfg servi
 		cfg.IgnoredErrorCategories = []string{}
 	}
 	cfg.HealthThresholds = service.NormalizeChannelMonitorV2HealthThresholds(cfg.HealthThresholds)
-	thresholds, err := json.Marshal(cfg.HealthThresholds)
+	thresholds, err := marshalChannelMonitorV2Thresholds(cfg.HealthThresholds, cfg.V1CacheRateSourceGroups)
 	if err != nil {
 		return nil, err
 	}
@@ -95,8 +96,59 @@ func (r *channelMonitorV2Repository) UpdateConfig(ctx context.Context, cfg servi
 	}
 	updated.HealthThresholds = service.DefaultChannelMonitorV2HealthThresholds()
 	_ = json.Unmarshal(rawThresholds, &updated.HealthThresholds)
+	updated.V1CacheRateSourceGroups = decodeV1CacheRateSourceGroups(rawThresholds)
 	updated.HealthThresholds = service.NormalizeChannelMonitorV2HealthThresholds(updated.HealthThresholds)
 	return &updated, nil
+}
+
+const v1CacheRateSourceGroupsKey = "_v1_cache_rate_source_groups"
+
+func decodeV1CacheRateSourceGroups(raw []byte) map[int64]int64 {
+	if len(raw) == 0 {
+		return map[int64]int64{}
+	}
+	var values map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &values); err != nil {
+		return map[int64]int64{}
+	}
+	entry, ok := values[v1CacheRateSourceGroupsKey]
+	if !ok {
+		return map[int64]int64{}
+	}
+	var aliases map[int64]int64
+	if err := json.Unmarshal(entry, &aliases); err != nil {
+		return map[int64]int64{}
+	}
+	normalized, err := service.NormalizeChannelMonitorV1CacheRateSourceGroups(aliases)
+	if err != nil {
+		return map[int64]int64{}
+	}
+	return normalized
+}
+
+func marshalChannelMonitorV2Thresholds(thresholds service.ChannelMonitorV2HealthThresholds, aliases map[int64]int64) ([]byte, error) {
+	encoded, err := json.Marshal(thresholds)
+	if err != nil {
+		return nil, err
+	}
+	values := make(map[string]json.RawMessage)
+	if err := json.Unmarshal(encoded, &values); err != nil {
+		return nil, err
+	}
+	if len(aliases) == 0 {
+		delete(values, v1CacheRateSourceGroupsKey)
+	} else {
+		normalized, err := service.NormalizeChannelMonitorV1CacheRateSourceGroups(aliases)
+		if err != nil {
+			return nil, err
+		}
+		aliasJSON, err := json.Marshal(normalized)
+		if err != nil {
+			return nil, err
+		}
+		values[v1CacheRateSourceGroupsKey] = aliasJSON
+	}
+	return json.Marshal(values)
 }
 
 type channelMonitorV2Fact struct {

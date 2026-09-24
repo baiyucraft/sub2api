@@ -71,6 +71,13 @@ type ChannelMonitorCacheRateReader interface {
 	BatchPrimaryCacheRates(ctx context.Context, monitors []*ChannelMonitor, rateRange string, now time.Time) (map[int64]float64, error)
 }
 
+// ChannelMonitorScopedCacheRateReader is the optional V1 reader variant that
+// can apply display aliases without leaking a source group's rate to viewers
+// who cannot see that source group.
+type ChannelMonitorScopedCacheRateReader interface {
+	BatchPrimaryCacheRatesForGroups(ctx context.Context, monitors []*ChannelMonitor, rateRange string, now time.Time, allowedGroupIDs map[int64]struct{}) (map[int64]float64, error)
+}
+
 // channelMonitorRuntimeReader is the optional settings view used to gate V1
 // active probes by channel_monitor_enabled + channel_monitor_mode.
 type channelMonitorRuntimeReader interface {
