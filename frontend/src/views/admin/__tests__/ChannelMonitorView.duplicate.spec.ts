@@ -29,6 +29,10 @@ vi.mock('@/features/channel-monitor-v2/MonitorSettingsPanel.vue', () => ({
   default: { name: 'MonitorSettingsPanel', template: '<div data-testid="v2-settings" />' },
 }))
 
+vi.mock('@/features/channel-monitor-v2/V1CacheRateSourceMappingPanel.vue', () => ({
+  default: { name: 'V1CacheRateSourceMappingPanel', template: '<div data-testid="v1-cache-rate-settings" />' },
+}))
+
 vi.mock('@/api/admin', () => ({
   adminAPI: {
     channelMonitor: {

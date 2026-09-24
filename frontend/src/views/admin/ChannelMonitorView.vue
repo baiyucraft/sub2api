@@ -49,7 +49,9 @@
 
       <MonitorSettingsPanel v-if="adminMonitorTab === 'v2'" />
 
-      <TablePageLayout v-else>
+      <template v-else>
+      <V1CacheRateSourceMappingPanel />
+      <TablePageLayout>
       <template #filters>
         <MonitorFiltersBar
           v-model:search="searchQuery"
@@ -137,6 +139,7 @@
         />
       </template>
       </TablePageLayout>
+      </template>
     </div>
 
     <MonitorFormDialog
@@ -202,6 +205,7 @@ import MonitorActionsCell from '@/components/admin/monitor/MonitorActionsCell.vu
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { useChannelMonitorFormat } from '@/composables/useChannelMonitorFormat'
 import MonitorSettingsPanel from '@/features/channel-monitor-v2/MonitorSettingsPanel.vue'
+import V1CacheRateSourceMappingPanel from '@/features/channel-monitor-v2/V1CacheRateSourceMappingPanel.vue'
 import { isChannelMonitorV1Mode } from '@/utils/featureFlags'
 
 const { t } = useI18n()

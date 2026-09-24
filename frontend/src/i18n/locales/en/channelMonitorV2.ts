@@ -142,6 +142,15 @@ export default {
       tabV2: 'V2 data monitor config',
       tabV1Active: 'V1 active probes',
       tabV1History: 'V1 history (probes not active in current mode)',
+      v1CacheRateAliases: {
+        title: 'V1 cache-rate source mapping',
+        hint: 'Changes V1 channel-card display only; usage, billing, and V2 data remain separate.',
+        description: 'Make one display group use another group’s cache rate. The source group needs available V2 aggregates.',
+        add: 'Add mapping',
+        uses: 'Uses rate from',
+        empty: 'No source mappings configured',
+        notEnoughGroups: 'At least two groups are required to configure a source mapping.',
+      },
     },
   },
 }
