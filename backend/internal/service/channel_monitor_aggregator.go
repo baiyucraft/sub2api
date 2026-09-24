@@ -94,6 +94,14 @@ func (s *ChannelMonitorService) ListUserView(
 	}
 	timelineMap := s.batchTimeline(ctx, ids, primaryByID)
 	rateTrends := s.batchPublicRateTrends(ctx, monitors, rateRange, time.Now().UTC())
+	cacheRates := map[int64]float64{}
+	if s.cacheRateReader != nil {
+		var cacheErr error
+		cacheRates, cacheErr = s.cacheRateReader.BatchPrimaryCacheRates(ctx, monitors, rateRange, time.Now().UTC())
+		if cacheErr != nil {
+			slog.Warn("channel_monitor: batch load cache rates failed", "error", cacheErr)
+		}
+	}
 
 	views := make([]*UserMonitorView, 0, len(monitors))
 	for _, m := range monitors {
@@ -106,6 +114,9 @@ func (s *ChannelMonitorService) ListUserView(
 		)
 		primaryLatest := pickLatest(latestMap[m.ID], m.PrimaryModel)
 		view := buildUserViewFromSummary(m, summary, primaryLatest, timelineMap[m.ID])
+		if rate, ok := cacheRates[m.ID]; ok {
+			view.PrimaryCacheRate = &rate
+		}
 		if selected := indexAvailabilityByModel(selectedAvailability[m.ID])[m.PrimaryModel]; selected != nil {
 			view.Availability = selected.AvailabilityPct
 		}

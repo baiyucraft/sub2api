@@ -93,6 +93,7 @@ const { t } = useI18n()
 const { providerLabel } = useChannelMonitorFormat()
 
 function platformLabel(provider: string): string {
+  if (provider === '__domestic__') return t('channelStatus.domesticModels')
   if (provider === '__other__') return t('channelStatus.otherPlatform')
   if (PROVIDERS.includes(provider as (typeof PROVIDERS)[number])) return providerLabel(provider)
   return provider || t('channelStatus.otherPlatform')

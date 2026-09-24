@@ -69,6 +69,7 @@ type channelMonitorUserListItem struct {
 	PrimaryStatus        string                               `json:"primary_status"`
 	PrimaryLatencyMs     *int                                 `json:"primary_latency_ms"`
 	PrimaryTTFTMs        *int                                 `json:"primary_ttft_ms"`
+	PrimaryCacheRate     *float64                             `json:"primary_cache_rate"`
 	PrimaryPingLatencyMs *int                                 `json:"primary_ping_latency_ms"`
 	Availability7d       float64                              `json:"availability_7d"`
 	Availability         float64                              `json:"availability"`
@@ -157,6 +158,7 @@ func userMonitorViewToItem(v *service.UserMonitorView, includeQuota bool) channe
 		PrimaryStatus:        v.PrimaryStatus,
 		PrimaryLatencyMs:     v.PrimaryLatencyMs,
 		PrimaryTTFTMs:        service.NormalizeChannelMonitorTTFT(v.PrimaryTTFTMs),
+		PrimaryCacheRate:     v.PrimaryCacheRate,
 		PrimaryPingLatencyMs: v.PrimaryPingLatencyMs,
 		Availability7d:       v.Availability7d,
 		Availability:         v.Availability,

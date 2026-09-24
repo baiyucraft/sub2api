@@ -1042,6 +1042,13 @@
         "24 小时可用率来自管理列表按主模型批量聚合；无历史为 null，老版接口缺字段时显示 —，不得用 7 天可用率代替",
         "插件独立于 Sub2API 主服务进程，不改变网关计费、调度或账号生命周期"
       ]
+    },
+    {
+      "id": "channel-monitor-v1-cache-categories", "title": "V1 渠道状态缓存率和四类分组", "description": "V1 模式共享 V2 用量汇总，按授权分组及主模型展示缓存率和四类页面分组；不改变主动探针或 V2 页面门控。", "ownership": "fork", "risk_level": "high",
+      "paths": ["backend/internal/repository/channel_monitor_cache_rates.go", "backend/internal/service/channel_monitor_aggregator.go", "backend/internal/service/channel_monitor_service.go", "backend/internal/service/channel_monitor_types.go", "backend/internal/service/setting_public.go", "backend/internal/service/wire.go", "backend/internal/handler/channel_monitor_user_handler.go", "frontend/src/api/channelMonitor.ts", "frontend/src/utils/channelMonitorGrouping.ts", "frontend/src/views/user/ChannelStatusV1View.vue", "frontend/src/components/user/monitor/MonitorCard.vue", "frontend/src/components/user/monitor/MonitorCardGrid.vue", "frontend/src/components/user/monitor/MonitorHero.vue", "frontend/src/components/user/monitor/MonitorMetricPair.vue", "frontend/src/i18n/locales/zh/dashboard.ts", "frontend/src/i18n/locales/en/dashboard.ts"],
+      "symbols": ["BatchPrimaryCacheRates", "UsageAggregationAllowed", "PrimaryCacheRate", "groupMonitorItems"], "api_routes": ["/channel-monitors"], "settings_keys": ["channel_monitor_mode"], "migration_files": [],
+      "required_tests": ["backend/internal/repository/channel_monitor_cache_rates_test.go", "backend/internal/service/channel_monitor_rate_aggregator_test.go", "backend/internal/service/channel_monitor_probe_retirement_test.go", "frontend/src/utils/__tests__/channelMonitorGrouping.spec.ts", "frontend/src/components/user/__tests__/MonitorCard.quota.spec.ts"],
+      "invariants": ["只按可见监控绑定的业务分组、有效厂商和主模型读取真实业务汇总，不跨权限或平台归因", "成功请求数不足 V2 minimum_sample、零分母或历史回填未完成均为 null，不输出请求量", "V1 与 V2 共享后台汇总，但 V2 页面门控和 V1 主动探针不变", "卡片仅替换总耗时为缓存率，探针历史及详情继续保留完整延迟", "国产模型仅为 V1 展示分组，不修改原厂商身份或 V2 维度"]
     }
   ]
 }

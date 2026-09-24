@@ -470,9 +470,15 @@ func (r ChannelMonitorRuntime) ActiveProbesAllowed() bool {
 	return r.Enabled && r.Mode == ChannelMonitorModeV1
 }
 
-// PassiveAggregationAllowed reports whether V2 passive aggregation may run.
+// PassiveAggregationAllowed gates V2-only routes.
 func (r ChannelMonitorRuntime) PassiveAggregationAllowed() bool {
 	return r.Enabled && r.Mode == ChannelMonitorModeV2
+}
+
+// UsageAggregationAllowed maintains shared usage rollups for V1 cache-rate
+// cards as well as V2 without opening V2-only routes in V1 mode.
+func (r ChannelMonitorRuntime) UsageAggregationAllowed() bool {
+	return r.Enabled && (r.Mode == ChannelMonitorModeV1 || r.Mode == ChannelMonitorModeV2)
 }
 
 // GetChannelMonitorRuntime reads the channel monitor feature flags directly from

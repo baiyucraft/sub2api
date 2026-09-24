@@ -22,7 +22,7 @@
         <Icon :name="secondaryIcon" size="xs" />
         <span>{{ secondaryLabel }}</span>
       </div>
-      <div class="mt-1.5 text-lg font-bold font-mono tabular-nums text-gray-900 dark:text-gray-100">
+      <div class="mt-1.5 font-bold font-mono tabular-nums text-gray-900 dark:text-gray-100" :class="secondaryCompact ? 'text-xs leading-tight [overflow-wrap:anywhere]' : 'text-lg'">
         {{ secondaryValue }}<span v-if="secondaryValue !== '-'" class="text-xs font-normal text-gray-400 ml-0.5">{{ secondaryUnit }}</span>
       </div>
     </div>
@@ -52,7 +52,8 @@ defineProps<{
   secondaryLabel: string
   secondaryValue: string
   secondaryUnit: string
-  secondaryIcon: 'bolt' | 'globe' | 'clock' | 'link'
+  secondaryIcon: 'bolt' | 'globe' | 'clock' | 'link' | 'database'
+  secondaryCompact?: boolean
   tertiaryLabel?: string
   tertiaryValue?: string
   tertiaryUnit?: string
