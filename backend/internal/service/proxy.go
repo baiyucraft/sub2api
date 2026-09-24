@@ -28,6 +28,16 @@ type Proxy struct {
 	FallbackMode   string
 	BackupProxyID  *int64
 	ExpiryWarnDays int
+
+	// Binding fields are populated only when a proxy is returned through the
+	// native admin binding list. Real proxies keep their positive ID in ID and
+	// expose ProxyID; proxy groups use a negative virtual ID in ID.
+	BindingType          string
+	ProxyID              *int64
+	ProxyIPGroupID       *int64
+	MemberCount          int
+	AvailableMemberCount int
+	PerIPConcurrency     int
 }
 
 func (p *Proxy) IsActive() bool {

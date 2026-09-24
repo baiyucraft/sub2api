@@ -197,6 +197,14 @@ func TestChannelMonitorV1CacheRateSourceGroupsValidationAndResolution(t *testing
 	require.ErrorIs(t, err, ErrChannelMonitorV2InvalidConfig)
 }
 
+func TestChannelMonitorV1CacheRateRelatedGroupsTreatMappingAsSharedComponent(t *testing.T) {
+	aliases := map[int64]int64{8: 7, 9: 8}
+	require.Equal(t, []int64{7, 8, 9}, ChannelMonitorV1CacheRateRelatedGroups(7, aliases))
+	require.Equal(t, []int64{7, 8, 9}, ChannelMonitorV1CacheRateRelatedGroups(9, aliases))
+	require.Equal(t, []int64{10}, ChannelMonitorV1CacheRateRelatedGroups(10, aliases))
+	require.Equal(t, []int64{11}, ChannelMonitorV1CacheRateRelatedGroups(11, nil))
+}
+
 func TestChannelMonitorV2ErrorTaxonomyPriority(t *testing.T) {
 	tests := []struct {
 		name string

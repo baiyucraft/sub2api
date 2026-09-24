@@ -69,15 +69,22 @@ func (h *ProxyHandler) List(c *gin.Context) {
 		search = search[:100]
 	}
 
-	proxies, total, err := h.adminService.ListProxiesWithAccountCount(c.Request.Context(), page, pageSize, protocol, status, search, sortBy, sortOrder)
+	var proxies []service.ProxyWithAccountCount
+	var total int64
+	var err error
+	if c.Query("binding_type") == "proxy" {
+		proxies, total, err = h.adminService.ListRealProxiesWithAccountCount(c.Request.Context(), page, pageSize, protocol, status, search, sortBy, sortOrder)
+	} else {
+		proxies, total, err = h.adminService.ListProxiesWithAccountCount(c.Request.Context(), page, pageSize, protocol, status, search, sortBy, sortOrder)
+	}
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
 
-	out := make([]dto.AdminProxyWithAccountCount, 0, len(proxies))
+	out := make([]dto.ProxyWithAccountCount, 0, len(proxies))
 	for i := range proxies {
-		out = append(out, *dto.ProxyWithAccountCountFromServiceAdmin(&proxies[i]))
+		out = append(out, *dto.ProxyWithAccountCountFromService(&proxies[i]))
 	}
 	response.Paginated(c, out, total, page, pageSize)
 }
@@ -94,9 +101,9 @@ func (h *ProxyHandler) GetAll(c *gin.Context) {
 			response.ErrorFrom(c, err)
 			return
 		}
-		out := make([]dto.AdminProxyWithAccountCount, 0, len(proxies))
+		out := make([]dto.ProxyWithAccountCount, 0, len(proxies))
 		for i := range proxies {
-			out = append(out, *dto.ProxyWithAccountCountFromServiceAdmin(&proxies[i]))
+			out = append(out, *dto.ProxyWithAccountCountFromService(&proxies[i]))
 		}
 		response.Success(c, out)
 		return
@@ -108,9 +115,9 @@ func (h *ProxyHandler) GetAll(c *gin.Context) {
 		return
 	}
 
-	out := make([]dto.AdminProxy, 0, len(proxies))
+	out := make([]dto.Proxy, 0, len(proxies))
 	for i := range proxies {
-		out = append(out, *dto.ProxyFromServiceAdmin(&proxies[i]))
+		out = append(out, *dto.ProxyFromService(&proxies[i]))
 	}
 	response.Success(c, out)
 }
@@ -298,6 +305,10 @@ func (h *ProxyHandler) GetStats(c *gin.Context) {
 	proxyID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid proxy ID")
+		return
+	}
+	if proxyID < 0 {
+		response.BadRequest(c, "virtual proxy-group IDs are only valid for account binding")
 		return
 	}
 

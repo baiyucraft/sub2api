@@ -531,21 +531,27 @@ type AccountGroup struct {
 }
 
 type Proxy struct {
-	ID        int64     `json:"id"`
-	Name      string    `json:"name"`
-	Protocol  string    `json:"protocol"`
-	Host      string    `json:"host"`
-	Port      int       `json:"port"`
-	Username  string    `json:"username"`
-	Password  string    `json:"-"`
-	Status    string    `json:"status"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID             int64     `json:"id"`
+	Name           string    `json:"name"`
+	BindingType    string    `json:"binding_type,omitempty"`
+	ProxyID        *int64    `json:"proxy_id,omitempty"`
+	ProxyIPGroupID *int64    `json:"proxy_ip_group_id,omitempty"`
+	Protocol       string    `json:"protocol"`
+	Host           string    `json:"host"`
+	Port           int       `json:"port"`
+	Username       string    `json:"username"`
+	Password       string    `json:"-"`
+	Status         string    `json:"status"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 
-	ExpiresAt      *time.Time `json:"expires_at"`
-	FallbackMode   string     `json:"fallback_mode"`
-	BackupProxyID  *int64     `json:"backup_proxy_id"`
-	ExpiryWarnDays int        `json:"expiry_warn_days"`
+	ExpiresAt            *time.Time `json:"expires_at"`
+	FallbackMode         string     `json:"fallback_mode"`
+	BackupProxyID        *int64     `json:"backup_proxy_id"`
+	ExpiryWarnDays       int        `json:"expiry_warn_days"`
+	MemberCount          int        `json:"member_count,omitempty"`
+	AvailableMemberCount int        `json:"available_member_count,omitempty"`
+	PerIPConcurrency     int        `json:"per_ip_concurrency,omitempty"`
 }
 
 // ProxyIPGroup is the account-facing group summary. ProxyIDs are returned in

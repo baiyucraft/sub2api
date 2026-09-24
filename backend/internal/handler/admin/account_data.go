@@ -559,13 +559,20 @@ func (h *AccountHandler) listAllProxies(ctx context.Context) ([]service.Proxy, e
 	page := 1
 	pageSize := dataPageCap
 	var out []service.Proxy
+	processed := 0
 	for {
 		items, total, err := h.adminService.ListProxies(ctx, page, pageSize, "", "", "", "created_at", "desc")
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, items...)
-		if len(out) >= int(total) || len(items) == 0 {
+		for i := range items {
+			if items[i].BindingType == "proxy_ip_group" {
+				continue
+			}
+			out = append(out, items[i])
+		}
+		processed += len(items)
+		if processed >= int(total) || len(items) == 0 {
 			break
 		}
 		page++

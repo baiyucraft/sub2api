@@ -1016,6 +1016,8 @@ export interface ClaudeModel {
 
 export interface Proxy {
   id: number
+  binding_type?: 'proxy' | null
+  proxy_ip_group_id?: number | null
   name: string
   protocol: ProxyProtocol
   host: string
@@ -1044,6 +1046,23 @@ export interface Proxy {
   created_at: string
   updated_at: string
 }
+
+/** Virtual row returned alongside real proxies by mixed proxy list endpoints. */
+export interface ProxyIPGroupVirtual {
+  id: number
+  name: string
+  binding_type: 'proxy_ip_group'
+  proxy_ip_group_id: number
+  protocol?: 'proxy_ip_group'
+  host?: string
+  port?: number
+  status?: 'available' | 'unavailable'
+  member_count?: number
+  available_member_count?: number
+  per_ip_concurrency?: number
+}
+
+export type ProxyListItem = Proxy | ProxyIPGroupVirtual
 
 export interface ProxyIPGroupSummary {
   id: number
