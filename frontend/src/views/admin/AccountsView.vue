@@ -747,6 +747,7 @@ import { buildGrokUsageRefreshKey, buildOpenAIUsageRefreshKey } from '@/utils/ac
 import { buildTTFTGuardDegradationKey, buildUpstreamHealthKey, mergeRuntimeFields } from '@/utils/accountRuntimeState'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
 import { proxyExpiryBadgeClass, proxyExpiryLabelKey } from '@/utils/proxyExpiry'
+import { filterRealProxies } from '@/utils/proxy'
 import { extractApiErrorMessage, extractApiErrorMetadata, extractI18nErrorMessage } from '@/utils/apiError'
 import { sanitizeUrl } from '@/utils/url'
 import { getFloatingPanelPosition } from '@/utils/floatingPanel'
@@ -3429,7 +3430,7 @@ onMounted(async () => {
     adminAPI.groups.getAll()
   ])
   if (proxiesResult.status === 'fulfilled') {
-    proxies.value = proxiesResult.value
+    proxies.value = filterRealProxies(proxiesResult.value)
   } else {
     console.error('Failed to load proxies:', proxiesResult.reason)
   }

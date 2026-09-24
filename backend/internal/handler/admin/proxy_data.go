@@ -332,6 +332,7 @@ func (h *ProxyHandler) listProxiesFiltered(ctx context.Context, protocol, status
 	page := 1
 	pageSize := dataPageCap
 	var out []service.Proxy
+	processed := 0
 	sortBy = strings.TrimSpace(sortBy)
 	useAccountCountSort := strings.EqualFold(sortBy, "account_count")
 	for {
@@ -341,9 +342,13 @@ func (h *ProxyHandler) listProxiesFiltered(ctx context.Context, protocol, status
 				return nil, err
 			}
 			for i := range items {
+				if items[i].BindingType == "proxy_ip_group" {
+					continue
+				}
 				out = append(out, items[i].Proxy)
 			}
-			if len(out) >= int(total) || len(items) == 0 {
+			processed += len(items)
+			if processed >= int(total) || len(items) == 0 {
 				break
 			}
 		} else {
@@ -351,8 +356,14 @@ func (h *ProxyHandler) listProxiesFiltered(ctx context.Context, protocol, status
 			if err != nil {
 				return nil, err
 			}
-			out = append(out, items...)
-			if len(out) >= int(total) || len(items) == 0 {
+			for i := range items {
+				if items[i].BindingType == "proxy_ip_group" {
+					continue
+				}
+				out = append(out, items[i])
+			}
+			processed += len(items)
+			if processed >= int(total) || len(items) == 0 {
 				break
 			}
 		}

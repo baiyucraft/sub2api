@@ -1176,6 +1176,7 @@ import type {
 import type { AdminGroup, Proxy, SelectOption } from '@/types'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
+import { filterRealProxies } from '@/utils/proxy'
 import { formatDateTime as formatDateTimeValue } from '@/utils/format'
 
 type SettingsTab = 'basic' | 'scope' | 'runtime' | 'response' | 'riskThresholds' | 'retention' | 'keywords'
@@ -1844,7 +1845,7 @@ async function loadAll() {
     applyConfig(config)
     groups.value = groupItems
     status.value = runtimeStatus
-    proxies.value = proxyItems
+    proxies.value = filterRealProxies(proxyItems)
     if ((runtimeStatus.engine ?? 'openai') === configForm.engine && Array.isArray(runtimeStatus.api_key_statuses)) {
       configForm.api_key_statuses = [...runtimeStatus.api_key_statuses]
       prunePendingDeleteAPIKeyHashes()

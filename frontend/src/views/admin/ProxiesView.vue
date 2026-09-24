@@ -999,6 +999,7 @@ import { useTableSelection } from '@/composables/useTableSelection'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { formatDateTime } from '@/utils/format'
 import { proxyExpiryBadgeClass, proxyExpiryLabelKey } from '@/utils/proxyExpiry'
+import { filterRealProxies, isProxyIPGroupVirtual } from '@/utils/proxy'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -1162,7 +1163,7 @@ const editForm = reactive({
 
 const allProxiesForBackup = ref<Proxy[]>([])
 const loadBackupProxyOptions = async () => {
-  allProxiesForBackup.value = await adminAPI.proxies.getAllWithCount()
+  allProxiesForBackup.value = filterRealProxies(await adminAPI.proxies.getAllWithCount())
 }
 const backupProxyOptions = (excludeId?: number) =>
   allProxiesForBackup.value
@@ -1178,6 +1179,7 @@ const isAbortError = (error: unknown) => {
 }
 
 const toggleSelectRow = (id: number, event: Event) => {
+  if (!proxies.value.some(proxy => proxy.id === id)) return
   const target = event.target as HTMLInputElement
   if (target.checked) {
     select(id)
@@ -1192,6 +1194,7 @@ const toggleSelectAllVisible = (event: Event) => {
 }
 
 const buildProxyQueryFilters = () => ({
+  binding_type: 'proxy' as const,
   protocol: filters.protocol || undefined,
   status: (filters.status || undefined) as 'active' | 'inactive' | 'expired' | undefined,
   search: searchQuery.value || undefined,
@@ -1216,7 +1219,7 @@ const loadProxies = async () => {
     if (currentAbortController.signal.aborted || abortController !== currentAbortController) {
       return
     }
-    proxies.value = response.items
+    proxies.value = filterRealProxies(response.items)
     pagination.total = response.total
     pagination.pages = response.pages
   } catch (error) {
@@ -1579,6 +1582,7 @@ const stopQualityCheckingProxy = (proxyId: number) => {
 }
 
 const runProxyTest = async (proxyId: number, notify: boolean) => {
+  if (proxyId <= 0) return null
   startTestingProxy(proxyId)
   try {
     const result = await adminAPI.proxies.testProxy(proxyId)
@@ -1608,10 +1612,12 @@ const runProxyTest = async (proxyId: number, notify: boolean) => {
 }
 
 const handleTestConnection = async (proxy: Proxy) => {
+  if (isProxyIPGroupVirtual(proxy)) return
   await runProxyTest(proxy.id, true)
 }
 
 const handleQualityCheck = async (proxy: Proxy) => {
+  if (isProxyIPGroupVirtual(proxy)) return
   startQualityCheckingProxy(proxy.id)
   try {
     const result = await adminAPI.proxies.checkProxyQuality(proxy.id)
@@ -1645,6 +1651,7 @@ const handleQualityCheck = async (proxy: Proxy) => {
 }
 
 const runBatchProxyQualityChecks = async (ids: number[]) => {
+  ids = ids.filter(id => id > 0)
   if (ids.length === 0) return { total: 0, healthy: 0, warn: 0, challenge: 0, failed: 0 }
 
   const concurrency = 3
@@ -1827,6 +1834,7 @@ const fetchAllProxiesForBatch = async (): Promise<Proxy[]> => {
       page,
       pageSize,
       {
+        binding_type: 'proxy',
         protocol: filters.protocol || undefined,
         status: filters.status as any,
         search: searchQuery.value || undefined,
@@ -1834,7 +1842,7 @@ const fetchAllProxiesForBatch = async (): Promise<Proxy[]> => {
         sort_order: sortState.sort_order
       }
     )
-    result.push(...response.items)
+    result.push(...filterRealProxies(response.items))
     totalPages = response.pages || 1
     page++
   }
@@ -1843,6 +1851,7 @@ const fetchAllProxiesForBatch = async (): Promise<Proxy[]> => {
 }
 
 const runBatchProxyTests = async (ids: number[]) => {
+  ids = ids.filter(id => id > 0)
   if (ids.length === 0) return
   const concurrency = 5
   let index = 0
@@ -1866,7 +1875,7 @@ const handleBatchTest = async () => {
   try {
     let ids: number[] = []
     if (selectedCount.value > 0) {
-      ids = Array.from(selectedProxyIds.value)
+      ids = Array.from(selectedProxyIds.value).filter(id => id > 0)
     } else {
       const allProxies = await fetchAllProxiesForBatch()
       ids = allProxies.map((proxy) => proxy.id)
@@ -1895,7 +1904,7 @@ const handleBatchQualityCheck = async () => {
   try {
     let ids: number[] = []
     if (selectedCount.value > 0) {
-      ids = Array.from(selectedProxyIds.value)
+      ids = Array.from(selectedProxyIds.value).filter(id => id > 0)
     } else {
       const allProxies = await fetchAllProxiesForBatch()
       ids = allProxies.map((proxy) => proxy.id)
@@ -1937,7 +1946,7 @@ const handleExportData = async () => {
   try {
     const dataPayload = await adminAPI.proxies.exportData(
       selectedCount.value > 0
-        ? { ids: Array.from(selectedProxyIds.value) }
+        ? { ids: Array.from(selectedProxyIds.value).filter(id => id > 0) }
         : {
             filters: buildProxyQueryFilters()
           }
@@ -1961,6 +1970,7 @@ const handleExportData = async () => {
 }
 
 const handleDelete = (proxy: Proxy) => {
+  if (isProxyIPGroupVirtual(proxy)) return
   if ((proxy.account_count || 0) > 0) {
     appStore.showError(t('admin.proxies.deleteBlockedInUse'))
     return
@@ -1993,7 +2003,7 @@ const confirmDelete = async () => {
 }
 
 const confirmBatchDelete = async () => {
-  const ids = Array.from(selectedProxyIds.value)
+  const ids = Array.from(selectedProxyIds.value).filter(id => id > 0)
   if (ids.length === 0) {
     showBatchDeleteDialog.value = false
     return
@@ -2020,6 +2030,7 @@ const confirmBatchDelete = async () => {
 }
 
 const openAccountsModal = async (proxy: Proxy) => {
+  if (isProxyIPGroupVirtual(proxy)) return
   accountsProxy.value = proxy
   proxyAccounts.value = []
   accountsLoading.value = true

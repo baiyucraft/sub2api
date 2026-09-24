@@ -88,6 +88,8 @@ node scripts/sub2api-admin.js accounts batch-clear-error --ids 40,39
 
 `bulk-update` 可覆盖页面“批量更新”的字段，payload 由后台表单字段决定，例如 `base_url`、`model_mapping`、`group_ids`、`proxy_id`、`concurrency`、`priority`、`rate_multiplier`、`status`、`compact_mode` 等。更新前先用 `accounts get <id>` 确认字段名。
 
+`bulk-update` 仍是独立的正数真实代理绑定合同；不能把代理组虚拟负 ID 传入该批量入口。代理组兼容归一化仅约束普通账号创建/单账号更新路径，除非批量路径另行实现并验证。
+
 ### 导入
 
 通用后台导入：
@@ -126,6 +128,12 @@ node scripts/sub2api-admin.js accounts import-json \
 node scripts/sub2api-admin.js groups all
 node scripts/sub2api-admin.js proxies all
 ```
+
+目标合同：`proxies all` 对应既有 `GET /api/v1/admin/proxies/all`，分页列表使用既有 `GET /api/v1/admin/proxies`。两个接口默认包含真实代理与代理组虚拟行；不创建新路由。真实行 `id>0`、`binding_type=proxy`，组行 `id=-groupID`、`binding_type=proxy_ip_group`、`proxy_ip_group_id=groupID>0`。组行只是选择器，不能用于代理详情、连通性测试、编辑、删除或出站。管理员真实代理 DTO 可能包含凭据，不要把原始输出贴到聊天或审计报告。
+
+管理页自身可在分页列表附加 `binding_type=proxy`，只返回真实代理并保持原有 CRUD 分页；省略该参数仍是 B 客户端所需的混合目录。
+
+新客户端创建/更新 OpenAI OAuth/Setup Token 账号应提交正数 `proxy_ip_group_id`。旧客户端的 `proxy_id>0` 只表示真实代理，须校验真实代理存在；`proxy_id<0` 只在账号创建/更新归一为正数组字段，归一后仍检查类型、组存在性与互斥；`proxy_id=0` 显式清空单代理，更新时省略字段保持原绑定。OAuth 授权阶段、批量账号更新和真实代理操作不能据此接受负 ID。当前实现尚须经相应代码和测试验证，勿仅凭本参考文档假定线上已支持混合目录与负数归一。
 
 ## Redeem Codes
 
@@ -243,6 +251,7 @@ node scripts/sub2api-admin.js api POST /admin/accounts/bulk-update \
 - `POST /api/v1/admin/accounts/sync/crs`
 - `GET /api/v1/admin/accounts/antigravity/default-model-mapping`
 - `GET /api/v1/admin/groups/all`
+- `GET /api/v1/admin/proxies`
 - `GET /api/v1/admin/proxies/all`
 - `GET /api/v1/admin/redeem-codes`
 - `GET /api/v1/admin/redeem-codes/export`

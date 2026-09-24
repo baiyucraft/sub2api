@@ -837,6 +837,49 @@ func ChannelMonitorV1CacheRateSourceGroup(displayGroupID int64, aliases map[int6
 	}
 }
 
+// ChannelMonitorV1CacheRateRelatedGroups returns the undirected mapping
+// component for a displayed group. V1 cards in one configured component share
+// the highest available cache rate, while the underlying V2 aggregates remain
+// unchanged. The result is sorted for deterministic query construction.
+func ChannelMonitorV1CacheRateRelatedGroups(displayGroupID int64, aliases map[int64]int64) []int64 {
+	if displayGroupID <= 0 {
+		return []int64{displayGroupID}
+	}
+	if len(aliases) == 0 {
+		return []int64{displayGroupID}
+	}
+
+	adjacency := make(map[int64][]int64, len(aliases)*2)
+	for left, right := range aliases {
+		if left <= 0 || right <= 0 || left == right {
+			continue
+		}
+		adjacency[left] = append(adjacency[left], right)
+		adjacency[right] = append(adjacency[right], left)
+	}
+
+	seen := map[int64]struct{}{displayGroupID: {}}
+	queue := []int64{displayGroupID}
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		for _, next := range adjacency[current] {
+			if _, exists := seen[next]; exists {
+				continue
+			}
+			seen[next] = struct{}{}
+			queue = append(queue, next)
+		}
+	}
+
+	groups := make([]int64, 0, len(seen))
+	for groupID := range seen {
+		groups = append(groups, groupID)
+	}
+	sort.Slice(groups, func(i, j int) bool { return groups[i] < groups[j] })
+	return groups
+}
+
 // DefaultChannelMonitorV2IgnoredErrorCategories are factory defaults for
 // ignored_error_categories: excluded from error_rate / health scoring only.
 // Operators can clear or extend via admin config.

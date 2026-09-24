@@ -38,7 +38,7 @@
             />
           </div>
           <button
-            v-if="proxies.length > 0"
+            v-if="realProxies.length > 0"
             type="button"
             @click.stop="handleBatchTest"
             :disabled="batchTesting"
@@ -172,7 +172,8 @@ import { ref, reactive, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
 import Icon from '@/components/icons/Icon.vue'
-import type { Proxy } from '@/types'
+import type { Proxy, ProxyListItem } from '@/types'
+import { filterRealProxies, isProxyIPGroupVirtual } from '@/utils/proxy'
 
 const { t } = useI18n()
 
@@ -188,7 +189,7 @@ interface ProxyTestResult {
 
 interface Props {
   modelValue: number | null
-  proxies: Proxy[]
+  proxies: ProxyListItem[]
   disabled?: boolean
 }
 
@@ -210,9 +211,11 @@ const testResults = reactive<Record<number, ProxyTestResult>>({})
 const testingProxyIds = reactive(new Set<number>())
 const batchTesting = ref(false)
 
+const realProxies = computed(() => filterRealProxies(props.proxies))
+
 const selectedProxy = computed(() => {
   if (props.modelValue === null) return null
-  return props.proxies.find((p) => p.id === props.modelValue) || null
+  return realProxies.value.find((p) => p.id === props.modelValue) || null
 })
 
 const selectedLabel = computed(() => {
@@ -225,10 +228,10 @@ const selectedLabel = computed(() => {
 
 const filteredProxies = computed(() => {
   if (!searchQuery.value) {
-    return props.proxies
+    return realProxies.value
   }
   const query = searchQuery.value.toLowerCase()
-  return props.proxies.filter((proxy) => {
+  return realProxies.value.filter((proxy) => {
     const name = proxy.name.toLowerCase()
     const host = proxy.host.toLowerCase()
     return name.includes(query) || host.includes(query)
@@ -246,12 +249,14 @@ const toggle = () => {
 }
 
 const selectOption = (value: number | null) => {
+  if (value !== null && !realProxies.value.some(proxy => proxy.id === value)) return
   emit('update:modelValue', value)
   isOpen.value = false
   searchQuery.value = ''
 }
 
 const handleTestProxy = async (proxy: Proxy) => {
+  if (isProxyIPGroupVirtual(proxy)) return
   if (testingProxyIds.has(proxy.id)) return
 
   testingProxyIds.add(proxy.id)
@@ -269,12 +274,12 @@ const handleTestProxy = async (proxy: Proxy) => {
 }
 
 const handleBatchTest = async () => {
-  if (batchTesting.value || props.proxies.length === 0) return
+  if (batchTesting.value || realProxies.value.length === 0) return
 
   batchTesting.value = true
 
   // Test all proxies in parallel
-  const testPromises = props.proxies.map(handleTestProxy)
+  const testPromises = realProxies.value.map(handleTestProxy)
 
   await Promise.all(testPromises)
   batchTesting.value = false

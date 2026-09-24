@@ -55,6 +55,21 @@ beforeEach(() => {
 afterEach(() => wrapper?.unmount())
 
 describe('proxy list filter pagination', () => {
+  it('renders only real proxies when the list response contains a virtual group row', async () => {
+    listProxies.mockResolvedValueOnce({
+      items: [
+        { id: 7, name: 'real-proxy' },
+        { id: -12, name: 'virtual-group', binding_type: 'proxy_ip_group', proxy_ip_group_id: 12 },
+      ],
+      total: 2,
+      pages: 1,
+    })
+    wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="rows"]').text()).toBe('real-proxy')
+  })
+
   it.each([
     ['protocol', 'admin.proxies.allProtocols', 'socks5', ''],
     ['protocol', 'admin.proxies.allProtocols', '', 'http'],

@@ -17,6 +17,12 @@ node scripts/sub2api-admin.js accounts list
 
 For all commands and payload examples, read [references/admin-cli.md](references/admin-cli.md).
 
+## Mixed Proxy Directory
+
+The existing `GET /api/v1/admin/proxies` and `GET /api/v1/admin/proxies/all` default to a mixed directory of real proxies and virtual proxy IP groups; no new route is needed. A real proxy has `id > 0` and `binding_type=proxy`. A group row has `id=-groupID`, `binding_type=proxy_ip_group`, and positive `proxy_ip_group_id`. Treat the group row only as an account-binding choice, never as a real proxy for test, update, delete, or outbound use. The admin proxy DTO can contain real proxy credentials; do not print raw list output in chat.
+
+On account create/update, prefer positive `proxy_ip_group_id` for OpenAI OAuth/Setup Token. Legacy `proxy_id > 0` remains a real proxy ID and must be validated as such; negative `proxy_id` is only a compatibility input for a virtual group row and must be normalized into the positive group field. `proxy_id=0` explicitly clears the real-proxy binding; omission on update means unchanged. Do not apply negative-ID compatibility to OAuth authorization, proxy CRUD, or bulk proxy operations. See [admin-cli.md](references/admin-cli.md) for the contract and implementation status.
+
 ## Workflow
 
 1. Reuse `SUB2API_BASE_URL` and either `SUB2API_ADMIN_API_KEY` or `SUB2API_JWT` from the environment.
