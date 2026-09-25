@@ -164,6 +164,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	if result == nil {
 		return errors.New("openai usage result is nil")
 	}
+	input.ChannelUsageFields = CustomizedChannelUsageFields(ctx, input.ChannelUsageFields, result.UpstreamModel)
 	if s.rateLimitService != nil && input.Account != nil && input.Account.Platform == PlatformOpenAI {
 		s.rateLimitService.ResetOpenAI403Counter(ctx, input.Account.ID)
 	}
@@ -172,6 +173,8 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	user := input.User
 	account := input.Account
 	subscription := input.Subscription
+	apiKey = ChannelCustomizationBillingAPIKey(ctx, apiKey)
+	subscription = ChannelCustomizationBillingSubscription(ctx, subscription)
 	if account != nil {
 		MaybeAutoDisableOpenAIOAuthModel(ctx, s.settingService, s.accountRepo, account, result.Model, upstreamSentModel(result.Model, result.UpstreamModel), result.UpstreamResponseModel, result.UpstreamResponseModelConflict)
 	}
@@ -249,7 +252,15 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		result.UpstreamModel,
 		result.Model,
 	)
-	billingModels = s.filterCNProviderBillingModelCandidates(ctx, account, apiKey, billingModels)
+	if _, customized := ChannelCustomizationModelFromContext(ctx); customized {
+		// The public A was admitted with pricing before forwarding. Never bill B/C
+		// as a fallback if pricing changes while an asynchronous record is queued.
+		// In particular, CN-provider filtering must not discard the public A
+		// because the forwarding account happens to belong to another family.
+		billingModels = usageBillingModelCandidates(input.OriginalModel)
+	} else {
+		billingModels = s.filterCNProviderBillingModelCandidates(ctx, account, apiKey, billingModels)
+	}
 	serviceTier := ""
 	if result.ServiceTier != nil {
 		serviceTier = strings.TrimSpace(*result.ServiceTier)

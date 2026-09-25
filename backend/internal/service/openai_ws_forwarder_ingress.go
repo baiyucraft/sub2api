@@ -379,8 +379,14 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			}
 		}
 		requestModel := originalModel
-		if hooks != nil && hooks.MapRequestModel != nil {
-			mappedModel, mapErr := hooks.MapRequestModel(turn, originalModel)
+		if hooks != nil && (hooks.MapRequestModelWithPayload != nil || hooks.MapRequestModel != nil) {
+			var mappedModel string
+			var mapErr error
+			if hooks.MapRequestModelWithPayload != nil {
+				mappedModel, mapErr = hooks.MapRequestModelWithPayload(turn, originalModel, normalized)
+			} else {
+				mappedModel, mapErr = hooks.MapRequestModel(turn, originalModel)
+			}
 			if mapErr != nil {
 				return openAIWSClientPayload{}, mapErr
 			}

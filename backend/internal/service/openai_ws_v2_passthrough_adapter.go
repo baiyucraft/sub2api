@@ -735,8 +735,14 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	if initialRequestModel == "" {
 		initialRequestModel = openAIWSPassthroughRequestModelForFrame(firstClientMessage)
 	}
-	if hooks != nil && hooks.MapRequestModel != nil {
-		mappedModel, mapErr := hooks.MapRequestModel(1, initialRequestModel)
+	if hooks != nil && (hooks.MapRequestModelWithPayload != nil || hooks.MapRequestModel != nil) {
+		var mappedModel string
+		var mapErr error
+		if hooks.MapRequestModelWithPayload != nil {
+			mappedModel, mapErr = hooks.MapRequestModelWithPayload(1, initialRequestModel, firstClientMessage)
+		} else {
+			mappedModel, mapErr = hooks.MapRequestModel(1, initialRequestModel)
+		}
 		if mapErr != nil {
 			return mapErr
 		}
@@ -1065,8 +1071,14 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 						return payload, nil, err
 					}
 				}
-				if hooks != nil && hooks.MapRequestModel != nil {
-					upstreamModel, err := hooks.MapRequestModel(turnNo, requestModelForThisFrame)
+				if hooks != nil && (hooks.MapRequestModelWithPayload != nil || hooks.MapRequestModel != nil) {
+					var upstreamModel string
+					var err error
+					if hooks.MapRequestModelWithPayload != nil {
+						upstreamModel, err = hooks.MapRequestModelWithPayload(turnNo, requestModelForThisFrame, payload)
+					} else {
+						upstreamModel, err = hooks.MapRequestModel(turnNo, requestModelForThisFrame)
+					}
 					if err != nil {
 						return payload, nil, err
 					}

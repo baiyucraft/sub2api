@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/observer"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -51,8 +52,10 @@ type OpenAIGatewayHandler struct {
 }
 
 type openAIWSTurnChannelMappingSnapshot struct {
-	turn    int
-	mapping service.ChannelMappingResult
+	turn     int
+	mapping  service.ChannelMappingResult
+	original string
+	target   string
 }
 
 func advanceOpenAIWSCyberBlockState(blocked, pending, marked bool, turnErr error) (bool, bool) {
@@ -268,6 +271,12 @@ func usageRecordContext(parent context.Context, base context.Context) context.Co
 	}
 	if requestID, _ := parent.Value(ctxkey.RequestID).(string); strings.TrimSpace(requestID) != "" {
 		base = context.WithValue(base, ctxkey.RequestID, strings.TrimSpace(requestID))
+	}
+	if model, ok := service.ChannelCustomizationModelFromContext(parent); ok {
+		base = service.WithChannelCustomizationModel(base, model.Original, model.Target)
+	}
+	if snapshot, ok := service.ChannelCustomizationBillingSnapshotFromContext(parent); ok {
+		base = service.WithChannelCustomizationBillingSnapshot(base, snapshot.APIKey, snapshot.Subscription, snapshot.SubscriptionWasResolved)
 	}
 	return base
 }
@@ -2809,6 +2818,31 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "model is required in first response.create payload")
 		return
 	}
+	clientFirstModel := reqModel
+	wsCustomization := observer.WebSocketTurnCustomizerFromContext(c)
+	firstTargetModel := reqModel
+	if wsCustomization != nil {
+		mapped, customized, mapErr := wsCustomization.ApplyTurn(c, firstMessage, reqModel, true)
+		if mapErr != nil {
+			closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, mapErr.Error())
+			return
+		}
+		if customized {
+			firstTargetModel = mapped
+		}
+	}
+	if middleware2.NeedsDeferredWebSocketGroupBilling(c) {
+		if wsCustomization == nil {
+			closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "final WebSocket group admission is unavailable")
+			return
+		}
+		if admissionErr := wsCustomization.FinalizeGroupAdmission(c); admissionErr != nil {
+			closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, admissionErr.Error())
+			return
+		}
+	}
+	// A group rule can replace the key before the public allowlist is checked.
+	apiKey, _ = middleware2.GetAPIKeyFromContext(c)
 	// 分组级模型白名单：首帧校验客户端模型，不通过则关闭连接并标记运维原因。
 	// 必须在 ensureCompositeTargetPlatform（合成路由改写）之前执行。
 	// 与 HTTP 准入一致：帧内重复 model 键/大小写变体可能被上游按末值绑定，
@@ -2818,6 +2852,13 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		middleware2.MarkIngressRejected(c, middleware2.IngressRejectModelNotAllowed)
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, fmt.Sprintf("Model %q is not available for this group", blocked))
 		return
+	}
+	if firstTargetModel != clientFirstModel {
+		reqModel = firstTargetModel
+		// Keep the original client frame A intact. The per-turn upstream hook
+		// applies B→C; rewriting the frame here would make the WS forwarder
+		// mistake B for the client's model and echo/bill the wrong identity.
+		// Unlike HTTP, each turn owns its own mapping snapshot and billing context.
 	}
 	ensureCompositeTargetPlatform(c, apiKey, reqModel)
 	ctx = c.Request.Context()
@@ -3260,7 +3301,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		// Passthrough rejects overlapping response.create frames, so one immutable
 		// turn-tagged slot preserves the exact mapping used for the in-flight request.
 		var turnChannelMapping atomic.Pointer[openAIWSTurnChannelMappingSnapshot]
-		turnChannelMapping.Store(&openAIWSTurnChannelMappingSnapshot{turn: 1, mapping: channelMappingWS})
+		turnChannelMapping.Store(&openAIWSTurnChannelMappingSnapshot{turn: 1, mapping: channelMappingWS, original: clientFirstModel, target: firstTargetModel})
 		// turn 级定价：首轮回退到 TurnStarted 的所属 turn 时刻；后续 turn 由
 		// BeforeTurn 重新冻结 pricingAt 并按最新门复核当前账号。
 		var turnPricing openAIWSTurnPricing
@@ -3271,7 +3312,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		}
 		hooks := &service.OpenAIWSIngressHooks{
 			ClientLifecycleContext:      clientLifecycleCtx,
-			InitialRequestModel:         reqModel,
+			InitialRequestModel:         clientFirstModel,
 			InitialTurnStartedAt:        firstTurnStartedAt,
 			MaxReasoningEffort:          maxReasoningEffort,
 			MaxReasoningEffortOverLimit: maxReasoningEffortOverLimit,
@@ -3302,7 +3343,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					model = strings.TrimSpace(gjson.GetBytes(payload, "model").String())
 				}
 				if model == "" {
-					model = reqModel
+					model = clientFirstModel
 				}
 				// 分组级模型白名单：后续 turn 同样校验客户端模型（省略 model 时
 				// 沿用会话实际生效模型，含 session.update 轮换后的模型），不通过
@@ -3321,21 +3362,33 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				}
 				return nil
 			},
-			MapRequestModel: func(turn int, originalModel string) (string, error) {
+			MapRequestModelWithPayload: func(turn int, originalModel string, payload []byte) (string, error) {
 				model := strings.TrimSpace(originalModel)
 				if model == "" {
-					model = reqModel
+					model = clientFirstModel
+				}
+				targetModel := model
+				if turn == 1 {
+					model, targetModel = clientFirstModel, firstTargetModel
+				} else if wsCustomization != nil {
+					mapped, customized, mapErr := wsCustomization.ApplyTurn(c, payload, model, false)
+					if mapErr != nil {
+						return "", service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, mapErr.Error(), mapErr)
+					}
+					if customized {
+						targetModel = mapped
+					}
 				}
 				setOpsRequestContext(c, model, true)
-				mapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(ctx, apiKey.GroupID, model)
+				mapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(ctx, apiKey.GroupID, targetModel)
 				mappedModelUnchanged := false
 				if previous := turnChannelMapping.Load(); previous != nil && previous.turn < turn {
 					mappedModelUnchanged = strings.TrimSpace(previous.mapping.MappedModel) == strings.TrimSpace(mapping.MappedModel)
 				}
-				if turn > 1 && !mappedModelUnchanged && !account.IsModelSupported(model) && !account.IsModelSupported(mapping.MappedModel) {
+				if turn > 1 && !mappedModelUnchanged && !account.IsModelSupported(targetModel) && !account.IsModelSupported(mapping.MappedModel) {
 					return "", newOpenAIWSUnsupportedModelSwitchError(mapping.MappedModel)
 				}
-				turnChannelMapping.Store(&openAIWSTurnChannelMappingSnapshot{turn: turn, mapping: mapping})
+				turnChannelMapping.Store(&openAIWSTurnChannelMappingSnapshot{turn: turn, mapping: mapping, original: model, target: targetModel})
 				return mapping.MappedModel, nil
 			},
 			BeforeTurn: func(turn int) error {
@@ -3429,15 +3482,23 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					turnUpstreamModel = strings.TrimSpace(result.UpstreamModel)
 				}
 				var turnMapping service.ChannelMappingResult
+				turnTargetModel := turnRequestedModel
 				if snapshot := turnChannelMapping.Load(); snapshot != nil && snapshot.turn == turn {
 					turnMapping = snapshot.mapping
+					turnRequestedModel = snapshot.original
+					turnTargetModel = snapshot.target
 				} else {
 					turnMapping, _ = h.gatewayService.ResolveChannelMappingAndRestrict(ctx, apiKey.GroupID, turnRequestedModel)
 				}
 				if turnUpstreamModel == "" {
 					turnUpstreamModel = turnRequestedModel
 				}
-				turnUsageFields := turnMapping.ToUsageFields(turnRequestedModel, turnUpstreamModel)
+				turnUsageFields := turnMapping.ToUsageFields(turnTargetModel, turnUpstreamModel)
+				turnUsageContext := ctx
+				if turnTargetModel != turnRequestedModel {
+					turnUsageContext = service.WithChannelCustomizationModel(ctx, turnRequestedModel, turnTargetModel)
+					turnUsageFields = service.CustomizedChannelUsageFields(turnUsageContext, turnUsageFields, turnUpstreamModel)
+				}
 				cyberMarked := service.GetOpsCyberPolicy(c) != nil
 				h.recordCyberPolicyIfMarked(c, apiKey, account, subscription, turnRequestedModel, turnErr != nil, cyberBlockBody, turnUsageFields, requestPayloadHash)
 				cyberBlockedThisConn, cyberBlockPendingAfterFailover = advanceOpenAIWSCyberBlockState(
@@ -3464,7 +3525,10 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				if result == nil {
 					return
 				}
-				result.BillingModel = openAIWSTurnBillingModel(result, turnMapping, turnRequestedModel, turnUpstreamModel)
+				result.BillingModel = openAIWSTurnBillingModel(result, turnMapping, turnTargetModel, turnUpstreamModel)
+				if turnTargetModel != turnRequestedModel {
+					result.BillingModel = turnRequestedModel
+				}
 				reqLog.Debug("openai.websocket_turn_billing",
 					zap.Int("turn", turn),
 					zap.String("turn_requested_model", turnRequestedModel),
@@ -3486,7 +3550,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				sessionID := service.ExtractClientSessionID(c)
 				turnRecordPricingAt := turnPricing.currentOr(turnStart)
 				cyberBlocked := service.GetOpsCyberPolicy(c) != nil
-				h.submitOpenAIUsageRecordTask(ctx, result, func(taskCtx context.Context) {
+				h.submitOpenAIUsageRecordTask(turnUsageContext, result, func(taskCtx context.Context) {
 					if err := h.gatewayService.RecordUsage(taskCtx, &service.OpenAIRecordUsageInput{
 						Result:             result,
 						APIKey:             apiKey,

@@ -165,8 +165,11 @@ func registerRoutes(
 		// group/model admission and routing decisions observe the temporary group.
 		if customization != nil {
 			options.PreAuthMiddleware = append(options.PreAuthMiddleware, middleware2.DeferAPIKeyGroupBilling(customization.MayMatchGroupMapping))
-			options.PostAuthMiddleware = append(options.PostAuthMiddleware, customization.GroupMappingMiddleware(apiKeyService, subscriptionService))
+			options.PostAuthMiddleware = append(options.PostAuthMiddleware, customization.GroupMappingMiddlewareWithChannelTarget(apiKeyService, subscriptionService, h.HasCustomizationBillingPricing, h.CustomizationChannelTarget, func(c *gin.Context) error {
+				return middleware2.ValidateFinalAPIKeyGroupBilling(c, subscriptionService, cfg)
+			}))
 			options.PostAuthMiddleware = append(options.PostAuthMiddleware, middleware2.FinalAPIKeyGroupBilling(subscriptionService, cfg))
+			options.PostAllowlistMiddleware = append(options.PostAllowlistMiddleware, customization.ModelMappingMiddleware(h.HasCustomizationBillingPricing, h.CustomizationChannelTarget))
 		}
 		// Observer wraps the local-response short-circuit after policy admission.
 		if requestObserver != nil {

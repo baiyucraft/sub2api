@@ -17,10 +17,15 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/requestmodel"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/google/wire"
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
+	"go.uber.org/zap"
 )
 
 // GatewayRequestCustomizer 是认证后的可选本地响应扩展。
@@ -65,10 +70,143 @@ type replayRequestBody struct {
 }
 
 const customizationDecisionContextKey = "gateway_customization_decision"
+const webSocketTurnCustomizerContextKey = "gateway_customization_ws_turn"
+
+type WebSocketTurnCustomizer struct {
+	service       *CustomizationService
+	groups        customizationTargetGroupResolver
+	subscriptions customizationSubscriptionResolver
+	pricing       func(context.Context, *service.APIKey, string) bool
+	channelTarget func(context.Context, *service.APIKey, string) string
+	finalizeGroup func(*gin.Context) error
+}
+
+func (w *WebSocketTurnCustomizer) FinalizeGroupAdmission(c *gin.Context) error {
+	if w == nil || w.finalizeGroup == nil {
+		return errors.New("final WebSocket group admission is unavailable")
+	}
+	return w.finalizeGroup(c)
+}
+
+// WebSocketTurnCustomizerFromContext exposes only the request-scoped callback,
+// not the global mutable rules, to the Responses WebSocket handler.
+func WebSocketTurnCustomizerFromContext(c *gin.Context) *WebSocketTurnCustomizer {
+	if c == nil {
+		return nil
+	}
+	value, _ := c.Get(webSocketTurnCustomizerContextKey)
+	customizer, _ := value.(*WebSocketTurnCustomizer)
+	return customizer
+}
+
+type customizationSubscriptionValidator interface {
+	ValidateAndCheckLimits(*service.UserSubscription, *service.Group) (bool, error)
+	EnsureWindowMaintenance(context.Context, *service.UserSubscription) (*service.UserSubscription, error)
+}
+
+// ApplyTurn evaluates the first matching rule against a response.create frame.
+// It may change group only on the first turn, before upstream account selection.
+func (w *WebSocketTurnCustomizer) ApplyTurn(c *gin.Context, payload []byte, model string, first bool) (string, bool, error) {
+	if w == nil || w.service == nil || c == nil {
+		return model, false, nil
+	}
+	state := w.service.current.Load()
+	if state == nil {
+		return model, false, nil
+	}
+	apiKey, ok := middleware.GetAPIKeyFromContext(c)
+	if !ok || apiKey == nil {
+		return model, false, errors.New("API key is unavailable")
+	}
+	var originalGroupID *int64
+	if apiKey.GroupID != nil {
+		id := *apiKey.GroupID
+		originalGroupID = &id
+	}
+	userID, email := customizationUser(c, apiKey)
+	for _, rule := range state.rules {
+		if !matchesCustomizationTarget(rule, apiKey, userID, email) || !matchesCustomizationRequestMetadata(rule, c) {
+			continue
+		}
+		if len(rule.models) > 0 {
+			if _, matched := rule.models[strings.ToLower(strings.TrimSpace(model))]; !matched {
+				continue
+			}
+		}
+		if rule.rule.RequestMessageText != "" && !requestBodyMatchesMessageText(payload, rule) {
+			continue
+		}
+		if rule.rule.Action == service.GatewayChannelCustomizationActionLocalResponse {
+			return model, false, nil
+		}
+		preserveCustomizationBillingSnapshot(c, apiKey, w.subscriptions)
+		candidates := requestmodel.FromBodyCandidates("", "application/json", payload)
+		if len(candidates) > 1 || (len(candidates) == 1 && !strings.EqualFold(candidates[0], model)) || !gjson.ValidBytes(payload) {
+			return model, false, errors.New("ambiguous response.create model")
+		}
+		if rule.rule.Action == service.GatewayChannelCustomizationActionGroupMapping && rule.rule.TargetGroupID != nil &&
+			(apiKey.GroupID == nil || *apiKey.GroupID != *rule.rule.TargetGroupID) {
+			if !first {
+				return model, false, errors.New("WebSocket group mapping requires reconnect")
+			}
+			if w.groups == nil {
+				return model, false, errors.New("target group resolver is unavailable")
+			}
+			target, err := w.groups.ResolveCustomizationTargetGroup(c.Request.Context(), apiKey, *rule.rule.TargetGroupID)
+			if err != nil || !customizationTargetCompatible(c, target) {
+				return model, false, errors.New("target group is unavailable for this WebSocket")
+			}
+			var subscription *service.UserSubscription
+			if target.IsSubscriptionType() {
+				validator, valid := w.subscriptions.(customizationSubscriptionValidator)
+				if !valid || w.subscriptions == nil {
+					return model, false, errors.New("target group subscription is unavailable")
+				}
+				subscription, err = w.subscriptions.GetActiveSubscription(c.Request.Context(), apiKey.User.ID, target.ID)
+				if err != nil || subscription == nil {
+					return model, false, errors.New("target group subscription is unavailable")
+				}
+				maintain, checkErr := validator.ValidateAndCheckLimits(subscription, target)
+				if maintain {
+					subscription, err = validator.EnsureWindowMaintenance(c.Request.Context(), subscription)
+					if err == nil {
+						_, checkErr = validator.ValidateAndCheckLimits(subscription, target)
+					}
+				}
+				if err != nil || checkErr != nil {
+					return model, false, errors.New("target group subscription has no available quota")
+				}
+			}
+			c.Set(string(middleware.ContextKeyAPIKey), cloneCustomizationAPIKeyWithGroup(apiKey, target))
+			c.Set(string(middleware.ContextKeySubscription), subscription)
+			c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), ctxkey.Group, target))
+			apiKey, _ = middleware.GetAPIKeyFromContext(c)
+		}
+		if rule.rule.TargetModel != "" && (w.pricing == nil || !w.pricing(c.Request.Context(), apiKey, model)) {
+			return model, false, errors.New("requested model has no configured price in the final group")
+		}
+		if w.service.current.Load() != state {
+			return model, false, errors.New("customization rules changed; retry the turn")
+		}
+		w.service.incrementHit(rule.fingerprint)
+		if rule.rule.TargetModel != "" {
+			mapped := rule.rule.TargetModel
+			channel := mapped
+			if w.channelTarget != nil {
+				channel = w.channelTarget(c.Request.Context(), apiKey, mapped)
+			}
+			logCustomizationModelMatch(rule.rule.Name, originalGroupID, apiKey.GroupID, model, mapped, channel)
+			return rule.rule.TargetModel, true, nil
+		}
+		return model, false, nil
+	}
+	return model, false, nil
+}
 
 type customizationDecision struct {
-	state *customizationRuntimeState
-	rule  compiledCustomizationRule
+	state           *customizationRuntimeState
+	rule            compiledCustomizationRule
+	originalGroupID *int64
 }
 
 type customizationTargetGroupResolver interface {
@@ -143,8 +281,32 @@ func (s *CustomizationService) MayMatchGroupMapping(c *gin.Context) bool {
 // GroupMappingMiddleware applies a matched request-scoped group override after
 // authentication and before group/model admission. Billing introspection is
 // intentionally exempt so it continues to describe the API key's bound group.
-func (s *CustomizationService) GroupMappingMiddleware(apiKeyService customizationTargetGroupResolver, subscriptionService customizationSubscriptionResolver) gin.HandlerFunc {
+func (s *CustomizationService) GroupMappingMiddleware(apiKeyService customizationTargetGroupResolver, subscriptionService customizationSubscriptionResolver, pricing ...func(context.Context, *service.APIKey, string) bool) gin.HandlerFunc {
+	var guard func(context.Context, *service.APIKey, string) bool
+	if len(pricing) > 0 {
+		guard = pricing[0]
+	}
+	return s.groupMappingMiddleware(apiKeyService, subscriptionService, guard, nil)
+}
+
+// GroupMappingMiddlewareWithChannelTarget also exposes B→C to WS rule-hit logs.
+func (s *CustomizationService) GroupMappingMiddlewareWithChannelTarget(apiKeyService customizationTargetGroupResolver, subscriptionService customizationSubscriptionResolver, pricing func(context.Context, *service.APIKey, string) bool, channelTarget func(context.Context, *service.APIKey, string) string, finalizeGroup func(*gin.Context) error) gin.HandlerFunc {
+	return s.groupMappingMiddleware(apiKeyService, subscriptionService, pricing, channelTarget, finalizeGroup)
+}
+
+func (s *CustomizationService) groupMappingMiddleware(apiKeyService customizationTargetGroupResolver, subscriptionService customizationSubscriptionResolver, guard func(context.Context, *service.APIKey, string) bool, channelTarget func(context.Context, *service.APIKey, string) string, finalizeGroup ...func(*gin.Context) error) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if c.Request != nil && c.Request.Method == http.MethodGet && customizationWebSocketRoute(c.Request.URL.Path) {
+			customizer := &WebSocketTurnCustomizer{service: s, groups: apiKeyService, subscriptions: subscriptionService, pricing: guard, channelTarget: channelTarget}
+			if len(finalizeGroup) > 0 {
+				customizer.finalizeGroup = finalizeGroup[0]
+			}
+			c.Set(webSocketTurnCustomizerContextKey, customizer)
+			// A Responses WebSocket has no request model until response.create. Do
+			// not map or count its group at handshake; ApplyTurn owns the hit once.
+			c.Next()
+			return
+		}
 		if isCustomizationBillingRequest(c) {
 			c.Next()
 			return
@@ -168,6 +330,7 @@ func (s *CustomizationService) GroupMappingMiddleware(apiKeyService customizatio
 			middleware.AbortWithRequestError(c, http.StatusServiceUnavailable, "CUSTOMIZATION_GROUP_MAPPING_UNAVAILABLE", "Request group mapping is unavailable")
 			return
 		}
+		preserveCustomizationBillingSnapshot(c, apiKey, subscriptionService)
 		target, err := apiKeyService.ResolveCustomizationTargetGroup(c.Request.Context(), apiKey, *decision.rule.rule.TargetGroupID)
 		if err != nil {
 			status, code, message := customizationGroupMappingError(err)
@@ -201,6 +364,93 @@ func (s *CustomizationService) GroupMappingMiddleware(apiKeyService customizatio
 		}
 		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), ctxkey.Group, target))
 		c.Next()
+	}
+}
+
+func customizationWebSocketRoute(path string) bool {
+	return path == "/v1/responses" || path == "/responses" || path == "/backend-api/codex/responses"
+}
+
+// ModelMappingMiddleware runs after final-group public-model admission and
+// before composite/channel mapping. Only explicit JSON text gateway routes can
+// be rewritten; URL and multipart model contracts remain untouched.
+func (s *CustomizationService) ModelMappingMiddleware(hasPricing func(context.Context, *service.APIKey, string) bool, channelTarget ...func(context.Context, *service.APIKey, string) string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		decision := s.matchDecision(c)
+		if decision == nil || decision.rule.rule.TargetModel == "" || decision.rule.rule.Action == service.GatewayChannelCustomizationActionLocalResponse {
+			c.Next()
+			return
+		}
+		if c.Request == nil || c.Request.Method != http.MethodPost || !customizationJSONModelRoute(c.Request.URL.Path) ||
+			!strings.HasPrefix(strings.ToLower(c.GetHeader("Content-Type")), "application/json") {
+			middleware.AbortWithRequestError(c, http.StatusBadRequest, "CUSTOMIZATION_MODEL_ROUTE_UNSUPPORTED", "Model mapping requires a JSON Responses, Chat Completions, or Messages request")
+			return
+		}
+		body, ok := readCustomizationRequestBody(c)
+		if !ok || !gjson.ValidBytes(body) {
+			middleware.AbortWithRequestError(c, http.StatusBadRequest, "CUSTOMIZATION_MODEL_INVALID", "Invalid model mapping request body")
+			return
+		}
+		candidates := requestmodel.FromBodyCandidates(c.FullPath(), c.GetHeader("Content-Type"), body)
+		original, path := requestmodel.JSONModelPathForRoute(c.FullPath(), body)
+		if len(candidates) != 1 || original == "" || path != "model" || candidates[0] != original {
+			middleware.AbortWithRequestError(c, http.StatusBadRequest, "CUSTOMIZATION_MODEL_AMBIGUOUS", "Request must contain exactly one unambiguous model")
+			return
+		}
+		if _, matched := decision.rule.models[strings.ToLower(original)]; !matched {
+			middleware.AbortWithRequestError(c, http.StatusBadRequest, "CUSTOMIZATION_MODEL_MISMATCH", "Request model no longer matches the selected customization rule")
+			return
+		}
+		apiKey, hasKey := middleware.GetAPIKeyFromContext(c)
+		preserveCustomizationBillingSnapshot(c, apiKey, nil)
+		if !hasKey || hasPricing == nil || !hasPricing(c.Request.Context(), apiKey, original) {
+			middleware.AbortWithRequestError(c, http.StatusBadRequest, "CUSTOMIZATION_MODEL_PRICE_MISSING", "The requested model has no configured price in the final group")
+			return
+		}
+		if s.current.Load() != decision.state {
+			middleware.AbortWithRequestError(c, http.StatusServiceUnavailable, "CUSTOMIZATION_RULE_CHANGED", "Customization rules changed; retry the request")
+			return
+		}
+		rewritten, err := sjson.SetBytes(body, "model", decision.rule.rule.TargetModel)
+		if err != nil {
+			middleware.AbortWithRequestError(c, http.StatusBadRequest, "CUSTOMIZATION_MODEL_INVALID", "Could not rewrite the request model")
+			return
+		}
+		requestmodel.ResetRequestBody(c.Request, rewritten)
+		c.Request = c.Request.WithContext(service.WithChannelCustomizationModel(c.Request.Context(), original, decision.rule.rule.TargetModel))
+		if decision.rule.rule.Action == service.GatewayChannelCustomizationActionModelMapping {
+			s.incrementHit(decision.rule.fingerprint)
+		}
+		channelModel := decision.rule.rule.TargetModel
+		if len(channelTarget) > 0 && channelTarget[0] != nil {
+			channelModel = channelTarget[0](c.Request.Context(), apiKey, channelModel)
+		}
+		logCustomizationModelMatch(decision.rule.rule.Name, decision.originalGroupID, apiKey.GroupID, original, decision.rule.rule.TargetModel, channelModel)
+		c.Next()
+	}
+}
+
+func logCustomizationModelMatch(ruleName string, originalGroupID, targetGroupID *int64, original, target, channel string) {
+	chain := original + "→" + target
+	if channel != "" && channel != target {
+		chain += "→" + channel
+	}
+	logger.L().With(
+		zap.String("component", "observer.gateway_customization"),
+		zap.String("rule", ruleName),
+		zap.Any("original_group_id", originalGroupID),
+		zap.Any("target_group_id", targetGroupID),
+		zap.String("model_mapping_chain", chain),
+	).Info("gateway_customization.model_mapping_matched")
+}
+
+func customizationJSONModelRoute(path string) bool {
+	switch path {
+	case "/v1/responses", "/responses", "/backend-api/codex/responses",
+		"/v1/chat/completions", "/chat/completions", "/v1/messages", "/messages":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -251,6 +501,10 @@ func (s *CustomizationService) matchDecision(c *gin.Context) *customizationDecis
 	for _, rule := range state.rules {
 		if matchesCustomizationRule(rule, c, apiKey, userID, userEmail) {
 			decision := &customizationDecision{state: state, rule: rule}
+			if apiKey != nil && apiKey.GroupID != nil {
+				id := *apiKey.GroupID
+				decision.originalGroupID = &id
+			}
 			c.Set(customizationDecisionContextKey, decision)
 			return decision
 		}
@@ -272,6 +526,27 @@ func cloneCustomizationAPIKeyWithGroup(apiKey *service.APIKey, group *service.Gr
 	cloned.GroupID = &groupID
 	cloned.Group = group
 	return &cloned
+}
+
+func preserveCustomizationBillingSnapshot(c *gin.Context, apiKey *service.APIKey, subscriptions customizationSubscriptionResolver) {
+	if c == nil || c.Request == nil || apiKey == nil {
+		return
+	}
+	if _, exists := service.ChannelCustomizationBillingSnapshotFromContext(c.Request.Context()); exists {
+		return
+	}
+	var subscription *service.UserSubscription
+	resolved := false
+	if apiKey.Group == nil || !apiKey.Group.IsSubscriptionType() {
+		resolved = true
+	} else if current, ok := middleware.GetSubscriptionFromContext(c); ok && current != nil && current.UserID == apiKey.UserID && current.GroupID == apiKey.Group.ID {
+		subscription, resolved = current, true
+	} else if subscriptions != nil {
+		subscription, _ = subscriptions.GetActiveSubscription(c.Request.Context(), apiKey.UserID, apiKey.Group.ID)
+		resolved = true
+	}
+	ctx := service.WithChannelCustomizationBillingSnapshot(c.Request.Context(), apiKey, subscription, resolved)
+	c.Request = c.Request.WithContext(ctx)
 }
 
 func customizationTargetCompatible(c *gin.Context, group *service.Group) bool {
@@ -399,8 +674,22 @@ func matchesCustomizationRequestConditions(rule compiledCustomizationRule, c *gi
 	if !ok {
 		return false
 	}
-	if len(rule.models) > 0 && !requestBodyMatchesModel(body, rule) {
-		return false
+	if len(rule.models) > 0 {
+		matched := requestBodyMatchesModel(body, rule)
+		if rule.rule.TargetModel != "" {
+			// If one of several parser-visible model keys matches A, select the
+			// rule and reject the ambiguous payload before forwarding it. The
+			// legacy local-response/group-only matcher stays unchanged.
+			for _, candidate := range requestmodel.FromBodyCandidates(c.FullPath(), c.GetHeader("Content-Type"), body) {
+				if _, ok := rule.models[strings.ToLower(strings.TrimSpace(candidate))]; ok {
+					matched = true
+					break
+				}
+			}
+		}
+		if !matched {
+			return false
+		}
 	}
 	if rule.rule.RequestMessageText != "" && !requestBodyMatchesMessageText(body, rule) {
 		return false
@@ -752,6 +1041,7 @@ func customizationHitFingerprint(rule service.GatewayChannelCustomizationRule) s
 		Name                    string              `json:"name"`
 		Action                  string              `json:"action"`
 		TargetGroupID           *int64              `json:"target_group_id,omitempty"`
+		TargetModel             string              `json:"target_model,omitempty"`
 		APIKeyIDs               []int64             `json:"api_key_ids"`
 		APIKeyNames             []string            `json:"api_key_names"`
 		UserIDs                 []int64             `json:"user_ids"`
@@ -768,6 +1058,7 @@ func customizationHitFingerprint(rule service.GatewayChannelCustomizationRule) s
 		Name:                    strings.TrimSpace(rule.Name),
 		Action:                  action,
 		TargetGroupID:           rule.TargetGroupID,
+		TargetModel:             rule.TargetModel,
 		APIKeyIDs:               sortedInt64s(rule.APIKeyIDs),
 		APIKeyNames:             sortedLowerStrings(rule.APIKeyNames),
 		UserIDs:                 sortedInt64s(rule.UserIDs),
