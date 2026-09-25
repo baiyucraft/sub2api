@@ -1239,7 +1239,7 @@ func TestUpstreamConfigService_SyncKeysNewAPIUpsertsPagedKeysAndSnapshot(t *test
 				items = append(items, map[string]any{"id": 14287, "user_id": 4798, "key": "sk-plus", "status": 1, "name": "plus", "group": "gptplus", "used_quota": 0, "remain_quota": 0, "unlimited_quota": true})
 				items = append(items, map[string]any{"id": 9128, "user_id": 4798, "key": "sk-pro", "status": 2, "name": "pro", "group": "gptproo", "used_quota": 4913005, "remain_quota": 0, "unlimited_quota": true})
 				for i := 2; i < 100; i++ {
-					items = append(items, map[string]any{"id": 20000 + i, "user_id": 4798, "key": "sk-fill-" + strconv.Itoa(i), "status": 1, "name": "fill", "group": "unknown"})
+					items = append(items, map[string]any{"id": 20000 + i, "user_id": 4798, "key": "sk-fill-" + strconv.Itoa(i), "status": 1, "name": "fill", "group": "gptplus"})
 				}
 				_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "data": map[string]any{"page": 1, "page_size": 100, "total": 101, "items": items}})
 				return
@@ -1340,6 +1340,54 @@ func TestUpstreamConfigService_SyncKeysNewAPIUpsertsPagedKeysAndSnapshot(t *test
 	require.Equal(t, upstreamConcurrencySemanticsProviderDefined, concurrencySnapshot["semantics"])
 	require.Equal(t, "32", concurrencySnapshot["raw_value"])
 	require.NotContains(t, concurrencySnapshot, "limit")
+}
+
+func TestUpstreamConfigService_PreserveOrDropNewAPIMissingRates(t *testing.T) {
+	configID := int64(71)
+	previousRate := 0.4
+	previousRemoteID := int64(613)
+	repo := &upstreamConfigServiceRepo{
+		keys: []UpstreamKey{{
+			ID:                   10,
+			UpstreamConfigID:     configID,
+			RemoteKeyID:          &previousRemoteID,
+			SourceRateMultiplier: &previousRate,
+		}},
+	}
+	svc := NewUpstreamConfigService(repo, nil, nil)
+
+	newRemoteID := int64(700)
+	snapshot := &upstreamProviderSnapshot{
+		Keys: []UpstreamKey{
+			{RemoteKeyID: &previousRemoteID, Status: StatusActive},
+			{RemoteKeyID: &newRemoteID, Status: StatusDisabled},
+		},
+		KeysComplete: true,
+	}
+
+	err := svc.preserveOrDropNewAPIMissingRates(context.Background(), &UpstreamConfig{ID: configID, Provider: UpstreamProviderNewAPI}, snapshot)
+	require.NoError(t, err)
+	require.True(t, snapshot.Partial)
+	require.False(t, snapshot.KeysComplete)
+	require.Len(t, snapshot.Keys, 1)
+	require.NotNil(t, snapshot.Keys[0].SourceRateMultiplier)
+	require.InDelta(t, previousRate, *snapshot.Keys[0].SourceRateMultiplier, 1e-12)
+	require.Len(t, snapshot.Warnings, 2)
+	require.Contains(t, snapshot.Warnings[0], "retained previous source rate")
+	require.Contains(t, snapshot.Warnings[1], "omitted until a valid source rate is available")
+
+	unknownRemoteID := int64(701)
+	snapshot = &upstreamProviderSnapshot{
+		Keys:         []UpstreamKey{{RemoteKeyID: &unknownRemoteID, Status: StatusActive}},
+		KeysComplete: true,
+	}
+	err = svc.preserveOrDropNewAPIMissingRates(context.Background(), &UpstreamConfig{ID: configID, Provider: UpstreamProviderNewAPI}, snapshot)
+	require.NoError(t, err)
+	require.True(t, snapshot.Partial)
+	require.False(t, snapshot.KeysComplete)
+	require.Empty(t, snapshot.Keys)
+	require.Len(t, snapshot.Warnings, 1)
+	require.Contains(t, snapshot.Warnings[0], "omitted until a valid source rate is available")
 }
 
 func TestUpstreamConfigService_NewAPIProfileFailureDoesNotFailKeySync(t *testing.T) {
