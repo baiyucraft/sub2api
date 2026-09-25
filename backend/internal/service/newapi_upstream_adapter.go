@@ -44,6 +44,7 @@ const (
 	newAPIWarningPageLimit          = "newapi_token_list_page_limit"
 	newAPIWarningRevealFailed       = "newapi_token_key_reveal_failed"
 	newAPIWarningPlatformPartial    = "newapi_platform_detection_partial"
+	newAPIWarningMissingRate        = "newapi_token_missing_rate_multiplier"
 
 	newAPIPlatformReasonGroupExplicit             = "group_explicit_platform"
 	newAPIPlatformReasonPricingUnique             = "pricing_unique_evidence"

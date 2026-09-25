@@ -2231,7 +2231,12 @@ func (s *UpstreamConfigService) syncProviderConfigLocked(ctx context.Context, cf
 		}
 	}
 	s.resolveMaskedSnapshotKeys(ctx, cfg, snapshot)
-	if cfg.Provider == UpstreamProviderSub2API {
+	if cfg.Provider == UpstreamProviderNewAPI {
+		if err := s.preserveOrDropNewAPIMissingRates(ctx, cfg, snapshot); err != nil {
+			result.Error = adapter.SanitizeError(err, cfg.Credentials)
+			return nil, result, err
+		}
+	} else if cfg.Provider == UpstreamProviderSub2API {
 		applySub2APIBillingRates(ctx, cfg, proxyURL, snapshot)
 		if err := s.preserveMissingProviderRates(ctx, cfg, snapshot); err != nil {
 			result.Error = adapter.SanitizeError(err, cfg.Credentials)
@@ -2561,6 +2566,68 @@ func (s *UpstreamConfigService) preserveMissingProviderRates(ctx context.Context
 		}
 		return fmt.Errorf("api key %d has no valid rate multiplier", *key.RemoteKeyID)
 	}
+	return nil
+}
+
+// preserveOrDropNewAPIMissingRates keeps an existing NewAPI key usable when
+// the provider temporarily omits the group ratio, while preventing a brand-new
+// unpriced key from aborting the entire snapshot transaction.  The snapshot is
+// marked incomplete so missing-key reconciliation cannot delete or archive
+// otherwise valid local keys until a complete priced snapshot is available.
+func (s *UpstreamConfigService) preserveOrDropNewAPIMissingRates(ctx context.Context, cfg *UpstreamConfig, snapshot *upstreamProviderSnapshot) error {
+	if s == nil || cfg == nil || snapshot == nil || len(snapshot.Keys) == 0 {
+		return nil
+	}
+	missingRemoteIDs := make([]int64, 0)
+	for i := range snapshot.Keys {
+		if snapshot.Keys[i].SourceRateMultiplier == nil && snapshot.Keys[i].RemoteKeyID != nil {
+			missingRemoteIDs = append(missingRemoteIDs, *snapshot.Keys[i].RemoteKeyID)
+		}
+	}
+	if len(missingRemoteIDs) == 0 {
+		return nil
+	}
+
+	var (
+		existing []UpstreamKey
+		err      error
+	)
+	if fallbackRepo, ok := s.repo.(upstreamMaskedKeyFallbackRepository); ok {
+		existing, err = fallbackRepo.ListKeysForMaskedFallback(ctx, cfg.ID, missingRemoteIDs)
+	} else {
+		existing, err = s.repo.ListKeys(ctx, cfg.ID)
+	}
+	if err != nil {
+		return fmt.Errorf("load previous %s source rates: %w", normalizeUpstreamProvider(cfg.Provider), err)
+	}
+	byRemoteID := make(map[int64]float64, len(existing))
+	for i := range existing {
+		key := existing[i]
+		if key.RemoteKeyID != nil && key.SourceRateMultiplier != nil {
+			byRemoteID[*key.RemoteKeyID] = *key.SourceRateMultiplier
+		}
+	}
+
+	filtered := make([]UpstreamKey, 0, len(snapshot.Keys))
+	for i := range snapshot.Keys {
+		key := snapshot.Keys[i]
+		if key.SourceRateMultiplier != nil || key.RemoteKeyID == nil {
+			filtered = append(filtered, key)
+			continue
+		}
+		snapshot.KeysComplete = false
+		remoteID := *key.RemoteKeyID
+		if rate, ok := byRemoteID[remoteID]; ok {
+			key.SourceRateMultiplier = &rate
+			filtered = append(filtered, key)
+			snapshot.Partial = true
+			snapshot.Warnings = append(snapshot.Warnings, fmt.Sprintf("%s key %d: retained previous source rate", newAPIWarningMissingRate, remoteID))
+			continue
+		}
+		snapshot.Partial = true
+		snapshot.Warnings = append(snapshot.Warnings, fmt.Sprintf("%s key %d: omitted until a valid source rate is available", newAPIWarningMissingRate, remoteID))
+	}
+	snapshot.Keys = filtered
 	return nil
 }
 
