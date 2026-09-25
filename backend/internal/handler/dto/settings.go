@@ -542,6 +542,7 @@ type GatewayChannelCustomizationRule struct {
 	Enabled                 bool                `json:"enabled"`
 	Action                  string              `json:"action"`
 	TargetGroupID           *int64              `json:"target_group_id,omitempty"`
+	TargetModel             string              `json:"target_model,omitempty"`
 	APIKeyIDs               []int64             `json:"api_key_ids"`
 	APIKeyNames             []string            `json:"api_key_names"`
 	UserIDs                 []int64             `json:"user_ids"`

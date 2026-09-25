@@ -843,7 +843,7 @@ export default {
 
     customization: {
       title: '渠道定制',
-      description: '针对指定 Key 或用户的请求返回可控响应，或映射到指定分组。',
+      description: '针对指定 Key 或用户的请求返回可控响应，或映射到指定分组及模型。',
       rules: '定制规则',
       observer: '请求观察器',
       createRule: '新增规则',
@@ -892,6 +892,12 @@ export default {
       action: '执行动作',
       actionLocalResponse: '返回本地响应',
       actionGroupMapping: '映射到指定分组',
+      actionModelMapping: '映射到指定模型',
+      modelMapping: '模型映射',
+      targetModel: '目标模型 B（选填分组映射）',
+      targetModelPlaceholder: '例如 gpt-5.6-sol',
+      targetModelHint: '来源模型 A 填在下方模型条件；模型映射动作必须填写目标模型，组合规则可同时填写目标分组。',
+      modelMappingScopeHint: '仅改写 JSON Responses、Chat Completions、Messages 入口和 Responses WebSocket；Gemini URL 模型及 multipart 字段不会改写。用户按原模型 A 和最终分组计费。',
       targetGroup: '目标分组',
       targetGroupPlaceholder: '请选择目标分组',
       targetGroupHint: '这里只列出当前启用的分组；请求命中时仍会校验用户是否有权使用。',

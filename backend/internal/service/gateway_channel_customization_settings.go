@@ -27,6 +27,7 @@ const (
 	GatewayChannelCustomizationRequestMessageMatchModeRegex = "regex"
 	GatewayChannelCustomizationActionLocalResponse          = "local_response"
 	GatewayChannelCustomizationActionGroupMapping           = "group_mapping"
+	GatewayChannelCustomizationActionModelMapping           = "model_mapping"
 )
 
 var gatewayCustomizationMethodPattern = regexp.MustCompile(`^[A-Z][A-Z0-9!#$%&'*+.^_` + "`" + `|~-]*$`)
@@ -43,6 +44,7 @@ type GatewayChannelCustomizationRule struct {
 	Enabled                 bool                `json:"enabled"`
 	Action                  string              `json:"action"`
 	TargetGroupID           *int64              `json:"target_group_id,omitempty"`
+	TargetModel             string              `json:"target_model,omitempty"`
 	APIKeyIDs               []int64             `json:"api_key_ids"`
 	APIKeyNames             []string            `json:"api_key_names"`
 	UserIDs                 []int64             `json:"user_ids"`
@@ -104,8 +106,8 @@ func normalizeAndValidateGatewayCustomizationRule(rule *GatewayChannelCustomizat
 	if rule.Action == "" {
 		rule.Action = GatewayChannelCustomizationActionLocalResponse
 	}
-	if rule.Action != GatewayChannelCustomizationActionLocalResponse && rule.Action != GatewayChannelCustomizationActionGroupMapping {
-		return infraerrors.BadRequest("INVALID_GATEWAY_CHANNEL_CUSTOMIZATION_ACTION", fmt.Sprintf("rule %d action must be %q or %q", index+1, GatewayChannelCustomizationActionLocalResponse, GatewayChannelCustomizationActionGroupMapping))
+	if rule.Action != GatewayChannelCustomizationActionLocalResponse && rule.Action != GatewayChannelCustomizationActionGroupMapping && rule.Action != GatewayChannelCustomizationActionModelMapping {
+		return infraerrors.BadRequest("INVALID_GATEWAY_CHANNEL_CUSTOMIZATION_ACTION", fmt.Sprintf("rule %d has an unsupported action", index+1))
 	}
 	if rule.Action == GatewayChannelCustomizationActionGroupMapping {
 		if rule.TargetGroupID == nil || *rule.TargetGroupID <= 0 {
@@ -113,6 +115,14 @@ func normalizeAndValidateGatewayCustomizationRule(rule *GatewayChannelCustomizat
 		}
 	} else {
 		rule.TargetGroupID = nil
+	}
+	rule.TargetModel = strings.TrimSpace(rule.TargetModel)
+	if rule.Action == GatewayChannelCustomizationActionLocalResponse {
+		rule.TargetModel = ""
+	} else if rule.TargetModel != "" && !validUTF8AndMax(rule.TargetModel, gatewayChannelCustomizationMaxStringBytes) {
+		return infraerrors.BadRequest("INVALID_GATEWAY_CHANNEL_CUSTOMIZATION_TARGET_MODEL", fmt.Sprintf("rule %d target model is invalid or too long", index+1))
+	} else if rule.Action == GatewayChannelCustomizationActionModelMapping && rule.TargetModel == "" {
+		return infraerrors.BadRequest("INVALID_GATEWAY_CHANNEL_CUSTOMIZATION_TARGET_MODEL", fmt.Sprintf("rule %d target model is required", index+1))
 	}
 	var err error
 	if rule.APIKeyIDs, err = normalizeCustomizationIDs(rule.APIKeyIDs, index, "API key IDs"); err != nil {
@@ -127,6 +137,9 @@ func normalizeAndValidateGatewayCustomizationRule(rule *GatewayChannelCustomizat
 	rule.ExactPaths = normalizeCustomizationPaths(rule.ExactPaths)
 	rule.PathPrefixes = normalizeCustomizationPaths(rule.PathPrefixes)
 	rule.Models = normalizeCustomizationStrings(rule.Models)
+	if rule.TargetModel != "" && len(rule.Models) == 0 {
+		return infraerrors.BadRequest("INVALID_GATEWAY_CHANNEL_CUSTOMIZATION_CONDITION", fmt.Sprintf("rule %d needs at least one source model", index+1))
+	}
 	rule.UserAgentContains = normalizeCustomizationStrings(rule.UserAgentContains)
 	rule.RequestMessageMatchMode = strings.ToLower(strings.TrimSpace(rule.RequestMessageMatchMode))
 	if rule.RequestMessageMatchMode == "" {
