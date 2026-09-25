@@ -653,12 +653,20 @@ func writeUsageLogBestEffort(ctx context.Context, repo UsageLogRepository, usage
 
 // RecordUsage 记录使用量并扣费（或更新订阅用量）
 func (s *GatewayService) RecordUsage(ctx context.Context, input *RecordUsageInput) error {
+	if input == nil {
+		return errors.New("gateway usage input is nil")
+	}
+	if input.Result != nil {
+		input.ChannelUsageFields = CustomizedChannelUsageFields(ctx, input.ChannelUsageFields, input.Result.UpstreamModel)
+	}
+	billingAPIKey := ChannelCustomizationBillingAPIKey(ctx, input.APIKey)
+	billingSubscription := ChannelCustomizationBillingSubscription(ctx, input.Subscription)
 	return s.recordUsageCore(ctx, &recordUsageCoreInput{
 		Result:             input.Result,
-		APIKey:             input.APIKey,
+		APIKey:             billingAPIKey,
 		User:               input.User,
 		Account:            input.Account,
-		Subscription:       input.Subscription,
+		Subscription:       billingSubscription,
 		PricingAt:          input.PricingAt,
 		InboundEndpoint:    input.InboundEndpoint,
 		UpstreamEndpoint:   input.UpstreamEndpoint,
@@ -835,12 +843,15 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	// 进入上面的来源覆盖：任意别名查无价会静默落 $0，含家族词的别名则被价格表的
 	// 家族模糊匹配错计（如 Opus 流量按 Sonnet 兜底价）。除非管理员为别名显式配置了
 	// 渠道定价（OpenRouter 式自定价），composite 请求一律按实际转发的具体模型计费。
-	if apiKey.Group != nil && apiKey.Group.Platform == PlatformComposite {
+	_, customizationMapped := ChannelCustomizationModelFromContext(ctx)
+	if !customizationMapped && apiKey.Group != nil && apiKey.Group.Platform == PlatformComposite {
 		billingModel = s.compositeBillableModel(ctx, apiKey, billingModel, concreteBillingModel)
 	}
 	// 通用兜底（与 OpenAI 路径的 usageBillingModelCandidates 语义对齐）：
 	// 选定模型查不到任何价格时回退到实际转发的具体模型。已定价流量不受影响。
-	billingModel = s.billableModelWithFallback(ctx, apiKey, billingModel, result.UpstreamModel, result.Model)
+	if !customizationMapped {
+		billingModel = s.billableModelWithFallback(ctx, apiKey, billingModel, result.UpstreamModel, result.Model)
+	}
 
 	// 确定 RequestedModel（渠道映射前的原始模型）
 	requestedModel := result.Model
@@ -1061,6 +1072,18 @@ func (s *GatewayService) hasResolvableTokenPricing(ctx context.Context, model st
 	}
 	_, err := s.billingService.GetModelPricing(model)
 	return err == nil
+}
+
+// HasCustomizationBillingPricing is the pre-forward guard for request-scoped
+// model mapping: the public model, not its cheaper target, must be priced.
+func (s *GatewayService) HasCustomizationBillingPricing(ctx context.Context, apiKey *APIKey, model string) bool {
+	if s == nil || apiKey == nil || apiKey.Group == nil || strings.TrimSpace(model) == "" {
+		return false
+	}
+	if s.resolveChannelPricing(ctx, model, apiKey) != nil {
+		return true
+	}
+	return s.billingService != nil && s.billingService.HasIdentifiedTokenPricing(model)
 }
 
 // hasIdentifiedResponseModelPricing 判断上游自报的响应模型是否可以作为计费基准，

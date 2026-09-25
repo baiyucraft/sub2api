@@ -186,4 +186,37 @@ describe('ChannelCustomizationView', () => {
     expect(showError).toHaveBeenCalled()
     expect(updateSettings).not.toHaveBeenCalled()
   })
+
+  it('saves a request model mapping without changing the group', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('[data-testid="customization-create-rule"]').trigger('click')
+    const form = wrapper.get('[data-testid="customization-rule-form"]')
+    await form.get('input.input').setValue('rewrite-model')
+    await form.findAll('textarea').at(0)?.setValue('maibon-gpt')
+    await form.get('[data-testid="customization-action-select"]').setValue('model_mapping')
+    await form.get('textarea.font-mono').setValue('gpt-6-astra')
+    await form.get('[data-testid="customization-target-model-input"]').setValue('gpt-5.6-luna')
+    await form.trigger('submit')
+    await wrapper.get('header button.btn-primary').trigger('click')
+    expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      rules: expect.arrayContaining([expect.objectContaining({
+        action: 'model_mapping', target_group_id: null, target_model: 'gpt-5.6-luna', models: ['gpt-6-astra']
+      })])
+    }))
+  })
+
+  it('saves group and model mapping in the same rule', async () => {
+    getSettings.mockResolvedValueOnce({ observer: { enabled: false }, rules: [{ ...rule, action: 'group_mapping', target_group_id: 2, models: ['gpt-6-astra'], target_model: 'gpt-5.6-luna' }] })
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.get('[data-testid="customization-rule-target-model-0"]').text()).toContain('gpt-6-astra → gpt-5.6-luna')
+    await wrapper.get('[data-testid="customization-rule-0"] button[title="admin.customization.edit"]').trigger('click')
+    expect((wrapper.get('[data-testid="customization-target-model-input"]').element as HTMLInputElement).value).toBe('gpt-5.6-luna')
+    await wrapper.get('[data-testid="customization-rule-form"]').trigger('submit')
+    await wrapper.get('header button.btn-primary').trigger('click')
+    expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      rules: [expect.objectContaining({ action: 'group_mapping', target_group_id: 2, target_model: 'gpt-5.6-luna' })]
+    }))
+  })
 })

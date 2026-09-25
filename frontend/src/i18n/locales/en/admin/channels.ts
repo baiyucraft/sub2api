@@ -845,7 +845,7 @@ export default {
 
     customization: {
       title: 'Channel Customization',
-      description: 'Return a controlled response or map matching key or user requests to a selected group.',
+      description: 'Return a controlled response or map matching requests to a selected group and model.',
       rules: 'Customization Rules',
       observer: 'Request Observer',
       createRule: 'New Rule',
@@ -894,6 +894,12 @@ export default {
       action: 'Action',
       actionLocalResponse: 'Return local response',
       actionGroupMapping: 'Map to selected group',
+      actionModelMapping: 'Map to selected model',
+      modelMapping: 'Model mapping',
+      targetModel: 'Target model B (optional for group mapping)',
+      targetModelPlaceholder: 'For example, gpt-5.6-sol',
+      targetModelHint: 'Enter source model A in Model conditions below. Model-only mapping requires a target; group mapping may combine both.',
+      modelMappingScopeHint: 'Only JSON Responses, Chat Completions, Messages, and Responses WebSocket are rewritten; Gemini URL and multipart model fields are not. Customers are billed for original model A in the final group.',
       targetGroup: 'Target group',
       targetGroupPlaceholder: 'Select a target group',
       targetGroupHint: 'Only active groups are listed. User access is still validated when a request matches.',

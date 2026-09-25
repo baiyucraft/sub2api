@@ -28,6 +28,9 @@ func clientRequestedModel(c *gin.Context, fallback string) string {
 	if c == nil || c.Request == nil {
 		return fallback
 	}
+	if model, ok := service.ChannelCustomizationModelFromContext(c.Request.Context()); ok {
+		return model.Original
+	}
 	if model, ok := service.RequestedPublicModelFromContext(c.Request.Context()); ok {
 		return model
 	}
