@@ -213,6 +213,10 @@ type customizationTargetGroupResolver interface {
 	ResolveCustomizationTargetGroup(context.Context, *service.APIKey, int64) (*service.Group, error)
 }
 
+type customizationTargetGroupPermissionOverrideResolver interface {
+	ResolveCustomizationTargetGroupForCustomization(context.Context, *service.APIKey, int64, bool) (*service.Group, error)
+}
+
 type customizationSubscriptionResolver interface {
 	GetActiveSubscription(context.Context, int64, int64) (*service.UserSubscription, error)
 }
@@ -331,7 +335,13 @@ func (s *CustomizationService) groupMappingMiddleware(apiKeyService customizatio
 			return
 		}
 		preserveCustomizationBillingSnapshot(c, apiKey, subscriptionService)
-		target, err := apiKeyService.ResolveCustomizationTargetGroup(c.Request.Context(), apiKey, *decision.rule.rule.TargetGroupID)
+		var target *service.Group
+		var err error
+		if resolver, supportsOverride := apiKeyService.(customizationTargetGroupPermissionOverrideResolver); decision.rule.rule.BypassTargetGroupPermission && supportsOverride {
+			target, err = resolver.ResolveCustomizationTargetGroupForCustomization(c.Request.Context(), apiKey, *decision.rule.rule.TargetGroupID, true)
+		} else {
+			target, err = apiKeyService.ResolveCustomizationTargetGroup(c.Request.Context(), apiKey, *decision.rule.rule.TargetGroupID)
+		}
 		if err != nil {
 			status, code, message := customizationGroupMappingError(err)
 			middleware.AbortWithRequestError(c, status, code, message)

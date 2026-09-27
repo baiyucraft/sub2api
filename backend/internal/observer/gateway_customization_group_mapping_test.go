@@ -18,9 +18,10 @@ import (
 )
 
 type customizationTargetResolverStub struct {
-	group *service.Group
-	err   error
-	calls int
+	group       *service.Group
+	err         error
+	calls       int
+	bypassCalls int
 }
 
 type customizationSubscriptionResolverStub struct {
@@ -53,6 +54,39 @@ func (s *customizationSubscriptionResolverStub) EnsureWindowMaintenance(context.
 func (s *customizationTargetResolverStub) ResolveCustomizationTargetGroup(context.Context, *service.APIKey, int64) (*service.Group, error) {
 	s.calls++
 	return s.group, s.err
+}
+
+func (s *customizationTargetResolverStub) ResolveCustomizationTargetGroupForCustomization(_ context.Context, _ *service.APIKey, _ int64, bypass bool) (*service.Group, error) {
+	if bypass {
+		s.bypassCalls++
+	}
+	return s.group, s.err
+}
+
+func TestCustomizationGroupMappingCanBypassTargetGroupPermission(t *testing.T) {
+	targetGroupID := int64(22)
+	targetGroup := &service.Group{ID: targetGroupID, Name: "gpt-pro", Platform: service.PlatformOpenAI, Status: service.StatusActive, Hydrated: true}
+	apiKey := &service.APIKey{ID: 7, Name: "restricted-key", UserID: 42, User: &service.User{ID: 42}}
+	resolver := &customizationTargetResolverStub{group: targetGroup}
+	customization := NewCustomizationService()
+	rule := service.GatewayChannelCustomizationRule{
+		Name: "map-with-permission-override", Enabled: true, Action: service.GatewayChannelCustomizationActionGroupMapping,
+		TargetGroupID: &targetGroupID, BypassTargetGroupPermission: true, APIKeyNames: []string{"restricted-key"}, ExactPaths: []string{"/v1/responses"},
+	}
+	require.NoError(t, customization.Apply(context.Background(), service.GatewayChannelCustomizationSettings{Rules: []service.GatewayChannelCustomizationRule{rule}}))
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(middleware.ContextKeyAPIKey), apiKey)
+		c.Next()
+	})
+	router.Use(customization.GroupMappingMiddleware(resolver, nil))
+	router.POST("/v1/responses", func(c *gin.Context) { c.Status(http.StatusNoContent) })
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-6-astra"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusNoContent, w.Code)
+	require.Equal(t, 1, resolver.bypassCalls)
 }
 
 func TestCustomizationGroupMappingOverridesOnlyRequestContextAndReplaysBody(t *testing.T) {
