@@ -40,28 +40,29 @@ type GatewayChannelCustomizationSettings struct {
 
 // GatewayChannelCustomizationRule 描述一个认证后请求的定制动作规则。
 type GatewayChannelCustomizationRule struct {
-	Name                    string              `json:"name"`
-	Enabled                 bool                `json:"enabled"`
-	Action                  string              `json:"action"`
-	TargetGroupID           *int64              `json:"target_group_id,omitempty"`
-	TargetModel             string              `json:"target_model,omitempty"`
-	APIKeyIDs               []int64             `json:"api_key_ids"`
-	APIKeyNames             []string            `json:"api_key_names"`
-	UserIDs                 []int64             `json:"user_ids"`
-	UserEmails              []string            `json:"user_emails"`
-	Methods                 []string            `json:"methods"`
-	ExactPaths              []string            `json:"exact_paths"`
-	PathPrefixes            []string            `json:"path_prefixes"`
-	Models                  []string            `json:"models"`
-	UserAgentContains       []string            `json:"user_agent_contains"`
-	QueryParams             map[string][]string `json:"query_params"`
-	RequestMessageMatchMode string              `json:"request_message_match_mode"`
-	RequestMessageText      string              `json:"request_message_text,omitempty"`
-	StatusCode              int                 `json:"status_code"`
-	ContentType             string              `json:"content_type"`
-	Body                    string              `json:"body"`
-	MinDelayMs              int                 `json:"min_delay_ms"`
-	MaxDelayMs              int                 `json:"max_delay_ms"`
+	Name                        string              `json:"name"`
+	Enabled                     bool                `json:"enabled"`
+	Action                      string              `json:"action"`
+	TargetGroupID               *int64              `json:"target_group_id,omitempty"`
+	BypassTargetGroupPermission bool                `json:"bypass_target_group_permission,omitempty"`
+	TargetModel                 string              `json:"target_model,omitempty"`
+	APIKeyIDs                   []int64             `json:"api_key_ids"`
+	APIKeyNames                 []string            `json:"api_key_names"`
+	UserIDs                     []int64             `json:"user_ids"`
+	UserEmails                  []string            `json:"user_emails"`
+	Methods                     []string            `json:"methods"`
+	ExactPaths                  []string            `json:"exact_paths"`
+	PathPrefixes                []string            `json:"path_prefixes"`
+	Models                      []string            `json:"models"`
+	UserAgentContains           []string            `json:"user_agent_contains"`
+	QueryParams                 map[string][]string `json:"query_params"`
+	RequestMessageMatchMode     string              `json:"request_message_match_mode"`
+	RequestMessageText          string              `json:"request_message_text,omitempty"`
+	StatusCode                  int                 `json:"status_code"`
+	ContentType                 string              `json:"content_type"`
+	Body                        string              `json:"body"`
+	MinDelayMs                  int                 `json:"min_delay_ms"`
+	MaxDelayMs                  int                 `json:"max_delay_ms"`
 }
 
 // GatewayChannelCustomizationRuntime 是设置服务使用的窄运行时接口。
@@ -115,6 +116,7 @@ func normalizeAndValidateGatewayCustomizationRule(rule *GatewayChannelCustomizat
 		}
 	} else {
 		rule.TargetGroupID = nil
+		rule.BypassTargetGroupPermission = false
 	}
 	rule.TargetModel = strings.TrimSpace(rule.TargetModel)
 	if rule.Action == GatewayChannelCustomizationActionLocalResponse {

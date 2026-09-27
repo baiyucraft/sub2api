@@ -63,6 +63,28 @@ func TestNormalizeGatewayChannelCustomizationSettingsAcceptsGroupMappingTarget(t
 	require.Equal(t, float64(88), wire["target_group_id"])
 }
 
+func TestNormalizeGatewayChannelCustomizationSettingsPreservesPermissionOverrideOnlyForGroupMapping(t *testing.T) {
+	settings := decodeGatewayChannelCustomizationSettings(t, `{
+		"rules": [{
+			"name": "map-to-restricted-group",
+			"enabled": true,
+			"action": "group_mapping",
+			"target_group_id": 88,
+			"bypass_target_group_permission": true,
+			"api_key_names": ["restricted-key"],
+			"exact_paths": ["/v1/responses"]
+		}]
+	}`)
+	require.NoError(t, NormalizeGatewayChannelCustomizationSettings(&settings))
+	require.True(t, settings.Rules[0].BypassTargetGroupPermission)
+
+	settings.Rules[0].Action = GatewayChannelCustomizationActionModelMapping
+	settings.Rules[0].TargetModel = "gpt-5.6-sol"
+	settings.Rules[0].Models = []string{"gpt-6-astra"}
+	require.NoError(t, NormalizeGatewayChannelCustomizationSettings(&settings))
+	require.False(t, settings.Rules[0].BypassTargetGroupPermission)
+}
+
 func TestNormalizeGatewayChannelCustomizationSettingsNormalizesModelsAsRequestCondition(t *testing.T) {
 	settings := decodeGatewayChannelCustomizationSettings(t, `{
 		"rules": [{

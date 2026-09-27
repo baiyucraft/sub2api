@@ -175,6 +175,20 @@ describe('ChannelCustomizationView', () => {
     }))
   })
 
+  it('preserves and saves the target group permission bypass flag', async () => {
+    getSettings.mockResolvedValueOnce({ observer: { enabled: false }, rules: [{ ...rule, action: 'group_mapping', target_group_id: 2, bypass_target_group_permission: true }] })
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('[data-testid="customization-rule-0"] button[title="admin.customization.edit"]').trigger('click')
+    const bypass = wrapper.get('[data-testid="customization-bypass-target-group-permission"]')
+    expect((bypass.element as HTMLInputElement).checked).toBe(true)
+    await wrapper.get('[data-testid="customization-rule-form"]').trigger('submit')
+    await wrapper.get('header button.btn-primary').trigger('click')
+    expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      rules: [expect.objectContaining({ action: 'group_mapping', target_group_id: 2, bypass_target_group_permission: true })]
+    }))
+  })
+
   it('rejects a group mapping without an active target group', async () => {
     const wrapper = mountView()
     await flushPromises()

@@ -88,7 +88,7 @@
                     <div><span class="font-medium text-gray-700 dark:text-gray-300">{{ t('admin.customization.targets') }}:</span> {{ summarizeTargets(rule) }}</div>
                     <div><span class="font-medium text-gray-700 dark:text-gray-300">{{ t('admin.customization.conditions') }}:</span> {{ summarizeConditions(rule) }}</div>
                     <div><span class="font-medium text-gray-700 dark:text-gray-300">{{ t('admin.customization.action') }}:</span> {{ actionLabel(rule) }}</div>
-                    <div v-if="rule.action === 'group_mapping'" :data-testid="`customization-rule-target-group-${index}`"><span class="font-medium text-gray-700 dark:text-gray-300">{{ t('admin.customization.targetGroup') }}:</span> {{ targetGroupName(rule.target_group_id) }}</div>
+                    <div v-if="rule.action === 'group_mapping'" :data-testid="`customization-rule-target-group-${index}`"><span class="font-medium text-gray-700 dark:text-gray-300">{{ t('admin.customization.targetGroup') }}:</span> {{ targetGroupName(rule.target_group_id) }}<span v-if="rule.bypass_target_group_permission" class="ml-2 text-amber-600 dark:text-amber-400">({{ t('admin.customization.targetGroupPermissionBypassed') }})</span></div>
                     <div v-if="rule.target_model" :data-testid="`customization-rule-target-model-${index}`"><span class="font-medium text-gray-700 dark:text-gray-300">{{ t('admin.customization.modelMapping') }}:</span> <code class="font-mono">{{ rule.models.join(', ') }} → {{ rule.target_model }}</code></div>
                     <div v-if="rule.action === 'local_response'"><span class="font-medium text-gray-700 dark:text-gray-300">{{ t('admin.customization.response') }}:</span> {{ rule.status_code }} / {{ rule.content_type }} · {{ rule.min_delay_ms }}-{{ rule.max_delay_ms }}ms</div>
                   </div>
@@ -144,6 +144,7 @@
         <div class="grid gap-4 md:grid-cols-2">
           <label class="block text-sm"><span class="label">{{ t('admin.customization.action') }}</span><select v-model="draft.action" class="input" data-testid="customization-action-select"><option value="local_response">{{ t('admin.customization.actionLocalResponse') }}</option><option value="group_mapping">{{ t('admin.customization.actionGroupMapping') }}</option><option value="model_mapping">{{ t('admin.customization.actionModelMapping') }}</option></select></label>
           <label v-if="draft.action === 'group_mapping'" class="block text-sm"><span class="label">{{ t('admin.customization.targetGroup') }}</span><select v-model.number="draft.target_group_id" class="input" data-testid="customization-target-group-select" required><option :value="0" disabled>{{ t('admin.customization.targetGroupPlaceholder') }}</option><option v-for="group in availableGroups" :key="group.id" :value="group.id">{{ group.name }} · {{ platformLabel(group.platform) }}</option></select><span class="mt-1 block text-xs text-gray-500 dark:text-gray-400">{{ t('admin.customization.targetGroupHint') }}</span></label>
+          <label v-if="draft.action === 'group_mapping'" class="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-900/20"><input v-model="draft.bypass_target_group_permission" type="checkbox" class="mt-1" data-testid="customization-bypass-target-group-permission" /><span><span class="font-medium text-amber-800 dark:text-amber-200">{{ t('admin.customization.bypassTargetGroupPermission') }}</span><span class="mt-1 block text-xs text-amber-700 dark:text-amber-300">{{ t('admin.customization.bypassTargetGroupPermissionHint') }}</span></span></label>
           <label v-if="draft.action !== 'local_response'" class="block text-sm"><span class="label">{{ t('admin.customization.targetModel') }}</span><input v-model="draft.target_model" data-testid="customization-target-model-input" class="input font-mono" maxlength="256" :required="draft.action === 'model_mapping'" :placeholder="t('admin.customization.targetModelPlaceholder')" /><span class="mt-1 block text-xs text-gray-500 dark:text-gray-400">{{ t('admin.customization.targetModelHint') }}</span></label>
         </div>
         <p v-if="draft.action !== 'local_response'" class="rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm text-sky-800 dark:border-sky-800 dark:bg-sky-900/20 dark:text-sky-200">{{ t('admin.customization.modelMappingScopeHint') }}</p>
@@ -174,6 +175,7 @@ interface RuleDraft {
   enabled: boolean
   action: 'local_response' | 'group_mapping' | 'model_mapping'
   target_group_id: number
+  bypass_target_group_permission: boolean
   target_model: string
   api_key_ids: string
   api_key_names: string
@@ -214,7 +216,7 @@ const observerUserEmails = ref('')
 const draft = reactive<RuleDraft>(emptyDraft())
 
 function emptyDraft(): RuleDraft {
-  return { name: '', enabled: false, action: 'local_response', target_group_id: 0, target_model: '', api_key_ids: '', api_key_names: '', user_ids: '', user_emails: '', methods: '', exact_paths: '', path_prefixes: '', models: '', user_agent_contains: '', query_params: '', request_message_match_mode: 'exact', request_message_text: '', min_delay_ms: 0, max_delay_ms: 0, status_code: 200, content_type: 'application/json', response_body: '' }
+  return { name: '', enabled: false, action: 'local_response', target_group_id: 0, bypass_target_group_permission: false, target_model: '', api_key_ids: '', api_key_names: '', user_ids: '', user_emails: '', methods: '', exact_paths: '', path_prefixes: '', models: '', user_agent_contains: '', query_params: '', request_message_match_mode: 'exact', request_message_text: '', min_delay_ms: 0, max_delay_ms: 0, status_code: 200, content_type: 'application/json', response_body: '' }
 }
 
 function tokens(value: string): string[] {
@@ -273,6 +275,7 @@ function normalizeRule(rule: Partial<ChannelCustomizationRule> = {}): ChannelCus
     enabled: value.enabled === true,
     action: value.action === 'group_mapping' || value.action === 'model_mapping' ? value.action : 'local_response',
     target_group_id: Number.isSafeInteger(Number(value.target_group_id)) && Number(value.target_group_id) > 0 ? Number(value.target_group_id) : null,
+    bypass_target_group_permission: value.action === 'group_mapping' && value.bypass_target_group_permission === true,
     target_model: typeof value.target_model === 'string' ? value.target_model.trim() : '',
     api_key_ids: idList(value.api_key_ids),
     api_key_names: stringList(value.api_key_names),
@@ -297,13 +300,13 @@ function normalizeRule(rule: Partial<ChannelCustomizationRule> = {}): ChannelCus
 
 function setDraft(rule: Partial<ChannelCustomizationRule> = {}) {
   const value = normalizeRule(rule)
-  Object.assign(draft, { name: value.name, enabled: value.enabled, action: value.action || 'local_response', target_group_id: value.target_group_id || 0, target_model: value.target_model || '', api_key_ids: value.api_key_ids.join('\n'), api_key_names: value.api_key_names.join('\n'), user_ids: value.user_ids.join('\n'), user_emails: value.user_emails.join('\n'), methods: value.methods.join('\n'), exact_paths: value.exact_paths.join('\n'), path_prefixes: value.path_prefixes.join('\n'), models: value.models.join('\n'), user_agent_contains: value.user_agent_contains.join('\n'), query_params: formatQueryParams(value.query_params), request_message_match_mode: value.request_message_match_mode || 'exact', request_message_text: value.request_message_text || '', min_delay_ms: value.min_delay_ms, max_delay_ms: value.max_delay_ms, status_code: value.status_code, content_type: value.content_type, response_body: value.response_body })
+  Object.assign(draft, { name: value.name, enabled: value.enabled, action: value.action || 'local_response', target_group_id: value.target_group_id || 0, bypass_target_group_permission: value.bypass_target_group_permission === true, target_model: value.target_model || '', api_key_ids: value.api_key_ids.join('\n'), api_key_names: value.api_key_names.join('\n'), user_ids: value.user_ids.join('\n'), user_emails: value.user_emails.join('\n'), methods: value.methods.join('\n'), exact_paths: value.exact_paths.join('\n'), path_prefixes: value.path_prefixes.join('\n'), models: value.models.join('\n'), user_agent_contains: value.user_agent_contains.join('\n'), query_params: formatQueryParams(value.query_params), request_message_match_mode: value.request_message_match_mode || 'exact', request_message_text: value.request_message_text || '', min_delay_ms: value.min_delay_ms, max_delay_ms: value.max_delay_ms, status_code: value.status_code, content_type: value.content_type, response_body: value.response_body })
 }
 
 function draftRule(): ChannelCustomizationRule {
   const current = editingIndex.value !== null && !newRulePending.value ? rules.value[editingIndex.value] : undefined
   const requestMessageText = draft.request_message_match_mode === 'regex' ? draft.request_message_text : draft.request_message_text.trim()
-  return normalizeRule({ name: draft.name.trim(), enabled: draft.enabled, action: draft.action, target_group_id: draft.action === 'group_mapping' ? Number(draft.target_group_id) || null : null, target_model: draft.action !== 'local_response' ? draft.target_model.trim() : '', api_key_ids: ids(draft.api_key_ids), api_key_names: tokens(draft.api_key_names), user_ids: ids(draft.user_ids), user_emails: tokens(draft.user_emails).map(value => value.toLowerCase()), methods: tokens(draft.methods).map(value => value.toUpperCase()), exact_paths: tokens(draft.exact_paths), path_prefixes: tokens(draft.path_prefixes), models: tokens(draft.models), user_agent_contains: tokens(draft.user_agent_contains), query_params: parseQueryParams(draft.query_params), request_message_match_mode: draft.request_message_match_mode, request_message_text: requestMessageText, min_delay_ms: Number(draft.min_delay_ms) || 0, max_delay_ms: Number(draft.max_delay_ms) || 0, status_code: Number(draft.status_code) || 200, content_type: draft.content_type.trim() || 'application/json', response_body: draft.response_body, hit_count: current?.hit_count || 0 })
+  return normalizeRule({ name: draft.name.trim(), enabled: draft.enabled, action: draft.action, target_group_id: draft.action === 'group_mapping' ? Number(draft.target_group_id) || null : null, bypass_target_group_permission: draft.action === 'group_mapping' && draft.bypass_target_group_permission, target_model: draft.action !== 'local_response' ? draft.target_model.trim() : '', api_key_ids: ids(draft.api_key_ids), api_key_names: tokens(draft.api_key_names), user_ids: ids(draft.user_ids), user_emails: tokens(draft.user_emails).map(value => value.toLowerCase()), methods: tokens(draft.methods).map(value => value.toUpperCase()), exact_paths: tokens(draft.exact_paths), path_prefixes: tokens(draft.path_prefixes), models: tokens(draft.models), user_agent_contains: tokens(draft.user_agent_contains), query_params: parseQueryParams(draft.query_params), request_message_match_mode: draft.request_message_match_mode, request_message_text: requestMessageText, min_delay_ms: Number(draft.min_delay_ms) || 0, max_delay_ms: Number(draft.max_delay_ms) || 0, status_code: Number(draft.status_code) || 200, content_type: draft.content_type.trim() || 'application/json', response_body: draft.response_body, hit_count: current?.hit_count || 0 })
 }
 
 function normalizeSettings(data: Partial<ChannelCustomizationSettings> = {}) {
