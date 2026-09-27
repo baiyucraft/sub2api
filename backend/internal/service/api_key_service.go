@@ -47,6 +47,14 @@ var (
 // ResolveCustomizationTargetGroup resolves and authorizes the temporary group
 // used by a matched gateway customization rule. It never mutates the API key.
 func (s *APIKeyService) ResolveCustomizationTargetGroup(ctx context.Context, apiKey *APIKey, targetGroupID int64) (*Group, error) {
+	return s.ResolveCustomizationTargetGroupForCustomization(ctx, apiKey, targetGroupID, false)
+}
+
+// ResolveCustomizationTargetGroupForCustomization resolves a request-scoped
+// customization target. An explicitly administrator-enabled rule may bypass
+// only the user's bind/allowed-group check; target activity and all downstream
+// model, pricing, subscription, and scheduling checks remain in force.
+func (s *APIKeyService) ResolveCustomizationTargetGroupForCustomization(ctx context.Context, apiKey *APIKey, targetGroupID int64, bypassPermission bool) (*Group, error) {
 	if s == nil || s.groupRepo == nil || apiKey == nil || apiKey.User == nil || targetGroupID <= 0 {
 		return nil, ErrGroupNotAllowed
 	}
@@ -57,7 +65,7 @@ func (s *APIKeyService) ResolveCustomizationTargetGroup(ctx context.Context, api
 	if !IsGroupContextValid(group) || !group.IsActive() {
 		return nil, ErrCustomizationTargetGroupInactive
 	}
-	if !group.IsSubscriptionType() && !s.canUserBindGroup(ctx, apiKey.User, group) {
+	if !bypassPermission && !group.IsSubscriptionType() && !s.canUserBindGroup(ctx, apiKey.User, group) {
 		return nil, ErrGroupNotAllowed
 	}
 	return group, nil

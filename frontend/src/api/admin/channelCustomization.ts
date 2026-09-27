@@ -27,6 +27,7 @@ export interface ChannelCustomizationRule {
   enabled: boolean
   action?: ChannelCustomizationAction
   target_group_id?: number | null
+  bypass_target_group_permission?: boolean
   target_model?: string
   api_key_ids: number[]
   api_key_names: string[]
