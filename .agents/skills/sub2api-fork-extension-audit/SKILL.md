@@ -12,7 +12,7 @@ description: 审计 Sub2API fork 相对官方 upstream/main 的扩展合同。�
 - 只执行只读 Git 和文件检查；不得 fetch、merge、checkout、reset、代码生成、格式化、构建、VM Gate 或生产操作。
 - 必须由操作者明确提供官方目标的 40 位完整 commit SHA；短 SHA、未知对象、脏工作区和未解决冲突均为 blocker。
 - 不得用整文件 `ours` 或 `theirs` 解决高风险冲突。确需整文件选择时，在合并记录中说明理由并绑定专项回归测试。
-- profile 233–254、已发布 migration、checksum 和 compatibility identity 是不可变历史证据；profile 255 是当前 pending 合同，版本 `0.2.8-baiyu`、parent 254。254 的三项 278–280 原合同不得改写。
+- profile 233–255、已发布 migration、checksum 和 compatibility identity 是不可变历史证据；profile 256 是当前 pending 合同，版本 `0.2.9-baiyu`、parent 255、无新增 migration。254 的三项 278–280 与 255 的三项 281–283 原合同不得改写。
 - Fork 版本必须等于目标官方正式版本加 `-baiyu`。通常以目标源码 `VERSION` 为准；若正式 annotated tag 的发布流程只在构建阶段写入版本、标签源码文件滞后，则必须在目录中用目标 commit 精确固定 release version，禁止按 tag 名或预期版本猜测。
 - 报告只写入 `.tmp/fork-extension-audit/`，不得修改 tracked 文件。
 

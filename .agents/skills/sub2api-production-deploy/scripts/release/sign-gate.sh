@@ -19,14 +19,14 @@ fi
 exec 8<>"$unit_lock"
 [[ $(stat -Lc '%U:%G:%a:%h' /proc/self/fd/8) == root:root:600:1 ]]
 flock -s 8
-[[ $gate =~ ^/opt/sub2api-deploy/release-gates/(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}/output/gate\.json$ ]]
+[[ $gate =~ ^/opt/sub2api-deploy/release-gates/(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}/output/gate\.json$ ]]
 gate_release_dir=${gate%/output/gate.json}
 gate_release_id=${gate_release_dir##*/}
 gate_profile=${gate_release_id%%-*}
 [[ $(jq -er '.manifest.release_id' "$gate") == "$gate_release_id" ]]
 [[ $(jq -er '.manifest.profile' "$gate") == "$gate_profile" ]]
 gate_schema=$(jq -er '.manifest.schema' "$gate")
-if [[ $gate_profile == 242 || $gate_profile == 243 || $gate_profile == 244 || $gate_profile == 245 || $gate_profile == 246 || $gate_profile == 247 || $gate_profile == 248 || $gate_profile == 249 || $gate_profile == 250 || $gate_profile == 251 || $gate_profile == 252 || $gate_profile == 253 || $gate_profile == 254 || $gate_profile == 255 ]]; then
+if [[ $gate_profile == 242 || $gate_profile == 243 || $gate_profile == 244 || $gate_profile == 245 || $gate_profile == 246 || $gate_profile == 247 || $gate_profile == 248 || $gate_profile == 249 || $gate_profile == 250 || $gate_profile == 251 || $gate_profile == 252 || $gate_profile == 253 || $gate_profile == 254 || $gate_profile == 255 || $gate_profile == 256 ]]; then
   [[ $gate_schema == 2 ]]
   [[ $(jq -er '.gate_version' "$gate") == 2 ]]
   [[ $(jq -er '.profile_id' "$gate") == "$gate_profile" ]]

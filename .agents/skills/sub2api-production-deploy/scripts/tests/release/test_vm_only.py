@@ -105,7 +105,7 @@ class VMOnlyGateTest(unittest.TestCase):
             "gate_ttl_seconds": 3600,
         }
         with mock.patch("release.manifest.check_output_hidden", return_value="https://github.com/baiyucraft/sub2api.git"):
-            manifest = create_vm_only_manifest("a" * 40, profile, "255-aaaaaaaaaaaa-1-aaaaaaaa", "b" * 40, "c" * 64, "d" * 64)
+            manifest = create_vm_only_manifest("a" * 40, profile, f"{CURRENT_RELEASE_PROFILE}-aaaaaaaaaaaa-1-aaaaaaaa", "b" * 40, "c" * 64, "d" * 64)
         self.assertNotIn("production_current_image_id", manifest)
         self.assertNotIn("production_snapshot_sha256", manifest)
 
