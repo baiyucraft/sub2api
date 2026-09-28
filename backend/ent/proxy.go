@@ -53,8 +53,6 @@ type Proxy struct {
 
 // ProxyEdges holds the relations/edges for other nodes in the graph.
 type ProxyEdges struct {
-	// Accounts holds the value of the accounts edge.
-	Accounts []*Account `json:"accounts,omitempty"`
 	// PrimaryProxies holds the value of the primary_proxies edge.
 	PrimaryProxies []*Proxy `json:"primary_proxies,omitempty"`
 	// BackupProxy holds the value of the backup_proxy edge.
@@ -65,22 +63,13 @@ type ProxyEdges struct {
 	ProxyIPGroupMembers []*ProxyIPGroupMember `json:"proxy_ip_group_members,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [5]bool
-}
-
-// AccountsOrErr returns the Accounts value or an error if the edge
-// was not loaded in eager-loading.
-func (e ProxyEdges) AccountsOrErr() ([]*Account, error) {
-	if e.loadedTypes[0] {
-		return e.Accounts, nil
-	}
-	return nil, &NotLoadedError{edge: "accounts"}
+	loadedTypes [4]bool
 }
 
 // PrimaryProxiesOrErr returns the PrimaryProxies value or an error if the edge
 // was not loaded in eager-loading.
 func (e ProxyEdges) PrimaryProxiesOrErr() ([]*Proxy, error) {
-	if e.loadedTypes[1] {
+	if e.loadedTypes[0] {
 		return e.PrimaryProxies, nil
 	}
 	return nil, &NotLoadedError{edge: "primary_proxies"}
@@ -91,7 +80,7 @@ func (e ProxyEdges) PrimaryProxiesOrErr() ([]*Proxy, error) {
 func (e ProxyEdges) BackupProxyOrErr() (*Proxy, error) {
 	if e.BackupProxy != nil {
 		return e.BackupProxy, nil
-	} else if e.loadedTypes[2] {
+	} else if e.loadedTypes[1] {
 		return nil, &NotFoundError{label: proxy.Label}
 	}
 	return nil, &NotLoadedError{edge: "backup_proxy"}
@@ -100,7 +89,7 @@ func (e ProxyEdges) BackupProxyOrErr() (*Proxy, error) {
 // ProxyIPGroupsOrErr returns the ProxyIPGroups value or an error if the edge
 // was not loaded in eager-loading.
 func (e ProxyEdges) ProxyIPGroupsOrErr() ([]*ProxyIPGroup, error) {
-	if e.loadedTypes[3] {
+	if e.loadedTypes[2] {
 		return e.ProxyIPGroups, nil
 	}
 	return nil, &NotLoadedError{edge: "proxy_ip_groups"}
@@ -109,7 +98,7 @@ func (e ProxyEdges) ProxyIPGroupsOrErr() ([]*ProxyIPGroup, error) {
 // ProxyIPGroupMembersOrErr returns the ProxyIPGroupMembers value or an error if the edge
 // was not loaded in eager-loading.
 func (e ProxyEdges) ProxyIPGroupMembersOrErr() ([]*ProxyIPGroupMember, error) {
-	if e.loadedTypes[4] {
+	if e.loadedTypes[3] {
 		return e.ProxyIPGroupMembers, nil
 	}
 	return nil, &NotLoadedError{edge: "proxy_ip_group_members"}
@@ -247,11 +236,6 @@ func (_m *Proxy) assignValues(columns []string, values []any) error {
 // This includes values selected through modifiers, order, etc.
 func (_m *Proxy) Value(name string) (ent.Value, error) {
 	return _m.selectValues.Get(name)
-}
-
-// QueryAccounts queries the "accounts" edge of the Proxy entity.
-func (_m *Proxy) QueryAccounts() *AccountQuery {
-	return NewProxyClient(_m.config).QueryAccounts(_m)
 }
 
 // QueryPrimaryProxies queries the "primary_proxies" edge of the Proxy entity.

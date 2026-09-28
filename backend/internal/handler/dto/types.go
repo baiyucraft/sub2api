@@ -224,7 +224,8 @@ type Account struct {
 	OllamaCloudUsage          *service.OllamaCloudUsageState    `json:"ollama_cloud_usage,omitempty"`
 	OpenCodeGoUsage           *service.OpenCodeGoUsageState     `json:"opencode_go_usage,omitempty"`
 	ProxyID                   *int64                            `json:"proxy_id"`
-	ProxyIPGroupID            *int64                            `json:"proxy_ip_group_id,omitempty"`
+	ProxyBindingType          string                            `json:"proxy_binding_type,omitempty"`
+	ProxyBinding              *ProxyBindingSummary              `json:"proxy_binding,omitempty"`
 	ProxyIPGroup              *ProxyIPGroup                     `json:"proxy_ip_group,omitempty"`
 	ProxyFallbackOriginID     *int64                            `json:"proxy_fallback_origin_id"`
 	ProxyFallbackOriginName   *string                           `json:"proxy_fallback_origin_name,omitempty"`
@@ -435,24 +436,25 @@ type AccountListItem struct {
 	OllamaCloudUsage  *service.OllamaCloudUsageState `json:"ollama_cloud_usage,omitempty"`
 	OpenCodeGoUsage   *service.OpenCodeGoUsageState  `json:"opencode_go_usage,omitempty"`
 
-	ProxyID                 *int64        `json:"proxy_id"`
-	ProxyIPGroupID          *int64        `json:"proxy_ip_group_id,omitempty"`
-	ProxyIPGroup            *ProxyIPGroup `json:"proxy_ip_group,omitempty"`
-	ProxyFallbackOriginID   *int64        `json:"proxy_fallback_origin_id"`
-	ProxyFallbackOriginName *string       `json:"proxy_fallback_origin_name,omitempty"`
-	Concurrency             int           `json:"concurrency"`
-	RPMLimit                int           `json:"rpm_limit"`
-	ProbeMinInputTokens     int           `json:"probe_min_input_tokens"`
-	LoadFactor              *int          `json:"load_factor,omitempty"`
-	Priority                int           `json:"priority"`
-	RateMultiplier          float64       `json:"rate_multiplier"`
-	Status                  string        `json:"status"`
-	ErrorMessage            string        `json:"error_message"`
-	LastUsedAt              *time.Time    `json:"last_used_at"`
-	ExpiresAt               *int64        `json:"expires_at"`
-	AutoPauseOnExpired      bool          `json:"auto_pause_on_expired"`
-	CreatedAt               time.Time     `json:"created_at"`
-	UpdatedAt               time.Time     `json:"updated_at"`
+	ProxyID                 *int64               `json:"proxy_id"`
+	ProxyBindingType        string               `json:"proxy_binding_type,omitempty"`
+	ProxyBinding            *ProxyBindingSummary `json:"proxy_binding,omitempty"`
+	ProxyIPGroup            *ProxyIPGroup        `json:"proxy_ip_group,omitempty"`
+	ProxyFallbackOriginID   *int64               `json:"proxy_fallback_origin_id"`
+	ProxyFallbackOriginName *string              `json:"proxy_fallback_origin_name,omitempty"`
+	Concurrency             int                  `json:"concurrency"`
+	RPMLimit                int                  `json:"rpm_limit"`
+	ProbeMinInputTokens     int                  `json:"probe_min_input_tokens"`
+	LoadFactor              *int                 `json:"load_factor,omitempty"`
+	Priority                int                  `json:"priority"`
+	RateMultiplier          float64              `json:"rate_multiplier"`
+	Status                  string               `json:"status"`
+	ErrorMessage            string               `json:"error_message"`
+	LastUsedAt              *time.Time           `json:"last_used_at"`
+	ExpiresAt               *int64               `json:"expires_at"`
+	AutoPauseOnExpired      bool                 `json:"auto_pause_on_expired"`
+	CreatedAt               time.Time            `json:"created_at"`
+	UpdatedAt               time.Time            `json:"updated_at"`
 
 	Schedulable bool `json:"schedulable"`
 
@@ -556,6 +558,15 @@ type Proxy struct {
 
 // ProxyIPGroup is the account-facing group summary. ProxyIDs are returned in
 // configured order so management clients can render the effective member list.
+type ProxyBindingSummary struct {
+	BindingType      string  `json:"binding_type"`
+	Name             string  `json:"name,omitempty"`
+	ProxyIPGroupID   *int64  `json:"proxy_ip_group_id,omitempty"`
+	MemberCount      int     `json:"member_count,omitempty"`
+	PerIPConcurrency int     `json:"per_ip_concurrency,omitempty"`
+	ProxyIDs         []int64 `json:"proxy_ids,omitempty"`
+}
+
 type ProxyIPGroup struct {
 	ID               int64   `json:"id"`
 	Name             string  `json:"name"`

@@ -12,7 +12,7 @@ description: 审计 Sub2API fork 相对官方 upstream/main 的扩展合同。�
 - 只执行只读 Git 和文件检查；不得 fetch、merge、checkout、reset、代码生成、格式化、构建、VM Gate 或生产操作。
 - 必须由操作者明确提供官方目标的 40 位完整 commit SHA；短 SHA、未知对象、脏工作区和未解决冲突均为 blocker。
 - 不得用整文件 `ours` 或 `theirs` 解决高风险冲突。确需整文件选择时，在合并记录中说明理由并绑定专项回归测试。
-- profile 233–255、已发布 migration、checksum 和 compatibility identity 是不可变历史证据；profile 256 是当前 pending 合同，版本 `0.2.9-baiyu`、parent 255、无新增 migration。254 的三项 278–280 与 255 的三项 281–283 原合同不得改写。
+- profile 233–256 的已有合同不回写；256 为 `0.2.9-baiyu`、parent 255、无新增 migration。已检查的本地、VM、生产与备份证据目录未见 256 资产，但不足以证明从未签名、发布或被引用，因此保守保留 256，以 257（parent 256）承载 migration 284。254 的三项 278–280 与 255 的三项 281–283 原合同不得改写。
 - Fork 版本必须等于目标官方正式版本加 `-baiyu`。通常以目标源码 `VERSION` 为准；若正式 annotated tag 的发布流程只在构建阶段写入版本、标签源码文件滞后，则必须在目录中用目标 commit 精确固定 release version，禁止按 tag 名或预期版本猜测。
 - 报告只写入 `.tmp/fork-extension-audit/`，不得修改 tracked 文件。
 
@@ -123,5 +123,9 @@ python .agents/skills/sub2api-fork-extension-audit/scripts/audit_fork_extensions
 - `warning`：需要人工语义复核，例如高风险文件结果与某一父提交完全相同，或两侧可能修改同一语义入口。
 - `blocker`：合并身份、工作区、版本或不可变历史不可信。
 - `catalog_update_required`：发现未登记 fork-only 路径或 migration。
+
+### 统一代理绑定迁移登记
+
+`279_proxy_ip_groups.sql` 已属于不可变历史合同。统一代理绑定迁移 `284_unified_proxy_bindings.sql` 已纳入当前 pending profile 257 的 `new_migrations`，SQL 原始字节 SHA-256 已登记为 `de0adde07c5dd930aa1cccf9e68d6c55958fd7ea16323d746019c7c97481afe3`；修改 SQL 必须同步更新 checksum。不得伪造 `migration_contracts`、不得误列为已发布 migration，也不得因文档已更新而报告后端能力已落地。284 的旧 `accounts.proxy_id` FK 与互斥 CHECK 必须在回填代理组账号前移除；同时检查历史 279 不被改写，并按 `accounts.proxy_id -> proxy_bindings.id`、正数共享序列、旧输入归一和删除后不复用 ID 逐项生成审计证据。
 
 报告中的 `required_tests` 只是最低清单。实际构建和发布仍服从 `sub2api-production-deploy` 的更严格门禁。

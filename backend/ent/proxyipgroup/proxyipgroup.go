@@ -25,10 +25,10 @@ const (
 	FieldName = "name"
 	// FieldPerIPConcurrency holds the string denoting the per_ip_concurrency field in the database.
 	FieldPerIPConcurrency = "per_ip_concurrency"
+	// FieldBindingID holds the string denoting the binding_id field in the database.
+	FieldBindingID = "binding_id"
 	// EdgeProxies holds the string denoting the proxies edge name in mutations.
 	EdgeProxies = "proxies"
-	// EdgeAccounts holds the string denoting the accounts edge name in mutations.
-	EdgeAccounts = "accounts"
 	// EdgeMembers holds the string denoting the members edge name in mutations.
 	EdgeMembers = "members"
 	// Table holds the table name of the proxyipgroup in the database.
@@ -38,13 +38,6 @@ const (
 	// ProxiesInverseTable is the table name for the Proxy entity.
 	// It exists in this package in order to avoid circular dependency with the "proxy" package.
 	ProxiesInverseTable = "proxies"
-	// AccountsTable is the table that holds the accounts relation/edge.
-	AccountsTable = "accounts"
-	// AccountsInverseTable is the table name for the Account entity.
-	// It exists in this package in order to avoid circular dependency with the "account" package.
-	AccountsInverseTable = "accounts"
-	// AccountsColumn is the table column denoting the accounts relation/edge.
-	AccountsColumn = "proxy_ip_group_id"
 	// MembersTable is the table that holds the members relation/edge.
 	MembersTable = "proxy_ip_group_members"
 	// MembersInverseTable is the table name for the ProxyIPGroupMember entity.
@@ -62,6 +55,7 @@ var Columns = []string{
 	FieldDeletedAt,
 	FieldName,
 	FieldPerIPConcurrency,
+	FieldBindingID,
 }
 
 var (
@@ -100,6 +94,8 @@ var (
 	DefaultPerIPConcurrency int
 	// PerIPConcurrencyValidator is a validator for the "per_ip_concurrency" field. It is called by the builders before save.
 	PerIPConcurrencyValidator func(int) error
+	// BindingIDValidator is a validator for the "binding_id" field. It is called by the builders before save.
+	BindingIDValidator func(int64) error
 )
 
 // OrderOption defines the ordering options for the ProxyIPGroup queries.
@@ -135,6 +131,11 @@ func ByPerIPConcurrency(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldPerIPConcurrency, opts...).ToFunc()
 }
 
+// ByBindingID orders the results by the binding_id field.
+func ByBindingID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldBindingID, opts...).ToFunc()
+}
+
 // ByProxiesCount orders the results by proxies count.
 func ByProxiesCount(opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -146,20 +147,6 @@ func ByProxiesCount(opts ...sql.OrderTermOption) OrderOption {
 func ByProxies(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	return func(s *sql.Selector) {
 		sqlgraph.OrderByNeighborTerms(s, newProxiesStep(), append([]sql.OrderTerm{term}, terms...)...)
-	}
-}
-
-// ByAccountsCount orders the results by accounts count.
-func ByAccountsCount(opts ...sql.OrderTermOption) OrderOption {
-	return func(s *sql.Selector) {
-		sqlgraph.OrderByNeighborsCount(s, newAccountsStep(), opts...)
-	}
-}
-
-// ByAccounts orders the results by accounts terms.
-func ByAccounts(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
-	return func(s *sql.Selector) {
-		sqlgraph.OrderByNeighborTerms(s, newAccountsStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
 }
 
@@ -181,13 +168,6 @@ func newProxiesStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(ProxiesInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.M2M, false, ProxiesTable, ProxiesPrimaryKey...),
-	)
-}
-func newAccountsStep() *sqlgraph.Step {
-	return sqlgraph.NewStep(
-		sqlgraph.From(Table, FieldID),
-		sqlgraph.To(AccountsInverseTable, FieldID),
-		sqlgraph.Edge(sqlgraph.O2M, true, AccountsTable, AccountsColumn),
 	)
 }
 func newMembersStep() *sqlgraph.Step {

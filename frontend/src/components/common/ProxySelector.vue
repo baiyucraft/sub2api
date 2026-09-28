@@ -85,6 +85,12 @@
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-2">
                 <span class="truncate font-medium">{{ proxy.name }}</span>
+                <span
+                  v-if="isProxyIPGroupVirtual(proxy)"
+                  class="inline-flex flex-shrink-0 items-center rounded bg-primary-100 px-1.5 py-0.5 text-xs text-primary-700 dark:bg-primary-900/30 dark:text-primary-300"
+                >
+                  {{ t('admin.accounts.proxyBinding.group') }}
+                </span>
                 <!-- Account count badge -->
                 <span
                   v-if="proxy.account_count !== undefined"
@@ -114,12 +120,21 @@
                 </template>
               </div>
               <div class="truncate text-xs text-gray-500 dark:text-gray-400">
-                {{ proxy.protocol }}://{{ proxy.host }}:{{ proxy.port }}
+                <template v-if="isProxyIPGroupVirtual(proxy)">
+                  {{ t('admin.accounts.proxyGroupSummary', {
+                    count: proxy.member_count ?? 0,
+                    limit: proxy.per_ip_concurrency ?? 0
+                  }) }}
+                </template>
+                <template v-else>
+                  {{ proxy.protocol }}://{{ proxy.host }}:{{ proxy.port }}
+                </template>
               </div>
             </div>
 
             <!-- Individual test button -->
             <button
+              v-if="!isProxyIPGroupVirtual(proxy)"
               type="button"
               @click.stop="handleTestProxy(proxy)"
               :disabled="testingProxyIds.has(proxy.id)"
@@ -190,10 +205,12 @@ interface ProxyTestResult {
 interface Props {
   modelValue: number | null
   proxies: ProxyListItem[]
+  includeGroups?: boolean
   disabled?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
+  includeGroups: false,
   disabled: false
 })
 
@@ -213,9 +230,11 @@ const batchTesting = ref(false)
 
 const realProxies = computed(() => filterRealProxies(props.proxies))
 
+const selectableProxies = computed(() => props.includeGroups ? props.proxies.filter(proxy => proxy.id > 0) : realProxies.value)
+
 const selectedProxy = computed(() => {
   if (props.modelValue === null) return null
-  return realProxies.value.find((p) => p.id === props.modelValue) || null
+  return selectableProxies.value.find((p) => p.id === props.modelValue) || null
 })
 
 const selectedLabel = computed(() => {
@@ -223,17 +242,20 @@ const selectedLabel = computed(() => {
     return t('admin.accounts.noProxy')
   }
   const proxy = selectedProxy.value
+  if (isProxyIPGroupVirtual(proxy)) {
+    return `${proxy.name} (${t('admin.accounts.proxyBinding.group')})`
+  }
   return `${proxy.name} (${proxy.protocol}://${proxy.host}:${proxy.port})`
 })
 
 const filteredProxies = computed(() => {
   if (!searchQuery.value) {
-    return realProxies.value
+    return selectableProxies.value
   }
   const query = searchQuery.value.toLowerCase()
-  return realProxies.value.filter((proxy) => {
+  return selectableProxies.value.filter((proxy) => {
     const name = proxy.name.toLowerCase()
-    const host = proxy.host.toLowerCase()
+    const host = 'host' in proxy ? (proxy.host ?? '').toLowerCase() : ''
     return name.includes(query) || host.includes(query)
   })
 })
@@ -249,7 +271,7 @@ const toggle = () => {
 }
 
 const selectOption = (value: number | null) => {
-  if (value !== null && !realProxies.value.some(proxy => proxy.id === value)) return
+  if (value !== null && !selectableProxies.value.some(proxy => proxy.id === value)) return
   emit('update:modelValue', value)
   isOpen.value = false
   searchQuery.value = ''

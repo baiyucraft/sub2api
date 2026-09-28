@@ -167,8 +167,10 @@ func TestAccountFromServiceShallow_EmitsEmptyPreferredGroupIDs(t *testing.T) {
 
 func TestAccountFromServiceShallowProjectsProxyIPGroupSummary(t *testing.T) {
 	groupID := int64(41)
+	bindingID := int64(61)
 	src := &service.Account{
 		ID:             7,
+		ProxyID:        &bindingID,
 		ProxyIPGroupID: &groupID,
 		ProxyIPGroup: &service.ProxyIPGroup{
 			ID:               groupID,
@@ -179,13 +181,35 @@ func TestAccountFromServiceShallowProjectsProxyIPGroupSummary(t *testing.T) {
 	}
 
 	got := AccountFromServiceShallow(src)
-	require.NotNil(t, got.ProxyIPGroupID)
-	require.Equal(t, groupID, *got.ProxyIPGroupID)
+	require.Equal(t, &bindingID, got.ProxyID)
+	require.Equal(t, "proxy_ip_group", got.ProxyBindingType)
+	require.NotNil(t, got.ProxyBinding)
+	require.Equal(t, &groupID, got.ProxyBinding.ProxyIPGroupID)
+	require.Equal(t, []int64{11, 12}, got.ProxyBinding.ProxyIDs)
 	require.NotNil(t, got.ProxyIPGroup)
 	require.Equal(t, []int64{11, 12}, got.ProxyIPGroup.ProxyIDs)
+	raw, err := json.Marshal(got)
+	require.NoError(t, err)
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(raw, &payload))
+	require.NotContains(t, payload, "proxy_ip_group_id")
 
 	compact := AccountListItemFromAccount(got)
 	require.Equal(t, got.ProxyIPGroup, compact.ProxyIPGroup)
+	require.Equal(t, got.ProxyBinding, compact.ProxyBinding)
+	raw, err = json.Marshal(compact)
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(raw, &payload))
+	require.NotContains(t, payload, "proxy_ip_group_id")
+}
+
+func TestAccountFromServiceShallowProjectsRealProxyBinding(t *testing.T) {
+	proxyID := int64(5)
+	got := AccountFromServiceShallow(&service.Account{ProxyID: &proxyID, Proxy: &service.Proxy{ID: proxyID, Name: "Tokyo"}})
+	require.Equal(t, "proxy", got.ProxyBindingType)
+	require.Equal(t, &proxyID, got.ProxyID)
+	require.Equal(t, "Tokyo", got.ProxyBinding.Name)
+	require.Nil(t, got.ProxyBinding.ProxyIPGroupID)
 }
 
 func TestAccountFromServiceShallow_ProjectsUpstreamSiteURL(t *testing.T) {

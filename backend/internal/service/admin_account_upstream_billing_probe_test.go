@@ -336,7 +336,11 @@ func TestUpdateAccountInvalidatesProbeSnapshotWhenProxyChanges(t *testing.T) {
 		},
 	}}
 
-	updated, err := (&adminServiceImpl{accountRepo: &upstreamBillingProbeAdminRepo{baseRepo}}).UpdateAccount(
+	updated, err := (&adminServiceImpl{
+		accountRepo: &upstreamBillingProbeAdminRepo{baseRepo},
+		entClient:   newAdminProxyBindingTestClient(t, oldProxyID, newProxyID),
+		proxyRepo:   &nativeProxyListRepoStub{proxies: []Proxy{{ID: oldProxyID}, {ID: newProxyID}}},
+	}).UpdateAccount(
 		context.Background(),
 		accountID,
 		&UpdateAccountInput{ProxyID: &newProxyID},
@@ -366,7 +370,11 @@ func TestUpdateAccountPreservesProbeSnapshotWhenProxyIsUnchanged(t *testing.T) {
 		},
 	}}
 
-	updated, err := (&adminServiceImpl{accountRepo: &upstreamBillingProbeAdminRepo{baseRepo}}).UpdateAccount(
+	updated, err := (&adminServiceImpl{
+		accountRepo: &upstreamBillingProbeAdminRepo{baseRepo},
+		entClient:   newAdminProxyBindingTestClient(t, existingProxyID),
+		proxyRepo:   &nativeProxyListRepoStub{proxies: []Proxy{{ID: existingProxyID}}},
+	}).UpdateAccount(
 		context.Background(),
 		accountID,
 		&UpdateAccountInput{ProxyID: &unchangedProxyID},

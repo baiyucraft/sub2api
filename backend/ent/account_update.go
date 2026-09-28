@@ -14,8 +14,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/account"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
-	"github.com/Wei-Shaw/sub2api/ent/proxy"
-	"github.com/Wei-Shaw/sub2api/ent/proxyipgroup"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamconfig"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamevent"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamkey"
@@ -137,6 +135,7 @@ func (_u *AccountUpdate) SetExtra(v map[string]interface{}) *AccountUpdate {
 
 // SetProxyID sets the "proxy_id" field.
 func (_u *AccountUpdate) SetProxyID(v int64) *AccountUpdate {
+	_u.mutation.ResetProxyID()
 	_u.mutation.SetProxyID(v)
 	return _u
 }
@@ -149,29 +148,15 @@ func (_u *AccountUpdate) SetNillableProxyID(v *int64) *AccountUpdate {
 	return _u
 }
 
+// AddProxyID adds value to the "proxy_id" field.
+func (_u *AccountUpdate) AddProxyID(v int64) *AccountUpdate {
+	_u.mutation.AddProxyID(v)
+	return _u
+}
+
 // ClearProxyID clears the value of the "proxy_id" field.
 func (_u *AccountUpdate) ClearProxyID() *AccountUpdate {
 	_u.mutation.ClearProxyID()
-	return _u
-}
-
-// SetProxyIPGroupID sets the "proxy_ip_group_id" field.
-func (_u *AccountUpdate) SetProxyIPGroupID(v int64) *AccountUpdate {
-	_u.mutation.SetProxyIPGroupID(v)
-	return _u
-}
-
-// SetNillableProxyIPGroupID sets the "proxy_ip_group_id" field if the given value is not nil.
-func (_u *AccountUpdate) SetNillableProxyIPGroupID(v *int64) *AccountUpdate {
-	if v != nil {
-		_u.SetProxyIPGroupID(*v)
-	}
-	return _u
-}
-
-// ClearProxyIPGroupID clears the value of the "proxy_ip_group_id" field.
-func (_u *AccountUpdate) ClearProxyIPGroupID() *AccountUpdate {
-	_u.mutation.ClearProxyIPGroupID()
 	return _u
 }
 
@@ -793,16 +778,6 @@ func (_u *AccountUpdate) AddGroups(v ...*Group) *AccountUpdate {
 	return _u.AddGroupIDs(ids...)
 }
 
-// SetProxy sets the "proxy" edge to the Proxy entity.
-func (_u *AccountUpdate) SetProxy(v *Proxy) *AccountUpdate {
-	return _u.SetProxyID(v.ID)
-}
-
-// SetProxyIPGroup sets the "proxy_ip_group" edge to the ProxyIPGroup entity.
-func (_u *AccountUpdate) SetProxyIPGroup(v *ProxyIPGroup) *AccountUpdate {
-	return _u.SetProxyIPGroupID(v.ID)
-}
-
 // SetUpstreamConfig sets the "upstream_config" edge to the UpstreamConfig entity.
 func (_u *AccountUpdate) SetUpstreamConfig(v *UpstreamConfig) *AccountUpdate {
 	return _u.SetUpstreamConfigID(v.ID)
@@ -901,18 +876,6 @@ func (_u *AccountUpdate) RemoveGroups(v ...*Group) *AccountUpdate {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveGroupIDs(ids...)
-}
-
-// ClearProxy clears the "proxy" edge to the Proxy entity.
-func (_u *AccountUpdate) ClearProxy() *AccountUpdate {
-	_u.mutation.ClearProxy()
-	return _u
-}
-
-// ClearProxyIPGroup clears the "proxy_ip_group" edge to the ProxyIPGroup entity.
-func (_u *AccountUpdate) ClearProxyIPGroup() *AccountUpdate {
-	_u.mutation.ClearProxyIPGroup()
-	return _u
 }
 
 // ClearUpstreamConfig clears the "upstream_config" edge to the UpstreamConfig entity.
@@ -1124,6 +1087,15 @@ func (_u *AccountUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.Extra(); ok {
 		_spec.SetField(account.FieldExtra, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.ProxyID(); ok {
+		_spec.SetField(account.FieldProxyID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedProxyID(); ok {
+		_spec.AddField(account.FieldProxyID, field.TypeInt64, value)
+	}
+	if _u.mutation.ProxyIDCleared() {
+		_spec.ClearField(account.FieldProxyID, field.TypeInt64)
 	}
 	if value, ok := _u.mutation.ProxyFallbackOriginID(); ok {
 		_spec.SetField(account.FieldProxyFallbackOriginID, field.TypeInt64, value)
@@ -1339,64 +1311,6 @@ func (_u *AccountUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 		createE.defaults()
 		_, specE := createE.createSpec()
 		edge.Target.Fields = specE.Fields
-		_spec.Edges.Add = append(_spec.Edges.Add, edge)
-	}
-	if _u.mutation.ProxyCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2O,
-			Inverse: false,
-			Table:   account.ProxyTable,
-			Columns: []string{account.ProxyColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(proxy.FieldID, field.TypeInt64),
-			},
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := _u.mutation.ProxyIDs(); len(nodes) > 0 {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2O,
-			Inverse: false,
-			Table:   account.ProxyTable,
-			Columns: []string{account.ProxyColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(proxy.FieldID, field.TypeInt64),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_spec.Edges.Add = append(_spec.Edges.Add, edge)
-	}
-	if _u.mutation.ProxyIPGroupCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2O,
-			Inverse: false,
-			Table:   account.ProxyIPGroupTable,
-			Columns: []string{account.ProxyIPGroupColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(proxyipgroup.FieldID, field.TypeInt64),
-			},
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := _u.mutation.ProxyIPGroupIDs(); len(nodes) > 0 {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2O,
-			Inverse: false,
-			Table:   account.ProxyIPGroupTable,
-			Columns: []string{account.ProxyIPGroupColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(proxyipgroup.FieldID, field.TypeInt64),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	if _u.mutation.UpstreamConfigCleared() {
@@ -1743,6 +1657,7 @@ func (_u *AccountUpdateOne) SetExtra(v map[string]interface{}) *AccountUpdateOne
 
 // SetProxyID sets the "proxy_id" field.
 func (_u *AccountUpdateOne) SetProxyID(v int64) *AccountUpdateOne {
+	_u.mutation.ResetProxyID()
 	_u.mutation.SetProxyID(v)
 	return _u
 }
@@ -1755,29 +1670,15 @@ func (_u *AccountUpdateOne) SetNillableProxyID(v *int64) *AccountUpdateOne {
 	return _u
 }
 
+// AddProxyID adds value to the "proxy_id" field.
+func (_u *AccountUpdateOne) AddProxyID(v int64) *AccountUpdateOne {
+	_u.mutation.AddProxyID(v)
+	return _u
+}
+
 // ClearProxyID clears the value of the "proxy_id" field.
 func (_u *AccountUpdateOne) ClearProxyID() *AccountUpdateOne {
 	_u.mutation.ClearProxyID()
-	return _u
-}
-
-// SetProxyIPGroupID sets the "proxy_ip_group_id" field.
-func (_u *AccountUpdateOne) SetProxyIPGroupID(v int64) *AccountUpdateOne {
-	_u.mutation.SetProxyIPGroupID(v)
-	return _u
-}
-
-// SetNillableProxyIPGroupID sets the "proxy_ip_group_id" field if the given value is not nil.
-func (_u *AccountUpdateOne) SetNillableProxyIPGroupID(v *int64) *AccountUpdateOne {
-	if v != nil {
-		_u.SetProxyIPGroupID(*v)
-	}
-	return _u
-}
-
-// ClearProxyIPGroupID clears the value of the "proxy_ip_group_id" field.
-func (_u *AccountUpdateOne) ClearProxyIPGroupID() *AccountUpdateOne {
-	_u.mutation.ClearProxyIPGroupID()
 	return _u
 }
 
@@ -2399,16 +2300,6 @@ func (_u *AccountUpdateOne) AddGroups(v ...*Group) *AccountUpdateOne {
 	return _u.AddGroupIDs(ids...)
 }
 
-// SetProxy sets the "proxy" edge to the Proxy entity.
-func (_u *AccountUpdateOne) SetProxy(v *Proxy) *AccountUpdateOne {
-	return _u.SetProxyID(v.ID)
-}
-
-// SetProxyIPGroup sets the "proxy_ip_group" edge to the ProxyIPGroup entity.
-func (_u *AccountUpdateOne) SetProxyIPGroup(v *ProxyIPGroup) *AccountUpdateOne {
-	return _u.SetProxyIPGroupID(v.ID)
-}
-
 // SetUpstreamConfig sets the "upstream_config" edge to the UpstreamConfig entity.
 func (_u *AccountUpdateOne) SetUpstreamConfig(v *UpstreamConfig) *AccountUpdateOne {
 	return _u.SetUpstreamConfigID(v.ID)
@@ -2507,18 +2398,6 @@ func (_u *AccountUpdateOne) RemoveGroups(v ...*Group) *AccountUpdateOne {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveGroupIDs(ids...)
-}
-
-// ClearProxy clears the "proxy" edge to the Proxy entity.
-func (_u *AccountUpdateOne) ClearProxy() *AccountUpdateOne {
-	_u.mutation.ClearProxy()
-	return _u
-}
-
-// ClearProxyIPGroup clears the "proxy_ip_group" edge to the ProxyIPGroup entity.
-func (_u *AccountUpdateOne) ClearProxyIPGroup() *AccountUpdateOne {
-	_u.mutation.ClearProxyIPGroup()
-	return _u
 }
 
 // ClearUpstreamConfig clears the "upstream_config" edge to the UpstreamConfig entity.
@@ -2761,6 +2640,15 @@ func (_u *AccountUpdateOne) sqlSave(ctx context.Context) (_node *Account, err er
 	if value, ok := _u.mutation.Extra(); ok {
 		_spec.SetField(account.FieldExtra, field.TypeJSON, value)
 	}
+	if value, ok := _u.mutation.ProxyID(); ok {
+		_spec.SetField(account.FieldProxyID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedProxyID(); ok {
+		_spec.AddField(account.FieldProxyID, field.TypeInt64, value)
+	}
+	if _u.mutation.ProxyIDCleared() {
+		_spec.ClearField(account.FieldProxyID, field.TypeInt64)
+	}
 	if value, ok := _u.mutation.ProxyFallbackOriginID(); ok {
 		_spec.SetField(account.FieldProxyFallbackOriginID, field.TypeInt64, value)
 	}
@@ -2975,64 +2863,6 @@ func (_u *AccountUpdateOne) sqlSave(ctx context.Context) (_node *Account, err er
 		createE.defaults()
 		_, specE := createE.createSpec()
 		edge.Target.Fields = specE.Fields
-		_spec.Edges.Add = append(_spec.Edges.Add, edge)
-	}
-	if _u.mutation.ProxyCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2O,
-			Inverse: false,
-			Table:   account.ProxyTable,
-			Columns: []string{account.ProxyColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(proxy.FieldID, field.TypeInt64),
-			},
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := _u.mutation.ProxyIDs(); len(nodes) > 0 {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2O,
-			Inverse: false,
-			Table:   account.ProxyTable,
-			Columns: []string{account.ProxyColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(proxy.FieldID, field.TypeInt64),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_spec.Edges.Add = append(_spec.Edges.Add, edge)
-	}
-	if _u.mutation.ProxyIPGroupCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2O,
-			Inverse: false,
-			Table:   account.ProxyIPGroupTable,
-			Columns: []string{account.ProxyIPGroupColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(proxyipgroup.FieldID, field.TypeInt64),
-			},
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := _u.mutation.ProxyIPGroupIDs(); len(nodes) > 0 {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2O,
-			Inverse: false,
-			Table:   account.ProxyIPGroupTable,
-			Columns: []string{account.ProxyIPGroupColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(proxyipgroup.FieldID, field.TypeInt64),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	if _u.mutation.UpstreamConfigCleared() {

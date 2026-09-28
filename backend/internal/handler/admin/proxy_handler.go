@@ -307,8 +307,8 @@ func (h *ProxyHandler) GetStats(c *gin.Context) {
 		response.BadRequest(c, "Invalid proxy ID")
 		return
 	}
-	if proxyID < 0 {
-		response.BadRequest(c, "virtual proxy-group IDs are only valid for account binding")
+	if _, err := h.adminService.GetProxy(c.Request.Context(), proxyID); err != nil {
+		response.ErrorFrom(c, err)
 		return
 	}
 

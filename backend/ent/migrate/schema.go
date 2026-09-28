@@ -117,6 +117,7 @@ var (
 		{Name: "type", Type: field.TypeString, Size: 20},
 		{Name: "credentials", Type: field.TypeJSON, SchemaType: map[string]string{"postgres": "jsonb"}},
 		{Name: "extra", Type: field.TypeJSON, SchemaType: map[string]string{"postgres": "jsonb"}},
+		{Name: "proxy_id", Type: field.TypeInt64, Nullable: true},
 		{Name: "proxy_fallback_origin_id", Type: field.TypeInt64, Nullable: true},
 		{Name: "upstream_stale_pause_key_id", Type: field.TypeInt64, Nullable: true},
 		{Name: "upstream_stale_paused_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
@@ -144,8 +145,6 @@ var (
 		{Name: "session_window_end", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
 		{Name: "session_window_status", Type: field.TypeString, Nullable: true, Size: 20},
 		{Name: "quota_dimension", Type: field.TypeEnum, Enums: []string{"global", "spark"}, Default: "global"},
-		{Name: "proxy_id", Type: field.TypeInt64, Nullable: true},
-		{Name: "proxy_ip_group_id", Type: field.TypeInt64, Nullable: true},
 		{Name: "parent_account_id", Type: field.TypeInt64, Nullable: true},
 		{Name: "upstream_config_id", Type: field.TypeInt64, Nullable: true},
 		{Name: "upstream_key_id", Type: field.TypeInt64, Nullable: true},
@@ -157,32 +156,20 @@ var (
 		PrimaryKey: []*schema.Column{AccountsColumns[0]},
 		ForeignKeys: []*schema.ForeignKey{
 			{
-				Symbol:     "accounts_proxies_proxy",
-				Columns:    []*schema.Column{AccountsColumns[37]},
-				RefColumns: []*schema.Column{ProxiesColumns[0]},
-				OnDelete:   schema.SetNull,
-			},
-			{
-				Symbol:     "accounts_proxy_ip_groups_proxy_ip_group",
-				Columns:    []*schema.Column{AccountsColumns[38]},
-				RefColumns: []*schema.Column{ProxyIPGroupsColumns[0]},
-				OnDelete:   schema.Restrict,
-			},
-			{
 				Symbol:     "accounts_accounts_children",
-				Columns:    []*schema.Column{AccountsColumns[39]},
+				Columns:    []*schema.Column{AccountsColumns[38]},
 				RefColumns: []*schema.Column{AccountsColumns[0]},
 				OnDelete:   schema.Restrict,
 			},
 			{
 				Symbol:     "accounts_upstream_configs_accounts",
-				Columns:    []*schema.Column{AccountsColumns[40]},
+				Columns:    []*schema.Column{AccountsColumns[39]},
 				RefColumns: []*schema.Column{UpstreamConfigsColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "accounts_upstream_keys_accounts",
-				Columns:    []*schema.Column{AccountsColumns[41]},
+				Columns:    []*schema.Column{AccountsColumns[40]},
 				RefColumns: []*schema.Column{UpstreamKeysColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
@@ -201,67 +188,62 @@ var (
 			{
 				Name:    "account_status",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[22]},
+				Columns: []*schema.Column{AccountsColumns[23]},
 			},
 			{
 				Name:    "account_proxy_id",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[37]},
-			},
-			{
-				Name:    "account_proxy_ip_group_id",
-				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[38]},
+				Columns: []*schema.Column{AccountsColumns[10]},
 			},
 			{
 				Name:    "account_upstream_config_id",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[40]},
+				Columns: []*schema.Column{AccountsColumns[39]},
 			},
 			{
 				Name:    "account_upstream_key_id",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[41]},
+				Columns: []*schema.Column{AccountsColumns[40]},
 			},
 			{
 				Name:    "account_priority",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[19]},
+				Columns: []*schema.Column{AccountsColumns[20]},
 			},
 			{
 				Name:    "account_last_used_at",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[24]},
+				Columns: []*schema.Column{AccountsColumns[25]},
 			},
 			{
 				Name:    "account_schedulable",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[27]},
+				Columns: []*schema.Column{AccountsColumns[28]},
 			},
 			{
 				Name:    "account_rate_limited_at",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[28]},
+				Columns: []*schema.Column{AccountsColumns[29]},
 			},
 			{
 				Name:    "account_rate_limit_reset_at",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[29]},
+				Columns: []*schema.Column{AccountsColumns[30]},
 			},
 			{
 				Name:    "account_overload_until",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[30]},
+				Columns: []*schema.Column{AccountsColumns[31]},
 			},
 			{
 				Name:    "account_platform_priority",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[6], AccountsColumns[19]},
+				Columns: []*schema.Column{AccountsColumns[6], AccountsColumns[20]},
 			},
 			{
 				Name:    "account_priority_status",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[19], AccountsColumns[22]},
+				Columns: []*schema.Column{AccountsColumns[20], AccountsColumns[23]},
 			},
 			{
 				Name:    "account_deleted_at",
@@ -271,7 +253,7 @@ var (
 			{
 				Name:    "account_parent_account_id",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[39]},
+				Columns: []*schema.Column{AccountsColumns[38]},
 			},
 		},
 	}
@@ -1577,6 +1559,32 @@ var (
 			},
 		},
 	}
+	// ProxyBindingsColumns holds the columns for the "proxy_bindings" table.
+	ProxyBindingsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "binding_type", Type: field.TypeString, Size: 20},
+		{Name: "proxy_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "proxy_ip_group_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "created_at", Type: field.TypeTime},
+	}
+	// ProxyBindingsTable holds the schema information for the "proxy_bindings" table.
+	ProxyBindingsTable = &schema.Table{
+		Name:       "proxy_bindings",
+		Columns:    ProxyBindingsColumns,
+		PrimaryKey: []*schema.Column{ProxyBindingsColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "proxybinding_proxy_id",
+				Unique:  true,
+				Columns: []*schema.Column{ProxyBindingsColumns[2]},
+			},
+			{
+				Name:    "proxybinding_proxy_ip_group_id",
+				Unique:  true,
+				Columns: []*schema.Column{ProxyBindingsColumns[3]},
+			},
+		},
+	}
 	// ProxyIPGroupsColumns holds the columns for the "proxy_ip_groups" table.
 	ProxyIPGroupsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt64, Increment: true},
@@ -1585,6 +1593,7 @@ var (
 		{Name: "deleted_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
 		{Name: "name", Type: field.TypeString, Size: 100},
 		{Name: "per_ip_concurrency", Type: field.TypeInt, Default: 10},
+		{Name: "binding_id", Type: field.TypeInt64, Unique: true, Nullable: true},
 	}
 	// ProxyIPGroupsTable holds the schema information for the "proxy_ip_groups" table.
 	ProxyIPGroupsTable = &schema.Table{
@@ -2897,6 +2906,7 @@ var (
 		PromoCodesTable,
 		PromoCodeUsagesTable,
 		ProxiesTable,
+		ProxyBindingsTable,
 		ProxyIPGroupsTable,
 		ProxyIPGroupMembersTable,
 		RedeemCodesTable,
@@ -2931,11 +2941,9 @@ func init() {
 	APIKeysTable.Annotation = &entsql.Annotation{
 		Table: "api_keys",
 	}
-	AccountsTable.ForeignKeys[0].RefTable = ProxiesTable
-	AccountsTable.ForeignKeys[1].RefTable = ProxyIPGroupsTable
-	AccountsTable.ForeignKeys[2].RefTable = AccountsTable
-	AccountsTable.ForeignKeys[3].RefTable = UpstreamConfigsTable
-	AccountsTable.ForeignKeys[4].RefTable = UpstreamKeysTable
+	AccountsTable.ForeignKeys[0].RefTable = AccountsTable
+	AccountsTable.ForeignKeys[1].RefTable = UpstreamConfigsTable
+	AccountsTable.ForeignKeys[2].RefTable = UpstreamKeysTable
 	AccountsTable.Annotation = &entsql.Annotation{
 		Table: "accounts",
 	}
@@ -3033,6 +3041,9 @@ func init() {
 	ProxiesTable.ForeignKeys[0].RefTable = ProxiesTable
 	ProxiesTable.Annotation = &entsql.Annotation{
 		Table: "proxies",
+	}
+	ProxyBindingsTable.Annotation = &entsql.Annotation{
+		Table: "proxy_bindings",
 	}
 	ProxyIPGroupsTable.Annotation = &entsql.Annotation{
 		Table: "proxy_ip_groups",

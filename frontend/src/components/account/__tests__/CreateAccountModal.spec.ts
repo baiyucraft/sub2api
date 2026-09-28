@@ -131,21 +131,20 @@ const GroupSelectorStub = defineComponent({
   `,
 })
 
-const ProxyBindingSelectorStub = defineComponent({
-  name: 'ProxyBindingSelector',
-  emits: ['update:proxyId', 'update:proxyIpGroupId'],
-  template: `
-    <button
-      type="button"
-      data-testid="select-proxy-ip-group"
-      @click="$emit('update:proxyId', null); $emit('update:proxyIpGroupId', 77)"
-    >proxy group</button>
-  `,
-})
-
 const ProxySelectorStub = defineComponent({
   name: 'ProxySelector',
-  template: '<div data-testid="single-proxy-selector" />',
+  props: { includeGroups: Boolean },
+  template: `
+    <div data-testid="single-proxy-selector">
+      <button
+        v-if="includeGroups"
+        type="button"
+        data-testid="select-proxy-ip-group"
+        @click="$emit('update:modelValue', 8)"
+      >proxy group</button>
+    </div>
+  `,
+  emits: ['update:modelValue'],
 })
 
 const ModelWhitelistSelectorStub = defineComponent({
@@ -178,7 +177,6 @@ function mountModal(groups: any[] = []) {
         Icon: true,
         PlatformIcon: true,
         ProxySelector: ProxySelectorStub,
-        ProxyBindingSelector: ProxyBindingSelectorStub,
         ProxyAdBanner: true,
         GroupSelector: GroupSelectorStub,
         ModelWhitelistSelector: ModelWhitelistSelectorStub,
@@ -365,7 +363,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     })
   })
 
-  it('shows proxy groups only for OpenAI OAuth and omits the field for API Key accounts', async () => {
+  it('shows proxy-group bindings only for OpenAI OAuth and omits legacy fields', async () => {
     const wrapper = mountModal()
     expect(wrapper.find('[data-testid="select-proxy-ip-group"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="single-proxy-selector"]').exists()).toBe(true)
@@ -384,7 +382,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(createAccountMock.mock.calls[0]?.[0]).not.toHaveProperty('proxy_ip_group_id')
   })
 
-  it('submits the selected proxy group for an OpenAI Codex session import', async () => {
+  it('submits the positive binding ID for an OpenAI Codex session import', async () => {
     const wrapper = mountModal()
     await selectButtonByText(wrapper, 'OpenAI')
     await wrapper.get('[data-testid="select-proxy-ip-group"]').trigger('click')
@@ -393,10 +391,8 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await wrapper.get('[data-testid="import-codex-session"]').trigger('click')
     await flushPromises()
 
-    expect(importCodexSessionMock.mock.calls[0]?.[0]).toMatchObject({
-      proxy_id: null,
-      proxy_ip_group_id: 77,
-    })
+    expect(importCodexSessionMock.mock.calls[0]?.[0]).toMatchObject({ proxy_id: 8 })
+    expect(importCodexSessionMock.mock.calls[0]?.[0]).not.toHaveProperty('proxy_ip_group_id')
   })
 
   it('omits the upstream request id header from extra when left empty', async () => {

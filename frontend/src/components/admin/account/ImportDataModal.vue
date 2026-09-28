@@ -57,7 +57,7 @@
           <div class="text-xs text-gray-500 dark:text-dark-400">{{ t('admin.accounts.dataImportProxyGroupHint') }}</div>
         </div>
         <Select
-          v-model="proxyIPGroupId"
+          v-model="proxyGroupBindingId"
           :options="proxyIPGroupOptions"
           :placeholder="t('admin.accounts.dataImportSelectProxyGroup')"
           :loading="proxyIPGroupsLoading"
@@ -167,7 +167,7 @@ import Select, { type SelectOption } from '@/components/common/Select.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import { adminAPI } from '@/api/admin'
 import { useAppStore } from '@/stores/app'
-import type { AccountPlatform, AdminDataImportResult, AdminDataPayload, AdminGroup, ProxyIPGroup } from '@/types'
+import type { AccountPlatform, AdminDataImportResult, AdminDataPayload, AdminGroup, ProxyIPGroupVirtual } from '@/types'
 
 interface Props {
   show: boolean
@@ -190,11 +190,11 @@ const dragDepth = ref(0)
 const dragActive = computed(() => dragDepth.value > 0)
 const hasCreatedData = ref(false)
 const result = ref<AdminDataImportResult | null>(null)
-const proxyIPGroups = ref<ProxyIPGroup[]>([])
+const proxyIPGroups = ref<ProxyIPGroupVirtual[]>([])
 const proxyIPGroupsLoading = ref(false)
 const groups = ref<AdminGroup[]>([])
 const groupsLoading = ref(false)
-const proxyIPGroupId = ref<number | null>(null)
+const proxyGroupBindingId = ref<number | null>(null)
 const proxyIPGroupEligible = ref(false)
 const overrideConcurrency = ref('20')
 const overrideRateMultiplier = ref('0')
@@ -218,7 +218,7 @@ const proxyIPGroupOptions = computed<SelectOption[]>(() => proxyIPGroups.value.m
   value: group.id,
   label: t('admin.accounts.proxyBinding.groupOption', {
     name: group.name,
-    count: group.member_count ?? group.proxy_ids?.length ?? group.members?.length ?? 0,
+    count: group.member_count ?? 0,
     limit: group.per_ip_concurrency
   })
 })))
@@ -276,7 +276,7 @@ watch(
       dragDepth.value = 0
       hasCreatedData.value = false
       result.value = null
-      proxyIPGroupId.value = null
+      proxyGroupBindingId.value = null
       proxyIPGroupEligible.value = false
       overrideConcurrency.value = '20'
       overrideRateMultiplier.value = '0'
@@ -288,8 +288,8 @@ watch(
       previewAccountCount.value = 0
       proxyIPGroupsLoading.value = true
       groupsLoading.value = true
-      Promise.resolve().then(() => adminAPI.proxyIpGroups.list()).then((items) => {
-        proxyIPGroups.value = items
+      Promise.resolve().then(() => adminAPI.proxies.getAll()).then((items) => {
+        proxyIPGroups.value = items.filter((item): item is ProxyIPGroupVirtual => item.binding_type === 'proxy_ip_group' && Number.isInteger(item.id) && item.id > 0)
       }).catch(() => {
         proxyIPGroups.value = []
       }).finally(() => {
@@ -351,7 +351,7 @@ const setSelectedFiles = (sourceFiles: FileList | File[] | null | undefined) => 
   result.value = null
   previewAccountCount.value = 0
   importPlatform.value = null
-  proxyIPGroupId.value = null
+  proxyGroupBindingId.value = null
   proxyIPGroupEligible.value = false
   groupIds.value = []
   preferredGroupIds.value = []
@@ -378,7 +378,7 @@ const updatePreview = async (sourceFiles: File[]) => {
     groupIds.value = []
     preferredGroupIds.value = []
   }
-  if (!nextProxyIPGroupEligible) proxyIPGroupId.value = null
+  if (!nextProxyIPGroupEligible) proxyGroupBindingId.value = null
   importPlatform.value = nextPlatform
   proxyIPGroupEligible.value = nextProxyIPGroupEligible
   previewAccountCount.value = count
@@ -519,8 +519,8 @@ const handleImport = async () => {
     const resolvedPlatform = resolveImportPlatform(dataPayloads)
     const resolvedProxyIPGroupEligible = supportsProxyIPGroupImport(dataPayloads)
     proxyIPGroupEligible.value = resolvedProxyIPGroupEligible
-    if (!resolvedProxyIPGroupEligible) proxyIPGroupId.value = null
-    if (proxyIPGroupId.value !== null && !proxyIPGroups.value.some(group => group.id === proxyIPGroupId.value)) {
+    if (!resolvedProxyIPGroupEligible) proxyGroupBindingId.value = null
+    if (proxyGroupBindingId.value !== null && !proxyIPGroups.value.some(group => group.id === proxyGroupBindingId.value)) {
       appStore.showError(t('admin.accounts.dataImportInvalidProxyGroup'))
       return
     }
@@ -534,8 +534,8 @@ const handleImport = async () => {
       data: dataPayload,
       skip_default_group_bind: true
     }
-    if (resolvedProxyIPGroupEligible && proxyIPGroupId.value !== null) {
-      importOptions.proxy_ip_group_id = proxyIPGroupId.value
+    if (resolvedProxyIPGroupEligible && proxyGroupBindingId.value !== null) {
+      importOptions.proxy_id = proxyGroupBindingId.value
     }
     if (concurrencyOverride !== undefined) importOptions.override_concurrency = concurrencyOverride
     if (rateOverride !== undefined) importOptions.override_rate_multiplier = rateOverride

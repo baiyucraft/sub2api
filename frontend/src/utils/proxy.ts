@@ -1,6 +1,6 @@
 import type { Proxy, ProxyIPGroupVirtual, ProxyListItem } from '@/types'
 
-/** Returns true for the virtual proxy row emitted for a proxy IP group. */
+/** Group binding rows have positive IDs; negative IDs are legacy response compatibility only. */
 export const isProxyIPGroupVirtual = (
   proxy: Pick<ProxyListItem, 'id' | 'binding_type' | 'proxy_ip_group_id'>,
 ): proxy is ProxyIPGroupVirtual => (

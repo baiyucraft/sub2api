@@ -30,8 +30,8 @@ type Proxy struct {
 	ExpiryWarnDays int
 
 	// Binding fields are populated only when a proxy is returned through the
-	// native admin binding list. Real proxies keep their positive ID in ID and
-	// expose ProxyID; proxy groups use a negative virtual ID in ID.
+	// native admin binding list. Real proxies expose their proxy ID; proxy
+	// groups expose a separate positive binding ID and their management ID.
 	BindingType          string
 	ProxyID              *int64
 	ProxyIPGroupID       *int64

@@ -79,6 +79,7 @@ type DataImportRequest struct {
 	Data                         DataPayload `json:"data"`
 	SkipDefaultGroupBind         *bool       `json:"skip_default_group_bind"`
 	CopyProxyIDs                 []int64     `json:"copy_proxy_ids,omitempty"`
+	ProxyID                      *int64      `json:"proxy_id,omitempty"`
 	ProxyIPGroupID               *int64      `json:"proxy_ip_group_id,omitempty"`
 	OverrideConcurrency          *int        `json:"override_concurrency,omitempty"`
 	OverridePriority             *int        `json:"override_priority,omitempty"`
@@ -476,8 +477,8 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 			}
 			item.Extra["codex_fingerprint_mode"] = strings.TrimSpace(*req.OverrideCodexFingerprintMode)
 		}
-		var proxyID *int64
-		if req.ProxyIPGroupID == nil && item.ProxyKey != nil && *item.ProxyKey != "" {
+		proxyID := req.ProxyID
+		if proxyID == nil && req.ProxyIPGroupID == nil && item.ProxyKey != nil && *item.ProxyKey != "" {
 			if id, ok := proxyKeyToID[*item.ProxyKey]; ok {
 				proxyID = &id
 			} else {

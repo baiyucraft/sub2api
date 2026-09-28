@@ -70,9 +70,6 @@ func (Proxy) Fields() []ent.Field {
 // Edges 定义代理实体的关联关系。
 func (Proxy) Edges() []ent.Edge {
 	return []ent.Edge{
-		// accounts: 使用此代理的账户（反向边）
-		edge.From("accounts", Account.Type).
-			Ref("proxy"),
 		// Directed many-to-one: a backup can serve multiple primary proxies.
 		// The inverse edge prevents Ent from treating this self-reference as symmetric.
 		edge.From("primary_proxies", Proxy.Type).

@@ -63,13 +63,23 @@ func TestAccountsToServiceHydratesProxyIPGroupSummary(t *testing.T) {
 		SetPosition(0).
 		Save(ctx)
 	require.NoError(t, err)
+	_, err = client.ProxyBinding.Create().
+		SetBindingType("proxy").
+		SetProxyID(proxy.ID).
+		Save(ctx)
+	require.NoError(t, err)
+	binding, err := client.ProxyBinding.Create().
+		SetBindingType("proxy_ip_group").
+		SetProxyIPGroupID(group.ID).
+		Save(ctx)
+	require.NoError(t, err)
 	account, err := client.Account.Create().
 		SetName("oauth-account").
 		SetPlatform(service.PlatformOpenAI).
 		SetType(service.AccountTypeOAuth).
 		SetCredentials(map[string]any{}).
 		SetExtra(map[string]any{}).
-		SetProxyIPGroupID(group.ID).
+		SetProxyID(binding.ID).
 		Save(ctx)
 	require.NoError(t, err)
 
@@ -77,6 +87,7 @@ func TestAccountsToServiceHydratesProxyIPGroupSummary(t *testing.T) {
 	got, err := repo.accountsToService(ctx, []*dbent.Account{account})
 	require.NoError(t, err)
 	require.Len(t, got, 1)
+	require.Equal(t, binding.ID, *got[0].ProxyID)
 	require.NotNil(t, got[0].ProxyIPGroupID)
 	require.Equal(t, group.ID, *got[0].ProxyIPGroupID)
 	require.NotNil(t, got[0].ProxyIPGroup)

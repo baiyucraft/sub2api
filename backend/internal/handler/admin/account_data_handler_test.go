@@ -493,6 +493,32 @@ func TestImportDataUsesProxyGroupAndBindsNormalizedPreferredGroups(t *testing.T)
 	require.NotContains(t, created.Extra, "codex_import_replica_fingerprint_seed")
 }
 
+func TestImportDataProxyIDOverridesSourceProxyKey(t *testing.T) {
+	adminSvc := newAccountDataImportAdminService()
+	router := setupAccountDataRouterWithService(adminSvc)
+	bindingID := int64(36)
+	body, err := json.Marshal(map[string]any{
+		"data": map[string]any{
+			"type": dataType, "version": dataVersion, "proxies": []any{},
+			"accounts": []any{map[string]any{
+				"name": "codex", "platform": service.PlatformOpenAI, "type": service.AccountTypeOAuth,
+				"credentials": map[string]any{"token": "x"}, "proxy_key": "missing-source-proxy",
+				"concurrency": 2, "priority": 50,
+			}},
+		},
+		"proxy_id": bindingID,
+	})
+	require.NoError(t, err)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/data", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.Len(t, adminSvc.createdAccounts, 1)
+	require.Equal(t, &bindingID, adminSvc.createdAccounts[0].ProxyID)
+	require.Nil(t, adminSvc.createdAccounts[0].ProxyIPGroupID)
+}
+
 func TestImportDataExplicitEmptyGroupsSuppressDefaultBinding(t *testing.T) {
 	adminSvc := newAccountDataImportAdminService()
 	router := setupAccountDataRouterWithService(adminSvc)

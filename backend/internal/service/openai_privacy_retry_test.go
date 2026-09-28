@@ -87,3 +87,35 @@ func TestTokenRefreshService_ensureOpenAIPrivacy_RetriesNonSuccessModes(t *testi
 		})
 	}
 }
+
+func TestTokenRefreshService_ensureOpenAIPrivacy_GroupUsesResolvedEgress(t *testing.T) {
+	groupID := int64(12)
+	bindingID := int64(36)
+	account := &Account{
+		ID: 202, Platform: PlatformOpenAI, Type: AccountTypeOAuth,
+		ProxyID: &bindingID, ProxyIPGroupID: &groupID,
+		Credentials: map[string]any{"access_token": "token"},
+	}
+	var proxyURL string
+	privacyCalls := 0
+	makeService := func(oauth *OpenAIOAuthService) *TokenRefreshService {
+		svc := NewTokenRefreshService(&tokenRefreshAccountRepo{}, nil, oauth, nil, nil, nil, nil, &config.Config{}, nil)
+		svc.SetPrivacyDeps(func(url string) (*req.Client, error) {
+			privacyCalls++
+			proxyURL = url
+			return nil, errors.New("stop before request")
+		}, nil)
+		return svc
+	}
+
+	makeService(nil).ensureOpenAIPrivacy(context.Background(), account)
+	require.Zero(t, privacyCalls, "missing group resolver must not make a direct request")
+	resolved := cloneAccountWithProxy(account, Proxy{ID: 7, Protocol: "http", Host: "127.0.0.1", Port: 18080, Status: StatusActive})
+	resolver := &openAIManagementEgressResolverStub{resolved: resolved}
+	oauth := NewOpenAIOAuthService(nil, nil)
+	oauth.SetOpenAIManagementEgressResolver(resolver)
+	makeService(oauth).ensureOpenAIPrivacy(context.Background(), account)
+	require.Equal(t, 1, privacyCalls)
+	require.Equal(t, "http://127.0.0.1:18080", proxyURL)
+	require.Equal(t, int32(1), resolver.releases)
+}

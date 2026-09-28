@@ -800,7 +800,7 @@ export async function exportData(options?: {
 export interface AdminDataImportOptions {
   data: AdminDataPayload
   skip_default_group_bind?: boolean
-  proxy_ip_group_id?: number | null
+  proxy_id?: number | null
   override_concurrency?: number
   override_rate_multiplier?: number
   override_priority?: number
@@ -814,7 +814,7 @@ export async function importData(payload: AdminDataImportOptions): Promise<Admin
     data: payload.data,
     skip_default_group_bind: payload.skip_default_group_bind
   }
-  if (payload.proxy_ip_group_id !== undefined) request.proxy_ip_group_id = payload.proxy_ip_group_id
+  if (payload.proxy_id !== undefined) request.proxy_id = payload.proxy_id
   if (payload.override_concurrency !== undefined) request.override_concurrency = payload.override_concurrency
   if (payload.override_rate_multiplier !== undefined) request.override_rate_multiplier = payload.override_rate_multiplier
   if (payload.override_priority !== undefined) request.override_priority = payload.override_priority

@@ -73,10 +73,9 @@ func cloneAccountWithProxy(account *Account, proxy Proxy) *Account {
 	clone := *account
 	proxyCopy := proxy
 	proxyID := proxy.ID
-	// Keep ProxyIPGroupID/ProxyIPGroup on the request-local clone for
-	// attribution and diagnostics. Persisted accounts still enforce proxy_id
-	// and proxy_ip_group_id mutual exclusion; this clone represents the
-	// resolved member selected from that group.
+	// Keep the resolved group identity on the request-local clone for
+	// attribution. The persisted proxy_id is the group binding ID; this
+	// temporary proxy_id is the selected real member ID for outbound calls.
 	clone.ProxyID = &proxyID
 	clone.Proxy = &proxyCopy
 	return &clone

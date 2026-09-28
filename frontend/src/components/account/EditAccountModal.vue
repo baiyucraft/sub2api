@@ -1726,13 +1726,11 @@
           <label class="input-label mb-0">{{ t('admin.accounts.proxy') }}</label>
           <ProxyAdBanner />
         </div>
-        <ProxyBindingSelector
-          v-if="canUseProxyIPGroup"
-          v-model:proxy-id="form.proxy_id"
-          v-model:proxy-ip-group-id="form.proxy_ip_group_id"
+        <ProxySelector
+          v-model="form.proxy_id"
           :proxies="proxies"
+          :include-groups="canUseProxyIPGroup"
         />
-        <ProxySelector v-else v-model="form.proxy_id" :proxies="proxies" />
       </div>
 
       <UpstreamRequestIdHeaderField
@@ -3153,7 +3151,7 @@ import upstreamConfigsAPI, { type UpstreamConfig, type UpstreamKey } from '@/api
 import { useQuotaNotifyState } from '@/composables/useQuotaNotifyState'
 import type {
   Account,
-  Proxy,
+  ProxyListItem,
   AdminGroup,
   Group,
   CheckMixedChannelResponse,
@@ -3175,7 +3173,6 @@ import UpstreamRequestIdHeaderField from '@/components/account/UpstreamRequestId
 import Toggle from '@/components/common/Toggle.vue'
 import Icon from '@/components/icons/Icon.vue'
 import ProxySelector from '@/components/common/ProxySelector.vue'
-import ProxyBindingSelector from '@/components/common/ProxyBindingSelector.vue'
 import ProxyAdBanner from '@/components/common/ProxyAdBanner.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import UpstreamKeySelector from '@/components/account/UpstreamKeySelector.vue'
@@ -3259,7 +3256,7 @@ import {
 interface Props {
   show: boolean
   account: Account | null
-  proxies: Proxy[]
+  proxies: ProxyListItem[]
   groups: AdminGroup[]
   mode?: 'ordinary' | 'upstream'
 }
@@ -4119,7 +4116,6 @@ const form = reactive({
   name: '',
   notes: '',
   proxy_id: null as number | null,
-  proxy_ip_group_id: null as number | null,
   concurrency: 1,
   rpm_limit: 0,
   probe_min_input_tokens: 0,
@@ -4258,8 +4254,9 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   mixedChannelWarningAction.value = null
   form.name = newAccount.name
   form.notes = newAccount.notes || ''
-  form.proxy_id = newAccount.proxy_id
-  form.proxy_ip_group_id = newAccount.proxy_ip_group_id ?? null
+  form.proxy_id = (newAccount.proxy_id && newAccount.proxy_id > 0 ? newAccount.proxy_id : null) ?? props.proxies.find(proxy =>
+    proxy.id > 0 && proxy.binding_type === 'proxy_ip_group' && proxy.proxy_ip_group_id === newAccount.proxy_ip_group_id
+  )?.id ?? null
   form.concurrency = newAccount.concurrency
   form.rpm_limit = Math.max(0, newAccount.rpm_limit ?? 0)
   form.probe_min_input_tokens = Math.max(0, newAccount.probe_min_input_tokens ?? 0)
@@ -5334,14 +5331,6 @@ const handleSubmit = async () => {
     if (updatePayload.proxy_id === null) {
       updatePayload.proxy_id = 0
     }
-    if (updatePayload.proxy_ip_group_id === null) {
-      updatePayload.proxy_ip_group_id = 0
-    }
-    if (!canUseProxyIPGroup.value) {
-      delete updatePayload.proxy_ip_group_id
-    } else if (Number(updatePayload.proxy_ip_group_id) > 0) {
-      updatePayload.proxy_id = 0
-    }
     if (form.expires_at === null) {
       updatePayload.expires_at = 0
     }
@@ -5376,7 +5365,6 @@ const handleSubmit = async () => {
       if (props.mode === 'upstream') {
         delete updatePayload.type
         delete updatePayload.proxy_id
-        delete updatePayload.proxy_ip_group_id
         delete updatePayload.upstream_config_id
         delete updatePayload.upstream_key_id
       } else {
@@ -5392,7 +5380,6 @@ const handleSubmit = async () => {
         updatePayload.upstream_config_id = editUpstreamConfigId.value
         updatePayload.upstream_key_id = editUpstreamKeyId.value
         updatePayload.proxy_id = 0
-        updatePayload.proxy_ip_group_id = 0
       }
     }
 

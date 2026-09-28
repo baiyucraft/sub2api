@@ -13,8 +13,6 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/Wei-Shaw/sub2api/ent/account"
 	"github.com/Wei-Shaw/sub2api/ent/group"
-	"github.com/Wei-Shaw/sub2api/ent/proxy"
-	"github.com/Wei-Shaw/sub2api/ent/proxyipgroup"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamconfig"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamevent"
 	"github.com/Wei-Shaw/sub2api/ent/upstreamkey"
@@ -125,20 +123,6 @@ func (_c *AccountCreate) SetProxyID(v int64) *AccountCreate {
 func (_c *AccountCreate) SetNillableProxyID(v *int64) *AccountCreate {
 	if v != nil {
 		_c.SetProxyID(*v)
-	}
-	return _c
-}
-
-// SetProxyIPGroupID sets the "proxy_ip_group_id" field.
-func (_c *AccountCreate) SetProxyIPGroupID(v int64) *AccountCreate {
-	_c.mutation.SetProxyIPGroupID(v)
-	return _c
-}
-
-// SetNillableProxyIPGroupID sets the "proxy_ip_group_id" field if the given value is not nil.
-func (_c *AccountCreate) SetNillableProxyIPGroupID(v *int64) *AccountCreate {
-	if v != nil {
-		_c.SetProxyIPGroupID(*v)
 	}
 	return _c
 }
@@ -578,16 +562,6 @@ func (_c *AccountCreate) AddGroups(v ...*Group) *AccountCreate {
 	return _c.AddGroupIDs(ids...)
 }
 
-// SetProxy sets the "proxy" edge to the Proxy entity.
-func (_c *AccountCreate) SetProxy(v *Proxy) *AccountCreate {
-	return _c.SetProxyID(v.ID)
-}
-
-// SetProxyIPGroup sets the "proxy_ip_group" edge to the ProxyIPGroup entity.
-func (_c *AccountCreate) SetProxyIPGroup(v *ProxyIPGroup) *AccountCreate {
-	return _c.SetProxyIPGroupID(v.ID)
-}
-
 // SetUpstreamConfig sets the "upstream_config" edge to the UpstreamConfig entity.
 func (_c *AccountCreate) SetUpstreamConfig(v *UpstreamConfig) *AccountCreate {
 	return _c.SetUpstreamConfigID(v.ID)
@@ -926,6 +900,10 @@ func (_c *AccountCreate) createSpec() (*Account, *sqlgraph.CreateSpec) {
 		_spec.SetField(account.FieldExtra, field.TypeJSON, value)
 		_node.Extra = value
 	}
+	if value, ok := _c.mutation.ProxyID(); ok {
+		_spec.SetField(account.FieldProxyID, field.TypeInt64, value)
+		_node.ProxyID = &value
+	}
 	if value, ok := _c.mutation.ProxyFallbackOriginID(); ok {
 		_spec.SetField(account.FieldProxyFallbackOriginID, field.TypeInt64, value)
 		_node.ProxyFallbackOriginID = &value
@@ -1052,40 +1030,6 @@ func (_c *AccountCreate) createSpec() (*Account, *sqlgraph.CreateSpec) {
 		createE.defaults()
 		_, specE := createE.createSpec()
 		edge.Target.Fields = specE.Fields
-		_spec.Edges = append(_spec.Edges, edge)
-	}
-	if nodes := _c.mutation.ProxyIDs(); len(nodes) > 0 {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2O,
-			Inverse: false,
-			Table:   account.ProxyTable,
-			Columns: []string{account.ProxyColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(proxy.FieldID, field.TypeInt64),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_node.ProxyID = &nodes[0]
-		_spec.Edges = append(_spec.Edges, edge)
-	}
-	if nodes := _c.mutation.ProxyIPGroupIDs(); len(nodes) > 0 {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2O,
-			Inverse: false,
-			Table:   account.ProxyIPGroupTable,
-			Columns: []string{account.ProxyIPGroupColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(proxyipgroup.FieldID, field.TypeInt64),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_node.ProxyIPGroupID = &nodes[0]
 		_spec.Edges = append(_spec.Edges, edge)
 	}
 	if nodes := _c.mutation.UpstreamConfigIDs(); len(nodes) > 0 {
@@ -1359,27 +1303,15 @@ func (u *AccountUpsert) UpdateProxyID() *AccountUpsert {
 	return u
 }
 
+// AddProxyID adds v to the "proxy_id" field.
+func (u *AccountUpsert) AddProxyID(v int64) *AccountUpsert {
+	u.Add(account.FieldProxyID, v)
+	return u
+}
+
 // ClearProxyID clears the value of the "proxy_id" field.
 func (u *AccountUpsert) ClearProxyID() *AccountUpsert {
 	u.SetNull(account.FieldProxyID)
-	return u
-}
-
-// SetProxyIPGroupID sets the "proxy_ip_group_id" field.
-func (u *AccountUpsert) SetProxyIPGroupID(v int64) *AccountUpsert {
-	u.Set(account.FieldProxyIPGroupID, v)
-	return u
-}
-
-// UpdateProxyIPGroupID sets the "proxy_ip_group_id" field to the value that was provided on create.
-func (u *AccountUpsert) UpdateProxyIPGroupID() *AccountUpsert {
-	u.SetExcluded(account.FieldProxyIPGroupID)
-	return u
-}
-
-// ClearProxyIPGroupID clears the value of the "proxy_ip_group_id" field.
-func (u *AccountUpsert) ClearProxyIPGroupID() *AccountUpsert {
-	u.SetNull(account.FieldProxyIPGroupID)
 	return u
 }
 
@@ -2095,6 +2027,13 @@ func (u *AccountUpsertOne) SetProxyID(v int64) *AccountUpsertOne {
 	})
 }
 
+// AddProxyID adds v to the "proxy_id" field.
+func (u *AccountUpsertOne) AddProxyID(v int64) *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.AddProxyID(v)
+	})
+}
+
 // UpdateProxyID sets the "proxy_id" field to the value that was provided on create.
 func (u *AccountUpsertOne) UpdateProxyID() *AccountUpsertOne {
 	return u.Update(func(s *AccountUpsert) {
@@ -2106,27 +2045,6 @@ func (u *AccountUpsertOne) UpdateProxyID() *AccountUpsertOne {
 func (u *AccountUpsertOne) ClearProxyID() *AccountUpsertOne {
 	return u.Update(func(s *AccountUpsert) {
 		s.ClearProxyID()
-	})
-}
-
-// SetProxyIPGroupID sets the "proxy_ip_group_id" field.
-func (u *AccountUpsertOne) SetProxyIPGroupID(v int64) *AccountUpsertOne {
-	return u.Update(func(s *AccountUpsert) {
-		s.SetProxyIPGroupID(v)
-	})
-}
-
-// UpdateProxyIPGroupID sets the "proxy_ip_group_id" field to the value that was provided on create.
-func (u *AccountUpsertOne) UpdateProxyIPGroupID() *AccountUpsertOne {
-	return u.Update(func(s *AccountUpsert) {
-		s.UpdateProxyIPGroupID()
-	})
-}
-
-// ClearProxyIPGroupID clears the value of the "proxy_ip_group_id" field.
-func (u *AccountUpsertOne) ClearProxyIPGroupID() *AccountUpsertOne {
-	return u.Update(func(s *AccountUpsert) {
-		s.ClearProxyIPGroupID()
 	})
 }
 
@@ -3097,6 +3015,13 @@ func (u *AccountUpsertBulk) SetProxyID(v int64) *AccountUpsertBulk {
 	})
 }
 
+// AddProxyID adds v to the "proxy_id" field.
+func (u *AccountUpsertBulk) AddProxyID(v int64) *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.AddProxyID(v)
+	})
+}
+
 // UpdateProxyID sets the "proxy_id" field to the value that was provided on create.
 func (u *AccountUpsertBulk) UpdateProxyID() *AccountUpsertBulk {
 	return u.Update(func(s *AccountUpsert) {
@@ -3108,27 +3033,6 @@ func (u *AccountUpsertBulk) UpdateProxyID() *AccountUpsertBulk {
 func (u *AccountUpsertBulk) ClearProxyID() *AccountUpsertBulk {
 	return u.Update(func(s *AccountUpsert) {
 		s.ClearProxyID()
-	})
-}
-
-// SetProxyIPGroupID sets the "proxy_ip_group_id" field.
-func (u *AccountUpsertBulk) SetProxyIPGroupID(v int64) *AccountUpsertBulk {
-	return u.Update(func(s *AccountUpsert) {
-		s.SetProxyIPGroupID(v)
-	})
-}
-
-// UpdateProxyIPGroupID sets the "proxy_ip_group_id" field to the value that was provided on create.
-func (u *AccountUpsertBulk) UpdateProxyIPGroupID() *AccountUpsertBulk {
-	return u.Update(func(s *AccountUpsert) {
-		s.UpdateProxyIPGroupID()
-	})
-}
-
-// ClearProxyIPGroupID clears the value of the "proxy_ip_group_id" field.
-func (u *AccountUpsertBulk) ClearProxyIPGroupID() *AccountUpsertBulk {
-	return u.Update(func(s *AccountUpsert) {
-		s.ClearProxyIPGroupID()
 	})
 }
 

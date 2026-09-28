@@ -27,6 +27,7 @@ import (
 	dbgroup "github.com/Wei-Shaw/sub2api/ent/group"
 	dbpredicate "github.com/Wei-Shaw/sub2api/ent/predicate"
 	dbproxy "github.com/Wei-Shaw/sub2api/ent/proxy"
+	dbproxybinding "github.com/Wei-Shaw/sub2api/ent/proxybinding"
 	dbupstreamconfig "github.com/Wei-Shaw/sub2api/ent/upstreamconfig"
 	dbupstreamkey "github.com/Wei-Shaw/sub2api/ent/upstreamkey"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
@@ -193,9 +194,6 @@ func createAccountRecord(ctx context.Context, client *dbent.Client, account *ser
 
 	if account.ProxyID != nil {
 		builder.SetProxyID(*account.ProxyID)
-	}
-	if account.ProxyIPGroupID != nil {
-		builder.SetProxyIPGroupID(*account.ProxyIPGroupID)
 	}
 	if account.UpstreamConfigID != nil {
 		builder.SetUpstreamConfigID(*account.UpstreamConfigID)
@@ -710,11 +708,6 @@ func buildAccountUpdate(client *dbent.Client, account *service.Account, schedula
 		builder.SetProxyID(*account.ProxyID)
 	} else {
 		builder.ClearProxyID()
-	}
-	if account.ProxyIPGroupID != nil {
-		builder.SetProxyIPGroupID(*account.ProxyIPGroupID)
-	} else {
-		builder.ClearProxyIPGroupID()
 	}
 	if account.UpstreamConfigID != nil {
 		builder.SetUpstreamConfigID(*account.UpstreamConfigID)
@@ -4091,16 +4084,14 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 
 	accountIDs := make([]int64, 0, len(accounts))
 	proxyIDs := make([]int64, 0, len(accounts))
+	bindingIDs := make([]int64, 0, len(accounts))
 	proxyIPGroupIDs := make([]int64, 0, len(accounts))
 	upstreamConfigIDs := make([]int64, 0, len(accounts))
 	upstreamKeyIDs := make([]int64, 0, len(accounts))
 	for _, acc := range accounts {
 		accountIDs = append(accountIDs, acc.ID)
 		if acc.ProxyID != nil {
-			proxyIDs = append(proxyIDs, *acc.ProxyID)
-		}
-		if acc.ProxyIPGroupID != nil {
-			proxyIPGroupIDs = append(proxyIPGroupIDs, *acc.ProxyIPGroupID)
+			bindingIDs = append(bindingIDs, *acc.ProxyID)
 		}
 		if acc.ProxyFallbackOriginID != nil {
 			proxyIDs = append(proxyIDs, *acc.ProxyFallbackOriginID)
@@ -4123,6 +4114,28 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 		}
 	}
 
+	bindings := make(map[int64]*dbent.ProxyBinding, len(bindingIDs))
+	bindingIDs = uniquePositiveInt64s(bindingIDs)
+	for start := 0; start < len(bindingIDs); start += postgresParameterBatchSize {
+		end := min(start+postgresParameterBatchSize, len(bindingIDs))
+		rows, queryErr := r.client.ProxyBinding.Query().Where(dbproxybinding.IDIn(bindingIDs[start:end]...)).All(ctx)
+		if queryErr != nil {
+			return nil, queryErr
+		}
+		for _, binding := range rows {
+			bindings[binding.ID] = binding
+			switch binding.BindingType {
+			case "proxy":
+				if binding.ProxyID != nil {
+					proxyIDs = append(proxyIDs, *binding.ProxyID)
+				}
+			case "proxy_ip_group":
+				if binding.ProxyIPGroupID != nil {
+					proxyIPGroupIDs = append(proxyIPGroupIDs, *binding.ProxyIPGroupID)
+				}
+			}
+		}
+	}
 	proxyMap, err := r.loadProxies(ctx, proxyIDs)
 	if err != nil {
 		return nil, err
@@ -4143,12 +4156,25 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 			continue
 		}
 		if acc.ProxyID != nil {
-			if proxy, ok := proxyMap[*acc.ProxyID]; ok {
-				out.Proxy = proxy
+			binding := bindings[*acc.ProxyID]
+			if binding == nil {
+				return nil, fmt.Errorf("account %d has missing proxy binding %d", acc.ID, *acc.ProxyID)
 			}
-		}
-		if acc.ProxyIPGroupID != nil {
-			out.ProxyIPGroup = proxyIPGroupMap[*acc.ProxyIPGroupID]
+			switch binding.BindingType {
+			case "proxy":
+				if binding.ProxyID == nil || proxyMap[*binding.ProxyID] == nil {
+					return nil, fmt.Errorf("account %d has unavailable proxy binding %d", acc.ID, binding.ID)
+				}
+				out.Proxy = proxyMap[*binding.ProxyID]
+			case "proxy_ip_group":
+				if binding.ProxyIPGroupID == nil || proxyIPGroupMap[*binding.ProxyIPGroupID] == nil {
+					return nil, fmt.Errorf("account %d has unavailable proxy group binding %d", acc.ID, binding.ID)
+				}
+				out.ProxyIPGroupID = binding.ProxyIPGroupID
+				out.ProxyIPGroup = proxyIPGroupMap[*binding.ProxyIPGroupID]
+			default:
+				return nil, fmt.Errorf("account %d has invalid proxy binding %d", acc.ID, binding.ID)
+			}
 		}
 		if out.UpstreamConfigID != nil {
 			// A missing parent row (including a soft-deleted upstream hidden by
@@ -4503,7 +4529,6 @@ func accountEntityToService(m *dbent.Account) *service.Account {
 		Credentials:                  copyJSONMap(m.Credentials),
 		Extra:                        copyJSONMap(m.Extra),
 		ProxyID:                      m.ProxyID,
-		ProxyIPGroupID:               m.ProxyIPGroupID,
 		ProxyFallbackOriginID:        m.ProxyFallbackOriginID,
 		UpstreamConfigID:             m.UpstreamConfigID,
 		UpstreamKeyID:                m.UpstreamKeyID,

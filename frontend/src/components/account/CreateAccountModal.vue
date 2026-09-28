@@ -3189,13 +3189,11 @@
           <label class="input-label mb-0">{{ t('admin.accounts.proxy') }}</label>
           <ProxyAdBanner />
         </div>
-        <ProxyBindingSelector
-          v-if="canUseProxyIPGroup"
-          v-model:proxy-id="form.proxy_id"
-          v-model:proxy-ip-group-id="form.proxy_ip_group_id"
+        <ProxySelector
+          v-model="form.proxy_id"
           :proxies="proxies"
+          :include-groups="canUseProxyIPGroup"
         />
-        <ProxySelector v-else v-model="form.proxy_id" :proxies="proxies" />
       </div>
 
       <UpstreamRequestIdHeaderField
@@ -4117,7 +4115,7 @@ import { useGeminiOAuth } from '@/composables/useGeminiOAuth'
 import { useAntigravityOAuth } from '@/composables/useAntigravityOAuth'
 import { useGrokOAuth } from '@/composables/useGrokOAuth'
 import type {
-  Proxy,
+  ProxyListItem,
   AdminGroup,
   AccountPlatform,
   AccountType,
@@ -4136,7 +4134,6 @@ import UpstreamRequestIdHeaderField from '@/components/account/UpstreamRequestId
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import Icon from '@/components/icons/Icon.vue'
 import ProxySelector from '@/components/common/ProxySelector.vue'
-import ProxyBindingSelector from '@/components/common/ProxyBindingSelector.vue'
 import ProxyAdBanner from '@/components/common/ProxyAdBanner.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import UpstreamKeySelector from '@/components/account/UpstreamKeySelector.vue'
@@ -4284,7 +4281,7 @@ const apiKeyValuePlaceholder = computed(() => {
 
 interface Props {
   show: boolean
-  proxies: Proxy[]
+  proxies: ProxyListItem[]
   groups: AdminGroup[]
 }
 
@@ -4618,18 +4615,6 @@ const canUseProxyIPGroup = computed(() =>
   accountCategory.value !== 'upstream_config' &&
   supportsProxyIPGroupBinding(effectivePlatform.value, form.type)
 )
-
-const normalizeCreateProxyBinding = (payload: CreateAccountRequest): CreateAccountRequest => {
-  if (!supportsProxyIPGroupBinding(payload.platform, payload.type)) {
-    const withoutProxyGroup = { ...payload }
-    delete withoutProxyGroup.proxy_ip_group_id
-    return withoutProxyGroup
-  }
-  if (payload.proxy_ip_group_id != null && payload.proxy_ip_group_id > 0) {
-    return { ...payload, proxy_id: null }
-  }
-  return payload
-}
 
 const editQuotaLimit = ref<number | null>(null)
 const editQuotaDailyLimit = ref<number | null>(null)
@@ -5010,7 +4995,6 @@ const form = reactive({
   type: 'oauth' as AccountType, // Will be 'oauth', 'setup-token', or 'apikey'
   credentials: {} as Record<string, unknown>,
   proxy_id: null as number | null,
-  proxy_ip_group_id: null as number | null,
   concurrency: 10,
   rpm_limit: 0,
   probe_min_input_tokens: 0,
@@ -5182,7 +5166,9 @@ watch(
 )
 
 watch(canUseProxyIPGroup, (eligible) => {
-  if (!eligible) form.proxy_ip_group_id = null
+  if (!eligible && form.proxy_id !== null && props.proxies.some(proxy => proxy.id === form.proxy_id && proxy.binding_type === 'proxy_ip_group')) {
+    form.proxy_id = null
+  }
 })
 
 // Reset platform-specific settings when platform changes
@@ -5666,7 +5652,6 @@ const resetForm = () => {
   form.type = 'oauth'
   form.credentials = {}
   form.proxy_id = null
-  form.proxy_ip_group_id = null
   form.concurrency = 10
   form.rpm_limit = 0
   form.probe_min_input_tokens = 0
@@ -6026,14 +6011,13 @@ const buildAPIKeyLikeExtra = (): Record<string, unknown> | undefined =>
 
 // Helper function to create account with mixed channel warning handling
 const doCreateAccount = async (payload: CreateAccountRequest) => {
-  const normalizedPayload = normalizeCreateProxyBinding(payload)
   const canContinue = await ensureAntigravityMixedChannelConfirmed(async () => {
-    await submitCreateAccount(normalizedPayload)
+    await submitCreateAccount(payload)
   })
   if (!canContinue) {
     return
   }
-  await submitCreateAccount(normalizedPayload)
+  await submitCreateAccount(payload)
 }
 
 // Handle mixed channel warning confirmation
@@ -6287,7 +6271,6 @@ const handleSubmit = async () => {
       credentials,
       extra: buildAPIKeyLikeExtra(),
       proxy_id: null,
-      proxy_ip_group_id: null,
       group_ids: form.group_ids,
       preferred_group_ids: form.preferred_group_ids,
       upstream_config_id: upstreamConfig.id,
@@ -6529,7 +6512,6 @@ const createAccountAndFinish = async (
     credentials,
     extra: finalExtra,
     proxy_id: form.proxy_id,
-    proxy_ip_group_id: form.proxy_ip_group_id,
     concurrency: form.concurrency,
     rpm_limit: accountCategory.value === 'upstream_config' ? form.rpm_limit : undefined,
     probe_min_input_tokens: accountCategory.value === 'upstream_config' ? form.probe_min_input_tokens : undefined,
@@ -6883,7 +6865,6 @@ const handleOpenAIExchange = async (authCode: string) => {
         credentials,
         extra: withUpstreamRequestIdHeader(extra),
         proxy_id: form.proxy_id,
-        proxy_ip_group_id: form.proxy_ip_group_id,
         concurrency: form.concurrency,
         rpm_limit: accountCategory.value === 'upstream_config' ? form.rpm_limit : undefined,
         probe_min_input_tokens: accountCategory.value === 'upstream_config' ? form.probe_min_input_tokens : undefined,
@@ -6992,7 +6973,6 @@ const handleOpenAIImportCodexSession = async (content: string) => {
       name: form.name,
       notes: form.notes || null,
       proxy_id: form.proxy_id,
-      proxy_ip_group_id: form.proxy_ip_group_id,
       concurrency: form.concurrency,
       load_factor: form.load_factor ?? undefined,
       priority: form.priority,
@@ -7072,7 +7052,6 @@ const handleOpenAIImportCodexPAT = async (accessToken: string) => {
       name: form.name,
       notes: form.notes || null,
       proxy_id: form.proxy_id,
-      proxy_ip_group_id: form.proxy_ip_group_id,
       concurrency: form.concurrency,
       load_factor: form.load_factor ?? undefined,
       priority: form.priority,
@@ -7172,7 +7151,6 @@ const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string)
             credentials,
             extra: withUpstreamRequestIdHeader(extra),
             proxy_id: form.proxy_id,
-            proxy_ip_group_id: form.proxy_ip_group_id,
             concurrency: form.concurrency,
           rpm_limit: accountCategory.value === 'upstream_config' ? form.rpm_limit : undefined,
           probe_min_input_tokens: accountCategory.value === 'upstream_config' ? form.probe_min_input_tokens : undefined,
