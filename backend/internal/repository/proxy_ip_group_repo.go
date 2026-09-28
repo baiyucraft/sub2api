@@ -5,6 +5,7 @@ import (
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	dbaccount "github.com/Wei-Shaw/sub2api/ent/account"
+	dbproxybinding "github.com/Wei-Shaw/sub2api/ent/proxybinding"
 	dbproxyipgroup "github.com/Wei-Shaw/sub2api/ent/proxyipgroup"
 	dbproxyipgroupmember "github.com/Wei-Shaw/sub2api/ent/proxyipgroupmember"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -138,7 +139,11 @@ func (r *proxyIPGroupRepository) Delete(ctx context.Context, id int64) error {
 }
 
 func (r *proxyIPGroupRepository) CountAccounts(ctx context.Context, id int64) (int64, error) {
-	count, err := r.client.Account.Query().Where(dbaccount.ProxyIPGroupIDEQ(id)).Count(ctx)
+	bindings, err := r.client.ProxyBinding.Query().Where(dbproxybinding.ProxyIPGroupIDEQ(id)).All(ctx)
+	if err != nil || len(bindings) == 0 {
+		return 0, err
+	}
+	count, err := r.client.Account.Query().Where(dbaccount.ProxyIDEQ(bindings[0].ID)).Count(ctx)
 	return int64(count), err
 }
 
@@ -184,7 +189,13 @@ func proxyIPGroupEntityToService(row *dbent.ProxyIPGroup) *service.ProxyIPGroup 
 		}
 	}
 	return &service.ProxyIPGroup{
-		ID:               row.ID,
+		ID: row.ID,
+		BindingID: func() int64 {
+			if row.BindingID != nil {
+				return *row.BindingID
+			}
+			return 0
+		}(),
 		Name:             row.Name,
 		PerIPConcurrency: row.PerIPConcurrency,
 		ProxyIDs:         proxyIDs,

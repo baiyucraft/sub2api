@@ -175,23 +175,20 @@ const GroupSelectorStub = defineComponent({
   `
 })
 
-const ProxyBindingSelectorStub = defineComponent({
-  name: 'ProxyBindingSelector',
-  emits: ['update:proxyId', 'update:proxyIpGroupId'],
+const ProxySelectorStub = defineComponent({
+  name: 'ProxySelector',
+  props: { includeGroups: Boolean },
+  emits: ['update:modelValue'],
   template: `
-    <div data-testid="proxy-binding-selector">
+    <div data-testid="proxy-selector">
       <button
+        v-if="includeGroups"
         type="button"
         data-testid="select-proxy-ip-group"
-        @click="$emit('update:proxyId', null); $emit('update:proxyIpGroupId', 77)"
+        @click="$emit('update:modelValue', 8)"
       >proxy group</button>
     </div>
   `
-})
-
-const ProxySelectorStub = defineComponent({
-  name: 'ProxySelector',
-  template: '<div data-testid="proxy-selector" />'
 })
 
 function buildAccount() {
@@ -393,7 +390,6 @@ function mountModal(
         Select: SelectStub,
         Icon: true,
         ProxySelector: ProxySelectorStub,
-        ProxyBindingSelector: ProxyBindingSelectorStub,
         GroupSelector: renderGroupSelector ? false : GroupSelectorStub,
         ModelWhitelistSelector: ModelWhitelistSelectorStub
       }
@@ -460,10 +456,10 @@ describe('EditAccountModal', () => {
     expect(wrapper.find('input[placeholder="admin.accounts.sub2apiLogin.passwordEditPlaceholder"]').exists()).toBe(false)
   })
 
-  it('submits the selected proxy IP group and clears the single proxy binding', async () => {
+  it('submits the selected positive proxy binding ID', async () => {
     const account = buildAccount()
     account.type = 'oauth'
-    account.proxy_id = 12
+    account.proxy_id = 8
     updateAccountMock.mockResolvedValue(account)
     checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
 
@@ -472,10 +468,26 @@ describe('EditAccountModal', () => {
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
     await flushPromises()
 
-    expect(updateAccountMock.mock.calls[0]?.[1]).toMatchObject({
-      proxy_id: 0,
-      proxy_ip_group_id: 77,
+    expect(updateAccountMock.mock.calls[0]?.[1]).toMatchObject({ proxy_id: 8 })
+    expect(updateAccountMock.mock.calls[0]?.[1]).not.toHaveProperty('proxy_ip_group_id')
+  })
+
+  it('converts a legacy group-only response to its positive binding ID on save', async () => {
+    const account = buildAccount()
+    account.type = 'oauth'
+    account.proxy_id = null
+    account.proxy_ip_group_id = 77
+    updateAccountMock.mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+
+    const wrapper = mountModal(account, {
+      proxies: [{ id: 8, name: 'pool', binding_type: 'proxy_ip_group', proxy_ip_group_id: 77 }]
     })
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(updateAccountMock.mock.calls[0]?.[1]).toMatchObject({ proxy_id: 8 })
+    expect(updateAccountMock.mock.calls[0]?.[1]).not.toHaveProperty('proxy_ip_group_id')
   })
 
   it('keeps non-OAuth OpenAI accounts on the single proxy selector and omits proxy group updates', async () => {
@@ -485,7 +497,7 @@ describe('EditAccountModal', () => {
 
     const wrapper = mountModal(account)
     expect(wrapper.find('[data-testid="proxy-selector"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="proxy-binding-selector"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="select-proxy-ip-group"]').exists()).toBe(false)
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
     await flushPromises()
 

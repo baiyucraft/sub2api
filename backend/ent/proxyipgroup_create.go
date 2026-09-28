@@ -11,7 +11,6 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
-	"github.com/Wei-Shaw/sub2api/ent/account"
 	"github.com/Wei-Shaw/sub2api/ent/proxy"
 	"github.com/Wei-Shaw/sub2api/ent/proxyipgroup"
 )
@@ -86,6 +85,20 @@ func (_c *ProxyIPGroupCreate) SetNillablePerIPConcurrency(v *int) *ProxyIPGroupC
 	return _c
 }
 
+// SetBindingID sets the "binding_id" field.
+func (_c *ProxyIPGroupCreate) SetBindingID(v int64) *ProxyIPGroupCreate {
+	_c.mutation.SetBindingID(v)
+	return _c
+}
+
+// SetNillableBindingID sets the "binding_id" field if the given value is not nil.
+func (_c *ProxyIPGroupCreate) SetNillableBindingID(v *int64) *ProxyIPGroupCreate {
+	if v != nil {
+		_c.SetBindingID(*v)
+	}
+	return _c
+}
+
 // AddProxyIDs adds the "proxies" edge to the Proxy entity by IDs.
 func (_c *ProxyIPGroupCreate) AddProxyIDs(ids ...int64) *ProxyIPGroupCreate {
 	_c.mutation.AddProxyIDs(ids...)
@@ -99,21 +112,6 @@ func (_c *ProxyIPGroupCreate) AddProxies(v ...*Proxy) *ProxyIPGroupCreate {
 		ids[i] = v[i].ID
 	}
 	return _c.AddProxyIDs(ids...)
-}
-
-// AddAccountIDs adds the "accounts" edge to the Account entity by IDs.
-func (_c *ProxyIPGroupCreate) AddAccountIDs(ids ...int64) *ProxyIPGroupCreate {
-	_c.mutation.AddAccountIDs(ids...)
-	return _c
-}
-
-// AddAccounts adds the "accounts" edges to the Account entity.
-func (_c *ProxyIPGroupCreate) AddAccounts(v ...*Account) *ProxyIPGroupCreate {
-	ids := make([]int64, len(v))
-	for i := range v {
-		ids[i] = v[i].ID
-	}
-	return _c.AddAccountIDs(ids...)
 }
 
 // Mutation returns the ProxyIPGroupMutation object of the builder.
@@ -198,6 +196,11 @@ func (_c *ProxyIPGroupCreate) check() error {
 			return &ValidationError{Name: "per_ip_concurrency", err: fmt.Errorf(`ent: validator failed for field "ProxyIPGroup.per_ip_concurrency": %w`, err)}
 		}
 	}
+	if v, ok := _c.mutation.BindingID(); ok {
+		if err := proxyipgroup.BindingIDValidator(v); err != nil {
+			return &ValidationError{Name: "binding_id", err: fmt.Errorf(`ent: validator failed for field "ProxyIPGroup.binding_id": %w`, err)}
+		}
+	}
 	return nil
 }
 
@@ -245,6 +248,10 @@ func (_c *ProxyIPGroupCreate) createSpec() (*ProxyIPGroup, *sqlgraph.CreateSpec)
 		_spec.SetField(proxyipgroup.FieldPerIPConcurrency, field.TypeInt, value)
 		_node.PerIPConcurrency = value
 	}
+	if value, ok := _c.mutation.BindingID(); ok {
+		_spec.SetField(proxyipgroup.FieldBindingID, field.TypeInt64, value)
+		_node.BindingID = &value
+	}
 	if nodes := _c.mutation.ProxiesIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2M,
@@ -263,22 +270,6 @@ func (_c *ProxyIPGroupCreate) createSpec() (*ProxyIPGroup, *sqlgraph.CreateSpec)
 		createE.defaults()
 		_, specE := createE.createSpec()
 		edge.Target.Fields = specE.Fields
-		_spec.Edges = append(_spec.Edges, edge)
-	}
-	if nodes := _c.mutation.AccountsIDs(); len(nodes) > 0 {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: true,
-			Table:   proxyipgroup.AccountsTable,
-			Columns: []string{proxyipgroup.AccountsColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(account.FieldID, field.TypeInt64),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
 		_spec.Edges = append(_spec.Edges, edge)
 	}
 	return _node, _spec
@@ -390,6 +381,30 @@ func (u *ProxyIPGroupUpsert) UpdatePerIPConcurrency() *ProxyIPGroupUpsert {
 // AddPerIPConcurrency adds v to the "per_ip_concurrency" field.
 func (u *ProxyIPGroupUpsert) AddPerIPConcurrency(v int) *ProxyIPGroupUpsert {
 	u.Add(proxyipgroup.FieldPerIPConcurrency, v)
+	return u
+}
+
+// SetBindingID sets the "binding_id" field.
+func (u *ProxyIPGroupUpsert) SetBindingID(v int64) *ProxyIPGroupUpsert {
+	u.Set(proxyipgroup.FieldBindingID, v)
+	return u
+}
+
+// UpdateBindingID sets the "binding_id" field to the value that was provided on create.
+func (u *ProxyIPGroupUpsert) UpdateBindingID() *ProxyIPGroupUpsert {
+	u.SetExcluded(proxyipgroup.FieldBindingID)
+	return u
+}
+
+// AddBindingID adds v to the "binding_id" field.
+func (u *ProxyIPGroupUpsert) AddBindingID(v int64) *ProxyIPGroupUpsert {
+	u.Add(proxyipgroup.FieldBindingID, v)
+	return u
+}
+
+// ClearBindingID clears the value of the "binding_id" field.
+func (u *ProxyIPGroupUpsert) ClearBindingID() *ProxyIPGroupUpsert {
+	u.SetNull(proxyipgroup.FieldBindingID)
 	return u
 }
 
@@ -505,6 +520,34 @@ func (u *ProxyIPGroupUpsertOne) AddPerIPConcurrency(v int) *ProxyIPGroupUpsertOn
 func (u *ProxyIPGroupUpsertOne) UpdatePerIPConcurrency() *ProxyIPGroupUpsertOne {
 	return u.Update(func(s *ProxyIPGroupUpsert) {
 		s.UpdatePerIPConcurrency()
+	})
+}
+
+// SetBindingID sets the "binding_id" field.
+func (u *ProxyIPGroupUpsertOne) SetBindingID(v int64) *ProxyIPGroupUpsertOne {
+	return u.Update(func(s *ProxyIPGroupUpsert) {
+		s.SetBindingID(v)
+	})
+}
+
+// AddBindingID adds v to the "binding_id" field.
+func (u *ProxyIPGroupUpsertOne) AddBindingID(v int64) *ProxyIPGroupUpsertOne {
+	return u.Update(func(s *ProxyIPGroupUpsert) {
+		s.AddBindingID(v)
+	})
+}
+
+// UpdateBindingID sets the "binding_id" field to the value that was provided on create.
+func (u *ProxyIPGroupUpsertOne) UpdateBindingID() *ProxyIPGroupUpsertOne {
+	return u.Update(func(s *ProxyIPGroupUpsert) {
+		s.UpdateBindingID()
+	})
+}
+
+// ClearBindingID clears the value of the "binding_id" field.
+func (u *ProxyIPGroupUpsertOne) ClearBindingID() *ProxyIPGroupUpsertOne {
+	return u.Update(func(s *ProxyIPGroupUpsert) {
+		s.ClearBindingID()
 	})
 }
 
@@ -786,6 +829,34 @@ func (u *ProxyIPGroupUpsertBulk) AddPerIPConcurrency(v int) *ProxyIPGroupUpsertB
 func (u *ProxyIPGroupUpsertBulk) UpdatePerIPConcurrency() *ProxyIPGroupUpsertBulk {
 	return u.Update(func(s *ProxyIPGroupUpsert) {
 		s.UpdatePerIPConcurrency()
+	})
+}
+
+// SetBindingID sets the "binding_id" field.
+func (u *ProxyIPGroupUpsertBulk) SetBindingID(v int64) *ProxyIPGroupUpsertBulk {
+	return u.Update(func(s *ProxyIPGroupUpsert) {
+		s.SetBindingID(v)
+	})
+}
+
+// AddBindingID adds v to the "binding_id" field.
+func (u *ProxyIPGroupUpsertBulk) AddBindingID(v int64) *ProxyIPGroupUpsertBulk {
+	return u.Update(func(s *ProxyIPGroupUpsert) {
+		s.AddBindingID(v)
+	})
+}
+
+// UpdateBindingID sets the "binding_id" field to the value that was provided on create.
+func (u *ProxyIPGroupUpsertBulk) UpdateBindingID() *ProxyIPGroupUpsertBulk {
+	return u.Update(func(s *ProxyIPGroupUpsert) {
+		s.UpdateBindingID()
+	})
+}
+
+// ClearBindingID clears the value of the "binding_id" field.
+func (u *ProxyIPGroupUpsertBulk) ClearBindingID() *ProxyIPGroupUpsertBulk {
+	return u.Update(func(s *ProxyIPGroupUpsert) {
+		s.ClearBindingID()
 	})
 }
 

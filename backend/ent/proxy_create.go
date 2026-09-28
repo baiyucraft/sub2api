@@ -11,7 +11,6 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
-	"github.com/Wei-Shaw/sub2api/ent/account"
 	"github.com/Wei-Shaw/sub2api/ent/proxy"
 	"github.com/Wei-Shaw/sub2api/ent/proxyipgroup"
 )
@@ -186,21 +185,6 @@ func (_c *ProxyCreate) SetNillableExpiryWarnDays(v *int) *ProxyCreate {
 		_c.SetExpiryWarnDays(*v)
 	}
 	return _c
-}
-
-// AddAccountIDs adds the "accounts" edge to the Account entity by IDs.
-func (_c *ProxyCreate) AddAccountIDs(ids ...int64) *ProxyCreate {
-	_c.mutation.AddAccountIDs(ids...)
-	return _c
-}
-
-// AddAccounts adds the "accounts" edges to the Account entity.
-func (_c *ProxyCreate) AddAccounts(v ...*Account) *ProxyCreate {
-	ids := make([]int64, len(v))
-	for i := range v {
-		ids[i] = v[i].ID
-	}
-	return _c.AddAccountIDs(ids...)
 }
 
 // AddPrimaryProxyIDs adds the "primary_proxies" edge to the Proxy entity by IDs.
@@ -446,22 +430,6 @@ func (_c *ProxyCreate) createSpec() (*Proxy, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.ExpiryWarnDays(); ok {
 		_spec.SetField(proxy.FieldExpiryWarnDays, field.TypeInt, value)
 		_node.ExpiryWarnDays = value
-	}
-	if nodes := _c.mutation.AccountsIDs(); len(nodes) > 0 {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: true,
-			Table:   proxy.AccountsTable,
-			Columns: []string{proxy.AccountsColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(account.FieldID, field.TypeInt64),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_spec.Edges = append(_spec.Edges, edge)
 	}
 	if nodes := _c.mutation.PrimaryProxiesIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{

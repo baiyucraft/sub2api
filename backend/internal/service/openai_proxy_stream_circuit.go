@@ -232,6 +232,11 @@ func openAIProxyStreamCircuitProxyID(account *Account) (int64, bool) {
 	if account == nil || account.Platform != PlatformOpenAI || account.ProxyID == nil || *account.ProxyID <= 0 {
 		return 0, false
 	}
+	// A group account stores the binding ID here. Only a request-local clone
+	// with a selected real member can contribute to a per-proxy circuit.
+	if account.ProxyIPGroupID != nil && (account.Proxy == nil || account.Proxy.ID != *account.ProxyID) {
+		return 0, false
+	}
 	return *account.ProxyID, true
 }
 

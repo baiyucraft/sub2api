@@ -91,10 +91,6 @@ func (Account) Fields() []ent.Field {
 		field.Int64("proxy_id").
 			Optional().
 			Nillable(),
-		field.Int64("proxy_ip_group_id").
-			Optional().
-			Nillable().
-			Comment("Optional proxy IP group binding; mutually exclusive with proxy_id."),
 		field.Int64("proxy_fallback_origin_id").
 			Optional().Nillable().
 			Comment("Original proxy id replaced by expiry-fallback; for manual revert. NULL = not in fallback."),
@@ -249,15 +245,8 @@ func (Account) Edges() []ent.Edge {
 		// 一个账户可以属于多个分组，一个分组可以包含多个账户
 		edge.To("groups", Group.Type).
 			Through("account_groups", AccountGroup.Type),
-		// proxy: 账户使用的代理配置（可选的一对一关系）
-		// 使用已有的 proxy_id 外键字段
-		edge.To("proxy", Proxy.Type).
-			Field("proxy_id").
-			Unique(),
-		edge.To("proxy_ip_group", ProxyIPGroup.Type).
-			Field("proxy_ip_group_id").
-			Unique().
-			Annotations(entsql.OnDelete(entsql.Restrict)),
+		// proxy_id references proxy_bindings. The concrete proxy/group relation is
+		// hydrated by the repository because bindings are a compatibility layer.
 		edge.From("upstream_config", UpstreamConfig.Type).
 			Ref("accounts").
 			Field("upstream_config_id").
@@ -288,7 +277,6 @@ func (Account) Indexes() []ent.Index {
 		index.Fields("type"),     // 按认证类型筛选
 		index.Fields("status"),   // 按状态筛选
 		index.Fields("proxy_id"), // 按代理筛选
-		index.Fields("proxy_ip_group_id"),
 		index.Fields("upstream_config_id"),
 		index.Fields("upstream_key_id"),
 		index.Fields("priority"),            // 按优先级排序

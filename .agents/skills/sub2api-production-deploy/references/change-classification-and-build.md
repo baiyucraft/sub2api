@@ -210,6 +210,8 @@ VM 构建规则：
 - 前后端混合改动。
 - 分类无法确定的改动。
 
+统一代理绑定从旧双字段迁移到 `accounts.proxy_id -> proxy_bindings.id` 时，属于 migration 加跨 API 契约变更，必须执行 specialized 数据门禁与 VM Gate。迁移 `284_unified_proxy_bindings.sql` 已纳入 pending profile 257 的 `new_migrations`；当前 SQL 原始字节 SHA-256 已登记为 `de0adde07c5dd930aa1cccf9e68d6c55958fd7ea16323d746019c7c97481afe3`，修改 SQL 必须重算；测试和 Gate 未通过前不得误称已发布。历史 `279_proxy_ip_groups.sql` 不可修改。已检查的本地、VM、生产与备份目录未见 256 资产，但不能证明从未签名或发布；保守保留 256 原合同，当前 profile 257 的 parent 为 256。
+
 不触及构建链的普通 `dev-gated` 可以在 RackNerd 构建一次，生产继续运行旧镜像，然后按确切 image ID 传给 VM 验证。验证通过后，生产只使用 RackNerd 已构建的同一镜像。
 
 开发联调阶段直接使用 VM Gate 的 candidate 服务验证前后端契约。允许在本机执行 Go、TypeScript、Vitest 等静态/unit 门禁，但禁止启动本地后端来替代 VM Gate；前端页面也不应指向一个不存在的本地 API。

@@ -23,6 +23,9 @@ vi.mock('@/api/admin', () => ({
     proxyIpGroups: {
       list: vi.fn()
     },
+    proxies: {
+      getAll: vi.fn()
+    },
     groups: {
       getAll: vi.fn()
     }
@@ -90,11 +93,14 @@ describe('ImportDataModal', () => {
     const { adminAPI } = await import('@/api/admin')
     vi.mocked(adminAPI.accounts.importData).mockReset()
     vi.mocked(adminAPI.proxyIpGroups.list).mockReset()
+    vi.mocked(adminAPI.proxies.getAll).mockReset()
     vi.mocked(adminAPI.groups.getAll).mockReset()
-    vi.mocked(adminAPI.proxyIpGroups.list).mockResolvedValue([
+    vi.mocked(adminAPI.proxies.getAll).mockResolvedValue([
       {
         id: 12,
         name: 'Hong Kong pool',
+        binding_type: 'proxy_ip_group',
+        proxy_ip_group_id: 77,
         member_count: 3,
         per_ip_concurrency: 4
       } as never
@@ -106,7 +112,7 @@ describe('ImportDataModal', () => {
     const { adminAPI } = await import('@/api/admin')
     mountModal()
     await flushPromises()
-    expect(adminAPI.proxyIpGroups.list).toHaveBeenCalledTimes(1)
+    expect(adminAPI.proxies.getAll).toHaveBeenCalledTimes(1)
   })
 
   it('统一覆盖设置使用三列布局和新的默认值', async () => {
@@ -284,7 +290,7 @@ describe('ImportDataModal', () => {
     await flushPromises()
 
     expect(adminAPI.accounts.importData).toHaveBeenCalledWith(expect.objectContaining({
-      proxy_ip_group_id: 12,
+      proxy_id: 12,
       data: expect.objectContaining({
         accounts: [
           { name: 'a', platform: 'openai', type: 'oauth' },

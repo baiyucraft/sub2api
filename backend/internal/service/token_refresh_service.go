@@ -69,6 +69,7 @@ type TokenRefreshService struct {
 	// OpenAI privacy: 刷新成功后检查并设置 training opt-out
 	privacyClientFactory PrivacyClientFactory
 	proxyRepo            ProxyRepository
+	openAIOAuthService   *OpenAIOAuthService
 
 	stopCh        chan struct{}
 	stopOnce      sync.Once
@@ -104,15 +105,16 @@ func NewTokenRefreshService(
 	}
 	runCtx, runCancel := context.WithCancel(context.Background())
 	s := &TokenRefreshService{
-		accountRepo:      accountRepo,
-		refreshPolicy:    DefaultBackgroundRefreshPolicy(),
-		cfg:              refreshCfg,
-		cacheInvalidator: cacheInvalidator,
-		schedulerCache:   schedulerCache,
-		tempUnschedCache: tempUnschedCache,
-		stopCh:           make(chan struct{}),
-		runCtx:           runCtx,
-		runCancel:        runCancel,
+		accountRepo:        accountRepo,
+		openAIOAuthService: openaiOAuthService,
+		refreshPolicy:      DefaultBackgroundRefreshPolicy(),
+		cfg:                refreshCfg,
+		cacheInvalidator:   cacheInvalidator,
+		schedulerCache:     schedulerCache,
+		tempUnschedCache:   tempUnschedCache,
+		stopCh:             make(chan struct{}),
+		runCtx:             runCtx,
+		runCancel:          runCancel,
 	}
 	if pager, ok := accountRepo.(OAuthRefreshCandidatePager); ok {
 		s.candidatePager = pager
@@ -1457,9 +1459,24 @@ func (s *TokenRefreshService) ensureOpenAIPrivacy(ctx context.Context, account *
 	}
 
 	var proxyURL string
-	if account.ProxyID != nil && s.proxyRepo != nil {
-		if p, err := s.proxyRepo.GetByID(ctx, *account.ProxyID); err == nil && p != nil {
-			proxyURL = p.URL()
+	if account.ProxyIPGroupID != nil {
+		var resolver OpenAIManagementEgressResolver
+		if s.openAIOAuthService != nil {
+			resolver = s.openAIOAuthService.managementEgress
+		}
+		resolved, release, err := acquireOpenAIManagementEgress(ctx, resolver, account)
+		if err != nil || resolved == nil || resolved.Proxy == nil {
+			return
+		}
+		defer release()
+		proxyURL = resolved.Proxy.URL()
+	} else if account.ProxyID != nil {
+		if account.Proxy != nil {
+			proxyURL = account.Proxy.URL()
+		} else if s.proxyRepo != nil {
+			if p, err := s.proxyRepo.GetByID(ctx, *account.ProxyID); err == nil && p != nil {
+				proxyURL = p.URL()
+			}
 		}
 	}
 

@@ -270,7 +270,8 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 		OllamaCloudUsage:          ollamaCloudUsage,
 		OpenCodeGoUsage:           openCodeGoUsage,
 		ProxyID:                   a.ProxyID,
-		ProxyIPGroupID:            a.ProxyIPGroupID,
+		ProxyBindingType:          accountProxyBindingType(a),
+		ProxyBinding:              accountProxyBindingSummary(a),
 		ProxyIPGroup:              ProxyIPGroupFromService(a.ProxyIPGroup),
 		ProxyFallbackOriginID:     a.ProxyFallbackOriginID,
 		ProxyFallbackOriginName:   a.ProxyFallbackOriginName,
@@ -638,7 +639,7 @@ func AccountListItemFromAccount(a *Account) *AccountListItem {
 		ID:                        a.ID, Name: a.Name, Notes: a.Notes, Platform: a.Platform, Type: a.Type,
 		Credentials: a.Credentials, CredentialsStatus: a.CredentialsStatus, Extra: a.Extra,
 		OllamaCloudUsage: a.OllamaCloudUsage, OpenCodeGoUsage: a.OpenCodeGoUsage,
-		ProxyID: a.ProxyID, ProxyIPGroupID: a.ProxyIPGroupID, ProxyIPGroup: a.ProxyIPGroup,
+		ProxyID: a.ProxyID, ProxyBindingType: a.ProxyBindingType, ProxyBinding: a.ProxyBinding, ProxyIPGroup: a.ProxyIPGroup,
 		ProxyFallbackOriginID: a.ProxyFallbackOriginID, ProxyFallbackOriginName: a.ProxyFallbackOriginName,
 		Concurrency: a.Concurrency, RPMLimit: a.RPMLimit, ProbeMinInputTokens: a.ProbeMinInputTokens, LoadFactor: a.LoadFactor, Priority: a.Priority, RateMultiplier: a.RateMultiplier,
 		Status: a.Status, ErrorMessage: a.ErrorMessage, LastUsedAt: a.LastUsedAt, ExpiresAt: a.ExpiresAt,
@@ -729,6 +730,43 @@ func ProxyIPGroupFromService(group *service.ProxyIPGroup) *ProxyIPGroup {
 		Name:             group.Name,
 		PerIPConcurrency: group.PerIPConcurrency,
 		ProxyIDs:         append([]int64(nil), group.ProxyIDs...),
+	}
+}
+
+func accountProxyBindingType(account *service.Account) string {
+	if account == nil {
+		return ""
+	}
+	if account.ProxyIPGroup != nil || account.ProxyIPGroupID != nil {
+		return "proxy_ip_group"
+	}
+	if account.ProxyID != nil {
+		return "proxy"
+	}
+	return ""
+}
+
+func accountProxyBindingSummary(account *service.Account) *ProxyBindingSummary {
+	switch accountProxyBindingType(account) {
+	case "proxy_ip_group":
+		if group := account.ProxyIPGroup; group != nil {
+			id := group.ID
+			return &ProxyBindingSummary{
+				BindingType: "proxy_ip_group", Name: group.Name,
+				ProxyIPGroupID: &id, MemberCount: len(group.ProxyIDs),
+				PerIPConcurrency: group.PerIPConcurrency,
+				ProxyIDs:         append([]int64(nil), group.ProxyIDs...),
+			}
+		}
+		return &ProxyBindingSummary{BindingType: "proxy_ip_group", ProxyIPGroupID: account.ProxyIPGroupID}
+	case "proxy":
+		out := &ProxyBindingSummary{BindingType: "proxy"}
+		if account.Proxy != nil {
+			out.Name = account.Proxy.Name
+		}
+		return out
+	default:
+		return nil
 	}
 }
 

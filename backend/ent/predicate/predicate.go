@@ -87,6 +87,9 @@ type PromoCodeUsage func(*sql.Selector)
 // Proxy is the predicate function for proxy builders.
 type Proxy func(*sql.Selector)
 
+// ProxyBinding is the predicate function for proxybinding builders.
+type ProxyBinding func(*sql.Selector)
+
 // ProxyIPGroup is the predicate function for proxyipgroup builders.
 type ProxyIPGroup func(*sql.Selector)
 

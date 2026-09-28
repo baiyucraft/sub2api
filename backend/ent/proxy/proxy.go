@@ -43,8 +43,6 @@ const (
 	FieldBackupProxyID = "backup_proxy_id"
 	// FieldExpiryWarnDays holds the string denoting the expiry_warn_days field in the database.
 	FieldExpiryWarnDays = "expiry_warn_days"
-	// EdgeAccounts holds the string denoting the accounts edge name in mutations.
-	EdgeAccounts = "accounts"
 	// EdgePrimaryProxies holds the string denoting the primary_proxies edge name in mutations.
 	EdgePrimaryProxies = "primary_proxies"
 	// EdgeBackupProxy holds the string denoting the backup_proxy edge name in mutations.
@@ -55,13 +53,6 @@ const (
 	EdgeProxyIPGroupMembers = "proxy_ip_group_members"
 	// Table holds the table name of the proxy in the database.
 	Table = "proxies"
-	// AccountsTable is the table that holds the accounts relation/edge.
-	AccountsTable = "accounts"
-	// AccountsInverseTable is the table name for the Account entity.
-	// It exists in this package in order to avoid circular dependency with the "account" package.
-	AccountsInverseTable = "accounts"
-	// AccountsColumn is the table column denoting the accounts relation/edge.
-	AccountsColumn = "proxy_id"
 	// PrimaryProxiesTable is the table that holds the primary_proxies relation/edge.
 	PrimaryProxiesTable = "proxies"
 	// PrimaryProxiesColumn is the table column denoting the primary_proxies relation/edge.
@@ -233,20 +224,6 @@ func ByExpiryWarnDays(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldExpiryWarnDays, opts...).ToFunc()
 }
 
-// ByAccountsCount orders the results by accounts count.
-func ByAccountsCount(opts ...sql.OrderTermOption) OrderOption {
-	return func(s *sql.Selector) {
-		sqlgraph.OrderByNeighborsCount(s, newAccountsStep(), opts...)
-	}
-}
-
-// ByAccounts orders the results by accounts terms.
-func ByAccounts(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
-	return func(s *sql.Selector) {
-		sqlgraph.OrderByNeighborTerms(s, newAccountsStep(), append([]sql.OrderTerm{term}, terms...)...)
-	}
-}
-
 // ByPrimaryProxiesCount orders the results by primary_proxies count.
 func ByPrimaryProxiesCount(opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -294,13 +271,6 @@ func ByProxyIPGroupMembers(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOpti
 	return func(s *sql.Selector) {
 		sqlgraph.OrderByNeighborTerms(s, newProxyIPGroupMembersStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
-}
-func newAccountsStep() *sqlgraph.Step {
-	return sqlgraph.NewStep(
-		sqlgraph.From(Table, FieldID),
-		sqlgraph.To(AccountsInverseTable, FieldID),
-		sqlgraph.Edge(sqlgraph.O2M, true, AccountsTable, AccountsColumn),
-	)
 }
 func newPrimaryProxiesStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(

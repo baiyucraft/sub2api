@@ -28,6 +28,8 @@ func (ProxyIPGroup) Fields() []ent.Field {
 	return []ent.Field{
 		field.String("name").MaxLen(100).NotEmpty(),
 		field.Int("per_ip_concurrency").Default(10).Positive(),
+		field.Int64("binding_id").Optional().Nillable().Positive().Unique().
+			Comment("Positive account binding id shared with real proxy bindings."),
 	}
 }
 
@@ -41,6 +43,5 @@ func (ProxyIPGroup) Edges() []ent.Edge {
 	return []ent.Edge{
 		edge.To("proxies", Proxy.Type).
 			Through("members", ProxyIPGroupMember.Type),
-		edge.From("accounts", Account.Type).Ref("proxy_ip_group"),
 	}
 }
