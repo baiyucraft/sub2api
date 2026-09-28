@@ -627,12 +627,12 @@ const handleClickOutside = () => {
 if (typeof document !== 'undefined') {
   document.addEventListener('click', handleClickOutside)
 }
-
 if (typeof window !== 'undefined') {
   previewClock = setInterval(() => { previewNow.value = Date.now() }, 60_000)
 }
 
 onUnmounted(() => {
+  clearTimeout(searchTimeout)
   if (previewClock) {
     clearInterval(previewClock)
     previewClock = null
