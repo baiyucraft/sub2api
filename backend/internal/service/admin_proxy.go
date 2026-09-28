@@ -93,8 +93,26 @@ const (
 )
 
 func validateAdminRealProxyID(id int64) error {
-	if id < 0 {
-		return infraerrors.BadRequest("PROXY_IP_GROUP_VIRTUAL_OPERATION_UNSUPPORTED", "virtual proxy-group IDs are only valid for account binding")
+	if id <= 0 {
+		return infraerrors.BadRequest("PROXY_IP_GROUP_VIRTUAL_OPERATION_UNSUPPORTED", "a positive real proxy ID is required")
+	}
+	return nil
+}
+
+func (s *adminServiceImpl) requireRealProxyBinding(ctx context.Context, id int64) error {
+	if err := validateAdminRealProxyID(id); err != nil {
+		return err
+	}
+	// Legacy narrow unit services do not configure groups. Production services do.
+	if s.proxyIPGroupRepo == nil {
+		return nil
+	}
+	binding, err := s.resolveAdminProxyBinding(ctx, id)
+	if err != nil {
+		return err
+	}
+	if binding.kind != proxyBindingTypeProxy {
+		return infraerrors.BadRequest("PROXY_IP_GROUP_VIRTUAL_OPERATION_UNSUPPORTED", "proxy-group bindings cannot be managed as real proxies")
 	}
 	return nil
 }
@@ -193,6 +211,9 @@ func (s *adminServiceImpl) listNativeProxyBindingsWithAccountCount(ctx context.C
 	}
 	now := time.Now()
 	for _, group := range groups {
+		if group.BindingID <= 0 {
+			return nil, ErrProxyBindingNotFound
+		}
 		if !matchesProxyBindingFilter(group.Name, proxyGroupProtocol, groupBindingStatus(group, proxyByID, now), protocol, status, search) {
 			continue
 		}
@@ -204,9 +225,8 @@ func (s *adminServiceImpl) listNativeProxyBindingsWithAccountCount(ctx context.C
 			}
 		}
 		groupID := group.ID
-		virtualID := -group.ID
 		item := ProxyWithAccountCount{Proxy: Proxy{
-			ID: virtualID, Name: group.Name, Protocol: proxyGroupProtocol,
+			ID: group.BindingID, Name: group.Name, Protocol: proxyGroupProtocol,
 			Status: groupBindingStatus(group, proxyByID, now), BindingType: proxyBindingTypeProxyIPGroup,
 			ProxyIPGroupID: &groupID, MemberCount: len(group.ProxyIDs),
 			AvailableMemberCount: available, PerIPConcurrency: group.PerIPConcurrency,
@@ -291,7 +311,7 @@ func sortProxyBindings(items []ProxyWithAccountCount, sortBy, sortOrder string) 
 }
 
 func (s *adminServiceImpl) GetProxy(ctx context.Context, id int64) (*Proxy, error) {
-	if err := validateAdminRealProxyID(id); err != nil {
+	if err := s.requireRealProxyBinding(ctx, id); err != nil {
 		return nil, err
 	}
 	return s.proxyRepo.GetByID(ctx, id)
@@ -299,7 +319,7 @@ func (s *adminServiceImpl) GetProxy(ctx context.Context, id int64) (*Proxy, erro
 
 func (s *adminServiceImpl) GetProxiesByIDs(ctx context.Context, ids []int64) ([]Proxy, error) {
 	for _, id := range ids {
-		if err := validateAdminRealProxyID(id); err != nil {
+		if err := s.requireRealProxyBinding(ctx, id); err != nil {
 			return nil, err
 		}
 	}
@@ -318,6 +338,11 @@ func (s *adminServiceImpl) CreateProxy(ctx context.Context, input *CreateProxyIn
 	// 校验：mode=proxy 必须有 backup
 	if mode == FallbackModeProxy && input.BackupProxyID == nil {
 		return nil, infraerrors.BadRequest("PROXY_BACKUP_REQUIRED", "backup proxy required when fallback_mode=proxy")
+	}
+	if input.BackupProxyID != nil {
+		if err := s.requireRealProxyBinding(ctx, *input.BackupProxyID); err != nil {
+			return nil, err
+		}
 	}
 	if input.ExpiryWarnDays < 0 {
 		return nil, infraerrors.BadRequest("PROXY_WARN_DAYS_INVALID", "expiry_warn_days must be >= 0")
@@ -345,7 +370,7 @@ func (s *adminServiceImpl) CreateProxy(ctx context.Context, input *CreateProxyIn
 }
 
 func (s *adminServiceImpl) UpdateProxy(ctx context.Context, id int64, input *UpdateProxyInput) (*Proxy, error) {
-	if err := validateAdminRealProxyID(id); err != nil {
+	if err := s.requireRealProxyBinding(ctx, id); err != nil {
 		return nil, err
 	}
 	if !isJSONTimeInRange(input.ExpiresAt) {
@@ -354,6 +379,11 @@ func (s *adminServiceImpl) UpdateProxy(ctx context.Context, id int64, input *Upd
 	// 校验：backup_proxy_id 不能是自身
 	if input.BackupProxyID != nil && *input.BackupProxyID == id {
 		return nil, infraerrors.BadRequest("PROXY_BACKUP_SELF", "backup proxy cannot be itself")
+	}
+	if input.BackupProxyID != nil {
+		if err := s.requireRealProxyBinding(ctx, *input.BackupProxyID); err != nil {
+			return nil, err
+		}
 	}
 	proxy, err := s.proxyRepo.GetByID(ctx, id)
 	if err != nil {
@@ -413,7 +443,7 @@ func (s *adminServiceImpl) UpdateProxy(ctx context.Context, id int64, input *Upd
 }
 
 func (s *adminServiceImpl) DeleteProxy(ctx context.Context, id int64) error {
-	if err := validateAdminRealProxyID(id); err != nil {
+	if err := s.requireRealProxyBinding(ctx, id); err != nil {
 		return err
 	}
 	count, err := s.proxyRepo.CountAccountsByProxyID(ctx, id)
@@ -433,7 +463,7 @@ func (s *adminServiceImpl) BatchDeleteProxies(ctx context.Context, ids []int64) 
 	}
 
 	for _, id := range ids {
-		if err := validateAdminRealProxyID(id); err != nil {
+		if err := s.requireRealProxyBinding(ctx, id); err != nil {
 			result.Skipped = append(result.Skipped, ProxyBatchDeleteSkipped{
 				ID:     id,
 				Reason: infraerrors.Message(err),
@@ -469,7 +499,7 @@ func (s *adminServiceImpl) BatchDeleteProxies(ctx context.Context, ids []int64) 
 }
 
 func (s *adminServiceImpl) GetProxyAccounts(ctx context.Context, proxyID int64) ([]ProxyAccountSummary, error) {
-	if err := validateAdminRealProxyID(proxyID); err != nil {
+	if err := s.requireRealProxyBinding(ctx, proxyID); err != nil {
 		return nil, err
 	}
 	return s.proxyRepo.ListAccountSummariesByProxyID(ctx, proxyID)
@@ -480,7 +510,7 @@ func (s *adminServiceImpl) CheckProxyExists(ctx context.Context, host string, po
 }
 
 func (s *adminServiceImpl) TestProxy(ctx context.Context, id int64) (*ProxyTestResult, error) {
-	if err := validateAdminRealProxyID(id); err != nil {
+	if err := s.requireRealProxyBinding(ctx, id); err != nil {
 		return nil, err
 	}
 	proxy, err := s.proxyRepo.GetByID(ctx, id)
@@ -527,7 +557,7 @@ func (s *adminServiceImpl) TestProxy(ctx context.Context, id int64) (*ProxyTestR
 }
 
 func (s *adminServiceImpl) CheckProxyQuality(ctx context.Context, id int64) (*ProxyQualityCheckResult, error) {
-	if err := validateAdminRealProxyID(id); err != nil {
+	if err := s.requireRealProxyBinding(ctx, id); err != nil {
 		return nil, err
 	}
 	proxy, err := s.proxyRepo.GetByID(ctx, id)
@@ -829,7 +859,7 @@ func (s *adminServiceImpl) attachProxyLatency(ctx context.Context, proxies []Pro
 
 	ids := make([]int64, 0, len(proxies))
 	for i := range proxies {
-		if proxies[i].ID > 0 {
+		if proxies[i].ID > 0 && proxies[i].BindingType != proxyBindingTypeProxyIPGroup {
 			ids = append(ids, proxies[i].ID)
 		}
 	}
@@ -844,6 +874,9 @@ func (s *adminServiceImpl) attachProxyLatency(ctx context.Context, proxies []Pro
 	}
 
 	for i := range proxies {
+		if proxies[i].BindingType == proxyBindingTypeProxyIPGroup {
+			continue
+		}
 		info := latencies[proxies[i].ID]
 		if info == nil {
 			continue

@@ -786,7 +786,24 @@ PROFILES["256"] = {
     },
 }
 
-CURRENT_RELEASE_PROFILE = "256"
+# Profile 256 remains intact. The available local, VM, production and backup
+# evidence does not prove it was never signed or referenced, so migration 284
+# is assigned to the next profile. Its checksum is bound only after the final
+# SQL bytes have been committed to the candidate.
+PROFILES["257"] = {
+    **{key: PROFILES["256"][key] for key in _PROFILE_V2_RUNTIME_KEYS},
+    "name": "257",
+    "version": "0.2.9-baiyu",
+    "parent": "256",
+    "new_migrations": ["284_unified_proxy_bindings.sql"],
+    "gate_schema": 2,
+    "release_policy": {
+        "compatibility_image": "production_current",
+        "migration_source": "database_state",
+    },
+}
+
+CURRENT_RELEASE_PROFILE = "257"
 
 
 def get_profile(name: str) -> dict:

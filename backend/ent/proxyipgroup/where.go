@@ -80,6 +80,11 @@ func PerIPConcurrency(v int) predicate.ProxyIPGroup {
 	return predicate.ProxyIPGroup(sql.FieldEQ(FieldPerIPConcurrency, v))
 }
 
+// BindingID applies equality check predicate on the "binding_id" field. It's identical to BindingIDEQ.
+func BindingID(v int64) predicate.ProxyIPGroup {
+	return predicate.ProxyIPGroup(sql.FieldEQ(FieldBindingID, v))
+}
+
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.ProxyIPGroup {
 	return predicate.ProxyIPGroup(sql.FieldEQ(FieldCreatedAt, v))
@@ -315,6 +320,56 @@ func PerIPConcurrencyLTE(v int) predicate.ProxyIPGroup {
 	return predicate.ProxyIPGroup(sql.FieldLTE(FieldPerIPConcurrency, v))
 }
 
+// BindingIDEQ applies the EQ predicate on the "binding_id" field.
+func BindingIDEQ(v int64) predicate.ProxyIPGroup {
+	return predicate.ProxyIPGroup(sql.FieldEQ(FieldBindingID, v))
+}
+
+// BindingIDNEQ applies the NEQ predicate on the "binding_id" field.
+func BindingIDNEQ(v int64) predicate.ProxyIPGroup {
+	return predicate.ProxyIPGroup(sql.FieldNEQ(FieldBindingID, v))
+}
+
+// BindingIDIn applies the In predicate on the "binding_id" field.
+func BindingIDIn(vs ...int64) predicate.ProxyIPGroup {
+	return predicate.ProxyIPGroup(sql.FieldIn(FieldBindingID, vs...))
+}
+
+// BindingIDNotIn applies the NotIn predicate on the "binding_id" field.
+func BindingIDNotIn(vs ...int64) predicate.ProxyIPGroup {
+	return predicate.ProxyIPGroup(sql.FieldNotIn(FieldBindingID, vs...))
+}
+
+// BindingIDGT applies the GT predicate on the "binding_id" field.
+func BindingIDGT(v int64) predicate.ProxyIPGroup {
+	return predicate.ProxyIPGroup(sql.FieldGT(FieldBindingID, v))
+}
+
+// BindingIDGTE applies the GTE predicate on the "binding_id" field.
+func BindingIDGTE(v int64) predicate.ProxyIPGroup {
+	return predicate.ProxyIPGroup(sql.FieldGTE(FieldBindingID, v))
+}
+
+// BindingIDLT applies the LT predicate on the "binding_id" field.
+func BindingIDLT(v int64) predicate.ProxyIPGroup {
+	return predicate.ProxyIPGroup(sql.FieldLT(FieldBindingID, v))
+}
+
+// BindingIDLTE applies the LTE predicate on the "binding_id" field.
+func BindingIDLTE(v int64) predicate.ProxyIPGroup {
+	return predicate.ProxyIPGroup(sql.FieldLTE(FieldBindingID, v))
+}
+
+// BindingIDIsNil applies the IsNil predicate on the "binding_id" field.
+func BindingIDIsNil() predicate.ProxyIPGroup {
+	return predicate.ProxyIPGroup(sql.FieldIsNull(FieldBindingID))
+}
+
+// BindingIDNotNil applies the NotNil predicate on the "binding_id" field.
+func BindingIDNotNil() predicate.ProxyIPGroup {
+	return predicate.ProxyIPGroup(sql.FieldNotNull(FieldBindingID))
+}
+
 // HasProxies applies the HasEdge predicate on the "proxies" edge.
 func HasProxies() predicate.ProxyIPGroup {
 	return predicate.ProxyIPGroup(func(s *sql.Selector) {
@@ -330,29 +385,6 @@ func HasProxies() predicate.ProxyIPGroup {
 func HasProxiesWith(preds ...predicate.Proxy) predicate.ProxyIPGroup {
 	return predicate.ProxyIPGroup(func(s *sql.Selector) {
 		step := newProxiesStep()
-		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
-			for _, p := range preds {
-				p(s)
-			}
-		})
-	})
-}
-
-// HasAccounts applies the HasEdge predicate on the "accounts" edge.
-func HasAccounts() predicate.ProxyIPGroup {
-	return predicate.ProxyIPGroup(func(s *sql.Selector) {
-		step := sqlgraph.NewStep(
-			sqlgraph.From(Table, FieldID),
-			sqlgraph.Edge(sqlgraph.O2M, true, AccountsTable, AccountsColumn),
-		)
-		sqlgraph.HasNeighbors(s, step)
-	})
-}
-
-// HasAccountsWith applies the HasEdge predicate on the "accounts" edge with a given conditions (other predicates).
-func HasAccountsWith(preds ...predicate.Account) predicate.ProxyIPGroup {
-	return predicate.ProxyIPGroup(func(s *sql.Selector) {
-		step := newAccountsStep()
 		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
 			for _, p := range preds {
 				p(s)

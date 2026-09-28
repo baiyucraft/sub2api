@@ -19,6 +19,7 @@ var (
 // ProxyIDs preserves the configured member order.
 type ProxyIPGroup struct {
 	ID               int64
+	BindingID        int64
 	Name             string
 	PerIPConcurrency int
 	ProxyIDs         []int64

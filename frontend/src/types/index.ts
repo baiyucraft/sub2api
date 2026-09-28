@@ -1047,12 +1047,13 @@ export interface Proxy {
   updated_at: string
 }
 
-/** Virtual row returned alongside real proxies by mixed proxy list endpoints. */
+/** Proxy-group binding row returned alongside real proxies with a positive binding ID. */
 export interface ProxyIPGroupVirtual {
   id: number
   name: string
   binding_type: 'proxy_ip_group'
   proxy_ip_group_id: number
+  account_count?: number
   protocol?: 'proxy_ip_group'
   host?: string
   port?: number
@@ -1063,6 +1064,16 @@ export interface ProxyIPGroupVirtual {
 }
 
 export type ProxyListItem = Proxy | ProxyIPGroupVirtual
+
+export interface ProxyBindingSummary {
+  binding_type: 'proxy' | 'proxy_ip_group'
+  name?: string
+  proxy_ip_group_id?: number
+  member_count?: number
+  available_member_count?: number
+  per_ip_concurrency?: number
+  proxy_ids?: number[]
+}
 
 export interface ProxyIPGroupSummary {
   id: number
@@ -1442,7 +1453,11 @@ export interface Account {
     }
   } & Record<string, unknown>)
   proxy_id: number | null
+  proxy_binding_type?: 'proxy' | 'proxy_ip_group' | null
+  proxy_binding?: ProxyBindingSummary | null
+  /** @deprecated Read-only compatibility for older server responses. Never submit. */
   proxy_ip_group_id?: number | null
+  /** @deprecated Read-only compatibility for older server responses. */
   proxy_ip_group?: ProxyIPGroupSummary | null
   proxy_concurrency?: ProxyConcurrencyInfo[]
   upstream_config_id?: number | null
@@ -1889,7 +1904,6 @@ export interface CreateAccountRequest {
   upstream_config_id?: number | null
   upstream_key_id?: number | null
   proxy_id?: number | null
-  proxy_ip_group_id?: number | null
   concurrency?: number
   rpm_limit?: number
   probe_min_input_tokens?: number
@@ -1913,7 +1927,6 @@ export interface UpdateAccountRequest {
   upstream_config_id?: number | null
   upstream_key_id?: number | null
   proxy_id?: number | null
-  proxy_ip_group_id?: number | null
   concurrency?: number
   rpm_limit?: number
   probe_min_input_tokens?: number
@@ -2049,7 +2062,6 @@ export interface CodexSessionImportRequest {
   group_ids?: number[]
   preferred_group_ids?: number[]
   proxy_id?: number | null
-  proxy_ip_group_id?: number | null
   concurrency?: number
   priority?: number
   rate_multiplier?: number
@@ -2070,7 +2082,6 @@ export interface OpenAICodexPATCreateRequest {
   group_ids?: number[]
   preferred_group_ids?: number[]
   proxy_id?: number | null
-  proxy_ip_group_id?: number | null
   concurrency?: number
   priority?: number
   rate_multiplier?: number

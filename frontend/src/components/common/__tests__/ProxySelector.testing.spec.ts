@@ -26,7 +26,7 @@ async function openMixedSelector() {
       modelValue: null,
       proxies: [
         { id: 1, name: 'Real proxy', host: 'localhost', port: 8080, protocol: 'http' },
-        { id: -9, name: 'Group proxy', binding_type: 'proxy_ip_group', proxy_ip_group_id: 9 },
+        { id: 9, name: 'Group proxy', binding_type: 'proxy_ip_group', proxy_ip_group_id: 90, member_count: 2, per_ip_concurrency: 10 },
       ],
     },
     global: { stubs: { Icon: true } },
@@ -46,6 +46,17 @@ describe('proxy connection tests', () => {
     await flushPromises()
     expect(testProxy).toHaveBeenCalledTimes(1)
     expect(testProxy).toHaveBeenCalledWith(1)
+  })
+
+  it('selects a positive group binding without invoking a real proxy test', async () => {
+    const wrapper = await openMixedSelector()
+    await wrapper.setProps({ includeGroups: true })
+    expect(wrapper.text()).toContain('Group proxy')
+    const option = wrapper.findAll('.select-option').find(item => item.text().includes('Group proxy'))
+    expect(option).toBeDefined()
+    await option!.trigger('click')
+    expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual([9])
+    expect(testProxy).not.toHaveBeenCalled()
   })
 
   it('does not restart an individual test when a batch is started', async () => {

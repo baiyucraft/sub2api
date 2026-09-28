@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -566,7 +565,6 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 		Credentials:         input.Credentials,
 		Extra:               accountExtra,
 		ProxyID:             input.ProxyID,
-		ProxyIPGroupID:      input.ProxyIPGroupID,
 		UpstreamConfigID:    input.UpstreamConfigID,
 		UpstreamKeyID:       input.UpstreamKeyID,
 		Concurrency:         normalizeAccountConcurrency(input.Platform, input.Type, input.Concurrency),
@@ -625,29 +623,29 @@ func (s *adminServiceImpl) validateOpenAIProxyGroupBinding(ctx context.Context, 
 	if account == nil {
 		return errors.New("account is required")
 	}
-	if account.ProxyID != nil && *account.ProxyID <= 0 {
+	if account.ProxyID == nil || *account.ProxyID == 0 {
 		account.ProxyID = nil
-	}
-	if account.ProxyIPGroupID != nil && *account.ProxyIPGroupID <= 0 {
 		account.ProxyIPGroupID = nil
-	}
-	if account.ProxyID != nil && account.ProxyIPGroupID != nil {
-		return infraerrors.BadRequest("ACCOUNT_PROXY_BINDING_CONFLICT", "proxy_id and proxy_ip_group_id are mutually exclusive")
-	}
-	if account.ProxyIPGroupID == nil {
+		account.ProxyIPGroup = nil
 		return nil
 	}
-	if !account.IsOpenAIOAuthLike() {
-		return proxyIPGroupAccountTypeError()
+	binding, err := s.resolveAdminProxyBinding(ctx, *account.ProxyID)
+	if err != nil {
+		return err
 	}
-	if s == nil || s.entClient == nil {
-		return errors.New("proxy IP group repository is unavailable")
-	}
-	if _, err := s.entClient.ProxyIPGroup.Get(ctx, *account.ProxyIPGroupID); err != nil {
-		if dbent.IsNotFound(err) {
-			return ErrProxyIPGroupNotFound
+	account.ProxyIPGroupID = nil
+	account.ProxyIPGroup = nil
+	if binding.kind == proxyBindingTypeProxyIPGroup {
+		if !account.IsOpenAIOAuthLike() {
+			return proxyIPGroupAccountTypeError()
 		}
-		return fmt.Errorf("get proxy IP group: %w", err)
+		groupID := binding.groupID
+		account.ProxyIPGroupID = &groupID
+		group, err := s.proxyIPGroupRepo.GetByID(ctx, groupID)
+		if err != nil {
+			return err
+		}
+		account.ProxyIPGroup = group
 	}
 	return nil
 }
@@ -656,7 +654,7 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	if input == nil {
 		return nil, errors.New("account create input is required")
 	}
-	if err := normalizeAdminProxyBinding(&input.ProxyID, &input.ProxyIPGroupID); err != nil {
+	if err := s.normalizeAdminProxyBinding(ctx, &input.ProxyID, &input.ProxyIPGroupID); err != nil {
 		return nil, err
 	}
 	if input.PreferredGroupIDs != nil {
@@ -671,14 +669,6 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	}
 	if input.ProxyID != nil && *input.ProxyID == 0 {
 		input.ProxyID = nil
-	}
-	if input.ProxyIPGroupID != nil && *input.ProxyIPGroupID <= 0 {
-		input.ProxyIPGroupID = nil
-	}
-	if err := s.validateOpenAIProxyGroupBinding(ctx, &Account{
-		Platform: input.Platform, Type: input.Type, ProxyID: input.ProxyID, ProxyIPGroupID: input.ProxyIPGroupID,
-	}); err != nil {
-		return nil, err
 	}
 	if trimUpstreamNameWhitespace(input.Name) == "" {
 		return nil, infraerrors.BadRequest("ACCOUNT_NAME_REQUIRED", "account name is required")
@@ -728,6 +718,9 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 
 	account, err := buildAccountForCreate(input, accountExtra)
 	if err != nil {
+		return nil, err
+	}
+	if err := s.validateOpenAIProxyGroupBinding(ctx, account); err != nil {
 		return nil, err
 	}
 	if err := s.ValidateAccountGroupBindings(ctx, groupIDs); err != nil {
@@ -803,7 +796,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	if input == nil {
 		return nil, errors.New("account update input is required")
 	}
-	if err := normalizeAdminProxyBinding(&input.ProxyID, &input.ProxyIPGroupID); err != nil {
+	if err := s.normalizeAdminProxyBinding(ctx, &input.ProxyID, &input.ProxyIPGroupID); err != nil {
 		return nil, err
 	}
 	if err := normalizeAdminAccountGroupSelection(input.GroupIDs, input.PreferredGroupIDs); err != nil {
@@ -1041,23 +1034,14 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 			account.ProxyID = nil
 		} else {
 			account.ProxyID = input.ProxyID
-			account.ProxyIPGroupID = nil
-			account.ProxyIPGroup = nil
 		}
-		account.Proxy = nil // 清除关联对象，防止 GORM Save 时根据 Proxy.ID 覆盖 ProxyID
-	}
-	if input.ProxyIPGroupID != nil && !account.IsCredentialShadow() {
-		if *input.ProxyIPGroupID <= 0 {
-			account.ProxyIPGroupID = nil
-		} else {
-			account.ProxyIPGroupID = input.ProxyIPGroupID
-			account.ProxyID = nil
-			account.Proxy = nil
-		}
+		account.Proxy = nil
 		account.ProxyIPGroup = nil
 	}
-	if err := s.validateOpenAIProxyGroupBinding(ctx, account); err != nil {
-		return nil, err
+	if (input.ProxyID != nil || input.Type != "") && !account.IsCredentialShadow() {
+		if err := s.validateOpenAIProxyGroupBinding(ctx, account); err != nil {
+			return nil, err
+		}
 	}
 	if input.UpstreamConfigID != nil {
 		if *input.UpstreamConfigID == 0 {
@@ -2246,11 +2230,9 @@ func (s *adminServiceImpl) EnsureOpenAIPrivacy(ctx context.Context, account *Acc
 		return ""
 	}
 
-	var proxyURL string
-	if account.ProxyID != nil {
-		if p, err := s.proxyRepo.GetByID(ctx, *account.ProxyID); err == nil && p != nil {
-			proxyURL = p.URL()
-		}
+	proxyURL, available := s.openAIPrivacyProxyURL(ctx, account)
+	if !available {
+		return ""
 	}
 
 	mode := disableOpenAITraining(ctx, s.privacyClientFactory, token, proxyURL)
@@ -2280,11 +2262,9 @@ func (s *adminServiceImpl) ForceOpenAIPrivacy(ctx context.Context, account *Acco
 		return ""
 	}
 
-	var proxyURL string
-	if account.ProxyID != nil {
-		if p, err := s.proxyRepo.GetByID(ctx, *account.ProxyID); err == nil && p != nil {
-			proxyURL = p.URL()
-		}
+	proxyURL, available := s.openAIPrivacyProxyURL(ctx, account)
+	if !available {
+		return ""
 	}
 
 	mode := disableOpenAITraining(ctx, s.privacyClientFactory, token, proxyURL)
@@ -2301,6 +2281,46 @@ func (s *adminServiceImpl) ForceOpenAIPrivacy(ctx context.Context, account *Acco
 	}
 	account.Extra["privacy_mode"] = mode
 	return mode
+}
+
+// A stored proxy_id can be a group binding ID. Never treat a missing group
+// member as permission to issue the privacy request directly.
+func (s *adminServiceImpl) openAIPrivacyProxyURL(ctx context.Context, account *Account) (string, bool) {
+	if account == nil || account.ProxyID == nil {
+		return "", true
+	}
+	if account.ProxyIPGroupID != nil {
+		group := account.ProxyIPGroup
+		if group == nil {
+			if s.proxyIPGroupRepo == nil {
+				return "", false
+			}
+			var err error
+			group, err = s.proxyIPGroupRepo.GetByID(ctx, *account.ProxyIPGroupID)
+			if err != nil {
+				return "", false
+			}
+		}
+		proxies, err := s.proxyRepo.ListByIDs(ctx, group.ProxyIDs)
+		if err != nil {
+			return "", false
+		}
+		for _, proxy := range usableProxyGroupMembers(proxies, time.Now()) {
+			return proxy.URL(), true
+		}
+		return "", false
+	}
+	if account.Proxy != nil {
+		if !account.Proxy.IsActive() || account.Proxy.IsExpired(time.Now()) {
+			return "", false
+		}
+		return account.Proxy.URL(), true
+	}
+	proxy, err := s.proxyRepo.GetByID(ctx, *account.ProxyID)
+	if err != nil || proxy == nil || !proxy.IsActive() || proxy.IsExpired(time.Now()) {
+		return "", false
+	}
+	return proxy.URL(), true
 }
 
 // EnsureAntigravityPrivacy 检查 Antigravity OAuth 账号隐私状态。

@@ -11,7 +11,6 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
-	"github.com/Wei-Shaw/sub2api/ent/account"
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
 	"github.com/Wei-Shaw/sub2api/ent/proxy"
 	"github.com/Wei-Shaw/sub2api/ent/proxyipgroup"
@@ -91,6 +90,33 @@ func (_u *ProxyIPGroupUpdate) AddPerIPConcurrency(v int) *ProxyIPGroupUpdate {
 	return _u
 }
 
+// SetBindingID sets the "binding_id" field.
+func (_u *ProxyIPGroupUpdate) SetBindingID(v int64) *ProxyIPGroupUpdate {
+	_u.mutation.ResetBindingID()
+	_u.mutation.SetBindingID(v)
+	return _u
+}
+
+// SetNillableBindingID sets the "binding_id" field if the given value is not nil.
+func (_u *ProxyIPGroupUpdate) SetNillableBindingID(v *int64) *ProxyIPGroupUpdate {
+	if v != nil {
+		_u.SetBindingID(*v)
+	}
+	return _u
+}
+
+// AddBindingID adds value to the "binding_id" field.
+func (_u *ProxyIPGroupUpdate) AddBindingID(v int64) *ProxyIPGroupUpdate {
+	_u.mutation.AddBindingID(v)
+	return _u
+}
+
+// ClearBindingID clears the value of the "binding_id" field.
+func (_u *ProxyIPGroupUpdate) ClearBindingID() *ProxyIPGroupUpdate {
+	_u.mutation.ClearBindingID()
+	return _u
+}
+
 // AddProxyIDs adds the "proxies" edge to the Proxy entity by IDs.
 func (_u *ProxyIPGroupUpdate) AddProxyIDs(ids ...int64) *ProxyIPGroupUpdate {
 	_u.mutation.AddProxyIDs(ids...)
@@ -104,21 +130,6 @@ func (_u *ProxyIPGroupUpdate) AddProxies(v ...*Proxy) *ProxyIPGroupUpdate {
 		ids[i] = v[i].ID
 	}
 	return _u.AddProxyIDs(ids...)
-}
-
-// AddAccountIDs adds the "accounts" edge to the Account entity by IDs.
-func (_u *ProxyIPGroupUpdate) AddAccountIDs(ids ...int64) *ProxyIPGroupUpdate {
-	_u.mutation.AddAccountIDs(ids...)
-	return _u
-}
-
-// AddAccounts adds the "accounts" edges to the Account entity.
-func (_u *ProxyIPGroupUpdate) AddAccounts(v ...*Account) *ProxyIPGroupUpdate {
-	ids := make([]int64, len(v))
-	for i := range v {
-		ids[i] = v[i].ID
-	}
-	return _u.AddAccountIDs(ids...)
 }
 
 // Mutation returns the ProxyIPGroupMutation object of the builder.
@@ -145,27 +156,6 @@ func (_u *ProxyIPGroupUpdate) RemoveProxies(v ...*Proxy) *ProxyIPGroupUpdate {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveProxyIDs(ids...)
-}
-
-// ClearAccounts clears all "accounts" edges to the Account entity.
-func (_u *ProxyIPGroupUpdate) ClearAccounts() *ProxyIPGroupUpdate {
-	_u.mutation.ClearAccounts()
-	return _u
-}
-
-// RemoveAccountIDs removes the "accounts" edge to Account entities by IDs.
-func (_u *ProxyIPGroupUpdate) RemoveAccountIDs(ids ...int64) *ProxyIPGroupUpdate {
-	_u.mutation.RemoveAccountIDs(ids...)
-	return _u
-}
-
-// RemoveAccounts removes "accounts" edges to Account entities.
-func (_u *ProxyIPGroupUpdate) RemoveAccounts(v ...*Account) *ProxyIPGroupUpdate {
-	ids := make([]int64, len(v))
-	for i := range v {
-		ids[i] = v[i].ID
-	}
-	return _u.RemoveAccountIDs(ids...)
 }
 
 // Save executes the query and returns the number of nodes affected by the update operation.
@@ -222,6 +212,11 @@ func (_u *ProxyIPGroupUpdate) check() error {
 			return &ValidationError{Name: "per_ip_concurrency", err: fmt.Errorf(`ent: validator failed for field "ProxyIPGroup.per_ip_concurrency": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.BindingID(); ok {
+		if err := proxyipgroup.BindingIDValidator(v); err != nil {
+			return &ValidationError{Name: "binding_id", err: fmt.Errorf(`ent: validator failed for field "ProxyIPGroup.binding_id": %w`, err)}
+		}
+	}
 	return nil
 }
 
@@ -254,6 +249,15 @@ func (_u *ProxyIPGroupUpdate) sqlSave(ctx context.Context) (_node int, err error
 	}
 	if value, ok := _u.mutation.AddedPerIPConcurrency(); ok {
 		_spec.AddField(proxyipgroup.FieldPerIPConcurrency, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.BindingID(); ok {
+		_spec.SetField(proxyipgroup.FieldBindingID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedBindingID(); ok {
+		_spec.AddField(proxyipgroup.FieldBindingID, field.TypeInt64, value)
+	}
+	if _u.mutation.BindingIDCleared() {
+		_spec.ClearField(proxyipgroup.FieldBindingID, field.TypeInt64)
 	}
 	if _u.mutation.ProxiesCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -310,51 +314,6 @@ func (_u *ProxyIPGroupUpdate) sqlSave(ctx context.Context) (_node int, err error
 		createE.defaults()
 		_, specE := createE.createSpec()
 		edge.Target.Fields = specE.Fields
-		_spec.Edges.Add = append(_spec.Edges.Add, edge)
-	}
-	if _u.mutation.AccountsCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: true,
-			Table:   proxyipgroup.AccountsTable,
-			Columns: []string{proxyipgroup.AccountsColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(account.FieldID, field.TypeInt64),
-			},
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := _u.mutation.RemovedAccountsIDs(); len(nodes) > 0 && !_u.mutation.AccountsCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: true,
-			Table:   proxyipgroup.AccountsTable,
-			Columns: []string{proxyipgroup.AccountsColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(account.FieldID, field.TypeInt64),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := _u.mutation.AccountsIDs(); len(nodes) > 0 {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: true,
-			Table:   proxyipgroup.AccountsTable,
-			Columns: []string{proxyipgroup.AccountsColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(account.FieldID, field.TypeInt64),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
@@ -438,6 +397,33 @@ func (_u *ProxyIPGroupUpdateOne) AddPerIPConcurrency(v int) *ProxyIPGroupUpdateO
 	return _u
 }
 
+// SetBindingID sets the "binding_id" field.
+func (_u *ProxyIPGroupUpdateOne) SetBindingID(v int64) *ProxyIPGroupUpdateOne {
+	_u.mutation.ResetBindingID()
+	_u.mutation.SetBindingID(v)
+	return _u
+}
+
+// SetNillableBindingID sets the "binding_id" field if the given value is not nil.
+func (_u *ProxyIPGroupUpdateOne) SetNillableBindingID(v *int64) *ProxyIPGroupUpdateOne {
+	if v != nil {
+		_u.SetBindingID(*v)
+	}
+	return _u
+}
+
+// AddBindingID adds value to the "binding_id" field.
+func (_u *ProxyIPGroupUpdateOne) AddBindingID(v int64) *ProxyIPGroupUpdateOne {
+	_u.mutation.AddBindingID(v)
+	return _u
+}
+
+// ClearBindingID clears the value of the "binding_id" field.
+func (_u *ProxyIPGroupUpdateOne) ClearBindingID() *ProxyIPGroupUpdateOne {
+	_u.mutation.ClearBindingID()
+	return _u
+}
+
 // AddProxyIDs adds the "proxies" edge to the Proxy entity by IDs.
 func (_u *ProxyIPGroupUpdateOne) AddProxyIDs(ids ...int64) *ProxyIPGroupUpdateOne {
 	_u.mutation.AddProxyIDs(ids...)
@@ -451,21 +437,6 @@ func (_u *ProxyIPGroupUpdateOne) AddProxies(v ...*Proxy) *ProxyIPGroupUpdateOne 
 		ids[i] = v[i].ID
 	}
 	return _u.AddProxyIDs(ids...)
-}
-
-// AddAccountIDs adds the "accounts" edge to the Account entity by IDs.
-func (_u *ProxyIPGroupUpdateOne) AddAccountIDs(ids ...int64) *ProxyIPGroupUpdateOne {
-	_u.mutation.AddAccountIDs(ids...)
-	return _u
-}
-
-// AddAccounts adds the "accounts" edges to the Account entity.
-func (_u *ProxyIPGroupUpdateOne) AddAccounts(v ...*Account) *ProxyIPGroupUpdateOne {
-	ids := make([]int64, len(v))
-	for i := range v {
-		ids[i] = v[i].ID
-	}
-	return _u.AddAccountIDs(ids...)
 }
 
 // Mutation returns the ProxyIPGroupMutation object of the builder.
@@ -492,27 +463,6 @@ func (_u *ProxyIPGroupUpdateOne) RemoveProxies(v ...*Proxy) *ProxyIPGroupUpdateO
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveProxyIDs(ids...)
-}
-
-// ClearAccounts clears all "accounts" edges to the Account entity.
-func (_u *ProxyIPGroupUpdateOne) ClearAccounts() *ProxyIPGroupUpdateOne {
-	_u.mutation.ClearAccounts()
-	return _u
-}
-
-// RemoveAccountIDs removes the "accounts" edge to Account entities by IDs.
-func (_u *ProxyIPGroupUpdateOne) RemoveAccountIDs(ids ...int64) *ProxyIPGroupUpdateOne {
-	_u.mutation.RemoveAccountIDs(ids...)
-	return _u
-}
-
-// RemoveAccounts removes "accounts" edges to Account entities.
-func (_u *ProxyIPGroupUpdateOne) RemoveAccounts(v ...*Account) *ProxyIPGroupUpdateOne {
-	ids := make([]int64, len(v))
-	for i := range v {
-		ids[i] = v[i].ID
-	}
-	return _u.RemoveAccountIDs(ids...)
 }
 
 // Where appends a list predicates to the ProxyIPGroupUpdate builder.
@@ -582,6 +532,11 @@ func (_u *ProxyIPGroupUpdateOne) check() error {
 			return &ValidationError{Name: "per_ip_concurrency", err: fmt.Errorf(`ent: validator failed for field "ProxyIPGroup.per_ip_concurrency": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.BindingID(); ok {
+		if err := proxyipgroup.BindingIDValidator(v); err != nil {
+			return &ValidationError{Name: "binding_id", err: fmt.Errorf(`ent: validator failed for field "ProxyIPGroup.binding_id": %w`, err)}
+		}
+	}
 	return nil
 }
 
@@ -631,6 +586,15 @@ func (_u *ProxyIPGroupUpdateOne) sqlSave(ctx context.Context) (_node *ProxyIPGro
 	}
 	if value, ok := _u.mutation.AddedPerIPConcurrency(); ok {
 		_spec.AddField(proxyipgroup.FieldPerIPConcurrency, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.BindingID(); ok {
+		_spec.SetField(proxyipgroup.FieldBindingID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedBindingID(); ok {
+		_spec.AddField(proxyipgroup.FieldBindingID, field.TypeInt64, value)
+	}
+	if _u.mutation.BindingIDCleared() {
+		_spec.ClearField(proxyipgroup.FieldBindingID, field.TypeInt64)
 	}
 	if _u.mutation.ProxiesCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -687,51 +651,6 @@ func (_u *ProxyIPGroupUpdateOne) sqlSave(ctx context.Context) (_node *ProxyIPGro
 		createE.defaults()
 		_, specE := createE.createSpec()
 		edge.Target.Fields = specE.Fields
-		_spec.Edges.Add = append(_spec.Edges.Add, edge)
-	}
-	if _u.mutation.AccountsCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: true,
-			Table:   proxyipgroup.AccountsTable,
-			Columns: []string{proxyipgroup.AccountsColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(account.FieldID, field.TypeInt64),
-			},
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := _u.mutation.RemovedAccountsIDs(); len(nodes) > 0 && !_u.mutation.AccountsCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: true,
-			Table:   proxyipgroup.AccountsTable,
-			Columns: []string{proxyipgroup.AccountsColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(account.FieldID, field.TypeInt64),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := _u.mutation.AccountsIDs(); len(nodes) > 0 {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: true,
-			Table:   proxyipgroup.AccountsTable,
-			Columns: []string{proxyipgroup.AccountsColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(account.FieldID, field.TypeInt64),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	_node = &ProxyIPGroup{config: _u.config}

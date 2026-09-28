@@ -112,6 +112,18 @@ func TestOpenAIProxyStreamQuarantineBypassContext(t *testing.T) {
 	require.False(t, svc.isOpenAIProxyStreamQuarantined(withOpenAIProxyStreamQuarantineBypass(ctx), account))
 }
 
+func TestOpenAIProxyStreamCircuitGroupUsesSelectedMember(t *testing.T) {
+	bindingID := int64(36)
+	groupID := int64(12)
+	account := &Account{ID: 1, Platform: PlatformOpenAI, ProxyID: &bindingID, ProxyIPGroupID: &groupID}
+	_, ok := openAIProxyStreamCircuitProxyID(account)
+	require.False(t, ok, "the group binding is not a physical proxy")
+	selected := cloneAccountWithProxy(account, Proxy{ID: 7, Status: StatusActive})
+	proxyID, ok := openAIProxyStreamCircuitProxyID(selected)
+	require.True(t, ok)
+	require.Equal(t, int64(7), proxyID)
+}
+
 func TestOpenAIProxyStreamCircuitBoundsEntries(t *testing.T) {
 	base := time.Unix(1_800_000_000, 0)
 	circuit := newOpenAIProxyStreamCircuit(openAIProxyStreamCircuitSettings{

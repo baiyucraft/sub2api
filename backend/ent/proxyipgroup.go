@@ -27,6 +27,8 @@ type ProxyIPGroup struct {
 	Name string `json:"name,omitempty"`
 	// PerIPConcurrency holds the value of the "per_ip_concurrency" field.
 	PerIPConcurrency int `json:"per_ip_concurrency,omitempty"`
+	// Positive account binding id shared with real proxy bindings.
+	BindingID *int64 `json:"binding_id,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the ProxyIPGroupQuery when eager-loading is set.
 	Edges        ProxyIPGroupEdges `json:"edges"`
@@ -37,13 +39,11 @@ type ProxyIPGroup struct {
 type ProxyIPGroupEdges struct {
 	// Proxies holds the value of the proxies edge.
 	Proxies []*Proxy `json:"proxies,omitempty"`
-	// Accounts holds the value of the accounts edge.
-	Accounts []*Account `json:"accounts,omitempty"`
 	// Members holds the value of the members edge.
 	Members []*ProxyIPGroupMember `json:"members,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [3]bool
+	loadedTypes [2]bool
 }
 
 // ProxiesOrErr returns the Proxies value or an error if the edge
@@ -55,19 +55,10 @@ func (e ProxyIPGroupEdges) ProxiesOrErr() ([]*Proxy, error) {
 	return nil, &NotLoadedError{edge: "proxies"}
 }
 
-// AccountsOrErr returns the Accounts value or an error if the edge
-// was not loaded in eager-loading.
-func (e ProxyIPGroupEdges) AccountsOrErr() ([]*Account, error) {
-	if e.loadedTypes[1] {
-		return e.Accounts, nil
-	}
-	return nil, &NotLoadedError{edge: "accounts"}
-}
-
 // MembersOrErr returns the Members value or an error if the edge
 // was not loaded in eager-loading.
 func (e ProxyIPGroupEdges) MembersOrErr() ([]*ProxyIPGroupMember, error) {
-	if e.loadedTypes[2] {
+	if e.loadedTypes[1] {
 		return e.Members, nil
 	}
 	return nil, &NotLoadedError{edge: "members"}
@@ -78,7 +69,7 @@ func (*ProxyIPGroup) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case proxyipgroup.FieldID, proxyipgroup.FieldPerIPConcurrency:
+		case proxyipgroup.FieldID, proxyipgroup.FieldPerIPConcurrency, proxyipgroup.FieldBindingID:
 			values[i] = new(sql.NullInt64)
 		case proxyipgroup.FieldName:
 			values[i] = new(sql.NullString)
@@ -136,6 +127,13 @@ func (_m *ProxyIPGroup) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.PerIPConcurrency = int(value.Int64)
 			}
+		case proxyipgroup.FieldBindingID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field binding_id", values[i])
+			} else if value.Valid {
+				_m.BindingID = new(int64)
+				*_m.BindingID = value.Int64
+			}
 		default:
 			_m.selectValues.Set(columns[i], values[i])
 		}
@@ -152,11 +150,6 @@ func (_m *ProxyIPGroup) Value(name string) (ent.Value, error) {
 // QueryProxies queries the "proxies" edge of the ProxyIPGroup entity.
 func (_m *ProxyIPGroup) QueryProxies() *ProxyQuery {
 	return NewProxyIPGroupClient(_m.config).QueryProxies(_m)
-}
-
-// QueryAccounts queries the "accounts" edge of the ProxyIPGroup entity.
-func (_m *ProxyIPGroup) QueryAccounts() *AccountQuery {
-	return NewProxyIPGroupClient(_m.config).QueryAccounts(_m)
 }
 
 // QueryMembers queries the "members" edge of the ProxyIPGroup entity.
@@ -203,6 +196,11 @@ func (_m *ProxyIPGroup) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("per_ip_concurrency=")
 	builder.WriteString(fmt.Sprintf("%v", _m.PerIPConcurrency))
+	builder.WriteString(", ")
+	if v := _m.BindingID; v != nil {
+		builder.WriteString("binding_id=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
 	builder.WriteByte(')')
 	return builder.String()
 }

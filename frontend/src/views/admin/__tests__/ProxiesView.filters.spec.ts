@@ -55,11 +55,11 @@ beforeEach(() => {
 afterEach(() => wrapper?.unmount())
 
 describe('proxy list filter pagination', () => {
-  it('renders only real proxies when the list response contains a virtual group row', async () => {
+  it('renders only real proxies when the list response contains a positive group binding', async () => {
     listProxies.mockResolvedValueOnce({
       items: [
         { id: 7, name: 'real-proxy' },
-        { id: -12, name: 'virtual-group', binding_type: 'proxy_ip_group', proxy_ip_group_id: 12 },
+        { id: 8, name: 'virtual-group', binding_type: 'proxy_ip_group', proxy_ip_group_id: 12 },
       ],
       total: 2,
       pages: 1,
