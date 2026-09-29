@@ -18,7 +18,8 @@
     "sub2api": ">=0.2.7-baiyu",
     "plugin_protocol": 1,
     "transport_api": 1,
-    "ui_bridge": 1,
+    "ui_bridge": 0,
+    "admin_ui": 1,
     "host_service_api": 2,
     "host_features": [
       "scoped-routing.v1",
