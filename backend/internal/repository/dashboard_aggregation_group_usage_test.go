@@ -265,6 +265,12 @@ func TestDashboardAggregationRepositoryCleanupUsageLogsPartitionedSortsAndInvali
 	// The boundary partition is pruned by exact timestamp. tableoid is required
 	// because ctid alone can also identify a retained row in another partition.
 	mock.ExpectBegin()
+	mock.ExpectQuery(`SELECT status, coverage_start, coverage_end, target_end`).
+		WillReturnRows(sqlmock.NewRows([]string{"status", "coverage_start", "coverage_end", "target_end"}).
+			AddRow(userUsageBackfillAvailable, aprilStart, cutoff.Add(time.Hour), nil))
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT MIN(created_at), MAX(created_at)`)).
+		WithArgs(cutoff).
+		WillReturnRows(sqlmock.NewRows([]string{"min", "max"}).AddRow(aprilStart, cutoff.Add(-time.Second)))
 	mock.ExpectQuery(`SELECT id FROM usage_group_rollup_state.*FOR UPDATE`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
 	mock.ExpectQuery(`(?s)SELECT tableoid, ctid.*WHERE created_at < \$1.*WHERE \(tableoid, ctid\) IN.*RETURNING created_at`).

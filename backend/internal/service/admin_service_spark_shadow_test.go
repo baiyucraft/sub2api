@@ -616,7 +616,11 @@ func TestDeleteAccount_CascadeToShadow(t *testing.T) {
 func TestUpdateAccount_PropagatesProxyToShadow(t *testing.T) {
 	ctx := context.Background()
 	repo := newSparkShadowRepoStub()
-	svc := &adminServiceImpl{accountRepo: repo}
+	svc := &adminServiceImpl{
+		accountRepo: repo,
+		entClient:   newAdminProxyBindingTestClient(t, 7, 42),
+		proxyRepo:   &nativeProxyListRepoStub{proxies: []Proxy{{ID: 7}, {ID: 42}}},
+	}
 
 	oldProxy := int64(7)
 	parent := &Account{
@@ -877,7 +881,11 @@ func TestUpdateAccount_RejectsParentTypeChangeWithShadow(t *testing.T) {
 func TestUpdateAccount_IgnoresProxyChangeOnShadow(t *testing.T) {
 	ctx := context.Background()
 	repo := newSparkShadowRepoStub()
-	svc := &adminServiceImpl{accountRepo: repo}
+	svc := &adminServiceImpl{
+		accountRepo: repo,
+		entClient:   newAdminProxyBindingTestClient(t, 7, 42),
+		proxyRepo:   &nativeProxyListRepoStub{proxies: []Proxy{{ID: 7}, {ID: 42}}},
+	}
 	parentProxy := int64(7)
 	parent := &Account{
 		Name: "p", Platform: PlatformOpenAI, Type: AccountTypeOAuth,

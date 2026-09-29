@@ -3107,6 +3107,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	wsPricingCtx, _ := h.gatewayService.WithOpenAIRequestPricingContext(ctx, apiKey.GroupID)
 	ctx = wsPricingCtx
 
+	currentTurnRetryAsFirst := false
 	for {
 		if ctx.Err() != nil {
 			return
@@ -3368,7 +3369,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					model = clientFirstModel
 				}
 				targetModel := model
-				if turn == 1 {
+				if turn == 1 && !currentTurnRetryAsFirst {
 					model, targetModel = clientFirstModel, firstTargetModel
 				} else if wsCustomization != nil {
 					mapped, customized, mapErr := wsCustomization.ApplyTurn(c, payload, model, false)
@@ -3626,6 +3627,11 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					if model := strings.TrimSpace(gjson.GetBytes(retryPayload, "model").String()); model != "" {
 						reqModel = model
 					}
+					// A later turn becomes the first frame of the replacement bridge.
+					// Do not reuse the original connection's first-turn model.
+					clientFirstModel = reqModel
+					firstTargetModel = reqModel
+					currentTurnRetryAsFirst = true
 					channelMappingWS, _ = h.gatewayService.ResolveChannelMappingAndRestrict(ctx, apiKey.GroupID, reqModel)
 					wsForwardModel = openAIChannelForwardModel(channelMappingWS, reqModel)
 					imageIntent = service.IsExplicitImageGenerationIntent("/v1/responses", reqModel, retryPayload)
