@@ -96,14 +96,16 @@ def _reviewed_compatibility_paths(workspace: Path, base_commit: str, target_comm
             continue
         before = _tree_blobs(workspace, before_commit)
         after = _tree_blobs(workspace, after_commit)
-        for path in before.keys() & after.keys():
+        for path in before.keys() | after.keys():
             if reason == "reviewed_gate_policy_changed" and path not in {
                 _SCRIPTS_PREFIX + "release/cli.py", _SCRIPTS_PREFIX + "release/production_snapshot.py",
                 _SCRIPTS_PREFIX + "release/doctor.py",
                 _SCRIPTS_PREFIX + "release/production.py",
+                _SCRIPTS_PREFIX + "maintenance/release/preflight.sh",
+                _SCRIPTS_PREFIX + "maintenance/release/runtime-identity.sh",
             }:
                 continue
-            if before[path] != after[path] and base.get(path) == before[path] and target.get(path) == after[path]:
+            if before.get(path) != after.get(path) and base.get(path) == before.get(path) and target.get(path) == after.get(path):
                 reviewed[path] = reason
     return reviewed
 

@@ -109,6 +109,7 @@ RackNerd -> PostgreSQL + Redis + 加密备份源
 - `full` 建议至少每 30 天执行一次，并记录 `last_full_drill_at`、`next_full_drill_due_at` 和实测 RTO。逾期只对普通发布告警，不得伪造成已演练；仅恢复算法、备份格式、信任链变化或真实恢复事故修复必须先完成当次完整演练。
 - profile 白名单、版本元数据、自测目录与入口兼容扩展不因位于恢复目录或改变 helper checksum 而重复 Full DR；经同路径旧/新 Git blob 与文件模式精确审阅后仍强制 `specialized` 的真实隔离恢复。未知关键变化自动标为 `full/recovery_change_requires_review` 并在准备恢复包前阻断；`--recovery-gate-mode full` 不能解除。新增审阅批次须人工审核差异并补负向测试，不得自动学习候选内容。
 - 分类器与只读身份解析的已审阅修复可按精确内容登记为 `reviewed_gate_policy_changed`，不得豁免恢复 helper。生产按 digest 启动时，只从该镜像唯一完整 SHA 发布标签恢复基线 commit；标签缺失、冲突或 commit 不可证明时，发布在准备恢复包前停止，禁止沿用未知基线的降级分类。
+- doctor、Python snapshot 和生产 Shell preflight 的身份解析只能复用签名资产 `runtime-identity.sh`，禁止新增独立实现；新增 helper 必须进入 manifest 和原子 assets bundle。回归同时验证三处调用、digest/tag/冲突边界及 Python/Shell 规范化快照 checksum 一致，不能只验证独立 snapshot 后启动发布。
 - `fast`、`specialized`、`full` 是叠加关系，不替代既有变更分类、VM Gate、签名 Gate、备份、迁移和生产验收。
 - 恢复 helper 必须作为原子版本单元记录完整 commit 与 bundle SHA-256，至少包含 orchestrator、restore、cleanup 和 reconcile；禁止新 supervisor 调用事故 release 内的旧 helper。
 - 协调恢复按 PostgreSQL、Redis、Compose、应用健康、Nginx、备份 units、claim reconciliation 和 state cleanup 保存幂等 checkpoint。已完成阶段只能复核后跳过，不得重复恢复数据。
