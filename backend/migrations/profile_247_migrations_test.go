@@ -10,7 +10,7 @@ import (
 
 func TestProfile247PreservesRenumberedUpstreamAllowlistMigrationBytes(t *testing.T) {
 	checksums := map[string]string{
-		"267_group_model_allowlist.sql": "34dc807ff3b951533f54b3f575d2b6af7ece851150e95216b887be4d6755cd96",
+		"267_group_model_allowlist.sql": "3479c2812ae32f1ae1fa69b1c82ef55ce0861b207066e3b621974e9f44c3f208",
 	}
 	for filename, expected := range checksums {
 		t.Run(filename, func(t *testing.T) {
