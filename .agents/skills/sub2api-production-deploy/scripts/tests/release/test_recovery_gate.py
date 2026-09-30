@@ -213,6 +213,20 @@ class RecoveryGateTest(unittest.TestCase):
         with mock.patch.object(recovery_gate, "_REVIEWED_GATE_POLICY_TRANCHES", ((base, target),)):
             self.assertEqual(classify(self.root, base, target)["mode"], "full")
 
+    def test_registered_review_preserves_actual_profile_and_policy_scope(self) -> None:
+        from release.paths import WORKSPACE
+
+        report = classify(
+            WORKSPACE,
+            "16a4a030fe67f4de4a46bcadd02c9003fc954432",
+            "efcd995d52fba41071412d15d198d9fa76afe967",
+        )
+        self.assertEqual(report["mode"], "specialized")
+        self.assertIn("reviewed_profile_compatibility_changed", report["reason_codes"])
+        self.assertIn("reviewed_gate_policy_changed", report["reason_codes"])
+        self.assertIn("redis_changed", report["reason_codes"])
+        self.assertNotIn("recovery_change_requires_review", report["reason_codes"])
+
     def test_full_mode_requires_explicit_escalation(self) -> None:
         target = self.commit_change("backend/internal/service/example.go")
         report = require_full(classify(self.root, self.base, target))

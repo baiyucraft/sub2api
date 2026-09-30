@@ -26,7 +26,9 @@ _SCRIPTS_PREFIX = ".agents/skills/sub2api-production-deploy/scripts/"
 _REVIEWED_COMPATIBILITY_TRANCHES = (
     ("16a4a030fe67f4de4a46bcadd02c9003fc954432", "700052e8d67bcb5c92e95ba02530176b2e3a4068"),
 )
-_REVIEWED_GATE_POLICY_TRANCHES: tuple[tuple[str, str], ...] = ()
+_REVIEWED_GATE_POLICY_TRANCHES = (
+    ("700052e8d67bcb5c92e95ba02530176b2e3a4068", "efcd995d52fba41071412d15d198d9fa76afe967"),
+)
 _RELEASE_STATE_MACHINE_FILES = frozenset(
     {
         ".agents/skills/sub2api-production-deploy/scripts/release/cli.py",
