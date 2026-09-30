@@ -49,7 +49,7 @@ description: 审计 Sub2API fork 相对官方 upstream/main 的扩展合同。�
 
 当目标差异触及 `.agents/skills/sub2api-production-deploy/**`、备份格式、migration/profile、Compose、ingress 事务或恢复状态机时，审计必须核对 `release-operations-isolation`：
 
-- 三层门禁名称和预算固定为 `fast=0-2min`、`specialized=5-15min`、`full=20-60min`；`full` 不阻塞普通发布，但恢复链自身变化时是硬门禁。
+- 三层门禁名称和预算固定为 `fast=0-2min`、`specialized=5-15min`、`full=20-60min`；`full` 不阻塞普通发布，仅恢复算法、备份格式、信任链变化或真实恢复事故修复为硬门禁。profile 白名单、版本、自测目录和入口兼容扩展须按同路径旧/新 blob 与模式精确审阅，走真实隔离恢复 `specialized`；未知关键变化先阻断，显式 VM Full 不解除。
 - 触发矩阵必须覆盖 migration、PostgreSQL/Redis、Compose、backup、restore/cleanup/reconcile、ingress、发布状态机和真实恢复事故修复。
 - Redis 恢复使用总键、TTL 键和永久键单调不等式，禁止恢复旧的精确差值等式。
 - orchestrator、restore、cleanup、reconcile 作为同一 helper bundle 绑定完整 commit 和 SHA-256；禁止新旧 helper 混用。

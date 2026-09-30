@@ -21,6 +21,15 @@ class ProductionSnapshotTest(unittest.TestCase):
         self.assertIn("base64 | tr -d", script)
         self.assertNotIn("POSTGRES_USER:-postgres", script)
         self.assertIn("all(.[]; type == \"object\"", script)
+
+    def test_digest_started_container_resolves_only_unique_full_sha_release_tag(self) -> None:
+        script = snapshot_script()
+        self.assertIn("docker image inspect -f '{{json .RepoTags}}' \"$image\"", script)
+        self.assertIn("^sub2api:baiyu-[0-9][0-9A-Za-z.-]*-[0-9a-f]{40}$", script)
+        self.assertIn("| unique", script)
+        self.assertIn("$(jq -r 'length' <<<\"$commits\") == 1", script)
+        self.assertNotIn("git rev-parse main", script)
+
     def test_snapshot_digest_matches_canonical_persisted_document(self) -> None:
         snapshot = {
             "current_image_id": "sha256:" + "a" * 64,

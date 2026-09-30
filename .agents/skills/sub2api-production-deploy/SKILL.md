@@ -104,9 +104,11 @@ RackNerd -> PostgreSQL + Redis + 加密备份源
 | --- | --- | --- | --- | --- |
 | L1 | `fast` | 每次应用、插件或运维资产发布 | 0–2 分钟 | 必须通过；只做静态合同、身份、语法、引用和定向快速检查 |
 | L2 | `specialized` | migration、PostgreSQL/Redis、Compose、备份格式、restore/cleanup/reconcile、ingress 事务、发布状态机或 helper 变化 | 5–15 分钟 | 对命中范围的发布必须通过；在 VM/隔离环境执行生产快照恢复和受影响链路验证 |
-| L3 | `full` | 定期完整灾备演练；恢复链重大变化或真实恢复事故后追加 | 20–60 分钟 | 不阻塞普通发布；本次修改恢复链、备份格式或恢复信任链时升级为发布前硬门禁 |
+| L3 | `full` | 定期完整灾备演练；恢复算法、备份格式、信任链变化或真实恢复事故修复 | 20–60 分钟 | 不阻塞普通发布；仅上述四类变化升级为发布前硬门禁 |
 
-- `full` 建议至少每 30 天执行一次，并记录 `last_full_drill_at`、`next_full_drill_due_at` 和实测 RTO。逾期只对普通发布告警，不得伪造成已演练；对恢复链自身变更则必须先完成当次完整演练。
+- `full` 建议至少每 30 天执行一次，并记录 `last_full_drill_at`、`next_full_drill_due_at` 和实测 RTO。逾期只对普通发布告警，不得伪造成已演练；仅恢复算法、备份格式、信任链变化或真实恢复事故修复必须先完成当次完整演练。
+- profile 白名单、版本元数据、自测目录与入口兼容扩展不因位于恢复目录或改变 helper checksum 而重复 Full DR；经同路径旧/新 Git blob 与文件模式精确审阅后仍强制 `specialized` 的真实隔离恢复。未知关键变化自动标为 `full/recovery_change_requires_review` 并在准备恢复包前阻断；`--recovery-gate-mode full` 不能解除。新增审阅批次须人工审核差异并补负向测试，不得自动学习候选内容。
+- 分类器与只读身份解析的已审阅修复可按精确内容登记为 `reviewed_gate_policy_changed`，不得豁免恢复 helper。生产按 digest 启动时，只从该镜像唯一完整 SHA 发布标签恢复基线 commit；标签缺失、冲突或 commit 不可证明时，发布在准备恢复包前停止，禁止沿用未知基线的降级分类。
 - `fast`、`specialized`、`full` 是叠加关系，不替代既有变更分类、VM Gate、签名 Gate、备份、迁移和生产验收。
 - 恢复 helper 必须作为原子版本单元记录完整 commit 与 bundle SHA-256，至少包含 orchestrator、restore、cleanup 和 reconcile；禁止新 supervisor 调用事故 release 内的旧 helper。
 - 协调恢复按 PostgreSQL、Redis、Compose、应用健康、Nginx、备份 units、claim reconciliation 和 state cleanup 保存幂等 checkpoint。已完成阶段只能复核后跳过，不得重复恢复数据。

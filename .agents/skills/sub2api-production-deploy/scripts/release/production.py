@@ -17,6 +17,7 @@ from .migration_planner import HOOK_REGISTRY, plan_migrations
 from .production_snapshot import decode_snapshot, snapshot_script, snapshot_sha256
 from .paths import MAINTENANCE_ROOT, TRUSTED_VM_PUBLIC_KEY, UNIT_ROOT
 from .profiles import get_profile, get_release_profile
+from .recovery_gate import assert_release_allowed
 from .ssh import SSHRunner
 
 
@@ -145,6 +146,7 @@ class ProductionRelease:
         self.profile = get_release_profile(profile_name)
         self.document = verify_gate(gate_dir, TRUSTED_KEY, profile_name, accepted_schemas=frozenset({2}))
         self.manifest = self.document["manifest"]
+        assert_release_allowed(self.manifest.get("recovery_gate"))
         self.evidence = self.document["evidence"]
         self.migration_plan: dict[str, object] | None = None
         self.deployment_mode = str(self.manifest.get("deployment_mode", ""))

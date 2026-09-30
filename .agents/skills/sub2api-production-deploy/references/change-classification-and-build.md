@@ -90,12 +90,17 @@ build-chain:
 | 纯文档、固定字段只读巡检 | 适用 | 不适用 | 不适用 |
 | 纯前端、独立插件包、普通无迁移后端 | 适用 | 仅既有分类要求的 VM/插件 Gate | 定期演练逾期只告警 |
 | migration、数据库或 Redis 行为、Compose、部署配置 | 适用 | 强制 | 定期；恢复格式或信任链变化时强制 |
-| restore、cleanup、reconcile、backup、ingress 事务、发布状态机和 helper | 适用 | 强制并包含故障注入 | 本次发布前强制 |
+| 已审阅的 profile 白名单、版本元数据、自测目录和入口兼容扩展 | 适用 | 强制，含当前 helper 的真实隔离恢复 | 不强制重复；不改变恢复算法、格式或信任链 |
+| restore、cleanup、reconcile、backup、ingress 事务、发布状态机和 helper | 适用 | 强制并包含受影响边界的故障注入 | 恢复算法、备份格式或信任链变化时强制；未分类的关键变化先阻断审阅 |
 | 真实恢复事故后的修复 | 适用 | 强制复现事故边界 | 修复进入生产前强制 |
 
 `fast` 至少验证完整 SHA、变更分类、文档/manifest 引用、shell/Python/YAML 语法、helper bundle 闭包和适用的定向测试。`specialized` 必须使用当前 commit 的同一 helper 原子版本，在 VM 或批准的隔离环境执行真实 PostgreSQL/Redis/Compose 恢复以及幂等断点续跑。`full` 使用真实加密恢复资产完成端到端恢复、验真和临时材料销毁，不得用 fixture 或 signer 自测代替。
 
-完整灾备演练建议至少每 30 天一次。逾期不阻塞普通 frontend、plugin-package 或无恢复链变化的应用发布，但必须在报告中明确 `full_gate_status=overdue`；恢复链、备份格式或恢复信任链自身发生变化时，逾期演练成为 blocker。
+完整灾备演练建议至少每 30 天一次。逾期不阻塞普通 frontend、plugin-package 或兼容元数据扩展，但必须在报告中明确 `full_gate_status=overdue`。只有恢复算法、备份格式、信任链变化或真实恢复事故修复要求当次完整演练；不能仅凭恢复目录路径或 helper checksum 变化触发。
+
+分类器对恢复关键文件的未知变化采用 `full/recovery_change_requires_review`，在准备恢复包之前阻断发布，显式 `--recovery-gate-mode full` 不可绕过。已审阅兼容批次按同路径的旧/新 Git blob 和文件模式精确匹配，命中才为 `specialized/reviewed_profile_compatibility_changed`；附加修改、删除、跨路径复用或模式变化立即失效。新增批次须审核实际差异和负向测试，不得自动学习候选内容或豁免整个目录。
+
+仅分类策略与只读身份解析的已审阅修复可登记为 `reviewed_gate_policy_changed`，仍按精确 blob 和模式匹配，不可涵盖恢复 helper。按镜像 digest 启动时，生产基线 commit 从运行镜像唯一完整 SHA 发布标签解析；无法证明唯一身份则阻断，不使用未知基线绕过重大变更检查。
 
 ## 运维资产
 

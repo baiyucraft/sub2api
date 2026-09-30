@@ -12,6 +12,7 @@ from .manifest import _git_output, migration_checksums, sha256_file, validate_co
 from .migration_planner import discover_migration_catalog
 from .paths import RELEASE_PACKAGE_ROOT, TRUSTED_VM_PUBLIC_KEY, WORKSPACE
 from .profiles import get_profile
+from .production_snapshot import runtime_commit_script
 from .ssh import KNOWN_HOSTS, SSH_CONFIG, SSHRunner
 
 
@@ -175,10 +176,8 @@ active_image=$(sed -n 's/^image_id=//p' "$active_slot")
 for container in "$active_container" sub2api-postgres sub2api-redis; do test "$(docker inspect -f '{{{{.State.Health.Status}}}}' "$container")" = healthy; done
 test "$(docker inspect -f '{{{{.Image}}}}' "$active_container")" = "$active_image"
 active_image_ref=$(docker inspect -f '{{{{.Config.Image}}}}' "$active_container")
-production_current_commit_sha=
-if [[ $active_image_ref =~ -([0-9a-f]{{40}})$ ]] && [[ $(docker image inspect -f '{{{{.Id}}}}' "$active_image_ref" 2>/dev/null || true) == "$active_image" ]]; then
-  production_current_commit_sha=${{BASH_REMATCH[1]}}
-fi
+{runtime_commit_script()}
+resolve_production_commit "$active_image" "$active_image_ref"
 grep -Fq "server 127.0.0.1:$active_port;" /etc/nginx/conf.d/sub2api-release-upstream.conf
 require_ingress_policy={str(require_ingress_policy).lower()}
 assert_ingress_policy() {{
