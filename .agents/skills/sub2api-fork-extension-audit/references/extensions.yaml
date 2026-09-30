@@ -173,7 +173,7 @@
     "264_add_usage_log_upstream_request_id_index_notx.sql": "41c32a383794730d2bfd88514bf999cfb156cb06324c46b54642736ac8f2fff6",
     "265_channel_max_reasoning_effort_multiplier.sql": "448b59b3168fe4dfe2417f1abd9657d124708c279e2245d55149087838d8c8d6",
     "266_group_codex_models_manifest_config.sql": "8ef9cd9a6a963e79823f8f5d703a6b31fa30ebfca9f8d2337dd451765178e5a0",
-    "267_group_model_allowlist.sql": "34dc807ff3b951533f54b3f575d2b6af7ece851150e95216b887be4d6755cd96",
+    "267_group_model_allowlist.sql": "3479c2812ae32f1ae1fa69b1c82ef55ce0861b207066e3b621974e9f44c3f208",
     "268_group_model_allowlist_repair.sql": "752809cf1d3812ce241606ba8b015dac48bd6c04ab1cde9ef204d138cffb1025",
     "269_add_minimax_platform.sql": "9bf4623f1f82f7b18f8ebc25f7205be6eebd5ed221e4c4be94b531131e479b64",
     "270_account_rpm_limit.sql": "fc5470045fb9813a1c0e1f496c70a1bad6a822b788f1ba41945b841da9c940a6",
