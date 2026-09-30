@@ -47,7 +47,7 @@ class ReleaseCoreTest(unittest.TestCase):
 
     def test_manifest_atomically_binds_recovery_gate_report(self) -> None:
         target = "a" * 40
-        manifest = {"schema": 2, "profile": "257", "commit_sha": target}
+        manifest = {"schema": 2, "profile": "258", "commit_sha": target}
         report = {
             "schema": 1,
             "mode": "fast",
@@ -94,7 +94,7 @@ class ReleaseCoreTest(unittest.TestCase):
             )
 
     def test_manifest_uses_specialized_when_production_commit_is_unproven(self) -> None:
-        manifest = {"schema": 2, "profile": "257", "commit_sha": "a" * 40}
+        manifest = {"schema": 2, "profile": "258", "commit_sha": "a" * 40}
         with mock.patch("release.manifest.validate_manifest_profile_contract"):
             bound = bind_production_snapshot(manifest, "sha256:" + "b" * 64, "c" * 64)
         self.assertEqual(bound["recovery_gate"]["mode"], "specialized")
@@ -385,7 +385,8 @@ class ReleaseCoreTest(unittest.TestCase):
         historical_254 = get_profile("254")
         historical_255 = get_profile("255")
         historical_256 = get_profile("256")
-        current = get_profile("257")
+        historical_257 = get_profile("257")
+        current = get_profile("258")
         self.assertEqual(historical["version"], "0.1.183-baiyu")
         self.assertEqual(historical["parent"], "241")
         self.assertEqual(historical_243["version"], "0.1.184-baiyu")
@@ -455,11 +456,16 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertEqual(historical_256["version"], "0.2.9-baiyu")
         self.assertEqual(historical_256["parent"], "255")
         self.assertEqual(historical_256["new_migrations"], [])
-        self.assertEqual(current["version"], "0.2.9-baiyu")
-        self.assertEqual(current["parent"], "256")
-        self.assertEqual(current["new_migrations"], ["284_unified_proxy_bindings.sql"])
-        self.assertEqual(profiles.CURRENT_RELEASE_PROFILE, "257")
-        self.assertEqual(get_release_profile("257"), current)
+        self.assertEqual(historical_257["version"], "0.2.9-baiyu")
+        self.assertEqual(historical_257["parent"], "256")
+        self.assertEqual(historical_257["new_migrations"], ["284_unified_proxy_bindings.sql"])
+        self.assertEqual(current["version"], "0.2.10-baiyu")
+        self.assertEqual(current["parent"], "257")
+        self.assertEqual(current["new_migrations"], [])
+        self.assertEqual(profiles.CURRENT_RELEASE_PROFILE, "258")
+        self.assertEqual(get_release_profile("258"), current)
+        with self.assertRaises(ValueError):
+            get_release_profile("257")
         with self.assertRaises(ValueError):
             get_release_profile("256")
         with self.assertRaises(ValueError):
@@ -507,11 +513,12 @@ class ReleaseCoreTest(unittest.TestCase):
 
         self.assertEqual(current["new_migrations"], migration_names)
         self.assertEqual(catalog["historical_profiles"]["255"]["new_migrations"], migration_names)
-        self.assertEqual(catalog["current_profile"]["id"], "257")
+        self.assertEqual(catalog["historical_profiles"]["257"]["new_migrations"], ["284_unified_proxy_bindings.sql"])
+        self.assertEqual(catalog["current_profile"]["id"], "258")
         self.assertEqual(catalog["current_profile"]["status"], "pending")
-        self.assertEqual(catalog["current_profile"]["version"], "0.2.9-baiyu")
-        self.assertEqual(catalog["current_profile"]["parent"], "256")
-        self.assertEqual(catalog["current_profile"]["new_migrations"], ["284_unified_proxy_bindings.sql"])
+        self.assertEqual(catalog["current_profile"]["version"], "0.2.10-baiyu")
+        self.assertEqual(catalog["current_profile"]["parent"], "257")
+        self.assertEqual(catalog["current_profile"]["new_migrations"], [])
         self.assertTrue(catalog["migration_assertions"]["backend/migrations/283_affiliate_ledger_operation_id.sql"])
         for migration_name in migration_names:
             migration_path = WORKSPACE / "backend" / "migrations" / migration_name
@@ -537,8 +544,8 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn('--build-arg COMMIT="$commit" --build-arg VERSION="$version"', validator)
 
     def test_current_profiles_are_allowed_by_release_entrypoints(self) -> None:
-        expected_release_pattern = "(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257)"
-        expected_profile_check = "$profile == 182 || $profile == 187 || $profile == 191 || $profile == 192 || $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 || $profile == 240 || $profile == 241 || $profile == 242 || $profile == 243 || $profile == 244 || $profile == 245 || $profile == 246 || $profile == 247 || $profile == 248 || $profile == 249 || $profile == 250 || $profile == 251 || $profile == 252 || $profile == 253 || $profile == 254 || $profile == 255 || $profile == 256 || $profile == 257"
+        expected_release_pattern = "(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258)"
+        expected_profile_check = "$profile == 182 || $profile == 187 || $profile == 191 || $profile == 192 || $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 || $profile == 240 || $profile == 241 || $profile == 242 || $profile == 243 || $profile == 244 || $profile == 245 || $profile == 246 || $profile == 247 || $profile == 248 || $profile == 249 || $profile == 250 || $profile == 251 || $profile == 252 || $profile == 253 || $profile == 254 || $profile == 255 || $profile == 256 || $profile == 257 || $profile == 258"
         for relative_path in (
             "release/vm-validate.sh",
             "release/sign-gate.sh",
@@ -1145,7 +1152,7 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn('expected_profile in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241"}', gate)
         self.assertIn('self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242", "243", "244", "245"}', production)
         self.assertIn('[[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 ]]', switch)
-        self.assertIn('[[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 || $profile == 240 || $profile == 241 || $profile == 242 || $profile == 243 || $profile == 244 || $profile == 245 || $profile == 246 || $profile == 247 || $profile == 248 || $profile == 249 || $profile == 250 || $profile == 251 || $profile == 252 || $profile == 253 || $profile == 254 || $profile == 255 || $profile == 256 || $profile == 257 ]]', assertion)
+        self.assertIn('[[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 || $profile == 240 || $profile == 241 || $profile == 242 || $profile == 243 || $profile == 244 || $profile == 245 || $profile == 246 || $profile == 247 || $profile == 248 || $profile == 249 || $profile == 250 || $profile == 251 || $profile == 252 || $profile == 253 || $profile == 254 || $profile == 255 || $profile == 256 || $profile == 257 || $profile == 258 ]]', assertion)
         self.assertIn('expected_profile in {"198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241"}', gate)
         self.assertIn("managed monitor key-name evidence", gate)
 
