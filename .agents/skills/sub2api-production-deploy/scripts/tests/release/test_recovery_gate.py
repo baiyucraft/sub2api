@@ -54,6 +54,31 @@ class RecoveryGateTest(unittest.TestCase):
         self.assertEqual(report["reason_codes"], ["ordinary_change"])
         self.assertEqual(report["estimated_extra_seconds"], 0)
 
+    def test_billing_inflight_cache_uses_specialized_mode(self) -> None:
+        relative = "backend/internal/repository/billing_inflight_cache.go"
+        target = self.commit_change(relative)
+        report = classify(self.root, self.base, target)
+        self.assertEqual(report["mode"], "specialized")
+        self.assertEqual(report["reason_codes"], ["redis_changed"])
+        self.assertEqual(report["estimated_extra_seconds"], 600)
+        self.assertEqual(report["changed_paths_sha256"], changed_paths_sha256([relative]))
+
+    def test_billing_inflight_cache_path_contract_is_exact(self) -> None:
+        base = self.base
+        for relative in (
+            "backend/internal/repository/example.go",
+            "backend/internal/repository/billing_cache.go",
+            "backend/internal/repository/billing_inflight_cache_test.go",
+            "backend/internal/service/billing_inflight_cache.go",
+        ):
+            with self.subTest(relative=relative):
+                target = self.commit_change(relative)
+                report = classify(self.root, base, target)
+                self.assertEqual(report["mode"], "fast")
+                self.assertEqual(report["reason_codes"], ["ordinary_change"])
+                self.assertEqual(report["estimated_extra_seconds"], 0)
+                base = target
+
     def test_data_runtime_changes_use_specialized_mode(self) -> None:
         cases = {
             "backend/migrations/999_example.sql": "migration_changed",
@@ -102,6 +127,28 @@ class RecoveryGateTest(unittest.TestCase):
         self.assertEqual(report["mode"], "full")
         self.assertIn("manual_full_drill", report["reason_codes"])
         self.assertEqual(report["estimated_extra_seconds"], 2400)
+
+    def test_redis_and_recovery_changes_preserve_full_escalation(self) -> None:
+        base = self.base
+        cases = {
+            "backend/internal/repository/billing_inflight_cache.go": ["redis_changed"],
+            ".agents/skills/sub2api-production-deploy/scripts/maintenance/release/restore.sh": [
+                "recovery_logic_changed",
+                "release_state_machine_changed",
+            ],
+        }
+        for relative, reasons in cases.items():
+            with self.subTest(relative=relative):
+                target = self.commit_change(relative)
+                classified = classify(self.root, base, target)
+                report = require_full(classified)
+                self.assertEqual(report["mode"], "full")
+                self.assertEqual(report["reason_codes"], sorted(reasons + ["manual_full_drill"]))
+                self.assertEqual(report["estimated_extra_seconds"], 2400)
+                self.assertEqual(report["base_commit"], base)
+                self.assertEqual(report["target_commit"], target)
+                self.assertEqual(report["changed_paths_sha256"], classified["changed_paths_sha256"])
+                base = target
 
     def test_unproven_production_commit_is_specialized(self) -> None:
         target = self.git("rev-parse", "HEAD")
