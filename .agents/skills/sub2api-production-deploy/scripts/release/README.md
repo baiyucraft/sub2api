@@ -95,6 +95,19 @@ python .agents/skills/sub2api-production-deploy/scripts/release.py cleanup-produ
 python .agents/skills/sub2api-production-deploy/scripts/release.py cleanup-production <release_id> --mode apply --plan-sha256 <plan_sha256>
 ```
 
+生产恢复点使用独立的 retention 入口，不与镜像或 candidate 清理混用：
+
+```text
+python .agents/skills/sub2api-production-deploy/scripts/release.py cleanup-production-recovery-points --mode dry-run
+python .agents/skills/sub2api-production-deploy/scripts/release.py cleanup-production-recovery-points --mode apply --plan-sha256 <plan_sha256> --cutoff-epoch <cutoff_epoch>
+```
+
+该入口只处理 `/opt/sub2api/backups/release-state` 中结构完整、checksum 通过、已进入
+`consumed` 或 `recovered` 终态的历史恢复点。默认保留最近 3 天全部有效恢复点；窗口内不足
+3 个时补足最近 3 个。当前/上一发布、reconciliation、状态不明以及活动 claim 始终保护。
+dry-run 生成候选 ID、容量、`cutoff_epoch` 和 `plan_sha256`；apply 必须携带同一 cutoff 和 checksum，候选漂移即停止。
+它不会删除 PostgreSQL、Redis、release 目录、candidate、Gate 或 Docker 镜像。
+
 备份机历史 release bundle 清理也必须先 dry-run，再用同一 `plan_sha256` 和逐个明确批准的 release ID apply：
 
 ```text

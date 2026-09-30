@@ -274,6 +274,26 @@ next_full_drill_due_at: ISO-8601 with timezone | not_defined
 
 daily、release recovery point、candidate、verified 和 previous verified 的保留数量或时间必须以现场配置核验为准。没有核验时写 `unknown`，不得凭空填写保留天数。清理前必须确认没有回滚或 verified 指针引用目标 artifact。
 
+### 生产恢复点 retention
+
+生产 `/opt/sub2api/backups/release-state` 的恢复点不再无限期保留。只能使用版本化入口：
+
+```text
+python .agents/skills/sub2api-production-deploy/scripts/release.py cleanup-production-recovery-points --mode dry-run
+python .agents/skills/sub2api-production-deploy/scripts/release.py cleanup-production-recovery-points --mode apply --plan-sha256 <plan_sha256>
+```
+
+固定策略：
+
+- 最近 3 天内的全部有效恢复点保留；若窗口内不足 3 个，补足最近 3 个有效恢复点；
+- 当前发布、上一发布、活动 claim、reconciliation、未进入 `consumed`/`recovered` 终态以及任何状态不明的目录始终保护；
+- 只接受非 symlink、单硬链接、恢复包 checksum 通过且目录结构完整的恢复点；
+- dry-run 输出候选 release ID、容量和 `plan_sha256`；apply 必须携带同一 checksum，候选漂移立即停止；
+- apply 只删除恢复点目录内的恢复包及其发布元数据，不删除 release 目录、Gate、candidate、镜像、PostgreSQL、Redis 或其他备份资产；
+- 清理前后必须记录根文件系统可用空间差值，不能把逻辑文件大小当作实际释放量。
+
+恢复点 retention 不能替代 daily 备份或异地基线。生产恢复点没有异地同名副本时，仍按上述时间/数量规则清理，但必须在报告中标明历史恢复能力已缩短。
+
 ### 备份机容量清理合同
 
 备份机空间不足时只允许使用版本化脚本：
@@ -285,7 +305,7 @@ daily、release recovery point、candidate、verified 和 previous verified 的�
 固定策略：
 
 - 只检查 `/srv/sub2api-backups/daily`；默认清理文件名时间早于 15 天的 daily 包，同时至少保留最新 1 组完整 daily 包及其 `.sha256` 文件。策略可通过 `RETENTION_DAYS` 调整，但不得低于 1 天；`MINIMUM_KEEP_DAILY` 不得低于 1 组。
-- 不删除 `baseline`、`releases`、`candidate`、`verified`、`recovery`、`release-logs` 或任何 profile 恢复包。
+- 不删除 `baseline`、`releases`、`candidate`、`verified`、`recovery`、`release-logs` 或备份机上的 profile 恢复包。生产机恢复点使用上方独立 retention 入口。
 - 只接受 root 所有、非 symlink、单硬链接且 checksum 匹配的成对 daily 文件。
 - dry-run 生成候选文件、大小、mtime、checksum 和 `plan_sha256`；apply 必须携带同一 checksum，候选漂移即停止。
 - apply 使用独立锁，逐文件复核后删除；删除后必须重新核对可用空间达到 5 GiB。

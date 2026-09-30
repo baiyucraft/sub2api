@@ -564,6 +564,17 @@ def production_cleanup(args: argparse.Namespace) -> None:
     print(" ".join(f"{key}={value}" for key, value in sorted(evidence.items())))
 
 
+def production_recovery_retention_cleanup(args: argparse.Namespace) -> None:
+    from .production_recovery_retention import cleanup_production_recovery_points
+
+    evidence = cleanup_production_recovery_points(
+        args.mode,
+        args.plan_sha256,
+        getattr(args, "cutoff_epoch", None),
+    )
+    print(" ".join(f"{key}={value}" for key, value in sorted(evidence.items())))
+
+
 _RETENTION_RELEASE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.-]{0,127}$")
 
 
@@ -771,6 +782,11 @@ def main() -> None:
     cleanup_parser.add_argument("--mode", choices=("dry-run", "apply"), default="dry-run")
     cleanup_parser.add_argument("--plan-sha256")
     cleanup_parser.set_defaults(handler=production_cleanup)
+    recovery_retention_parser = subparsers.add_parser("cleanup-production-recovery-points")
+    recovery_retention_parser.add_argument("--mode", choices=("dry-run", "apply"), default="dry-run")
+    recovery_retention_parser.add_argument("--plan-sha256")
+    recovery_retention_parser.add_argument("--cutoff-epoch", type=int)
+    recovery_retention_parser.set_defaults(handler=production_recovery_retention_cleanup)
     retention_parser = subparsers.add_parser("retention")
     retention_parser.add_argument("--mode", choices=("dry-run", "apply"), default="dry-run")
     retention_parser.add_argument("--plan-sha256")
