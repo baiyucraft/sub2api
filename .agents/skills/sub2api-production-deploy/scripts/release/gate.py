@@ -377,7 +377,7 @@ def verify_gate_v2(bundle_dir: Path, public_key: Path, expected_profile: str, al
         "vm_gate_signer_sha256": RELEASE_PACKAGE_ROOT / "sign-gate.sh",
         "vm_dr_signer_sha256": RELEASE_PACKAGE_ROOT / "sign-dr-evidence.sh",
     }.items():
-        if manifest.get(field) != sha256_file(path):
+        if not allow_historical_runner and manifest.get(field) != sha256_file(path):
             raise RuntimeError(f"Gate v2 was created by a different {path.name}")
     if not allow_expired and int(manifest.get("expires_at", 0)) < int(time.time()):
         raise RuntimeError("gate has expired")
