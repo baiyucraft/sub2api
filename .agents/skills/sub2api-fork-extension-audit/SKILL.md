@@ -45,6 +45,8 @@ description: 审计 Sub2API fork 相对官方 upstream/main 的扩展合同。�
 
 ## 发布恢复合同审计
 
+当前 pending profile 为 259（`0.2.11-baiyu`、parent 258、`new_migrations=[]`）；profile 258 保留 `0.2.10-baiyu` 历史合同。固定官方目标 `42bc7f6cffe24bcb471608e48e66b4a0afa1f882` 已包含 PR #7730 原始 head 和官方 merge；模型、套餐与 Ultrafast 能力归回 upstream 维护，独立 fork 增量仍按扩展目录审核。
+
 当目标差异触及 `.agents/skills/sub2api-production-deploy/**`、备份格式、migration/profile、Compose、ingress 事务或恢复状态机时，审计必须核对 `release-operations-isolation`：
 
 - 三层门禁名称和预算固定为 `fast=0-2min`、`specialized=5-15min`、`full=20-60min`；`full` 不阻塞普通发布，但恢复链自身变化时是硬门禁。
