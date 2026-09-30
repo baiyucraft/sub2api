@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -126,6 +128,30 @@ class VMOnlyGateTest(unittest.TestCase):
         script = (DEPLOY_ROOT / "release" / "vm-only-validate.sh").read_text(encoding="utf-8")
         self.assertIn("profile_id:($profile|tonumber)", script)
         self.assertNotIn("profile_id:253", script)
+
+    def test_vm_only_shell_guard_accepts_registered_profiles_and_rejects_unknown(self) -> None:
+        script = (DEPLOY_ROOT / "release" / "vm-only-validate.sh").read_text(encoding="utf-8")
+        guard = next(line for line in script.splitlines() if line.startswith("[[ $scope == vm-only"))
+        self.assertEqual(re.findall(r"\$profile == ([0-9]+)", guard), ["255", "256", "257", "258", "259"])
+        bash = shutil.which("bash")
+        if bash is None:
+            candidate = Path(r"C:\Program Files\Git\bin\bash.exe")
+            bash = str(candidate) if candidate.is_file() else None
+        if bash is None:
+            self.skipTest("bash is unavailable")
+        body = "scope=$1\nprofile=$2\ncommit=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nrelease_id=$3\n" + guard
+        for profile, scope, release_profile, allowed in (
+            *( (str(profile), "vm-only", str(profile), True) for profile in range(255, 260) ),
+            ("260", "vm-only", "260", False), ("0259", "vm-only", "0259", False),
+            ("259", "production", "259", False), ("259", "vm-only", "258", False),
+        ):
+            with self.subTest(profile=profile, scope=scope, release_profile=release_profile):
+                result = subprocess.run(
+                    [bash, "--noprofile", "--norc", "-e", "-u", "-c", body, "guard",
+                     scope, profile, f"{release_profile}-aaaaaaaaaaaa-1-aaaaaaaa"],
+                    capture_output=True, text=True, timeout=10,
+                )
+                self.assertEqual(result.returncode == 0, allowed, result.stderr)
 
     def test_vm_only_candidate_has_a_private_writable_tmp_directory(self) -> None:
         script = (DEPLOY_ROOT / "release" / "vm-only-validate.sh").read_text(encoding="utf-8")
