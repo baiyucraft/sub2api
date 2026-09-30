@@ -51,6 +51,7 @@ export default {
       noDataAvailable: 'No data available',
       userTrendLoadFailed: 'Failed to load recent usage. Refresh and try again.',
       recentUsage: 'Recent Usage',
+      actualSpending: 'Actual spending ($)',
       viewModelDistribution: 'Model Distribution',
       viewSpendingRanking: 'User Spending Ranking',
       spendingRankingTitle: 'User Spending Ranking',
