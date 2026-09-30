@@ -19,6 +19,49 @@ from release import cli
 
 
 class DeployCommandTest(unittest.TestCase):
+    def test_direct_gate_consumption_rejects_blocked_signed_classification_before_state_write(self) -> None:
+        for reason in ("production_commit_unproven", "recovery_change_requires_review"):
+            document = {"manifest": {"recovery_gate": {"reason_codes": [reason]}}}
+            with self.subTest(reason=reason), mock.patch.object(cli, "verify_gate", return_value=document), mock.patch.object(
+                cli.RunState, "create"
+            ) as create:
+                with self.assertRaises(RuntimeError):
+                    cli.release(argparse.Namespace(profile="259", gate="gate"))
+                create.assert_not_called()
+
+    def test_missing_production_identity_cannot_bypass_full_classification(self) -> None:
+        report = {
+            "schema": 1, "mode": "specialized", "base_commit": None, "target_commit": "a" * 40,
+            "reason_codes": ["production_commit_unproven"],
+            "changed_paths_sha256": "c" * 64, "estimated_extra_seconds": 600,
+        }
+        for mode in ("auto", "full"):
+            with self.subTest(mode=mode), mock.patch.object(cli, "classify_recovery_gate", return_value=report):
+                with self.assertRaisesRegex(RuntimeError, "production commit is unproven"):
+                    cli._recovery_gate_report("a" * 40, {"schema_migrations": []}, [], mode)
+
+    def test_automatic_full_requires_independent_review_even_when_explicit_full_requested(self) -> None:
+        report = {
+            "schema": 1, "mode": "full", "base_commit": "b" * 40, "target_commit": "a" * 40,
+            "reason_codes": ["recovery_change_requires_review"],
+            "changed_paths_sha256": "c" * 64, "estimated_extra_seconds": 2400,
+        }
+        for mode in ("auto", "full"):
+            with self.subTest(mode=mode), mock.patch.object(cli, "classify_recovery_gate", return_value=report):
+                with self.assertRaisesRegex(RuntimeError, "independent full DR drill"):
+                    cli._recovery_gate_report("a" * 40, {"schema_migrations": []}, [], mode)
+
+    def test_manual_full_vm_gate_preserves_ordinary_change_identity(self) -> None:
+        report = {
+            "schema": 1, "mode": "fast", "base_commit": "b" * 40, "target_commit": "a" * 40,
+            "reason_codes": ["ordinary_change"],
+            "changed_paths_sha256": "c" * 64, "estimated_extra_seconds": 0,
+        }
+        with mock.patch.object(cli, "classify_recovery_gate", return_value=report):
+            result = cli._recovery_gate_report("a" * 40, {"schema_migrations": []}, [], "full")
+        self.assertEqual(result["mode"], "full")
+        self.assertIn("manual_full_drill", result["reason_codes"])
+
     def test_recovery_gate_report_keeps_ordinary_change_fast(self) -> None:
         fast = {
             "schema": 1,
@@ -230,6 +273,10 @@ class DeployCommandTest(unittest.TestCase):
                 mock.patch.object(cli, "install_vm_validator") as install_unit,
                 mock.patch.object(cli, "bootstrap_production") as bootstrap,
                 mock.patch.object(cli, "decode_snapshot", return_value=production_snapshot),
+                mock.patch.object(cli, "classify_recovery_gate", return_value={
+                    "schema": 1, "mode": "specialized", "base_commit": "b" * 40, "target_commit": "a" * 40,
+                    "reason_codes": ["redis_changed"], "changed_paths_sha256": "c" * 64, "estimated_extra_seconds": 600,
+                }),
                 mock.patch.object(cli, "prepare_pre_gate_inputs", return_value=(descriptor, "/rack/pre-gate", "/vm/pre-gate")) as prepare,
                 mock.patch.object(cli, "create_vm_gate", return_value=gate) as create_gate,
                 mock.patch.object(cli, "release") as production,
@@ -256,10 +303,10 @@ class DeployCommandTest(unittest.TestCase):
             recovery_gate={
                 "schema": 1,
                 "mode": "specialized",
-                "base_commit": None,
+                "base_commit": "b" * 40,
                 "target_commit": "a" * 40,
-                "reason_codes": ["production_commit_unproven"],
-                "changed_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+                "reason_codes": ["redis_changed"],
+                "changed_paths_sha256": "c" * 64,
                 "estimated_extra_seconds": 600,
             },
         )
@@ -370,6 +417,10 @@ class DeployCommandTest(unittest.TestCase):
                 mock.patch.object(cli, "install_vm_validator"),
                 mock.patch.object(cli, "bootstrap_production"),
                 mock.patch.object(cli, "decode_snapshot", return_value={"schema": 1, "schema_migrations": []}),
+                mock.patch.object(cli, "classify_recovery_gate", return_value={
+                    "schema": 1, "mode": "specialized", "base_commit": "b" * 40, "target_commit": "a" * 40,
+                    "reason_codes": ["redis_changed"], "changed_paths_sha256": "c" * 64, "estimated_extra_seconds": 600,
+                }),
                 mock.patch.object(cli, "prepare_pre_gate_inputs", return_value=(descriptor, "/rack/pre-gate", "/vm/pre-gate")),
                 mock.patch.object(cli, "create_vm_gate", side_effect=fail_gate),
                 self.assertRaisesRegex(RuntimeError, "validator failed"),

@@ -5,12 +5,14 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 DEPLOY_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(DEPLOY_ROOT))
 
 from release.recovery_gate import changed_paths_sha256, classify, require_full, validate_report
+from release import recovery_gate
 
 
 class RecoveryGateTest(unittest.TestCase):
@@ -109,17 +111,107 @@ class RecoveryGateTest(unittest.TestCase):
                 self.assertIn(reason, report["reason_codes"])
                 self.assertEqual(report["estimated_extra_seconds"], 600)
 
-    def test_release_or_recovery_change_uses_specialized_mode(self) -> None:
+    def test_unreviewed_recovery_change_requires_full_mode(self) -> None:
         target = self.commit_change(
             ".agents/skills/sub2api-production-deploy/scripts/maintenance/release/restore.sh"
         )
         report = classify(self.root, self.base, target)
-        self.assertEqual(report["mode"], "specialized")
+        self.assertEqual(report["mode"], "full")
         self.assertEqual(
             report["reason_codes"],
-            ["recovery_logic_changed", "release_state_machine_changed"],
+            ["recovery_change_requires_review", "release_state_machine_changed"],
         )
-        self.assertEqual(report["estimated_extra_seconds"], 600)
+        self.assertEqual(report["estimated_extra_seconds"], 2400)
+
+    def test_reviewed_blob_pair_uses_specialized_and_extra_change_revokes_review(self) -> None:
+        relative = ".agents/skills/sub2api-production-deploy/scripts/maintenance/release/context.sh"
+        self.write(relative, "profiles=258\n")
+        self.git("add", "-A")
+        self.git("commit", "-m", "profile baseline")
+        base = self.git("rev-parse", "HEAD")
+        self.write(relative, "profiles=258,259\n")
+        self.git("add", "-A")
+        self.git("commit", "-m", "profile compatibility")
+        reviewed = self.git("rev-parse", "HEAD")
+        with mock.patch.object(recovery_gate, "_REVIEWED_COMPATIBILITY_TRANCHES", ((base, reviewed),)):
+            report = classify(self.root, base, reviewed)
+            self.assertEqual(report["mode"], "specialized")
+            self.assertIn("reviewed_profile_compatibility_changed", report["reason_codes"])
+            target = self.commit_change(relative)
+            self.assertEqual(classify(self.root, base, target)["mode"], "full")
+            self.assertEqual(classify(self.root, self.base, reviewed)["mode"], "full")
+
+    def test_review_does_not_cover_other_path_or_file_mode(self) -> None:
+        relative = ".agents/skills/sub2api-production-deploy/scripts/maintenance/release/context.sh"
+        self.write(relative, "baseline\n")
+        self.git("add", "-A")
+        self.git("commit", "-m", "baseline helper")
+        base = self.git("rev-parse", "HEAD")
+        reviewed = self.commit_change(relative)
+        with mock.patch.object(recovery_gate, "_REVIEWED_COMPATIBILITY_TRANCHES", ((base, reviewed),)):
+            other = relative.replace("context.sh", "restore.sh")
+            target = self.commit_change(other)
+            self.assertEqual(classify(self.root, base, target)["mode"], "full")
+            self.git("update-index", "--chmod=+x", relative)
+            self.git("commit", "-m", "mode changed")
+            target = self.git("rev-parse", "HEAD")
+            self.assertEqual(classify(self.root, base, target)["mode"], "full")
+
+    def test_reviewed_metadata_and_algorithm_changes_keep_highest_tier(self) -> None:
+        relative = ".agents/skills/sub2api-production-deploy/scripts/maintenance/release/context.sh"
+        self.write(relative, "baseline\n")
+        self.git("add", "-A")
+        self.git("commit", "-m", "baseline helper")
+        base = self.git("rev-parse", "HEAD")
+        reviewed = self.commit_change(relative)
+        with mock.patch.object(recovery_gate, "_REVIEWED_COMPATIBILITY_TRANCHES", ((base, reviewed),)):
+            target = self.commit_change(".agents/skills/sub2api-production-deploy/scripts/release/gate.py")
+            target = self.commit_change("backend/internal/cache/redis_store.go")
+            report = classify(self.root, base, target)
+            self.assertEqual(report["mode"], "full")
+            self.assertIn("reviewed_profile_compatibility_changed", report["reason_codes"])
+            self.assertIn("redis_changed", report["reason_codes"])
+
+    def test_format_and_trust_files_require_full_review(self) -> None:
+        base = self.base
+        for relative in (
+            "release/sign-gate.sh", "release/sign-dr-evidence.sh", "release/manifest.py",
+            "release/production_snapshot.py", "release/drverify/main.go", "release/trust/vm-gate-ed25519.pub",
+            "release/bootstrap_vm_signer.sh", "maintenance/release/reconcile.sh",
+            "release/paths.py", "release/atomic.py", "release/migration_planner.py",
+        ):
+            with self.subTest(relative=relative):
+                target = self.commit_change(".agents/skills/sub2api-production-deploy/scripts/" + relative)
+                self.assertEqual(classify(self.root, base, target)["mode"], "full")
+                base = target
+
+    def test_sensitive_file_renamed_outside_recovery_scope_still_requires_review(self) -> None:
+        relative = ".agents/skills/sub2api-production-deploy/scripts/maintenance/release/restore.sh"
+        self.write(relative, "baseline\n")
+        self.git("add", "-A")
+        self.git("commit", "-m", "baseline helper")
+        base = self.git("rev-parse", "HEAD")
+        self.git("mv", relative, "ordinary.txt")
+        self.git("commit", "-m", "rename helper")
+        self.assertEqual(classify(self.root, base, self.git("rev-parse", "HEAD"))["mode"], "full")
+
+    def test_gate_policy_review_cannot_exempt_restoration_algorithm(self) -> None:
+        prefix = ".agents/skills/sub2api-production-deploy/scripts/"
+        policy = prefix + "release/cli.py"
+        restore = prefix + "maintenance/release/restore.sh"
+        self.write(policy, "baseline\n")
+        self.write(restore, "baseline\n")
+        self.git("add", "-A")
+        self.git("commit", "-m", "baseline helpers")
+        base = self.git("rev-parse", "HEAD")
+        target = self.commit_change(policy)
+        with mock.patch.object(recovery_gate, "_REVIEWED_GATE_POLICY_TRANCHES", ((base, target),)):
+            report = classify(self.root, base, target)
+            self.assertEqual(report["mode"], "specialized")
+            self.assertIn("reviewed_gate_policy_changed", report["reason_codes"])
+        target = self.commit_change(restore)
+        with mock.patch.object(recovery_gate, "_REVIEWED_GATE_POLICY_TRANCHES", ((base, target),)):
+            self.assertEqual(classify(self.root, base, target)["mode"], "full")
 
     def test_full_mode_requires_explicit_escalation(self) -> None:
         target = self.commit_change("backend/internal/service/example.go")
@@ -133,7 +225,7 @@ class RecoveryGateTest(unittest.TestCase):
         cases = {
             "backend/internal/repository/billing_inflight_cache.go": ["redis_changed"],
             ".agents/skills/sub2api-production-deploy/scripts/maintenance/release/restore.sh": [
-                "recovery_logic_changed",
+                "recovery_change_requires_review",
                 "release_state_machine_changed",
             ],
         }

@@ -374,5 +374,5 @@
 - 修复合同：Redis 健康等待使用有界长等待并在健康后立即继续；TTL 验收使用总键、TTL 键和永久键的单调不等式；`recovery_restored` 可在严格复核后消费过期 ingress `applied` marker；orchestrator、restore、cleanup、reconcile 必须来自同一 helper bundle。
 - 断点合同：按 PostgreSQL、Redis、Compose、应用、Nginx、backup units、claim 和 state cleanup 保存 checkpoint。业务恢复后只剩 cleanup 时，只执行幂等收口，不重做数据库恢复。
 - 验真合同：候选成功使用 `verify-result`；恢复旧版本使用 `verify-recovery-result`，两者不能互相替代或放宽。
-- 预防门禁：每次发布执行 `fast` 0–2 分钟；恢复相关改动执行 `specialized` 5–15 分钟和故障注入；`full` 20–60 分钟至少每 30 天执行一次，不阻塞普通发布，但恢复链自身变更或真实事故修复必须在生产前通过。
+- 预防门禁：每次发布执行 `fast` 0–2 分钟；恢复相关改动执行 `specialized` 5–15 分钟和受影响边界的故障注入；`full` 20–60 分钟至少每 30 天执行一次，不阻塞普通发布，仅恢复算法、备份格式、信任链变化或真实恢复事故修复必须在生产前通过。精确审阅的 profile 兼容扩展不重复 Full DR；未知关键变化先阻断，不能用 VM Full 参数绕过。
 - 状态：本次已知四类缺陷已修复；长期文档已固化门禁和恢复边界，CLI 使用独立 `verify-recovery-result` 验真 recovered release。

@@ -26,6 +26,15 @@ from release.production import quoted_env
 
 
 class ProductionRecoveryTest(unittest.TestCase):
+    def test_direct_production_module_rejects_blocked_gate_before_ssh_is_created(self) -> None:
+        for reason in ("production_commit_unproven", "recovery_change_requires_review"):
+            with self.subTest(reason=reason), mock.patch("release.production.verify_gate", return_value={
+                "manifest": {"recovery_gate": {"reason_codes": [reason]}}
+            }), mock.patch("release.production.SSHRunner") as ssh:
+                with self.assertRaises(RuntimeError):
+                    ProductionRelease(Path("gate"), CURRENT_RELEASE_PROFILE)
+                ssh.assert_not_called()
+
     def test_stage_bundle_is_deterministic_and_contains_checksum_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

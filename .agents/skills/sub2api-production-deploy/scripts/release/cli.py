@@ -27,7 +27,7 @@ from .migration_planner import plan_migrations
 from .production_snapshot import decode_snapshot, snapshot_sha256
 from .process import run_hidden
 from .recovery_gate import classify as classify_recovery_gate
-from .recovery_gate import require_full, require_specialized, unproven_report
+from .recovery_gate import assert_release_allowed, require_full, require_specialized, unproven_report
 from .state import TERMINAL_STATES, RunLock, RunState
 
 
@@ -50,6 +50,7 @@ def _recovery_gate_report(
 ) -> dict:
     base_commit = production_snapshot.get("production_current_commit_sha") or None
     report = classify_recovery_gate(WORKSPACE, base_commit, commit)
+    assert_release_allowed(report)
     plan = plan_migrations(migration_catalog, production_snapshot.get("schema_migrations", []))
     if plan.get("pending"):
         report = require_specialized(report, "pending_migrations")
@@ -410,6 +411,7 @@ def vm_validate(args: argparse.Namespace) -> None:
 def release(args: argparse.Namespace, acquire_lock: bool = True) -> None:
     gate_dir = Path(args.gate).resolve()
     document = verify_gate(gate_dir, TRUSTED_VM_PUBLIC_KEY, args.profile, accepted_schemas=frozenset({2}))
+    assert_release_allowed(document["manifest"].get("recovery_gate"))
     identifier = document["manifest"]["release_id"]
     run_dir = RUN_ROOT / identifier
     logger = _event_logger(run_dir, identifier, _deployment_mode(args, document.get("manifest")))

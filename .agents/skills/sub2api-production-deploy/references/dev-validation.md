@@ -23,7 +23,7 @@
 
 - `fast` 预算 0–2 分钟，所有实际发布都执行。它不启动完整灾备恢复，只验证完整 SHA、变更分类、语法、引用、helper bundle 清单/checksum 和适用的快速测试。
 - `specialized` 预算 5–15 分钟。命中 migration、PostgreSQL/Redis、Compose、备份、restore/cleanup/reconcile、ingress 或发布状态机时，必须在 VM/隔离环境执行受影响恢复链。
-- `full` 预算 20–60 分钟。`--recovery-gate-mode full` 只显式执行并签名完整门禁的 VM 恢复部分；生产级故障注入、独立 `drill_id`、RTO 测量和演练收口仍按备份恢复运维步骤执行。完整演练不阻塞普通发布；恢复链重大变化、恢复格式/信任链变化或真实恢复事故修复时，必须在生产前完成。
+- `full` 预算 20–60 分钟。`--recovery-gate-mode full` 只显式执行并签名完整门禁的 VM 恢复部分；生产级故障注入、独立 `drill_id`、RTO 测量和演练收口仍按备份恢复运维步骤执行。完整演练不阻塞普通发布；只有恢复算法、备份格式、信任链变化或真实恢复事故修复时，必须在生产前完成。精确审阅的 profile 兼容扩展走 `specialized`；未知关键变化在准备恢复包前阻断，显式 Full 参数不豁免。
 
 `specialized` 最少覆盖以下故障注入：
 

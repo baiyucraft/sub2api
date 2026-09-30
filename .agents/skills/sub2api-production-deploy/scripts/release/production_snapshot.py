@@ -9,6 +9,22 @@ from typing import Any
 from .migration_planner import plan_migrations
 
 
+def runtime_commit_script() -> str:
+    return r'''resolve_production_commit() {
+  local image=$1 image_ref=$2 ref_commit= commits
+  production_current_commit_sha=
+  if [[ $image_ref =~ ^sub2api:baiyu-[0-9][0-9A-Za-z.-]*-([0-9a-f]{40})$ ]]; then
+    ref_commit=${BASH_REMATCH[1]}
+    if [[ $(docker image inspect -f '{{.Id}}' "$image_ref" 2>/dev/null || true) != "$image" ]]; then ref_commit=; fi
+  fi
+  commits=$(docker image inspect -f '{{json .RepoTags}}' "$image" | jq -c --arg ref "$ref_commit" '[.[]? | select(test("^sub2api:baiyu-[0-9][0-9A-Za-z.-]*-[0-9a-f]{40}$")) | capture("-(?<sha>[0-9a-f]{40})$").sha] + (if $ref == "" then [] else [$ref] end) | unique')
+  if [[ $(jq -r 'length' <<<"$commits") == 1 ]]; then
+    production_current_commit_sha=$(jq -r '.[0]' <<<"$commits")
+  fi
+}
+'''
+
+
 def snapshot_script() -> str:
     return r'''set -Eeuo pipefail
 slot=/opt/sub2api/active-app
@@ -17,10 +33,8 @@ active_container=$(sed -n 's/^container=//p' "$slot")
 test "$active_container" && [[ "$active_container" =~ ^[A-Za-z0-9_.-]{1,100}$ ]]
 image=$(docker inspect -f '{{.Image}}' "$active_container")
 image_ref=$(docker inspect -f '{{.Config.Image}}' "$active_container")
-production_current_commit_sha=
-if [[ $image_ref =~ -([0-9a-f]{40})$ ]] && [[ $(docker image inspect -f '{{.Id}}' "$image_ref" 2>/dev/null || true) == "$image" ]]; then
-  production_current_commit_sha=${BASH_REMATCH[1]}
-fi
+''' + runtime_commit_script() + r'''
+resolve_production_commit "$image" "$image_ref"
 rows=$(docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT COALESCE(json_agg(json_build_object('filename',filename,'checksum',checksum) ORDER BY filename),'[]'::json) FROM schema_migrations" | tr -d '\r\n')
 test "$image" = sha256:* && printf '%s' "$rows" | jq -e 'type == "array" and all(.[]; type == "object" and (.filename|type)=="string" and (.checksum|type)=="string")' >/dev/null
 payload=$(jq -cn --arg image "$image" --arg commit "$production_current_commit_sha" --argjson rows "$rows" '{current_image_id:$image,production_current_commit_sha:$commit,schema_migrations:$rows}')
