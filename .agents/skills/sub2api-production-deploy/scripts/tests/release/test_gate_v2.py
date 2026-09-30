@@ -118,13 +118,13 @@ class GateV2Test(unittest.TestCase):
             capture_output=True,
         )
 
-    def _verify(self, *, allow_historical_runner: bool = False, profile: str = "258") -> dict:
+    def _verify(self, *, allow_historical_runner: bool = False, profile: str = "258", asset_checksum=None) -> dict:
         with (
             mock.patch("release.gate.validate_manifest_profile_contract"),
             mock.patch("release.gate.get_profile", return_value={}),
             mock.patch("release.gate.runner_checksum", return_value="d" * 64),
             mock.patch("release.gate.release_asset_checksums", return_value=self._assets()),
-            mock.patch("release.gate.sha256_file", side_effect=self._asset_checksum),
+            mock.patch("release.gate.sha256_file", side_effect=asset_checksum or self._asset_checksum),
         ):
             return verify_gate(
                 self.root,
@@ -180,6 +180,22 @@ class GateV2Test(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 258"):
             self._verify(profile="257")
         self.assertEqual(self._verify(profile="257", allow_historical_runner=True), document)
+
+    def test_historical_recovery_uses_signed_commit_assets_not_current_validator(self) -> None:
+        document = self._document()
+        document["profile_id"] = 257
+        document["manifest"].update(profile="257", release_id="257-aaaaaaaaaaaa-1-aaaaaaaa", version="0.2.9-baiyu")
+        self._sign(document)
+        self.assertEqual(
+            self._verify(profile="257", allow_historical_runner=True, asset_checksum=lambda _path: "new-validator"),
+            document,
+        )
+
+    def test_current_gate_rejects_different_local_validator(self) -> None:
+        document = self._document()
+        self._sign(document)
+        with self.assertRaisesRegex(RuntimeError, "different vm-validate.sh"):
+            self._verify(asset_checksum=lambda _path: "new-validator")
 
     def test_schema_tamper_is_rejected_before_dispatch(self) -> None:
         document = self._document()

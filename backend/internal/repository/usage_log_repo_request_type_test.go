@@ -886,7 +886,7 @@ func TestUsageLogRepositoryGetUserUsageTrendScansAccountCost(t *testing.T) {
 		WithArgs(start, end, 12, start, end).
 		WillReturnRows(rows)
 
-	got, err := repo.GetUserUsageTrend(context.Background(), start, end, "hour", 12)
+	got, err := repo.GetUserUsageTrend(context.Background(), start, end, "hour", 12, "tokens")
 	require.NoError(t, err)
 	require.Equal(t, []usagestats.UserUsageTrendPoint{{
 		Date:        "2025-01-01 00:00",
