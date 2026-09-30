@@ -148,6 +148,88 @@ func setupFakeOpenAI(t *testing.T, handler *openAICaptureHandler) string {
 	return srv.URL
 }
 
+func TestPostRawMonitorStream_AllowsResponsesOverLegacy64KiBLimit(t *testing.T) {
+	swapMonitorHTTPClient(t)
+	var body strings.Builder
+	body.WriteString("data: ")
+	body.WriteString(monitorJSON(map[string]any{
+		"type":    "response.created",
+		"padding": strings.Repeat("x", 200*1024),
+	}))
+	body.WriteString("\n\n")
+	body.WriteString("data: ")
+	body.WriteString(monitorJSON(map[string]any{"type": "response.output_text.delta", "delta": "2"}))
+	body.WriteString("\n\n")
+	body.WriteString("data: ")
+	body.WriteString(monitorJSON(map[string]any{
+		"type":     "response.completed",
+		"response": map[string]any{"status": "completed"},
+	}))
+	body.WriteString("\n\n")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(body.String()))
+	}))
+	t.Cleanup(srv.Close)
+
+	result, status, _, err := postRawMonitorStream(
+		context.Background(), srv.URL, []byte("{}"), nil,
+		MonitorProviderOpenAI, MonitorAPIModeResponses,
+	)
+	if err != nil {
+		t.Fatalf("postRawMonitorStream returned error: %v", err)
+	}
+	if status != http.StatusOK || !result.Completed || result.Text != "2" || result.TTFTMs == nil {
+		t.Fatalf("status = %d, completed = %t, text = %q, ttft = %v", status, result.Completed, result.Text, result.TTFTMs)
+	}
+}
+
+func TestPostRawMonitorStream_ReportsResponseLimit(t *testing.T) {
+	swapMonitorHTTPClient(t)
+	var body strings.Builder
+	for i := 0; i < 1300; i++ {
+		body.WriteString("data: ")
+		body.WriteString(monitorJSON(map[string]any{
+			"type":    "response.created",
+			"padding": strings.Repeat("x", 900),
+		}))
+		body.WriteString("\n\n")
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(body.String()))
+	}))
+	t.Cleanup(srv.Close)
+
+	_, status, _, err := postRawMonitorStream(
+		context.Background(), srv.URL, []byte("{}"), nil,
+		MonitorProviderOpenAI, MonitorAPIModeResponses,
+	)
+	if err == nil || !strings.Contains(err.Error(), "monitor SSE response exceeded") {
+		t.Fatalf("error = %v, want explicit response limit error", err)
+	}
+	if status != http.StatusOK {
+		t.Fatalf("status = %d, want %d", status, http.StatusOK)
+	}
+}
+
+func TestPostRawMonitorStream_PreservesMalformedEventError(t *testing.T) {
+	swapMonitorHTTPClient(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "data: {\"type\":\n\n")
+	}))
+	t.Cleanup(srv.Close)
+
+	_, _, _, err := postRawMonitorStream(
+		context.Background(), srv.URL, []byte("{}"), nil,
+		MonitorProviderOpenAI, MonitorAPIModeResponses,
+	)
+	if err == nil || !strings.Contains(err.Error(), "decode monitor responses event") {
+		t.Fatalf("error = %v, want malformed event error", err)
+	}
+}
+
 func answerFromOpenAIRequest(body map[string]any) string {
 	prompt, _ := body["input"].(string)
 	if prompt == "" {

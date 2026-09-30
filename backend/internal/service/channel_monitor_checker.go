@@ -798,8 +798,12 @@ func postRawMonitorStream(ctx context.Context, fullURL string, payload []byte, h
 		}
 		return nil
 	}
-	scanner := bufio.NewScanner(io.LimitReader(resp.Body, monitorResponseMaxBytes))
-	scanner.Buffer(make([]byte, 4096), 1<<20)
+	// Read one byte beyond the limit so a truncated SSE event is distinguishable
+	// from a naturally completed stream. The scanner must be able to consume
+	// that extra byte without reporting a misleading token-too-long error.
+	streamBody := &io.LimitedReader{R: resp.Body, N: monitorStreamMaxBytes + 1}
+	scanner := bufio.NewScanner(streamBody)
+	scanner.Buffer(make([]byte, 4096), monitorStreamMaxBytes+2)
 	for scanner.Scan() {
 		line := strings.TrimSuffix(scanner.Text(), "\r")
 		if line == "" {
@@ -817,6 +821,9 @@ func postRawMonitorStream(ctx context.Context, fullURL string, payload []byte, h
 	}
 	if err := scanner.Err(); err != nil {
 		return result, resp.StatusCode, switchCount, fmt.Errorf("read stream: %w", err)
+	}
+	if !result.Completed && streamBody.N == 0 {
+		return result, resp.StatusCode, switchCount, fmt.Errorf("monitor SSE response exceeded %d bytes", monitorStreamMaxBytes)
 	}
 	if !result.Completed {
 		if err := dispatch(); err != nil {
