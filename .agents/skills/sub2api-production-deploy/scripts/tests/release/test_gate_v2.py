@@ -16,9 +16,10 @@ sys.path.insert(0, str(DEPLOY_ROOT))
 
 from release.atomic import canonical_json
 from release.gate import _validate_v2_pending, gate_payload, verify_gate
-from release.manifest import release_unit_relative_paths
+from release.manifest import release_unit_relative_paths, validate_manifest_profile_contract
 from release.migration_planner import CHECKSUM_POLICY_VERSION, catalog_sha256, checksum_policy_sha256
 from release.paths import LAYOUT_SKILL_V1
+from release.profiles import get_profile
 
 
 class GateV2Test(unittest.TestCase):
@@ -50,17 +51,28 @@ class GateV2Test(unittest.TestCase):
             "sign-dr-evidence.sh": "dr-signer",
         }[path.name]
 
-    def _document(self, pending: list[dict] | None = None) -> dict:
-        catalog = [{"filename": "246_example.sql", "checksum": "a" * 64, "non_transactional": False}]
+    @staticmethod
+    def _catalog() -> list[dict]:
+        return [{"filename": "246_example.sql", "checksum": "a" * 64, "non_transactional": False}]
+
+    def _document(self, pending: list[dict] | None = None, *, profile: str = "259") -> dict:
+        catalog = self._catalog()
+        contract = get_profile(profile)
         image = "sha256:" + "b" * 64
         snapshot = "c" * 64
         archive = b"candidate"
         (self.root / "candidate.tar.gz").write_bytes(archive)
         manifest = {
             "schema": 2,
-            "profile": "259",
-            "release_id": "259-aaaaaaaaaaaa-1-aaaaaaaa",
-            "version": "0.2.11-baiyu",
+            "deployment_mode": "blue-green",
+            "profile": profile,
+            "release_id": f"{profile}-aaaaaaaaaaaa-1-aaaaaaaa",
+            "version": contract["version"],
+            "origin": contract["origin"],
+            "vm_identity": contract["vm_identity"],
+            "parent_profile": contract["parent"],
+            "new_migrations": list(contract["new_migrations"]),
+            "release_policy": dict(contract["release_policy"]),
             "commit_sha": "a" * 40,
             "expires_at": int(time.time()) + 3600,
             "release_asset_layout": LAYOUT_SKILL_V1,
@@ -107,7 +119,7 @@ class GateV2Test(unittest.TestCase):
             },
             "release_policy": {"canary_verified": "not_checked", "restore_points_verified": True},
         }
-        return {"gate_version": 2, "profile_id": 259, "manifest": manifest, "evidence": evidence}
+        return {"gate_version": 2, "profile_id": int(profile), "manifest": manifest, "evidence": evidence}
 
     def _sign(self, document: dict) -> None:
         payload = self.root / "gate.json"
@@ -118,10 +130,10 @@ class GateV2Test(unittest.TestCase):
             capture_output=True,
         )
 
-    def _verify(self, *, allow_historical_runner: bool = False, profile: str = "259", asset_checksum=None) -> dict:
+    def _verify(self, *, allow_historical_runner: bool = False, profile: str = "259", asset_checksum=None, validate_profile_contract: bool = False) -> dict:
         with (
-            mock.patch("release.gate.validate_manifest_profile_contract"),
-            mock.patch("release.gate.get_profile", return_value={}),
+            mock.patch("release.gate.validate_manifest_profile_contract", wraps=validate_manifest_profile_contract if validate_profile_contract else None),
+            mock.patch("release.manifest.discover_migration_catalog", return_value=self._catalog()),
             mock.patch("release.gate.runner_checksum", return_value="d" * 64),
             mock.patch("release.gate.release_asset_checksums", return_value=self._assets()),
             mock.patch("release.gate.sha256_file", side_effect=asset_checksum or self._asset_checksum),
@@ -137,7 +149,30 @@ class GateV2Test(unittest.TestCase):
     def test_valid_empty_pending_round_trip(self) -> None:
         document = self._document()
         self._sign(document)
-        self.assertEqual(self._verify(), document)
+        self.assertEqual(self._verify(validate_profile_contract=True), document)
+
+    def test_profile_259_rejects_signed_wrong_version_parent_or_migrations(self) -> None:
+        for field, value, message in (
+            ("version", "0.2.10-baiyu", "version does not match"),
+            ("parent_profile", "257", "parent profile does not match"),
+            ("new_migrations", ["284_unified_proxy_bindings.sql"], "new migrations do not match"),
+        ):
+            with self.subTest(field=field):
+                document = self._document()
+                document["manifest"][field] = value
+                self._sign(document)
+                with self.assertRaisesRegex(RuntimeError, message):
+                    self._verify(validate_profile_contract=True)
+
+    def test_unregistered_profile_260_is_rejected_even_for_recovery(self) -> None:
+        document = self._document()
+        document["profile_id"] = 260
+        document["manifest"].update(profile="260", release_id="260-aaaaaaaaaaaa-1-aaaaaaaa")
+        self._sign(document)
+        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 259"):
+            self._verify(profile="260")
+        with self.assertRaisesRegex(ValueError, "unknown release profile: 260"):
+            self._verify(profile="260", allow_historical_runner=True)
 
     def test_fast_gate_requires_non_restore_evidence(self) -> None:
         document = self._document()
@@ -173,13 +208,11 @@ class GateV2Test(unittest.TestCase):
         self.assertEqual(self._verify(profile="246", allow_historical_runner=True), document)
 
     def test_previous_profile_requires_historical_runner_for_recovery(self) -> None:
-        document = self._document()
-        document["profile_id"] = 258
-        document["manifest"].update(profile="258", release_id="258-aaaaaaaaaaaa-1-aaaaaaaa", version="0.2.10-baiyu")
+        document = self._document(profile="258")
         self._sign(document)
         with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 259"):
             self._verify(profile="258")
-        self.assertEqual(self._verify(profile="258", allow_historical_runner=True), document)
+        self.assertEqual(self._verify(profile="258", allow_historical_runner=True, validate_profile_contract=True), document)
 
     def test_historical_recovery_uses_signed_commit_assets_not_current_validator(self) -> None:
         document = self._document()
