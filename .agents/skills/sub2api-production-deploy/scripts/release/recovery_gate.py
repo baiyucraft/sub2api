@@ -21,6 +21,12 @@ FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 _RECOVERY_PREFIX = ".agents/skills/sub2api-production-deploy/scripts/maintenance/release/"
+_SCRIPTS_PREFIX = ".agents/skills/sub2api-production-deploy/scripts/"
+# Reviewed profile-only changes, not permission to skip later changes to these files.
+_REVIEWED_COMPATIBILITY_TRANCHES = (
+    ("16a4a030fe67f4de4a46bcadd02c9003fc954432", "700052e8d67bcb5c92e95ba02530176b2e3a4068"),
+)
+_REVIEWED_GATE_POLICY_TRANCHES: tuple[tuple[str, str], ...] = ()
 _RELEASE_STATE_MACHINE_FILES = frozenset(
     {
         ".agents/skills/sub2api-production-deploy/scripts/release/cli.py",
@@ -39,6 +45,65 @@ _SPECIALIZED_PREFIXES = ("backend/migrations/",)
 _SPECIALIZED_FILES = {
     "backend/internal/repository/billing_inflight_cache.go": "redis_changed",
 }
+_RECOVERY_RUNTIME_FILES = frozenset(
+    {
+        "backup-retention-clean.sh", "backup-release-retention-clean.sh",
+        "bootstrap_backup_dr_assets.sh", "bootstrap_vm_signer.sh",
+        "production-recovery-retention-clean.sh", "production-space-clean.sh",
+        "promote-dr-baseline.sh", "sign-dr-evidence.sh", "sign-gate.sh",
+        "vm-only-validate.sh", "vm-validate.sh", "bootstrap.py", "production_bootstrap.py",
+        "production_cleanup.py", "production_recovery_retention.py", "profiles.py",
+        "paths.py", "atomic.py", "migration_planner.py",
+    }
+)
+
+
+def _is_recovery_sensitive_path(path: str) -> bool:
+    return (
+        path.startswith(_RECOVERY_PREFIX)
+        or (path.startswith(_SCRIPTS_PREFIX + "maintenance/") and path.endswith(".sh"))
+        or path.startswith((_SCRIPTS_PREFIX + "release/trust/", _SCRIPTS_PREFIX + "release/drverify/"))
+        or path in {_SCRIPTS_PREFIX + "release/" + name for name in _RECOVERY_RUNTIME_FILES}
+        or path in _RELEASE_STATE_MACHINE_FILES - {_SCRIPTS_PREFIX + "release/recovery_gate.py"}
+    )
+
+
+def _tree_blobs(workspace: Path, commit: str) -> dict[str, str]:
+    output = check_output_hidden(["git", "ls-tree", "-r", "-z", commit, "--", _SCRIPTS_PREFIX], cwd=workspace)
+    assert isinstance(output, bytes)
+    blobs = {}
+    for record in output.split(b"\0"):
+        if not record:
+            continue
+        metadata, path = record.split(b"\t", 1)
+        mode, kind, identity = metadata.decode("ascii").split()
+        if kind == "blob":
+            # File modes are part of the review, including symlink/type changes.
+            blobs[path.decode("utf-8")] = mode + ":" + identity
+    return blobs
+
+
+def _reviewed_compatibility_paths(workspace: Path, base_commit: str, target_commit: str) -> dict[str, str]:
+    base = _tree_blobs(workspace, base_commit)
+    target = _tree_blobs(workspace, target_commit)
+    reviewed: dict[str, str] = {}
+    reviews = [(before, after, "reviewed_profile_compatibility_changed") for before, after in _REVIEWED_COMPATIBILITY_TRANCHES]
+    reviews += [(before, after, "reviewed_gate_policy_changed") for before, after in _REVIEWED_GATE_POLICY_TRANCHES]
+    for before_commit, after_commit, reason in reviews:
+        if not _commit_exists(workspace, before_commit) or not _commit_exists(workspace, after_commit):
+            continue
+        before = _tree_blobs(workspace, before_commit)
+        after = _tree_blobs(workspace, after_commit)
+        for path in before.keys() & after.keys():
+            if reason == "reviewed_gate_policy_changed" and path not in {
+                _SCRIPTS_PREFIX + "release/cli.py", _SCRIPTS_PREFIX + "release/production_snapshot.py",
+                _SCRIPTS_PREFIX + "release/doctor.py",
+                _SCRIPTS_PREFIX + "release/production.py",
+            }:
+                continue
+            if before[path] != after[path] and base.get(path) == before[path] and target.get(path) == after[path]:
+                reviewed[path] = reason
+    return reviewed
 
 
 def _normalize_paths(paths: Iterable[str]) -> list[str]:
@@ -78,7 +143,7 @@ def _is_specialized_path(path: str) -> tuple[bool, str | None]:
 
 def _changed_paths(workspace: Path, base_commit: str, target_commit: str) -> list[str]:
     output = check_output_hidden(
-        ["git", "diff", "--name-only", "-z", base_commit, target_commit, "--"],
+        ["git", "diff", "--no-renames", "--name-only", "-z", base_commit, target_commit, "--"],
         cwd=workspace,
     )
     assert isinstance(output, bytes)
@@ -167,14 +232,27 @@ def classify(workspace: Path, base_commit: str | None, target_commit: str) -> di
         return _unproven_report(target_commit, base_commit)
 
     paths = _changed_paths(workspace, base_commit, target_commit)
+    sensitive_paths = {path for path in paths if _is_recovery_sensitive_path(path)}
+    reviewed = _reviewed_compatibility_paths(workspace, base_commit, target_commit) if sensitive_paths else {}
     reasons: set[str] = set()
     mode = "fast"
     if not _is_ancestor(workspace, base_commit, target_commit):
         mode = "specialized"
         reasons.add("base_commit_not_ancestor")
     for path in paths:
+        if path in sensitive_paths:
+            reasons.add("release_state_machine_changed")
+            if path in reviewed:
+                if mode != "full":
+                    mode = "specialized"
+                reasons.add(reviewed[path])
+            else:
+                mode = "full"
+                reasons.add("recovery_change_requires_review")
+            continue
         if path.startswith(_RECOVERY_PREFIX) or path in _RELEASE_STATE_MACHINE_FILES:
-            mode = "specialized"
+            if mode != "full":
+                mode = "specialized"
             reasons.add("release_state_machine_changed")
             if path.startswith(_RECOVERY_PREFIX):
                 reasons.add("recovery_logic_changed")
@@ -209,6 +287,17 @@ def require_specialized(report: dict[str, Any], reason: str) -> dict[str, Any]:
         value["estimated_extra_seconds"] = ESTIMATED_EXTRA_SECONDS["specialized"]
     value["reason_codes"] = sorted(set(value["reason_codes"]) | {reason})
     return validate_report(value, target_commit=value["target_commit"])
+
+
+def assert_release_allowed(report: dict[str, Any] | None) -> None:
+    reasons = set((report or {}).get("reason_codes", []))
+    if "production_commit_unproven" in reasons:
+        raise RuntimeError("production commit is unproven; recovery classification requires an immutable release identity")
+    if "recovery_change_requires_review" in reasons:
+        raise RuntimeError(
+            "recovery changes require review and an independent full DR drill before production; "
+            "--recovery-gate-mode full only verifies the VM restore portion"
+        )
 
 
 def require_full(report: dict[str, Any], reason: str = "manual_full_drill") -> dict[str, Any]:

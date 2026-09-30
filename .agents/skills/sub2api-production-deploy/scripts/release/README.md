@@ -29,11 +29,11 @@ python .agents/skills/sub2api-production-deploy/scripts/release.py logs <release
 | --- | --- | --- |
 | `fast` | 0–2 分钟 | 每次实际发布；完整 SHA、分类、语法、引用、helper bundle 和定向快速检查 |
 | `specialized` | 5–15 分钟 | migration、PG/Redis、Compose、backup、restore/cleanup/reconcile、ingress 或发布状态机变化 |
-| `full` | 20–60 分钟 | 至少每 30 天完整演练；恢复链重大变化或真实事故修复时发布前强制 |
+| `full` | 20–60 分钟 | 至少每 30 天完整演练；恢复算法、备份格式、信任链变化或真实恢复事故修复时发布前强制 |
 
-`full` 逾期不阻塞普通发布，但必须报告 `overdue`；恢复链、备份格式或恢复信任链自身变化时，未通过 `full` 不得进入生产。时间预算不是 timeout，不授权杀死仍在推进的 runner。
+`full` 逾期不阻塞普通发布，但必须报告 `overdue`；只有恢复算法、备份格式、信任链变化或真实恢复事故修复时，未通过 `full` 不得进入生产。精确审阅的 profile 白名单、版本和入口兼容扩展走 `specialized`。时间预算不是 timeout，不授权杀死仍在推进的 runner。
 
-默认 `--recovery-gate-mode auto` 根据生产完整 commit、最终 diff 和 pending migration 在 `fast`/`specialized` 间分类。显式 `--recovery-gate-mode full` 会执行并签名完整门禁的 VM 恢复部分，但不会自动完成生产级故障注入、独立 `drill_id`、RTO 测量或灾备演练收口；这些仍按备份恢复运维步骤单独执行。
+默认 `--recovery-gate-mode auto` 根据生产完整 commit、最终 diff 和 pending migration 分类。恢复关键文件的未知变化为 `full/recovery_change_requires_review` 并阻断；已审阅兼容批次必须逐路径匹配旧/新 Git blob 与文件模式，才降为 `specialized`，额外修改即失效。显式 `--recovery-gate-mode full` 会执行并签名完整门禁的 VM 恢复部分，但不会自动完成生产级故障注入、独立 `drill_id`、RTO 测量或灾备演练收口，也不能绕过自动阻断；这些仍按备份恢复运维步骤单独执行。
 
 协调恢复命令链为：
 

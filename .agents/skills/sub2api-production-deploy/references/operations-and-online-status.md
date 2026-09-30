@@ -129,7 +129,7 @@ python .agents/skills/sub2api-production-deploy/scripts/racknerd_readonly_status
 5. 备份 service/timer、远端 checksum 和空间。
 6. 需要 VM/image 的类别检查 Docker Root Dir、containerd、`/tmp` 和源码文件系统的峰值空间、inode 和回滚预留；导入前后重新采集，不以 image size 加 `2 GiB` 作为唯一门禁。
 7. 当前状态均带本次 `checked_at`，旧快照不直接继承。
-8. 记录本次 `gate_tier`、`gate_trigger`、预计耗时和完整灾备演练是否到期；`full` 逾期不阻塞普通发布，但恢复链、备份格式或恢复信任链变更时必须停止。
+8. 记录本次 `gate_tier`、`gate_trigger`、预计耗时和完整灾备演练是否到期；`full` 逾期不阻塞普通发布，仅恢复算法、备份格式、信任链变化或真实恢复事故修复未完成当次演练时必须停止。精确审阅的 profile 兼容扩展仍通过专项隔离恢复。
 9. 校验恢复 helper 原子 bundle 的完整 commit、文件闭包和 SHA-256；orchestrator、restore、cleanup、reconcile 任一不属于同一 bundle 时停止。
 
 ### 三层门禁在线字段
@@ -147,7 +147,7 @@ next_full_drill_due_at: ISO-8601 | not_defined
 recovery_helper_bundle_sha256: 小写 64 位 SHA-256 | not_applicable | not_checked
 ```
 
-`full_gate_status=overdue` 对普通发布是可见告警，不得伪造为 `pass`；对恢复链自身变更是 blocker。时间预算不是 timeout，runner 是否继续只由结构化阶段、原命令 timeout 和进程状态决定。
+`full_gate_status=overdue` 对普通发布是可见告警，不得伪造为 `pass`；对恢复算法、备份格式、信任链变化或真实恢复事故修复是 blocker，不因 profile 白名单、版本元数据或入口兼容扩展触发。时间预算不是 timeout，runner 是否继续只由结构化阶段、原命令 timeout 和进程状态决定。
 
 ## 发布中巡检
 
@@ -217,7 +217,7 @@ candidate 已上传不等于 verified。
 | 发布动作可能成功但 stdout 解析失败 | `unknown` | 从 marker 和现场状态重建事实，修复 allowlist 合同后再继续 |
 | active claim 存在且 runner 已退出 | `blocked_reconciliation` | 不重跑 deploy、不删 marker；继续同候选验收或协调恢复并原子收口 |
 | 普通发布但 `full` 演练逾期 | `overdue` | 允许继续并明确告警；不能报告灾备基线新鲜 |
-| 恢复链变更且 `full` 未通过 | `blocked` | 生产前完成完整演练，不得以普通 VM health 代替 |
+| 恢复算法、备份格式、信任链变化或真实恢复事故修复且 `full` 未通过 | `blocked` | 生产前完成完整演练，不得以普通 VM health 或 VM Full 参数代替 |
 | recovered release 只有 `verify-result` | `blocked` | 使用独立 `verify-recovery-result`，不得放宽候选验真器 |
 
 ## 证书、入口和磁盘

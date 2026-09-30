@@ -72,7 +72,7 @@ actual_gate_minutes: 实测值 | not_finished | not_applicable
 full_gate_status: pass | fail | overdue | not_due | not_required | not_checked
 ```
 
-`full_gate_status=overdue` 不阻塞普通发布，但必须显式报告；本次变更涉及恢复链、备份格式或恢复信任链时，`full` 是硬门禁，未通过不能进入生产。预计时间不是 runner timeout。
+`full_gate_status=overdue` 不阻塞普通发布，但必须显式报告；只有恢复算法、备份格式、信任链变化或真实恢复事故修复时，`full` 是硬门禁，未通过不能进入生产。精确审阅的 profile 兼容扩展只要求专项真实隔离恢复；未知关键变化先阻断审阅。预计时间不是 runner timeout。
 
 ## 代码与镜像
 

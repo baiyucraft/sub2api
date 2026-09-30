@@ -139,6 +139,8 @@ class DoctorTest(unittest.TestCase):
         self.assertIn("active_image_ref=$(docker inspect -f '{{.Config.Image}}'", script)
         self.assertIn("production_current_commit_sha=", script)
         self.assertIn("docker image inspect -f '{{.Id}}'", script)
+        self.assertIn("resolve_production_commit \"$active_image\" \"$active_image_ref\"", script)
+        self.assertIn("{{json .RepoTags}}", script)
         self.assertIn("production_current_commit_sha:$commit", script)
         self.assertIn("production_current_commit_sha", allowed)
 
