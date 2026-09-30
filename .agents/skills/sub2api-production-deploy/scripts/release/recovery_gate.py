@@ -36,6 +36,9 @@ _RELEASE_STATE_MACHINE_FILES = frozenset(
     }
 )
 _SPECIALIZED_PREFIXES = ("backend/migrations/",)
+_SPECIALIZED_FILES = {
+    "backend/internal/repository/billing_inflight_cache.go": "redis_changed",
+}
 
 
 def _normalize_paths(paths: Iterable[str]) -> list[str]:
@@ -57,6 +60,9 @@ def changed_paths_sha256(paths: Iterable[str]) -> str:
 
 
 def _is_specialized_path(path: str) -> tuple[bool, str | None]:
+    reason = _SPECIALIZED_FILES.get(path)
+    if reason:
+        return True, reason
     lowered = path.lower()
     if path.startswith(_SPECIALIZED_PREFIXES):
         return True, "migration_changed"

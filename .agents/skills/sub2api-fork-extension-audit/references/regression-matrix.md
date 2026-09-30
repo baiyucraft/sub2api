@@ -149,3 +149,4 @@ DataTable 高频 ResizeObserver 通知只触发一帧测量
 - 验证余额模式在途预留跨 HTTP、SSE、WebSocket、音频和图片请求只预留一次，并在计费任务扣减后释放；保留 fork 原有配额、转发和并发约束。验证 API Key 创建数量/频率限制及 Claude reset 兑换的幂等性、锁和前端入口。
 - 核对 Codex 远程模型目录、套餐徽章、账号编辑、WebSocket 首帧模型快照、Grok Realtime 握手前探测、RPM、读限额与最长会话。运行相关 Go 测试、前端 Vitest、i18n、类型检查、ESLint、生产构建和 release pytest。
 - profile 258 保留原发布合同；新增 pending profile 259：`0.2.11-baiyu`、parent 258、`new_migrations=[]`。post-merge 审计通过不代表 VM Gate 或生产发布完成。
+- profile 执行闭包：运行 release pytest 全量及 `test_profile259_release_contract.py`、`test_profile259_maintenance_contract.py`、`test_recovery_gate.py`、`test_production_space_clean.py`。259 必须通过全部验证/签名/生产/恢复/清理入口，258 保持历史版本和 parent，260 必须拒绝；所有祖先 migration assertions 保留。`billing_inflight_cache.go` 必须精准触发 `specialized/redis_changed`，相邻业务路径不得误升级。Linux VM 签名、隔离恢复和候选验证必须另行完成，不能用本机 Shell 片段测试冒充。
