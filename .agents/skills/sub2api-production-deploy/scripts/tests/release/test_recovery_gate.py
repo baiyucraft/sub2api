@@ -244,6 +244,18 @@ class RecoveryGateTest(unittest.TestCase):
             self.git("commit", "-m", "identity mode drift")
             self.assertEqual(classify(self.root, self.base, self.git("rev-parse", "HEAD"))["mode"], "full")
 
+    def test_registered_identity_review_covers_actual_production_net_diff(self) -> None:
+        from release.paths import WORKSPACE
+
+        report = classify(
+            WORKSPACE,
+            "16a4a030fe67f4de4a46bcadd02c9003fc954432",
+            "5d1a13af1e81d3f73a485bcdd6ea659188942018",
+        )
+        self.assertEqual(report["mode"], "specialized")
+        self.assertIn("reviewed_gate_policy_changed", report["reason_codes"])
+        self.assertNotIn("recovery_change_requires_review", report["reason_codes"])
+
     def test_full_mode_requires_explicit_escalation(self) -> None:
         target = self.commit_change("backend/internal/service/example.go")
         report = require_full(classify(self.root, self.base, target))
