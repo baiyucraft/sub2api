@@ -1806,7 +1806,8 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         self.assertIn('2> "$candidate_plan_stderr"', preflight)
         self.assertIn("candidate_plan_stderr=$(mktemp", preflight)
         self.assertIn("if [[ $code -eq 0 ]]; then", preflight)
-        self.assertIn("production_current_commit_sha=", preflight)
+        self.assertIn('source "$active_claim/assets/runtime-identity.sh"', preflight)
+        self.assertIn('resolve_production_commit "$active_image" "$image_ref"', preflight)
         self.assertIn('--arg commit "$production_current_commit_sha"', preflight)
         self.assertIn("production_current_commit_sha:$commit", preflight)
         self.assertLess(
