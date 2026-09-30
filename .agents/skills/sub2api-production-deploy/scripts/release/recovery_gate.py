@@ -28,6 +28,8 @@ _REVIEWED_COMPATIBILITY_TRANCHES = (
 )
 _REVIEWED_GATE_POLICY_TRANCHES = (
     ("700052e8d67bcb5c92e95ba02530176b2e3a4068", "efcd995d52fba41071412d15d198d9fa76afe967"),
+    # Re-review the net identity fix from its original blob, not a transitive exemption.
+    ("700052e8d67bcb5c92e95ba02530176b2e3a4068", "5d1a13af1e81d3f73a485bcdd6ea659188942018"),
 )
 _RELEASE_STATE_MACHINE_FILES = frozenset(
     {
