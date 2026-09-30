@@ -227,6 +227,23 @@ class RecoveryGateTest(unittest.TestCase):
         self.assertIn("redis_changed", report["reason_codes"])
         self.assertNotIn("recovery_change_requires_review", report["reason_codes"])
 
+    def test_reviewed_new_identity_helper_requires_exact_blob_and_mode(self) -> None:
+        relative = ".agents/skills/sub2api-production-deploy/scripts/maintenance/release/runtime-identity.sh"
+        target = self.commit_change(relative)
+        with mock.patch.object(recovery_gate, "_REVIEWED_GATE_POLICY_TRANCHES", ((self.base, target),)):
+            report = classify(self.root, self.base, target)
+            self.assertEqual(report["mode"], "specialized")
+            self.assertIn("reviewed_gate_policy_changed", report["reason_codes"])
+            self.write(relative, "unreviewed\n")
+            self.git("add", "-A")
+            self.git("commit", "-m", "identity drift")
+            self.assertEqual(classify(self.root, self.base, self.git("rev-parse", "HEAD"))["mode"], "full")
+            self.write(relative, "changed\n")
+            self.git("add", relative)
+            self.git("update-index", "--chmod=+x", relative)
+            self.git("commit", "-m", "identity mode drift")
+            self.assertEqual(classify(self.root, self.base, self.git("rev-parse", "HEAD"))["mode"], "full")
+
     def test_full_mode_requires_explicit_escalation(self) -> None:
         target = self.commit_change("backend/internal/service/example.go")
         report = require_full(classify(self.root, self.base, target))
