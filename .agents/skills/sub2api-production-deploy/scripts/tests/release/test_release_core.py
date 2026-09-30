@@ -47,7 +47,7 @@ class ReleaseCoreTest(unittest.TestCase):
 
     def test_manifest_atomically_binds_recovery_gate_report(self) -> None:
         target = "a" * 40
-        manifest = {"schema": 2, "profile": "258", "commit_sha": target}
+        manifest = {"schema": 2, "profile": "259", "commit_sha": target}
         report = {
             "schema": 1,
             "mode": "fast",
@@ -94,7 +94,7 @@ class ReleaseCoreTest(unittest.TestCase):
             )
 
     def test_manifest_uses_specialized_when_production_commit_is_unproven(self) -> None:
-        manifest = {"schema": 2, "profile": "258", "commit_sha": "a" * 40}
+        manifest = {"schema": 2, "profile": "259", "commit_sha": "a" * 40}
         with mock.patch("release.manifest.validate_manifest_profile_contract"):
             bound = bind_production_snapshot(manifest, "sha256:" + "b" * 64, "c" * 64)
         self.assertEqual(bound["recovery_gate"]["mode"], "specialized")
@@ -386,7 +386,8 @@ class ReleaseCoreTest(unittest.TestCase):
         historical_255 = get_profile("255")
         historical_256 = get_profile("256")
         historical_257 = get_profile("257")
-        current = get_profile("258")
+        historical_258 = get_profile("258")
+        current = get_profile("259")
         self.assertEqual(historical["version"], "0.1.183-baiyu")
         self.assertEqual(historical["parent"], "241")
         self.assertEqual(historical_243["version"], "0.1.184-baiyu")
@@ -459,13 +460,16 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertEqual(historical_257["version"], "0.2.9-baiyu")
         self.assertEqual(historical_257["parent"], "256")
         self.assertEqual(historical_257["new_migrations"], ["284_unified_proxy_bindings.sql"])
-        self.assertEqual(current["version"], "0.2.10-baiyu")
-        self.assertEqual(current["parent"], "257")
+        self.assertEqual(historical_258["version"], "0.2.10-baiyu")
+        self.assertEqual(historical_258["parent"], "257")
+        self.assertEqual(historical_258["new_migrations"], [])
+        self.assertEqual(current["version"], "0.2.11-baiyu")
+        self.assertEqual(current["parent"], "258")
         self.assertEqual(current["new_migrations"], [])
-        self.assertEqual(profiles.CURRENT_RELEASE_PROFILE, "258")
-        self.assertEqual(get_release_profile("258"), current)
+        self.assertEqual(profiles.CURRENT_RELEASE_PROFILE, "259")
+        self.assertEqual(get_release_profile("259"), current)
         with self.assertRaises(ValueError):
-            get_release_profile("257")
+            get_release_profile("258")
         with self.assertRaises(ValueError):
             get_release_profile("256")
         with self.assertRaises(ValueError):
@@ -514,10 +518,11 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertEqual(current["new_migrations"], migration_names)
         self.assertEqual(catalog["historical_profiles"]["255"]["new_migrations"], migration_names)
         self.assertEqual(catalog["historical_profiles"]["257"]["new_migrations"], ["284_unified_proxy_bindings.sql"])
-        self.assertEqual(catalog["current_profile"]["id"], "258")
+        self.assertEqual(catalog["historical_profiles"]["258"]["version"], "0.2.10-baiyu")
+        self.assertEqual(catalog["current_profile"]["id"], "259")
         self.assertEqual(catalog["current_profile"]["status"], "pending")
-        self.assertEqual(catalog["current_profile"]["version"], "0.2.10-baiyu")
-        self.assertEqual(catalog["current_profile"]["parent"], "257")
+        self.assertEqual(catalog["current_profile"]["version"], "0.2.11-baiyu")
+        self.assertEqual(catalog["current_profile"]["parent"], "258")
         self.assertEqual(catalog["current_profile"]["new_migrations"], [])
         self.assertTrue(catalog["migration_assertions"]["backend/migrations/283_affiliate_ledger_operation_id.sql"])
         for migration_name in migration_names:

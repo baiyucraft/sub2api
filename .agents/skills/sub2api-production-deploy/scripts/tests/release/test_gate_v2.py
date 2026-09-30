@@ -58,9 +58,9 @@ class GateV2Test(unittest.TestCase):
         (self.root / "candidate.tar.gz").write_bytes(archive)
         manifest = {
             "schema": 2,
-            "profile": "258",
-            "release_id": "258-aaaaaaaaaaaa-1-aaaaaaaa",
-            "version": "0.2.10-baiyu",
+            "profile": "259",
+            "release_id": "259-aaaaaaaaaaaa-1-aaaaaaaa",
+            "version": "0.2.11-baiyu",
             "commit_sha": "a" * 40,
             "expires_at": int(time.time()) + 3600,
             "release_asset_layout": LAYOUT_SKILL_V1,
@@ -107,7 +107,7 @@ class GateV2Test(unittest.TestCase):
             },
             "release_policy": {"canary_verified": "not_checked", "restore_points_verified": True},
         }
-        return {"gate_version": 2, "profile_id": 258, "manifest": manifest, "evidence": evidence}
+        return {"gate_version": 2, "profile_id": 259, "manifest": manifest, "evidence": evidence}
 
     def _sign(self, document: dict) -> None:
         payload = self.root / "gate.json"
@@ -118,7 +118,7 @@ class GateV2Test(unittest.TestCase):
             capture_output=True,
         )
 
-    def _verify(self, *, allow_historical_runner: bool = False, profile: str = "258", asset_checksum=None) -> dict:
+    def _verify(self, *, allow_historical_runner: bool = False, profile: str = "259", asset_checksum=None) -> dict:
         with (
             mock.patch("release.gate.validate_manifest_profile_contract"),
             mock.patch("release.gate.get_profile", return_value={}),
@@ -168,18 +168,18 @@ class GateV2Test(unittest.TestCase):
         document["profile_id"] = 246
         document["manifest"].update(profile="246", release_id="246-aaaaaaaaaaaa-1-aaaaaaaa", version="0.2.1-baiyu")
         self._sign(document)
-        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 258"):
+        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 259"):
             self._verify(profile="246")
         self.assertEqual(self._verify(profile="246", allow_historical_runner=True), document)
 
     def test_previous_profile_requires_historical_runner_for_recovery(self) -> None:
         document = self._document()
-        document["profile_id"] = 257
-        document["manifest"].update(profile="257", release_id="257-aaaaaaaaaaaa-1-aaaaaaaa", version="0.2.9-baiyu")
+        document["profile_id"] = 258
+        document["manifest"].update(profile="258", release_id="258-aaaaaaaaaaaa-1-aaaaaaaa", version="0.2.10-baiyu")
         self._sign(document)
-        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 258"):
-            self._verify(profile="257")
-        self.assertEqual(self._verify(profile="257", allow_historical_runner=True), document)
+        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 259"):
+            self._verify(profile="258")
+        self.assertEqual(self._verify(profile="258", allow_historical_runner=True), document)
 
     def test_historical_recovery_uses_signed_commit_assets_not_current_validator(self) -> None:
         document = self._document()

@@ -139,4 +139,13 @@ DataTable 高频 ResizeObserver 通知只触发一帧测量
 - 固定官方基线 `a60a29549f488a854966aaec9541abbe006cac22` 和 PR head `e6d191a83f0b37df3cb5b183e9cfd42e47b47a1d`；核对普通 merge 第二父、作者提交历史及 fork 专属账号编辑、WebSocket 映射和输入长度准入。
 - 运行 `go test ./internal/handler ./internal/service ./internal/pkg/openai ./internal/pkg/apicompat ./migrations ./cmd/server`；重点覆盖 GPT-6.1 Sol 模型目录与兼容协议、Codex 套餐、Astra Ultrafast 计费和复合 WebSocket 路由。
 - 运行前端 Vitest、i18n、`vue-tsc`、ESLint 和生产构建；重点覆盖账号创建/编辑模型白名单、套餐徽章和仪表盘切换，检查定价 JSON 无重复模型键。
-- profile 257 保留 `0.2.9-baiyu`、parent 256、迁移 284；当前 pending 258 为 `0.2.10-baiyu`、parent 257、`new_migrations=[]`。运行 release pytest 与 fork audit；代码完成不等于已通过 VM Gate 或生产发布。
+- profile 257 保留 `0.2.9-baiyu`、parent 256、迁移 284；profile 258 为 `0.2.10-baiyu`、parent 257、`new_migrations=[]` 的历史合同。
+
+## 官方 0.2.11 主线
+
+- fork 预留兼容：运行带 unit 标签的 TestReserveInflightBalance_CustomizationUsesBillingIdentity、TestInflightEstimate_CustomizationUsesOriginalGroupAndModel 和 TestInflightEstimate_ExplicitZeroSuppressesIndependentImageRate。原订阅映射到余额组不预留，原余额映射到订阅组仍预留；定制模型不得借用目标价格，显式免费用户不被图片预留拒绝。Grok Realtime 必须在统一准入后重新读取候选账号，凭据、RPM、业务代理和握手均使用最新快照。
+
+- 固定目标 `42bc7f6cffe24bcb471608e48e66b4a0afa1f882`，核对普通 merge 第二父及官方 PR #7730 merge `327c32218406cef47186736c7473275cd1b39918` 的祖先关系。原 fork PR 合入提交和作者历史不删除；已完整进入官方的模型与套餐能力改由 upstream 维护。
+- 验证余额模式在途预留跨 HTTP、SSE、WebSocket、音频和图片请求只预留一次，并在计费任务扣减后释放；保留 fork 原有配额、转发和并发约束。验证 API Key 创建数量/频率限制及 Claude reset 兑换的幂等性、锁和前端入口。
+- 核对 Codex 远程模型目录、套餐徽章、账号编辑、WebSocket 首帧模型快照、Grok Realtime 握手前探测、RPM、读限额与最长会话。运行相关 Go 测试、前端 Vitest、i18n、类型检查、ESLint、生产构建和 release pytest。
+- profile 258 保留原发布合同；新增 pending profile 259：`0.2.11-baiyu`、parent 258、`new_migrations=[]`。post-merge 审计通过不代表 VM Gate 或生产发布完成。
