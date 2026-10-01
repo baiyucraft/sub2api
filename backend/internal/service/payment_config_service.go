@@ -62,12 +62,16 @@ type PaymentConfig struct {
 	// SubscriptionUSDToCNYRate 为 0 时订阅换算关闭（兼容存量行为）。
 	SubscriptionUSDToCNYRate float64 `json:"subscription_usd_to_cny_rate"`
 	RechargeFeeRate          float64 `json:"recharge_fee_rate"`
-	LoadBalanceStrategy      string  `json:"load_balance_strategy"`
-	ProductNamePrefix        string  `json:"product_name_prefix"`
-	ProductNameSuffix        string  `json:"product_name_suffix"`
-	HelpImageURL             string  `json:"help_image_url"`
-	HelpText                 string  `json:"help_text"`
-	StripePublishableKey     string  `json:"stripe_publishable_key,omitempty"`
+	// RechargeBonusTiers 余额充值赠送阶梯（按 MinAmount 升序）；空表示不赠送。
+	RechargeBonusTiers []RechargeBonusTier `json:"recharge_bonus_tiers"`
+	// RechargeBonusNotice 充值页展示的 Markdown 活动文案；空表示不展示。
+	RechargeBonusNotice  string `json:"recharge_bonus_notice"`
+	LoadBalanceStrategy  string `json:"load_balance_strategy"`
+	ProductNamePrefix    string `json:"product_name_prefix"`
+	ProductNameSuffix    string `json:"product_name_suffix"`
+	HelpImageURL         string `json:"help_image_url"`
+	HelpText             string `json:"help_text"`
+	StripePublishableKey string `json:"stripe_publishable_key,omitempty"`
 
 	// Cancel rate limit settings
 	CancelRateLimitEnabled bool   `json:"cancel_rate_limit_enabled"`
@@ -95,11 +99,14 @@ type UpdatePaymentConfigRequest struct {
 	BalanceRechargeMultiplier *float64 `json:"balance_recharge_multiplier"`
 	SubscriptionUSDToCNYRate  *float64 `json:"subscription_usd_to_cny_rate"`
 	RechargeFeeRate           *float64 `json:"recharge_fee_rate"`
-	LoadBalanceStrategy       *string  `json:"load_balance_strategy"`
-	ProductNamePrefix         *string  `json:"product_name_prefix"`
-	ProductNameSuffix         *string  `json:"product_name_suffix"`
-	HelpImageURL              *string  `json:"help_image_url"`
-	HelpText                  *string  `json:"help_text"`
+	// RechargeBonusTiers nil 表示不更新；空切片表示清空阶梯。
+	RechargeBonusTiers  *[]RechargeBonusTier `json:"recharge_bonus_tiers"`
+	RechargeBonusNotice *string              `json:"recharge_bonus_notice"`
+	LoadBalanceStrategy *string              `json:"load_balance_strategy"`
+	ProductNamePrefix   *string              `json:"product_name_prefix"`
+	ProductNameSuffix   *string              `json:"product_name_suffix"`
+	HelpImageURL        *string              `json:"help_image_url"`
+	HelpText            *string              `json:"help_text"`
 
 	// Cancel rate limit settings
 	CancelRateLimitEnabled *bool   `json:"cancel_rate_limit_enabled"`
@@ -220,6 +227,7 @@ func (s *PaymentConfigService) GetPaymentConfig(ctx context.Context) (*PaymentCo
 		SettingPaymentEnabled, SettingMinRechargeAmount, SettingMaxRechargeAmount,
 		SettingDailyRechargeLimit, SettingOrderTimeoutMinutes, SettingMaxPendingOrders,
 		SettingEnabledPaymentTypes, SettingBalancePayDisabled, SettingBalanceRechargeMult, SettingSubscriptionUSDToCNYRate, SettingRechargeFeeRate, SettingLoadBalanceStrategy,
+		SettingRechargeBonusTiers, SettingRechargeBonusNotice,
 		SettingProductNamePrefix, SettingProductNameSuffix,
 		SettingHelpImageURL, SettingHelpText,
 		SettingCancelRateLimitOn, SettingCancelRateLimitMax,
@@ -250,6 +258,8 @@ func (s *PaymentConfigService) parsePaymentConfig(vals map[string]string) *Payme
 		BalanceRechargeMultiplier: normalizeBalanceRechargeMultiplier(pcParseFloat(vals[SettingBalanceRechargeMult], defaultBalanceRechargeMultiplier)),
 		SubscriptionUSDToCNYRate:  normalizeSubscriptionUSDToCNYRate(pcParseFloat(vals[SettingSubscriptionUSDToCNYRate], 0)),
 		RechargeFeeRate:           pcParseFloat(vals[SettingRechargeFeeRate], 0),
+		RechargeBonusTiers:        parseRechargeBonusTiers(vals[SettingRechargeBonusTiers]),
+		RechargeBonusNotice:       vals[SettingRechargeBonusNotice],
 		LoadBalanceStrategy:       vals[SettingLoadBalanceStrategy],
 		ProductNamePrefix:         vals[SettingProductNamePrefix],
 		ProductNameSuffix:         vals[SettingProductNameSuffix],
@@ -343,6 +353,23 @@ func (s *PaymentConfigService) UpdatePaymentConfig(ctx context.Context, req Upda
 			return infraerrors.BadRequest("INVALID_RECHARGE_FEE_RATE", "recharge fee rate allows at most 2 decimal places")
 		}
 	}
+	rechargeBonusTiersValue := ""
+	if req.RechargeBonusTiers != nil {
+		normalized, err := NormalizeRechargeBonusTiers(*req.RechargeBonusTiers)
+		if err != nil {
+			return infraerrors.BadRequest("INVALID_RECHARGE_BONUS_TIERS", err.Error())
+		}
+		encoded, err := encodeRechargeBonusTiers(normalized)
+		if err != nil {
+			return err
+		}
+		rechargeBonusTiersValue = encoded
+	}
+	if req.RechargeBonusNotice != nil {
+		if err := validateRechargeBonusNotice(*req.RechargeBonusNotice); err != nil {
+			return infraerrors.BadRequest("INVALID_RECHARGE_BONUS_NOTICE", err.Error())
+		}
+	}
 	m := make(map[string]string)
 	if req.Enabled != nil {
 		m[SettingPaymentEnabled] = formatBoolOrEmpty(req.Enabled)
@@ -376,6 +403,12 @@ func (s *PaymentConfigService) UpdatePaymentConfig(ctx context.Context, req Upda
 	}
 	if req.RechargeFeeRate != nil {
 		m[SettingRechargeFeeRate] = formatNonNegativeFloat(req.RechargeFeeRate)
+	}
+	if req.RechargeBonusTiers != nil {
+		m[SettingRechargeBonusTiers] = rechargeBonusTiersValue
+	}
+	if req.RechargeBonusNotice != nil {
+		m[SettingRechargeBonusNotice] = strings.TrimSpace(*req.RechargeBonusNotice)
 	}
 	if req.LoadBalanceStrategy != nil {
 		m[SettingLoadBalanceStrategy] = derefStr(req.LoadBalanceStrategy)
