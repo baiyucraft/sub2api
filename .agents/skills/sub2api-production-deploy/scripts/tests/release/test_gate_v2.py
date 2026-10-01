@@ -19,7 +19,7 @@ from release.gate import _validate_v2_pending, gate_payload, verify_gate
 from release.manifest import release_unit_relative_paths, validate_manifest_profile_contract
 from release.migration_planner import CHECKSUM_POLICY_VERSION, catalog_sha256, checksum_policy_sha256
 from release.paths import LAYOUT_SKILL_V1
-from release.profiles import get_profile
+from release.profiles import CURRENT_RELEASE_PROFILE, get_profile
 
 
 class GateV2Test(unittest.TestCase):
@@ -53,9 +53,12 @@ class GateV2Test(unittest.TestCase):
 
     @staticmethod
     def _catalog() -> list[dict]:
-        return [{"filename": "246_example.sql", "checksum": "a" * 64, "non_transactional": False}]
+        return [
+            {"filename": "246_example.sql", "checksum": "a" * 64, "non_transactional": False},
+            {"filename": "285_upstream_null_rate_lifecycle.sql", "checksum": "b" * 64, "non_transactional": False},
+        ]
 
-    def _document(self, pending: list[dict] | None = None, *, profile: str = "259") -> dict:
+    def _document(self, pending: list[dict] | None = None, *, profile: str = CURRENT_RELEASE_PROFILE) -> dict:
         catalog = self._catalog()
         contract = get_profile(profile)
         image = "sha256:" + "b" * 64
@@ -130,7 +133,7 @@ class GateV2Test(unittest.TestCase):
             capture_output=True,
         )
 
-    def _verify(self, *, allow_historical_runner: bool = False, profile: str = "259", asset_checksum=None, validate_profile_contract: bool = False) -> dict:
+    def _verify(self, *, allow_historical_runner: bool = False, profile: str = CURRENT_RELEASE_PROFILE, asset_checksum=None, validate_profile_contract: bool = False) -> dict:
         with (
             mock.patch("release.gate.validate_manifest_profile_contract", wraps=validate_manifest_profile_contract if validate_profile_contract else None),
             mock.patch("release.manifest.discover_migration_catalog", return_value=self._catalog()),
@@ -151,10 +154,11 @@ class GateV2Test(unittest.TestCase):
         self._sign(document)
         self.assertEqual(self._verify(validate_profile_contract=True), document)
 
-    def test_profile_259_rejects_signed_wrong_version_parent_or_migrations(self) -> None:
+    def test_profile_260_rejects_signed_wrong_version_parent_or_migrations(self) -> None:
         for field, value, message in (
             ("version", "0.2.10-baiyu", "version does not match"),
-            ("parent_profile", "257", "parent profile does not match"),
+            ("parent_profile", "258", "parent profile does not match"),
+            ("new_migrations", [], "new migrations do not match"),
             ("new_migrations", ["284_unified_proxy_bindings.sql"], "new migrations do not match"),
         ):
             with self.subTest(field=field):
@@ -164,15 +168,15 @@ class GateV2Test(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, message):
                     self._verify(validate_profile_contract=True)
 
-    def test_unregistered_profile_260_is_rejected_even_for_recovery(self) -> None:
+    def test_unregistered_profile_261_is_rejected_even_for_recovery(self) -> None:
         document = self._document()
-        document["profile_id"] = 260
-        document["manifest"].update(profile="260", release_id="260-aaaaaaaaaaaa-1-aaaaaaaa")
+        document["profile_id"] = 261
+        document["manifest"].update(profile="261", release_id="261-aaaaaaaaaaaa-1-aaaaaaaa")
         self._sign(document)
-        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 259"):
-            self._verify(profile="260")
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 260"):
-            self._verify(profile="260", allow_historical_runner=True)
+        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 260"):
+            self._verify(profile="261")
+        with self.assertRaisesRegex(ValueError, "unknown release profile: 261"):
+            self._verify(profile="261", allow_historical_runner=True)
 
     def test_fast_gate_requires_non_restore_evidence(self) -> None:
         document = self._document()
@@ -203,16 +207,28 @@ class GateV2Test(unittest.TestCase):
         document["profile_id"] = 246
         document["manifest"].update(profile="246", release_id="246-aaaaaaaaaaaa-1-aaaaaaaa", version="0.2.1-baiyu")
         self._sign(document)
-        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 259"):
+        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 260"):
             self._verify(profile="246")
         self.assertEqual(self._verify(profile="246", allow_historical_runner=True), document)
 
     def test_previous_profile_requires_historical_runner_for_recovery(self) -> None:
-        document = self._document(profile="258")
+        document = self._document(profile="259")
         self._sign(document)
-        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 259"):
-            self._verify(profile="258")
-        self.assertEqual(self._verify(profile="258", allow_historical_runner=True, validate_profile_contract=True), document)
+        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 260"):
+            self._verify(profile="259")
+        self.assertEqual(self._verify(profile="259", allow_historical_runner=True, validate_profile_contract=True), document)
+
+    def test_signed_profile_260_pending_lifecycle_migration_round_trip(self) -> None:
+        migration = self._catalog()[1]
+        pending = {"filename": migration["filename"], "checksum": migration["checksum"]}
+        document = self._document(pending=[pending])
+        self._sign(document)
+        self.assertEqual(self._verify(validate_profile_contract=True), document)
+        pending["checksum"] = "0" * 64
+        document = self._document(pending=[pending])
+        self._sign(document)
+        with self.assertRaisesRegex(RuntimeError, "checksum"):
+            self._verify(validate_profile_contract=True)
 
     def test_historical_recovery_uses_signed_commit_assets_not_current_validator(self) -> None:
         document = self._document()
