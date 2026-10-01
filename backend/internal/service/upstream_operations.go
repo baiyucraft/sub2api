@@ -545,6 +545,13 @@ func classifyUpstreamSyncFailure(err error, fallbackStage string) (stage, code s
 		}
 		return stage, code, retryable
 	}
+	if stage == "persist" || stage == "account_apply" {
+		var databaseError interface{ SQLState() string }
+		if errors.As(err, &databaseError) && strings.HasPrefix(databaseError.SQLState(), "23") {
+			return stage, "database", false
+		}
+		return stage, "database", true
+	}
 	text := strings.ToLower(err.Error())
 	switch {
 	case strings.Contains(text, "proxy"):
@@ -563,8 +570,6 @@ func classifyUpstreamSyncFailure(err error, fallbackStage string) (stage, code s
 		return stage, "upstream", true
 	case strings.Contains(text, "profile"), strings.Contains(text, "quota"), strings.Contains(text, "usage"), strings.Contains(text, "incompatible response"):
 		return "profile", "protocol", false
-	case stage == "persist", stage == "account_apply":
-		return stage, "database", true
 	default:
 		return stage, code, false
 	}

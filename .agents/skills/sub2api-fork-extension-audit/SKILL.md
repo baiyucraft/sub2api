@@ -45,7 +45,7 @@ description: 审计 Sub2API fork 相对官方 upstream/main 的扩展合同。�
 
 ## 发布恢复合同审计
 
-当前 pending profile 为 259（`0.2.11-baiyu`、parent 258、`new_migrations=[]`）；profile 258 保留 `0.2.10-baiyu` 历史合同。固定官方目标 `42bc7f6cffe24bcb471608e48e66b4a0afa1f882` 已包含 PR #7730 原始 head 和官方 merge；模型、套餐与 Ultrafast 能力归回 upstream 维护，独立 fork 增量仍按扩展目录审核。
+当前 pending profile 为 260（`0.2.11-baiyu`、parent 259、`new_migrations=[285_upstream_null_rate_lifecycle.sql]`）；259 已有本地 `production_verified/verified` 发布结果，其相同版本、parent 258 和空新增迁移合同保留不变，258 及以前历史合同不变。285 是 actual 缺失时暂停/归档的 fork 修复，原始字节 checksum 已登记于 audit catalog。固定官方目标 `42bc7f6cffe24bcb471608e48e66b4a0afa1f882` 已包含 PR #7730 原始 head 和官方 merge；模型、套餐与 Ultrafast 能力归回 upstream 维护，独立 fork 增量仍按扩展目录审核。
 
 当目标差异触及 `.agents/skills/sub2api-production-deploy/**`、备份格式、migration/profile、Compose、ingress 事务或恢复状态机时，审计必须核对 `release-operations-isolation`：
 

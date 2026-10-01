@@ -829,7 +829,22 @@ PROFILES["259"] = {
     },
 }
 
-CURRENT_RELEASE_PROFILE = "259"
+# Profile 259 has verified production evidence. Keep its empty migration
+# contract intact and assign the null-rate lifecycle repair to its successor.
+PROFILES["260"] = {
+    **{key: PROFILES["259"][key] for key in _PROFILE_V2_RUNTIME_KEYS},
+    "name": "260",
+    "version": "0.2.11-baiyu",
+    "parent": "259",
+    "new_migrations": ["285_upstream_null_rate_lifecycle.sql"],
+    "gate_schema": 2,
+    "release_policy": {
+        "compatibility_image": "production_current",
+        "migration_source": "database_state",
+    },
+}
+
+CURRENT_RELEASE_PROFILE = "260"
 
 
 def get_profile(name: str) -> dict:

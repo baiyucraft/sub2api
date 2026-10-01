@@ -220,6 +220,38 @@ func TestClassifyUpstreamSyncFailureNewAPIProtocol(t *testing.T) {
 	}
 }
 
+type upstreamSyncDatabaseError struct{ state string }
+
+func (e upstreamSyncDatabaseError) Error() string {
+	return "pq: cannot bind an upstream key without an actual rate"
+}
+
+func (e upstreamSyncDatabaseError) SQLState() string { return e.state }
+
+func TestClassifyUpstreamSyncFailurePreservesDatabaseStage(t *testing.T) {
+	for _, stage := range []string{"persist", "account_apply"} {
+		t.Run(stage, func(t *testing.T) {
+			for _, message := range []string{
+				"pq: cannot bind an upstream key without an actual rate",
+				"pq: invalid upstream group binding",
+				"pq: token metadata persistence failed",
+			} {
+				actualStage, code, retryable := classifyUpstreamSyncFailure(errors.New(message), stage)
+				require.Equal(t, stage, actualStage)
+				require.Equal(t, "database", code)
+				require.True(t, retryable)
+			}
+			for _, state := range []string{"23514", "23503", "23505", "40001", "08006"} {
+				err := fmt.Errorf("wrapped: %w", upstreamSyncDatabaseError{state: state})
+				actualStage, code, retryable := classifyUpstreamSyncFailure(err, stage)
+				require.Equal(t, stage, actualStage)
+				require.Equal(t, "database", code)
+				require.Equal(t, state == "40001" || state == "08006", retryable)
+			}
+		})
+	}
+}
+
 type newAPIErrorSyncRepo struct {
 	*upstreamConfigServiceRepo
 	UpstreamOperationsRepository
