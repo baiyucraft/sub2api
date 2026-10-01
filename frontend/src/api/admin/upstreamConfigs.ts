@@ -180,6 +180,7 @@ export interface UpstreamSyncResult {
   status?: string
   stage?: string
   error_code?: string
+  http_status?: number | null
   retryable?: boolean
   fallback_key_count?: number
   unresolved_key_count?: number

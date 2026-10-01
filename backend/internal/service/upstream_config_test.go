@@ -1946,7 +1946,11 @@ func TestNewAPIUpstreamProviderAdapter_StaticAuthHeaders(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				require.Equal(t, "4798", r.Header.Get("New-Api-User"))
-				require.Equal(t, tc.credentialValue, r.Header.Get(tc.expectedHeader))
+				expected := tc.credentialValue
+				if tc.mode == UpstreamAuthModeAccessToken {
+					expected = newAPIBearerAuthorization(expected)
+				}
+				require.Equal(t, expected, r.Header.Get(tc.expectedHeader))
 				require.Empty(t, r.Header.Get(tc.unexpectedHeader))
 				w.Header().Set("Content-Type", "application/json")
 				switch r.URL.Path {

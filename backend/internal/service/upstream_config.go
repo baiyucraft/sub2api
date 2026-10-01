@@ -310,6 +310,7 @@ type UpstreamConfigSyncResult struct {
 	Status                  string   `json:"status,omitempty"`
 	Stage                   string   `json:"stage,omitempty"`
 	ErrorCode               string   `json:"error_code,omitempty"`
+	HTTPStatus              *int     `json:"http_status,omitempty"`
 	Retryable               bool     `json:"retryable,omitempty"`
 	KeyCount                int      `json:"key_count"`
 	FallbackKeyCount        int      `json:"fallback_key_count,omitempty"`
@@ -2212,6 +2213,11 @@ func (s *UpstreamConfigService) syncProviderConfigLocked(ctx context.Context, cf
 		_ = s.repo.RecordCheckResult(ctx, cfg.ID, false, safeErr)
 		result.Error = safeErr
 		result.Stage, result.ErrorCode, result.Retryable = classifyUpstreamSyncFailure(err, "auth")
+		var upstreamErr *newAPIHTTPError
+		if errors.As(err, &upstreamErr) {
+			status := upstreamErr.Status
+			result.HTTPStatus = &status
+		}
 		return nil, result, upstreamProviderSyncError(cfg.Provider, safeErr)
 	}
 	if snapshot == nil {

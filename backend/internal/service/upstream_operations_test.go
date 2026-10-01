@@ -4,7 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -187,6 +191,79 @@ func TestClassifyUpstreamSyncFailure(t *testing.T) {
 	require.Equal(t, "profile", stage)
 	require.Equal(t, "protocol", code)
 	require.False(t, retryable)
+}
+
+func TestClassifyUpstreamSyncFailureNewAPIProtocol(t *testing.T) {
+	for _, tc := range []struct {
+		path       string
+		status     int
+		remoteCode string
+		stage      string
+		code       string
+		retryable  bool
+	}{
+		{newAPILoginPath, 409, "AUTH_SESSION_LIMIT", "auth", "AUTH_SESSION_LIMIT", false},
+		{newAPIRefreshPath, 409, "AUTH_REFRESH_RACE", "auth", "AUTH_REFRESH_RACE", false},
+		{newAPIUserGroupsPath, 409, "", "groups", "protocol", false},
+		{newAPIUserGroupsPath, 401, "AUTH_UNAUTHORIZED", "auth", "AUTH_UNAUTHORIZED", false},
+		{newAPITokensPath, 500, "", "keys_page", "upstream", true},
+		{newAPIRefreshPath, 503, "AUTH_INTERNAL_ERROR", "auth", "AUTH_INTERNAL_ERROR", true},
+		{newAPIUserProfilePath, 429, "", "profile", "upstream", true},
+	} {
+		t.Run(fmt.Sprintf("%s/%d", tc.path, tc.status), func(t *testing.T) {
+			err := fmt.Errorf("wrapped: %w", newAPIStatusError("request", "POST", tc.path, tc.status, tc.remoteCode, ""))
+			stage, code, retryable := classifyUpstreamSyncFailure(err, "auth")
+			require.Equal(t, tc.stage, stage)
+			require.Equal(t, tc.code, code)
+			require.Equal(t, tc.retryable, retryable)
+		})
+	}
+}
+
+type newAPIErrorSyncRepo struct {
+	*upstreamConfigServiceRepo
+	UpstreamOperationsRepository
+	recorded *UpstreamSyncRecord
+}
+
+var _ UpstreamOperationsRepository = (*newAPIErrorSyncRepo)(nil)
+
+func (r *newAPIErrorSyncRepo) GetUpstreamSettings(ctx context.Context) (*UpstreamSettings, error) {
+	return r.upstreamConfigServiceRepo.GetUpstreamSettings(ctx)
+}
+
+func (r *newAPIErrorSyncRepo) RecordSyncResult(_ context.Context, record *UpstreamSyncRecord) error {
+	r.recorded = record
+	return nil
+}
+
+func TestNewAPISyncFailurePreservesHTTPStatusAndCode(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != newAPILoginPath {
+			t.Errorf("unexpected business request: %s", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusConflict)
+		_, _ = w.Write([]byte(`{"success":false,"code":"AUTH_SESSION_LIMIT","message":"session limit"}`))
+	}))
+	defer server.Close()
+	cfg := UpstreamConfig{ID: 19, Name: "mock", Provider: UpstreamProviderNewAPI, SiteURL: server.URL, AuthMode: UpstreamAuthModeUserLogin, Credentials: map[string]any{
+		AccountCredentialNewAPILoginUsername: "mock-user",
+		AccountCredentialNewAPILoginPassword: "mock-password",
+	}}
+	repo := &newAPIErrorSyncRepo{upstreamConfigServiceRepo: &upstreamConfigServiceRepo{configs: []UpstreamConfig{cfg}}}
+	svc := NewUpstreamConfigService(repo, nil, nil)
+	_, result, err := svc.syncProviderConfigLocked(context.Background(), &cfg, 2, &UpstreamSettings{}, false)
+	require.Error(t, err)
+	require.Equal(t, "auth", result.Stage)
+	require.Equal(t, "AUTH_SESSION_LIMIT", result.ErrorCode)
+	require.NotNil(t, result.HTTPStatus)
+	require.Equal(t, http.StatusConflict, *result.HTTPStatus)
+	require.NotContains(t, result.Error, "mock-password")
+	now := time.Now().UTC()
+	require.NoError(t, svc.persistSyncResult(context.Background(), now, result))
+	require.NotNil(t, repo.recorded)
+	require.Equal(t, result.HTTPStatus, repo.recorded.HTTPStatus)
+	require.Equal(t, result.ErrorCode, repo.recorded.ErrorCode)
 }
 
 func TestGetKeyRateTrendRejectsUnsupportedRangeBeforeRepositoryAccess(t *testing.T) {

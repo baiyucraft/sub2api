@@ -9,7 +9,6 @@ import (
 	"io"
 	"math"
 	"net/http"
-	"net/http/cookiejar"
 	"net/url"
 	"regexp"
 	"sort"
@@ -80,6 +79,7 @@ type newAPIUpstreamProviderAdapter struct{}
 
 type newAPIEnvelope[T any] struct {
 	Success bool   `json:"success"`
+	Code    any    `json:"code"`
 	Message string `json:"message"`
 	Data    T      `json:"data"`
 }
@@ -90,16 +90,24 @@ type newAPIUser struct {
 }
 
 type newAPILoginData struct {
-	ID          int64       `json:"id"`
-	Username    string      `json:"username"`
-	User        *newAPIUser `json:"user"`
-	AccessToken string      `json:"access_token"`
+	ID              int64                   `json:"id"`
+	Username        string                  `json:"username"`
+	User            *newAPIUser             `json:"user"`
+	AccessToken     string                  `json:"access_token"`
+	AccessExpiresAt int64                   `json:"access_expires_at"`
+	Session         *newAPILoginSessionInfo `json:"session"`
+}
+
+type newAPILoginSessionInfo struct {
+	SID string `json:"sid"`
 }
 
 type newAPISession struct {
-	rootURL string
-	userID  int64
-	client  *http.Client
+	rootURL   string
+	userID    int64
+	client    *http.Client
+	expiresAt *time.Time
+	sessionID string
 }
 
 type newAPIAuthTransport struct {
@@ -126,7 +134,7 @@ func newAPIBearerAuthorization(token string) string {
 		return ""
 	}
 	if len(token) >= len("Bearer ") && strings.EqualFold(token[:len("Bearer ")], "Bearer ") {
-		return token
+		return "Bearer " + strings.TrimSpace(token[len("Bearer "):])
 	}
 	return "Bearer " + token
 }
@@ -253,6 +261,7 @@ type newAPIKeyListData struct {
 
 type newAPIWireEnvelope struct {
 	Success *bool           `json:"success"`
+	Code    any             `json:"code"`
 	Message string          `json:"message"`
 	Data    json.RawMessage `json:"data"`
 }
@@ -632,6 +641,7 @@ func (a newAPIUpstreamProviderAdapter) login(ctx context.Context, cfg *UpstreamC
 	}
 	clientCopy := *sharedClient
 	client := &clientCopy
+	restrictNewAPIAuthRedirects(client, rootURL)
 	baseTransport := client.Transport
 	if baseTransport == nil {
 		baseTransport = http.DefaultTransport
@@ -641,14 +651,11 @@ func (a newAPIUpstreamProviderAdapter) login(ctx context.Context, cfg *UpstreamC
 		if userErr != nil {
 			return nil, userErr
 		}
-		client.Transport = newAPIAuthTransport{
-			base:        baseTransport,
-			cookie:      strings.TrimSpace(stringCredential(cfg.Credentials, AccountCredentialNewAPICookie)),
-			accessToken: strings.TrimSpace(stringCredential(cfg.Credentials, AccountCredentialNewAPIAccessToken)),
-		}
-		return &newAPISession{rootURL: rootURL, userID: userID, client: client}, nil
+		return newAPIAuthSession(ctx, cfg, proxyURL, userID,
+			strings.TrimSpace(stringCredential(cfg.Credentials, AccountCredentialNewAPICookie)),
+			stringCredential(cfg.Credentials, AccountCredentialNewAPIAccessToken))
 	}
-	jar, err := cookiejar.New(nil)
+	jar, err := newAPICookieJar(rootURL)
 	if err != nil {
 		return nil, err
 	}
@@ -667,7 +674,7 @@ func (a newAPIUpstreamProviderAdapter) login(ctx context.Context, cfg *UpstreamC
 		return nil, fmt.Errorf("newapi login request failed: %w", err)
 	}
 	if status < 200 || status >= 300 {
-		return nil, fmt.Errorf("newapi login returned status %d%s", status, safeNewAPIMessage(payload.Message))
+		return nil, newAPIStatusError("login", http.MethodPost, newAPILoginPath, status, payload.Code, payload.Message)
 	}
 	if !payload.Success {
 		return nil, fmt.Errorf("newapi login failed%s", safeNewAPIMessage(payload.Message))
@@ -690,7 +697,9 @@ func (a newAPIUpstreamProviderAdapter) login(ctx context.Context, cfg *UpstreamC
 	if accessToken != "" {
 		client.Transport = newAPIAuthTransport{base: baseTransport, accessToken: newAPIBearerAuthorization(accessToken)}
 	}
-	return &newAPISession{rootURL: rootURL, userID: userID, client: client}, nil
+	session := &newAPISession{rootURL: rootURL, userID: userID, client: client}
+	setNewAPIAuthMetadata(session, payload.Data)
+	return session, nil
 }
 
 func newAPIConfiguredUserID(credentials map[string]any) (int64, error) {
@@ -713,7 +722,7 @@ func (a newAPIUpstreamProviderAdapter) fetchGroups(ctx context.Context, session 
 		return nil, fmt.Errorf("newapi list groups failed: %w", err)
 	}
 	if status < 200 || status >= 300 {
-		return nil, fmt.Errorf("newapi list groups returned status %d", status)
+		return nil, newAPIStatusError("list groups", http.MethodGet, newAPIUserGroupsPath, status, payload.Code, payload.Message)
 	}
 	if !payload.Success {
 		return nil, fmt.Errorf("newapi list groups failed%s", safeNewAPIMessage(payload.Message))
@@ -1275,7 +1284,7 @@ func (a newAPIUpstreamProviderAdapter) fetchKeysWithMode(
 			return nil, true, nil
 		}
 		if status < 200 || status >= 300 {
-			return nil, false, fmt.Errorf("newapi list tokens returned status %d", status)
+			return nil, false, newAPIStatusError("list tokens", http.MethodGet, newAPITokensPath, status, payload.Code, payload.Message)
 		}
 		if payload.Success == nil {
 			if allowFirstPageFallback && pageOffset == 0 {
@@ -1381,7 +1390,7 @@ func (a newAPIUpstreamProviderAdapter) fetchMaskedKeySecrets(ctx context.Context
 		return a.fetchIndividualKeySecrets(ctx, session, ids, result)
 	}
 	if status < 200 || status >= 300 {
-		return nil, fmt.Errorf("newapi fetch token keys returned status %d", status)
+		return nil, newAPIStatusError("fetch token keys", http.MethodPost, newAPITokenBatchKeysPath, status, payload.Code, "")
 	}
 	if payload.Success == nil {
 		return nil, fmt.Errorf("newapi fetch token keys returned incompatible response")
@@ -1649,7 +1658,7 @@ func (a newAPIUpstreamProviderAdapter) fetchProfile(ctx context.Context, session
 		return nil, fmt.Errorf("newapi get profile failed: %w", err)
 	}
 	if status < 200 || status >= 300 {
-		return nil, fmt.Errorf("newapi get profile returned status %d", status)
+		return nil, newAPIStatusError("get profile", http.MethodGet, newAPIUserProfilePath, status, payload.Code, payload.Message)
 	}
 	if !payload.Success {
 		return nil, fmt.Errorf("newapi get profile failed%s", safeNewAPIMessage(payload.Message))
@@ -1674,7 +1683,7 @@ func (a newAPIUpstreamProviderAdapter) fetchStatus(ctx context.Context, session 
 		return nil, fmt.Errorf("newapi get status failed: %w", err)
 	}
 	if status < 200 || status >= 300 {
-		return nil, fmt.Errorf("newapi get status returned status %d", status)
+		return nil, newAPIStatusError("get status", http.MethodGet, newAPIStatusPath, status, payload.Code, payload.Message)
 	}
 	if !payload.Success {
 		return nil, fmt.Errorf("newapi get status failed%s", safeNewAPIMessage(payload.Message))
@@ -1707,7 +1716,7 @@ func (a newAPIUpstreamProviderAdapter) fetchTodayUsage(ctx context.Context, sess
 		return nil, fmt.Errorf("newapi get today usage failed: %w", err)
 	}
 	if status < 200 || status >= 300 {
-		return nil, fmt.Errorf("newapi get today usage returned status %d", status)
+		return nil, newAPIStatusError("get today usage", http.MethodGet, newAPIUserStatPath, status, payload.Code, payload.Message)
 	}
 	if !payload.Success || !finiteNewAPINumber(payload.Data.Quota) {
 		return nil, fmt.Errorf("newapi get today usage returned incompatible response")
@@ -1715,7 +1724,11 @@ func (a newAPIUpstreamProviderAdapter) fetchTodayUsage(ctx context.Context, sess
 	return &payload.Data, nil
 }
 
-func (newAPIUpstreamProviderAdapter) doJSON(ctx context.Context, client *http.Client, method, endpoint string, userID int64, body any, out any) (int, error) {
+func (a newAPIUpstreamProviderAdapter) doJSON(ctx context.Context, client *http.Client, method, endpoint string, userID int64, body any, out any) (int, error) {
+	return a.doJSONWithHeaders(ctx, client, method, endpoint, userID, body, out, nil)
+}
+
+func (newAPIUpstreamProviderAdapter) doJSONWithHeaders(ctx context.Context, client *http.Client, method, endpoint string, userID int64, body any, out any, headers http.Header) (int, error) {
 	var reader *bytes.Reader
 	if body != nil {
 		raw, err := json.Marshal(body)
@@ -1737,6 +1750,9 @@ func (newAPIUpstreamProviderAdapter) doJSON(ctx context.Context, client *http.Cl
 	}
 	if userID > 0 {
 		req.Header.Set("New-Api-User", strconv.FormatInt(userID, 10))
+	}
+	for name, values := range headers {
+		req.Header[name] = append([]string(nil), values...)
 	}
 	resp, err := client.Do(req)
 	if err != nil {
