@@ -180,6 +180,7 @@ HOOK_REGISTRY: dict[str, dict[str, Any]] = {
     "244_channel_model_time_pricing.sql": {"script": "migration-244-assert.sh", "rollback_policy": "coordinated_restore", "preflight": ("preflight",), "bind": (), "postflight": ("postflight",)},
     "245_channel_monitor_quota_mode.sql": {"script": "migration-245-assert.sh", "rollback_policy": "coordinated_restore", "preflight": ("preflight",), "bind": (), "postflight": ("postflight",)},
     "254_enable_balance_notifications_for_existing_users.sql": {"script": "migration-254-assert.sh", "rollback_policy": "coordinated_restore", "preflight": ("preflight",), "bind": (), "postflight": ("postflight",)},
+    "285_upstream_null_rate_lifecycle.sql": {"script": "migration-285-assert.sh", "rollback_policy": "coordinated_restore", "preflight": ("preflight",), "bind": (), "postflight": ("postflight",), "vm_postflight": ("vm_semantics", "verified_replay"), "replay": True},
 }
 
 

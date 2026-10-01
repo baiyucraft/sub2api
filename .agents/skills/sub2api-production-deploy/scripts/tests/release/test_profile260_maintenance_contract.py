@@ -39,6 +39,7 @@ PROFILE_GUARDS = {
     "release/migration-244-assert.sh": tuple(str(value) for value in range(241, 261)),
     "release/migration-245-assert.sh": tuple(str(value) for value in range(241, 261)),
     "release/migration-254-assert.sh": tuple(str(value) for value in range(242, 261)),
+    "release/migration-285-assert.sh": ("260",),
 }
 
 
@@ -60,7 +61,7 @@ class Profile260MaintenanceContractTest(unittest.TestCase):
                 continue
             for match in re.finditer(r"\[\[.*?\]\]", line):
                 expression = match.group()
-                if re.search(rf"\${variable}\b", expression) and re.search(r"\b258\b", expression):
+                if re.search(rf"\${variable}\b", expression) and re.search(r"\b(?:258|260)\b", expression):
                     self.assertNotIn("$(", expression)
                     guards.append(expression)
         self.assertTrue(guards, f"no executable {variable} guard in {relative_path}")

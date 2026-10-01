@@ -1030,14 +1030,26 @@ exit "$code"
                 values = self.run_remote("racknerd", f"{env} {self.active_assets}/{script_name} preflight", fields)
                 self.stage(f"migration_{number}_preflight_verified", values)
 
-    def migration_preflight_v2(self) -> None:
+    def migration_hook_items_v2(self) -> list[dict[str, Any]]:
+        if self.migration_plan is None:
+            raise RuntimeError("production migration plan is missing")
         pending = self.evidence.get("migration_evidence", {}).get("pending", [])
-        for item in pending:
+        replay = [
+            item for item in self.migration_plan["existing"]
+            if HOOK_REGISTRY.get(str(item["filename"]), {}).get("replay")
+        ]
+        return [*pending, *replay]
+
+    def migration_preflight_v2(self) -> None:
+        for item in self.migration_hook_items_v2():
             hook = HOOK_REGISTRY.get(str(item["filename"]))
             if not hook:
                 continue
             self.stage(f"migration_hook_preflight_{item['filename'].split('.')[0]}")
-            env = quoted_env({"RELEASE_DIR": self.release_dir, "MIGRATION_STATUS": "absent"})
+            status = item.get("status", "absent")
+            if status not in {"absent", "verified"}:
+                raise RuntimeError("migration semantic hook status is unknown")
+            env = quoted_env({"RELEASE_DIR": self.release_dir, "MIGRATION_STATUS": status})
             phases = hook.get("preflight", ("preflight",))
             for phase in phases:
                 self.run_remote("racknerd", f"{env} {self.active_assets}/{hook['script']} {phase} >/dev/null && printf 'hook_verified=true\\n'", {"hook_verified"})
@@ -1087,8 +1099,7 @@ exit "$code"
                 self.run_remote("racknerd", f"{env} {self.active_assets}/{hook['script']} {phase} >/dev/null && printf 'hook_bound=true\\n'", {"hook_bound"})
 
     def postflight_migration_hooks_v2(self) -> None:
-        pending = self.evidence.get("migration_evidence", {}).get("pending", [])
-        for item in pending:
+        for item in self.migration_hook_items_v2():
             hook = HOOK_REGISTRY.get(str(item["filename"]))
             if not hook:
                 continue

@@ -246,18 +246,28 @@ def _validate_v2_pending(manifest: dict[str, Any], evidence: dict[str, Any]) -> 
     migration = evidence.get("migration_evidence")
     if not isinstance(migration, dict):
         raise RuntimeError("Gate v2 migration evidence is missing")
-    if set(migration) != {
+    pending = migration.get("pending")
+    catalog = manifest.get("migration_catalog")
+    if not isinstance(pending, list) or not isinstance(catalog, list):
+        raise RuntimeError("Gate v2 pending or catalog is invalid")
+    required_fields = {
         "database_high_watermark",
         "pending",
         "existing_checksums_verified",
         "isolated_upgrade_verified",
         "final_schema_verified",
-    }:
+    }
+    lifecycle_filename = "285_upstream_null_rate_lifecycle.sql"
+    lifecycle_catalog = next(
+        (item for item in catalog if isinstance(item, dict) and item.get("filename") == lifecycle_filename),
+        None,
+    )
+    if manifest.get("profile") == "260" and lifecycle_catalog is None:
+        raise RuntimeError("Gate v2 lacks migration 285 catalog entry")
+    if lifecycle_catalog is not None:
+        required_fields.add("migration_285")
+    if set(migration) != required_fields:
         raise RuntimeError("Gate v2 migration evidence contains unknown fields")
-    pending = migration.get("pending")
-    catalog = manifest.get("migration_catalog")
-    if not isinstance(pending, list) or not isinstance(catalog, list):
-        raise RuntimeError("Gate v2 pending or catalog is invalid")
     by_name: dict[str, dict[str, Any]] = {}
     ordered_names = []
     for item in catalog:
@@ -294,7 +304,7 @@ def _validate_v2_pending(manifest: dict[str, Any], evidence: dict[str, Any]) -> 
                 raise RuntimeError("Gate v2 hooked pending item lacks hook results")
             expected_phases = {
                 phase
-                for group in ("preflight", "bind", "postflight")
+                for group in ("preflight", "bind", "postflight", "vm_postflight")
                 for phase in HOOK_REGISTRY[filename].get(group, ())
             }
             if set(item["hook_results"]) != expected_phases or any(value is not True for value in item["hook_results"].values()):
@@ -309,6 +319,13 @@ def _validate_v2_pending(manifest: dict[str, Any], evidence: dict[str, Any]) -> 
             raise RuntimeError("Gate v2 pending is not filename ordered")
         last_index = index
         seen.add(filename)
+    if lifecycle_catalog is not None:
+        semantic = migration.get("migration_285")
+        phases = {"preflight", "postflight", "vm_semantics", "verified_replay"}
+        if not isinstance(semantic, dict) or set(semantic) != {"checksum", *phases}:
+            raise RuntimeError("Gate v2 lacks migration 285 semantic evidence")
+        if semantic["checksum"] != lifecycle_catalog["checksum"] or any(semantic[phase] is not True for phase in phases):
+            raise RuntimeError("Gate v2 migration 285 semantic evidence is incomplete or unbound")
     for field in ("existing_checksums_verified", "isolated_upgrade_verified", "final_schema_verified"):
         if migration.get(field) is not True:
             raise RuntimeError(f"Gate v2 migration evidence lacks {field}")

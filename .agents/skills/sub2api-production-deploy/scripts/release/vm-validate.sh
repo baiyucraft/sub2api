@@ -471,6 +471,7 @@ SQL
     chmod 400 "$state_dir/migration-hook-filename" "$state_dir/migration-hook-phase" "$state_dir/migration-hook-status"
     if ! ASSERT_CONTEXT_FILE="$hook_context" ASSERT_CONFIG_FILE="$probe_dir/config.yaml" \
       ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" \
+      ASSERT_VM_ISOLATED_DB="$probe_db" \
       ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS="$status" RELEASE_DIR="$state_dir" \
       bash "$migration_assertion_dir/$script" "$phase" >"$state_dir/migration-hook.stdout" 2>"$state_dir/migration-hook.stderr"; then
       printf '%s\n' migration_hook_assertion_failed > "$state_dir/failure-category"
@@ -490,7 +491,8 @@ SQL
     243_backfill_codex_fingerprint_seed.sql \
     244_channel_model_time_pricing.sql \
     245_channel_monitor_quota_mode.sql \
-    254_enable_balance_notifications_for_existing_users.sql; do
+    254_enable_balance_notifications_for_existing_users.sql \
+    285_upstream_null_rate_lifecycle.sql; do
     is_pending_v2 "$filename" || continue
     case "$filename" in
       195_*) script=migration-195-assert.sh ;;
@@ -502,12 +504,22 @@ SQL
       244_*) script=migration-244-assert.sh ;;
       245_*) script=migration-245-assert.sh ;;
       254_*) script=migration-254-assert.sh ;;
+      285_*) script=migration-285-assert.sh ;;
     esac
     run_hook_v2 "$filename" "$script" preflight absent
     case "$filename" in
       195_*|232_*|239_*) run_hook_v2 "$filename" "$script" bind absent ;;
     esac
   done
+  lifecycle_filename=285_upstream_null_rate_lifecycle.sql
+  lifecycle_in_catalog=false
+  if jq -e --arg filename "$lifecycle_filename" '.migration_catalog | any(.filename == $filename)' "$manifest" >/dev/null; then
+    lifecycle_in_catalog=true
+    if ! is_pending_v2 "$lifecycle_filename"; then
+      printf '%s' "$plan_before" | jq -e --arg filename "$lifecycle_filename" '.existing | any(.filename == $filename and .status == "existing")' >/dev/null
+      run_hook_v2 "$lifecycle_filename" migration-285-assert.sh preflight verified
+    fi
+  fi
   plan_apply="$state_dir/migration-plan-apply.json"
   install -o 0 -g 0 -m 444 "$state_dir/plan-before.json" "$plan_apply"
   [[ -f "$plan_apply" && ! -L "$plan_apply" && $(stat -c '%u:%g:%a:%h' "$plan_apply") == 0:0:444:1 ]]
@@ -526,7 +538,8 @@ SQL
     243_backfill_codex_fingerprint_seed.sql \
     244_channel_model_time_pricing.sql \
     245_channel_monitor_quota_mode.sql \
-    254_enable_balance_notifications_for_existing_users.sql; do
+    254_enable_balance_notifications_for_existing_users.sql \
+    285_upstream_null_rate_lifecycle.sql; do
     is_pending_v2 "$filename" || continue
     case "$filename" in
       195_*) run_hook_v2 "$filename" migration-195-assert.sh postflight_db verified ;;
@@ -538,8 +551,16 @@ SQL
       244_*) run_hook_v2 "$filename" migration-244-assert.sh postflight verified ;;
       245_*) run_hook_v2 "$filename" migration-245-assert.sh postflight verified ;;
       254_*) run_hook_v2 "$filename" migration-254-assert.sh postflight verified ;;
+      285_*) run_hook_v2 "$filename" migration-285-assert.sh postflight verified ;;
     esac
   done
+  if [[ "$lifecycle_in_catalog" == true ]]; then
+    if ! is_pending_v2 "$lifecycle_filename"; then
+      run_hook_v2 "$lifecycle_filename" migration-285-assert.sh postflight verified
+    fi
+    run_hook_v2 "$lifecycle_filename" migration-285-assert.sh vm_semantics verified
+    run_hook_v2 "$lifecycle_filename" migration-285-assert.sh verified_replay verified
+  fi
   if [[ "$recovery_gate_mode" != fast ]]; then
     mark_v2_stage old_image_health
     assert_old_image_protected
@@ -587,8 +608,11 @@ SQL
   candidate_size=$(stat -c '%s' "$candidate_archive")
   [[ "$candidate_size" =~ ^[1-9][0-9]*$ ]]
   pending_json=$(printf '%s' "$plan_before" | jq --slurpfile hooks "$hook_results_file" '[.pending[] | . as $item | ($hooks[0][.filename] // null) as $result | if $result == null then {filename,checksum} else {filename,checksum,preflight:true,postflight:true,hook_results:$result,rollback_policy:"coordinated_restore"} end]')
-  jq -n --slurpfile m "$manifest" --arg image "$candidate_image_id" --arg archive "$candidate_archive_sha" --arg old_image_id "$old_image_id" --arg snapshot_sha "$(jq -r '.production_snapshot_sha256' "$manifest")" --argjson size "$candidate_size" --argjson pending "$pending_json" --argjson plan_before "$(cat "$state_dir/plan-before.json")" --argjson vm_restore_verified "$vm_restore_verified" --argjson restore_points_verified "$restore_points_verified" \
-    '{gate_version:2,profile_id:($m[0].profile|tonumber),manifest:$m[0],evidence:{candidate_image_id:$image,candidate_archive_sha256:$archive,candidate_size:$size,integration_verified:true,vm_restore_verified:$vm_restore_verified,vm_database_boundary:true,vm_redis_boundary:true,data_dev_boundary:true,production_current_image_id:$old_image_id,production_snapshot_sha256:$snapshot_sha,catalog_sha256:$m[0].catalog_sha256,checksum_policy_sha256:$m[0].checksum_policy_sha256,checksum_policy_version:"sub2api-migration-checksum-policy-v1",migration_evidence:{database_high_watermark:($plan_before.database_high_watermark // null),pending:$pending,existing_checksums_verified:true,isolated_upgrade_verified:true,final_schema_verified:true},release_policy:{canary_verified:"not_checked",restore_points_verified:$restore_points_verified}}}' > "$output_dir/gate.json"
+  jq -n --slurpfile m "$manifest" --slurpfile hooks "$hook_results_file" --arg image "$candidate_image_id" --arg archive "$candidate_archive_sha" --arg old_image_id "$old_image_id" --arg snapshot_sha "$(jq -r '.production_snapshot_sha256' "$manifest")" --argjson size "$candidate_size" --argjson pending "$pending_json" --argjson plan_before "$(cat "$state_dir/plan-before.json")" --argjson vm_restore_verified "$vm_restore_verified" --argjson restore_points_verified "$restore_points_verified" \
+    '{gate_version:2,profile_id:($m[0].profile|tonumber),manifest:$m[0],evidence:{candidate_image_id:$image,candidate_archive_sha256:$archive,candidate_size:$size,integration_verified:true,vm_restore_verified:$vm_restore_verified,vm_database_boundary:true,vm_redis_boundary:true,data_dev_boundary:true,production_current_image_id:$old_image_id,production_snapshot_sha256:$snapshot_sha,catalog_sha256:$m[0].catalog_sha256,checksum_policy_sha256:$m[0].checksum_policy_sha256,checksum_policy_version:"sub2api-migration-checksum-policy-v1",migration_evidence:{database_high_watermark:($plan_before.database_high_watermark // null),pending:$pending,existing_checksums_verified:true,isolated_upgrade_verified:true,final_schema_verified:true},release_policy:{canary_verified:"not_checked",restore_points_verified:$restore_points_verified}}}
+    | ($m[0].migration_catalog | map(select(.filename == "285_upstream_null_rate_lifecycle.sql")) | first) as $lifecycle
+    | if $lifecycle == null then . else .evidence.migration_evidence.migration_285 =
+        ($hooks[0][$lifecycle.filename] + {checksum:$lifecycle.checksum}) end' > "$output_dir/gate.json"
   chmod 400 "$output_dir/gate.json"
   install -m 400 "$candidate_archive" "$output_dir/candidate.tar.gz"
   /usr/local/libexec/sub2api-sign-gate "$output_dir/gate.json" "$output_dir/gate.sig"

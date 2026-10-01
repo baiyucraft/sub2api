@@ -227,6 +227,52 @@ class RecoveryGateTest(unittest.TestCase):
         self.assertIn("redis_changed", report["reason_codes"])
         self.assertNotIn("recovery_change_requires_review", report["reason_codes"])
 
+    def test_registered_profile260_review_covers_exact_compatibility_diff(self) -> None:
+        from release.paths import WORKSPACE
+
+        report = classify(
+            WORKSPACE,
+            "71016a197ea2cd3fc44987d8db421afc3983c040",
+            "d40e11c6073e1f541ffb087d295c027f24335076",
+        )
+        self.assertEqual(report["mode"], "specialized")
+        self.assertIn("reviewed_profile_compatibility_changed", report["reason_codes"])
+        self.assertIn("migration_changed", report["reason_codes"])
+        self.assertNotIn("recovery_change_requires_review", report["reason_codes"])
+
+    def test_migration_gate_review_cannot_exempt_recovery_algorithm_or_drift(self) -> None:
+        prefix = ".agents/skills/sub2api-production-deploy/scripts/"
+        gate = prefix + "release/gate.py"
+        assertion = prefix + "maintenance/release/migration-285-assert.sh"
+        self.write(gate, "baseline\n")
+        self.git("add", "-A")
+        self.git("commit", "-m", "migration gate baseline")
+        base = self.git("rev-parse", "HEAD")
+        self.commit_change(gate)
+        reviewed = self.commit_change(assertion)
+        with mock.patch.object(recovery_gate, "_REVIEWED_MIGRATION_GATE_TRANCHES", ((base, reviewed),)):
+            report = classify(self.root, base, reviewed)
+            self.assertEqual(report["mode"], "specialized")
+            self.assertIn("reviewed_migration_gate_changed", report["reason_codes"])
+            self.write(gate, "unreviewed drift\n")
+            self.git("add", "-A")
+            self.git("commit", "-m", "migration gate drift")
+            drift = self.git("rev-parse", "HEAD")
+            self.assertEqual(classify(self.root, base, drift)["mode"], "full")
+            self.write(gate, "changed\n")
+            self.git("add", "-A")
+            self.git("update-index", "--chmod=+x", assertion)
+            self.git("commit", "-m", "migration assertion mode drift")
+            self.assertEqual(classify(self.root, base, self.git("rev-parse", "HEAD"))["mode"], "full")
+            self.git("update-index", "--chmod=-x", assertion)
+            self.git("commit", "-m", "restore assertion mode")
+            self.git("rm", assertion)
+            self.git("commit", "-m", "remove assertion")
+            self.assertEqual(classify(self.root, reviewed, self.git("rev-parse", "HEAD"))["mode"], "full")
+            target = self.commit_change(prefix + "maintenance/release/restore.sh")
+        with mock.patch.object(recovery_gate, "_REVIEWED_MIGRATION_GATE_TRANCHES", ((base, target),)):
+            self.assertEqual(classify(self.root, base, target)["mode"], "full")
+
     def test_reviewed_new_identity_helper_requires_exact_blob_and_mode(self) -> None:
         relative = ".agents/skills/sub2api-production-deploy/scripts/maintenance/release/runtime-identity.sh"
         target = self.commit_change(relative)

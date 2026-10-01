@@ -122,6 +122,10 @@ class GateV2Test(unittest.TestCase):
             },
             "release_policy": {"canary_verified": "not_checked", "restore_points_verified": True},
         }
+        evidence["migration_evidence"]["migration_285"] = {
+            "checksum": catalog[1]["checksum"], "preflight": True, "postflight": True,
+            "vm_semantics": True, "verified_replay": True,
+        }
         return {"gate_version": 2, "profile_id": int(profile), "manifest": manifest, "evidence": evidence}
 
     def _sign(self, document: dict) -> None:
@@ -220,7 +224,11 @@ class GateV2Test(unittest.TestCase):
 
     def test_signed_profile_260_pending_lifecycle_migration_round_trip(self) -> None:
         migration = self._catalog()[1]
-        pending = {"filename": migration["filename"], "checksum": migration["checksum"]}
+        pending = {
+            "filename": migration["filename"], "checksum": migration["checksum"],
+            "preflight": True, "postflight": True, "rollback_policy": "coordinated_restore",
+            "hook_results": {"preflight": True, "postflight": True, "vm_semantics": True, "verified_replay": True},
+        }
         document = self._document(pending=[pending])
         self._sign(document)
         self.assertEqual(self._verify(validate_profile_contract=True), document)
@@ -239,6 +247,66 @@ class GateV2Test(unittest.TestCase):
             self._verify(profile="257", allow_historical_runner=True, asset_checksum=lambda _path: "new-validator"),
             document,
         )
+
+    def test_signed_285_replay_requires_semantic_evidence(self) -> None:
+        document = self._document()
+        del document["evidence"]["migration_evidence"]["migration_285"]
+        self._sign(document)
+        with self.assertRaisesRegex(RuntimeError, "migration evidence"):
+            self._verify()
+
+    def test_signed_285_requires_every_boolean_and_bound_checksum(self) -> None:
+        for field in ("preflight", "postflight", "vm_semantics", "verified_replay"):
+            for value in (False, 1, "true", None):
+                with self.subTest(field=field, value=value):
+                    document = self._document()
+                    document["evidence"]["migration_evidence"]["migration_285"][field] = value
+                    self._sign(document)
+                    with self.assertRaisesRegex(RuntimeError, "285 semantic evidence"):
+                        self._verify()
+        document = self._document()
+        document["evidence"]["migration_evidence"]["migration_285"]["checksum"] = "0" * 64
+        self._sign(document)
+        with self.assertRaisesRegex(RuntimeError, "285 semantic evidence"):
+            self._verify()
+
+    def test_285_pending_cannot_use_ordinary_or_incomplete_hook_evidence(self) -> None:
+        migration = self._catalog()[1]
+        document = self._document(pending=[{"filename": migration["filename"], "checksum": migration["checksum"]}])
+        with self.assertRaisesRegex(RuntimeError, "hooked pending item"):
+            _validate_v2_pending(document["manifest"], document["evidence"])
+        pending = {
+            "filename": migration["filename"], "checksum": migration["checksum"],
+            "preflight": True, "postflight": True, "rollback_policy": "coordinated_restore",
+            "hook_results": {"preflight": True, "postflight": True},
+        }
+        document = self._document(pending=[pending])
+        with self.assertRaisesRegex(RuntimeError, "incomplete hook results"):
+            _validate_v2_pending(document["manifest"], document["evidence"])
+
+    def test_285_semantic_evidence_rejects_unknown_fields_or_missing_catalog(self) -> None:
+        document = self._document()
+        document["evidence"]["migration_evidence"]["migration_285"]["raw_body"] = "not_allowed"
+        with self.assertRaisesRegex(RuntimeError, "285 semantic evidence"):
+            _validate_v2_pending(document["manifest"], document["evidence"])
+        document = self._document()
+        document["manifest"]["migration_catalog"] = document["manifest"]["migration_catalog"][:1]
+        with self.assertRaisesRegex(RuntimeError, "285 catalog entry"):
+            _validate_v2_pending(document["manifest"], document["evidence"])
+
+    def test_historical_catalog_without_285_retains_old_evidence_contract(self) -> None:
+        document = self._document(profile="259")
+        document["manifest"]["migration_catalog"] = document["manifest"]["migration_catalog"][:1]
+        del document["evidence"]["migration_evidence"]["migration_285"]
+        _validate_v2_pending(document["manifest"], document["evidence"])
+
+    def test_invalid_285_catalog_type_is_rejected_cleanly(self) -> None:
+        for catalog in (None, "invalid", {}):
+            with self.subTest(catalog=catalog):
+                document = self._document()
+                document["manifest"]["migration_catalog"] = catalog
+                with self.assertRaisesRegex(RuntimeError, "catalog is invalid"):
+                    _validate_v2_pending(document["manifest"], document["evidence"])
 
     def test_current_gate_rejects_different_local_validator(self) -> None:
         document = self._document()
