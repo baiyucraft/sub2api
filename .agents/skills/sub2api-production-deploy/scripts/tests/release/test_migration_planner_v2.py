@@ -28,7 +28,7 @@ class MigrationPlannerV2Test(unittest.TestCase):
         self.assertEqual(plan["unknown"], [])
         self.assertEqual([item["filename"] for item in plan["pending"]], expected)
         self.assertFalse(plan["pending"][0]["non_transactional"])
-        self.assertEqual(pending_hooks(plan["pending"]), [])
+        self.assertEqual([item["filename"] for item in pending_hooks(plan["pending"])], expected)
         snapshot.update({item["filename"]: item["checksum"] for item in plan["pending"]})
         replay = plan_migrations(catalog, snapshot)
         self.assertTrue(replay["existing_checksums_verified"])

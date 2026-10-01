@@ -102,6 +102,8 @@ build-chain:
 
 仅分类策略与只读身份解析的已审阅修复可登记为 `reviewed_gate_policy_changed`，仍按精确 blob 和模式匹配，不可涵盖恢复 helper。按镜像 digest 启动时，生产基线 commit 从运行镜像唯一完整 SHA 发布标签解析；无法证明唯一身份则阻断，不使用未知基线绕过重大变更检查。
 
+新增迁移的断言接线可登记为 `reviewed_migration_gate_changed`，仅限明确列出的 VM validator、migration planner、Gate verifier、生产 hook 调用和该迁移断言文件；不允许覆盖 restore、备份格式或信任根。先审阅当前生产基线到断言提交的净差异，再以独立提交登记完整 before/after SHA。匹配必须同时核对路径、Git blob 和模式，额外修改、删除或跨路径复用均不继承审阅；仍执行 specialized 真实隔离恢复，不能以登记代替行为测试。
+
 ## 运维资产
 
 ### `ops-readonly-assets`

@@ -25,7 +25,16 @@ _SCRIPTS_PREFIX = ".agents/skills/sub2api-production-deploy/scripts/"
 # Reviewed profile-only changes, not permission to skip later changes to these files.
 _REVIEWED_COMPATIBILITY_TRANCHES = (
     ("16a4a030fe67f4de4a46bcadd02c9003fc954432", "700052e8d67bcb5c92e95ba02530176b2e3a4068"),
+    ("71016a197ea2cd3fc44987d8db421afc3983c040", "d40e11c6073e1f541ffb087d295c027f24335076"),
 )
+_REVIEWED_MIGRATION_GATE_TRANCHES = ()
+_MIGRATION_GATE_REVIEW_PATHS = frozenset({
+    _SCRIPTS_PREFIX + "release/gate.py",
+    _SCRIPTS_PREFIX + "release/migration_planner.py",
+    _SCRIPTS_PREFIX + "release/production.py",
+    _SCRIPTS_PREFIX + "release/vm-validate.sh",
+    _SCRIPTS_PREFIX + "maintenance/release/migration-285-assert.sh",
+})
 _REVIEWED_GATE_POLICY_TRANCHES = (
     ("700052e8d67bcb5c92e95ba02530176b2e3a4068", "efcd995d52fba41071412d15d198d9fa76afe967"),
     # Re-review the net identity fix from its original blob, not a transitive exemption.
@@ -93,12 +102,15 @@ def _reviewed_compatibility_paths(workspace: Path, base_commit: str, target_comm
     reviewed: dict[str, str] = {}
     reviews = [(before, after, "reviewed_profile_compatibility_changed") for before, after in _REVIEWED_COMPATIBILITY_TRANCHES]
     reviews += [(before, after, "reviewed_gate_policy_changed") for before, after in _REVIEWED_GATE_POLICY_TRANCHES]
+    reviews += [(before, after, "reviewed_migration_gate_changed") for before, after in _REVIEWED_MIGRATION_GATE_TRANCHES]
     for before_commit, after_commit, reason in reviews:
         if not _commit_exists(workspace, before_commit) or not _commit_exists(workspace, after_commit):
             continue
         before = _tree_blobs(workspace, before_commit)
         after = _tree_blobs(workspace, after_commit)
         for path in before.keys() | after.keys():
+            if reason == "reviewed_migration_gate_changed" and path not in _MIGRATION_GATE_REVIEW_PATHS:
+                continue
             if reason == "reviewed_gate_policy_changed" and path not in {
                 _SCRIPTS_PREFIX + "release/cli.py", _SCRIPTS_PREFIX + "release/production_snapshot.py",
                 _SCRIPTS_PREFIX + "release/doctor.py",
