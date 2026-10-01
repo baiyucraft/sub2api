@@ -59,6 +59,8 @@ func TestUpstreamActualRateTriggerDerivesRateAndPriorityWithoutOverwritingLoadFa
 		SetUpstreamKeyID(key.ID).
 		Save(ctx)
 	require.NoError(t, err)
+	account, err = client.Account.Get(ctx, account.ID)
+	require.NoError(t, err)
 	require.InDelta(t, 0.03, account.RateMultiplier, 0.00001)
 	require.NotNil(t, account.UpstreamSourceRateMultiplier)
 	require.InDelta(t, 0.025, *account.UpstreamSourceRateMultiplier, 0.00001)

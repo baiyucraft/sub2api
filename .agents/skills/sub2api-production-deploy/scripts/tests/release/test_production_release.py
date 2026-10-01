@@ -1371,7 +1371,7 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         self.assertIn("precise_data_plan_query", assertion)
         self.assertIn("release_profile=${release_profile:-$profile}", assertion)
         self.assertIn("$profile == 240 || $profile == 241 || $profile == 242 || $profile == 243", assertion)
-        self.assertIn("if [[ $release_profile == 240 || $release_profile == 241 || $release_profile == 242 || $release_profile == 243 || $release_profile == 244 || $release_profile == 245 || $release_profile == 246 || $release_profile == 247 || $release_profile == 248 || $release_profile == 249 || $release_profile == 250 || $release_profile == 251 || $release_profile == 252 || $release_profile == 253 || $release_profile == 254 || $release_profile == 255 || $release_profile == 256 || $release_profile == 257 || $release_profile == 258 || $release_profile == 259 ]]; then", assertion)
+        self.assertIn("if [[ $release_profile == 240 || $release_profile == 241 || $release_profile == 242 || $release_profile == 243 || $release_profile == 244 || $release_profile == 245 || $release_profile == 246 || $release_profile == 247 || $release_profile == 248 || $release_profile == 249 || $release_profile == 250 || $release_profile == 251 || $release_profile == 252 || $release_profile == 253 || $release_profile == 254 || $release_profile == 255 || $release_profile == 256 || $release_profile == 257 || $release_profile == 258 || $release_profile == 259 || $release_profile == 260 ]]; then", assertion)
         self.assertNotIn("if [[ $profile == 240 ]]; then", assertion)
         self.assertIn("ROUND(k.source_rate_multiplier * COALESCE(c.recharge_rate, 1), 10)", assertion)
         self.assertGreater(switch.index('migration-195-assert.sh" postflight_db'), switch.index('docker compose "${candidate_compose_args[@]}"'))
@@ -1706,11 +1706,11 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         self.assertIn('migration-240-status', observation)
         self.assertIn('migration-241-status', precise_rate)
 
-    def test_current_profile_259_is_health_only_and_does_not_use_canary_credentials(self) -> None:
+    def test_current_profile_260_is_health_only_and_does_not_use_canary_credentials(self) -> None:
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
         preflight = (DEPLOY_ROOT / "maintenance" / "release" / "preflight.sh").read_text(encoding="utf-8")
         profiles = (DEPLOY_ROOT / "release" / "profiles.py").read_text(encoding="utf-8")
-        self.assertIn('[[ "$profile" == 254 || "$profile" == 255 || "$profile" == 256 || "$profile" == 257 || "$profile" == 258 || "$profile" == 259 ]]', validator)
+        self.assertIn('[[ "$profile" == 254 || "$profile" == 255 || "$profile" == 256 || "$profile" == 257 || "$profile" == 258 || "$profile" == 259 || "$profile" == 260 ]]', validator)
         self.assertIn('canary_verified:"not_checked"', validator)
         self.assertNotIn("candidate-canary.json", validator)
         self.assertNotIn("key='admin_api_key'", validator)
@@ -1726,18 +1726,18 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         self.assertNotIn("canary-api-key", preflight)
         self.assertNotIn('    "canary_api_key_id",', profiles[profiles.index('PROFILES["256"]'):])
 
-    def test_current_profile_259_version_contract_matches_vm_validator(self) -> None:
+    def test_current_profile_260_version_contract_matches_vm_validator(self) -> None:
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
         profiles = (DEPLOY_ROOT / "release" / "profiles.py").read_text(encoding="utf-8")
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "259")
-        current = get_profile("259")
-        historical = get_profile("258")
+        self.assertEqual(CURRENT_RELEASE_PROFILE, "260")
+        current = get_profile("260")
+        historical = get_profile("259")
         self.assertEqual(current["version"], "0.2.11-baiyu")
-        self.assertEqual(current["parent"], "258")
-        self.assertEqual(current["new_migrations"], [])
+        self.assertEqual(current["parent"], "259")
+        self.assertEqual(current["new_migrations"], ["285_upstream_null_rate_lifecycle.sql"])
         self.assertEqual(current["gate_schema"], 2)
-        self.assertEqual(historical["version"], "0.2.10-baiyu")
-        self.assertEqual(historical["parent"], "257")
+        self.assertEqual(historical["version"], "0.2.11-baiyu")
+        self.assertEqual(historical["parent"], "258")
         self.assertEqual(historical["new_migrations"], [])
         historical_block = profiles[profiles.index('PROFILES["254"]'):profiles.index('PROFILES["255"]')]
         profile_block = profiles[profiles.index('PROFILES["255"]'):]

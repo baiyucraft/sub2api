@@ -13,7 +13,7 @@ EARLY_PROFILES = (
     "182", "187", "191", "192", "194", "195", "197", "198", "199",
     "202", "206", "207", "208", "209", "210", "212", "213", "215",
 )
-RELEASE_PROFILES = EARLY_PROFILES + tuple(str(value) for value in range(232, 260))
+RELEASE_PROFILES = EARLY_PROFILES + tuple(str(value) for value in range(232, 261))
 ID_GUARDS = {
     "release/context.sh": "release_dir",
     "release/prepare.sh": "release_id",
@@ -23,26 +23,26 @@ ID_GUARDS = {
 }
 PROFILE_GUARDS = {
     "release/prepare.sh": RELEASE_PROFILES,
-    "release/migration-195-assert.sh": EARLY_PROFILES[5:] + tuple(str(value) for value in range(232, 260)),
-    "release/migration-232-assert.sh": tuple(str(value) for value in range(232, 260)),
-    "release/migration-233-assert.sh": tuple(str(value) for value in range(233, 260)),
-    "release/migration-234-assert.sh": tuple(str(value) for value in range(235, 246)) + ("258", "259"),
-    "release/migration-235-assert.sh": tuple(str(value) for value in range(237, 246)) + ("258", "259"),
-    "release/migration-236-assert.sh": tuple(str(value) for value in range(237, 246)) + ("258", "259"),
-    "release/migration-237-assert.sh": tuple(str(value) for value in range(238, 246)) + ("258", "259"),
-    "release/migration-238-assert.sh": tuple(str(value) for value in range(239, 246)) + ("258", "259"),
-    "release/migration-239-assert.sh": tuple(str(value) for value in range(239, 260)),
-    "release/migration-240-assert.sh": tuple(str(value) for value in range(240, 246)) + ("258", "259"),
-    "release/migration-241-assert.sh": tuple(str(value) for value in range(240, 246)) + ("258", "259"),
-    "release/migration-242-assert.sh": tuple(str(value) for value in range(241, 260)),
-    "release/migration-243-assert.sh": tuple(str(value) for value in range(241, 260)),
-    "release/migration-244-assert.sh": tuple(str(value) for value in range(241, 260)),
-    "release/migration-245-assert.sh": tuple(str(value) for value in range(241, 260)),
-    "release/migration-254-assert.sh": tuple(str(value) for value in range(242, 260)),
+    "release/migration-195-assert.sh": EARLY_PROFILES[5:] + tuple(str(value) for value in range(232, 261)),
+    "release/migration-232-assert.sh": tuple(str(value) for value in range(232, 261)),
+    "release/migration-233-assert.sh": tuple(str(value) for value in range(233, 261)),
+    "release/migration-234-assert.sh": tuple(str(value) for value in range(235, 246)) + ("258", "259", "260"),
+    "release/migration-235-assert.sh": tuple(str(value) for value in range(237, 246)) + ("258", "259", "260"),
+    "release/migration-236-assert.sh": tuple(str(value) for value in range(237, 246)) + ("258", "259", "260"),
+    "release/migration-237-assert.sh": tuple(str(value) for value in range(238, 246)) + ("258", "259", "260"),
+    "release/migration-238-assert.sh": tuple(str(value) for value in range(239, 246)) + ("258", "259", "260"),
+    "release/migration-239-assert.sh": tuple(str(value) for value in range(239, 261)),
+    "release/migration-240-assert.sh": tuple(str(value) for value in range(240, 246)) + ("258", "259", "260"),
+    "release/migration-241-assert.sh": tuple(str(value) for value in range(240, 246)) + ("258", "259", "260"),
+    "release/migration-242-assert.sh": tuple(str(value) for value in range(241, 261)),
+    "release/migration-243-assert.sh": tuple(str(value) for value in range(241, 261)),
+    "release/migration-244-assert.sh": tuple(str(value) for value in range(241, 261)),
+    "release/migration-245-assert.sh": tuple(str(value) for value in range(241, 261)),
+    "release/migration-254-assert.sh": tuple(str(value) for value in range(242, 261)),
 }
 
 
-class Profile259MaintenanceContractTest(unittest.TestCase):
+class Profile260MaintenanceContractTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.bash = shutil.which("bash")
@@ -95,7 +95,7 @@ class Profile259MaintenanceContractTest(unittest.TestCase):
             return f"/opt/sub2api/releases/{release_id}"
         return release_id
 
-    def test_release_id_guards_accept_259_and_all_historical_profiles(self) -> None:
+    def test_release_id_guards_accept_260_and_all_historical_profiles(self) -> None:
         for relative_path, variable in ID_GUARDS.items():
             cases = [(self.id_value(variable, f"{profile}-aaaaaaaaaaaa-1-aaaaaaaa"), True) for profile in RELEASE_PROFILES]
             if variable == "base":
@@ -106,7 +106,7 @@ class Profile259MaintenanceContractTest(unittest.TestCase):
 
     def test_release_id_guards_reject_unknown_profiles_and_malformed_paths(self) -> None:
         invalid_ids = (
-            "260-aaaaaaaaaaaa-1-aaaaaaaa",
+            "261-aaaaaaaaaaaa-1-aaaaaaaa",
             "0259-aaaaaaaaaaaa-1-aaaaaaaa",
             "259-AAAAAAAAAAAA-1-aaaaaaaa",
             "259-aaaaaaaaaaa-1-aaaaaaaa",
@@ -126,16 +126,16 @@ class Profile259MaintenanceContractTest(unittest.TestCase):
     def test_profile_guards_preserve_history_and_reject_unknown_profiles(self) -> None:
         for relative_path, profiles in PROFILE_GUARDS.items():
             cases = [(profile, True) for profile in profiles]
-            cases += [(value, False) for value in ("260", "0259", "2590", "259;true")]
+            cases += [(value, False) for value in ("261", "0259", "2590", "259;true")]
             for guard in self.guards(relative_path, "profile"):
                 with self.subTest(script=relative_path):
                     self.check_cases(guard, "profile", cases)
 
-    def test_profile_259_uses_inherited_precise_data_plan_branches(self) -> None:
+    def test_profile_260_uses_inherited_precise_data_plan_branches(self) -> None:
         guards = self.guards("release/migration-195-assert.sh", "release_profile")
         self.assertEqual(len(guards), 2)
-        cases = [(str(value), True) for value in range(240, 260)]
-        cases += [("239", False), ("260", False), ("0259", False)]
+        cases = [(str(value), True) for value in range(240, 261)]
+        cases += [("239", False), ("261", False), ("0259", False)]
         for guard in guards:
             with self.subTest(guard=guard):
                 self.check_cases(guard, "release_profile", cases)

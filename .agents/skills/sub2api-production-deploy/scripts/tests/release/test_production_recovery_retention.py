@@ -39,14 +39,14 @@ class ProductionRecoveryRetentionTest(unittest.TestCase):
         script = (DEPLOY_ROOT / "release" / "production-recovery-retention-clean.sh").read_text(encoding="utf-8")
         pattern = re.search(r"^release_id_pattern='([^']+)'$", script, re.MULTILINE)[1]
         profiles = (182, 187, 191, 192, 194, 195, 197, 198, 199, 202, 206, 207,
-                    208, 209, 210, 212, 213, 215, *range(232, 260))
+                    208, 209, 210, 212, 213, 215, *range(232, 261))
         for profile in profiles:
             with self.subTest(profile=profile):
                 values = report()
                 values["candidate_ids"] = f"{profile}-aaaaaaaaaaaa-1-deadbeef"
                 self.assertIsNotNone(re.fullmatch(pattern, values["candidate_ids"]))
                 _validate(values, "dry-run", None)
-        for candidate in ("260-aaaaaaaaaaaa-1-deadbeef", "0259-aaaaaaaaaaaa-1-deadbeef",
+        for candidate in ("261-aaaaaaaaaaaa-1-deadbeef", "0259-aaaaaaaaaaaa-1-deadbeef",
                           "259-aaaaaaaaaaaa-1-deadbeef/../outside"):
             with self.subTest(candidate=candidate):
                 values = report()
