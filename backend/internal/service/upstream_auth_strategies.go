@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/http/cookiejar"
 	"net/url"
 	"strings"
+	"time"
 )
 
 type upstreamAuthContextKey struct{}
@@ -29,6 +29,8 @@ type newAPIAuthValue struct {
 }
 
 type newAPIAuthStrategy struct{ adapter newAPIUpstreamProviderAdapter }
+
+func (newAPIAuthStrategy) DurableAuthLifecycle() bool { return true }
 
 func upstreamAuthStrategyFor(cfg *UpstreamConfig, svc *UpstreamConfigService) UpstreamAuthStrategy {
 	if cfg == nil {
@@ -67,6 +69,10 @@ func (s newAPIAuthStrategy) Restore(ctx context.Context, cfg *UpstreamConfig, pr
 		return nil, errors.New("invalid newapi session secret")
 	}
 	cookie, _ := secret.Data["cookie"].(string)
+	if secret.Data["cookies"] != nil {
+		// Structured cookies are authoritative, including explicit deletion.
+		cookie = ""
+	}
 	token, _ := secret.Data["access_token"].(string)
 	userID := int64FromAny(secret.Data["user_id"])
 	if userID <= 0 {
@@ -75,6 +81,16 @@ func (s newAPIAuthStrategy) Restore(ctx context.Context, cfg *UpstreamConfig, pr
 	session, err := newAPIAuthSession(ctx, cfg, proxy, userID, cookie, token)
 	if err != nil {
 		return nil, err
+	}
+	if err := restoreNewAPICookies(session, secret.Data["cookies"]); err != nil {
+		return nil, err
+	}
+	if expires := int64FromAny(secret.Data["access_expires_at"]); expires > 0 {
+		value := time.Unix(expires, 0).UTC()
+		session.expiresAt = &value
+	}
+	if sid, ok := secret.Data["session_id"].(string); ok && len(sid) <= 128 {
+		session.sessionID = sid
 	}
 	return newAPIHandle(session), nil
 }
@@ -87,17 +103,64 @@ func (s newAPIAuthStrategy) Login(ctx context.Context, cfg *UpstreamConfig, prox
 	handle.Authenticated = true
 	return handle, nil
 }
-func (s newAPIAuthStrategy) Refresh(context.Context, *UpstreamConfig, string, *UpstreamAuthHandle) (*UpstreamAuthHandle, error) {
-	return nil, errors.New("newapi refresh is not supported")
+func (s newAPIAuthStrategy) Refresh(ctx context.Context, _ *UpstreamConfig, _ string, handle *UpstreamAuthHandle) (*UpstreamAuthHandle, error) {
+	value, ok := handle.Value.(newAPIAuthValue)
+	if !ok || value.Session == nil {
+		return nil, errors.New("invalid newapi auth handle")
+	}
+	if err := s.adapter.refreshSession(ctx, value.Session); err != nil {
+		return nil, err
+	}
+	refreshed := newAPIHandle(value.Session)
+	refreshed.Refreshed = true
+	return refreshed, nil
+}
+
+func (s newAPIAuthStrategy) CanLoginAfterRefreshError(err error) bool {
+	if errors.Is(err, errNewAPIRefreshUnsupported) {
+		return true
+	}
+	var upstream *newAPIHTTPError
+	return errors.As(err, &upstream) && (upstream.Status == http.StatusUnauthorized || upstream.Status == http.StatusNotFound || upstream.Status == http.StatusMethodNotAllowed || upstream.Status == http.StatusNotImplemented)
 }
 func (s newAPIAuthStrategy) Serialize(handle *UpstreamAuthHandle) (*UpstreamAuthSessionSecret, error) {
 	value, ok := handle.Value.(newAPIAuthValue)
 	if !ok || value.Session == nil {
 		return nil, errors.New("invalid newapi auth handle")
 	}
-	return &UpstreamAuthSessionSecret{Provider: UpstreamProviderNewAPI, Data: map[string]any{"cookie": value.Cookie, "access_token": value.AccessToken, "user_id": value.UserID}}, nil
+	latest := newAPIHandle(value.Session).Value.(newAPIAuthValue)
+	data := map[string]any{"cookie": latest.Cookie, "access_token": latest.AccessToken, "user_id": latest.UserID, "session_id": value.Session.sessionID}
+	if jar, ok := value.Session.client.Jar.(*newAPISessionCookieJar); ok {
+		data["cookies"] = jar.snapshot()
+	}
+	if value.Session.expiresAt != nil {
+		data["access_expires_at"] = value.Session.expiresAt.Unix()
+	}
+	return &UpstreamAuthSessionSecret{Provider: UpstreamProviderNewAPI, Data: data}, nil
 }
 func (s newAPIAuthStrategy) ClassifyAuthError(err error) UpstreamAuthErrorCategory {
+	if errors.Is(err, errUpstreamAuthHandleExpired) {
+		return UpstreamAuthErrorExpired
+	}
+	var upstream *newAPIHTTPError
+	if errors.As(err, &upstream) {
+		switch {
+		case upstream.Status == http.StatusUnauthorized:
+			return UpstreamAuthErrorUnauthorized
+		case upstream.Status == http.StatusConflict && (upstream.Path == newAPILoginPath || upstream.Path == newAPIRefreshPath):
+			return UpstreamAuthErrorConflict
+		case upstream.Status == http.StatusForbidden:
+			return UpstreamAuthErrorPermanent
+		default:
+			return UpstreamAuthErrorUnknown
+		}
+	}
+	if err != nil {
+		var urlErr *url.Error
+		if errors.As(err, &urlErr) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			return UpstreamAuthErrorTransport
+		}
+	}
 	return classifyHTTPAuthError(err)
 }
 
@@ -123,7 +186,7 @@ func newAPIHandle(session *newAPISession) *UpstreamAuthHandle {
 			token = transport.accessToken
 		}
 	}
-	return &UpstreamAuthHandle{Value: newAPIAuthValue{Session: session, Cookie: cookie, AccessToken: token, UserID: session.userID}}
+	return &UpstreamAuthHandle{Value: newAPIAuthValue{Session: session, Cookie: cookie, AccessToken: token, UserID: session.userID}, ExpiresAt: session.expiresAt}
 }
 
 func newAPIAuthSession(_ context.Context, cfg *UpstreamConfig, proxy string, userID int64, cookie, token string) (*newAPISession, error) {
@@ -144,31 +207,44 @@ func newAPIAuthSession(_ context.Context, cfg *UpstreamConfig, proxy string, use
 	// copy instead of contaminating the shared client used by Sub2API/LCodex.
 	clientCopy := *sharedClient
 	client := &clientCopy
+	restrictNewAPIAuthRedirects(client, rootURL)
 	base := client.Transport
 	if base == nil {
 		base = http.DefaultTransport
 	}
+	jar, jarErr := newAPICookieJar(rootURL)
+	if jarErr != nil {
+		return nil, jarErr
+	}
+	client.Jar = jar
 	if cookie != "" {
-		jar, jarErr := cookiejar.New(nil)
-		if jarErr != nil {
-			return nil, jarErr
-		}
-		client.Jar = jar
 		parsed, parseErr := url.Parse(rootURL)
 		if parseErr != nil {
 			return nil, parseErr
 		}
-		for _, part := range strings.Split(cookie, ";") {
-			kv := strings.SplitN(strings.TrimSpace(part), "=", 2)
-			if len(kv) == 2 {
-				client.Jar.SetCookies(parsed, []*http.Cookie{{Name: strings.TrimSpace(kv[0]), Value: strings.TrimSpace(kv[1])}})
+		refreshURL, err := buildSub2APIURL(rootURL, newAPIRefreshPath)
+		if err != nil {
+			return nil, err
+		}
+		refreshEndpoint, err := url.Parse(refreshURL)
+		if err != nil {
+			return nil, err
+		}
+		cookieRequest := &http.Request{Header: http.Header{"Cookie": []string{cookie}}}
+		for _, item := range cookieRequest.Cookies() {
+			item.Path = "/"
+			if item.Name == newAPIRefreshCookieName {
+				item.Path = refreshEndpoint.Path[:strings.LastIndex(refreshEndpoint.Path, "/")]
 			}
+			client.Jar.SetCookies(parsed, []*http.Cookie{item})
 		}
 	}
 	if token != "" {
-		client.Transport = newAPIAuthTransport{base: base, cookie: cookie, accessToken: newAPIBearerAuthorization(token)}
+		client.Transport = newAPIAuthTransport{base: base, accessToken: newAPIBearerAuthorization(token)}
 	}
-	return &newAPISession{rootURL: rootURL, userID: userID, client: client}, nil
+	session := &newAPISession{rootURL: rootURL, userID: userID, client: client}
+	setNewAPIAuthMetadata(session, newAPILoginData{AccessToken: token})
+	return session, nil
 }
 
 type lcodexAuthValue struct{ Session *lcodexSession }

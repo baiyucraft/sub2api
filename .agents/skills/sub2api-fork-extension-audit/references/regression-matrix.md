@@ -6,7 +6,8 @@
 | 上游派生账号生命周期 | 仅完整同步推进缺失计数；sync_managed 连续缺失 3 次且至少 30 分钟后与 Key 同事务软归档；manual 永不自动归档；仅 `sync_managed+key_missing` 恢复同 ID 并保留分组、定时计划和历史；定时计划过滤 deleted_at；归档/恢复清理账号缓存、Redis、共享并发和健康 Registry |
 | 上游模型能力同步 | 仅 sync_managed 自动写白名单；NewAPI 有效 `model_limits` 优先于 live `/models`；无效/空结果保留最近成功映射；30m freshness 跳过重复请求，30m–24h 继续执行旧白名单，超过 24h 放行其他能力回退；成功更新触发 scheduler outbox/快照失效；并发 4、单账号 15s；状态与错误不得泄露 URL、凭据、响应体或原始错误 |
 | 全局模型别名同步 | 设置 API 兼容缺省字段并校验对象/字符串/空白；保存只写 `upstream_model_alias_rules` 不触发同步；sync_managed 下一次同步按真实模型生成 identity/alias 并保存 `auto_mapping`；manual 账号不受影响；手工映射目标消失清理、源消失但目标存在保留；失败保留旧映射和快照；成功触发 scheduler outbox/账号快照失效 |
-| NewAPI 兼容 | 旧 `data.id + Cookie`、新 `data.user.id + access_token`、Bearer 与 `New-Api-User`、无会话失败、三种认证模式互不影响 |
+| NewAPI 兼容 | 旧 `data.id + Cookie`、新 `data.user.id + access_token`、数字/空 code、Bearer 与 `New-Api-User`、三种认证模式；过期 JWT 优先同会话 refresh，Origin/SID 且不带旧 Bearer；路径受限 Cookie 的属性、轮转、删除与 JSON 重启恢复；跨源重定向、身份/SID 变化与过期刷新结果拒绝；transport/403/409/5xx 不追加登录，401/旧无 Cookie/404 等有限回退；AUTH 白名单与 HTTP 状态记录，业务 409 不进入认证冲突冷却 |
+| 认证持久化时序 | login/refresh 成功、业务失败仍保存新密文；checkpoint 保存失败不发业务；失败记账不覆盖刚发布的 secret；成功业务再次序列化 Cookie 轮转；NewAPI 过期句柄保留 refresh 材料、失败不清零异常，恢复动作不重复；Sub2API/LCodex 原计数与恢复预算保持；脱敏 API/日志不泄露 Token/Cookie |
 | 共享并发 | 同上游多 Key 共享 slot/lease/queue/load，不同上游隔离，优先级来源解析，降低上限不终止已有请求 |
 | 容量故障转移 | 普通 OpenAI 等待队列满按共享并发目标换号；上游绑定账号 429 在同号重试耗尽后按账号换号；共享运行时开关/独立预算/可配置耗尽状态；设置关闭保留上游 429；流式与 WebSocket 不拼接跨账号语义输出；Ops 保留真实 upstream_status=429 |
 | LoadFactor | 普通账号硬并发使用 Concurrency，调度容量使用 LoadFactor 或回退；上游账号忽略派生账号字段；Priority/倍率同步不改 LoadFactor |
