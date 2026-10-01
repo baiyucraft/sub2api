@@ -240,6 +240,18 @@ class RecoveryGateTest(unittest.TestCase):
         self.assertIn("migration_changed", report["reason_codes"])
         self.assertNotIn("recovery_change_requires_review", report["reason_codes"])
 
+    def test_registered_285_gate_review_covers_exact_migration_wiring(self) -> None:
+        from release.paths import WORKSPACE
+
+        report = classify(
+            WORKSPACE,
+            "71016a197ea2cd3fc44987d8db421afc3983c040",
+            "7abbf4a504780f6f4ed73b54c9410f6f054f3380",
+        )
+        self.assertEqual(report["mode"], "specialized")
+        self.assertIn("reviewed_migration_gate_changed", report["reason_codes"])
+        self.assertNotIn("recovery_change_requires_review", report["reason_codes"])
+
     def test_migration_gate_review_cannot_exempt_recovery_algorithm_or_drift(self) -> None:
         prefix = ".agents/skills/sub2api-production-deploy/scripts/"
         gate = prefix + "release/gate.py"
