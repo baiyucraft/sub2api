@@ -47,6 +47,8 @@ description: 面向 Sub2API fork 的构建、开发门禁、应用与独立插�
 - Windows runner 和其 Python、OpenSSL、Git Bash、Go 子进程必须通过 `scripts/release/process.py` 启动；禁止在发布运行代码中直接裸调用 `subprocess.run/Popen/check_output`，避免短生命周期控制台闪现。
 - 机器协议、JSON 字段和稳定错误码继续使用英文；面向用户的进度、阶段和收口信息由 `deploy-follow/follow --lang zh-CN` 输出中文。观察器关闭、超时或 Ctrl+C 不得终止后台 runner。
 
+285 的发布语义断言由 `migration-285-assert.sh` 提供：生产仅执行只读 schema、函数原文指纹和 trigger 校验；VM 在隔离数据库的临时表中调用已安装函数，事务回滚。signed Gate 必须同时绑定 checksum、preflight、postflight、vm_semantics 和 verified_replay；已应用迁移也不能省略语义证据。精确审阅登记 `71016a197ea2cd3fc44987d8db421afc3983c040` → `7abbf4a504780f6f4ed73b54c9410f6f054f3380` 仅覆盖明确的五条迁移门禁路径及其 Git blob/模式，不涵盖恢复算法；仍须执行 specialized 真实隔离恢复。
+
 ## 当前链路摘要
 
 ```text
