@@ -489,6 +489,7 @@ const baseSettingsResponse = {
   payment_subscription_usd_to_cny_rate: 0,
   payment_recharge_fee_rate: 0,
   payment_recharge_bonus_tiers: [],
+  payment_recharge_bonus_mode: "bonus",
   payment_recharge_bonus_notice: "",
   payment_load_balance_strategy: "round-robin",
   payment_product_name_prefix: "",
@@ -1102,6 +1103,19 @@ describe("admin SettingsView payment visible method controls", () => {
     rows = wrapper.findAll('[data-testid="recharge-bonus-tier-row"]');
     expect(rows[2]!.find('[data-testid="recharge-bonus-tier-error"]').exists()).toBe(false);
 
+    // 切到折扣模式：百分比 ≥ 100 行内报错，改回 < 100 后消失
+    await wrapper.get('[data-testid="recharge-bonus-mode-discount"]').trigger("click");
+    rows = wrapper.findAll('[data-testid="recharge-bonus-tier-row"]');
+    await rows[2]!.get('[data-testid="recharge-bonus-tier-percent-input"]').setValue("100");
+    rows = wrapper.findAll('[data-testid="recharge-bonus-tier-row"]');
+    expect(rows[2]!.get('[data-testid="recharge-bonus-tier-error"]').text()).toContain("invalidDiscountPercent");
+    await rows[2]!.get('[data-testid="recharge-bonus-tier-percent-input"]').setValue("25");
+    rows = wrapper.findAll('[data-testid="recharge-bonus-tier-row"]');
+    expect(rows[2]!.find('[data-testid="recharge-bonus-tier-error"]').exists()).toBe(false);
+    expect(wrapper.get('[data-testid="recharge-bonus-tier-preview"]').text()).toContain(
+      "admin.settings.payment.rechargeBonus.previewRangeDiscount",
+    );
+
     const notice = wrapper.get('[data-testid="recharge-bonus-notice-input"]');
     expect((notice.element as HTMLTextAreaElement).value).toBe("满 100 送 20%");
     await notice.setValue("**新活动**");
@@ -1116,6 +1130,7 @@ describe("admin SettingsView payment visible method controls", () => {
           { min_amount: 500, bonus_percent: 30 },
           { min_amount: 1000, bonus_percent: 25 },
         ],
+        payment_recharge_bonus_mode: "discount",
         payment_recharge_bonus_notice: "**新活动**",
       }),
     );

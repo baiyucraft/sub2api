@@ -5,7 +5,9 @@ import {
   describeRechargeBonusIntervals,
   formatRechargeBonusNumber,
   isDuplicateRechargeBonusMinAmount,
+  isRechargeBonusPercentValidForMode,
   matchRechargeBonusTier,
+  normalizeRechargeBonusMode,
   normalizeRechargeBonusTiers,
   quoteRechargeBonus,
   sanitizeRechargeBonusTiersForSubmit,
@@ -88,6 +90,34 @@ describe('rechargeBonus helpers', () => {
     expect(quoteRechargeBonus(tiers, 700, 0.14)).toMatchObject({ percent: 30, base: 98, bonus: 29.4, credited: 127.4 })
     expect(quoteRechargeBonus(tiers, 50)).toMatchObject({ percent: 0, base: 50, bonus: 0, credited: 50, tier: null })
     expect(quoteRechargeBonus([], 100)).toMatchObject({ percent: 0, bonus: 0, credited: 100 })
+  })
+
+  it('quotes discount mode: credit stays, pay base shrinks, free part recorded as bonus', () => {
+    expect(quoteRechargeBonus(tiers, 500, { mode: 'discount' })).toMatchObject({
+      mode: 'discount', percent: 30, payBase: 350, base: 500, bonus: 150, credited: 500,
+    })
+    // 倍率 0.14：1000 CNY 到账 140 USD，35% off 实付 650 CNY，免费部分 140 − 91 = 49 USD
+    expect(quoteRechargeBonus(tiers, 1000, { mode: 'discount', multiplier: 0.14 })).toMatchObject({
+      percent: 35, payBase: 650, base: 140, bonus: 49, credited: 140,
+    })
+    // 币种精度：JPY 无小数
+    expect(quoteRechargeBonus([{ min_amount: 1, bonus_percent: 15 }], 101, { mode: 'discount' }).payBase).toBe(85.85)
+    expect(quoteRechargeBonus([{ min_amount: 1, bonus_percent: 15 }], 101, { mode: 'discount', currencyDigits: 0 }).payBase).toBe(86)
+    // 折扣 ≥ 100% 视为无优惠（fail-safe）
+    expect(quoteRechargeBonus([{ min_amount: 1, bonus_percent: 100 }], 100, { mode: 'discount' })).toMatchObject({ percent: 0, payBase: 100, credited: 100 })
+    // 未命中
+    expect(quoteRechargeBonus(tiers, 50, { mode: 'discount' })).toMatchObject({ percent: 0, payBase: 50, credited: 50, bonus: 0 })
+  })
+
+  it('normalizes mode and validates percent per mode', () => {
+    expect(normalizeRechargeBonusMode('discount')).toBe('discount')
+    expect(normalizeRechargeBonusMode(' Discount ')).toBe('discount')
+    expect(normalizeRechargeBonusMode('bonus')).toBe('bonus')
+    expect(normalizeRechargeBonusMode(undefined)).toBe('bonus')
+    expect(normalizeRechargeBonusMode('junk')).toBe('bonus')
+    expect(isRechargeBonusPercentValidForMode(100, 'bonus')).toBe(true)
+    expect(isRechargeBonusPercentValidForMode(100, 'discount')).toBe(false)
+    expect(isRechargeBonusPercentValidForMode(99.99, 'discount')).toBe(true)
   })
 
   it('describes intervals with an implicit no-bonus head segment', () => {

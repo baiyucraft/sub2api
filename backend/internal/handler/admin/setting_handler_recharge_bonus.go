@@ -17,6 +17,12 @@ func rechargeBonusTiersFromDTO(items *[]dto.RechargeBonusTier) *[]service.Rechar
 	return &out
 }
 
+// rechargeBonusModeToDTO 输出已归一化的模式（空/非法按 bonus）。
+func rechargeBonusModeToDTO(mode string) string {
+	normalized, _ := service.NormalizeRechargeBonusMode(mode)
+	return normalized
+}
+
 // rechargeBonusTiersToDTO 始终返回非 nil 切片，空配置输出 []。
 func rechargeBonusTiersToDTO(items []service.RechargeBonusTier) []dto.RechargeBonusTier {
 	out := make([]dto.RechargeBonusTier, 0, len(items))

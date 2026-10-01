@@ -47,13 +47,13 @@ describe('recharge bonus hints on quick amounts', () => {
     { min_amount: 500, bonus_percent: 30 },
   ]
 
-  it('renders no badge or credited line when no tiers are configured', () => {
+  it('renders no badge or second line when no tiers are configured', () => {
     const wrapper = mount(AmountInput, { props: { modelValue: null, amounts: [50, 100, 500] } })
     expect(wrapper.find('[data-testid="quick-amount-bonus-badge"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="quick-amount-credited"]').exists()).toBe(false)
   })
 
-  it('shows a badge only on amounts that hit a tier and credited totals on every button', () => {
+  it('bonus mode: price tag only on amounts that hit a tier, credited totals on every button', () => {
     const wrapper = mount(AmountInput, { props: { modelValue: null, amounts: [50, 100, 500], bonusTiers: tiers } })
     const below = wrapper.get('[data-testid="quick-amount-50"]')
     const first = wrapper.get('[data-testid="quick-amount-100"]')
@@ -67,7 +67,7 @@ describe('recharge bonus hints on quick amounts', () => {
     expect(second.get('[data-testid="quick-amount-credited"]').text()).toContain('$650.00')
   })
 
-  it('matches tiers by the entered amount but credits by the multiplier', () => {
+  it('bonus mode: matches tiers by the entered amount but credits by the multiplier', () => {
     const wrapper = mount(AmountInput, {
       props: { modelValue: null, amounts: [1000], bonusTiers: tiers, multiplier: 0.14 },
     })
@@ -75,5 +75,18 @@ describe('recharge bonus hints on quick amounts', () => {
     expect(button.get('[data-testid="quick-amount-bonus-badge"]').text()).toBe('+30%')
     // 1000 × 0.14 = 140 base, +30% = 182
     expect(button.get('[data-testid="quick-amount-credited"]').text()).toContain('$182.00')
+  })
+
+  it('discount mode: tag reads N% OFF and the second line shows the discounted payment', () => {
+    const wrapper = mount(AmountInput, {
+      props: { modelValue: null, amounts: [50, 500], bonusTiers: tiers, bonusMode: 'discount', currency: 'USD' },
+    })
+    const below = wrapper.get('[data-testid="quick-amount-50"]')
+    const hit = wrapper.get('[data-testid="quick-amount-500"]')
+    expect(below.find('[data-testid="quick-amount-bonus-badge"]').exists()).toBe(false)
+    expect(below.get('[data-testid="quick-amount-credited"]').text()).toContain('50.00')
+    expect(hit.get('[data-testid="quick-amount-bonus-badge"]').text()).toBe('30% OFF')
+    // 500 × (1 − 30%) = 350
+    expect(hit.get('[data-testid="quick-amount-credited"]').text()).toContain('350.00')
   })
 })

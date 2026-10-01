@@ -8369,27 +8369,6 @@
                     </div>
                   </div>
                 </div>
-                <!-- Row 3b: 充值赠送阶梯 + 活动文案 -->
-                <RechargeBonusTierEditor
-                  v-model="form.payment_recharge_bonus_tiers"
-                />
-                <div>
-                  <label class="input-label">{{
-                    t("admin.settings.payment.rechargeBonus.noticeLabel")
-                  }}</label>
-                  <textarea
-                    v-model="form.payment_recharge_bonus_notice"
-                    rows="3"
-                    class="input"
-                    :placeholder="
-                      t('admin.settings.payment.rechargeBonus.noticePlaceholder')
-                    "
-                    data-testid="recharge-bonus-notice-input"
-                  ></textarea>
-                  <p class="mt-0.5 text-xs text-gray-400">
-                    {{ t("admin.settings.payment.rechargeBonus.noticeHint") }}
-                  </p>
-                </div>
                 <!-- Row 4: Enabled payment types (provider badges like sub2apipay) -->
                 <div>
                   <label class="input-label">{{
@@ -8468,6 +8447,14 @@
               </template>
             </div>
           </div>
+
+          <!-- 充值优惠阶梯（独立卡片，与服务商管理同级） -->
+          <RechargeBonusTierEditor
+            v-if="form.payment_enabled"
+            v-model="form.payment_recharge_bonus_tiers"
+            v-model:mode="form.payment_recharge_bonus_mode"
+            v-model:notice="form.payment_recharge_bonus_notice"
+          />
 
           <!-- Provider Management -->
           <PaymentProviderList
@@ -9046,8 +9033,10 @@ import BackupSettings from "@/views/admin/BackupView.vue";
 import EmailTemplateEditor from "@/views/admin/settings/EmailTemplateEditor.vue";
 import RechargeBonusTierEditor from "@/components/admin/settings/RechargeBonusTierEditor.vue";
 import {
+  normalizeRechargeBonusMode,
   normalizeRechargeBonusTiers,
   sanitizeRechargeBonusTiersForSubmit,
+  type RechargeBonusMode,
   type RechargeBonusTierDraft,
 } from "@/utils/rechargeBonus";
 import OpenAIFastPolicyUserSelector from "@/views/admin/settings/OpenAIFastPolicyUserSelector.vue";
@@ -9768,6 +9757,7 @@ type SettingsForm = Omit<
   openai_advanced_scheduler_weight_session_sticky: string;
   // 充值赠送阶梯编辑态：允许留空的行，提交时清洗为 RechargeBonusTier[]
   payment_recharge_bonus_tiers: RechargeBonusTierDraft[];
+  payment_recharge_bonus_mode: RechargeBonusMode;
   payment_recharge_bonus_notice: string;
   // 系统全局平台限额 map；form 内始终归一化为全 4 平台对象（模板非空绑定依赖此不变量）
   default_platform_quotas: DefaultPlatformQuotasMap;
@@ -9834,6 +9824,7 @@ const form = reactive<SettingsForm>({
   payment_subscription_usd_to_cny_rate: 0,
   payment_recharge_fee_rate: 0,
   payment_recharge_bonus_tiers: [],
+  payment_recharge_bonus_mode: "bonus",
   payment_recharge_bonus_notice: "",
   payment_enabled_types: [],
   payment_help_image_url: "",
@@ -11108,6 +11099,9 @@ async function loadSettings() {
     form.payment_recharge_bonus_tiers = normalizeRechargeBonusTiers(
       settings.payment_recharge_bonus_tiers,
     );
+    form.payment_recharge_bonus_mode = normalizeRechargeBonusMode(
+      settings.payment_recharge_bonus_mode,
+    );
     form.payment_recharge_bonus_notice = settings.payment_recharge_bonus_notice || "";
     form.default_platform_quotas = normalizePlatformQuotasMap(settings.default_platform_quotas);
     form.account_scheduling_thresholds = normalizeAccountSchedulingThresholdsMap(
@@ -11719,6 +11713,7 @@ async function saveSettings() {
       payment_recharge_bonus_tiers: sanitizeRechargeBonusTiersForSubmit(
         form.payment_recharge_bonus_tiers,
       ),
+      payment_recharge_bonus_mode: form.payment_recharge_bonus_mode,
       payment_recharge_bonus_notice: form.payment_recharge_bonus_notice,
       payment_enabled_types: form.payment_enabled_types,
       payment_load_balance_strategy: form.payment_load_balance_strategy,

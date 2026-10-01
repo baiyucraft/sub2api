@@ -317,8 +317,10 @@ export default {
     creditedBalance: '到账余额',
     rechargeBonus: {
       creditedShort: '到账 {amount}',
+      payShort: '实付 {amount}',
       amountLabel: '赠送额度',
       amountLabelWithPercent: '赠送额度 (+{percent}%)',
+      discountLabelWithPercent: '优惠 ({percent}% OFF)',
     },
     quickAmounts: '快捷金额',
     customAmount: '自定义金额',

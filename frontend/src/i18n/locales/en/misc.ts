@@ -293,8 +293,10 @@ export default {
     creditedBalance: 'Credited Balance',
     rechargeBonus: {
       creditedShort: 'Get {amount}',
+      payShort: 'Pay {amount}',
       amountLabel: 'Bonus',
       amountLabelWithPercent: 'Bonus (+{percent}%)',
+      discountLabelWithPercent: 'Discount ({percent}% OFF)',
     },
     quickAmounts: 'Quick Amounts',
     customAmount: 'Custom Amount',

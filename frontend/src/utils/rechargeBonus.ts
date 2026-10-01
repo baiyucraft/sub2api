@@ -2,6 +2,8 @@ import type { RechargeBonusTier } from '@/types/payment'
 
 export type { RechargeBonusTier }
 
+export type RechargeBonusMode = 'bonus' | 'discount'
+
 export const MAX_RECHARGE_BONUS_TIERS = 20
 export const MAX_RECHARGE_BONUS_PERCENT = 1000
 
@@ -21,24 +23,32 @@ export interface RechargeBonusInterval {
 }
 
 export interface RechargeBonusQuote {
-  /** 命中档位的百分比；未命中或赠送为 0 时为 0 */
+  mode: RechargeBonusMode
+  /** 命中档位的百分比；未命中或未产生优惠时为 0 */
   percent: number
-  /** 到账基数（支付金额 × 倍率，USD） */
+  /** 网关收款基数（支付币种，不含手续费）；赠金模式 = 输入金额，折扣模式 = 折后金额 */
+  payBase: number
+  /** 到账基数（输入金额 × 倍率，USD），不含赠送 */
   base: number
-  /** 赠送额度（USD） */
+  /** 免费额度（USD）：赠金模式为额外赠送，折扣模式为未付费却到账的部分 */
   bonus: number
-  /** 到账总额 = base + bonus */
+  /** 到账总额（USD） */
   credited: number
   tier: RechargeBonusTier | null
 }
 
-export function roundRechargeAmount(value: number): number {
+export function roundRechargeAmount(value: number, digits = 2): number {
   if (!Number.isFinite(value)) return 0
-  return Math.round((value + Number.EPSILON) * 100) / 100
+  const factor = 10 ** digits
+  return Math.round((value + Number.EPSILON) * factor) / factor
 }
 
 function hasAtMostTwoDecimals(value: number): boolean {
   return Math.abs(roundRechargeAmount(value) - value) < AMOUNT_EPSILON
+}
+
+export function normalizeRechargeBonusMode(raw: unknown): RechargeBonusMode {
+  return String(raw ?? '').trim().toLowerCase() === 'discount' ? 'discount' : 'bonus'
 }
 
 export function isRechargeBonusMinAmountValid(value: unknown): value is number {
@@ -53,6 +63,12 @@ export function isRechargeBonusPercentValid(value: unknown): value is number {
     value <= MAX_RECHARGE_BONUS_PERCENT &&
     hasAtMostTwoDecimals(value)
   )
+}
+
+// 折扣模式下百分比必须 < 100，否则实付为 0 或负数；与后端 ValidateRechargeBonusTiersForMode 一致。
+export function isRechargeBonusPercentValidForMode(value: unknown, mode: RechargeBonusMode): value is number {
+  if (!isRechargeBonusPercentValid(value)) return false
+  return mode !== 'discount' || value < 100
 }
 
 function minAmountKey(value: number): string {
@@ -128,27 +144,49 @@ export function calculateRechargeBonus(baseCredited: number, percent: number): n
   return roundRechargeAmount((baseCredited * percent) / 100)
 }
 
-// 充值页报价：阈值按支付金额比较，赠送按到账基数（支付金额 × 倍率）计算。
+export interface RechargeBonusQuoteOptions {
+  multiplier?: number
+  mode?: RechargeBonusMode
+  /** 支付币种小数位，折扣模式实付基数按此精度四舍五入 */
+  currencyDigits?: number
+}
+
+// 充值页报价：阈值按支付金额比较；赠金模式按到账基数加赠送，折扣模式按百分比减实付。
+// 与后端 quoteRechargeBonus 一致（含折扣 ≥ 100% 的 fail-safe）。
 export function quoteRechargeBonus(
   tiers: RechargeBonusTier[],
   paymentAmount: number,
-  multiplier = 1,
+  options: RechargeBonusQuoteOptions | number = {},
 ): RechargeBonusQuote {
+  const opts: RechargeBonusQuoteOptions = typeof options === 'number' ? { multiplier: options } : options
+  const mode = opts.mode ?? 'bonus'
   const amount = Number.isFinite(paymentAmount) && paymentAmount > 0 ? paymentAmount : 0
-  const rate = Number.isFinite(multiplier) && multiplier > 0 ? multiplier : 1
+  const rate = typeof opts.multiplier === 'number' && Number.isFinite(opts.multiplier) && opts.multiplier > 0 ? opts.multiplier : 1
+  const digits = typeof opts.currencyDigits === 'number' && Number.isInteger(opts.currencyDigits) && opts.currencyDigits >= 0 ? opts.currencyDigits : 2
   const base = roundRechargeAmount(amount * rate)
+  const quote: RechargeBonusQuote = { mode, percent: 0, payBase: amount, base, bonus: 0, credited: base, tier: null }
   const tier = matchRechargeBonusTier(tiers, amount)
-  const bonus = tier ? calculateRechargeBonus(base, tier.bonus_percent) : 0
-  return {
-    percent: bonus > 0 && tier ? tier.bonus_percent : 0,
-    base,
-    bonus,
-    credited: roundRechargeAmount(base + bonus),
-    tier,
+  if (!tier || tier.bonus_percent <= 0) return quote
+  quote.tier = tier
+  if (mode === 'discount') {
+    if (tier.bonus_percent >= 100) return quote
+    const payBase = roundRechargeAmount((amount * (100 - tier.bonus_percent)) / 100, digits)
+    if (payBase <= 0 || payBase >= amount) return quote
+    const paidCredit = roundRechargeAmount(payBase * rate)
+    quote.payBase = payBase
+    quote.bonus = Math.max(0, roundRechargeAmount(base - paidCredit))
+    quote.percent = tier.bonus_percent
+    return quote
   }
+  const bonus = calculateRechargeBonus(base, tier.bonus_percent)
+  if (bonus <= 0) return quote
+  quote.bonus = bonus
+  quote.credited = roundRechargeAmount(base + bonus)
+  quote.percent = tier.bonus_percent
+  return quote
 }
 
-// 区间预览：把升序阈值列表展开为 [from, to) 区间；首档阈值 > 0 时补一段「不赠送」。
+// 区间预览：把升序阈值列表展开为 [from, to) 区间；首档阈值 > 0 时补一段「无优惠」。
 export function describeRechargeBonusIntervals(tiers: RechargeBonusTier[]): RechargeBonusInterval[] {
   const sorted = [...tiers].sort((a, b) => a.min_amount - b.min_amount)
   const out: RechargeBonusInterval[] = []
