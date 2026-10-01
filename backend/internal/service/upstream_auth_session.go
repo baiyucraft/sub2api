@@ -97,6 +97,12 @@ type UpstreamAuthStrategy interface {
 	CanLogin(*UpstreamConfig) bool
 }
 
+// Providers opt in to authentication-time counters and refreshable expired restores.
+func durableAuthLifecycle(strategy UpstreamAuthStrategy) bool {
+	capability, ok := strategy.(interface{ DurableAuthLifecycle() bool })
+	return ok && capability.DurableAuthLifecycle()
+}
+
 type UpstreamAuthOperation func(context.Context, *UpstreamAuthHandle) error
 
 type upstreamAuthSessionLock interface {
@@ -175,6 +181,7 @@ func (m *upstreamAuthSessionManager) Run(ctx context.Context, cfg *UpstreamConfi
 }
 
 func (m *upstreamAuthSessionManager) runLocked(ctx context.Context, cfg *UpstreamConfig, proxyURL string, strategy UpstreamAuthStrategy, operation UpstreamAuthOperation) (*UpstreamAuthHandle, error) {
+	durable := durableAuthLifecycle(strategy)
 	fingerprint := strategy.Fingerprint(cfg)
 	record, err := m.repo.Get(ctx, cfg.ID)
 	if err != nil {
@@ -193,67 +200,63 @@ func (m *upstreamAuthSessionManager) runLocked(ctx context.Context, cfg *Upstrea
 	}
 
 	var handle *UpstreamAuthHandle
+	restored := false
 	if record != nil && strings.TrimSpace(record.SecretCiphertext) != "" {
 		secret, decryptErr := m.decrypt(record.SecretCiphertext)
 		if decryptErr == nil {
 			handle, err = strategy.Restore(ctx, cfg, proxyURL, secret)
-			if err == nil && !expiredHandle(handle, now) {
-				record.LastUsedAt = &now
-				record.ReuseCount++
-				record.ConsecutiveAuthFailures = 0
-				record.LastErrorCategory = ""
-				if saveErr := m.repo.Save(ctx, record); saveErr != nil {
-					return nil, saveErr
+			restored = err == nil && handle != nil
+			if err == nil && !durable && expiredHandle(handle, now) {
+				if handle != nil && handle.Refreshed {
+					if saveErr := m.persistAuthentication(ctx, cfg, strategy, handle, true, false); saveErr != nil {
+						return nil, saveErr
+					}
 				}
-				slog.Info("auth_session_reused", "upstream_config_id", cfg.ID, "provider", cfg.Provider)
-				if opErr := operation(ctx, handle); opErr == nil {
-					if handle.Refreshed {
-						return m.persistSuccess(ctx, cfg, strategy, handle, true, false)
-					}
-					return handle, nil
-				} else {
-					category := strategy.ClassifyAuthError(opErr)
-					if category == UpstreamAuthErrorConflict {
-						return nil, m.recordFailure(ctx, cfg, fingerprint, record, category, opErr)
-					}
-					if !isRecoverableAuthError(category) {
-						return nil, opErr
-					}
-					err = opErr
-				}
-			} else if err == nil {
-				// An expired restored handle must not block the compatibility seed
-				// or provider login path below.
-				handle = nil
-				record = nil
-			} else {
-				err = err
+				// Legacy providers recover an expired restore through Seed/Login.
+				handle, record, restored = nil, nil, false
 			}
 		} else {
 			record.LastErrorCategory = string(UpstreamAuthErrorDecrypt)
 			record.LastErrorAt = &now
-			_ = m.repo.Save(ctx, record)
-			_ = m.repo.Delete(ctx, cfg.ID)
+			if err := m.repo.Save(ctx, record); err != nil {
+				return nil, err
+			}
+			if err := m.repo.Delete(ctx, cfg.ID); err != nil {
+				return nil, err
+			}
 			record = nil
 		}
 	}
 	if handle == nil {
 		handle, err = strategy.Seed(ctx, cfg, proxyURL)
-		if err == nil && handle != nil {
-			if expiredHandle(handle, now) {
-				// A provider may still accept an access token whose configured expiry
-				// has already passed. Treat that handle as an explicit recoverable
-				// auth failure so the coordinator performs exactly one refresh.
-				err = errUpstreamAuthHandleExpired
-			} else if opErr := operation(ctx, handle); opErr == nil {
-				return m.persistSuccess(ctx, cfg, strategy, handle, handle.Refreshed, false)
+	}
+	if err == nil && handle != nil {
+		// Restore and Seed may already have rotated credentials. Persist them
+		// before any business request can fail or mutate the provider's cookie jar.
+		if handle.Refreshed || !restored && handle.Authenticated {
+			if saveErr := m.persistAuthentication(ctx, cfg, strategy, handle, handle.Refreshed, false); saveErr != nil {
+				return nil, saveErr
+			}
+		}
+		if expiredHandle(handle, time.Now().UTC()) {
+			// Keep the expired handle: it may carry the only usable refresh token.
+			err = errUpstreamAuthHandleExpired
+		} else {
+			if restored && !durable {
+				if saveErr := m.persistReuseAttempt(ctx, cfg.ID); saveErr != nil {
+					return nil, saveErr
+				}
+				slog.Info("auth_session_reused", "upstream_config_id", cfg.ID, "provider", cfg.Provider)
+			}
+			if opErr := operation(ctx, handle); opErr == nil {
+				return m.persistOperationSuccess(ctx, cfg, strategy, handle, restored, handle.Refreshed, false)
 			} else {
 				category := strategy.ClassifyAuthError(opErr)
-				if category == UpstreamAuthErrorConflict {
-					return nil, m.recordFailure(ctx, cfg, fingerprint, record, category, opErr)
-				}
 				if !isRecoverableAuthError(category) {
-					return nil, opErr
+					if !durable && category != UpstreamAuthErrorConflict {
+						return nil, opErr
+					}
+					return nil, m.recordFailure(ctx, cfg, fingerprint, record, category, opErr)
 				}
 				err = opErr
 			}
@@ -270,21 +273,24 @@ func (m *upstreamAuthSessionManager) runLocked(ctx context.Context, cfg *Upstrea
 		refreshAttempted = true
 		if refreshed, refreshErr := strategy.Refresh(ctx, cfg, proxyURL, handle); refreshErr == nil && refreshed != nil {
 			refreshSucceeded = true
+			if saveErr := m.persistAuthentication(ctx, cfg, strategy, refreshed, true, false); saveErr != nil {
+				return nil, saveErr
+			}
 			opErr := operation(ctx, refreshed)
 			if opErr == nil {
-				return m.persistSuccess(ctx, cfg, strategy, refreshed, true, false)
+				return m.persistOperationSuccess(ctx, cfg, strategy, refreshed, false, true, false)
 			}
 			category := strategy.ClassifyAuthError(opErr)
-			if category == UpstreamAuthErrorConflict {
-				return nil, m.recordFailure(ctx, cfg, fingerprint, record, category, opErr)
-			}
-			if !isRecoverableAuthError(category) {
+			if !durable && category != UpstreamAuthErrorConflict && !isRecoverableAuthError(category) {
 				return nil, opErr
 			}
-			err = opErr
+			return nil, m.recordFailure(ctx, cfg, fingerprint, record, category, opErr)
 		} else if refreshErr != nil {
 			category := strategy.ClassifyAuthError(refreshErr)
 			if category == UpstreamAuthErrorConflict {
+				return nil, m.recordFailure(ctx, cfg, fingerprint, record, category, refreshErr)
+			}
+			if policy, ok := strategy.(interface{ CanLoginAfterRefreshError(error) bool }); ok && !policy.CanLoginAfterRefreshError(refreshErr) {
 				return nil, m.recordFailure(ctx, cfg, fingerprint, record, category, refreshErr)
 			}
 			// Preserve the actual refresh failure. Manual-token strategies cannot
@@ -292,6 +298,9 @@ func (m *upstreamAuthSessionManager) runLocked(ctx context.Context, cfg *Upstrea
 			err = refreshErr
 		} else {
 			err = errUpstreamAuthHandleMissing
+			if policy, ok := strategy.(interface{ CanLoginAfterRefreshError(error) bool }); ok && !policy.CanLoginAfterRefreshError(err) {
+				return nil, m.recordFailure(ctx, cfg, fingerprint, record, strategy.ClassifyAuthError(err), err)
+			}
 		}
 	}
 	// A successful refresh followed by another auth failure is already the
@@ -299,8 +308,11 @@ func (m *upstreamAuthSessionManager) runLocked(ctx context.Context, cfg *Upstrea
 	if strategy.CanLogin(cfg) && (!refreshAttempted || !refreshSucceeded) {
 		handle, err = strategy.Login(ctx, cfg, proxyURL)
 		if err == nil && handle != nil {
+			if saveErr := m.persistAuthentication(ctx, cfg, strategy, handle, false, record != nil); saveErr != nil {
+				return nil, saveErr
+			}
 			if opErr := operation(ctx, handle); opErr == nil {
-				return m.persistSuccess(ctx, cfg, strategy, handle, false, record != nil)
+				return m.persistOperationSuccess(ctx, cfg, strategy, handle, false, false, record != nil)
 			} else {
 				category := strategy.ClassifyAuthError(opErr)
 				if category == UpstreamAuthErrorConflict {
@@ -316,29 +328,33 @@ func (m *upstreamAuthSessionManager) runLocked(ctx context.Context, cfg *Upstrea
 	return nil, m.recordFailure(ctx, cfg, fingerprint, record, strategy.ClassifyAuthError(err), err)
 }
 
-func (m *upstreamAuthSessionManager) persistSuccess(ctx context.Context, cfg *UpstreamConfig, strategy UpstreamAuthStrategy, handle *UpstreamAuthHandle, refreshed, relogin bool) (*UpstreamAuthHandle, error) {
-	secret, err := strategy.Serialize(handle)
+func (m *upstreamAuthSessionManager) persistAuthentication(ctx context.Context, cfg *UpstreamConfig, strategy UpstreamAuthStrategy, handle *UpstreamAuthHandle, refreshed, relogin bool) error {
+	record, err := m.repo.Get(ctx, cfg.ID)
 	if err != nil {
-		return nil, err
-	}
-	ciphertext, err := m.encrypt(secret)
-	if err != nil {
-		return nil, err
+		return err
 	}
 	now := time.Now().UTC()
-	record, _ := m.repo.Get(ctx, cfg.ID)
 	if record == nil {
-		record = &UpstreamAuthSessionRecord{UpstreamConfigID: cfg.ID, Provider: cfg.Provider, AuthMode: cfg.AuthMode, CredentialFingerprint: strategy.Fingerprint(cfg)}
+		record = &UpstreamAuthSessionRecord{UpstreamConfigID: cfg.ID}
 	}
-	record.Provider, record.AuthMode = cfg.Provider, cfg.AuthMode
-	record.CredentialFingerprint, record.SecretCiphertext = strategy.Fingerprint(cfg), ciphertext
-	record.ExpiresAt, record.LastUsedAt = handle.ExpiresAt, &now
-	record.ConsecutiveAuthFailures, record.LastErrorCategory = 0, ""
+	// Checkpoint credentials independently of counters so a later metadata save
+	// cannot discard a successfully rotated ticket.
+	if err := m.saveSnapshot(ctx, cfg, strategy, handle, record); err != nil {
+		return err
+	}
+	if !durableAuthLifecycle(strategy) {
+		return nil
+	}
+	m.recordAuthenticationSuccess(cfg, record, refreshed, relogin, now)
+	return m.repo.Save(ctx, record)
+}
+
+func (m *upstreamAuthSessionManager) recordAuthenticationSuccess(cfg *UpstreamConfig, record *UpstreamAuthSessionRecord, refreshed, relogin bool, now time.Time) {
 	if refreshed {
 		record.RefreshCount++
 		record.LastRefreshedAt = &now
 		slog.Info("auth_session_refresh", "upstream_config_id", cfg.ID, "provider", cfg.Provider)
-	} else if handle.Authenticated {
+	} else {
 		record.LoginCount++
 		record.LastAuthenticatedAt = &now
 		if relogin {
@@ -348,13 +364,79 @@ func (m *upstreamAuthSessionManager) persistSuccess(ctx context.Context, cfg *Up
 			slog.Info("auth_session_login", "upstream_config_id", cfg.ID, "provider", cfg.Provider)
 		}
 	}
-	if err := m.repo.Save(ctx, record); err != nil {
+}
+
+func (m *upstreamAuthSessionManager) persistReuseAttempt(ctx context.Context, upstreamConfigID int64) error {
+	record, err := m.repo.Get(ctx, upstreamConfigID)
+	if err != nil {
+		return err
+	}
+	if record == nil {
+		return errors.New("upstream auth session disappeared during reuse")
+	}
+	now := time.Now().UTC()
+	record.LastUsedAt = &now
+	record.ReuseCount++
+	record.ConsecutiveAuthFailures, record.LastErrorCategory = 0, ""
+	return m.repo.Save(ctx, record)
+}
+
+func (m *upstreamAuthSessionManager) persistOperationSuccess(ctx context.Context, cfg *UpstreamConfig, strategy UpstreamAuthStrategy, handle *UpstreamAuthHandle, reused, refreshed, relogin bool) (*UpstreamAuthHandle, error) {
+	durable := durableAuthLifecycle(strategy)
+	if !durable && reused && !refreshed {
+		return handle, nil
+	}
+	record, err := m.repo.Get(ctx, cfg.ID)
+	if err != nil {
 		return nil, err
+	}
+	if record == nil {
+		record = &UpstreamAuthSessionRecord{UpstreamConfigID: cfg.ID}
+	}
+	now := time.Now().UTC()
+	record.LastUsedAt = &now
+	record.ConsecutiveAuthFailures, record.LastErrorCategory = 0, ""
+	if durable {
+		record.LastErrorAt = nil
+	} else if refreshed || !reused && handle.Authenticated {
+		m.recordAuthenticationSuccess(cfg, record, refreshed, relogin, now)
+	}
+	if reused && durable {
+		record.ReuseCount++
+	}
+	if err := m.saveSnapshot(ctx, cfg, strategy, handle, record); err != nil {
+		return nil, err
+	}
+	if reused && durable {
+		slog.Info("auth_session_reused", "upstream_config_id", cfg.ID, "provider", cfg.Provider)
 	}
 	return handle, nil
 }
 
+// saveSnapshot captures provider state without changing authentication counters.
+func (m *upstreamAuthSessionManager) saveSnapshot(ctx context.Context, cfg *UpstreamConfig, strategy UpstreamAuthStrategy, handle *UpstreamAuthHandle, record *UpstreamAuthSessionRecord) error {
+	secret, err := strategy.Serialize(handle)
+	if err != nil {
+		return err
+	}
+	ciphertext, err := m.encrypt(secret)
+	if err != nil {
+		return err
+	}
+	record.Provider, record.AuthMode = cfg.Provider, cfg.AuthMode
+	record.CredentialFingerprint, record.SecretCiphertext = strategy.Fingerprint(cfg), ciphertext
+	record.ExpiresAt = handle.ExpiresAt
+	return m.repo.Save(ctx, record)
+}
+
 func (m *upstreamAuthSessionManager) recordFailure(ctx context.Context, cfg *UpstreamConfig, fingerprint string, record *UpstreamAuthSessionRecord, category UpstreamAuthErrorCategory, cause error) error {
+	latest, err := m.repo.Get(ctx, cfg.ID)
+	if err != nil {
+		return err
+	}
+	if latest != nil {
+		record = latest
+	}
 	if category == "" {
 		category = UpstreamAuthErrorUnknown
 	}

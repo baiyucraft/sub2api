@@ -2,8 +2,10 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
+	"net/http"
 	"sort"
 	"strconv"
 	"strings"
@@ -462,6 +464,7 @@ func (s *UpstreamConfigService) persistSyncResult(ctx context.Context, startedAt
 		Status:              status,
 		Stage:               result.Stage,
 		ErrorCode:           result.ErrorCode,
+		HTTPStatus:          result.HTTPStatus,
 		SafeMessage:         result.Error,
 		Retryable:           result.Retryable,
 		RemoteKeyCount:      result.KeyCount + result.UnresolvedKeyCount,
@@ -515,6 +518,32 @@ func classifyUpstreamSyncFailure(err error, fallbackStage string) (stage, code s
 	code = "unknown"
 	if err == nil {
 		return stage, code, false
+	}
+	var upstream *newAPIHTTPError
+	if errors.As(err, &upstream) {
+		switch upstream.Path {
+		case newAPILoginPath, newAPIRefreshPath:
+			stage = "auth"
+		case newAPIUserGroupsPath:
+			stage = "groups"
+		case newAPITokensPath, newAPITokenBatchKeysPath:
+			stage = "keys_page"
+		case newAPIUserProfilePath, newAPIUserStatPath, newAPIStatusPath:
+			stage = "profile"
+		}
+		if upstream.Status == http.StatusUnauthorized || upstream.Status == http.StatusForbidden {
+			stage, code = "auth", "auth"
+		} else if upstream.Status == http.StatusTooManyRequests || upstream.Status >= 500 {
+			code, retryable = "upstream", true
+		} else if stage == "auth" {
+			code = "auth"
+		} else {
+			code = "protocol"
+		}
+		if upstream.Code != "" {
+			code = upstream.Code
+		}
+		return stage, code, retryable
 	}
 	text := strings.ToLower(err.Error())
 	switch {
