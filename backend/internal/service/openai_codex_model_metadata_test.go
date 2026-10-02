@@ -108,8 +108,6 @@ func TestAstraCodexToolCapabilitiesUseAccountScopeAndSharedDeclarations(t *testi
 	require.Equal(t, "3000", model["comp_hash"])
 }
 
-// Scenario: Codex rejects the whole models manifest when service_tiers is null,
-// so conflicting or null tier declarations must be advertised as an empty array.
 func TestCodexToolCapabilitiesNeverAdvertiseNullServiceTiers(t *testing.T) {
 	newAccount := func(id int64, tiers string) Account {
 		account := Account{ID: id, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{
