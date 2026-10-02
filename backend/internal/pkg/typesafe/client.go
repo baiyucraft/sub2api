@@ -61,9 +61,21 @@ func NewSystemOneRequest(ctx context.Context, baseURL, key string, body []byte) 
 	return req, nil
 }
 
+// MaxSystemOneResponseBytes bounds a buffered System One response body.
+const MaxSystemOneResponseBytes = 4 << 20
+
+var ErrSystemOneResponseTooLarge = errors.New("typesafe response exceeds size limit")
+
 func DecodeSystemOneResponse(r io.Reader) (*SystemOneResponse, error) {
-	body, err := io.ReadAll(io.LimitReader(r, 4<<20))
-	if err != nil || !json.Valid(body) {
+	body, err := io.ReadAll(io.LimitReader(r, MaxSystemOneResponseBytes+1))
+	if err != nil {
+		return nil, errors.New("typesafe invalid response")
+	}
+	// A truncated body would otherwise surface as a misleading "invalid JSON".
+	if len(body) > MaxSystemOneResponseBytes {
+		return nil, ErrSystemOneResponseTooLarge
+	}
+	if !json.Valid(body) {
 		return nil, errors.New("typesafe invalid response")
 	}
 	var envelope struct {

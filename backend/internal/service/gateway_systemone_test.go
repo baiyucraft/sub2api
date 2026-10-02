@@ -231,3 +231,140 @@ func TestForwardSystemOneTransportAndTimeoutFailOver(t *testing.T) {
 		require.ErrorAs(t, err, &failoverErr)
 	}
 }
+
+func newSystemOneStatusUpstream(status int, body string) *systemOneHTTPUpstream {
+	return &systemOneHTTPUpstream{do: func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: status, Header: http.Header{"X-Request-Id": []string{"req-err"}}, Body: io.NopCloser(strings.NewReader(body))}, nil
+	}}
+}
+
+func systemOneOpsEvents(t *testing.T, c *gin.Context) []*OpsUpstreamErrorEvent {
+	t.Helper()
+	raw, ok := c.Get(OpsUpstreamErrorsKey)
+	require.True(t, ok)
+	events, ok := raw.([]*OpsUpstreamErrorEvent)
+	require.True(t, ok)
+	return events
+}
+
+func TestForwardSystemOneRequestErrorsNeverTouchAccountState(t *testing.T) {
+	for _, status := range []int{http.StatusBadRequest, http.StatusUnprocessableEntity} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			// Even a custom error-code rule must not let client input disable the account.
+			account := &Account{ID: 21, Platform: PlatformTypeSafe, Type: AccountTypeAPIKey, Credentials: map[string]any{
+				"base_url": "http://typesafe.test", "api_key": "ts-secret",
+				"custom_error_codes_enabled": true, "custom_error_codes": []any{float64(status)},
+			}}
+			repo := &systemOnePolicyAccountRepo{account: account}
+			svc := newSystemOneTestService(newSystemOneStatusUpstream(status, `{"detail":"bad question"}`))
+			svc.rateLimitService = NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+			c := newSystemOneTestContext()
+
+			_, err := svc.ForwardSystemOne(context.Background(), c, account, []byte(`{}`))
+			var upstreamErr *SystemOneUpstreamError
+			require.ErrorAs(t, err, &upstreamErr)
+			require.Equal(t, status, upstreamErr.StatusCode)
+			require.Zero(t, repo.errorCalls+repo.rateLimitedCalls+repo.overloadedCalls)
+			events := systemOneOpsEvents(t, c)
+			require.Len(t, events, 1)
+			require.Equal(t, "http_error", events[0].Kind)
+			require.Equal(t, status, events[0].UpstreamStatusCode)
+			require.Equal(t, "req-err", events[0].UpstreamRequestID)
+		})
+	}
+}
+
+func TestForwardSystemOneAccountLevelFailuresFailOver(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		status    int
+		wantError int
+	}{
+		{name: "payment required", status: http.StatusPaymentRequired, wantError: 1},
+		{name: "forbidden", status: http.StatusForbidden, wantError: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			account := &Account{ID: 22, Platform: PlatformTypeSafe, Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": "http://typesafe.test", "api_key": "ts-secret"}}
+			repo := &systemOnePolicyAccountRepo{account: account}
+			svc := newSystemOneTestService(newSystemOneStatusUpstream(tc.status, `{"detail":"account problem"}`))
+			svc.rateLimitService = NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+			c := newSystemOneTestContext()
+
+			_, err := svc.ForwardSystemOne(context.Background(), c, account, []byte(`{}`))
+			var failoverErr *UpstreamFailoverError
+			require.ErrorAs(t, err, &failoverErr)
+			require.True(t, failoverErr.ShouldRetryNextAccount())
+			require.Equal(t, tc.status, failoverErr.StatusCode)
+			require.Equal(t, tc.wantError, repo.errorCalls)
+			require.Equal(t, "failover", systemOneOpsEvents(t, c)[0].Kind)
+		})
+	}
+}
+
+func TestForwardSystemOneHonorsCustomErrorCodes(t *testing.T) {
+	account := &Account{ID: 23, Platform: PlatformTypeSafe, Type: AccountTypeAPIKey, Credentials: map[string]any{
+		"base_url": "http://typesafe.test", "api_key": "ts-secret",
+		"custom_error_codes_enabled": true, "custom_error_codes": []any{float64(http.StatusNotFound)},
+	}}
+	repo := &systemOnePolicyAccountRepo{account: account}
+	svc := newSystemOneTestService(newSystemOneStatusUpstream(http.StatusNotFound, `{"detail":"missing"}`))
+	svc.rateLimitService = NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+
+	_, err := svc.ForwardSystemOne(context.Background(), newSystemOneTestContext(), account, []byte(`{}`))
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, 1, repo.errorCalls)
+}
+
+func TestForwardSystemOneUnhandledStatusDoesNotFailOver(t *testing.T) {
+	account := &Account{ID: 24, Platform: PlatformTypeSafe, Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": "http://typesafe.test", "api_key": "ts-secret"}}
+	repo := &systemOnePolicyAccountRepo{account: account}
+	svc := newSystemOneTestService(newSystemOneStatusUpstream(http.StatusConflict, `{"detail":"conflict"}`))
+	svc.rateLimitService = NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+
+	_, err := svc.ForwardSystemOne(context.Background(), newSystemOneTestContext(), account, []byte(`{}`))
+	var upstreamErr *SystemOneUpstreamError
+	require.ErrorAs(t, err, &upstreamErr)
+	require.Equal(t, http.StatusConflict, upstreamErr.StatusCode)
+	require.Zero(t, repo.errorCalls)
+}
+
+func TestForwardSystemOneNormalizesResponseContentType(t *testing.T) {
+	for _, tc := range []struct{ upstream, want string }{
+		{"application/json; charset=utf-8", "application/json; charset=utf-8"},
+		{"application/problem+json", "application/problem+json"},
+		{"text/html; charset=utf-8", "application/json"},
+		{"", "application/json"},
+		{"not a media type;;", "application/json"},
+	} {
+		upstream := &systemOneHTTPUpstream{do: func(*http.Request) (*http.Response, error) {
+			header := make(http.Header)
+			if tc.upstream != "" {
+				header.Set("Content-Type", tc.upstream)
+			}
+			return &http.Response{StatusCode: http.StatusOK, Header: header, Body: io.NopCloser(strings.NewReader(`{"answers":{}}`))}, nil
+		}}
+		account := &Account{ID: 25, Platform: PlatformTypeSafe, Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": "http://typesafe.test", "api_key": "ts-secret"}}
+		result, err := newSystemOneTestService(upstream).ForwardSystemOne(context.Background(), newSystemOneTestContext(), account, []byte(`{}`))
+		require.NoError(t, err)
+		require.Equal(t, tc.want, result.ContentType, tc.upstream)
+	}
+}
+
+func TestForwardSystemOneRejectsOversizedResponse(t *testing.T) {
+	oversized := `{"pad":"` + strings.Repeat("a", typesafe.MaxSystemOneResponseBytes) + `"}`
+	upstream := &systemOneHTTPUpstream{do: func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(oversized))}, nil
+	}}
+	account := &Account{ID: 26, Platform: PlatformTypeSafe, Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": "http://typesafe.test", "api_key": "ts-secret"}}
+	_, err := newSystemOneTestService(upstream).ForwardSystemOne(context.Background(), newSystemOneTestContext(), account, []byte(`{}`))
+	require.ErrorIs(t, err, typesafe.ErrSystemOneResponseTooLarge)
+}
+
+func TestTypeSafeAccountBaseURLNeverFallsBackToAnthropic(t *testing.T) {
+	account := &Account{Platform: PlatformTypeSafe, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "ts-secret"}}
+	require.Equal(t, typesafe.DefaultBaseURL, account.GetBaseURL())
+	require.Equal(t, typesafe.DefaultBaseURL, account.GetTypeSafeBaseURL())
+	anthropic := &Account{Platform: PlatformAnthropic, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "sk"}}
+	require.Equal(t, "https://api.anthropic.com", anthropic.GetBaseURL())
+}

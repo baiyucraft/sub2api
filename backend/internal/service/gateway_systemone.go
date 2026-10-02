@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
+	"mime"
 	"net/http"
 	"strings"
 	"time"
@@ -47,6 +47,7 @@ func (s *GatewayService) ForwardSystemOne(ctx context.Context, c *gin.Context, a
 	if err != nil {
 		return nil, err
 	}
+	upstreamURL := req.URL.Scheme + "://" + req.URL.Host + req.URL.Path
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
@@ -55,44 +56,18 @@ func (s *GatewayService) ForwardSystemOne(ctx context.Context, c *gin.Context, a
 	if err != nil {
 		return nil, s.handleUpstreamTransportError(ctx, c, account, err, OpsUpstreamErrorEvent{
 			Passthrough: true,
-			UpstreamURL: req.URL.Scheme + "://" + req.URL.Host + req.URL.Path,
+			UpstreamURL: upstreamURL,
 		})
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
-		if resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusUnprocessableEntity {
-			return nil, &SystemOneUpstreamError{StatusCode: resp.StatusCode}
-		}
-		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == 529 || resp.StatusCode >= 500 {
-			if s.rateLimitService != nil {
-				s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, nil, typesafe.JevLatestModel)
-			}
-			failoverErr := &UpstreamFailoverError{
-				StatusCode:       resp.StatusCode,
-				ResponseHeaders:  resp.Header.Clone(),
-				ClientStatusCode: http.StatusBadGateway,
-				ClientMessage:    "TypeSafe upstream request failed",
-			}
-			if resp.StatusCode == http.StatusUnauthorized {
-				failoverErr.Stage = GatewayFailureStageAccountAuth
-				failoverErr.Scope = GatewayFailureScopeAccount
-				failoverErr.Reason = TypeSafeCredentialRejectedReason
-				failoverErr.NextAccountAction = NextAccountRetry
-			}
-			return nil, failoverErr
-		}
-		return nil, &SystemOneUpstreamError{StatusCode: http.StatusBadGateway}
+		return nil, s.handleSystemOneErrorResponse(ctx, c, account, resp, upstreamURL)
 	}
 
 	decoded, err := typesafe.DecodeSystemOneResponse(resp.Body)
 	if err != nil {
 		return nil, err
-	}
-	contentType := strings.TrimSpace(resp.Header.Get("Content-Type"))
-	if contentType == "" {
-		contentType = "application/json"
 	}
 	return &SystemOneForwardResult{
 		ForwardResult: ForwardResult{
@@ -105,6 +80,76 @@ func (s *GatewayService) ForwardSystemOne(ctx context.Context, c *gin.Context, a
 		},
 		StatusCode:  resp.StatusCode,
 		Body:        decoded.Body,
-		ContentType: contentType,
+		ContentType: systemOneResponseContentType(resp.Header.Get("Content-Type")),
 	}, nil
+}
+
+// handleSystemOneErrorResponse applies the shared account error policy to a
+// non-2xx System One response. 400/422 describe the caller's own payload, so
+// they never touch account state (a tenant must not be able to disable an
+// account with bad input) and are not retried elsewhere. Every other status
+// goes through the account error policy (custom error codes, temporary
+// unschedulable rules, pool mode) and fails over when the status is retryable
+// or the policy took the account out of rotation.
+func (s *GatewayService) handleSystemOneErrorResponse(ctx context.Context, c *gin.Context, account *Account, resp *http.Response, upstreamURL string) error {
+	respBody, _ := s.readUpstreamErrorBody(resp)
+	upstreamMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(respBody)))
+	setOpsUpstreamError(c, resp.StatusCode, upstreamMsg, "")
+	event := OpsUpstreamErrorEvent{
+		Passthrough:        true,
+		ProxyID:            opsUpstreamProxyID(account),
+		ProxyName:          opsUpstreamProxyName(account),
+		Platform:           account.Platform,
+		AccountID:          account.ID,
+		AccountName:        account.Name,
+		UpstreamStatusCode: resp.StatusCode,
+		UpstreamRequestID:  resp.Header.Get("x-request-id"),
+		UpstreamURL:        upstreamURL,
+		Kind:               "http_error",
+		Message:            upstreamMsg,
+	}
+
+	if resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusUnprocessableEntity {
+		appendOpsUpstreamError(c, event)
+		return &SystemOneUpstreamError{StatusCode: resp.StatusCode}
+	}
+
+	shouldDisable := false
+	if s.rateLimitService != nil {
+		shouldDisable = s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, typesafe.JevLatestModel)
+	}
+	if !shouldDisable && !s.shouldFailoverUpstreamError(resp.StatusCode) {
+		appendOpsUpstreamError(c, event)
+		return &SystemOneUpstreamError{StatusCode: resp.StatusCode}
+	}
+
+	event.Kind = "failover"
+	appendOpsUpstreamError(c, event)
+	failoverErr := &UpstreamFailoverError{
+		StatusCode:             resp.StatusCode,
+		ResponseBody:           respBody,
+		ResponseHeaders:        resp.Header.Clone(),
+		RetryableOnSameAccount: !shouldDisable && account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
+	}
+	if resp.StatusCode == http.StatusUnauthorized {
+		failoverErr.Stage = GatewayFailureStageAccountAuth
+		failoverErr.Scope = GatewayFailureScopeAccount
+		failoverErr.Reason = TypeSafeCredentialRejectedReason
+		failoverErr.NextAccountAction = NextAccountRetry
+	}
+	return failoverErr
+}
+
+// systemOneResponseContentType keeps the upstream JSON media type (and its
+// charset) but never relays a non-JSON type for a body already validated as
+// JSON, so the gateway origin cannot be made to serve it as HTML.
+func systemOneResponseContentType(raw string) string {
+	mediaType, _, err := mime.ParseMediaType(strings.TrimSpace(raw))
+	if err != nil {
+		return "application/json"
+	}
+	if mediaType == "application/json" || (strings.HasPrefix(mediaType, "application/") && strings.HasSuffix(mediaType, "+json")) {
+		return strings.TrimSpace(raw)
+	}
+	return "application/json"
 }

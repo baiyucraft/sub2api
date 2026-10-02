@@ -47,7 +47,9 @@ func extractContentModerationInput(protocol string, body []byte, filterReminders
 		collector.addModerationText(&parts, gjson.GetBytes(body, "prompt").String())
 		collector.collectContentValue(gjson.GetBytes(body, "images"), &parts, &images)
 	case ContentModerationProtocolTypeSafeSystemOne:
-		collector.collectSystemOneState(gjson.GetBytes(body, "state"), &parts)
+		// System One carries no client-harness reminder blocks, so a literal
+		// <system-reminder> is ordinary user text and must never be skipped.
+		moderationTextCollector{}.collectSystemOneInput(body, &parts)
 	default:
 		collector.collectLastResponsesInput(gjson.GetBytes(body, "input"), &parts, &images)
 		collector.collectLastRoleMessage(gjson.GetBytes(body, "messages"), "user", &parts, &images)
@@ -63,7 +65,28 @@ func extractContentModerationInput(protocol string, body []byte, filterReminders
 	return out
 }
 
-func (collector moderationTextCollector) collectSystemOneState(value gjson.Result, parts *[]string) {
+// collectSystemOneInput moderates the evaluated state plus every question's
+// instructions and criteria: all of them are client text sent to Jev.
+func (collector moderationTextCollector) collectSystemOneInput(body []byte, parts *[]string) {
+	collector.collectSystemOneText(gjson.GetBytes(body, "state"), parts)
+	gjson.GetBytes(body, "questions").ForEach(func(_, question gjson.Result) bool {
+		collector.collectSystemOneText(question.Get("instructions"), parts)
+		criteria := question.Get("criteria")
+		if question.Get("type").String() == "choice" && criteria.IsObject() {
+			// Choice option labels are client-chosen text as well.
+			criteria.ForEach(func(label, description gjson.Result) bool {
+				collector.addModerationText(parts, label.String())
+				collector.collectSystemOneText(description, parts)
+				return true
+			})
+			return true
+		}
+		collector.collectSystemOneText(criteria, parts)
+		return true
+	})
+}
+
+func (collector moderationTextCollector) collectSystemOneText(value gjson.Result, parts *[]string) {
 	switch {
 	case !value.Exists():
 		return
@@ -71,7 +94,7 @@ func (collector moderationTextCollector) collectSystemOneState(value gjson.Resul
 		collector.addModerationText(parts, value.String())
 	case value.IsArray(), value.IsObject():
 		value.ForEach(func(_, child gjson.Result) bool {
-			collector.collectSystemOneState(child, parts)
+			collector.collectSystemOneText(child, parts)
 			return true
 		})
 	}

@@ -985,6 +985,10 @@ func (a *Account) GetBaseURL() string {
 	}
 	baseURL := a.GetCredential("base_url")
 	if baseURL == "" {
+		// TypeSafe keys must never fall back to the Anthropic host.
+		if a.Platform == PlatformTypeSafe {
+			return typesafe.DefaultBaseURL
+		}
 		return "https://api.anthropic.com"
 	}
 	if a.Platform == PlatformAntigravity {

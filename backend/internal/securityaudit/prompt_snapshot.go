@@ -106,6 +106,8 @@ func extractProtocolSegments(protocol string, document any) []promptSegment {
 		return append(extractInstructions(root["instructions"]), extractResponses(root["input"])...)
 	case "openai_images", "grok_media", "media", "images":
 		return userPromptSegments(extractMediaPrompts(root))
+	case "typesafe_systemone":
+		return extractSystemOneSegments(root)
 	default:
 		if segments := extractChatLikeSegments(root); len(segments) > 0 {
 			return segments
@@ -118,6 +120,64 @@ func extractProtocolSegments(protocol string, document any) []promptSegment {
 		}
 		return userPromptSegments(extractMediaPrompts(root))
 	}
+}
+
+// extractSystemOneSegments collects every client-controlled text of a TypeSafe
+// System One request. Question instructions and criteria come first and the
+// evaluated state last, so the state is the prioritized segment. Object keys are
+// visited in sorted order to keep the prompt hash stable across requests.
+func extractSystemOneSegments(root map[string]any) []promptSegment {
+	if root == nil {
+		return nil
+	}
+	texts := make([]string, 0, 4)
+	questions, _ := root["questions"].(map[string]any)
+	for _, id := range sortedJSONKeys(questions) {
+		question, ok := questions[id].(map[string]any)
+		if !ok {
+			continue
+		}
+		texts = appendJSONStringLeaves(texts, question["instructions"])
+		criteria, isObject := question["criteria"].(map[string]any)
+		if !isObject || stringValue(question["type"]) != "choice" {
+			texts = appendJSONStringLeaves(texts, question["criteria"])
+			continue
+		}
+		// Choice option labels are client-chosen text sent to the model as well.
+		for _, label := range sortedJSONKeys(criteria) {
+			texts = appendJSONStringLeaves(texts, label)
+			texts = appendJSONStringLeaves(texts, criteria[label])
+		}
+	}
+	texts = appendJSONStringLeaves(texts, root["state"])
+	return userPromptSegments(texts)
+}
+
+func appendJSONStringLeaves(texts []string, value any) []string {
+	switch typed := value.(type) {
+	case string:
+		if text := strings.TrimSpace(typed); text != "" {
+			texts = append(texts, text)
+		}
+	case []any:
+		for _, item := range typed {
+			texts = appendJSONStringLeaves(texts, item)
+		}
+	case map[string]any:
+		for _, key := range sortedJSONKeys(typed) {
+			texts = appendJSONStringLeaves(texts, typed[key])
+		}
+	}
+	return texts
+}
+
+func sortedJSONKeys(values map[string]any) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // clientInstructionRoles are roles a client may freely populate. Attackers can

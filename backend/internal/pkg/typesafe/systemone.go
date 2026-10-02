@@ -11,10 +11,10 @@ import (
 var ErrStreamingUnsupported = errors.New("typesafe system one does not support streaming")
 
 type systemOneEnvelope struct {
-	Model     json.RawMessage            `json:"model"`
-	State     json.RawMessage            `json:"state"`
-	Questions map[string]json.RawMessage `json:"questions"`
-	Stream    json.RawMessage            `json:"stream"`
+	Model     json.RawMessage `json:"model"`
+	State     json.RawMessage `json:"state"`
+	Questions json.RawMessage `json:"questions"`
+	Stream    json.RawMessage `json:"stream"`
 }
 
 func ValidateSystemOneRequest(body []byte) (string, error) {
@@ -33,7 +33,9 @@ func ValidateSystemOneRequest(body []byte) (string, error) {
 	if err := validateStringObjectOrArray(envelope.State, "state"); err != nil {
 		return "", err
 	}
-	if len(envelope.Questions) == 0 {
+	questionsRaw := bytes.TrimSpace(envelope.Questions)
+	var questions map[string]json.RawMessage
+	if len(questionsRaw) == 0 || questionsRaw[0] != '{' || json.Unmarshal(questionsRaw, &questions) != nil || len(questions) == 0 {
 		return "", errors.New("questions must be a non-empty object")
 	}
 	if len(envelope.Stream) > 0 && string(envelope.Stream) != "null" {
@@ -45,7 +47,7 @@ func ValidateSystemOneRequest(body []byte) (string, error) {
 			return "", ErrStreamingUnsupported
 		}
 	}
-	for id, raw := range envelope.Questions {
+	for id, raw := range questions {
 		if err := validateQuestion(id, raw); err != nil {
 			return "", err
 		}

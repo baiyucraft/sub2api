@@ -412,3 +412,42 @@ func mustJSON(t *testing.T, value string) []byte {
 func metadataTextForTest(scanText string) string {
 	return strings.Replace(scanText, promptAuditPrioritySeparator, "\n\n", 1)
 }
+
+func TestPromptSnapshotTypeSafeSystemOneCollectsStateAndQuestions(t *testing.T) {
+	body := `{"model":"jev-latest","state":{"title":"STATE_TITLE","items":["STATE_ITEM",{"text":"STATE_NESTED"},3]},` +
+		`"questions":{"b":{"type":"choice","instructions":"CHOICE_INSTRUCTIONS","criteria":{"OPTION_LABEL":{"description":"OPTION_DESC"},"empty":null}},` +
+		`"a":{"type":"noul","instructions":["NOUL_INSTRUCTIONS"],"criteria":{"true":"NOUL_TRUE","false":"NOUL_FALSE"}},` +
+		`"c":{"type":"score","criteria":["SCORE_LOW",{"description":"SCORE_HIGH"}]}}}`
+
+	snapshot, err := ExtractPromptSnapshot(Request{Protocol: "typesafe_systemone", Body: []byte(body)})
+	require.NoError(t, err)
+	for _, text := range []string{"STATE_TITLE", "STATE_ITEM", "STATE_NESTED", "CHOICE_INSTRUCTIONS", "OPTION_LABEL", "OPTION_DESC",
+		"NOUL_INSTRUCTIONS", "NOUL_TRUE", "NOUL_FALSE", "SCORE_LOW", "SCORE_HIGH"} {
+		require.Contains(t, snapshot.ScanText, text)
+	}
+	require.NotContains(t, snapshot.ScanText, "jev-latest")
+	require.Equal(t, 12, snapshot.MessageCount)
+
+	// Map iteration order must not change the audited text or its hash.
+	for range 20 {
+		again, err := ExtractPromptSnapshot(Request{Protocol: "typesafe_systemone", Body: []byte(body)})
+		require.NoError(t, err)
+		require.Equal(t, snapshot.PromptHash, again.PromptHash)
+		require.Equal(t, snapshot.ScanText, again.ScanText)
+	}
+
+	blocking, err := ExtractBlockingPromptSnapshot(Request{Protocol: "typesafe_systemone", Body: []byte(body)}, true)
+	require.NoError(t, err)
+	require.Contains(t, blocking.ScanText, "STATE_TITLE")
+	require.Contains(t, blocking.ScanText, "CHOICE_INSTRUCTIONS")
+}
+
+func TestPromptSnapshotTypeSafeSystemOneStringStateIsAudited(t *testing.T) {
+	snapshot, err := ExtractPromptSnapshot(Request{Protocol: "typesafe_systemone", Body: []byte(`{"model":"jev-latest","state":"plain state","questions":{"q":{"type":"noul"}}}`)})
+	require.NoError(t, err)
+	require.True(t, strings.HasPrefix(snapshot.ScanText, "plain state"))
+	require.Equal(t, 1, snapshot.MessageCount)
+
+	_, err = ExtractPromptSnapshot(Request{Protocol: "typesafe_systemone", Body: []byte(`{"model":"jev-latest","state":{"n":1},"questions":{"q":{"type":"noul"}}}`)})
+	require.ErrorIs(t, err, ErrNoPromptText)
+}

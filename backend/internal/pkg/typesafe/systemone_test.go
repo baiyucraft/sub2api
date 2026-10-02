@@ -46,6 +46,8 @@ func TestValidateSystemOneRequestRejectsInvalidRequests(t *testing.T) {
 		{"missing state", `{"model":"jev-latest","questions":{"q":{"type":"noul","instructions":"x"}}}`, "state"},
 		{"scalar state", `{"model":"jev-latest","state":42,"questions":{"q":{"type":"noul","instructions":"x"}}}`, "state"},
 		{"empty questions", `{"model":"jev-latest","state":"x","questions":{}}`, "questions"},
+		{"array questions", `{"model":"jev-latest","state":"x","questions":[{"type":"noul"}]}`, "questions must be a non-empty object"},
+		{"null questions", `{"model":"jev-latest","state":"x","questions":null}`, "questions must be a non-empty object"},
 		{"unknown question type", `{"model":"jev-latest","state":"x","questions":{"q":{"type":"boolean","instructions":"x"}}}`, "unsupported type"},
 		{"question type with whitespace", `{"model":"jev-latest","state":"x","questions":{"q":{"type":" noul ","instructions":"x"}}}`, "unsupported type"},
 		{"noul criteria array", `{"model":"jev-latest","state":"x","questions":{"q":{"type":"noul","instructions":"x","criteria":[]}}}`, "noul criteria"},
