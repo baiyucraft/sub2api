@@ -17,10 +17,21 @@ type systemOneEnvelope struct {
 	Stream    json.RawMessage `json:"stream"`
 }
 
+var (
+	systemOneRequestFields  = []string{"model", "state", "questions", "stream"}
+	systemOneQuestionFields = []string{"type", "instructions", "criteria"}
+)
+
 func ValidateSystemOneRequest(body []byte) (string, error) {
 	var envelope systemOneEnvelope
 	if err := json.Unmarshal(body, &envelope); err != nil {
 		return "", errors.New("invalid JSON request")
+	}
+	// encoding/json matches struct fields case-insensitively and keeps the last
+	// duplicate, while the raw body is forwarded upstream unchanged. Reject any
+	// spelling the upstream could read differently from this validator.
+	if err := checkSystemOneObjectKeys(body, "request", systemOneRequestFields); err != nil {
+		return "", err
 	}
 
 	model, err := requiredString(envelope.Model, "model")
@@ -37,6 +48,9 @@ func ValidateSystemOneRequest(body []byte) (string, error) {
 	var questions map[string]json.RawMessage
 	if len(questionsRaw) == 0 || questionsRaw[0] != '{' || json.Unmarshal(questionsRaw, &questions) != nil || len(questions) == 0 {
 		return "", errors.New("questions must be a non-empty object")
+	}
+	if err := checkSystemOneObjectKeys(questionsRaw, "questions", nil); err != nil {
+		return "", err
 	}
 	if len(envelope.Stream) > 0 && string(envelope.Stream) != "null" {
 		var stream bool
@@ -64,6 +78,9 @@ func validateQuestion(id string, raw json.RawMessage) error {
 	}
 	if len(raw) == 0 || raw[0] != '{' || json.Unmarshal(raw, &question) != nil {
 		return fmt.Errorf("question %q must be an object", id)
+	}
+	if err := checkSystemOneObjectKeys(raw, fmt.Sprintf("question %q", id), systemOneQuestionFields); err != nil {
+		return err
 	}
 	typ, err := requiredString(question.Type, "question type")
 	if err != nil {
@@ -151,4 +168,35 @@ func validateStringObjectOrArray(raw json.RawMessage, name string) error {
 func rawString(raw json.RawMessage) bool {
 	var value string
 	return json.Unmarshal(raw, &value) == nil
+}
+
+// checkSystemOneObjectKeys rejects duplicate keys and non-canonical spellings
+// (any case variant) of the known fields in one JSON object level.
+func checkSystemOneObjectKeys(raw []byte, scope string, canonical []string) error {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	if token, err := decoder.Token(); err != nil || token != json.Delim('{') {
+		return fmt.Errorf("%s must be an object", scope)
+	}
+	seen := make(map[string]struct{})
+	for decoder.More() {
+		token, err := decoder.Token()
+		if err != nil {
+			return errors.New("invalid JSON request")
+		}
+		key, _ := token.(string)
+		if _, duplicate := seen[key]; duplicate {
+			return fmt.Errorf("%s contains duplicate field %q", scope, key)
+		}
+		seen[key] = struct{}{}
+		for _, field := range canonical {
+			if key != field && strings.EqualFold(key, field) {
+				return fmt.Errorf("%s field %q must be written as %q", scope, key, field)
+			}
+		}
+		var value json.RawMessage
+		if err := decoder.Decode(&value); err != nil {
+			return errors.New("invalid JSON request")
+		}
+	}
+	return nil
 }

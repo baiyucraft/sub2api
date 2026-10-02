@@ -123,31 +123,45 @@ func extractProtocolSegments(protocol string, document any) []promptSegment {
 }
 
 // extractSystemOneSegments collects every client-controlled text of a TypeSafe
-// System One request. Question instructions and criteria come first and the
-// evaluated state last, so the state is the prioritized segment. Object keys are
-// visited in sorted order to keep the prompt hash stable across requests.
+// System One request: question IDs, every question field except the validated
+// type, unknown top-level extension fields, and the evaluated state. Object keys
+// are text too (Jev reads the whole JSON), so they are collected with values.
+// The state comes last so it is the prioritized segment, and keys are visited
+// in sorted order to keep the prompt hash stable across requests.
 func extractSystemOneSegments(root map[string]any) []promptSegment {
 	if root == nil {
 		return nil
 	}
 	texts := make([]string, 0, 4)
-	questions, _ := root["questions"].(map[string]any)
+	questions, isObject := root["questions"].(map[string]any)
+	if !isObject {
+		texts = appendJSONStringLeaves(texts, root["questions"])
+	}
 	for _, id := range sortedJSONKeys(questions) {
+		texts = appendJSONStringLeaves(texts, id)
 		question, ok := questions[id].(map[string]any)
 		if !ok {
+			texts = appendJSONStringLeaves(texts, questions[id])
 			continue
 		}
-		texts = appendJSONStringLeaves(texts, question["instructions"])
-		criteria, isObject := question["criteria"].(map[string]any)
-		if !isObject || stringValue(question["type"]) != "choice" {
-			texts = appendJSONStringLeaves(texts, question["criteria"])
+		for _, field := range sortedJSONKeys(question) {
+			switch field {
+			case "type":
+				continue
+			case "instructions", "criteria":
+			default:
+				texts = appendJSONStringLeaves(texts, field)
+			}
+			texts = appendJSONStringLeaves(texts, question[field])
+		}
+	}
+	for _, field := range sortedJSONKeys(root) {
+		switch field {
+		case "model", "stream", "state", "questions":
 			continue
 		}
-		// Choice option labels are client-chosen text sent to the model as well.
-		for _, label := range sortedJSONKeys(criteria) {
-			texts = appendJSONStringLeaves(texts, label)
-			texts = appendJSONStringLeaves(texts, criteria[label])
-		}
+		texts = appendJSONStringLeaves(texts, field)
+		texts = appendJSONStringLeaves(texts, root[field])
 	}
 	texts = appendJSONStringLeaves(texts, root["state"])
 	return userPromptSegments(texts)
@@ -165,6 +179,7 @@ func appendJSONStringLeaves(texts []string, value any) []string {
 		}
 	case map[string]any:
 		for _, key := range sortedJSONKeys(typed) {
+			texts = appendJSONStringLeaves(texts, key)
 			texts = appendJSONStringLeaves(texts, typed[key])
 		}
 	}

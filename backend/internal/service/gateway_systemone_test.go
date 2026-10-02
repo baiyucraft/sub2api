@@ -248,7 +248,7 @@ func systemOneOpsEvents(t *testing.T, c *gin.Context) []*OpsUpstreamErrorEvent {
 }
 
 func TestForwardSystemOneRequestErrorsNeverTouchAccountState(t *testing.T) {
-	for _, status := range []int{http.StatusBadRequest, http.StatusUnprocessableEntity} {
+	for _, status := range []int{http.StatusBadRequest, http.StatusRequestEntityTooLarge, http.StatusUnprocessableEntity} {
 		t.Run(http.StatusText(status), func(t *testing.T) {
 			// Even a custom error-code rule must not let client input disable the account.
 			account := &Account{ID: 21, Platform: PlatformTypeSafe, Type: AccountTypeAPIKey, Credentials: map[string]any{
@@ -357,14 +357,46 @@ func TestForwardSystemOneRejectsOversizedResponse(t *testing.T) {
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(oversized))}, nil
 	}}
 	account := &Account{ID: 26, Platform: PlatformTypeSafe, Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": "http://typesafe.test", "api_key": "ts-secret"}}
-	_, err := newSystemOneTestService(upstream).ForwardSystemOne(context.Background(), newSystemOneTestContext(), account, []byte(`{}`))
+	c := newSystemOneTestContext()
+	_, err := newSystemOneTestService(upstream).ForwardSystemOne(context.Background(), c, account, []byte(`{}`))
 	require.ErrorIs(t, err, typesafe.ErrSystemOneResponseTooLarge)
+	events := systemOneOpsEvents(t, c)
+	require.Len(t, events, 1)
+	require.Equal(t, "response_error", events[0].Kind)
+	require.Equal(t, http.StatusOK, events[0].UpstreamStatusCode)
+}
+
+func TestForwardSystemOneBillsLenientUsageShapes(t *testing.T) {
+	upstream := &systemOneHTTPUpstream{do: func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"answers":{},"usage":{"input_tokens":"21","output_tokens":1.0}}`))}, nil
+	}}
+	account := &Account{ID: 27, Platform: PlatformTypeSafe, Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": "http://typesafe.test", "api_key": "ts-secret"}}
+	result, err := newSystemOneTestService(upstream).ForwardSystemOne(context.Background(), newSystemOneTestContext(), account, []byte(`{}`))
+	require.NoError(t, err)
+	require.Equal(t, 21, result.Usage.InputTokens)
+	require.Equal(t, 1, result.Usage.OutputTokens)
 }
 
 func TestTypeSafeAccountBaseURLNeverFallsBackToAnthropic(t *testing.T) {
 	account := &Account{Platform: PlatformTypeSafe, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "ts-secret"}}
 	require.Equal(t, typesafe.DefaultBaseURL, account.GetBaseURL())
 	require.Equal(t, typesafe.DefaultBaseURL, account.GetTypeSafeBaseURL())
+	for raw, want := range map[string]string{
+		"https://api.typesafe.ai/v1":      "https://api.typesafe.ai",
+		"https://api.typesafe.ai/V1/":     "https://api.typesafe.ai",
+		"https://proxy.example/typesafe/": "https://proxy.example/typesafe",
+		"https://proxy.example/apiv1":     "https://proxy.example/apiv1",
+		" https://proxy.example/x/v1/ ":   "https://proxy.example/x",
+		"/v1":                             typesafe.DefaultBaseURL,
+	} {
+		withBase := &Account{Platform: PlatformTypeSafe, Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": raw}}
+		require.Equal(t, want, withBase.GetTypeSafeBaseURL(), raw)
+	}
 	anthropic := &Account{Platform: PlatformAnthropic, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "sk"}}
 	require.Equal(t, "https://api.anthropic.com", anthropic.GetBaseURL())
+}
+
+func TestTypeSafeModelsListCandidates(t *testing.T) {
+	require.Equal(t, []string{typesafe.JevLatestModel}, defaultModelsListCandidateIDs(PlatformTypeSafe))
+	require.NotContains(t, compositeDefaultModelsListCandidateIDs(), typesafe.JevLatestModel)
 }

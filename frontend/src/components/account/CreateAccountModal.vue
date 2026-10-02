@@ -4881,6 +4881,8 @@ watch(
     modelMappings.value = []
     if (newPlatform === 'typesafe') {
       accountCategory.value = 'apikey'
+      // Grok 等平台会把模式切到映射；TypeSafe 只用白名单写入 jev-latest。
+      modelRestrictionMode.value = 'whitelist'
       allowedModels.value = ['jev-latest']
     }
     // Antigravity: 默认使用映射模式并填充默认映射

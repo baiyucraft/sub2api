@@ -2,6 +2,7 @@ package typesafe
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -66,6 +67,15 @@ func TestValidateSystemOneRequestRejectsInvalidRequests(t *testing.T) {
 		{"numeric instructions", `{"model":"jev-latest","state":"x","questions":{"q":{"type":"noul","instructions":1}}}`, "instructions"},
 		{"boolean instructions", `{"model":"jev-latest","state":"x","questions":{"q":{"type":"choice","instructions":true,"criteria":{}}}}`, "instructions"},
 		{"stream true", `{"model":"jev-latest","state":"x","questions":{"q":{"type":"noul","instructions":"x"}},"stream":true}`, "streaming"},
+		{"case variant model smuggles upstream model", `{"model":"jev-pro","MODEL":"jev-latest","state":"x","questions":{"q":{"type":"noul"}}}`, `must be written as "model"`},
+		{"case variant stream hides streaming", `{"model":"jev-latest","state":"x","questions":{"q":{"type":"noul"}},"stream":true,"Stream":false}`, `must be written as "stream"`},
+		{"unicode fold variant state", `{"model":"jev-latest","state":"x","ſtate":"y","questions":{"q":{"type":"noul"}}}`, `must be written as "state"`},
+		{"duplicate model", `{"model":"jev-pro","model":"jev-latest","state":"x","questions":{"q":{"type":"noul"}}}`, `duplicate field "model"`},
+		{"escaped duplicate model", `{"\u006dodel":"jev-pro","model":"jev-latest","state":"x","questions":{"q":{"type":"noul"}}}`, `duplicate field "model"`},
+		{"duplicate state", `{"model":"jev-latest","state":"benign","state":"payload","questions":{"q":{"type":"noul"}}}`, `duplicate field "state"`},
+		{"duplicate question id", `{"model":"jev-latest","state":"x","questions":{"q":{"type":"noul"},"q":{"type":"noul"}}}`, `duplicate field "q"`},
+		{"duplicate question instructions", `{"model":"jev-latest","state":"x","questions":{"q":{"type":"noul","instructions":"a","instructions":"b"}}}`, `duplicate field "instructions"`},
+		{"case variant question type", `{"model":"jev-latest","state":"x","questions":{"q":{"type":"noul","Type":"choice"}}}`, `must be written as "type"`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := ValidateSystemOneRequest([]byte(tc.body))
@@ -76,4 +86,39 @@ func TestValidateSystemOneRequestRejectsInvalidRequests(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDecodeSystemOneResponseToleratesUsageShapes(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		body          string
+		model         string
+		input, output int
+	}{
+		{"integers", `{"model":"jev-1","usage":{"input_tokens":12,"output_tokens":3}}`, "jev-1", 12, 3},
+		{"floats", `{"model":"jev-1","usage":{"input_tokens":12.0,"output_tokens":2.6}}`, "jev-1", 12, 3},
+		{"numeric strings", `{"usage":{"input_tokens":"15","output_tokens":" 4 "}}`, "", 15, 4},
+		{"non numeric usage", `{"model":7,"usage":{"input_tokens":"many","output_tokens":null}}`, "", 0, 0},
+		{"negative usage", `{"usage":{"input_tokens":-5}}`, "", 0, 0},
+		{"usage not object", `{"model":"jev-1","usage":"none","answers":{}}`, "jev-1", 0, 0},
+		{"missing usage", `{"answers":{}}`, "", 0, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			decoded, err := DecodeSystemOneResponse(strings.NewReader(tc.body))
+			require.NoError(t, err)
+			require.Equal(t, []byte(tc.body), decoded.Body)
+			require.Equal(t, tc.model, decoded.Model)
+			require.Equal(t, tc.input, decoded.Usage.InputTokens)
+			require.Equal(t, tc.output, decoded.Usage.OutputTokens)
+		})
+	}
+}
+
+func TestDecodeSystemOneResponseRejectsNonObjects(t *testing.T) {
+	for _, body := range []string{`[]`, `"text"`, `null`, `{`, `data: {}`} {
+		_, err := DecodeSystemOneResponse(strings.NewReader(body))
+		require.Error(t, err, body)
+	}
+	_, err := DecodeSystemOneResponse(strings.NewReader(`{"pad":"` + strings.Repeat("a", MaxSystemOneResponseBytes) + `"}`))
+	require.ErrorIs(t, err, ErrSystemOneResponseTooLarge)
 }

@@ -67,6 +67,22 @@ func (s *GatewayService) ForwardSystemOne(ctx context.Context, c *gin.Context, a
 
 	decoded, err := typesafe.DecodeSystemOneResponse(resp.Body)
 	if err != nil {
+		// The upstream accepted (and may have charged) this request but the
+		// gateway cannot relay it; keep an ops trail for reconciliation.
+		setOpsUpstreamError(c, resp.StatusCode, err.Error(), "")
+		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+			Passthrough:        true,
+			ProxyID:            opsUpstreamProxyID(account),
+			ProxyName:          opsUpstreamProxyName(account),
+			Platform:           account.Platform,
+			AccountID:          account.ID,
+			AccountName:        account.Name,
+			UpstreamStatusCode: resp.StatusCode,
+			UpstreamRequestID:  resp.Header.Get("x-request-id"),
+			UpstreamURL:        upstreamURL,
+			Kind:               "response_error",
+			Message:            err.Error(),
+		})
 		return nil, err
 	}
 	return &SystemOneForwardResult{
@@ -84,8 +100,19 @@ func (s *GatewayService) ForwardSystemOne(ctx context.Context, c *gin.Context, a
 	}, nil
 }
 
+// IsSystemOneRequestErrorStatus reports upstream statuses that describe the
+// caller's own payload (malformed, unprocessable, or too large).
+func IsSystemOneRequestErrorStatus(status int) bool {
+	switch status {
+	case http.StatusBadRequest, http.StatusRequestEntityTooLarge, http.StatusUnprocessableEntity:
+		return true
+	default:
+		return false
+	}
+}
+
 // handleSystemOneErrorResponse applies the shared account error policy to a
-// non-2xx System One response. 400/422 describe the caller's own payload, so
+// non-2xx System One response. 400/413/422 describe the caller's own payload, so
 // they never touch account state (a tenant must not be able to disable an
 // account with bad input) and are not retried elsewhere. Every other status
 // goes through the account error policy (custom error codes, temporary
@@ -109,7 +136,7 @@ func (s *GatewayService) handleSystemOneErrorResponse(ctx context.Context, c *gi
 		Message:            upstreamMsg,
 	}
 
-	if resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusUnprocessableEntity {
+	if IsSystemOneRequestErrorStatus(resp.StatusCode) {
 		appendOpsUpstreamError(c, event)
 		return &SystemOneUpstreamError{StatusCode: resp.StatusCode}
 	}

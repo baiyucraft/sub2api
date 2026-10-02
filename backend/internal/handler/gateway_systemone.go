@@ -228,7 +228,7 @@ func (h *GatewayHandler) SystemOne(c *gin.Context) {
 			var upstreamErr *service.SystemOneUpstreamError
 			if errors.As(forwardErr, &upstreamErr) {
 				status := upstreamErr.StatusCode
-				if status != http.StatusBadRequest && status != http.StatusUnprocessableEntity {
+				if !service.IsSystemOneRequestErrorStatus(status) {
 					status = http.StatusBadGateway
 				}
 				h.errorResponse(c, status, "upstream_error", "TypeSafe rejected the request")
