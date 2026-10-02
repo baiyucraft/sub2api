@@ -839,6 +839,8 @@ Sub2API supports TypeSafe API-key accounts through Jev's native, non-streaming S
 
 Requests and successful responses retain the native System One JSON structure. This endpoint is not compatible with Chat Completions, Responses, Anthropic Messages, or streaming clients.
 
+Question validation follows the TypeSafe OpenAPI wire schema (also used by SDK v0.5.7). `instructions` may be omitted or `null` for all question types. Noul `criteria` may be omitted or `null`; its `true`/`false` descriptions and Choice descriptions accept strings, objects, arrays, or `null`. Score `criteria` must be a non-empty array of string, object, or array descriptions; a single level is valid. SDK integer-keyed Score maps are normalized to arrays by the SDK before sending.
+
 ```bash
 curl https://your-sub2api.example.com/v1/systemone \
   -H 'Authorization: Bearer sk-your-sub2api-key' \

@@ -12,6 +12,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/typesafe"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -116,6 +117,48 @@ func TestForwardSystemOneAllowsSuccessfulResponseWithoutModel(t *testing.T) {
 }
 
 const typesafeSystemOnePathForTest = "/v1/systemone"
+
+func TestForwardSystemOneSchemaConformancePassthrough(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{"omitted noul instructions", `{"model":"jev-latest","state":"sample","questions":{"q":{"type":"noul","extension":{"kept":true}}}}`},
+		{"nullable noul fields", `{"model":"jev-latest","state":"sample","questions":{"q":{"type":"noul","instructions":null,"criteria":null}}}`},
+		{"structured noul descriptions", `{"model":"jev-latest","state":"sample","questions":{"q":{"type":"noul","criteria":{"true":{"reason":"Yes"},"false":["No",null]}}}}`},
+		{"object choice description", `{"model":"jev-latest","state":"sample","questions":{"q":{"type":"choice","criteria":{"a":{"description":"A","extra":null}}}}}`},
+		{"array choice description", `{"model":"jev-latest","state":"sample","questions":{"q":{"type":"choice","instructions":null,"criteria":{"a":["A",null],"b":null}}}}`},
+		{"empty choice criteria", `{"model":"jev-latest","state":"sample","questions":{"q":{"type":"choice","criteria":{}}}}`},
+		{"one-level score", `{"model":"jev-latest","state":"sample","questions":{"q":{"type":"score","criteria":["only"]}}}`},
+		{"object score level", `{"model":"jev-latest","state":"sample","questions":{"q":{"type":"score","instructions":null,"criteria":[{"description":"only","extra":null}]}}}`},
+		{"array score level", `{"model":"jev-latest","state":"sample","questions":{"q":{"type":"score","criteria":[["only",null]]}}}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			requestBody := []byte(tc.body)
+			_, err := typesafe.ValidateSystemOneRequest(requestBody)
+			require.NoError(t, err)
+			responseBody := []byte(`{"answers":{},"usage":{"input_tokens":12}}`)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				require.Equal(t, "/v1/systemone", r.URL.Path)
+				require.Equal(t, "Bearer ts-mock-key", r.Header.Get("Authorization"))
+				got, err := io.ReadAll(r.Body)
+				require.NoError(t, err)
+				require.Equal(t, requestBody, got)
+				w.Header().Set("Content-Type", "application/json")
+				_, err = w.Write(responseBody)
+				require.NoError(t, err)
+			}))
+			defer server.Close()
+
+			svc := newSystemOneTestService(&systemOneHTTPUpstream{do: server.Client().Do})
+			account := &Account{ID: 12, Platform: PlatformTypeSafe, Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": server.URL, "api_key": "ts-mock-key"}}
+			result, err := svc.ForwardSystemOne(context.Background(), newSystemOneTestContext(), account, requestBody)
+			require.NoError(t, err)
+			require.Equal(t, responseBody, result.Body)
+			require.Equal(t, 12, result.Usage.InputTokens)
+		})
+	}
+}
 
 func TestForwardSystemOneErrorPolicy(t *testing.T) {
 	for _, status := range []int{400, 422, 401, 429, 529, 500, 503} {

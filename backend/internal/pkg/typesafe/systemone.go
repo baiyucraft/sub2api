@@ -67,40 +67,59 @@ func validateQuestion(id string, raw json.RawMessage) error {
 	if err != nil {
 		return fmt.Errorf("question %q: %w", id, err)
 	}
-	if err := validateStringObjectOrArray(question.Instructions, "instructions"); err != nil {
+	// Mirror the wire schema generated from https://api.typesafe.ai/openapi.json
+	// in TypeSafe SDK v0.5.7: instructions are optional and nullable for all types.
+	if err := validateOptionalDescription(question.Instructions, "instructions"); err != nil {
 		return fmt.Errorf("question %q: %w", id, err)
 	}
 
 	switch typ {
 	case "noul":
 		criteria := bytes.TrimSpace(question.Criteria)
-		if len(criteria) > 0 && criteria[0] != '{' {
+		if len(criteria) == 0 || bytes.Equal(criteria, []byte("null")) {
+			return nil
+		}
+		var descriptions map[string]json.RawMessage
+		if criteria[0] != '{' || json.Unmarshal(criteria, &descriptions) != nil {
 			return fmt.Errorf("question %q: noul criteria must be an object", id)
+		}
+		for _, outcome := range []string{"true", "false"} {
+			if err := validateOptionalDescription(descriptions[outcome], "noul criteria "+outcome); err != nil {
+				return fmt.Errorf("question %q: %w", id, err)
+			}
 		}
 	case "choice":
 		var criteria map[string]json.RawMessage
-		if json.Unmarshal(question.Criteria, &criteria) != nil || len(criteria) == 0 {
-			return fmt.Errorf("question %q: choice criteria must be a non-empty object", id)
+		if json.Unmarshal(question.Criteria, &criteria) != nil || criteria == nil {
+			return fmt.Errorf("question %q: choice criteria must be an object", id)
 		}
 		for _, value := range criteria {
-			if string(value) != "null" && !rawString(value) {
-				return fmt.Errorf("question %q: choice criteria values must be strings or null", id)
+			if err := validateOptionalDescription(value, "choice criteria value"); err != nil {
+				return fmt.Errorf("question %q: %w", id, err)
 			}
 		}
 	case "score":
 		var criteria []json.RawMessage
-		if json.Unmarshal(question.Criteria, &criteria) != nil || len(criteria) < 2 {
-			return fmt.Errorf("question %q: score criteria must contain at least two strings", id)
+		if json.Unmarshal(question.Criteria, &criteria) != nil || len(criteria) == 0 {
+			return fmt.Errorf("question %q: score criteria must contain at least one level", id)
 		}
 		for _, value := range criteria {
-			if !rawString(value) {
-				return fmt.Errorf("question %q: score criteria must contain only strings", id)
+			if err := validateStringObjectOrArray(value, "score criteria value"); err != nil {
+				return fmt.Errorf("question %q: %w", id, err)
 			}
 		}
 	default:
 		return fmt.Errorf("question %q: unsupported type %q", id, typ)
 	}
 	return nil
+}
+
+func validateOptionalDescription(raw json.RawMessage, name string) error {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		return nil
+	}
+	return validateStringObjectOrArray(raw, name)
 }
 
 func requiredString(raw json.RawMessage, name string) (string, error) {

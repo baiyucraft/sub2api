@@ -755,6 +755,8 @@ Sub2API 支持使用 TypeSafe API Key 账户，通过 Jev 原生、非流式的 
 
 请求和成功响应保持 System One 原生 JSON 结构。该端点不兼容 Chat Completions、Responses、Anthropic Messages 或流式客户端。
 
+问题校验遵循 TypeSafe OpenAPI 的线上协议 schema（SDK v0.5.7 也使用该 schema）。所有问题的 `instructions` 都可以省略或为 `null`。Noul 的 `criteria` 可以省略或为 `null`，其中 `true`/`false` 的描述和 Choice 描述支持字符串、对象、数组或 `null`。Score 的 `criteria` 必须是至少包含一档描述的数组，每档支持字符串、对象或数组；单档也合法。SDK 的整数键 Score 映射会由 SDK 在发送前转换为数组。
+
 ```bash
 curl https://your-sub2api.example.com/v1/systemone \
   -H 'Authorization: Bearer sk-your-sub2api-key' \
