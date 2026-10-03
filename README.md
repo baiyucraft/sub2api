@@ -876,10 +876,6 @@ Antigravity accounts support optional **hybrid scheduling**. When enabled, the g
 
 > **⚠️ Warning**: Anthropic Claude and Antigravity Claude **cannot be mixed within the same conversation context**. Use groups to isolate them properly.
 
-### Admin Account Test Models
-
-For Antigravity accounts, the connectivity test model selector uses the request-side keys of an explicitly configured account `model_mapping`. If the mapping is missing or empty, it uses the built-in model catalog. The selected key is still mapped to its upstream value when the test runs.
-
 ---
 
 ## Project Structure
