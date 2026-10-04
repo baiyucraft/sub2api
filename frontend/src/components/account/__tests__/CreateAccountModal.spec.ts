@@ -136,6 +136,7 @@ const ProxySelectorStub = defineComponent({
   props: { includeGroups: Boolean },
   template: `
     <div data-testid="single-proxy-selector">
+      <button type="button" data-testid="select-single-proxy" @click="$emit('update:modelValue', 5)">proxy</button>
       <button
         v-if="includeGroups"
         type="button"
@@ -339,6 +340,55 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
       group_ids: [1, 2],
       preferred_group_ids: [2],
     })
+  })
+
+  it('creates TypeSafe with the Jev whitelist, preferred groups and a positive proxy binding', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'Grok')
+    await selectButtonByText(wrapper, 'TypeSafe / Jev')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('TypeSafe account')
+    await wrapper.get('input[placeholder="ts-..."]').setValue('ts-test-key')
+    await wrapper.get('input[placeholder="https://api.typesafe.ai"]').setValue('')
+    await wrapper.get('[data-testid="select-single-proxy"]').trigger('click')
+    await wrapper.get('[data-testid="select-pricing-groups"]').trigger('click')
+    await wrapper.get('[data-testid="select-preferred-group"]').trigger('click')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    const payload = createAccountMock.mock.calls[0]?.[0]
+    expect(payload).toMatchObject({
+      platform: 'typesafe',
+      type: 'apikey',
+      proxy_id: 5,
+      group_ids: [1, 2],
+      preferred_group_ids: [2],
+      credentials: {
+        base_url: 'https://api.typesafe.ai',
+        api_key: 'ts-test-key',
+        model_mapping: { 'jev-latest': 'jev-latest' }
+      }
+    })
+    expect(payload).not.toHaveProperty('proxy_ip_group_id')
+    wrapper.unmount()
+  })
+
+  it('clears an OAuth-only proxy group when switching to TypeSafe', async () => {
+    const wrapper = mountModal()
+    await wrapper.setProps({ proxies: [{ id: 8, name: 'pool', binding_type: 'proxy_ip_group', proxy_ip_group_id: 9 }] as any })
+    await selectButtonByText(wrapper, 'OpenAI')
+    await wrapper.get('[data-testid="select-proxy-ip-group"]').trigger('click')
+    await selectButtonByText(wrapper, 'TypeSafe / Jev')
+    expect(wrapper.find('[data-testid="select-proxy-ip-group"]').exists()).toBe(false)
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('TypeSafe account')
+    await wrapper.get('input[placeholder="ts-..."]').setValue('ts-test-key')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    expect(createAccountMock.mock.calls[0]?.[0]).toMatchObject({ platform: 'typesafe', type: 'apikey', proxy_id: null })
+    expect(createAccountMock.mock.calls[0]?.[0]).not.toHaveProperty('proxy_ip_group_id')
+    wrapper.unmount()
   })
 
   it('clears preferred groups when the create dialog is reopened', async () => {

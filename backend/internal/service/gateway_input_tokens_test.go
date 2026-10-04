@@ -41,3 +41,31 @@ func TestAccountInputLengthEligibility(t *testing.T) {
 	require.Equal(t, "input_too_short", AccountInputLengthFailureReason(WithGatewayInputTokenEstimate(context.Background(), 9), account))
 	require.True(t, IsAccountInputLengthEligible(WithGatewayInputTokenEstimate(context.Background(), 1), &Account{}))
 }
+
+func TestEstimateGatewayInputTokensSystemOne(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+		want int
+	}{
+		{name: "string state", body: `{"state":"abcdefghijkl"}`, want: 4},
+		{name: "arbitrary nested state", body: `{"state":[{"arbitrary":"abcdefghijkl"}]}`, want: 6},
+		{name: "nested instructions", body: `{"questions":{"q":{"type":"noul","instructions":{"hint":"abcdefghijkl"}}}}`, want: 5},
+		{name: "choice criteria", body: `{"questions":{"q":{"type":"choice","criteria":{"A":"abcdefghijkl"}}}}`, want: 5},
+		{name: "score criteria", body: `{"questions":{"q":{"type":"score","criteria":[{"level":"abcdefghijkl"}]}}}`, want: 6},
+		{name: "data keys", body: `{"state":{"abcdefghijkl":null}}`, want: 4},
+		{name: "question ids", body: `{"questions":{"abcdefghijkl":{"type":"noul"}}}`, want: 4},
+		{name: "extension input", body: `{"custom":{"value":"abcdefghijkl"}}`, want: 7},
+		{name: "numeric and boolean state", body: `{"state":[123456789012,true,false,null]}`, want: 6},
+		{name: "empty input", body: `{"model":"jev-latest","stream":false,"state":" ","questions":{}}`, want: 0},
+		{name: "invalid body", body: `{"state":`, want: 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, EstimateGatewayInputTokens([]byte(tc.body), "typesafe_systemone"))
+		})
+	}
+	withMetadata := `{"model":"ignored-model-name","stream":true,"state":"abcdefghijkl","questions":{"q":{"type":"ignored-type","instructions":"mnop"}}}`
+	withoutMetadata := `{"state":"abcdefghijkl","questions":{"q":{"instructions":"mnop"}}}`
+	require.Equal(t, EstimateGatewayInputTokens([]byte(withoutMetadata), "typesafe_systemone"), EstimateGatewayInputTokens([]byte(withMetadata), "typesafe_systemone"))
+	require.Zero(t, EstimateGatewayInputTokens([]byte(`{"state":"abcdefghijkl","criteria":{"A":"mnop"}}`), "responses"), "other protocols retain their extraction contract")
+}

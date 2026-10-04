@@ -65,8 +65,9 @@ func IsAccountInputLengthEligible(ctx context.Context, account *Account) bool {
 }
 
 // EstimateGatewayInputTokens estimates user-provided input from a JSON
-// gateway body. It deliberately ignores model names, roles, JSON field names,
-// and other metadata. The estimate is conservative and deterministic: four
+// gateway body. It deliberately ignores model names, roles, protocol field
+// names, and other metadata; System One's arbitrary data keys are input. The
+// estimate is conservative and deterministic: four
 // Unicode code points are treated as roughly one token, with non-empty text
 // rounded up to at least one token.
 func EstimateGatewayInputTokens(body []byte, protocol string) int {
@@ -81,13 +82,14 @@ func EstimateGatewayInputTokens(body []byte, protocol string) int {
 	}
 
 	var text strings.Builder
-	collectGatewayInputText(&text, payload, "")
+	if strings.EqualFold(strings.TrimSpace(protocol), ContentModerationProtocolTypeSafeSystemOne) {
+		collectSystemOneGatewayInputText(&text, payload)
+	} else {
+		collectGatewayInputText(&text, payload, "")
+	}
 	if text.Len() == 0 {
 		return 0
 	}
-	// Keep protocol in the signature for call sites and future protocol-specific
-	// extraction without making model-specific assumptions today.
-	_ = strings.ToLower(strings.TrimSpace(protocol))
 	count := utf8.RuneCountInString(text.String())
 	if count <= 0 {
 		return 0
@@ -97,6 +99,75 @@ func EstimateGatewayInputTokens(body []byte, protocol string) int {
 		return 1
 	}
 	return tokens
+}
+
+// System One descriptions and state allow arbitrary JSON keys. Count their
+// data keys as input too, but omit the protocol's fixed envelope and type tags.
+func collectSystemOneGatewayInputText(out *strings.Builder, payload any) {
+	root, ok := payload.(map[string]any)
+	if !ok {
+		return
+	}
+	for field, value := range root {
+		switch field {
+		case "model", "stream":
+			continue
+		case "state":
+			collectSystemOneGatewayInputValue(out, value)
+		case "questions":
+			questions, ok := value.(map[string]any)
+			if !ok {
+				continue
+			}
+			for id, question := range questions {
+				collectSystemOneGatewayInputValue(out, id)
+				fields, ok := question.(map[string]any)
+				if !ok {
+					continue
+				}
+				for key, description := range fields {
+					if key == "type" {
+						continue
+					}
+					if key != "instructions" && key != "criteria" {
+						collectSystemOneGatewayInputValue(out, key)
+					}
+					collectSystemOneGatewayInputValue(out, description)
+				}
+			}
+		default:
+			collectSystemOneGatewayInputValue(out, field)
+			collectSystemOneGatewayInputValue(out, value)
+		}
+	}
+}
+
+func collectSystemOneGatewayInputValue(out *strings.Builder, value any) {
+	switch typed := value.(type) {
+	case string:
+		if strings.TrimSpace(typed) != "" {
+			out.WriteString(typed)
+			out.WriteByte('\n')
+		}
+	case json.Number:
+		out.WriteString(typed.String())
+		out.WriteByte('\n')
+	case bool:
+		if typed {
+			out.WriteString("true\n")
+		} else {
+			out.WriteString("false\n")
+		}
+	case []any:
+		for _, child := range typed {
+			collectSystemOneGatewayInputValue(out, child)
+		}
+	case map[string]any:
+		for key, child := range typed {
+			collectSystemOneGatewayInputValue(out, key)
+			collectSystemOneGatewayInputValue(out, child)
+		}
+	}
 }
 
 func collectGatewayInputText(out *strings.Builder, value any, key string) {

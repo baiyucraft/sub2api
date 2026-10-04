@@ -844,7 +844,25 @@ PROFILES["260"] = {
     },
 }
 
-CURRENT_RELEASE_PROFILE = "260"
+# Profile 260 is signed and production-verified. Official 0.2.13 only
+# renumbers the two new 241-prefixed migrations; historical SQL stays intact.
+PROFILES["261"] = {
+    **{key: PROFILES["260"][key] for key in _PROFILE_V2_RUNTIME_KEYS},
+    "name": "261",
+    "version": "0.2.13-baiyu",
+    "parent": "260",
+    "new_migrations": [
+        "286_add_payment_order_bonus_amount.sql",
+        "287_add_typesafe_platform.sql",
+    ],
+    "gate_schema": 2,
+    "release_policy": {
+        "compatibility_image": "production_current",
+        "migration_source": "database_state",
+    },
+}
+
+CURRENT_RELEASE_PROFILE = "261"
 
 
 def get_profile(name: str) -> dict:

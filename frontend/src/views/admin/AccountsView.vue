@@ -510,8 +510,14 @@
               @probe="handleProbeUpstreamBilling(row)"
             />
           </template>
-          <template #cell-priority="{ value }">
-            <span class="text-sm text-gray-700 dark:text-gray-300">{{ value }}</span>
+          <template #cell-priority="{ row }">
+            <AccountPriorityCell
+              v-if="row.upstream_config_id == null || row.upstream_key_id == null"
+              :account="row"
+              @updated="handleAccountUpdated"
+              @error="(message: string) => appStore.showError(message)"
+            />
+            <span v-else class="text-sm text-gray-700 dark:text-gray-300">{{ row.priority }}</span>
           </template>
           <template #header-scheduler_score="{ column }">
             <div class="flex items-center">
@@ -740,6 +746,7 @@ import UpstreamVideoPricingSummary from '@/components/account/UpstreamVideoPrici
 import UpstreamModelMappingCell from '@/components/account/UpstreamModelMappingCell.vue'
 import AutoRefreshCountdownLabel from '@/components/account/AutoRefreshCountdownLabel.vue'
 import { hasUsableUpstreamVideoCapability } from '@/utils/upstreamVideoCapability'
+import AccountPriorityCell from '@/components/account/AccountPriorityCell.vue'
 import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { fetchAllAccountIds } from '@/utils/accountSelection'

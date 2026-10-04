@@ -57,6 +57,8 @@ func defaultModelIDsForRegisteredPlatform(platform string) []string {
 		return cloneStrings(minimaxOfficialModelIDs)
 	case PlatformOpenCodeGo:
 		return cloneStrings(DefaultOpenCodeGoModelIDs())
+	case PlatformTypeSafe:
+		return []string{"jev-latest"}
 	default:
 		return nil
 	}
@@ -83,6 +85,7 @@ var registeredPlatformCatalog = []PlatformDescriptor{
 	{ID: PlatformDeepseek, Label: "DeepSeek", ProbeSupported: true},
 	{ID: PlatformMiniMax, Label: "MiniMax", ProbeSupported: true},
 	{ID: PlatformOpenCodeGo, Label: "OpenCode Go", ProbeSupported: true},
+	{ID: PlatformTypeSafe, Label: "TypeSafe", ProbeReason: "System One requires a dedicated probe"},
 }
 
 func RegisteredPlatformCatalog() []PlatformDescriptor {

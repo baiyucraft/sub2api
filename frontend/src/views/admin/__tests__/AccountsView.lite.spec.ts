@@ -4,6 +4,7 @@ import { defineComponent } from 'vue'
 
 import AccountsView from '../AccountsView.vue'
 import AccountActionMenu from '@/components/admin/account/AccountActionMenu.vue'
+import AccountPriorityCell from '@/components/account/AccountPriorityCell.vue'
 
 const {
   listAccounts,
@@ -72,6 +73,7 @@ const DataTableStub = defineComponent({
       <div v-for="row in data" :key="row.id" :data-account-name="row.name">
         <slot name="cell-proxy" :row="row" />
         <slot name="cell-groups" :row="row" />
+        <slot name="cell-priority" :row="row" />
         <slot name="cell-actions" :row="row" />
       </div>
     </div>
@@ -130,6 +132,7 @@ function mountView(stubActionMenu = true) {
         AccountTodayStatsCell: true,
         AccountQualityStatsCell: true,
         AccountGroupsCell: AccountGroupsCellStub,
+        AccountPriorityCell: true,
         AccountUsageCell: true,
         UpstreamBillingRateCell: true,
         HelpTooltip: true,
@@ -223,6 +226,56 @@ describe('admin AccountsView lite account list', () => {
 
     expect(wrapper.text()).toContain('Hong Kong pool')
     expect(wrapper.text()).toContain('admin.accounts.proxyGroupSummary')
+    wrapper.unmount()
+  })
+
+  it('keeps upstream-derived priority read-only even in the ordinary list', async () => {
+    listAccounts.mockResolvedValue({
+      items: [{ ...listRow, upstream_config_id: 10, upstream_key_id: 20, priority: 6 }],
+      total: 1, page: 1, page_size: 20, pages: 1
+    })
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.findComponent(AccountPriorityCell).exists()).toBe(false)
+    expect(wrapper.get('[data-account-name]').text()).toContain('6')
+    wrapper.unmount()
+  })
+
+  it('preserves preferred groups, proxy bindings and runtime state after a quick priority update', async () => {
+    const row = {
+      ...listRow,
+      preferred_group_ids: [7],
+      proxy_id: 8,
+      proxy_binding: { id: 8, binding_type: 'proxy_ip_group', proxy_ip_group_id: 9 },
+      current_concurrency: 2,
+      active_sessions: 3,
+      ttft_guard_degradations: []
+    }
+    listAccounts.mockResolvedValue({ items: [row], total: 1, page: 1, page_size: 20, pages: 1 })
+    const wrapper = mountView()
+    await flushPromises()
+
+    wrapper.getComponent(AccountPriorityCell).vm.$emit('updated', {
+      ...fullAccount,
+      priority: 2,
+      preferred_group_ids: row.preferred_group_ids,
+      proxy_id: row.proxy_id,
+      proxy_binding: row.proxy_binding
+    })
+    await flushPromises()
+
+    expect(wrapper.getComponent(AccountPriorityCell).props('account')).toMatchObject({
+      priority: 2,
+      preferred_group_ids: [7],
+      proxy_id: 8,
+      proxy_binding: row.proxy_binding,
+      current_concurrency: 2,
+      active_sessions: 3,
+      ttft_guard_degradations: []
+    })
+    expect(listAccounts).toHaveBeenCalledTimes(1)
+    expect(getById).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 

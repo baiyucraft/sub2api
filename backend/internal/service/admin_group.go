@@ -367,6 +367,9 @@ func normalizeImageCostRouting(enabled bool, mode string, tolerance *float64, st
 func compositeDefaultModelsListCandidateIDs() []string {
 	seen := make(map[string]struct{})
 	ids := make([]string, 0)
+	// TypeSafe stays out of the static composite candidates (jev-latest only works
+	// through /v1/systemone); groups with TypeSafe accounts still get it from the
+	// account model mappings collected by GetGroupModelsListCandidates.
 	for _, platform := range []string{PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo} {
 		for _, id := range defaultModelsListCandidateIDs(platform) {
 			if _, ok := seen[id]; ok {

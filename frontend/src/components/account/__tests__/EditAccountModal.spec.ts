@@ -1653,6 +1653,52 @@ describe('EditAccountModal', () => {
     })
   })
 
+  it.each(['typesafe', 'antigravity'] as const)('keeps the %s default URL when an API-key account omits or clears base_url', async (platform) => {
+    const baseUrl = platform === 'typesafe' ? 'https://api.typesafe.ai' : 'https://cloudcode-pa.googleapis.com'
+    const account = { ...buildAccount(), platform, credentials: {}, credentials_status: { has_api_key: true } }
+    updateAccountMock.mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    const input = wrapper.get<HTMLInputElement>(`input[placeholder="${baseUrl}"]`)
+    expect(input.element.value).toBe(baseUrl)
+    if (platform === 'typesafe') expect(wrapper.find('input[placeholder="ts-..."]').exists()).toBe(true)
+    await input.setValue('')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials?.base_url).toBe(baseUrl)
+    wrapper.unmount()
+  })
+
+  it('preserves a bound TypeSafe key URL and synced models through the upstream edit whitelist', async () => {
+    const account = buildUpstreamBoundAccount()
+    account.platform = 'typesafe'
+    account.group_ids = [7]
+    account.preferred_group_ids = [7]
+    account.credentials = {
+      base_url: 'https://typesafe-relay.example.com',
+      api_key: 'ts-bound-key',
+      model_mapping: { 'jev-latest': 'jev-latest' }
+    }
+    account.upstream_model_sync = { mode: 'sync_managed', auto_mapping: { 'jev-latest': 'jev-latest' } }
+    updateAccountMock.mockResolvedValue(account)
+    const wrapper = mountModal(account, { mode: 'upstream' })
+    await flushPromises()
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    const payload = updateAccountMock.mock.calls[0]?.[1]
+    expect(payload).toMatchObject({ group_ids: [7], preferred_group_ids: [7], credentials: { model_mapping: { 'jev-latest': 'jev-latest' } } })
+    for (const field of ['name', 'type', 'proxy_id', 'priority', 'concurrency', 'rate_multiplier', 'upstream_config_id', 'upstream_key_id']) {
+      expect(payload).not.toHaveProperty(field)
+    }
+    expect(payload?.credentials).not.toHaveProperty('base_url')
+    expect(payload?.credentials).not.toHaveProperty('api_key')
+    wrapper.unmount()
+  })
+
   it('uses the official xAI base URL when a Grok API-key account omits base_url', async () => {
     const account = buildGrokAPIKeyAccount()
     updateAccountMock.mockReset()

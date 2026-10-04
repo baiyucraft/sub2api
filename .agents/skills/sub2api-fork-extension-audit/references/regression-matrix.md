@@ -150,8 +150,14 @@ DataTable 高频 ResizeObserver 通知只触发一帧测量
 - 固定目标 `42bc7f6cffe24bcb471608e48e66b4a0afa1f882`，核对普通 merge 第二父及官方 PR #7730 merge `327c32218406cef47186736c7473275cd1b39918` 的祖先关系。原 fork PR 合入提交和作者历史不删除；已完整进入官方的模型与套餐能力改由 upstream 维护。
 - 验证余额模式在途预留跨 HTTP、SSE、WebSocket、音频和图片请求只预留一次，并在计费任务扣减后释放；保留 fork 原有配额、转发和并发约束。验证 API Key 创建数量/频率限制及 Claude reset 兑换的幂等性、锁和前端入口。
 - 核对 Codex 远程模型目录、套餐徽章、账号编辑、WebSocket 首帧模型快照、Grok Realtime 握手前探测、RPM、读限额与最长会话。运行相关 Go 测试、前端 Vitest、i18n、类型检查、ESLint、生产构建和 release pytest。
-- profile 259 保留已发布合同：`0.2.11-baiyu`、parent 258、`new_migrations=[]`；新增 pending profile 260：同版本、parent 259、只追加 `285_upstream_null_rate_lifecycle.sql`。285 原始字节 checksum 已登记于 audit catalog，post-merge 审计通过不代表 VM Gate 或生产发布完成。
+- profile 259 与已 signed、2026-10-01 生产 verified 的 260 保留历史合同；当前 pending 261 为 `0.2.13-baiyu`、parent 260、仅新增 286/287，完整官方目标为 `b8dece9000c68815a5b867ca5a1e6f236e173905`。原始字节 checksum 已登记，post-merge 审计通过不代表新的 VM Gate 或生产发布完成。
 - 285 必须同时有隔离 VM 正负向行为断言、生产只读函数/trigger 校验及 signed Gate 必需证据；已应用迁移的 verified replay 也重新核验。空 actual 只允许既有同绑定、身份/价格/来源/优先级不变的暂停或归档，新增、启用、恢复与换绑拒绝；0 仍是有效倍率。专用断言接线的精确审阅只覆盖明确路径和 before/after blob 与模式，不能放行恢复算法变更；追加修改、模式变化、删除及跨路径复用应恢复阻断。
-- profile 执行闭包：运行 release pytest 全量及 `test_profile260_release_contract.py`、`test_profile260_maintenance_contract.py`、`test_migration_planner_v2.py`、`test_recovery_gate.py`、`test_production_space_clean.py`。260 必须通过全部验证/签名/生产/恢复/清理入口，259 保持历史版本、parent 和空新增迁移合同，261 必须拒绝；VM validator 必须拒绝 260 的错误版本、parent、空迁移清单、284 或混合清单，所有祖先 migration assertions 保留。`billing_inflight_cache.go` 必须精准触发 `specialized/redis_changed`，相邻业务路径不得误升级。Linux VM 签名、隔离恢复和候选验证必须另行完成，不能用本机 Shell 片段测试冒充。
+- profile 执行闭包：运行 release pytest 全量及 `test_profile260_release_contract.py`、`test_profile260_maintenance_contract.py`、`test_migration_planner_v2.py`、`test_recovery_gate.py`、`test_production_space_clean.py`。260 与 261 必须通过全部验证/签名/生产/恢复/清理入口，259 保持历史版本、parent 和空新增迁移合同，262 必须拒绝；VM validator 必须拒绝 260 的错误版本、parent、空迁移清单、284 或混合清单，所有祖先 migration assertions 保留。`billing_inflight_cache.go` 必须精准触发 `specialized/redis_changed`，相邻业务路径不得误升级。Linux VM 签名、隔离恢复和候选验证必须另行完成，不能用本机 Shell 片段测试冒充。
 - VM-only 与生产恢复点保留入口额外执行 `test_vm_only.py`、`test_production_recovery_retention.py`：VM-only 拒绝未知 profile、错误 scope 与 release/profile 不匹配；恢复点枚举的 Shell/Python profile 范围一致，保留当前、上一和受引用恢复点的原保护规则。
 - 运行镜像身份执行 `test_production_snapshot.py` 的版本化 mock 回归：doctor、Python 快照和 Shell preflight 共用签名 `runtime-identity.sh`；在 VM 实际执行 digest/唯一标签、缺失标签、冲突标签、同 commit 多标签与快照漂移，验证规范化 checksum 一致或明确拒绝。本机缺 jq 时跳过不能冒充 Linux 执行成功。
+
+## 官方 0.2.13 普通 Merge 合同
+
+- 普通 merge 的第二父必须为 `b8dece9000c68815a5b867ca5a1e6f236e173905`。两个官方同 prefix 241 新文件原字节改名为 `286_add_payment_order_bonus_amount.sql`、`287_add_typesafe_platform.sql`，保持旧 local241 和全部历史 migration/profile/checksum。
+- 执行 `test_profile261_release_contract.py`，覆盖历史 260 不变、当前 261、未知 262 拒绝、官方 SQL 原始字节、从 260 只计划 286/287、部分应用与 verified replay、checksum 冲突及旧官方文件名 unknown；保持 285 的祖先语义 Gate 证据。
+- TypeSafe 的平台目录、账号/分组编辑与独立网关适配按 `registered-platform-catalog` 精确登记；保留官方 API-key/业务校验，接入既有 shared account slot、RPM 和 failover。测试文件存在和静态合同不等于实际网关、PostgreSQL、VM 或恢复验证通过。
