@@ -40,6 +40,7 @@ func TestRegisteredPlatformsUsePlatformSpecificModelCatalogs(t *testing.T) {
 		{PlatformZhipu, []string{"glm-4.6", "glm-5.2", "cogview-3"}, []string{"claude-sonnet-4-6", "deepseek-chat"}},
 		{PlatformDeepseek, []string{"deepseek-chat", "deepseek-v4-pro"}, []string{"claude-sonnet-4-6", "glm-5.2"}},
 		{PlatformMiniMax, []string{"MiniMax-M3", "MiniMax-M2.7"}, []string{"claude-sonnet-4-6", "deepseek-chat"}},
+		{PlatformTypeSafe, []string{"jev-latest"}, []string{"claude-sonnet-4-6", "gpt-5.6"}},
 	}
 	for _, tc := range tests {
 		models := DefaultModelIDsForPlatform(tc.platform)
@@ -51,4 +52,10 @@ func TestRegisteredPlatformsUsePlatformSpecificModelCatalogs(t *testing.T) {
 		}
 	}
 	require.Empty(t, DefaultModelIDsForPlatform("unknown-platform"))
+}
+
+func TestTypeSafeRegistryDoesNotAdvertiseLLMProbeSupport(t *testing.T) {
+	require.True(t, IsConcreteRequestPlatform(PlatformTypeSafe))
+	require.False(t, UpstreamProbePlatformSupported(PlatformTypeSafe))
+	require.NotContains(t, DefaultModelIDsForPlatform(PlatformComposite), "jev-latest")
 }

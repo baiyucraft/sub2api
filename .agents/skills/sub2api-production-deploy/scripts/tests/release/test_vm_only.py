@@ -132,7 +132,7 @@ class VMOnlyGateTest(unittest.TestCase):
     def test_vm_only_shell_guard_accepts_registered_profiles_and_rejects_unknown(self) -> None:
         script = (DEPLOY_ROOT / "release" / "vm-only-validate.sh").read_text(encoding="utf-8")
         guard = next(line for line in script.splitlines() if line.startswith("[[ $scope == vm-only"))
-        self.assertEqual(re.findall(r"\$profile == ([0-9]+)", guard), ["255", "256", "257", "258", "259", "260"])
+        self.assertEqual(re.findall(r"\$profile == ([0-9]+)", guard), ["255", "256", "257", "258", "259", "260", "261"])
         bash = shutil.which("bash")
         if bash is None:
             candidate = Path(r"C:\Program Files\Git\bin\bash.exe")
@@ -141,8 +141,8 @@ class VMOnlyGateTest(unittest.TestCase):
             self.skipTest("bash is unavailable")
         body = "scope=$1\nprofile=$2\ncommit=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nrelease_id=$3\n" + guard
         for profile, scope, release_profile, allowed in (
-            *( (str(profile), "vm-only", str(profile), True) for profile in range(255, 261) ),
-            ("261", "vm-only", "261", False), ("0259", "vm-only", "0259", False),
+            *( (str(profile), "vm-only", str(profile), True) for profile in range(255, 262) ),
+            ("262", "vm-only", "262", False), ("0259", "vm-only", "0259", False),
             ("259", "production", "259", False), ("259", "vm-only", "258", False),
         ):
             with self.subTest(profile=profile, scope=scope, release_profile=release_profile):

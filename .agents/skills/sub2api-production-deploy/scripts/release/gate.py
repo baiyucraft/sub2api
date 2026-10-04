@@ -262,7 +262,7 @@ def _validate_v2_pending(manifest: dict[str, Any], evidence: dict[str, Any]) -> 
         (item for item in catalog if isinstance(item, dict) and item.get("filename") == lifecycle_filename),
         None,
     )
-    if manifest.get("profile") == "260" and lifecycle_catalog is None:
+    if manifest.get("profile") in {"260", "261"} and lifecycle_catalog is None:
         raise RuntimeError("Gate v2 lacks migration 285 catalog entry")
     if lifecycle_catalog is not None:
         required_fields.add("migration_285")

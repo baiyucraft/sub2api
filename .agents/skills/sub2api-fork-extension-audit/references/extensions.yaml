@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "catalog_version": "2026-09-30",
+  "catalog_version": "2026-10-04",
   "version_contract": {
     "upstream_path": "backend/cmd/server/VERSION",
     "fork_suffix": "-baiyu",
@@ -9,7 +9,8 @@
       "aea725f2ea644d5592d0bbb1d63b607efa7e200a": "0.2.7",
       "a3eb7ef302961cba716dc78b39b93b60c467db0e": "0.2.8",
       "9a62841fd124d026cf3694fcf9b79e98addcdbdc": "0.2.9",
-      "42bc7f6cffe24bcb471608e48e66b4a0afa1f882": "0.2.11"
+      "42bc7f6cffe24bcb471608e48e66b4a0afa1f882": "0.2.11",
+      "b8dece9000c68815a5b867ca5a1e6f236e173905": "0.2.13"
     }
   },
   "upstream_overlap_reviews": [
@@ -118,21 +119,24 @@
     "256": {"version":"0.2.9-baiyu","parent":"255","gate_schema":2,"new_migrations":[],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
     "257": {"version":"0.2.9-baiyu","parent":"256","gate_schema":2,"new_migrations":["284_unified_proxy_bindings.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
     "258": {"version":"0.2.10-baiyu","parent":"257","gate_schema":2,"new_migrations":[],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
-    "259": {"version":"0.2.11-baiyu","parent":"258","gate_schema":2,"new_migrations":[],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}}
+    "259": {"version":"0.2.11-baiyu","parent":"258","gate_schema":2,"new_migrations":[],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
+    "260": {"version":"0.2.11-baiyu","parent":"259","gate_schema":2,"new_migrations":["285_upstream_null_rate_lifecycle.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}}
   },
   "current_profile": {
-    "id": "260",
+    "id": "261",
     "status": "pending",
-    "version": "0.2.11-baiyu",
-    "parent": "259",
+    "version": "0.2.13-baiyu",
+    "parent": "260",
     "gate_schema": 2,
-    "new_migrations": ["285_upstream_null_rate_lifecycle.sql"],
+    "new_migrations": ["286_add_payment_order_bonus_amount.sql", "287_add_typesafe_platform.sql"],
     "release_policy": {
       "compatibility_image": "production_current",
       "migration_source": "database_state"
     }
   },
   "migration_contracts": {
+    "286_add_payment_order_bonus_amount.sql": "ddd45f14154ea6d6b5b612bee7eb49436e1f2a1665f9a71eb8304e48475ed12d",
+    "287_add_typesafe_platform.sql": "419fceaa3e6f1bd089a454fda30b9d343a83fff75ad3b6dffdc44287bf99d171",
     "285_upstream_null_rate_lifecycle.sql": "e20050102cb990b4cac50d62c46e6602649011755aafaab38cdc61937515385a",
     "284_unified_proxy_bindings.sql": "de0adde07c5dd930aa1cccf9e68d6c55958fd7ea16323d746019c7c97481afe3",
     "281_content_moderation_engine_meta.sql": "0ca7cbaf70c5365dc9f2d580bb324f35a5bef77de2543299068b6e902d19b644",
@@ -204,6 +208,8 @@
     "280_plugin_runtime_state.sql": "700479dfaf0ecee741ded67df3e670a53433a5a486a7c7b2d87d27c6d48d8341"
   },
   "migration_renames": {
+    "official_241_add_payment_order_bonus_amount": "286_add_payment_order_bonus_amount.sql",
+    "official_241_add_typesafe_platform": "287_add_typesafe_platform.sql",
     "official_238b_content_moderation_engine_meta": "281_content_moderation_engine_meta.sql",
     "official_239_channel_reasoning_effort_multipliers": "282_channel_reasoning_effort_multipliers.sql",
     "official_240_affiliate_ledger_operation_id": "283_affiliate_ledger_operation_id.sql",
@@ -225,6 +231,8 @@
     "official_238_purge_unlimited_user_platform_quotas": "275_purge_unlimited_user_platform_quotas.sql"
   },
   "migration_assertions": {
+    "backend/migrations/286_add_payment_order_bonus_amount.sql": ["ALTER TABLE payment_orders ADD COLUMN IF NOT EXISTS bonus_amount DECIMAL(20,2) NOT NULL DEFAULT 0"],
+    "backend/migrations/287_add_typesafe_platform.sql": ["user_platform_quotas_platform_check", "composite_model_routes_target_platform_check", "'opencode_go', 'typesafe'"],
     "backend/migrations/281_content_moderation_engine_meta.sql": ["ADD COLUMN IF NOT EXISTS engine_meta JSONB"],
     "backend/migrations/282_channel_reasoning_effort_multipliers.sql": ["reasoning_effort_multipliers", "max_reasoning_effort_multiplier", "channel_model_pricing", "channel_account_stats_model_pricing"],
     "backend/migrations/283_affiliate_ledger_operation_id.sql": ["ADD COLUMN IF NOT EXISTS operation_id VARCHAR(64)", "CREATE UNIQUE INDEX IF NOT EXISTS idx_user_affiliate_ledger_operation_id"],
@@ -899,9 +907,51 @@
       "id": "image-cost-routing-and-display", "title": "上游生图能力展示与图片成本优先路由", "description": "依据上游 Key 图片定价快照展示生图能力、倍率来源和 1K/2K/4K 最终成本，并仅对开启生图且显式启用路由的分组按成本分层调度。", "ownership": "fork", "risk_level": "critical", "paths": ["backend/internal/service/upstream_key_image_pricing.go", "backend/internal/service/openai_account_scheduler.go", "backend/internal/handler/openai_images.go", "backend/internal/service/account.go", "backend/internal/service/admin_group.go", "backend/internal/repository/account_repo.go", "backend/internal/repository/api_key_repo.go", "backend/internal/repository/scheduler_cache.go", "backend/internal/repository/group_repo.go", "backend/internal/service/api_key_auth_cache.go", "backend/internal/service/api_key_auth_cache_impl.go", "backend/internal/handler/dto/types.go", "backend/internal/handler/dto/mappers.go", "backend/ent/schema/group.go", "backend/migrations/237_image_cost_routing.sql", "frontend/src/views/admin/AccountsView.vue", "frontend/src/views/admin/GroupsView.vue", "frontend/src/components/account/UpstreamImagePricingSummary.vue", "frontend/src/components/account/UpstreamVideoPricingSummary.vue", "frontend/src/utils/upstreamVideoCapability.ts", "frontend/src/types/index.ts", "frontend/src/i18n/locales/en/admin/accounts.ts", "frontend/src/i18n/locales/zh/admin/accounts.ts", "frontend/src/i18n/locales/en/admin/overview.ts", "frontend/src/i18n/locales/zh/admin/overview.ts", "backend/internal/service/openai_ttft_guard.go"], "symbols": ["UpstreamKeyImagePricing", "UpstreamKeyVideoPricing", "DeriveUpstreamKeyVideoPricingForAccount", "ImageCostRoutingEnabled", "buildImageCostSelectionOrder", "SelectAccountWithSchedulerForImages", "UpstreamImagePricingSummary"], "api_routes": ["/admin/accounts", "/admin/groups", "/v1/images/generations", "/v1/images/edits"], "settings_keys": [], "migration_files": ["237_image_cost_routing.sql"], "required_tests": ["backend/internal/service/upstream_key_image_pricing_test.go", "backend/internal/service/openai_account_scheduler_upstream_cost_test.go", "backend/internal/service/openai_image_cost_routing_test.go", "backend/internal/service/admin_group_image_cost_routing_test.go", "backend/migrations/profile_238_migrations_test.go", "frontend/src/views/admin/__tests__/AccountsView.upstreamManagement.spec.ts", "frontend/src/components/account/__tests__/UpstreamImagePricingSummary.spec.ts"], "recommended_tests": ["frontend/src/views/admin/__tests__/GroupsView.imageCostRouting.spec.ts", "backend/internal/service/api_key_auth_cache_test.go", "backend/internal/repository/scheduler_cache_test.go"], "invariants": ["生图能力只来自 Key 快照", "普通文本调度不受影响", "未知成本不能当作 0", "用户侧图片计费不改变", "stale/partial/unknown 不得伪装成免费", "图片成本摘要必须结构化展示能力、倍率来源和 1K/2K/4K 成本，不得退化为拼接字符串", "视频运行时只支持 Grok；管理页徽标除了有效 effective video multiplier，还必须有至少一个分辨率价格，不能只凭 allow_video_generation 标记为可用", "prefer_lowest/strict_lowest 不得绕过健康、共享并发、TTFT Guard 或 Priority 约束", "profile 233–238 历史证据不可变"]
     },
     {
+      "id": "registered-platform-catalog",
+      "title": "统一平台目录与 TypeSafe 合并适配",
+      "description": "沿用 fork registeredPlatformCatalog 统一具体平台、默认模型和探针能力的合同，登记官方 0.2.13 TypeSafe 管理与网关接线的最小适配；官方 System One 业务校验由 upstream 维护。",
+      "ownership": "fork",
+      "risk_level": "critical",
+      "paths": [
+        "backend/internal/service/platform_registry.go",
+        "backend/internal/service/platform_registry_test.go",
+        "backend/internal/service/admin_account.go",
+        "backend/internal/service/admin_group.go",
+        "backend/internal/service/composite_platform.go",
+        "backend/internal/service/admin_typesafe_merge_test.go",
+        "backend/internal/service/gateway_input_tokens.go",
+        "backend/internal/service/gateway_input_tokens_test.go",
+        "backend/internal/handler/gateway_systemone.go",
+        "backend/internal/handler/gateway_systemone_fork_test.go"
+      ],
+      "symbols": ["registeredPlatformCatalog", "PlatformTypeSafe", "SchedulingConcurrencyTarget", "TryAcquireAccountRPM", "handleGatewayFailoverError", "SystemOne"],
+      "api_routes": ["/v1/systemone"],
+      "settings_keys": [],
+      "migration_files": [],
+      "required_tests": [
+        "backend/internal/service/platform_registry_test.go",
+        "backend/internal/service/admin_typesafe_merge_test.go",
+        "backend/internal/service/gateway_input_tokens_test.go",
+        "backend/internal/handler/gateway_systemone_fork_test.go",
+        "backend/internal/handler/gateway_systemone_test.go",
+        "backend/internal/service/gateway_systemone_test.go",
+        "backend/internal/pkg/typesafe/systemone_test.go"
+      ],
+      "invariants": [
+        "TypeSafe 为具体平台，默认模型目录仅为 jev-latest，ProbeSupported=false；不得注入 Composite 默认模型或 LLM channel monitor provider",
+        "保留官方 TypeSafe 只接受 API-key 账号与 System One 原生非流式请求、平台、模型、输入、响应大小和安全校验，不通过管理适配放宽官方业务校验",
+        "账号和分组编辑保留 fork 首选分组、私有字段保护、上游派生身份只读、Composite 账号模型映射；代理组仍只支持 OpenAI OAuth/setup-token",
+        "System One 使用既有 shared account slot 与 SchedulingConcurrencyTarget，等待与释放使用同一 target，等待队列满或超时须清理已获取的等待计数",
+        "账号 RPM 使用既有原子准入，拒绝后释放账号槽位并换号；本地 RPM 拒绝不消耗上游 429 capacity failover 预算",
+        "System One 的 state、questions、instructions、criteria 和任意业务数据键值参与输入长度估算；不计模型及协议类型标签，其他协议提取规则不变",
+        "仅实际 upstream-bound 429 接既有独立 capacity failover 设置和预算，关闭时保留原 429；官方业务输入错误不触发换号或改写账号健康",
+        "测试文件存在和静态 catalog 审计不等于网关行为、真实 PostgreSQL 升级、VM Gate 或生产发布已通过"
+      ]
+    },
+    {
       "id": "migration-profile-contract",
       "title": "Migration、profile、版本与历史证据",
-      "description": "维护 fork migration、官方重编号、历史 profile 233–259、pending profile 260、版本递增、checksum 和 compatibility identity。",
+      "description": "维护 fork migration、官方重编号、历史 profile 233–260、pending profile 261、版本递增、checksum 和 compatibility identity。",
       "ownership": "fork",
       "risk_level": "critical",
       "paths": [
@@ -933,12 +983,15 @@
         "0.2.8-baiyu",
         "0.2.9-baiyu",
         "0.2.10-baiyu",
-        "0.2.11-baiyu"
+        "0.2.11-baiyu",
+        "0.2.13-baiyu"
       ],
       "api_routes": [],
       "settings_keys": [],
       "migration_files": [
         "285_upstream_null_rate_lifecycle.sql",
+        "286_add_payment_order_bonus_amount.sql",
+        "287_add_typesafe_platform.sql",
         "281_content_moderation_engine_meta.sql",
         "282_channel_reasoning_effort_multipliers.sql",
         "283_affiliate_ledger_operation_id.sql",
@@ -987,6 +1040,9 @@
       "required_tests": [
         "backend/migrations/upstream_null_rate_lifecycle_migration_test.go",
         "backend/internal/repository/upstream_null_rate_binding_integration_test.go",
+        "backend/migrations/typesafe_platform_migration_test.go",
+        "backend/migrations/profile_261_migrations_test.go",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile261_release_contract.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile260_release_contract.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile260_maintenance_contract.py",
         "backend/migrations/profile_233_migrations_test.go",
@@ -1018,7 +1074,7 @@
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_production_release.py"
       ],
       "invariants": [
-        "profile 259 已有本地 production_verified/verified 发布结果，保持 0.2.11-baiyu、parent 258、new_migrations=[] 不变；pending profile 260 保持同版本，parent 259，只追加 285_upstream_null_rate_lifecycle.sql；260 的本地登记不等于 VM Gate 或生产发布",
+        "profile 260 已 signed 且 2026-10-01 生产 verified，保持 0.2.11-baiyu、parent 259、new_migrations=[285_upstream_null_rate_lifecycle.sql] 及全部历史签名/checksum 不变；pending profile 261 为 0.2.13-baiyu、parent 260，仅追加 286_add_payment_order_bonus_amount.sql 和 287_add_typesafe_platform.sql；官方目标固定 b8dece9000c68815a5b867ca5a1e6f236e173905；新官方两项 241 仅重编号，SQL 原字节不变，旧 local241 保留；新增登记不代表新 VM Gate 或生产发布",
         "285 替换 validate_account_upstream_key_binding 并将 source 纳入绑定 trigger 的更新列：actual 缺失时仅允许 existing same-binding 且身份与价格不变的暂停或归档；新增、恢复、启用、重绑定和身份或价格变更仍严格要求 actual，known-rate 恢复仍校验 active/platform；不得修改历史 241、279、284 SQL 或 checksum，不增加 checksum compatibility 放行",
         "历史 profile 233–254 不回写；profile 254 对应 0.2.7-baiyu，parent 为 253，new_migrations 精确为 [278_fork_group_ttft_guard_policies.sql, 279_proxy_ip_groups.sql, 280_plugin_runtime_state.sql]，三项原始文件 SHA-256 必须与 migration_contracts 登记一致",
         "历史 profile 255 对应 0.2.8-baiyu，parent 为 254，new_migrations 精确为 [281_content_moderation_engine_meta.sql, 282_channel_reasoning_effort_multipliers.sql, 283_affiliate_ledger_operation_id.sql]；官方原始 238b/239/240 按内容仅重编号新文件，SQL 字节不变，先执行历史 265/278–280 再执行 281–283；三项 Git 原始字节 checksum 与 migration_contracts 一致；历史 profile 256 对应 0.2.9-baiyu，parent 为 255，new_migrations 为空；保留 profile 257 对应 0.2.9-baiyu，parent 为 256，new_migrations 精确为 [284_unified_proxy_bindings.sql]，原始 SHA-256 与 migration_contracts 一致",
