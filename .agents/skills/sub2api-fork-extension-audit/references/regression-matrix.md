@@ -160,4 +160,5 @@ DataTable 高频 ResizeObserver 通知只触发一帧测量
 
 - 普通 merge 的第二父必须为 `b8dece9000c68815a5b867ca5a1e6f236e173905`。两个官方同 prefix 241 新文件原字节改名为 `286_add_payment_order_bonus_amount.sql`、`287_add_typesafe_platform.sql`，保持旧 local241 和全部历史 migration/profile/checksum。
 - 执行 `test_profile261_release_contract.py`，覆盖历史 260 不变、当前 261、未知 262 拒绝、官方 SQL 原始字节、从 260 只计划 286/287、部分应用与 verified replay、checksum 冲突及旧官方文件名 unknown；保持 285 的祖先语义 Gate 证据。
+- Profile 261 的恢复兼容审阅仅绑定 `f670e8051529776fa681b628eb05ce073d73c17c` → `a541a5c4bb6ad72e7198d2802fc6dfac22b305ee` 的同路径 blob/mode。`test_recovery_gate.py` 验证 35 项敏感对象精确命中、恢复算法和信任文件不被豁免，以及新增修改、删除、跨路径复用和模式漂移仍阻断；最终 SHA 必须重新分类为 specialized 并在 VM 完成真实隔离恢复。
 - TypeSafe 的平台目录、账号/分组编辑与独立网关适配按 `registered-platform-catalog` 精确登记；保留官方 API-key/业务校验，接入既有 shared account slot、RPM 和 failover。测试文件存在和静态合同不等于实际网关、PostgreSQL、VM 或恢复验证通过。
