@@ -56,6 +56,8 @@ class GateV2Test(unittest.TestCase):
         return [
             {"filename": "246_example.sql", "checksum": "a" * 64, "non_transactional": False},
             {"filename": "285_upstream_null_rate_lifecycle.sql", "checksum": "b" * 64, "non_transactional": False},
+            {"filename": "286_add_payment_order_bonus_amount.sql", "checksum": "c" * 64, "non_transactional": False},
+            {"filename": "287_add_typesafe_platform.sql", "checksum": "d" * 64, "non_transactional": False},
         ]
 
     def _document(self, pending: list[dict] | None = None, *, profile: str = CURRENT_RELEASE_PROFILE) -> dict:
@@ -158,7 +160,7 @@ class GateV2Test(unittest.TestCase):
         self._sign(document)
         self.assertEqual(self._verify(validate_profile_contract=True), document)
 
-    def test_profile_260_rejects_signed_wrong_version_parent_or_migrations(self) -> None:
+    def test_profile_261_rejects_signed_wrong_version_parent_or_migrations(self) -> None:
         for field, value, message in (
             ("version", "0.2.10-baiyu", "version does not match"),
             ("parent_profile", "258", "parent profile does not match"),
@@ -172,15 +174,48 @@ class GateV2Test(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, message):
                     self._verify(validate_profile_contract=True)
 
-    def test_unregistered_profile_261_is_rejected_even_for_recovery(self) -> None:
-        document = self._document()
-        document["profile_id"] = 261
-        document["manifest"].update(profile="261", release_id="261-aaaaaaaaaaaa-1-aaaaaaaa")
+    def test_profile_260_historical_signed_contract_rejects_drift(self) -> None:
+        document = self._document(profile="260")
         self._sign(document)
-        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 260"):
-            self._verify(profile="261")
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 261"):
-            self._verify(profile="261", allow_historical_runner=True)
+        self.assertEqual(self._verify(profile="260", allow_historical_runner=True, validate_profile_contract=True), document)
+        for field, value, message in (
+            ("version", "0.2.13-baiyu", "version does not match"),
+            ("parent_profile", "260", "parent profile does not match"),
+            ("new_migrations", [], "new migrations do not match"),
+            ("new_migrations", get_profile("261")["new_migrations"], "new migrations do not match"),
+        ):
+            with self.subTest(field=field):
+                document = self._document(profile="260")
+                document["manifest"][field] = value
+                self._sign(document)
+                with self.assertRaisesRegex(RuntimeError, message):
+                    self._verify(profile="260", allow_historical_runner=True, validate_profile_contract=True)
+
+    def test_signed_profile_261_ordinary_pending_migrations_round_trip(self) -> None:
+        pending = [{"filename": item["filename"], "checksum": item["checksum"]} for item in self._catalog()[2:]]
+        document = self._document(pending=pending)
+        self._sign(document)
+        self.assertEqual(self._verify(validate_profile_contract=True), document)
+        for invalid in (
+            list(reversed(pending)),
+            [{**pending[0], "checksum": "0" * 64}, pending[1]],
+            [{**pending[0], "preflight": True, "postflight": True}, pending[1]],
+        ):
+            with self.subTest(pending=invalid):
+                document = self._document(pending=invalid)
+                self._sign(document)
+                with self.assertRaises(RuntimeError):
+                    self._verify(validate_profile_contract=True)
+
+    def test_unregistered_profile_262_is_rejected_even_for_recovery(self) -> None:
+        document = self._document()
+        document["profile_id"] = 262
+        document["manifest"].update(profile="262", release_id="262-aaaaaaaaaaaa-1-aaaaaaaa")
+        self._sign(document)
+        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 261"):
+            self._verify(profile="262")
+        with self.assertRaisesRegex(ValueError, "unknown release profile: 262"):
+            self._verify(profile="262", allow_historical_runner=True)
 
     def test_fast_gate_requires_non_restore_evidence(self) -> None:
         document = self._document()
@@ -211,18 +246,18 @@ class GateV2Test(unittest.TestCase):
         document["profile_id"] = 246
         document["manifest"].update(profile="246", release_id="246-aaaaaaaaaaaa-1-aaaaaaaa", version="0.2.1-baiyu")
         self._sign(document)
-        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 260"):
+        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 261"):
             self._verify(profile="246")
         self.assertEqual(self._verify(profile="246", allow_historical_runner=True), document)
 
     def test_previous_profile_requires_historical_runner_for_recovery(self) -> None:
-        document = self._document(profile="259")
+        document = self._document(profile="260")
         self._sign(document)
-        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 260"):
-            self._verify(profile="259")
-        self.assertEqual(self._verify(profile="259", allow_historical_runner=True, validate_profile_contract=True), document)
+        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 261"):
+            self._verify(profile="260")
+        self.assertEqual(self._verify(profile="260", allow_historical_runner=True, validate_profile_contract=True), document)
 
-    def test_signed_profile_260_pending_lifecycle_migration_round_trip(self) -> None:
+    def test_signed_profile_261_inherited_pending_lifecycle_migration_round_trip(self) -> None:
         migration = self._catalog()[1]
         pending = {
             "filename": migration["filename"], "checksum": migration["checksum"],

@@ -45,7 +45,7 @@ description: 审计 Sub2API fork 相对官方 upstream/main 的扩展合同。�
 
 ## 发布恢复合同审计
 
-当前 pending profile 为 260（`0.2.11-baiyu`、parent 259、`new_migrations=[285_upstream_null_rate_lifecycle.sql]`）；259 已有本地 `production_verified/verified` 发布结果，其相同版本、parent 258 和空新增迁移合同保留不变，258 及以前历史合同不变。285 是 actual 缺失时暂停/归档的 fork 修复，原始字节 checksum 已登记于 audit catalog。固定官方目标 `42bc7f6cffe24bcb471608e48e66b4a0afa1f882` 已包含 PR #7730 原始 head 和官方 merge；模型、套餐与 Ultrafast 能力归回 upstream 维护，独立 fork 增量仍按扩展目录审核。
+当前 pending profile 为 261：版本 `0.2.13-baiyu`、parent 260、`new_migrations=[286_add_payment_order_bonus_amount.sql,287_add_typesafe_platform.sql]`，固定官方目标为 `b8dece9000c68815a5b867ca5a1e6f236e173905`。260 已 signed 且于 2026-10-01 生产 verified，其 `0.2.11-baiyu`、parent 259、`new_migrations=[285_upstream_null_rate_lifecycle.sql]` 及既有 Gate/candidate/checksum 保持不变；259 及以前合同不变。两个官方 `241_*` 与旧 local241 编号冲突，只将新文件原字节重编号为 286/287，旧 SQL 与数据库记录不回写。286 保存充值赠送金额，287 扩展用户平台额度与组合路由约束；TypeSafe 不进入 LLM channel monitor。catalog 使用原始字节 SHA-256，Gate catalog 继续使用 strip 后 SQL 文本 checksum。261 的本地登记和静态/unit 测试不证明 VM Gate、实际 PostgreSQL 升级、旧镜像兼容或生产发布；未知 262 必须拒绝。后续 VM 合同恢复叠加后仍须按最终 blob/模式完成恢复分类审阅，未分类变更保持阻断，不新增豁免。
 
 当目标差异触及 `.agents/skills/sub2api-production-deploy/**`、备份格式、migration/profile、Compose、ingress 事务或恢复状态机时，审计必须核对 `release-operations-isolation`：
 
