@@ -252,6 +252,48 @@ class RecoveryGateTest(unittest.TestCase):
         self.assertIn("reviewed_migration_gate_changed", report["reason_codes"])
         self.assertNotIn("recovery_change_requires_review", report["reason_codes"])
 
+    def test_registered_profile261_review_covers_only_exact_sensitive_objects(self) -> None:
+        from release.paths import WORKSPACE
+
+        base = "f670e8051529776fa681b628eb05ce073d73c17c"
+        target = "a541a5c4bb6ad72e7198d2802fc6dfac22b305ee"
+        report = classify(WORKSPACE, base, target)
+        self.assertEqual(report["mode"], "specialized")
+        self.assertIn("reviewed_profile_compatibility_changed", report["reason_codes"])
+        self.assertIn("migration_changed", report["reason_codes"])
+        self.assertNotIn("recovery_change_requires_review", report["reason_codes"])
+        reviewed = recovery_gate._reviewed_compatibility_paths(WORKSPACE, base, target)
+        sensitive = {
+            path for path in recovery_gate._changed_paths(WORKSPACE, base, target)
+            if recovery_gate._is_recovery_sensitive_path(path)
+        }
+        self.assertEqual(len(sensitive), 35)
+        self.assertTrue(sensitive.issubset(reviewed))
+        prefix = ".agents/skills/sub2api-production-deploy/scripts/"
+        for suffix in (
+            "maintenance/release/restore.sh", "maintenance/release/cleanup-state.sh",
+            "maintenance/release/reconcile.sh", "release/trust/vm-gate-ed25519.pub",
+        ):
+            self.assertNotIn(prefix + suffix, reviewed)
+
+    def test_reviewed_profile_removal_or_cross_path_reuse_is_not_exempt(self) -> None:
+        prefix = ".agents/skills/sub2api-production-deploy/scripts/maintenance/release/"
+        relative = prefix + "context.sh"
+        self.write(relative, "profiles=260\n")
+        self.git("add", "-A")
+        self.git("commit", "-m", "profile baseline")
+        base = self.git("rev-parse", "HEAD")
+        self.write(relative, "profiles=260,261\n")
+        self.git("add", "-A")
+        self.git("commit", "-m", "reviewed profile")
+        reviewed = self.git("rev-parse", "HEAD")
+        self.git("mv", relative, prefix + "restore.sh")
+        self.git("commit", "-m", "reuse on other path")
+        with mock.patch.object(recovery_gate, "_REVIEWED_COMPATIBILITY_TRANCHES", ((base, reviewed),)):
+            report = classify(self.root, base, self.git("rev-parse", "HEAD"))
+            self.assertEqual(report["mode"], "full")
+            self.assertIn("recovery_change_requires_review", report["reason_codes"])
+
     def test_migration_gate_review_cannot_exempt_recovery_algorithm_or_drift(self) -> None:
         prefix = ".agents/skills/sub2api-production-deploy/scripts/"
         gate = prefix + "release/gate.py"
