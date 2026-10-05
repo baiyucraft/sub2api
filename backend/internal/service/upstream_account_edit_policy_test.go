@@ -64,6 +64,105 @@ func TestMergeUpstreamAccountEditableExtraPreservesRuntimeState(t *testing.T) {
 	require.Equal(t, float64(12), merged["quota_used"])
 }
 
+func TestMergeUpstreamAccountEditableExtraCanonicalImagePolicyClearsLegacy(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		incoming map[string]any
+		bridge   *bool
+		policy   string
+	}{
+		{name: "auto", incoming: map[string]any{}},
+		{name: "manual inherit", incoming: map[string]any{"codex_image_generation_explicit_tool_policy": "allow"}, policy: "allow"},
+		{name: "manual enabled", incoming: map[string]any{"codex_image_generation_bridge": true, "codex_image_generation_explicit_tool_policy": "allow"}, bridge: boolOverridePtr(true), policy: "allow"},
+		{name: "manual disabled", incoming: map[string]any{"codex_image_generation_bridge": false, "codex_image_generation_explicit_tool_policy": "allow"}, bridge: boolOverridePtr(false), policy: "allow"},
+		{name: "manual block", incoming: map[string]any{"codex_image_generation_explicit_tool_policy": "strip"}, policy: "strip"},
+		{name: "bridge only", incoming: map[string]any{"codex_image_generation_bridge": false}, bridge: boolOverridePtr(false)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			snapshot := map[string]any{"status": "disabled", "allow_image_generation": false}
+			nested := map[string]any{
+				"codex_image_generation_bridge":               true,
+				"codex_image_generation_bridge_enabled":       true,
+				"codex_image_generation_explicit_tool_policy": "strip",
+				"unrelated_setting":                           "preserved",
+				"snapshot":                                    snapshot,
+			}
+			existing := map[string]any{
+				"codex_image_generation_bridge":               true,
+				"codex_image_generation_bridge_enabled":       true,
+				"codex_image_generation_explicit_tool_policy": "strip",
+				PlatformOpenAI:                   nested,
+				"sub2api_image_pricing_snapshot": snapshot,
+				"lcodex_image_pricing_snapshot":  snapshot,
+				UpstreamBillingProbeExtraKey:     snapshot,
+				"quota_used":                     float64(12),
+			}
+			require.NoError(t, validateUpstreamAccountEditableUpdate(&UpdateAccountInput{Extra: tc.incoming}))
+			merged := mergeUpstreamAccountEditableExtra(existing, tc.incoming)
+			require.NotContains(t, merged, "codex_image_generation_bridge_enabled")
+			for _, key := range []string{"codex_image_generation_bridge", "codex_image_generation_explicit_tool_policy"} {
+				value, present := tc.incoming[key]
+				if present {
+					require.Equal(t, value, merged[key])
+				} else {
+					require.NotContains(t, merged, key)
+				}
+			}
+			require.Equal(t, map[string]any{"unrelated_setting": "preserved", "snapshot": snapshot}, merged[PlatformOpenAI])
+			for _, key := range []string{"sub2api_image_pricing_snapshot", "lcodex_image_pricing_snapshot", UpstreamBillingProbeExtraKey} {
+				require.Equal(t, snapshot, merged[key])
+			}
+			require.Equal(t, float64(12), merged["quota_used"])
+			account := &Account{Platform: PlatformOpenAI, Extra: merged}
+			require.Equal(t, tc.bridge, account.CodexImageGenerationBridgeOverride())
+			policy, overridden := account.CodexImageGenerationExplicitToolPolicyOverride()
+			require.Equal(t, tc.policy != "", overridden)
+			if overridden {
+				require.Equal(t, tc.policy, policy)
+			}
+			require.Equal(t, true, existing["codex_image_generation_bridge_enabled"])
+			require.Contains(t, nested, "codex_image_generation_bridge")
+			require.Contains(t, nested, "codex_image_generation_bridge_enabled")
+			require.Contains(t, nested, "codex_image_generation_explicit_tool_policy")
+		})
+	}
+}
+
+func TestMergeUpstreamAccountEditableExtraImagePolicyNestedBoundaries(t *testing.T) {
+	for _, nested := range []any{nil, map[string]any(nil), "opaque", []any{"opaque"}, map[string]any{}, map[string]any{"other": true}} {
+		merged := mergeUpstreamAccountEditableExtra(map[string]any{PlatformOpenAI: nested}, map[string]any{})
+		require.Equal(t, nested, merged[PlatformOpenAI])
+	}
+	for _, nestedKey := range []string{"codex_image_generation_bridge", "codex_image_generation_bridge_enabled", "codex_image_generation_explicit_tool_policy"} {
+		var value any = true
+		if nestedKey == featureKeyCodexImageGenerationExplicitToolPolicy {
+			value = "strip"
+		}
+		merged := mergeUpstreamAccountEditableExtra(map[string]any{PlatformOpenAI: map[string]any{nestedKey: value}}, map[string]any{})
+		require.Empty(t, merged[PlatformOpenAI])
+		account := &Account{Platform: PlatformOpenAI, Extra: merged}
+		require.Nil(t, account.CodexImageGenerationBridgeOverride())
+		_, overridden := account.CodexImageGenerationExplicitToolPolicyOverride()
+		require.False(t, overridden)
+	}
+	mergedFlat := mergeUpstreamAccountEditableExtra(map[string]any{"codex_image_generation_bridge_enabled": true}, map[string]any{})
+	require.Empty(t, mergedFlat)
+	merged := mergeUpstreamAccountEditableExtra(nil, map[string]any{})
+	require.Empty(t, merged)
+}
+
+func TestValidateUpstreamAccountEditableUpdateRejectsImagePolicyLegacyWrites(t *testing.T) {
+	for _, extra := range []map[string]any{
+		{"codex_image_generation_bridge_enabled": true},
+		{PlatformOpenAI: map[string]any{"codex_image_generation_explicit_tool_policy": "strip"}},
+		{"codex_image_generation_policy_mode": "auto"},
+		{"sub2api_image_pricing_snapshot": map[string]any{"status": "available"}},
+		{"lcodex_image_pricing_snapshot": map[string]any{"status": "available"}},
+	} {
+		require.Error(t, validateUpstreamAccountEditableUpdate(&UpdateAccountInput{Extra: extra}))
+	}
+}
+
 func TestMergeUpstreamAccountEditableCredentialsPreservesDerivedState(t *testing.T) {
 	merged := mergeUpstreamAccountEditableCredentials(
 		map[string]any{

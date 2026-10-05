@@ -1904,7 +1904,7 @@
 
       <!-- OpenAI Codex hosted image_generation bridge policy -->
       <div
-        v-if="account?.platform === 'openai' && canEditAccountLocalSettings && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
+        v-if="account?.platform === 'openai' && (canEditAccountLocalSettings || isUpstreamBoundAccount) && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="overflow-hidden rounded-lg border border-sky-100 bg-sky-50/60 shadow-sm dark:border-sky-900/50 dark:bg-sky-950/20">
@@ -1927,13 +1927,28 @@
               </p>
             </div>
           </div>
-          <div class="border-t border-sky-100 bg-white/70 p-2 dark:border-sky-900/50 dark:bg-dark-800/70">
+          <dl v-if="isUpstreamBoundAccount" class="grid grid-cols-1 gap-2 border-t border-sky-100 px-4 py-3 text-xs dark:border-sky-900/50 sm:grid-cols-3" data-testid="codex-image-upstream-summary">
+            <div class="min-w-0">
+              <dt class="text-gray-500 dark:text-gray-400">{{ t('admin.accounts.openai.codexImageToolEffectivePolicy') }}</dt>
+              <dd class="mt-1 break-words font-medium" data-testid="codex-image-effective-policy">{{ codexImageToolEffectiveLabel }}</dd>
+            </div>
+            <div class="min-w-0">
+              <dt class="text-gray-500 dark:text-gray-400">{{ t('admin.accounts.openai.codexImageToolUpstreamPermission') }}</dt>
+              <dd class="mt-1 font-medium" data-testid="codex-image-upstream-permission">{{ codexImageToolPermissionLabel }}</dd>
+            </div>
+            <div class="min-w-0">
+              <dt class="text-gray-500 dark:text-gray-400">{{ t('admin.accounts.openai.codexImageToolSyncedAt') }}</dt>
+              <dd class="mt-1 break-words font-medium" data-testid="codex-image-synced-at">{{ codexImageToolSyncedAt }}</dd>
+            </div>
+          </dl>
+          <div v-if="canEditAccountLocalSettings" class="border-t border-sky-100 bg-white/70 p-2 dark:border-sky-900/50 dark:bg-dark-800/70">
             <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
               <button
                 v-for="option in codexImageToolOptions"
                 :key="option.value"
                 type="button"
                 :data-testid="`codex-image-tool-${option.value}`"
+                :aria-pressed="codexImageToolMode === option.value"
                 @click="codexImageToolMode = option.value"
                 :class="[
                   'group flex min-h-[62px] items-start gap-2 rounded-md border px-3 py-2 text-left transition-all',
@@ -3186,6 +3201,12 @@ import UpstreamKeySelector from '@/components/account/UpstreamKeySelector.vue'
 import CustomErrorCodeSelector from '@/components/account/CustomErrorCodeSelector.vue'
 import { buildUpstreamAccountName } from '@/components/account/upstreamAccountName'
 import {
+  applyCodexImageToolMode,
+  readCodexImageToolMode,
+  upstreamImagePermission,
+  type CodexImageToolMode
+} from '@/components/account/codexImageToolPolicy'
+import {
   pickUpstreamAccountEditableCredentials,
   pickUpstreamAccountEditableExtra
 } from '@/components/account/upstreamAccountEditPolicy'
@@ -3779,7 +3800,6 @@ const codexCLIOnlyEnabled = ref(false)
 const codexCLIOnlyAppServerEnabled = ref(false)
 type CodexFingerprintMode = 'off' | 'device' | 'session' | 'full'
 const codexFingerprintMode = ref<CodexFingerprintMode>('off')
-type CodexImageToolMode = 'inherit' | 'enabled' | 'disabled' | 'block'
 const codexImageToolMode = ref<CodexImageToolMode>('inherit')
 type AnthropicAPIKeyAuthScheme = 'x_api_key' | 'authorization_bearer'
 const anthropicPassthroughEnabled = ref(false)
@@ -3848,6 +3868,13 @@ const codexImageToolOptions = computed<Array<{
   selectedCardClass: string
   selectedDotClass: string
 }>>(() => [
+  ...(isUpstreamBoundAccount.value ? [{
+    value: 'auto' as const,
+    label: t('admin.accounts.openai.codexImageToolAuto'),
+    description: t('admin.accounts.openai.codexImageToolAutoDesc'),
+    selectedCardClass: 'border-sky-300 bg-sky-50 text-sky-900 shadow-sm ring-1 ring-sky-200 dark:border-sky-700 dark:bg-sky-900/25 dark:text-sky-100 dark:ring-sky-800',
+    selectedDotClass: 'border-sky-500 bg-sky-500 text-white'
+  }] : []),
   {
     value: 'inherit',
     label: t('admin.accounts.openai.codexImageToolInherit'),
@@ -3879,6 +3906,8 @@ const codexImageToolOptions = computed<Array<{
 ])
 const codexImageToolBadgeLabel = computed(() => {
   switch (codexImageToolMode.value) {
+    case 'auto':
+      return t('admin.accounts.openai.codexImageToolAuto')
     case 'enabled':
       return t('admin.accounts.openai.codexImageToolBadgeEnabled')
     case 'disabled':
@@ -3888,6 +3917,31 @@ const codexImageToolBadgeLabel = computed(() => {
     default:
       return t('admin.accounts.openai.codexImageToolBadgeInherit')
   }
+})
+const codexImageToolPermission = computed(() => {
+  const groups = props.account?.groups?.length ? props.account.groups : props.groups.filter(group => form.group_ids.includes(group.id))
+  const ages = groups.map(group => group.image_cost_stale_after_seconds || 86400)
+  return upstreamImagePermission(props.account?.upstream_image_pricing, ages.length ? Math.min(...ages) : 86400)
+})
+const codexImageToolPermissionLabel = computed(() => {
+  switch (codexImageToolPermission.value) {
+    case 'allowed': return t('admin.accounts.openai.codexImageToolAllowed')
+    case 'denied': return t('admin.accounts.openai.codexImageToolDenied')
+    default: return t('admin.accounts.openai.codexImageToolUnknown')
+  }
+})
+const codexImageToolEffectiveLabel = computed(() => {
+  if (codexImageToolMode.value !== 'block' && codexImageToolPermission.value === 'denied') return t('admin.accounts.openai.codexImageToolDeniedPolicy')
+  if (codexImageToolMode.value !== 'auto') return codexImageToolBadgeLabel.value
+  switch (codexImageToolPermission.value) {
+    case 'allowed': return t('admin.accounts.openai.codexImageToolAutoAllowedPolicy')
+    default: return t('admin.accounts.openai.codexImageToolAutoUnknownPolicy')
+  }
+})
+const codexImageToolSyncedAt = computed(() => {
+  const observedAt = props.account?.upstream_image_pricing?.observed_at
+  if (!observedAt || !Number.isFinite(Date.parse(observedAt))) return t('admin.accounts.openai.codexImageToolNotSynced')
+  return formatDateTime(observedAt)
 })
 const codexImageToolBadgeClass = computed(() => {
   switch (codexImageToolMode.value) {
@@ -4386,16 +4440,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
         openAIResponsesMode.value = 'auto'
       }
     }
-    const codexImageGenerationBridgeValue = typeof extra?.codex_image_generation_bridge === 'boolean'
-      ? extra.codex_image_generation_bridge
-      : extra?.codex_image_generation_bridge_enabled
-    if (extra?.codex_image_generation_explicit_tool_policy === 'strip') {
-      codexImageToolMode.value = 'block'
-    } else if (codexImageGenerationBridgeValue === true) {
-      codexImageToolMode.value = 'enabled'
-    } else if (codexImageGenerationBridgeValue === false) {
-      codexImageToolMode.value = 'disabled'
-    }
+    codexImageToolMode.value = readCodexImageToolMode(extra, isUpstreamBoundAccount.value)
     openaiOAuthResponsesWebSocketV2Mode.value = resolveOpenAIWSModeFromExtra(extra, {
       modeKey: 'openai_oauth_responses_websockets_v2_mode',
       enabledKey: 'openai_oauth_responses_websockets_v2_enabled',
@@ -5939,20 +5984,8 @@ const handleSubmit = async () => {
 			delete newExtra.auto_pause_7d_disabled
 		}
 
-		delete newExtra.codex_image_generation_bridge_enabled
-      switch (codexImageToolMode.value) {
-        case 'enabled':
-        case 'disabled':
-          newExtra.codex_image_generation_bridge = codexImageToolMode.value === 'enabled'
-          delete newExtra.codex_image_generation_explicit_tool_policy
-          break
-        case 'block':
-          newExtra.codex_image_generation_explicit_tool_policy = 'strip'
-          delete newExtra.codex_image_generation_bridge
-          break
-        default:
-          delete newExtra.codex_image_generation_bridge
-          delete newExtra.codex_image_generation_explicit_tool_policy
+      if (canEditAccountLocalSettings.value) {
+        applyCodexImageToolMode(newExtra, codexImageToolMode.value, isUpstreamBoundAccount.value)
       }
 
       if (props.account.type === 'oauth' || props.account.type === 'setup-token') {
@@ -6069,6 +6102,10 @@ const handleSubmit = async () => {
       )
       if (credentials) updatePayload.credentials = credentials
       if (extra) updatePayload.extra = extra
+    }
+
+    if (isUpstreamBoundAccount.value && updatePayload.extra) {
+      updatePayload.extra = pickUpstreamAccountEditableExtra(updatePayload.extra as Record<string, unknown>)
     }
 
     const canContinue = await ensureAntigravityMixedChannelConfirmed(async () => {

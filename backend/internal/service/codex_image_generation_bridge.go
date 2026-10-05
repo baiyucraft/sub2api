@@ -95,15 +95,22 @@ func (a *Account) CodexImageGenerationBridgeOverride() *bool {
 // client-provided Codex /responses image_generation tools. Unknown or unset
 // values default to allow to preserve existing behavior.
 func (a *Account) CodexImageGenerationExplicitToolPolicy() string {
+	policy, _ := a.CodexImageGenerationExplicitToolPolicyOverride()
+	return policy
+}
+
+// CodexImageGenerationExplicitToolPolicyOverride distinguishes administrator
+// policy from the compatibility default so upstream sync never overwrites it.
+func (a *Account) CodexImageGenerationExplicitToolPolicyOverride() (string, bool) {
 	if a == nil || a.Platform != PlatformOpenAI || a.Extra == nil {
-		return codexImageGenerationExplicitToolPolicyAllow
+		return codexImageGenerationExplicitToolPolicyAllow, false
 	}
 	if policy, ok := stringOverrideFromMap(a.Extra, featureKeyCodexImageGenerationExplicitToolPolicy); ok {
-		return normalizeCodexImageGenerationExplicitToolPolicy(policy)
+		return normalizeCodexImageGenerationExplicitToolPolicy(policy), true
 	}
 	openaiConfig, _ := a.Extra[PlatformOpenAI].(map[string]any)
 	if policy, ok := stringOverrideFromMap(openaiConfig, featureKeyCodexImageGenerationExplicitToolPolicy); ok {
-		return normalizeCodexImageGenerationExplicitToolPolicy(policy)
+		return normalizeCodexImageGenerationExplicitToolPolicy(policy), true
 	}
-	return codexImageGenerationExplicitToolPolicyAllow
+	return codexImageGenerationExplicitToolPolicyAllow, false
 }

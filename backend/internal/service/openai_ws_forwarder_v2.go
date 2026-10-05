@@ -17,6 +17,52 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+// Semantic output has already been produced. Keep billing data while preventing
+// the caller from treating this failure as an account or transport retry signal.
+type openAIWSImageOutputError struct {
+	failure *UpstreamFailoverError
+}
+
+func (e *openAIWSImageOutputError) Error() string {
+	return "upstream image permission denied after output: " + e.failure.Error()
+}
+
+// Completed items may arrive without deltas while the HTTP response is buffered.
+func openAIWSCompletedItemHasSemanticOutput(eventType string, message []byte) bool {
+	if eventType != "response.output_item.done" {
+		return false
+	}
+	item := gjson.GetBytes(message, "item")
+	if !item.IsObject() {
+		return false
+	}
+	nonemptyString := func(value gjson.Result) bool {
+		return value.Type == gjson.String && strings.TrimSpace(value.Str) != ""
+	}
+	switch item.Get("type").String() {
+	case "message":
+		for _, part := range item.Get("content").Array() {
+			switch part.Get("type").String() {
+			case "output_text":
+				if nonemptyString(part.Get("text")) {
+					return true
+				}
+			case "refusal":
+				if nonemptyString(part.Get("refusal")) {
+					return true
+				}
+			}
+		}
+	case "function_call", "custom_tool_call":
+		payload := "arguments"
+		if item.Get("type").String() == "custom_tool_call" {
+			payload = "input"
+		}
+		return nonemptyString(item.Get("name")) && nonemptyString(item.Get("call_id")) && nonemptyString(item.Get(payload))
+	}
+	return false
+}
+
 func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 	ctx context.Context,
 	c *gin.Context,
@@ -39,6 +85,11 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		return nil, wrapOpenAIWSFallback("invalid_state", errors.New("service or account is nil"))
 	}
 	responseModelObserver := &upstreamResponseModelObserver{}
+	originalImageRequest, hasImageRequest := OpenAIImageRequestFromContext(ctx)
+	if !hasImageRequest {
+		originalImageRequest = DescribeOpenAIImageRequest(openAIResponsesEndpoint, originalModel, payloadAsJSONBytes(reqBody), isCodexCLI)
+		ctx = WithOpenAIImageRequestDescriptor(ctx, originalImageRequest)
+	}
 
 	wsURL, err := s.buildOpenAIResponsesWSURL(account)
 	if err != nil {
@@ -342,7 +393,15 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		return nil, err
 	}
 
-	if err := lease.WriteJSONWithContextTimeout(ctx, payload, s.openAIWSWriteTimeout()); err != nil {
+	// Acquisition and optional prewarm can outlive the permission snapshot used
+	// by Forward. Derive a private wire body at the last physical send boundary.
+	prepared, prepareErr := s.prepareOpenAIWSImageSend(ctx, c, account, payloadAsJSONBytes(payload), originalImageRequest, false)
+	if prepareErr != nil {
+		lease.MarkBroken()
+		return nil, prepareErr
+	}
+	payloadBytes = len(prepared.body)
+	if err := lease.WriteJSONWithContextTimeout(ctx, json.RawMessage(prepared.body), s.openAIWSWriteTimeout()); err != nil {
 		lease.MarkBroken()
 		logOpenAIWSModeInfo(
 			"write_request_fail account_id=%d conn_id=%s cause=%s payload_bytes=%d",
@@ -370,6 +429,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 	responseID := ""
 	var finalResponse []byte
 	wroteDownstream := false
+	hasSemanticOutput := false
 	needModelReplace := originalModel != mappedModel
 	var mappedModelBytes []byte
 	if needModelReplace && mappedModel != "" {
@@ -417,7 +477,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		}
 	}
 	resultWithUsage := func() *OpenAIForwardResult {
-		return &OpenAIForwardResult{
+		result := &OpenAIForwardResult{
 			RequestID:                     responseID,
 			ResponseID:                    responseID,
 			Usage:                         *usage,
@@ -435,7 +495,15 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 			Duration:                      time.Since(startTime),
 			FirstTokenMs:                  firstTokenMs,
 			ClientDisconnect:              clientDisconnected,
+			ImageCount:                    imageCounter.Count(),
+			ImageOutputSizes:              imageCounter.Sizes(),
 		}
+		if result.ImageCount > 0 {
+			result.BillingModel = prepared.billing.Model
+			result.ImageSize = prepared.billing.SizeTier
+			result.ImageInputSize = prepared.billing.InputSize
+		}
+		return result
 	}
 
 	var flusher http.Flusher
@@ -514,6 +582,21 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		}
 	}
 
+	finishOutputFailure := func(statusCode int, source []byte, message string) (*OpenAIForwardResult, error) {
+		setOpsUpstreamError(c, statusCode, message, "")
+		failed := buildOpenAIWSHTTPBridgeFailedEvent(responseID, originalModel, source, message)
+		if !clientDisconnected {
+			if reqStream {
+				flushBufferedStreamEvents("output_failure")
+				emitStreamMessage(failed, true)
+			} else {
+				c.Data(statusCode, "application/json", []byte(gjson.GetBytes(failed, "response").Raw))
+			}
+		}
+		upstreamTerminalEvent = "response.failed"
+		return resultWithUsage(), fmt.Errorf("openai ws failed after downstream output or buffered semantic output: %s", message)
+	}
+
 	// Keep per-read timeouts unchanged for connected clients. Once a client
 	// disconnects, use the same timeout as a bounded total drain budget.
 	var pendingJSONDocuments [][]byte
@@ -569,6 +652,9 @@ readLoop:
 				len(message),
 				wroteDownstream,
 			)
+			if hasSemanticOutput || wroteDownstream {
+				return finishOutputFailure(http.StatusBadGateway, nil, "Upstream websocket returned malformed Responses event JSON")
+			}
 			if !wroteDownstream {
 				return nil, wrapOpenAIWSFallback("invalid_event_json", errors.New("upstream websocket returned malformed Responses event JSON"))
 			}
@@ -598,6 +684,9 @@ readLoop:
 					continue
 				}
 				break
+			}
+			if hasSemanticOutput || wroteDownstream {
+				return finishOutputFailure(http.StatusBadGateway, nil, "Upstream websocket stream interrupted")
 			}
 			if !wroteDownstream {
 				return nil, wrapOpenAIWSFallback(classifyOpenAIWSReadFallbackReason(readErr), readErr)
@@ -665,9 +754,32 @@ readLoop:
 			parseOpenAIWSResponseUsageFromCompletedEvent(message, usage)
 		}
 		imageCounter.AddSSEData(message)
+		if !isTerminalEvent && (isTokenEvent || imageCounter.Count() > 0 || openAIWSCompletedItemHasSemanticOutput(eventType, message)) {
+			hasSemanticOutput = true
+		}
 
 		if eventType == "error" || eventType == "response.failed" {
 			markOpenAICyberPolicyEvent(c, message, http.StatusOK, usage)
+			if imageFailure := openAIWSImagePermissionFailure(message, lease.HandshakeHeaders()); imageFailure != nil {
+				imageFailure.OriginAccountID, imageFailure.OriginPlatform = account.ID, account.Platform
+				s.handleOpenAIWSImagePermissionDenied(ctx, account, message)
+				lease.MarkBroken()
+				if !wroteDownstream && !hasSemanticOutput && !clientDisconnected {
+					return nil, imageFailure
+				}
+				setOpsUpstreamError(c, http.StatusForbidden, extractOpenAISSEErrorMessage(message), "")
+				if eventType == "error" {
+					message = buildOpenAIWSHTTPBridgeFailedEvent(responseID, originalModel, message, extractOpenAISSEErrorMessage(message))
+				}
+				if reqStream && !clientDisconnected {
+					flushBufferedStreamEvents("image_permission_denied")
+					emitStreamMessage(message, true)
+				} else if !reqStream && !clientDisconnected {
+					c.Data(http.StatusOK, "application/json", []byte(gjson.GetBytes(message, "response").Raw))
+				}
+				upstreamTerminalEvent = "response.failed"
+				return resultWithUsage(), &openAIWSImageOutputError{failure: imageFailure}
+			}
 		}
 
 		if eventType == "error" {
@@ -719,10 +831,13 @@ readLoop:
 			}
 			// error 事件后连接不再可复用，避免回池后污染下一请求。
 			lease.MarkBroken()
-			if !wroteDownstream && canFallback {
+			if !wroteDownstream && !hasSemanticOutput && canFallback {
 				return nil, wrapOpenAIWSFallback(fallbackReason, errors.New(errMsg))
 			}
 			statusCode := openAIWSErrorHTTPStatusFromRaw(errCodeRaw, errTypeRaw)
+			if hasSemanticOutput || wroteDownstream {
+				return finishOutputFailure(statusCode, message, errMsg)
+			}
 			setOpsUpstreamError(c, statusCode, errMsg, "")
 			if reqStream && !clientDisconnected {
 				flushBufferedStreamEvents("error_event")
@@ -799,6 +914,9 @@ readLoop:
 				terminalEventCount,
 				wroteDownstream,
 			)
+			if hasSemanticOutput || wroteDownstream {
+				return finishOutputFailure(http.StatusBadGateway, nil, "Upstream websocket finished without final response")
+			}
 			if !wroteDownstream {
 				return nil, wrapOpenAIWSFallback("missing_final_response", errors.New("no terminal response payload"))
 			}

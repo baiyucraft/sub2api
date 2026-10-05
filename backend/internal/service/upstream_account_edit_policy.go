@@ -179,6 +179,8 @@ func mergeUpstreamAccountEditableCredentials(existing, incoming map[string]any) 
 
 // mergeUpstreamAccountEditableExtra applies replacement semantics only to the
 // editable subset while preserving health, probe, usage and other runtime keys.
+// Canonical image policy keys, including their absence for auto, also replace
+// legacy fallbacks. Omitting extra entirely bypasses this merge in UpdateAccount.
 func mergeUpstreamAccountEditableExtra(existing, incoming map[string]any) map[string]any {
 	merged := make(map[string]any, len(existing)+len(incoming))
 	for key, value := range existing {
@@ -189,6 +191,17 @@ func mergeUpstreamAccountEditableExtra(existing, incoming map[string]any) map[st
 	}
 	for key, value := range incoming {
 		merged[key] = value
+	}
+	delete(merged, "codex_image_generation_bridge_enabled")
+	if openaiExtra, ok := merged[PlatformOpenAI].(map[string]any); ok && openaiExtra != nil {
+		cleaned := make(map[string]any, len(openaiExtra))
+		for key, value := range openaiExtra {
+			cleaned[key] = value
+		}
+		delete(cleaned, featureKeyCodexImageGenerationBridge)
+		delete(cleaned, "codex_image_generation_bridge_enabled")
+		delete(cleaned, featureKeyCodexImageGenerationExplicitToolPolicy)
+		merged[PlatformOpenAI] = cleaned
 	}
 	return merged
 }

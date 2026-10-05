@@ -586,7 +586,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	// 使用 IsExplicitImageGenerationIntent 排除被动 image_gen namespace 声明。
 	// Codex 在所有请求中被动声明 image_gen namespace，宽泛检测会导致禁了生图的
 	// 分组中所有 Codex 请求被 403（#4447），并误占生图并发槽位。
-	imageIntent := service.IsExplicitImageGenerationIntent("/v1/responses", reqModel, body)
+	imageIntent := service.DescribeOpenAIImageRequest("/v1/responses", reqModel, body, false).RequiresCapability()
 	if imageIntent && !service.GroupAllowsImageGeneration(apiKey.Group) {
 		h.errorResponse(c, http.StatusForbidden, "permission_error", service.ImageGenerationPermissionMessage())
 		return
@@ -608,6 +608,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	forwardBody := openAIModelMappedBody(body, channelMapping.Mapped, channelMapping.MappedModel, h.gatewayService.ReplaceModelInBody)
 	seedOpenAIForwardImageIntentHint(c, channelMapping.Mapped, imageIntent)
 	forwardModel := openAIChannelForwardModel(channelMapping, reqModel)
+	c.Request = c.Request.WithContext(h.openAIImageRoutingContext(c.Request.Context(), c, apiKey.Group, forwardModel, forwardBody))
 	c.Request = c.Request.WithContext(service.WithOpenAIForwardModel(
 		c.Request.Context(),
 		forwardModel,
@@ -683,6 +684,16 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	var lastFailoverErr *service.UpstreamFailoverError
 	var oauth429FailoverState service.OpenAIOAuth429FailoverState
 	var passthroughFailoverState openAIPassthroughFailoverState
+	var pendingFixedRetry *openAIFixedAccountRetry
+	upstreamAttempts := make(openAIUpstreamAttemptBudget)
+	abandonFixedRetry := func(retry *openAIFixedAccountRetry) bool {
+		lastFailoverErr = retry.failure
+		if h.abandonFixedAccountRetry(c, retry, failedAccountIDs, &switchCount, maxAccountSwitches, &oauth429FailoverState, reqLog) {
+			return true
+		}
+		h.handleFailoverExhausted(c, retry.failure, streamStarted)
+		return false
+	}
 
 	// 生图意图的 /v1/responses 请求必须调度到确实支持 Responses API 的账号，否则
 	// 会在 forward 阶段被静默降级为无法生图的 Chat Completions 直转（#4417）。
@@ -708,8 +719,10 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		}
 		// Select account supporting the requested model
 		reqLog.Debug("openai.account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
+		fixedRetry := pendingFixedRetry
+		pendingFixedRetry = nil
 		selection, scheduleDecision, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
-			c.Request.Context(),
+			fixedRetry.context(c.Request.Context()),
 			apiKey.GroupID,
 			previousResponseID,
 			sessionHash,
@@ -723,8 +736,17 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			requestPlatform,
 		)
 		if err != nil {
+			if fixedRetry != nil && errors.Is(err, service.ErrOpenAIFixedRetryUnavailable) {
+				if abandonFixedRetry(fixedRetry) {
+					continue
+				}
+				return
+			}
 			if failoverClientGone(c) {
 				reqLog.Info("openai.account_select_aborted_client_disconnected", zap.Error(err))
+				return
+			}
+			if h.handleOpenAIImageSelectionExhausted(c, c.Request.Context(), lastFailoverErr, streamStarted) {
 				return
 			}
 			if h.handleOpenAICapacitySelectionExhausted(c, streamStarted, reqLog, failedAccountIDs, lastFailoverErr) {
@@ -756,6 +778,9 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			return
 		}
 		if selection == nil || selection.Account == nil {
+			if h.handleOpenAIImageSelectionExhausted(c, c.Request.Context(), lastFailoverErr, streamStarted) {
+				return
+			}
 			if h.handleOpenAICapacitySelectionExhausted(c, streamStarted, reqLog, failedAccountIDs, lastFailoverErr) {
 				return
 			}
@@ -807,6 +832,12 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		setOpsSelectedAccount(c, account.ID, account.Platform)
 
 		accountReleaseFunc, slotResult := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, reqStream, &streamStarted, reqLog)
+		if fixedRetry != nil && (slotResult == openAISlotAcquireCapacityFull || slotResult == openAISlotAcquireProfitVetoed) {
+			if abandonFixedRetry(fixedRetry) {
+				continue
+			}
+			return
+		}
 		if slotResult == openAISlotAcquireCapacityFull {
 			if h.handleOpenAICapacityFull(c, forwardModel, account, failedAccountIDs, streamStarted, reqLog) {
 				continue
@@ -826,7 +857,17 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			return
 		}
 		account = selection.Account
+		if !upstreamAttempts.allows(account.ID, maxAccountSwitches) {
+			if accountReleaseFunc != nil {
+				accountReleaseFunc()
+			}
+			h.handleFailoverExhausted(c, lastFailoverErr, streamStarted)
+			return
+		}
 		if allowed, _, _ := h.acquireOpenAIAccountRPM(c, account, accountReleaseFunc, failedAccountIDs, reqLog); !allowed {
+			if fixedRetry != nil && !abandonFixedRetry(fixedRetry) {
+				return
+			}
 			continue
 		}
 
@@ -935,6 +976,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			} else {
 				var failoverErr *service.UpstreamFailoverError
 				if errors.As(err, &failoverErr) {
+					upstreamAttempts.recordFailure(account.ID, failoverErr)
 					bindUpstreamFailoverAccount(c, account, failoverErr)
 					if failoverClientGone(c) {
 						reqLog.Info("openai.failover_aborted_client_disconnected",
@@ -990,6 +1032,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 								return
 							case <-time.After(retryDelay):
 							}
+							pendingFixedRetry = &openAIFixedAccountRetry{account: account, failure: failoverErr}
 							continue
 						}
 					}
@@ -1362,6 +1405,16 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	var lastFailoverErr *service.UpstreamFailoverError
 	var oauth429FailoverState service.OpenAIOAuth429FailoverState
 	effectiveMappedModel := preferredMappedModel
+	var pendingFixedRetry *openAIFixedAccountRetry
+	upstreamAttempts := make(openAIUpstreamAttemptBudget)
+	abandonFixedRetry := func(retry *openAIFixedAccountRetry) bool {
+		lastFailoverErr = retry.failure
+		if h.abandonFixedAccountRetry(c, retry, failedAccountIDs, &switchCount, maxAccountSwitches, &oauth429FailoverState, reqLog) {
+			return true
+		}
+		h.handleAnthropicFailoverExhausted(c, retry.failure, streamStarted)
+		return false
+	}
 
 	// 分组利润控制：Messages 文本入口同样请求级装门并固定 pricingAt。
 	msgPricingCtx, pricingAt := h.gatewayService.WithOpenAIRequestPricingContext(c.Request.Context(), apiKey.GroupID)
@@ -1376,8 +1429,10 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			currentRoutingModel = effectiveMappedModel
 		}
 		reqLog.Debug("openai_messages.account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
+		fixedRetry := pendingFixedRetry
+		pendingFixedRetry = nil
 		selection, scheduleDecision, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
-			c.Request.Context(),
+			fixedRetry.context(c.Request.Context()),
 			apiKey.GroupID,
 			"", // no previous_response_id
 			sessionHash,
@@ -1391,6 +1446,12 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			requestPlatform,
 		)
 		if err != nil {
+			if fixedRetry != nil && errors.Is(err, service.ErrOpenAIFixedRetryUnavailable) {
+				if abandonFixedRetry(fixedRetry) {
+					continue
+				}
+				return
+			}
 			if failoverClientGone(c) {
 				reqLog.Info("openai_messages.account_select_aborted_client_disconnected", zap.Error(err))
 				return
@@ -1438,6 +1499,12 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		setOpsSelectedAccount(c, account.ID, account.Platform)
 
 		accountReleaseFunc, slotResult := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, reqStream, &streamStarted, reqLog)
+		if fixedRetry != nil && (slotResult == openAISlotAcquireCapacityFull || slotResult == openAISlotAcquireProfitVetoed) {
+			if abandonFixedRetry(fixedRetry) {
+				continue
+			}
+			return
+		}
 		if slotResult == openAISlotAcquireCapacityFull {
 			if h.handleOpenAICapacityFull(c, currentRoutingModel, account, failedAccountIDs, streamStarted, reqLog) {
 				continue
@@ -1457,7 +1524,17 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			return
 		}
 		account = selection.Account
+		if !upstreamAttempts.allows(account.ID, maxAccountSwitches) {
+			if accountReleaseFunc != nil {
+				accountReleaseFunc()
+			}
+			h.handleAnthropicFailoverExhausted(c, lastFailoverErr, streamStarted)
+			return
+		}
 		if allowed, _, _ := h.acquireOpenAIAccountRPM(c, account, accountReleaseFunc, failedAccountIDs, reqLog); !allowed {
+			if fixedRetry != nil && !abandonFixedRetry(fixedRetry) {
+				return
+			}
 			continue
 		}
 
@@ -1548,6 +1625,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 				var failoverErr *service.UpstreamFailoverError
 				if errors.As(err, &failoverErr) {
 					bindUpstreamFailoverAccount(c, account, failoverErr)
+					upstreamAttempts.recordFailure(account.ID, failoverErr)
 					if failoverClientGone(c) {
 						reqLog.Info("openai_messages.failover_aborted_client_disconnected",
 							zap.Int64("account_id", account.ID),
@@ -1593,6 +1671,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 								return
 							case <-time.After(retryDelay):
 							}
+							pendingFixedRetry = &openAIFixedAccountRetry{account: account, failure: failoverErr}
 							continue
 						}
 					}
@@ -2943,7 +3022,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		return
 	}
 
-	imageIntent := service.IsExplicitImageGenerationIntent("/v1/responses", reqModel, firstMessage)
+	imageIntent := service.DescribeOpenAIImageRequest("/v1/responses", reqModel, firstMessage, false).RequiresCapability()
 	if imageIntent && !service.GroupAllowsImageGeneration(apiKey.Group) {
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, service.ImageGenerationPermissionMessage())
 		return
@@ -3090,6 +3169,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		if !sameAccountRetryAllowed(failoverErr, sameAccountRetryCount[account.ID], retryLimit) {
 			return false
 		}
+		releaseAccountSlot()
 		sameAccountRetryCount[account.ID]++
 		noteUpstream429SameAccountRetry(c, account, failoverErr, sameAccountRetryCount[account.ID])
 		retryDelay := sameAccountRetryDelayFor(failoverErr, sameAccountRetryCount[account.ID])
@@ -3171,6 +3251,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	// 建连时刻只用于选号/准入，不作为任何 turn 的计费定价时刻。
 	wsPricingCtx, _ := h.gatewayService.WithOpenAIRequestPricingContext(ctx, apiKey.GroupID)
 	ctx = wsPricingCtx
+	ctx = h.openAIImageRoutingContext(ctx, c, apiKey.Group, wsForwardModel, firstMessage)
 
 	currentTurnRetryAsFirst := false
 	for {
@@ -3708,7 +3789,8 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					currentTurnRetryAsFirst = true
 					channelMappingWS, _ = h.gatewayService.ResolveChannelMappingAndRestrict(ctx, apiKey.GroupID, reqModel)
 					wsForwardModel = openAIChannelForwardModel(channelMappingWS, reqModel)
-					imageIntent = service.IsExplicitImageGenerationIntent("/v1/responses", reqModel, retryPayload)
+					imageIntent = service.DescribeOpenAIImageRequest("/v1/responses", reqModel, retryPayload, false).RequiresCapability()
+					ctx = h.openAIImageRoutingContext(ctx, c, apiKey.Group, wsForwardModel, retryPayload)
 					requiredCapability = service.OpenAIEndpointCapabilityChatCompletions
 					if imageIntent && requestPlatform == service.PlatformOpenAI {
 						requiredCapability = service.OpenAIEndpointCapabilityResponses
@@ -3728,15 +3810,23 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 						return
 					}
 					if currentAccountRelease == nil {
-						accountRelease, acquired, acquireErr := h.concurrencyHelper.TryAcquireAccountSlotForAccount(ctx, account)
-						if acquireErr != nil || !acquired {
+						retrySelection, _, acquireErr := h.gatewayService.SelectAccountWithSchedulerForCapability(
+							service.WithOpenAIFixedRetryAccount(ctx, account.ID), apiKey.GroupID, previousResponseID,
+							sessionHash, wsForwardModel, failedAccountIDs, requiredTransport, requiredCapability,
+							false, previousResponseCanMove, !imageIntent, requestPlatform,
+						)
+						if acquireErr != nil || retrySelection == nil || !retrySelection.Acquired {
 							reqLog.Warn("openai.websocket_same_account_retry_slot_unavailable",
 								zap.Int64("account_id", account.ID),
 								zap.Error(acquireErr),
 							)
-							closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "account is busy, please retry later")
+							if handleWSFailover(account, failoverErr) {
+								break
+							}
 							return
 						}
+						account = retrySelection.Account
+						accountRelease := retrySelection.ReleaseFunc
 						resolvedAccount, proxyRelease, proxyErr := h.gatewayService.AcquireOpenAIProxyGroupEgress(ctx, account, sessionHash)
 						if proxyErr != nil {
 							if accountRelease != nil {
@@ -3746,7 +3836,9 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 								zap.Int64("account_id", account.ID),
 								zap.Error(proxyErr),
 							)
-							closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "account proxy capacity is unavailable, please retry later")
+							if handleWSFailover(account, failoverErr) {
+								break
+							}
 							return
 						}
 						account = resolvedAccount
@@ -4027,6 +4119,10 @@ func (h *OpenAIGatewayHandler) handleFailoverExhausted(c *gin.Context, failoverE
 		return
 	}
 	copyFailoverRetryAfter(c, failoverErr.ResponseHeaders)
+	if service.IsOpenAIImagePermissionFailover(failoverErr) {
+		h.handleStreamingAwareErrorWithCode(c, http.StatusServiceUnavailable, "server_error", "image_generation_unavailable", "No image-capable upstream account is available", streamStarted, false)
+		return
+	}
 	if failoverErr.IsOpenAIRequestBodyTooLarge() {
 		service.SetOpsUpstreamError(c, http.StatusRequestEntityTooLarge, service.OpenAIRequestBodyTooLargeClientMessage, "")
 		h.handleStreamingAwareError(

@@ -581,13 +581,13 @@ func lcodexProfileExtraUpdates(cfg *UpstreamConfig, profile *lcodexProfile, prof
 	return updates, warning
 }
 
-func (s *UpstreamConfigService) mergeLCodexImageCapabilitySnapshots(ctx context.Context, cfg *UpstreamConfig, snapshot *upstreamProviderSnapshot) {
+func (s *UpstreamConfigService) mergeLCodexImageCapabilitySnapshots(ctx context.Context, cfg *UpstreamConfig, snapshot *upstreamProviderSnapshot) error {
 	if cfg == nil || snapshot == nil || len(snapshot.Keys) == 0 {
-		return
+		return nil
 	}
 	existing, err := s.repo.ListKeys(ctx, cfg.ID)
 	if err != nil {
-		existing = nil
+		return fmt.Errorf("load image permission snapshot history: %w", err)
 	}
 	byRemoteID := make(map[int64]UpstreamKey, len(existing))
 	for _, key := range existing {
@@ -597,7 +597,7 @@ func (s *UpstreamConfigService) mergeLCodexImageCapabilitySnapshots(ctx context.
 	}
 	for i := range snapshot.Keys {
 		key := &snapshot.Keys[i]
-		if _, ok := parseLCodexImageCapabilitySnapshot(key.Extra); ok {
+		if incoming, ok := parseLCodexImageCapabilitySnapshot(key.Extra); ok && incoming.Status != UpstreamKeyImagePricingStatusUnavailable {
 			continue
 		}
 		if key.Extra == nil {
@@ -616,6 +616,7 @@ func (s *UpstreamConfigService) mergeLCodexImageCapabilitySnapshots(ctx context.
 			Version: lcodexImageCapabilitySnapshotVersion, Status: UpstreamKeyImagePricingStatusUnavailable,
 		})
 	}
+	return nil
 }
 
 func decodeLCodexGroups(raw json.RawMessage) ([]lcodexGroupRow, error) {
