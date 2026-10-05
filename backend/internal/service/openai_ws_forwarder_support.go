@@ -77,8 +77,16 @@ func (s *OpenAIGatewayService) performOpenAIWSGeneratePrewarm(
 	}
 	prewarmPayload["generate"] = false
 	prewarmPayloadJSON := payloadAsJSONBytes(prewarmPayload)
-
-	if err := lease.WriteJSONWithContextTimeout(ctx, prewarmPayload, s.openAIWSWriteTimeout()); err != nil {
+	originalImageRequest, ok := OpenAIImageRequestFromContext(ctx)
+	if !ok {
+		originalImageRequest = DescribeOpenAIImageRequest(openAIResponsesEndpoint, openAIWSPayloadStringFromRaw(prewarmPayloadJSON, "model"), prewarmPayloadJSON, false)
+	}
+	prepared, prepareErr := s.prepareOpenAIWSImageSend(ctx, nil, account, prewarmPayloadJSON, originalImageRequest, false)
+	if prepareErr != nil {
+		return prepareErr
+	}
+	prewarmPayloadJSON = prepared.body
+	if err := lease.WriteJSONWithContextTimeout(ctx, json.RawMessage(prewarmPayloadJSON), s.openAIWSWriteTimeout()); err != nil {
 		lease.MarkBroken()
 		logOpenAIWSModeInfo(
 			"prewarm_write_fail account_id=%d conn_id=%s cause=%s",
@@ -115,6 +123,12 @@ func (s *OpenAIGatewayService) performOpenAIWSGeneratePrewarm(
 			continue
 		}
 		prewarmEventCount++
+		if imageFailure := openAIWSImagePermissionFailure(message, lease.HandshakeHeaders()); imageFailure != nil {
+			imageFailure.OriginAccountID, imageFailure.OriginPlatform = account.ID, account.Platform
+			s.handleOpenAIWSImagePermissionDenied(ctx, account, message)
+			lease.MarkBroken()
+			return imageFailure
+		}
 		if prewarmResponseID == "" && eventResponseID != "" {
 			prewarmResponseID = eventResponseID
 		}
@@ -323,6 +337,9 @@ func (s *OpenAIGatewayService) handleOpenAIWSErrorEventTransientFailure(ctx cont
 	if eventType != "error" {
 		return
 	}
+	if s.handleOpenAIWSImagePermissionDenied(ctx, account, payload) {
+		return
+	}
 	status := openAIWSPayloadTransientStatus(payload)
 	if status != 0 {
 		if status == http.StatusTooManyRequests {
@@ -336,6 +353,9 @@ func (s *OpenAIGatewayService) handleOpenAIWSErrorEventTransientFailure(ctx cont
 // failures and transient failures. Its return value lets stream callers avoid
 // applying the same transition twice for an error/response.failed pair.
 func (s *OpenAIGatewayService) handleOpenAIWSFailureAccountSideEffects(ctx context.Context, account *Account, canonicalModel string, headers http.Header, payload []byte) bool {
+	if s.handleOpenAIWSImagePermissionDenied(ctx, account, payload) {
+		return true
+	}
 	message := extractOpenAISSEErrorMessage(payload)
 	status := openAIStreamFailureStatus(payload, message)
 	switch status {

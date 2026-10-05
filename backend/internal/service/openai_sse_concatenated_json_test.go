@@ -152,12 +152,14 @@ func TestOpenAIWSv2RejectsMalformedEventAfterWritingDownstream(t *testing.T) {
 	result, err := svc.Forward(context.Background(), c, account, []byte(`{"model":"gpt-5.6-sol","stream":true,"input":"hello"}`))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "after downstream output")
-	require.Nil(t, result)
+	require.NotNil(t, result)
+	require.Equal(t, OpenAIUsage{}, result.Usage)
+	require.Equal(t, "response.failed", result.UpstreamTerminalEvent)
 	require.True(t, captureConn.closed)
 	require.Contains(t, recorder.Body.String(), `"delta":"ok"`)
 	require.NotContains(t, recorder.Body.String(), "unexpected-tail")
 	require.NotContains(t, recorder.Body.String(), "response.in_progress")
-	assertOpenAISSEFrames(t, recorder.Body.String(), []string{"response.output_text.delta"})
+	assertOpenAISSEFrames(t, recorder.Body.String(), []string{"response.output_text.delta", "response.failed"})
 }
 
 func testOpenAIWSv2RejectsMalformedEventBeforeWritingDownstream(t *testing.T, malformedMessage []byte) {

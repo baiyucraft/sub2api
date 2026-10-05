@@ -172,6 +172,16 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 	sameAccountRetryCount := make(map[int64]int)
 	var lastFailoverErr *service.UpstreamFailoverError
 	var oauth429FailoverState service.OpenAIOAuth429FailoverState
+	var pendingFixedRetry *openAIFixedAccountRetry
+	upstreamAttempts := make(openAIUpstreamAttemptBudget)
+	abandonFixedRetry := func(retry *openAIFixedAccountRetry) bool {
+		lastFailoverErr = retry.failure
+		if h.abandonFixedAccountRetry(c, retry, failedAccountIDs, &switchCount, maxAccountSwitches, &oauth429FailoverState, reqLog) {
+			return true
+		}
+		h.handleFailoverExhausted(c, retry.failure, streamStarted)
+		return false
+	}
 
 	// 分组利润控制：chat completions 文本入口请求级装门并固定 pricingAt。
 	ccPricingCtx, pricingAt := h.gatewayService.WithOpenAIRequestPricingContext(c.Request.Context(), apiKey.GroupID)
@@ -182,8 +192,10 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 			return
 		}
 		reqLog.Debug("openai_chat_completions.account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
+		fixedRetry := pendingFixedRetry
+		pendingFixedRetry = nil
 		selection, scheduleDecision, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
-			c.Request.Context(),
+			fixedRetry.context(c.Request.Context()),
 			apiKey.GroupID,
 			"",
 			sessionHash,
@@ -197,6 +209,12 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 			requestPlatform,
 		)
 		if err != nil {
+			if fixedRetry != nil && errors.Is(err, service.ErrOpenAIFixedRetryUnavailable) {
+				if abandonFixedRetry(fixedRetry) {
+					continue
+				}
+				return
+			}
 			if failoverClientGone(c) {
 				reqLog.Info("openai_chat_completions.account_select_aborted_client_disconnected", zap.Error(err))
 				return
@@ -243,6 +261,12 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 		setOpsSelectedAccount(c, account.ID, account.Platform)
 
 		accountReleaseFunc, slotResult := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, reqStream, &streamStarted, reqLog)
+		if fixedRetry != nil && (slotResult == openAISlotAcquireCapacityFull || slotResult == openAISlotAcquireProfitVetoed) {
+			if abandonFixedRetry(fixedRetry) {
+				continue
+			}
+			return
+		}
 		if slotResult == openAISlotAcquireCapacityFull {
 			if h.handleOpenAICapacityFull(c, forwardModel, account, failedAccountIDs, streamStarted, reqLog) {
 				continue
@@ -261,7 +285,17 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 			return
 		}
 		account = selection.Account
+		if !upstreamAttempts.allows(account.ID, maxAccountSwitches) {
+			if accountReleaseFunc != nil {
+				accountReleaseFunc()
+			}
+			h.handleFailoverExhausted(c, lastFailoverErr, streamStarted)
+			return
+		}
 		if allowed, _, _ := h.acquireOpenAIAccountRPM(c, account, accountReleaseFunc, failedAccountIDs, reqLog); !allowed {
+			if fixedRetry != nil && !abandonFixedRetry(fixedRetry) {
+				return
+			}
 			continue
 		}
 
@@ -350,6 +384,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 			} else {
 				var failoverErr *service.UpstreamFailoverError
 				if errors.As(err, &failoverErr) {
+					upstreamAttempts.recordFailure(account.ID, failoverErr)
 					bindUpstreamFailoverAccount(c, account, failoverErr)
 					if failoverClientGone(c) {
 						reqLog.Info("openai_chat_completions.failover_aborted_client_disconnected",
@@ -396,6 +431,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 								return
 							case <-time.After(retryDelay):
 							}
+							pendingFixedRetry = &openAIFixedAccountRetry{account: account, failure: failoverErr}
 							continue
 						}
 					}

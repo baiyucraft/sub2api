@@ -764,6 +764,9 @@ func (e *UpstreamFailoverError) ShouldReportAccountScheduleFailure() bool {
 	if e == nil || e.PluginAdmissionRejected {
 		return false
 	}
+	if IsOpenAIImagePermissionFailover(e) {
+		return false
+	}
 	return !e.IsCredentialFailure() || e.Scope == GatewayFailureScopeAccount
 }
 

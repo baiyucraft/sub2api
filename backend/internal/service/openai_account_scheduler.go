@@ -558,7 +558,7 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 		ctx = s.service.withOpenAISchedulingAdmission(ctx, req.RequestedModel, req.RequireCompact)
 	}
 	sessionHash := strings.TrimSpace(req.SessionHash)
-	if sessionHash == "" || s == nil || s.service == nil || s.service.cache == nil {
+	if sessionHash == "" || s == nil || s.service == nil || (s.service.cache == nil && req.StickyAccountID <= 0) {
 		return nil, false, nil
 	}
 
@@ -2258,9 +2258,8 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatibleReason(ctx con
 	if !accountSupportsOpenAICapabilities(account, req.RequiredCapability, req.RequiredImageCapability) {
 		return false, "capability_mismatch"
 	}
-	if req.RequiredImageCapability != "" && req.ImageCostRoutingMode != "" && req.ImageCostRoutingMode != "off" &&
-		upstreamImagePricingExplicitlyUnsupported(account.UpstreamImagePricing) {
-		return false, "image_capability_snapshot"
+	if reason := s.service.openAIImageCandidateFailure(ctx, account, req); reason != "" {
+		return false, reason
 	}
 	// 分组利润控制：不合格账号在候选过滤与抢槽后终检阶段即被排除，
 	// 排序/评分/粘性/熔断只在合格账号之间工作；named reason 进入 filter stats。
@@ -2636,6 +2635,29 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 	previousResponseCanMove bool,
 	useUpstreamTokenCost bool,
 ) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
+	if _, imageRequest := OpenAIImageRequestFromContext(ctx); imageRequest {
+		ctx = s.WithOpenAIImageRequestPolicy(ctx, groupID)
+	}
+	if NormalizeOpenAICompatiblePlatform(platform) == PlatformOpenAI && openAIFixedRetryAccountID(ctx) == 0 && openAIImageRequestNeedsPreference(ctx) {
+		knownCtx := context.WithValue(ctx, openAIImageKnownOnlyKey{}, true)
+		selection, decision, err := s.selectAccountWithSchedulerImagePass(knownCtx, groupID, previousResponseID, sessionHash, requestedModel, excludedIDs, previousResponseExcludedIDs, separatePreviousExclusions, requiredTransport, requiredCapability, requiredImageCapability, requireCompact, platform, previousResponseCanMove, useUpstreamTokenCost)
+		if err == nil && selection != nil && selection.Account != nil {
+			return selection, decision, nil
+		}
+		if err != nil && !errors.Is(err, ErrNoAvailableAccounts) && !errors.Is(err, ErrNoAvailableCompactAccounts) {
+			return selection, decision, err
+		}
+	}
+	return s.selectAccountWithSchedulerImagePass(ctx, groupID, previousResponseID, sessionHash, requestedModel, excludedIDs, previousResponseExcludedIDs, separatePreviousExclusions, requiredTransport, requiredCapability, requiredImageCapability, requireCompact, platform, previousResponseCanMove, useUpstreamTokenCost)
+}
+
+func (s *OpenAIGatewayService) selectAccountWithSchedulerImagePass(
+	ctx context.Context, groupID *int64, previousResponseID, sessionHash, requestedModel string,
+	excludedIDs, previousResponseExcludedIDs map[int64]struct{}, separatePreviousExclusions bool,
+	requiredTransport OpenAIUpstreamTransport, requiredCapability OpenAIEndpointCapability,
+	requiredImageCapability OpenAIImagesCapability, requireCompact bool, platform string,
+	previousResponseCanMove, useUpstreamTokenCost bool,
+) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
 	selection, decision, err := s.selectAccountWithSchedulerCore(ctx, groupID, previousResponseID, sessionHash, requestedModel, excludedIDs, previousResponseExcludedIDs, separatePreviousExclusions, requiredTransport, requiredCapability, requiredImageCapability, requireCompact, platform, previousResponseCanMove, useUpstreamTokenCost)
 	if err == nil || openAIProxyStreamQuarantineBypassed(ctx) {
 		return selection, decision, err
@@ -2795,6 +2817,16 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerCore(
 	platform = NormalizeOpenAICompatiblePlatform(platform)
 	decision := OpenAIAccountScheduleDecision{}
 	imageSizeTier, imageCostMode, imageCostTolerance, imageCostStale := imageCostRoutingFromContext(ctx)
+	if fixedID := openAIFixedRetryAccountID(ctx); fixedID > 0 {
+		return s.selectFixedOpenAIRetryAccount(ctx, OpenAIAccountScheduleRequest{
+			GroupID: groupID, Platform: platform, SessionHash: sessionHash,
+			RequestedModel: requestedModel, RequiredTransport: requiredTransport,
+			RequiredCapability: requiredCapability, RequiredImageCapability: requiredImageCapability,
+			RequireCompact: requireCompact, ExcludedIDs: excludedIDs,
+			RequirePrivacySet:          s.openAIGroupRequiresPrivacySet(ctx, groupID),
+			ExcludedConcurrencyTargets: openAICapacityExcludedTargets(ctx),
+		}, fixedID)
+	}
 	imageCostRouting := requiredImageCapability != "" && imageCostMode != "" && imageCostMode != "off"
 	preserveGuardianParentBinding := preserveOpenAIGuardianParentBinding(ctx, sessionHash)
 	guardianParentAccountID := int64(0)
@@ -2872,7 +2904,8 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerCore(
 				if selection == nil || selection.Account == nil {
 					return selection, decision, nil
 				}
-				if accountSupportsOpenAICapabilities(selection.Account, requiredCapability, requiredImageCapability) {
+				if accountSupportsOpenAICapabilities(selection.Account, requiredCapability, requiredImageCapability) &&
+					s.openAIImageCandidateFailure(ctx, selection.Account, OpenAIAccountScheduleRequest{GroupID: groupID, RequestedModel: requestedModel, RequiredImageCapability: requiredImageCapability}) == "" {
 					applyLegacySelectionDecision(&decision, selection)
 					return selection, decision, nil
 				}
@@ -2899,7 +2932,8 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerCore(
 				return selection, decision, nil
 			}
 			if s.isOpenAIAccountTransportCompatible(selection.Account, requiredTransport) &&
-				accountSupportsOpenAICapabilities(selection.Account, requiredCapability, requiredImageCapability) {
+				accountSupportsOpenAICapabilities(selection.Account, requiredCapability, requiredImageCapability) &&
+				s.openAIImageCandidateFailure(ctx, selection.Account, OpenAIAccountScheduleRequest{GroupID: groupID, RequestedModel: requestedModel, RequiredImageCapability: requiredImageCapability}) == "" {
 				applyLegacySelectionDecision(&decision, selection)
 				return selection, decision, nil
 			}

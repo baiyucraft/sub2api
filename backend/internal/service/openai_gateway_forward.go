@@ -19,6 +19,9 @@ import (
 
 // Forward forwards request to OpenAI API
 func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte) (*OpenAIForwardResult, error) {
+	// Every physical account attempt owns its payload, including in-place
+	// compatibility transforms; the caller retains the canonical request bytes.
+	body = append([]byte(nil), body...)
 	beginUpstreamResponseModelObservation(c)
 	ClearActualOpenAIUpstreamEndpoint(c)
 	if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
@@ -39,6 +42,46 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	startTime := time.Now()
 	// 固定渠道映射后的请求级 canonical body；账号 normalize/strip 不得改写跨 failover hint。
 	canonicalImageIntentBody := body
+	isCodexCLI := openai.IsCodexOfficialClientByHeaders(c.GetHeader("User-Agent"), c.GetHeader("originator")) || (s.cfg != nil && s.cfg.Gateway.ForceCodexCLI)
+	imageRequest := DescribeOpenAIImageRequest(openAIResponsesEndpoint, gjson.GetBytes(body, "model").String(), body, isCodexCLI)
+	if original, ok := OpenAIImageRequestFromContext(ctx); ok && original.History {
+		imageRequest.History = true
+		if !imageRequest.Native && !imageRequest.Explicit {
+			imageRequest.Source = "history"
+		}
+	}
+	imageRequest.Lite = imageRequest.Lite || isOpenAIResponsesLiteHeader(c.GetHeader(responsesLiteHeader))
+	if isOpenAIResponsesCompactPath(c) {
+		imageRequest.Endpoint = openAIResponsesCompactEndpoint
+	}
+	apiKey := getAPIKeyFromContext(c)
+	var imageGroupID *int64
+	if apiKey != nil {
+		imageGroupID = apiKey.GroupID
+	}
+	ctx = WithOpenAIImageRequestDescriptor(ctx, imageRequest)
+	ctx = s.WithOpenAIImageRequestPolicy(ctx, imageGroupID)
+	ctx = WithOpenAIImageRequestGroup(ctx, apiKeyGroup(apiKey))
+	derivedBody, imageBodyChanged, imagePolicyErr := DeriveOpenAIImageRequestBody(body, imageRequest, account)
+	if imagePolicyErr != nil {
+		return nil, imagePolicyErr
+	}
+	body = derivedBody
+	logOpenAIImageRequestDecision(ctx, imageRequest, account, imageBodyChanged, s.CanInjectOpenAIHostedImageGeneration(ctx, imageGroupID, account))
+	derivedImageRequest := DescribeOpenAIImageRequest(imageRequest.Endpoint, imageRequest.Model, body, isCodexCLI)
+	if imageRequest.History {
+		derivedImageRequest.History = true
+	}
+	if imageRequest.Endpoint != openAIResponsesCompactEndpoint && derivedImageRequest.RequiresCapability() && !GroupAllowsImageGeneration(apiKeyGroup(apiKey)) {
+		MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalFeatureGate)
+		c.JSON(http.StatusForbidden, gin.H{"error": gin.H{"type": "permission_error", "message": ImageGenerationPermissionMessage()}})
+		return nil, errors.New("image generation disabled for group")
+	}
+	if imageRequest.Endpoint != openAIResponsesCompactEndpoint {
+		if err := CheckOpenAIImageRequestPermission(ctx, derivedImageRequest, account); err != nil {
+			return nil, err
+		}
+	}
 
 	restrictionResult := s.detectCodexClientRestriction(c, account, body)
 	apiKeyID := getAPIKeyIDFromContext(c)
@@ -196,6 +239,9 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	}
 
 	if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
+		if err := CheckOpenAIImageRequestPermission(ctx, DescribeOpenAIImageRequest(imageRequest.Endpoint, account.GetMappedModel(reqModel), body, isCodexCLI), account); err != nil {
+			return nil, err
+		}
 		return s.forwardResponsesViaRawChatCompletions(ctx, c, account, body)
 	}
 	SetActualOpenAIUpstreamEndpoint(c, openAIResponsesUpstreamEndpoint)
@@ -227,7 +273,6 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	compatMessagesBridge := isOpenAICompatMessagesBridgeBody(body)
 	setOpenAICompatMessagesBridgeContext(c, compatMessagesBridge)
 
-	isCodexCLI := openai.IsCodexOfficialClientByHeaders(c.GetHeader("User-Agent"), c.GetHeader("originator")) || (s.cfg != nil && s.cfg.Gateway.ForceCodexCLI)
 	codexImageGenerationExplicitToolPolicy := codexImageGenerationExplicitToolPolicyAllow
 	if isCodexCLI {
 		codexImageGenerationExplicitToolPolicy = account.CodexImageGenerationExplicitToolPolicy()
@@ -261,7 +306,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		return nil, errors.New("openai ws v1 is temporarily unsupported; use ws v2")
 	}
 	if passthroughEnabled {
-		attemptImageIntentInvalidated := false
+		attemptImageIntentInvalidated := imageBodyChanged
 		if isCodexCLI && codexImageGenerationExplicitToolPolicy == codexImageGenerationExplicitToolPolicyStrip {
 			strippedBody, changed, stripErr := stripOpenAIImageGenerationToolsFromRawPayload(body)
 			if stripErr != nil {
@@ -276,6 +321,9 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		}
 		// 透传分支只需要轻量提取字段，避免热路径全量 Unmarshal。
 		mappedModel := account.GetMappedModel(reqModel)
+		if err := CheckOpenAIImageRequestPermission(ctx, DescribeOpenAIImageRequest(imageRequest.Endpoint, mappedModel, body, isCodexCLI), account); err != nil {
+			return nil, err
+		}
 		reasoningEffort := extractOpenAIReasoningEffortFromBody(body, mappedModel)
 		// 国产模型默认 effort 补充：也要用 mappedModel 判定是否是 passback-required 上游。
 		reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, body, mappedModel)
@@ -345,7 +393,6 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		disablePatch()
 	}
 
-	apiKey := getAPIKeyFromContext(c)
 	imageGenerationAllowed := GroupAllowsImageGeneration(nil)
 	if apiKey != nil {
 		imageGenerationAllowed = GroupAllowsImageGeneration(apiKey.Group)
@@ -354,7 +401,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		!isOpenAIResponsesLiteHeader(c.GetHeader(responsesLiteHeader)) &&
 		imageGenerationAllowed &&
 		codexImageGenerationExplicitToolPolicy != codexImageGenerationExplicitToolPolicyStrip &&
-		s.isCodexImageGenerationBridgeEnabled(ctx, account, apiKey)
+		s.CanInjectOpenAIHostedImageGeneration(ctx, imageGroupID, account)
 	var imageIntent bool
 	canonicalImageIntent := resolveOpenAIImageIntentHint(c, reqModel, canonicalImageIntentBody, IsImageGenerationIntent)
 	if isCodexCLI && codexImageGenerationExplicitToolPolicy == codexImageGenerationExplicitToolPolicyStrip {
@@ -367,10 +414,12 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Stripped /responses image_generation tool for Codex client by account policy")
 		}
 		imageIntent = IsImageGenerationIntentMap(openAIResponsesEndpoint, reqModel, decoded)
+	} else if imageBodyChanged {
+		imageIntent = IsImageGenerationIntent(openAIResponsesEndpoint, reqModel, body)
 	} else {
 		imageIntent = canonicalImageIntent
 	}
-	if imageIntent && !imageGenerationAllowed {
+	if !compactPath && derivedImageRequest.RequiresCapability() && !imageGenerationAllowed {
 		MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalFeatureGate)
 		c.JSON(http.StatusForbidden, gin.H{"error": gin.H{"type": "permission_error", "message": ImageGenerationPermissionMessage()}})
 		return nil, errors.New("image generation disabled for group")
@@ -420,7 +469,10 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	}
 
 	imageIntent = imageIntent || IsImageGenerationIntent(openAIResponsesEndpoint, reqModel, nil) || isOpenAIImageGenerationModel(upstreamModel)
-	if imageIntent && !imageGenerationAllowed {
+	if err := CheckOpenAIImageRequestPermission(ctx, DescribeOpenAIImageRequest(imageRequest.Endpoint, upstreamModel, body, isCodexCLI), account); err != nil {
+		return nil, err
+	}
+	if ((!isCompactRequest && derivedImageRequest.RequiresCapability()) || isOpenAIImageGenerationModel(upstreamModel)) && !imageGenerationAllowed {
 		MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalFeatureGate)
 		c.JSON(http.StatusForbidden, gin.H{"error": gin.H{"type": "permission_error", "message": ImageGenerationPermissionMessage()}})
 		return nil, errors.New("image generation disabled for group")
@@ -760,6 +812,9 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		}
 	}
 	imageBillingModel := ""
+	if err := CheckOpenAIImageRequestPermission(ctx, DescribeOpenAIImageRequest(imageRequest.Endpoint, upstreamModel, body, isCodexCLI), account); err != nil {
+		return nil, err
+	}
 	imageSizeTier := ""
 	imageInputSize := ""
 	if imageIntent {
@@ -909,7 +964,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			if wsErr == nil {
 				break
 			}
-			if c != nil && c.Writer != nil && c.Writer.Written() {
+			if wsResult != nil || (c != nil && c.Writer != nil && c.Writer.Written()) {
 				break
 			}
 			var taskRecoveredErr *agentIdentityTaskRecoveredError
@@ -1018,6 +1073,13 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			return wsResult, nil
 		}
 		s.writeOpenAIWSFallbackErrorResponse(c, account, wsErr)
+		if wsResult != nil {
+			wsResult.UpstreamModel = upstreamModel
+			if wsResult.BillingModel == "" {
+				wsResult.BillingModel = billingModel
+			}
+			return wsResult, wsErr
+		}
 		return nil, wsErr
 	}
 

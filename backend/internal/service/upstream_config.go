@@ -2248,13 +2248,21 @@ func (s *UpstreamConfigService) syncProviderConfigLocked(ctx context.Context, cf
 			result.Error = adapter.SanitizeError(err, cfg.Credentials)
 			return nil, result, err
 		}
-		s.mergeSub2APIImagePricingSnapshots(ctx, cfg, snapshot)
+		if err := s.mergeSub2APIImagePricingSnapshots(ctx, cfg, snapshot); err != nil {
+			result.Error = adapter.SanitizeError(err, cfg.Credentials)
+			result.Stage, result.ErrorCode, result.Retryable = classifyUpstreamSyncFailure(err, "persist")
+			return nil, result, err
+		}
 	} else if cfg.Provider == UpstreamProviderLCodex {
 		if err := s.preserveMissingProviderRates(ctx, cfg, snapshot); err != nil {
 			result.Error = adapter.SanitizeError(err, cfg.Credentials)
 			return nil, result, err
 		}
-		s.mergeLCodexImageCapabilitySnapshots(ctx, cfg, snapshot)
+		if err := s.mergeLCodexImageCapabilitySnapshots(ctx, cfg, snapshot); err != nil {
+			result.Error = adapter.SanitizeError(err, cfg.Credentials)
+			result.Stage, result.ErrorCode, result.Retryable = classifyUpstreamSyncFailure(err, "persist")
+			return nil, result, err
+		}
 	}
 	keys := snapshot.Keys
 	snapshot.ExtraUpdates = normalizeProviderBalanceExtra(cfg, snapshot.ExtraUpdates)
@@ -2441,9 +2449,9 @@ func (s *UpstreamConfigService) reconcileUpstreamAccounts(ctx context.Context, c
 	return created, nil
 }
 
-func (s *UpstreamConfigService) mergeSub2APIImagePricingSnapshots(ctx context.Context, cfg *UpstreamConfig, snapshot *upstreamProviderSnapshot) {
+func (s *UpstreamConfigService) mergeSub2APIImagePricingSnapshots(ctx context.Context, cfg *UpstreamConfig, snapshot *upstreamProviderSnapshot) error {
 	if cfg == nil || snapshot == nil || len(snapshot.Keys) == 0 {
-		return
+		return nil
 	}
 	remoteIDs := make([]int64, 0, len(snapshot.Keys))
 	for i := range snapshot.Keys {
@@ -2461,7 +2469,7 @@ func (s *UpstreamConfigService) mergeSub2APIImagePricingSnapshots(ctx context.Co
 		existing, err = s.repo.ListKeys(ctx, cfg.ID)
 	}
 	if err != nil {
-		existing = nil
+		return fmt.Errorf("load image permission snapshot history: %w", err)
 	}
 	byRemoteID := make(map[int64]UpstreamKey, len(existing))
 	for i := range existing {
@@ -2496,6 +2504,7 @@ func (s *UpstreamConfigService) mergeSub2APIImagePricingSnapshots(ctx context.Co
 		}
 		key.Extra = mergedExtra
 	}
+	return nil
 }
 
 func upstreamKeyDescription(extra map[string]any) (string, bool) {

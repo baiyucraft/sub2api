@@ -271,6 +271,12 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 	body = updatedBody
 
 	apiKey := getAPIKeyFromContext(c)
+	imageRequest, _ := OpenAIImageRequestFromContext(ctx)
+	finalImageRequest := DescribeOpenAIImageRequest(imageRequest.Endpoint, policyModel, body, imageRequest.IsCodex)
+	finalImageRequest.History = finalImageRequest.History || imageRequest.History
+	if err := CheckOpenAIImageRequestPermission(ctx, finalImageRequest, account); err != nil {
+		return nil, err
+	}
 	// 同一 attempt 的最终 model/body 只判定一次，权限检查与后续图片状态设置共用该结果。
 	imageIntent := resolveOpenAIPassthroughImageIntent(
 		c,
@@ -281,7 +287,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		attemptImageIntentInvalidated,
 		IsImageGenerationIntent,
 	)
-	if imageIntent && !GroupAllowsImageGeneration(apiKeyGroup(apiKey)) {
+	if finalImageRequest.RequiresCapability() && !GroupAllowsImageGeneration(apiKeyGroup(apiKey)) {
 		MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalFeatureGate)
 		c.JSON(http.StatusForbidden, gin.H{
 			"error": gin.H{
@@ -1394,6 +1400,16 @@ func openAIStreamFailedEventSemanticStatus(payload []byte, message string) int {
 	if isOpenAIContextWindowError(message, payload) {
 		return http.StatusBadRequest
 	}
+	if IsOpenAIImagePermissionDenied(http.StatusForbidden, payload) {
+		// Only infer an absent stream status; an explicit conflicting status
+		// must not turn a generic upstream failure into an image cooldown.
+		for _, path := range openAIStreamErrorStatusPaths {
+			if status := int(gjson.GetBytes(payload, path).Int()); status >= http.StatusBadRequest && status != http.StatusForbidden {
+				return status
+			}
+		}
+		return http.StatusForbidden
+	}
 
 	code := openAIStreamFailedEventErrorCode(payload)
 	errType := strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, "response.error.type").String()))
@@ -1472,7 +1488,8 @@ func openAIStreamCredentialAuthFailure(payload []byte) bool {
 }
 
 func openAIStream403AccountFailure(payload []byte, message string) bool {
-	return isOpenAIUpstreamAccessStateError(message, payload) || openAIStreamCredentialAuthFailure(payload)
+	return IsOpenAIImagePermissionDenied(http.StatusForbidden, payload) ||
+		isOpenAIUpstreamAccessStateError(message, payload) || openAIStreamCredentialAuthFailure(payload)
 }
 
 func openAIStreamFailedEventPassthroughBody(payload []byte, failedMessage string) []byte {
@@ -1666,6 +1683,9 @@ func openAIStreamFailedEventRetryableOnSameAccount(account *Account, payload []b
 	if account == nil {
 		return false
 	}
+	if IsOpenAIImagePermissionDenied(openAIStreamFailureStatus(payload, message), payload) {
+		return false
+	}
 	// 容量降载是请求级信号，不是账号级故障：上游只是让本次请求稍后再试。
 	// 换账号并不改变被降载的因素（客户端身份、模型容量都与账号无关），
 	// 只会让单个请求把整池账号逐个消耗掉，最终仍以同一个错误告终。
@@ -1779,11 +1799,11 @@ func (s *OpenAIGatewayService) newOpenAIStreamFailoverErrorWithModel(
 		classificationHeaders = nil
 	}
 	failoverErr := s.newOpenAIAccountFailoverErrorWithClassificationHeaders(account, statusCode, headers, classificationHeaders, payload, message, shouldDisable, retryableOnSameAccount)
-	if failoverErr.IsCredentialFailure() || failoverErr.RequestScopedTransient {
+	if failoverErr.IsCredentialFailure() || failoverErr.RequestScopedTransient || failoverErr.IsOpenAIImagePermissionDenied() {
 		return failoverErr
 	}
 	// Preserve the existing generic envelope for unclassified stream failures;
-	// only typed access/capacity failures need the original payload downstream.
+	// only typed access/capacity/image failures need the original payload downstream.
 	failoverErr.ResponseBody = body
 	return failoverErr
 }

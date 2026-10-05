@@ -317,6 +317,56 @@ const OpenAIRequestBodyTooLargeClientMessage = "Request payload is too large"
 
 const openAIRequestBodyTooLargeReason = GatewayFailureReason("openai_request_body_too_large")
 
+const (
+	GatewayFailureScopeAccountCapability = GatewayFailureScope("account_capability")
+	OpenAIImagePermissionDeniedReason    = GatewayFailureReason("openai_image_permission_denied")
+	openAIImagePermissionDeniedMessage   = "Image generation is not enabled for this group"
+)
+
+// IsOpenAIImagePermissionDenied accepts only the fixed upstream entitlement
+// rejection in structured error fields, never arbitrary echoed request text.
+func IsOpenAIImagePermissionDenied(statusCode int, body []byte) bool {
+	if statusCode != http.StatusForbidden || !gjson.ValidBytes(body) || isOpenAIUpstreamAccessStateError("", body) {
+		return false
+	}
+	for _, path := range []string{"error.message", "response.error.message", "detail.message", "detail", "message"} {
+		value := gjson.GetBytes(body, path)
+		if value.Type != gjson.String {
+			continue
+		}
+		message := strings.TrimSpace(value.String())
+		if message == openAIImagePermissionDeniedMessage ||
+			(path == "error.message" && message == "403: "+openAIImagePermissionDeniedMessage) {
+			return true
+		}
+	}
+	return false
+}
+
+func (e *UpstreamFailoverError) IsOpenAIImagePermissionDenied() bool {
+	return e != nil && e.Scope == GatewayFailureScopeAccountCapability && e.Reason == OpenAIImagePermissionDeniedReason
+}
+
+// IsOpenAIImagePermissionFailover also covers pre-send image admission failures.
+// The handler uses this typed classification for image candidate exhaustion.
+func IsOpenAIImagePermissionFailover(e *UpstreamFailoverError) bool {
+	if e == nil {
+		return false
+	}
+	if e.IsOpenAIImagePermissionDenied() {
+		return true
+	}
+	if e.Scope != GatewayFailureScopeAccount && e.Scope != GatewayFailureScopeAccountCapability {
+		return false
+	}
+	switch e.Reason {
+	case "image_permission_denied", "image_capability_cooldown", "image_responses_unsupported", "image_permission_refresh_unavailable":
+		return true
+	default:
+		return false
+	}
+}
+
 func isOpenAIRequestBodyTooLargeError(statusCode int, upstreamMsg string, upstreamBody []byte) bool {
 	return statusCode == http.StatusRequestEntityTooLarge && !isOpenAIContextWindowError(upstreamMsg, upstreamBody)
 }
@@ -335,6 +385,17 @@ func newOpenAIUpstreamFailoverError(
 		ResponseHeaders:        responseHeaders.Clone(),
 		RetryableOnSameAccount: retryableOnSameAccount || requestScopedCapacity,
 		RequestScopedTransient: requestScopedCapacity,
+	}
+	if IsOpenAIImagePermissionDenied(statusCode, responseBody) {
+		failoverErr.RetryableOnSameAccount = false
+		failoverErr.RequestScopedTransient = false
+		failoverErr.Stage = GatewayFailureStageInference
+		failoverErr.Scope = GatewayFailureScopeAccountCapability
+		failoverErr.Reason = OpenAIImagePermissionDeniedReason
+		failoverErr.NextAccountAction = NextAccountRetry
+		failoverErr.ClientStatusCode = http.StatusServiceUnavailable
+		failoverErr.ClientMessage = "Image generation is temporarily unavailable, please retry later"
+		return failoverErr
 	}
 	if isOpenAIRequestBodyTooLargeError(statusCode, upstreamMsg, responseBody) {
 		failoverErr.RetryableOnSameAccount = false

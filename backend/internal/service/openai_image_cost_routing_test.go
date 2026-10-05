@@ -120,7 +120,7 @@ func TestImageCostRoutingRejectsExplicitlyUnsupportedKeySnapshot(t *testing.T) {
 		ImageCostRoutingMode:    "prefer_lowest",
 	})
 	require.False(t, compatible)
-	require.Equal(t, "image_capability_snapshot", reason)
+	require.Equal(t, "image_permission_denied", reason)
 
 	account.UpstreamImagePricing = nil
 	compatible, _ = scheduler.isAccountRequestCompatibleReason(context.Background(), account, OpenAIAccountScheduleRequest{

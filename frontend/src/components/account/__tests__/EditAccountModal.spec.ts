@@ -2057,6 +2057,128 @@ describe('EditAccountModal', () => {
     expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.openai_responses_supported).toBe(true)
   })
 
+  it.each([
+    ['available', true, false, 'Allowed', 'AutoAllowedPolicy'],
+    ['partial', true, false, 'Allowed', 'AutoAllowedPolicy'],
+    ['disabled', false, false, 'Denied', 'DeniedPolicy'],
+    ['unavailable', false, false, 'Unknown', 'AutoUnknownPolicy'],
+    ['available', true, true, 'Unknown', 'AutoUnknownPolicy'],
+    ['disabled', false, true, 'Denied', 'DeniedPolicy']
+  ])('defaults bound Codex image policy to auto for %s snapshots', async (status, supported, stale, permission, policy) => {
+    const account = buildUpstreamBoundAccount()
+    account.upstream_image_pricing = { status, supported, stale, observed_at: new Date().toISOString() }
+    const snapshot = { version: 1, status, allow_image_generation: supported }
+    account.extra = { sub2api_image_pricing_snapshot: snapshot, lcodex_image_pricing_snapshot: snapshot }
+    updateAccountMock.mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account, { mode: 'upstream' })
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="codex-image-tool-auto"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.get('[data-testid="codex-image-upstream-permission"]').text()).toBe(`admin.accounts.openai.codexImageTool${permission}`)
+    expect(wrapper.get('[data-testid="codex-image-effective-policy"]').text()).toBe(`admin.accounts.openai.codexImageTool${policy}`)
+    expect(wrapper.get('[data-testid="codex-image-synced-at"]').text()).not.toBe('admin.accounts.openai.codexImageToolNotSynced')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    const extra = updateAccountMock.mock.calls[0]?.[1]?.extra
+    expect(extra).not.toHaveProperty('codex_image_generation_bridge')
+    expect(extra).not.toHaveProperty('codex_image_generation_explicit_tool_policy')
+    expect(extra).not.toHaveProperty('sub2api_image_pricing_snapshot')
+    expect(extra).not.toHaveProperty('lcodex_image_pricing_snapshot')
+    expect(account.extra.sub2api_image_pricing_snapshot).toBe(snapshot)
+  })
+
+  it('renders missing upstream capability as unknown and never infers a permission from the account policy', async () => {
+    const account = buildUpstreamBoundAccount()
+    const wrapper = mountModal(account, { mode: 'upstream' })
+    await flushPromises()
+    expect(wrapper.get('[data-testid="codex-image-upstream-permission"]').text()).toBe('admin.accounts.openai.codexImageToolUnknown')
+    expect(wrapper.get('[data-testid="codex-image-synced-at"]').text()).toBe('admin.accounts.openai.codexImageToolNotSynced')
+    expect(wrapper.get('[data-testid="codex-image-effective-policy"]').text()).toBe('admin.accounts.openai.codexImageToolAutoUnknownPolicy')
+  })
+
+  it('shows a nested manual override and upstream denial without claiming the bridge is effective', async () => {
+    const account = buildUpstreamBoundAccount()
+    account.extra = { openai: { codex_image_generation_bridge: true } }
+    account.upstream_image_pricing = { status: 'disabled', supported: false, stale: true }
+    const wrapper = mountModal(account, { mode: 'upstream' })
+    await flushPromises()
+    expect(wrapper.get('[data-testid="codex-image-tool-enabled"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.get('[data-testid="codex-image-effective-policy"]').text()).toBe('admin.accounts.openai.codexImageToolDeniedPolicy')
+    expect(wrapper.get('[data-testid="codex-image-upstream-permission"]').text()).toBe('admin.accounts.openai.codexImageToolDenied')
+  })
+
+  it.each([
+    [undefined, 25 * 3600, 'Unknown'],
+    [3600, 2 * 3600, 'Unknown'],
+    [48 * 3600, 25 * 3600, 'Allowed']
+  ])('uses group snapshot age %s and otherwise defaults to 24h', async (maxAge, age, permission) => {
+    const account = buildUpstreamBoundAccount()
+    account.upstream_image_pricing = { status: 'partial', supported: true, stale: false, observed_at: new Date(Date.now() - age * 1000).toISOString() }
+    if (maxAge) account.groups = [{ id: 7, image_cost_stale_after_seconds: maxAge }]
+    const wrapper = mountModal(account, { mode: 'upstream' })
+    await flushPromises()
+    expect(wrapper.get('[data-testid="codex-image-upstream-permission"]').text()).toBe(`admin.accounts.openai.codexImageTool${permission}`)
+  })
+
+  it.each([
+    ['inherit', undefined, 'allow'],
+    ['enabled', true, 'allow'],
+    ['disabled', false, 'allow'],
+    ['block', undefined, 'strip']
+  ])('keeps bound manual %s policy across reopening and upstream permission changes', async (mode, bridge, policy) => {
+    const account = buildUpstreamBoundAccount()
+    account.upstream_image_pricing = { status: 'disabled', supported: false, stale: false }
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockImplementation(async (_id, payload) => ({ ...account, extra: payload.extra }))
+    const wrapper = mountModal(account, { mode: 'upstream' })
+    await flushPromises()
+    await wrapper.get(`[data-testid="codex-image-tool-${mode}"]`).trigger('click')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    const savedExtra = updateAccountMock.mock.calls[0]?.[1]?.extra
+    expect(savedExtra.codex_image_generation_bridge).toBe(bridge)
+    expect(savedExtra.codex_image_generation_explicit_tool_policy).toBe(policy)
+    const reopened = mountModal({ ...account, extra: savedExtra, upstream_image_pricing: { status: 'available', supported: true, stale: false, observed_at: new Date().toISOString() } }, { mode: 'upstream' })
+    await flushPromises()
+    expect(reopened.get(`[data-testid="codex-image-tool-${mode}"]`).attributes('aria-pressed')).toBe('true')
+    expect(reopened.get('[data-testid="codex-image-tool-auto"]').attributes('aria-pressed')).toBe('false')
+    expect(reopened.get('[data-testid="codex-image-upstream-permission"]').text()).toBe('admin.accounts.openai.codexImageToolAllowed')
+  })
+
+  it('can clear a legacy manual override and return to automatic following', async () => {
+    const account = buildUpstreamBoundAccount()
+    account.extra = { codex_image_generation_bridge: false, codex_image_generation_bridge_enabled: true }
+    updateAccountMock.mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account, { mode: 'upstream' })
+    await flushPromises()
+    expect(wrapper.get('[data-testid="codex-image-tool-disabled"]').attributes('aria-pressed')).toBe('true')
+    await wrapper.get('[data-testid="codex-image-tool-auto"]').trigger('click')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    const extra = updateAccountMock.mock.calls[0]?.[1]?.extra
+    expect(extra).not.toHaveProperty('codex_image_generation_bridge')
+    expect(extra).not.toHaveProperty('codex_image_generation_bridge_enabled')
+    expect(extra).not.toHaveProperty('codex_image_generation_explicit_tool_policy')
+  })
+
+  it('shows upstream policy read-only in ordinary bound-account editing without overriding a manual choice', async () => {
+    const account = buildUpstreamBoundAccount()
+    account.extra = { codex_image_generation_bridge: false, sub2api_image_pricing_snapshot: { status: 'available' } }
+    updateAccountMock.mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    await flushPromises()
+    expect(wrapper.find('[data-testid="codex-image-upstream-summary"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="codex-image-tool-auto"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="codex-image-effective-policy"]').text()).toBe('admin.accounts.openai.codexImageToolBadgeDisabled')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.codex_image_generation_bridge).toBe(false)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra).not.toHaveProperty('sub2api_image_pricing_snapshot')
+  })
+
   it('submits Codex image tool force-inject mode as bridge override', async () => {
     const account = buildAccount()
     account.extra = {
@@ -2070,6 +2192,7 @@ describe('EditAccountModal', () => {
 
     const wrapper = mountModal(account)
 
+    expect(wrapper.find('[data-testid="codex-image-tool-auto"]').exists()).toBe(false)
     expect(wrapper.text()).toContain('admin.accounts.openai.codexImageTool')
     expect(wrapper.text()).toContain('admin.accounts.openai.codexImageToolDesc')
     expect(wrapper.text()).toContain('admin.accounts.openai.codexImageToolEnabledDesc')
