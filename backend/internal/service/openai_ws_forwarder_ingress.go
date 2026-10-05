@@ -31,7 +31,7 @@ func (e *openAIWSRejectedFieldRetryError) Error() string {
 }
 
 func openAIWSRejectedFieldRetryHTTPStatus(message []byte) int {
-	for _, value := range gjson.GetManyBytes(message, "status", "status_code", "error.status", "error.status_code") {
+	for _, value := range gjson.GetManyBytes(message, "status", "status_code", "error.status", "error.status_code", "response.error.status", "response.error.status_code") {
 		status := int(value.Int())
 		if status >= 100 && status <= 599 {
 			return status
@@ -83,6 +83,13 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 	if account == nil {
 		return errors.New("account is nil")
 	}
+	imageAPIKey := getAPIKeyFromContext(c)
+	var imageGroupID *int64
+	if imageAPIKey != nil {
+		imageGroupID = imageAPIKey.GroupID
+	}
+	ctx = s.WithOpenAIImageRequestPolicy(ctx, imageGroupID)
+	ctx = WithOpenAIImageRequestGroup(ctx, apiKeyGroup(imageAPIKey))
 	// A handler may reuse the same gin context across account failover attempts.
 	// Never let an OAuth attempt's response aliases leak into the next account.
 	setCodexToolNameReverse(c, nil)
@@ -239,7 +246,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 
 		values := gjson.GetManyBytes(trimmed, "type", "model", "prompt_cache_key", "previous_response_id")
 		eventType := strings.TrimSpace(values[0].String())
-		normalized := trimmed
+		normalized := append([]byte(nil), trimmed...)
 		switch eventType {
 		case "":
 			eventType = "response.create"
@@ -338,46 +345,6 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			}
 			normalized = litePayload
 		}
-		apiKey := getAPIKeyFromContext(c)
-		imageGenerationAllowed := GroupAllowsImageGeneration(apiKeyGroup(apiKey))
-		codexImageGenerationExplicitToolPolicy := codexImageGenerationExplicitToolPolicyAllow
-		if isCodexCLI {
-			codexImageGenerationExplicitToolPolicy = account.CodexImageGenerationExplicitToolPolicy()
-		}
-		codexBridgeEnabled := isCodexCLI &&
-			!isOpenAIResponsesLiteWebSocketPayload(normalized) &&
-			imageGenerationAllowed &&
-			codexImageGenerationExplicitToolPolicy != codexImageGenerationExplicitToolPolicyStrip &&
-			s.isCodexImageGenerationBridgeEnabled(ctx, account, apiKey)
-		if codexBridgeEnabled {
-			payloadMap := make(map[string]any)
-			if err := decodeOpenAIJSONUseNumber(normalized, &payloadMap); err != nil {
-				return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket request payload", err)
-			}
-			bridgeModified := false
-			if ensureOpenAIResponsesImageGenerationTool(payloadMap) {
-				bridgeModified = true
-				logOpenAIWSModeInfo("ingress_ws_codex_image_tool_injected account_id=%d", account.ID)
-			}
-			if ensureOpenAIResponsesImageGenerationToolChoiceAuto(payloadMap) {
-				bridgeModified = true
-				logOpenAIWSModeInfo("ingress_ws_codex_image_tool_choice_auto account_id=%d", account.ID)
-			}
-			if normalizeOpenAIResponsesImageGenerationTools(payloadMap) {
-				bridgeModified = true
-			}
-			if applyCodexImageGenerationBridgeInstructions(payloadMap) {
-				bridgeModified = true
-				logOpenAIWSModeInfo("ingress_ws_codex_image_bridge_instructions_added account_id=%d", account.ID)
-			}
-			if bridgeModified {
-				rebuilt, marshalErr := json.Marshal(payloadMap)
-				if marshalErr != nil {
-					return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket request payload", marshalErr)
-				}
-				normalized = rebuilt
-			}
-		}
 		requestModel := originalModel
 		if hooks != nil && (hooks.MapRequestModelWithPayload != nil || hooks.MapRequestModel != nil) {
 			var mappedModel string
@@ -403,14 +370,6 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			normalized = next
 		}
 		SetOpsUpstreamModel(c, upstreamModel)
-		if isCodexCLI && codexImageGenerationExplicitToolPolicy == codexImageGenerationExplicitToolPolicyStrip {
-			if stripped, changed, stripErr := stripOpenAIImageGenerationToolsFromRawPayload(normalized); stripErr != nil {
-				return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket request payload", stripErr)
-			} else if changed {
-				normalized = stripped
-				logOpenAIWSModeInfo("ingress_ws_codex_image_tool_stripped_by_policy account_id=%d", account.ID)
-			}
-		}
 		if stripped, changed, stripErr := stripCodexSparkImageGenerationToolFromRawPayload(normalized, upstreamModel); stripErr != nil {
 			return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket request payload", stripErr)
 		} else if changed {
@@ -418,9 +377,6 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			logOpenAIWSModeInfo("ingress_ws_codex_spark_image_tool_stripped account_id=%d", account.ID)
 		}
 		imageIntent := IsImageGenerationIntentForPlatform(openAIResponsesEndpoint, originalModel, normalized, account.Platform)
-		if imageIntent && !imageGenerationAllowed {
-			return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, ImageGenerationPermissionMessage(), nil)
-		}
 		imageBillingModel := ""
 		imageSizeTier := ""
 		imageInputSize := ""
@@ -962,13 +918,23 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 	}
 
 	var rejectedFieldRetryState *openAIResponsesRejectedFieldRetryState
-	sendAndRelay := func(turn int, lease *openAIWSConnLease, payload []byte, payloadBytes int, originalModel string, imageBillingModel string, imageSizeTier string, imageInputSize string, requestedReasoningEffort *string) (*OpenAIForwardResult, error) {
+	sendAndRelay := func(turn int, lease *openAIWSConnLease, payload []byte, originalImageRequest OpenAIImageRequest, payloadBytes int, originalModel string, imageBillingModel string, imageSizeTier string, imageInputSize string, requestedReasoningEffort *string) (*OpenAIForwardResult, error) {
 		responseModelObserver := &upstreamResponseModelObserver{}
 		if lease == nil {
 			return nil, errors.New("upstream websocket lease is nil")
 		}
 		turnStart := time.Now()
 		wroteDownstream := false
+		prepared, prepareErr := s.prepareOpenAIWSImageSend(ctx, c, account, payload, originalImageRequest, true)
+		if prepareErr != nil {
+			if turn > 1 {
+				return nil, NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, "upstream image permission changed; please reconnect", errors.New(prepareErr.Error()))
+			}
+			return nil, prepareErr
+		}
+		payload = prepared.body
+		payloadBytes = len(payload)
+		imageBillingModel, imageSizeTier, imageInputSize = prepared.billing.Model, prepared.billing.SizeTier, prepared.billing.InputSize
 		if err := lease.WriteJSONWithContextTimeout(ctx, json.RawMessage(payload), s.openAIWSWriteTimeout()); err != nil {
 			return nil, wrapOpenAIWSIngressTurnError(
 				"write_upstream",
@@ -1002,6 +968,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		replayCollector := &openAIWSToolCallReplayCollector{}
 		firstEventType := ""
 		lastEventType := ""
+		imageDenialApplied := false
 		needModelReplace := false
 		clientDisconnected := false
 		mappedModel := ""
@@ -1047,6 +1014,18 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			}
 			if eventType == "error" || eventType == "response.failed" {
 				markOpenAICyberPolicyEvent(c, upstreamMessage, http.StatusOK, &usage)
+				if imageFailure := openAIWSImagePermissionFailure(upstreamMessage, lease.HandshakeHeaders()); imageFailure != nil {
+					imageFailure.OriginAccountID, imageFailure.OriginPlatform = account.ID, account.Platform
+					if !imageDenialApplied {
+						s.handleOpenAIWSImagePermissionDenied(ctx, account, upstreamMessage)
+						imageDenialApplied = true
+					}
+					lease.MarkBroken()
+					if !wroteDownstream && turn == 1 {
+						return nil, imageFailure
+					}
+					return nil, NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, "upstream image permission denied; please reconnect", errors.New(imageFailure.Error()))
+				}
 			}
 			if eventType == "error" {
 				s.handleOpenAIWSErrorEventTransientFailure(ctx, account, mappedModel, lease.HandshakeHeaders(), upstreamMessage)
@@ -1819,7 +1798,8 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			)
 		}
 
-		result, relayErr := sendAndRelay(turn, sessionLease, currentPayload, currentPayloadBytes, currentOriginalModel, currentImageBillingModel, currentImageSizeTier, currentImageInputSize, currentRequestedReasoningEffort)
+		originalImageRequest := DescribeOpenAIImageRequest(openAIResponsesEndpoint, currentOriginalModel, currentClientPayload, isCodexCLI)
+		result, relayErr := sendAndRelay(turn, sessionLease, currentPayload, originalImageRequest, currentPayloadBytes, currentOriginalModel, currentImageBillingModel, currentImageSizeTier, currentImageInputSize, currentRequestedReasoningEffort)
 		if relayErr != nil {
 			lastTurnClean = false
 			if isOpenAIWSSessionPreempted(ctx) {
@@ -1840,7 +1820,8 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				continue
 			}
 			finalErr := relayErr
-			if unwrapped := errors.Unwrap(relayErr); unwrapped != nil {
+			var clientCloseErr *OpenAIWSClientCloseError
+			if unwrapped := errors.Unwrap(relayErr); unwrapped != nil && !errors.As(relayErr, &clientCloseErr) {
 				finalErr = unwrapped
 			}
 			if hooks != nil && hooks.AfterTurn != nil {

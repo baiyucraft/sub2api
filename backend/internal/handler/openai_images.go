@@ -172,11 +172,23 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 	jsonKeepaliveStarted := false
 	defer func() { stopJSONKeepalive() }()
 	var oauth429FailoverState service.OpenAIOAuth429FailoverState
+	var pendingFixedRetry *openAIFixedAccountRetry
+	upstreamAttempts := make(openAIUpstreamAttemptBudget)
+	abandonFixedRetry := func(retry *openAIFixedAccountRetry) bool {
+		lastFailoverErr = retry.failure
+		if h.abandonFixedAccountRetry(c, retry, failedAccountIDs, &switchCount, maxAccountSwitches, &oauth429FailoverState, reqLog) {
+			return true
+		}
+		h.handleFailoverExhausted(c, retry.failure, streamStarted)
+		return false
+	}
 
 	for {
 		reqLog.Debug("openai.images.account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
+		fixedRetry := pendingFixedRetry
+		pendingFixedRetry = nil
 		selection, scheduleDecision, err := h.gatewayService.SelectAccountWithSchedulerForImages(
-			c.Request.Context(),
+			fixedRetry.context(c.Request.Context()),
 			apiKey.GroupID,
 			sessionHash,
 			routingModel,
@@ -203,6 +215,12 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 			}(),
 		)
 		if err != nil {
+			if fixedRetry != nil && errors.Is(err, service.ErrOpenAIFixedRetryUnavailable) {
+				if abandonFixedRetry(fixedRetry) {
+					continue
+				}
+				return
+			}
 			if failoverClientGone(c) {
 				reqLog.Info("openai.images.account_select_aborted_client_disconnected", zap.Error(err))
 				return
@@ -270,6 +288,12 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		setOpsSelectedAccount(c, account.ID, account.Platform)
 
 		accountReleaseFunc, slotResult := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, parsed.Stream, &streamStarted, reqLog)
+		if fixedRetry != nil && (slotResult == openAISlotAcquireCapacityFull || slotResult == openAISlotAcquireProfitVetoed) {
+			if abandonFixedRetry(fixedRetry) {
+				continue
+			}
+			return
+		}
 		if slotResult == openAISlotAcquireCapacityFull {
 			if h.handleOpenAICapacityFull(c, routingModel, account, failedAccountIDs, streamStarted, reqLog) {
 				requestCtx = c.Request.Context()
@@ -289,7 +313,17 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 			return
 		}
 		account = selection.Account
+		if !upstreamAttempts.allows(account.ID, maxAccountSwitches) {
+			if accountReleaseFunc != nil {
+				accountReleaseFunc()
+			}
+			h.handleFailoverExhausted(c, lastFailoverErr, streamStarted)
+			return
+		}
 		if allowed, _, _ := h.acquireOpenAIAccountRPM(c, account, accountReleaseFunc, failedAccountIDs, reqLog); !allowed {
+			if fixedRetry != nil && !abandonFixedRetry(fixedRetry) {
+				return
+			}
 			continue
 		}
 
@@ -350,6 +384,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 				var failoverErr *service.UpstreamFailoverError
 				if errors.As(err, &failoverErr) {
 					bindUpstreamFailoverAccount(c, account, failoverErr)
+					upstreamAttempts.recordFailure(account.ID, failoverErr)
 					if !failoverErr.PluginAdmissionRejected {
 						h.gatewayService.ReportOpenAIAccountScheduleResultForGroup(apiKey.GroupID, account, openAIAccountScheduleModel(c, account, requestModel, false, result), false, nil, err)
 					}
@@ -395,6 +430,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 								return
 							case <-time.After(retryDelay):
 							}
+							pendingFixedRetry = &openAIFixedAccountRetry{account: account, failure: failoverErr}
 							continue
 						}
 					}

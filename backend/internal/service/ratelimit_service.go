@@ -300,6 +300,9 @@ const (
 // CheckErrorPolicy 检查自定义错误码和临时不可调度规则。
 // 自定义错误码开启时覆盖后续所有逻辑（包括临时不可调度）。
 func (s *RateLimitService) CheckErrorPolicy(ctx context.Context, account *Account, statusCode int, responseBody []byte, requestedModel ...string) ErrorPolicyResult {
+	if account != nil && account.Platform == PlatformOpenAI && IsOpenAIImagePermissionDenied(statusCode, responseBody) {
+		return ErrorPolicyNone
+	}
 	ctx = withTempUnschedulableModel(ctx, requestedModel)
 	if account.IsCustomErrorCodesEnabled() {
 		if account.ShouldHandleErrorCode(statusCode) {
@@ -336,6 +339,9 @@ func shouldReportUpstreamHealthFailure(account *Account, statusCode int, respons
 	if account.Platform == PlatformOpenAI && isHTMLResponse(responseBody) {
 		return false
 	}
+	if account.Platform == PlatformOpenAI && IsOpenAIImagePermissionDenied(statusCode, responseBody) {
+		return false
+	}
 	// Coding Plan quota and concurrency 403s are recoverable account-capacity
 	// signals. The account keeps its existing cooldown/failover handling, but
 	// the shared upstream Key must not be suspended as an authentication error.
@@ -347,6 +353,12 @@ func shouldReportUpstreamHealthFailure(account *Account, statusCode int, respons
 // HandleUpstreamError 处理上游错误响应，标记账号状态
 // 返回是否应该停止该账号的调度
 func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Account, statusCode int, headers http.Header, responseBody []byte, requestedModel ...string) (shouldDisable bool) {
+	// An image entitlement rejection must not enter account-wide 403 penalties,
+	// even for pooled accounts or custom error/temporary-unschedulable policies.
+	if account != nil && account.Platform == PlatformOpenAI && IsOpenAIImagePermissionDenied(statusCode, responseBody) {
+		s.HandleOpenAIImagePermissionDenied(ctx, account, statusCode, responseBody)
+		return false
+	}
 	if shouldReportUpstreamHealthFailure(account, statusCode, responseBody) {
 		ReportUpstreamTrafficFailure(ctx, account, statusCode)
 	}
@@ -2309,6 +2321,9 @@ func (s *RateLimitService) HandleTempUnschedulable(ctx context.Context, account 
 	if account == nil {
 		return false
 	}
+	if account.Platform == PlatformOpenAI && IsOpenAIImagePermissionDenied(statusCode, responseBody) {
+		return false
+	}
 	if account.IsPoolMode() && !account.IsCustomErrorCodesEnabled() {
 		return false
 	}
@@ -2377,6 +2392,21 @@ func (s *RateLimitService) HandleOpenAICodexSparkRateLimit(ctx context.Context, 
 		slog.Warn("openai_codex_spark_model_rate_limit_set_failed", "account_id", account.ID, "model", modelKey, "error", err)
 	}
 	slog.Info("openai_codex_spark_model_rate_limited", "account_id", account.ID, "model", modelKey, "reset_at", *resetAt)
+	return true
+}
+
+// HandleOpenAIImagePermissionDenied cools only image generation. A true return
+// means classified, including when persistence fails; it never disables an account.
+func (s *RateLimitService) HandleOpenAIImagePermissionDenied(ctx context.Context, account *Account, statusCode int, responseBody []byte) bool {
+	if s == nil || account == nil || s.accountRepo == nil || account.Platform != PlatformOpenAI || !IsOpenAIImagePermissionDenied(statusCode, responseBody) {
+		return false
+	}
+	resetAt := time.Now().Add(30 * time.Minute)
+	if err := s.accountRepo.SetModelRateLimit(ctx, account.ID, openAIImageGenerationRateLimitKey, resetAt, string(OpenAIImagePermissionDeniedReason)); err != nil {
+		slog.Warn("openai_image_permission_cooldown_failed", "account_id", account.ID, "scope", openAIImageGenerationRateLimitKey, "reason", "persistence_failed")
+		return true
+	}
+	slog.Info("openai_image_permission_cooldown", "account_id", account.ID, "scope", openAIImageGenerationRateLimitKey, "reset_at", resetAt)
 	return true
 }
 

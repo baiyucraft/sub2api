@@ -89,7 +89,7 @@ func IsExplicitImageGenerationIntent(endpoint string, requestedModel string, bod
 	if len(body) == 0 || !gjson.ValidBytes(body) {
 		return false
 	}
-	var modelSeen, toolsSeen, toolChoiceSeen bool
+	var modelSeen, toolsSeen, inputSeen, toolChoiceSeen bool
 	imageIntent := false
 	parseRawJSONView(body).ForEach(func(key, value gjson.Result) bool {
 		switch key.Str {
@@ -108,8 +108,18 @@ func IsExplicitImageGenerationIntent(endpoint string, requestedModel string, bod
 				toolChoiceSeen = true
 				imageIntent = openAIJSONToolChoiceSelectsExplicitImageGeneration(value)
 			}
+		case "input":
+			if !inputSeen {
+				inputSeen = true
+				value.ForEach(func(_, item gjson.Result) bool {
+					if item.Get("type").String() == "additional_tools" && openAIJSONToolsContainNativeImageGeneration(item.Get("tools")) {
+						imageIntent = true
+					}
+					return !imageIntent
+				})
+			}
 		}
-		return !imageIntent && (!modelSeen || !toolsSeen || !toolChoiceSeen)
+		return !imageIntent && (!modelSeen || !toolsSeen || !inputSeen || !toolChoiceSeen)
 	})
 	return imageIntent
 }

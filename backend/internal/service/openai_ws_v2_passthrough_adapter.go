@@ -691,6 +691,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	if err := validateOpenAIWSBearerToken(account, token); err != nil {
 		return err
 	}
+	originalFirstClientMessage := firstClientMessage
 	if isOpenAIResponsesLiteWebSocketPayload(firstClientMessage) {
 		liteFirstMessage, _, liteErr := normalizeOpenAIResponsesLitePayloadForAccount(firstClientMessage, account)
 		if liteErr != nil {
@@ -698,7 +699,6 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		}
 		firstClientMessage = liteFirstMessage
 	}
-	originalFirstClientMessage := firstClientMessage
 	if next, policyErr := applyOpenAIWSReasoningEffortPolicy(firstClientMessage, hooks); policyErr != nil {
 		return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, policyErr.Error(), policyErr)
 	} else {
@@ -930,8 +930,29 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	if !ok {
 		return errors.New("openai ws passthrough upstream connection does not support frame relay")
 	}
+	pendingImageRequest := DescribeOpenAIImageRequest(openAIResponsesEndpoint, initialRequestModel, originalFirstClientMessage, isCodexCLI)
+	imageSendCount := 0
+	guardedUpstreamFrameConn := &openAIWSImageGuardFrameConn{
+		inner:    upstreamFrameConn,
+		describe: func(_ []byte) OpenAIImageRequest { return pendingImageRequest },
+		prepare: func(sendCtx context.Context, payload []byte, original OpenAIImageRequest) ([]byte, error) {
+			prepared, err := s.prepareOpenAIWSImageSend(sendCtx, c, account, payload, original, false)
+			if err != nil {
+				if imageSendCount > 0 {
+					return nil, NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, "upstream image permission changed; please reconnect", errors.New(err.Error()))
+				}
+				return nil, err
+			}
+			imageSendCount++
+			if gjson.GetBytes(payload, "type").String() == "response.create" {
+				request, model := usageMeta.turnModels("")
+				usageMeta.updateFromResponseCreate(prepared.body, model, request)
+			}
+			return prepared.body, nil
+		},
+	}
 	relayUpstreamFrameConn := &openAIWSPassthroughFirstOutputFrameConn{
-		inner:             upstreamFrameConn,
+		inner:             guardedUpstreamFrameConn,
 		activeReadTimeout: s.openAIWSPassthroughIdleTimeout(),
 		deadlineChanged:   make(chan struct{}, 1),
 		resolveDeadline: func(payload []byte) openAIWSPassthroughFirstOutputDeadline {
@@ -991,6 +1012,13 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			}
 			eventType := strings.TrimSpace(gjson.GetBytes(payload, "type").String())
 			isResponseCreate := eventType == "response.create"
+			if isResponseCreate || eventType == "session.update" {
+				originalBody := payload
+				if eventType == "session.update" {
+					originalBody = []byte(gjson.GetBytes(payload, "session").Raw)
+				}
+				pendingImageRequest = DescribeOpenAIImageRequest(openAIResponsesEndpoint, usageMeta.requestModelForFrame(payload), originalBody, isCodexCLI)
+			}
 			responseCreateAt := time.Time{}
 			acceptedTurn := false
 			if isResponseCreate {
@@ -1174,7 +1202,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			if (msgType == coderws.MessageText || msgType == coderws.MessageBinary) && strings.TrimSpace(gjson.GetBytes(payload, "type").String()) == "response.create" {
 				return msgType, payload, nil
 			}
-			if writeErr := upstreamFrameConn.WriteFrame(readCtx, msgType, payload); writeErr != nil {
+			if writeErr := guardedUpstreamFrameConn.WriteFrame(readCtx, msgType, payload); writeErr != nil {
 				return msgType, payload, writeErr
 			}
 		}
@@ -1293,7 +1321,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 				_ = clientConn.CloseNow()
 			},
 			BeforeWriteClient: func(msgType coderws.MessageType, payload []byte, wroteDownstream bool) error {
-				if msgType != coderws.MessageText {
+				if msgType != coderws.MessageText && msgType != coderws.MessageBinary {
 					return nil
 				}
 				eventType, _, _ := parseOpenAIWSEventEnvelope(payload)
@@ -1302,6 +1330,17 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 				}
 				if (eventType == "error" || eventType == "response.failed") && markOpenAIWSV2PassthroughCyberPolicy(c, payload) {
 					return nil
+				}
+				if imageFailure := openAIWSImagePermissionFailure(payload, handshakeHeaders); imageFailure != nil {
+					imageFailure.OriginAccountID, imageFailure.OriginPlatform = account.ID, account.Platform
+					if !failureAccountSideEffectsApplied {
+						s.handleOpenAIWSImagePermissionDenied(ctx, account, payload)
+						failureAccountSideEffectsApplied = true
+					}
+					if !wroteDownstream && completedTurns.Load() == 0 {
+						return imageFailure
+					}
+					return NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, "upstream image permission denied; please reconnect", errors.New(imageFailure.Error()))
 				}
 				errCodeRaw, errTypeRaw, errMsgRaw := parseOpenAIWSErrorEventFields(payload)
 				isPreOutputRateLimit := eventType == "error" && !wroteDownstream && isOpenAIWSRateLimitError(errCodeRaw, errTypeRaw, errMsgRaw)

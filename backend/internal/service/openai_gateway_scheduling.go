@@ -1003,6 +1003,9 @@ func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID 
 	if !isOpenAICompatibleAccountEligibleForRequest(ctx, account, platform, requestedModel, false, requiredCapability) {
 		return nil
 	}
+	if s.openAIImageCandidateFailure(ctx, account, OpenAIAccountScheduleRequest{GroupID: groupID, RequestedModel: requestedModel}) != "" {
+		return nil
+	}
 	if !parentHealthyForShadow(account, s.parentAccountLookup(ctx)) {
 		_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 		return nil
@@ -1051,6 +1054,10 @@ func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *i
 
 	for i := range accounts {
 		acc := &accounts[i]
+		if reason := s.openAIImageCandidateFailure(ctx, acc, OpenAIAccountScheduleRequest{GroupID: groupID, RequestedModel: requestedModel}); reason != "" {
+			filterStats.exclude(reason)
+			continue
+		}
 		if !s.isAccountSchedulableForRPM(ctx, acc) {
 			filterStats.exclude("rpm_limited")
 			continue
@@ -1326,6 +1333,10 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 	candidates := make([]*Account, 0, len(accounts))
 	for i := range accounts {
 		acc := &accounts[i]
+		if reason := s.openAIImageCandidateFailure(ctx, acc, OpenAIAccountScheduleRequest{GroupID: groupID, RequestedModel: requestedModel}); reason != "" {
+			filterStats.exclude(reason)
+			continue
+		}
 		if isExcluded(acc.ID) {
 			filterStats.exclude("excluded")
 			continue
@@ -1696,6 +1707,9 @@ func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDBBeforeProfit(ct
 	}
 	platform = NormalizeOpenAICompatiblePlatform(platform)
 	if s.schedulerSnapshot == nil || s.accountRepo == nil {
+		if s.openAIImageCandidateFailure(ctx, account, OpenAIAccountScheduleRequest{GroupID: groupID, RequestedModel: requestedModel}) != "" {
+			return nil
+		}
 		if s.openAIGroupRequiresPrivacySet(ctx, groupID) && !account.IsPrivacySet() {
 			return nil
 		}
@@ -1719,6 +1733,9 @@ func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDBBeforeProfit(ct
 
 	latest, err := s.accountRepo.GetByID(ctx, account.ID)
 	if err != nil || latest == nil {
+		return nil
+	}
+	if s.openAIImageCandidateFailure(ctx, latest, OpenAIAccountScheduleRequest{GroupID: groupID, RequestedModel: requestedModel}) != "" {
 		return nil
 	}
 	if !s.openAIAccountMatchesSchedulingGroup(latest, groupID) {
