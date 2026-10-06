@@ -236,4 +236,40 @@ describe('UpstreamManagementSettingsDialog', () => {
     await wrapper.get('[data-test="probe-interval-minutes"]').setValue(61)
     expect(wrapper.find('button.btn-primary').attributes('disabled')).toBeDefined()
   })
+
+  it('keeps confidence disabled by default and writes the low-effort distribution contract', async () => {
+    const wrapper = mountDialog(true, true)
+    await flushPromises()
+    expect(wrapper.find('[data-test="fixed-openai-probe-model"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('admin.upstreamManagement.confidenceProbe.window')
+    await wrapper.find('button.btn-primary').trigger('click')
+    await flushPromises()
+    expect(updateProbeSettings).toHaveBeenCalledWith(expect.objectContaining({
+      confidence_probe: expect.objectContaining({ enabled: false, reasoning_effort: 'low', long_context_enabled: false, quality_degrade_threshold: 0, prompt_version: 'openai-sol-distribution-v1' }),
+      probe_models: expect.objectContaining({ openai: 'gpt-live' })
+    }))
+  })
+
+  it('fixes the enabled OpenAI model without overwriting the ordinary model', async () => {
+    getProbeSettings.mockResolvedValueOnce({
+      ttft_guard: { enabled: true, degradation_ttft_seconds: 30, min_samples: 7 },
+      probe_guard: { enabled: true, suspend_after_failures: 3, recovery_successes: 2, custom_error_codes_enabled: false, custom_error_codes: [] },
+      probe_models: { openai: 'ordinary-original-model', anthropic: 'claude-live', gemini: 'gemini-live' }, probe_interval_seconds: 300,
+      confidence_probe: { enabled: true, reasoning_effort: 'high', long_context_enabled: true, long_context_max_tokens: 2048, quality_degrade_threshold: 70, prompt_version: 'openai-juice-multiprobe-v2' }
+    })
+    const wrapper = mountDialog(true, true)
+    await flushPromises()
+    expect(wrapper.get('[data-test="fixed-openai-probe-model"]').text()).toBe('gpt-6.1-sol')
+    expect(wrapper.findAll('[data-test="select"]')).toHaveLength(2)
+    await wrapper.find('button.btn-primary').trigger('click')
+    await flushPromises()
+    expect(updateProbeSettings).toHaveBeenCalledWith(expect.objectContaining({
+      confidence_probe: expect.objectContaining({ enabled: true, reasoning_effort: 'low', long_context_enabled: false, quality_degrade_threshold: 0, prompt_version: 'openai-sol-distribution-v1' }),
+      probe_models: expect.objectContaining({ openai: 'ordinary-original-model' })
+    }))
+    await wrapper.get('[aria-label="admin.upstreamManagement.confidenceProbe.enabled"]').trigger('click')
+    expect(wrapper.find('[data-test="fixed-openai-probe-model"]').exists()).toBe(false)
+    expect(wrapper.findAll('[data-test="select"]')).toHaveLength(3)
+    expect(wrapper.text()).toContain('ordinary-original-model')
+  })
 })

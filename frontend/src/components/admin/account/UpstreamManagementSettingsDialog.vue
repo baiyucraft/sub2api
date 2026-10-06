@@ -68,7 +68,11 @@
             <span class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-200">
               {{ platform.label }}
             </span>
+            <div v-if="platform.id === 'openai' && draft.confidence_probe.enabled" data-test="fixed-openai-probe-model" class="flex min-h-10 items-center rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm font-medium text-gray-700 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-200">
+              gpt-6.1-sol
+            </div>
             <Select
+              v-else
               v-model="draft.probe_models[platform.id]"
               :options="candidateOptions[platform.id] || []"
               searchable
@@ -111,9 +115,13 @@
             </div>
             <Toggle v-model="draft.confidence_probe.enabled" :aria-label="t('admin.upstreamManagement.confidenceProbe.enabled')" />
           </div>
-          <div class="mt-4 grid max-w-xs gap-4">
-            <label class="space-y-1.5"><span class="text-sm font-medium text-gray-700 dark:text-gray-200">{{ t('admin.upstreamManagement.confidenceProbe.effort') }}</span><span class="flex min-h-10 items-center rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm font-medium text-gray-700 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-200">{{ t('admin.upstreamManagement.confidenceProbe.fixedEffort') }}</span></label>
+          <div class="mt-4 flex flex-wrap gap-2 text-xs">
+            <span class="rounded-md border border-gray-200 bg-gray-50 px-2.5 py-1.5 font-medium text-gray-700 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-200">gpt-6.1-sol</span>
+            <span class="rounded-md border border-gray-200 px-2.5 py-1.5 text-gray-600 dark:border-dark-600 dark:text-gray-300">{{ t('admin.upstreamManagement.confidenceProbe.fixedEffort') }}</span>
+            <span class="rounded-md border border-gray-200 px-2.5 py-1.5 text-gray-600 dark:border-dark-600 dark:text-gray-300">{{ t('admin.upstreamManagement.confidenceProbe.window') }}</span>
           </div>
+          <p class="mt-3 text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('admin.upstreamManagement.confidenceProbe.samplePolicy') }}</p>
+          <p class="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('admin.upstreamManagement.confidenceProbe.displayOnly') }}</p>
         </div>
         <div class="mt-6 border-t border-gray-200 pt-5 dark:border-dark-700">
           <div class="flex items-start justify-between gap-5">
@@ -210,7 +218,7 @@ const defaults: UpstreamManagementSettings = {
   },
   probe_models: { openai: 'gpt-4o-mini', anthropic: 'claude-3-5-haiku-latest', gemini: 'gemini-2.0-flash' },
   probe_interval_seconds: 300,
-  confidence_probe: { enabled: false, reasoning_effort: 'high', long_context_enabled: false, long_context_max_tokens: 2048, quality_degrade_threshold: 70, prompt_version: 'openai-juice-multiprobe-v2' }
+  confidence_probe: { enabled: false, reasoning_effort: 'low', long_context_enabled: false, long_context_max_tokens: 2048, quality_degrade_threshold: 0, prompt_version: 'openai-sol-distribution-v1' }
   , pool_mode_retry_status_codes: [401, 403, 429]
 }
 const draft = reactive<UpstreamManagementSettings>(structuredClone(defaults))
@@ -233,7 +241,6 @@ const valid = computed(() => {
   const suspendAfterFailures = Number(draft.probe_guard.suspend_after_failures)
   const recoverySuccesses = Number(draft.probe_guard.recovery_successes)
   const customCodes = draft.probe_guard.custom_error_codes || []
-  const confidence = draft.confidence_probe
   parsePoolModeRetryStatusCodes()
   return Number.isFinite(threshold) && threshold >= 5 && threshold <= 300 &&
     Number.isInteger(samples) && samples >= 2 && samples <= 20 &&
@@ -241,7 +248,6 @@ const valid = computed(() => {
     Number.isInteger(suspendAfterFailures) && suspendAfterFailures >= 1 && suspendAfterFailures <= 20 &&
     Number.isInteger(recoverySuccesses) && recoverySuccesses >= 1 && recoverySuccesses <= 20 &&
     customCodes.every(code => Number.isInteger(code) && code >= 100 && code <= 599) &&
-    confidence && Number.isInteger(Number(confidence.quality_degrade_threshold)) && Number(confidence.quality_degrade_threshold) >= 0 && Number(confidence.quality_degrade_threshold) <= 100 &&
     platforms.value.filter(platform => platform.probe_supported).every(platform => {
       const value = draft.probe_models[platform.id]?.trim() || ''
       return value.length > 0 && value.length <= 120
@@ -281,8 +287,10 @@ async function load() {
     draft.probe_models = { ...defaults.probe_models, ...(settings.probe_models || {}) }
     draft.probe_interval_seconds = settings.probe_interval_seconds ?? defaults.probe_interval_seconds
     draft.confidence_probe = { ...defaults.confidence_probe, ...(settings.confidence_probe || {}) }
-    draft.confidence_probe.reasoning_effort = 'high'
-    draft.confidence_probe.prompt_version = 'openai-juice-multiprobe-v2'
+    draft.confidence_probe.reasoning_effort = 'low'
+    draft.confidence_probe.prompt_version = 'openai-sol-distribution-v1'
+    draft.confidence_probe.long_context_enabled = false
+    draft.confidence_probe.quality_degrade_threshold = 0
     const loadedRetryStatusCodes = settings.pool_mode_retry_status_codes?.length ? settings.pool_mode_retry_status_codes : DEFAULT_POOL_MODE_RETRY_STATUS_CODES
     draft.pool_mode_retry_status_codes = [...loadedRetryStatusCodes]
     poolModeRetryStatusCodesInput.value = loadedRetryStatusCodes.join(', ')
@@ -329,7 +337,7 @@ async function save() {
       },
       probe_models: Object.fromEntries(Object.entries(draft.probe_models).map(([platform, model]) => [platform, model.trim()])),
       probe_interval_seconds: probeIntervalMinutes.value * 60,
-      confidence_probe: { ...draft.confidence_probe, reasoning_effort: 'high', prompt_version: 'openai-juice-multiprobe-v2' },
+      confidence_probe: { ...draft.confidence_probe, reasoning_effort: 'low', long_context_enabled: false, quality_degrade_threshold: 0, prompt_version: 'openai-sol-distribution-v1' },
       ...(probeOnly.value ? {} : { pool_mode_retry_status_codes: retryStatusCodes })
     }
     const saved = probeOnly.value

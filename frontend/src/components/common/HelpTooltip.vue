@@ -15,7 +15,9 @@ const props = withDefaults(defineProps<{
 const show = ref(false)
 const triggerRef = useTemplateRef<HTMLElement>('trigger')
 const tooltipRef = useTemplateRef<HTMLElement>('tooltip')
-const tooltipStyle = ref({ top: '0px', left: '0px' })
+const tooltipStyle = ref({ top: '0px', left: '0px', maxWidth: 'calc(100vw - 32px)' })
+const placement = ref<'top' | 'bottom'>('top')
+const arrowLeft = ref('50%')
 
 function openTooltip() {
   show.value = true
@@ -82,9 +84,22 @@ function updatePosition() {
   const el = triggerRef.value
   if (!el) return
   const rect = el.getBoundingClientRect()
+  const tooltipRect = tooltipRef.value?.getBoundingClientRect()
+  const margin = 16
+  const gap = 8
+  const width = Math.min(tooltipRect?.width || 0, Math.max(window.innerWidth - margin * 2, 0))
+  const height = tooltipRect?.height || 0
+  const above = rect.top - gap - height
+  placement.value = above >= margin ? 'top' : 'bottom'
+  const desiredTop = placement.value === 'top' ? above : rect.bottom + gap
+  const top = Math.max(margin, Math.min(desiredTop, window.innerHeight - margin - height))
+  const center = rect.left + rect.width / 2
+  const left = Math.max(margin + width / 2, Math.min(center, window.innerWidth - margin - width / 2))
+  arrowLeft.value = `${Math.max(12, Math.min(center - left + width / 2, width - 12))}px`
   tooltipStyle.value = {
-    top: `${rect.top + window.scrollY}px`,
-    left: `${rect.left + rect.width / 2 + window.scrollX}px`,
+    top: `${top}px`,
+    left: `${left}px`,
+    maxWidth: 'calc(100vw - 32px)',
   }
 }
 
@@ -155,11 +170,13 @@ onBeforeUnmount(() => {
       <div
         ref="tooltip"
         role="tooltip"
+        :data-placement="placement"
         :class="[
-          'fixed z-[99999] -translate-x-1/2 -translate-y-full rounded-lg bg-gray-900 p-3 text-xs leading-relaxed text-white shadow-xl ring-1 ring-white/10 selection:bg-primary-200 selection:text-gray-900 before:absolute before:inset-x-0 before:top-full before:h-3 dark:bg-gray-800 dark:selection:bg-primary-200 dark:selection:text-gray-900',
+          'fixed z-[99999] -translate-x-1/2 rounded-lg bg-gray-900 p-3 text-xs leading-relaxed text-white shadow-xl ring-1 ring-white/10 selection:bg-primary-200 selection:text-gray-900 before:absolute before:inset-x-0 before:h-3 dark:bg-gray-800 dark:selection:bg-primary-200 dark:selection:text-gray-900',
+          placement === 'top' ? 'before:top-full' : 'before:bottom-full',
           props.widthClass,
         ]"
-        :style="{ top: `calc(${tooltipStyle.top} - 8px)`, left: tooltipStyle.left }"
+        :style="tooltipStyle"
         @mouseleave="onTooltipLeave"
       >
         <button
@@ -174,7 +191,7 @@ onBeforeUnmount(() => {
           </svg>
         </button>
         <slot>{{ content }}</slot>
-        <div class="absolute -bottom-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-gray-900 dark:bg-gray-800"></div>
+        <div :style="{ left: arrowLeft }" :class="['absolute h-2 w-2 -translate-x-1/2 rotate-45 bg-gray-900 dark:bg-gray-800', placement === 'top' ? '-bottom-1' : '-top-1']"></div>
       </div>
     </Teleport>
   </div>

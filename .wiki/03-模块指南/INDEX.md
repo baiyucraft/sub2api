@@ -16,5 +16,6 @@ owner: project
 - [OpenAI OAuth 账号代理组](./09-OpenAI-OAuth账号代理组.md)
 - [发布与协调恢复](./10-发布与协调恢复.md)
 - [插件宿主与原生管理页](./11-插件宿主与原生管理页.md)
+- [OpenAI Sol 分布可信探针](./12-OpenAI-Sol分布可信探针.md)
 
 页面只记录入口、职责、依赖和测试线索；细节以源码和 SSOT 为准。

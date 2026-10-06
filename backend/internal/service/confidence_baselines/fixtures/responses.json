@@ -1,0 +1,852 @@
+[
+  {
+    "counts": {
+      "gpt__screen067": {
+        "。": 16,
+        "！": 25,
+        "，": 1,
+        "；": 21,
+        "？": 1
+      },
+      "gpt__screen101": {
+        "namibia": 1,
+        "peru": 1,
+        "portugal": 2,
+        "uruguay": 12
+      },
+      "gpt__screen108": {
+        "42": 5,
+        "46": 18,
+        "47": 24,
+        "52": 1
+      }
+    },
+    "expected": {
+      "cells": {
+        "gpt__screen067": {
+          "completed": 64,
+          "counts": {
+            "。": 16,
+            "！": 25,
+            "，": 1,
+            "；": 21,
+            "？": 1
+          },
+          "minimum": 39,
+          "planned": 64,
+          "valid": 64,
+          "weight": 0.5
+        },
+        "gpt__screen101": {
+          "completed": 16,
+          "counts": {
+            "namibia": 1,
+            "peru": 1,
+            "portugal": 2,
+            "uruguay": 12
+          },
+          "minimum": 10,
+          "planned": 16,
+          "valid": 16,
+          "weight": 0.125
+        },
+        "gpt__screen108": {
+          "completed": 48,
+          "counts": {
+            "42": 5,
+            "46": 18,
+            "47": 24,
+            "52": 1
+          },
+          "minimum": 29,
+          "planned": 48,
+          "valid": 48,
+          "weight": 0.375
+        }
+      },
+      "claimed_model": "gpt-6.1-sol",
+      "color": "green",
+      "families": {},
+      "matches": {
+        "gpt-5.6-terra": 0.22123451975176806,
+        "gpt-6-astra": 0.4259954785109184,
+        "gpt-6-luna": 0.37932784129761615,
+        "gpt-6.1-sol": 0.5740045214890817,
+        "other_known_external": 0.3856930507749225
+      },
+      "model": "gpt-6.1-sol",
+      "partial_samples": false,
+      "planned_samples": 128,
+      "quality_status": "sufficient",
+      "reasons": [],
+      "sample_policy": {
+        "overall_ratio": 0.6,
+        "per_cell_ratio": 0.6,
+        "version": "60-percent-v1"
+      },
+      "scores": {
+        "gpt-5.6-terra": -2.387193473591545,
+        "gpt-6-astra": -1.4269153806339494,
+        "gpt-6-luna": -1.6211090095253184,
+        "gpt-6.1-sol": -1.128706839575637,
+        "other_known_external": -1.594159712235333
+      },
+      "scoring_version": "meow-fingerprint-v3-predictive",
+      "thresholds": {
+        "gpt-5.6-terra": 0.5007278427691376,
+        "gpt-6-astra": 0.5007278427691376,
+        "gpt-6-luna": 0.5007278427691376,
+        "gpt-6.1-sol": 0.5007278427691376,
+        "other_known_external": 0.5068073175882207
+      },
+      "valid_samples": 128,
+      "verdict": "match"
+    },
+    "name": "gpt-6.1-sol"
+  },
+  {
+    "counts": {
+      "gpt__screen067": {
+        "。": 13,
+        "！": 50,
+        "；": 1
+      },
+      "gpt__screen101": {
+        "madagascar": 1,
+        "mongolia": 1,
+        "namibia": 2,
+        "uruguay": 12
+      },
+      "gpt__screen108": {
+        "42": 2,
+        "46": 35,
+        "47": 9,
+        "49": 1,
+        "52": 1
+      }
+    },
+    "expected": {
+      "cells": {
+        "gpt__screen067": {
+          "completed": 64,
+          "counts": {
+            "。": 13,
+            "！": 50,
+            "；": 1
+          },
+          "minimum": 39,
+          "planned": 64,
+          "valid": 64,
+          "weight": 0.5
+        },
+        "gpt__screen101": {
+          "completed": 16,
+          "counts": {
+            "madagascar": 1,
+            "mongolia": 1,
+            "namibia": 2,
+            "uruguay": 12
+          },
+          "minimum": 10,
+          "planned": 16,
+          "valid": 16,
+          "weight": 0.125
+        },
+        "gpt__screen108": {
+          "completed": 48,
+          "counts": {
+            "42": 2,
+            "46": 35,
+            "47": 9,
+            "49": 1,
+            "52": 1
+          },
+          "minimum": 29,
+          "planned": 48,
+          "valid": 48,
+          "weight": 0.375
+        }
+      },
+      "claimed_model": "gpt-6.1-sol",
+      "color": "red",
+      "families": {},
+      "matches": {
+        "gpt-5.6-terra": 0.20304884819159555,
+        "gpt-6-astra": 0.562875325867022,
+        "gpt-6-luna": 0.36955820190553884,
+        "gpt-6.1-sol": 0.437124674132978,
+        "other_known_external": 0.3722775671176809
+      },
+      "model": "gpt-6-astra",
+      "partial_samples": false,
+      "planned_samples": 128,
+      "quality_status": "sufficient",
+      "reasons": [],
+      "sample_policy": {
+        "overall_ratio": 0.6,
+        "per_cell_ratio": 0.6,
+        "version": "60-percent-v1"
+      },
+      "scores": {
+        "gpt-5.6-terra": -2.1037660333845527,
+        "gpt-6-astra": -0.7364192281303028,
+        "gpt-6-luna": -1.27053182526986,
+        "gpt-6.1-sol": -0.9892589357796922,
+        "other_known_external": -1.258877586828978
+      },
+      "scoring_version": "meow-fingerprint-v3-predictive",
+      "thresholds": {
+        "gpt-5.6-terra": 0.5007278427691376,
+        "gpt-6-astra": 0.5007278427691376,
+        "gpt-6-luna": 0.5007278427691376,
+        "gpt-6.1-sol": 0.5007278427691376,
+        "other_known_external": 0.5068073175882207
+      },
+      "valid_samples": 128,
+      "verdict": "mismatch"
+    },
+    "name": "gpt-6-astra"
+  },
+  {
+    "counts": {
+      "gpt__screen067": {
+        "。": 42,
+        "！": 5,
+        "，": 1,
+        "？": 16
+      },
+      "gpt__screen101": {
+        "bhutan": 1,
+        "lesotho": 15
+      },
+      "gpt__screen108": {
+        "42": 7,
+        "46": 1,
+        "47": 1,
+        "52": 5,
+        "54": 1,
+        "58": 15,
+        "62": 6,
+        "64": 12
+      }
+    },
+    "expected": {
+      "cells": {
+        "gpt__screen067": {
+          "completed": 64,
+          "counts": {
+            "。": 42,
+            "！": 5,
+            "，": 1,
+            "？": 16
+          },
+          "minimum": 39,
+          "planned": 64,
+          "valid": 64,
+          "weight": 0.5
+        },
+        "gpt__screen101": {
+          "completed": 16,
+          "counts": {
+            "bhutan": 1,
+            "lesotho": 15
+          },
+          "minimum": 10,
+          "planned": 16,
+          "valid": 16,
+          "weight": 0.125
+        },
+        "gpt__screen108": {
+          "completed": 48,
+          "counts": {
+            "42": 7,
+            "46": 1,
+            "47": 1,
+            "52": 5,
+            "54": 1,
+            "58": 15,
+            "62": 6,
+            "64": 12
+          },
+          "minimum": 29,
+          "planned": 48,
+          "valid": 48,
+          "weight": 0.375
+        }
+      },
+      "claimed_model": "gpt-6.1-sol",
+      "color": "red",
+      "families": {},
+      "matches": {
+        "gpt-5.6-terra": 0.6802227053043642,
+        "gpt-6-astra": 0.1969474094424261,
+        "gpt-6-luna": 0.3023878960243643,
+        "gpt-6.1-sol": 0.2605686152284277,
+        "other_known_external": 0.31977729469563576
+      },
+      "model": "gpt-5.6-terra",
+      "partial_samples": false,
+      "planned_samples": 128,
+      "quality_status": "sufficient",
+      "reasons": [],
+      "sample_policy": {
+        "overall_ratio": 0.6,
+        "per_cell_ratio": 0.6,
+        "version": "60-percent-v1"
+      },
+      "scores": {
+        "gpt-5.6-terra": -1.146064128374747,
+        "gpt-6-astra": -2.5515475968231387,
+        "gpt-6-luna": -1.982016734571653,
+        "gpt-6.1-sol": -2.189079395545881,
+        "other_known_external": -1.9008595812972873
+      },
+      "scoring_version": "meow-fingerprint-v3-predictive",
+      "thresholds": {
+        "gpt-5.6-terra": 0.5007278427691376,
+        "gpt-6-astra": 0.5007278427691376,
+        "gpt-6-luna": 0.5007278427691376,
+        "gpt-6.1-sol": 0.5007278427691376,
+        "other_known_external": 0.5068073175882207
+      },
+      "valid_samples": 128,
+      "verdict": "mismatch"
+    },
+    "name": "gpt-5.6-terra"
+  },
+  {
+    "counts": {
+      "gpt__screen067": {
+        "。": 26,
+        "】【。": 4,
+        "！": 22,
+        "，": 11,
+        "？": 1
+      },
+      "gpt__screen101": {
+        "bhutan": 2,
+        "botswana": 1,
+        "laos": 1,
+        "mongolia": 1,
+        "namibia": 2,
+        "portugal": 7,
+        "uruguay": 2
+      },
+      "gpt__screen108": {
+        "42": 13,
+        "46": 5,
+        "47": 12,
+        "52": 13,
+        "56": 3,
+        "57": 2
+      }
+    },
+    "expected": {
+      "cells": {
+        "gpt__screen067": {
+          "completed": 64,
+          "counts": {
+            "。": 26,
+            "】【。": 4,
+            "！": 22,
+            "，": 11,
+            "？": 1
+          },
+          "minimum": 39,
+          "planned": 64,
+          "valid": 64,
+          "weight": 0.5
+        },
+        "gpt__screen101": {
+          "completed": 16,
+          "counts": {
+            "bhutan": 2,
+            "botswana": 1,
+            "laos": 1,
+            "mongolia": 1,
+            "namibia": 2,
+            "portugal": 7,
+            "uruguay": 2
+          },
+          "minimum": 10,
+          "planned": 16,
+          "valid": 16,
+          "weight": 0.125
+        },
+        "gpt__screen108": {
+          "completed": 48,
+          "counts": {
+            "42": 13,
+            "46": 5,
+            "47": 12,
+            "52": 13,
+            "56": 3,
+            "57": 2
+          },
+          "minimum": 29,
+          "planned": 48,
+          "valid": 48,
+          "weight": 0.375
+        }
+      },
+      "claimed_model": "gpt-6.1-sol",
+      "color": "red",
+      "families": {},
+      "matches": {
+        "gpt-5.6-terra": 0.2611107677290203,
+        "gpt-6-astra": 0.32675399389296417,
+        "gpt-6-luna": 0.5999836739300307,
+        "gpt-6.1-sol": 0.36867065197088034,
+        "other_known_external": 0.40001632606996923
+      },
+      "model": "gpt-6-luna",
+      "partial_samples": false,
+      "planned_samples": 128,
+      "quality_status": "sufficient",
+      "reasons": [],
+      "sample_policy": {
+        "overall_ratio": 0.6,
+        "per_cell_ratio": 0.6,
+        "version": "60-percent-v1"
+      },
+      "scores": {
+        "gpt-5.6-terra": -2.5278453617145873,
+        "gpt-6-astra": -2.210545279295416,
+        "gpt-6-luna": -1.4876420553941458,
+        "gpt-6.1-sol": -2.0255660245289238,
+        "other_known_external": -1.8930391386734864
+      },
+      "scoring_version": "meow-fingerprint-v3-predictive",
+      "thresholds": {
+        "gpt-5.6-terra": 0.5007278427691376,
+        "gpt-6-astra": 0.5007278427691376,
+        "gpt-6-luna": 0.5007278427691376,
+        "gpt-6.1-sol": 0.5007278427691376,
+        "other_known_external": 0.5068073175882207
+      },
+      "valid_samples": 128,
+      "verdict": "mismatch"
+    },
+    "name": "gpt-6-luna"
+  },
+  {
+    "counts": {
+      "gpt__screen067": {
+        "。": 64
+      },
+      "gpt__screen101": {
+        "bhutan": 1,
+        "ghana": 1,
+        "laos": 1,
+        "namibia": 2,
+        "nepal": 1,
+        "peru": 6,
+        "portugal": 2,
+        "uruguay": 2
+      },
+      "gpt__screen108": {
+        "42": 18,
+        "47": 30
+      }
+    },
+    "expected": {
+      "cells": {
+        "gpt__screen067": {
+          "completed": 64,
+          "counts": {
+            "。": 64
+          },
+          "minimum": 39,
+          "planned": 64,
+          "valid": 64,
+          "weight": 0.5
+        },
+        "gpt__screen101": {
+          "completed": 16,
+          "counts": {
+            "bhutan": 1,
+            "ghana": 1,
+            "laos": 1,
+            "namibia": 2,
+            "nepal": 1,
+            "peru": 6,
+            "portugal": 2,
+            "uruguay": 2
+          },
+          "minimum": 10,
+          "planned": 16,
+          "valid": 16,
+          "weight": 0.125
+        },
+        "gpt__screen108": {
+          "completed": 48,
+          "counts": {
+            "42": 18,
+            "47": 30
+          },
+          "minimum": 29,
+          "planned": 48,
+          "valid": 48,
+          "weight": 0.375
+        }
+      },
+      "claimed_model": "gpt-6.1-sol",
+      "color": "red",
+      "families": {},
+      "matches": {
+        "gpt-5.6-terra": 0.2555255433122157,
+        "gpt-6-astra": 0.24509520036935042,
+        "gpt-6-luna": 0.3612932480204564,
+        "gpt-6.1-sol": 0.335871183475516,
+        "other_known_external": 0.6387067519795436
+      },
+      "model": "other_known_external",
+      "partial_samples": false,
+      "planned_samples": 128,
+      "quality_status": "sufficient",
+      "reasons": [],
+      "sample_policy": {
+        "overall_ratio": 0.6,
+        "per_cell_ratio": 0.6,
+        "version": "60-percent-v1"
+      },
+      "scores": {
+        "gpt-5.6-terra": -1.5914532311419736,
+        "gpt-6-astra": -1.647042007517682,
+        "gpt-6-luna": -1.091852549417658,
+        "gpt-6.1-sol": -1.2038454949400554,
+        "other_known_external": -0.5220970674294501
+      },
+      "scoring_version": "meow-fingerprint-v3-predictive",
+      "thresholds": {
+        "gpt-5.6-terra": 0.5007278427691376,
+        "gpt-6-astra": 0.5007278427691376,
+        "gpt-6-luna": 0.5007278427691376,
+        "gpt-6.1-sol": 0.5007278427691376,
+        "other_known_external": 0.5068073175882207
+      },
+      "valid_samples": 128,
+      "verdict": "mismatch"
+    },
+    "name": "openai/gpt-6-sol"
+  },
+  {
+    "counts": {
+      "gpt__screen067": {
+        "。": 57,
+        "！": 7
+      },
+      "gpt__screen101": {
+        "bhutan": 1,
+        "madagascar": 1,
+        "mongolia": 1,
+        "namibia": 4,
+        "portugal": 4,
+        "uruguay": 5
+      },
+      "gpt__screen108": {
+        "42": 5,
+        "46": 3,
+        "47": 38,
+        "64": 2
+      }
+    },
+    "expected": {
+      "cells": {
+        "gpt__screen067": {
+          "completed": 64,
+          "counts": {
+            "。": 57,
+            "！": 7
+          },
+          "minimum": 39,
+          "planned": 64,
+          "valid": 64,
+          "weight": 0.5
+        },
+        "gpt__screen101": {
+          "completed": 16,
+          "counts": {
+            "bhutan": 1,
+            "madagascar": 1,
+            "mongolia": 1,
+            "namibia": 4,
+            "portugal": 4,
+            "uruguay": 5
+          },
+          "minimum": 10,
+          "planned": 16,
+          "valid": 16,
+          "weight": 0.125
+        },
+        "gpt__screen108": {
+          "completed": 48,
+          "counts": {
+            "42": 5,
+            "46": 3,
+            "47": 38,
+            "64": 2
+          },
+          "minimum": 29,
+          "planned": 48,
+          "valid": 48,
+          "weight": 0.375
+        }
+      },
+      "claimed_model": "gpt-6.1-sol",
+      "color": "red",
+      "families": {},
+      "matches": {
+        "gpt-5.6-terra": 0.2662691932668145,
+        "gpt-6-astra": 0.33751929531689484,
+        "gpt-6-luna": 0.4076901720089767,
+        "gpt-6.1-sol": 0.3986633135014925,
+        "other_known_external": 0.5923098279910234
+      },
+      "model": "other_known_external",
+      "partial_samples": false,
+      "planned_samples": 128,
+      "quality_status": "sufficient",
+      "reasons": [],
+      "sample_policy": {
+        "overall_ratio": 0.6,
+        "per_cell_ratio": 0.6,
+        "version": "60-percent-v1"
+      },
+      "scores": {
+        "gpt-5.6-terra": -1.7033129503023128,
+        "gpt-6-astra": -1.364047291530798,
+        "gpt-6-luna": -1.0632008915653417,
+        "gpt-6.1-sol": -1.1007162923871623,
+        "other_known_external": -0.6896785390888813
+      },
+      "scoring_version": "meow-fingerprint-v3-predictive",
+      "thresholds": {
+        "gpt-5.6-terra": 0.5007278427691376,
+        "gpt-6-astra": 0.5007278427691376,
+        "gpt-6-luna": 0.5007278427691376,
+        "gpt-6.1-sol": 0.5007278427691376,
+        "other_known_external": 0.5068073175882207
+      },
+      "valid_samples": 128,
+      "verdict": "mismatch"
+    },
+    "name": "openai/gpt-5.6-sol"
+  },
+  {
+    "counts": {
+      "gpt__screen067": {
+        "!": 5,
+        "。": 7,
+        "】【。": 1,
+        "！": 39,
+        "，": 10,
+        "；": 2
+      },
+      "gpt__screen101": {
+        "bhutan": 6,
+        "madagascar": 2,
+        "mongolia": 8
+      },
+      "gpt__screen108": {
+        "47": 10,
+        "52": 31,
+        "56": 5,
+        "57": 2
+      }
+    },
+    "expected": {
+      "cells": {
+        "gpt__screen067": {
+          "completed": 64,
+          "counts": {
+            "!": 5,
+            "。": 7,
+            "】【。": 1,
+            "！": 39,
+            "，": 10,
+            "；": 2
+          },
+          "minimum": 39,
+          "planned": 64,
+          "valid": 64,
+          "weight": 0.5
+        },
+        "gpt__screen101": {
+          "completed": 16,
+          "counts": {
+            "bhutan": 6,
+            "madagascar": 2,
+            "mongolia": 8
+          },
+          "minimum": 10,
+          "planned": 16,
+          "valid": 16,
+          "weight": 0.125
+        },
+        "gpt__screen108": {
+          "completed": 48,
+          "counts": {
+            "47": 10,
+            "52": 31,
+            "56": 5,
+            "57": 2
+          },
+          "minimum": 29,
+          "planned": 48,
+          "valid": 48,
+          "weight": 0.375
+        }
+      },
+      "claimed_model": "gpt-6.1-sol",
+      "color": "red",
+      "families": {},
+      "matches": {
+        "gpt-5.6-terra": 0.20930445882330537,
+        "gpt-6-astra": 0.2726946532268847,
+        "gpt-6-luna": 0.39761381996215234,
+        "gpt-6.1-sol": 0.30213592370737946,
+        "other_known_external": 0.6023861800378476
+      },
+      "model": "other_known_external",
+      "partial_samples": false,
+      "planned_samples": 128,
+      "quality_status": "sufficient",
+      "reasons": [],
+      "sample_policy": {
+        "overall_ratio": 0.6,
+        "per_cell_ratio": 0.6,
+        "version": "60-percent-v1"
+      },
+      "scores": {
+        "gpt-5.6-terra": -2.461668668055121,
+        "gpt-6-astra": -2.1135393266131954,
+        "gpt-6-luna": -1.5479631128900744,
+        "gpt-6.1-sol": -1.9696929668793763,
+        "other_known_external": -1.1325456108062633
+      },
+      "scoring_version": "meow-fingerprint-v3-predictive",
+      "thresholds": {
+        "gpt-5.6-terra": 0.5007278427691376,
+        "gpt-6-astra": 0.5007278427691376,
+        "gpt-6-luna": 0.5007278427691376,
+        "gpt-6.1-sol": 0.5007278427691376,
+        "other_known_external": 0.5068073175882207
+      },
+      "valid_samples": 128,
+      "verdict": "mismatch"
+    },
+    "name": "openai/gpt-5.6-luna"
+  },
+  {
+    "counts": {
+      "gpt__screen067": {
+        ",": 1,
+        "。": 12,
+        "句号。": 1,
+        "！": 10,
+        "，": 36,
+        "？": 4
+      },
+      "gpt__screen101": {
+        "botswana": 1,
+        "kazakhstan": 3,
+        "kyrgyzstan": 3,
+        "mongolia": 3,
+        "norway": 1,
+        "peru": 3,
+        "slovenia": 1,
+        "uruguay": 1
+      },
+      "gpt__screen108": {
+        "42": 43,
+        "47": 5
+      }
+    },
+    "expected": {
+      "cells": {
+        "gpt__screen067": {
+          "completed": 64,
+          "counts": {
+            ",": 1,
+            "。": 12,
+            "句号。": 1,
+            "！": 10,
+            "，": 36,
+            "？": 4
+          },
+          "minimum": 39,
+          "planned": 64,
+          "valid": 64,
+          "weight": 0.5
+        },
+        "gpt__screen101": {
+          "completed": 16,
+          "counts": {
+            "botswana": 1,
+            "kazakhstan": 3,
+            "kyrgyzstan": 3,
+            "mongolia": 3,
+            "norway": 1,
+            "peru": 3,
+            "slovenia": 1,
+            "uruguay": 1
+          },
+          "minimum": 10,
+          "planned": 16,
+          "valid": 16,
+          "weight": 0.125
+        },
+        "gpt__screen108": {
+          "completed": 48,
+          "counts": {
+            "42": 43,
+            "47": 5
+          },
+          "minimum": 29,
+          "planned": 48,
+          "valid": 48,
+          "weight": 0.375
+        }
+      },
+      "claimed_model": "gpt-6.1-sol",
+      "color": "red",
+      "families": {},
+      "matches": {
+        "gpt-5.6-terra": 0.22353851032106395,
+        "gpt-6-astra": 0.21038689803974048,
+        "gpt-6-luna": 0.3403918299298324,
+        "gpt-6.1-sol": 0.27076592189484655,
+        "other_known_external": 0.6596081700701676
+      },
+      "model": "other_known_external",
+      "partial_samples": false,
+      "planned_samples": 128,
+      "quality_status": "sufficient",
+      "reasons": [],
+      "sample_policy": {
+        "overall_ratio": 0.6,
+        "per_cell_ratio": 0.6,
+        "version": "60-percent-v1"
+      },
+      "scores": {
+        "gpt-5.6-terra": -2.2721615570040408,
+        "gpt-6-astra": -2.349593089182647,
+        "gpt-6-luna": -1.6885467972698494,
+        "gpt-6.1-sol": -2.0177382997719566,
+        "other_known_external": -1.0269982152899737
+      },
+      "scoring_version": "meow-fingerprint-v3-predictive",
+      "thresholds": {
+        "gpt-5.6-terra": 0.5007278427691376,
+        "gpt-6-astra": 0.5007278427691376,
+        "gpt-6-luna": 0.5007278427691376,
+        "gpt-6.1-sol": 0.5007278427691376,
+        "other_known_external": 0.5068073175882207
+      },
+      "valid_samples": 128,
+      "verdict": "mismatch"
+    },
+    "name": "z-ai/glm-5.3"
+  }
+]
