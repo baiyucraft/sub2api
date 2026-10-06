@@ -1081,7 +1081,7 @@
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_production_release.py"
       ],
       "invariants": [
-        "pending profile 262 保持 0.2.13-baiyu、parent 261，仅追加 288_upstream_confidence_distribution.sql；profile 261 的 0.2.13-baiyu、parent 260、286/287 合同与更早 profile/checksum 原样保留；当前 262 执行闭包含 VM/Gate/DR/生产/祖先断言/备份/清理入口，未知 263 拒绝；新恢复敏感 blob 未分类仍阻断，不增加豁免",
+        "pending profile 262 保持 0.2.13-baiyu、parent 261，仅追加 288_upstream_confidence_distribution.sql；profile 261 的 0.2.13-baiyu、parent 260、286/287 合同与更早 profile/checksum 原样保留；当前 262 执行闭包含 VM/Gate/DR/生产/祖先断言/备份/清理入口，未知 263 拒绝；恢复兼容审阅仅绑定 bb47353679b65ba37dad6ce9fde06c01e8afed7e 到 b710ec5b15b1baf0d01d43bed5aec1eb26836ab4 的35项同路径blob/mode，仍执行specialized真实隔离恢复；未匹配敏感变更继续阻断，不增加目录豁免",
         "profile 260 已 signed 且 2026-10-01 生产 verified，保持 0.2.11-baiyu、parent 259、new_migrations=[285_upstream_null_rate_lifecycle.sql] 及全部历史签名/checksum 不变；保留 profile 261 为 0.2.13-baiyu、parent 260，仅追加 286_add_payment_order_bonus_amount.sql 和 287_add_typesafe_platform.sql；官方目标固定 b8dece9000c68815a5b867ca5a1e6f236e173905；新官方两项 241 仅重编号，SQL 原字节不变，旧 local241 保留；新增登记不代表新 VM Gate 或生产发布",
         "285 替换 validate_account_upstream_key_binding 并将 source 纳入绑定 trigger 的更新列：actual 缺失时仅允许 existing same-binding 且身份与价格不变的暂停或归档；新增、恢复、启用、重绑定和身份或价格变更仍严格要求 actual，known-rate 恢复仍校验 active/platform；不得修改历史 241、279、284 SQL 或 checksum，不增加 checksum compatibility 放行",
         "历史 profile 233–254 不回写；profile 254 对应 0.2.7-baiyu，parent 为 253，new_migrations 精确为 [278_fork_group_ttft_guard_policies.sql, 279_proxy_ip_groups.sql, 280_plugin_runtime_state.sql]，三项原始文件 SHA-256 必须与 migration_contracts 登记一致",

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import hashlib
+import secrets
 import shlex
 import sys
 import tempfile
-from datetime import datetime, timezone
+import time
 from pathlib import Path
 
 
@@ -12,6 +13,7 @@ DEPLOY_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(DEPLOY_ROOT))
 
 from release.paths import WORKSPACE
+from release.process import run_hidden
 from release.ssh import SSHRunner
 
 
@@ -20,6 +22,20 @@ ROOT = WORKSPACE
 
 def sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def verifier_binary() -> Path:
+    binary = ROOT / ".tmp" / "sub2api-verify-dr-evidence"
+    expected = (DEPLOY_ROOT / "release" / "drverify" / "linux-amd64.sha256").read_text(encoding="ascii").split()[0]
+    if not binary.is_file() or sha256_file(binary) != expected:
+        run_hidden(
+            [sys.executable, str(DEPLOY_ROOT / "release" / "drverify" / "build.py"), "--output", str(binary)],
+            cwd=ROOT,
+            check=True,
+        )
+    if sha256_file(binary) != expected:
+        raise RuntimeError("DR verifier fixture does not match the repository checksum")
+    return binary
 
 
 def cleanup_remote_temp(runner: SSHRunner, host: str, path: str) -> None:
@@ -39,13 +55,25 @@ def run(
     remote_temps: list[tuple[str, str]],
     local_temps: list[tempfile.TemporaryDirectory[str]],
 ) -> None:
-    now = datetime.now(timezone.utc)
-    drill_id = "dr-195-" + now.strftime("%Y%m%dT%H%M%SZ")
-    created_at = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+    release_id = f"195-000000000000-{int(time.time())}-{secrets.token_hex(4)}"
+    vm_clock = runner.run(
+        "local_vm",
+        """
+now_epoch=$(date -u +%s)
+printf 'drill_id=dr-195-%s\\n' "$(date -u -d "@$now_epoch" +%Y%m%dT%H%M%SZ)"
+printf 'previous_drill_id=dr-195-%s\\n' "$(date -u -d "@$((now_epoch - 1))" +%Y%m%dT%H%M%SZ)"
+printf 'observed_at=%s\\n' "$(date -u -d "@$now_epoch" +%Y-%m-%dT%H:%M:%SZ)"
+""",
+        {"drill_id", "previous_drill_id", "observed_at"},
+    ).values
+    drill_id = vm_clock["drill_id"]
+    previous_drill_id = vm_clock["previous_drill_id"]
+    observed_at = vm_clock["observed_at"]
     vm_temp = runner.create_temp_dir("local_vm", "/opt/sub2api-deploy/release-input", "promotion-evidence")
     remote_temps.append(("local_vm", vm_temp))
-    signer_source = DEPLOY_ROOT / "release" / "sign-dr-evidence.sh"
-    signer_sha = sha256_file(signer_source)
+    gate_release_dir = f"/opt/sub2api-deploy/release-gates/{release_id}"
+    evidence_release_dir = f"/opt/sub2api-deploy/dr-evidence/{release_id}"
+    remote_temps.extend((("local_vm", gate_release_dir), ("local_vm", evidence_release_dir)))
     runner.run(
         "local_vm",
         f"install -d -o root -g root -m 700 {shlex.quote(vm_temp + '/libexec')} && "
@@ -53,77 +81,160 @@ def run(
         "printf 'helper_root_ready=pass\\n'",
         {"helper_root_ready"},
     )
-    runner.upload_file("local_vm", signer_source, f"{vm_temp}/libexec/sub2api-sign-dr-evidence", 0o700)
-    evidence_dir = f"/opt/sub2api-deploy/dr-evidence/195-0314be7299e0-1784375727-31508cb8/{drill_id}"
-    evidence_script = rf'''
+    gate_signer = DEPLOY_ROOT / "release" / "sign-gate.sh"
+    dr_signer = DEPLOY_ROOT / "release" / "sign-dr-evidence.sh"
+    runner.upload_file("local_vm", gate_signer, f"{vm_temp}/libexec/sub2api-sign-gate", 0o700)
+    runner.upload_file("local_vm", dr_signer, f"{vm_temp}/libexec/sub2api-sign-dr-evidence", 0o700)
+    candidate = runner.run(
+        "local_vm",
+        rf'''
 set -Eeuo pipefail
 vm_temp={shlex.quote(vm_temp)}
-evidence_dir={shlex.quote(evidence_dir)}
-release_dir=${{evidence_dir%/*}}
-signer="$vm_temp/libexec/sub2api-sign-dr-evidence"
+release_id={release_id}
+gate_release_dir={shlex.quote(gate_release_dir)}
+gate_dir="$gate_release_dir/output"
+[[ ! -e $gate_release_dir && ! -L $gate_release_dir ]]
+cleanup() {{ rm -rf -- "$gate_release_dir"; }}
+trap cleanup EXIT
+install -d -o root -g root -m 700 "$gate_dir"
+gate_signer="$vm_temp/libexec/sub2api-sign-gate"
+[[ -f $gate_signer && ! -L $gate_signer && $(stat -c '%U:%G:%a:%h' "$gate_signer") == root:root:700:1 ]]
+[[ $(sha256sum "$gate_signer" | awk '{{print $1}}') == {sha256_file(gate_signer)} ]]
+printf 'profile-195-candidate-fixture\n' > "$gate_dir/candidate.tar.gz"
+chmod 400 "$gate_dir/candidate.tar.gz"
+archive_sha=$(sha256sum "$gate_dir/candidate.tar.gz" | awk '{{print $1}}')
+image_id=sha256:$(printf 'd%.0s' {{1..64}})
+migration_sha=$(printf '1%.0s' {{1..64}})
+jq -n --arg release_id "$release_id" --arg archive_sha "$archive_sha" --arg image_id "$image_id" --arg migration_sha "$migration_sha" \
+  '{{manifest:{{release_id:$release_id,profile:"195",schema:1,migration_sha256:{{"195_upstream_scheduling_monitor_rates.sql":$migration_sha}}}},evidence:{{candidate_archive_sha256:$archive_sha,candidate_image_id:$image_id}}}}' > "$gate_dir/gate.json"
+chmod 400 "$gate_dir/gate.json"
 export SUB2API_HELPER_TEST_MODE=true
 export SUB2API_UNIT_LOCK_PATH="$vm_temp/libexec/.sub2api-release-unit.lock"
-cleanup() {{ rm -rf -- "$evidence_dir"; rmdir "$release_dir" 2>/dev/null || true; }}
-trap cleanup EXIT
-[[ -f $signer && ! -L $signer && $(stat -c '%U:%G:%a' "$signer") == root:root:700 ]]
-[[ $(sha256sum "$signer" | awk '{{print $1}}') == {signer_sha} ]]
-install -d -o root -g root -m 700 "$release_dir" "$evidence_dir"
-jq -n --arg release_id 195-0314be7299e0-1784375727-31508cb8 --arg drill_id {drill_id} --arg created {created_at} '{{schema:1,release_id:$release_id,drill_id:$drill_id,created_at:$created,completed_at:$created,artifact_sha256:"2e384237d1d98bd5afd5f1d5c0ca6045df855cbe8c08c9cc669f63e87d976646",candidate_bundle_sha256:"729545ffef49f586d8f4b9dca781431f497b823d5eb1094d89af64253bffbb51",candidate_archive_sha256:"b874e6ebf21cb0dc4a43942f801f6bb78a6c024598b659c9856cfcd4e6f3d285",candidate_image_id:"sha256:c9ef0bc8cbfe4f67f7a35fd9468fd05e0611cc9daa70ae1e93c8208dc7a5cae4",migration_checksum:"e77566efef46748b4098a148659a97e021928bd4aae0a97cf26e122aadf85cf0",image_load_id_check:"pass",config_manifest_check:"pass",postgres_restore:"pass",redis_restore:"pass",redis_ttl_reconciliation:"pass",counts_and_migrations:"pass",temporary_material_destroyed:"pass",redis_backup_dbsize:10,redis_backup_expiring_keys:2,redis_restored_dbsize:9,redis_restored_expiring_keys:1}}' > "$evidence_dir/evidence.json"
-chmod 400 "$evidence_dir/evidence.json"
-"$signer" "$evidence_dir/evidence.json" "$evidence_dir/evidence.sig"
-install -o root -g root -m 400 "$evidence_dir/evidence.json" "$evidence_dir/valid.json"
-jq '.artifact_sha256 = "0000000000000000000000000000000000000000000000000000000000000000"' \
-  "$evidence_dir/valid.json" > "$evidence_dir/evidence.json.new"
-mv -T -- "$evidence_dir/evidence.json.new" "$evidence_dir/evidence.json"
-chmod 400 "$evidence_dir/evidence.json"
-rm -f -- "$evidence_dir/evidence.sig"
-"$signer" "$evidence_dir/evidence.json" "$evidence_dir/evidence.sig"
-install -o root -g root -m 400 "$evidence_dir/evidence.json" "$vm_temp/mismatch.json"
-install -o root -g root -m 400 "$evidence_dir/evidence.sig" "$vm_temp/mismatch.sig"
-install -o root -g root -m 400 "$evidence_dir/valid.json" "$evidence_dir/evidence.json"
-chmod 400 "$evidence_dir/evidence.json"
-rm -f -- "$evidence_dir/evidence.sig"
-"$signer" "$evidence_dir/evidence.json" "$evidence_dir/evidence.sig"
-install -o root -g root -m 400 "$evidence_dir/evidence.json" "$vm_temp/evidence.json"
-install -o root -g root -m 400 "$evidence_dir/evidence.sig" "$vm_temp/evidence.sig"
-cleanup
-trap - EXIT
-printf 'evidence_ready=pass\n'
-'''
-    runner.run("local_vm", evidence_script, {"evidence_ready"})
-    local_temp = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
-    local_temps.append(local_temp)
-    local_evidence = Path(local_temp.name) / "evidence.json"
-    local_signature = Path(local_temp.name) / "evidence.sig"
-    local_mismatch_evidence = Path(local_temp.name) / "mismatch.json"
-    local_mismatch_signature = Path(local_temp.name) / "mismatch.sig"
-    runner.download_file("local_vm", f"{vm_temp}/evidence.json", local_evidence)
-    runner.download_file("local_vm", f"{vm_temp}/evidence.sig", local_signature)
-    runner.download_file("local_vm", f"{vm_temp}/mismatch.json", local_mismatch_evidence)
-    runner.download_file("local_vm", f"{vm_temp}/mismatch.sig", local_mismatch_signature)
-    runner.run(
-        "local_vm",
-        f"rm -rf -- {shlex.quote(vm_temp)} && printf 'cleanup=pass\\n'",
-        {"cleanup"},
-    )
+"$gate_signer" "$gate_dir/gate.json" "$gate_dir/gate.sig"
+(cd "$gate_dir" && sha256sum "$gate_dir/gate.json" "$gate_dir/gate.sig" "$gate_dir/candidate.tar.gz" > SHA256SUMS)
+chmod 400 "$gate_dir/SHA256SUMS"
+# Profile 195 retains its single-migration checksum rather than a normalized map hash.
+[[ $(jq -er '.manifest.migration_sha256["195_upstream_scheduling_monitor_rates.sql"]' "$gate_dir/gate.json") == "$migration_sha" ]]
+for file in gate.json gate.sig candidate.tar.gz SHA256SUMS; do
+  install -o root -g root -m 400 "$gate_dir/$file" "$vm_temp/$file"
+done
+printf 'archive_sha256=%s\n' "$archive_sha"
+printf 'candidate_image_id=%s\n' "$image_id"
+printf 'migration_sha256=%s\n' "$migration_sha"
+''',
+        {"archive_sha256", "candidate_image_id", "migration_sha256"},
+        timeout=300,
+    ).values
+
     remote = runner.create_temp_dir("backup", "/srv/sub2api-backups", "dr-promotion-test")
     remote_temps.append(("backup", remote))
-    release_id = "195-0314be7299e0-1784375727-31508cb8"
-    gate = ROOT / ".tmp" / "releases" / release_id / "gate"
+    (ROOT / ".tmp").mkdir(exist_ok=True)
+    local_temp = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
+    local_temps.append(local_temp)
+    local_root = Path(local_temp.name)
+    for name in ("gate.json", "gate.sig", "candidate.tar.gz", "SHA256SUMS"):
+        local_path = local_root / name
+        runner.download_file("local_vm", f"{vm_temp}/{name}", local_path)
+        runner.upload_file("backup", local_path, f"{remote}/{name}", 0o400)
     files = {
-        "verifier": ROOT / ".tmp" / "sub2api-verify-dr-evidence",
+        "verifier": verifier_binary(),
         "promoter": DEPLOY_ROOT / "release" / "promote-dr-baseline.sh",
         "bootstrap": DEPLOY_ROOT / "release" / "bootstrap_backup_dr_assets.sh",
         "trust.pub": DEPLOY_ROOT / "release" / "trust" / "vm-gate-ed25519.pub",
-        "valid.json": gate / "gate.json",
-        "valid.sig": gate / "gate.sig",
-        "evidence.json": local_evidence,
-        "evidence.sig": local_signature,
-        "mismatch.json": local_mismatch_evidence,
-        "mismatch.sig": local_mismatch_signature,
     }
     for name, path in files.items():
-        runner.upload_file("backup", path, f"{remote}/{name}", 0o700 if name in {"verifier", "promoter", "bootstrap"} else 0o400)
+        runner.upload_file("backup", path, f"{remote}/{name}", 0o700 if name != "trust.pub" else 0o400)
+
+    # Assemble a synthetic candidate only under the isolated backup test root.
+    # The final evidence must bind its actual artifact and six-file bundle hashes.
+    compact_time = drill_id.rsplit("-", 1)[1]
+    binding = runner.run(
+        "backup",
+        rf'''
+set -Eeuo pipefail
+remote={shlex.quote(remote)}
+release_id={release_id}
+candidate_dir="$remote/releases/195/candidates/$release_id"
+install -d -o root -g root -m 700 "$remote/releases" "$remote/releases/195" "$remote/releases/195/candidates" "$candidate_dir"
+for file in candidate.tar.gz gate.json gate.sig SHA256SUMS; do
+  install -o root -g root -m 600 "$remote/$file" "$candidate_dir/$file"
+done
+printf 'encrypted-profile-195-fixture\n' > "$candidate_dir/artifact.tar.age"
+chmod 600 "$candidate_dir/artifact.tar.age"
+chown root:root "$candidate_dir/artifact.tar.age"
+artifact_sha=$(sha256sum "$candidate_dir/artifact.tar.age" | awk '{{print $1}}')
+archive_sha=$(sha256sum "$candidate_dir/candidate.tar.gz" | awk '{{print $1}}')
+image_id=$(jq -er '.evidence.candidate_image_id' "$candidate_dir/gate.json")
+migration_sha=$(jq -er '.manifest.migration_sha256["195_upstream_scheduling_monitor_rates.sql"]' "$candidate_dir/gate.json")
+[[ $archive_sha == {candidate['archive_sha256']} && $image_id == {candidate['candidate_image_id']} && $migration_sha == {candidate['migration_sha256']} ]]
+cat > "$candidate_dir/manifest" <<EOF
+release_id=$release_id
+state=restore_pending
+artifact_name=sub2api-{compact_time}.tar.age
+artifact_sha256=$artifact_sha
+candidate_image_id=$image_id
+candidate_archive_sha256=$archive_sha
+EOF
+chmod 644 "$candidate_dir/manifest"
+chown root:root "$candidate_dir/manifest"
+(cd "$candidate_dir" && sha256sum artifact.tar.age candidate.tar.gz gate.json gate.sig manifest SHA256SUMS > bundle.sha256)
+chmod 644 "$candidate_dir/bundle.sha256"
+chown root:root "$candidate_dir/bundle.sha256"
+ln -s "candidates/$release_id" "$remote/releases/195/candidate"
+printf 'artifact_sha256=%s\n' "$artifact_sha"
+printf 'bundle_sha256=%s\n' "$(sha256sum "$candidate_dir/bundle.sha256" | awk '{{print $1}}')"
+''',
+        {"artifact_sha256", "bundle_sha256"},
+        timeout=300,
+    ).values
+    runner.run(
+        "local_vm",
+        rf'''
+set -Eeuo pipefail
+vm_temp={shlex.quote(vm_temp)}
+release_id={release_id}
+drill_id={shlex.quote(drill_id)}
+observed_at={shlex.quote(observed_at)}
+release_dir={shlex.quote(evidence_release_dir)}
+evidence_dir="$release_dir/$drill_id"
+[[ ! -e $release_dir && ! -L $release_dir ]]
+cleanup() {{ rm -rf -- "$release_dir"; }}
+trap cleanup EXIT
+dr_root=/opt/sub2api-deploy/dr-evidence
+if [[ -e $dr_root || -L $dr_root ]]; then
+  [[ -d $dr_root && ! -L $dr_root && $(realpath -e -- "$dr_root") == "$dr_root" && $(stat -c '%U:%G:%a' "$dr_root") == root:root:700 ]]
+else
+  install -d -o root -g root -m 700 "$dr_root"
+fi
+install -d -o root -g root -m 700 "$release_dir" "$evidence_dir"
+signer="$vm_temp/libexec/sub2api-sign-dr-evidence"
+[[ -f $signer && ! -L $signer && $(stat -c '%U:%G:%a:%h' "$signer") == root:root:700:1 ]]
+[[ $(sha256sum "$signer" | awk '{{print $1}}') == {sha256_file(dr_signer)} ]]
+export SUB2API_HELPER_TEST_MODE=true
+export SUB2API_UNIT_LOCK_PATH="$vm_temp/libexec/.sub2api-release-unit.lock"
+write_bound() {{
+  local artifact_sha=$1 output_name=$2
+  jq -n --arg release_id "$release_id" --arg drill_id "$drill_id" --arg now "$observed_at" \
+    --arg artifact_sha "$artifact_sha" --arg bundle_sha {binding['bundle_sha256']} \
+    --arg archive_sha {candidate['archive_sha256']} --arg image_id {candidate['candidate_image_id']} --arg migration_sha {candidate['migration_sha256']} \
+    '{{schema:1,release_id:$release_id,drill_id:$drill_id,created_at:$now,completed_at:$now,artifact_sha256:$artifact_sha,candidate_bundle_sha256:$bundle_sha,candidate_archive_sha256:$archive_sha,candidate_image_id:$image_id,migration_checksum:$migration_sha,image_load_id_check:"pass",config_manifest_check:"pass",postgres_restore:"pass",redis_restore:"pass",redis_ttl_reconciliation:"pass",counts_and_migrations:"pass",temporary_material_destroyed:"pass",redis_backup_dbsize:10,redis_backup_expiring_keys:2,redis_restored_dbsize:9,redis_restored_expiring_keys:1}}' > "$evidence_dir/evidence.json"
+  chmod 400 "$evidence_dir/evidence.json"
+  rm -f -- "$evidence_dir/evidence.sig"
+  "$signer" "$evidence_dir/evidence.json" "$evidence_dir/evidence.sig"
+  install -o root -g root -m 400 "$evidence_dir/evidence.json" "$vm_temp/$output_name.json"
+  install -o root -g root -m 400 "$evidence_dir/evidence.sig" "$vm_temp/$output_name.sig"
+}}
+write_bound {binding['artifact_sha256']} evidence
+write_bound $(printf '0%.0s' {{1..64}}) mismatch
+printf 'bound_evidence_ready=pass\n'
+''',
+        {"bound_evidence_ready"},
+        timeout=300,
+    )
+    for name in ("evidence.json", "evidence.sig", "mismatch.json", "mismatch.sig"):
+        local_path = local_root / name
+        runner.download_file("local_vm", f"{vm_temp}/{name}", local_path)
+        runner.upload_file("backup", local_path, f"{remote}/{name}", 0o400)
     verifier_sha = sha256_file(files["verifier"])
     promoter_sha = sha256_file(files["promoter"])
     trust_sha = sha256_file(files["trust.pub"])
@@ -140,7 +251,7 @@ run_bootstrap() {{
   local promoter_source=$1 promoter_expected=$2 fail_after=${{3:-false}}
   SUB2API_BACKUP_BOOTSTRAP_TEST_MODE=true SUB2API_TEST_FAIL_AFTER_VERIFIER_ACTIVATION="$fail_after" BACKUP_TEST_ROOT="$remote" \
     VERIFIER_SOURCE="$remote/verifier" PROMOTER_SOURCE="$promoter_source" TRUST_SOURCE="$remote/trust.pub" \
-    SIGNED_TEST_SOURCE="$remote/valid.json" SIGNED_TEST_SIGNATURE="$remote/valid.sig" \
+    SIGNED_TEST_SOURCE="$remote/gate.json" SIGNED_TEST_SIGNATURE="$remote/gate.sig" \
     VERIFIER_SHA256={verifier_sha} PROMOTER_SHA256="$promoter_expected" TRUST_SHA256={trust_sha} \
     "$remote/bootstrap" >/dev/null 2>&1
 }}
@@ -179,36 +290,16 @@ if run_bootstrap "$remote/promoter-mutated" "$mutated_sha" true; then exit 81; f
 [[ $(asset_state "$remote/trust/vm-gate-ed25519.pub") == {trust_sha} ]]
 backup_bootstrap_post_activation_rollback=pass
 
-release_id=195-0314be7299e0-1784375727-31508cb8
+release_id={release_id}
 drill_id={drill_id}
-production_root=/srv/sub2api-backups/releases/195
-production_candidate="$production_root/candidates/$release_id"
-[[ -L $production_root/candidate && $(readlink "$production_root/candidate") == "candidates/$release_id" ]]
-[[ $(realpath -e -- "$production_root/candidate") == "$production_candidate" ]]
-production_candidate_fingerprint=$(cd "$production_candidate" && sha256sum SHA256SUMS artifact.tar.age bundle.sha256 candidate.tar.gz gate.json gate.sig manifest | sha256sum | awk '{{print $1}}')
-if [[ -L $production_root/verified ]]; then
-  production_verified_before=$(readlink "$production_root/verified")
-elif [[ -e $production_root/verified ]]; then
-  exit 82
-else
-  production_verified_before=absent
-fi
-
 promotion_root="$remote/releases/195"
 candidate_root="$promotion_root/candidates"
 input_root="$promotion_root/promotion-input"
 verified_root="$promotion_root/verified-bundles"
-install -d -o root -g root -m 700 "$candidate_root"
-install -d -o root -g root -m 700 "$candidate_root/$release_id"
-for file in SHA256SUMS artifact.tar.age candidate.tar.gz gate.json gate.sig; do
-  install -o root -g root -m 600 "$production_candidate/$file" "$candidate_root/$release_id/$file"
-done
-for file in bundle.sha256 manifest; do
-  install -o root -g root -m 644 "$production_candidate/$file" "$candidate_root/$release_id/$file"
-done
 [[ -d "$candidate_root/$release_id" && ! -L "$candidate_root/$release_id" && $(stat -c '%U:%G:%a' "$candidate_root/$release_id") == root:root:700 ]]
-ln -s "candidates/$release_id" "$promotion_root/candidate"
-old_target_name="$release_id--dr-195-20260718T000000Z"
+[[ -L $promotion_root/candidate && $(readlink "$promotion_root/candidate") == "candidates/$release_id" ]]
+[[ $(realpath -e -- "$promotion_root/candidate") == "$candidate_root/$release_id" ]]
+old_target_name="$release_id--{previous_drill_id}"
 old_target="$verified_root/$old_target_name"
 install -d -o root -g root -m 700 "$old_target"
 for file in SHA256SUMS artifact.tar.age bundle.sha256 candidate.tar.gz gate.json gate.sig manifest; do
@@ -273,7 +364,7 @@ assert_no_promotion_temps
 promotion_candidate_evidence_mismatch_rejected=pass
 
 install -d -o root -g root -m 700 "$target"
-install -o root -g root -m 400 "$remote/valid.json" "$target/conflict-marker"
+install -o root -g root -m 400 "$remote/gate.json" "$target/conflict-marker"
 if run_promoter "$valid_input" >/dev/null 2>&1; then exit 84; fi
 assert_sources_unchanged
 [[ -f $target/conflict-marker ]]
@@ -335,12 +426,6 @@ promotion_output_second=$(run_promoter "$valid_input")
 assert_no_promotion_temps
 promotion_idempotent_replay=pass
 promotion_sources_retained=pass
-[[ $(cd "$production_candidate" && sha256sum SHA256SUMS artifact.tar.age bundle.sha256 candidate.tar.gz gate.json gate.sig manifest | sha256sum | awk '{{print $1}}') == "$production_candidate_fingerprint" ]]
-if [[ $production_verified_before == absent ]]; then
-  [[ ! -e $production_root/verified && ! -L $production_root/verified ]]
-else
-  [[ -L $production_root/verified && $(readlink "$production_root/verified") == "$production_verified_before" ]]
-fi
 [[ $(asset_state /usr/local/libexec/sub2api-verify-dr-evidence) == "$before_verifier" ]]
 [[ $(asset_state /usr/local/libexec/sub2api-promote-dr-baseline) == "$before_promoter" ]]
 [[ $(asset_state /opt/sub2api-dr-trust/vm-gate-ed25519.pub) == "$before_trust" ]]
@@ -387,7 +472,7 @@ printf 'cleanup_verified=pass\n'
         "cleanup_verified",
     }
     result = runner.run("backup", script, fields, timeout=300).values
-    if set(result.values()) != {"pass"}:
+    if set(result) != fields or set(result.values()) != {"pass"}:
         raise RuntimeError("backup DR asset integration test did not pass")
     print(f"backup_dr_assets_integration=pass checks={len(result)}")
 
@@ -416,7 +501,12 @@ def main() -> None:
 
     if primary_error is not None:
         if cleanup_errors:
-            primary_error.add_note("one or more registered temporary directories could not be cleaned")
+            note = "one or more registered temporary directories could not be cleaned"
+            if hasattr(primary_error, "add_note"):
+                primary_error.add_note(note)
+            else:
+                # Keep the primary failure on Python versions before PEP 678.
+                primary_error.__notes__ = [*getattr(primary_error, "__notes__", []), note]
         raise primary_error.with_traceback(primary_error.__traceback__)
     if cleanup_errors:
         raise cleanup_errors[0]
