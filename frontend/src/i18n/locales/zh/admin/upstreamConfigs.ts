@@ -461,6 +461,7 @@ export default {
         unknown: '其他上游事故'
       },
       eventTypes: {
+        key_confidence_distribution_changed: 'Key 分布可信度变更',
         key_actual_rate_changed: 'Key 实际倍率变更',
         key_rate_changed: 'Key 原始倍率变更',
         key_effective_rate_changed: 'Key 成本倍率变更',

@@ -78,6 +78,8 @@ type UpstreamHealthProbeResult struct {
 	// serialized as a separate database column.
 	ProtocolResults     map[string]UpstreamHealthProbeResult
 	confidenceChallenge *upstreamHealthChallenge
+	distributionAttempt *DistributionAttempt
+	distributionSample  DistributionSample
 }
 
 type upstreamHealthChallenge struct {
@@ -416,6 +418,9 @@ func (s *AccountTestService) RunUpstreamHealthProbe(ctx context.Context, account
 		return failUpstreamHealthProbe(result, "unavailable", "probe_transport_unavailable", errors.New("upstream HTTP client is unavailable"))
 	}
 	if platform == PlatformOpenAI {
+		if _, ok := ctx.Value(distributionProbeContextKey{}).(distributionProbeClaim); ok {
+			return s.runOpenAIDistributionHealthProbe(ctx, account)
+		}
 		if account.Type == AccountTypeAPIKey && !openai_compat.ShouldUseResponsesAPI(account.Extra) {
 			challenge, challengeErr := newUpstreamHealthChallenge()
 			if challengeErr != nil {
@@ -1091,7 +1096,13 @@ func (s *AccountTestService) executeUpstreamHealthProbeWithValidator(req *http.R
 		}
 		return result, err
 	}
-	if result.Protocol == upstreamHealthProbeProtocolOpenAI && result.confidenceChallenge != nil {
+	if result.distributionAttempt != nil {
+		answer, valid := NormalizeDistributionAnswer(text)
+		result.distributionSample = DistributionSample{Answer: answer, Valid: valid}
+		if !valid {
+			result.distributionSample.Reason = "invalid_output"
+		}
+	} else if result.Protocol == upstreamHealthProbeProtocolOpenAI && result.confidenceChallenge != nil {
 		if result.ConfidenceStatus == "network_error" {
 			return failUpstreamHealthProbe(result, "invalid_response", "probe_response_empty", errors.New("OpenAI confidence probe returned no valid output"))
 		}
@@ -1324,9 +1335,13 @@ func parseOpenAIUpstreamHealthStream(reader io.Reader, started time.Time, result
 		}
 		switch event.Type {
 		case "response.output_text.delta":
-			if strings.TrimSpace(event.Delta) != "" {
+			if strings.TrimSpace(event.Delta) != "" || result.distributionAttempt != nil {
 				setUpstreamHealthProbeTTFT(result, started)
 				output.WriteString(event.Delta)
+				if result.distributionAttempt != nil && output.Len() > 256*1024 {
+					result.Result, result.Reason = "invalid_response", "probe_output_too_long"
+					return false, errors.New("distribution probe output exceeds limit")
+				}
 			}
 		case "response.output_text.done":
 			// Some relays omit delta events and expose only the final text event.
@@ -1336,8 +1351,12 @@ func parseOpenAIUpstreamHealthStream(reader io.Reader, started time.Time, result
 				output.WriteString(event.Text)
 			}
 		case "response.completed", "response.done":
+			if result.distributionAttempt != nil && event.Response.Status != "completed" {
+				result.Result, result.Reason = "incomplete", "probe_response_incomplete"
+				return false, errors.New("distribution response did not complete")
+			}
 			if output.Len() == 0 {
-				if terminalText := extractOpenAIHealthTerminalText(data); strings.TrimSpace(terminalText) != "" {
+				if terminalText := extractOpenAIHealthTerminalText(data, result.distributionAttempt != nil); strings.TrimSpace(terminalText) != "" || result.distributionAttempt != nil {
 					setUpstreamHealthProbeTTFT(result, started)
 					output.WriteString(terminalText)
 				}
@@ -1385,7 +1404,7 @@ func parseOpenAIUpstreamHealthStream(reader io.Reader, started time.Time, result
 		}
 		return output.String(), err
 	}
-	completed = completed || (terminalSeen && output.Len() > 0)
+	completed = completed || (result.distributionAttempt == nil && terminalSeen && output.Len() > 0)
 	if !completed {
 		result.Result = "incomplete"
 		result.Reason = "probe_incomplete_stream"
@@ -1397,10 +1416,29 @@ func parseOpenAIUpstreamHealthStream(reader io.Reader, started time.Time, result
 	return output.String(), nil
 }
 
-func extractOpenAIHealthTerminalText(data []byte) string {
+func extractOpenAIHealthTerminalText(data []byte, preserveWhitespace bool) string {
 	response := gjson.GetBytes(data, "response")
 	if !response.Exists() || !response.IsObject() {
 		return ""
+	}
+	if preserveWhitespace {
+		if text := response.Get("output_text").String(); text != "" {
+			return text
+		}
+		var text strings.Builder
+		response.Get("output").ForEach(func(_, item gjson.Result) bool {
+			if kind := item.Get("type").String(); kind != "" && kind != "message" {
+				return true
+			}
+			item.Get("content").ForEach(func(_, content gjson.Result) bool {
+				if kind := content.Get("type").String(); kind == "" || kind == "output_text" {
+					text.WriteString(content.Get("text").String())
+				}
+				return true
+			})
+			return true
+		})
+		return text.String()
 	}
 	return extractOpenAIResponsesText([]byte(response.Raw))
 }
@@ -1474,16 +1512,23 @@ func parseOpenAIUpstreamHealthJSON(body []byte, started time.Time, result *Upstr
 		}
 	}
 	text := strings.TrimSpace(response.OutputText)
+	if result.distributionAttempt != nil {
+		text = response.OutputText
+	}
+	if result.distributionAttempt != nil && response.Status != "completed" {
+		result.Result, result.Reason = "incomplete", "probe_response_incomplete"
+		return "", errors.New("distribution response did not complete")
+	}
 	if text == "" {
 		for _, item := range response.Output {
 			for _, content := range item.Content {
-				if strings.TrimSpace(content.Text) != "" {
+				if strings.TrimSpace(content.Text) != "" || result.distributionAttempt != nil {
 					text += content.Text
 				}
 			}
 		}
 	}
-	if text == "" {
+	if text == "" && result.distributionAttempt == nil {
 		result.Result, result.Reason = "invalid_response", "probe_response_mismatch"
 		return "", errors.New("OpenAI probe JSON response contained no output text")
 	}
@@ -1662,11 +1707,19 @@ func parseOpenAIChatCompletionsUpstreamHealthStream(reader io.Reader, started ti
 			if content == "" {
 				content = choice.Message.Content
 			}
-			if strings.TrimSpace(content) != "" {
+			if strings.TrimSpace(content) != "" || result.distributionAttempt != nil {
 				setUpstreamHealthProbeTTFT(result, started)
 				output.WriteString(content)
+				if result.distributionAttempt != nil && output.Len() > 256*1024 {
+					result.Result, result.Reason = "invalid_response", "probe_output_too_long"
+					return false, errors.New("distribution probe output exceeds limit")
+				}
 			}
 			if strings.TrimSpace(choice.FinishReason) != "" {
+				if result.distributionAttempt != nil && choice.FinishReason != "stop" {
+					result.Result, result.Reason = "incomplete", "probe_response_incomplete"
+					return false, errors.New("distribution Chat response did not complete")
+				}
 				completed = true
 				result.FinishReason = strings.TrimSpace(choice.FinishReason)
 			}
@@ -1679,12 +1732,12 @@ func parseOpenAIChatCompletionsUpstreamHealthStream(reader io.Reader, started ti
 			value := event.Usage.CompletionTokens
 			result.OutputTokens = &value
 		}
-		return completed, nil
+		return completed && result.distributionAttempt == nil, nil
 	})
 	if err != nil {
 		return output.String(), err
 	}
-	completed = completed || (terminalSeen && output.Len() > 0)
+	completed = completed || (result.distributionAttempt == nil && terminalSeen && output.Len() > 0)
 	if !completed {
 		result.Result = "incomplete"
 		result.Reason = "probe_incomplete_stream"
@@ -1721,11 +1774,21 @@ func parseOpenAIChatCompletionsUpstreamHealthJSON(body []byte, started time.Time
 		return "", errors.New("OpenAI Chat Completions JSON response contained no choices")
 	}
 	choice := response.Choices[0]
+	if result.distributionAttempt != nil && choice.FinishReason != "stop" {
+		result.Result, result.Reason = "incomplete", "probe_response_incomplete"
+		return "", errors.New("distribution Chat response did not complete")
+	}
 	text := strings.TrimSpace(choice.Message.Content)
-	if text == "" {
-		text = strings.TrimSpace(choice.Text)
+	if result.distributionAttempt != nil {
+		text = choice.Message.Content
 	}
 	if text == "" {
+		text = choice.Text
+		if result.distributionAttempt == nil {
+			text = strings.TrimSpace(text)
+		}
+	}
+	if text == "" && result.distributionAttempt == nil {
 		result.Result, result.Reason = "invalid_response", "probe_response_mismatch"
 		return "", errors.New("OpenAI Chat Completions JSON response contained no text")
 	}

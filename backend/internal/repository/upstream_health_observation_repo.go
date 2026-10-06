@@ -108,7 +108,10 @@ func cleanupExpiredUpstreamHealthObservations(ctx context.Context, client *dbent
 	_, err := client.UpstreamHealthObservation.Delete().
 		Where(dbupstreamhealthobservation.ObservedAtLT(now.UTC().Add(-service.UpstreamHealthObservationRetention))).
 		Exec(ctx)
-	return err
+	if err != nil {
+		return err
+	}
+	return cleanupExpiredConfidenceDistributionStates(ctx, client, now)
 }
 
 func (r *upstreamConfigRepository) listPersistedUpstreamHealthHistories(ctx context.Context, keyIDs []int64, limit int) (map[int64][]service.UpstreamHealthObservation, error) {

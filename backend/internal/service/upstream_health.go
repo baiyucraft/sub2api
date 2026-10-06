@@ -63,6 +63,7 @@ type UpstreamHealthHistoryReader interface {
 }
 
 type UpstreamHealthConfidenceSummary struct {
+	Distribution                                  *UpstreamConfidenceDistribution
 	Score24h                                      *float64
 	Score7d                                       *float64
 	SampleCount24h                                int
@@ -90,6 +91,7 @@ type UpstreamHealthConfidenceReader interface {
 }
 
 func MergeUpstreamHealthConfidence(snapshot UpstreamHealthSnapshot, summary UpstreamHealthConfidenceSummary) UpstreamHealthSnapshot {
+	snapshot.ConfidenceDistribution = summary.Distribution
 	snapshot.ConfidenceScore24h, snapshot.ConfidenceScore7d = summary.Score24h, summary.Score7d
 	snapshot.ConfidenceSampleCount24h, snapshot.ConfidenceSampleCount7d = summary.SampleCount24h, summary.SampleCount7d
 	snapshot.ConfidenceLastScore, snapshot.ConfidenceLastProbeAt = summary.LastScore, summary.LastProbeAt
@@ -205,50 +207,51 @@ func validUpstreamHealthStatus(status UpstreamHealthStatus) bool {
 }
 
 type UpstreamHealthSnapshot struct {
-	KeyID                            int64                `json:"key_id"`
-	Status                           UpstreamHealthStatus `json:"status"`
-	ObservationEnabled               bool                 `json:"observation_enabled"`
-	Reason                           string               `json:"reason,omitempty"`
-	LastProbeAt                      *time.Time           `json:"last_probe_at,omitempty"`
-	LastProbeStatus                  string               `json:"last_probe_status,omitempty"`
-	LastProbeTTFTMs                  *int64               `json:"last_probe_ttft_ms,omitempty"`
-	LastEvidenceAt                   *time.Time           `json:"last_evidence_at,omitempty"`
-	LastTrafficStatus                string               `json:"last_traffic_status,omitempty"`
-	ConsecutiveFails                 int                  `json:"consecutive_failures"`
-	RecoverySamples                  int                  `json:"recovery_samples"`
-	RecoverySamplesRequired          int                  `json:"recovery_samples_required"`
-	LastFailureSource                string               `json:"last_failure_source,omitempty"`
-	LastFailureClass                 string               `json:"last_failure_class,omitempty"`
-	SuspensionSource                 string               `json:"suspension_source,omitempty"`
-	UpdatedAt                        time.Time            `json:"updated_at"`
-	ConfidenceScore24h               *float64             `json:"confidence_score_24h,omitempty"`
-	ConfidenceScore7d                *float64             `json:"confidence_score_7d,omitempty"`
-	ConfidenceSampleCount24h         int                  `json:"confidence_sample_count_24h"`
-	ConfidenceSampleCount7d          int                  `json:"confidence_sample_count_7d"`
-	ConfidenceLastScore              *int                 `json:"confidence_last_score,omitempty"`
-	ConfidenceLastProbeAt            *time.Time           `json:"confidence_last_probe_at,omitempty"`
-	ConfidenceStatus                 string               `json:"confidence_status,omitempty"`
-	ConfidenceRequestedEffort        string               `json:"confidence_requested_effort,omitempty"`
-	ConfidenceReasoningTokens        *int64               `json:"confidence_reasoning_tokens,omitempty"`
-	ConfidenceBreakdown              map[string]int       `json:"confidence_breakdown,omitempty"`
-	ConfidencePromptVersion          string               `json:"confidence_prompt_version,omitempty"`
-	ConfidenceEvidence               map[string]any       `json:"confidence_evidence,omitempty"`
-	ConfidenceAttempted24h           int                  `json:"confidence_attempted_24h"`
-	ConfidenceAttempted7d            int                  `json:"confidence_attempted_7d"`
-	ConfidenceValidCompleted24h      int                  `json:"confidence_valid_completed_24h"`
-	ConfidenceValidCompleted7d       int                  `json:"confidence_valid_completed_7d"`
-	ConfidenceCurrentSuccess24h      int                  `json:"confidence_current_success_24h"`
-	ConfidenceCurrentSuccess7d       int                  `json:"confidence_current_success_7d"`
-	ConfidenceMixed24h               int                  `json:"confidence_mixed_24h"`
-	ConfidenceMixed7d                int                  `json:"confidence_mixed_7d"`
-	ConfidenceUnsuccessful24h        int                  `json:"confidence_unsuccessful_24h"`
-	ConfidenceUnsuccessful7d         int                  `json:"confidence_unsuccessful_7d"`
-	ConfidenceNetworkError24h        int                  `json:"confidence_network_error_24h"`
-	ConfidenceNetworkError7d         int                  `json:"confidence_network_error_7d"`
-	ConfidenceCoverageHardAnomaly24h int                  `json:"confidence_coverage_hard_anomaly_24h"`
-	ConfidenceCoverageHardAnomaly7d  int                  `json:"confidence_coverage_hard_anomaly_7d"`
-	ConfidenceOutputRewrite24h       int                  `json:"confidence_output_rewrite_24h"`
-	ConfidenceOutputRewrite7d        int                  `json:"confidence_output_rewrite_7d"`
+	KeyID                            int64                           `json:"key_id"`
+	Status                           UpstreamHealthStatus            `json:"status"`
+	ObservationEnabled               bool                            `json:"observation_enabled"`
+	Reason                           string                          `json:"reason,omitempty"`
+	LastProbeAt                      *time.Time                      `json:"last_probe_at,omitempty"`
+	LastProbeStatus                  string                          `json:"last_probe_status,omitempty"`
+	LastProbeTTFTMs                  *int64                          `json:"last_probe_ttft_ms,omitempty"`
+	LastEvidenceAt                   *time.Time                      `json:"last_evidence_at,omitempty"`
+	LastTrafficStatus                string                          `json:"last_traffic_status,omitempty"`
+	ConsecutiveFails                 int                             `json:"consecutive_failures"`
+	RecoverySamples                  int                             `json:"recovery_samples"`
+	RecoverySamplesRequired          int                             `json:"recovery_samples_required"`
+	LastFailureSource                string                          `json:"last_failure_source,omitempty"`
+	LastFailureClass                 string                          `json:"last_failure_class,omitempty"`
+	SuspensionSource                 string                          `json:"suspension_source,omitempty"`
+	UpdatedAt                        time.Time                       `json:"updated_at"`
+	ConfidenceScore24h               *float64                        `json:"confidence_score_24h,omitempty"`
+	ConfidenceDistribution           *UpstreamConfidenceDistribution `json:"confidence_distribution,omitempty"`
+	ConfidenceScore7d                *float64                        `json:"confidence_score_7d,omitempty"`
+	ConfidenceSampleCount24h         int                             `json:"confidence_sample_count_24h"`
+	ConfidenceSampleCount7d          int                             `json:"confidence_sample_count_7d"`
+	ConfidenceLastScore              *int                            `json:"confidence_last_score,omitempty"`
+	ConfidenceLastProbeAt            *time.Time                      `json:"confidence_last_probe_at,omitempty"`
+	ConfidenceStatus                 string                          `json:"confidence_status,omitempty"`
+	ConfidenceRequestedEffort        string                          `json:"confidence_requested_effort,omitempty"`
+	ConfidenceReasoningTokens        *int64                          `json:"confidence_reasoning_tokens,omitempty"`
+	ConfidenceBreakdown              map[string]int                  `json:"confidence_breakdown,omitempty"`
+	ConfidencePromptVersion          string                          `json:"confidence_prompt_version,omitempty"`
+	ConfidenceEvidence               map[string]any                  `json:"confidence_evidence,omitempty"`
+	ConfidenceAttempted24h           int                             `json:"confidence_attempted_24h"`
+	ConfidenceAttempted7d            int                             `json:"confidence_attempted_7d"`
+	ConfidenceValidCompleted24h      int                             `json:"confidence_valid_completed_24h"`
+	ConfidenceValidCompleted7d       int                             `json:"confidence_valid_completed_7d"`
+	ConfidenceCurrentSuccess24h      int                             `json:"confidence_current_success_24h"`
+	ConfidenceCurrentSuccess7d       int                             `json:"confidence_current_success_7d"`
+	ConfidenceMixed24h               int                             `json:"confidence_mixed_24h"`
+	ConfidenceMixed7d                int                             `json:"confidence_mixed_7d"`
+	ConfidenceUnsuccessful24h        int                             `json:"confidence_unsuccessful_24h"`
+	ConfidenceUnsuccessful7d         int                             `json:"confidence_unsuccessful_7d"`
+	ConfidenceNetworkError24h        int                             `json:"confidence_network_error_24h"`
+	ConfidenceNetworkError7d         int                             `json:"confidence_network_error_7d"`
+	ConfidenceCoverageHardAnomaly24h int                             `json:"confidence_coverage_hard_anomaly_24h"`
+	ConfidenceCoverageHardAnomaly7d  int                             `json:"confidence_coverage_hard_anomaly_7d"`
+	ConfidenceOutputRewrite24h       int                             `json:"confidence_output_rewrite_24h"`
+	ConfidenceOutputRewrite7d        int                             `json:"confidence_output_rewrite_7d"`
 }
 
 type UpstreamHealthRegistry struct {

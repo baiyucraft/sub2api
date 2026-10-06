@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "catalog_version": "2026-10-05",
+  "catalog_version": "2026-10-06",
   "version_contract": {
     "upstream_path": "backend/cmd/server/VERSION",
     "fork_suffix": "-baiyu",
@@ -120,21 +120,23 @@
     "257": {"version":"0.2.9-baiyu","parent":"256","gate_schema":2,"new_migrations":["284_unified_proxy_bindings.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
     "258": {"version":"0.2.10-baiyu","parent":"257","gate_schema":2,"new_migrations":[],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
     "259": {"version":"0.2.11-baiyu","parent":"258","gate_schema":2,"new_migrations":[],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
-    "260": {"version":"0.2.11-baiyu","parent":"259","gate_schema":2,"new_migrations":["285_upstream_null_rate_lifecycle.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}}
+    "260": {"version":"0.2.11-baiyu","parent":"259","gate_schema":2,"new_migrations":["285_upstream_null_rate_lifecycle.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
+    "261": {"version":"0.2.13-baiyu","parent":"260","gate_schema":2,"new_migrations":["286_add_payment_order_bonus_amount.sql","287_add_typesafe_platform.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}}
   },
   "current_profile": {
-    "id": "261",
+    "id": "262",
     "status": "pending",
     "version": "0.2.13-baiyu",
-    "parent": "260",
+    "parent": "261",
     "gate_schema": 2,
-    "new_migrations": ["286_add_payment_order_bonus_amount.sql", "287_add_typesafe_platform.sql"],
+    "new_migrations": ["288_upstream_confidence_distribution.sql"],
     "release_policy": {
       "compatibility_image": "production_current",
       "migration_source": "database_state"
     }
   },
   "migration_contracts": {
+    "288_upstream_confidence_distribution.sql": "18d33b7a9d64abab88d4cda73fded0e2ac3619daa11467704a4f2565b2c46835",
     "286_add_payment_order_bonus_amount.sql": "ddd45f14154ea6d6b5b612bee7eb49436e1f2a1665f9a71eb8304e48475ed12d",
     "287_add_typesafe_platform.sql": "419fceaa3e6f1bd089a454fda30b9d343a83fff75ad3b6dffdc44287bf99d171",
     "285_upstream_null_rate_lifecycle.sql": "e20050102cb990b4cac50d62c46e6602649011755aafaab38cdc61937515385a",
@@ -231,6 +233,7 @@
     "official_238_purge_unlimited_user_platform_quotas": "275_purge_unlimited_user_platform_quotas.sql"
   },
   "migration_assertions": {
+    "backend/migrations/288_upstream_confidence_distribution.sql": ["upstream_confidence_distribution_states", "PRIMARY KEY REFERENCES upstream_keys(id) ON DELETE CASCADE", "revision BIGINT NOT NULL DEFAULT 1 CHECK (revision > 0)", "state_json JSONB NOT NULL"],
     "backend/migrations/286_add_payment_order_bonus_amount.sql": ["ALTER TABLE payment_orders ADD COLUMN IF NOT EXISTS bonus_amount DECIMAL(20,2) NOT NULL DEFAULT 0"],
     "backend/migrations/287_add_typesafe_platform.sql": ["user_platform_quotas_platform_check", "composite_model_routes_target_platform_check", "'opencode_go', 'typesafe'"],
     "backend/migrations/281_content_moderation_engine_meta.sql": ["ADD COLUMN IF NOT EXISTS engine_meta JSONB"],
@@ -951,7 +954,7 @@
     {
       "id": "migration-profile-contract",
       "title": "Migration、profile、版本与历史证据",
-      "description": "维护 fork migration、官方重编号、历史 profile 233–260、pending profile 261、版本递增、checksum 和 compatibility identity。",
+      "description": "维护 fork migration、官方重编号、历史 profile 233–261、pending profile 262、版本递增、checksum 和 compatibility identity。",
       "ownership": "fork",
       "risk_level": "critical",
       "paths": [
@@ -989,6 +992,7 @@
       "api_routes": [],
       "settings_keys": [],
       "migration_files": [
+        "288_upstream_confidence_distribution.sql",
         "285_upstream_null_rate_lifecycle.sql",
         "286_add_payment_order_bonus_amount.sql",
         "287_add_typesafe_platform.sql",
@@ -1038,6 +1042,9 @@
         "280_plugin_runtime_state.sql"
       ],
       "required_tests": [
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile262_release_contract.py",
+        "backend/internal/repository/upstream_confidence_distribution_repo_test.go",
+        "backend/internal/repository/upstream_confidence_distribution_integration_test.go",
         "backend/migrations/upstream_null_rate_lifecycle_migration_test.go",
         "backend/internal/repository/upstream_null_rate_binding_integration_test.go",
         "backend/migrations/typesafe_platform_migration_test.go",
@@ -1074,7 +1081,8 @@
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_production_release.py"
       ],
       "invariants": [
-        "profile 260 已 signed 且 2026-10-01 生产 verified，保持 0.2.11-baiyu、parent 259、new_migrations=[285_upstream_null_rate_lifecycle.sql] 及全部历史签名/checksum 不变；pending profile 261 为 0.2.13-baiyu、parent 260，仅追加 286_add_payment_order_bonus_amount.sql 和 287_add_typesafe_platform.sql；官方目标固定 b8dece9000c68815a5b867ca5a1e6f236e173905；新官方两项 241 仅重编号，SQL 原字节不变，旧 local241 保留；新增登记不代表新 VM Gate 或生产发布",
+        "pending profile 262 保持 0.2.13-baiyu、parent 261，仅追加 288_upstream_confidence_distribution.sql；profile 261 的 0.2.13-baiyu、parent 260、286/287 合同与更早 profile/checksum 原样保留；当前 262 执行闭包含 VM/Gate/DR/生产/祖先断言/备份/清理入口，未知 263 拒绝；新恢复敏感 blob 未分类仍阻断，不增加豁免",
+        "profile 260 已 signed 且 2026-10-01 生产 verified，保持 0.2.11-baiyu、parent 259、new_migrations=[285_upstream_null_rate_lifecycle.sql] 及全部历史签名/checksum 不变；保留 profile 261 为 0.2.13-baiyu、parent 260，仅追加 286_add_payment_order_bonus_amount.sql 和 287_add_typesafe_platform.sql；官方目标固定 b8dece9000c68815a5b867ca5a1e6f236e173905；新官方两项 241 仅重编号，SQL 原字节不变，旧 local241 保留；新增登记不代表新 VM Gate 或生产发布",
         "285 替换 validate_account_upstream_key_binding 并将 source 纳入绑定 trigger 的更新列：actual 缺失时仅允许 existing same-binding 且身份与价格不变的暂停或归档；新增、恢复、启用、重绑定和身份或价格变更仍严格要求 actual，known-rate 恢复仍校验 active/platform；不得修改历史 241、279、284 SQL 或 checksum，不增加 checksum compatibility 放行",
         "历史 profile 233–254 不回写；profile 254 对应 0.2.7-baiyu，parent 为 253，new_migrations 精确为 [278_fork_group_ttft_guard_policies.sql, 279_proxy_ip_groups.sql, 280_plugin_runtime_state.sql]，三项原始文件 SHA-256 必须与 migration_contracts 登记一致",
         "历史 profile 255 对应 0.2.8-baiyu，parent 为 254，new_migrations 精确为 [281_content_moderation_engine_meta.sql, 282_channel_reasoning_effort_multipliers.sql, 283_affiliate_ledger_operation_id.sql]；官方原始 238b/239/240 按内容仅重编号新文件，SQL 字节不变，先执行历史 265/278–280 再执行 281–283；三项 Git 原始字节 checksum 与 migration_contracts 一致；历史 profile 256 对应 0.2.9-baiyu，parent 为 255，new_migrations 为空；保留 profile 257 对应 0.2.9-baiyu，parent 为 256，new_migrations 精确为 [284_unified_proxy_bindings.sql]，原始 SHA-256 与 migration_contracts 一致",
@@ -1181,6 +1189,30 @@
       "symbols": ["BatchPrimaryCacheRates", "BatchPrimaryCacheRatesForGroups", "NormalizeChannelMonitorV1CacheRateSourceGroups", "ChannelMonitorV1CacheRateSourceGroup", "UsageAggregationAllowed", "PrimaryCacheRate", "groupMonitorItems"], "api_routes": ["/channel-monitors", "/admin/channel-monitor-v2/config"], "settings_keys": ["channel_monitor_mode", "v1_cache_rate_source_groups"], "migration_files": [],
       "required_tests": ["backend/internal/repository/channel_monitor_cache_rates_test.go", "backend/internal/service/channel_monitor_rate_aggregator_test.go", "backend/internal/service/channel_monitor_probe_retirement_test.go", "frontend/src/utils/__tests__/channelMonitorGrouping.spec.ts", "frontend/src/components/user/__tests__/MonitorCard.quota.spec.ts"],
       "invariants": ["只按可见监控绑定的业务分组、有效厂商和主模型读取真实业务汇总，不跨权限或平台归因", "V1 缓存率来源映射只在来源分组对当前用户可见时生效，否则回退当前展示分组，避免侧信道泄露", "成功请求数不足 V2 minimum_sample、零分母或历史回填未完成均为 null，不输出请求量", "V1 与 V2 共享后台汇总，但 V2 页面门控和 V1 主动探针不变", "映射只改变 V1 卡片展示，不合并真实用量、不改变计费、V2 维度或厂商身份", "卡片仅替换总耗时为缓存率，探针历史及详情继续保留完整延迟", "国产模型仅为 V1 展示分组，不修改原厂商身份或 V2 维度"]
+    },
+    {
+      "id": "openai-sol-confidence-distribution",
+      "title": "OpenAI 单次 Sol 探针与 128 次滑动分布",
+      "description": "每次真实探针只发送一个随机短题，以持久化固定题序及最近 128 次尝试计算 Sol 行为匹配分数，判定只用于展示和独立告警。",
+      "ownership": "fork",
+      "risk_level": "high",
+      "paths": ["backend/internal/service/upstream_confidence_distribution.go", "backend/internal/service/upstream_confidence_distribution_state.go", "backend/internal/service/upstream_confidence_distribution_probe.go", "backend/internal/service/upstream_confidence_probe_settings.go", "backend/internal/service/confidence_baselines/**", "backend/internal/service/upstream_health_probe_client.go", "backend/internal/service/upstream_config.go", "backend/internal/service/upstream_health.go", "backend/internal/repository/upstream_confidence_distribution_repo.go", "backend/internal/repository/upstream_health_observation_repo.go", "backend/migrations/288_upstream_confidence_distribution.sql", "frontend/src/components/account/UpstreamHealthCell.vue", "frontend/src/components/admin/account/UpstreamManagementSettingsDialog.vue", "frontend/src/types/index.ts", "frontend/src/api/admin/upstreamManagement.ts", "frontend/src/api/admin/upstreamConfigs.ts", "frontend/src/components/common/HelpTooltip.vue", "frontend/src/i18n/locales/zh/admin/upstreamManagement.ts", "frontend/src/i18n/locales/en/admin/upstreamManagement.ts"],
+      "symbols": ["ScoreUpstreamConfidenceDistribution", "NewDistributionProbeOrder", "NormalizeDistributionAnswer", "ClaimConfidenceDistribution", "FinishConfidenceDistribution", "LoadConfidenceDistributionForSeries"],
+      "api_routes": [],
+      "settings_keys": ["upstream_confidence_probe_settings"],
+      "migration_files": ["288_upstream_confidence_distribution.sql"],
+      "required_tests": ["backend/internal/service/upstream_confidence_distribution_test.go", "backend/internal/service/upstream_confidence_distribution_state_test.go", "backend/internal/service/upstream_confidence_distribution_probe_test.go", "backend/internal/service/upstream_confidence_probe_settings_test.go", "backend/internal/repository/upstream_confidence_distribution_repo_test.go", "backend/internal/repository/upstream_confidence_distribution_integration_test.go", "frontend/src/components/account/__tests__/UpstreamHealthCell.spec.ts", "frontend/src/components/admin/account/__tests__/UpstreamManagementSettingsDialog.spec.ts", "frontend/src/components/common/__tests__/HelpTooltip.spec.ts", "backend/migrations/profile_262_migrations_test.go", ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile262_release_contract.py"],
+      "invariants": [
+        "OpenAI 真实探针固定 gpt-6.1-sol、空历史、system 点号、low、128 输出 token、流式；Responses store=false 与 Chat Completions 协议各用对应授权基准，不进行 padding、额外挑战、立即重试或第二请求",
+        "随机排列包含 64 标点、16 国家、48 整数并始终循环同一序列，严格最近 128 次尝试的任意完整窗口保持配额；失败和不完整响应占槽，未发出的配置失败或跳过不消费",
+        "持久化独立表使用 revision CAS 和 120 秒租约；手动与定时按 Key 共享执行锁，开始发送前消费序号；崩溃 pending 过期按无效保留，不重发；系列绑定完整请求合同和基准版本，35 天保留边界通过 Claim/Load 与既有观测清理事务清除闲置旧样本，CAS 不覆盖并发 Claim/Finish，保留系列身份、题序和递增序号",
+        "满 128 且无 pending 才允许判定，有效标点/国家/整数至少 39/10/29，总体至少 78；trim 与 Unicode casefold 后按上游长度规则规范化，非空未知答案保留 unknown，不修正数字或合并国家别名",
+        "Sol/Astra/Terra/Luna/other 的 predictive 分数是行为匹配分数而非身份概率；相邻窗口高度重叠，连续判定不是独立证据，不引用开发模拟结果作为生产准确率",
+        "使用用户确认的既有商业授权基准，独立 Go 实现公式，保存来源版本、原始内容指纹及对照 fixture；不引入参考项目 Python 实现",
+        "分布 mismatch 不改变健康状态、账号可用性或调度权重，不转 quality_degraded；网络/鉴权/协议故障仍按现有健康合同；新分布不混入旧 Juice 24h/7d 成功率",
+        "首次充分 mismatch 和 match/mismatch 切换原子生成 key_confidence_distribution_changed 事件；持续同状态静默，insufficient 不产生失真或恢复告警；事件只保存安全 allowlist 字段",
+        "列表与详情显示采集进度、状态、有效样本、三类计数、候选浮点分数及采样时间，缺失旧字段不伪造分数"
+      ]
     },
     {
       "id": "openai-image-permission-routing",

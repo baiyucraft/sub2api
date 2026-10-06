@@ -862,7 +862,22 @@ PROFILES["261"] = {
     },
 }
 
-CURRENT_RELEASE_PROFILE = "261"
+# Keep the exact 261 contract available for historical runners. The persistent
+# OpenAI confidence sampler is an additive migration owned by its successor.
+PROFILES["262"] = {
+    **{key: PROFILES["261"][key] for key in _PROFILE_V2_RUNTIME_KEYS},
+    "name": "262",
+    "version": "0.2.13-baiyu",
+    "parent": "261",
+    "new_migrations": ["288_upstream_confidence_distribution.sql"],
+    "gate_schema": 2,
+    "release_policy": {
+        "compatibility_image": "production_current",
+        "migration_source": "database_state",
+    },
+}
+
+CURRENT_RELEASE_PROFILE = "262"
 
 
 def get_profile(name: str) -> dict:

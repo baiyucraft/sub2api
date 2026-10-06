@@ -306,11 +306,11 @@ func (*successfulUpstreamHealthProber) RunUpstreamHealthProbe(_ context.Context,
 	}, nil
 }
 
-func TestUpstreamConfigServiceProbeReportsOpenAIScheduleResultBeforeConfidenceDegradation(t *testing.T) {
+func TestUpstreamConfigServiceDistributionDoesNotDegradeOrReportScheduling(t *testing.T) {
 	const keyID int64 = 92030
 	active := StatusActive
 	platform := PlatformOpenAI
-	repo := &healthProbeLockRepo{key: UpstreamKey{ID: keyID, UpstreamConfigID: 42, Status: active, Platform: &platform}}
+	repo := &distributionServiceTestRepo{healthProbeLockRepo: &healthProbeLockRepo{key: UpstreamKey{ID: keyID, UpstreamConfigID: 42, Status: active, Platform: &platform}}}
 	accountRepo := &healthProbeAccountRepo{account: Account{ID: 84, Type: AccountTypeAPIKey, Platform: PlatformOpenAI, UpstreamKeyID: int64Ptr(keyID)}}
 	reporter := &probeScheduleReporter{}
 	settingsRepo := &upstreamManagementSettingRepoStub{values: map[string]string{
@@ -322,14 +322,10 @@ func TestUpstreamConfigServiceProbeReportsOpenAIScheduleResultBeforeConfidenceDe
 	svc.SetHealthProbeDependencies(&mixedJuiceUpstreamHealthProber{}, settingService)
 	svc.SetOpenAIScheduleReporter(reporter)
 
-	_, err := svc.ProbeKey(context.Background(), keyID)
-	require.Error(t, err)
-	require.Equal(t, "UPSTREAM_KEY_PROBE_FAILED", infraerrors.Reason(err))
-	require.Len(t, reporter.reports, 1)
-	require.Equal(t, int64(84), reporter.reports[0].accountID)
-	require.Equal(t, true, reporter.reports[0].success, "network/stream completion succeeded before Juice quality degradation")
-	require.NotNil(t, reporter.reports[0].firstTokenMs)
-	require.Equal(t, 35, *reporter.reports[0].firstTokenMs)
+	item, err := svc.ProbeKey(context.Background(), keyID)
+	require.NoError(t, err)
+	require.Equal(t, "success", item.LastProbeStatus)
+	require.Empty(t, reporter.reports, "distribution evidence never changes scheduler weights")
 }
 
 func TestUpstreamConfigServiceProbeFailureReturnsSanitizedClassificationMetadata(t *testing.T) {
@@ -354,11 +350,11 @@ func TestUpstreamConfigServiceProbeFailureReturnsSanitizedClassificationMetadata
 	}, appErr.Metadata)
 }
 
-func TestUpstreamConfigServiceProbeReportsFailureAndTTFTAfterStreamError(t *testing.T) {
+func TestUpstreamConfigServiceDistributionStreamErrorRetainsHealthFailure(t *testing.T) {
 	const keyID int64 = 92031
 	active := StatusActive
 	platform := PlatformOpenAI
-	repo := &healthProbeLockRepo{key: UpstreamKey{ID: keyID, UpstreamConfigID: 42, Status: active, Platform: &platform}}
+	repo := &distributionServiceTestRepo{healthProbeLockRepo: &healthProbeLockRepo{key: UpstreamKey{ID: keyID, UpstreamConfigID: 42, Status: active, Platform: &platform}}}
 	accountRepo := &healthProbeAccountRepo{account: Account{ID: 85, Type: AccountTypeAPIKey, Platform: PlatformOpenAI, UpstreamKeyID: int64Ptr(keyID)}}
 	reporter := &probeScheduleReporter{}
 	settingsRepo := &upstreamManagementSettingRepoStub{values: map[string]string{
@@ -372,10 +368,8 @@ func TestUpstreamConfigServiceProbeReportsFailureAndTTFTAfterStreamError(t *test
 
 	_, err := svc.ProbeKey(context.Background(), keyID)
 	require.Error(t, err)
-	require.Len(t, reporter.reports, 1)
-	require.False(t, reporter.reports[0].success)
-	require.NotNil(t, reporter.reports[0].firstTokenMs)
-	require.Equal(t, 45, *reporter.reports[0].firstTokenMs)
+	require.Equal(t, "UPSTREAM_KEY_PROBE_FAILED", infraerrors.Reason(err))
+	require.Empty(t, reporter.reports)
 }
 
 func TestUpstreamConfigServiceProbeReportsNonOpenAIWhenConfidenceEnabled(t *testing.T) {

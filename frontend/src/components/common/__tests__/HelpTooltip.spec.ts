@@ -14,6 +14,44 @@ function getTooltipElement(): HTMLDivElement {
 describe('HelpTooltip', () => {
   afterEach(() => {
     document.body.innerHTML = ''
+    vi.restoreAllMocks()
+  })
+
+  it('clamps mobile edges, flips below the trigger and ignores document scroll offsets', async () => {
+    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(390)
+    vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(844)
+    vi.spyOn(window, 'scrollY', 'get').mockReturnValue(1000)
+    vi.spyOn(window, 'scrollX', 'get').mockReturnValue(50)
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function () {
+      return (this.getAttribute('role') === 'tooltip'
+        ? { top: 0, bottom: 500, left: 0, right: 358, width: 358, height: 500 }
+        : { top: 50, bottom: 74, left: 360, right: 385, width: 25, height: 24 }) as DOMRect
+    })
+    const wrapper = mount(HelpTooltip, { attachTo: document.body, props: { trigger: 'click', content: 'mobile distribution details' } })
+    await wrapper.get('.group').trigger('click')
+    await nextTick()
+    expect(getTooltipElement().dataset.placement).toBe('bottom')
+    expect(getTooltipElement().style.top).toBe('82px')
+    expect(getTooltipElement().style.left).toBe('195px')
+    expect(getTooltipElement().style.maxWidth).toBe('calc(100vw - 32px)')
+    wrapper.unmount()
+  })
+
+  it('keeps a top placement when there is room and clamps the left edge', async () => {
+    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1440)
+    vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(900)
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function () {
+      return (this.getAttribute('role') === 'tooltip'
+        ? { top: 0, bottom: 240, left: 0, right: 384, width: 384, height: 240 }
+        : { top: 500, bottom: 524, left: 10, right: 50, width: 40, height: 24 }) as DOMRect
+    })
+    const wrapper = mount(HelpTooltip, { attachTo: document.body, props: { content: 'desktop details' } })
+    await wrapper.get('.group').trigger('mouseenter')
+    await nextTick()
+    expect(getTooltipElement().dataset.placement).toBe('top')
+    expect(getTooltipElement().style.top).toBe('252px')
+    expect(getTooltipElement().style.left).toBe('208px')
+    wrapper.unmount()
   })
 
   it('keeps the existing hover interaction by default', async () => {

@@ -1,5 +1,5 @@
 import { apiClient } from '../client'
-import type { Account, AccountQualityFilter, PaginatedResponse, UpstreamHealthObservation } from '@/types'
+import type { Account, AccountQualityFilter, PaginatedResponse, UpstreamConfidenceDistribution, UpstreamHealthObservation } from '@/types'
 
 export interface TTFTGuardSettings {
   enabled: boolean
@@ -37,9 +37,10 @@ export interface UpstreamManagementSettings {
 
 export interface UpstreamConfidenceProbeSettings {
   enabled: boolean
-  reasoning_effort: 'high'
+  reasoning_effort: 'low'
   long_context_enabled: boolean
   long_context_max_tokens: number
+  /** Legacy compatibility field; distribution verdicts never degrade scheduling. */
   quality_degrade_threshold: number
   prompt_version: string
 }
@@ -78,6 +79,7 @@ export interface UpstreamHealthSnapshot {
   confidence_breakdown?: Record<string, number>
   confidence_prompt_version?: string
   confidence_evidence?: Record<string, unknown>
+  confidence_distribution?: UpstreamConfidenceDistribution | null
   confidence_attempted_24h?: number
   confidence_attempted_7d?: number
   confidence_valid_completed_24h?: number
