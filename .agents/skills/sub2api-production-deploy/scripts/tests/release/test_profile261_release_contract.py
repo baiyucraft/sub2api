@@ -42,12 +42,12 @@ class Profile261ReleaseContractTest(unittest.TestCase):
         source = git_blob(BASELINE, ".agents/skills/sub2api-production-deploy/scripts/release/profiles.py")
         exec(compile(source, "baseline-profiles", "exec"), previous)
         self.assertEqual(previous["CURRENT_RELEASE_PROFILE"], "260")
-        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"261"})
+        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"261", "262"})
         for name, contract in previous["PROFILES"].items():
             with self.subTest(profile=name):
                 self.assertEqual(get_profile(name), contract)
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "261")
-        current = get_release_profile("261")
+        self.assertEqual(CURRENT_RELEASE_PROFILE, "262")
+        current = get_profile("261")
         self.assertEqual(current["version"], "0.2.13-baiyu")
         self.assertEqual(current["parent"], "260")
         self.assertEqual(current["new_migrations"], MIGRATIONS)
@@ -55,20 +55,22 @@ class Profile261ReleaseContractTest(unittest.TestCase):
         self.assertEqual(current["release_policy"], get_profile("260")["release_policy"])
         with self.assertRaisesRegex(ValueError, "historical"):
             get_release_profile("260")
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 262"):
-            get_profile("262")
+        with self.assertRaisesRegex(ValueError, "historical"):
+            get_release_profile("261")
+        with self.assertRaisesRegex(ValueError, "unknown release profile: 263"):
+            get_profile("263")
         with self.assertRaises(ValueError):
-            get_release_profile("262")
+            get_release_profile("263")
 
     def test_official_raw_bytes_and_catalog_checksums_match(self) -> None:
         registration = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
         catalog = {item["filename"]: item for item in discover_migration_catalog(WORKSPACE)}
         self.assertEqual(git_blob(UPSTREAM, "backend/cmd/server/VERSION").decode().strip(), "0.2.13")
         self.assertEqual(registration["version_contract"]["official_release_versions"][UPSTREAM], "0.2.13")
-        self.assertEqual(registration["current_profile"]["id"], "261")
+        self.assertEqual(registration["current_profile"]["id"], "262")
         self.assertEqual(registration["current_profile"]["status"], "pending")
         for field in ("version", "parent", "new_migrations", "gate_schema", "release_policy"):
-            self.assertEqual(registration["current_profile"][field], get_profile("261")[field])
+            self.assertEqual(registration["historical_profiles"]["261"][field], get_profile("261")[field])
             self.assertEqual(registration["historical_profiles"]["260"][field], get_profile("260")[field])
         for filename, official, digest in zip(MIGRATIONS, OFFICIAL, RAW_SHA256):
             with self.subTest(migration=filename):
@@ -154,6 +156,7 @@ jq() {
     .parent_profile) printf '%s\\n' "$parent" ;;
     '.new_migrations == ["285_upstream_null_rate_lifecycle.sql"]') [[ $new_migrations == lifecycle ]] ;;
     '.new_migrations == ["286_add_payment_order_bonus_amount.sql", "287_add_typesafe_platform.sql"]') [[ $new_migrations == release261 ]] ;;
+    '.new_migrations == ["288_upstream_confidence_distribution.sql"]') [[ $new_migrations == distribution262 ]] ;;
     *) return 1 ;;
   esac
 }
@@ -171,6 +174,8 @@ jq() {
             ("261", "0.2.13-baiyu", "260", "empty", False),
             ("261", "0.2.13-baiyu", "260", "reversed", False),
             ("262", "0.2.13-baiyu", "261", "release261", False),
+            ("262", "0.2.13-baiyu", "261", "distribution262", True),
+            ("263", "0.2.13-baiyu", "262", "distribution262", False),
         ):
             with self.subTest(profile=profile, version=version, parent=parent, migrations=migrations):
                 result = subprocess.run(

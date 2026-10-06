@@ -1553,6 +1553,7 @@ export interface Account {
     confidence_breakdown?: Record<string, number>
     confidence_prompt_version?: string
     confidence_evidence?: Record<string, unknown>
+    confidence_distribution?: UpstreamConfidenceDistribution | null
     confidence_attempted_24h?: number
     confidence_attempted_7d?: number
     confidence_valid_completed_24h?: number
@@ -1656,6 +1657,33 @@ export interface AccountTTFTGuardDegradation {
   expires_at: string
   recovery_samples: number
   recovery_samples_required: number
+}
+
+export interface UpstreamConfidenceDistributionCell {
+  planned: number
+  minimum: number
+  completed: number
+  valid: number
+  counts: Record<string, number>
+}
+
+/** Relative behavioral fit scores, never model identity probabilities. */
+export interface UpstreamConfidenceDistribution {
+  status: 'collecting' | 'match' | 'mismatch' | 'insufficient'
+  window_size: number
+  attempted: number
+  valid_samples: number
+  cells: Record<string, UpstreamConfidenceDistributionCell>
+  matches: Record<string, number>
+  scores: Record<string, number>
+  thresholds: Record<string, number>
+  closest_model?: string
+  claimed_model: string
+  window_start?: string | null
+  window_end?: string | null
+  baseline_version: string
+  protocol: string
+  reasons: string[]
 }
 
 export interface UpstreamHealthObservation {

@@ -20,7 +20,7 @@ type UpstreamConfidenceProbeSettings struct {
 }
 
 func DefaultUpstreamConfidenceProbeSettings() UpstreamConfidenceProbeSettings {
-	return UpstreamConfidenceProbeSettings{Enabled: false, ReasoningEffort: upstreamConfidenceDefaultEffort, LongContextMaxTokens: 2048, QualityDegradeThreshold: 70, PromptVersion: upstreamConfidencePromptVersion}
+	return UpstreamConfidenceProbeSettings{Enabled: false, ReasoningEffort: "low", LongContextMaxTokens: 2048, QualityDegradeThreshold: 0, PromptVersion: UpstreamConfidenceDistributionPromptVersion}
 }
 
 func normalizeUpstreamConfidenceProbeSettings(value UpstreamConfidenceProbeSettings) (UpstreamConfidenceProbeSettings, error) {
@@ -28,7 +28,7 @@ func normalizeUpstreamConfidenceProbeSettings(value UpstreamConfidenceProbeSetti
 	if strings.TrimSpace(value.ReasoningEffort) == "" {
 		value.ReasoningEffort = defaults.ReasoningEffort
 	}
-	value.ReasoningEffort = upstreamConfidenceDefaultEffort
+	value.ReasoningEffort = "low"
 	value.LongContextEnabled = false
 	value.LongContextMaxTokens = defaults.LongContextMaxTokens
 	if value.LongContextMaxTokens <= 0 {
@@ -37,16 +37,13 @@ func normalizeUpstreamConfidenceProbeSettings(value UpstreamConfidenceProbeSetti
 	if value.LongContextMaxTokens > 16384 {
 		return value, fmt.Errorf("long_context_max_tokens is too large")
 	}
-	if value.QualityDegradeThreshold == 0 {
-		value.QualityDegradeThreshold = defaults.QualityDegradeThreshold
-	}
-	if value.QualityDegradeThreshold < 0 || value.QualityDegradeThreshold > 100 {
-		return value, fmt.Errorf("quality_degrade_threshold must be between 0 and 100")
-	}
+	// Kept on the wire for old clients. Distribution verdicts never use this
+	// legacy percentage threshold or feed into account health.
+	value.QualityDegradeThreshold = 0
 	if strings.TrimSpace(value.PromptVersion) == "" {
 		value.PromptVersion = defaults.PromptVersion
 	}
-	value.PromptVersion = upstreamConfidencePromptVersion
+	value.PromptVersion = UpstreamConfidenceDistributionPromptVersion
 	return value, nil
 }
 

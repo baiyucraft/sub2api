@@ -39,14 +39,15 @@ func TestGetUpstreamConfidenceProbeSettingsStateDistinguishesConfiguration(t *te
 	}
 }
 
-func TestNormalizeUpstreamConfidenceProbeSettingsForcesJuiceHigh(t *testing.T) {
+func TestNormalizeUpstreamConfidenceProbeSettingsForcesDistributionContract(t *testing.T) {
 	value, err := normalizeUpstreamConfidenceProbeSettings(UpstreamConfidenceProbeSettings{
 		Enabled: true, ReasoningEffort: "low", PromptVersion: "legacy-v1",
 		LongContextEnabled: true, LongContextMaxTokens: 8192,
 	})
 	require.NoError(t, err)
-	require.Equal(t, UpstreamConfidenceDefaultEffort, value.ReasoningEffort)
-	require.Equal(t, UpstreamConfidencePromptVersion, value.PromptVersion)
+	require.Equal(t, "low", value.ReasoningEffort)
+	require.Equal(t, UpstreamConfidenceDistributionPromptVersion, value.PromptVersion)
+	require.Zero(t, value.QualityDegradeThreshold)
 	require.False(t, value.LongContextEnabled)
 	require.Equal(t, DefaultUpstreamConfidenceProbeSettings().LongContextMaxTokens, value.LongContextMaxTokens)
 }

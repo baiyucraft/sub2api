@@ -1,14 +1,20 @@
 import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import UpstreamHealthCell from '../UpstreamHealthCell.vue'
-import type { Account } from '@/types'
+import type { Account, UpstreamConfidenceDistribution } from '@/types'
+import zh from '@/i18n/locales/zh/admin/upstreamManagement'
 
 vi.mock('vue-i18n', async () => {
   const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
   return {
     ...actual,
     useI18n: () => ({
-      t: (key: string) => key,
+      t: (key: string, values: Record<string, unknown> = {}) => {
+        if (!key.includes('.distribution.')) return key
+        let value: unknown = zh
+        for (const part of key.replace('admin.', '').split('.')) value = (value as Record<string, unknown>)?.[part]
+        return typeof value === 'string' ? value.replace(/\{(\w+)\}/g, (_, name: string) => String(values[name] ?? '')) : key
+      },
       te: (key: string) => key !== 'admin.upstreamManagement.health.reasons.unknown_reason'
     })
   }
@@ -49,6 +55,62 @@ const stubs = {
 }
 
 describe('UpstreamHealthCell', () => {
+  const distribution = (overrides: Partial<UpstreamConfidenceDistribution> = {}): UpstreamConfidenceDistribution => ({
+    status: 'collecting', window_size: 128, attempted: 42, valid_samples: 40,
+    cells: {
+      gpt__screen067: { planned: 64, minimum: 39, completed: 21, valid: 20, counts: { '！': 14, '。': 6 } },
+      gpt__screen101: { planned: 16, minimum: 10, completed: 7, valid: 7, counts: { uruguay: 5, __UNSEEN_IN_TRAINING__: 2 } },
+      gpt__screen108: { planned: 48, minimum: 29, completed: 14, valid: 13, counts: { '47': 13 } }
+    },
+    matches: {}, scores: {}, thresholds: {}, claimed_model: 'gpt-6.1-sol',
+    window_start: '2026-10-06T00:00:00Z', window_end: '2026-10-06T03:30:00Z',
+    baseline_version: '4.5.4-predictive.20261003.1', protocol: 'responses', reasons: ['window_incomplete'], ...overrides
+  })
+  const mountDistribution = (value: UpstreamConfidenceDistribution, platform = 'openai') => mount(UpstreamHealthCell, {
+    props: { account: account({ platform, upstream_health: {
+      key_id: 9, status: 'healthy', observation_enabled: true, consecutive_failures: 0, updated_at: '2026-10-06T00:00:00Z',
+      confidence_distribution: value,
+      confidence_prompt_version: 'openai-juice-multiprobe-v2', confidence_valid_completed_24h: 5, confidence_score_24h: 99
+    } }) }, global: { stubs }
+  })
+
+  it('shows collection progress without old ratios or premature candidate scores', () => {
+    const wrapper = mountDistribution(distribution())
+    expect(wrapper.get('[data-test="distribution-badge"]').text()).toBe('采集中 42/128')
+    expect(wrapper.get('[data-test="distribution-badge"]').classes()).toContain('bg-gray-100')
+    expect(wrapper.get('[data-test="health-confidence-row"]').classes()).toContain('flex-wrap')
+    expect(wrapper.text()).toContain('40 / 42')
+    expect(wrapper.text()).toContain('uruguay')
+    expect(wrapper.text()).toContain('未见答案')
+    expect(wrapper.text()).toContain('4.5.4-predictive.20261003.1')
+    expect(wrapper.find('[data-test="confidence-badge"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('confidence24h')
+    expect(wrapper.text()).not.toContain('0.0000')
+  })
+
+  it.each([
+    { status: 'match' as const, closest_model: 'gpt-6.1-sol', label: 'Sol 匹配', color: 'bg-emerald-100' },
+    { status: 'mismatch' as const, closest_model: 'gpt-6-astra', label: '疑似 Astra', color: 'bg-red-100' },
+    { status: 'mismatch' as const, closest_model: 'other_known_external', label: '疑似 other', color: 'bg-red-100' },
+    { status: 'insufficient' as const, closest_model: 'gpt-6-astra', label: '证据不足', color: 'bg-amber-100' }
+  ])('renders $label while leaving health unchanged', ({ status, closest_model, label, color }) => {
+    const wrapper = mountDistribution(distribution({ status, closest_model, attempted: 128, valid_samples: 121,
+      matches: { 'gpt-6-astra': 0.57321, 'gpt-6.1-sol': 0.42679 }, reasons: status === 'insufficient' ? ['samples_incomplete'] : [] }))
+    expect(wrapper.get('[data-test="distribution-badge"]').text()).toBe(label)
+    expect(wrapper.get('[data-test="distribution-badge"]').classes()).toContain(color)
+    expect(wrapper.get('[data-upstream-health-state="healthy"]').classes()).toContain('bg-emerald-100')
+    expect(wrapper.get('[data-test="distribution-score-gpt-6-astra"]').text()).toBe('0.573210')
+    expect(wrapper.text()).toContain('行为匹配分数')
+    expect(wrapper.text()).toContain('不是模型身份概率')
+    expect(wrapper.text()).not.toContain('57%')
+    if (status === 'insufficient') expect(wrapper.text()).toContain('有效样本不足')
+  })
+
+  it('does not show an OpenAI distribution for another platform', () => {
+    const wrapper = mountDistribution(distribution(), 'anthropic')
+    expect(wrapper.find('[data-test="distribution-badge"]').exists()).toBe(false)
+  })
+
   it('uses the transit-hub six-state color semantics and renders probe evidence', () => {
     const wrapper = mount(UpstreamHealthCell, {
       props: {

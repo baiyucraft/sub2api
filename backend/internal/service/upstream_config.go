@@ -1100,7 +1100,28 @@ func (s *UpstreamConfigService) GetUpstreamHealthConfidence(ctx context.Context,
 	if !ok {
 		return UpstreamHealthConfidenceSummary{}, nil
 	}
-	return reader.GetUpstreamHealthConfidence(ctx, keyID)
+	summary, err := reader.GetUpstreamHealthConfidence(ctx, keyID)
+	if err != nil || !s.confidenceProbeIndependent(ctx) {
+		return summary, err
+	}
+	collector, supported := s.repo.(UpstreamConfidenceDistributionRepository)
+	lister, bound := s.accountRepo.(upstreamAccountBindingLister)
+	if !supported || !bound {
+		return summary, nil
+	}
+	accounts, err := lister.ListByUpstreamKeyID(ctx, keyID)
+	if err != nil || len(accounts) != 1 || accounts[0].Platform != PlatformOpenAI || accounts[0].Type != AccountTypeAPIKey {
+		return summary, err
+	}
+	distribution, err := collector.LoadConfidenceDistributionForSeries(ctx, keyID, distributionAccountFingerprint(&accounts[0]), time.Now().UTC())
+	if err != nil && distribution == nil {
+		return summary, err
+	}
+	if distribution == nil {
+		distribution, err = ScoreUpstreamConfidenceDistribution(distributionAccountProtocol(&accounts[0]), nil)
+	}
+	return UpstreamHealthConfidenceSummary{Distribution: distribution, Status: distribution.Status,
+		RequestedEffort: "low", PromptVersion: UpstreamConfidenceDistributionPromptVersion}, nil
 }
 
 // GetKeyHealth returns the independent health snapshot for one key. The
@@ -1590,6 +1611,21 @@ func (s *UpstreamConfigService) probeKeyUnlocked(ctx context.Context, keyID int6
 	// explicitly stored, enabled confidence configuration. Missing, disabled,
 	// or invalid settings must not feed probe samples into the scheduler.
 	confidenceIndependent := s.confidenceProbeIndependent(ctx)
+	distributionEnabled := confidenceIndependent && account.Platform == PlatformOpenAI && account.Type == AccountTypeAPIKey
+	if distributionEnabled {
+		model = UpstreamConfidenceDistributionClaimedModel
+		collector, ok := s.repo.(UpstreamConfidenceDistributionRepository)
+		if !ok {
+			return UpstreamHealthSnapshot{}, infraerrors.ServiceUnavailable("UPSTREAM_CONFIDENCE_COLLECTOR_UNAVAILABLE", "persistent confidence collector is unavailable")
+		}
+		fingerprint := distributionAccountFingerprint(&account)
+		if fingerprint == "" {
+			return UpstreamHealthSnapshot{}, errors.New("invalid confidence distribution configuration")
+		}
+		ctx = context.WithValue(ctx, distributionProbeContextKey{}, distributionProbeClaim(func(claimCtx context.Context, protocol string) (*DistributionAttempt, error) {
+			return collector.ClaimConfidenceDistribution(claimCtx, keyID, fingerprint, protocol, time.Now().UTC())
+		}))
+	}
 	var result UpstreamHealthProbeResult
 	var probeErr error
 	if background {
@@ -1624,8 +1660,23 @@ func (s *UpstreamConfigService) probeKeyUnlocked(ctx context.Context, keyID int6
 		result, probeErr = s.accountProber.RunUpstreamHealthProbe(probeCtx, &account, model)
 	}
 	probeRequestSucceeded := probeErr == nil
+	if errors.Is(probeErr, errDistributionProbeBusy) {
+		return GlobalUpstreamHealthRegistry().Snapshot(keyID), nil
+	}
+	if result.distributionAttempt != nil {
+		// Persist even if the caller cancelled after the upstream request. The
+		// lease bounds crash recovery; completing a sample never sends a retry.
+		persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		collector := s.repo.(UpstreamConfidenceDistributionRepository)
+		distribution, _, persistErr := collector.FinishConfidenceDistribution(persistCtx, keyID, result.distributionAttempt, result.distributionSample, time.Now().UTC())
+		if persistErr != nil {
+			return UpstreamHealthSnapshot{}, persistErr
+		}
+		result.ConfidenceStatus = distribution.Status
+	}
 	s.persistCNProtocolCapabilities(ctx, &account, result)
-	if confidenceIndependent && s.openAIScheduleReporter != nil {
+	if confidenceIndependent && !distributionEnabled && s.openAIScheduleReporter != nil {
 		var firstTokenMs *int
 		if result.TTFTMs != nil && *result.TTFTMs > 0 {
 			value := int(*result.TTFTMs)
@@ -1633,7 +1684,7 @@ func (s *UpstreamConfigService) probeKeyUnlocked(ctx context.Context, keyID int6
 		}
 		s.reportOpenAIScheduleResult(&account, result.Model, probeRequestSucceeded, firstTokenMs)
 	}
-	if probeErr == nil && account.Platform == PlatformOpenAI && result.ConfidenceScore != nil && result.ConfidenceStatus != "current_success" {
+	if !distributionEnabled && probeErr == nil && account.Platform == PlatformOpenAI && result.ConfidenceScore != nil && result.ConfidenceStatus != "current_success" {
 		probeErr = infraerrors.New(http.StatusBadGateway, "UPSTREAM_KEY_PROBE_QUALITY_DEGRADED", "upstream Juice confidence classification is not current_success")
 		result.Result = "quality_degraded"
 		result.Reason = "probe_quality_degraded"
@@ -1689,6 +1740,11 @@ func (s *UpstreamConfigService) probeKeyUnlocked(ctx context.Context, keyID int6
 			}
 		}
 		return item, infraerrors.New(http.StatusBadGateway, "UPSTREAM_KEY_PROBE_FAILED", "upstream key probe failed").WithMetadata(metadata)
+	}
+	if distributionEnabled {
+		if confidence, err := s.GetUpstreamHealthConfidence(ctx, keyID); err == nil {
+			item = MergeUpstreamHealthConfidence(item, confidence)
+		}
 	}
 	return item, nil
 }

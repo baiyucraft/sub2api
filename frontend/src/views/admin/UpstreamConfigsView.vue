@@ -4043,6 +4043,7 @@ function severityBadgeClass(severity: string): string {
 }
 
 const knownUpstreamEventTypes = new Set([
+  'key_confidence_distribution_changed',
   'key_actual_rate_changed',
   'key_rate_changed',
   'key_effective_rate_changed',

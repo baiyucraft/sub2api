@@ -1,6 +1,6 @@
 <template>
   <div class="flex min-w-[150px] max-w-[250px] flex-col items-start gap-1.5">
-    <div class="flex max-w-full flex-nowrap items-center gap-1.5" data-test="health-confidence-row">
+    <div class="flex max-w-full flex-wrap items-center gap-1.5" data-test="health-confidence-row">
       <HelpTooltip
         v-if="health"
         width-class="w-72 max-w-[calc(100vw-2rem)]"
@@ -52,7 +52,67 @@
       </div>
       </HelpTooltip>
 
-      <HelpTooltip v-if="showConfidence" width-class="w-96 max-w-[calc(100vw-2rem)]" trigger-class="!ml-0">
+      <HelpTooltip v-if="distribution" trigger="click" width-class="w-96 max-w-[calc(100vw-2rem)]" trigger-class="!ml-0 max-w-full">
+        <template #trigger>
+          <button
+            type="button"
+            data-test="distribution-badge"
+            :data-distribution-status="distribution.status"
+            :aria-label="`${t('admin.upstreamManagement.health.distribution.title')} · ${distributionLabel}`"
+            :class="['inline-flex min-h-6 max-w-full items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-current focus-visible:ring-offset-2', distributionBadgeClass]"
+          >
+            <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-current" />
+            <span class="truncate">{{ distributionLabel }}</span>
+          </button>
+        </template>
+        <div data-test="distribution-details" class="max-h-[65vh] space-y-3 overflow-y-auto pr-4">
+          <div class="border-b border-white/10 pb-2">
+            <div class="font-medium text-gray-100">{{ t('admin.upstreamManagement.health.distribution.title') }}</div>
+            <div class="mt-1 text-gray-300">{{ distributionLabel }}</div>
+          </div>
+          <dl class="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1">
+            <dt class="text-gray-300">{{ t('admin.upstreamManagement.health.distribution.attempts') }}</dt>
+            <dd class="text-right tabular-nums">{{ distribution.attempted }} / {{ distribution.window_size }}</dd>
+            <dt class="text-gray-300">{{ t('admin.upstreamManagement.health.distribution.validSamples') }}</dt>
+            <dd class="text-right tabular-nums">{{ distribution.valid_samples }} / {{ distribution.attempted }}</dd>
+            <dt class="text-gray-300">{{ t('admin.upstreamManagement.health.claimedModel') }}</dt>
+            <dd class="break-all text-right">{{ distribution.claimed_model }}</dd>
+          </dl>
+          <div v-if="distributionCandidates.length" class="border-t border-white/10 pt-2">
+            <div class="mb-1.5 font-medium">{{ t('admin.upstreamManagement.health.distribution.fitScores') }}</div>
+            <div v-for="candidate in distributionCandidates" :key="candidate.model" class="flex items-center justify-between gap-3 rounded px-1 py-0.5" :class="candidate.model === distribution.closest_model ? 'bg-white/5 text-white' : 'text-gray-300'">
+              <span>{{ distributionModelLabel(candidate.model) }}</span>
+              <span class="font-mono tabular-nums" :data-test="`distribution-score-${candidate.model}`">{{ formatDistributionScore(candidate.score) }}</span>
+            </div>
+          </div>
+          <div class="space-y-2 border-t border-white/10 pt-2">
+            <div class="font-medium">{{ t('admin.upstreamManagement.health.distribution.answerDistribution') }}</div>
+            <div v-for="cell in distributionCells" :key="cell.id">
+              <div class="mb-1 flex items-center justify-between gap-3">
+                <span class="text-gray-200">{{ cell.label }}</span>
+                <span class="text-gray-300 tabular-nums">{{ cell.value.valid }} / {{ cell.value.completed }} · {{ t('admin.upstreamManagement.health.distribution.minimum', { count: cell.value.minimum }) }}</span>
+              </div>
+              <div v-if="cell.answers.length" class="flex flex-wrap gap-1">
+                <span v-for="answer in cell.answers" :key="answer.value" class="inline-flex max-w-full items-baseline gap-1.5 rounded border border-white/10 bg-white/5 px-1.5 py-0.5">
+                  <span class="break-all">{{ answer.value === '__UNSEEN_IN_TRAINING__' ? t('admin.upstreamManagement.health.distribution.otherAnswers') : answer.value }}</span>
+                  <span class="shrink-0 font-mono text-gray-300 tabular-nums">{{ answer.count }}</span>
+                </span>
+              </div>
+              <div v-else class="text-gray-400">{{ t('admin.upstreamManagement.health.distribution.noAnswers') }}</div>
+            </div>
+          </div>
+          <div class="space-y-1 border-t border-white/10 pt-2 text-gray-300">
+            <div>{{ t('admin.upstreamManagement.health.distribution.windowStart') }}: {{ distribution.window_start ? formatDateTime(distribution.window_start) : '-' }}</div>
+            <div>{{ t('admin.upstreamManagement.health.distribution.windowEnd') }}: {{ distribution.window_end ? formatDateTime(distribution.window_end) : '-' }}</div>
+            <div>{{ t('admin.upstreamManagement.health.distribution.protocol') }}: {{ distribution.protocol === 'chat_completions' ? 'Chat Completions' : 'Responses' }}</div>
+            <div class="break-all">{{ t('admin.upstreamManagement.health.distribution.baselineVersion') }}: {{ distribution.baseline_version || '-' }}</div>
+            <p v-if="distributionReasons.length">{{ distributionReasons.join(' · ') }}</p>
+            <p>{{ t('admin.upstreamManagement.health.distribution.disclaimer') }}</p>
+          </div>
+        </div>
+      </HelpTooltip>
+
+      <HelpTooltip v-else-if="showConfidence" width-class="w-96 max-w-[calc(100vw-2rem)]" trigger-class="!ml-0">
       <template #trigger>
         <span data-test="confidence-badge" :class="['inline-flex min-h-6 items-center rounded-md px-2 py-1 text-xs font-medium', confidenceBadgeClass]">
           {{ t('admin.upstreamManagement.health.confidenceLabel') }} {{ formatScore(health?.confidence_score_24h) }} / {{ formatScore(health?.confidence_score_7d) }}
@@ -115,6 +175,45 @@ const emit = defineEmits<{ (event: 'showHistory'): void }>()
 const { t, te } = useI18n()
 
 const health = computed(() => props.account.upstream_health)
+const distribution = computed(() => props.account.platform?.toLowerCase() === 'openai'
+  ? health.value?.confidence_distribution : undefined)
+const distributionLabel = computed(() => {
+  switch (distribution.value?.status) {
+    case 'collecting': return t('admin.upstreamManagement.health.distribution.collecting', { count: distribution.value.attempted, total: distribution.value.window_size })
+    case 'match': return t('admin.upstreamManagement.health.distribution.match')
+    case 'mismatch': return t('admin.upstreamManagement.health.distribution.mismatch', { model: distributionModelLabel(distribution.value.closest_model || 'other_known_external') })
+    default: return t('admin.upstreamManagement.health.distribution.insufficient')
+  }
+})
+const distributionBadgeClass = computed(() => {
+  switch (distribution.value?.status) {
+    case 'match': return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
+    case 'mismatch': return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
+    case 'insufficient': return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
+    default: return 'bg-gray-100 text-gray-600 dark:bg-dark-700 dark:text-gray-300'
+  }
+})
+const distributionCandidates = computed(() => Object.entries(distribution.value?.matches || {})
+  .map(([model, score]) => ({ model, score }))
+  .sort((a, b) => b.score - a.score || a.model.localeCompare(b.model)))
+const distributionCells = computed(() => [
+  { id: 'gpt__screen067', label: t('admin.upstreamManagement.health.distribution.punctuation') },
+  { id: 'gpt__screen101', label: t('admin.upstreamManagement.health.distribution.country') },
+  { id: 'gpt__screen108', label: t('admin.upstreamManagement.health.distribution.integer') }
+].flatMap(cell => {
+  const value = distribution.value?.cells?.[cell.id]
+  return value ? [{ ...cell, value, answers: Object.entries(value.counts || {})
+    .map(([value, count]) => ({ value, count })).sort((a, b) => b.count - a.count || a.value.localeCompare(b.value)) }] : []
+}))
+const distributionReasons = computed(() => (distribution.value?.reasons || []).map(reason => {
+  const key = `admin.upstreamManagement.health.distribution.reasons.${reason}`
+  return te(key) ? t(key) : reason
+}))
+function distributionModelLabel(model: string) {
+  const names: Record<string, string> = { 'gpt-6.1-sol': 'Sol', 'gpt-6-astra': 'Astra', 'gpt-5.6-terra': 'Terra', 'gpt-6-luna': 'Luna', other_known_external: 'other' }
+  return names[model] || model
+}
+function formatDistributionScore(score: number) { return Number.isFinite(score) ? score.toFixed(6) : '--' }
 
 const healthStateLabel = computed(() => {
   const state = health.value?.status

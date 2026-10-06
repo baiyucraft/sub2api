@@ -23,3 +23,7 @@ backend/migrations/*.sql text eol=lf
 
 # Dockerfile
 Dockerfile text eol=lf
+
+# 统计基准资产参与运行时 SHA-256 校验，跨平台 checkout 必须保持 LF
+backend/internal/service/confidence_baselines/*.json text eol=lf
+backend/internal/service/confidence_baselines/fixtures/*.json text eol=lf
