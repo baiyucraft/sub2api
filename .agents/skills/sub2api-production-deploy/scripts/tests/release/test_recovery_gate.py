@@ -36,6 +36,10 @@ PROFILE263_PROFILE_PATHS = {
 PROFILE263_VM_PATHS = {
     SCRIPTS_PREFIX + "release/" + name for name in ("cli.py", "supervisor.py", "vm_lifecycle.py")
 }
+PROFILE263_SCOPED_REVIEWS = (
+    (PROFILE263_BASE, PROFILE263_TARGET, "reviewed_profile_compatibility_changed", frozenset(PROFILE263_PROFILE_PATHS)),
+    (PROFILE263_BASE, PROFILE263_TARGET, "reviewed_vm_lifecycle_changed", frozenset(PROFILE263_VM_PATHS)),
+)
 
 
 class RecoveryGateTest(unittest.TestCase):
@@ -547,6 +551,7 @@ class RecoveryGateTest(unittest.TestCase):
                             affected.append(other)
                     trees = {PROFILE263_BASE: old, PROFILE263_TARGET: new, future: changed, future_base: observed_old}
                     with (
+                        mock.patch.object(recovery_gate, "_REVIEWED_SCOPED_TRANCHES", PROFILE263_SCOPED_REVIEWS),
                         mock.patch.object(recovery_gate, "_REVIEWED_COMPATIBILITY_TRANCHES", ()),
                         mock.patch.object(recovery_gate, "_REVIEWED_MIGRATION_GATE_TRANCHES", ()),
                         mock.patch.object(recovery_gate, "_REVIEWED_GATE_POLICY_TRANCHES", ()),
@@ -571,6 +576,7 @@ class RecoveryGateTest(unittest.TestCase):
         paths = recovery_gate._changed_paths(WORKSPACE, PROFILE263_BASE, PROFILE263_TARGET) + [restore]
         trees = {PROFILE263_BASE: old, PROFILE263_TARGET: changed}
         with (
+            mock.patch.object(recovery_gate, "_REVIEWED_SCOPED_TRANCHES", PROFILE263_SCOPED_REVIEWS),
             mock.patch.object(recovery_gate, "_REVIEWED_COMPATIBILITY_TRANCHES", ()),
             mock.patch.object(recovery_gate, "_REVIEWED_MIGRATION_GATE_TRANCHES", ()),
             mock.patch.object(recovery_gate, "_REVIEWED_GATE_POLICY_TRANCHES", ()),
