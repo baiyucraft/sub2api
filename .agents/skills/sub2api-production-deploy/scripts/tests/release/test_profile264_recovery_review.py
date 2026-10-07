@@ -88,5 +88,66 @@ class Profile264RecoveryReviewTest(unittest.TestCase):
                 recovery_gate.assert_release_allowed(report)
 
 
+class RewardCostPostflightReviewTest(unittest.TestCase):
+    target = 'bc57b804fe4467d96b530c8874dd7152d28386a0'
+
+    def test_exact_independent_review_still_requires_specialized_restore(self):
+        report = recovery_gate.classify(WORKSPACE, BASE, self.target)
+        self.assertEqual(report['mode'], 'specialized')
+        self.assertIn('reviewed_reward_cost_postflight_changed', report['reason_codes'])
+        self.assertNotIn('recovery_change_requires_review', report['reason_codes'])
+        recovery_gate.assert_release_allowed(report)
+        old = recovery_gate._tree_blobs(WORKSPACE, BASE)
+        new = recovery_gate._tree_blobs(WORKSPACE, self.target)
+        helper = PREFIX + 'maintenance/release/activity-reward-cost-postflight.sh'
+        self.assertNotIn(helper, old)
+        self.assertTrue(new[helper].startswith('100644:'))
+        self.assertEqual(len(recovery_gate._REWARD_COST_POSTFLIGHT_REVIEW_PATHS), 5)
+
+    def test_every_postflight_path_rejects_future_content_mode_and_base_drift(self):
+        old = recovery_gate._tree_blobs(WORKSPACE, BASE)
+        new = recovery_gate._tree_blobs(WORKSPACE, self.target)
+        paths = recovery_gate._changed_paths(WORKSPACE, BASE, self.target)
+        future, future_base = 'd' * 40, 'c' * 40
+        reviews = (
+            (BASE, TARGET, 'reviewed_profile_compatibility_changed', recovery_gate._PROFILE264_COMPATIBILITY_PATHS),
+            (BASE, self.target, 'reviewed_reward_cost_postflight_changed', recovery_gate._REWARD_COST_POSTFLIGHT_REVIEW_PATHS),
+        )
+        for path in sorted(recovery_gate._REWARD_COST_POSTFLIGHT_REVIEW_PATHS):
+            mode, identity = new[path].split(':')
+            for mutation in ('blob', 'mode', 'delete', 'move', 'base_blob'):
+                with self.subTest(path=path, mutation=mutation):
+                    changed, observed_old, affected = dict(new), dict(old), list(paths)
+                    observed_base = BASE
+                    if mutation == 'blob':
+                        changed[path] = mode + ':' + '0' * 40
+                    elif mutation == 'mode':
+                        changed[path] = ('100644' if mode == '100755' else '100755') + ':' + identity
+                    elif mutation == 'base_blob':
+                        observed_base = future_base
+                        observed_old[path] = mode + ':' + '0' * 40
+                    else:
+                        del changed[path]
+                        if mutation == 'move':
+                            other = PREFIX + 'maintenance/release/restore-new.sh'
+                            changed[other] = new[path]
+                            affected.append(other)
+                    trees = {BASE: old, TARGET: recovery_gate._tree_blobs(WORKSPACE, TARGET), self.target: new, future: changed, future_base: observed_old}
+                    with (
+                        mock.patch.object(recovery_gate, '_REVIEWED_COMPATIBILITY_TRANCHES', ()),
+                        mock.patch.object(recovery_gate, '_REVIEWED_MIGRATION_GATE_TRANCHES', ()),
+                        mock.patch.object(recovery_gate, '_REVIEWED_GATE_POLICY_TRANCHES', ()),
+                        mock.patch.object(recovery_gate, '_REVIEWED_SCOPED_TRANCHES', reviews),
+                        mock.patch.object(recovery_gate, '_tree_blobs', side_effect=lambda _root, commit: trees[commit]),
+                        mock.patch.object(recovery_gate, '_changed_paths', return_value=affected),
+                        mock.patch.object(recovery_gate, '_commit_exists', return_value=True),
+                        mock.patch.object(recovery_gate, '_is_ancestor', return_value=True),
+                    ):
+                        report = recovery_gate.classify(WORKSPACE, observed_base, future)
+                        self.assertEqual(report['mode'], 'full')
+                        with self.assertRaisesRegex(RuntimeError, 'recovery changes require review'):
+                            recovery_gate.assert_release_allowed(recovery_gate.require_full(report))
+
+
 if __name__ == '__main__':
     unittest.main()
