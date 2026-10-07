@@ -83,7 +83,7 @@ _VM_PREFLIGHT_RECOVERY_REVIEW_PATHS = frozenset({
 _REVIEWED_SCOPED_TRANCHES = (
     (
         "0898fe8c6289f87a1a4d90cf74a50e296689960e",
-        "15b070e81e8d1135d6559ca6ef449dc0a3c45ad5",
+        "2efce478818e0c2eb287714ef97cb4b09925ca37",
         "reviewed_vm_preflight_recovery_changed",
         _VM_PREFLIGHT_RECOVERY_REVIEW_PATHS,
     ),
