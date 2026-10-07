@@ -58,7 +58,7 @@ API 的 `confidence_distribution` 包含窗口进度、有效样本、三类配�
 
 仅提取运行时所需拟合参数、原题合同、配额与阈值，运行时验证文件 SHA-256。来源包版本、内容指纹与离线 scorer 对照 fixture 保存在 [资产说明](../../backend/internal/service/confidence_baselines/README.md)。Go 实现独立，不分发参考项目 Python scorer。Chat 包复用原生采样和校准；协议隔离不代表 Chat 曾独立重新采样。
 
-迁移 `288_upstream_confidence_distribution.sql` 是新增独立表，不回写旧账号或 Key 数据。接续 profile 261 创建 pending profile 262：版本仍为 `0.2.13-baiyu`、parent 261、仅新增 288。所有历史 profile、旧 migration 原字节与 checksum 保持不变；未知 263 拒绝。
+迁移 `288_upstream_confidence_distribution.sql` 是新增独立表，不回写旧账号或 Key 数据。接续 profile 261 创建的历史 profile 262 保持：版本仍为 `0.2.13-baiyu`、parent 261、仅新增 288。所有历史 profile、旧 migration 原字节与 checksum 保持不变；当前 profile 263 仅升级为 `0.2.14-baiyu`、parent 262、无新增迁移；未知 264 拒绝。
 
 发布属于后端／数据库混合变更，需正式 VM Gate、实际 PostgreSQL 升级及旧镜像兼容、恢复分类和签名证据。本地单元测试与登记不等于 VM Gate 或生产发布完成；新敏感 blob 未分类保持阻断，不新增恢复豁免。
 
