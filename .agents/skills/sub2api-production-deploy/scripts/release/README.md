@@ -21,6 +21,27 @@ python .agents/skills/sub2api-production-deploy/scripts/release.py verify-result
 python .agents/skills/sub2api-production-deploy/scripts/release.py logs <release_id> --node all --tail 100
 ```
 
+## 可选 VM 自动启停
+
+在 `.ssh.local` 顶层、与 `servers` 并列的公共配置为：
+
+```yaml
+vm_lifecycle:
+  enabled: true
+  vmrun_path: 'C:/MProgram/VMware/vmrun.exe'
+  vmx_path: 'D:/vmu/Ubuntu.vmx'
+  startup_timeout_seconds: 180
+  shutdown_timeout_seconds: 180
+```
+
+未配置保持旧行为；配置结构、类型、路径或 timeout 错误 fail-closed。后台应用/插件发布 worker 在本地检查和全局锁后、首次 VM SSH/API 连接前取得跨 checkout VM 身份锁并核对持久所有权，通过 `vmrun list` 判断电源；已停止时 `vmrun start <vmx> nogui` 并有界等待 SSH 就绪。原本运行的 VM 始终保留，不记为本 release 启动。
+
+只有本次启动且持久所有权一致，才在 signed `verify-result` 与 post-deploy doctor（插件为 `plugin-verify-result` 和逐实例版本/binary SHA/Health/受管范围验证）及本 release VM 隔离临时任务清理全部成功后，通过 SSH 正常 `poweroff`，再以 `vmrun list` 核实停止。关机不依赖 VMware Tools，禁止 hard stop。失败、blocked、恢复旧版本或崩溃保留 VM，遗留所有权不自动接管。
+
+`vm_power_status`、`vm_started_by_release`、`vm_cleanup_status` 是新增状态白名单；电源与 cleanup 不替代生产验真。关机或停止核实失败独立报告 cleanup 失败，不能回滚、重发、重跑迁移或重复插件升级。VMX 路径、所有权全文和原始回包不得进入状态输出。
+
+普通 `doctor/status/wait/follow/verify-result` 与插件对应只读入口不自动开关 VM；worker 的 postdoctor 在关机前执行，VM 已停止后的 doctor Guest 检查会失败。`deploy-follow`/`plugin-deploy-follow` 关闭仅结束观察，不影响 worker。独立 `vm-validate`、VM-only 验证/展示不自动关闭 VM 或持久展示容器；临时任务清理不得删除持久数据、展示、Gate 或失败证据。锁与恢复细节见 [release-runner-lifecycle.md](../../references/release-runner-lifecycle.md)。
+
 ## 三层发布门禁
 
 三层门禁叠加到现有变更分类，不替代 VM Gate、签名 Gate、备份或生产验收：
@@ -78,6 +99,7 @@ python .agents/skills/sub2api-production-deploy/scripts/release.py vm-only-switc
 该入口只连接 `local_vm`，不读取生产快照、不连接 DMIT、RackNerd 或备份机；
 `vm-only-switch` 只允许替换 `sub2api-dev` 的 `8211` 监听和
 `/opt/sub2api-deploy/data-dev` 数据目录。它生成的 Gate 不被生产发布入口接受。
+独立验证和展示完成后保留 VM 与持久展示容器，不触发发布成功自动关机分支。
 
 生产部署必须显式选择 `--mode blue-green` 或 `--mode downtime`。非交互执行缺少 mode 会在创建 release 前失败；交互终端会询问部署模式。
 

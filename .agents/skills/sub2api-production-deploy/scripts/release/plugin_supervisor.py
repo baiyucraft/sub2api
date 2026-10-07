@@ -8,6 +8,7 @@ import re
 import secrets
 import sys
 import time
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
@@ -26,7 +27,9 @@ from .plugin_package import (
 )
 from .plugin_state import PLUGIN_TERMINAL_STATES, PluginRunState
 from .process import popen_detached_worker
+from .ssh import SSHRunner
 from .state import RunLock
+from .vm_lifecycle import VMLease, lifecycle_view, vm_guard
 
 
 PLUGIN_RELEASE_ID = re.compile(r"^[a-z0-9][a-z0-9.-]{0,127}$")
@@ -43,6 +46,9 @@ PLUGIN_STATUS_FIELDS = (
     "operation",
     "instances_expected",
     "instances_verified",
+    "vm_power_status",
+    "vm_started_by_release",
+    "vm_cleanup_status",
     "updated_at",
 )
 
@@ -231,8 +237,15 @@ def worker(args: argparse.Namespace) -> None:
                 },
             )
             state.transition("awaiting_vm_authorization", evidence={"remote_write_performed": False})
-        authorize(argparse.Namespace(release_id=args.release_id))
-        authorize(argparse.Namespace(release_id=args.release_id))
+            api = PluginAPIClient()
+            ssh = api.runner if hasattr(api, "runner") else SSHRunner()
+            with VMLease(run_dir, args.release_id, ssh, process_token=_process_token(os.getpid()), commit=args.commit) as lease:
+                authorization = argparse.Namespace(release_id=args.release_id)
+                authorize(authorization, acquire_lock=False, lease=lease, api=api)
+                authorize(authorization, acquire_lock=False, lease=lease, api=api)
+                if lease.enabled:
+                    _verified_result(run_dir)
+                    lease.complete()
         exit_code = 0
         status = "verified"
     except BaseException as error:
@@ -269,36 +282,73 @@ def _wipe(data: bytearray) -> None:
         data[index] = 0
 
 
-def authorize(args: argparse.Namespace) -> None:
+def authorize(
+    args: argparse.Namespace,
+    *,
+    acquire_lock: bool = True,
+    lease: VMLease | None = None,
+    api: PluginAPIClient | None = None,
+) -> None:
     run_dir = _run_dir(args.release_id)
-    state = PluginRunState.load(run_dir / "state.json")
-    identity = _identity(run_dir)
-    api = PluginAPIClient()
+    if not acquire_lock and lease is None:
+        raise RuntimeError("plugin authorization without a release lock requires the worker VM lease")
+    if acquire_lock and lease is not None:
+        raise RuntimeError("worker VM lease authorization must reuse the held release lock")
+    with (
+        RunLock(RUN_ROOT / ".release.lock") if acquire_lock else nullcontext(),
+        vm_guard() if acquire_lock else nullcontext(),
+    ):
+        state = PluginRunState.load(run_dir / "state.json")
+        if state.value.get("status") in PLUGIN_TERMINAL_STATES:
+            raise RuntimeError("terminal plugin release cannot be authorized without reconciliation")
+        if state.value.get("stage") not in {"awaiting_vm_authorization", "awaiting_production_authorization"}:
+            raise RuntimeError(f"plugin release is not awaiting authorization: {state.value.get('stage')}")
+        identity = _identity(run_dir)
+        client = api if api is not None else PluginAPIClient()
+        if lease is not None:
+            _authorize_stage(run_dir, state, identity, client, lease)
+            return
+        try:
+            _authorize_stage(run_dir, state, identity, client, None)
+            if state.value.get("status") == "verified":
+                _verified_result(run_dir)
+                _update_runner(run_dir, status="verified", exit_code=0, finished_at=int(time.time()))
+                print(f"plugin_release_id={args.release_id} status=verified")
+            else:
+                _update_runner(run_dir, status="awaiting_authorization", exit_code=0)
+        except BaseException as error:
+            current = PluginRunState.load(run_dir / "state.json")
+            if current.value.get("status") not in PLUGIN_TERMINAL_STATES:
+                current.fail(str(current.value["stage"]), evidence={"error_type": type(error).__name__})
+            _update_runner(run_dir, status="failed", exit_code=1, finished_at=int(time.time()))
+            raise
+
+
+def _authorize_stage(
+    run_dir: Path,
+    state: PluginRunState,
+    identity: PackageIdentity,
+    api: PluginAPIClient,
+    lease: VMLease | None,
+) -> None:
     stage = state.value.get("stage")
     if stage == "awaiting_vm_authorization":
+        if lease is not None:
+            lease.ensure_ready()
         credentials = load_plugin_admin_credentials("vm")
-        lock = RunLock(RUN_ROOT / ".release.lock")
         try:
-            lock.__enter__()
-        except BaseException:
-            _wipe(credentials)
-            raise
-        try:
-            try:
-                result = api.apply(
-                    node="local_vm",
-                    identity=identity,
-                    credentials=credentials,
-                    restore_after=True,
-                    previous_packages=_previous_packages(run_dir),
-                )
-            except BaseException as error:
-                state.fail("awaiting_vm_authorization", blocked=True, evidence={"error_type": type(error).__name__})
-                raise
+            result = api.apply(
+                node="local_vm",
+                identity=identity,
+                credentials=credentials,
+                restore_after=True,
+                previous_packages=_previous_packages(run_dir),
+            )
         except BaseException as error:
+            state.fail("awaiting_vm_authorization", blocked=True, evidence={"error_type": type(error).__name__})
             raise
         finally:
-            lock.__exit__(None, None, None)
+            _wipe(credentials)
         if result.write_uncertain:
             state.fail("awaiting_vm_authorization", blocked=True, evidence={"write_uncertain": True})
             raise RuntimeError("VM plugin operation requires reconciliation")
@@ -322,17 +372,11 @@ def authorize(args: argparse.Namespace) -> None:
         _write_json(run_dir / "gate" / "vm-result.json", result.values)
         state.transition("vm_gate_verified", evidence={"operation": result.operation, "instances_verified": verified})
         state.transition("awaiting_production_authorization", evidence={"remote_write_performed": False})
-        print(f"plugin_release_id={args.release_id} stage=awaiting_production_authorization")
+        print(f"plugin_release_id={run_dir.name} stage=awaiting_production_authorization")
         return
     if stage != "awaiting_production_authorization":
         raise RuntimeError(f"plugin release is not awaiting authorization: {stage}")
     credentials = load_plugin_admin_credentials("production")
-    lock = RunLock(RUN_ROOT / ".release.lock")
-    try:
-        lock.__enter__()
-    except BaseException:
-        _wipe(credentials)
-        raise
     try:
         state.transition("production_preflight_verified", evidence={"package_sha256": identity.package_sha256})
         state.transition("install_or_upgrade_started", evidence={"target_version": identity.version})
@@ -347,7 +391,7 @@ def authorize(args: argparse.Namespace) -> None:
             state.fail("install_or_upgrade_started", blocked=True, evidence={"error_type": type(error).__name__})
             raise
     finally:
-        lock.__exit__(None, None, None)
+        _wipe(credentials)
     if result.write_uncertain:
         state.fail("install_or_upgrade_started", blocked=True, evidence={"write_uncertain": True})
         raise RuntimeError("production plugin write requires reconciliation")
@@ -371,8 +415,6 @@ def authorize(args: argparse.Namespace) -> None:
     state.transition("instances_verified", evidence={"instances_expected": expected, "instances_verified": verified})
     _write_json(run_dir / "production-result.json", {"schema": 1, "status": "verified", **result.values})
     state.transition("verified", "verified", evidence={"operation": result.operation, "instances_verified": verified})
-    _update_runner(run_dir, status="verified", exit_code=0, finished_at=int(time.time()))
-    print(f"plugin_release_id={args.release_id} status=verified operation={result.operation}")
 
 
 def status_view(identifier: str) -> dict[str, Any]:
@@ -400,6 +442,7 @@ def status_view(identifier: str) -> dict[str, Any]:
         "instances_expected": production.get("instances_expected"),
         "instances_verified": production.get("instances_verified"),
         "updated_at": updated,
+        **lifecycle_view(run_dir),
     }
     return {field: view.get(field) for field in PLUGIN_STATUS_FIELDS}
 
@@ -412,17 +455,29 @@ def wait(args: argparse.Namespace) -> int:
     deadline = None if args.timeout <= 0 else time.monotonic() + args.timeout
     while True:
         view = status_view(args.release_id)
-        if view["status"] in PLUGIN_TERMINAL_STATES:
+        result = terminal_exit(view)
+        if result is not None:
             print(canonical_json(view).decode("ascii"))
-            return 0 if view["status"] == "verified" else 2
+            return result
         if deadline is not None and time.monotonic() >= deadline:
             print(canonical_json(view).decode("ascii"))
             return 3
         time.sleep(1)
 
 
-def verify_result(args: argparse.Namespace) -> None:
-    run_dir = _run_dir(args.release_id)
+def terminal_exit(view: dict[str, Any]) -> int | None:
+    if view.get("status") not in PLUGIN_TERMINAL_STATES:
+        return None
+    if view.get("status") != "verified":
+        return 2
+    if view.get("runner_status") in {"starting", "waiting_for_lock", "running"}:
+        return None
+    if view.get("runner_status") == "failed" or view.get("runner_exit") not in {None, 0}:
+        return 2
+    return 0
+
+
+def _verified_result(run_dir: Path) -> dict[str, Any]:
     state = PluginRunState.load(run_dir / "state.json").value
     manifest = _read_json(run_dir / "manifest.json", required=True) or {}
     production = _read_json(run_dir / "production-result.json", required=True) or {}
@@ -433,15 +488,22 @@ def verify_result(args: argparse.Namespace) -> None:
         raise RuntimeError("plugin instance verification is incomplete")
     amd64 = (package.get("arches") or {}).get("amd64") or {}
     if (
-        state.get("release_id") != manifest.get("release_id")
+        state.get("release_id") != run_dir.name
+        or state.get("release_id") != manifest.get("release_id")
         or state.get("plugin_id") != manifest.get("plugin_id")
         or state.get("source_commit") != manifest.get("source_commit")
         or production.get("signature_status") != "trusted"
         or production.get("target_version") != package.get("version")
         or production.get("binary_sha256") != amd64.get("binary_sha256")
+        or production.get("config_revision_preserved") != "true"
+        or production.get("managed_scope_digest_preserved") != "true"
     ):
         raise RuntimeError("plugin package identity differs from production result")
-    print(canonical_json({"release_id": args.release_id, "status": "verified", "plugin_id": PLUGIN_ID, "version": package["version"]}).decode("ascii"))
+    return {"release_id": run_dir.name, "status": "verified", "plugin_id": PLUGIN_ID, "version": package["version"]}
+
+
+def verify_result(args: argparse.Namespace) -> None:
+    print(canonical_json(_verified_result(_run_dir(args.release_id))).decode("ascii"))
 
 
 def rollback_start(args: argparse.Namespace) -> None:

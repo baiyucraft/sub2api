@@ -41,7 +41,7 @@
 | Grok 4.7 逐故障域归属 | 官方 `935db68517f8beef407db3da016eaef1799fce25` 和本地 `c41574a3ab1eaa05b4d9b61bec97ca87d9c782d5` 对照 xAI 目录/别名、Responses/Chat 路由、xhigh/reasoning、200k 长上下文及缓存价格、Codex 图像输入、OpenCode Go、runtime build 映射与前端白名单；`backend/internal/pkg/xai/models_test.go`、`backend/internal/service/billing_service_test.go`、`openai_responses_tool_schema_test.go`、`frontend/src/composables/__tests__/useModelWhitelist.spec.ts`。已有官方支持不等于全部 fork 边界被覆盖；完整覆盖归 upstream，剩余最小增量继续 fork 并绑定精确合同 |
 | 官方 Astra 支持 | 使用目标官方的识别、静态目录、live/pinned 能力和测试；默认 medium 与 low 至 max，live/pinned 额外能力不被 fork 旧规则裁剪；ultrafast 与推理 ultra 区分；Anthropic 桥接、指纹、0 倍率和共享并发单独回归 |
 | compact 账号列表与编辑 | 脱敏列表保留上游身份、能力和调度字段；按需详情不被列表刷新覆盖；模型同步 persisted 分支与官方元数据分支独立；图片回填和请求 ID 头字段只放宽精确白名单 |
-| 发布运维 skill | `fast/specialized/full` 三层门禁及 0–2/5–15/20–60 分钟预算；`full` 普通发布非阻塞、恢复算法、备份格式、信任链变化或真实恢复事故修复时阻塞；profile 兼容扩展按精确 blob 与模式审阅走 specialized；Redis 惰性过期单调不等式；helper bundle 原子版本；PostgreSQL/Redis/Compose/app/Nginx/backup units/claim/cleanup 幂等 checkpoint；`verify-result` 与 `verify-recovery-result` 分离；release pytest、supervisor/production/skill-pitfalls、日志合同、Git Bash、清理 dry-run/apply、profile signer/validator、8211 单实例与成功后收口 |
+| 发布运维 skill | `fast/specialized/full` 三层门禁及 0–2/5–15/20–60 分钟预算；`full` 普通发布非阻塞、恢复算法、备份格式、信任链变化或真实恢复事故修复时阻塞；profile 兼容扩展按精确 blob 与模式审阅走 specialized；Redis 惰性过期单调不等式；helper bundle 原子版本；PostgreSQL/Redis/Compose/app/Nginx/backup units/claim/cleanup 幂等 checkpoint；`verify-result` 与 `verify-recovery-result` 分离；release pytest、supervisor/production/skill-pitfalls、日志合同、Git Bash、清理 dry-run/apply、profile signer/validator、8211 单实例；可选 VM 生命周期的配置、启动时序、跨 checkout 锁/持久所有权、成功关机与独立 cleanup 失败，详见下方专项 |
 | 发布 DMIT 中继 | `test_ssh_output.py`、`test_racknerd_readonly_status.py`；验证 DMIT direct SSH、1080 HTTP CONNECT、RackNerd host key、代理失败 fail-closed，以及命令/SFTP 共用连接入口 |
 | AstrBot 渠道状态插件 | `python -m pytest astrbot/tests -q`；`go test ./internal/service ./internal/handler/admin -run 'TestBatchMonitorStatusSummaryIncludesReal24hAndMissingHistory|TestBuildListItemResponsePreserves24hAvailability'`；V1 管理监控列表真实 24h 聚合、近 10 次 history、平台分组、普通倍率、缺失值不回退 7d、/status 与定时推送纯文本分页及密钥保护 |
 
@@ -101,6 +101,27 @@ WS per-send 专项从 `backend` 执行 `go test ./internal/service -run '^TestWS
 | `backend/internal/service/plugin_codex_package_test.go` | `TestPluginCodexStateBuiltArchivesMatchHostContract`：两架构 Linux 发布包均由宿主检查 manifest、SDK 必需能力、secret 声明、UI/许可证/来源锁及维护文件 |
 
 进程测试必须提供指向独立本机插件二进制的 `SUB2API_TEST_CODEX_STATE_BINARY`；包测试必须以 `SUB2API_TEST_CODEX_STATE_PACKAGES` 提供两个架构归档，按宿主 OS 的路径列表分隔符分隔。未提供环境变量产生的 skip 仅表示未验证，不算专项通过；审计本身不构建插件、不运行这些测试。
+
+## VM 自动启停专项
+
+`release-operations-isolation` 的最低回归应以 mock `vmrun`/SSH/进程验证以下可观察行为；文档登记不代表代码或真实 VM 验证已经通过。实际 VM 操作必须由获授权的实现/验证任务另行执行，审计 skill 保持只读。
+
+| 场景 | 必须证明的行为 |
+| --- | --- |
+| 未配置与非法配置 | 未配置维持旧行为；顶层结构、boolean、路径、正整数 timeout 错误 fail-closed，未进入 VM/生产连接或启动 |
+| 初始已运行与已停止 | 本地检查和全局锁后、首次 VM SSH/API 连接前检查电源；已运行永不关机；已停止只启动一次 `nogui` 并有界等待 SSH，就绪失败不进入生产 |
+| 查询失败或启动不确定 | `vmrun list` 非零/身份不明、启动失败、timeout/回包不确定均停止，保留启动意图及所有权，不猜测状态或重复启机 |
+| 不同 checkout 共用 VM | 规范化 VM 身份锁使应用/插件 worker 互斥；持久所有权绑定 VM/release/完整 commit/进程启动身份，锁释放或 PID 重用不授权接管 |
+| 遗留或冲突所有权 | 重启、崩溃及不完整记录后拒绝自动删除、覆盖、接管或替旧 release 关机，保留证据 |
+| 正常完成所有权 | 本次启动先核实停止，原本运行记录保留；结束活动所有权并保留完成审计记录，后续发布能区分已完成历史与待恢复记录 |
+| 应用/插件成功 | 应用 signed 验真+postdoctor，插件 signed 验真+全部目标实例版本/binary SHA/Health/受管范围验收，再完成本 release 隔离任务清理，之后才允许本次启动的 VM SSH 正常 poweroff |
+| 正常关机与核实 | 无 VMware Tools 仍可 SSH 正常关机；SSH EOF 不能单独当作成功，必须在 shutdown timeout 内成功 `vmrun list` 且目标不在运行列表；全路径禁止 hard stop |
+| 失败、blocked、recovered、崩溃 | VM 保留，所有权不被其他 worker 接管；部分成功不能绕过收口条件 |
+| 发布成功但 cleanup 失败 | 临时任务清理、poweroff、停止查询失败或 timeout 单列 `vm_cleanup_status` 失败；成功 signed 生产结果保留，无回滚、重发、迁移重跑或插件重复升级 |
+| 只读与独立展示 | doctor/status/wait/follow/verify-result 及插件对应只读入口不发启动/关机/cleanup；VM 停止时普通 doctor 的 Guest 检查会失败；独立 vm-validate/VM-only/展示不自动关闭 VM 或展示容器 |
+| 观察器退出与状态输出 | 关闭/timeout/Ctrl+C 后 worker、锁、所有权和既定收口继续；新增投影仅 vm_power_status/vm_started_by_release/vm_cleanup_status，无路径、所有权全文或原始回包泄漏 |
+
+专项不新增 migration，不改写 profile、parent、版本、Gate 或 checksum 历史；现有 supervisor/doctor/VM-only/plugin release 回归必须保持。
 
 ## 全量门禁
 

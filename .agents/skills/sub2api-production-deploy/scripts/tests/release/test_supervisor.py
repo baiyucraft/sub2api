@@ -23,6 +23,9 @@ from release_logging import EventContext, JSONLEventLogger
 
 class SupervisorTest(unittest.TestCase):
     def setUp(self) -> None:
+        self.vm_config_patch = mock.patch("release.vm_lifecycle.load_settings", return_value=None)
+        self.vm_config_patch.start()
+        self.addCleanup(self.vm_config_patch.stop)
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name) / "path with spaces!" / "releases"
         self.root.mkdir(parents=True)
@@ -230,6 +233,60 @@ class SupervisorTest(unittest.TestCase):
         with mock.patch.object(supervisor, "_runner_alive", return_value=False), mock.patch.object(supervisor, "verify_gate", return_value=document):
             with self.assertRaisesRegex(RuntimeError, "evidence is incomplete"):
                 supervisor.verify_result(argparse.Namespace(release_id=identifier))
+
+    def _owned_worker(self):
+        identifier = "198-aaaaaaaaaaaa-1-deadbeef"
+        run_dir = self.minimum_release(identifier)
+        self.write(identifier, "runner.json", {
+            "status": "starting", "pid": os.getpid(), "process_token": "token", "exit_code": None,
+        })
+        args = argparse.Namespace(release_id=identifier, profile="198", commit="a" * 40, deployment_mode="blue-green")
+        lease = mock.MagicMock()
+        lease.__enter__.return_value = lease
+        lease.enabled = True
+        return run_dir, args, lease
+
+    def test_owned_vm_starts_before_deploy_and_closes_after_evidence_and_postdoctor(self) -> None:
+        run_dir, args, lease = self._owned_worker()
+        calls = []
+        lease.ensure_ready.side_effect = lambda: calls.append("vm_ready")
+        lease.complete.side_effect = lambda: calls.append("vm_complete")
+        doctor = mock.Mock()
+        doctor.run.side_effect = lambda *a, **kw: calls.append("local" if a else "postdoctor")
+        with mock.patch.object(supervisor, "_process_token", return_value="token"), mock.patch.object(supervisor, "RunLock"), mock.patch.object(supervisor, "VMLease", return_value=lease), mock.patch("release.doctor.ReleaseDoctor", return_value=doctor), mock.patch("release.cli.deploy", side_effect=lambda *a, **kw: calls.append("deploy")), mock.patch.object(supervisor, "_verified_evidence_view", side_effect=lambda *a: calls.append("verify")):
+            supervisor.worker(args)
+        self.assertEqual(calls, ["local", "vm_ready", "deploy", "verify", "postdoctor", "vm_complete"])
+        self.assertEqual(json.loads((run_dir / "runner.json").read_text())["status"], "verified")
+
+    def test_owned_vm_retained_when_deploy_or_final_checks_fail(self) -> None:
+        for phase in ("deploy", "verify", "postdoctor"):
+            with self.subTest(phase=phase):
+                run_dir, args, lease = self._owned_worker()
+                doctor = mock.Mock()
+                doctor.run.side_effect = [None, RuntimeError("postdoctor failed")] if phase == "postdoctor" else None
+                with mock.patch.object(supervisor, "_process_token", return_value="token"), mock.patch.object(supervisor, "RunLock"), mock.patch.object(supervisor, "VMLease", return_value=lease), mock.patch("release.doctor.ReleaseDoctor", return_value=doctor), mock.patch("release.cli.deploy", side_effect=RuntimeError("deploy failed") if phase == "deploy" else None), mock.patch.object(supervisor, "_verified_evidence_view", side_effect=RuntimeError("verify failed") if phase == "verify" else None):
+                    with self.assertRaises(RuntimeError):
+                        supervisor.worker(args)
+                lease.complete.assert_not_called()
+                self.assertEqual(json.loads((run_dir / "runner.json").read_text())["status"], "failed")
+
+    def test_owned_vm_cleanup_failure_preserves_production_verified_without_runner_success(self) -> None:
+        run_dir, args, lease = self._owned_worker()
+        self.write(run_dir.name, "gate/production-result.json", {"status": "verified", "stage": "production_verified"})
+        lease.complete.side_effect = RuntimeError("shutdown failed")
+        with mock.patch.object(supervisor, "_process_token", return_value="token"), mock.patch.object(supervisor, "RunLock"), mock.patch.object(supervisor, "VMLease", return_value=lease), mock.patch("release.doctor.ReleaseDoctor"), mock.patch("release.cli.deploy") as deploy, mock.patch.object(supervisor, "_verified_evidence_view"):
+            with self.assertRaisesRegex(RuntimeError, "shutdown failed"):
+                supervisor.worker(args)
+        deploy.assert_called_once()
+        self.assertEqual(json.loads((run_dir / "runner.json").read_text())["status"], "failed")
+        self.assertEqual(json.loads((run_dir / "gate/production-result.json").read_text())["status"], "verified")
+
+    def test_public_verifier_keeps_terminal_runner_precondition(self) -> None:
+        run_dir = self.minimum_release()
+        with mock.patch.object(supervisor, "_runner_alive", return_value=True), mock.patch.object(supervisor, "_verified_evidence_view") as evidence:
+            with self.assertRaisesRegex(RuntimeError, "not successfully terminal"):
+                supervisor.verified_result_view(run_dir.name)
+        evidence.assert_not_called()
 
     def test_verify_result_accepts_health_only_release_evidence(self) -> None:
         identifier = "198-aaaaaaaaaaaa-1-deadbeef"

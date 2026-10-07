@@ -83,6 +83,8 @@ def _status_fingerprint(value: dict[str, Any]) -> tuple[Any, ...]:
         value.get("vm_status"),
         value.get("production_stage"),
         value.get("production_status"),
+        value.get("vm_power_status"),
+        value.get("vm_cleanup_status"),
     )
 
 
@@ -93,6 +95,17 @@ def _print_change(identifier: str, value: dict[str, Any]) -> None:
     stage = production_stage if production_stage not in {"not_started", "init"} else vm_stage
     stage_text = _STAGE_TEXT.get(stage, _STATUS_TEXT.get(runner_status, "发布状态更新"))
     status_text = _STATUS_TEXT.get(runner_status)
+    vm_power = value.get("vm_power_status")
+    if runner_status == "running" and vm_power in {"checking", "starting", "waiting_for_ssh", "stopping"}:
+        stage_text = {
+            "checking": "正在检查验证虚拟机",
+            "starting": "正在启动验证虚拟机",
+            "waiting_for_ssh": "正在等待验证虚拟机就绪",
+            "stopping": "生产已验真，正在正常关闭本次启动的虚拟机",
+        }[vm_power]
+    if runner_status == "failed" and value.get("production_status") == "verified":
+        print(f"[{_now()}] 生产已验真，但发布后收口未完成；请核对 VM 状态，不要重新部署", flush=True)
+        return
     if runner_status in {"failed", "blocked_reconciliation"}:
         print(f"[{_now()}] {stage_text}；{status_text}（{_failure_hint(identifier)}）", flush=True)
     else:
