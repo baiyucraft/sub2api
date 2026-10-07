@@ -28,6 +28,8 @@ _REVIEWED_COMPATIBILITY_TRANCHES = (
     ("71016a197ea2cd3fc44987d8db421afc3983c040", "d40e11c6073e1f541ffb087d295c027f24335076"),
     # Profile 261 wiring; recovery algorithms, formats and trust assets are unchanged.
     ("f670e8051529776fa681b628eb05ce073d73c17c", "a541a5c4bb6ad72e7198d2802fc6dfac22b305ee"),
+    # Profile 262 net wiring from the proven production tree; exact blobs and modes only.
+    ("bb47353679b65ba37dad6ce9fde06c01e8afed7e", "b710ec5b15b1baf0d01d43bed5aec1eb26836ab4"),
 )
 _REVIEWED_MIGRATION_GATE_TRANCHES = (
     ("71016a197ea2cd3fc44987d8db421afc3983c040", "7abbf4a504780f6f4ed73b54c9410f6f054f3380"),
