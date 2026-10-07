@@ -1,7 +1,7 @@
 ---
 title: OpenAI Sol 分布可信探针
 description: 单次短题、持久化 128 次滑动窗口及独立行为匹配展示
-updated: 2026-10-06
+updated: 2026-10-07
 owner: project
 ---
 
@@ -33,10 +33,22 @@ SSE 与兼容端 JSON 返回均保留原始文本和空白分段，再按原基�
 - 手动和定时执行共享按 Key 的锁。数据库 revision CAS 原子竞争 120 秒租约，开始发送前写入 pending 并消费序号。
 - 完成时以系列 ID、租约 token、序号与题型验证所有权；过期或旧系列结果不得覆盖当前状态。
 - 重启后从数据库恢复题序和窗口。过期 pending 变为 `lease_expired` 无效样本，不重发。
-- 系列绑定 Key、账号绑定、端点、凭据指纹、模型映射、协议、请求合同和基准版本；变化后重新累计，展示只读取匹配的当前系列。
+- 系列绑定带版本的有效请求身份：Key／账号绑定、最终端点、实际鉴权凭据、Sol 有效映射、协议、生效代理、稳定请求头、请求合同和基准版本；上述变化后重新累计。其他模型白名单和同步元数据不影响系列。
 - 样本沿用 35 天观测保留边界；除了 Claim/Load 时回收，也在既有观测周期清理事务内删除闲置系列的过期答案。清理使用 revision CAS，不能覆盖并发 Claim/Finish；序号、系列身份与题序继续保留，不伪造完整窗口。旧 SQLite 单测缺少原生迁移表时兼容，生产 PostgreSQL 缺表必须报错。
 
 按默认约 5 分钟一次探针，首次完整窗口约需 10 小时 40 分钟。改变频率影响收集耗时，不改变 128 次配额。
+
+## 请求身份与旧窗口升级
+
+展示与发送共用请求配置解析器；发送使用身份生成时选定的端点、鉴权、模型、代理和请求头快照。身份使用内部 SHA-256 总摘要与分项摘要，不保存请求配置原值，不向 API、事件或日志输出摘要、凭据、代理密码或请求头值。
+
+身份不包含整份 `Credentials`、无关模型映射、同步时间、费率、并发、调度参数、题型、序号或租约。系统逐请求生成的 `X-Codex-Window-ID` 不参与身份；管理员显式且生效的覆写仍参与。URL 与请求头通过同一规范化路径比较，未生效覆写不改变系列。
+
+现有 `state_json` 增加身份版本、分项摘要和最近重置信息，不新增 SQL migration。无身份版本的旧状态仍可解码；只有旧完整指纹、协议、合同及基准匹配，且新增维度的连续性可验证时，才通过 revision CAS 原位升级。升级保留系列 ID、题序、递增序号、样本、pending、原租约和最近充分判定，不生成重置事件。旧指纹只覆盖代理 ID，未记录代理实际连接配置；运行时默认请求头来源也可能未被覆盖。这类配置无法证明连续性时使用 `legacy_identity_unverifiable` 保守重开，不合并历史不同系列，不把当前快照作为历史证据。
+
+Claim 的顺序保持为恢复过期租约、有效 pending 则忙、比较／升级身份、领取新槽。身份变化不能覆盖有效的在途租约；崩溃后的 pending 按原租约过期为无效槽，不延长、不重发。CAS 冲突后重新读取并完整判断。
+
+新版身份与旧版写入逻辑不能混用。上线先停止全部旧版探针调度及写入，等待旧在途请求完成或退出后再启用新版；尚存 pending 保留原租约。回滚旧版可能重新累计，但不改写历史观测。该约束适用于多实例和应用双槽排空阶段，不能把旧 HTTP 流量排空等同于已停止旧后台探针。
 
 ## 判定、告警与展示
 
@@ -45,6 +57,12 @@ SSE 与兼容端 JSON 返回均保留原始文本和空白分段，再按原基�
 独立 Go 实现 predictive likelihood，比较 Sol、Astra、Terra、Luna 与 other，并使用对应授权基准的高档阈值。充分支持 Sol 返回 `match`，充分支持其他候选返回 `mismatch`；并列、阈值不足、样本不足或基准缺失都属于证据不足。
 
 API 的 `confidence_distribution` 包含窗口进度、有效样本、三类配额/计数、各候选浮点匹配分数、最接近模型、起止时间、协议和基准版本。新分布不写入旧 Juice 24h／7d 成功率，也不把旧 Juice 观测计入新窗口。
+
+可选 `series_reset` 包含 `pending`、实际重置时间 `at`、原因枚举 `reasons` 和上一窗口槽数 `previous_attempted`（最多 128，含失败／pending，不是历史总尝试数）。配置身份不匹配时读取返回当前身份的空窗口与待重置原因，不创建系列、不发送请求、不写重置事件；直到下次符合发送条件的 Claim 才实际重开。列表保留紧凑进度，详情明确区分待重置与已重置；旧接口缺少字段时不显示该区域。
+
+凭据缺失、端点无效、Sol 模型不支持等配置检查失败，返回当前配置的 `insufficient` 和安全原因枚举，清除缓存的旧匹配结果及 Juice 分数，不读旧窗口、不领取槽、不产生重置事件。配置解析器或采样读取不可用时同样显示证据不足，并仅记录 Key ID 与安全原因；不向响应或日志透出原始错误。手动探针与观察开关响应均保留 `confidence_distribution` 及其重置详情。
+
+实际重置以 `key_confidence_distribution_reset` 保存普通 info 事件，与新系列和领取状态在同一事务提交。首次初始化、保留窗口的身份升级和单纯读取不产生此事件。原因仅使用 `binding_changed`、`protocol_changed`、`endpoint_changed`、`credential_changed`、`model_changed`、`proxy_changed`、`headers_changed`、`contract_changed`、`baseline_changed`、`legacy_identity_unverifiable`；事件仅包含安全的系列标识、时间、原因及上一窗口槽数。身份重置独立于模型失真告警，不影响健康或调度。
 
 列表采用灰色采集中、绿色 Sol 匹配、红色疑似其他模型、黄色证据不足。点击详情展示采样时间、有效样本、三类分布与候选行为匹配分数；设置中明确单次请求和完整窗口所需时间。分数不标为模型真实概率。
 
@@ -58,8 +76,14 @@ API 的 `confidence_distribution` 包含窗口进度、有效样本、三类配�
 
 仅提取运行时所需拟合参数、原题合同、配额与阈值，运行时验证文件 SHA-256。来源包版本、内容指纹与离线 scorer 对照 fixture 保存在 [资产说明](../../backend/internal/service/confidence_baselines/README.md)。Go 实现独立，不分发参考项目 Python scorer。Chat 包复用原生采样和校准；协议隔离不代表 Chat 曾独立重新采样。
 
-迁移 `288_upstream_confidence_distribution.sql` 是新增独立表，不回写旧账号或 Key 数据。接续 profile 261 创建的历史 profile 262 保持：版本仍为 `0.2.13-baiyu`、parent 261、仅新增 288。所有历史 profile、旧 migration 原字节与 checksum 保持不变；当前 profile 263 仅升级为 `0.2.14-baiyu`、parent 262、无新增迁移；未知 264 拒绝。
+迁移 `288_upstream_confidence_distribution.sql` 是新增独立表，不回写旧账号或 Key 数据。历史 profile 262 接续 261，版本为 `0.2.13-baiyu`，仅新增 288；历史 profile 263 接续 262，升级为 `0.2.14-baiyu`，无新增迁移。请求身份 v2 修复只扩充现有 `state_json`，不新增迁移、不改历史 profile 或 migration 的原字节及 checksum。后续发布使用发布工具当前登记的 profile，不沿用文档中的历史版本判断。
 
 发布属于后端／数据库混合变更，需正式 VM Gate、实际 PostgreSQL 升级及旧镜像兼容、恢复分类和签名证据。本地单元测试与登记不等于 VM Gate 或生产发布完成；新敏感 blob 未分类保持阻断，不新增恢复豁免。
 
 维护入口：评分与状态在 `backend/internal/service/upstream_confidence_distribution*.go`，持久化在 `backend/internal/repository/upstream_confidence_distribution_repo.go`，请求与健康接入在既有 upstream probe/config 服务，UI 位于 `UpstreamHealthCell.vue`。最低测试覆盖滑动配额、失败占位、租约竞争、重启与系列隔离、35 天保留、离线 oracle 评分、告警事务回滚及去重、健康与调度分离、列表／详情／移动布局和 profile 262 执行闭包。
+
+## 隔离 PostgreSQL 验证
+
+除现有 Docker integration suite 外，可在独立的本机 PostgreSQL 测试集群上运行 `TestConfidenceDistributionNativePostgres`。从 `backend` 目录设置 `SUB2API_DISTRIBUTION_TEST_POSTGRES_DSN`，然后执行 `go test -tags distribution_postgres ./internal/repository -run '^TestConfidenceDistributionNativePostgres$' -count=1 -v`。此套件要求字面 loopback 地址、显式非默认端口和 `/postgres` 管理库，自动创建并删除独立临时数据库；配置缺失直接失败，不跳过。
+
+该套件验证跨实例 Claim、CAS 升级、重置事件去重与失败回滚、租约恢复、旧结果隔离和稳定滑动窗口。它使用最小测试 schema，不替代正式 migration／VM Gate，也不能作为生产发布证据。

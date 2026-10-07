@@ -78,6 +78,22 @@
             <dt class="text-gray-300">{{ t('admin.upstreamManagement.health.claimedModel') }}</dt>
             <dd class="break-all text-right">{{ distribution.claimed_model }}</dd>
           </dl>
+          <section v-if="distribution.series_reset" data-test="distribution-reset" class="space-y-2 rounded-lg border border-white/10 bg-white/5 p-2.5">
+            <div class="font-medium text-gray-100">{{ t('admin.upstreamManagement.health.distribution.resetTitle') }}</div>
+            <p v-if="distribution.series_reset.pending" data-test="distribution-reset-pending" class="text-amber-200">
+              {{ t('admin.upstreamManagement.health.distribution.resetPending') }}
+            </p>
+            <dl class="grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)] gap-x-3 gap-y-1">
+              <template v-if="!distribution.series_reset.pending">
+                <dt class="text-gray-300">{{ t('admin.upstreamManagement.health.distribution.resetAt') }}</dt>
+                <dd data-test="distribution-reset-at" class="text-right">{{ distribution.series_reset.at ? formatDateTime(distribution.series_reset.at) : '-' }}</dd>
+              </template>
+              <dt class="text-gray-300">{{ t('admin.upstreamManagement.health.distribution.resetReasonsLabel') }}</dt>
+              <dd data-test="distribution-reset-reasons" class="break-words text-right">{{ distributionResetReasons.join(' · ') || '-' }}</dd>
+              <dt class="text-gray-300">{{ t('admin.upstreamManagement.health.distribution.previousAttempts') }}</dt>
+              <dd data-test="distribution-reset-previous" class="text-right tabular-nums">{{ distribution.series_reset.previous_attempted }} / {{ distribution.window_size }}</dd>
+            </dl>
+          </section>
           <div v-if="distributionCandidates.length" class="border-t border-white/10 pt-2">
             <div class="mb-1.5 font-medium">{{ t('admin.upstreamManagement.health.distribution.fitScores') }}</div>
             <div v-for="candidate in distributionCandidates" :key="candidate.model" class="flex items-center justify-between gap-3 rounded px-1 py-0.5" :class="candidate.model === distribution.closest_model ? 'bg-white/5 text-white' : 'text-gray-300'">
@@ -209,6 +225,14 @@ const distributionReasons = computed(() => (distribution.value?.reasons || []).m
   const key = `admin.upstreamManagement.health.distribution.reasons.${reason}`
   return te(key) ? t(key) : reason
 }))
+const knownDistributionResetReasons = new Set([
+  'binding_changed', 'protocol_changed', 'endpoint_changed', 'credential_changed',
+  'model_changed', 'proxy_changed', 'headers_changed', 'contract_changed',
+  'baseline_changed', 'legacy_identity_unverifiable'
+])
+const distributionResetReasons = computed(() => [...new Set((distribution.value?.series_reset?.reasons || []).map(reason =>
+  t(`admin.upstreamManagement.health.distribution.resetReasons.${knownDistributionResetReasons.has(reason) ? reason : 'unknown'}`)
+))])
 function distributionModelLabel(model: string) {
   const names: Record<string, string> = { 'gpt-6.1-sol': 'Sol', 'gpt-6-astra': 'Astra', 'gpt-5.6-terra': 'Terra', 'gpt-6-luna': 'Luna', other_known_external: 'other' }
   return names[model] || model

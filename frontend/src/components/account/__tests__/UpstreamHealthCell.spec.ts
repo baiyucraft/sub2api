@@ -3,6 +3,8 @@ import { mount } from '@vue/test-utils'
 import UpstreamHealthCell from '../UpstreamHealthCell.vue'
 import type { Account, UpstreamConfidenceDistribution } from '@/types'
 import zh from '@/i18n/locales/zh/admin/upstreamManagement'
+import en from '@/i18n/locales/en/admin/upstreamManagement'
+import { formatDateTime } from '@/utils/format'
 
 vi.mock('vue-i18n', async () => {
   const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
@@ -86,6 +88,56 @@ describe('UpstreamHealthCell', () => {
     expect(wrapper.find('[data-test="confidence-badge"]').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('confidence24h')
     expect(wrapper.text()).not.toContain('0.0000')
+    expect(wrapper.find('[data-test="distribution-reset"]').exists()).toBe(false)
+  })
+
+  it('explains pending configuration changes without changing the compact progress or showing a reset time', () => {
+    const wrapper = mountDistribution(distribution({ attempted: 0, valid_samples: 0, series_reset: {
+      pending: true, at: null, reasons: ['credential_changed', 'endpoint_changed'], previous_attempted: 113
+    } }))
+    expect(wrapper.get('[data-test="distribution-badge"]').text()).toBe('采集中 0/128')
+    expect(wrapper.get('[data-test="distribution-badge"]').classes()).toContain('bg-gray-100')
+    expect(wrapper.get('[data-test="distribution-reset-pending"]').text()).toBe('配置已变化，等待下一次探针重新累计')
+    expect(wrapper.get('[data-test="distribution-reset-reasons"]').text()).toBe('鉴权凭据变化 · 请求端点变化')
+    expect(wrapper.get('[data-test="distribution-reset-previous"]').text()).toBe('113 / 128')
+    expect(wrapper.find('[data-test="distribution-reset-at"]').exists()).toBe(false)
+  })
+
+  it('shows the actual reset time and previous window after the first attempt in a new series', () => {
+    const at = '2026-10-07T13:34:39Z'
+    const wrapper = mountDistribution(distribution({ attempted: 1, valid_samples: 1, series_reset: {
+      pending: false, at, reasons: ['legacy_identity_unverifiable'], previous_attempted: 18
+    } }))
+    expect(wrapper.get('[data-test="distribution-badge"]').text()).toBe('采集中 1/128')
+    expect(wrapper.find('[data-test="distribution-reset-pending"]').exists()).toBe(false)
+    expect(wrapper.get('[data-test="distribution-reset-at"]').text()).toBe(formatDateTime(at))
+    expect(wrapper.get('[data-test="distribution-reset-reasons"]').text()).toBe('旧采样身份无法验证连续性')
+    expect(wrapper.get('[data-test="distribution-reset-previous"]').text()).toBe('18 / 128')
+  })
+
+  it('uses a safe fallback for unknown reset reasons and tolerates an omitted reset timestamp', () => {
+    const sensitive = 'api_key=private-value'
+    const wrapper = mountDistribution(distribution({ series_reset: {
+      pending: false, reasons: [sensitive, 'new_server_reason', 'model_changed'], previous_attempted: 128
+    } }))
+    expect(wrapper.get('[data-test="distribution-reset-at"]').text()).toBe('-')
+    expect(wrapper.get('[data-test="distribution-reset-reasons"]').text()).toBe('其他请求配置变化 · Sol 有效模型变化')
+    expect(wrapper.text()).not.toContain(sensitive)
+    expect(wrapper.text()).not.toContain('new_server_reason')
+  })
+
+  it('translates every identity reset reason in both locales', () => {
+    const reasons = ['binding_changed', 'protocol_changed', 'endpoint_changed', 'credential_changed',
+      'model_changed', 'proxy_changed', 'headers_changed', 'contract_changed', 'baseline_changed', 'legacy_identity_unverifiable']
+    const wrapper = mountDistribution(distribution({ series_reset: { pending: false, reasons, previous_attempted: 128 } }))
+    for (const reason of reasons) {
+      const zhMessage = zh.upstreamManagement.health.distribution.resetReasons[reason as keyof typeof zh.upstreamManagement.health.distribution.resetReasons]
+      const enMessage = en.upstreamManagement.health.distribution.resetReasons[reason as keyof typeof en.upstreamManagement.health.distribution.resetReasons]
+      expect(zhMessage).toBeTruthy()
+      expect(enMessage).toBeTruthy()
+      expect(wrapper.get('[data-test="distribution-reset-reasons"]').text()).toContain(zhMessage)
+      expect(wrapper.text()).not.toContain(`resetReasons.${reason}`)
+    }
   })
 
   it.each([

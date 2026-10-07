@@ -462,6 +462,7 @@ export default {
       },
       eventTypes: {
         key_confidence_distribution_changed: 'Key 分布可信度变更',
+        key_confidence_distribution_reset: 'Key 分布采样系列重置',
         key_actual_rate_changed: 'Key 实际倍率变更',
         key_rate_changed: 'Key 原始倍率变更',
         key_effective_rate_changed: 'Key 成本倍率变更',
