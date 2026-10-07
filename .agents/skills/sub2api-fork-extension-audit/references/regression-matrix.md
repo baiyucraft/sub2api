@@ -228,6 +228,8 @@ DataTable 高频 ResizeObserver 通知只触发一帧测量
 
 ## OpenAI Sol 单次探针与 128 次滑动分布
 
+- 262 恢复兼容审阅固定生产基线 `bb47353679b65ba37dad6ce9fde06c01e8afed7e` → `b710ec5b15b1baf0d01d43bed5aec1eb26836ab4`，仅匹配 35 项敏感路径的 blob/mode。`test_recovery_gate.py` 验证准确覆盖、恢复算法/备份格式/信任资产不变，以及每项的内容、模式、删除和跨路径复用均恢复阻断；显式 Full 不绕过。最终候选仍须重新分类并执行真实 specialized 隔离恢复。
+
 - 每次真实探针恰好一次请求，固定 Sol、空历史、system 点号、low、128 输出 token、流式；Responses `store=false` 与 Chat 合同分别测试，无 padding／额外挑战／即时重试。
 - 验证固定随机排列循环，任何连续 128 次维持 64／16／48 配额，第 129 次只淘汰最早一次；失败／空回答／不完整／崩溃占槽，未发送的配置失败与跳过不消费。
 - 验证跨实例 revision CAS 与 120 秒租约、手动／定时互斥、重启恢复、旧 token／series 拒绝、凭据／端点／模型映射／协议／基准变更重建，以及 35 天保留不补历史成功样本；闲置清理保留系列／题序／序号，遵循观测事务回滚，并不能覆盖并发 Claim／Finish，PostgreSQL 缺迁移错误不得静默。
