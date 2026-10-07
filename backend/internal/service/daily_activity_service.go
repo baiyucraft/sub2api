@@ -23,6 +23,7 @@ type DailyActivityService struct {
 	billingCache interface {
 		InvalidateUserBalance(context.Context, int64) error
 	}
+	invalidateCostCaches []func()
 }
 
 // DailyActivityConfig is persisted as one JSON system setting. Amounts are in
@@ -98,6 +99,23 @@ func (s *DailyActivityService) invalidateBalanceCache(ctx context.Context, userI
 	}
 	if err := s.billingCache.InvalidateUserBalance(ctx, userID); err != nil {
 		slog.Warn("invalidate activity reward balance cache failed", "user_id", userID, "error", err)
+	}
+}
+
+// SetCostCacheInvalidators attaches the shared administrator cost, usage and
+// trend caches. Callbacks run only after a monetary transaction commits.
+func (s *DailyActivityService) SetCostCacheInvalidators(invalidate ...func()) {
+	if s != nil {
+		s.invalidateCostCaches = invalidate
+	}
+}
+
+func (s *DailyActivityService) invalidateRewardCaches(ctx context.Context, userID int64) {
+	s.invalidateBalanceCache(ctx, userID)
+	for _, invalidate := range s.invalidateCostCaches {
+		if invalidate != nil {
+			invalidate()
+		}
 	}
 }
 
@@ -566,18 +584,31 @@ func (s *DailyActivityService) OpenDailyGift(ctx context.Context, userID int64, 
 		return nil, ErrActivityNotReady
 	}
 	keyHash := hashActivityKey(idempotencyKey)
-	if keyHash != nil {
+	replayGift := func() (*DailyActivityReward, error) {
 		var existing DailyActivityReward
 		var period sql.NullString
-		err = tx.QueryRowContext(ctx, `SELECT id,activity_type,amount,period_date::text,source,created_at FROM activity_reward_records WHERE user_id=$1 AND idempotency_key_hash=$2`, userID, *keyHash).Scan(&existing.ID, &existing.ActivityType, &existing.Amount, &period, &existing.Source, &existing.CreatedAt)
-		if err == nil {
-			if period.Valid {
-				existing.PeriodDate = &period.String
-			}
-			return &existing, nil
+		if replayErr := tx.QueryRowContext(ctx, `SELECT id,activity_type,amount,period_date::text,source,created_at FROM activity_reward_records WHERE user_id=$1 AND idempotency_key_hash=$2`, userID, *keyHash).Scan(&existing.ID, &existing.ActivityType, &existing.Amount, &period, &existing.Source, &existing.CreatedAt); replayErr != nil {
+			return nil, replayErr
 		}
-		if !errors.Is(err, sql.ErrNoRows) {
-			return nil, err
+		if period.Valid {
+			existing.PeriodDate = &period.String
+		}
+		if replayErr := recordActivityRewardCost(ctx, tx, existing.ID, userID); replayErr != nil {
+			return nil, replayErr
+		}
+		if replayErr := tx.Commit(); replayErr != nil {
+			return nil, replayErr
+		}
+		s.invalidateRewardCaches(ctx, userID)
+		return &existing, nil
+	}
+	if keyHash != nil {
+		existing, replayErr := replayGift()
+		if replayErr == nil {
+			return existing, nil
+		}
+		if !errors.Is(replayErr, sql.ErrNoRows) {
+			return nil, replayErr
 		}
 	}
 	cents, err := randomCents(int64(math.Round(cfg.DailyGiftMinReward*100)), int64(math.Round(cfg.DailyGiftMaxReward*100)))
@@ -587,12 +618,21 @@ func (s *DailyActivityService) OpenDailyGift(ctx context.Context, userID int64, 
 	var id int64
 	err = tx.QueryRowContext(ctx, `INSERT INTO activity_reward_records(user_id,activity_type,amount,period_date,source,idempotency_key_hash,rule_version) VALUES($1,$2,$3,$4,'daily_recharge',$5,$6) ON CONFLICT(user_id,activity_type,period_date) WHERE activity_type='daily_gift' AND status <> 'failed' DO NOTHING RETURNING id`, userID, activityDailyGift, float64(cents)/100, date, keyHash, activityRuleVersion).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
+		// A concurrent request can win the daily unique key after our first
+		// lookup. Replay only its matching idempotency key; another daily claim
+		// still receives the existing not-ready error.
+		if keyHash != nil {
+			existing, replayErr := replayGift()
+			if !errors.Is(replayErr, sql.ErrNoRows) {
+				return existing, replayErr
+			}
+		}
 		return nil, ErrActivityNotReady
 	}
 	if err != nil {
 		return nil, err
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE users SET balance=balance+$1,updated_at=NOW() WHERE id=$2 AND deleted_at IS NULL`, float64(cents)/100, userID); err != nil {
+	if err = creditActivityRewardBalance(ctx, tx, userID, float64(cents)/100); err != nil {
 		return nil, err
 	}
 	var reward DailyActivityReward
@@ -603,10 +643,13 @@ func (s *DailyActivityService) OpenDailyGift(ctx context.Context, userID int64, 
 	if period.Valid {
 		reward.PeriodDate = &period.String
 	}
+	if err = recordActivityRewardCost(ctx, tx, reward.ID, userID); err != nil {
+		return nil, err
+	}
 	if err = tx.Commit(); err != nil {
 		return nil, err
 	}
-	s.invalidateBalanceCache(ctx, userID)
+	s.invalidateRewardCaches(ctx, userID)
 	return &reward, nil
 }
 
@@ -662,9 +705,21 @@ func (s *DailyActivityService) Draw(ctx context.Context, userID int64, activityT
 			if err = rows.Err(); err != nil {
 				return nil, err
 			}
-			if len(existing) == 0 {
+			if len(existing) != count {
 				return nil, fmt.Errorf("idempotent draw result is unavailable")
 			}
+			if err = rows.Close(); err != nil {
+				return nil, err
+			}
+			for _, reward := range existing {
+				if err = recordActivityRewardCost(ctx, tx, reward.ID, userID); err != nil {
+					return nil, err
+				}
+			}
+			if err = tx.Commit(); err != nil {
+				return nil, err
+			}
+			s.invalidateRewardCaches(ctx, userID)
 			return existing, nil
 		}
 		if err != nil {
@@ -684,6 +739,10 @@ func (s *DailyActivityService) Draw(ctx context.Context, userID int64, activityT
 			return nil, err
 		}
 		ids = append(ids, id)
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
 	}
 	rows.Close()
 	if len(ids) == 0 {
@@ -725,15 +784,18 @@ func (s *DailyActivityService) Draw(ctx context.Context, userID int64, activityT
 		if err = tx.QueryRowContext(ctx, `SELECT id,activity_type,amount,period_date::text,source,created_at FROM activity_reward_records WHERE id=$1`, rewardID).Scan(&reward.ID, &reward.ActivityType, &reward.Amount, &sql.NullString{}, &reward.Source, &reward.CreatedAt); err != nil {
 			return nil, err
 		}
+		if err = recordActivityRewardCost(ctx, tx, reward.ID, userID); err != nil {
+			return nil, err
+		}
 		results = append(results, reward)
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE users SET balance=balance+$1,updated_at=NOW() WHERE id=$2 AND deleted_at IS NULL`, totalReward, userID); err != nil {
+	if err = creditActivityRewardBalance(ctx, tx, userID, totalReward); err != nil {
 		return nil, err
 	}
 	if err = tx.Commit(); err != nil {
 		return nil, err
 	}
-	s.invalidateBalanceCache(ctx, userID)
+	s.invalidateRewardCaches(ctx, userID)
 	return results, nil
 }
 

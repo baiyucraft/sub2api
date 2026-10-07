@@ -871,6 +871,28 @@ func RedeemCodeFromServiceAdmin(rc *service.RedeemCode) *AdminRedeemCode {
 	}
 }
 
+// UserBalanceHistoryFromServiceAdmin projects only the administrator-safe
+// fields; a reward has no redeem code and keeps its authoritative reward ID.
+func UserBalanceHistoryFromServiceAdmin(record *service.UserBalanceHistoryRecord) AdminUserBalanceHistoryRecord {
+	base := AdminRedeemCode{
+		RedeemCode: RedeemCode{
+			ID: record.ID, Code: record.Code, Type: record.Type, Value: record.Value,
+			Status: record.Status, UsedBy: record.UsedBy, UsedAt: record.UsedAt,
+			CreatedAt: record.CreatedAt, ExpiresAt: record.ExpiresAt,
+			GroupID: record.GroupID, ValidityDays: record.ValidityDays,
+		},
+		Notes: record.Notes,
+	}
+	if record.User != nil {
+		base.User = UserFromServiceShallow(record.User)
+	}
+	if record.Group != nil {
+		base.Group = GroupFromServiceShallow(record.Group)
+	}
+	return AdminUserBalanceHistoryRecord{AdminRedeemCode: base, RecordSource: record.RecordSource,
+		SourceID: record.SourceID, ActivityType: record.ActivityType, PeriodDate: record.PeriodDate}
+}
+
 func redeemCodeFromServiceBase(rc *service.RedeemCode) RedeemCode {
 	out := RedeemCode{
 		ID:           rc.ID,

@@ -180,7 +180,7 @@
     :show="showBalanceHistoryModal"
     :user="balanceHistoryUser"
     :hide-actions="true"
-    @close="showBalanceHistoryModal = false; balanceHistoryUser = null"
+    @close="closeBalanceHistoryModal"
   />
 </template>
 
@@ -239,6 +239,13 @@ const cleanupDialogVisible = ref(false)
 // Balance history modal state
 const showBalanceHistoryModal = ref(false)
 const balanceHistoryUser = ref<AdminUser | null>(null)
+let userHistoryRequestVersion = 0
+
+const closeBalanceHistoryModal = () => {
+  userHistoryRequestVersion++
+  showBalanceHistoryModal.value = false
+  balanceHistoryUser.value = null
+}
 
 const breakdownFilters = computed(() => {
   const f: Record<string, any> = {}
@@ -257,11 +264,14 @@ const modelNameOptions = computed(() =>
 )
 
 const handleUserClick = async (userId: number) => {
+  const version = ++userHistoryRequestVersion
   try {
     const user = await adminAPI.users.getById(userId, true)
+    if (version !== userHistoryRequestVersion) return
     balanceHistoryUser.value = user
     showBalanceHistoryModal.value = true
   } catch {
+    if (version !== userHistoryRequestVersion) return
     appStore.showError(t('admin.usage.failedToLoadUser'))
   }
 }
@@ -880,7 +890,7 @@ onMounted(() => {
   loadSavedErrColumns()
   document.addEventListener('click', handleColumnClickOutside)
 })
-onUnmounted(() => { abortController?.abort(); exportAbortController?.abort(); document.removeEventListener('click', handleColumnClickOutside) })
+onUnmounted(() => { userHistoryRequestVersion++; abortController?.abort(); exportAbortController?.abort(); document.removeEventListener('click', handleColumnClickOutside) })
 
 watch(modelDistributionSource, (source) => {
   void loadModelStats(source)

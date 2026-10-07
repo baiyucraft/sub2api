@@ -6,8 +6,10 @@
  */
 
 import { apiClient } from '../client'
+import type { ActivityRewardType } from './users'
 
-export type ExtraCostType = 'account' | 'proxy' | 'server' | 'other' | 'adjustment'
+export type ManualExtraCostType = 'account' | 'proxy' | 'server' | 'other' | 'adjustment'
+export type ExtraCostType = ManualExtraCostType | 'activity_reward'
 
 export interface ExtraCostEntry {
   id: number
@@ -18,6 +20,9 @@ export interface ExtraCostEntry {
   created_by?: number | null
   created_at: string
   reversal_of?: number | null
+  activity_reward_id?: number | null
+  related_user_id?: number | null
+  activity_type?: ActivityRewardType | null
 }
 
 export interface ExtraCostListParams {
@@ -39,7 +44,7 @@ export interface ExtraCostListResponse {
 
 export interface CreateExtraCostRequest {
   amount: number
-  category: ExtraCostType
+  category: ManualExtraCostType
   notes?: string
   idempotency_key?: string
 }

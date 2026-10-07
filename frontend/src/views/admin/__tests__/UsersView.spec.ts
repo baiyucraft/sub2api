@@ -188,6 +188,21 @@ const getToggleStatusButton = (wrapper: ReturnType<typeof mountBulkDeleteView>, 
 }
 
 describe('admin UsersView', () => {
+  it('opens the reward shortcut in the shared history dialog', async () => {
+    const wrapper = mountBulkDeleteView()
+    await flushPromises()
+    await wrapper.get('[data-test="actions-42"] .action-menu-trigger').trigger('click')
+    const rewardButton = wrapper.findAll('.action-menu-content button').find((button) => button.text() === 'admin.users.rewardHistory')
+    expect(rewardButton).toBeDefined()
+    await rewardButton!.trigger('click')
+    const history = wrapper.findComponent({ name: 'UserBalanceHistoryModal' })
+    expect(history.props('show')).toBe(true)
+    expect(history.props('user')).toEqual(expect.objectContaining({ id: 42 }))
+    expect(history.props('initialType')).toBe('activity_reward')
+    expect(wrapper.find('.action-menu-content').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   beforeEach(() => {
     vi.useRealTimers()
     localStorage.clear()

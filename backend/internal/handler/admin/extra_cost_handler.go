@@ -81,6 +81,11 @@ type CreateExtraCostRequest struct {
 	Category       string  `json:"category" binding:"required"`
 	Notes          string  `json:"notes"`
 	IdempotencyKey string  `json:"idempotency_key"`
+	// Source snapshots are accepted only to reject forged automatic records;
+	// ordinary manual cost requests never receive these fields.
+	ActivityRewardID *int64  `json:"activity_reward_id"`
+	RelatedUserID    *int64  `json:"related_user_id"`
+	ActivityType     *string `json:"activity_type"`
 }
 
 // Create appends an extra cost entry.
@@ -89,6 +94,10 @@ func (h *ExtraCostHandler) Create(c *gin.Context) {
 	var req CreateExtraCostRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request body")
+		return
+	}
+	if req.ActivityRewardID != nil || req.RelatedUserID != nil || req.ActivityType != nil {
+		h.writeError(c, service.ErrExtraCostAutomaticEntry)
 		return
 	}
 	var createdBy *int64
@@ -150,6 +159,8 @@ func parseExtraCostDateQuery(raw string) (*time.Time, error) {
 func (h *ExtraCostHandler) writeError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, service.ErrExtraCostInvalidDate), errors.Is(err, service.ErrExtraCostInvalidAmount), errors.Is(err, service.ErrExtraCostInvalidCategory), errors.Is(err, service.ErrExtraCostInvalidNote):
+		response.BadRequest(c, err.Error())
+	case errors.Is(err, service.ErrExtraCostAutomaticEntry):
 		response.BadRequest(c, err.Error())
 	case errors.Is(err, service.ErrExtraCostNotFound):
 		response.NotFound(c, err.Error())

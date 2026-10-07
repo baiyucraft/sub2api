@@ -697,7 +697,7 @@
     <Teleport to="body">
       <div
         v-if="activeMenuId !== null && menuPosition"
-        class="action-menu-content fixed z-[9999] w-48 overflow-hidden rounded-xl bg-white shadow-lg ring-1 ring-black/5 dark:bg-dark-800 dark:ring-white/10"
+        class="action-menu-content fixed z-[9999] max-h-[calc(100vh-1rem)] w-48 overflow-y-auto rounded-xl bg-white shadow-lg ring-1 ring-black/5 dark:bg-dark-800 dark:ring-white/10"
         :style="{ top: menuPosition.top + 'px', left: menuPosition.left + 'px' }"
       >
         <div class="py-1">
@@ -761,6 +761,14 @@
                 {{ t('admin.users.balanceHistory') }}
               </button>
 
+              <button
+                @click="handleBalanceHistory(user, 'activity_reward'); closeActionMenu()"
+                class="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700"
+              >
+                <Icon name="badge" size="sm" class="text-gray-400" :stroke-width="2" />
+                {{ t('admin.users.rewardHistory') }}
+              </button>
+
               <div class="my-1 border-t border-gray-100 dark:border-dark-700"></div>
 
               <!-- Delete (not for admin) -->
@@ -805,7 +813,7 @@
     <UserApiKeysModal :show="showApiKeysModal" :user="viewingUser" @close="closeApiKeysModal" />
     <UserAllowedGroupsModal :show="showAllowedGroupsModal" :user="allowedGroupsUser" @close="closeAllowedGroupsModal" @success="loadUsers" />
     <UserBalanceModal :show="showBalanceModal" :user="balanceUser" :operation="balanceOperation" @close="closeBalanceModal" @success="loadUsers" />
-    <UserBalanceHistoryModal :show="showBalanceHistoryModal" :user="balanceHistoryUser" @close="closeBalanceHistoryModal" @deposit="handleDepositFromHistory" @withdraw="handleWithdrawFromHistory" />
+    <UserBalanceHistoryModal :show="showBalanceHistoryModal" :user="balanceHistoryUser" :initial-type="balanceHistoryInitialType" @close="closeBalanceHistoryModal" @deposit="handleDepositFromHistory" @withdraw="handleWithdrawFromHistory" />
     <GroupReplaceModal :show="showGroupReplaceModal" :user="groupReplaceUser" :old-group="groupReplaceOldGroup" :all-groups="allGroups" @close="closeGroupReplaceModal" @success="loadUsers" />
     <UserAttributesConfigModal :show="showAttributesModal" @close="handleAttributesModalClose" />
   </AppLayout>
@@ -1592,7 +1600,7 @@ const openActionMenu = (user: AdminUser, e: MouseEvent) => {
 
     const rect = target.getBoundingClientRect()
     const menuWidth = 200
-    const menuHeight = 240
+    const menuHeight = 320
     const padding = 8
     const viewportWidth = window.innerWidth
     const viewportHeight = window.innerHeight
@@ -1624,7 +1632,7 @@ const openActionMenu = (user: AdminUser, e: MouseEvent) => {
       ))
       top = e.clientY
       if (top + menuHeight > viewportHeight - padding) {
-        top = viewportHeight - menuHeight - padding
+        top = Math.max(padding, viewportHeight - menuHeight - padding)
       }
     }
 
@@ -1685,6 +1693,7 @@ const balanceOperation = ref<'add' | 'subtract'>('add')
 // Balance History modal state
 const showBalanceHistoryModal = ref(false)
 const balanceHistoryUser = ref<AdminUser | null>(null)
+const balanceHistoryInitialType = ref('')
 
 // 计算剩余天数
 const getDaysRemaining = (expiresAt: string): number => {
@@ -1988,7 +1997,8 @@ const closeBalanceModal = () => {
   balanceUser.value = null
 }
 
-const handleBalanceHistory = (user: AdminUser) => {
+const handleBalanceHistory = (user: AdminUser, initialType = '') => {
+  balanceHistoryInitialType.value = initialType
   balanceHistoryUser.value = user
   showBalanceHistoryModal.value = true
 }

@@ -892,7 +892,21 @@ PROFILES["263"] = {
     },
 }
 
-CURRENT_RELEASE_PROFILE = "263"
+# Profile 263 remains immutable; the reward cost ledger is additive.
+PROFILES["264"] = {
+    **{key: PROFILES["263"][key] for key in _PROFILE_V2_RUNTIME_KEYS},
+    "name": "264",
+    "version": "0.2.14-baiyu",
+    "parent": "263",
+    "new_migrations": ["289_activity_reward_costs.sql"],
+    "gate_schema": 2,
+    "release_policy": {
+        "compatibility_image": "production_current",
+        "migration_source": "database_state",
+    },
+}
+
+CURRENT_RELEASE_PROFILE = "264"
 
 
 def get_profile(name: str) -> dict:

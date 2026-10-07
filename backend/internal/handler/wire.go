@@ -179,8 +179,9 @@ func ProvideBatchImageHandler(
 	return h
 }
 
-func ProvideDailyActivityServices(svc *service.DailyActivityService, billingCacheService *service.BillingCacheService) []*service.DailyActivityService {
+func ProvideDailyActivityServices(svc *service.DailyActivityService, billingCacheService *service.BillingCacheService, dashboardService *service.DashboardService) []*service.DailyActivityService {
 	svc.SetBillingCache(billingCacheService)
+	svc.SetCostCacheInvalidators(dashboardService.InvalidateCache, admin.InvalidateDashboardQueryCaches)
 	return []*service.DailyActivityService{svc}
 }
 

@@ -464,13 +464,13 @@ func (h *UserHandler) GetUserUsage(c *gin.Context) {
 	response.Success(c, stats)
 }
 
-// GetBalanceHistory handles getting user's balance/concurrency change history
+// GetBalanceHistory returns a user's merged funds, entitlements and rewards.
 // GET /api/v1/admin/users/:id/balance-history
 // Query params:
-//   - type: filter by record type (balance, affiliate_balance, admin_balance, concurrency, admin_concurrency, subscription)
+//   - type: optional legacy type or activity_reward; lifetime totals are unfiltered.
 func (h *UserHandler) GetBalanceHistory(c *gin.Context) {
 	userID, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil {
+	if err != nil || userID <= 0 {
 		response.BadRequest(c, "Invalid user ID")
 		return
 	}
@@ -478,30 +478,30 @@ func (h *UserHandler) GetBalanceHistory(c *gin.Context) {
 	page, pageSize := response.ParsePagination(c)
 	codeType := c.Query("type")
 
-	codes, total, totalRecharged, err := h.adminService.GetUserBalanceHistory(c.Request.Context(), userID, page, pageSize, codeType)
+	history, err := h.adminService.GetUserBalanceHistory(c.Request.Context(), userID, page, pageSize, codeType)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
 
-	// Convert to admin DTO (includes notes field for admin visibility)
-	out := make([]dto.AdminRedeemCode, 0, len(codes))
-	for i := range codes {
-		out = append(out, *dto.RedeemCodeFromServiceAdmin(&codes[i]))
+	out := make([]dto.AdminUserBalanceHistoryRecord, 0, len(history.Items))
+	for i := range history.Items {
+		out = append(out, dto.UserBalanceHistoryFromServiceAdmin(&history.Items[i]))
 	}
 
 	// Custom response with total_recharged alongside pagination
-	pages := int((total + int64(pageSize) - 1) / int64(pageSize))
+	pages := int((history.Total + int64(pageSize) - 1) / int64(pageSize))
 	if pages < 1 {
 		pages = 1
 	}
 	response.Success(c, gin.H{
 		"items":           out,
-		"total":           total,
+		"total":           history.Total,
 		"page":            page,
 		"page_size":       pageSize,
 		"pages":           pages,
-		"total_recharged": totalRecharged,
+		"total_recharged": history.TotalRecharged,
+		"total_rewarded":  history.TotalRewarded,
 	})
 }
 
