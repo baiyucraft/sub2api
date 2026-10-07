@@ -294,6 +294,92 @@ class RecoveryGateTest(unittest.TestCase):
             self.assertEqual(report["mode"], "full")
             self.assertIn("recovery_change_requires_review", report["reason_codes"])
 
+    def test_registered_profile262_review_covers_exact_production_sensitive_objects(self) -> None:
+        from release.paths import WORKSPACE
+
+        base = "bb47353679b65ba37dad6ce9fde06c01e8afed7e"
+        target = "b710ec5b15b1baf0d01d43bed5aec1eb26836ab4"
+        prefix = ".agents/skills/sub2api-production-deploy/scripts/"
+        expected = {
+            prefix + suffix for suffix in (
+                "maintenance/181/mask-backup-units.sh", "maintenance/181/restore-backup-units.sh",
+                "maintenance/release/context.sh", "maintenance/release/prepare.sh",
+                "maintenance/release/promote-backup.sh", "release/bootstrap_backup_dr_assets.sh",
+                "release/bootstrap_vm_signer.sh", "release/gate.py", "release/profiles.py",
+                "release/production-recovery-retention-clean.sh", "release/production-space-clean.sh",
+                "release/production_cleanup.py", "release/production_recovery_retention.py",
+                "release/promote-dr-baseline.sh", "release/sign-dr-evidence.sh", "release/sign-gate.sh",
+                "release/vm-only-validate.sh", "release/vm-validate.sh",
+            )
+        }
+        expected.update(
+            prefix + f"maintenance/release/migration-{number}-assert.sh"
+            for number in (195, *range(232, 246), 254, 285)
+        )
+        paths = recovery_gate._changed_paths(WORKSPACE, base, target)
+        sensitive = {path for path in paths if recovery_gate._is_recovery_sensitive_path(path)}
+        self.assertEqual(sensitive, expected)
+        reviewed = recovery_gate._reviewed_compatibility_paths(WORKSPACE, base, target)
+        self.assertTrue(sensitive.issubset(reviewed))
+        old, new = recovery_gate._tree_blobs(WORKSPACE, base), recovery_gate._tree_blobs(WORKSPACE, target)
+        for path in sensitive:
+            self.assertEqual(old[path].split(":")[0], new[path].split(":")[0], path)
+        protected = {
+            prefix + suffix for suffix in (
+                "maintenance/release/restore.sh", "maintenance/release/cleanup-state.sh",
+                "maintenance/release/reconcile.sh", "release/manifest.py", "release/migration_planner.py",
+                "release/production.py", "release/cli.py", "release/doctor.py",
+                "release/production_snapshot.py", "release/atomic.py", "release/paths.py",
+            )
+        }
+        protected.update(path for path in old.keys() | new.keys() if path.startswith((prefix + "release/trust/", prefix + "release/drverify/")))
+        for path in protected:
+            self.assertEqual(old.get(path), new.get(path), path)
+            self.assertNotIn(path, reviewed)
+        report = classify(WORKSPACE, base, target)
+        self.assertEqual(report["mode"], "specialized")
+        self.assertEqual(report["reason_codes"], ["migration_changed", "release_state_machine_changed", "reviewed_profile_compatibility_changed"])
+        recovery_gate.assert_release_allowed(report)
+
+    def test_profile262_review_rejects_blob_mode_deletion_and_cross_path_drift(self) -> None:
+        from release.paths import WORKSPACE
+
+        base = "bb47353679b65ba37dad6ce9fde06c01e8afed7e"
+        target = "b710ec5b15b1baf0d01d43bed5aec1eb26836ab4"
+        future = "f" * 40
+        paths = recovery_gate._changed_paths(WORKSPACE, base, target)
+        old, new = recovery_gate._tree_blobs(WORKSPACE, base), recovery_gate._tree_blobs(WORKSPACE, target)
+        sensitive = sorted(path for path in paths if recovery_gate._is_recovery_sensitive_path(path))
+        for path in sensitive:
+            mode, _ = new[path].split(":")
+            for mutation in ("blob", "mode", "delete", "move"):
+                with self.subTest(path=path, mutation=mutation):
+                    changed = dict(new)
+                    if mutation == "blob":
+                        changed[path] = mode + ":" + "0" * 40
+                    elif mutation == "mode":
+                        changed[path] = ("100644" if mode == "100755" else "100755") + ":" + new[path].split(":")[1]
+                    else:
+                        del changed[path]
+                        if mutation == "move":
+                            changed[".agents/skills/sub2api-production-deploy/scripts/maintenance/release/restore.sh"] = new[path]
+                    affected = paths + ([".agents/skills/sub2api-production-deploy/scripts/maintenance/release/restore.sh"] if mutation == "move" else [])
+                    trees = {base: old, target: new, future: changed}
+                    with (
+                        mock.patch.object(recovery_gate, "_REVIEWED_COMPATIBILITY_TRANCHES", ((base, target),)),
+                        mock.patch.object(recovery_gate, "_REVIEWED_MIGRATION_GATE_TRANCHES", ()),
+                        mock.patch.object(recovery_gate, "_REVIEWED_GATE_POLICY_TRANCHES", ()),
+                        mock.patch.object(recovery_gate, "_tree_blobs", side_effect=lambda _root, commit: trees[commit]),
+                        mock.patch.object(recovery_gate, "_changed_paths", return_value=affected),
+                        mock.patch.object(recovery_gate, "_commit_exists", return_value=True),
+                        mock.patch.object(recovery_gate, "_is_ancestor", return_value=True),
+                    ):
+                        report = classify(WORKSPACE, base, future)
+                        self.assertEqual(report["mode"], "full")
+                        self.assertIn("recovery_change_requires_review", report["reason_codes"])
+                        with self.assertRaisesRegex(RuntimeError, "recovery changes require review"):
+                            recovery_gate.assert_release_allowed(require_full(report))
+
     def test_migration_gate_review_cannot_exempt_recovery_algorithm_or_drift(self) -> None:
         prefix = ".agents/skills/sub2api-production-deploy/scripts/"
         gate = prefix + "release/gate.py"
