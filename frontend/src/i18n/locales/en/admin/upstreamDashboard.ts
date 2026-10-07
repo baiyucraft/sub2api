@@ -12,7 +12,7 @@ export default {
       metrics: { requests: 'Requests', successRate: 'Success rate', ttft: 'P50 TTFT', latency: 'P50 latency', p95ttft: 'P95 TTFT', p95latency: 'P95 latency', failed: 'Failed', timeouts: 'Timeouts', authErrors: 'Auth/config', accounts: 'Schedulable accounts', tempUnschedulable: 'Temporarily unschedulable', probeSamples: 'Probe samples', confidence: 'Confidence', estimatedProfit: 'Estimated gross profit', windowCost: 'Window cost', balance: 'Balance', balanceLow: 'Low balance, recharge required', balanceThreshold: 'Alert threshold {amount}', openIncidents: 'Open incidents', lastRateChange: 'Last rate change', lastRateChangeAt: 'Last rate change: {time}', rateChanged: 'Rate changed', rateChangedAt: 'Rate changed {time}', balanceUpdated: 'Balance updated {time}', balanceUnavailable: 'Balance unavailable' },
       sections: { trend: 'Traffic trend', traffic: 'Live traffic', probe: 'Active probes', operations: 'Operations signals', accounts: 'Account composition', profit: 'Cost & returns', errors: 'Recent errors' },
       noIncidentData: 'No open incidents', noRateChangeData: 'No rate changes',
-      actions: { channels: 'View channels', accounts: 'View accounts', usage: 'View usage' }
+      actions: { recharge: 'Recharge', rechargeFor: 'Recharge {name} (opens in a new tab)', visitSite: 'Visit site', visitSiteFor: 'Visit {name} (opens in a new tab)', channels: 'View channels', accounts: 'View accounts', usage: 'View usage' }
     },
     upstreamChannels: { title: 'Upstream Channels', description: 'Manage upstream configurations, key synchronization, and channel operations.' },
     upstreamAccounts: { title: 'Upstream Accounts', description: 'Manage upstream accounts, health, and capabilities.' }

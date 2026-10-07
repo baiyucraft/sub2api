@@ -12,7 +12,7 @@ export default {
       metrics: { requests: '请求数', successRate: '成功率', ttft: 'P50 首字', latency: 'P50 总耗时', p95ttft: 'P95 首字', p95latency: 'P95 总耗时', failed: '失败数', timeouts: '超时', authErrors: '认证/配置', accounts: '可调度账号', tempUnschedulable: '临时不可调度', probeSamples: '探针样本', confidence: '可信度', estimatedProfit: '估算毛利', windowCost: '窗口消耗', balance: '余额', balanceLow: '余额不足，请及时充值', balanceThreshold: '告警阈值 {amount}', openIncidents: '未解决事件', lastRateChange: '最近倍率变更', lastRateChangeAt: '最近倍率变更：{time}', rateChanged: '倍率已变更', rateChangedAt: '倍率变更于 {time}', balanceUpdated: '余额更新于 {time}', balanceUnavailable: '余额数据不可用' },
       sections: { trend: '流量趋势', traffic: '真实流量', probe: '主动探针', operations: '运营信号', accounts: '账号构成', profit: '成本收益', errors: '最近错误' },
       noIncidentData: '暂无未解决事件', noRateChangeData: '暂无倍率变更记录',
-      actions: { channels: '查看渠道', accounts: '查看账号', usage: '查看使用记录' }
+      actions: { recharge: '去充值', rechargeFor: '为 {name} 充值（新标签页打开）', visitSite: '访问站点', visitSiteFor: '访问 {name}（新标签页打开）', channels: '查看渠道', accounts: '查看账号', usage: '查看使用记录' }
     },
     upstreamChannels: { title: '上游渠道', description: '管理上游配置、Key 同步和渠道操作。' },
     upstreamAccounts: { title: '上游账号', description: '管理上游账号、健康状态和能力。' }
