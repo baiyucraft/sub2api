@@ -475,7 +475,7 @@ test ! -L /opt/sub2api-deploy/release-gates/release.lock
 exec 9<>/opt/sub2api-deploy/release-gates/release.lock
 flock -n 9
 test "$(cat /proc/sys/kernel/random/boot_id)" = {shlex.quote(lease['vm_boot_id'])}
-test "$(ps -eo args= | awk '/vm-space-clean.sh|sub2api-vm-validate|run-validator.sh|docker (build|buildx)|buildctl/ && ! /awk/ {{n++}} END {{print n+0}}')" = 0
+test "$(ps -eo args= | awk '/vm-space-clean.sh|sub2api-vm-validate|run-validator.sh|docker (build|buildx)|buildctl|release-input\\/[^ ]+\\/bootstrap|[.]sub2api-release-unit[.][^ ]*\\/sub2api-sign-(gate|dr-evidence)/ && ! /awk/ {{n++}} END {{print n+0}}')" = 0
 test "$(docker inspect -f '{{{{.State.Health.Status}}}}' sub2api-dev)" = healthy
 printf 'vm_preserve_preflight=verified\\n'
 '''
