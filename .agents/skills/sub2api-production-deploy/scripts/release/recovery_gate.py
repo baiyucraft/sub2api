@@ -66,7 +66,16 @@ _PROFILE263_COMPATIBILITY_PATHS = frozenset({
 _VM_LIFECYCLE_REVIEW_PATHS = frozenset({
     _SCRIPTS_PREFIX + "release/" + name for name in ("cli.py", "supervisor.py", "vm_lifecycle.py")
 })
+# Profile 264 changes exactly the same 35 compatibility entry points as 263.
+# This frozen path set grants no directory, ancestry, or future-content exemption.
+_PROFILE264_COMPATIBILITY_PATHS = frozenset(_PROFILE263_COMPATIBILITY_PATHS)
 _REVIEWED_SCOPED_TRANCHES = (
+    (
+        "0898fe8c6289f87a1a4d90cf74a50e296689960e",
+        "7c58225c34f876e1fe3967f1d8cf941d7d3d5f49",
+        "reviewed_profile_compatibility_changed",
+        _PROFILE264_COMPATIBILITY_PATHS,
+    ),
     (
         "218772daab271bb32df2ac6f9969ace0c9ccbce0",
         "8499d5343c5a4510f88a3b13feb58f242d4cdd13",

@@ -111,14 +111,16 @@ Profile 264（`0.2.14-baiyu`，parent 263）仅追加 `289_activity_reward_costs
 
 ```bash
 bash .agents/skills/sub2api-production-deploy/scripts/release/backfill-activity-reward-costs.sh --mode check
-# 只有旧应用实例已确认排空、且本次补账写操作获得独立生产授权后：
+# 独立维护时，只有旧应用实例已确认排空、且补账已获生产授权后：
 bash .agents/skills/sub2api-production-deploy/scripts/release/backfill-activity-reward-costs.sh --mode apply --old-instances-drained
 bash .agents/skills/sub2api-production-deploy/scripts/release/backfill-activity-reward-costs.sh --mode check
 ```
 
-`check` 使用 repeatable-read read-only 事务；`apply` 调用幂等数据库函数，缺少排空声明在连接数据库前拒绝。该入口不启动、停止或修改 Docker 实例，也不隐式并入现有 release runner。对账输出仅含总数/金额、补录数量、缺失/孤立/不匹配计数、北京自然日合计与 `verified`。`verified=true`、零差异并且逐日数量及金额相等才算补账完成；零金额奖励也计数。函数失败自动回滚，不得从工具超时推断写入结果，应先只读 check 重建事实。
+`check` 使用 repeatable-read read-only 事务；`apply` 调用幂等数据库函数，缺少排空声明在连接数据库前拒绝。独立入口不启动、停止或修改 Docker 实例。Profile 264 的已授权停机发布由签名 `activity-reward-cost-postflight.sh` 在旧实例全部退出、289 迁移完成、新实例启动前执行 check → apply → check；扫描运行容器或读取容器身份失败也阻断。在线切换和独立维护仍需显式 catch-up 授权。对账输出仅含总数/金额、补录数量、缺失/孤立/不匹配计数、北京自然日合计与 `verified`。`verified=true`、零差异并且逐日数量及金额相等才算补账完成；零金额奖励也计数。函数失败自动回滚，不得从工具超时推断写入结果，应先只读 check 重建事实。
 
-补账只影响数据库成本流水，SQL 无法清理应用进程内缓存。旧实例排空并完成 catch-up 后，按既有授权发布流程滚动重启新应用进程，重建两类本地统计缓存，并通过既有受控路径清理 dashboard Redis snapshot，随后复核今日/累计成本、趋势与用量汇总。若发布流程还没有该受控刷新入口，将其列为发布前必须落实的检查项；不得以等待 TTL 代替主动清理，不新增临时命令豁免。如正在滚动恢复旧应用而数据库回退未获授权，自动成本不得手工冲正或删除，重新进入恢复合同审阅。
+补账只影响数据库成本流水，SQL 无法清理应用进程内缓存。停机 helper 使用同一 signed candidate 和 Compose 配置执行 `--clear-dashboard-cache`，复用运行时配置解析及 Redis repository，只删除配置对应的单个 dashboard snapshot，并读取验证不存在；不启动应用、迁移或后台任务。成功仅返回 `{"dashboard_cache_cleared":true}`，错误仅返回固定脱敏原因。随后启动的新进程重建本地统计缓存。VM Gate 在真实恢复的隔离 Redis 上验证幂等刷新及其他键保留，单元测试覆盖前缀规范化和失败关闭。
+
+三个奖励对账结果和 `dashboard-cache-refresh.json` 保存在本 release 的 root-only state 目录；helper 和原补账脚本一并进入 signed manifest/assets bundle，失败沿用现有迁移恢复分支。缓存刷新不得以等待 TTL 或伪造零元成本写入代替。独立或在线补账后，按既有授权流程刷新 Redis 快照并重建应用进程缓存，随后复核今日/累计成本、趋势与用量汇总。如正在滚动恢复旧应用而数据库回退未获授权，自动成本不得手工冲正或删除，重新进入恢复合同审阅。
 
 ### 纯前端
 
