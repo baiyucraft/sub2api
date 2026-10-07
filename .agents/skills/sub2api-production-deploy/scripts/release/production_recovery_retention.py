@@ -77,7 +77,7 @@ def _validate(values: dict[str, str], mode: str, expected_plan_sha256: str | Non
     candidate_ids = values["candidate_ids"]
     if candidate_ids:
         for release_id in candidate_ids.split(","):
-            if not re.fullmatch(r"(?:182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}", release_id):
+            if not re.fullmatch(r"(?:182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}", release_id):
                 raise RuntimeError("production recovery retention returned an invalid candidate ID")
 
 
