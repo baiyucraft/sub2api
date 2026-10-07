@@ -591,6 +591,23 @@ SQL
     docker rm -f "$old_probe_app" >/dev/null
   fi
   mark_v2_stage candidate_health
+  if [[ "$profile" == 264 ]]; then
+    # Exercise the maintenance mode against the restored isolated Redis before
+    # starting any new application process. Never touch the production cache.
+    sentinel="sub2api:release-cache-sentinel:$release_id"
+    dashboard_prefix="sub2api:release-cache:$release_id:"
+    dashboard_key="${dashboard_prefix}dashboard:stats:v1"
+    docker exec "$probe_redis" redis-cli SET "$sentinel" preserve >/dev/null
+    docker exec "$probe_redis" redis-cli SET "$dashboard_key" stale >/dev/null
+    [[ $(docker exec "$probe_redis" redis-cli GET "$dashboard_key") == stale ]]
+    for cache_attempt in 1 2; do
+      cache_result=$(docker run --rm --network="$probe_network" -e DASHBOARD_CACHE_KEY_PREFIX="$dashboard_prefix" -v "$probe_dir:/app/data" "$candidate_image_id" /app/sub2api --clear-dashboard-cache 2>"$state_dir/dashboard-cache-refresh-$cache_attempt.log")
+      jq -e 'keys==["dashboard_cache_cleared"] and .dashboard_cache_cleared==true' <<<"$cache_result" >/dev/null
+      [[ $(docker exec "$probe_redis" redis-cli EXISTS "$dashboard_key") == 0 ]]
+      [[ $(docker exec "$probe_redis" redis-cli GET "$sentinel") == preserve ]]
+    done
+    docker exec "$probe_redis" redis-cli DEL "$sentinel" >/dev/null
+  fi
   docker run -d --name "$probe_app" --network="$probe_network" -e SERVER_HOST=0.0.0.0 -e SERVER_PORT=8080 -e UPSTREAM_SYNC_AUTO_ENABLED=false -p 127.0.0.1::8080 -v "$probe_dir:/app/data" --health-cmd 'wget -q -T 5 -O /dev/null http://127.0.0.1:8080/health || exit 1' --health-interval 5s --health-timeout 5s --health-start-period 5s --health-retries 12 "$candidate_image_id" >/dev/null
   for _ in $(seq 1 90); do
     [[ $(docker inspect -f '{{.State.Health.Status}}' "$probe_app") == healthy ]] && break

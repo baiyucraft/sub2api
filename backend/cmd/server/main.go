@@ -64,7 +64,29 @@ func main() {
 	migrationPlanSnapshotJSON := flag.String("migration-plan-snapshot-json", "", "Print a read-only migration plan from an immutable schema_migrations snapshot and exit")
 	migrationApplyPlanJSON := flag.String("migration-apply-plan-json", "", "Apply a verified migration plan from JSON and exit")
 	showVersion := flag.Bool("version", false, "Show version information")
+	clearDashboardCache := flag.Bool("clear-dashboard-cache", false, "Clear and verify the configured dashboard snapshot, then exit")
 	flag.Parse()
+	if *clearDashboardCache {
+		if *setupMode || *migrateOnly || *migrationPlanJSON || *migrationPlanSnapshotJSON != "" || *migrationApplyPlanJSON != "" || *showVersion {
+			fmt.Fprintln(os.Stderr, "dashboard_cache_refresh=failed reason=conflicting_mode")
+			os.Exit(2)
+		}
+		cfg, err := config.LoadForBootstrap()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "dashboard_cache_refresh=failed reason=config_invalid")
+			os.Exit(1)
+		}
+		rdb := repository.InitRedis(cfg)
+		defer rdb.Close()
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := clearDashboardSnapshot(ctx, repository.NewDashboardCache(rdb, cfg)); err != nil {
+			fmt.Fprintln(os.Stderr, "dashboard_cache_refresh=failed reason=cache_operation_failed")
+			os.Exit(1)
+		}
+		fmt.Println(`{"dashboard_cache_cleared":true}`)
+		return
+	}
 
 	if *showVersion {
 		log.Printf("Sub2API %s (commit: %s, built: %s)\n", Version, Commit, Date)

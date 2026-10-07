@@ -15,7 +15,7 @@ from .gate import verify_gate
 from .manifest import sha256_file
 from .migration_planner import HOOK_REGISTRY, plan_migrations
 from .production_snapshot import decode_snapshot, snapshot_script, snapshot_sha256
-from .paths import MAINTENANCE_ROOT, TRUSTED_VM_PUBLIC_KEY, UNIT_ROOT
+from .paths import MAINTENANCE_ROOT, RELEASE_PACKAGE_ROOT, TRUSTED_VM_PUBLIC_KEY, UNIT_ROOT
 from .profiles import get_profile, get_release_profile
 from .recovery_gate import assert_release_allowed
 from .ssh import SSHRunner
@@ -339,6 +339,7 @@ exit "$code"
                 files[f"assets/{path.name}"] = path
         for name in ("mask-backup-units.sh", "restore-backup-units.sh"):
             files[f"assets/{name}"] = UNIT_ROOT / name
+        files["assets/backfill-activity-reward-costs.sh"] = RELEASE_PACKAGE_ROOT / "backfill-activity-reward-costs.sh"
         local_bundle = self.gate_dir.parent / STAGE_BUNDLE_NAME
         bundle_sha256 = write_stage_bundle(local_bundle, files)
         remote_bundle = f"{stage_dir}/{STAGE_BUNDLE_NAME}"
