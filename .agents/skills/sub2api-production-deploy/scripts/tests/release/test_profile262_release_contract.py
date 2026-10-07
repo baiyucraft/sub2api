@@ -33,12 +33,12 @@ class Profile262ReleaseContractTest(unittest.TestCase):
         previous = {}
         exec(compile(source, "historical-profiles", "exec"), previous)
         self.assertEqual(previous["CURRENT_RELEASE_PROFILE"], "261")
-        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"262"})
+        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"262", "263"})
         for profile, contract in previous["PROFILES"].items():
             with self.subTest(profile=profile):
                 self.assertEqual(get_profile(profile), contract)
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "262")
-        current = get_release_profile("262")
+        self.assertEqual(CURRENT_RELEASE_PROFILE, "263")
+        current = get_profile("262")
         self.assertEqual(current["version"], "0.2.13-baiyu")
         self.assertEqual(current["parent"], "261")
         self.assertEqual(current["new_migrations"], [MIGRATION])
@@ -46,15 +46,17 @@ class Profile262ReleaseContractTest(unittest.TestCase):
         self.assertEqual(current["release_policy"], get_profile("261")["release_policy"])
         with self.assertRaisesRegex(ValueError, "historical"):
             get_release_profile("261")
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 263"):
-            get_profile("263")
+        with self.assertRaisesRegex(ValueError, "historical"):
+            get_release_profile("262")
+        with self.assertRaisesRegex(ValueError, "unknown release profile: 264"):
+            get_profile("264")
 
     def test_registration_and_both_checksum_contracts(self) -> None:
         registration = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(registration["current_profile"]["id"], "262")
+        self.assertEqual(registration["current_profile"]["id"], "263")
         self.assertEqual(registration["current_profile"]["status"], "pending")
         for field in ("version", "parent", "new_migrations", "gate_schema", "release_policy"):
-            self.assertEqual(registration["current_profile"][field], get_profile("262")[field])
+            self.assertEqual(registration["historical_profiles"]["262"][field], get_profile("262")[field])
             self.assertEqual(registration["historical_profiles"]["261"][field], get_profile("261")[field])
         raw = (WORKSPACE / "backend/migrations" / MIGRATION).read_bytes()
         self.assertEqual(hashlib.sha256(raw).hexdigest(), RAW_SHA256)

@@ -130,7 +130,7 @@ class Profile260ReleaseContractTest(unittest.TestCase):
                     with self.subTest(profile=name, fields=fields), self.assertRaises(RuntimeError):
                         validate_manifest_profile_contract({**manifest, **fields}, profile)
 
-    def test_every_release_and_dr_path_accepts_260_and_259_but_rejects_262(self) -> None:
+    def test_every_release_and_dr_path_accepts_current_and_history_but_rejects_unknown(self) -> None:
         contracts = regex_contracts()
         self.assertEqual(
             [name for name, *_ in contracts],
@@ -139,7 +139,7 @@ class Profile260ReleaseContractTest(unittest.TestCase):
         )
         for name, variable, expression, _ in contracts:
             expression = expression.replace("$evidence_root", "/opt/sub2api-deploy/dr-evidence")
-            for profile, allowed in (("259", True), ("260", True), ("261", True), ("262", True), ("263", False)):
+            for profile, allowed in (("259", True), ("260", True), ("261", True), ("262", True), ("263", True), ("264", False)):
                 with self.subTest(script=name, variable=variable, profile=profile):
                     value = identities(profile)[variable]
                     self.assertEqual(re.fullmatch(expression, value) is not None, allowed)
@@ -154,8 +154,8 @@ class Profile260ReleaseContractTest(unittest.TestCase):
                 loop = re.search(rf"^for {variable} in ([0-9 ]+); do$", source(name), re.MULTILINE)
                 self.assertIsNotNone(loop)
                 profiles = tuple(map(int, loop[1].split()))
-                self.assertEqual(profiles, (*HISTORICAL_DR_PROFILES, 260, 261, 262))
-                self.assertNotIn(263, profiles)
+                self.assertEqual(profiles, (*HISTORICAL_DR_PROFILES, 260, 261, 262, 263))
+                self.assertNotIn(264, profiles)
 
     def test_signer_and_bootstrap_route_260_and_259_to_gate_v2(self) -> None:
         for name, variable in (
@@ -165,7 +165,7 @@ class Profile260ReleaseContractTest(unittest.TestCase):
             with self.subTest(script=name):
                 condition = next(line for line in source(name).splitlines() if f"if [[ ${variable} == 242" in line)
                 profiles = tuple(map(int, re.findall(rf"\${variable} == ([0-9]+)", condition)))
-                self.assertEqual(profiles, tuple(range(242, 263)))
+                self.assertEqual(profiles, tuple(range(242, 264)))
 
 
 class Profile260BashContractTest(unittest.TestCase):
@@ -191,7 +191,7 @@ class Profile260BashContractTest(unittest.TestCase):
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_cleanup_shell_guards_accept_260_and_259_and_reject_262(self) -> None:
+    def test_cleanup_shell_guards_accept_current_and_history_but_reject_unknown(self) -> None:
         space = source("production-space-clean.sh")
         guards = re.findall(r"\[\[ \$(?:release_id|candidate_release) =~ .+? \]\]", space)
         self.assertEqual(len(guards), 2)
@@ -204,14 +204,14 @@ class Profile260BashContractTest(unittest.TestCase):
                 f"{variable}=$1\n"
                 f"{guard}\n"
             )
-            for profile, allowed in (("259", True), ("260", True), ("261", True), ("262", True), ("263", False), ("0260", False)):
+            for profile, allowed in (("259", True), ("260", True), ("261", True), ("262", True), ("263", True), ("264", False), ("0260", False)):
                 with self.subTest(guard=guard, profile=profile):
                     result = self.run_contract(body, identities(profile)["release_id"])
                     self.assertEqual(result.returncode == 0, allowed, result.stderr)
 
-    def test_real_bash_path_guards_accept_260_and_259_and_reject_262(self) -> None:
+    def test_real_bash_path_guards_accept_current_and_history_but_reject_unknown(self) -> None:
         for name, variable, _, assertion in regex_contracts():
-            for profile, allowed in (("259", True), ("260", True), ("261", True), ("262", True), ("263", False)):
+            for profile, allowed in (("259", True), ("260", True), ("261", True), ("262", True), ("263", True), ("264", False)):
                 with self.subTest(script=name, variable=variable, profile=profile):
                     result = self.run_contract(
                         f'{variable}=$1\nevidence_root=/opt/sub2api-deploy/dr-evidence\n{assertion}',
@@ -227,7 +227,7 @@ class Profile260BashContractTest(unittest.TestCase):
         ]
         self.assertEqual(len(guards), 2)
         for assertion in guards:
-            for profile, allowed in (("259", True), ("260", True), ("261", True), ("262", True), ("263", False)):
+            for profile, allowed in (("259", True), ("260", True), ("261", True), ("262", True), ("263", True), ("264", False)):
                 with self.subTest(assertion=assertion, profile=profile):
                     result = self.run_contract("profile=$1\n" + assertion, profile)
                     self.assertEqual(result.returncode == 0, allowed, result.stderr)
@@ -301,7 +301,7 @@ jq() {
         for release_profile, drill_profile, allowed in (
             ("259", "259", True), ("260", "260", True),
             ("260", "259", False), ("259", "260", False),
-            ("260", "261", False), ("261", "260", False), ("261", "261", True), ("262", "262", True), ("263", "263", False),
+            ("260", "261", False), ("261", "260", False), ("261", "261", True), ("262", "262", True), ("263", "263", True), ("264", "264", False),
         ):
             release = identities(release_profile)["release_id"]
             drill = identities(drill_profile)["drill_id"]

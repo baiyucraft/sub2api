@@ -160,11 +160,11 @@ class GateV2Test(unittest.TestCase):
         self._sign(document)
         self.assertEqual(self._verify(validate_profile_contract=True), document)
 
-    def test_profile_261_rejects_signed_wrong_version_parent_or_migrations(self) -> None:
+    def test_current_profile_rejects_signed_wrong_version_parent_or_migrations(self) -> None:
         for field, value, message in (
             ("version", "0.2.10-baiyu", "version does not match"),
             ("parent_profile", "258", "parent profile does not match"),
-            ("new_migrations", [], "new migrations do not match"),
+            ("new_migrations", get_profile("262")["new_migrations"], "new migrations do not match"),
             ("new_migrations", ["284_unified_proxy_bindings.sql"], "new migrations do not match"),
         ):
             with self.subTest(field=field):
@@ -207,15 +207,34 @@ class GateV2Test(unittest.TestCase):
                 with self.assertRaises(RuntimeError):
                     self._verify(validate_profile_contract=True)
 
-    def test_unregistered_profile_263_is_rejected_even_for_recovery(self) -> None:
-        document = self._document()
-        document["profile_id"] = 263
-        document["manifest"].update(profile="263", release_id="263-aaaaaaaaaaaa-1-aaaaaaaa")
+    def test_profile_262_historical_signed_contract_rejects_drift(self) -> None:
+        document = self._document(profile="262")
         self._sign(document)
-        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 262"):
-            self._verify(profile="263")
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 263"):
-            self._verify(profile="263", allow_historical_runner=True)
+        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 263"):
+            self._verify(profile="262")
+        self.assertEqual(self._verify(profile="262", allow_historical_runner=True, validate_profile_contract=True), document)
+        for field, value, message in (
+            ("version", "0.2.14-baiyu", "version does not match"),
+            ("parent_profile", "262", "parent profile does not match"),
+            ("new_migrations", [], "new migrations do not match"),
+            ("new_migrations", get_profile("261")["new_migrations"], "new migrations do not match"),
+        ):
+            with self.subTest(field=field):
+                document = self._document(profile="262")
+                document["manifest"][field] = value
+                self._sign(document)
+                with self.assertRaisesRegex(RuntimeError, message):
+                    self._verify(profile="262", allow_historical_runner=True, validate_profile_contract=True)
+
+    def test_unregistered_profile_264_is_rejected_even_for_recovery(self) -> None:
+        document = self._document()
+        document["profile_id"] = 264
+        document["manifest"].update(profile="264", release_id="264-aaaaaaaaaaaa-1-aaaaaaaa")
+        self._sign(document)
+        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 263"):
+            self._verify(profile="264")
+        with self.assertRaisesRegex(ValueError, "unknown release profile: 264"):
+            self._verify(profile="264", allow_historical_runner=True)
 
     def test_fast_gate_requires_non_restore_evidence(self) -> None:
         document = self._document()
@@ -246,14 +265,14 @@ class GateV2Test(unittest.TestCase):
         document["profile_id"] = 246
         document["manifest"].update(profile="246", release_id="246-aaaaaaaaaaaa-1-aaaaaaaa", version="0.2.1-baiyu")
         self._sign(document)
-        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 262"):
+        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 263"):
             self._verify(profile="246")
         self.assertEqual(self._verify(profile="246", allow_historical_runner=True), document)
 
     def test_previous_profile_requires_historical_runner_for_recovery(self) -> None:
         document = self._document(profile="260")
         self._sign(document)
-        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 262"):
+        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 263"):
             self._verify(profile="260")
         self.assertEqual(self._verify(profile="260", allow_historical_runner=True, validate_profile_contract=True), document)
 
