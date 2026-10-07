@@ -457,6 +457,8 @@ def reconcile_vm_preserve(args: argparse.Namespace) -> dict[str, Any]:
         vm_script = f'''set -Eeuo pipefail
 test ! -e /opt/sub2api-deploy/release-gates/{identifier}
 test ! -L /opt/sub2api-deploy/release-gates/{identifier}
+test -f /opt/sub2api-deploy/release-gates/release.lock
+test ! -L /opt/sub2api-deploy/release-gates/release.lock
 exec 9<>/opt/sub2api-deploy/release-gates/release.lock
 flock -n 9
 test "$(cat /proc/sys/kernel/random/boot_id)" = {shlex.quote(lease['vm_boot_id'])}
@@ -465,6 +467,8 @@ test "$(docker inspect -f '{{{{.State.Health.Status}}}}' sub2api-dev)" = healthy
 printf 'vm_preserve_preflight=verified\\n'
 '''
         production_script = f'''set -Eeuo pipefail
+test -f /run/lock/sub2api-production-release.lock
+test ! -L /run/lock/sub2api-production-release.lock
 exec 9<>/run/lock/sub2api-production-release.lock
 flock -n 9
 test ! -e /opt/sub2api/releases/{identifier}
