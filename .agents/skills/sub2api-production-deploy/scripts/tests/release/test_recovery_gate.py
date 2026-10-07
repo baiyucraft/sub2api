@@ -15,6 +15,29 @@ from release.recovery_gate import changed_paths_sha256, classify, require_full, 
 from release import recovery_gate
 
 
+PROFILE263_BASE = "218772daab271bb32df2ac6f9969ace0c9ccbce0"
+PROFILE263_TARGET = "8499d5343c5a4510f88a3b13feb58f242d4cdd13"
+SCRIPTS_PREFIX = ".agents/skills/sub2api-production-deploy/scripts/"
+PROFILE263_PROFILE_PATHS = {
+    SCRIPTS_PREFIX + suffix for suffix in (
+        "maintenance/181/mask-backup-units.sh", "maintenance/181/restore-backup-units.sh",
+        "maintenance/release/context.sh", "maintenance/release/prepare.sh",
+        "maintenance/release/promote-backup.sh", "release/bootstrap_backup_dr_assets.sh",
+        "release/bootstrap_vm_signer.sh", "release/gate.py", "release/profiles.py",
+        "release/production-recovery-retention-clean.sh", "release/production-space-clean.sh",
+        "release/production_cleanup.py", "release/production_recovery_retention.py",
+        "release/promote-dr-baseline.sh", "release/sign-dr-evidence.sh", "release/sign-gate.sh",
+        "release/vm-only-validate.sh", "release/vm-validate.sh",
+    )
+} | {
+    SCRIPTS_PREFIX + f"maintenance/release/migration-{number}-assert.sh"
+    for number in (195, *range(232, 246), 254, 285)
+}
+PROFILE263_VM_PATHS = {
+    SCRIPTS_PREFIX + "release/" + name for name in ("cli.py", "supervisor.py", "vm_lifecycle.py")
+}
+
+
 class RecoveryGateTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
@@ -369,6 +392,7 @@ class RecoveryGateTest(unittest.TestCase):
                         mock.patch.object(recovery_gate, "_REVIEWED_COMPATIBILITY_TRANCHES", ((base, target),)),
                         mock.patch.object(recovery_gate, "_REVIEWED_MIGRATION_GATE_TRANCHES", ()),
                         mock.patch.object(recovery_gate, "_REVIEWED_GATE_POLICY_TRANCHES", ()),
+                        mock.patch.object(recovery_gate, "_REVIEWED_SCOPED_TRANCHES", ()),
                         mock.patch.object(recovery_gate, "_tree_blobs", side_effect=lambda _root, commit: trees[commit]),
                         mock.patch.object(recovery_gate, "_changed_paths", return_value=affected),
                         mock.patch.object(recovery_gate, "_commit_exists", return_value=True),
@@ -379,6 +403,188 @@ class RecoveryGateTest(unittest.TestCase):
                         self.assertIn("recovery_change_requires_review", report["reason_codes"])
                         with self.assertRaisesRegex(RuntimeError, "recovery changes require review"):
                             recovery_gate.assert_release_allowed(require_full(report))
+
+    def test_registered_profile263_reviews_separate_profile_and_vm_exact_objects(self) -> None:
+        from release.paths import WORKSPACE
+
+        paths = recovery_gate._changed_paths(WORKSPACE, PROFILE263_BASE, PROFILE263_TARGET)
+        sensitive = {path for path in paths if recovery_gate._is_recovery_sensitive_path(path)}
+        self.assertEqual(len(PROFILE263_PROFILE_PATHS), 35)
+        self.assertEqual(sensitive, PROFILE263_PROFILE_PATHS | PROFILE263_VM_PATHS)
+        reviewed = recovery_gate._reviewed_compatibility_paths(WORKSPACE, PROFILE263_BASE, PROFILE263_TARGET)
+        self.assertEqual(set(reviewed), sensitive)
+        for path in PROFILE263_PROFILE_PATHS:
+            self.assertEqual(reviewed[path], "reviewed_profile_compatibility_changed", path)
+        for path in PROFILE263_VM_PATHS:
+            self.assertEqual(reviewed[path], "reviewed_vm_lifecycle_changed", path)
+        old = recovery_gate._tree_blobs(WORKSPACE, PROFILE263_BASE)
+        new = recovery_gate._tree_blobs(WORKSPACE, PROFILE263_TARGET)
+        self.assertNotIn(SCRIPTS_PREFIX + "release/vm_lifecycle.py", old)
+        for path in sensitive & old.keys():
+            self.assertEqual(old[path].split(":")[0], new[path].split(":")[0], path)
+        protected = {
+            SCRIPTS_PREFIX + suffix for suffix in (
+                "maintenance/release/backup.sh", "maintenance/release/freeze-backup.sh",
+                "maintenance/release/restore.sh", "maintenance/release/reconcile.sh",
+                "maintenance/release/cleanup-state.sh", "maintenance/release/cleanup-slots.sh",
+                "maintenance/release/apply-nginx-ingress.sh", "maintenance/release/rollback-nginx-ingress.sh",
+                "release/manifest.py", "release/migration_planner.py", "release/production.py",
+                "release/state.py", "release/doctor.py", "release/production_snapshot.py",
+                "release/atomic.py", "release/paths.py",
+            )
+        }
+        protected.update(
+            path for path in old.keys() | new.keys()
+            if path.startswith((SCRIPTS_PREFIX + "release/trust/", SCRIPTS_PREFIX + "release/drverify/"))
+        )
+        for path in protected:
+            self.assertIn(path, old, path)
+            self.assertEqual(old[path], new.get(path), path)
+            self.assertNotIn(path, reviewed)
+        report = classify(WORKSPACE, PROFILE263_BASE, PROFILE263_TARGET)
+        self.assertEqual(report["mode"], "specialized")
+        self.assertEqual(report["reason_codes"], [
+            "compose_changed", "release_state_machine_changed",
+            "reviewed_profile_compatibility_changed", "reviewed_vm_lifecycle_changed",
+        ])
+        recovery_gate.assert_release_allowed(report)
+
+    def test_vm_lifecycle_single_file_change_requires_independent_review(self) -> None:
+        relative = SCRIPTS_PREFIX + "release/vm_lifecycle.py"
+        target = self.commit_change(relative)
+        report = classify(self.root, self.base, target)
+        self.assertEqual(report["mode"], "full")
+        self.assertIn("recovery_change_requires_review", report["reason_codes"])
+        with self.assertRaisesRegex(RuntimeError, "recovery changes require review"):
+            recovery_gate.assert_release_allowed(require_full(report))
+
+    def test_tree_object_parser_preserves_gitlink_identity_and_mode(self) -> None:
+        relative = SCRIPTS_PREFIX + "release/vm_lifecycle.py"
+        self.git("update-index", "--add", "--cacheinfo", f"160000,{self.base},{relative}")
+        self.git("commit", "-m", "gitlink baseline")
+        target = self.git("rev-parse", "HEAD")
+        self.assertTrue(self.git("ls-tree", "-r", target, "--", relative).startswith("160000 commit "))
+        self.assertEqual(recovery_gate._tree_blobs(self.root, target)[relative], "160000:" + self.base)
+
+    def test_vm_lifecycle_review_rejects_gitlink_in_place_of_missing_base(self) -> None:
+        relative = SCRIPTS_PREFIX + "release/vm_lifecycle.py"
+        reviewed = self.commit_change(relative)
+        reviewed_identity = recovery_gate._tree_blobs(self.root, reviewed)[relative]
+        self.git("update-index", "--add", "--cacheinfo", f"160000,{self.base},{relative}")
+        self.git("commit", "-m", "unreviewed gitlink base")
+        observed_base = self.git("rev-parse", "HEAD")
+        mode, identity = reviewed_identity.split(":")
+        self.git("update-index", "--cacheinfo", f"{mode},{identity},{relative}")
+        self.git("commit", "-m", "restore reviewed blob after gitlink")
+        target = self.git("rev-parse", "HEAD")
+        with mock.patch.object(recovery_gate, "_REVIEWED_SCOPED_TRANCHES", (
+            (self.base, reviewed, "reviewed_vm_lifecycle_changed", frozenset({relative})),
+        )):
+            report = classify(self.root, observed_base, target)
+            self.assertEqual(report["mode"], "full")
+            self.assertIn("recovery_change_requires_review", report["reason_codes"])
+            self.assertNotIn("reviewed_vm_lifecycle_changed", report["reason_codes"])
+            with self.assertRaisesRegex(RuntimeError, "recovery changes require review"):
+                recovery_gate.assert_release_allowed(require_full(report))
+
+    def test_tree_object_parser_preserves_directory_identity_and_mode(self) -> None:
+        relative = SCRIPTS_PREFIX + "release/vm_lifecycle.py"
+        target = self.commit_change(relative + "/old.py")
+        identity = self.git("rev-parse", f"{target}:{relative}")
+        self.assertEqual(recovery_gate._tree_blobs(self.root, target)[relative], "040000:" + identity)
+
+    def test_vm_lifecycle_review_rejects_directory_in_place_of_missing_base(self) -> None:
+        relative = SCRIPTS_PREFIX + "release/vm_lifecycle.py"
+        reviewed = self.commit_change(relative)
+        self.git("rm", relative)
+        self.write(relative + "/old.py", "unreviewed directory\n")
+        self.git("add", "-A")
+        self.git("commit", "-m", "unreviewed directory base")
+        observed_base = self.git("rev-parse", "HEAD")
+        self.git("rm", "-r", relative)
+        self.write(relative, "changed\n")
+        self.git("add", "-A")
+        self.git("commit", "-m", "restore reviewed blob after directory")
+        target = self.git("rev-parse", "HEAD")
+        with mock.patch.object(recovery_gate, "_REVIEWED_SCOPED_TRANCHES", (
+            (self.base, reviewed, "reviewed_vm_lifecycle_changed", frozenset({relative})),
+        )):
+            report = classify(self.root, observed_base, target)
+            self.assertEqual(report["mode"], "full")
+            self.assertIn("recovery_change_requires_review", report["reason_codes"])
+            self.assertNotIn("reviewed_vm_lifecycle_changed", report["reason_codes"])
+            with self.assertRaisesRegex(RuntimeError, "recovery changes require review"):
+                recovery_gate.assert_release_allowed(require_full(report))
+
+    def test_profile263_reviews_reject_every_blob_mode_deletion_cross_path_and_base_drift(self) -> None:
+        from release.paths import WORKSPACE
+
+        future = "f" * 40
+        future_base = "e" * 40
+        paths = recovery_gate._changed_paths(WORKSPACE, PROFILE263_BASE, PROFILE263_TARGET)
+        old = recovery_gate._tree_blobs(WORKSPACE, PROFILE263_BASE)
+        new = recovery_gate._tree_blobs(WORKSPACE, PROFILE263_TARGET)
+        for path in sorted(PROFILE263_PROFILE_PATHS | PROFILE263_VM_PATHS):
+            mode, identity = new[path].split(":")
+            for mutation in ("blob", "mode", "delete", "move", "base_blob"):
+                with self.subTest(path=path, mutation=mutation):
+                    changed = dict(new)
+                    observed_old = dict(old)
+                    affected = list(paths)
+                    observed_base = PROFILE263_BASE
+                    if mutation == "blob":
+                        changed[path] = mode + ":" + "0" * 40
+                    elif mutation == "mode":
+                        changed[path] = ("100644" if mode == "100755" else "100755") + ":" + identity
+                    elif mutation == "base_blob":
+                        observed_base = future_base
+                        observed_old[path] = mode + ":" + "0" * 40
+                    else:
+                        del changed[path]
+                        if mutation == "move":
+                            other = SCRIPTS_PREFIX + "maintenance/release/restore.sh"
+                            changed[other] = new[path]
+                            affected.append(other)
+                    trees = {PROFILE263_BASE: old, PROFILE263_TARGET: new, future: changed, future_base: observed_old}
+                    with (
+                        mock.patch.object(recovery_gate, "_REVIEWED_COMPATIBILITY_TRANCHES", ()),
+                        mock.patch.object(recovery_gate, "_REVIEWED_MIGRATION_GATE_TRANCHES", ()),
+                        mock.patch.object(recovery_gate, "_REVIEWED_GATE_POLICY_TRANCHES", ()),
+                        mock.patch.object(recovery_gate, "_tree_blobs", side_effect=lambda _root, commit: trees[commit]),
+                        mock.patch.object(recovery_gate, "_changed_paths", return_value=affected),
+                        mock.patch.object(recovery_gate, "_commit_exists", return_value=True),
+                        mock.patch.object(recovery_gate, "_is_ancestor", return_value=True),
+                    ):
+                        report = classify(WORKSPACE, observed_base, future)
+                        self.assertEqual(report["mode"], "full")
+                        self.assertIn("recovery_change_requires_review", report["reason_codes"])
+                        with self.assertRaisesRegex(RuntimeError, "recovery changes require review"):
+                            recovery_gate.assert_release_allowed(require_full(report))
+
+    def test_scoped_profile263_tranche_does_not_learn_unlisted_paths(self) -> None:
+        from release.paths import WORKSPACE
+
+        old = recovery_gate._tree_blobs(WORKSPACE, PROFILE263_BASE)
+        new = recovery_gate._tree_blobs(WORKSPACE, PROFILE263_TARGET)
+        restore = SCRIPTS_PREFIX + "maintenance/release/restore.sh"
+        changed = {**new, restore: "100755:" + "0" * 40}
+        paths = recovery_gate._changed_paths(WORKSPACE, PROFILE263_BASE, PROFILE263_TARGET) + [restore]
+        trees = {PROFILE263_BASE: old, PROFILE263_TARGET: changed}
+        with (
+            mock.patch.object(recovery_gate, "_REVIEWED_COMPATIBILITY_TRANCHES", ()),
+            mock.patch.object(recovery_gate, "_REVIEWED_MIGRATION_GATE_TRANCHES", ()),
+            mock.patch.object(recovery_gate, "_REVIEWED_GATE_POLICY_TRANCHES", ()),
+            mock.patch.object(recovery_gate, "_tree_blobs", side_effect=lambda _root, commit: trees[commit]),
+            mock.patch.object(recovery_gate, "_changed_paths", return_value=paths),
+            mock.patch.object(recovery_gate, "_commit_exists", return_value=True),
+            mock.patch.object(recovery_gate, "_is_ancestor", return_value=True),
+        ):
+            reviewed = recovery_gate._reviewed_compatibility_paths(WORKSPACE, PROFILE263_BASE, PROFILE263_TARGET)
+            self.assertNotIn(restore, reviewed)
+            report = classify(WORKSPACE, PROFILE263_BASE, PROFILE263_TARGET)
+            self.assertEqual(report["mode"], "full")
+            with self.assertRaisesRegex(RuntimeError, "recovery changes require review"):
+                recovery_gate.assert_release_allowed(require_full(report))
 
     def test_migration_gate_review_cannot_exempt_recovery_algorithm_or_drift(self) -> None:
         prefix = ".agents/skills/sub2api-production-deploy/scripts/"

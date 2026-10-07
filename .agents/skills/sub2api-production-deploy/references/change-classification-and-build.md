@@ -100,6 +100,8 @@ build-chain:
 
 分类器对恢复关键文件的未知变化采用 `full/recovery_change_requires_review`，在准备恢复包之前阻断发布，显式 `--recovery-gate-mode full` 不可绕过。已审阅兼容批次按同路径的旧/新 Git blob 和文件模式精确匹配，命中才为 `specialized/reviewed_profile_compatibility_changed`；附加修改、删除、跨路径复用或模式变化立即失效。新增批次须审核实际差异和负向测试，不得自动学习候选内容或豁免整个目录。
 
+VM 电源与所有权的受审扩展单独使用 `specialized/reviewed_vm_lifecycle_changed`，精确限定 `release/cli.py`、`release/supervisor.py` 与 `release/vm_lifecycle.py`；不能把生命周期实现归入 profile-only。新增文件要求旧路径不存在，未来只修改生命周期文件也触发敏感审阅。Profile 263 与生命周期的两个路径组仅绑定 `218772daab271bb32df2ac6f9969ace0c9ccbce0` → `8499d5343c5a4510f88a3b13feb58f242d4cdd13` 的已审 blob/mode，仍执行专项真实恢复。
+
 仅分类策略与只读身份解析的已审阅修复可登记为 `reviewed_gate_policy_changed`，仍按精确 blob 和模式匹配，不可涵盖恢复 helper。按镜像 digest 启动时，生产基线 commit 从运行镜像唯一完整 SHA 发布标签解析；无法证明唯一身份则阻断，不使用未知基线绕过重大变更检查。
 
 新增迁移的断言接线可登记为 `reviewed_migration_gate_changed`，仅限明确列出的 VM validator、migration planner、Gate verifier、生产 hook 调用和该迁移断言文件；不允许覆盖 restore、备份格式或信任根。先审阅当前生产基线到断言提交的净差异，再以独立提交登记完整 before/after SHA。匹配必须同时核对路径、Git blob 和模式，额外修改、删除或跨路径复用均不继承审阅；仍执行 specialized 真实隔离恢复，不能以登记代替行为测试。

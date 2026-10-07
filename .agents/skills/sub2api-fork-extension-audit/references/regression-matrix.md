@@ -242,6 +242,9 @@ DataTable 高频 ResizeObserver 通知只触发一帧测量
 
 ## 官方 0.2.14 合并与 profile 263
 
+- 恢复分类审阅精确绑定 `218772daab271bb32df2ac6f9969ace0c9ccbce0` → `8499d5343c5a4510f88a3b13feb58f242d4cdd13`。35 项 profile 接线与 3 项 VM 生命周期分组限定路径、blob 和模式，后者使用 `reviewed_vm_lifecycle_changed`；新增文件绑定旧状态不存在。`test_recovery_gate.py` 必须验证实际树覆盖、生命周期单文件识别及内容/模式/删除/跨路径漂移仍阻断，显式 Full 不绕过；受保护恢复算法、备份格式、ingress 与信任资产不变。分类登记不能替代实际 specialized 恢复与 VM 生命周期测试。
+- Git 树必须保留目录的 `040000:OID` 和 gitlink 的 `160000:OID` 身份；测试旧目录或子模块不能被当作路径不存在并借用新增文件的审阅。
+
 - 固定目标 `3f1a2ea0a760730e3bc528105c00b4ee4f23e469`，新增 263 为 `0.2.14-baiyu`、parent 262、`new_migrations=[]`；历史 262 的 288 与更早 SQL/checksum/profile 保持不变，未登记 264 拒绝。
 - 执行 `test_profile263_release_contract.py` 和 release pytest，验证 VM/Gate/DR signer、bootstrap、生产、祖先断言、备份晋升及清理器闭包；本地测试不代表真实 VM Gate 或生产发布。
 - 执行 setup 和 payment/provider 全包、付款 resume/canonical URL/webhook 回归；初装随机凭据仅影响空数据库，保留已有管理员、已有用户与 fork 时区 DSN；回调未知参数及签名复用拒绝，查询回补保留。

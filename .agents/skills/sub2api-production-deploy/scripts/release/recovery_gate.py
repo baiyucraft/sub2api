@@ -46,6 +46,40 @@ _REVIEWED_GATE_POLICY_TRANCHES = (
     # Re-review the net identity fix from its original blob, not a transitive exemption.
     ("700052e8d67bcb5c92e95ba02530176b2e3a4068", "5d1a13af1e81d3f73a485bcdd6ea659188942018"),
 )
+# Independently reviewed net changes from production profile 262. The explicit
+# path sets prevent another changed file in either tree from acquiring a review.
+_PROFILE263_COMPATIBILITY_PATHS = frozenset({
+    _SCRIPTS_PREFIX + suffix for suffix in (
+        "maintenance/181/mask-backup-units.sh", "maintenance/181/restore-backup-units.sh",
+        "maintenance/release/context.sh", "maintenance/release/prepare.sh",
+        "maintenance/release/promote-backup.sh", "release/bootstrap_backup_dr_assets.sh",
+        "release/bootstrap_vm_signer.sh", "release/gate.py", "release/profiles.py",
+        "release/production-recovery-retention-clean.sh", "release/production-space-clean.sh",
+        "release/production_cleanup.py", "release/production_recovery_retention.py",
+        "release/promote-dr-baseline.sh", "release/sign-dr-evidence.sh", "release/sign-gate.sh",
+        "release/vm-only-validate.sh", "release/vm-validate.sh",
+    )
+} | {
+    _SCRIPTS_PREFIX + f"maintenance/release/migration-{number}-assert.sh"
+    for number in (195, *range(232, 246), 254, 285)
+})
+_VM_LIFECYCLE_REVIEW_PATHS = frozenset({
+    _SCRIPTS_PREFIX + "release/" + name for name in ("cli.py", "supervisor.py", "vm_lifecycle.py")
+})
+_REVIEWED_SCOPED_TRANCHES = (
+    (
+        "218772daab271bb32df2ac6f9969ace0c9ccbce0",
+        "8499d5343c5a4510f88a3b13feb58f242d4cdd13",
+        "reviewed_profile_compatibility_changed",
+        _PROFILE263_COMPATIBILITY_PATHS,
+    ),
+    (
+        "218772daab271bb32df2ac6f9969ace0c9ccbce0",
+        "8499d5343c5a4510f88a3b13feb58f242d4cdd13",
+        "reviewed_vm_lifecycle_changed",
+        _VM_LIFECYCLE_REVIEW_PATHS,
+    ),
+)
 _RELEASE_STATE_MACHINE_FILES = frozenset(
     {
         ".agents/skills/sub2api-production-deploy/scripts/release/cli.py",
@@ -58,6 +92,7 @@ _RELEASE_STATE_MACHINE_FILES = frozenset(
         ".agents/skills/sub2api-production-deploy/scripts/release/state.py",
         ".agents/skills/sub2api-production-deploy/scripts/release/supervisor.py",
         ".agents/skills/sub2api-production-deploy/scripts/release/vm_validate.py",
+        ".agents/skills/sub2api-production-deploy/scripts/release/vm_lifecycle.py",
     }
 )
 _SPECIALIZED_PREFIXES = ("backend/migrations/",)
@@ -88,17 +123,17 @@ def _is_recovery_sensitive_path(path: str) -> bool:
 
 
 def _tree_blobs(workspace: Path, commit: str) -> dict[str, str]:
-    output = check_output_hidden(["git", "ls-tree", "-r", "-z", commit, "--", _SCRIPTS_PREFIX], cwd=workspace)
+    output = check_output_hidden(["git", "ls-tree", "-r", "-t", "-z", commit, "--", _SCRIPTS_PREFIX], cwd=workspace)
     assert isinstance(output, bytes)
     blobs = {}
     for record in output.split(b"\0"):
         if not record:
             continue
         metadata, path = record.split(b"\t", 1)
-        mode, kind, identity = metadata.decode("ascii").split()
-        if kind == "blob":
-            # File modes are part of the review, including symlink/type changes.
-            blobs[path.decode("utf-8")] = mode + ":" + identity
+        mode, _kind, identity = metadata.decode("ascii").split()
+        # Retain directories and gitlinks: an existing non-blob object is not
+        # an absent path, including when reviewing newly introduced files.
+        blobs[path.decode("utf-8")] = mode + ":" + identity
     return blobs
 
 
@@ -106,15 +141,18 @@ def _reviewed_compatibility_paths(workspace: Path, base_commit: str, target_comm
     base = _tree_blobs(workspace, base_commit)
     target = _tree_blobs(workspace, target_commit)
     reviewed: dict[str, str] = {}
-    reviews = [(before, after, "reviewed_profile_compatibility_changed") for before, after in _REVIEWED_COMPATIBILITY_TRANCHES]
-    reviews += [(before, after, "reviewed_gate_policy_changed") for before, after in _REVIEWED_GATE_POLICY_TRANCHES]
-    reviews += [(before, after, "reviewed_migration_gate_changed") for before, after in _REVIEWED_MIGRATION_GATE_TRANCHES]
-    for before_commit, after_commit, reason in reviews:
+    reviews = [(before, after, "reviewed_profile_compatibility_changed", None) for before, after in _REVIEWED_COMPATIBILITY_TRANCHES]
+    reviews += [(before, after, "reviewed_gate_policy_changed", None) for before, after in _REVIEWED_GATE_POLICY_TRANCHES]
+    reviews += [(before, after, "reviewed_migration_gate_changed", None) for before, after in _REVIEWED_MIGRATION_GATE_TRANCHES]
+    reviews += list(_REVIEWED_SCOPED_TRANCHES)
+    for before_commit, after_commit, reason, allowed_paths in reviews:
         if not _commit_exists(workspace, before_commit) or not _commit_exists(workspace, after_commit):
             continue
         before = _tree_blobs(workspace, before_commit)
         after = _tree_blobs(workspace, after_commit)
         for path in before.keys() | after.keys():
+            if allowed_paths is not None and path not in allowed_paths:
+                continue
             if reason == "reviewed_migration_gate_changed" and path not in _MIGRATION_GATE_REVIEW_PATHS:
                 continue
             if reason == "reviewed_gate_policy_changed" and path not in {
