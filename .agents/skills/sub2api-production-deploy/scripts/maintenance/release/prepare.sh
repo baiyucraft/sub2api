@@ -54,11 +54,13 @@ case "$layout_field" in
     release_asset_layout=deploy-v1
     maintenance_asset_prefix=deploy/maintenance/release
     unit_asset_prefix=deploy/maintenance/181
+    release_asset_prefix=deploy/release
     ;;
   skill-v1)
     release_asset_layout=skill-v1
     maintenance_asset_prefix=.agents/skills/sub2api-production-deploy/scripts/maintenance/release
     unit_asset_prefix=.agents/skills/sub2api-production-deploy/scripts/maintenance/181
+    release_asset_prefix=.agents/skills/sub2api-production-deploy/scripts/release
     ;;
   *)
     exit 1
@@ -70,6 +72,7 @@ for path in "$active_claim"/assets/*; do
   [[ $name =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]]
   case "$name" in
     mask-backup-units.sh|restore-backup-units.sh) source="$unit_asset_prefix/$name" ;;
+    backfill-activity-reward-costs.sh) source="$release_asset_prefix/$name" ;;
     *) source="$maintenance_asset_prefix/$name" ;;
   esac
   expected=$(jq -er --arg source "$source" '.manifest.release_asset_sha256[$source]' "$gate")
@@ -79,6 +82,7 @@ while IFS=$'\t' read -r source expected; do
   case "$source" in
     "$unit_asset_prefix"/mask-backup-units.sh) name=mask-backup-units.sh ;;
     "$unit_asset_prefix"/restore-backup-units.sh) name=restore-backup-units.sh ;;
+    "$release_asset_prefix"/backfill-activity-reward-costs.sh) name=backfill-activity-reward-costs.sh ;;
     "$maintenance_asset_prefix"/*)
       name=${source#"$maintenance_asset_prefix"/}
       [[ -n $name && $name != */* && $name =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]]

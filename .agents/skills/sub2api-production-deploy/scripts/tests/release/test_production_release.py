@@ -365,6 +365,30 @@ class ProductionRecoveryTest(unittest.TestCase):
             self.assertEqual(sleep.call_args_list, [mock.call(5)])
             self.assertEqual(release.runner.upload_file.call_count, 2)
             self.assertTrue(release.claimed)
+            # The uploaded helpers must be the exact signed sources, including
+            # the non-maintenance backfill script used by downtime postflight.
+            bundle = release.runner.upload_file.call_args_list[0].args[1]
+            sources = {
+                "activity-reward-cost-postflight.sh": DEPLOY_ROOT / "maintenance/release/activity-reward-cost-postflight.sh",
+                "backfill-activity-reward-costs.sh": DEPLOY_ROOT / "release/backfill-activity-reward-costs.sh",
+            }
+            with tarfile.open(bundle) as archive:
+                for name, source in sources.items():
+                    self.assertEqual(archive.extractfile("assets/" + name).read(), source.read_bytes())
+
+    def test_reward_postflight_sources_are_signed_and_prepare_checks_both_directions(self) -> None:
+        from release.manifest import is_release_asset_relative_path
+        from release.paths import LAYOUT_SKILL_V1
+        for source in ("maintenance/release/activity-reward-cost-postflight.sh", "release/backfill-activity-reward-costs.sh"):
+            self.assertTrue(is_release_asset_relative_path(".agents/skills/sub2api-production-deploy/scripts/" + source, LAYOUT_SKILL_V1))
+        prepare = (DEPLOY_ROOT / "maintenance/release/prepare.sh").read_text(encoding="utf-8")
+        self.assertIn('release_asset_prefix=.agents/skills/sub2api-production-deploy/scripts/release', prepare)
+        self.assertIn('backfill-activity-reward-costs.sh) source="$release_asset_prefix/$name"', prepare)
+        self.assertIn('"$release_asset_prefix"/backfill-activity-reward-costs.sh) name=backfill-activity-reward-costs.sh', prepare)
+        switch = (DEPLOY_ROOT / "maintenance/release/switch.sh").read_text(encoding="utf-8")
+        call = switch.index('source "$assets_dir/activity-reward-cost-postflight.sh"')
+        self.assertLess(switch.index('docker stop -t 60 "$active_container"'), call)
+        self.assertLess(call, switch.index('mark_switch_stage schema_verified'))
 
     def test_backup_recovers_committed_result_after_lost_remote_reply(self) -> None:
         release = self.release()
