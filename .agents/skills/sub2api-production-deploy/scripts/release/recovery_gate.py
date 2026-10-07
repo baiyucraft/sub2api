@@ -76,7 +76,17 @@ _REWARD_COST_POSTFLIGHT_REVIEW_PATHS = frozenset({
         "release/production.py", "release/vm-validate.sh",
     )
 })
+_VM_PREFLIGHT_RECOVERY_REVIEW_PATHS = frozenset({
+    _SCRIPTS_PREFIX + "release/" + name
+    for name in ("cli.py", "supervisor.py", "vm_validate.py", "vm-space-clean.sh")
+})
 _REVIEWED_SCOPED_TRANCHES = (
+    (
+        "0898fe8c6289f87a1a4d90cf74a50e296689960e",
+        "15b070e81e8d1135d6559ca6ef449dc0a3c45ad5",
+        "reviewed_vm_preflight_recovery_changed",
+        _VM_PREFLIGHT_RECOVERY_REVIEW_PATHS,
+    ),
     (
         "0898fe8c6289f87a1a4d90cf74a50e296689960e",
         "bc57b804fe4467d96b530c8874dd7152d28386a0",
