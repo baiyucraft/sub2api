@@ -69,7 +69,20 @@ _VM_LIFECYCLE_REVIEW_PATHS = frozenset({
 # Profile 264 changes exactly the same 35 compatibility entry points as 263.
 # This frozen path set grants no directory, ancestry, or future-content exemption.
 _PROFILE264_COMPATIBILITY_PATHS = frozenset(_PROFILE263_COMPATIBILITY_PATHS)
+_REWARD_COST_POSTFLIGHT_REVIEW_PATHS = frozenset({
+    _SCRIPTS_PREFIX + path for path in (
+        "maintenance/release/activity-reward-cost-postflight.sh",
+        "maintenance/release/prepare.sh", "maintenance/release/switch.sh",
+        "release/production.py", "release/vm-validate.sh",
+    )
+})
 _REVIEWED_SCOPED_TRANCHES = (
+    (
+        "0898fe8c6289f87a1a4d90cf74a50e296689960e",
+        "bc57b804fe4467d96b530c8874dd7152d28386a0",
+        "reviewed_reward_cost_postflight_changed",
+        _REWARD_COST_POSTFLIGHT_REVIEW_PATHS,
+    ),
     (
         "0898fe8c6289f87a1a4d90cf74a50e296689960e",
         "7c58225c34f876e1fe3967f1d8cf941d7d3d5f49",
