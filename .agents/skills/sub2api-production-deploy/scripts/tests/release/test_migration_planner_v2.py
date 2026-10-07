@@ -113,7 +113,7 @@ class MigrationPlannerV2Test(unittest.TestCase):
         script = (DEPLOY_ROOT / "maintenance" / "release" / "migration-195-assert.sh").read_text(encoding="utf-8")
         for line in script.splitlines():
             if "if [[ $release_profile == 240" in line:
-                self.assertIn("$release_profile == 260 || $release_profile == 261 || $release_profile == 262 || $release_profile == 263", line)
+                self.assertIn("$release_profile == 260 || $release_profile == 261 || $release_profile == 262 || $release_profile == 263 || $release_profile == 264", line)
 
     def test_empty_catalog_and_pending_are_valid(self) -> None:
         catalog = [{"filename": "001_first.sql", "checksum": "a" * 64, "non_transactional": False}]

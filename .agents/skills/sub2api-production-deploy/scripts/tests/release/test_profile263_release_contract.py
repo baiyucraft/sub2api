@@ -32,29 +32,29 @@ class Profile263ReleaseContractTest(unittest.TestCase):
         previous = {}
         exec(compile(source, "historical-profiles", "exec"), previous)
         self.assertEqual(previous["CURRENT_RELEASE_PROFILE"], "262")
-        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"263"})
+        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"263", "264"})
         for name, contract in previous["PROFILES"].items():
             with self.subTest(profile=name):
                 self.assertEqual(get_profile(name), contract)
                 with self.assertRaisesRegex(ValueError, "historical"):
                     get_release_profile(name)
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "263")
-        current = get_release_profile("263")
+        self.assertEqual(CURRENT_RELEASE_PROFILE, "264")
+        current = get_profile("263")
         self.assertEqual(current["version"], "0.2.14-baiyu")
         self.assertEqual(current["parent"], "262")
         self.assertEqual(current["new_migrations"], [])
         self.assertEqual(current["gate_schema"], 2)
         self.assertEqual(current["release_policy"], get_profile("262")["release_policy"])
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 264"):
-            get_profile("264")
+        with self.assertRaisesRegex(ValueError, "unknown release profile: 265"):
+            get_profile("265")
         with self.assertRaises(ValueError):
-            get_release_profile("264")
+            get_release_profile("265")
 
     def test_registration_and_existing_database_replay(self) -> None:
         registration = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(registration["current_profile"]["id"], "263")
+        self.assertEqual(registration["current_profile"]["id"], "264")
         for field in ("version", "parent", "new_migrations", "gate_schema", "release_policy"):
-            self.assertEqual(registration["current_profile"][field], get_profile("263")[field])
+            self.assertEqual(registration["historical_profiles"]["263"][field], get_profile("263")[field])
             self.assertEqual(registration["historical_profiles"]["262"][field], get_profile("262")[field])
         catalog = discover_migration_catalog(WORKSPACE)
         snapshot = {entry["filename"]: entry["checksum"] for entry in catalog}
@@ -64,7 +64,7 @@ class Profile263ReleaseContractTest(unittest.TestCase):
         self.assertEqual(plan["conflicts"], [])
 
     def test_manifest_rejects_wrong_version_parent_or_nonempty_migrations(self) -> None:
-        profile = get_release_profile("263")
+        profile = get_profile("263")
         catalog = discover_migration_catalog(WORKSPACE)
         manifest = {
             "schema": 2, "release_asset_layout": "skill-v1", "deployment_mode": "blue-green",
@@ -92,9 +92,9 @@ class Profile263ReleaseContractTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "migration 285 catalog"):
             _validate_v2_pending({"profile": "263", "migration_catalog": []}, evidence)
 
-    def test_cleanup_release_identity_accepts_263_and_rejects_264(self) -> None:
+    def test_cleanup_release_identity_accepts_263_and_rejects_265(self) -> None:
         self.assertIsNotNone(CLEANUP_RELEASE_ID.fullmatch("263-aaaaaaaaaaaa-1-aaaaaaaa"))
-        self.assertIsNone(CLEANUP_RELEASE_ID.fullmatch("264-aaaaaaaaaaaa-1-aaaaaaaa"))
+        self.assertIsNone(CLEANUP_RELEASE_ID.fullmatch("265-aaaaaaaaaaaa-1-aaaaaaaa"))
 
 
 class Profile263BashContractTest(unittest.TestCase):
@@ -133,6 +133,7 @@ profile=$1; version=$2; parent=$3; new_migrations=$4; manifest=unused
 jq() {
   case "$2" in
     .parent_profile) printf '%s\\n' "$parent" ;;
+    '.new_migrations == ["289_activity_reward_costs.sql"]') [[ $new_migrations == reward264 ]] ;;
     '.new_migrations == []') [[ $new_migrations == empty ]] ;;
     '.new_migrations == ["288_upstream_confidence_distribution.sql"]') [[ $new_migrations == distribution262 ]] ;;
     *) return 1 ;;
@@ -147,6 +148,11 @@ jq() {
             ("263", "0.2.14-baiyu", "263", "empty", False),
             ("263", "0.2.14-baiyu", "262", "distribution262", False),
             ("264", "0.2.14-baiyu", "263", "empty", False),
+            ("264", "0.2.14-baiyu", "263", "reward264", True),
+            ("264", "0.2.13-baiyu", "263", "reward264", False),
+            ("264", "0.2.14-baiyu", "262", "reward264", False),
+            ("264", "0.2.14-baiyu", "264", "reward264", False),
+            ("265", "0.2.14-baiyu", "264", "reward264", False),
         ):
             with self.subTest(profile=profile, version=version, parent=parent, migrations=migrations):
                 result = self.execute(stub + checks, profile, version, parent, migrations)
@@ -165,17 +171,17 @@ jq() {
             self.assertTrue(groups, relative)
             for group in groups:
                 with self.subTest(file=relative):
-                    cases = tuple((f"{profile}-aaaaaaaaaaaa-1-aaaaaaaa", allowed) for profile, allowed in (("261", True), ("262", True), ("263", True), ("264", False)))
+                    cases = tuple((f"{profile}-aaaaaaaaaaaa-1-aaaaaaaa", allowed) for profile, allowed in (("261", True), ("262", True), ("263", True), ("264", True), ("265", False)))
                     self.assert_guard_cases(f'[[ $release_id =~ ^{group}-[0-9a-f]{{12}}-[0-9]+-[0-9a-f]{{8}}$ ]]', "release_id", cases)
 
-    def test_ancestor_assertion_guards_admit_263_and_reject_264(self) -> None:
+    def test_ancestor_assertion_guards_admit_263_and_264_and_reject_265(self) -> None:
         for path in sorted((DEPLOY_ROOT / "maintenance/release").glob("migration-*-assert.sh")):
             source = path.read_text(encoding="utf-8")
             guards = [re.search(r"\[\[.*?\]\]", line)[0] for line in source.splitlines() if line.startswith("[[ $profile ==")]
             self.assertTrue(guards, path.name)
             for guard in guards:
                 with self.subTest(file=path.name):
-                    self.assert_guard_cases(guard, "profile", (("262", True), ("263", True), ("264", False)))
+                    self.assert_guard_cases(guard, "profile", (("262", True), ("263", True), ("264", True), ("265", False)))
 
 
 if __name__ == "__main__":

@@ -101,6 +101,25 @@ plugin_admin:
 
 ## 备份门禁
 
+### Profile 264 活动奖励成本补账
+
+Profile 264（`0.2.14-baiyu`，parent 263）仅追加 `289_activity_reward_costs.sql`。历史 263 及以前的合同与 checksum 不回写；新恢复敏感 blob 必须重新分类，未分类保持阻断。本变更属于数据库与应用混合发布，使用完整 VM Gate、备份与候选验真。
+
+迁移在事务中调用 `public.backfill_activity_reward_costs()`，先以奖励表 SHARE lock 固定已入账来源，按原奖励时间补成本并核验，不再次加余额。在线升级排空期间旧实例仍可能生成缺少成本的奖励，因此生产完成旧实例排空后必须执行一次明确授权的 catch-up；不得在迁移后立即假定补账永久齐全。
+
+在已批准的生产数据库 libpq service/环境下执行版本化入口，不把连接串、口令或环境全文写入命令、日志和报告：
+
+```bash
+bash .agents/skills/sub2api-production-deploy/scripts/release/backfill-activity-reward-costs.sh --mode check
+# 只有旧应用实例已确认排空、且本次补账写操作获得独立生产授权后：
+bash .agents/skills/sub2api-production-deploy/scripts/release/backfill-activity-reward-costs.sh --mode apply --old-instances-drained
+bash .agents/skills/sub2api-production-deploy/scripts/release/backfill-activity-reward-costs.sh --mode check
+```
+
+`check` 使用 repeatable-read read-only 事务；`apply` 调用幂等数据库函数，缺少排空声明在连接数据库前拒绝。该入口不启动、停止或修改 Docker 实例，也不隐式并入现有 release runner。对账输出仅含总数/金额、补录数量、缺失/孤立/不匹配计数、北京自然日合计与 `verified`。`verified=true`、零差异并且逐日数量及金额相等才算补账完成；零金额奖励也计数。函数失败自动回滚，不得从工具超时推断写入结果，应先只读 check 重建事实。
+
+补账只影响数据库成本流水，SQL 无法清理应用进程内缓存。旧实例排空并完成 catch-up 后，按既有授权发布流程滚动重启新应用进程，重建两类本地统计缓存，并通过既有受控路径清理 dashboard Redis snapshot，随后复核今日/累计成本、趋势与用量汇总。若发布流程还没有该受控刷新入口，将其列为发布前必须落实的检查项；不得以等待 TTL 代替主动清理，不新增临时命令豁免。如正在滚动恢复旧应用而数据库回退未获授权，自动成本不得手工冲正或删除，重新进入恢复合同审阅。
+
 ### 纯前端
 
 纯前端发布不要求新建数据库协调恢复点，但必须保留 Compose 备份、candidate image ID、`pre_switch_image_id` 和生产验证记录。不得因跳过数据库备份而跳过镜像或回滚门禁。

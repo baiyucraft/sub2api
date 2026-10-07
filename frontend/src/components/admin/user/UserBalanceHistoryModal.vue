@@ -36,13 +36,16 @@
           </div>
         </div>
         <!-- Row 2: notes + total recharged -->
-        <div class="mt-2.5 flex items-center justify-between border-t border-gray-200/60 pt-2.5 dark:border-dark-600/60">
+        <div class="mt-2.5 flex flex-wrap items-center justify-between gap-y-2 border-t border-gray-200/60 pt-2.5 dark:border-dark-600/60">
           <p class="min-w-0 flex-1 truncate text-xs text-gray-500 dark:text-dark-400" :title="user.notes || ''">
             <template v-if="user.notes">{{ t('admin.users.notes') }}: {{ user.notes }}</template>
             <template v-else>&nbsp;</template>
           </p>
           <p class="ml-4 flex-shrink-0 text-xs text-gray-500 dark:text-dark-400">
             {{ t('admin.users.totalRecharged') }}: <span class="font-semibold text-emerald-600 dark:text-emerald-400">${{ totalRecharged.toFixed(2) }}</span>
+          </p>
+          <p class="ml-4 flex-shrink-0 text-xs text-gray-500 dark:text-dark-400">
+            {{ t('admin.users.totalRewarded') }}: <span class="font-semibold text-amber-600 dark:text-amber-400">${{ totalRewarded.toFixed(2) }}</span>
           </p>
         </div>
       </div>
@@ -94,7 +97,7 @@
       <div v-else class="max-h-[28rem] space-y-3 overflow-y-auto">
         <div
           v-for="item in history"
-          :key="item.id"
+          :key="`${item.record_source || item.type}:${item.source_id ?? item.id}`"
           class="rounded-xl border border-gray-200 bg-white p-4 dark:border-dark-600 dark:bg-dark-800"
         >
           <div class="flex items-start justify-between">
@@ -123,6 +126,9 @@
                 <p class="mt-0.5 text-xs text-gray-400 dark:text-dark-500">
                   {{ formatDateTime(item.used_at || item.created_at) }}
                 </p>
+                <p v-if="item.type === 'activity_reward' && item.period_date" class="mt-0.5 text-xs text-gray-400 dark:text-dark-500">
+                  {{ t('admin.users.rewardPeriodDate', { date: item.period_date }) }}
+                </p>
               </div>
             </div>
             <!-- Right: value -->
@@ -131,13 +137,19 @@
                 {{ formatValue(item) }}
               </p>
               <p
-                v-if="isAdminType(item.type)"
+                v-if="item.type === 'activity_reward'"
+                class="font-mono text-xs text-gray-400 dark:text-dark-500"
+              >
+                {{ t('admin.users.rewardRecordId', { id: item.source_id ?? item.id }) }}
+              </p>
+              <p
+                v-else-if="isAdminType(item.type)"
                 class="text-xs text-gray-400 dark:text-dark-500"
               >
                 {{ t('redeem.adminAdjustment') }}
               </p>
               <p
-                v-else
+                v-else-if="item.code"
                 class="font-mono text-xs text-gray-400 dark:text-dark-500"
               >
                 {{ item.code.slice(0, 8) }}...
@@ -181,7 +193,7 @@ import BaseDialog from '@/components/common/BaseDialog.vue'
 import Select from '@/components/common/Select.vue'
 import Icon from '@/components/icons/Icon.vue'
 
-const props = defineProps<{ show: boolean; user: AdminUser | null; hideActions?: boolean }>()
+const props = defineProps<{ show: boolean; user: AdminUser | null; hideActions?: boolean; initialType?: string }>()
 const emit = defineEmits(['close', 'deposit', 'withdraw'])
 const { t } = useI18n()
 
@@ -190,6 +202,7 @@ const loading = ref(false)
 const currentPage = ref(1)
 const total = ref(0)
 const totalRecharged = ref(0)
+const totalRewarded = ref(0)
 const pageSize = 15
 const typeFilter = ref('')
 let requestVersion = 0
@@ -204,16 +217,21 @@ const typeOptions = computed(() => [
   { value: 'balance', label: t('admin.users.typeBalance') },
   { value: 'affiliate_balance', label: t('admin.users.typeAffiliateBalance') },
   { value: 'admin_balance', label: t('admin.users.typeAdminBalance') },
+  { value: 'activity_reward', label: t('admin.users.typeActivityReward') },
   { value: 'concurrency', label: t('admin.users.typeConcurrency') },
   { value: 'admin_concurrency', label: t('admin.users.typeAdminConcurrency') },
   { value: 'subscription', label: t('admin.users.typeSubscription') }
 ])
 
-// Watch modal open
-watch(() => props.show, (v) => {
+// Reload when the visible user or shortcut changes, even while the dialog stays open.
+watch(() => [props.show, props.user?.id, props.initialType] as const, ([show]) => {
   requestVersion++
-  if (v && props.user) {
-    typeFilter.value = ''
+  if (show && props.user) {
+    typeFilter.value = props.initialType || ''
+    history.value = []
+    total.value = 0
+    totalRecharged.value = 0
+    totalRewarded.value = 0
     loadHistory(1)
   }
 })
@@ -234,6 +252,7 @@ const loadHistory = async (page: number) => {
     history.value = res.items || []
     total.value = res.total || 0
     totalRecharged.value = res.total_recharged || 0
+    totalRewarded.value = res.total_rewarded || 0
   } catch (error) {
     if (version !== requestVersion) return
     console.error('Failed to load balance history:', error)
@@ -246,7 +265,7 @@ const loadHistory = async (page: number) => {
 const isAdminType = (type: string) => type === 'admin_balance' || type === 'admin_concurrency'
 
 // Helper: check if balance type (includes admin_balance)
-const isBalanceType = (type: string) => type === 'balance' || type === 'admin_balance' || type === 'affiliate_balance'
+const isBalanceType = (type: string) => type === 'balance' || type === 'admin_balance' || type === 'affiliate_balance' || type === 'activity_reward'
 
 // Helper: check if subscription type
 const isSubscriptionType = (type: string) => type === 'subscription'
@@ -300,6 +319,14 @@ const getValueColor = (item: BalanceHistoryItem) => {
 // Item title
 const getItemTitle = (item: BalanceHistoryItem) => {
   switch (item.type) {
+    case 'activity_reward':
+      switch (item.activity_type) {
+        case 'daily_gift': return t('admin.users.activityRewardTypes.daily_gift')
+        case 'recharge_draw': return t('admin.users.activityRewardTypes.recharge_draw')
+        case 'spend_draw': return t('admin.users.activityRewardTypes.spend_draw')
+        case 'invite_draw': return t('admin.users.activityRewardTypes.invite_draw')
+        default: return t('admin.users.typeActivityReward')
+      }
     case 'balance':
       return t('redeem.balanceAddedRedeem')
     case 'affiliate_balance':

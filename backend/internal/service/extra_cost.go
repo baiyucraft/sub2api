@@ -12,16 +12,18 @@ import (
 )
 
 const (
-	ExtraCostCategoryAccount = "account"
-	ExtraCostCategoryProxy   = "proxy"
-	ExtraCostCategoryServer  = "server"
-	ExtraCostCategoryOther   = "other"
-	ExtraCostCategoryAdjust  = "adjustment"
-	ExtraCostRuleVersion     = "extra-cost-v1"
-	ExtraCostMaxAmount       = 1_000_000_000.0
-	extraCostAmountScale     = 100_000_000.0
-	ExtraCostMaxNoteLength   = 500
-	ExtraCostMaxPageSize     = 100
+	ExtraCostCategoryAccount        = "account"
+	ExtraCostCategoryProxy          = "proxy"
+	ExtraCostCategoryServer         = "server"
+	ExtraCostCategoryOther          = "other"
+	ExtraCostCategoryAdjust         = "adjustment"
+	ExtraCostCategoryActivityReward = "activity_reward"
+	ActivityRewardCostRuleVersion   = "activity-reward-cost-v1"
+	ExtraCostRuleVersion            = "extra-cost-v1"
+	ExtraCostMaxAmount              = 1_000_000_000.0
+	extraCostAmountScale            = 100_000_000.0
+	ExtraCostMaxNoteLength          = 500
+	ExtraCostMaxPageSize            = 100
 )
 
 var (
@@ -32,6 +34,7 @@ var (
 	ErrExtraCostNotFound            = errors.New("额外成本记录不存在")
 	ErrExtraCostAlreadyReversed     = errors.New("额外成本记录已冲正")
 	ErrExtraCostIdempotencyConflict = errors.New("额外成本幂等键已用于其他操作")
+	ErrExtraCostAutomaticEntry      = errors.New("活动奖励成本由系统记账，不允许手工新增或冲正")
 )
 
 var ExtraCostCategories = []string{
@@ -40,6 +43,7 @@ var ExtraCostCategories = []string{
 	ExtraCostCategoryServer,
 	ExtraCostCategoryOther,
 	ExtraCostCategoryAdjust,
+	ExtraCostCategoryActivityReward,
 }
 
 type ExtraCostEntry struct {
@@ -53,6 +57,11 @@ type ExtraCostEntry struct {
 	ReversalOf     *int64    `json:"reversal_of,omitempty"`
 	IdempotencyKey string    `json:"idempotency_key,omitempty"`
 	RuleVersion    string    `json:"rule_version"`
+	// Reward association fields are immutable audit snapshots without foreign
+	// keys, so cost attribution survives deletion of a user or source reward.
+	ActivityRewardID *int64 `json:"activity_reward_id,omitempty"`
+	RelatedUserID    *int64 `json:"related_user_id,omitempty"`
+	ActivityType     string `json:"activity_type,omitempty"`
 }
 
 type ExtraCostFilter struct {
@@ -122,6 +131,9 @@ func (s *ExtraCostService) List(ctx context.Context, filter ExtraCostFilter) ([]
 }
 
 func (s *ExtraCostService) Create(ctx context.Context, entry ExtraCostEntry) (*ExtraCostEntry, error) {
+	if entry.IsActivityRewardCost() {
+		return nil, ErrExtraCostAutomaticEntry
+	}
 	if math.IsNaN(entry.Amount) || math.IsInf(entry.Amount, 0) || entry.Amount < 0 || entry.Amount > ExtraCostMaxAmount {
 		return nil, ErrExtraCostInvalidAmount
 	}
@@ -152,6 +164,9 @@ func normalizeExtraCostAmount(amount float64) float64 {
 }
 
 func (s *ExtraCostService) Reverse(ctx context.Context, id int64, createdBy *int64, reason, idempotencyKey string) (*ExtraCostEntry, error) {
+	if strings.HasPrefix(strings.TrimSpace(idempotencyKey), "activity-reward:") {
+		return nil, ErrExtraCostAutomaticEntry
+	}
 	if id <= 0 {
 		return nil, ErrExtraCostNotFound
 	}
@@ -168,6 +183,9 @@ func (s *ExtraCostService) Reverse(ctx context.Context, id int64, createdBy *int
 	}
 	if entry == nil {
 		return nil, ErrExtraCostNotFound
+	}
+	if entry.IsActivityRewardCost() {
+		return nil, ErrExtraCostAutomaticEntry
 	}
 	if entry.ReversalOf != nil {
 		return nil, ErrExtraCostAlreadyReversed
@@ -218,4 +236,12 @@ func (e *ExtraCostEntry) Validate() error {
 		return ErrExtraCostInvalidDate
 	}
 	return nil
+}
+
+// IsActivityRewardCost also protects malformed automatic rows whose category
+// was changed while their immutable source association remains present.
+func (e ExtraCostEntry) IsActivityRewardCost() bool {
+	return strings.TrimSpace(e.Category) == ExtraCostCategoryActivityReward || e.ActivityRewardID != nil ||
+		e.RelatedUserID != nil || e.ActivityType != "" || e.RuleVersion == ActivityRewardCostRuleVersion ||
+		strings.HasPrefix(strings.TrimSpace(e.IdempotencyKey), "activity-reward:")
 }

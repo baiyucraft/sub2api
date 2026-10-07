@@ -4,7 +4,7 @@
  */
 
 import { apiClient } from '../client'
-import type { AdminUser, UpdateUserRequest, PaginatedResponse, ApiKey } from '@/types'
+import type { AdminUser, UpdateUserRequest, PaginatedResponse, ApiKey, UserActivityRewardType } from '@/types'
 
 export interface AdminBindAuthIdentityChannelRequest {
   channel: string
@@ -253,6 +253,8 @@ export async function getUserUsageStats(
 /**
  * Balance history item returned from the API
  */
+export type ActivityRewardType = UserActivityRewardType
+
 export interface BalanceHistoryItem {
   id: number
   code: string
@@ -265,13 +267,18 @@ export interface BalanceHistoryItem {
   group_id: number | null
   validity_days: number
   notes: string
+  record_source?: 'redeem_code' | 'affiliate_ledger' | 'activity_reward'
+  source_id?: number
+  activity_type?: ActivityRewardType
+  period_date?: string | null
   user?: { id: number; email: string } | null
   group?: { id: number; name: string } | null
 }
 
-// Balance history response extends pagination with total_recharged summary
+// Summaries cover all historical records independently of the current filter/page.
 export interface BalanceHistoryResponse extends PaginatedResponse<BalanceHistoryItem> {
   total_recharged: number
+  total_rewarded: number
 }
 
 /**
@@ -279,8 +286,8 @@ export interface BalanceHistoryResponse extends PaginatedResponse<BalanceHistory
  * @param id - User ID
  * @param page - Page number
  * @param pageSize - Items per page
- * @param type - Optional type filter (balance, affiliate_balance, admin_balance, concurrency, admin_concurrency, subscription)
- * @returns Paginated balance history with total_recharged
+ * @param type - Optional type filter (balance, affiliate_balance, admin_balance, concurrency, admin_concurrency, subscription, activity_reward)
+ * @returns Paginated change history with lifetime recharge and credited reward totals
  */
 export async function getUserBalanceHistory(
   id: number,

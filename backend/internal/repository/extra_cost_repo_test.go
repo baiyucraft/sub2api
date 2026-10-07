@@ -18,6 +18,64 @@ func extraCostRows() *sqlmock.Rows {
 	})
 }
 
+func extraCostSourceRows() *sqlmock.Rows {
+	return sqlmock.NewRows([]string{
+		"id", "cost_date", "amount", "category", "notes", "created_by", "created_at",
+		"reversal_of", "idempotency_key", "rule_version", "activity_reward_id", "related_user_id", "activity_type",
+	})
+}
+
+func TestExtraCostRepositoryListReturnsRewardAuditSnapshotIncludingZeroCost(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	repo := &extraCostRepository{db: db}
+	createdAt := time.Date(2026, 10, 6, 16, 0, 1, 0, time.UTC)
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM extra_cost_entries WHERE 1=1 AND category = \$1`).
+		WithArgs(service.ExtraCostCategoryActivityReward).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectQuery(`SELECT .*activity_reward_id, related_user_id, activity_type.*ORDER BY created_at DESC, id DESC`).
+		WithArgs(service.ExtraCostCategoryActivityReward, 20, 0).
+		WillReturnRows(extraCostSourceRows().AddRow(900, "2026-10-07", "0.00000000", service.ExtraCostCategoryActivityReward, "", nil, createdAt, nil, "activity-reward:81", service.ActivityRewardCostRuleVersion, 81, 7, "daily_gift"))
+	items, total, err := repo.List(context.Background(), service.ExtraCostFilter{Category: service.ExtraCostCategoryActivityReward, Page: 1, PageSize: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 1 || len(items) != 1 {
+		t.Fatalf("unexpected result: total=%d items=%d", total, len(items))
+	}
+	row := items[0]
+	if row.Amount != 0 || row.ActivityRewardID == nil || *row.ActivityRewardID != 81 || row.RelatedUserID == nil || *row.RelatedUserID != 7 || row.ActivityType != "daily_gift" {
+		t.Fatalf("lost reward source audit snapshot: %+v", row)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestExtraCostRepositoryRejectsAutomaticRewardReversalInsideLock(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	repo := &extraCostRepository{db: db}
+	mock.ExpectBegin()
+	mock.ExpectQuery(`SELECT .*activity_reward_id, related_user_id, activity_type FROM extra_cost_entries WHERE id = \$1 FOR UPDATE`).
+		WithArgs(int64(900)).
+		WillReturnRows(extraCostSourceRows().AddRow(900, "2026-10-07", 0.5, service.ExtraCostCategoryActivityReward, "", nil, time.Now(), nil, "activity-reward:81", service.ActivityRewardCostRuleVersion, 81, 7, "daily_gift"))
+	mock.ExpectRollback()
+	_, err = repo.Reverse(context.Background(), 900, service.ExtraCostEntry{Notes: "forged", Category: service.ExtraCostCategoryAdjust})
+	if err != service.ErrExtraCostAutomaticEntry {
+		t.Fatalf("error=%v, want automatic-entry protection", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestExtraCostRepositoryCreateWritesOccurrenceTime(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -142,7 +200,7 @@ func TestExtraCostRepositoryListOrdersByOccurrenceTime(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	mock.ExpectQuery(`ORDER BY created_at DESC, id DESC LIMIT \$1 OFFSET \$2`).
 		WithArgs(20, 0).
-		WillReturnRows(extraCostRows().AddRow(
+		WillReturnRows(extraCostSourceRows().AddRow(
 			37,
 			time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC),
 			[]byte("12.34000000"),
@@ -152,7 +210,7 @@ func TestExtraCostRepositoryListOrdersByOccurrenceTime(t *testing.T) {
 			createdAt,
 			nil,
 			"list-key",
-			service.ExtraCostRuleVersion,
+			service.ExtraCostRuleVersion, nil, nil, nil,
 		))
 
 	items, total, err := repo.List(context.Background(), service.ExtraCostFilter{Page: 1, PageSize: 20})
@@ -185,9 +243,9 @@ func TestExtraCostRepositoryReverseWritesReversalOccurrenceTime(t *testing.T) {
 	}
 
 	mock.ExpectBegin()
-	mock.ExpectQuery(`SELECT id, cost_date, amount, category, notes, created_by, created_at, reversal_of, idempotency_key, rule_version FROM extra_cost_entries WHERE id = \$1 FOR UPDATE`).
+	mock.ExpectQuery(`SELECT id, cost_date, amount, category, notes, created_by, created_at, reversal_of, idempotency_key, rule_version, activity_reward_id, related_user_id, activity_type FROM extra_cost_entries WHERE id = \$1 FOR UPDATE`).
 		WithArgs(int64(42)).
-		WillReturnRows(extraCostRows().AddRow(42, "2026-08-01", 8.0, service.ExtraCostCategoryAccount, "purchase", nil, originalCreatedAt, nil, "original-key", service.ExtraCostRuleVersion))
+		WillReturnRows(extraCostSourceRows().AddRow(42, "2026-08-01", 8.0, service.ExtraCostCategoryAccount, "purchase", nil, originalCreatedAt, nil, "original-key", service.ExtraCostRuleVersion, nil, nil, nil))
 	mock.ExpectQuery(`SELECT id, cost_date, amount, category, notes, created_by, created_at, reversal_of, idempotency_key, rule_version FROM extra_cost_entries WHERE idempotency_key = \$1`).
 		WithArgs(adjustment.IdempotencyKey).
 		WillReturnError(sql.ErrNoRows)
@@ -227,9 +285,9 @@ func TestExtraCostRepositoryReverseReplaysMatchingIdempotencyKey(t *testing.T) {
 	adjustment := service.ExtraCostEntry{CostDate: "2026-09-18", Notes: "correct entry", CreatedAt: reversalAt, IdempotencyKey: "reverse-key"}
 
 	mock.ExpectBegin()
-	mock.ExpectQuery(`SELECT id, cost_date, amount, category, notes, created_by, created_at, reversal_of, idempotency_key, rule_version FROM extra_cost_entries WHERE id = \$1 FOR UPDATE`).
+	mock.ExpectQuery(`SELECT id, cost_date, amount, category, notes, created_by, created_at, reversal_of, idempotency_key, rule_version, activity_reward_id, related_user_id, activity_type FROM extra_cost_entries WHERE id = \$1 FOR UPDATE`).
 		WithArgs(int64(42)).
-		WillReturnRows(extraCostRows().AddRow(42, "2026-08-01", 8.0, service.ExtraCostCategoryAccount, "purchase", nil, originalCreatedAt, nil, "original-key", service.ExtraCostRuleVersion))
+		WillReturnRows(extraCostSourceRows().AddRow(42, "2026-08-01", 8.0, service.ExtraCostCategoryAccount, "purchase", nil, originalCreatedAt, nil, "original-key", service.ExtraCostRuleVersion, nil, nil, nil))
 	mock.ExpectQuery(`SELECT id, cost_date, amount, category, notes, created_by, created_at, reversal_of, idempotency_key, rule_version FROM extra_cost_entries WHERE idempotency_key = \$1`).
 		WithArgs(adjustment.IdempotencyKey).
 		WillReturnRows(extraCostRows().AddRow(43, adjustment.CostDate, -8.0, service.ExtraCostCategoryAdjust, "correct entry", nil, reversalAt, 42, adjustment.IdempotencyKey, service.ExtraCostRuleVersion))
@@ -258,9 +316,9 @@ func TestExtraCostRepositoryReverseRejectsIdempotencyKeyFromAnotherOperation(t *
 	adjustment := service.ExtraCostEntry{CostDate: "2026-09-18", CreatedAt: createdAt, IdempotencyKey: "shared-key"}
 
 	mock.ExpectBegin()
-	mock.ExpectQuery(`SELECT id, cost_date, amount, category, notes, created_by, created_at, reversal_of, idempotency_key, rule_version FROM extra_cost_entries WHERE id = \$1 FOR UPDATE`).
+	mock.ExpectQuery(`SELECT id, cost_date, amount, category, notes, created_by, created_at, reversal_of, idempotency_key, rule_version, activity_reward_id, related_user_id, activity_type FROM extra_cost_entries WHERE id = \$1 FOR UPDATE`).
 		WithArgs(int64(42)).
-		WillReturnRows(extraCostRows().AddRow(42, "2026-08-01", 8.0, service.ExtraCostCategoryAccount, "purchase", nil, createdAt, nil, "original-key", service.ExtraCostRuleVersion))
+		WillReturnRows(extraCostSourceRows().AddRow(42, "2026-08-01", 8.0, service.ExtraCostCategoryAccount, "purchase", nil, createdAt, nil, "original-key", service.ExtraCostRuleVersion, nil, nil, nil))
 	mock.ExpectQuery(`SELECT id, cost_date, amount, category, notes, created_by, created_at, reversal_of, idempotency_key, rule_version FROM extra_cost_entries WHERE idempotency_key = \$1`).
 		WithArgs(adjustment.IdempotencyKey).
 		WillReturnRows(extraCostRows().AddRow(99, "2026-09-18", 2.0, service.ExtraCostCategoryAccount, "other create", nil, createdAt, nil, adjustment.IdempotencyKey, service.ExtraCostRuleVersion))
@@ -287,7 +345,7 @@ func TestExtraCostRepositoryReverseRejectsChangedReasonForSameIdempotencyKey(t *
 
 	mock.ExpectBegin()
 	mock.ExpectQuery(`WHERE id = \$1 FOR UPDATE`).WithArgs(int64(42)).
-		WillReturnRows(extraCostRows().AddRow(42, "2026-08-01", 8.0, service.ExtraCostCategoryAccount, "purchase", nil, createdAt, nil, "original-key", service.ExtraCostRuleVersion))
+		WillReturnRows(extraCostSourceRows().AddRow(42, "2026-08-01", 8.0, service.ExtraCostCategoryAccount, "purchase", nil, createdAt, nil, "original-key", service.ExtraCostRuleVersion, nil, nil, nil))
 	mock.ExpectQuery(`WHERE idempotency_key = \$1`).WithArgs(adjustment.IdempotencyKey).
 		WillReturnRows(extraCostRows().AddRow(43, "2026-09-18", -8.0, service.ExtraCostCategoryAdjust, "original reason", nil, createdAt, 42, adjustment.IdempotencyKey, service.ExtraCostRuleVersion))
 	mock.ExpectRollback()
@@ -313,7 +371,7 @@ func TestExtraCostRepositoryReverseRejectsConcurrentConflictForAnotherOriginal(t
 
 	mock.ExpectBegin()
 	mock.ExpectQuery(`WHERE id = \$1 FOR UPDATE`).WithArgs(int64(42)).
-		WillReturnRows(extraCostRows().AddRow(42, "2026-08-01", 8.0, service.ExtraCostCategoryAccount, "purchase", nil, createdAt, nil, "original-key", service.ExtraCostRuleVersion))
+		WillReturnRows(extraCostSourceRows().AddRow(42, "2026-08-01", 8.0, service.ExtraCostCategoryAccount, "purchase", nil, createdAt, nil, "original-key", service.ExtraCostRuleVersion, nil, nil, nil))
 	mock.ExpectQuery(`WHERE idempotency_key = \$1`).WithArgs(adjustment.IdempotencyKey).WillReturnError(sql.ErrNoRows)
 	mock.ExpectQuery(`WHERE reversal_of = \$1 LIMIT 1`).WithArgs(int64(42)).WillReturnError(sql.ErrNoRows)
 	mock.ExpectQuery("INSERT INTO extra_cost_entries").WillReturnError(sql.ErrNoRows)
