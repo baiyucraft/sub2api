@@ -9,7 +9,7 @@ from release import recovery_gate as gate
 from release.paths import WORKSPACE
 
 BASE = "0898fe8c6289f87a1a4d90cf74a50e296689960e"
-TARGET = "2efce478818e0c2eb287714ef97cb4b09925ca37"
+TARGET = "dc464325a572c275c178632aeb847437169b3c58"
 PREFIX = ".agents/skills/sub2api-production-deploy/scripts/release/"
 PATHS = {PREFIX + x for x in ("cli.py", "supervisor.py", "vm_validate.py", "vm-space-clean.sh")}
 
