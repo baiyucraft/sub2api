@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from .atomic import atomic_write, canonical_json
+from .doctor import ReleaseDoctor
 from .gate import verify_gate
 from .manifest import create_manifest, runner_checksum, validate_commit, validate_image_id, write_manifest_once
 from .paths import ENTRYPOINT, MAINTENANCE_ROOT, RUN_ROOT, SCRIPTS_ROOT, TRUSTED_VM_PUBLIC_KEY, WORKSPACE
@@ -390,6 +391,109 @@ def status_view(identifier: str) -> dict[str, Any]:
 
 def print_status(identifier: str) -> None:
     print(canonical_json(status_view(identifier)).decode("ascii"))
+
+
+def reconcile_vm_preserve(args: argparse.Namespace) -> dict[str, Any]:
+    """Release an audited pre-validator failure lease without changing VM power.
+
+    This deliberately excludes a started validator, any production claim, and
+    VMs started by the failed release. Their recovery requires other evidence.
+    """
+    from . import vm_lifecycle as lifecycle
+
+    identifier = args.release_id
+    run_dir = _run_dir(identifier)
+    settings = lifecycle.load_settings()
+    if settings is None:
+        raise RuntimeError("vm_preserve_requires_managed_vm")
+    shared = lifecycle._shared_dir(settings)
+    if shared.is_symlink() or not shared.is_dir():
+        raise RuntimeError("vm_preserve_unsafe_owner")
+    with RunLock(RUN_ROOT / ".release.lock"), RunLock(shared / "lease.lock"):
+        manifest = _read_json(run_dir / "manifest.json", required=True) or {}
+        runner = _read_json(run_dir / "runner.json", required=True) or {}
+        state = _read_json(run_dir / "state.json", required=True) or {}
+        lease = lifecycle._read_state(run_dir / "vm-lifecycle.json")
+        owner = lifecycle._read_state(shared / "owner.json")
+        commit = manifest.get("commit_sha")
+        if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}", commit):
+            raise RuntimeError("vm_preserve_identity_mismatch")
+        validate_image_id(manifest.get("production_current_image_id"))
+        if (
+            manifest.get("schema") != 2 or manifest.get("release_id") != identifier
+            or runner.get("schema") != 1 or runner.get("release_id") != identifier
+            or runner.get("commit") != commit or runner.get("profile") != manifest.get("profile")
+            or runner.get("status") != "failed" or type(runner.get("exit_code")) is not int or runner["exit_code"] == 0
+            or state.get("schema") != 1 or state.get("release_id") != identifier
+            or state.get("status") != "failed" or state.get("stage") != "vm_validate"
+            or type(runner.get("pid")) is not int or not isinstance(runner.get("process_token"), str)
+            or _process_token(runner["pid"]) == runner["process_token"]
+        ):
+            raise RuntimeError("vm_preserve_failed_runner_unproven")
+        history = state.get("history")
+        if not isinstance(history, list) or any(not isinstance(item, dict) or item.get("stage") in DANGEROUS_STAGES for item in history):
+            raise RuntimeError("vm_preserve_production_state_present")
+        for path in (run_dir / "gate", run_dir / "release-state.json"):
+            if path.exists() or path.is_symlink():
+                raise RuntimeError("vm_preserve_production_state_present")
+        identity = ("schema", "vm_identity", "release_id", "source_commit", "pid", "process_token", "lease_token", "initially_running", "vm_started_by_release", "vm_boot_id")
+        if (
+            not owner or any(owner.get(key) != lease.get(key) for key in identity)
+            or lease.get("schema") != 1 or lease.get("release_id") != identifier
+            or lease.get("source_commit") != commit or lease.get("vm_identity") != settings.identity
+            or lease.get("pid") != runner["pid"] or lease.get("process_token") != runner["process_token"]
+            or not isinstance(lease.get("lease_token"), str) or not lease["lease_token"]
+            or lease.get("initially_running") is not True or lease.get("vm_started_by_release") is not False
+            or not isinstance(lease.get("vm_boot_id"), str) or not re.fullmatch(r"[0-9a-f-]{36}", lease["vm_boot_id"])
+            or owner.get("lease_status") != "retained"
+        ):
+            raise RuntimeError("vm_preserve_owner_unproven")
+        vm = lifecycle.VMLease(run_dir, identifier)
+        if not vm._running():
+            raise RuntimeError("vm_preserve_power_unproven")
+        # Remote checks are read-only. Locks prevent compliant consumers from
+        # starting work while these facts are being inspected.
+        ssh = SSHRunner()
+        vm_script = f'''set -Eeuo pipefail
+test ! -e /opt/sub2api-deploy/release-gates/{identifier}
+test ! -L /opt/sub2api-deploy/release-gates/{identifier}
+exec 9<>/opt/sub2api-deploy/release-gates/release.lock
+flock -n 9
+test "$(cat /proc/sys/kernel/random/boot_id)" = {shlex.quote(lease['vm_boot_id'])}
+test "$(ps -eo args= | awk '/vm-space-clean.sh|sub2api-vm-validate|run-validator.sh|docker (build|buildx)|buildctl/ && ! /awk/ {{n++}} END {{print n+0}}')" = 0
+test "$(docker inspect -f '{{{{.State.Health.Status}}}}' sub2api-dev)" = healthy
+printf 'vm_preserve_preflight=verified\\n'
+'''
+        production_script = f'''set -Eeuo pipefail
+exec 9<>/run/lock/sub2api-production-release.lock
+flock -n 9
+test ! -e /opt/sub2api/releases/{identifier}
+test ! -L /opt/sub2api/releases/{identifier}
+test ! -e /opt/sub2api/releases/.active-release
+test ! -L /opt/sub2api/releases/.active-release
+systemctl is-active --quiet nginx
+systemctl is-enabled --quiet sub2api-backup.timer
+printf 'production_not_started=verified\\n'
+'''
+        if ssh.run("local_vm", vm_script, {"vm_preserve_preflight"}, timeout=60).values != {"vm_preserve_preflight": "verified"}:
+            raise RuntimeError("vm_preserve_remote_vm_unproven")
+        if ssh.run("racknerd", production_script, {"production_not_started"}, timeout=60).values != {"production_not_started": "verified"}:
+            raise RuntimeError("vm_preserve_remote_production_unproven")
+        production = ReleaseDoctor(str(manifest["profile"]), commit).run(("racknerd",))
+        if production.get("racknerd_ready") != "true" or production.get("production_current_image_id") != manifest["production_current_image_id"]:
+            raise RuntimeError("vm_preserve_production_identity_unproven")
+        if not vm._running() or lifecycle._read_state(shared / "owner.json") != owner:
+            raise RuntimeError("vm_preserve_owner_changed")
+        evidence = {"schema": 1, "release_id": identifier, "commit": commit, "status": "preserved", "production_not_started": True, "reconciled_at": int(time.time())}
+        _write_json(run_dir / "vm-preserve-result.json", evidence)
+        # Shared ownership is the last commit marker. A failed earlier write
+        # leaves the retained owner in place and can be inspected again.
+        updated = {**lease, "lease_status": "released", "vm_power_status": "running", "vm_cleanup_status": "preserved", "updated_at": int(time.time())}
+        atomic_write(run_dir / "vm-lifecycle.json", canonical_json(updated) + b"\n")
+        atomic_write(shared / "owner.json", canonical_json(updated) + b"\n")
+        _event_logger(run_dir).emit(stage="vm_preserve", script="release.supervisor", event="failed_lease_reconciled", message="Failed pre-validator lease reconciled; originally running VM preserved", exit_code=0)
+    print(canonical_json(evidence).decode("ascii"))
+    return evidence
 
 
 def _vm_gate_failure_event(ssh: SSHRunner, release_id: str, deployment_mode: str) -> dict[str, Any] | None:

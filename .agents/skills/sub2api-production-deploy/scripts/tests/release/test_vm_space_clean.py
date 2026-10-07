@@ -43,13 +43,16 @@ def manifest(commit: str = "a" * 40) -> dict[str, object]:
 
 
 class FakeRunner:
-    def __init__(self, results: list[Result]):
+    def __init__(self, results: list[Result | BaseException]):
         self.results = results
         self.calls: list[tuple[str, str, set[str], int]] = []
 
     def run(self, host: str, command: str, fields: set[str], timeout: int = 120) -> Result:
         self.calls.append((host, command, fields, timeout))
-        return self.results.pop(0)
+        result = self.results.pop(0)
+        if isinstance(result, BaseException):
+            raise result
+        return result
 
 
 class VMSpaceCleanTest(unittest.TestCase):
@@ -68,6 +71,7 @@ class VMSpaceCleanTest(unittest.TestCase):
         self.assertEqual(len(runner.calls), 1)
         self.assertIn(" dry-run ", runner.calls[0][1])
         self.assertEqual(runner.calls[0][2], SPACE_FIELDS)
+        self.assertEqual(runner.calls[0][3], 600)
         self.assertEqual(result["cleanup_applied"], "false")
 
     def test_insufficient_space_applies_once_then_rechecks_once(self) -> None:
@@ -77,6 +81,7 @@ class VMSpaceCleanTest(unittest.TestCase):
         self.assertIn(" dry-run ", runner.calls[0][1])
         self.assertIn(" apply ", runner.calls[1][1])
         self.assertIn(" dry-run ", runner.calls[2][1])
+        self.assertEqual([call[3] for call in runner.calls], [600, 600, 600])
         self.assertEqual(result["cleanup_applied"], "true")
 
     def test_cleanup_does_not_loop_when_space_remains_insufficient(self) -> None:
@@ -84,6 +89,29 @@ class VMSpaceCleanTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "remains insufficient"):
             ensure_vm_space(runner, "/tmp/vm-space-clean.sh", manifest())
         self.assertEqual(len(runner.calls), 3)
+
+    def test_initial_dry_run_timeout_never_applies_or_retries(self) -> None:
+        runner = FakeRunner([TimeoutError("synthetic dry-run timeout")])
+        with self.assertRaises(TimeoutError):
+            ensure_vm_space(runner, "/tmp/vm-space-clean.sh", manifest())
+        self.assertEqual(len(runner.calls), 1)
+        self.assertIn(" dry-run ", runner.calls[0][1])
+        self.assertEqual(runner.calls[0][3], 600)
+
+    def test_apply_timeout_never_repeats_mutation(self) -> None:
+        runner = FakeRunner([report("insufficient"), TimeoutError("synthetic apply timeout")])
+        with self.assertRaises(TimeoutError):
+            ensure_vm_space(runner, "/tmp/vm-space-clean.sh", manifest())
+        self.assertEqual(len(runner.calls), 2)
+        self.assertIn(" apply ", runner.calls[1][1])
+
+    def test_verification_timeout_never_applies_again(self) -> None:
+        runner = FakeRunner([report("insufficient"), report("sufficient", "apply"), TimeoutError("synthetic verification timeout")])
+        with self.assertRaises(TimeoutError):
+            ensure_vm_space(runner, "/tmp/vm-space-clean.sh", manifest())
+        self.assertEqual(len(runner.calls), 3)
+        self.assertIn(" dry-run ", runner.calls[2][1])
+        self.assertEqual(runner.calls[2][3], 600)
 
     def test_profile_232_passes_explicit_compatibility_identity(self) -> None:
         runner = FakeRunner([report("sufficient")])
@@ -109,7 +137,14 @@ class VMSpaceCleanTest(unittest.TestCase):
         self.assertIn("^sub2api-dev-pre", script)
         self.assertIn("^sub2api:.+-([0-9a-f]{40})$", script)
         self.assertIn('git -C "$source_dir" rev-list --first-parent --merges -n 1 "$target_commit"', script)
-        self.assertIn('git -C "$source_dir" fetch origin main >/dev/null 2>&1 || true', script)
+        self.assertIn('GIT_TERMINAL_PROMPT=0 timeout --kill-after=10s 300s', script)
+        self.assertIn('git -C "$source_dir" fetch origin main >/dev/null 2>&1', script)
+        self.assertNotIn('fetch origin main >/dev/null 2>&1 || true', script)
+        source_check = script.index('[[ -d $source_dir && ! -L $source_dir ]]')
+        commit_check = script.index('git -C "$source_dir" cat-file -e "$target_commit^{commit}" 2>/dev/null\ncompat_commit=')
+        candidates = script.index('list_container_candidates > "$work_dir/container-candidates"')
+        self.assertLess(source_check, commit_check)
+        self.assertLess(commit_check, candidates)
         self.assertIn('compat_tag="sub2api:baiyu-0.1.171-baiyu-$candidate_compat_commit"', script)
         self.assertIn('is_protected_commit "${BASH_REMATCH[1]}"', script)
         self.assertEqual(script.count('is_protected_commit "${BASH_REMATCH[1]}"'), 2)
