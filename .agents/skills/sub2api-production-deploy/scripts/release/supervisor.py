@@ -457,6 +457,19 @@ def reconcile_vm_preserve(args: argparse.Namespace) -> dict[str, Any]:
         vm_script = f'''set -Eeuo pipefail
 test ! -e /opt/sub2api-deploy/release-gates/{identifier}
 test ! -L /opt/sub2api-deploy/release-gates/{identifier}
+raw_root=/opt/sub2api-deploy/release-logs/{identifier}
+if [[ -e "$raw_root" || -L "$raw_root" ]]; then
+  test -d "$raw_root" && test ! -L "$raw_root"
+  test "$(stat -c '%U:%G:%a' "$raw_root")" = root:root:700
+fi
+test ! -e "$raw_root/vm-validate.raw.log"
+test ! -L "$raw_root/vm-validate.raw.log"
+unit_lock=/usr/local/libexec/.sub2api-release-unit.lock
+test -f "$unit_lock" && test ! -L "$unit_lock"
+test "$(stat -c '%U:%G:%a:%h' "$unit_lock")" = root:root:600:1
+exec 8<>"$unit_lock"
+test "$(stat -Lc '%U:%G:%a:%h' /proc/self/fd/8)" = root:root:600:1
+flock -n 8
 test -f /opt/sub2api-deploy/release-gates/release.lock
 test ! -L /opt/sub2api-deploy/release-gates/release.lock
 exec 9<>/opt/sub2api-deploy/release-gates/release.lock
@@ -483,7 +496,7 @@ printf 'production_not_started=verified\\n'
             raise RuntimeError("vm_preserve_remote_vm_unproven")
         if ssh.run("racknerd", production_script, {"production_not_started"}, timeout=60).values != {"production_not_started": "verified"}:
             raise RuntimeError("vm_preserve_remote_production_unproven")
-        production = ReleaseDoctor(str(manifest["profile"]), commit).run(("racknerd",))
+        production = ReleaseDoctor(str(manifest["profile"]), commit).run(("racknerd",), require_ingress_policy=False)
         if production.get("racknerd_ready") != "true" or production.get("production_current_image_id") != manifest["production_current_image_id"]:
             raise RuntimeError("vm_preserve_production_identity_unproven")
         if not vm._running() or lifecycle._read_state(shared / "owner.json") != owner:

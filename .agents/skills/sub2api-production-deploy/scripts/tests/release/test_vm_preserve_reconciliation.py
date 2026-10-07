@@ -40,7 +40,7 @@ def fixture(tmp_path, monkeypatch):
         calls.append((node, script))
         return SimpleNamespace(values={next(iter(fields)): "verified"})
     monkeypatch.setattr(s, "SSHRunner", lambda: SimpleNamespace(run=remote))
-    monkeypatch.setattr(s, "ReleaseDoctor", lambda *_: SimpleNamespace(run=lambda _: {"racknerd_ready": "true", "production_current_image_id": "sha256:" + "b" * 64}))
+    monkeypatch.setattr(s, "ReleaseDoctor", lambda *_: SimpleNamespace(run=lambda _, **_kwargs: {"racknerd_ready": "true", "production_current_image_id": "sha256:" + "b" * 64}))
     return SimpleNamespace(run_dir=run_dir, shared=shared, calls=calls, docs=docs, args=SimpleNamespace(release_id=run_dir.name))
 
 
@@ -59,6 +59,10 @@ def test_verified_pre_validator_failure_releases_only_lease(fixture):
     assert json.loads((f.run_dir / "vm-lifecycle.json").read_text())["vm_started_by_release"] is False
     assert [c[0] for c in f.calls] == ["local_vm", "racknerd"]
     assert all("flock -n 9" in c[1] for c in f.calls)
+    assert "flock -n 8" in f.calls[0][1]
+    assert ".sub2api-release-unit.lock" in f.calls[0][1]
+    assert 'test ! -e "$raw_root/vm-validate.raw.log"' in f.calls[0][1]
+    assert 'test ! -L "$raw_root/vm-validate.raw.log"' in f.calls[0][1]
     assert "release-gates/264-failed" in f.calls[0][1]
     assert ".active-release" in f.calls[1][1]
     assert all("docker stop" not in c[1] and "rm " not in c[1] and "poweroff" not in c[1] for c in f.calls)
@@ -139,7 +143,17 @@ def test_owner_write_failure_keeps_shared_claim_and_allows_audited_retry(fixture
 def test_changed_production_or_unhealthy_app_blocks_release(fixture, monkeypatch, fields):
     f = fixture
     before = (f.shared / "owner.json").read_bytes()
-    monkeypatch.setattr(s, "ReleaseDoctor", lambda *_: SimpleNamespace(run=lambda _: fields))
+    monkeypatch.setattr(s, "ReleaseDoctor", lambda *_: SimpleNamespace(run=lambda _, **_kwargs: fields))
     with pytest.raises(RuntimeError):
         s.reconcile_vm_preserve(f.args)
     assert (f.shared / "owner.json").read_bytes() == before
+
+
+def test_pre_gate_policy_allows_healthy_legacy_ingress_to_release_failure_lease(fixture, monkeypatch):
+    f = fixture
+    def check(nodes, *, require_ingress_policy=True):
+        assert nodes == ("racknerd",)
+        assert require_ingress_policy is False
+        return {"racknerd_ready": "true", "production_current_image_id": "sha256:" + "b" * 64, "nginx_ingress_policy": "needs_update"}
+    monkeypatch.setattr(s, "ReleaseDoctor", lambda *_: SimpleNamespace(run=check))
+    assert s.reconcile_vm_preserve(f.args)["status"] == "preserved"

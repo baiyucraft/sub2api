@@ -119,3 +119,5 @@ validator 尚未启动的失败使用独立 `reconcile-vm-preserve <release_id>`
 恢复 runner 按 `postgres_restored`、`redis_restored`、`compose_restored`、`app_healthy`、`nginx_restored`、`backup_units_restored`、`claim_reconciled`、`state_cleanup` 顺序保存幂等 checkpoint。重连或进程中断后先复核现场再跳过已完成阶段；状态不一致时 fail-closed。业务已经恢复、只剩 cleanup 时，不得重新执行数据库或 Redis 恢复。
 
 三层门禁时间预算为 `fast=0-2min`、`specialized=5-15min`、`full=20-60min`。这些值仅用于计划、状态心跳和最终报告，不缩短子阶段原有 timeout，也不授权调用端在预算到期后杀死 runner。
+
+失败租约恢复在VM上还须独占既有发布单元锁，以排除SSH断线后仍在途的安装和VM-only任务；存在validator启动原始日志时，即使Gate目录缺失和进程已退出也拒绝收口。生产健康检查沿用Gate前入口策略，允许健康的needs_update，不要求尚未发生的生产策略升级；镜像身份和其余健康、备份、claim校验不放宽。
