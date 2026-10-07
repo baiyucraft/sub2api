@@ -2,6 +2,61 @@
 
 生产发布必须由独立 runner 持续执行，调用端只负责启动、观察和验真。宿主工具的超时、断开 stdout 或会话关闭都不能终止 runner。
 
+## 可选 VM 自动启停
+
+公共配置位于 `.ssh.local` 顶层，与 `servers` 并列；下例是字段合同，不是对本地连接资料的读取或修改：
+
+```yaml
+vm_lifecycle:
+  enabled: true
+  vmrun_path: 'C:/MProgram/VMware/vmrun.exe'
+  vmx_path: 'D:/vmu/Ubuntu.vmx'
+  startup_timeout_seconds: 180
+  shutdown_timeout_seconds: 180
+```
+
+未配置 `vm_lifecycle` 时保持既有人工电源管理行为。配置存在时必须验证结构、boolean、路径和正整数 timeout；启用时可执行文件与目标 VMX 必须可解析且存在。配置错误、`vmrun list` 失败或电源身份不明均 fail-closed，不能当作未配置、猜测 VM 已关机或绕过电源检查直接连接。
+
+应用与独立插件后台发布 worker 共用以下电源合同；各自仍使用原有 Gate、生产写授权和验真入口：
+
+```text
+本地输入/身份/配置检查 -> 发布全局锁 + 跨 checkout VM 身份锁
+  -> 持久所有权检查 -> vmrun list（首次 VM SSH/API 连接之前）
+      已运行 -> 记录本 release 未启动，始终保留 VM
+      已停止 -> 持久记录启动意图 -> vmrun start <vmx> nogui
+                -> 有界等待电源及 SSH 就绪 -> 记录本次启动所有权
+  -> 原有 VM Gate 与生产发布
+      失败 / blocked / recovered / 崩溃 -> 保留 VM 和所有权证据
+      成功 -> signed 验真 -> postdoctor / 插件逐实例验证
+           -> 清理本 release 的 VM 隔离临时任务
+           -> 本次启动且所有权一致：SSH 正常 poweroff
+           -> vmrun list 核实目标 VM 停止
+```
+
+启动使用 `nogui`，不得弹出 VMware 窗口。启动等待受 `startup_timeout_seconds` 限制；电源已运行不等于 SSH、Guest 或 Gate 已就绪。启动失败、超时或结果不确定时停止发布并保留已落地的所有权证据，不能重复启动或自动关机。
+
+### VM 身份锁与持久所有权
+
+- 仓库 `.release.lock` 之外还须以规范化后的 VMX 身份建立跨 checkout 的主机共享锁；同一 VM 的应用/插件发布不得因工作区不同而并发。锁覆盖电源检查、启动、Guest 使用和最终清理/关机核实，不以锁文件存在与否判断是否持锁。
+- 所有权必须跨进程和 checkout 持久保存，绑定 VM 身份、release ID、完整 commit、worker 进程启动身份、初始电源状态和启动/清理进度。启动前先留下意图，以便崩溃后能识别未完成操作；不能仅用内存布尔值或“VM 现在运行”推断本次所有权。
+- 原本运行的 VM 记录 `vm_started_by_release=false`，无论发布结果如何都不关机。本次确认启动才记录 `true`，关机前重新核对同一 VM、release 和 worker 所有权。
+- 锁随崩溃释放不等于所有权可接管。遗留、冲突、不完整或身份不一致的所有权使后续发布停止；不得自动删除、覆盖、接管或通过新 release 代为关机。先只读核对现场，再走获批的人工恢复流程。
+- 正常收口后须持久记录完成结果并结束本次活动所有权，保留审计证据；原本运行的 VM 以保留运行的结果收口，本次启动的 VM 必须先核实停止。明确完成的历史记录不作为待恢复所有权接管；失败或状态不明的记录不得标成完成来放行新发布。
+
+### 成功与关机分别验收
+
+应用关机前必须完成同 release 的 signed `verify-result`、post-deploy `doctor`；插件必须完成 signed `plugin-verify-result` 和所有目标实例的版本、binary SHA、Health、受管范围验收。任何必要验收未通过都保留 VM。清理只限本 release 的隔离容器/任务、临时模拟配置、凭据和一次性材料；保留 PostgreSQL、Redis、`data-dev`、持久展示、回滚 image、Gate、marker 和失败证据。
+
+满足上述条件且确属本次启动时，worker 通过 SSH 请求 Guest 正常 `poweroff`，在 `shutdown_timeout_seconds` 内反复成功读取 `vmrun list`，确认目标规范化 VMX 不再列出才报告停止。不依赖 VMware Tools，不使用 hard stop/强制关机。SSH 因关机断开不能单独证明成功；`vmrun list` 失败、目标仍运行或关机超时均单独报告 cleanup 失败，保留所有权和诊断证据。
+
+生产发布事实和 VM cleanup 结果必须分开：关机失败不能回滚已成功的应用/插件、重跑迁移、重新上传/升级或再次发布。恢复旧版本的 `recovered`、失败、blocked 和崩溃均不进入成功自动关机分支；即使存在部分成功证据，也先保留 VM。
+
+### 只读入口与独立验证
+
+普通 `doctor/status/wait/follow/verify-result` 和插件对应只读入口不自动开机、关机、接管所有权或执行 cleanup。VM 已停止时，普通 doctor 的 Guest 检查会失败，不能当作通过；重新验真使用已签名 Gate/结果和生产事实，不为读取结果而启动 VM。worker 的 postdoctor 必须在关机之前完成。
+
+`deploy-follow` / `plugin-deploy-follow` 仅负责启动一次 worker 后观察；关闭观察器、超时或 Ctrl+C 不影响后台 worker、锁与所有权。独立 `vm-validate`、`vm-only-validate`、`vm-only-switch` 和用户展示不进入发布成功自动关机分支，不自动关闭 VM 或展示容器。
+
 ## 单控制台观察规范
 
 日常人工发布使用：
@@ -39,7 +94,7 @@ python .agents/skills/sub2api-production-deploy/scripts/release.py verify-recove
 
 两个验真入口禁止互相替代：`verify-result` 只验证 signed candidate 已成为生产运行版本；`verify-recovery-result` 只验证协调恢复已恢复恢复点绑定的旧版本、清除 claim、恢复入口与备份 units 并完成恢复状态收口。
 
-`status` 只输出固定字段：release/profile/commit、runner 存活与退出码、VM/production 阶段、候选和运行镜像、claim 最终状态、更新时间。禁止输出完整 JSON、argv、日志、secret 或远端原始回包。PID 必须同时匹配记录的进程启动 token，防止 PID 重用。
+`status` 只输出固定字段：release/profile/commit、runner 存活与退出码、VM/production 阶段、候选和运行镜像、claim 最终状态、更新时间，以及 `vm_power_status`、`vm_started_by_release`、`vm_cleanup_status`。三个新增字段分别表示电源观察、本次启动归属和独立 cleanup 结果，不替代 production/plugin 成功证据；未知不能投影成已停止或归属本 release。禁止输出 VMX/可执行文件路径、完整所有权文件、完整 JSON、argv、日志、secret 或远端原始回包。PID 必须同时匹配记录的进程启动 token，防止 PID 重用。
 
 生产 runner 在远端 release 目录的 `logs/production.raw.log` 保存完整 stdout/stderr，并在最终接管脚本退出时追加稳定容器与临时候选容器最近 15 分钟的启动日志。目录权限固定为 `0700`、文件权限固定为 `0600`，只保留在生产机，不进入 Gate、备份 bundle、本地 `.tmp` 或报告。失败时先使用 `finalize_failure_phase`、行号、退出码和白名单错误分类定位；只有确需深入时才在生产机本地对原始日志做脱敏检索，禁止整文件回传。
 
@@ -53,7 +108,7 @@ python .agents/skills/sub2api-production-deploy/scripts/release.py verify-recove
 
 `stage_assets_verified` 之后没有 `production_preflight`，且 runner 已退出时，归类为 caller/runner interruption。只有 active claim 精确匹配、没有 production state、旧应用 healthy、Nginx active、backup timer enabled 且没有危险阶段，才允许 claim-only recovery。任何状态不明、迁移或公开流量已开始，都保持 `blocked`，不得删除 marker 或手工编辑 JSON。
 
-一次 release 只允许一个 worker、一个 active claim 和一个 candidate。`.release.lock` 是 OS 文件锁，不以锁文件是否存在判断是否持锁；锁从 doctor 开始一直保持到最终收口。
+一次 release 只允许一个 worker、一个 active claim 和一个 candidate。`.release.lock` 是 OS 文件锁，不以锁文件是否存在判断是否持锁；worker 在本地检查后、首次 VM 连接前持锁，启用生命周期时同时取得跨 checkout VM 身份锁，保持到最终 cleanup/关机核实或失败收口。持久所有权不会因释放锁或 worker 退出而被自动接管。
 
 ## 恢复 Runner 原子版本与断点续跑
 

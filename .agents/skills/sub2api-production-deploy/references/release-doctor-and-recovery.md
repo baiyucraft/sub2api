@@ -3,6 +3,7 @@
 ## 目录
 
 - [标准入口](#标准入口)
+- [VM 电源与 cleanup 恢复](#vm-电源与-cleanup-恢复)
 - [迁移状态与重复 Gate](#迁移状态与重复-gate)
 - [长时间无输出诊断](#长时间无输出诊断)
 - [流式能力不在发布门禁内](#流式能力不在发布门禁内)
@@ -86,9 +87,9 @@ state_cleanup
   pre-Gate 检查继续进入签名 Gate、停写、恢复点和 ingress apply；严格 `doctor` 放在
   `verify-result` 之后，作为发布后的独立复核。普通发布若没有待修复的 ingress policy，仍可
   在发布前单独运行 strict `doctor`。
-- `doctor` 只读检查本地、VM、RackNerd、DMIT 和异地节点，输出字段白名单；失败时禁止进入发布。
+- `doctor` 只读检查本地、VM、RackNerd、DMIT 和异地节点，输出字段白名单；不自动开关 VM。VM 已停止时 Guest 检查会失败；需要 VM 的检查由已授权发布 worker 在启动后重新执行，其失败禁止进入生产。
 - `bootstrap-production` 只创建缺失的状态目录，并核验信任根、现有应用健康、Nginx 和备份全局锁；不检查账号池或 Canary 凭据，不修改 systemd、不构建、不迁移、不切换应用。已有资产内容不一致时停止。
-- `deploy-start` 是日常一键入口：预分配 release ID 后启动独立 worker；worker 先检查本地、VM 与外部节点，幂等 bootstrap RackNerd 后再检查 RackNerd，随后完成 VM Gate、生产恢复点、迁移、切换和分节点验收。
+- `deploy-start` 是日常一键入口：预分配 release ID 后启动独立 worker；worker 先完成本地输入/配置检查并取得全局锁。启用 `.ssh.local` 顶层 `vm_lifecycle` 时，在首次 VM 连接前取得跨 checkout VM 身份锁、核对持久所有权并检查电源，按需无界面启动，再检查 VM 与外部节点、幂等 bootstrap RackNerd 和检查 RackNerd，随后完成 VM Gate、生产恢复点、迁移、切换和分节点验收。未配置保持旧行为，配置错误 fail-closed；配置与锁合同见 [release-runner-lifecycle.md](release-runner-lifecycle.md)。
 - worker 在停写前不读取账号池或 Canary 凭据，不发送模型请求，也不产生 usage marker。任何模型或 upstream 探针都不得成为 Docker 镜像升级条件；流式模型请求统一记录为 `not_checked`，没有可用账号不得阻塞升级。direct/DMIT `/health` 与 candidate health 仅确认容器启动和路由可达，并非模型探针；候选公开后仍必须验证迁移、备份和恢复合同。
 - 信任根首次安装仍单独使用 `bootstrap-trust`，人工核验公钥指纹；普通 bootstrap 和 deploy 不得创建或替换信任根。
 
@@ -99,6 +100,23 @@ state_cleanup
 - SSH 建连阶段的 banner/EOF/transport 瞬时错误可由 `SSHRunner` 做有限退避重试；SFTP 上传、远程 shell 已执行或返回内容不完整时禁止盲重试，必须按 marker/checksum/claim 做 reconciliation。
 - VM 清理器运行早于 validator fetch 时，必须先同步目标 `origin/main` 再解析 profile 兼容提交。目标 commit、兼容提交或 full-SHA 兼容 tag 任一无法证明时停止清理；不得删除兼容回滚镜像。
 - 旧 profile Gate 因 runner checksum 漂移而不能被当前 verifier 直接接受时，只能从 Gate 绑定的历史源码执行只读验签，额外核对签名、archive checksum、release assets、migration map、profile、commit 和 image ID；该流程不改变历史 Gate，也不产生生产 Gate。
+
+## VM 电源与 cleanup 恢复
+
+电源控制由后台发布 worker 执行；普通 `doctor/status/wait/follow/verify-result` 及插件对应只读入口不触发开关机或所有权接管。独立 `vm-validate` 和 VM-only 验证/展示不自动关闭 VM。post-deploy doctor 在 worker 关机前完成，之后的只读观察不能为了重查 VM 而开机。
+
+| 现场证据 | 处理 |
+| --- | --- |
+| 未配置 `vm_lifecycle` | 保持旧行为，电源由人工管理 |
+| 配置错误、`vmrun list` 失败、VM 身份不明或所有权冲突 | fail-closed；停止发布，不回退到忽略生命周期配置 |
+| 初始 VM 已运行，`vm_started_by_release=false` | 始终保留 VM；成功也只清理本 release 的隔离临时任务 |
+| 本次启动，signed 验真、postdoctor/插件逐实例验收、VM 临时任务清理均成功 | 重新核对持久所有权后 SSH 正常 `poweroff`，由 `vmrun list` 在配置 timeout 内核实目标停止 |
+| 验收失败、blocked、恢复旧版本或 worker 崩溃 | 保留 VM 与所有权证据；锁释放不授权后续 worker 接管 |
+| 生产发布已成功，清理、关机或停止核实失败 | 单独记录 `vm_cleanup_status` 失败；保留成功发布事实与所有权，不回滚、不重发、不重跑迁移/插件升级 |
+
+SSH 因 Guest 关机断开不是停止证明；VMware Tools 不参与关机判定。禁止 hard stop、强制关机、自动删除遗留所有权或用新 release 接管旧 worker 的电源操作。遗留所有权先只读核对 VM 身份、release、进程启动身份、Gate/生产结果及实际电源，再走获批的人工恢复；关机失败不进入生产故障恢复分支。
+
+白名单状态仅增加 `vm_power_status`、`vm_started_by_release`、`vm_cleanup_status`；不输出 VMX 路径、所有权全文或原始 `vmrun`/SSH 回包。关闭观察器不会停止 worker，也不会释放其锁或改变电源归属。
 
 ## 迁移状态与重复 Gate
 

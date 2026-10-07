@@ -19,6 +19,11 @@ from release import cli
 
 
 class DeployCommandTest(unittest.TestCase):
+    def setUp(self) -> None:
+        patch = mock.patch("release.vm_lifecycle.load_settings", return_value=None)
+        patch.start()
+        self.addCleanup(patch.stop)
+
     def test_direct_gate_consumption_rejects_blocked_signed_classification_before_state_write(self) -> None:
         for reason in ("production_commit_unproven", "recovery_change_requires_review"):
             document = {"manifest": {"recovery_gate": {"reason_codes": [reason]}}}
