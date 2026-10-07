@@ -21,6 +21,7 @@ import UsageTable from '../UsageTable.vue'
 const messages: Record<string, string> = {
   'admin.usage.userDeletedBadge': 'Deleted',
   'usage.costDetails': 'Cost Breakdown',
+  'usage.cacheRate': 'Cache rate',
   'admin.usage.inputCost': 'Input Cost',
   'admin.usage.outputCost': 'Output Cost',
   'admin.usage.cacheCreationCost': 'Cache Creation Cost',
@@ -187,6 +188,51 @@ const baseImageRow = {
   image_size_source: null,
   image_size_breakdown: null,
 }
+
+describe('shared UsageTable cache rate', () => {
+  it.each([
+    { name: 'screenshot sample with cache creation subcategories', input: 3, output: 740, creation: 2372, read: 167487, expected: '98.60%' },
+    { name: 'uncached input even with large output', input: 100, output: 999999, creation: 0, read: 0, expected: '0.00%' },
+    { name: 'fully cached input', input: 0, output: 1000, creation: 0, read: 100, expected: '100.00%' },
+    { name: 'cache creation without a hit', input: 0, output: 1000, creation: 100, read: 0, expected: '0.00%' },
+    { name: 'zero prompt tokens', input: 0, output: 1000, creation: 0, read: 0, expected: '—' },
+    { name: 'invalid historical counts', input: -1, output: 1000, creation: Number.NaN, read: Number.POSITIVE_INFINITY, expected: '—' },
+  ])('shows $expected in the row and token details for $name', async ({ input, output, creation, read, expected }) => {
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [{
+          ...baseImageRow,
+          billing_mode: 'token',
+          image_count: 0,
+          input_tokens: input,
+          output_tokens: output,
+          cache_creation_tokens: creation,
+          cache_creation_5m_tokens: creation,
+          cache_creation_1h_tokens: 0,
+          cache_read_tokens: read,
+        }],
+        loading: false,
+        columns: [],
+      },
+      global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
+    })
+
+    expect(wrapper.get('[data-testid="usage-cache-rate"]').text()).toBe(expected)
+    await wrapper.findAll('.group.relative')[0].trigger('mouseenter')
+    const tooltip = wrapper.get('[data-testid="token-tooltip-cache-rate"]')
+    expect(tooltip.findAll('span').map(span => span.text())).toEqual(['Cache rate', expected])
+    wrapper.unmount()
+  })
+
+  it('keeps per-image usage free of token cache-rate badges', () => {
+    const wrapper = mount(UsageTable, {
+      props: { data: [baseImageRow], loading: false, columns: [] },
+      global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
+    })
+    expect(wrapper.find('[data-testid="usage-cache-rate"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+})
 
 describe('admin UsageTable tooltip', () => {
   beforeEach(() => {
