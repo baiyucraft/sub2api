@@ -467,6 +467,9 @@
         "backend/internal/server/routes/admin.go",
         "frontend/src/api/admin/upstreamConfigs.ts",
         "frontend/src/views/admin/UpstreamDashboardView.vue",
+        "frontend/src/utils/upstreamRecharge.ts",
+        "frontend/src/i18n/locales/zh/admin/upstreamDashboard.ts",
+        "frontend/src/i18n/locales/en/admin/upstreamDashboard.ts",
         "frontend/src/views/admin/UpstreamConfigsView.vue",
         "frontend/src/views/admin/AccountsView.vue",
         "frontend/src/components/layout/AppSidebar.vue",
@@ -502,6 +505,8 @@
         "frontend/src/views/admin/__tests__/AccountsView.upstreamManagement.spec.ts",
         "frontend/src/views/admin/__tests__/UpstreamConfigsView.spec.ts",
         "frontend/src/views/admin/__tests__/UpstreamDashboardView.spec.ts",
+        "frontend/src/views/admin/__tests__/UpstreamDashboardView.recharge.spec.ts",
+        "frontend/src/utils/__tests__/upstreamRecharge.spec.ts",
         "frontend/src/views/admin/__tests__/AccountsView.lite.spec.ts"
       ],
       "invariants": [
@@ -509,6 +514,7 @@
         "派生身份和凭据字段只读",
         "一个有效 Key 最多绑定一个未删除派生账号",
         "看板真实流量与主动探针分栏且不混入收益",
+        "看板卡片和详情的充值外链只使用安全site_url，保留部署子路径并移除query/hash；Sub2API/LCodex用purchase、经典NewAPI用console/topup，未知provider显示访问站点，不承诺覆盖现代NewAPI钱包路由；新标签打开不传认证信息且不触发卡片详情，低余额仅突出入口，不改变余额/告警/同步",
         "看板列表和详情对无探针左连接字段保持 NULL 安全",
         "看板错误去重对空 request_id 按错误行唯一标识处理",
         "上游渠道列表默认按配置 ID 正序；可选列排序必须在完整筛选结果分页前由服务端完成，并以 ID 正序保证稳定分页",
