@@ -167,7 +167,7 @@
                   <span class="font-medium text-gray-900 dark:text-white">{{ row.output_tokens?.toLocaleString() || 0 }}</span>
                 </div>
               </div>
-              <div v-if="row.cache_read_tokens > 0 || row.cache_creation_tokens > 0" class="flex items-center gap-2">
+              <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
                 <div v-if="row.cache_read_tokens > 0" class="inline-flex items-center gap-1">
                   <svg class="h-3.5 w-3.5 text-sky-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /></svg>
                   <span class="font-medium text-sky-600 dark:text-sky-400">{{ formatCacheTokens(row.cache_read_tokens) }}</span>
@@ -178,6 +178,12 @@
                   <span v-if="row.cache_creation_1h_tokens > 0" class="inline-flex items-center rounded px-1 py-px text-[10px] font-medium leading-tight bg-orange-100 text-orange-600 ring-1 ring-inset ring-orange-200 dark:bg-orange-500/20 dark:text-orange-400 dark:ring-orange-500/30">1h</span>
                   <span v-if="row.cache_ttl_overridden" :title="t('usage.cacheTtlOverriddenHint')" class="inline-flex items-center rounded px-1 py-px text-[10px] font-medium leading-tight bg-rose-100 text-rose-600 ring-1 ring-inset ring-rose-200 dark:bg-rose-500/20 dark:text-rose-400 dark:ring-rose-500/30 cursor-help">R</span>
                 </div>
+                <span
+                  data-testid="usage-cache-rate"
+                  class="inline-flex shrink-0 items-center whitespace-nowrap rounded-md bg-sky-50 px-1.5 py-0.5 text-[10px] leading-tight text-sky-600 ring-1 ring-inset ring-sky-200/60 dark:bg-sky-500/10 dark:text-sky-400 dark:ring-sky-500/20"
+                >
+                  <span class="text-[11px] font-medium tabular-nums text-sky-700 dark:text-sky-300">{{ formatUsageCacheRate(row) }}</span>
+                </span>
               </div>
               <div v-if="hasImageInputTokens(row)" class="flex items-center gap-2">
                 <div class="inline-flex items-center gap-1">
@@ -387,6 +393,10 @@
               <span class="text-gray-400">{{ t('admin.usage.cacheReadTokens') }}</span>
               <span class="font-medium text-white">{{ tokenTooltipData.cache_read_tokens.toLocaleString() }}</span>
             </div>
+            <div v-if="tokenTooltipData" data-testid="token-tooltip-cache-rate" class="flex items-center justify-between gap-4">
+              <span class="text-gray-400">{{ t('usage.cacheRate') }}</span>
+              <span class="font-medium tabular-nums text-sky-300">{{ formatUsageCacheRate(tokenTooltipData) }}</span>
+            </div>
           </div>
           <div class="flex items-center justify-between gap-6 border-t border-gray-700 pt-1.5">
             <span class="text-gray-400">{{ t('usage.totalTokens') }}</span>
@@ -590,6 +600,14 @@ import Icon from '@/components/icons/Icon.vue'
 import { fetchBatch, getEntry } from '@/utils/ipGeoLookup'
 import type { AdminUsageLog } from '@/types'
 import type { Column } from '@/components/common/types'
+
+function formatUsageCacheRate(row: AdminUsageLog): string {
+  const normalize = (value: number | null | undefined): number =>
+    Number.isFinite(value) && Number(value) > 0 ? Number(value) : 0
+  const cacheRead = normalize(row.cache_read_tokens)
+  const promptTokens = normalize(row.input_tokens) + normalize(row.cache_creation_tokens) + cacheRead
+  return promptTokens > 0 ? `${(cacheRead / promptTokens * 100).toFixed(2)}%` : '—'
+}
 
 interface Props {
   data: AdminUsageLog[]
