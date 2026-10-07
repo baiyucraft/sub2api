@@ -340,7 +340,7 @@ def ensure_vm_space(runner: SSHRunner, cleaner: str, manifest: dict[str, object]
         arguments.extend(shlex.quote(str(manifest[field])) for field in compatibility_fields)
     argument_text = " ".join(arguments)
     command = f"{shlex.quote(cleaner)} dry-run {argument_text}"
-    report = runner.run("local_vm", command, SPACE_FIELDS).values
+    report = runner.run("local_vm", command, SPACE_FIELDS, timeout=600).values
     if report["space_status"] == "sufficient":
         return {**report, "cleanup_applied": "false"}
     if report["space_status"] != "insufficient":
@@ -351,7 +351,7 @@ def ensure_vm_space(runner: SSHRunner, cleaner: str, manifest: dict[str, object]
         SPACE_FIELDS,
         timeout=600,
     )
-    verified = runner.run("local_vm", command, SPACE_FIELDS).values
+    verified = runner.run("local_vm", command, SPACE_FIELDS, timeout=600).values
     if verified["space_status"] != "sufficient":
         raise RuntimeError("VM disk space remains insufficient after one allowlisted cleanup")
     return {**verified, "cleanup_applied": "true"}
