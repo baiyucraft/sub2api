@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 )
 
@@ -23,25 +24,28 @@ type DistributionAttempt struct {
 }
 
 type UpstreamConfidenceDistributionRepository interface {
-	ClaimConfidenceDistribution(context.Context, int64, string, string, time.Time) (*DistributionAttempt, error)
+	ClaimConfidenceDistribution(context.Context, int64, ConfidenceDistributionIdentity, time.Time) (*DistributionAttempt, error)
 	FinishConfidenceDistribution(context.Context, int64, *DistributionAttempt, DistributionSample, time.Time) (*UpstreamConfidenceDistribution, bool, error)
 	LoadConfidenceDistribution(context.Context, int64, time.Time) (*UpstreamConfidenceDistribution, error)
-	LoadConfidenceDistributionForSeries(context.Context, int64, string, time.Time) (*UpstreamConfidenceDistribution, error)
+	LoadConfidenceDistributionForSeries(context.Context, int64, ConfidenceDistributionIdentity, time.Time) (*UpstreamConfidenceDistribution, error)
 }
 
 // ConfidenceDistributionState is stored separately from key health metadata so
 // health observation updates cannot overwrite an in-flight claim.
 type ConfidenceDistributionState struct {
-	SeriesID        string               `json:"series_id"`
-	Fingerprint     string               `json:"fingerprint"`
-	Protocol        string               `json:"protocol"`
-	BaselineVersion string               `json:"baseline_version"`
-	ProbeOrder      []string             `json:"probe_order"`
-	NextSequence    int64                `json:"next_sequence"`
-	Samples         []DistributionSample `json:"samples"`
-	Pending         *DistributionAttempt `json:"pending,omitempty"`
-	LeaseExpiresAt  time.Time            `json:"lease_expires_at,omitempty"`
-	LastDecisive    string               `json:"last_decisive,omitempty"`
+	IdentityVersion    int                                `json:"identity_version,omitempty"`
+	IdentityComponents map[string]string                  `json:"identity_components,omitempty"`
+	SeriesReset        *ConfidenceDistributionSeriesReset `json:"series_reset,omitempty"`
+	SeriesID           string                             `json:"series_id"`
+	Fingerprint        string                             `json:"fingerprint"`
+	Protocol           string                             `json:"protocol"`
+	BaselineVersion    string                             `json:"baseline_version"`
+	ProbeOrder         []string                           `json:"probe_order"`
+	NextSequence       int64                              `json:"next_sequence"`
+	Samples            []DistributionSample               `json:"samples"`
+	Pending            *DistributionAttempt               `json:"pending,omitempty"`
+	LeaseExpiresAt     time.Time                          `json:"lease_expires_at,omitempty"`
+	LastDecisive       string                             `json:"last_decisive,omitempty"`
 }
 
 func NewConfidenceDistributionState(fingerprint, protocol string) (*ConfidenceDistributionState, error) {
@@ -67,6 +71,75 @@ func NewConfidenceDistributionState(fingerprint, protocol string) (*ConfidenceDi
 	}, nil
 }
 
+// NewConfidenceDistributionStateForIdentity records only canonical request
+// identity digests. The legacy constructor remains useful for decoding fixtures.
+func NewConfidenceDistributionStateForIdentity(identity ConfidenceDistributionIdentity) (*ConfidenceDistributionState, error) {
+	if identity.Version != ConfidenceDistributionIdentityVersion || identity.BaselineVersion != DistributionBaselineVersion(identity.Protocol) {
+		return nil, errors.New("invalid confidence distribution request identity")
+	}
+	state, err := NewConfidenceDistributionState(identity.Fingerprint, identity.Protocol)
+	if err != nil {
+		return nil, err
+	}
+	state.UpgradeIdentity(identity)
+	return state, nil
+}
+
+// IdentityChange describes a safe upgrade or the public reasons for starting a
+// new series. It never exposes digests or request configuration values.
+func (s *ConfidenceDistributionState) IdentityChange(identity ConfidenceDistributionIdentity) (reasons []string, upgrade bool) {
+	if s.IdentityVersion == 0 {
+		if identity.Version == ConfidenceDistributionIdentityVersion && identity.LegacyCompatible && s.Fingerprint == identity.LegacyFingerprint &&
+			s.Protocol == distributionProtocol(identity.Protocol) && s.BaselineVersion == identity.BaselineVersion {
+			return nil, true
+		}
+		return []string{"legacy_identity_unverifiable"}, false
+	}
+	if s.IdentityVersion != identity.Version || identity.Version != ConfidenceDistributionIdentityVersion {
+		return []string{"legacy_identity_unverifiable"}, false
+	}
+	for _, component := range []string{"binding", "protocol", "endpoint", "credential", "model", "proxy", "headers", "contract", "baseline"} {
+		if s.IdentityComponents[component] != identity.Components[component] {
+			reasons = append(reasons, component+"_changed")
+		}
+	}
+	// Explicit fields also protect against partially recorded identities.
+	if s.Protocol != distributionProtocol(identity.Protocol) {
+		reasons = append(reasons, "protocol_changed")
+	}
+	if s.BaselineVersion != identity.BaselineVersion {
+		reasons = append(reasons, "baseline_changed")
+	}
+	if len(reasons) == 0 && s.Fingerprint != identity.Fingerprint {
+		reasons = append(reasons, "legacy_identity_unverifiable")
+	}
+	sort.Strings(reasons)
+	unique := reasons[:0]
+	for _, reason := range reasons {
+		if len(unique) == 0 || unique[len(unique)-1] != reason {
+			unique = append(unique, reason)
+		}
+	}
+	return unique, false
+}
+
+// UpgradeIdentity changes no sampling state, lease, or last decisive verdict.
+func (s *ConfidenceDistributionState) UpgradeIdentity(identity ConfidenceDistributionIdentity) {
+	s.IdentityVersion, s.Fingerprint = identity.Version, identity.Fingerprint
+	s.IdentityComponents = make(map[string]string, len(identity.Components))
+	for component, digest := range identity.Components {
+		s.IdentityComponents[component] = digest
+	}
+}
+
+func (s *ConfidenceDistributionState) PendingResetSummary(identity ConfidenceDistributionIdentity, reasons []string) (*UpstreamConfidenceDistribution, error) {
+	summary, err := ScoreUpstreamConfidenceDistribution(identity.Protocol, nil)
+	if summary != nil {
+		summary.SeriesReset = &ConfidenceDistributionSeriesReset{Pending: true, Reasons: append([]string(nil), reasons...), PreviousAttempted: len(s.Samples)}
+	}
+	return summary, err
+}
+
 func confidenceDistributionToken() (string, error) {
 	var token [24]byte
 	if _, err := rand.Read(token[:]); err != nil {
@@ -76,7 +149,7 @@ func confidenceDistributionToken() (string, error) {
 }
 
 func (s *ConfidenceDistributionState) Validate() error {
-	if s == nil || s.SeriesID == "" || s.Fingerprint == "" || s.NextSequence < 1 || len(s.ProbeOrder) != UpstreamConfidenceDistributionWindowSize {
+	if s == nil || s.IdentityVersion < 0 || s.SeriesID == "" || s.Fingerprint == "" || s.NextSequence < 1 || len(s.ProbeOrder) != UpstreamConfidenceDistributionWindowSize {
 		return errors.New("invalid persistent confidence distribution state")
 	}
 	counts := make(map[string]int)
@@ -212,5 +285,21 @@ func (s *ConfidenceDistributionState) Summary() (*UpstreamConfidenceDistribution
 		summary.Matches, summary.Scores = map[string]float64{}, map[string]float64{}
 		summary.ClosestModel = ""
 	}
+	if summary != nil {
+		summary.SeriesReset = cloneConfidenceDistributionSeriesReset(s.SeriesReset)
+	}
 	return summary, err
+}
+
+func cloneConfidenceDistributionSeriesReset(reset *ConfidenceDistributionSeriesReset) *ConfidenceDistributionSeriesReset {
+	if reset == nil {
+		return nil
+	}
+	copy := *reset
+	copy.Reasons = append([]string(nil), reset.Reasons...)
+	if reset.At != nil {
+		at := *reset.At
+		copy.At = &at
+	}
+	return &copy
 }

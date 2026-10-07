@@ -462,6 +462,7 @@ export default {
       },
       eventTypes: {
         key_confidence_distribution_changed: 'Key Distribution Confidence Changed',
+        key_confidence_distribution_reset: 'Key Distribution Sampling Series Reset',
         key_actual_rate_changed: 'Key Actual Rate Changed',
         key_rate_changed: 'Key Raw Rate Changed',
         key_effective_rate_changed: 'Key Cost Rate Changed',

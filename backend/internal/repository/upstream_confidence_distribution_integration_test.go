@@ -4,6 +4,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"testing"
 	"time"
@@ -12,7 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestConfidenceDistributionPostgresCrossInstanceClaim(t *testing.T) {
+func newConfidenceDistributionPostgresFixture(t *testing.T) (*upstreamConfigRepository, *sql.DB, int64) {
+	t.Helper()
 	ctx := context.Background()
 	config, err := integrationEntClient.UpstreamConfig.Create().
 		SetName(fmt.Sprintf("distribution-%d", time.Now().UnixNano())).
@@ -25,5 +27,20 @@ func TestConfidenceDistributionPostgresCrossInstanceClaim(t *testing.T) {
 		SetKey("fixture-key").SetKeyHash(service.HashUpstreamKey("fixture-key")).Save(ctx)
 	require.NoError(t, err)
 	repo := &upstreamConfigRepository{client: integrationEntClient}
-	testConfidenceDistributionConcurrentClaims(t, repo, integrationDB, key.ID)
+	return repo, integrationDB, key.ID
+}
+
+func TestConfidenceDistributionPostgresCrossInstanceClaim(t *testing.T) {
+	repo, db, keyID := newConfidenceDistributionPostgresFixture(t)
+	testConfidenceDistributionConcurrentClaims(t, repo, db, keyID)
+}
+
+func TestConfidenceDistributionPostgresIdentityLifecycle(t *testing.T) {
+	repo, db, keyID := newConfidenceDistributionPostgresFixture(t)
+	testConfidenceDistributionIdentityLifecycle(t, repo, db, keyID)
+}
+
+func TestConfidenceDistributionPostgresStableWindow(t *testing.T) {
+	repo, db, keyID := newConfidenceDistributionPostgresFixture(t)
+	testConfidenceDistributionStableWindow(t, repo, db, keyID)
 }

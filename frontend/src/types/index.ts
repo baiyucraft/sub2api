@@ -1667,6 +1667,13 @@ export interface UpstreamConfidenceDistributionCell {
   counts: Record<string, number>
 }
 
+export interface UpstreamConfidenceDistributionReset {
+  pending: boolean
+  at?: string | null
+  reasons: string[]
+  previous_attempted: number
+}
+
 /** Relative behavioral fit scores, never model identity probabilities. */
 export interface UpstreamConfidenceDistribution {
   status: 'collecting' | 'match' | 'mismatch' | 'insufficient'
@@ -1684,6 +1691,7 @@ export interface UpstreamConfidenceDistribution {
   baseline_version: string
   protocol: string
   reasons: string[]
+  series_reset?: UpstreamConfidenceDistributionReset
 }
 
 export interface UpstreamHealthObservation {
