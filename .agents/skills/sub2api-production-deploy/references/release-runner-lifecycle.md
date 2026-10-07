@@ -106,6 +106,8 @@ python .agents/skills/sub2api-production-deploy/scripts/release.py verify-recove
 
 ## 故障边界
 
+validator 尚未启动的失败使用独立 `reconcile-vm-preserve <release_id>`，不能调用依赖 Gate 的生产 reconciliation。此入口仅接受原本运行、未由 release 启动的 VM：失败 runner 已退出，manifest/runner/持久 owner 身份一致，本地无 Gate/生产 state，远端 Gate、生产 release 和 active claim 全部不存在，无 validator、构建或空间检查进程，VM boot ID/电源与 dev 健康可证明，生产 Nginx 和 backup timer 正常。入口在发布全局锁与跨 checkout VM 身份锁内重新核对，只把失败租约收口为 released/preserved，不改变失败状态、不删证据、不启动或关闭 VM。任何查询失败、状态漂移、已开始 validator/生产或本次启动 VM 都拒绝。owner 是最后提交标记，前序写失败保留原 owner，重新核对后才能收口。
+
 `stage_assets_verified` 之后没有 `production_preflight`，且 runner 已退出时，归类为 caller/runner interruption。只有 active claim 精确匹配、没有 production state、旧应用 healthy、Nginx active、backup timer enabled 且没有危险阶段，才允许 claim-only recovery。任何状态不明、迁移或公开流量已开始，都保持 `blocked`，不得删除 marker 或手工编辑 JSON。
 
 一次 release 只允许一个 worker、一个 active claim 和一个 candidate。`.release.lock` 是 OS 文件锁，不以锁文件是否存在判断是否持锁；worker 在本地检查后、首次 VM 连接前持锁，启用生命周期时同时取得跨 checkout VM 身份锁，保持到最终 cleanup/关机核实或失败收口。持久所有权不会因释放锁或 worker 退出而被自动接管。

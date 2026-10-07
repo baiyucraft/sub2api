@@ -127,7 +127,7 @@ _RECOVERY_RUNTIME_FILES = frozenset(
         "bootstrap_backup_dr_assets.sh", "bootstrap_vm_signer.sh",
         "production-recovery-retention-clean.sh", "production-space-clean.sh",
         "promote-dr-baseline.sh", "sign-dr-evidence.sh", "sign-gate.sh",
-        "vm-only-validate.sh", "vm-validate.sh", "bootstrap.py", "production_bootstrap.py",
+        "vm-only-validate.sh", "vm-validate.sh", "vm-space-clean.sh", "bootstrap.py", "production_bootstrap.py",
         "production_cleanup.py", "production_recovery_retention.py", "profiles.py",
         "paths.py", "atomic.py", "migration_planner.py",
     }

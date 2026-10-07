@@ -261,6 +261,8 @@ Gate 必须绑定 commit、origin、VM identity、validator、runner、发布资
 - 将 `deploy-start` 预创建的 release 目录视为 workspace 合同，worker 只能安全复用。复用前确认它是普通目录且不是 symlink，并核对 `manifest.json`、`state.json` 中的 schema、release ID、profile 和完整 commit；启动 VM Gate 前要求 `gate/` 完全不存在。
 - 遇到 release 目录 `FileExistsError` 且生产阶段仍为 `not_started` 时停止当前 runner，不重复启动同一 release。修复发布资产后必须使用新 commit、新 release ID 和新签名 Gate。
 - `wait` 超时或 runner 非零退出只触发只读诊断，不代表可以重试。先执行 `status`；Gate 或 `production-result.json` 尚未生成时不得执行 `reconcile-inspect`，只核对 `runner.json`、`state.json`、committed marker 和受限错误摘要。
+- 原本运行的 VM 在 validator 启动前失败且生产完全未开始时，可使用版本化 `reconcile-vm-preserve <release_id>`。该入口持有发布与 VM 身份锁，核对失败 runner 身份、匹配的持久租约、VM 电源/boot ID、远端 Gate 和生产 release/claim 均不存在、无 validator/构建/空间检查进程，并验证 dev 健康和生产入口/备份。只释放失败租约，保持 VM 运行及失败 release 状态；本次启动的 VM、存在 Gate 或生产状态、未知现场一律拒绝，不允许手工编辑 owner。
+- VM 空间 dry-run 的 SSH 观察预算为 600 秒；目标源码同步使用不可交互的 300 秒 GNU timeout（10 秒 kill-after），同步失败或目标 commit 仍不可证明时，在枚举/清理前停止。该预算不增加清理次数或范围。
 - 生产成功后仍必须执行 `verify-result` 和 post-deploy `doctor`；两者分别确认签名 Candidate/运行镜像、claim/backup units、迁移状态和三节点健康。随后只清理本 release 的隔离临时任务和一次性导入、恢复、诊断材料，保留 PostgreSQL、Redis、`data-dev`、旧 image、Gate、checksum、marker、production-result 和失败证据。独立验证或用户展示保留的 `sub2api-dev:8211` 不属于自动关闭对象，不创建其他展示端口、不删除 VM 数据。启用 `vm_lifecycle` 时再按持久所有权决定是否正常关机；原本运行的 VM 保留，本次启动的 VM 仅在全部成功条件满足后关机。
 
 ### 签名资产与 profile 兼容

@@ -12,7 +12,7 @@ if [[ -n $compat_version || -n $explicit_compat_commit || -n $explicit_compat_im
   [[ -n $compat_version && $explicit_compat_commit =~ ^[0-9a-f]{40}$ && $explicit_compat_image_id =~ ^sha256:[0-9a-f]{64}$ ]]
 fi
 
-required_commands=(awk cut df docker flock git grep mktemp ps rm sort stat tr wc)
+required_commands=(awk cut df docker flock git grep mktemp ps rm sort stat timeout tr wc)
 for command_name in "${required_commands[@]}"; do
   command -v "$command_name" >/dev/null 2>&1 || exit 127
 done
@@ -29,17 +29,21 @@ cleanup() {
 trap cleanup EXIT
 
 source_dir=/opt/sub2api-src
+[[ -d $source_dir && ! -L $source_dir ]]
+# Compatibility image protection requires a provable target commit. Bound the
+# source synchronization below the caller's 600-second observation budget.
+if ! git -C "$source_dir" cat-file -e "$target_commit^{commit}" 2>/dev/null; then
+  GIT_TERMINAL_PROMPT=0 timeout --kill-after=10s 300s \
+    git -C "$source_dir" fetch origin main >/dev/null 2>&1
+fi
+git -C "$source_dir" cat-file -e "$target_commit^{commit}" 2>/dev/null
 compat_commit=
 if [[ -n $explicit_compat_commit ]]; then
   compat_tag="sub2api:baiyu-$compat_version-$explicit_compat_commit"
   [[ $(docker image inspect -f '{{.Id}}' "$compat_tag") == "$explicit_compat_image_id" ]]
   compat_commit=$explicit_compat_commit
-elif [[ -d $source_dir && ! -L $source_dir ]]; then
-  if ! git -C "$source_dir" cat-file -e "$target_commit^{commit}" 2>/dev/null; then
-    git -C "$source_dir" fetch origin main >/dev/null 2>&1 || true
-  fi
 fi
-if [[ -z $explicit_compat_commit && -d $source_dir && ! -L $source_dir ]] && git -C "$source_dir" cat-file -e "$target_commit^{commit}" 2>/dev/null; then
+if [[ -z $explicit_compat_commit ]]; then
   compat_merge_commit=$(git -C "$source_dir" rev-list --first-parent --merges -n 1 "$target_commit" 2>/dev/null || true)
   if [[ $compat_merge_commit =~ ^[0-9a-f]{40}$ ]]; then
     candidate_compat_commit=$(git -C "$source_dir" rev-parse "$compat_merge_commit^1" 2>/dev/null || true)
