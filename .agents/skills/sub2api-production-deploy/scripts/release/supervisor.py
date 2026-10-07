@@ -22,6 +22,7 @@ from .process import popen_detached_worker
 from .profiles import get_profile, get_release_profile
 from .ssh import SSHRunner
 from .state import RunLock, RunState, TERMINAL_STATES
+from .vm_lifecycle import VMLease, lifecycle_view
 
 
 LOGGING_ROOT = SCRIPTS_ROOT / "logging"
@@ -40,6 +41,7 @@ STATUS_FIELDS = (
     "release_id", "profile", "commit", "deployment_mode", "runner_status", "runner_alive", "runner_exit",
     "vm_stage", "vm_status", "production_stage", "production_status",
     "candidate_image_id", "running_image_id", "image_ids_match", "claim_final_state", "updated_at",
+    "vm_power_status", "vm_started_by_release", "vm_cleanup_status",
 )
 DANGEROUS_STAGES = {
     "production_preflight", "pre_switch_streaming_verified", "freeze", "freeze_verified",
@@ -291,21 +293,34 @@ def worker(args: argparse.Namespace) -> None:
         with RunLock(RUN_ROOT / ".release.lock"):
             _update_runner(run_dir, status="running")
             logger.emit(stage="runner", script="release.supervisor", event="lock_acquired", message="Release worker acquired the release lock")
-            deploy(
-                argparse.Namespace(
-                    profile=args.profile, commit=args.commit, release_id=args.release_id,
-                    deployment_mode=deployment_mode,
-                    recovery_gate_mode=getattr(args, "recovery_gate_mode", "auto"),
-                ),
-                acquire_lock=False,
-            )
+            with VMLease(run_dir, args.release_id, process_token=runner["process_token"], commit=args.commit) as lease:
+                if lease.enabled:
+                    from .doctor import ReleaseDoctor
+
+                    ReleaseDoctor(args.profile, args.commit).run(("local",))
+                    lease.ensure_ready()
+                deploy(
+                    argparse.Namespace(
+                        profile=args.profile, commit=args.commit, release_id=args.release_id,
+                        deployment_mode=deployment_mode,
+                        recovery_gate_mode=getattr(args, "recovery_gate_mode", "auto"),
+                    ),
+                    acquire_lock=False,
+                )
+                if lease.enabled:
+                    # Share evidence checks, not the public terminal-runner precondition.
+                    _verified_evidence_view(args.release_id)
+                    ReleaseDoctor(args.profile, args.commit, runner=lease.ssh).run()
+                    logger.emit(stage="vm_shutdown", script="release.supervisor", event="stage_started", message="Owned VM cleanup started")
+                    lease.complete()
+                    logger.emit(stage="vm_shutdown", script="release.supervisor", event="stage_finished", message="Owned VM cleanup verified", exit_code=0)
         exit_code = 0
         terminal = "verified"
     except BaseException as error:
         release_state = _read_json(run_dir / "release-state.json") or {}
         production = _read_json(run_dir / "gate" / "production-result.json") or {}
         candidate = production.get("status") or release_state.get("status")
-        if candidate in TERMINAL_STATES:
+        if candidate in {"recovered", "blocked_reconciliation"}:
             terminal = str(candidate)
         logger.emit(
             stage="runner", script="release.supervisor", event="worker_failed",
@@ -368,6 +383,7 @@ def status_view(identifier: str) -> dict[str, Any]:
         "production_status": production.get("status", release_state.get("status", "not_started")),
         "candidate_image_id": candidate, "running_image_id": running,
         "image_ids_match": bool(candidate and running and candidate == running), "claim_final_state": claim, "updated_at": updated,
+        **lifecycle_view(run_dir),
     }
     return {field: value[field] for field in STATUS_FIELDS}
 
@@ -565,13 +581,18 @@ def _final_evidence(production: dict[str, Any]) -> dict[str, Any]:
 
 def verified_result_view(identifier: str) -> dict[str, Any]:
     run_dir = _run_dir(identifier)
-    manifest = _read_json(run_dir / "manifest.json", required=True) or {}
     runner = _read_json(run_dir / "runner.json", required=True) or {}
+    if _runner_alive(runner) or runner.get("status") != "verified" or runner.get("exit_code") != 0:
+        raise RuntimeError("release runner is not successfully terminal")
+    return _verified_evidence_view(identifier)
+
+
+def _verified_evidence_view(identifier: str) -> dict[str, Any]:
+    run_dir = _run_dir(identifier)
+    manifest = _read_json(run_dir / "manifest.json", required=True) or {}
     vm = _read_json(run_dir / "state.json", required=True) or {}
     release_state = _read_json(run_dir / "release-state.json", required=True) or {}
     production = _read_json(run_dir / "gate" / "production-result.json", required=True) or {}
-    if _runner_alive(runner) or runner.get("status") != "verified" or runner.get("exit_code") != 0:
-        raise RuntimeError("release runner is not successfully terminal")
     document = verify_gate(run_dir / "gate", TRUSTED_VM_PUBLIC_KEY, str(manifest.get("profile")), allow_expired=True)
     if document["manifest"] != manifest or manifest.get("release_id") != identifier:
         raise RuntimeError("manifest and signed Gate identity differ")

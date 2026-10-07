@@ -29,6 +29,7 @@ from .process import run_hidden
 from .recovery_gate import classify as classify_recovery_gate
 from .recovery_gate import assert_release_allowed, require_full, require_specialized, unproven_report
 from .state import TERMINAL_STATES, RunLock, RunState
+from .vm_lifecycle import vm_guard
 
 
 LOGGING_ROOT = SCRIPTS_ROOT / "logging"
@@ -349,7 +350,7 @@ def vm_validate(args: argparse.Namespace) -> None:
 
     rack_pre_gate_dir = vm_pre_gate_dir = None
     pre_gate_input = None
-    with RunLock(RUN_ROOT / ".release.lock"):
+    with RunLock(RUN_ROOT / ".release.lock"), vm_guard():
         try:
             state.transition("vm_preflight", "running")
             doctor = ReleaseDoctor(args.profile, args.commit)
@@ -447,6 +448,9 @@ def release(args: argparse.Namespace, acquire_lock: bool = True) -> None:
 
 
 def deploy(args: argparse.Namespace, acquire_lock: bool = True) -> None:
+    if acquire_lock:
+        with RunLock(RUN_ROOT / ".release.lock"), vm_guard():
+            return deploy(args, acquire_lock=False)
     deployment_mode = resolve_deployment_mode(args, interactive=getattr(args, "release_id", None) is None)
     lock = RunLock(RUN_ROOT / ".release.lock") if acquire_lock else None
     if lock:
@@ -548,14 +552,16 @@ def production_bootstrap(args: argparse.Namespace) -> None:
 def vm_only_validate_command(args: argparse.Namespace) -> None:
     from .vm_only import vm_only_validate
 
-    gate = vm_only_validate(args)
+    with RunLock(RUN_ROOT / ".release.lock"), vm_guard():
+        gate = vm_only_validate(args)
     print(f"gate={gate}")
 
 
 def vm_only_switch_command(args: argparse.Namespace) -> None:
     from .vm_only import vm_only_switch
 
-    vm_only_switch(args)
+    with RunLock(RUN_ROOT / ".release.lock"), vm_guard():
+        vm_only_switch(args)
     print("switch=verified")
 
 

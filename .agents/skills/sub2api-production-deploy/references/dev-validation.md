@@ -5,6 +5,7 @@
 - [适用范围](#适用范围)
 - [三层门禁在 VM 的执行](#三层门禁在-vm-的执行)
 - [VM 边界](#vm-边界)
+- [发布电源所有权与独立验证](#发布电源所有权与独立验证)
 - [浏览器联调边界](#浏览器联调边界)
 - [进入 VM 前](#进入-vm-前)
 - [VM 空间与扩容](#vm-空间与扩容)
@@ -66,6 +67,16 @@ VM 插件 Gate 不得使用真实生产账号采集。用户只要求查看 UI �
 - Redis：VM 本地 `redis` 服务或 `127.0.0.1:6379`
 
 本地 VM 仅用于开发验证，不是生产三机。它不得成为生产数据库、生产 Redis 或生产隧道的隐式副本。
+
+## 发布电源所有权与独立验证
+
+后台应用/插件发布的可选自动启停读取 `.ssh.local` 顶层 `vm_lifecycle`，配置字段、180 秒启动/关机超时示例及完整所有权规则见 [release-runner-lifecycle.md](release-runner-lifecycle.md)。未配置保持旧行为，配置错误 fail-closed。worker 在本地检查、全局锁、跨 checkout VM 身份锁和持久所有权核对后，首次 VM SSH/API 连接前检查 `vmrun list`，仅对已停止的目标执行 `vmrun start <vmx> nogui`，再等待 SSH 就绪。
+
+原本运行的 VM 始终保留。只有本次发布启动且所有权仍一致，才允许在 signed 应用验真与 postdoctor（插件为 signed 验真及逐实例验收）和本 release 隔离临时任务清理都成功后，通过 SSH 正常 `poweroff`，并以 `vmrun list` 确认停止；不依赖 VMware Tools，不允许 hard 关机。失败、blocked、恢复旧版本或崩溃保留 VM 与所有权；关机失败单独报告 cleanup 失败，不回滚或重发成功生产发布。
+
+独立 `vm-validate`、`vm-only-validate`、`vm-only-switch` 和用户展示不自动关闭 VM 或持久 `sub2api-dev:8211`。普通 doctor/status/follow/verify-result 及插件对应只读入口不自动开关机；关闭发布观察器不影响后台 worker。不得借独立验证或新 checkout 自动接管遗留发布所有权。
+
+本 release 的隔离临时任务必须在发布电源收口前结束并清理；清理不覆盖 PostgreSQL、Redis、`data-dev`、用户展示、回滚 image、Gate、marker 和失败证据。不得把电源停止等同于临时任务已清理。
 
 ## 浏览器联调边界
 

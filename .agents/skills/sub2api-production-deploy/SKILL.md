@@ -46,6 +46,9 @@ description: 面向 Sub2API fork 的构建、开发门禁、应用与独立插�
 - 人工发布默认使用单控制台中文入口 `deploy-follow`；它只启动一次隐藏 runner，并在同一控制台持续观察阶段变化。需要重新连接时使用 `follow <release_id>`，禁止反复新开 PowerShell 执行 `status` 或重新执行 `deploy`。
 - Windows runner 和其 Python、OpenSSL、Git Bash、Go 子进程必须通过 `scripts/release/process.py` 启动；禁止在发布运行代码中直接裸调用 `subprocess.run/Popen/check_output`，避免短生命周期控制台闪现。
 - 机器协议、JSON 字段和稳定错误码继续使用英文；面向用户的进度、阶段和收口信息由 `deploy-follow/follow --lang zh-CN` 输出中文。观察器关闭、超时或 Ctrl+C 不得终止后台 runner。
+- 可选 VM 电源合同由 `.ssh.local` 顶层 `vm_lifecycle` 提供；未配置保持旧行为，配置错误 fail-closed。后台发布 worker 在本地检查和全局锁后、首次 VM 连接前检查电源并按需无界面启动；必须使用跨 checkout 的 VM 身份锁和持久所有权，原本运行的 VM 始终保留。详细配置、成功收口与崩溃边界见 [release-runner-lifecycle.md](references/release-runner-lifecycle.md)。
+- 只有本次发布启动的 VM，才允许在 signed 验真、post-deploy doctor（插件为逐实例验收）和本 release 隔离临时任务清理全部成功后通过 SSH 正常 `poweroff`，再由 `vmrun list` 确认停止；不依赖 VMware Tools，禁止 hard 关机。失败、blocked、恢复旧版本或崩溃保留 VM，不自动接管遗留所有权。关机失败单独报告 cleanup 失败，不回滚或重发已成功的生产发布。
+- 普通 `doctor/status/follow/verify-result` 及插件对应的只读入口不自动开启或关闭 VM；独立 `vm-validate`、VM-only 验证/展示不自动关闭 VM。状态白名单增加 `vm_power_status`、`vm_started_by_release`、`vm_cleanup_status`；关闭观察器不改变 worker 或 VM 所有权。
 
 285 的发布语义断言由 `migration-285-assert.sh` 提供：生产仅执行只读 schema、函数原文指纹和 trigger 校验；VM 在隔离数据库的临时表中调用已安装函数，事务回滚。signed Gate 必须同时绑定 checksum、preflight、postflight、vm_semantics 和 verified_replay；已应用迁移也不能省略语义证据。精确审阅登记 `71016a197ea2cd3fc44987d8db421afc3983c040` → `7abbf4a504780f6f4ed73b54c9410f6f054f3380` 仅覆盖明确的五条迁移门禁路径及其 Git blob/模式，不涵盖恢复算法；仍须执行 specialized 真实隔离恢复。
 
@@ -256,7 +259,7 @@ Gate 必须绑定 commit、origin、VM identity、validator、runner、发布资
 - 将 `deploy-start` 预创建的 release 目录视为 workspace 合同，worker 只能安全复用。复用前确认它是普通目录且不是 symlink，并核对 `manifest.json`、`state.json` 中的 schema、release ID、profile 和完整 commit；启动 VM Gate 前要求 `gate/` 完全不存在。
 - 遇到 release 目录 `FileExistsError` 且生产阶段仍为 `not_started` 时停止当前 runner，不重复启动同一 release。修复发布资产后必须使用新 commit、新 release ID 和新签名 Gate。
 - `wait` 超时或 runner 非零退出只触发只读诊断，不代表可以重试。先执行 `status`；Gate 或 `production-result.json` 尚未生成时不得执行 `reconcile-inspect`，只核对 `runner.json`、`state.json`、committed marker 和受限错误摘要。
-- 生产成功后仍必须执行 `verify-result` 和 post-deploy `doctor`；两者分别确认签名 Candidate/运行镜像、claim/backup units、迁移状态和三节点健康。仅当二者都通过后，才关闭 VM 唯一 `sub2api-dev:8211` 展示容器；只停止/移除该应用容器，保留 PostgreSQL、Redis、`data-dev`、旧 image、Gate 和恢复证据，不创建其他展示端口、不删除 VM 数据。一次性导入、恢复和诊断脚本在发布收口后删除，但失败 release 目录、Gate、checksum、marker 和 production-result 必须保留。
+- 生产成功后仍必须执行 `verify-result` 和 post-deploy `doctor`；两者分别确认签名 Candidate/运行镜像、claim/backup units、迁移状态和三节点健康。随后只清理本 release 的隔离临时任务和一次性导入、恢复、诊断材料，保留 PostgreSQL、Redis、`data-dev`、旧 image、Gate、checksum、marker、production-result 和失败证据。独立验证或用户展示保留的 `sub2api-dev:8211` 不属于自动关闭对象，不创建其他展示端口、不删除 VM 数据。启用 `vm_lifecycle` 时再按持久所有权决定是否正常关机；原本运行的 VM 保留，本次启动的 VM 仅在全部成功条件满足后关机。
 
 ### 签名资产与 profile 兼容
 
