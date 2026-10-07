@@ -177,6 +177,47 @@ const mountRouteFilteredUsageView = () => mount(UsageView, {
 })
 
 describe('admin UsageView route filters', () => {
+  it('keeps the last clicked history user when a previous lookup returns later', async () => {
+    let resolveEarlier!: (user: { id: number; email: string }) => void
+    getById.mockReturnValueOnce(new Promise((resolve) => { resolveEarlier = resolve }))
+      .mockResolvedValueOnce({ id: 3, email: 'latest@test.com' })
+    const wrapper = mountRouteFilteredUsageView()
+    await flushPromises()
+    const table = wrapper.findComponent({ name: 'UsageTable' })
+    table.vm.$emit('userClick', 2)
+    table.vm.$emit('userClick', 3)
+    await flushPromises()
+    const history = wrapper.findComponent({ name: 'UserBalanceHistoryModal' })
+    expect(history.props('user')).toEqual(expect.objectContaining({ id: 3 }))
+    resolveEarlier({ id: 2, email: 'earlier@test.com' })
+    await flushPromises()
+    expect(history.props('user')).toEqual(expect.objectContaining({ id: 3 }))
+    expect(history.props('hideActions')).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('does not reopen history when a pending user lookup returns after closing', async () => {
+    let resolvePending!: (user: { id: number; email: string }) => void
+    getById.mockResolvedValueOnce({ id: 2, email: 'first@test.com' })
+      .mockReturnValueOnce(new Promise((resolve) => { resolvePending = resolve }))
+    const wrapper = mountRouteFilteredUsageView()
+    await flushPromises()
+    const table = wrapper.findComponent({ name: 'UsageTable' })
+    table.vm.$emit('userClick', 2)
+    await flushPromises()
+    const history = wrapper.findComponent({ name: 'UserBalanceHistoryModal' })
+    expect(history.props('show')).toBe(true)
+    table.vm.$emit('userClick', 3)
+    history.vm.$emit('close')
+    await flushPromises()
+    expect(history.props('show')).toBe(false)
+    resolvePending({ id: 3, email: 'pending@test.com' })
+    await flushPromises()
+    expect(history.props('show')).toBe(false)
+    expect(history.props('user')).toBeNull()
+    wrapper.unmount()
+  })
+
   beforeEach(() => {
     vi.useFakeTimers()
     Object.keys(routeQuery).forEach((key) => delete routeQuery[key])

@@ -117,3 +117,48 @@ func TestExtraCostServiceReverseUsesReversalOccurrenceTime(t *testing.T) {
 		t.Fatalf("ReversalOf = %v, want %d", repo.reversed.ReversalOf, original.ID)
 	}
 }
+
+func TestExtraCostServiceRejectsAutomaticRewardReversal(t *testing.T) {
+	repo := &extraCostRepositoryStub{original: &ExtraCostEntry{ID: 42, Category: "activity_reward", Amount: .25}}
+	svc := NewExtraCostService(repo)
+	_, err := svc.Reverse(context.Background(), 42, nil, "manual reversal", "")
+	if err == nil {
+		t.Fatal("automatic reward cost accepted a manual reversal")
+	}
+	if repo.reversed.Category != "" {
+		t.Fatal("manual reversal reached repository")
+	}
+}
+
+func TestExtraCostServiceRejectsForgedActivityCostsAndReservedKeys(t *testing.T) {
+	sourceID := int64(81)
+	userID := int64(7)
+	for _, entry := range []ExtraCostEntry{
+		{Category: ExtraCostCategoryActivityReward},
+		{Category: ExtraCostCategoryAccount, ActivityRewardID: &sourceID},
+		{Category: ExtraCostCategoryAccount, RelatedUserID: &userID},
+		{Category: ExtraCostCategoryAccount, ActivityType: "daily_gift"},
+		{Category: ExtraCostCategoryAccount, IdempotencyKey: " activity-reward:81 "},
+		{Category: ExtraCostCategoryAccount, RuleVersion: ActivityRewardCostRuleVersion},
+	} {
+		repo := &extraCostRepositoryStub{}
+		svc := NewExtraCostService(repo)
+		if _, err := svc.Create(context.Background(), entry); err != ErrExtraCostAutomaticEntry {
+			t.Fatalf("entry=%+v error=%v, want automatic entry protection", entry, err)
+		}
+		if repo.created.Category != "" {
+			t.Fatal("forged create reached repository")
+		}
+	}
+	svc := NewExtraCostService(&extraCostRepositoryStub{})
+	if _, err := svc.Reverse(context.Background(), 7, nil, "reserved", "activity-reward:81"); err != ErrExtraCostAutomaticEntry {
+		t.Fatalf("reserved reversal key error=%v", err)
+	}
+}
+
+func TestExtraCostServiceAllowsActivityRewardListFilter(t *testing.T) {
+	svc := NewExtraCostService(&extraCostRepositoryStub{})
+	if _, _, err := svc.List(context.Background(), ExtraCostFilter{Category: ExtraCostCategoryActivityReward}); err != nil {
+		t.Fatalf("activity reward list filter rejected: %v", err)
+	}
+}

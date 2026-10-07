@@ -49,7 +49,7 @@ func (r *extraCostRepository) List(ctx context.Context, filter service.ExtraCost
 		pageSize = 20
 	}
 	args = append(args, pageSize, (page-1)*pageSize)
-	query := `SELECT id, cost_date, amount, category, notes, created_by, created_at, reversal_of, idempotency_key, rule_version
+	query := `SELECT id, cost_date, amount, category, notes, created_by, created_at, reversal_of, idempotency_key, rule_version, activity_reward_id, related_user_id, activity_type
 		FROM extra_cost_entries WHERE ` + whereSQL + fmt.Sprintf(" ORDER BY created_at DESC, id DESC LIMIT $%d OFFSET $%d", len(args)-1, len(args))
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -58,7 +58,7 @@ func (r *extraCostRepository) List(ctx context.Context, filter service.ExtraCost
 	defer rows.Close()
 	items := make([]service.ExtraCostEntry, 0)
 	for rows.Next() {
-		entry, err := scanExtraCostRow(rows)
+		entry, err := scanExtraCostRow(rows, true)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -71,6 +71,9 @@ func (r *extraCostRepository) List(ctx context.Context, filter service.ExtraCost
 }
 
 func (r *extraCostRepository) Create(ctx context.Context, entry service.ExtraCostEntry) (*service.ExtraCostEntry, error) {
+	if entry.IsActivityRewardCost() {
+		return nil, service.ErrExtraCostAutomaticEntry
+	}
 	query := `INSERT INTO extra_cost_entries
 		(cost_date, amount, category, notes, created_by, created_at, reversal_of, idempotency_key, rule_version)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -102,7 +105,7 @@ func (r *extraCostRepository) Create(ctx context.Context, entry service.ExtraCos
 }
 
 func (r *extraCostRepository) GetByID(ctx context.Context, id int64) (*service.ExtraCostEntry, error) {
-	entry, err := scanExtraCostRow(r.db.QueryRowContext(ctx, `SELECT id, cost_date, amount, category, notes, created_by, created_at, reversal_of, idempotency_key, rule_version FROM extra_cost_entries WHERE id = $1`, id))
+	entry, err := scanExtraCostRow(r.db.QueryRowContext(ctx, `SELECT id, cost_date, amount, category, notes, created_by, created_at, reversal_of, idempotency_key, rule_version, activity_reward_id, related_user_id, activity_type FROM extra_cost_entries WHERE id = $1`, id), true)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, service.ErrExtraCostNotFound
 	}
@@ -113,18 +116,24 @@ func (r *extraCostRepository) GetByID(ctx context.Context, id int64) (*service.E
 }
 
 func (r *extraCostRepository) Reverse(ctx context.Context, id int64, adjustment service.ExtraCostEntry) (*service.ExtraCostEntry, error) {
+	if adjustment.IsActivityRewardCost() {
+		return nil, service.ErrExtraCostAutomaticEntry
+	}
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
 	var original service.ExtraCostEntry
-	original, err = scanExtraCostRow(tx.QueryRowContext(ctx, `SELECT id, cost_date, amount, category, notes, created_by, created_at, reversal_of, idempotency_key, rule_version FROM extra_cost_entries WHERE id = $1 FOR UPDATE`, id))
+	original, err = scanExtraCostRow(tx.QueryRowContext(ctx, `SELECT id, cost_date, amount, category, notes, created_by, created_at, reversal_of, idempotency_key, rule_version, activity_reward_id, related_user_id, activity_type FROM extra_cost_entries WHERE id = $1 FOR UPDATE`, id), true)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, service.ErrExtraCostNotFound
 	}
 	if err != nil {
 		return nil, err
+	}
+	if original.IsActivityRewardCost() {
+		return nil, service.ErrExtraCostAutomaticEntry
 	}
 	if adjustment.IdempotencyKey == "" {
 		adjustment.IdempotencyKey = fmt.Sprintf("reverse:%d", id)
@@ -240,13 +249,21 @@ func (r *extraCostRepository) DailySums(ctx context.Context, start, end *time.Ti
 
 type extraCostScanner interface{ Scan(dest ...any) error }
 
-func scanExtraCostRow(row extraCostScanner) (service.ExtraCostEntry, error) {
+// Manual writes keep their historical RETURNING projection; read paths append
+// source fields to expose immutable activity associations to administrators.
+func scanExtraCostRow(row extraCostScanner, includeSource ...bool) (service.ExtraCostEntry, error) {
 	var e service.ExtraCostEntry
 	var costDate extraCostDate
 	var createdBy, reversalOf sql.NullInt64
 	var createdAt sql.NullTime
 	var idempotency, ruleVersion sql.NullString
-	if err := row.Scan(&e.ID, &costDate, &e.Amount, &e.Category, &e.Notes, &createdBy, &createdAt, &reversalOf, &idempotency, &ruleVersion); err != nil {
+	var rewardID, relatedUserID sql.NullInt64
+	var activityType sql.NullString
+	dest := []any{&e.ID, &costDate, &e.Amount, &e.Category, &e.Notes, &createdBy, &createdAt, &reversalOf, &idempotency, &ruleVersion}
+	if len(includeSource) > 0 && includeSource[0] {
+		dest = append(dest, &rewardID, &relatedUserID, &activityType)
+	}
+	if err := row.Scan(dest...); err != nil {
 		return e, err
 	}
 	e.CostDate = string(costDate)
@@ -263,6 +280,13 @@ func scanExtraCostRow(row extraCostScanner) (service.ExtraCostEntry, error) {
 		e.IdempotencyKey = idempotency.String
 	}
 	e.RuleVersion = ruleVersion.String
+	if rewardID.Valid {
+		e.ActivityRewardID = &rewardID.Int64
+	}
+	if relatedUserID.Valid {
+		e.RelatedUserID = &relatedUserID.Int64
+	}
+	e.ActivityType = activityType.String
 	return e, nil
 }
 

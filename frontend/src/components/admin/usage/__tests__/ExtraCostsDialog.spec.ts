@@ -11,7 +11,7 @@ vi.mock('@/stores/app', () => ({ useAppStore: () => ({ showError, showSuccess })
 vi.mock('@/utils/format', () => ({ formatDateTime }))
 vi.mock('vue-i18n', async () => ({
   ...await vi.importActual<typeof import('vue-i18n')>('vue-i18n'),
-  useI18n: () => ({ t: (key: string) => key })
+  useI18n: () => ({ t: (key: string, params?: Record<string, unknown>) => params ? `${key}:${Object.values(params).join(',')}` : key })
 }))
 
 async function openDialog() {
@@ -42,6 +42,49 @@ describe('ExtraCostsDialog amount input', () => {
   afterEach(() => {
     vi.useRealTimers()
     vi.restoreAllMocks()
+  })
+
+  it('filters automatic reward costs while keeping manual creation options separate', async () => {
+    const { wrapper } = await openDialog()
+    const selects = wrapper.findAllComponents({ name: 'Select' })
+    expect(selects[0].props('options')).not.toEqual(expect.arrayContaining([expect.objectContaining({ value: 'activity_reward' })]))
+    expect(selects[1].props('options')).toEqual(expect.arrayContaining([expect.objectContaining({ value: 'activity_reward' })]))
+    selects[1].vm.$emit('update:modelValue', 'activity_reward')
+    selects[1].vm.$emit('change', 'activity_reward')
+    await flushPromises()
+    expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ category: 'activity_reward', page: 1 }))
+    wrapper.unmount()
+  })
+
+  it('shows automatic reward costs with user and reward references and no reversal', async () => {
+    list.mockResolvedValue({
+      items: [
+        { id: 9, cost_date: '2026-10-07', created_at: '2026-10-07T01:00:00Z', amount: 0.25, category: 'activity_reward', notes: '', related_user_id: 135, activity_reward_id: 123, activity_type: 'spend_draw' },
+        { id: 10, cost_date: '2026-10-07', created_at: '2026-10-07T01:01:00Z', amount: 2, category: 'account', notes: 'manual purchase' }
+      ], total: 2, daily_total: 2.25, range_total: 2.25
+    })
+    const { wrapper } = await openDialog()
+    const rows = wrapper.findAll('tbody tr')
+    expect(rows[0].text()).toContain('admin.dashboard.extraCostTypes.activity_reward')
+    expect(rows[0].text()).toContain('UID 135')
+    expect(rows[0].text()).toContain('admin.users.rewardRecordId:123')
+    expect(rows[0].text()).toContain('admin.users.activityRewardTypes.spend_draw')
+    expect(rows[0].text()).toContain('admin.dashboard.extraCostAutomatic')
+    expect(rows[0].find('button').exists()).toBe(false)
+    expect(rows[1].find('button').exists()).toBe(true)
+    expect(wrapper.text()).toContain('$2.2500')
+    expect(reverse).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('rejects an automatic category injected into the manual creation form', async () => {
+    const { wrapper } = await openDialog()
+    wrapper.findAllComponents({ name: 'Select' })[0].vm.$emit('update:modelValue', 'activity_reward')
+    await wrapper.get('#extra-cost-amount').setValue('1')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(create).not.toHaveBeenCalled()
+    wrapper.unmount()
   })
 
   it('defaults the ledger to the browser local day, including shortly after local midnight', async () => {

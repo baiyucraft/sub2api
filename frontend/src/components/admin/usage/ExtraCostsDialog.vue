@@ -79,9 +79,17 @@
                 <td class="whitespace-nowrap px-4 py-3">{{ formatDateTime(entry.created_at) }}</td>
                 <td class="whitespace-nowrap px-4 py-3">{{ typeLabel(entry.category) }}</td>
                 <td class="whitespace-nowrap px-4 py-3 text-right font-mono">${{ formatCost(entry.amount) }}</td>
-                <td class="max-w-xs truncate px-4 py-3" :title="entry.notes">{{ entry.notes || '—' }}</td>
+                <td class="max-w-xs px-4 py-3">
+                  <p class="truncate" :title="entry.notes">{{ entry.notes || '—' }}</p>
+                  <p v-if="entry.category === 'activity_reward'" class="mt-1 flex flex-wrap gap-x-2 text-xs text-gray-500 dark:text-dark-400">
+                    <span v-if="entry.related_user_id">UID {{ entry.related_user_id }}</span>
+                    <span v-if="entry.activity_reward_id">{{ t('admin.users.rewardRecordId', { id: entry.activity_reward_id }) }}</span>
+                    <span v-if="entry.activity_type">{{ activityTypeLabel(entry.activity_type) }}</span>
+                  </p>
+                </td>
                 <td class="whitespace-nowrap px-4 py-3 text-right">
-                  <span v-if="entry.reversal_of" class="text-xs text-gray-400">{{ t('admin.dashboard.extraCostReversed') }}</span>
+                  <span v-if="entry.category === 'activity_reward'" class="text-xs text-gray-400">{{ t('admin.dashboard.extraCostAutomatic') }}</span>
+                  <span v-else-if="entry.reversal_of" class="text-xs text-gray-400">{{ t('admin.dashboard.extraCostReversed') }}</span>
                   <button v-else type="button" class="btn btn-ghost btn-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10" :disabled="reversingId === entry.id" @click="reverseEntry(entry)">
                     {{ reversingId === entry.id ? t('common.saving') : t('admin.dashboard.extraCostReverse') }}
                   </button>
@@ -100,7 +108,8 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
-import type { ExtraCostEntry, ExtraCostType } from '@/api/admin/extraCosts'
+import type { ExtraCostEntry, ExtraCostType, ManualExtraCostType } from '@/api/admin/extraCosts'
+import type { ActivityRewardType } from '@/api/admin/users'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
@@ -121,7 +130,7 @@ const today = () => {
   const day = String(now.getDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
 }
-const form = reactive<{ amount: string | number; category: ExtraCostType; notes: string }>({ amount: '', category: 'account', notes: '' })
+const form = reactive<{ amount: string | number; category: ManualExtraCostType; notes: string }>({ amount: '', category: 'account', notes: '' })
 const filters = reactive<{ start_date: string; end_date: string; category?: ExtraCostType }>({ start_date: today(), end_date: today() })
 const entries = ref<ExtraCostEntry[]>([])
 const loading = ref(false)
@@ -139,12 +148,25 @@ const typeOptions = computed(() => [
   { value: 'other', label: t('admin.dashboard.extraCostTypes.other') },
   { value: 'adjustment', label: t('admin.dashboard.extraCostTypes.adjustment') }
 ])
-const filterTypeOptions = computed(() => [{ value: undefined, label: t('admin.dashboard.extraCostTypes.all') }, ...typeOptions.value])
-const canSubmit = computed(() => String(form.amount).trim() !== '' && Number.isFinite(Number(form.amount)) && Number(form.amount) >= 0)
+const filterTypeOptions = computed(() => [
+  { value: undefined, label: t('admin.dashboard.extraCostTypes.all') },
+  ...typeOptions.value,
+  { value: 'activity_reward', label: t('admin.dashboard.extraCostTypes.activity_reward') }
+])
+const canSubmit = computed(() => typeOptions.value.some((option) => option.value === form.category) && String(form.amount).trim() !== '' && Number.isFinite(Number(form.amount)) && Number(form.amount) >= 0)
 
 const close = () => emit('close')
 const formatCost = (value: number | null | undefined) => (Number.isFinite(Number(value)) ? Number(value).toFixed(4) : '0.0000')
-const typeLabel = (type: ExtraCostType) => typeOptions.value.find((item) => item.value === type)?.label || type
+const typeLabel = (type: ExtraCostType) => filterTypeOptions.value.find((item) => item.value === type)?.label || type
+const activityTypeLabel = (type: ActivityRewardType) => {
+  switch (type) {
+    case 'daily_gift': return t('admin.users.activityRewardTypes.daily_gift')
+    case 'recharge_draw': return t('admin.users.activityRewardTypes.recharge_draw')
+    case 'spend_draw': return t('admin.users.activityRewardTypes.spend_draw')
+    case 'invite_draw': return t('admin.users.activityRewardTypes.invite_draw')
+    default: return t('admin.users.typeActivityReward')
+  }
+}
 const resetLedgerDate = (date: string) => {
   filters.start_date = date
   filters.end_date = date
@@ -200,6 +222,7 @@ async function submit(): Promise<void> {
 }
 
 async function reverseEntry(entry: ExtraCostEntry): Promise<void> {
+  if (entry.category === 'activity_reward') return
   const reason = window.prompt(t('admin.dashboard.extraCostReversePrompt'))
   if (reason === null || !reason.trim() || reversingId.value !== null) return
   reversingId.value = entry.id

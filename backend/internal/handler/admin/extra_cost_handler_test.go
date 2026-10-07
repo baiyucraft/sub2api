@@ -13,7 +13,8 @@ import (
 )
 
 type extraCostHandlerRepositoryStub struct {
-	created service.ExtraCostEntry
+	created  service.ExtraCostEntry
+	original *service.ExtraCostEntry
 }
 
 func (r *extraCostHandlerRepositoryStub) List(context.Context, service.ExtraCostFilter) ([]service.ExtraCostEntry, int64, error) {
@@ -27,6 +28,9 @@ func (r *extraCostHandlerRepositoryStub) Create(_ context.Context, entry service
 }
 
 func (r *extraCostHandlerRepositoryStub) GetByID(context.Context, int64) (*service.ExtraCostEntry, error) {
+	if r.original != nil {
+		return r.original, nil
+	}
 	return nil, service.ErrExtraCostNotFound
 }
 
@@ -59,5 +63,60 @@ func TestExtraCostHandlerCreateIgnoresLegacyCostDate(t *testing.T) {
 	}
 	if repo.created.CreatedAt.IsZero() {
 		t.Fatal("CreatedAt is zero, want server occurrence time")
+	}
+}
+
+func TestExtraCostHandlerRejectsForgedRewardAssociation(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, fields := range []string{
+		`"activity_reward_id":81`,
+		`"related_user_id":7`,
+		`"activity_type":"daily_gift"`,
+	} {
+		t.Run(fields, func(t *testing.T) {
+			repo := &extraCostHandlerRepositoryStub{}
+			handler := NewExtraCostHandler(service.NewExtraCostService(repo))
+			router := gin.New()
+			router.POST("/extra-costs", handler.Create)
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPost, "/extra-costs", strings.NewReader(`{"amount":1,"category":"account",`+fields+`}`))
+			request.Header.Set("Content-Type", "application/json")
+			router.ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400; body=%s", recorder.Code, recorder.Body.String())
+			}
+			if repo.created.Category != "" {
+				t.Fatal("forged request reached repository")
+			}
+		})
+	}
+}
+
+func TestExtraCostHandlerRejectsAutomaticRewardCostMutations(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, body := range []string{
+		`{"amount":1,"category":"activity_reward"}`,
+		`{"amount":1,"category":"account","idempotency_key":"activity-reward:81"}`,
+	} {
+		repo := &extraCostHandlerRepositoryStub{}
+		router := gin.New()
+		router.POST("/extra-costs", NewExtraCostHandler(service.NewExtraCostService(repo)).Create)
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/extra-costs", strings.NewReader(body))
+		request.Header.Set("Content-Type", "application/json")
+		router.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusBadRequest || repo.created.Category != "" {
+			t.Fatalf("automatic create status=%d created=%+v body=%s", recorder.Code, repo.created, recorder.Body.String())
+		}
+	}
+	repo := &extraCostHandlerRepositoryStub{original: &service.ExtraCostEntry{ID: 900, Category: service.ExtraCostCategoryActivityReward}}
+	router := gin.New()
+	router.POST("/extra-costs/:id/reverse", NewExtraCostHandler(service.NewExtraCostService(repo)).Reverse)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/extra-costs/900/reverse", strings.NewReader(`{"reason":"manual reversal"}`))
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("automatic reversal status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }

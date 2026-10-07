@@ -656,6 +656,16 @@ type AdminRedeemCode struct {
 	Notes string `json:"notes"`
 }
 
+// AdminUserBalanceHistoryRecord preserves legacy history fields while exposing
+// the original ledger identity for tracing activity rewards and mixed sources.
+type AdminUserBalanceHistoryRecord struct {
+	AdminRedeemCode
+	RecordSource string  `json:"record_source"`
+	SourceID     int64   `json:"source_id"`
+	ActivityType string  `json:"activity_type,omitempty"`
+	PeriodDate   *string `json:"period_date,omitempty"`
+}
+
 type NullableTimeField struct {
 	Set   bool
 	Value *time.Time
