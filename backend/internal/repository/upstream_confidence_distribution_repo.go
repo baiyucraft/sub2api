@@ -151,7 +151,7 @@ func confidenceDistributionChanged(result sql.Result, err error) (bool, error) {
 	return count == 1, err
 }
 
-func (r *upstreamConfigRepository) ClaimConfidenceDistribution(ctx context.Context, keyID int64, fingerprint, protocol string, now time.Time) (*service.DistributionAttempt, error) {
+func (r *upstreamConfigRepository) ClaimConfidenceDistribution(ctx context.Context, keyID int64, identity service.ConfidenceDistributionIdentity, now time.Time) (*service.DistributionAttempt, error) {
 	if keyID <= 0 {
 		return nil, errors.New("confidence distribution key is required")
 	}
@@ -160,33 +160,84 @@ func (r *upstreamConfigRepository) ClaimConfidenceDistribution(ctx context.Conte
 		return nil, err
 	}
 	for i := 0; i < confidenceDistributionCASAttempts; i++ {
-		state, revision, err := readConfidenceDistributionState(ctx, db, keyID)
+		tx, err := db.BeginTx(ctx, nil)
 		if err != nil {
 			return nil, err
 		}
+		state, revision, err := readConfidenceDistributionState(ctx, tx, keyID)
+		if err != nil {
+			_ = tx.Rollback()
+			return nil, err
+		}
+		previousSeries := ""
 		if state != nil {
-			state.Recover(now)
+			recovered := state.Recover(now)
+			// Identity changes never overwrite a request which still owns its lease.
 			if state.Pending != nil {
+				if recovered {
+					changed, err := saveConfidenceDistributionState(ctx, tx, keyID, revision, state, now)
+					if err != nil {
+						_ = tx.Rollback()
+						return nil, err
+					}
+					if !changed {
+						_ = tx.Rollback()
+						continue
+					}
+					if err := tx.Commit(); err != nil {
+						return nil, err
+					}
+				} else {
+					_ = tx.Rollback()
+				}
 				return nil, nil
 			}
-		}
-		if state == nil || state.Fingerprint != fingerprint || state.Protocol != protocol || state.BaselineVersion != service.DistributionBaselineVersion(protocol) {
-			state, err = service.NewConfidenceDistributionState(fingerprint, protocol)
+			reasons, upgrade := state.IdentityChange(identity)
+			if upgrade {
+				state.UpgradeIdentity(identity)
+			}
+			if len(reasons) > 0 {
+				previousSeries = state.SeriesID
+				previousAttempted := len(state.Samples)
+				state, err = service.NewConfidenceDistributionStateForIdentity(identity)
+				if err != nil {
+					_ = tx.Rollback()
+					return nil, err
+				}
+				at := now.UTC()
+				state.SeriesReset = &service.ConfidenceDistributionSeriesReset{At: &at, Reasons: reasons, PreviousAttempted: previousAttempted}
+			}
+		} else {
+			state, err = service.NewConfidenceDistributionStateForIdentity(identity)
 			if err != nil {
+				_ = tx.Rollback()
 				return nil, err
 			}
 		}
 		attempt, err := state.Claim(now)
 		if err != nil {
+			_ = tx.Rollback()
 			return nil, err
 		}
-		changed, err := saveConfidenceDistributionState(ctx, db, keyID, revision, state, now)
+		changed, err := saveConfidenceDistributionState(ctx, tx, keyID, revision, state, now)
 		if err != nil {
+			_ = tx.Rollback()
 			return nil, err
 		}
-		if changed {
-			return attempt, nil
+		if !changed {
+			_ = tx.Rollback()
+			continue
 		}
+		if previousSeries != "" {
+			if err := persistConfidenceDistributionResetEvent(ctx, tx, keyID, previousSeries, state.SeriesID, state.SeriesReset, now); err != nil {
+				_ = tx.Rollback()
+				return nil, err
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			return nil, err
+		}
+		return attempt, nil
 	}
 	return nil, errors.New("confidence distribution claim contention")
 }
@@ -239,10 +290,14 @@ func (r *upstreamConfigRepository) FinishConfidenceDistribution(ctx context.Cont
 }
 
 func (r *upstreamConfigRepository) LoadConfidenceDistribution(ctx context.Context, keyID int64, now time.Time) (*service.UpstreamConfidenceDistribution, error) {
-	return r.LoadConfidenceDistributionForSeries(ctx, keyID, "", now)
+	return r.loadConfidenceDistribution(ctx, keyID, nil, now)
 }
 
-func (r *upstreamConfigRepository) LoadConfidenceDistributionForSeries(ctx context.Context, keyID int64, fingerprint string, now time.Time) (*service.UpstreamConfidenceDistribution, error) {
+func (r *upstreamConfigRepository) LoadConfidenceDistributionForSeries(ctx context.Context, keyID int64, identity service.ConfidenceDistributionIdentity, now time.Time) (*service.UpstreamConfidenceDistribution, error) {
+	return r.loadConfidenceDistribution(ctx, keyID, &identity, now)
+}
+
+func (r *upstreamConfigRepository) loadConfidenceDistribution(ctx context.Context, keyID int64, identity *service.ConfidenceDistributionIdentity, now time.Time) (*service.UpstreamConfidenceDistribution, error) {
 	db, err := r.confidenceDistributionDB()
 	if err != nil {
 		return nil, err
@@ -252,21 +307,55 @@ func (r *upstreamConfigRepository) LoadConfidenceDistributionForSeries(ctx conte
 		if err != nil || state == nil {
 			return nil, err
 		}
-		if (fingerprint != "" && state.Fingerprint != fingerprint) || state.BaselineVersion != service.DistributionBaselineVersion(state.Protocol) {
+		changed := state.Recover(now)
+		var reasons []string
+		if identity != nil {
+			var upgrade bool
+			reasons, upgrade = state.IdentityChange(*identity)
+			if upgrade {
+				state.UpgradeIdentity(*identity)
+				changed = true
+			}
+		} else if state.BaselineVersion != service.DistributionBaselineVersion(state.Protocol) {
 			return nil, nil
 		}
-		if state.Recover(now) {
-			changed, err := saveConfidenceDistributionState(ctx, db, keyID, revision, state, now)
+		if changed {
+			saved, err := saveConfidenceDistributionState(ctx, db, keyID, revision, state, now)
 			if err != nil {
 				return nil, err
 			}
-			if !changed {
+			if !saved {
 				continue
 			}
+		}
+		if len(reasons) > 0 {
+			return state.PendingResetSummary(*identity, reasons)
 		}
 		return state.Summary()
 	}
 	return nil, errors.New("confidence distribution read contention")
+}
+
+func persistConfidenceDistributionResetEvent(ctx context.Context, tx *sql.Tx, keyID int64, previousSeries, seriesID string, reset *service.ConfidenceDistributionSeriesReset, now time.Time) error {
+	payload, err := json.Marshal(map[string]any{
+		"previous_series_id": previousSeries, "series_id": seriesID,
+		"reasons": reset.Reasons, "previous_attempted": reset.PreviousAttempted, "reset_at": reset.At,
+	})
+	if err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, `INSERT INTO upstream_events
+		(upstream_config_id, upstream_key_id, event_type, severity, source, message, payload, occurred_at, created_at)
+		SELECT upstream_config_id, id, 'key_confidence_distribution_reset', 'info', 'probe', $1, $2, $3, $3
+		FROM upstream_keys WHERE id=$4`, "OpenAI probe distribution request identity changed", string(payload), now.UTC(), keyID)
+	changed, err := confidenceDistributionChanged(result, err)
+	if err != nil {
+		return err
+	}
+	if !changed {
+		return errors.New("confidence distribution reset event key unavailable")
+	}
+	return nil
 }
 
 func persistConfidenceDistributionEvent(ctx context.Context, tx *sql.Tx, keyID int64, seriesID string, summary *service.UpstreamConfidenceDistribution, now time.Time) error {

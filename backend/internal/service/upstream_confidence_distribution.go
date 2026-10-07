@@ -50,8 +50,17 @@ type UpstreamConfidenceDistributionCell struct {
 	Counts    map[string]int `json:"counts"`
 }
 
+// ConfidenceDistributionSeriesReset is safe display metadata, never raw identity.
+type ConfidenceDistributionSeriesReset struct {
+	Pending           bool       `json:"pending"`
+	At                *time.Time `json:"at,omitempty"`
+	Reasons           []string   `json:"reasons"`
+	PreviousAttempted int        `json:"previous_attempted"`
+}
+
 // Matches are relative behavioral fit scores, not identity probabilities.
 type UpstreamConfidenceDistribution struct {
+	SeriesReset     *ConfidenceDistributionSeriesReset            `json:"series_reset,omitempty"`
 	Status          string                                        `json:"status"`
 	WindowSize      int                                           `json:"window_size"`
 	Attempted       int                                           `json:"attempted"`

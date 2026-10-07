@@ -3,86 +3,59 @@ package service
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
+	"github.com/google/uuid"
 )
 
 type distributionProbeContextKey struct{}
-type distributionProbeClaim func(context.Context, string) (*DistributionAttempt, error)
+type distributionProbeClaim func(context.Context, ConfidenceDistributionIdentity) (*DistributionAttempt, error)
 
 var errDistributionProbeBusy = errors.New("confidence distribution probe is already in progress")
-
-func distributionAccountProtocol(account *Account) string {
-	if !openai_compat.ShouldUseResponsesAPI(account.Extra) {
-		return "chat_completions"
-	}
-	return "responses"
-}
-
-// Hash configuration only; neither credentials nor the hash input are persisted
-// or exposed in the public evidence. Changes create an independent series.
-func distributionAccountFingerprint(account *Account) string {
-	protocol := distributionAccountProtocol(account)
-	value := map[string]any{
-		"account_id": account.ID, "key_id": account.UpstreamKeyID,
-		"protocol": protocol, "credentials": account.Credentials,
-		"effective_model": account.GetMappedModel(UpstreamConfidenceDistributionClaimedModel),
-		"contract":        UpstreamConfidenceDistributionPromptVersion,
-		"baseline":        DistributionBaselineVersion(protocol), "proxy_id": account.ProxyID,
-	}
-	raw, err := json.Marshal(value)
-	if err != nil {
-		return ""
-	}
-	hash := sha256.Sum256(raw)
-	return hex.EncodeToString(hash[:])
-}
 
 // The claim is made after all local request checks, immediately before dispatch.
 // This consumes one durable slot, with no retry or alternate protocol request.
 func (s *AccountTestService) runOpenAIDistributionHealthProbe(ctx context.Context, account *Account) (UpstreamHealthProbeResult, error) {
-	protocol := distributionAccountProtocol(account)
 	result := UpstreamHealthProbeResult{Model: account.GetMappedModel(UpstreamConfidenceDistributionClaimedModel),
 		ConfidencePromptVersion: UpstreamConfidenceDistributionPromptVersion, RequestedEffort: "low"}
 	result.Protocol = upstreamHealthProbeProtocolOpenAI
-	apiKey, baseURL := account.GetOpenAIApiKey(), account.GetOpenAIBaseURL()
+	if distributionAccountProtocol(account) == "chat_completions" {
+		result.Protocol = upstreamHealthProbeProtocolOpenAIChat
+	}
+	spec, err := s.resolveDistributionRequest(account)
+	if err != nil {
+		var configErr *distributionConfigurationError
+		if errors.As(err, &configErr) {
+			return failUpstreamHealthProbe(result, configErr.result, configErr.reason, configErr.err)
+		}
+		return result, err
+	}
+	protocol := spec.identity.Protocol
+	result.Model = spec.model
 	parser := parseOpenAIUpstreamHealthStream
 	if protocol == "chat_completions" {
 		result.Protocol = upstreamHealthProbeProtocolOpenAIChat
-		apiKey, baseURL = account.GetOpenAIProtocolAPIKey(), account.GetOpenAIFormatBaseURL()
 		parser = parseOpenAIChatCompletionsUpstreamHealthStream
 	}
-	if strings.TrimSpace(result.Model) == "" || !account.IsModelSupported(UpstreamConfidenceDistributionClaimedModel) || isTextProbeUnsupportedModel(result.Model) {
-		return failUpstreamHealthProbe(result, "unsupported_model", "probe_model_unsupported", errors.New("account does not support the Sol distribution probe model"))
-	}
-	if strings.TrimSpace(apiKey) == "" {
-		return failUpstreamHealthProbe(result, "configuration_error", "probe_credentials_missing", errors.New("OpenAI probe credentials are missing"))
-	}
-	validatedURL, err := s.validateUpstreamBaseURL(baseURL)
-	if err != nil {
-		return failUpstreamHealthProbe(result, "configuration_error", "probe_base_url_invalid", err)
-	}
-	endpoint := buildOpenAIResponsesURL(validatedURL)
-	if protocol == "chat_completions" {
-		endpoint = buildOpenAIChatCompletionsURL(validatedURL)
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, spec.endpoint, nil)
 	if err != nil {
 		return failUpstreamHealthProbe(result, "request_error", "probe_request_invalid", err)
+	}
+	req.Header = spec.headers.Clone()
+	if protocol == "responses" {
+		if _, overridden := spec.account.HeaderOverrideValue("x-codex-window-id"); !overridden {
+			req.Header.Set("X-Codex-Window-ID", uuid.NewString())
+		}
 	}
 	claim, ok := ctx.Value(distributionProbeContextKey{}).(distributionProbeClaim)
 	if !ok {
 		return result, errors.New("persistent confidence distribution collector is unavailable")
 	}
-	attempt, err := claim(ctx, protocol)
+	attempt, err := claim(ctx, spec.identity)
 	if err != nil {
 		return result, err
 	}
@@ -110,14 +83,7 @@ func (s *AccountTestService) runOpenAIDistributionHealthProbe(ctx context.Contex
 	req.Body, req.ContentLength = http.NoBody, int64(len(body))
 	req.Body = io.NopCloser(bytes.NewReader(body))
 	req = req.WithContext(WithHTTPUpstreamRedirectsDisabled(WithHTTPUpstreamProfile(req.Context(), HTTPUpstreamProfileOpenAI)))
-	req.Header.Set("Accept", "text/event-stream")
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(apiKey))
-	if protocol == "responses" {
-		applyOpenAICodexProbeHeaders(req.Header)
-	}
-	account.ApplyHeaderOverrides(req.Header)
-	result, probeErr := s.executeUpstreamHealthProbe(req, account, result, "", parser)
+	result, probeErr := s.executeUpstreamHealthProbe(req, &spec.account, result, "", parser)
 	if probeErr != nil {
 		result.distributionSample.Valid = false
 		result.distributionSample.Answer = ""

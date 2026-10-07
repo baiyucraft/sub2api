@@ -1101,27 +1101,79 @@ func (s *UpstreamConfigService) GetUpstreamHealthConfidence(ctx context.Context,
 		return UpstreamHealthConfidenceSummary{}, nil
 	}
 	summary, err := reader.GetUpstreamHealthConfidence(ctx, keyID)
-	if err != nil || !s.confidenceProbeIndependent(ctx) {
+	if !s.confidenceProbeIndependent(ctx) {
 		return summary, err
 	}
-	collector, supported := s.repo.(UpstreamConfidenceDistributionRepository)
+	if err != nil {
+		slog.Warn("confidence distribution summary unavailable", "key_id", keyID, "reason", "confidence_read_unavailable")
+		return unavailableConfidenceDistributionSummary("responses", "confidence_read_unavailable"), nil
+	}
 	lister, bound := s.accountRepo.(upstreamAccountBindingLister)
-	if !supported || !bound {
-		return summary, nil
+	if !bound {
+		slog.Warn("confidence distribution summary unavailable", "key_id", keyID, "reason", "request_configuration_unavailable")
+		return unavailableConfidenceDistributionSummary("responses", "request_configuration_unavailable"), nil
 	}
 	accounts, err := lister.ListByUpstreamKeyID(ctx, keyID)
-	if err != nil || len(accounts) != 1 || accounts[0].Platform != PlatformOpenAI || accounts[0].Type != AccountTypeAPIKey {
-		return summary, err
+	if err != nil {
+		slog.Warn("confidence distribution summary unavailable", "key_id", keyID, "reason", "confidence_read_unavailable")
+		return unavailableConfidenceDistributionSummary("responses", "confidence_read_unavailable"), nil
 	}
-	distribution, err := collector.LoadConfidenceDistributionForSeries(ctx, keyID, distributionAccountFingerprint(&accounts[0]), time.Now().UTC())
-	if err != nil && distribution == nil {
-		return summary, err
+	if len(accounts) != 1 {
+		return unavailableConfidenceDistributionSummary("responses", "account_binding_unavailable"), nil
+	}
+	if accounts[0].Platform != PlatformOpenAI || accounts[0].Type != AccountTypeAPIKey {
+		return summary, nil
+	}
+	protocol := distributionAccountProtocol(&accounts[0])
+	collector, supported := s.repo.(UpstreamConfidenceDistributionRepository)
+	if !supported {
+		slog.Warn("confidence distribution summary unavailable", "key_id", keyID, "reason", "request_configuration_unavailable")
+		return unavailableConfidenceDistributionSummary(protocol, "request_configuration_unavailable"), nil
+	}
+	resolver, available := s.accountProber.(interface {
+		ResolveConfidenceDistributionIdentity(*Account) (ConfidenceDistributionIdentity, error)
+	})
+	if !available {
+		slog.Warn("confidence distribution summary unavailable", "key_id", keyID, "reason", "request_configuration_unavailable")
+		return unavailableConfidenceDistributionSummary(protocol, "request_configuration_unavailable"), nil
+	}
+	identity, err := resolver.ResolveConfidenceDistributionIdentity(&accounts[0])
+	if err != nil {
+		reason := "request_configuration_unavailable"
+		var configErr *distributionConfigurationError
+		if errors.As(err, &configErr) {
+			switch configErr.reason {
+			case "probe_credentials_missing", "probe_base_url_invalid", "probe_model_unsupported", "probe_request_invalid":
+				reason = configErr.reason
+			}
+		} else {
+			slog.Warn("confidence distribution summary unavailable", "key_id", keyID, "reason", reason)
+		}
+		return unavailableConfidenceDistributionSummary(protocol, reason), nil
+	}
+	distribution, err := collector.LoadConfidenceDistributionForSeries(ctx, keyID, identity, time.Now().UTC())
+	if err != nil {
+		slog.Warn("confidence distribution summary unavailable", "key_id", keyID, "reason", "confidence_read_unavailable")
+		return unavailableConfidenceDistributionSummary(protocol, "confidence_read_unavailable"), nil
 	}
 	if distribution == nil {
-		distribution, err = ScoreUpstreamConfidenceDistribution(distributionAccountProtocol(&accounts[0]), nil)
+		distribution, err = ScoreUpstreamConfidenceDistribution(protocol, nil)
+		if err != nil {
+			return unavailableConfidenceDistributionSummary(protocol, "baseline_unavailable"), nil
+		}
 	}
 	return UpstreamHealthConfidenceSummary{Distribution: distribution, Status: distribution.Status,
 		RequestedEffort: "low", PromptVersion: UpstreamConfidenceDistributionPromptVersion}, nil
+}
+
+// Expected local configuration failures and unavailable readers must replace
+// cached verdicts, rather than letting API callers retain old Juice/model scores
+// after ignoring an error. Only safe reason enums enter this display summary.
+func unavailableConfidenceDistributionSummary(protocol, reason string) UpstreamHealthConfidenceSummary {
+	distribution, _ := ScoreUpstreamConfidenceDistribution(protocol, nil)
+	distribution.Status, distribution.Reasons = "insufficient", []string{reason}
+	return UpstreamHealthConfidenceSummary{Distribution: distribution, Status: "insufficient",
+		RequestedEffort: "low", PromptVersion: UpstreamConfidenceDistributionPromptVersion}
 }
 
 // GetKeyHealth returns the independent health snapshot for one key. The
@@ -1618,12 +1670,8 @@ func (s *UpstreamConfigService) probeKeyUnlocked(ctx context.Context, keyID int6
 		if !ok {
 			return UpstreamHealthSnapshot{}, infraerrors.ServiceUnavailable("UPSTREAM_CONFIDENCE_COLLECTOR_UNAVAILABLE", "persistent confidence collector is unavailable")
 		}
-		fingerprint := distributionAccountFingerprint(&account)
-		if fingerprint == "" {
-			return UpstreamHealthSnapshot{}, errors.New("invalid confidence distribution configuration")
-		}
-		ctx = context.WithValue(ctx, distributionProbeContextKey{}, distributionProbeClaim(func(claimCtx context.Context, protocol string) (*DistributionAttempt, error) {
-			return collector.ClaimConfidenceDistribution(claimCtx, keyID, fingerprint, protocol, time.Now().UTC())
+		ctx = context.WithValue(ctx, distributionProbeContextKey{}, distributionProbeClaim(func(claimCtx context.Context, identity ConfidenceDistributionIdentity) (*DistributionAttempt, error) {
+			return collector.ClaimConfidenceDistribution(claimCtx, keyID, identity, time.Now().UTC())
 		}))
 	}
 	var result UpstreamHealthProbeResult

@@ -110,3 +110,90 @@ func TestConfidenceDistributionStateDoesNotJudgePending128thAttempt(t *testing.T
 	require.Empty(t, summary.Matches)
 	require.Empty(t, summary.Scores)
 }
+
+func testDistributionStateIdentity() ConfidenceDistributionIdentity {
+	components := make(map[string]string)
+	for _, component := range []string{"binding", "protocol", "endpoint", "credential", "model", "proxy", "headers", "contract", "baseline"} {
+		components[component] = component + "-digest"
+	}
+	return ConfidenceDistributionIdentity{Version: 2, Fingerprint: "canonical", Components: components, Protocol: "responses", BaselineVersion: DistributionBaselineVersion("responses"), LegacyFingerprint: "legacy", LegacyCompatible: true}
+}
+
+func TestConfidenceDistributionIdentityUpgradeAndReasons(t *testing.T) {
+	now := time.Now().UTC()
+	state, err := NewConfidenceDistributionState("legacy", "responses")
+	require.NoError(t, err)
+	_, err = state.Claim(now)
+	require.NoError(t, err)
+	state.LastDecisive = "mismatch"
+	identity := testDistributionStateIdentity()
+	reasons, upgrade := state.IdentityChange(identity)
+	require.Empty(t, reasons)
+	require.True(t, upgrade)
+	before, err := json.Marshal(state)
+	require.NoError(t, err)
+	state.UpgradeIdentity(identity)
+	identity.Components["endpoint"] = "mutated-elsewhere"
+	require.Equal(t, "endpoint-digest", state.IdentityComponents["endpoint"], "persisted state must own its identity map")
+	savedVersion, savedFingerprint, savedComponents := state.IdentityVersion, state.Fingerprint, state.IdentityComponents
+	state.IdentityVersion, state.Fingerprint, state.IdentityComponents = 0, "legacy", nil
+	after, err := json.Marshal(state)
+	require.NoError(t, err)
+	require.JSONEq(t, string(before), string(after), "identity upgrade must preserve all sampling and lease fields")
+	state.IdentityVersion, state.Fingerprint, state.IdentityComponents = savedVersion, savedFingerprint, savedComponents
+	for _, component := range []string{"binding", "protocol", "endpoint", "credential", "model", "proxy", "headers", "contract", "baseline"} {
+		t.Run(component, func(t *testing.T) {
+			changed := testDistributionStateIdentity()
+			changed.Components[component] = "new-digest"
+			changed.Fingerprint = "changed"
+			reasons, upgrade := state.IdentityChange(changed)
+			require.False(t, upgrade)
+			require.Equal(t, []string{component + "_changed"}, reasons)
+		})
+	}
+	changed := testDistributionStateIdentity()
+	changed.Components["protocol"] = "chat"
+	changed.Protocol = "chat_completions"
+	changed.Components["baseline"] = "chat-baseline"
+	changed.BaselineVersion = DistributionBaselineVersion(changed.Protocol)
+	reasons, _ = state.IdentityChange(changed)
+	require.Equal(t, []string{"baseline_changed", "protocol_changed"}, reasons, "explicit fields must not duplicate component reasons")
+}
+
+func TestConfidenceDistributionLegacyIdentityRequiresEvidence(t *testing.T) {
+	for _, scenario := range []string{"proxy-unverifiable", "legacy-changed", "protocol-changed", "baseline-changed", "future-version"} {
+		t.Run(scenario, func(t *testing.T) {
+			state, err := NewConfidenceDistributionState("legacy", "responses")
+			require.NoError(t, err)
+			identity := testDistributionStateIdentity()
+			switch scenario {
+			case "proxy-unverifiable":
+				identity.LegacyCompatible = false
+			case "legacy-changed":
+				identity.LegacyFingerprint = "different"
+			case "protocol-changed":
+				identity.Protocol = "chat_completions"
+			case "baseline-changed":
+				identity.BaselineVersion = "new-baseline"
+			case "future-version":
+				identity.Version = 3
+			}
+			reasons, upgrade := state.IdentityChange(identity)
+			require.False(t, upgrade)
+			require.Equal(t, []string{"legacy_identity_unverifiable"}, reasons)
+		})
+	}
+}
+
+func TestConfidenceDistributionSummaryResetMetadataIsIndependent(t *testing.T) {
+	state, err := NewConfidenceDistributionStateForIdentity(testDistributionStateIdentity())
+	require.NoError(t, err)
+	at := time.Now().UTC()
+	state.SeriesReset = &ConfidenceDistributionSeriesReset{At: &at, Reasons: []string{"endpoint_changed"}, PreviousAttempted: 18}
+	summary, err := state.Summary()
+	require.NoError(t, err)
+	summary.SeriesReset.Reasons[0] = "client-mutation"
+	*summary.SeriesReset.At = at.Add(time.Hour)
+	require.Equal(t, []string{"endpoint_changed"}, state.SeriesReset.Reasons)
+	require.Equal(t, at, *state.SeriesReset.At)
+}

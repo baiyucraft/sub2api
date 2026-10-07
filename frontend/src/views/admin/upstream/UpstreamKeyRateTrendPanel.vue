@@ -54,6 +54,7 @@ function formatTime(value?: string | null): string {
 
 const knownEventTypes = new Set([
   'key_confidence_distribution_changed',
+  'key_confidence_distribution_reset',
   'key_actual_rate_changed',
   'key_rate_changed',
   'key_effective_rate_changed',
