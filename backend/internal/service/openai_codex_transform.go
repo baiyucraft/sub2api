@@ -347,6 +347,12 @@ func applyCodexOAuthTransformWithOptions(reqBody map[string]any, opts codexOAuth
 		result.Modified = true
 	}
 
+	// Runs after input filtering so it sees the final replayed history. The
+	// compact endpoint has its own wire shape and is left untouched.
+	if !opts.IsCompact && ensureOpenAIOAuthWebSearchToolForHistory(reqBody) {
+		result.Modified = true
+	}
+
 	return result
 }
 
