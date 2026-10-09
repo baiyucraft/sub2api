@@ -401,14 +401,17 @@ def _candidate_build_preserve_checks(identifier: str, manifest_sha256: str) -> s
     remain in the Gate directory and bind that reply to the failed release.
     """
     return f'''gate_root=/opt/sub2api-deploy/release-gates/{identifier}
-test -d "$gate_root" && test ! -L "$gate_root"
+test -d "$gate_root"
+test ! -L "$gate_root"
 test "$(realpath -e -- "$gate_root")" = "$gate_root"
 test "$(stat -c '%U:%G:%a' "$gate_root")" = root:root:700
-test -d "$gate_root/output" && test ! -L "$gate_root/output"
+test -d "$gate_root/output"
+test ! -L "$gate_root/output"
 test "$(stat -c '%U:%G:%a' "$gate_root/output")" = root:root:700
 check_file() {{
   local path=$1 mode=$2
-  test -f "$path" && test ! -L "$path"
+  test -f "$path"
+  test ! -L "$path"
   test "$(stat -c '%U:%G:%a:%h' "$path")" = "root:root:$mode:1"
 }}
 check_file "$gate_root/manifest.json" 400
@@ -426,13 +429,16 @@ failure_detail=$(cat "$gate_root/failure-detail")
 failure_status=${{BASH_REMATCH[1]}}
 (( 10#$failure_status <= 255 ))
 for absent in "$gate_root/output/gate.json" "$gate_root/output/gate.sig" "$gate_root/output/candidate.tar.gz" "$gate_root/output/SHA256SUMS" "$gate_root/candidate.tar.gz" "$gate_root/probe-data" "$gate_root/probe-redis-data" "$gate_root/production-recovery" "$gate_root/plan-before.json"; do
-  test ! -e "$absent" && test ! -L "$absent"
+  test ! -e "$absent"
+  test ! -L "$absent"
 done
-test -d "$gate_root/logs" && test ! -L "$gate_root/logs"
+test -d "$gate_root/logs"
+test ! -L "$gate_root/logs"
 test "$(stat -c '%U:%G:%a' "$gate_root/logs")" = root:root:700
 check_file "$gate_root/logs/vm-validate.raw.log" 600
 check_file "$gate_root/validator.stderr" 600
-test -d "$raw_root" && test ! -L "$raw_root"
+test -d "$raw_root"
+test ! -L "$raw_root"
 test "$(realpath -e -- "$raw_root")" = "$raw_root"
 test "$(stat -c '%U:%G:%a' "$raw_root")" = root:root:700
 check_file "$raw_root/vm-validate.raw.log" 600
@@ -580,7 +586,8 @@ printf 'production_not_started=verified\\n'
                 if path.exists() or path.is_symlink():
                     raise RuntimeError("vm_preserve_production_state_present")
             if failed_stage == "candidate-build" and (
-                any(path.read_bytes() != original for path, original in local_evidence_bytes.items())
+                hashlib.sha256((run_dir / "manifest.json").read_bytes()).hexdigest() != manifest_sha256
+                or any(path.read_bytes() != original for path, original in local_evidence_bytes.items())
                 or _read_json(run_dir / "manifest.json", required=True) != manifest
                 or _read_json(run_dir / "runner.json", required=True) != runner
                 or _read_json(run_dir / "state.json", required=True) != state
