@@ -13,6 +13,29 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestUpstreamAuthFingerprintRetiredProviderRemovalPreservesActiveSessions(t *testing.T) {
+	// These hashes were computed from the pre-removal material contract, which
+	// includes the empty retired credential fields for every active provider.
+	for _, tc := range []struct {
+		provider, expected string
+		credentials        map[string]any
+	}{
+		{
+			UpstreamProviderSub2API, "c8d3a08092c9ac203f1f7a2e47c70cb73117dc078634f202b1ca03ef8ce9d385",
+			map[string]any{AccountCredentialSub2APILoginEmail: "user@example.com", AccountCredentialSub2APILoginPassword: "fixture-password"},
+		},
+		{
+			UpstreamProviderNewAPI, "b324083a8ffbf2519155143b43a7f2685d13cec2f9da13fe0d4f64a212a8be00",
+			map[string]any{AccountCredentialNewAPILoginUsername: "fixture-user", AccountCredentialNewAPILoginPassword: "fixture-password"},
+		},
+	} {
+		t.Run(tc.provider, func(t *testing.T) {
+			cfg := &UpstreamConfig{Provider: tc.provider, AuthMode: UpstreamAuthModeUserLogin, SiteURL: "https://upstream.example", Credentials: tc.credentials}
+			require.Equal(t, tc.expected, UpstreamAuthCredentialFingerprint(cfg))
+		})
+	}
+}
+
 type authSessionRepoFake struct {
 	mu        sync.Mutex
 	record    *UpstreamAuthSessionRecord

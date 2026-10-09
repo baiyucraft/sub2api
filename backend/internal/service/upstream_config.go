@@ -31,7 +31,6 @@ import (
 const (
 	UpstreamProviderSub2API = AccountUpstreamProviderSub2API
 	UpstreamProviderNewAPI  = AccountUpstreamProviderNewAPI
-	UpstreamProviderLCodex  = AccountUpstreamProviderLCodex
 	UpstreamProviderOther   = AccountUpstreamProviderOther
 
 	UpstreamAuthModeUserLogin   = AccountSub2APIRateSyncAdapterUserLogin
@@ -824,6 +823,9 @@ func (s *UpstreamConfigService) GetByID(ctx context.Context, id int64) (*Upstrea
 
 func (s *UpstreamConfigService) Create(ctx context.Context, config *UpstreamConfig) (*UpstreamConfig, error) {
 	if config != nil {
+		if err := validateRetiredUpstreamProvider(config.Provider); err != nil {
+			return nil, err
+		}
 		config.Provider = normalizeUpstreamProvider(config.Provider)
 		config.AuthMode = normalizeUpstreamAuthMode(config.AuthMode)
 		if config.SchedulingEnabled == nil {
@@ -851,6 +853,9 @@ func (s *UpstreamConfigService) Update(ctx context.Context, id int64, patch *Ups
 	}
 	if current == nil {
 		return nil, ErrUpstreamConfigNotFound
+	}
+	if err := validateRetiredUpstreamProvider(upstreamFirstNonEmpty(patch.Provider, current.Provider)); err != nil {
+		return nil, err
 	}
 	previousAuthFingerprint := UpstreamAuthCredentialFingerprint(current)
 	current.Name = upstreamFirstNonEmpty(patch.Name, current.Name)
@@ -989,10 +994,10 @@ func pruneUpstreamProviderCredentials(credentials map[string]any, provider, auth
 	} else {
 		pruneNewAPIAuthenticationCredentials(credentials, authMode)
 	}
-	if provider != UpstreamProviderLCodex {
-		delete(credentials, AccountCredentialLCodexLoginIdentifier)
-		delete(credentials, AccountCredentialLCodexLoginPassword)
-	}
+	// These retired credentials are never needed by an active provider. Remove
+	// both keys even when cleaning an old config that still names LCodex.
+	delete(credentials, AccountCredentialLCodexLoginIdentifier)
+	delete(credentials, AccountCredentialLCodexLoginPassword)
 	if provider == UpstreamProviderSub2API {
 		pruneSub2APIAuthenticationCredentials(credentials, authMode)
 	}
@@ -1985,7 +1990,7 @@ func (s *UpstreamConfigService) UpdateKeyPlatform(ctx context.Context, upstreamC
 	if err != nil {
 		return nil, err
 	}
-	if config != nil && (config.Provider == UpstreamProviderSub2API || config.Provider == UpstreamProviderLCodex) {
+	if config != nil && config.Provider == UpstreamProviderSub2API {
 		key.ImagePricing = deriveUpstreamKeyImagePricing(key, config)
 	}
 	return key, nil
@@ -2111,12 +2116,12 @@ func (s *UpstreamConfigService) SyncActiveSub2APIConfigs(ctx context.Context) []
 }
 
 func (s *UpstreamConfigService) SyncActiveUpstreamConfigs(ctx context.Context) []UpstreamConfigSyncResult {
-	results, err := s.syncActiveUpstreamConfigs(ctx, []string{UpstreamProviderSub2API, UpstreamProviderNewAPI, UpstreamProviderLCodex}, UpstreamSyncTriggerScheduled)
+	results, err := s.syncActiveUpstreamConfigs(ctx, []string{UpstreamProviderSub2API, UpstreamProviderNewAPI}, UpstreamSyncTriggerScheduled)
 	return scheduledSyncResults(results, err)
 }
 
 func (s *UpstreamConfigService) SyncActiveUpstreamConfigsManual(ctx context.Context) (int64, []UpstreamConfigSyncResult, error) {
-	results, err := s.syncActiveUpstreamConfigs(ctx, []string{UpstreamProviderSub2API, UpstreamProviderNewAPI, UpstreamProviderLCodex}, UpstreamSyncTriggerManualBatch)
+	results, err := s.syncActiveUpstreamConfigs(ctx, []string{UpstreamProviderSub2API, UpstreamProviderNewAPI}, UpstreamSyncTriggerManualBatch)
 	var runID int64
 	if len(results) > 0 {
 		runID = results[0].RunID
@@ -2353,16 +2358,6 @@ func (s *UpstreamConfigService) syncProviderConfigLocked(ctx context.Context, cf
 			return nil, result, err
 		}
 		if err := s.mergeSub2APIImagePricingSnapshots(ctx, cfg, snapshot); err != nil {
-			result.Error = adapter.SanitizeError(err, cfg.Credentials)
-			result.Stage, result.ErrorCode, result.Retryable = classifyUpstreamSyncFailure(err, "persist")
-			return nil, result, err
-		}
-	} else if cfg.Provider == UpstreamProviderLCodex {
-		if err := s.preserveMissingProviderRates(ctx, cfg, snapshot); err != nil {
-			result.Error = adapter.SanitizeError(err, cfg.Credentials)
-			return nil, result, err
-		}
-		if err := s.mergeLCodexImageCapabilitySnapshots(ctx, cfg, snapshot); err != nil {
 			result.Error = adapter.SanitizeError(err, cfg.Credentials)
 			result.Stage, result.ErrorCode, result.Retryable = classifyUpstreamSyncFailure(err, "persist")
 			return nil, result, err
@@ -2986,6 +2981,9 @@ func normalizeAndValidateUpstreamConfig(config *UpstreamConfig, requireSecrets b
 	if config == nil {
 		return infraerrors.BadRequest("UPSTREAM_CONFIG_REQUIRED", "upstream config is required")
 	}
+	if err := validateRetiredUpstreamProvider(config.Provider); err != nil {
+		return err
+	}
 	config.Name = strings.TrimSpace(config.Name)
 	config.Provider = normalizeUpstreamProvider(config.Provider)
 	config.AuthMode = normalizeUpstreamAuthMode(config.AuthMode)
@@ -3007,7 +3005,7 @@ func normalizeAndValidateUpstreamConfig(config *UpstreamConfig, requireSecrets b
 			if normalizeErr != nil {
 				return infraerrors.BadRequest("UPSTREAM_CONFIG_API_URL_INVALID", "upstream config api url is invalid")
 			}
-			if normalized == config.SiteURL && config.Provider != UpstreamProviderLCodex {
+			if normalized == config.SiteURL {
 				config.APIURL = nil
 			} else {
 				config.APIURL = &normalized
@@ -3054,8 +3052,6 @@ func validateUpstreamProviderAuthMode(provider, authMode string) error {
 		valid = authMode == UpstreamAuthModeUserLogin || authMode == UpstreamAuthModeManualJWT
 	case UpstreamProviderNewAPI:
 		valid = authMode == UpstreamAuthModeUserLogin || authMode == UpstreamAuthModeCookie || authMode == UpstreamAuthModeAccessToken
-	case UpstreamProviderLCodex:
-		valid = authMode == UpstreamAuthModeUserLogin
 	default:
 		return nil
 	}
@@ -3134,14 +3130,21 @@ func isAssignableUpstreamKeyPlatform(platform string) bool {
 	return IsConcreteRequestPlatform(platform)
 }
 
+// Retired providers must be rejected before normalization can turn them into
+// manual "other" configs. Historical records remain readable and deletable.
+func validateRetiredUpstreamProvider(provider string) error {
+	if strings.EqualFold(strings.TrimSpace(provider), "lcodex") {
+		return infraerrors.BadRequest("UPSTREAM_PROVIDER_REMOVED", "lcodex upstream provider has been removed")
+	}
+	return nil
+}
+
 func normalizeUpstreamProvider(provider string) string {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
 	case UpstreamProviderSub2API:
 		return UpstreamProviderSub2API
 	case UpstreamProviderNewAPI:
 		return UpstreamProviderNewAPI
-	case UpstreamProviderLCodex:
-		return UpstreamProviderLCodex
 	default:
 		return UpstreamProviderOther
 	}
@@ -3166,8 +3169,6 @@ func upstreamProviderAdapterFor(provider string) (upstreamProviderAdapter, bool)
 		return sub2APIUpstreamProviderAdapter{}, true
 	case UpstreamProviderNewAPI:
 		return newAPIUpstreamProviderAdapter{}, true
-	case UpstreamProviderLCodex:
-		return lcodexUpstreamProviderAdapter{}, true
 	default:
 		return nil, false
 	}

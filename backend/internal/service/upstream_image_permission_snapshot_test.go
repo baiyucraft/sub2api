@@ -12,17 +12,12 @@ import (
 )
 
 func TestUpstreamImagePermissionSnapshotRetainsDeniedUntilAllowed(t *testing.T) {
-	for _, provider := range []string{UpstreamProviderSub2API, UpstreamProviderLCodex} {
+	for _, provider := range []string{UpstreamProviderSub2API} {
 		for _, incoming := range []string{"missing", "unavailable", "invalid", "denied", "allowed"} {
 			t.Run(provider+"/"+incoming, func(t *testing.T) {
 				remoteID := int64(77)
 				observed := time.Now().UTC().Add(-48 * time.Hour)
 				makeExtra := func(status string, allowed bool, at time.Time) map[string]any {
-					if provider == UpstreamProviderLCodex {
-						return map[string]any{LCodexImageCapabilitySnapshotExtraKey: lcodexImageCapabilitySnapshotMap(lcodexImageCapabilitySnapshot{
-							Version: lcodexImageCapabilitySnapshotVersion, Status: status, AllowImageGeneration: allowed, ObservedAt: &at,
-						})}
-					}
 					return map[string]any{Sub2APIImagePricingSnapshotExtraKey: sub2APIImagePricingSnapshotMap(sub2APIImagePricingSnapshot{
 						Version: sub2APIImagePricingSnapshotVersion, Status: status, AllowImageGeneration: allowed, ObservedAt: &at,
 					})}
@@ -47,11 +42,7 @@ func TestUpstreamImagePermissionSnapshotRetainsDeniedUntilAllowed(t *testing.T) 
 				}
 				cfg := &UpstreamConfig{ID: 9, Provider: provider, RechargeRate: 1}
 				snapshot := &upstreamProviderSnapshot{Keys: []UpstreamKey{{RemoteKeyID: &remoteID, Extra: extra}}}
-				if provider == UpstreamProviderLCodex {
-					require.NoError(t, svc.mergeLCodexImageCapabilitySnapshots(context.Background(), cfg, snapshot))
-				} else {
-					require.NoError(t, svc.mergeSub2APIImagePricingSnapshots(context.Background(), cfg, snapshot))
-				}
+				require.NoError(t, svc.mergeSub2APIImagePricingSnapshots(context.Background(), cfg, snapshot))
 				pricing := deriveUpstreamKeyImagePricing(&snapshot.Keys[0], cfg)
 				rank := OpenAIImagePermissionDenied
 				if incoming == "allowed" {
@@ -85,7 +76,7 @@ func (r *imagePermissionHistoryFailureRepo) ListKeysForMaskedFallback(context.Co
 }
 
 func TestUpstreamImagePermissionSnapshotHistoryReadFailureDoesNotRewriteSnapshot(t *testing.T) {
-	for _, provider := range []string{UpstreamProviderSub2API, UpstreamProviderLCodex} {
+	for _, provider := range []string{UpstreamProviderSub2API} {
 		t.Run(provider, func(t *testing.T) {
 			repo := &imagePermissionHistoryFailureRepo{upstreamConfigServiceRepo: &upstreamConfigServiceRepo{}, err: errors.New("fixture history unavailable")}
 			svc := NewUpstreamConfigService(repo, nil, nil)
@@ -93,12 +84,7 @@ func TestUpstreamImagePermissionSnapshotHistoryReadFailureDoesNotRewriteSnapshot
 			extra := map[string]any{"unrelated": "retained"}
 			snapshot := &upstreamProviderSnapshot{Keys: []UpstreamKey{{RemoteKeyID: &remoteID, Extra: extra}}}
 			cfg := &UpstreamConfig{ID: 9, Provider: provider}
-			var err error
-			if provider == UpstreamProviderLCodex {
-				err = svc.mergeLCodexImageCapabilitySnapshots(context.Background(), cfg, snapshot)
-			} else {
-				err = svc.mergeSub2APIImagePricingSnapshots(context.Background(), cfg, snapshot)
-			}
+			err := svc.mergeSub2APIImagePricingSnapshots(context.Background(), cfg, snapshot)
 			require.ErrorIs(t, err, repo.err)
 			require.Equal(t, extra, snapshot.Keys[0].Extra)
 			require.Len(t, snapshot.Keys[0].Extra, 1)

@@ -81,8 +81,12 @@ func TestUpstreamCredentialsStatusLCodexDoesNotExposeSecrets(t *testing.T) {
 		service.AccountCredentialLCodexLoginIdentifier: "user@example.com",
 		service.AccountCredentialLCodexLoginPassword:   "secret-password",
 	})
-	require.Equal(t, true, got["has_lcodex_login_identifier"])
-	require.Equal(t, true, got["has_lcodex_login_password"])
+	require.NotContains(t, got, "has_lcodex_login_identifier")
+	require.NotContains(t, got, "has_lcodex_login_password")
 	require.NotContains(t, got, service.AccountCredentialLCodexLoginIdentifier)
 	require.NotContains(t, got, service.AccountCredentialLCodexLoginPassword)
+	encoded, err := json.Marshal(got)
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), "user@example.com")
+	require.NotContains(t, string(encoded), "secret-password")
 }

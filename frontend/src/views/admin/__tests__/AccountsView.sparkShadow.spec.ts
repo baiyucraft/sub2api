@@ -351,8 +351,8 @@ describe('admin AccountsView — 账号行展示', () => {
           platform: 'openai',
           type: 'apikey',
           upstream_config_id: 7,
-          upstream_site_url: 'https://lcodex.cc/login',
-          credentials: { base_url: 'https://api.lcodex.cc/v1' },
+          upstream_site_url: 'https://upstream.example/login',
+          credentials: { base_url: 'https://api.upstream.example/v1' },
         },
       ],
       total: 4,
@@ -384,7 +384,7 @@ describe('admin AccountsView — 账号行展示', () => {
     expect(tooltip.props('widthClass')).toBe('w-max max-w-sm break-all')
     expect(tooltip.classes()).toEqual(expect.arrayContaining(['self-start']))
     expect(upstreamLink.text()).toBe('upstream-account')
-    expect(upstreamLink.attributes('href')).toBe('https://lcodex.cc/login')
+    expect(upstreamLink.attributes('href')).toBe('https://upstream.example/login')
     expect(wrapper.text()).toContain('oauth-account')
     expect(wrapper.text()).toContain('invalid-url')
 

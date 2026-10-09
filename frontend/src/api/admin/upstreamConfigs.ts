@@ -1,7 +1,7 @@
 import { apiClient } from '../client'
 import type { PaginatedResponse, UpstreamConfidenceDistribution } from '@/types'
 
-export type UpstreamProvider = 'sub2api' | 'newapi' | 'lcodex' | 'other'
+export type UpstreamProvider = 'sub2api' | 'newapi' | 'other'
 export type UpstreamAuthMode = 'user_login' | 'manual_jwt' | 'cookie' | 'access_token'
 export type UpstreamTrendRange = '1h' | '24h' | '7d' | '15d' | '30d'
 export type UpstreamKeyPlatform =
@@ -24,8 +24,6 @@ export interface UpstreamCredentialsStatus {
   has_newapi_cookie?: boolean
   has_newapi_access_token?: boolean
   has_newapi_user_id?: boolean
-  has_lcodex_login_identifier?: boolean
-  has_lcodex_login_password?: boolean
 }
 
 export interface UpstreamKeyStatus {

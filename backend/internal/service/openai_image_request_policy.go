@@ -233,6 +233,7 @@ func openAIImagePermissionSnapshot(account *Account) *UpstreamKeyImagePricing {
 	if p, ok := parseSub2APIImagePricingSnapshot(account.Extra); ok {
 		return &UpstreamKeyImagePricing{Supported: p.AllowImageGeneration, Status: p.Status, Stale: p.Stale, ObservedAt: p.ObservedAt}
 	}
+	// Keep historical permissions after provider removal, including stale denies.
 	if p, ok := parseLCodexImageCapabilitySnapshot(account.Extra); ok {
 		return &UpstreamKeyImagePricing{Supported: p.AllowImageGeneration, Status: p.Status, Stale: p.Stale, ObservedAt: p.ObservedAt}
 	}

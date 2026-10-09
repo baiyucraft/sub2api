@@ -13,7 +13,6 @@ export function buildUpstreamRechargeURL(source: UpstreamRechargeSource): string
     const basePath = url.pathname.replace(/\/+$/, '')
     switch (source.provider) {
       case 'sub2api':
-      case 'lcodex':
         url.pathname = `${basePath}/purchase`
         break
       case 'newapi':

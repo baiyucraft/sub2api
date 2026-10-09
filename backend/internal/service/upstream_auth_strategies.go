@@ -39,8 +39,6 @@ func upstreamAuthStrategyFor(cfg *UpstreamConfig, svc *UpstreamConfigService) Up
 	switch normalizeUpstreamProvider(cfg.Provider) {
 	case UpstreamProviderNewAPI:
 		return newAPIAuthStrategy{adapter: newAPIUpstreamProviderAdapter{}}
-	case UpstreamProviderLCodex:
-		return lcodexAuthStrategy{adapter: lcodexUpstreamProviderAdapter{}}
 	case UpstreamProviderSub2API:
 		return sub2APIAuthStrategy{service: &Sub2APIUpstreamRateSyncService{upstreamConfigRepo: svc.repo}}
 	default:
@@ -204,7 +202,7 @@ func newAPIAuthSession(_ context.Context, cfg *UpstreamConfig, proxy string, use
 	}
 	// httpclient.GetClient returns a process-wide pooled client. NewAPI sessions
 	// attach provider-specific cookies and bearer tokens, so mutate a shallow
-	// copy instead of contaminating the shared client used by Sub2API/LCodex.
+	// copy instead of contaminating the shared client used by Sub2API.
 	clientCopy := *sharedClient
 	client := &clientCopy
 	restrictNewAPIAuthRedirects(client, rootURL)
@@ -245,69 +243,6 @@ func newAPIAuthSession(_ context.Context, cfg *UpstreamConfig, proxy string, use
 	session := &newAPISession{rootURL: rootURL, userID: userID, client: client}
 	setNewAPIAuthMetadata(session, newAPILoginData{AccessToken: token})
 	return session, nil
-}
-
-type lcodexAuthValue struct{ Session *lcodexSession }
-type lcodexAuthStrategy struct{ adapter lcodexUpstreamProviderAdapter }
-
-func (s lcodexAuthStrategy) Fingerprint(cfg *UpstreamConfig) string {
-	return UpstreamAuthCredentialFingerprint(cfg)
-}
-func (s lcodexAuthStrategy) CanLogin(*UpstreamConfig) bool { return true }
-func (s lcodexAuthStrategy) Seed(context.Context, *UpstreamConfig, string) (*UpstreamAuthHandle, error) {
-	return nil, nil
-}
-func (s lcodexAuthStrategy) Restore(ctx context.Context, cfg *UpstreamConfig, proxy string, secret *UpstreamAuthSessionSecret) (*UpstreamAuthHandle, error) {
-	if secret == nil || secret.Provider != UpstreamProviderLCodex {
-		return nil, errors.New("invalid lcodex session secret")
-	}
-	access, _ := secret.Data["access_token"].(string)
-	refresh, _ := secret.Data["refresh_token"].(string)
-	client, err := newLCodexHTTPClient(proxy)
-	if err != nil {
-		return nil, err
-	}
-	root, err := normalizeLCodexRootURL(cfg.SiteURL)
-	if err != nil {
-		return nil, err
-	}
-	return &UpstreamAuthHandle{Value: lcodexAuthValue{Session: &lcodexSession{rootURL: root, client: client, accessToken: access, refreshToken: refresh, refreshAttempt: true}}}, nil
-}
-func (s lcodexAuthStrategy) Login(ctx context.Context, cfg *UpstreamConfig, proxy string) (*UpstreamAuthHandle, error) {
-	root, err := normalizeLCodexRootURL(cfg.SiteURL)
-	if err != nil {
-		return nil, err
-	}
-	client, err := newLCodexHTTPClient(proxy)
-	if err != nil {
-		return nil, err
-	}
-	session, err := s.adapter.login(ctx, client, root, cfg.Credentials)
-	if err != nil {
-		return nil, err
-	}
-	session.refreshAttempt = true
-	return &UpstreamAuthHandle{Value: lcodexAuthValue{Session: session}, Authenticated: true}, nil
-}
-func (s lcodexAuthStrategy) Refresh(ctx context.Context, _ *UpstreamConfig, _ string, handle *UpstreamAuthHandle) (*UpstreamAuthHandle, error) {
-	value, ok := handle.Value.(lcodexAuthValue)
-	if !ok || value.Session == nil {
-		return nil, errors.New("invalid lcodex auth handle")
-	}
-	if err := value.Session.refresh(ctx); err != nil {
-		return nil, err
-	}
-	return &UpstreamAuthHandle{Value: value, Refreshed: true}, nil
-}
-func (s lcodexAuthStrategy) Serialize(handle *UpstreamAuthHandle) (*UpstreamAuthSessionSecret, error) {
-	value, ok := handle.Value.(lcodexAuthValue)
-	if !ok || value.Session == nil {
-		return nil, errors.New("invalid lcodex auth handle")
-	}
-	return &UpstreamAuthSessionSecret{Provider: UpstreamProviderLCodex, Data: map[string]any{"access_token": value.Session.accessToken, "refresh_token": value.Session.refreshToken}}, nil
-}
-func (s lcodexAuthStrategy) ClassifyAuthError(err error) UpstreamAuthErrorCategory {
-	return classifyHTTPAuthError(err)
 }
 
 type sub2APIAuthValue struct {

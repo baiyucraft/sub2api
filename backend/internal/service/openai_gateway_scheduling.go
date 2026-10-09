@@ -1822,8 +1822,8 @@ func (s *OpenAIGatewayService) isOpenAIAccountBlockedBySchedulingThreshold(ctx c
 		return false
 	}
 	// Upstream-bound accounts are governed by their parent provider snapshot and
-	// scheduling switch. Imported stale OAuth quota fields must not pause LCodex,
-	// Sub2API, or other bound API-key accounts.
+	// scheduling switch. Imported stale OAuth quota fields must not pause
+	// bound API-key accounts.
 	if account.UpstreamConfigID != nil {
 		return false
 	}

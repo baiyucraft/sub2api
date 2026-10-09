@@ -24,8 +24,9 @@ func TestAccountFromServiceShallow_RedactsSensitiveCredentials(t *testing.T) {
 			"api_key":               "sk-secret",
 			"sub2api_access_token":  "sub2api-jwt-secret",
 			"sub2api_refresh_token": "sub2api-refresh-secret",
-			"base_url":              "https://api.example.com",
-			"model_mapping":         map[string]any{"foo": "bar"},
+			service.AccountCredentialLCodexLoginPassword: "legacy-lcodex-password-secret",
+			"base_url":      "https://api.example.com",
+			"model_mapping": map[string]any{"foo": "bar"},
 		},
 	}
 
@@ -39,6 +40,7 @@ func TestAccountFromServiceShallow_RedactsSensitiveCredentials(t *testing.T) {
 	require.NotContains(t, got.Credentials, "api_key")
 	require.NotContains(t, got.Credentials, "sub2api_access_token")
 	require.NotContains(t, got.Credentials, "sub2api_refresh_token")
+	require.NotContains(t, got.Credentials, service.AccountCredentialLCodexLoginPassword)
 	// 非敏感键保留
 	require.Equal(t, "https://api.example.com", got.Credentials["base_url"])
 	require.Equal(t, map[string]any{"foo": "bar"}, got.Credentials["model_mapping"])
@@ -60,6 +62,7 @@ func TestAccountFromServiceShallow_RedactsSensitiveCredentials(t *testing.T) {
 	require.NotContains(t, string(raw), "id-secret")
 	require.NotContains(t, string(raw), "sub2api-jwt-secret")
 	require.NotContains(t, string(raw), "sub2api-refresh-secret")
+	require.NotContains(t, string(raw), "legacy-lcodex-password-secret")
 	// 状态标识应序列化进 JSON
 	require.Contains(t, string(raw), "credentials_status")
 	require.Contains(t, string(raw), "has_refresh_token")
@@ -213,8 +216,8 @@ func TestAccountFromServiceShallowProjectsRealProxyBinding(t *testing.T) {
 }
 
 func TestAccountFromServiceShallow_ProjectsUpstreamSiteURL(t *testing.T) {
-	siteURL := "https://lcodex.cc"
-	configName := "LCodex Primary"
+	siteURL := "https://upstream.example"
+	configName := "Sub2API Primary"
 	keyName := "Key A"
 	maskedKey := "sk-abc...7890"
 	configID := int64(7)
@@ -229,7 +232,7 @@ func TestAccountFromServiceShallow_ProjectsUpstreamSiteURL(t *testing.T) {
 		UpstreamKeyName:    &keyName,
 		UpstreamKeyMasked:  &maskedKey,
 		Credentials: map[string]any{
-			"base_url": "https://api.lcodex.cc",
+			"base_url": "https://api.upstream.example",
 			"api_key":  "sk-secret",
 		},
 	}
@@ -239,12 +242,12 @@ func TestAccountFromServiceShallow_ProjectsUpstreamSiteURL(t *testing.T) {
 	require.Equal(t, &configName, got.UpstreamConfigName)
 	require.Equal(t, &keyName, got.UpstreamKeyName)
 	require.Equal(t, &maskedKey, got.UpstreamKeyMasked)
-	require.Equal(t, "https://api.lcodex.cc", got.Credentials["base_url"])
+	require.Equal(t, "https://api.upstream.example", got.Credentials["base_url"])
 	require.NotContains(t, got.Credentials, "api_key")
 
 	raw, err := json.Marshal(got)
 	require.NoError(t, err)
-	require.Contains(t, string(raw), `"upstream_site_url":"https://lcodex.cc"`)
+	require.Contains(t, string(raw), `"upstream_site_url":"https://upstream.example"`)
 	require.Contains(t, string(raw), `"upstream_key_masked":"sk-abc...7890"`)
 	require.NotContains(t, string(raw), "sk-secret")
 }
