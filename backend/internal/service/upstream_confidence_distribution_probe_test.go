@@ -17,8 +17,8 @@ import (
 
 type distributionServiceTestRepo struct{ *healthProbeLockRepo }
 
-func (*distributionServiceTestRepo) ClaimConfidenceDistribution(context.Context, int64, ConfidenceDistributionIdentity, time.Time) (*DistributionAttempt, error) {
-	return &DistributionAttempt{Sequence: 1, ProbeID: DistributionProbeCountry}, nil
+func (*distributionServiceTestRepo) ClaimConfidenceDistribution(_ context.Context, _ int64, identity ConfidenceDistributionIdentity, _ time.Time) (*DistributionAttempt, error) {
+	return &DistributionAttempt{Sequence: 1, ProbeID: DistributionProbeCountry, ClientVersion: identity.ClientVersion}, nil
 }
 
 type distributionWindowTestRepo struct {
@@ -164,6 +164,8 @@ func (s *distributionSequenceHTTPStub) DoWithTLS(req *http.Request, proxyURL str
 }
 
 func TestDistributionProbeFullWindowIntegration(t *testing.T) {
+	version := "0.160.0"
+	distributionTestClientResolver(t, func() string { return buildCodexCLIUserAgent(version) })
 	const keyID int64 = 92321
 	GlobalUpstreamHealthRegistry().Forget(keyID)
 	defer GlobalUpstreamHealthRegistry().Forget(keyID)
@@ -180,13 +182,16 @@ func TestDistributionProbeFullWindowIntegration(t *testing.T) {
 	require.NotNil(t, fixture.Counts)
 	upstream := &distributionSequenceHTTPStub{repo: repo, counts: fixture.Counts}
 	client := &AccountTestService{httpUpstream: upstream, cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}}}
-	settings := NewSettingService(&upstreamManagementSettingRepoStub{values: map[string]string{SettingKeyUpstreamConfidenceProbe: `{"enabled":true}`}}, nil)
+	settingRepo := newCodexVersionSyncSettingRepoStub(map[string]string{SettingKeyUpstreamConfidenceProbe: `{"enabled":true}`, SettingKeyOpenAICodexClientVersionSynced: version})
+	settings := NewSettingService(settingRepo, nil)
 	client.SetSettingService(settings)
 	svc := NewUpstreamConfigService(repo, nil, accounts)
 	svc.SetHealthProbeDependencies(client, settings)
 	reporter := &probeScheduleReporter{}
 	svc.SetOpenAIScheduleReporter(reporter)
 	for i := 1; i <= 128; i++ {
+		version = []string{"0.160.0", "0.162.0"}[(i-1)%2]
+		require.NoError(t, settingRepo.Set(context.Background(), SettingKeyOpenAICodexClientVersionSynced, version))
 		// Automatic whitelist refreshes must not discard an otherwise identical
 		// request window, including its sampling boundary at 127/128/129.
 		accounts.account.Credentials["model_mapping"] = map[string]any{UpstreamConfidenceDistributionClaimedModel: UpstreamConfidenceDistributionClaimedModel, fmt.Sprintf("unrelated-%d", i): "unrelated"}
@@ -195,6 +200,8 @@ func TestDistributionProbeFullWindowIntegration(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, "success", item.LastProbeStatus)
 		require.Len(t, upstream.requests, i)
+		require.Equal(t, "0.160.0", distributionRequestHeader(upstream.req.Header, "version"))
+		require.Equal(t, buildCodexCLIUserAgent("0.160.0"), distributionRequestHeader(upstream.req.Header, "User-Agent"))
 		require.NotNil(t, item.ConfidenceDistribution)
 		require.Equal(t, i, item.ConfidenceDistribution.Attempted)
 		require.Nil(t, item.ConfidenceScore7d, "old Juice ratios must not be presented for a new series")
@@ -214,6 +221,8 @@ func TestDistributionProbeFullWindowIntegration(t *testing.T) {
 	require.Nil(t, repo.histories[keyID][127].ConfidenceScore)
 	seriesID := repo.state.SeriesID
 	oldest := repo.state.Samples[0].Sequence
+	version = "0.164.0"
+	require.NoError(t, settingRepo.Set(context.Background(), SettingKeyOpenAICodexClientVersionSynced, version))
 	item, err := svc.ProbeKey(context.Background(), keyID)
 	require.NoError(t, err)
 	require.Equal(t, seriesID, repo.state.SeriesID)
@@ -221,6 +230,7 @@ func TestDistributionProbeFullWindowIntegration(t *testing.T) {
 	require.Len(t, repo.state.Samples, 128)
 	require.Equal(t, oldest+1, repo.state.Samples[0].Sequence)
 	require.Len(t, upstream.requests, 129)
+	require.Equal(t, "0.160.0", distributionRequestHeader(upstream.req.Header, "version"))
 	accounts.account.Credentials["api_key"] = "rotated-synthetic-key"
 	summary, err := svc.GetUpstreamHealthConfidence(context.Background(), keyID)
 	require.NoError(t, err)
@@ -239,9 +249,9 @@ func (*distributionServiceTestRepo) LoadConfidenceDistributionForSeries(context.
 }
 
 func distributionProbeTestContext(claimed *int, probeID string) context.Context {
-	return context.WithValue(context.Background(), distributionProbeContextKey{}, distributionProbeClaim(func(context.Context, ConfidenceDistributionIdentity) (*DistributionAttempt, error) {
+	return context.WithValue(context.Background(), distributionProbeContextKey{}, distributionProbeClaim(func(_ context.Context, identity ConfidenceDistributionIdentity) (*DistributionAttempt, error) {
 		*claimed = *claimed + 1
-		return &DistributionAttempt{SeriesID: "test-series", LeaseToken: "test-lease", Sequence: 1, ProbeID: probeID}, nil
+		return &DistributionAttempt{SeriesID: "test-series", LeaseToken: "test-lease", Sequence: 1, ProbeID: probeID, ClientVersion: identity.ClientVersion}, nil
 	}))
 }
 

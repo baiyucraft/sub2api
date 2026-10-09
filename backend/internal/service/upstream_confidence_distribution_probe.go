@@ -45,12 +45,6 @@ func (s *AccountTestService) runOpenAIDistributionHealthProbe(ctx context.Contex
 	if err != nil {
 		return failUpstreamHealthProbe(result, "request_error", "probe_request_invalid", err)
 	}
-	req.Header = spec.headers.Clone()
-	if protocol == "responses" {
-		if _, overridden := spec.account.HeaderOverrideValue("x-codex-window-id"); !overridden {
-			req.Header.Set("X-Codex-Window-ID", uuid.NewString())
-		}
-	}
 	claim, ok := ctx.Value(distributionProbeContextKey{}).(distributionProbeClaim)
 	if !ok {
 		return result, errors.New("persistent confidence distribution collector is unavailable")
@@ -63,6 +57,15 @@ func (s *AccountTestService) runOpenAIDistributionHealthProbe(ctx context.Contex
 		return result, errDistributionProbeBusy
 	}
 	result.distributionAttempt = attempt
+	if err := spec.pinClientVersion(attempt.ClientVersion); err != nil {
+		return failUpstreamHealthProbe(result, "request_error", "probe_request_invalid", err)
+	}
+	req.Header = spec.headers.Clone()
+	if protocol == "responses" {
+		if _, overridden := spec.account.HeaderOverrideValue("x-codex-window-id"); !overridden {
+			req.Header.Set("X-Codex-Window-ID", uuid.NewString())
+		}
+	}
 	result.ConfidenceProbeKind = attempt.ProbeID
 	result.ConfidenceEvidence = map[string]any{
 		"kind": "distribution", "probe_id": attempt.ProbeID, "series_id": attempt.SeriesID,

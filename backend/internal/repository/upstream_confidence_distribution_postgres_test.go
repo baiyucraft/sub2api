@@ -61,7 +61,7 @@ func TestConfidenceDistributionNativePostgres(t *testing.T) {
 	db.SetMaxOpenConns(12)
 	for _, ddl := range []string{
 		`CREATE TABLE upstream_keys (id BIGINT PRIMARY KEY, upstream_config_id BIGINT NOT NULL)`,
-		`INSERT INTO upstream_keys VALUES (1,1),(2,1),(3,1)`,
+		`INSERT INTO upstream_keys VALUES (1,1),(2,1),(3,1),(4,1),(5,1)`,
 		`CREATE TABLE upstream_confidence_distribution_states (upstream_key_id BIGINT PRIMARY KEY REFERENCES upstream_keys(id) ON DELETE CASCADE, revision BIGINT NOT NULL DEFAULT 1, state_json JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
 		`CREATE TABLE upstream_events (id BIGSERIAL PRIMARY KEY, upstream_config_id BIGINT NOT NULL, upstream_key_id BIGINT, event_type TEXT NOT NULL, severity TEXT NOT NULL, source TEXT NOT NULL, message TEXT, payload JSONB NOT NULL, occurred_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL)`,
 	} {
@@ -79,5 +79,11 @@ func TestConfidenceDistributionNativePostgres(t *testing.T) {
 	})
 	t.Run("stable_sliding_window", func(t *testing.T) {
 		testConfidenceDistributionStableWindow(t, repo, db, 3)
+	})
+	t.Run("v2_exact_client_identity_upgrade", func(t *testing.T) {
+		testConfidenceDistributionV2ClientIdentityUpgrade(t, repo, db, 4, true)
+	})
+	t.Run("v2_changed_client_identity_reset", func(t *testing.T) {
+		testConfidenceDistributionV2ClientIdentityUpgrade(t, repo, db, 5, false)
 	})
 }

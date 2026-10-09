@@ -116,7 +116,7 @@ func testDistributionStateIdentity() ConfidenceDistributionIdentity {
 	for _, component := range []string{"binding", "protocol", "endpoint", "credential", "model", "proxy", "headers", "contract", "baseline"} {
 		components[component] = component + "-digest"
 	}
-	return ConfidenceDistributionIdentity{Version: 2, Fingerprint: "canonical", Components: components, Protocol: "responses", BaselineVersion: DistributionBaselineVersion("responses"), LegacyFingerprint: "legacy", LegacyCompatible: true}
+	return ConfidenceDistributionIdentity{Version: ConfidenceDistributionIdentityVersion, Fingerprint: "canonical", Components: components, Protocol: "responses", BaselineVersion: DistributionBaselineVersion("responses"), LegacyFingerprint: "legacy", LegacyCompatible: true, ClientVersion: "0.160.0"}
 }
 
 func TestConfidenceDistributionIdentityUpgradeAndReasons(t *testing.T) {
@@ -136,11 +136,14 @@ func TestConfidenceDistributionIdentityUpgradeAndReasons(t *testing.T) {
 	identity.Components["endpoint"] = "mutated-elsewhere"
 	require.Equal(t, "endpoint-digest", state.IdentityComponents["endpoint"], "persisted state must own its identity map")
 	savedVersion, savedFingerprint, savedComponents := state.IdentityVersion, state.Fingerprint, state.IdentityComponents
+	savedClientVersion := state.ClientVersion
 	state.IdentityVersion, state.Fingerprint, state.IdentityComponents = 0, "legacy", nil
+	state.ClientVersion = ""
 	after, err := json.Marshal(state)
 	require.NoError(t, err)
 	require.JSONEq(t, string(before), string(after), "identity upgrade must preserve all sampling and lease fields")
 	state.IdentityVersion, state.Fingerprint, state.IdentityComponents = savedVersion, savedFingerprint, savedComponents
+	state.ClientVersion = savedClientVersion
 	for _, component := range []string{"binding", "protocol", "endpoint", "credential", "model", "proxy", "headers", "contract", "baseline"} {
 		t.Run(component, func(t *testing.T) {
 			changed := testDistributionStateIdentity()
@@ -176,7 +179,7 @@ func TestConfidenceDistributionLegacyIdentityRequiresEvidence(t *testing.T) {
 			case "baseline-changed":
 				identity.BaselineVersion = "new-baseline"
 			case "future-version":
-				identity.Version = 3
+				identity.Version = ConfidenceDistributionIdentityVersion + 1
 			}
 			reasons, upgrade := state.IdentityChange(identity)
 			require.False(t, upgrade)

@@ -1,7 +1,7 @@
 ---
 title: OpenAI Sol 分布可信探针
 description: 单次短题、持久化 128 次滑动窗口及独立行为匹配展示
-updated: 2026-10-07
+updated: 2026-10-09
 owner: project
 ---
 
@@ -40,11 +40,19 @@ SSE 与兼容端 JSON 返回均保留原始文本和空白分段，再按原基�
 
 ## 请求身份与旧窗口升级
 
-展示与发送共用请求配置解析器；发送使用身份生成时选定的端点、鉴权、模型、代理和请求头快照。身份使用内部 SHA-256 总摘要与分项摘要，不保存请求配置原值，不向 API、事件或日志输出摘要、凭据、代理密码或请求头值。
+展示与发送共用请求配置解析器；发送使用身份生成时选定的端点、鉴权、模型、代理和请求头快照，并应用持久化系列的自动客户端版本。身份使用内部 SHA-256 总摘要与分项摘要，不保存凭据、代理密码或原始请求头值，不向 API、事件或日志输出内部摘要与这些原值。
 
 身份不包含整份 `Credentials`、无关模型映射、同步时间、费率、并发、调度参数、题型、序号或租约。系统逐请求生成的 `X-Codex-Window-ID` 不参与身份；管理员显式且生效的覆写仍参与。URL 与请求头通过同一规范化路径比较，未生效覆写不改变系列。
 
-现有 `state_json` 增加身份版本、分项摘要和最近重置信息，不新增 SQL migration。无身份版本的旧状态仍可解码；只有旧完整指纹、协议、合同及基准匹配，且新增维度的连续性可验证时，才通过 revision CAS 原位升级。升级保留系列 ID、题序、递增序号、样本、pending、原租约和最近充分判定，不生成重置事件。旧指纹只覆盖代理 ID，未记录代理实际连接配置；运行时默认请求头来源也可能未被覆盖。这类配置无法证明连续性时使用 `legacy_identity_unverifiable` 保守重开，不合并历史不同系列，不把当前快照作为历史证据。
+请求身份 v3 在每个 Responses 系列首次建立时固定系统生成的 Codex 客户端版本。系列后续发送的自动 `User-Agent` 版本片段与 `version` 头使用该版本，自动同步或默认客户端版本更新不会重新累计。只有这两个自动版本字段在身份摘要中归一化；自动 `User-Agent` 模板的其他内容仍参与身份。管理员显式且生效的账号请求头覆写保留实际值并参与摘要，发送时不被系列版本覆盖。Chat Completions 不应用此版本固定规则，继续使用独立身份与基准。
+
+管理员全局固定客户端版本在任一自动版本字段仍生效时参与身份；合法固定版本的修改或清除会以 `headers_changed` 重新累计。若账号同时显式覆写 `User-Agent` 与 `version`，全局固定版本不影响实际请求，也不参与该系列身份。解析固定版本策略失败时返回安全配置错误，不领取槽；策略读取与自动头生成使用同一快照，避免缓存版本与身份不一致。
+
+现有 `state_json` 保存身份版本、分项摘要、最近重置信息，以及公开格式的 SemVer 生成参数 `client_version`，不新增 SQL migration。此参数仅用于内部恢复与发送，不进入 API 分布、观测证据、重置事件或日志；不保存完整 `User-Agent` 或请求头原值。已有 v3 系列身份相等时保留原版本，不用当前自动同步版本覆盖。
+
+旧状态仍可解码。v2 窗口只有在当前配置生成的完整 v2 指纹、协议和基准精确一致时，才能通过 revision CAS 原位升级为 v3；合同已经包含在完整指纹中。升级将当前可验证的自动客户端版本保存为系列版本，保留系列 ID、题序、递增序号、样本、pending、原租约和最近充分判定，不生成重置事件。完整 v2 指纹不匹配时使用 `legacy_identity_unverifiable` 保守重开，不猜测旧自动版本，不拼接历史不同系列。
+
+无身份版本的旧窗口继续要求旧完整指纹、协议、合同及基准匹配，且新增身份维度的连续性可验证。旧指纹只覆盖代理 ID，未记录代理实际连接配置；运行时默认请求头来源也可能未被覆盖。这类配置无法证明连续性时同样保守重开，不把当前快照作为历史证据。
 
 Claim 的顺序保持为恢复过期租约、有效 pending 则忙、比较／升级身份、领取新槽。身份变化不能覆盖有效的在途租约；崩溃后的 pending 按原租约过期为无效槽，不延长、不重发。CAS 冲突后重新读取并完整判断。
 
@@ -76,14 +84,14 @@ API 的 `confidence_distribution` 包含窗口进度、有效样本、三类配�
 
 仅提取运行时所需拟合参数、原题合同、配额与阈值，运行时验证文件 SHA-256。来源包版本、内容指纹与离线 scorer 对照 fixture 保存在 [资产说明](../../backend/internal/service/confidence_baselines/README.md)。Go 实现独立，不分发参考项目 Python scorer。Chat 包复用原生采样和校准；协议隔离不代表 Chat 曾独立重新采样。
 
-迁移 `288_upstream_confidence_distribution.sql` 是新增独立表，不回写旧账号或 Key 数据。历史 profile 262 接续 261，版本为 `0.2.13-baiyu`，仅新增 288；历史 profile 263 接续 262，升级为 `0.2.14-baiyu`，无新增迁移。请求身份 v2 修复只扩充现有 `state_json`，不新增迁移、不改历史 profile 或 migration 的原字节及 checksum。后续发布使用发布工具当前登记的 profile，不沿用文档中的历史版本判断。
+迁移 `288_upstream_confidence_distribution.sql` 是新增独立表，不回写旧账号或 Key 数据。历史 profile 262 接续 261，版本为 `0.2.13-baiyu`，仅新增 288；历史 profile 263 接续 262，升级为 `0.2.14-baiyu`，无新增迁移。请求身份 v2 与 v3 修复只扩充现有 `state_json`，不新增迁移、不改历史 profile 或 migration 的原字节及 checksum。后续发布使用发布工具当前登记的 profile，不沿用文档中的历史版本判断。
 
 发布属于后端／数据库混合变更，需正式 VM Gate、实际 PostgreSQL 升级及旧镜像兼容、恢复分类和签名证据。本地单元测试与登记不等于 VM Gate 或生产发布完成；新敏感 blob 未分类保持阻断，不新增恢复豁免。
 
-维护入口：评分与状态在 `backend/internal/service/upstream_confidence_distribution*.go`，持久化在 `backend/internal/repository/upstream_confidence_distribution_repo.go`，请求与健康接入在既有 upstream probe/config 服务，UI 位于 `UpstreamHealthCell.vue`。最低测试覆盖滑动配额、失败占位、租约竞争、重启与系列隔离、35 天保留、离线 oracle 评分、告警事务回滚及去重、健康与调度分离、列表／详情／移动布局和 profile 262 执行闭包。
+维护入口：评分与状态在 `backend/internal/service/upstream_confidence_distribution*.go`，持久化在 `backend/internal/repository/upstream_confidence_distribution_repo.go`，请求与健康接入在既有 upstream probe/config 服务，UI 位于 `UpstreamHealthCell.vue`。最低测试覆盖滑动配额、失败占位、租约竞争、重启与系列隔离、自动客户端版本更新下的稳定累计与实际发送、管理员生效版本／请求头变更隔离、v2 精确升级与保守重开、35 天保留、离线 oracle 评分、告警事务回滚及去重、健康与调度分离、列表／详情／移动布局和 profile 262 执行闭包。
 
 ## 隔离 PostgreSQL 验证
 
 除现有 Docker integration suite 外，可在独立的本机 PostgreSQL 测试集群上运行 `TestConfidenceDistributionNativePostgres`。从 `backend` 目录设置 `SUB2API_DISTRIBUTION_TEST_POSTGRES_DSN`，然后执行 `go test -tags distribution_postgres ./internal/repository -run '^TestConfidenceDistributionNativePostgres$' -count=1 -v`。此套件要求字面 loopback 地址、显式非默认端口和 `/postgres` 管理库，自动创建并删除独立临时数据库；配置缺失直接失败，不跳过。
 
-该套件验证跨实例 Claim、CAS 升级、重置事件去重与失败回滚、租约恢复、旧结果隔离和稳定滑动窗口。它使用最小测试 schema，不替代正式 migration／VM Gate，也不能作为生产发布证据。
+该套件验证跨实例 Claim、CAS 升级、系列客户端版本的持久化与重启恢复、自动版本更新下的稳定滑动窗口、重置事件去重与失败回滚、租约恢复和旧结果隔离。它使用最小测试 schema，不替代正式 migration／VM Gate，也不能作为生产发布证据。

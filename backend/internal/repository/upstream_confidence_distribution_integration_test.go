@@ -44,3 +44,12 @@ func TestConfidenceDistributionPostgresStableWindow(t *testing.T) {
 	repo, db, keyID := newConfidenceDistributionPostgresFixture(t)
 	testConfidenceDistributionStableWindow(t, repo, db, keyID)
 }
+
+func TestConfidenceDistributionPostgresV2ClientIdentityUpgrade(t *testing.T) {
+	for _, exact := range []bool{true, false} {
+		t.Run(fmt.Sprintf("exact_fingerprint_%t", exact), func(t *testing.T) {
+			repo, db, keyID := newConfidenceDistributionPostgresFixture(t)
+			testConfidenceDistributionV2ClientIdentityUpgrade(t, repo, db, keyID, exact)
+		})
+	}
+}
