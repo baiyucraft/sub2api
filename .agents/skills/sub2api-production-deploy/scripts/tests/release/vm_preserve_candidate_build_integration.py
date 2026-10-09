@@ -9,6 +9,7 @@ import argparse
 import base64
 import contextlib
 import io
+import re
 import shlex
 import sys
 import tempfile
@@ -135,7 +136,20 @@ export PATH="$root/bin:$PATH"
 fixture_boot=$(cat /proc/sys/kernel/random/boot_id)
 checks=0
 phase=initial
-trap 'printf "vm_preserve_candidate_integration=failed\nchecks=%s\nfailure_phase=%s\n" "$checks" "$phase"; sed -n "/^fixture_failure_line=[0-9]*$/p" "$root/result"; exit 0' ERR
+fixture_failure() {
+  local failure_line=0 line
+  if [[ -f "$root/result" ]]; then
+    while IFS= read -r line; do
+      if [[ $line =~ ^fixture_failure_line=([0-9]+)$ ]]; then
+        failure_line=${BASH_REMATCH[1]}
+        break
+      fi
+    done < "$root/result"
+  fi
+  printf 'vm_preserve_candidate_integration=failed\nchecks=%s\nfailure_phase=%s\nfixture_failure_line=%s\n' "$checks" "$phase" "$failure_line"
+  exit 0
+}
+trap fixture_failure ERR
 run_check() { bash "$root/check.sh" > "$root/result" 2>/dev/null; }
 blocked() { if run_check; then return 81; fi; checks=$((checks+1)); }
 passed() { run_check; grep -Fxq 'vm_preserve_preflight=verified' "$root/result"; checks=$((checks+1)); }
@@ -214,8 +228,22 @@ def main() -> None:
     check, manifest = capture_check()
     script = locked_fixture_script(check, manifest)
     def audit_fixture(runner: SSHRunner, _identifier: str) -> dict[str, str]:
-        return runner.run("local_vm", script,
-                          {"vm_preserve_candidate_integration", "checks", "failure_phase", "fixture_failure_line", "cleanup"}, timeout=60).values
+        values = runner.run("local_vm", script,
+                            {"vm_preserve_candidate_integration", "checks", "failure_phase", "fixture_failure_line", "cleanup"}, timeout=60).values
+        expected = {"vm_preserve_candidate_integration": "pass", "checks": "97", "failure_phase": "none", "fixture_failure_line": "0", "cleanup": "pass"}
+        if values != expected:
+            shell, _ = fixture_shell("placeholder")
+            known_phases = set(re.findall(r"^phase=([a-z0-9_]+)$", shell, re.MULTILINE))
+            phase = values.get("failure_phase", "")
+            line = values.get("fixture_failure_line", "")
+            checks = values.get("checks", "")
+            if (phase not in known_phases or not re.fullmatch(r"[a-z0-9_]{1,64}", phase)
+                    or not re.fullmatch(r"[0-9]{1,6}", line) or not re.fullmatch(r"[0-9]{1,3}", checks)
+                    or int(checks) > 97):
+                raise RuntimeError("candidate_fixture_failure_diagnostic_unproven")
+            print(f"candidate_fixture_failure_phase={phase}\ncandidate_fixture_failure_line={line}\ncandidate_fixture_checks={checks}", flush=True)
+            raise RuntimeError("candidate_fixture_failed")
+        return values
     # This is the sole execution entry: it holds the actual failed release and
     # VM identity locks, proves the real retained owner, and repeats complete
     # preflight after the fixture. Audit cannot commit or release that owner.
