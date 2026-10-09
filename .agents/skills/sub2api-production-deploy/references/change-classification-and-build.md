@@ -110,6 +110,8 @@ VM 电源与所有权的受审扩展单独使用 `specialized/reviewed_vm_lifecy
 
 Profile 265 的精确审阅为 `aeb410bccc524164bdafbd3db865d4f5f588aced` → `6f5daaaed6e0cbfae2011cfa55b47688f33634eb`：35 项 profile 接线与两项停机奖励 postflight 各自冻结路径集，分别标为 `reviewed_profile_compatibility_changed` 和 `reviewed_reward_cost_postflight_changed`。仅匹配同路径 before/after blob 与模式；不涵盖未修改的 `production.py`、恢复算法、备份格式、ingress、信任根或 VM 生命周期。未来漂移仍阻断，最终提交须重新分类并执行 specialized 真实 PostgreSQL/Redis/Compose 隔离恢复。
 
+Profile 265 候选构建与失败租约的第三批精确审阅绑定 `aeb410bccc524164bdafbd3db865d4f5f588aced` → `99d9fcf97125ef6efc6543692697e85e27412396`，理由为 `reviewed_vm_preflight_recovery_changed`，独立集合 `_PROFILE265_BUILD_RECOVERY_REVIEW_PATHS` 仅含 `release/cli.py`、`release/supervisor.py`、`release/vm-validate.sh`。审阅覆盖这三项完整净 blob：显式 candidate-build 收口、持锁 audit-only 前后核验及零正式状态写、失败证据保留与原 owner 最后提交；validator 同时包含 265 白名单/版本/parent/迁移 290 接线、奖励 postflight 的 264|265 条件及 Go 1.27.2 对齐，不能视为只有 Go pin。旧 35 项兼容和两项 postflight 审阅的 SHA 与路径集保持不变，三组取并集为 39 条净敏感路径。未来 blob、mode、删除、改名和基线漂移，以及未登记的 restore、ingress、信任根等变更仍阻断；显式 full 不能绕过。登记不代替真实专项恢复、完整门禁或生产验真。
+
 ### `ops-readonly-assets`
 
 只有以下条件全部成立才适用：
