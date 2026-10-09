@@ -91,6 +91,9 @@ _PROFILE265_BUILD_RECOVERY_REVIEW_PATHS = frozenset({
     _SCRIPTS_PREFIX + "release/" + name
     for name in ("cli.py", "supervisor.py", "vm-validate.sh")
 })
+_PROFILE265_REGISTRY_PROXY_REVIEW_PATHS = frozenset({
+    _SCRIPTS_PREFIX + "release/vm-validate.sh",
+})
 _REVIEWED_SCOPED_TRANCHES = (
     (
         "aeb410bccc524164bdafbd3db865d4f5f588aced",
@@ -109,6 +112,12 @@ _REVIEWED_SCOPED_TRANCHES = (
         "99d9fcf97125ef6efc6543692697e85e27412396",
         "reviewed_vm_preflight_recovery_changed",
         _PROFILE265_BUILD_RECOVERY_REVIEW_PATHS,
+    ),
+    (
+        "aeb410bccc524164bdafbd3db865d4f5f588aced",
+        "67545c6d6e02f5210574ced9ea5c366688d28b87",
+        "reviewed_vm_preflight_recovery_changed",
+        _PROFILE265_REGISTRY_PROXY_REVIEW_PATHS,
     ),
     (
         "0898fe8c6289f87a1a4d90cf74a50e296689960e",

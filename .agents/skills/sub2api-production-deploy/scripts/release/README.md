@@ -27,6 +27,8 @@ Profile 265 精确恢复审阅绑定 `aeb410bccc524164bdafbd3db865d4f5f588aced` 
 
 Profile 265 候选构建与失败租约的第三批精确审阅绑定 `aeb410bccc524164bdafbd3db865d4f5f588aced` → `99d9fcf97125ef6efc6543692697e85e27412396`，理由为 `reviewed_vm_preflight_recovery_changed`，独立集合 `_PROFILE265_BUILD_RECOVERY_REVIEW_PATHS` 仅含 `release/cli.py`、`release/supervisor.py`、`release/vm-validate.sh`。审阅覆盖这三项完整净 blob：显式 candidate-build 收口、持锁 audit-only 前后核验及零正式状态写、失败证据保留与原 owner 最后提交；validator 同时包含 265 白名单/版本/parent/迁移 290 接线、奖励 postflight 的 264|265 条件及 Go 1.27.2 对齐，不能视为只有 Go pin。旧 35 项兼容和两项 postflight 审阅的 SHA 与路径集保持不变，三组取并集为 39 条净敏感路径。未来 blob、mode、删除、改名和基线漂移，以及未登记的 restore、ingress、信任根等变更仍阻断；显式 full 不能绕过。登记不代替真实专项恢复、完整门禁或生产验真。
 
+Profile 265 镜像代理例外的第四批精确审阅绑定 `aeb410bccc524164bdafbd3db865d4f5f588aced` → `67545c6d6e02f5210574ced9ea5c366688d28b87`，理由为 `reviewed_vm_preflight_recovery_changed`。独立集合 `_PROFILE265_REGISTRY_PROXY_REVIEW_PATHS` 仅含 `scripts/release/vm-validate.sh`，锁定完整净 validator 的 `100755:49dbe1513aafe049a76c5ae7425ae5f8824d73eb` → `100755:242622e8aa9db7d3a911b47031540d4acdc6eef3`；审阅包含既有 265/290 接线、奖励条件、失败收口与 Go 1.27.2 合同，以及仅对构建子命令添加镜像／匿名令牌两个精确主机例外。旧 35+2 批与 `99d9fcf97125ef6efc6543692697e85e27412396` 三路径批完全不变，净敏感路径并集仍为 39。未来 blob、mode、删除、移动、基线漂移与未登记 restore、ingress、trust 均阻断，显式 full 不绕过；登记及本地 Bash 回归不证明镜像在线可达、新 VM Gate、真实专项恢复或生产发布通过。
+
 在 `.ssh.local` 顶层、与 `servers` 并列的公共配置为：
 
 ```yaml
