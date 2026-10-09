@@ -806,6 +806,7 @@ def main() -> None:
     inspect_parser.set_defaults(handler=lambda args: __import__("release.supervisor", fromlist=["reconcile_inspect"]).reconcile_inspect(args))
     preserve_parser = subparsers.add_parser("reconcile-vm-preserve")
     preserve_parser.add_argument("release_id")
+    preserve_parser.add_argument("--failed-stage", choices=("pre-validator", "candidate-build"), default="pre-validator")
     preserve_parser.set_defaults(handler=lambda args: __import__("release.supervisor", fromlist=["reconcile_vm_preserve"]).reconcile_vm_preserve(args))
     reconcile_parser = subparsers.add_parser("reconcile")
     reconcile_parser.add_argument("release_id")

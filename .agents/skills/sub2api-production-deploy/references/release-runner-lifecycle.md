@@ -106,6 +106,10 @@ python .agents/skills/sub2api-production-deploy/scripts/release.py verify-recove
 
 ## 故障边界
 
+候选构建失败的 Linux 故障注入通过版本化集成入口调用成对的 `audit_fixture`/`audit_only` 恢复审计 API。全程保留同一失败 release 的租约并持本地发布/VM 身份锁；远端持真实单元/Gate 锁后才创建唯一隔离 fixture，所有路径改写、容器及进程检查使用 stub。97 项检查及精确清理通过后，重新核对真实现场和原始本地证据；审计只返回 `audited`，不写 preserve 结果、lease、owner 或事件，不代表租约已释放。普通消费者的 `vm_guard` 拒绝保留租约规则保持不变，随后仍须用正式 CLI 重新审计收口。
+
+VM Gate 的 `candidate_build` 已终止、生产尚未开始时，使用显式 `reconcile-vm-preserve <release_id> --failed-stage candidate-build`。默认入口仍只允许 validator 未启动。构建失败分支必须绑定本地与 VM 保留 manifest 的原始 SHA-256、严格验证构建阶段及 failure-category/line/detail、确认签名 Gate 与 candidate archive 不存在，并复核失败进程、同一 boot ID、VM 单元/Gate 锁、无在途 validator/构建、dev 健康、生产 release/claim 不存在及旧生产镜像一致。只接受原本运行且非本 release 启动的 VM。所有查询失败或任何后续阶段、身份及权限漂移均保留租约；收口仅写正式 preserve 证据并最后提交 released owner，保留失败状态、Gate 目录及原始日志，不清资源、不关机。恢复后使用新 commit、新 Gate、新 candidate 和新 release ID，不复用失败发布。
+
 validator 尚未启动的失败使用独立 `reconcile-vm-preserve <release_id>`，不能调用依赖 Gate 的生产 reconciliation。此入口仅接受原本运行、未由 release 启动的 VM：失败 runner 已退出，manifest/runner/持久 owner 身份一致，本地无 Gate/生产 state，远端 Gate、生产 release 和 active claim 全部不存在，无 validator、构建或空间检查进程，VM boot ID/电源与 dev 健康可证明，生产 Nginx 和 backup timer 正常。入口在发布全局锁与跨 checkout VM 身份锁内重新核对，只把失败租约收口为 released/preserved，不改变失败状态、不删证据、不启动或关闭 VM。任何查询失败、状态漂移、已开始 validator/生产或本次启动 VM 都拒绝。owner 是最后提交标记，前序写失败保留原 owner，重新核对后才能收口。
 
 `stage_assets_verified` 之后没有 `production_preflight`，且 runner 已退出时，归类为 caller/runner interruption。只有 active claim 精确匹配、没有 production state、旧应用 healthy、Nginx active、backup timer enabled 且没有危险阶段，才允许 claim-only recovery。任何状态不明、迁移或公开流量已开始，都保持 `blocked`，不得删除 marker 或手工编辑 JSON。
@@ -120,4 +124,4 @@ validator 尚未启动的失败使用独立 `reconcile-vm-preserve <release_id>`
 
 三层门禁时间预算为 `fast=0-2min`、`specialized=5-15min`、`full=20-60min`。这些值仅用于计划、状态心跳和最终报告，不缩短子阶段原有 timeout，也不授权调用端在预算到期后杀死 runner。
 
-失败租约恢复在VM上还须独占既有发布单元锁，以排除SSH断线后仍在途的安装和VM-only任务；存在validator启动原始日志时，即使Gate目录缺失和进程已退出也拒绝收口。生产健康检查沿用Gate前入口策略，允许健康的needs_update，不要求尚未发生的生产策略升级；镜像身份和其余健康、备份、claim校验不放宽。
+失败租约恢复在VM上还须独占既有发布单元锁，以排除SSH断线后仍在途的安装和VM-only任务；默认分支存在validator启动原始日志时，即使Gate目录缺失和进程已退出也拒绝收口。显式构建失败分支另按上述严格证据验真。生产健康检查沿用Gate前入口策略，允许健康的needs_update，不要求尚未发生的生产策略升级；镜像身份和其余健康、备份、claim校验不放宽。

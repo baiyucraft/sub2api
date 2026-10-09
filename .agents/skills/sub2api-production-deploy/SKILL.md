@@ -245,6 +245,8 @@ Gate 必须绑定 commit、origin、VM identity、validator、runner、发布资
 
 ### VM 构建缓存与磁盘
 
+- VM 的 Gate v2 和 legacy 构建入口必须使用与同 commit 的 `backend/go.mod` 及根 Dockerfile 默认一致的 Go 镜像版本，当前为既有镜像源的 `golang:1.27.2-alpine`。版本漂移必须由回归阻断；不得降低模块最低版本或绕过工具链检查。
+
 - Docker 使用 containerd image store 时，`docker system df` 的 image/cache 数字包含共享逻辑大小，不能与 `/var/lib/containerd` 的物理占用相加。空间判断必须同时记录 `df`、containerd snapshots、Docker volumes、BuildKit records 和 release-gates 归档。
 - VM Gate 构建前安装构建阶段失败 trap；构建失败、构建后空间断言失败或中断时，移除本次新 tag/image 并恢复构建前同名 tag。失败清理不得触碰原 candidate、当前 dev image 或 BuildKit cachemount。
 - Gate v2 在 Candidate 构建完成、生产恢复探针开始前必须重新执行版本化空间 dry-run；空间不足时仅在本次 Gate 尚未执行过清理的前提下，按同一 `max-used-space=1gb,reserved-space=1gb` 合同执行一次有界 BuildKit LRU GC 并再次核验。若构建前已经清理且构建后仍不足，必须以 `post_build_space` 失败停止，禁止第二次清理或继续进入 `pg_restore`。
@@ -259,6 +261,8 @@ Gate 必须绑定 commit、origin、VM identity、validator、runner、发布资
 - dry-run 生成候选集 `plan_sha256`；apply 必须携带同一 checksum，候选漂移即停止。每张镜像删除前重新核验保护集合和 full-SHA tag，删除不使用 `-f`。逻辑 image size 只作观察，实际释放量只用清理前后同一文件系统的 `df -PB1` 差值报告。
 
 ### Release workspace 与 runner 恢复
+
+- `reconcile-vm-preserve` 默认只适用于 validator 前失败；显式 `--failed-stage candidate-build` 仅允许已终止的候选构建失败、生产尚未开始且 VM 原本运行。必须以原始 manifest SHA-256、严格构建失败字段、签名 Gate/候选归档不存在、同 boot/进程身份、VM 单元及 Gate 锁、无在途任务、dev 健康、生产 release/claim 不存在及旧生产镜像/入口/备份证明边界。仅正式入口提交 preserve 证据并最后释放原 owner；保留失败状态、Gate 目录及日志，不清资源、不关机。任何后续阶段或未知现场拒绝，不手工编辑 owner。
 
 - 将 `deploy-start` 预创建的 release 目录视为 workspace 合同，worker 只能安全复用。复用前确认它是普通目录且不是 symlink，并核对 `manifest.json`、`state.json` 中的 schema、release ID、profile 和完整 commit；启动 VM Gate 前要求 `gate/` 完全不存在。
 - 遇到 release 目录 `FileExistsError` 且生产阶段仍为 `not_started` 时停止当前 runner，不重复启动同一 release。修复发布资产后必须使用新 commit、新 release ID 和新签名 Gate。

@@ -103,6 +103,8 @@ state_cleanup
 
 ## VM 电源与 cleanup 恢复
 
+候选构建已失败且 validator 终止、生产完全未开始时，不运行依赖 Gate 的 `reconcile-inspect`。使用 `reconcile-vm-preserve <release_id> --failed-stage candidate-build` 的正式收口分支，严格绑定原 manifest、固定构建失败字段、同 boot/进程与 owner、无签名 Gate/候选归档、VM 双锁及无在途任务、dev 和旧生产健康、生产 release/claim 不存在。只允许原本运行的 VM；后续恢复/迁移阶段或任一未知拒绝。原 Gate 目录、原始日志及 failed 终态全部保留；释放原租约后用新提交和新 release 重跑完整 Gate，不复用旧失败候选。默认 `reconcile-vm-preserve` 仍只接受 validator 未启动。
+
 电源控制由后台发布 worker 执行；普通 `doctor/status/wait/follow/verify-result` 及插件对应只读入口不触发开关机或所有权接管。独立 `vm-validate` 和 VM-only 验证/展示不自动关闭 VM。post-deploy doctor 在 worker 关机前完成，之后的只读观察不能为了重查 VM 而开机。
 
 | 现场证据 | 处理 |

@@ -393,14 +393,72 @@ def print_status(identifier: str) -> None:
     print(canonical_json(status_view(identifier)).decode("ascii"))
 
 
-def reconcile_vm_preserve(args: argparse.Namespace) -> dict[str, Any]:
-    """Release an audited pre-validator failure lease without changing VM power.
+def _candidate_build_preserve_checks(identifier: str, manifest_sha256: str) -> str:
+    """Read-only proof for a failed build, before any restored probe is created.
 
-    This deliberately excludes a started validator, any production claim, and
-    VMs started by the failed release. Their recovery requires other evidence.
+    The detached worker's temporary input may already have been removed after
+    its terminal reply. The validator's immutable manifest and failure files
+    remain in the Gate directory and bind that reply to the failed release.
+    """
+    return f'''gate_root=/opt/sub2api-deploy/release-gates/{identifier}
+test -d "$gate_root" && test ! -L "$gate_root"
+test "$(realpath -e -- "$gate_root")" = "$gate_root"
+test "$(stat -c '%U:%G:%a' "$gate_root")" = root:root:700
+test -d "$gate_root/output" && test ! -L "$gate_root/output"
+test "$(stat -c '%U:%G:%a' "$gate_root/output")" = root:root:700
+check_file() {{
+  local path=$1 mode=$2
+  test -f "$path" && test ! -L "$path"
+  test "$(stat -c '%U:%G:%a:%h' "$path")" = "root:root:$mode:1"
+}}
+check_file "$gate_root/manifest.json" 400
+test "$(sha256sum "$gate_root/manifest.json" | awk '{{print $1}}')" = {shlex.quote(manifest_sha256)}
+check_file "$gate_root/stage" 600
+check_file "$gate_root/failure-category" 400
+check_file "$gate_root/failure-line" 400
+check_file "$gate_root/failure-detail" 400
+test "$(cat "$gate_root/stage")" = candidate_build
+test "$(cat "$gate_root/failure-category")" = vm_v2_candidate_build
+failure_line=$(cat "$gate_root/failure-line")
+[[ $failure_line =~ ^[1-9][0-9]*$ ]]
+failure_detail=$(cat "$gate_root/failure-detail")
+[[ $failure_detail =~ ^status=([1-9][0-9]{{0,2}})\\ stage=candidate_build$ ]]
+failure_status=${{BASH_REMATCH[1]}}
+(( 10#$failure_status <= 255 ))
+for absent in "$gate_root/output/gate.json" "$gate_root/output/gate.sig" "$gate_root/output/candidate.tar.gz" "$gate_root/output/SHA256SUMS" "$gate_root/candidate.tar.gz" "$gate_root/probe-data" "$gate_root/probe-redis-data" "$gate_root/production-recovery" "$gate_root/plan-before.json"; do
+  test ! -e "$absent" && test ! -L "$absent"
+done
+test -d "$gate_root/logs" && test ! -L "$gate_root/logs"
+test "$(stat -c '%U:%G:%a' "$gate_root/logs")" = root:root:700
+check_file "$gate_root/logs/vm-validate.raw.log" 600
+check_file "$gate_root/validator.stderr" 600
+test -d "$raw_root" && test ! -L "$raw_root"
+test "$(realpath -e -- "$raw_root")" = "$raw_root"
+test "$(stat -c '%U:%G:%a' "$raw_root")" = root:root:700
+check_file "$raw_root/vm-validate.raw.log" 600
+test "$(sha256sum "$raw_root/vm-validate.raw.log" | awk '{{print $1}}')" = "$(sha256sum "$gate_root/logs/vm-validate.raw.log" | awk '{{print $1}}')"
+unset -f check_file
+'''
+
+
+def reconcile_vm_preserve(args: argparse.Namespace, *, audit_fixture=None, audit_only: bool = False) -> dict[str, Any]:
+    """Release an explicitly audited failure lease without changing VM power.
+
+    The default excludes started validators. The candidate-build mode accepts
+    only their terminal pre-restore failure evidence, never a completed Gate,
+    any production claim, or a VM started by the failed release.
     """
     from . import vm_lifecycle as lifecycle
 
+    failed_stage = getattr(args, "failed_stage", "pre-validator")
+    if failed_stage not in {"pre-validator", "candidate-build"}:
+        raise RuntimeError("vm_preserve_invalid_failed_stage")
+    if (
+        type(audit_only) is not bool
+        or (audit_fixture is not None) != audit_only
+        or (audit_only and (failed_stage != "candidate-build" or not callable(audit_fixture)))
+    ):
+        raise RuntimeError("vm_preserve_invalid_audit_mode")
     identifier = args.release_id
     run_dir = _run_dir(identifier)
     settings = lifecycle.load_settings()
@@ -413,8 +471,15 @@ def reconcile_vm_preserve(args: argparse.Namespace) -> dict[str, Any]:
         manifest = _read_json(run_dir / "manifest.json", required=True) or {}
         runner = _read_json(run_dir / "runner.json", required=True) or {}
         state = _read_json(run_dir / "state.json", required=True) or {}
+        manifest_sha256 = hashlib.sha256((run_dir / "manifest.json").read_bytes()).hexdigest()
         lease = lifecycle._read_state(run_dir / "vm-lifecycle.json")
         owner = lifecycle._read_state(shared / "owner.json")
+        local_evidence_bytes = {
+            path: path.read_bytes() for path in (
+                run_dir / "manifest.json", run_dir / "runner.json", run_dir / "state.json",
+                run_dir / "vm-lifecycle.json", shared / "owner.json",
+            )
+        } if failed_stage == "candidate-build" else {}
         commit = manifest.get("commit_sha")
         if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}", commit):
             raise RuntimeError("vm_preserve_identity_mismatch")
@@ -454,16 +519,21 @@ def reconcile_vm_preserve(args: argparse.Namespace) -> dict[str, Any]:
         # Remote checks are read-only. Locks prevent compliant consumers from
         # starting work while these facts are being inspected.
         ssh = SSHRunner()
-        vm_script = f'''set -Eeuo pipefail
-test ! -e /opt/sub2api-deploy/release-gates/{identifier}
+        gate_checks = f'''test ! -e /opt/sub2api-deploy/release-gates/{identifier}
 test ! -L /opt/sub2api-deploy/release-gates/{identifier}
-raw_root=/opt/sub2api-deploy/release-logs/{identifier}
+'''
+        raw_checks = '''test ! -e "$raw_root/vm-validate.raw.log"
+test ! -L "$raw_root/vm-validate.raw.log"
+'''
+        if failed_stage == "candidate-build":
+            gate_checks = ""
+            raw_checks = _candidate_build_preserve_checks(identifier, manifest_sha256)
+        vm_script = f'''set -Eeuo pipefail
+{gate_checks}raw_root=/opt/sub2api-deploy/release-logs/{identifier}
 if [[ -e "$raw_root" || -L "$raw_root" ]]; then
   test -d "$raw_root" && test ! -L "$raw_root"
   test "$(stat -c '%U:%G:%a' "$raw_root")" = root:root:700
 fi
-test ! -e "$raw_root/vm-validate.raw.log"
-test ! -L "$raw_root/vm-validate.raw.log"
 unit_lock=/usr/local/libexec/.sub2api-release-unit.lock
 test -f "$unit_lock" && test ! -L "$unit_lock"
 test "$(stat -c '%U:%G:%a:%h' "$unit_lock")" = root:root:600:1
@@ -474,7 +544,7 @@ test -f /opt/sub2api-deploy/release-gates/release.lock
 test ! -L /opt/sub2api-deploy/release-gates/release.lock
 exec 9<>/opt/sub2api-deploy/release-gates/release.lock
 flock -n 9
-test "$(cat /proc/sys/kernel/random/boot_id)" = {shlex.quote(lease['vm_boot_id'])}
+{raw_checks}test "$(cat /proc/sys/kernel/random/boot_id)" = {shlex.quote(lease['vm_boot_id'])}
 test "$(ps -eo args= | awk '/vm-space-clean.sh|sub2api-vm-validate|run-validator.sh|docker (build|buildx)|buildctl|release-input\\/[^ ]+\\/bootstrap|[.]sub2api-release-unit[.][^ ]*\\/sub2api-sign-(gate|dr-evidence)/ && ! /awk/ {{n++}} END {{print n+0}}')" = 0
 test "$(docker inspect -f '{{{{.State.Health.Status}}}}' sub2api-dev)" = healthy
 printf 'vm_preserve_preflight=verified\\n'
@@ -492,23 +562,53 @@ systemctl is-active --quiet nginx
 systemctl is-enabled --quiet sub2api-backup.timer
 printf 'production_not_started=verified\\n'
 '''
-        if ssh.run("local_vm", vm_script, {"vm_preserve_preflight"}, timeout=60).values != {"vm_preserve_preflight": "verified"}:
-            raise RuntimeError("vm_preserve_remote_vm_unproven")
-        if ssh.run("racknerd", production_script, {"production_not_started"}, timeout=60).values != {"production_not_started": "verified"}:
-            raise RuntimeError("vm_preserve_remote_production_unproven")
-        production = ReleaseDoctor(str(manifest["profile"]), commit).run(("racknerd",), require_ingress_policy=False)
-        if production.get("racknerd_ready") != "true" or production.get("production_current_image_id") != manifest["production_current_image_id"]:
-            raise RuntimeError("vm_preserve_production_identity_unproven")
-        if not vm._running() or lifecycle._read_state(shared / "owner.json") != owner:
-            raise RuntimeError("vm_preserve_owner_changed")
+        def preflight() -> None:
+            if not vm._running():
+                raise RuntimeError("vm_preserve_power_unproven")
+            if ssh.run("local_vm", vm_script, {"vm_preserve_preflight"}, timeout=60).values != {"vm_preserve_preflight": "verified"}:
+                raise RuntimeError("vm_preserve_remote_vm_unproven")
+            if ssh.run("racknerd", production_script, {"production_not_started"}, timeout=60).values != {"production_not_started": "verified"}:
+                raise RuntimeError("vm_preserve_remote_production_unproven")
+            production = ReleaseDoctor(str(manifest["profile"]), commit).run(("racknerd",), require_ingress_policy=False)
+            if production.get("racknerd_ready") != "true" or production.get("production_current_image_id") != manifest["production_current_image_id"]:
+                raise RuntimeError("vm_preserve_production_identity_unproven")
+            if not vm._running() or lifecycle._read_state(shared / "owner.json") != owner:
+                raise RuntimeError("vm_preserve_owner_changed")
+            if _process_token(runner["pid"]) == runner["process_token"]:
+                raise RuntimeError("vm_preserve_failed_runner_unproven")
+            for path in (run_dir / "gate", run_dir / "release-state.json"):
+                if path.exists() or path.is_symlink():
+                    raise RuntimeError("vm_preserve_production_state_present")
+            if failed_stage == "candidate-build" and (
+                any(path.read_bytes() != original for path, original in local_evidence_bytes.items())
+                or _read_json(run_dir / "manifest.json", required=True) != manifest
+                or _read_json(run_dir / "runner.json", required=True) != runner
+                or _read_json(run_dir / "state.json", required=True) != state
+                or lifecycle._read_state(run_dir / "vm-lifecycle.json") != lease
+            ):
+                raise RuntimeError("vm_preserve_local_evidence_changed")
+
+        preflight()
+        if audit_only:
+            result = audit_fixture(ssh, identifier)
+            if result != {"vm_preserve_candidate_integration": "pass", "checks": "97", "failure_phase": "none", "fixture_failure_line": "0", "cleanup": "pass"}:
+                raise RuntimeError("vm_preserve_audit_fixture_unproven")
+            preflight()
+            evidence = {"schema": 1, "release_id": identifier, "commit": commit, "status": "audited", "production_not_started": True,
+                        "failed_stage": "candidate-build", "manifest_sha256": manifest_sha256}
+            print(canonical_json(evidence).decode("ascii"))
+            return evidence
         evidence = {"schema": 1, "release_id": identifier, "commit": commit, "status": "preserved", "production_not_started": True, "reconciled_at": int(time.time())}
+        if failed_stage == "candidate-build":
+            evidence.update({"failed_stage": "candidate-build", "manifest_sha256": manifest_sha256})
         _write_json(run_dir / "vm-preserve-result.json", evidence)
         # Shared ownership is the last commit marker. A failed earlier write
         # leaves the retained owner in place and can be inspected again.
         updated = {**lease, "lease_status": "released", "vm_power_status": "running", "vm_cleanup_status": "preserved", "updated_at": int(time.time())}
         atomic_write(run_dir / "vm-lifecycle.json", canonical_json(updated) + b"\n")
         atomic_write(shared / "owner.json", canonical_json(updated) + b"\n")
-        _event_logger(run_dir).emit(stage="vm_preserve", script="release.supervisor", event="failed_lease_reconciled", message="Failed pre-validator lease reconciled; originally running VM preserved", exit_code=0)
+        message = "Failed candidate-build lease reconciled; originally running VM preserved" if failed_stage == "candidate-build" else "Failed pre-validator lease reconciled; originally running VM preserved"
+        _event_logger(run_dir).emit(stage="vm_preserve", script="release.supervisor", event="failed_lease_reconciled", message=message, exit_code=0)
     print(canonical_json(evidence).decode("ascii"))
     return evidence
 
