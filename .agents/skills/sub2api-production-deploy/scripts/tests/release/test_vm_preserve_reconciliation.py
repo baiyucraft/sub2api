@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shlex
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -432,3 +435,50 @@ def test_candidate_fixture_creates_and_cleans_only_inside_real_vm_locks():
     assert script.index("trap cleanup_fixture EXIT") < script.index('bash "$root/run-fixture.sh"')
     assert script.rstrip().endswith("trap - EXIT")
     assert integration.fixture_shell("placeholder")[1] == 97
+
+
+def test_manifest_drift_between_digest_and_raw_snapshot_is_rejected(fixture, monkeypatch):
+    f = fixture
+    f.args.failed_stage = "candidate-build"
+    manifest_path = f.run_dir / "manifest.json"
+    original_read = Path.read_bytes
+    reads = 0
+    def read_bytes(path):
+        nonlocal reads
+        if path == manifest_path:
+            reads += 1
+            if reads == 2:
+                path.write_bytes(original_read(path) + b"\n")
+        return original_read(path)
+    monkeypatch.setattr(Path, "read_bytes", read_bytes)
+    forbid_audit_writes(monkeypatch)
+    with pytest.raises(RuntimeError, match="local_evidence_changed"):
+        s.reconcile_vm_preserve(f.args, audit_fixture=lambda *_: pytest.fail("unproven initial snapshot"), audit_only=True)
+    assert json.loads((f.shared / "owner.json").read_text())["lease_status"] == "retained"
+
+
+@pytest.mark.parametrize("artifact", ["output/gate.json", "output/gate.sig", "output/candidate.tar.gz", "output/SHA256SUMS",
+                                     "candidate.tar.gz", "probe-data", "probe-redis-data", "production-recovery", "plan-before.json"])
+def test_generated_absence_loop_rejects_each_existing_artifact_in_real_bash(tmp_path, artifact):
+    bash = shutil.which("bash")
+    if not bash:
+        git = shutil.which("git")
+        candidate = Path(git).parent.parent / "bin" / "bash.exe" if git else None
+        bash = str(candidate) if candidate and candidate.is_file() else None
+    if not bash:
+        pytest.skip("Bash unavailable for real generated-loop semantics")
+    target = tmp_path / artifact
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(b"fixture")
+    proof = s._candidate_build_preserve_checks("264-failed", "a" * 64)
+    start = proof.index("for absent in ")
+    end = proof.index("\ndone", start) + len("\ndone")
+    script = "set -Eeuo pipefail\ngate_root=" + shlex.quote(tmp_path.as_posix()) + "\n" + proof[start:end] + "\nprintf 'incorrectly_accepted\\n'\n"
+    result = subprocess.run([bash], input=script, text=True, capture_output=True, timeout=10)
+    assert result.returncode != 0
+    assert "incorrectly_accepted" not in result.stdout
+
+
+def test_candidate_file_and_directory_guards_do_not_use_nonfatal_and_lists():
+    proof = s._candidate_build_preserve_checks("264-failed", "a" * 64)
+    assert " && " not in proof
