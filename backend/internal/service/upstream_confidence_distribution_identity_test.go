@@ -197,7 +197,7 @@ func TestDistributionProbeUsesClaimedSnapshot(t *testing.T) {
 		account.Credentials["base_url"] = "https://after.example"
 		account.Credentials["header_overrides"].(map[string]any)["X-Synthetic"] = "after"
 		account.Proxy.Host = "after.example"
-		return &DistributionAttempt{SeriesID: "snapshot", LeaseToken: "lease", Sequence: 1, ProbeID: DistributionProbeInteger}, nil
+		return &DistributionAttempt{SeriesID: "snapshot", LeaseToken: "lease", Sequence: 1, ProbeID: DistributionProbeInteger, ClientVersion: identity.ClientVersion}, nil
 	}))
 	result, err := svc.runOpenAIDistributionHealthProbe(ctx, account)
 	require.NoError(t, err)
@@ -215,7 +215,7 @@ func TestDistributionProbeRandomWindowIDDoesNotChangeIdentity(t *testing.T) {
 	var fingerprints []string
 	ctx := context.WithValue(context.Background(), distributionProbeContextKey{}, distributionProbeClaim(func(_ context.Context, identity ConfidenceDistributionIdentity) (*DistributionAttempt, error) {
 		fingerprints = append(fingerprints, identity.Fingerprint)
-		return &DistributionAttempt{Sequence: 1, ProbeID: DistributionProbeInteger}, nil
+		return &DistributionAttempt{Sequence: 1, ProbeID: DistributionProbeInteger, ClientVersion: identity.ClientVersion}, nil
 	}))
 	for i := 0; i < 2; i++ {
 		_, err := svc.runOpenAIDistributionHealthProbe(ctx, account)

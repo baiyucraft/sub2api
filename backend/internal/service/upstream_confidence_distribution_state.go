@@ -17,10 +17,11 @@ var ErrConfidenceDistributionLeaseLost = errors.New("confidence distribution att
 // DistributionAttempt is a durable claim. A consumed sequence is never retried,
 // even if the worker disappears before the response can be recorded.
 type DistributionAttempt struct {
-	SeriesID   string `json:"series_id"`
-	LeaseToken string `json:"lease_token"`
-	Sequence   int64  `json:"sequence"`
-	ProbeID    string `json:"probe_id"`
+	SeriesID      string `json:"series_id"`
+	LeaseToken    string `json:"lease_token"`
+	Sequence      int64  `json:"sequence"`
+	ProbeID       string `json:"probe_id"`
+	ClientVersion string `json:"-"`
 }
 
 type UpstreamConfidenceDistributionRepository interface {
@@ -33,19 +34,21 @@ type UpstreamConfidenceDistributionRepository interface {
 // ConfidenceDistributionState is stored separately from key health metadata so
 // health observation updates cannot overwrite an in-flight claim.
 type ConfidenceDistributionState struct {
-	IdentityVersion    int                                `json:"identity_version,omitempty"`
-	IdentityComponents map[string]string                  `json:"identity_components,omitempty"`
-	SeriesReset        *ConfidenceDistributionSeriesReset `json:"series_reset,omitempty"`
-	SeriesID           string                             `json:"series_id"`
-	Fingerprint        string                             `json:"fingerprint"`
-	Protocol           string                             `json:"protocol"`
-	BaselineVersion    string                             `json:"baseline_version"`
-	ProbeOrder         []string                           `json:"probe_order"`
-	NextSequence       int64                              `json:"next_sequence"`
-	Samples            []DistributionSample               `json:"samples"`
-	Pending            *DistributionAttempt               `json:"pending,omitempty"`
-	LeaseExpiresAt     time.Time                          `json:"lease_expires_at,omitempty"`
-	LastDecisive       string                             `json:"last_decisive,omitempty"`
+	IdentityVersion    int               `json:"identity_version,omitempty"`
+	IdentityComponents map[string]string `json:"identity_components,omitempty"`
+	// Public SemVer generator input only; credentials and header values are never persisted.
+	ClientVersion   string                             `json:"client_version,omitempty"`
+	SeriesReset     *ConfidenceDistributionSeriesReset `json:"series_reset,omitempty"`
+	SeriesID        string                             `json:"series_id"`
+	Fingerprint     string                             `json:"fingerprint"`
+	Protocol        string                             `json:"protocol"`
+	BaselineVersion string                             `json:"baseline_version"`
+	ProbeOrder      []string                           `json:"probe_order"`
+	NextSequence    int64                              `json:"next_sequence"`
+	Samples         []DistributionSample               `json:"samples"`
+	Pending         *DistributionAttempt               `json:"pending,omitempty"`
+	LeaseExpiresAt  time.Time                          `json:"lease_expires_at,omitempty"`
+	LastDecisive    string                             `json:"last_decisive,omitempty"`
 }
 
 func NewConfidenceDistributionState(fingerprint, protocol string) (*ConfidenceDistributionState, error) {
@@ -95,6 +98,11 @@ func (s *ConfidenceDistributionState) IdentityChange(identity ConfidenceDistribu
 		}
 		return []string{"legacy_identity_unverifiable"}, false
 	}
+	if s.IdentityVersion == 2 && identity.Version == ConfidenceDistributionIdentityVersion &&
+		identity.V2Fingerprint != "" && s.Fingerprint == identity.V2Fingerprint &&
+		s.Protocol == distributionProtocol(identity.Protocol) && s.BaselineVersion == identity.BaselineVersion {
+		return nil, true
+	}
 	if s.IdentityVersion != identity.Version || identity.Version != ConfidenceDistributionIdentityVersion {
 		return []string{"legacy_identity_unverifiable"}, false
 	}
@@ -126,6 +134,7 @@ func (s *ConfidenceDistributionState) IdentityChange(identity ConfidenceDistribu
 // UpgradeIdentity changes no sampling state, lease, or last decisive verdict.
 func (s *ConfidenceDistributionState) UpgradeIdentity(identity ConfidenceDistributionIdentity) {
 	s.IdentityVersion, s.Fingerprint = identity.Version, identity.Fingerprint
+	s.ClientVersion = identity.ClientVersion
 	s.IdentityComponents = make(map[string]string, len(identity.Components))
 	for component, digest := range identity.Components {
 		s.IdentityComponents[component] = digest
@@ -151,6 +160,10 @@ func confidenceDistributionToken() (string, error) {
 func (s *ConfidenceDistributionState) Validate() error {
 	if s == nil || s.IdentityVersion < 0 || s.SeriesID == "" || s.Fingerprint == "" || s.NextSequence < 1 || len(s.ProbeOrder) != UpstreamConfidenceDistributionWindowSize {
 		return errors.New("invalid persistent confidence distribution state")
+	}
+	if s.IdentityVersion == ConfidenceDistributionIdentityVersion && s.Protocol == "responses" &&
+		(NormalizeCodexClientVersion(s.ClientVersion) != s.ClientVersion || s.ClientVersion == "" || CompareVersions(s.ClientVersion, codexUpstreamMinVersion) < 0) {
+		return errors.New("invalid persistent confidence distribution client version")
 	}
 	counts := make(map[string]int)
 	for _, id := range s.ProbeOrder {
@@ -214,7 +227,8 @@ func (s *ConfidenceDistributionState) Claim(now time.Time) (*DistributionAttempt
 	}
 	attempt := &DistributionAttempt{
 		SeriesID: s.SeriesID, LeaseToken: token, Sequence: s.NextSequence,
-		ProbeID: s.ProbeOrder[(s.NextSequence-1)%UpstreamConfidenceDistributionWindowSize],
+		ProbeID:       s.ProbeOrder[(s.NextSequence-1)%UpstreamConfidenceDistributionWindowSize],
+		ClientVersion: s.ClientVersion,
 	}
 	s.NextSequence++
 	s.Pending = attempt
