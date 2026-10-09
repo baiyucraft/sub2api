@@ -17,23 +17,26 @@ import (
 
 const accountTestSuppressCompletionContextKey = "account_test_suppress_completion"
 
-// testCNProviderAdaptiveConnection verifies the native endpoints used by an
-// adaptive CN-provider account. Zhipu only uses Chat Completions; DeepSeek and
-// Kimi additionally use native Responses, while Anthropic is tested only when
-// an explicit Anthropic base URL is configured.
+// testCNProviderAdaptiveConnection keeps manual CN verification aligned with
+// active probing: optional failures update capability evidence while a proven
+// fallback still makes the account usable. Other by-inbound providers use their
+// profile's supported endpoint without inheriting CN health-probe requirements.
 func (s *AccountTestService) testCNProviderAdaptiveConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
-	testModelID := strings.TrimSpace(modelID)
-	if testModelID == "" {
-		testModelID = openai.DefaultTestModel
+	requestedModelID := strings.TrimSpace(modelID)
+	if requestedModelID == "" {
+		requestedModelID = account.providerDefaultTestModel()
 	}
-	testModelID = account.GetMappedModel(testModelID)
+	if requestedModelID == "" {
+		requestedModelID = openai.DefaultTestModel
+	}
+	if !account.IsCNProvider() {
+		return s.testCNProviderChatCompletionsConnection(c, account, requestedModelID, prompt)
+	}
+	testModelID := account.GetMappedModel(requestedModelID)
 	if strings.TrimSpace(account.GetOpenAIProtocolAPIKey()) == "" {
 		return s.sendErrorAndEnd(c, "No API key available")
 	}
 
-	// Keep manual verification aligned with the active probe. Optional protocol
-	// failures are capability evidence; only the final usable route determines
-	// whether the account test succeeds.
 	c.Writer.Header().Set("Content-Type", "text/event-stream")
 	c.Writer.Header().Set("Cache-Control", "no-cache")
 	c.Writer.Header().Set("Connection", "keep-alive")
@@ -42,7 +45,7 @@ func (s *AccountTestService) testCNProviderAdaptiveConnection(c *gin.Context, ac
 	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
 	s.sendEvent(c, TestEvent{Type: "status", Text: "正在按自适应协议链路验证上游"})
 
-	result, err := s.RunUpstreamHealthProbe(c.Request.Context(), account, testModelID)
+	result, err := s.RunUpstreamHealthProbe(c.Request.Context(), account, requestedModelID)
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Adaptive upstream probe failed: %s", err.Error()))
 	}
@@ -54,13 +57,14 @@ func (s *AccountTestService) testCNProviderAdaptiveConnection(c *gin.Context, ac
 	s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 	return nil
 }
+
 func (s *AccountTestService) testCNProviderAdaptiveAnthropicConnection(c *gin.Context, account *Account, testModelID string, authToken string) error {
 	ctx := c.Request.Context()
 	baseURL, err := s.validateUpstreamBaseURL(account.GetCNProtocolBaseURL(APIProtocolAnthropic))
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Invalid adaptive Anthropic base URL: %s", err.Error()))
 	}
-	apiURL := strings.TrimRight(baseURL, "/") + "/v1/messages"
+	apiURL := nativeAnthropicMessagesURL(account, baseURL)
 
 	payload, err := createTestPayload(testModelID)
 	if err != nil {
@@ -236,10 +240,10 @@ func (s *AccountTestService) testCNProviderAnthropicConnection(c *gin.Context, a
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Invalid Anthropic base URL: %s", err.Error()))
 	}
-	if hint := cnAnthropicBaseURLMisconfigHint(baseURL); hint != "" {
+	if hint := cnAnthropicBaseURLMisconfigHint(baseURL, account.routesByModel() || account.IsUpstreamBound()); hint != "" {
 		return s.sendErrorAndEnd(c, hint)
 	}
-	apiURL := strings.TrimRight(baseURL, "/") + "/v1/messages"
+	apiURL := nativeAnthropicMessagesURL(account, baseURL)
 
 	c.Writer.Header().Set("Content-Type", "text/event-stream")
 	c.Writer.Header().Set("Cache-Control", "no-cache")
@@ -294,7 +298,9 @@ func (s *AccountTestService) testCNProviderAnthropicConnection(c *gin.Context, a
 // endpoint (paas path, version segment, or chat/completions / responses
 // suffix). The naive {base}/v1/messages join would 404 (e.g.
 // .../api/paas/v4/v1/messages) with no hint about the actual misconfiguration.
-func cnAnthropicBaseURLMisconfigHint(baseURL string) string {
+// versionAware is set for providers whose join is version-aware (see
+// nativeAnthropicMessagesURL), where a trailing version segment is valid.
+func cnAnthropicBaseURLMisconfigHint(baseURL string, versionAware bool) string {
 	parsed, err := url.Parse(strings.TrimSpace(baseURL))
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 		return ""
@@ -306,7 +312,7 @@ func cnAnthropicBaseURLMisconfigHint(baseURL string) string {
 	openAICompatShaped := strings.Contains(path, "/paas/") ||
 		strings.HasSuffix(path, "/chat/completions") ||
 		strings.HasSuffix(path, "/responses") ||
-		openAIBaseURLHasVersionSuffix(path)
+		(!versionAware && openAIBaseURLHasVersionSuffix(path))
 	if !openAICompatShaped {
 		return ""
 	}

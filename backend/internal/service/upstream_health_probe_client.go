@@ -489,7 +489,7 @@ func (s *AccountTestService) runOpenCodeGoUpstreamHealthProbe(ctx context.Contex
 	switch protocol {
 	case APIProtocolChatCompletions, APIProtocolAnthropic, APIProtocolResponses:
 	default:
-		protocol = openCodeGoNativeProtocol(account, mappedModel)
+		protocol = account.resolveModelRoutedProtocol(mappedModel)
 	}
 
 	var probed UpstreamHealthProbeResult
@@ -892,10 +892,10 @@ func (s *AccountTestService) runAnthropicUpstreamHealthProbe(ctx context.Context
 	}
 	apiURL := strings.TrimRight(baseURL, "/") + "/v1/messages?beta=true"
 	if account.IsCNProvider() {
-		if hint := cnAnthropicBaseURLMisconfigHint(baseURL); hint != "" {
+		if hint := cnAnthropicBaseURLMisconfigHint(baseURL, account.routesByModel() || account.IsUpstreamBound()); hint != "" {
 			return failUpstreamHealthProbe(result, "configuration_error", "probe_base_url_invalid", errors.New(hint))
 		}
-		apiURL = strings.TrimRight(baseURL, "/") + "/v1/messages"
+		apiURL = nativeAnthropicMessagesURL(account, baseURL)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewReader(payload))
 	if err != nil {

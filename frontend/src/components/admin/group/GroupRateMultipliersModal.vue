@@ -5,7 +5,7 @@
       <div class="flex flex-wrap items-center gap-3 rounded-lg bg-gray-50 px-4 py-2.5 text-sm dark:bg-dark-700">
         <span class="inline-flex items-center gap-1.5" :class="platformColorClass">
           <PlatformIcon :platform="group.platform" size="sm" />
-          {{ t('admin.groups.platforms.' + group.platform) }}
+          {{ t('admin.groups.platforms.' + group.platform, platformLabel(group.platform)) }}
         </span>
         <span class="text-gray-400">|</span>
         <span class="font-medium text-gray-900 dark:text-white">{{ group.name }}</span>
@@ -316,6 +316,7 @@ import Icon from '@/components/icons/Icon.vue'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import { calculateProfitControlMaxAccountRate, formatProfitControlMaxAccountRate } from '@/views/admin/groupsProfitControl'
 import { exclusiveRateToPercent, parseNonNegativeNumber, percentToExclusiveRate } from '@/utils/rateMultiplier'
+import { platformLabel } from '@/utils/platformColors'
 
 interface LocalEntry extends GroupRateMultiplierEntry {
   rate_percent: number | null
@@ -351,6 +352,7 @@ const previewNow = ref(Date.now())
 let previewClock: ReturnType<typeof setInterval> | null = null
 
 let searchTimeout: ReturnType<typeof setTimeout>
+let loadVersion = 0
 
 const platformColorClass = computed(() => {
   switch (props.group?.platform) {
@@ -416,18 +418,23 @@ const normalizeEntries = (entries: GroupRateMultiplierEntry[]): LocalEntry[] => 
 
 const loadEntries = async () => {
   if (!props.group) return
+  const version = loadVersion
   loading.value = true
+  serverEntries.value = []
+  localEntries.value = []
   try {
     const raw = await adminAPI.groups.getGroupRateMultipliers(props.group.id)
+    if (version !== loadVersion) return
     // 百分比是本地唯一真值；rate_multiplier 仅作为旧响应兼容回退。
     serverEntries.value = normalizeEntries(raw)
     localEntries.value = cloneEntries(serverEntries.value)
     adjustPage()
   } catch (error) {
+    if (version !== loadVersion) return
     appStore.showError(t('admin.groups.failedToLoad'))
     console.error('Error loading group rate multipliers:', error)
   } finally {
-    loading.value = false
+    if (version === loadVersion) loading.value = false
   }
 }
 
@@ -438,8 +445,9 @@ const adjustPage = () => {
   }
 }
 
-watch(() => props.show, (val) => {
-  if (val && props.group) {
+watch([() => props.show, () => props.group?.id], ([show]) => {
+  loadVersion++
+  if (show && props.group) {
     currentPage.value = 1
     batchFactor.value = null
     searchQuery.value = ''
@@ -632,6 +640,7 @@ if (typeof window !== 'undefined') {
 }
 
 onUnmounted(() => {
+  loadVersion++
   clearTimeout(searchTimeout)
   if (previewClock) {
     clearInterval(previewClock)
