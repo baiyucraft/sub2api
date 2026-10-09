@@ -99,24 +99,14 @@ type sub2APILongContextSnapshot struct {
 	Stale      bool       `json:"stale"`
 }
 
+// Read-only compatibility for historical permissions. The retired provider no
+// longer writes snapshots; removing this decoder would discard explicit denies.
 type lcodexImageCapabilitySnapshot struct {
 	Version              int        `json:"version"`
 	Status               string     `json:"status"`
 	AllowImageGeneration bool       `json:"allow_image_generation"`
 	ObservedAt           *time.Time `json:"observed_at"`
 	Stale                bool       `json:"stale"`
-}
-
-func lcodexImageCapabilitySnapshotMap(snapshot lcodexImageCapabilitySnapshot) map[string]any {
-	raw, err := json.Marshal(snapshot)
-	if err != nil {
-		return nil
-	}
-	var out map[string]any
-	if json.Unmarshal(raw, &out) != nil {
-		return nil
-	}
-	return out
 }
 
 func parseLCodexImageCapabilitySnapshot(extra map[string]any) (lcodexImageCapabilitySnapshot, bool) {
@@ -262,23 +252,6 @@ func deriveUpstreamKeyImagePricing(key *UpstreamKey, config *UpstreamConfig) *Up
 	if key == nil || config == nil {
 		return nil
 	}
-	if strings.EqualFold(strings.TrimSpace(config.Provider), UpstreamProviderLCodex) {
-		snapshot, ok := parseLCodexImageCapabilitySnapshot(key.Extra)
-		if !ok {
-			return &UpstreamKeyImagePricing{Status: UpstreamKeyImagePricingStatusUnavailable, Currency: "USD"}
-		}
-		out := &UpstreamKeyImagePricing{
-			Supported:  snapshot.AllowImageGeneration,
-			Status:     snapshot.Status,
-			Stale:      snapshot.Stale,
-			Currency:   "USD",
-			ObservedAt: snapshot.ObservedAt,
-		}
-		if config.LastError != nil && strings.TrimSpace(*config.LastError) != "" {
-			out.Stale = true
-		}
-		return out
-	}
 	snapshot, ok := parseSub2APIImagePricingSnapshot(key.Extra)
 	if !ok {
 		return &UpstreamKeyImagePricing{
@@ -423,6 +396,17 @@ func deriveUpstreamLongContextState(key *UpstreamKey, config *UpstreamConfig) *U
 // DeriveUpstreamKeyImagePricingForAccount exposes the redacted pricing snapshot
 // calculation to repository hydration without exposing raw key material.
 func DeriveUpstreamKeyImagePricingForAccount(key *UpstreamKey, config *UpstreamConfig) *UpstreamKeyImagePricing {
+	// Historical key permissions also need to survive repository hydration;
+	// otherwise an unavailable pricing field would hide the raw fallback deny.
+	if key != nil && config != nil && strings.EqualFold(strings.TrimSpace(config.Provider), "lcodex") {
+		if snapshot, ok := parseLCodexImageCapabilitySnapshot(key.Extra); ok {
+			out := &UpstreamKeyImagePricing{Supported: snapshot.AllowImageGeneration, Status: snapshot.Status, Stale: snapshot.Stale, ObservedAt: snapshot.ObservedAt}
+			if config.LastError != nil && strings.TrimSpace(*config.LastError) != "" {
+				out.Stale = true
+			}
+			return out
+		}
+	}
 	return deriveUpstreamKeyImagePricing(key, config)
 }
 
@@ -446,7 +430,7 @@ func multiplyImagePrice(price *float64, rate float64) *float64 {
 }
 
 func hydrateUpstreamConfigImagePricing(config *UpstreamConfig) {
-	if config == nil || (!strings.EqualFold(strings.TrimSpace(config.Provider), UpstreamProviderSub2API) && !strings.EqualFold(strings.TrimSpace(config.Provider), UpstreamProviderLCodex)) {
+	if config == nil || !strings.EqualFold(strings.TrimSpace(config.Provider), UpstreamProviderSub2API) {
 		return
 	}
 	for _, key := range config.Keys {
@@ -457,7 +441,7 @@ func hydrateUpstreamConfigImagePricing(config *UpstreamConfig) {
 }
 
 func hydrateUpstreamKeysImagePricing(keys []UpstreamKey, config *UpstreamConfig) {
-	if config == nil || (!strings.EqualFold(strings.TrimSpace(config.Provider), UpstreamProviderSub2API) && !strings.EqualFold(strings.TrimSpace(config.Provider), UpstreamProviderLCodex)) {
+	if config == nil || !strings.EqualFold(strings.TrimSpace(config.Provider), UpstreamProviderSub2API) {
 		return
 	}
 	for i := range keys {

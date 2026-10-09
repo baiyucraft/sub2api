@@ -434,10 +434,10 @@
                 v-model.trim="form.api_url"
                 class="input font-mono text-sm"
                 data-test="upstream-api-url-input"
-                :placeholder="form.provider === 'lcodex' ? 'https://api.example.com' : 'https://api.example.com/v1'"
+                placeholder="https://api.example.com/v1"
               />
               <span class="block text-xs text-gray-500 dark:text-dark-400">
-                {{ t(form.provider === 'lcodex' ? 'admin.upstreamConfigs.fields.lcodexApiUrlHint' : 'admin.upstreamConfigs.fields.apiUrlHint') }}
+                {{ t('admin.upstreamConfigs.fields.apiUrlHint') }}
               </span>
             </label>
           </div>
@@ -604,32 +604,6 @@
                 v-model="form.password"
                 class="input"
                 data-test="upstream-password-input"
-                type="password"
-                autocomplete="new-password"
-                :required="!editing"
-                :placeholder="editing ? t('admin.upstreamConfigs.fields.keepPasswordPlaceholder') : ''"
-              />
-            </label>
-          </template>
-
-          <template v-if="form.provider === 'lcodex'">
-            <label class="space-y-1">
-              <span class="input-label">{{ t('admin.upstreamConfigs.fields.lcodexLoginIdentifier') }}</span>
-              <input
-                v-model.trim="form.lcodex_identifier"
-                class="input"
-                data-test="upstream-lcodex-identifier-input"
-                type="text"
-                autocomplete="username"
-                :required="!editing"
-              />
-            </label>
-            <label class="space-y-1">
-              <span class="input-label">{{ t('admin.upstreamConfigs.fields.loginPassword') }}</span>
-              <input
-                v-model="form.password"
-                class="input"
-                data-test="upstream-lcodex-password-input"
                 type="password"
                 autocomplete="new-password"
                 :required="!editing"
@@ -1854,7 +1828,6 @@ const form = reactive({
   proxy_id: null as number | null,
   email: '',
   username: '',
-  lcodex_identifier: '',
   password: '',
   cookie: '',
   newapi_access_token: '',
@@ -2064,21 +2037,16 @@ const providerFilterOptions = computed<SelectOption[]>(() => [
   { value: '', label: t('admin.upstreamConfigs.filters.allProviders') },
   { value: 'sub2api', label: providerLabel('sub2api') },
   { value: 'newapi', label: providerLabel('newapi') },
-  { value: 'lcodex', label: providerLabel('lcodex') },
   { value: 'other', label: providerLabel('other') }
 ])
 
 const providerEditOptions = computed<SelectOption[]>(() => [
   { value: 'sub2api', label: providerLabel('sub2api') },
   { value: 'newapi', label: providerLabel('newapi') },
-  { value: 'lcodex', label: providerLabel('lcodex') },
   { value: 'other', label: providerLabel('other') }
 ])
 
 const authModeOptions = computed<SelectOption[]>(() => {
-  if (form.provider === 'lcodex') {
-    return [{ value: 'user_login', label: t('admin.upstreamConfigs.authModes.userLogin') }]
-  }
   return form.provider === 'newapi' ? [
       { value: 'user_login', label: t('admin.upstreamConfigs.authModes.userLogin') },
       { value: 'cookie', label: t('admin.upstreamConfigs.authModes.cookie') },
@@ -2091,9 +2059,7 @@ const authModeOptions = computed<SelectOption[]>(() => {
 })
 
 watch(() => form.provider, (value) => {
-  if (value === 'lcodex') {
-    form.auth_mode = 'user_login'
-  } else if (value === 'newapi' && !['user_login', 'cookie', 'access_token'].includes(form.auth_mode)) {
+  if (value === 'newapi' && !['user_login', 'cookie', 'access_token'].includes(form.auth_mode)) {
     form.auth_mode = 'user_login'
   } else if (value === 'sub2api' && !['user_login', 'manual_jwt'].includes(form.auth_mode)) {
     form.auth_mode = 'user_login'
@@ -2274,7 +2240,6 @@ function resetForm() {
     proxy_id: null,
     email: '',
     username: '',
-    lcodex_identifier: '',
     password: '',
     cookie: '',
     newapi_access_token: '',
@@ -2305,7 +2270,6 @@ function openEdit(item: UpstreamConfig) {
     proxy_id: item.proxy_id ?? null,
     email: '',
     username: '',
-    lcodex_identifier: '',
     password: '',
     cookie: '',
     newapi_access_token: '',
@@ -2371,20 +2335,15 @@ function openUpstreamDashboard(item: UpstreamConfig) {
 }
 
 function canOpenUpstreamDashboard(item: UpstreamConfig): boolean {
-  return ['sub2api', 'newapi', 'lcodex'].includes(item.provider) && Boolean(buildUpstreamDashboardURL(item))
+  return ['sub2api', 'newapi'].includes(item.provider) && Boolean(buildUpstreamDashboardURL(item))
 }
 
 function buildUpstreamDashboardURL(item: UpstreamConfig): string | null {
   try {
     const url = new URL((item.site_url || '').trim())
     if (!['http:', 'https:'].includes(url.protocol)) return null
-    if (item.provider === 'lcodex') {
-      url.pathname = '/'
-      url.hash = '/dashboard'
-    } else {
-      url.pathname = '/dashboard'
-      url.hash = ''
-    }
+    url.pathname = '/dashboard'
+    url.hash = ''
     url.search = ''
     return url.toString()
   } catch {
@@ -2443,10 +2402,6 @@ async function saveConfig() {
       if (form.username) credentials.newapi_login_username = form.username
       if (form.password) credentials.newapi_login_password = form.password
     }
-    if (form.provider === 'lcodex') {
-      if (form.lcodex_identifier) credentials.lcodex_login_identifier = form.lcodex_identifier
-      if (form.password) credentials.lcodex_login_password = form.password
-    }
     if (form.provider === 'newapi' && form.auth_mode === 'cookie') {
       if (form.cookie) credentials.newapi_cookie = form.cookie
       if (form.newapi_user_id) credentials.newapi_user_id = form.newapi_user_id
@@ -2483,7 +2438,7 @@ async function saveConfig() {
     }
     operationConfigsLoaded.value = false
     dialogOpen.value = false
-    if (['sub2api', 'newapi', 'lcodex'].includes(savedConfig?.provider || '')) {
+    if (['sub2api', 'newapi'].includes(savedConfig?.provider || '')) {
       await syncAfterSave(savedConfig.id)
     } else {
       appStore.showSuccess(editing.value
@@ -2514,15 +2469,6 @@ function validateFormBeforeSave(): string {
     return t('admin.upstreamConfigs.messages.schedulerConcurrencyInvalid')
   }
   const status = editing.value?.credentials_status || {}
-  if (form.provider === 'lcodex') {
-    if (!form.lcodex_identifier && !status.has_lcodex_login_identifier) {
-      return t('admin.upstreamConfigs.messages.lcodexIdentifierRequired')
-    }
-    if (!form.password && !status.has_lcodex_login_password) {
-      return t('admin.upstreamConfigs.messages.lcodexPasswordRequired')
-    }
-    return ''
-  }
   if (form.provider !== 'newapi') return ''
   if (form.auth_mode === 'cookie') {
     if (!form.newapi_user_id && !status.has_newapi_user_id) return t('admin.upstreamConfigs.messages.newapiUserIdRequired')
@@ -2819,9 +2765,6 @@ function keyManagementTabClass(tab: KeyManagementTab): string {
 
 function formatImageCost(value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value)) {
-    if (keyPlatformsConfig.value?.provider === 'lcodex') {
-      return t('admin.upstreamConfigs.keyManagement.imagePricing.notProvided')
-    }
     return t('admin.upstreamConfigs.keyManagement.imagePricing.upstreamDefault')
   }
   return `$${value.toFixed(4)}`
@@ -3541,8 +3484,6 @@ function providerLabel(value: UpstreamProvider | string): string {
       return t('admin.upstreamConfigs.providers.sub2api')
     case 'newapi':
       return t('admin.upstreamConfigs.providers.newapi')
-    case 'lcodex':
-      return t('admin.upstreamConfigs.providers.lcodex')
     default:
       return t('admin.upstreamConfigs.providers.other')
   }
@@ -3561,8 +3502,6 @@ function providerBadgeClass(value: UpstreamProvider | string): string {
       return 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-300 dark:ring-emerald-800'
     case 'newapi':
       return 'bg-blue-50 text-blue-700 ring-1 ring-blue-200 dark:bg-blue-900/20 dark:text-blue-300 dark:ring-blue-800'
-    case 'lcodex':
-      return 'bg-cyan-50 text-cyan-700 ring-1 ring-cyan-200 dark:bg-cyan-900/20 dark:text-cyan-300 dark:ring-cyan-800'
     default:
       return 'bg-gray-100 text-gray-700 ring-1 ring-gray-200 dark:bg-dark-700 dark:text-dark-200 dark:ring-dark-600'
   }
@@ -3570,12 +3509,6 @@ function providerBadgeClass(value: UpstreamProvider | string): string {
 
 function credentialLines(item: UpstreamConfig) {
   const status = item.credentials_status || {}
-  if (item.provider === 'lcodex') {
-    return [
-      { label: t('admin.upstreamConfigs.credentialStatus.identifier', { status: credentialStatusLabel(!!status.has_lcodex_login_identifier) }), ok: !!status.has_lcodex_login_identifier },
-      { label: t('admin.upstreamConfigs.credentialStatus.password', { status: credentialStatusLabel(!!status.has_lcodex_login_password) }), ok: !!status.has_lcodex_login_password }
-    ]
-  }
   if (item.provider === 'newapi') {
     if (item.auth_mode === 'cookie') {
       return [
@@ -3607,7 +3540,7 @@ function credentialLines(item: UpstreamConfig) {
 }
 
 function supportsImagePricingProvider(value: UpstreamProvider | string | null | undefined): boolean {
-  return value === 'sub2api' || value === 'lcodex'
+  return value === 'sub2api'
 }
 
 function credentialStatusLabel(ok: boolean) {
@@ -3618,9 +3551,6 @@ function upstreamBalanceCNY(item: UpstreamConfig): number | null {
   if (item.provider === 'sub2api') {
     return finiteNumberFromExtra(item.extra?.balance_cny)
       ?? finiteNumberFromExtra(item.extra?.sub2api_balance)
-  }
-  if (item.provider === 'lcodex') {
-    return lcodexAmountCNY(item, 'balance')
   }
   const amount = newAPIAmount(item, 'balance')
   const rate = explicitCNYRate(item)
@@ -3633,21 +3563,10 @@ function upstreamTotalAmountCNY(item: UpstreamConfig): number | null {
     return finiteNumberFromExtra(item.extra?.total_recharged_cny)
       ?? finiteNumberFromExtra(item.extra?.sub2api_total_recharged)
   }
-  if (item.provider === 'lcodex') {
-    return lcodexAmountCNY(item, 'total')
-  }
   const amount = newAPIAmount(item, 'total')
   const rate = explicitCNYRate(item)
   if (amount !== null && rate !== null) return amount * rate
   return finiteNumberFromExtra(item.extra?.total_recharged_cny)
-}
-
-function lcodexAmountCNY(item: UpstreamConfig, kind: 'balance' | 'total'): number | null {
-  const amount = newAPIAmount(item, kind)
-  const cnyRate = finitePositiveNumber(item.balance_to_cny_rate)
-  if (amount === null || cnyRate === null) return null
-  const rechargeRate = finitePositiveNumber(item.recharge_rate) ?? 1
-  return amount * cnyRate * rechargeRate
 }
 
 function upstreamBalanceError(item: UpstreamConfig): string {
@@ -3678,7 +3597,7 @@ function upstreamBalanceEmail(item: UpstreamConfig): string {
 }
 
 function usesProviderSnapshot(item: UpstreamConfig): boolean {
-  return item.provider === 'newapi' || item.provider === 'lcodex'
+  return item.provider === 'newapi'
 }
 
 function upstreamProviderSnapshot(item: UpstreamConfig): Record<string, unknown> | null {
@@ -3890,14 +3809,6 @@ function convertNewAPIQuotaRaw(item: UpstreamConfig, raw: number | null): number
 function newAPIAmount(item: UpstreamConfig, kind: 'balance' | 'total'): number | null {
   const snapshot = upstreamProviderSnapshot(item)
   if (!snapshot) return null
-  if (item.provider === 'lcodex') {
-    if (kind === 'balance') return finiteNumberFromExtra(snapshot.balance_amount)
-    const totalAmount = finiteNumberFromExtra(snapshot.total_amount)
-    if (totalAmount !== null) return totalAmount
-    const balanceAmount = finiteNumberFromExtra(snapshot.balance_amount)
-    const usedAmount = finiteNumberFromExtra(snapshot.used_amount)
-    return balanceAmount !== null && usedAmount !== null ? balanceAmount + usedAmount : null
-  }
   const useBaseAmount = finitePositiveNumber(item.balance_to_cny_rate) !== null
   if (kind === 'balance') {
     if (useBaseAmount) {
@@ -3956,14 +3867,7 @@ function formatCNY(value: number | null): string {
 }
 
 function formatUpstreamBalance(item: UpstreamConfig): string {
-  const cny = upstreamBalanceCNY(item)
-  if (cny !== null) return formatCNY(cny)
-  if (item.provider !== 'lcodex') return '-'
-  const snapshot = upstreamProviderSnapshot(item)
-  const amount = finiteNumberFromExtra(snapshot?.balance_amount)
-  const currency = typeof snapshot?.currency === 'string' ? snapshot.currency.trim().toUpperCase() : ''
-  if (amount === null || currency !== 'USD') return '-'
-  return `$${formatBalanceAmount(amount)}`
+  return formatCNY(upstreamBalanceCNY(item))
 }
 
 function isLowBalance(item: UpstreamConfig): boolean {

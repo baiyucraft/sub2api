@@ -17,7 +17,7 @@ vi.mock('vue-i18n', () => ({ useI18n: () => ({
 }) }))
 
 const card = (overrides: Partial<UpstreamDashboardCard> = {}): UpstreamDashboardCard => ({
-  id: 42, name: '测试上游', provider: 'lcodex', site_url: 'https://upstream.example',
+  id: 42, name: '测试上游', provider: 'sub2api', site_url: 'https://upstream.example',
   enabled: true, config_status: 'active', overall_status: 'operational',
   requests: 10, completed_requests: 10, failed_requests: 0, success_rate: 1,
   error_429: 0, error_5xx: 0, timeouts: 0, auth_config_errors: 0,
@@ -43,11 +43,11 @@ beforeEach(() => vi.clearAllMocks())
 afterEach(() => { wrapper?.unmount(); wrapper = undefined })
 
 describe('upstream recharge actions', () => {
-  it('offers a separate new-tab link beside the balance', async () => {
-    const view = await render(card())
+  it.each([['sub2api', '/purchase'], ['newapi', '/console/topup']])('offers a separate new-tab %s link beside the balance', async (provider, path) => {
+    const view = await render(card({ provider }))
     const link = view.get('[data-test="card-recharge-link"]')
     expect(link.text()).toBe('去充值')
-    expect(link.attributes('href')).toBe('https://upstream.example/purchase')
+    expect(link.attributes('href')).toBe(`https://upstream.example${path}`)
     expect(link.attributes('target')).toBe('_blank')
     expect(link.attributes('rel')).toBe('noopener noreferrer')
     expect(link.attributes('aria-label')).toContain('测试上游')

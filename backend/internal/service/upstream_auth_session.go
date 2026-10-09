@@ -539,6 +539,8 @@ func UpstreamAuthCredentialFingerprint(cfg *UpstreamConfig) string {
 		AccountCredentialSub2APIAccessToken, AccountCredentialSub2APIRefreshToken,
 		AccountCredentialNewAPILoginUsername, AccountCredentialNewAPILoginPassword,
 		AccountCredentialNewAPICookie, AccountCredentialNewAPIAccessToken,
+		// Preserve the original material layout even when these retired values
+		// are empty, so existing Sub2API/NewAPI sessions keep their fingerprints.
 		AccountCredentialNewAPIUserID, AccountCredentialLCodexLoginIdentifier,
 		AccountCredentialLCodexLoginPassword,
 	}

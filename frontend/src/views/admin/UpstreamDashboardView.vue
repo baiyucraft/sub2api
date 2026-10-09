@@ -211,7 +211,7 @@ const statusClass = (status: string) => ({ operational: 'status-badge-operationa
 const statusCardClass = (status: string) => `status-${status || 'unknown'}`
 const providerInitial = (value: string | null | undefined) => (value || '?').trim().charAt(0).toUpperCase()
 const rechargeActionKey = (provider: string, accessible = false) => {
-  const action = ['sub2api', 'lcodex', 'newapi'].includes(provider) ? 'recharge' : 'visitSite'
+  const action = ['sub2api', 'newapi'].includes(provider) ? 'recharge' : 'visitSite'
   return `admin.upstreamDashboard.actions.${action}${accessible ? 'For' : ''}`
 }
 const formatNumber = (value: number | null | undefined) => value == null || !Number.isFinite(value) ? '-' : new Intl.NumberFormat().format(value)

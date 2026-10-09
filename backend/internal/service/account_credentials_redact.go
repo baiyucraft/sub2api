@@ -17,7 +17,7 @@ var SensitiveCredentialKeys = []string{
 	AccountCredentialNewAPILoginPassword,
 	AccountCredentialNewAPICookie,
 	AccountCredentialNewAPIAccessToken,
-	// LCodex 上游登录密码（用于第一方用户登录同步）
+	// 已移除的 LCodex 登录密码仍必须对历史数据脱敏。
 	AccountCredentialLCodexLoginPassword,
 	// Grok Web SSO / password (must never persist or echo after Build OAuth)
 	"password", "sso_token", "sso", "sso-rw", "clearTextPassword",
