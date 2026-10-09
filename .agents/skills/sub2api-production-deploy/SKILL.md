@@ -249,6 +249,8 @@ Gate 必须绑定 commit、origin、VM identity、validator、runner、发布资
 
 - VM 的 Gate v2 和 legacy 构建入口必须使用与同 commit 的 `backend/go.mod` 及根 Dockerfile 默认一致的 Go 镜像版本，当前为既有镜像源的 `golang:1.27.2-alpine`。版本漂移必须由回归阻断；不得降低模块最低版本或绕过工具链检查。
 
+- VM 的 Gate v2 和 legacy 构建共用 `docker_build_with_registry_bypass`：合并原 `NO_PROXY` 与 `no_proxy` 例外，仅为构建子命令补充镜像主机 `docker.m.daocloud.io` 与其匿名令牌主机 `m.daocloud.io` 两个精确例外，同时提供两种大小写变量，供 BuildKit 客户端匿名 token 请求使用；禁止域名通配或整个公司后缀。保留 HTTP/HTTPS/ALL 代理及父环境，基础镜像来源、版本和 build args 不变；不修改 daemon/global 代理、不重启 Docker。镜像 metadata 的 EOF 先按只读直连／代理 manifest 对照定位，不当作权限拒绝或工具链不兼容；脚本新 blob 仍需独立精确恢复审阅，旧登记不自动覆盖。
+
 - Docker 使用 containerd image store 时，`docker system df` 的 image/cache 数字包含共享逻辑大小，不能与 `/var/lib/containerd` 的物理占用相加。空间判断必须同时记录 `df`、containerd snapshots、Docker volumes、BuildKit records 和 release-gates 归档。
 - VM Gate 构建前安装构建阶段失败 trap；构建失败、构建后空间断言失败或中断时，移除本次新 tag/image 并恢复构建前同名 tag。失败清理不得触碰原 candidate、当前 dev image 或 BuildKit cachemount。
 - Gate v2 在 Candidate 构建完成、生产恢复探针开始前必须重新执行版本化空间 dry-run；空间不足时仅在本次 Gate 尚未执行过清理的前提下，按同一 `max-used-space=1gb,reserved-space=1gb` 合同执行一次有界 BuildKit LRU GC 并再次核验。若构建前已经清理且构建后仍不足，必须以 `post_build_space` 失败停止，禁止第二次清理或继续进入 `pg_restore`。
