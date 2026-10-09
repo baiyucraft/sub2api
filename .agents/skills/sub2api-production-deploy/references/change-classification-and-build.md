@@ -327,6 +327,8 @@ frontend source
 - `sub2api-go-mod`
 - `sub2api-go-build`
 
+VM Gate v2 与 legacy 的两处 `docker build` 共用 `docker_build_with_registry_bypass`。它从原环境一次合并 `NO_PROXY`／`no_proxy` 例外，仅添加既有镜像主机 `docker.m.daocloud.io` 与其匿名令牌主机 `m.daocloud.io` 两个精确例外，不使用域名通配或公司后缀，将相同列表以两种大小写传给构建子命令；父环境与 HTTP/HTTPS/ALL 代理保持原样。该范围同时覆盖 BuildKit 客户端的匿名 token 请求，不替代 daemon 的网络配置。不得为构建修复重启 Docker、清空全局代理、切换基础镜像来源或降低 Go 版本。metadata EOF 应先以只读 manifest 对照区分代理传输问题、权限错误和缺失镜像，不能仅凭匿名 token 请求失败推断 401/403。回归以真实 Bash 覆盖两入口、原例外合并、父环境隔离和失败退出码；validator 新 blob 仍须在源码提交后独立精确审阅，历史批次不回写。
+
 `deploy/docker-compose.dev.yml` 的 build context 指向仓库根，并使用根 `Dockerfile`。`deploy/Dockerfile` 与根 Dockerfile 的差异本身属于构建链改动，不能在不分类的情况下切换。
 
 禁止：

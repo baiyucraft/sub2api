@@ -10,6 +10,22 @@ done
 docker info >/dev/null 2>&1
 git --version >/dev/null 2>&1
 
+docker_build_with_registry_bypass() {
+  # BuildKit's client-side token fetch needs both registry and auth host bypasses.
+  # Merge both existing exception lists, scoped only to this build command.
+  local registry_no_proxy="${NO_PROXY:-}" registry_host
+  if [[ -n ${no_proxy:-} ]]; then
+    registry_no_proxy="${registry_no_proxy:+$registry_no_proxy,}${no_proxy}"
+  fi
+  for registry_host in docker.m.daocloud.io m.daocloud.io; do
+    case ",$registry_no_proxy," in
+      *,$registry_host,*) ;;
+      *) registry_no_proxy="${registry_no_proxy:+$registry_no_proxy,}$registry_host" ;;
+    esac
+  done
+  NO_PROXY="$registry_no_proxy" no_proxy="$registry_no_proxy" docker build "$@"
+}
+
 wait_for_redis_ready() {
   local container=$1 max_seconds=${2:-180} diagnostics_path=${3:-}
   local state loading ping
@@ -286,7 +302,7 @@ if [[ "$manifest_schema" == 2 ]]; then
   : > "$build_log"
   chmod 600 "$build_log"
   mark_v2_stage candidate_build
-  docker build --network=host --progress=plain \
+  docker_build_with_registry_bypass --network=host --progress=plain \
     --build-arg NODE_IMAGE=docker.m.daocloud.io/library/node:24-alpine \
     --build-arg GOLANG_IMAGE=docker.m.daocloud.io/library/golang:1.27.2-alpine \
     --build-arg ALPINE_IMAGE=docker.m.daocloud.io/library/alpine:3.21 \
@@ -867,7 +883,7 @@ on_build_failure() {
 trap on_build_failure ERR INT TERM
 export DOCKER_BUILDKIT=1
 mark_stage candidate_build
-docker build --network=host --progress=plain \
+docker_build_with_registry_bypass --network=host --progress=plain \
   --build-arg NODE_IMAGE=docker.m.daocloud.io/library/node:24-alpine \
   --build-arg GOLANG_IMAGE=docker.m.daocloud.io/library/golang:1.27.2-alpine \
   --build-arg ALPINE_IMAGE=docker.m.daocloud.io/library/alpine:3.21 \
