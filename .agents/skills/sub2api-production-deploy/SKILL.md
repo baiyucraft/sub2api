@@ -245,6 +245,8 @@ Gate 必须绑定 commit、origin、VM identity、validator、runner、发布资
 
 ### VM 构建缓存与磁盘
 
+- Profile 265 候选构建与失败租约的第三批精确审阅绑定 `aeb410bccc524164bdafbd3db865d4f5f588aced` → `99d9fcf97125ef6efc6543692697e85e27412396`，理由为 `reviewed_vm_preflight_recovery_changed`，独立集合 `_PROFILE265_BUILD_RECOVERY_REVIEW_PATHS` 仅含 `release/cli.py`、`release/supervisor.py`、`release/vm-validate.sh`。审阅覆盖这三项完整净 blob：显式 candidate-build 收口、持锁 audit-only 前后核验及零正式状态写、失败证据保留与原 owner 最后提交；validator 同时包含 265 白名单/版本/parent/迁移 290 接线、奖励 postflight 的 264|265 条件及 Go 1.27.2 对齐，不能视为只有 Go pin。旧 35 项兼容和两项 postflight 审阅的 SHA 与路径集保持不变，三组取并集为 39 条净敏感路径。未来 blob、mode、删除、改名和基线漂移，以及未登记的 restore、ingress、信任根等变更仍阻断；显式 full 不能绕过。登记不代替真实专项恢复、完整门禁或生产验真。
+
 - VM 的 Gate v2 和 legacy 构建入口必须使用与同 commit 的 `backend/go.mod` 及根 Dockerfile 默认一致的 Go 镜像版本，当前为既有镜像源的 `golang:1.27.2-alpine`。版本漂移必须由回归阻断；不得降低模块最低版本或绕过工具链检查。
 
 - Docker 使用 containerd image store 时，`docker system df` 的 image/cache 数字包含共享逻辑大小，不能与 `/var/lib/containerd` 的物理占用相加。空间判断必须同时记录 `df`、containerd snapshots、Docker volumes、BuildKit records 和 release-gates 归档。
