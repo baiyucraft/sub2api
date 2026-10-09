@@ -236,6 +236,7 @@ const verifyingSaved = ref(false)
 const sendingSavedCode = ref(false)
 const verifyCountdown = ref(0)
 let verifyTimer: ReturnType<typeof setInterval> | null = null
+let disposed = false
 
 const canAddMore = computed(() => {
   return emailEntries.value.length + pendingEmails.value.length < maxTotalEmails
@@ -257,6 +258,7 @@ watch(() => props.threshold, (val) => { customThreshold.value = val })
 watch(() => props.extraEmails, (val) => { emailEntries.value = [...val] })
 
 onUnmounted(() => {
+  disposed = true
   for (const pe of pendingEmails.value) {
     if (pe.timer) clearInterval(pe.timer)
   }
@@ -318,6 +320,7 @@ async function sendCodeFor(idx: number) {
   pe.sending = true
   try {
     await userAPI.sendNotifyEmailCode(pe.email)
+    if (disposed || !pendingEmails.value.includes(pe)) return
     pe.codeSent = true
     pe.countdown = 60
     pe.timer = setInterval(() => {
@@ -371,6 +374,7 @@ async function sendCodeForSaved(email: string) {
   sendingSavedCode.value = true
   try {
     await userAPI.sendNotifyEmailCode(email)
+    if (disposed) return
     verifyingEmail.value = email
     verifyCode.value = ''
     verifyCountdown.value = 60

@@ -906,7 +906,22 @@ PROFILES["264"] = {
     },
 }
 
-CURRENT_RELEASE_PROFILE = "264"
+# Profile 264 remains immutable. Official 0.2.15 moves platform membership
+# validation to the shared application catalog; only the new SQL is renumbered.
+PROFILES["265"] = {
+    **{key: PROFILES["264"][key] for key in _PROFILE_V2_RUNTIME_KEYS},
+    "name": "265",
+    "version": "0.2.15-baiyu",
+    "parent": "264",
+    "new_migrations": ["290_drop_platform_check_constraints.sql"],
+    "gate_schema": 2,
+    "release_policy": {
+        "compatibility_image": "production_current",
+        "migration_source": "database_state",
+    },
+}
+
+CURRENT_RELEASE_PROFILE = "265"
 
 
 def get_profile(name: str) -> dict:

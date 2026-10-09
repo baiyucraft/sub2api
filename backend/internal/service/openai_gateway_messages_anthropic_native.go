@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -133,14 +134,40 @@ func (s *OpenAIGatewayService) nativeAnthropicTargetURL(account *Account) (strin
 	if err != nil {
 		return "", fmt.Errorf("invalid base_url: %w", err)
 	}
-	if account.IsOpenCodeGo() {
-		// OpenCode Go 的 Chat Completions base 带 /v1；用版本感知拼接避免 /v1/v1/messages。
-		return buildOpenAIEndpointURL(validatedURL, "/v1/messages"), nil
-	}
-	return strings.TrimRight(validatedURL, "/") + "/v1/messages", nil
+	return nativeAnthropicMessagesURL(account, validatedURL), nil
 }
 
-func resolveOpenCodeGoMappedModel(account *Account, body []byte, defaultMappedModel string) string {
+// nativeAnthropicMessagesURL 由已校验的 Anthropic 协议基址拼出 messages 端点，转发与
+// 连接测试共用。绑定 Key 的基址保留其路径前缀，只去重完整的 /v1 路径段。
+// 按模型分流的聚合平台（OpenCode、Command Code 等）继续使用版本感知拼接。
+func nativeAnthropicMessagesURL(account *Account, validatedBaseURL string) string {
+	if account.IsUpstreamBound() {
+		// Work only from the validated snapshot. EscapedPath prevents an encoded
+		// slash in a tenant prefix from masquerading as an API version segment.
+		parsed, err := url.Parse(validatedBaseURL)
+		if err != nil {
+			return strings.TrimRight(validatedBaseURL, "/") + "/v1/messages"
+		}
+		path := strings.TrimRight(parsed.EscapedPath(), "/")
+		switch {
+		case strings.HasSuffix(path, "/v1/messages"):
+		case strings.HasSuffix(path, "/v1"):
+			path += "/messages"
+		default:
+			path += "/v1/messages"
+		}
+		parsed.Path, _ = url.PathUnescape(path)
+		parsed.RawPath = path
+		parsed.Fragment = ""
+		return parsed.String()
+	}
+	if account.routesByModel() {
+		return buildOpenAIEndpointURL(validatedBaseURL, "/v1/messages")
+	}
+	return strings.TrimRight(validatedBaseURL, "/") + "/v1/messages"
+}
+
+func resolveMappedUpstreamModel(account *Account, body []byte, defaultMappedModel string) string {
 	original := strings.TrimSpace(gjson.GetBytes(body, "model").String())
 	billing := resolveOpenAIForwardModel(account, original, defaultMappedModel)
 	return normalizeOpenAIModelForUpstream(account, billing)

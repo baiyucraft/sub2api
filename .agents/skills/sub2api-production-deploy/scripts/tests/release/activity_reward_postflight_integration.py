@@ -22,11 +22,11 @@ trap 'rm -f -- "$raw_root/logs/production.raw.log"; rmdir -- "$raw_root/logs" "$
 install -m 600 /dev/null "$raw_root/logs/production.raw.log"
 cat > "$remote/case.sh" <<'CASE'
 set -Eeuo pipefail
-release_profile=264
+[[ $release_profile == 264 || $release_profile == 265 ]]
 deployment_mode=downtime
 active_container=sub2api
 assets_dir=$remote
-state_dir=$remote/$scenario
+state_dir=$remote/$release_profile-$scenario
 mkdir -m 700 "$state_dir"
 candidate_compose_args=(-f synthetic)
 SUB2API_RELEASE_RAW_LOG=$raw_root/logs/production.raw.log
@@ -73,25 +73,28 @@ source "$assets_dir/postflight.sh"
 sub2api_activity_reward_cost_postflight
 CASE
 chmod 700 "$remote/case.sh"
+for release_profile in 264 265; do
 for scenario in success missing extra_app entrypoint_app path_app shell_app compose_app invalid_inspect ps_failure inspect_failure database_failure orphan cache_failure cache_invalid; do
   status=0
-  remote="$remote" raw_root="$raw_root" scenario="$scenario" bash "$remote/case.sh" > "$remote/$scenario.out" 2> "$remote/$scenario.err" || status=$?
+  case_root="$remote/$release_profile-$scenario"
+  release_profile="$release_profile" remote="$remote" raw_root="$raw_root" scenario="$scenario" bash "$remote/case.sh" > "$case_root.out" 2> "$case_root.err" || status=$?
   if [[ $scenario == success || $scenario == missing ]]; then
     [[ $status == 0 ]]
-    [[ $(paste -sd, "$remote/$scenario/order") == check,apply,check,cache ]]
-    jq -e '.verified==true and .missing_count==0' "$remote/$scenario/activity-reward-cost-after.json" >/dev/null
-    jq -e '.dashboard_cache_cleared==true' "$remote/$scenario/dashboard-cache-refresh.json" >/dev/null
-    for result in "$remote/$scenario"/*.json; do [[ $(stat -c '%U:%G:%a:%h' "$result") == root:root:600:1 ]]; done
+    [[ $(paste -sd, "$case_root/order") == check,apply,check,cache ]]
+    jq -e '.verified==true and .missing_count==0' "$case_root/activity-reward-cost-after.json" >/dev/null
+    jq -e '.dashboard_cache_cleared==true' "$case_root/dashboard-cache-refresh.json" >/dev/null
+    for result in "$case_root"/*.json; do [[ $(stat -c '%U:%G:%a:%h' "$result") == root:root:600:1 ]]; done
   else
-    [[ $status != 0 && ! -e $remote/$scenario/dashboard-cache-refresh.json ]]
+    [[ $status != 0 && ! -e $case_root/dashboard-cache-refresh.json ]]
     if [[ $scenario == *_app || $scenario == invalid_inspect || $scenario == ps_failure || $scenario == inspect_failure || $scenario == database_failure ]]; then
-      [[ ! -e $remote/$scenario/order ]]
+      [[ ! -e $case_root/order ]]
     elif [[ $scenario == orphan ]]; then
-      [[ $(cat "$remote/$scenario/order") == check ]]
+      [[ $(cat "$case_root/order") == check ]]
     fi
   fi
 done
-printf 'reward_cost_postflight_integration=pass\nchecks=14\n'
+done
+printf 'reward_cost_postflight_integration=pass\nchecks=28\n'
 '''
         print(runner.run('local_vm', script, {'reward_cost_postflight_integration', 'checks'}, timeout=120).values)
     finally:

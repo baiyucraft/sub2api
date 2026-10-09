@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "catalog_version": "2026-10-07",
+  "catalog_version": "2026-10-09",
   "version_contract": {
     "upstream_path": "backend/cmd/server/VERSION",
     "fork_suffix": "-baiyu",
@@ -11,7 +11,8 @@
       "9a62841fd124d026cf3694fcf9b79e98addcdbdc": "0.2.9",
       "42bc7f6cffe24bcb471608e48e66b4a0afa1f882": "0.2.11",
       "b8dece9000c68815a5b867ca5a1e6f236e173905": "0.2.13",
-      "3f1a2ea0a760730e3bc528105c00b4ee4f23e469": "0.2.14"
+      "3f1a2ea0a760730e3bc528105c00b4ee4f23e469": "0.2.14",
+      "3a6fd1c9db07203ca308aaba69e502bc1f35b307": "0.2.15"
     }
   },
   "upstream_overlap_reviews": [
@@ -124,21 +125,23 @@
     "260": {"version":"0.2.11-baiyu","parent":"259","gate_schema":2,"new_migrations":["285_upstream_null_rate_lifecycle.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
     "261": {"version":"0.2.13-baiyu","parent":"260","gate_schema":2,"new_migrations":["286_add_payment_order_bonus_amount.sql","287_add_typesafe_platform.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
     "262": {"version":"0.2.13-baiyu","parent":"261","gate_schema":2,"new_migrations":["288_upstream_confidence_distribution.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
-    "263": {"version":"0.2.14-baiyu","parent":"262","gate_schema":2,"new_migrations":[],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}}
+    "263": {"version":"0.2.14-baiyu","parent":"262","gate_schema":2,"new_migrations":[],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
+    "264": {"version":"0.2.14-baiyu","parent":"263","gate_schema":2,"new_migrations":["289_activity_reward_costs.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}}
   },
   "current_profile": {
-    "id": "264",
+    "id": "265",
     "status": "pending",
-    "version": "0.2.14-baiyu",
-    "parent": "263",
+    "version": "0.2.15-baiyu",
+    "parent": "264",
     "gate_schema": 2,
-    "new_migrations": ["289_activity_reward_costs.sql"],
+    "new_migrations": ["290_drop_platform_check_constraints.sql"],
     "release_policy": {
       "compatibility_image": "production_current",
       "migration_source": "database_state"
     }
   },
   "migration_contracts": {
+    "290_drop_platform_check_constraints.sql": "89b9ca37806f5725fd01cd3b45d006c119d34820e29e1b8a90c0a8ba461db5bb",
     "289_activity_reward_costs.sql": "30758e5a4b758c8c22677e3713d3897d51af17fd1f34dff6fec354d3da03f1d3",
     "288_upstream_confidence_distribution.sql": "18d33b7a9d64abab88d4cda73fded0e2ac3619daa11467704a4f2565b2c46835",
     "286_add_payment_order_bonus_amount.sql": "ddd45f14154ea6d6b5b612bee7eb49436e1f2a1665f9a71eb8304e48475ed12d",
@@ -214,6 +217,7 @@
     "280_plugin_runtime_state.sql": "700479dfaf0ecee741ded67df3e670a53433a5a486a7c7b2d87d27c6d48d8341"
   },
   "migration_renames": {
+    "official_242_drop_platform_check_constraints": "290_drop_platform_check_constraints.sql",
     "official_241_add_payment_order_bonus_amount": "286_add_payment_order_bonus_amount.sql",
     "official_241_add_typesafe_platform": "287_add_typesafe_platform.sql",
     "official_238b_content_moderation_engine_meta": "281_content_moderation_engine_meta.sql",
@@ -237,6 +241,7 @@
     "official_238_purge_unlimited_user_platform_quotas": "275_purge_unlimited_user_platform_quotas.sql"
   },
   "migration_assertions": {
+    "backend/migrations/290_drop_platform_check_constraints.sql": ["DROP CONSTRAINT IF EXISTS user_platform_quotas_platform_check", "DROP CONSTRAINT IF EXISTS composite_model_routes_target_platform_check"],
     "backend/migrations/289_activity_reward_costs.sql": ["activity_reward_id BIGINT", "related_user_id BIGINT", "activity_type VARCHAR", "activity-reward-cost-v1", "backfill_activity_reward_costs", "IN SHARE MODE", "Asia/Shanghai"],
     "backend/migrations/288_upstream_confidence_distribution.sql": ["upstream_confidence_distribution_states", "PRIMARY KEY REFERENCES upstream_keys(id) ON DELETE CASCADE", "revision BIGINT NOT NULL DEFAULT 1 CHECK (revision > 0)", "state_json JSONB NOT NULL"],
     "backend/migrations/286_add_payment_order_bonus_amount.sql": ["ALTER TABLE payment_orders ADD COLUMN IF NOT EXISTS bonus_amount DECIMAL(20,2) NOT NULL DEFAULT 0"],
@@ -923,12 +928,15 @@
     {
       "id": "registered-platform-catalog",
       "title": "统一平台目录与 TypeSafe 合并适配",
-      "description": "沿用 fork registeredPlatformCatalog 统一具体平台、默认模型和探针能力的合同，登记官方 0.2.13 TypeSafe 管理与网关接线的最小适配；官方 System One 业务校验由 upstream 维护。",
+      "description": "沿用官方 domain 平台身份目录与 provider profile，fork 显式登记主动探针能力，保留绑定 Key 的真实端点和 CN adaptive 能力门禁；TypeSafe 管理与网关接线仅作最小适配，官方 System One 业务校验由 upstream 维护。",
       "ownership": "fork",
       "risk_level": "critical",
       "paths": [
         "backend/internal/service/platform_registry.go",
         "backend/internal/service/platform_registry_test.go",
+        "backend/internal/service/upstream_protocol_routing.go",
+        "backend/internal/service/upstream_protocol_routing_fork_merge_test.go",
+        "backend/internal/service/model_protocol_catalog_test.go",
         "backend/internal/service/admin_account.go",
         "backend/internal/service/admin_group.go",
         "backend/internal/service/composite_platform.go",
@@ -938,12 +946,14 @@
         "backend/internal/handler/gateway_systemone.go",
         "backend/internal/handler/gateway_systemone_fork_test.go"
       ],
-      "symbols": ["registeredPlatformCatalog", "PlatformTypeSafe", "SchedulingConcurrencyTarget", "TryAcquireAccountRPM", "handleGatewayFailoverError", "SystemOne"],
+      "symbols": ["RegisteredPlatformCatalog", "registeredPlatformProbeCapabilities", "PlatformTypeSafe", "SchedulingConcurrencyTarget", "TryAcquireAccountRPM", "handleGatewayFailoverError", "SystemOne"],
       "api_routes": ["/v1/systemone"],
       "settings_keys": [],
       "migration_files": [],
       "required_tests": [
         "backend/internal/service/platform_registry_test.go",
+        "backend/internal/service/upstream_protocol_routing_fork_merge_test.go",
+        "backend/internal/service/model_protocol_catalog_test.go",
         "backend/internal/service/admin_typesafe_merge_test.go",
         "backend/internal/service/gateway_input_tokens_test.go",
         "backend/internal/handler/gateway_systemone_fork_test.go",
@@ -952,6 +962,9 @@
         "backend/internal/pkg/typesafe/systemone_test.go"
       ],
       "invariants": [
+        "具体平台身份由 domain 目录统一，主动探针能力独立显式注册；Cline/Command Code 不能仅因目录登记就宣称支持 fork 主动探针",
+        "绑定 Key 的实际 base_url 优先，缺失时不得向官方默认端点发送第三方凭据；最终 URL 保留自定义前缀并避免重复协议版本段",
+        "CN adaptive 原生 Responses/Anthropic 只接受 supported 能力证据，unknown/not_configured/unsupported 回落 Chat；by_model 按显式协议、规则和目录独立解析，不受 CN 能力门禁影响",
         "TypeSafe 为具体平台，默认模型目录仅为 jev-latest，ProbeSupported=false；不得注入 Composite 默认模型或 LLM channel monitor provider",
         "保留官方 TypeSafe 只接受 API-key 账号与 System One 原生非流式请求、平台、模型、输入、响应大小和安全校验，不通过管理适配放宽官方业务校验",
         "账号和分组编辑保留 fork 首选分组、私有字段保护、上游派生身份只读、Composite 账号模型映射；代理组仍只支持 OpenAI OAuth/setup-token",
@@ -965,7 +978,7 @@
     {
       "id": "migration-profile-contract",
       "title": "Migration、profile、版本与历史证据",
-      "description": "维护 fork migration、官方重编号、历史 profile 233–261、pending profile 262、版本递增、checksum 和 compatibility identity。",
+      "description": "维护 fork migration、官方重编号、历史 profile 233–264、pending profile 265、版本递增、checksum 和 compatibility identity。",
       "ownership": "fork",
       "risk_level": "critical",
       "paths": [
@@ -1001,11 +1014,13 @@
         "0.2.10-baiyu",
         "0.2.11-baiyu",
         "0.2.13-baiyu",
-        "0.2.14-baiyu"
+        "0.2.14-baiyu",
+        "0.2.15-baiyu"
       ],
       "api_routes": [],
       "settings_keys": [],
       "migration_files": [
+        "290_drop_platform_check_constraints.sql",
         "289_activity_reward_costs.sql",
         "288_upstream_confidence_distribution.sql",
         "285_upstream_null_rate_lifecycle.sql",
@@ -1057,6 +1072,11 @@
         "280_plugin_runtime_state.sql"
       ],
       "required_tests": [
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile265_release_contract.py",
+        "backend/migrations/platform_check_constraints_drop_migration_test.go",
+        "backend/internal/repository/platform_list_db_integration_test.go",
+        "backend/internal/repository/platform_list_native_postgres_test.go",
+        "backend/internal/repository/upstream_confidence_distribution_postgres_test.go",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile264_release_contract.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_activity_reward_cost_catchup.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile262_release_contract.py",
@@ -1102,7 +1122,8 @@
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_production_release.py"
       ],
       "invariants": [
-        "历史 profile 263 为 0.2.14-baiyu、parent 262、new_migrations=[]；当前 pending 264 为 0.2.14-baiyu、parent 263、仅追加 289_activity_reward_costs.sql；历史 profile 262 保持 0.2.13-baiyu、parent 261、仅追加 288_upstream_confidence_distribution.sql，261 的 0.2.13-baiyu、parent 260、286/287 合同与更早 profile/checksum 原样保留；当前 264 执行闭包含 VM/Gate/DR/生产/祖先断言/备份/清理入口，未知 265 拒绝；历史 262 恢复兼容审阅原样保留；263 审阅仅绑定 218772daab271bb32df2ac6f9969ace0c9ccbce0 到 8499d5343c5a4510f88a3b13feb58f242d4cdd13，35项 profile 与3项 VM生命周期分别精确限定路径/blob/mode；vm_lifecycle.py本身纳入敏感分类，新增文件绑定旧状态不存在；仍执行specialized真实隔离恢复，未匹配变更阻断，不增加目录豁免",
+        "官方目标固定 3a6fd1c9db07203ca308aaba69e502bc1f35b307；官方新242仅原字节重编号为290，不修改历史SQL/checksum；仅移除用户平台配额和组合路由两个平台白名单CHECK，渠道监控provider约束保留；平台成员资格由domain共享目录在handler/service/repository/ent校验；本地测试与登记不证明VM Gate或生产部署，不新增恢复分类豁免",
+        "历史 profile 263 为 0.2.14-baiyu、parent 262、new_migrations=[]；历史 264 为 0.2.14-baiyu、parent 263、仅追加 289_activity_reward_costs.sql；当前 pending 265 为 0.2.15-baiyu、parent 264、仅追加 290_drop_platform_check_constraints.sql；历史 profile 262 保持 0.2.13-baiyu、parent 261、仅追加 288_upstream_confidence_distribution.sql，261 的 0.2.13-baiyu、parent 260、286/287 合同与更早 profile/checksum 原样保留；当前 265 执行闭包含 VM/Gate/DR/生产/祖先断言/备份/清理入口，未知 266 拒绝；历史 262 恢复兼容审阅原样保留；263 审阅仅绑定 218772daab271bb32df2ac6f9969ace0c9ccbce0 到 8499d5343c5a4510f88a3b13feb58f242d4cdd13，35项 profile 与3项 VM生命周期分别精确限定路径/blob/mode；vm_lifecycle.py本身纳入敏感分类，新增文件绑定旧状态不存在；仍执行specialized真实隔离恢复，未匹配变更阻断，不增加目录豁免",
         "profile 260 已 signed 且 2026-10-01 生产 verified，保持 0.2.11-baiyu、parent 259、new_migrations=[285_upstream_null_rate_lifecycle.sql] 及全部历史签名/checksum 不变；保留 profile 261 为 0.2.13-baiyu、parent 260，仅追加 286_add_payment_order_bonus_amount.sql 和 287_add_typesafe_platform.sql；官方目标固定 b8dece9000c68815a5b867ca5a1e6f236e173905；新官方两项 241 仅重编号，SQL 原字节不变，旧 local241 保留；新增登记不代表新 VM Gate 或生产发布",
         "285 替换 validate_account_upstream_key_binding 并将 source 纳入绑定 trigger 的更新列：actual 缺失时仅允许 existing same-binding 且身份与价格不变的暂停或归档；新增、恢复、启用、重绑定和身份或价格变更仍严格要求 actual，known-rate 恢复仍校验 active/platform；不得修改历史 241、279、284 SQL 或 checksum，不增加 checksum compatibility 放行",
         "历史 profile 233–254 不回写；profile 254 对应 0.2.7-baiyu，parent 为 253，new_migrations 精确为 [278_fork_group_ttft_guard_policies.sql, 279_proxy_ip_groups.sql, 280_plugin_runtime_state.sql]，三项原始文件 SHA-256 必须与 migration_contracts 登记一致",

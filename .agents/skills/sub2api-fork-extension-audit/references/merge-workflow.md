@@ -54,7 +54,7 @@
 
 历史 0.2.13 普通 merge 固定官方目标为 `b8dece9000c68815a5b867ca5a1e6f236e173905`。新增 `241_add_payment_order_bonus_amount.sql` 与 `241_add_typesafe_platform.sql` 同 prefix 241 也与 fork local241 冲突，须仅改名为 `286_add_payment_order_bonus_amount.sql`、`287_add_typesafe_platform.sql`，逐字节对照官方 Git blob，保留旧 local241。保留 profile 261 为 `0.2.13-baiyu`、parent 260、仅新增 286/287；历史 262 保持相同版本、parent 261，仅新增 Sol 分布探针状态迁移 288。260 已 signed 且 2026-10-01 生产 verified，不回写任何历史合同。TypeSafe 的平台目录、管理编辑和网关 fork 适配精确登记到 `registered-platform-catalog`，不扩大目录豁免；保持官方校验并接既有 shared account slot/RPM/failover。普通 merge 与完整 Gate 仍由主线程统一完成。
 
-当前 0.2.14 合并固定官方目标为 `3f1a2ea0a760730e3bc528105c00b4ee4f23e469`，fork 版本为 `0.2.14-baiyu`。新增连续 profile 263、parent 262、`new_migrations=[]`；262 及更早的版本、parent、迁移与 checksum 不变，活动成本继任 264 保持该版本、parent 263、仅新增 289；未登记的 265 拒绝。承接 EasyPay 回调防伪、初装管理员随机凭据、Codex 远程模型发现和前端依赖修复，保留 fork 时区 DSN、Compose 镜像/观察器/后台配置，以及远程与文件模型目录两种模式的回归。新恢复敏感 blob 仍按最终内容分类，不扩大审阅豁免。
+历史 0.2.14 合并固定官方目标为 `3f1a2ea0a760730e3bc528105c00b4ee4f23e469`，fork 版本为 `0.2.14-baiyu`。新增连续 profile 263、parent 262、`new_migrations=[]`；262 及更早的版本、parent、迁移与 checksum 不变，活动成本继任 264 保持该版本、parent 263、仅新增 289；未登记的 266 拒绝。承接 EasyPay 回调防伪、初装管理员随机凭据、Codex 远程模型发现和前端依赖修复，保留 fork 时区 DSN、Compose 镜像/观察器/后台配置，以及远程与文件模型目录两种模式的回归。新恢复敏感 blob 仍按最终内容分类，不扩大审阅豁免。
 
 1. 使用目标 SHA 和真实 merge commit 执行 `post-merge`。
 2. 重新处理 `semantic_overlap_candidate`，确认冲突解决后的实现没有误删完整覆盖、部分覆盖或相邻独立的 fork 语义；warning 不会自动改变退出码。
@@ -69,3 +69,13 @@
 - 脏工作区：先辨认改动归属，不得自动丢弃。
 - 未登记路径：不能仅扩大 `backend/**` 或 `frontend/**` 之类通配符掩盖差异。
 - 生成文件漂移：先核对 schema/wiring 源，再按项目生成流程重生并提交。
+
+## 官方 0.2.15 与平台目录迁移
+
+官方目标固定 `3a6fd1c9db07203ca308aaba69e502bc1f35b307`，fork 使用 `0.2.15-baiyu` 和连续 profile 265（parent 264）。官方 `242_drop_platform_check_constraints.sql` 与历史 fork 编号冲突，只把新文件原始字节重编号为 `290_drop_platform_check_constraints.sql`；历史 SQL、profile 和 checksum 原样保留。
+
+290 只移除用户平台配额与组合路由的两个平台白名单 CHECK。具体平台成员资格改由共享应用目录在 handler、service、repository 和 ent 校验；渠道监控 provider CHECK 表示真实探测能力，继续保留。Gate catalog 仍绑定 strip 后 SQL checksum，fork audit 登记原始文件 SHA-256，两者不混用。
+
+265 的 VM validator、Gate/DR signer、自测与 bootstrap、生产 context/prepare、祖先断言、备份晋升与清理入口必须共同支持新 profile；264 及以前历史合同不回写，未登记 266 拒绝。恢复敏感 blob/模式仍需最终精确分类，新增 profile 不带来目录豁免。本地合并与静态测试不代表 VM Gate、签名 candidate、旧镜像兼容或生产部署完成。
+
+执行 `test_profile265_release_contract.py` 与完整 release pytest，覆盖原字节重编号、历史合同、planner replay/checksum 冲突、VM 精确 version/parent/new_migrations、签名/备份/清理 admission 与未知266拒绝。平台专项 Go 与真实 PostgreSQL 集成需另行完成。

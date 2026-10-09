@@ -447,6 +447,8 @@ export default {
     latencyTps: '输出速率',
     outputTps: '生成 TPS',
     tokensPerSecondUnit: 't/s',
+    totalOutputTps: '输出 TPS',
+    outputTpsHint: '输出 Token ÷ 总耗时（包含首字等待），单位 tok/s。输出 Token 可能包含推理 Token。',
     time: '时间',
     ws: 'WS',
     stream: '流式',
