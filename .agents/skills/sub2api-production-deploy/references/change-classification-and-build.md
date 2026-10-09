@@ -108,6 +108,8 @@ VM 电源与所有权的受审扩展单独使用 `specialized/reviewed_vm_lifecy
 
 ## 运维资产
 
+Profile 265 的精确审阅为 `aeb410bccc524164bdafbd3db865d4f5f588aced` → `6f5daaaed6e0cbfae2011cfa55b47688f33634eb`：35 项 profile 接线与两项停机奖励 postflight 各自冻结路径集，分别标为 `reviewed_profile_compatibility_changed` 和 `reviewed_reward_cost_postflight_changed`。仅匹配同路径 before/after blob 与模式；不涵盖未修改的 `production.py`、恢复算法、备份格式、ingress、信任根或 VM 生命周期。未来漂移仍阻断，最终提交须重新分类并执行 specialized 真实 PostgreSQL/Redis/Compose 隔离恢复。
+
 ### `ops-readonly-assets`
 
 只有以下条件全部成立才适用：

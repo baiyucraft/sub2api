@@ -23,6 +23,8 @@ python .agents/skills/sub2api-production-deploy/scripts/release.py logs <release
 
 ## 可选 VM 自动启停
 
+Profile 265 精确恢复审阅绑定 `aeb410bccc524164bdafbd3db865d4f5f588aced` → `6f5daaaed6e0cbfae2011cfa55b47688f33634eb`：35 项接线与两项停机奖励 postflight 分别冻结，不包含未修改的 `production.py`。同路径 blob、mode 或基线漂移继续阻断；仍执行 specialized 当前 helper 真实隔离恢复，登记不代表 Gate 或部署完成。
+
 在 `.ssh.local` 顶层、与 `servers` 并列的公共配置为：
 
 ```yaml

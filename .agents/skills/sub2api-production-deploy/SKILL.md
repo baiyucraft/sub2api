@@ -125,6 +125,8 @@ RackNerd -> PostgreSQL + Redis + 加密备份源
 
 ## 执行顺序
 
+Profile 265 的兼容审阅绑定 `aeb410bccc524164bdafbd3db865d4f5f588aced` → `6f5daaaed6e0cbfae2011cfa55b47688f33634eb`。35 项接线使用独立冻结路径集；停机奖励 postflight 的 `activity-reward-cost-postflight.sh` 与 `switch.sh` 两项单独登记，未修改的 `production.py` 不纳入。每项仍核对同路径旧/新 Git blob 和模式，新增漂移、删除、改名或基线不符继续阻断。恢复算法、备份格式、ingress、信任根及 VM 生命周期不在登记范围；仍须完成当前 helper 的 specialized 真实隔离恢复和新的签名 Gate。
+
 1. 读取强制 reference，执行 `git rev-parse --verify` 校验目标 commit，检查 Git 状态并记录完整 commit SHA。
 2. 按最终 diff 选择 `ops-readonly-assets`、`ops-control-assets`、`plugin-package`、`frontend-direct`、`dev-gated` 或 `build-chain`；任何 `deploy/` 脚本默认按 `ops-control-assets` 或更严格类别处理。
 3. 应用产物类别复用固定源码目录和依赖缓存，构建并记录 `candidate_image_id`；运维资产类别明确记录镜像字段 `not_applicable`。
