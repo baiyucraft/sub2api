@@ -22,7 +22,16 @@ import (
 // This explicit opt-in suite never skips: it creates a disposable database on
 // a loopback PostgreSQL test cluster and does not need Docker or the app server.
 // The DSN must address the cluster's postgres database, not application data.
-func TestConfidenceDistributionNativePostgres(t *testing.T) {
+func newNativePostgresTestDatabase(t *testing.T, prefix string) *sql.DB {
+	t.Helper()
+	if prefix == "" {
+		t.Fatal("disposable PostgreSQL database prefix is required")
+	}
+	for _, r := range prefix {
+		if (r < 'a' || r > 'z') && r != '_' {
+			t.Fatal("disposable PostgreSQL database prefix must contain lowercase letters or underscores")
+		}
+	}
 	ctx := context.Background()
 	raw := os.Getenv("SUB2API_DISTRIBUTION_TEST_POSTGRES_DSN")
 	if raw == "" {
@@ -47,7 +56,7 @@ func TestConfidenceDistributionNativePostgres(t *testing.T) {
 	if admin.PingContext(pingCtx) != nil {
 		t.Fatal("isolated PostgreSQL test cluster is unavailable")
 	}
-	name := fmt.Sprintf("distribution_identity_%d_%d", os.Getpid(), time.Now().UnixNano())
+	name := fmt.Sprintf("%s_%d_%d", prefix, os.Getpid(), time.Now().UnixNano())
 	_, err = admin.ExecContext(ctx, `CREATE DATABASE "`+name+`"`)
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -59,13 +68,19 @@ func TestConfidenceDistributionNativePostgres(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	db.SetMaxOpenConns(12)
+	return db
+}
+
+func TestConfidenceDistributionNativePostgres(t *testing.T) {
+	ctx := context.Background()
+	db := newNativePostgresTestDatabase(t, "distribution_identity")
 	for _, ddl := range []string{
 		`CREATE TABLE upstream_keys (id BIGINT PRIMARY KEY, upstream_config_id BIGINT NOT NULL)`,
 		`INSERT INTO upstream_keys VALUES (1,1),(2,1),(3,1),(4,1),(5,1)`,
 		`CREATE TABLE upstream_confidence_distribution_states (upstream_key_id BIGINT PRIMARY KEY REFERENCES upstream_keys(id) ON DELETE CASCADE, revision BIGINT NOT NULL DEFAULT 1, state_json JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
 		`CREATE TABLE upstream_events (id BIGSERIAL PRIMARY KEY, upstream_config_id BIGINT NOT NULL, upstream_key_id BIGINT, event_type TEXT NOT NULL, severity TEXT NOT NULL, source TEXT NOT NULL, message TEXT, payload JSONB NOT NULL, occurred_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL)`,
 	} {
-		_, err = db.ExecContext(ctx, ddl)
+		_, err := db.ExecContext(ctx, ddl)
 		require.NoError(t, err)
 	}
 	client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, db)))

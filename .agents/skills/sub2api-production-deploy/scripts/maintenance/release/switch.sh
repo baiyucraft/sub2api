@@ -403,7 +403,7 @@ if [[ $release_profile == 240 || $release_profile == 241 ]]; then
   fi
 fi
 mark_migration_failure_context schema_stage_marker schema_stage_marker
-if [[ $release_profile == 264 && $deployment_mode == downtime ]]; then
+if [[ ( $release_profile == 264 || $release_profile == 265 ) && $deployment_mode == downtime ]]; then
   # The signed helper runs after old writers exit and before the new process.
   source "$assets_dir/activity-reward-cost-postflight.sh"
   sub2api_activity_reward_cost_postflight

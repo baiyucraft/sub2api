@@ -3,6 +3,7 @@ package service
 import (
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/stretchr/testify/require"
 )
 
@@ -15,6 +16,26 @@ func TestRegisteredPlatformCatalogFeedsProbeCatalog(t *testing.T) {
 		require.Equal(t, descriptor.Label, probe[index].Label)
 		require.Equal(t, descriptor.ProbeSupported, probe[index].ProbeSupported)
 		require.Equal(t, descriptor.DefaultModels, probe[index].Models)
+	}
+}
+
+func TestRegisteredPlatformIdentitySharesDomainCatalogWithoutInheritingProbeSupport(t *testing.T) {
+	registered := RegisteredPlatformCatalog()
+	platforms := domain.Platforms()
+	require.Len(t, registered, len(platforms))
+	for i, spec := range platforms {
+		require.Equal(t, spec.ID, registered[i].ID)
+		require.Equal(t, spec.DisplayName, registered[i].Label)
+		require.True(t, IsConcreteRequestPlatform(spec.ID))
+	}
+	for _, platform := range []string{PlatformCommandCode, PlatformCline} {
+		require.False(t, UpstreamProbePlatformSupported(platform))
+		for _, entry := range registered {
+			if entry.ID == platform {
+				require.NotEmpty(t, entry.ProbeReason)
+				require.NotEmpty(t, entry.DefaultModels)
+			}
+		}
 	}
 }
 

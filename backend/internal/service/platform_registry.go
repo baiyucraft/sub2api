@@ -3,6 +3,7 @@ package service
 import (
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
@@ -59,6 +60,10 @@ func defaultModelIDsForRegisteredPlatform(platform string) []string {
 		return cloneStrings(DefaultOpenCodeGoModelIDs())
 	case PlatformTypeSafe:
 		return []string{"jev-latest"}
+	case PlatformCommandCode:
+		return []string{DefaultCommandCodeTestModel}
+	case PlatformCline:
+		return []string{DefaultClineTestModel}
 	default:
 		return nil
 	}
@@ -72,28 +77,35 @@ func claudeDefaultModelIDs() []string {
 	return ids
 }
 
-var registeredPlatformCatalog = []PlatformDescriptor{
-	{ID: PlatformOpenAI, Label: "OpenAI", ProbeSupported: true},
-	{ID: PlatformAnthropic, Label: "Anthropic", ProbeSupported: true},
-	{ID: PlatformGemini, Label: "Gemini", ProbeSupported: true},
-	{ID: PlatformAntigravity, Label: "Antigravity", ProbeSupported: true},
-	{ID: PlatformGrok, Label: "Grok", ProbeSupported: true},
+// Active-probe capability is independent of platform identity. New platform
+// registrations must not advertise a working probe until its transport exists.
+var registeredPlatformProbeCapabilities = map[string]PlatformDescriptor{
+	PlatformOpenAI:      {ProbeSupported: true},
+	PlatformAnthropic:   {ProbeSupported: true},
+	PlatformGemini:      {ProbeSupported: true},
+	PlatformAntigravity: {ProbeSupported: true},
+	PlatformGrok:        {ProbeSupported: true},
 	// These providers expose the OpenAI Chat Completions contract. They use a
 	// dedicated chat probe rather than the Responses probe used by OpenAI.
-	{ID: PlatformKimi, Label: "Kimi", ProbeSupported: true},
-	{ID: PlatformZhipu, Label: "Zhipu GLM", ProbeSupported: true},
-	{ID: PlatformDeepseek, Label: "DeepSeek", ProbeSupported: true},
-	{ID: PlatformMiniMax, Label: "MiniMax", ProbeSupported: true},
-	{ID: PlatformOpenCodeGo, Label: "OpenCode Go", ProbeSupported: true},
-	{ID: PlatformTypeSafe, Label: "TypeSafe", ProbeReason: "System One requires a dedicated probe"},
+	PlatformKimi:       {ProbeSupported: true},
+	PlatformZhipu:      {ProbeSupported: true},
+	PlatformDeepseek:   {ProbeSupported: true},
+	PlatformMiniMax:    {ProbeSupported: true},
+	PlatformOpenCodeGo: {ProbeSupported: true},
+	PlatformTypeSafe:   {ProbeReason: "System One requires a dedicated probe"},
 }
 
 func RegisteredPlatformCatalog() []PlatformDescriptor {
-	result := make([]PlatformDescriptor, 0, len(registeredPlatformCatalog))
-	for _, entry := range registeredPlatformCatalog {
-		copy := entry
-		copy.DefaultModels = cloneStrings(defaultModelIDsForRegisteredPlatform(entry.ID))
-		result = append(result, copy)
+	platforms := domain.Platforms()
+	result := make([]PlatformDescriptor, 0, len(platforms))
+	for _, spec := range platforms {
+		entry, registered := registeredPlatformProbeCapabilities[spec.ID]
+		entry.ID, entry.Label = spec.ID, spec.DisplayName
+		if !registered {
+			entry.ProbeReason = "Active health probing is not implemented for this platform"
+		}
+		entry.DefaultModels = cloneStrings(defaultModelIDsForRegisteredPlatform(spec.ID))
+		result = append(result, entry)
 	}
 	return result
 }
@@ -104,10 +116,5 @@ func DefaultModelIDsForPlatform(platform string) []string {
 
 func IsConcreteRequestPlatform(platform string) bool {
 	platform = strings.ToLower(strings.TrimSpace(platform))
-	for _, entry := range registeredPlatformCatalog {
-		if entry.ID == platform {
-			return true
-		}
-	}
-	return false
+	return domain.IsConcretePlatform(platform)
 }

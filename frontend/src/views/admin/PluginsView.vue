@@ -666,7 +666,8 @@ async function openConfiguration(plugin: PluginInstallation): Promise<void> {
   iframeHeight.value = 640;
   try {
     const session = await adminAPI.plugins.createUISession(plugin.id);
-    if (generation === configurationGeneration) uiSession.value = session;
+    if (generation !== configurationGeneration) return;
+    uiSession.value = session;
   } catch (error: unknown) {
     if (generation !== configurationGeneration) return;
     uiLoading.value = false;
@@ -894,6 +895,6 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.removeEventListener("message", handleBridgeMessage);
-  clearPendingBridgeRequests();
+  closeConfiguration();
 });
 </script>

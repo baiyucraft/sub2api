@@ -130,7 +130,7 @@ func (s *AccountTestService) ProbeOpenAIAPIKeyResponsesSupport(ctx context.Conte
 	if account.Type != AccountTypeAPIKey {
 		return
 	}
-	if account.IsCNProvider() {
+	if account.RoutesProtocolByInbound() {
 		// adaptive 国产账号的 Responses 能力由 active health probe 按实际
 		// 协议链路判断；不要在账号创建/更新时写入通用强制模式。
 		if account.IsAdaptiveAPIProtocol() {

@@ -423,7 +423,7 @@ func callProvider(ctx context.Context, provider, endpoint, apiKey, model, prompt
 		// protocol paths, including Chat Completions and Responses probes.
 		headers["X-OpenCode-Session"] = uuid.NewString()
 	}
-	full := joinURL(endpoint, adapter.buildPath(model))
+	full := joinURL(endpoint, monitorRequestPath(provider, endpoint, adapter, model, apiMode))
 	streaming := modeUsesMonitorStreaming(body, opts)
 	var respBytes []byte
 	if streaming {
@@ -961,6 +961,42 @@ func parseMonitorGeminiEvent(data []byte, output *strings.Builder, result *monit
 		}
 	}
 	return completed, nil
+}
+
+// monitorRequestPath 保留显式协议选择；智谱 Chat Completions 按 endpoint 区分：
+//   - 已带 /paas/v4（含 Coding Plan 的 /api/coding/paas/v4）：只追加 /chat/completions
+//   - 官方域名根地址：/api/paas/v4/chat/completions
+//   - 中转站 / 本站网关：只暴露 OpenAI 兼容的 /v1/chat/completions，与 Kimi / DeepSeek 一致
+//
+// 显式 zhipu_native 对中转站也使用原生路径，responses 不套用 Chat 路径规则。
+func monitorRequestPath(provider, endpoint string, adapter providerAdapter, model string, apiMode string) string {
+	if provider != MonitorProviderZhipu {
+		return adapter.buildPath(model)
+	}
+	if apiMode == MonitorAPIModeResponses {
+		return adapter.buildPath(model)
+	}
+	u, err := url.Parse(strings.TrimSpace(endpoint))
+	if err != nil {
+		return adapter.buildPath(model)
+	}
+	if strings.HasSuffix(strings.TrimRight(u.EscapedPath(), "/"), "/paas/v4") {
+		return "/chat/completions"
+	}
+	if apiMode == MonitorAPIModeZhipuNative || isZhipuOfficialHost(u) {
+		return providerZhipuPath
+	}
+	return providerOpenAIPath
+}
+
+func isZhipuOfficialHost(u *url.URL) bool {
+	host := strings.ToLower(u.Hostname())
+	for _, official := range []string{"bigmodel.cn", "z.ai"} {
+		if host == official || strings.HasSuffix(host, "."+official) {
+			return true
+		}
+	}
+	return false
 }
 
 // joinURL 保留 base 的上游路径前缀，并避免重复追加已有的 API 路径前缀。

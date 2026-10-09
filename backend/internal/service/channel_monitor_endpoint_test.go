@@ -83,8 +83,18 @@ func TestCallProvider_BasePath(t *testing.T) {
 		{"openai chat version", MonitorProviderOpenAI, "", "/relay/v1/", "/relay/v1/chat/completions"},
 		{"openai responses version", MonitorProviderOpenAI, MonitorAPIModeResponses, "/relay/v1", "/relay/v1/responses"},
 		{"gemini version", MonitorProviderGemini, "", "/relay/v1beta", "/relay/v1beta/models/test-model:streamGenerateContent?alt=sse"},
-		{"zhipu version", MonitorProviderZhipu, "", "/api/paas/v4", "/api/paas/v4/v1/chat/completions"},
+		{"zhipu version", MonitorProviderZhipu, "", "/api/paas/v4", "/api/paas/v4/chat/completions"},
+		{"zhipu coding plan", MonitorProviderZhipu, "", "/api/coding/paas/v4", "/api/coding/paas/v4/chat/completions"},
+		{"zhipu relay origin", MonitorProviderZhipu, "", "", "/v1/chat/completions"},
+		{"zhipu relay version", MonitorProviderZhipu, "", "/relay/v1", "/relay/v1/chat/completions"},
 		{"zhipu native version", MonitorProviderZhipu, MonitorAPIModeZhipuNative, "/api/paas/v4", "/api/paas/v4/chat/completions"},
+		{"zhipu native origin", MonitorProviderZhipu, MonitorAPIModeZhipuNative, "", "/api/paas/v4/chat/completions"},
+		{"zhipu native prefix", MonitorProviderZhipu, MonitorAPIModeZhipuNative, "/provider", "/provider/api/paas/v4/chat/completions"},
+		{"zhipu native coding plan", MonitorProviderZhipu, MonitorAPIModeZhipuNative, "/api/coding/paas/v4/", "/api/coding/paas/v4/chat/completions"},
+		{"zhipu responses origin", MonitorProviderZhipu, MonitorAPIModeResponses, "", "/v1/responses"},
+		{"zhipu responses prefix", MonitorProviderZhipu, MonitorAPIModeResponses, "/provider/v1", "/provider/v1/responses"},
+		{"zhipu version lookalike", MonitorProviderZhipu, "", "/api/paas/v40", "/api/paas/v40/v1/chat/completions"},
+		{"zhipu encoded slash", MonitorProviderZhipu, "", "/api%2Fpaas/v4", "/api%2Fpaas/v4/v1/chat/completions"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, _, status, _, _, err := callProvider(context.Background(), tc.provider,
@@ -93,5 +103,27 @@ func TestCallProvider_BasePath(t *testing.T) {
 			require.Equal(t, http.StatusOK, status)
 			require.Equal(t, tc.wantPath, <-requests)
 		})
+	}
+}
+
+func TestMonitorRequestPath_Zhipu(t *testing.T) {
+	adapter := providerAdapters[MonitorProviderZhipu]
+	for endpoint, want := range map[string]string{
+		"https://open.bigmodel.cn":                    providerZhipuPath,
+		"https://api.z.ai":                            providerZhipuPath,
+		"https://open.bigmodel.cn/api/coding/paas/v4": "/chat/completions",
+		"https://birdapi.up.railway.app":              providerOpenAIPath,
+		"https://notbigmodel.cn":                      providerOpenAIPath,
+		"https://relay.example.com/v1":                providerOpenAIPath,
+		"https://relay.example.com/api/paas/v40":      providerOpenAIPath,
+		"https://relay.example.com/api%2Fpaas/v4":     providerOpenAIPath,
+	} {
+		require.Equal(t, want, monitorRequestPath(MonitorProviderZhipu, endpoint, adapter, "glm-5.3-flash", MonitorAPIModeChatCompletions), endpoint)
+	}
+	require.Equal(t, providerOpenAIPath,
+		monitorRequestPath(MonitorProviderDeepseek, "https://birdapi.up.railway.app", providerAdapters[MonitorProviderDeepseek], "m", MonitorAPIModeChatCompletions))
+	for _, endpoint := range []string{"https://open.bigmodel.cn", "https://open.bigmodel.cn/api/coding/paas/v4", "https://relay.example.com/v1"} {
+		require.Equal(t, providerOpenAIResponsesPath,
+			monitorRequestPath(MonitorProviderZhipu, endpoint, providerOpenAIResponsesAdapter, "glm-5.3-flash", MonitorAPIModeResponses), endpoint)
 	}
 }
