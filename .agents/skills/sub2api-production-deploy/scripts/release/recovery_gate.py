@@ -69,6 +69,13 @@ _VM_LIFECYCLE_REVIEW_PATHS = frozenset({
 # Profile 264 changes exactly the same 35 compatibility entry points as 263.
 # This frozen path set grants no directory, ancestry, or future-content exemption.
 _PROFILE264_COMPATIBILITY_PATHS = frozenset(_PROFILE263_COMPATIBILITY_PATHS)
+# Independently reviewed 265 wiring from the verified production 264 tree.
+# Only these frozen paths may match the exact before/after blobs and modes.
+_PROFILE265_COMPATIBILITY_PATHS = frozenset(_PROFILE264_COMPATIBILITY_PATHS)
+_PROFILE265_POSTFLIGHT_PATHS = frozenset({
+    _SCRIPTS_PREFIX + "maintenance/release/" + name
+    for name in ("activity-reward-cost-postflight.sh", "switch.sh")
+})
 _REWARD_COST_POSTFLIGHT_REVIEW_PATHS = frozenset({
     _SCRIPTS_PREFIX + path for path in (
         "maintenance/release/activity-reward-cost-postflight.sh",
@@ -81,6 +88,18 @@ _VM_PREFLIGHT_RECOVERY_REVIEW_PATHS = frozenset({
     for name in ("cli.py", "supervisor.py", "vm_validate.py", "vm-space-clean.sh")
 })
 _REVIEWED_SCOPED_TRANCHES = (
+    (
+        "aeb410bccc524164bdafbd3db865d4f5f588aced",
+        "6f5daaaed6e0cbfae2011cfa55b47688f33634eb",
+        "reviewed_profile_compatibility_changed",
+        _PROFILE265_COMPATIBILITY_PATHS,
+    ),
+    (
+        "aeb410bccc524164bdafbd3db865d4f5f588aced",
+        "6f5daaaed6e0cbfae2011cfa55b47688f33634eb",
+        "reviewed_reward_cost_postflight_changed",
+        _PROFILE265_POSTFLIGHT_PATHS,
+    ),
     (
         "0898fe8c6289f87a1a4d90cf74a50e296689960e",
         "dc464325a572c275c178632aeb847437169b3c58",
