@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -164,8 +165,53 @@ func TestOpenAIImagePolicyRawSnapshotFallback(t *testing.T) {
 	now := time.Now()
 	a := &Account{Platform: PlatformOpenAI, Extra: map[string]any{Sub2APIImagePricingSnapshotExtraKey: sub2APIImagePricingSnapshotMap(sub2APIImagePricingSnapshot{Version: 1, Status: UpstreamKeyImagePricingStatusAvailable, AllowImageGeneration: true, ObservedAt: &now})}}
 	require.Equal(t, OpenAIImagePermissionAllowed, OpenAIImagePermissionRank(a, 0))
-	a.Extra = map[string]any{LCodexImageCapabilitySnapshotExtraKey: lcodexImageCapabilitySnapshotMap(lcodexImageCapabilitySnapshot{Version: 1, Status: UpstreamKeyImagePricingStatusDisabled, AllowImageGeneration: false, Stale: true})}
-	require.Equal(t, OpenAIImagePermissionDenied, OpenAIImagePermissionRank(a, 0))
+}
+
+func TestOpenAIImagePolicyRetiredLCodexSnapshotFallback(t *testing.T) {
+	old := time.Now().Add(-48 * time.Hour)
+	for _, stale := range []bool{false, true} {
+		for _, status := range []string{UpstreamKeyImagePricingStatusPartial, UpstreamKeyImagePricingStatusDisabled} {
+			t.Run(fmt.Sprintf("%s/stale=%t", status, stale), func(t *testing.T) {
+				a := &Account{Platform: PlatformOpenAI, Extra: map[string]any{
+					LCodexImageCapabilitySnapshotExtraKey: map[string]any{
+						"version": 1, "status": status, "allow_image_generation": false,
+						"stale": stale, "observed_at": old.Format(time.RFC3339),
+					},
+				}}
+				require.Equal(t, OpenAIImagePermissionDenied, OpenAIImagePermissionRank(a, 60))
+				require.Equal(t, OpenAIImagePermissionDenied, OpenAIImagePermissionRank(a, 0))
+				// Bound account loading reads permissions from the key, rather
+				// than copying the key's raw extra into the account.
+				key := &UpstreamKey{Extra: a.Extra}
+				cfg := &UpstreamConfig{Provider: "lcodex"}
+				hydrated := &Account{Platform: PlatformOpenAI, UpstreamImagePricing: DeriveUpstreamKeyImagePricingForAccount(key, cfg)}
+				require.Equal(t, OpenAIImagePermissionDenied, OpenAIImagePermissionRank(hydrated, 60))
+				r := DescribeOpenAIImageRequest(openAIResponsesEndpoint, "gpt-6.1-sol", []byte(`{"tools":[{"type":"image_generation"}]}`), false)
+				require.Error(t, CheckOpenAIImageRequestPermission(context.Background(), r, a))
+				require.Error(t, CheckOpenAIImageRequestPermission(context.Background(), r, hydrated))
+			})
+		}
+	}
+	// Historical positive permissions become unknown when stale or expired.
+	a := &Account{Platform: PlatformOpenAI, Extra: map[string]any{
+		LCodexImageCapabilitySnapshotExtraKey: map[string]any{
+			"version": 1, "status": UpstreamKeyImagePricingStatusPartial, "allow_image_generation": true,
+			"stale": true, "observed_at": old.Format(time.RFC3339),
+		},
+	}}
+	require.Equal(t, OpenAIImagePermissionUnknown, OpenAIImagePermissionRank(a, 60))
+	// Active Sub2API permissions outrank a leftover retired-provider snapshot.
+	now := time.Now()
+	key := &UpstreamKey{Extra: map[string]any{
+		LCodexImageCapabilitySnapshotExtraKey: map[string]any{"version": 1, "status": UpstreamKeyImagePricingStatusDisabled, "allow_image_generation": false, "stale": true},
+		Sub2APIImagePricingSnapshotExtraKey: sub2APIImagePricingSnapshotMap(sub2APIImagePricingSnapshot{
+			Version: 1, Status: UpstreamKeyImagePricingStatusAvailable, AllowImageGeneration: true, ObservedAt: &now,
+		}),
+	}}
+	hydrated := &Account{Platform: PlatformOpenAI, UpstreamImagePricing: DeriveUpstreamKeyImagePricingForAccount(key, &UpstreamConfig{Provider: UpstreamProviderSub2API})}
+	require.Equal(t, OpenAIImagePermissionAllowed, OpenAIImagePermissionRank(hydrated, 60))
+	require.Nil(t, DeriveUpstreamKeyImagePricingForAccount(key, nil))
+	require.Nil(t, DeriveUpstreamKeyImagePricingForAccount(nil, &UpstreamConfig{Provider: "lcodex"}))
 }
 
 func TestOpenAIImageRequestDescriptorHeaderMetadata(t *testing.T) {

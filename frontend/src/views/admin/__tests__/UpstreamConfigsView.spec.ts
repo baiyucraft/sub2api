@@ -804,44 +804,6 @@ describe('UpstreamConfigsView', () => {
     openSpy.mockRestore()
   })
 
-  it('renders LCodex provider state and opens its hash dashboard URL', async () => {
-    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
-    mockList([upstreamConfig({
-      name: 'LCodex Main',
-      provider: 'lcodex',
-      site_url: 'https://lcodex.cc/base?x=1#frag',
-      auth_mode: 'user_login',
-      credentials_status: {
-        has_lcodex_login_identifier: true,
-        has_lcodex_login_password: true
-      },
-      recharge_rate: 2,
-      balance_to_cny_rate: 7.2,
-      extra: {
-        upstream_provider_snapshot: {
-          provider: 'lcodex',
-          balance_amount: 2.5,
-          currency: 'USD',
-          email: 'owner@example.com',
-          synced_at: '2026-07-22T01:00:00Z'
-        }
-      }
-    })])
-    const wrapper = mountView()
-    await flushPromises()
-
-    expect(wrapper.text()).toContain('admin.upstreamConfigs.providers.lcodex')
-    expect(wrapper.text()).toContain('admin.upstreamConfigs.credentialStatus.identifier:{"status":"admin.upstreamConfigs.credentialStatus.configured"}')
-    expect(zhUpstreamConfigs.upstreamConfigs.credentialStatus.identifier).toBe('邮箱 {status}')
-    expect(enUpstreamConfigs.upstreamConfigs.credentialStatus.identifier).toBe('Email {status}')
-    expect(wrapper.text()).toContain('¥36.00')
-
-    await wrapper.get('[data-test="upstream-dashboard-link"]').trigger('click')
-
-    expect(openSpy).toHaveBeenCalledWith('https://lcodex.cc/#/dashboard', '_blank', 'noopener,noreferrer')
-    openSpy.mockRestore()
-  })
-
   it('keeps unsupported providers and invalid URLs non-clickable', async () => {
     mockList([
       upstreamConfig({ id: 11, name: 'Other', provider: 'other' }),
@@ -853,29 +815,6 @@ describe('UpstreamConfigsView', () => {
     expect(wrapper.findAll('[data-test="upstream-dashboard-link"]')).toHaveLength(0)
     expect(wrapper.text()).toContain('Other')
     expect(wrapper.text()).toContain('Broken')
-  })
-
-  it('shows the original LCodex USD balance when no CNY rate is configured', async () => {
-    mockList([upstreamConfig({
-      provider: 'lcodex',
-      auth_mode: 'user_login',
-      balance_to_cny_rate: null,
-      extra: {
-        balance_cny: 99,
-        upstream_provider_snapshot: {
-          provider: 'lcodex',
-          balance_amount: 2.5,
-          currency: 'USD',
-          synced_at: '2026-07-22T01:00:00Z'
-        }
-      }
-    })])
-    const wrapper = mountView()
-    await flushPromises()
-
-    expect(wrapper.text()).toContain('$2.50')
-    expect(wrapper.text()).not.toContain('¥2.50')
-    expect(wrapper.text()).not.toContain('¥99.00')
   })
 
   it('renders newapi quota snapshot as money, not raw negative quota', async () => {
@@ -1085,7 +1024,7 @@ describe('UpstreamConfigsView', () => {
     localStorage.setItem('upstream-config-hidden-columns', JSON.stringify([]))
     localStorage.setItem('upstream-config-hidden-columns-version', '1')
     mockList([upstreamConfig({
-      provider: 'lcodex',
+      provider: 'newapi',
       keys: [{ id: 1, rate_multiplier: 0 }]
     })])
 
@@ -1140,6 +1079,12 @@ describe('UpstreamConfigsView', () => {
     expect(wrapper.get('[data-test="dialog-title"]').text()).toBe('admin.upstreamConfigs.dialog.createTitle')
 
     const dialog = wrapper.get('[data-test="base-dialog"]')
+    expect(wrapper.get('[data-test="filters"] select').findAll('option').map((option) => option.attributes('value')))
+      .toEqual(['', 'sub2api', 'newapi', 'other'])
+    expect(dialog.find('select').findAll('option').map((option) => option.attributes('value')))
+      .toEqual(['sub2api', 'newapi', 'other'])
+    expect(dialog.findAll('button[data-test^="upstream-auth-mode-"]').map((button) => button.attributes('data-test')))
+      .toEqual(['upstream-auth-mode-user_login', 'upstream-auth-mode-manual_jwt'])
     await dialog.get('[data-test="upstream-name-input"]').setValue('New Upstream')
     await dialog.get('[data-test="upstream-site-url-input"]').setValue('https://new.example.com')
     await dialog.get('[data-test="upstream-api-url-input"]').setValue('https://api.new.example.com/v1')
@@ -1180,6 +1125,9 @@ describe('UpstreamConfigsView', () => {
     await dialog.find('select').setValue('newapi')
     await flushPromises()
 
+    expect(dialog.findAll('button[data-test^="upstream-auth-mode-"]').map((button) => button.attributes('data-test')))
+      .toEqual(['upstream-auth-mode-user_login', 'upstream-auth-mode-cookie', 'upstream-auth-mode-access_token'])
+    expect(dialog.find('[data-test="upstream-email-input"]').exists()).toBe(false)
     await dialog.get('[data-test="upstream-name-input"]').setValue('NewAPI Upstream')
     await dialog.get('[data-test="upstream-site-url-input"]').setValue('https://www.codexapis.com')
     await dialog.get('[data-test="upstream-username-input"]').setValue('owner@example.com')
@@ -1198,49 +1146,6 @@ describe('UpstreamConfigsView', () => {
       }
     }))
     expect(syncKeysMock).toHaveBeenCalledWith(12)
-  })
-
-  it('submits isolated LCodex credentials with user-login only and syncs after save', async () => {
-    createMock.mockResolvedValueOnce(upstreamConfig({ id: 13, provider: 'lcodex', auth_mode: 'user_login' }))
-    const wrapper = mountView()
-    await flushPromises()
-
-    await wrapper.get('button.btn-primary').trigger('click')
-    await flushPromises()
-
-    const dialog = wrapper.get('[data-test="base-dialog"]')
-    await dialog.find('select').setValue('lcodex')
-    await flushPromises()
-
-    const authOptions = dialog.findAll('button[data-test^="upstream-auth-mode-"]')
-    expect(authOptions).toHaveLength(1)
-    expect(authOptions[0].attributes('data-test')).toBe('upstream-auth-mode-user_login')
-    expect(dialog.find('[data-test="upstream-email-input"]').exists()).toBe(false)
-    expect(dialog.find('[data-test="upstream-username-input"]').exists()).toBe(false)
-    expect(dialog.find('[data-test="open-token-assistant"]').exists()).toBe(false)
-    expect(dialog.text()).toContain('admin.upstreamConfigs.fields.lcodexApiUrlHint')
-
-    await dialog.get('[data-test="upstream-name-input"]').setValue('LCodex Upstream')
-    await dialog.get('[data-test="upstream-site-url-input"]').setValue('https://lcodex.cc')
-    await dialog.get('[data-test="upstream-lcodex-identifier-input"]').setValue('owner-account')
-    await dialog.get('[data-test="upstream-lcodex-password-input"]').setValue('secret-password')
-    await wrapper.get('form#upstream-config-form').trigger('submit.prevent')
-    await flushPromises()
-
-    expect(createMock).toHaveBeenCalledWith(expect.objectContaining({
-      name: 'LCodex Upstream',
-      site_url: 'https://lcodex.cc',
-      api_url: null,
-      provider: 'lcodex',
-      auth_mode: 'user_login',
-      credentials: {
-        lcodex_login_identifier: 'owner-account',
-        lcodex_login_password: 'secret-password'
-      }
-    }))
-    expect(createMock.mock.calls[0][0].credentials).not.toHaveProperty('sub2api_login_email')
-    expect(createMock.mock.calls[0][0].credentials).not.toHaveProperty('newapi_login_username')
-    expect(syncKeysMock).toHaveBeenCalledWith(13)
   })
 
   it('clears an existing API URL while preserving the site URL', async () => {
@@ -1328,6 +1233,12 @@ describe('UpstreamConfigsView', () => {
     await flushPromises()
 
     const dialog = wrapper.get('[data-test="base-dialog"]')
+    expect(wrapper.get('[data-test="filters"] select').findAll('option').map((option) => option.attributes('value')))
+      .toEqual(['', 'sub2api', 'newapi', 'other'])
+    expect(dialog.find('select').findAll('option').map((option) => option.attributes('value')))
+      .toEqual(['sub2api', 'newapi', 'other'])
+    expect(dialog.findAll('button[data-test^="upstream-auth-mode-"]').map((button) => button.attributes('data-test')))
+      .toEqual(['upstream-auth-mode-user_login', 'upstream-auth-mode-manual_jwt'])
     await dialog.get('[data-test="upstream-name-input"]').setValue('New Upstream')
     await dialog.get('[data-test="upstream-site-url-input"]').setValue('https://new.example.com')
     await dialog.get('[data-test="upstream-email-input"]').setValue('admin@example.com')
@@ -2172,39 +2083,6 @@ describe('UpstreamConfigsView', () => {
     expect(wrapper.get('[data-test="key-management-platform-tab"]').attributes('aria-selected')).toBe('true')
   })
 
-  it('opens LCodex image capability by default without estimating missing prices', async () => {
-    mockList([upstreamConfig({ provider: 'lcodex', auth_mode: 'user_login' })])
-    listKeysMock.mockResolvedValueOnce([{
-      id: 31,
-      upstream_config_id: 10,
-      name: 'LCodex image key',
-      platform: 'openai',
-      image_pricing: {
-        supported: true,
-        status: 'partial',
-        stale: false,
-        currency: 'USD',
-        final_cost_1k: null,
-        final_cost_2k: null,
-        final_cost_4k: null,
-        observed_at: '2026-07-22T01:02:03Z'
-      },
-      status: 'active',
-      created_at: '',
-      updated_at: '2026-07-22T01:02:03Z'
-    }])
-    const wrapper = mountView()
-    await flushPromises()
-
-    await wrapper.get('[data-test="row-key-management"]').trigger('click')
-    await flushPromises()
-
-    expect(wrapper.get('[data-test="key-management-image-tab"]').attributes('aria-selected')).toBe('true')
-    expect(wrapper.text()).toContain('LCodex image key')
-    expect(wrapper.text()).toContain('admin.upstreamConfigs.keyManagement.imagePricing.notProvided')
-    expect(wrapper.text()).not.toContain('admin.upstreamConfigs.keyManagement.imagePricing.upstreamDefault')
-  })
-
   it('provides complete key platform locale labels in both languages', () => {
     expect(zhUpstreamConfigs.upstreamConfigs.actions.keyPlatforms).toBe('Key 平台')
     expect(zhUpstreamConfigs.upstreamConfigs.keyPlatforms.unassignedGroup).toBe('未分配')
@@ -2213,7 +2091,5 @@ describe('UpstreamConfigsView', () => {
     expect(enUpstreamConfigs.upstreamConfigs.keyPlatforms.disableBindingsConfirm).toBe('Disable and retry')
     expect(zhUpstreamConfigs.upstreamConfigs.actions.keyManagement).toBe('Key 管理')
     expect(enUpstreamConfigs.upstreamConfigs.keyManagement.status.stale).toBe('Stale')
-    expect(zhUpstreamConfigs.upstreamConfigs.keyManagement.imagePricing.notProvided).toBe('上游未提供价格')
-    expect(enUpstreamConfigs.upstreamConfigs.fields.lcodexLoginIdentifier).toBe('Login Email or Account')
   })
 })

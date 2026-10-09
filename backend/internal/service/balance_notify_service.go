@@ -124,7 +124,7 @@ func upstreamDashboardURL(config *UpstreamConfig) string {
 		return ""
 	}
 	provider := strings.ToLower(strings.TrimSpace(config.Provider))
-	if provider != UpstreamProviderSub2API && provider != UpstreamProviderNewAPI && provider != UpstreamProviderLCodex {
+	if provider != UpstreamProviderSub2API && provider != UpstreamProviderNewAPI {
 		return ""
 	}
 	parsed, err := url.Parse(siteURL)
@@ -133,11 +133,6 @@ func upstreamDashboardURL(config *UpstreamConfig) string {
 	}
 	parsed.User = nil
 	parsed.RawQuery = ""
-	if provider == UpstreamProviderLCodex {
-		parsed.Path = "/"
-		parsed.Fragment = "/dashboard"
-		return parsed.String()
-	}
 	parsed.Path = "/dashboard"
 	parsed.Fragment = ""
 	return parsed.String()

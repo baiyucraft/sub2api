@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/stretchr/testify/require"
 )
@@ -1904,6 +1905,71 @@ func TestPruneUpstreamProviderCredentialsRemovesStaleProviderSecrets(t *testing.
 	require.Equal(t, "cookie-secret", newAPICredentials[AccountCredentialNewAPICookie])
 	require.NotContains(t, newAPICredentials, AccountCredentialNewAPIAccessToken)
 	require.NotContains(t, newAPICredentials, AccountCredentialNewAPILoginPassword)
+}
+
+func TestRetiredLCodexProviderRejectsCreateAndUpdate(t *testing.T) {
+	for _, provider := range []string{"lcodex", "LCodex", " lcodex "} {
+		t.Run(provider, func(t *testing.T) {
+			repo := &upstreamConfigServiceRepo{configs: []UpstreamConfig{{
+				ID: 1, Name: "Manual", Provider: UpstreamProviderOther, SiteURL: "https://upstream.example",
+			}}}
+			svc := NewUpstreamConfigService(repo, nil, nil)
+			created, err := svc.Create(context.Background(), &UpstreamConfig{
+				Name: "Retired", Provider: provider, SiteURL: "https://upstream.example",
+			})
+			require.Nil(t, created)
+			require.Equal(t, "UPSTREAM_PROVIDER_REMOVED", infraerrors.Reason(err))
+			require.Equal(t, http.StatusBadRequest, infraerrors.Code(err))
+			require.Len(t, repo.configs, 1)
+			updated, err := svc.Update(context.Background(), 1, &UpstreamConfig{Provider: provider})
+			require.Nil(t, updated)
+			require.Equal(t, "UPSTREAM_PROVIDER_REMOVED", infraerrors.Reason(err))
+			require.Equal(t, UpstreamProviderOther, repo.configs[0].Provider)
+			cfg := &UpstreamConfig{Provider: provider}
+			require.Equal(t, "UPSTREAM_PROVIDER_REMOVED", infraerrors.Reason(normalizeAndValidateUpstreamConfig(cfg, false)))
+			require.Equal(t, provider, cfg.Provider)
+			_, supported := upstreamProviderAdapterFor(provider)
+			require.False(t, supported)
+			require.Nil(t, upstreamAuthStrategyFor(cfg, svc))
+		})
+	}
+}
+
+func TestRetiredLCodexConfigReadAndExplicitProviderSwitch(t *testing.T) {
+	credentials := map[string]any{
+		AccountCredentialLCodexLoginIdentifier: "legacy-user",
+		AccountCredentialLCodexLoginPassword:   "legacy-password",
+	}
+	repo := &upstreamConfigServiceRepo{configs: []UpstreamConfig{{
+		ID: 1, Name: "Legacy", Provider: "lcodex", SiteURL: "https://upstream.example", Credentials: credentials,
+	}}}
+	svc := NewUpstreamConfigService(repo, nil, nil)
+	read, err := svc.GetByID(context.Background(), 1)
+	require.NoError(t, err)
+	require.Equal(t, "lcodex", read.Provider)
+	require.Equal(t, credentials, repo.configs[0].Credentials)
+	_, err = svc.Update(context.Background(), 1, &UpstreamConfig{Name: "Renamed"})
+	require.Equal(t, "UPSTREAM_PROVIDER_REMOVED", infraerrors.Reason(err))
+	require.Equal(t, "Legacy", repo.configs[0].Name)
+	updated, err := svc.Update(context.Background(), 1, &UpstreamConfig{Provider: UpstreamProviderOther})
+	require.NoError(t, err)
+	require.Equal(t, UpstreamProviderOther, updated.Provider)
+	require.NotContains(t, updated.Credentials, AccountCredentialLCodexLoginIdentifier)
+	require.NotContains(t, updated.Credentials, AccountCredentialLCodexLoginPassword)
+}
+
+func TestPruneRetiredLCodexCredentialsForEveryProvider(t *testing.T) {
+	for _, provider := range []string{UpstreamProviderSub2API, UpstreamProviderNewAPI, UpstreamProviderOther, "lcodex"} {
+		t.Run(provider, func(t *testing.T) {
+			credentials := map[string]any{
+				AccountCredentialLCodexLoginIdentifier: "legacy-user",
+				AccountCredentialLCodexLoginPassword:   "legacy-password",
+				"safe_note":                            "retained",
+			}
+			pruneUpstreamProviderCredentials(credentials, provider, UpstreamAuthModeUserLogin)
+			require.Equal(t, map[string]any{"safe_note": "retained"}, credentials)
+		})
+	}
 }
 
 func TestUpstreamConfigServiceCreatePrunesCredentialsAndRejectsInvalidProviderMode(t *testing.T) {
