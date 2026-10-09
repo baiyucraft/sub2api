@@ -189,6 +189,7 @@ func testConfidenceDistributionConcurrentClaims(t *testing.T, repo *upstreamConf
 		}
 	}
 	require.NotNil(t, winner)
+	require.Equal(t, "0.160.0", winner.ClientVersion)
 	state, _, err := readConfidenceDistributionState(context.Background(), db, keyID)
 	require.NoError(t, err)
 	require.Equal(t, int64(2), state.NextSequence)
@@ -375,8 +376,12 @@ func testConfidenceDistributionIdentity(fingerprint, protocol string) service.Co
 		components[key] = key + "-stable"
 	}
 	components["endpoint"], components["protocol"] = fingerprint, protocol
-	return service.ConfidenceDistributionIdentity{Version: 2, Fingerprint: fingerprint, Components: components, Protocol: protocol,
+	identity := service.ConfidenceDistributionIdentity{Version: service.ConfidenceDistributionIdentityVersion, Fingerprint: fingerprint, Components: components, Protocol: protocol,
 		BaselineVersion: service.DistributionBaselineVersion(protocol), LegacyFingerprint: fingerprint, LegacyCompatible: true}
+	if protocol == "responses" {
+		identity.ClientVersion = "0.160.0"
+	}
+	return identity
 }
 
 func TestConfidenceDistributionRepositoryIdentityLifecycle(t *testing.T) {
@@ -425,7 +430,8 @@ func testConfidenceDistributionIdentityLifecycle(t *testing.T, repo *upstreamCon
 	require.Equal(t, legacy.Pending, upgraded.Pending)
 	require.Equal(t, legacy.LeaseExpiresAt, upgraded.LeaseExpiresAt)
 	require.Equal(t, legacy.LastDecisive, upgraded.LastDecisive)
-	require.Equal(t, 2, upgraded.IdentityVersion)
+	require.Equal(t, service.ConfidenceDistributionIdentityVersion, upgraded.IdentityVersion)
+	require.Equal(t, identity.ClientVersion, upgraded.ClientVersion)
 	var eventCount int
 	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM upstream_events WHERE upstream_key_id=$1`, keyID).Scan(&eventCount))
 	require.Zero(t, eventCount)
@@ -555,18 +561,32 @@ func testConfidenceDistributionStableWindow(t *testing.T, repo *upstreamConfigRe
 	var series string
 	for i := 0; i < 129; i++ {
 		// Automatic model-list sync can change the legacy full hash every time;
-		// the canonical request identity is the sole owner of a v2 series.
+		// the canonical request identity is the sole owner of a v3 series.
 		identity.LegacyFingerprint = fmt.Sprintf("unrelated-model-sync-%d", i)
+		identity.ClientVersion = fmt.Sprintf("0.%d.0", 160+i)
 		at := now.Add(time.Duration(i) * time.Minute)
-		claim, err := repo.ClaimConfidenceDistribution(ctx, keyID, identity, at)
-		require.NoError(t, err)
+		// A fresh repository instance simulates a process restart on every attempt.
+		restarted := &upstreamConfigRepository{client: repo.client}
+		var claim *service.DistributionAttempt
+		if i == 64 {
+			claim = testConfidenceDistributionConcurrentVersionCandidates(t, restarted, keyID, identity, at)
+		} else {
+			var err error
+			claim, err = restarted.ClaimConfidenceDistribution(ctx, keyID, identity, at)
+			require.NoError(t, err)
+		}
 		require.NotNil(t, claim)
+		require.Equal(t, "0.160.0", claim.ClientVersion, "automatic version candidates cannot replace the persisted series pin")
 		if i == 0 {
 			series = claim.SeriesID
 		}
 		require.Equal(t, series, claim.SeriesID)
 		require.Equal(t, int64(i+1), claim.Sequence)
-		summary, _, err := repo.FinishConfidenceDistribution(ctx, keyID, claim, service.DistributionSample{Valid: true, Answer: "unknown-valid"}, at.Add(time.Second))
+		sample := service.DistributionSample{Valid: true, Answer: "unknown-valid"}
+		if i == 31 {
+			sample = service.DistributionSample{Reason: "request_failed"}
+		}
+		summary, _, err := restarted.FinishConfidenceDistribution(ctx, keyID, claim, sample, at.Add(time.Second))
 		require.NoError(t, err)
 		if i == 126 {
 			require.Equal(t, 127, summary.Attempted)
@@ -581,9 +601,52 @@ func testConfidenceDistributionStableWindow(t *testing.T, repo *upstreamConfigRe
 	require.NoError(t, err)
 	require.Len(t, state.Samples, 128)
 	require.Equal(t, int64(2), state.Samples[0].Sequence)
+	require.Equal(t, "0.160.0", state.ClientVersion)
+	require.Equal(t, "request_failed", state.Samples[30].Reason)
+	require.False(t, state.Samples[30].Valid)
+	counts := make(map[string]int)
+	for _, sample := range state.Samples {
+		counts[sample.ProbeID]++
+	}
+	require.Equal(t, service.DistributionProbeQuotas(), counts)
 	var resetEvents int
 	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM upstream_events WHERE upstream_key_id=$1 AND event_type='key_confidence_distribution_reset'`, keyID).Scan(&resetEvents))
 	require.Zero(t, resetEvents)
+}
+
+func testConfidenceDistributionConcurrentVersionCandidates(t *testing.T, repo *upstreamConfigRepository, keyID int64, identity service.ConfidenceDistributionIdentity, now time.Time) *service.DistributionAttempt {
+	t.Helper()
+	var wg sync.WaitGroup
+	claims := make(chan *service.DistributionAttempt, 8)
+	errs := make(chan error, 8)
+	for i := 0; i < 8; i++ {
+		candidate := identity
+		candidate.ClientVersion = fmt.Sprintf("0.%d.0", 300+i)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			restarted := &upstreamConfigRepository{client: repo.client}
+			claim, err := restarted.ClaimConfidenceDistribution(context.Background(), keyID, candidate, now)
+			claims <- claim
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(claims)
+	close(errs)
+	for err := range errs {
+		require.NoError(t, err)
+	}
+	var winner *service.DistributionAttempt
+	for claim := range claims {
+		if claim != nil {
+			require.Nil(t, winner, "competing automatic-version snapshots still own only one slot")
+			winner = claim
+		}
+	}
+	require.NotNil(t, winner)
+	require.Equal(t, "0.160.0", winner.ClientVersion)
+	return winner
 }
 
 func TestConfidenceDistributionRepositoryUnverifiableLegacyIsNotAdopted(t *testing.T) {
@@ -614,4 +677,137 @@ func TestConfidenceDistributionRepositoryUnverifiableLegacyIsNotAdopted(t *testi
 	require.NoError(t, err)
 	require.Empty(t, state.LastDecisive)
 	require.Equal(t, []string{"legacy_identity_unverifiable"}, state.SeriesReset.Reasons)
+}
+
+func TestConfidenceDistributionRepositoryV2ClientIdentityUpgrade(t *testing.T) {
+	for _, exact := range []bool{true, false} {
+		t.Run(fmt.Sprintf("exact_fingerprint_%t", exact), func(t *testing.T) {
+			repo, db := newConfidenceDistributionSQLite(t)
+			testConfidenceDistributionV2ClientIdentityUpgrade(t, repo, db, 1, exact)
+		})
+	}
+}
+
+// Both database suites exercise the upgrade against persisted JSON, including
+// an active v2 lease that cannot be replaced while its request is in flight.
+func testConfidenceDistributionV2ClientIdentityUpgrade(t *testing.T, repo *upstreamConfigRepository, db *sql.DB, keyID int64, exact bool) {
+	t.Helper()
+	ctx, now := context.Background(), time.Now().UTC()
+	legacy, err := service.NewConfidenceDistributionState("v2-complete-fingerprint", "responses")
+	require.NoError(t, err)
+	legacy.IdentityVersion = 2
+	identity := testConfidenceDistributionIdentity("v3-stable-fingerprint", "responses")
+	legacy.IdentityComponents = identity.Components
+	for i := 0; i < 2; i++ {
+		attempt, err := legacy.Claim(now.Add(time.Duration(i) * time.Second))
+		require.NoError(t, err)
+		sample := service.DistributionSample{Valid: true, Answer: "unknown-valid"}
+		if i == 0 {
+			sample = service.DistributionSample{Reason: "request_failed"}
+		}
+		_, _, err = legacy.Finish(attempt, sample, now.Add(time.Duration(i)*time.Second+time.Millisecond))
+		require.NoError(t, err)
+	}
+	legacy.LastDecisive = "mismatch"
+	inFlight, err := legacy.Claim(now.Add(2 * time.Second))
+	require.NoError(t, err)
+	changed, err := saveConfidenceDistributionState(ctx, db, keyID, 0, legacy, now)
+	require.NoError(t, err)
+	require.True(t, changed)
+	identity.V2Fingerprint = legacy.Fingerprint
+	if !exact {
+		identity.V2Fingerprint = "different-current-client-version"
+	}
+	// Competing readers must perform at most one in-place revision upgrade.
+	var wg sync.WaitGroup
+	errs := make(chan error, 8)
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			restarted := &upstreamConfigRepository{client: repo.client}
+			_, err := restarted.LoadConfidenceDistributionForSeries(ctx, keyID, identity, now.Add(3*time.Second))
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		require.NoError(t, err)
+	}
+	state, revision, err := readConfidenceDistributionState(ctx, db, keyID)
+	require.NoError(t, err)
+	require.Equal(t, legacy.SeriesID, state.SeriesID)
+	require.Equal(t, legacy.ProbeOrder, state.ProbeOrder)
+	require.Equal(t, legacy.NextSequence, state.NextSequence)
+	require.Equal(t, legacy.Samples, state.Samples)
+	require.Equal(t, legacy.Pending, state.Pending)
+	require.Equal(t, legacy.LeaseExpiresAt, state.LeaseExpiresAt)
+	require.Equal(t, legacy.LastDecisive, state.LastDecisive)
+	var events int
+	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM upstream_events WHERE upstream_key_id=$1`, keyID).Scan(&events))
+	require.Zero(t, events)
+	busy, err := repo.ClaimConfidenceDistribution(ctx, keyID, identity, now.Add(3*time.Second))
+	require.NoError(t, err)
+	require.Nil(t, busy)
+	if exact {
+		require.Equal(t, int64(2), revision)
+		require.Equal(t, service.ConfidenceDistributionIdentityVersion, state.IdentityVersion)
+		require.Equal(t, identity.ClientVersion, state.ClientVersion)
+		require.Equal(t, identity.Fingerprint, state.Fingerprint)
+		_, _, err = repo.FinishConfidenceDistribution(ctx, keyID, inFlight, service.DistributionSample{Reason: "empty_answer"}, now.Add(4*time.Second))
+		require.NoError(t, err)
+		identity.ClientVersion = "0.162.0"
+		restarted := &upstreamConfigRepository{client: repo.client}
+		claim, err := restarted.ClaimConfidenceDistribution(ctx, keyID, identity, now.Add(5*time.Second))
+		require.NoError(t, err)
+		require.NotNil(t, claim)
+		require.Equal(t, legacy.SeriesID, claim.SeriesID)
+		require.Equal(t, int64(4), claim.Sequence)
+		require.Equal(t, "0.160.0", claim.ClientVersion)
+		// The generator input stays internal to state; serialized attempts and
+		// public summaries cannot expose even this public version parameter.
+		raw, err := json.Marshal(claim)
+		require.NoError(t, err)
+		require.NotContains(t, string(raw), "client_version")
+		require.NotContains(t, string(raw), "0.160.0")
+		summary, err := restarted.LoadConfidenceDistributionForSeries(ctx, keyID, identity, now.Add(6*time.Second))
+		require.NoError(t, err)
+		require.Equal(t, 4, summary.Attempted)
+		raw, err = json.Marshal(summary)
+		require.NoError(t, err)
+		require.NotContains(t, string(raw), "client_version")
+		require.NotContains(t, string(raw), "0.160.0")
+		require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM upstream_events WHERE upstream_key_id=$1`, keyID).Scan(&events))
+		require.Zero(t, events)
+		return
+	}
+	require.Equal(t, int64(1), revision)
+	require.Equal(t, legacy, state, "a changed v2 request cannot be reconstructed from the current version")
+	summary, err := repo.LoadConfidenceDistributionForSeries(ctx, keyID, identity, now.Add(3*time.Second))
+	require.NoError(t, err)
+	require.True(t, summary.SeriesReset.Pending)
+	require.Equal(t, []string{"legacy_identity_unverifiable"}, summary.SeriesReset.Reasons)
+	require.Equal(t, 3, summary.SeriesReset.PreviousAttempted)
+	resetAt := now.Add(3 * time.Minute)
+	claim, err := repo.ClaimConfidenceDistribution(ctx, keyID, identity, resetAt)
+	require.NoError(t, err)
+	require.NotNil(t, claim)
+	require.NotEqual(t, legacy.SeriesID, claim.SeriesID)
+	require.Equal(t, int64(1), claim.Sequence)
+	require.Equal(t, identity.ClientVersion, claim.ClientVersion)
+	_, _, err = repo.FinishConfidenceDistribution(ctx, keyID, inFlight, service.DistributionSample{Valid: true, Answer: "47"}, resetAt.Add(time.Second))
+	require.ErrorIs(t, err, service.ErrConfidenceDistributionLeaseLost)
+	state, _, err = readConfidenceDistributionState(ctx, db, keyID)
+	require.NoError(t, err)
+	require.Empty(t, state.LastDecisive)
+	require.Equal(t, 3, state.SeriesReset.PreviousAttempted)
+	require.Equal(t, []string{"legacy_identity_unverifiable"}, state.SeriesReset.Reasons)
+	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM upstream_events WHERE upstream_key_id=$1`, keyID).Scan(&events))
+	require.Equal(t, 1, events)
+	var payload string
+	require.NoError(t, db.QueryRow(`SELECT payload FROM upstream_events WHERE upstream_key_id=$1`, keyID).Scan(&payload))
+	for _, internal := range []string{"client_version", "0.160.0", "v2-complete-fingerprint", "v3-stable-fingerprint"} {
+		require.NotContains(t, payload, internal)
+	}
 }

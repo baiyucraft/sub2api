@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -9,14 +10,21 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 )
 
-const ConfidenceDistributionIdentityVersion = 2
+const ConfidenceDistributionIdentityVersion = 3
+
+// An identity-contract marker, never sent upstream. It must not follow the
+// compiled client version, or an application upgrade would reopen the window.
+const distributionClientVersionMarker = "series-version"
 
 // ConfidenceDistributionIdentity is internal request identity, never a public
-// API value. Only digests are persisted; raw credentials and headers stay local.
+// API value. Digests and a public client-version generator input are persisted;
+// raw credentials and headers stay local.
 type ConfidenceDistributionIdentity struct {
 	Version           int               `json:"-"`
 	Fingerprint       string            `json:"-"`
@@ -25,6 +33,8 @@ type ConfidenceDistributionIdentity struct {
 	BaselineVersion   string            `json:"-"`
 	LegacyFingerprint string            `json:"-"`
 	LegacyCompatible  bool              `json:"-"`
+	V2Fingerprint     string            `json:"-"`
+	ClientVersion     string            `json:"-"`
 }
 
 type distributionRequestSpec struct {
@@ -126,9 +136,43 @@ func (s *AccountTestService) resolveDistributionRequest(account *Account) (*dist
 	headers.Set("Accept", "text/event-stream")
 	headers.Set("Content-Type", "application/json")
 	headers.Set("Authorization", "Bearer "+apiKey)
+	clientVersion, manualVersion := "", ""
 	if protocol == "responses" {
 		// Random window IDs are added after identity resolution, during dispatch.
 		ensureCodexIdentityHeaders(headers)
+		clientVersion = codexClientVersionFromUA(headers.Get("User-Agent"))
+		_, uaOverridden := snapshot.HeaderOverrideValue("user-agent")
+		_, versionOverridden := snapshot.HeaderOverrideValue("version")
+		if (!uaOverridden || !versionOverridden) && s.settingService != nil && s.settingService.settingRepo != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			value, readErr := s.settingService.settingRepo.GetValue(ctx, SettingKeyOpenAICodexClientVersion)
+			cancel()
+			if readErr != nil && !errors.Is(readErr, ErrSettingNotFound) {
+				return nil, &distributionConfigurationError{"configuration_error", "probe_client_identity_unavailable", errors.New("probe client identity policy is unavailable")}
+			}
+			manualVersion = NormalizeCodexClientVersion(value)
+			if manualVersion != "" && CompareVersions(manualVersion, codexUpstreamMinVersion) >= 0 {
+				clientVersion = manualVersion
+				headers.Set("User-Agent", openai.SetCodexUserAgentVersion(headers.Get("User-Agent"), clientVersion))
+				headers.Set("version", clientVersion)
+			} else {
+				manualVersion = ""
+				// A removed fixed policy must not seed a new series from the
+				// canonical resolver's cached, formerly fixed version.
+				ctx, cancel = context.WithTimeout(context.Background(), 3*time.Second)
+				synced, readErr := s.settingService.settingRepo.GetValue(ctx, SettingKeyOpenAICodexClientVersionSynced)
+				cancel()
+				if readErr != nil && !errors.Is(readErr, ErrSettingNotFound) {
+					return nil, &distributionConfigurationError{"configuration_error", "probe_client_identity_unavailable", errors.New("probe client identity policy is unavailable")}
+				}
+				clientVersion = NormalizeCodexClientVersion(synced)
+				if clientVersion == "" || CompareVersions(clientVersion, codexUpstreamMinVersion) < 0 {
+					clientVersion = codexCLIVersion
+				}
+				headers.Set("User-Agent", openai.SetCodexUserAgentVersion(headers.Get("User-Agent"), clientVersion))
+				headers.Set("version", clientVersion)
+			}
+		}
 	}
 	snapshot.ApplyHeaderOverrides(headers)
 	stableHeaders := make(map[string][]string, len(headers))
@@ -153,6 +197,22 @@ func (s *AccountTestService) resolveDistributionRequest(account *Account) (*dist
 		"contract":   distributionIdentityDigest(UpstreamConfidenceDistributionPromptVersion),
 		"baseline":   distributionIdentityDigest(DistributionBaselineVersion(protocol)),
 	}
+	// The v2 digest proves an existing window still describes this exact wire
+	// request. Never infer the historical version from today's runtime default.
+	v2Fingerprint := distributionIdentityDigest([]any{2, components})
+	if protocol == "responses" {
+		// Only generated version fields are normalized. Explicit effective
+		// overrides remain byte-sensitive request identity, including Window-ID.
+		_, uaOverridden := snapshot.HeaderOverrideValue("user-agent")
+		_, versionOverridden := snapshot.HeaderOverrideValue("version")
+		if !uaOverridden {
+			stableHeaders["user-agent"] = []string{openai.SetCodexUserAgentVersion(distributionHeaderValue(headers, "user-agent"), distributionClientVersionMarker)}
+		}
+		if !versionOverridden {
+			stableHeaders["version"] = []string{distributionClientVersionMarker}
+		}
+		components["headers"] = distributionIdentityDigest([]any{stableHeaders, manualVersion, uaOverridden, versionOverridden})
+	}
 	for _, digest := range components {
 		if digest == "" {
 			return nil, errors.New("invalid confidence distribution request identity")
@@ -174,8 +234,40 @@ func (s *AccountTestService) resolveDistributionRequest(account *Account) (*dist
 		Fingerprint: distributionIdentityDigest([]any{ConfidenceDistributionIdentityVersion, components}),
 		Components:  components, Protocol: protocol, BaselineVersion: DistributionBaselineVersion(protocol),
 		LegacyFingerprint: distributionAccountFingerprint(&snapshot), LegacyCompatible: legacyCompatible,
+		V2Fingerprint: v2Fingerprint, ClientVersion: clientVersion,
 	}
 	return &distributionRequestSpec{identity: identity, account: snapshot, endpoint: endpoint, model: model, headers: headers}, nil
+}
+
+func distributionHeaderValue(headers http.Header, name string) string {
+	for key, values := range headers {
+		if strings.EqualFold(key, name) && len(values) > 0 {
+			return values[0]
+		}
+	}
+	return ""
+}
+
+// Apply only the automatic version fields. Account header overrides already
+// applied to this snapshot must not be overwritten by the series generator.
+func (spec *distributionRequestSpec) pinClientVersion(version string) error {
+	if spec.identity.Protocol != "responses" {
+		return nil
+	}
+	if NormalizeCodexClientVersion(version) != version || CompareVersions(version, codexUpstreamMinVersion) < 0 {
+		return errors.New("invalid pinned distribution client version")
+	}
+	if _, overridden := spec.account.HeaderOverrideValue("user-agent"); !overridden {
+		ua := openai.SetCodexUserAgentVersion(distributionHeaderValue(spec.headers, "user-agent"), version)
+		if ua == "" {
+			return errors.New("invalid distribution client template")
+		}
+		spec.headers.Set("User-Agent", ua)
+	}
+	if _, overridden := spec.account.HeaderOverrideValue("version"); !overridden {
+		spec.headers.Set("version", version)
+	}
+	return nil
 }
 
 func normalizeDistributionEndpoint(raw string) (string, error) {
