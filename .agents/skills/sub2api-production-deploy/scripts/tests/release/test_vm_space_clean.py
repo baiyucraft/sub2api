@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -191,11 +192,20 @@ class VMSpaceCleanTest(unittest.TestCase):
         self.assertIn("trap 'on_failure $LINENO' ERR INT TERM", validator)
         self.assertIn('> "$state_dir/failure-line"', validator)
         self.assertIn('chmod 400 "$state_dir/migrate-candidate.log"', validator)
+        builds = list(re.finditer(
+            r"(?m)^[ \t]*docker_build_with_registry_bypass --network=host --progress=plain \\$",
+            validator,
+        ))
+        self.assertEqual(len(builds), 2, "match actual v2 and legacy build calls, not the helper definition")
+        v2_trap = validator.index("trap on_v2_failure ERR INT TERM")
+        v2_build_stage = validator.index("mark_v2_stage candidate_build", v2_trap)
+        self.assertLess(v2_trap, v2_build_stage)
+        self.assertLess(v2_build_stage, builds[0].start())
         trap = validator.index("trap on_build_failure ERR INT TERM")
-        build = validator.rindex("docker build --network=host")
-        post_build_space_check = validator.index("[[ $free_after_build -gt $required_free ]]")
+        build = builds[1].start()
+        post_build_space_check = validator.index("[[ $free_after_build -gt $required_free ]]", build)
         self.assertLess(trap, build)
-        self.assertLess(trap, post_build_space_check)
+        self.assertLess(build, post_build_space_check)
         self.assertIn("cleanup_candidate_tag", validator)
         self.assertIn("docker inspect --size -f '{{.SizeRootFs}}' sub2api-dev", validator)
 
