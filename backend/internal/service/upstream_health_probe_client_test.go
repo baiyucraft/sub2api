@@ -1305,7 +1305,7 @@ func TestTextProbeRejectsImageModelsBeforeRequest(t *testing.T) {
 	}
 }
 
-func TestUpstreamHealthProbeAndUsageLogShareOutputTPSCalculation(t *testing.T) {
+func TestUpstreamHealthProbeOutputTPSPreservesGenerationRate(t *testing.T) {
 	t.Parallel()
 
 	outputTokens := int64(400)
@@ -1319,14 +1319,34 @@ func TestUpstreamHealthProbeAndUsageLogShareOutputTPSCalculation(t *testing.T) {
 	setUpstreamHealthProbeOutputTPS(&probe)
 	require.NotNil(t, probe.OutputTPS)
 
-	usageDurationMs := int(durationMs)
-	usageFirstTokenMs := int(firstTokenMs)
-	usage := &UsageLog{
-		OutputTokens: int(outputTokens),
-		DurationMs:   &usageDurationMs,
-		FirstTokenMs: &usageFirstTokenMs,
+	require.InDelta(t, 200.0, *probe.OutputTPS, 1e-12)
+}
+
+func TestCalculateUpstreamHealthProbeOutputTPS(t *testing.T) {
+	t.Parallel()
+
+	duration := int64(3000)
+	firstToken := int64(1000)
+	got := calculateUpstreamHealthProbeOutputTPS(400, &duration, &firstToken)
+	require.NotNil(t, got)
+	require.InDelta(t, 200.0, *got, 1e-12)
+
+	for _, tc := range []struct {
+		name         string
+		outputTokens int64
+		durationMs   *int64
+		firstTokenMs *int64
+	}{
+		{name: "zero output", outputTokens: 0, durationMs: &duration, firstTokenMs: &firstToken},
+		{name: "negative output", outputTokens: -1, durationMs: &duration, firstTokenMs: &firstToken},
+		{name: "missing duration", outputTokens: 10, durationMs: nil, firstTokenMs: &firstToken},
+		{name: "missing first token", outputTokens: 10, durationMs: &duration, firstTokenMs: nil},
+		{name: "same timing", outputTokens: 10, durationMs: &firstToken, firstTokenMs: &firstToken},
+		{name: "first token after duration", outputTokens: 10, durationMs: &firstToken, firstTokenMs: &duration},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Nil(t, calculateUpstreamHealthProbeOutputTPS(tc.outputTokens, tc.durationMs, tc.firstTokenMs))
+		})
 	}
-	usageTPS := usage.OutputTPS()
-	require.NotNil(t, usageTPS)
-	require.InDelta(t, *usageTPS, *probe.OutputTPS, 1e-12)
 }
