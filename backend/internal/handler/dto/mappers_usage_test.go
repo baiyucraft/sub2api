@@ -270,7 +270,7 @@ func TestUsageLogFromService_FallsBackToLegacyModelWhenRequestedModelMissing(t *
 	require.Equal(t, "claude-3", adminDTO.Model)
 }
 
-func TestUsageLogFromServiceAdminAddsOutputTPSWithoutExposingItToUsers(t *testing.T) {
+func TestUsageLogFromServiceDoesNotExposeLegacyOutputTPS(t *testing.T) {
 	t.Parallel()
 
 	durationMs := 3000
@@ -283,16 +283,12 @@ func TestUsageLogFromServiceAdminAddsOutputTPSWithoutExposingItToUsers(t *testin
 		FirstTokenMs: &firstTokenMs,
 	}
 
-	adminDTO := UsageLogFromServiceAdmin(log)
-	require.NotNil(t, adminDTO.OutputTPS)
-	require.InDelta(t, 200.0, *adminDTO.OutputTPS, 1e-12)
-
 	userJSON, err := json.Marshal(UsageLogFromService(log))
 	require.NoError(t, err)
 	require.NotContains(t, string(userJSON), "output_tps")
-	adminJSON, err := json.Marshal(adminDTO)
+	adminJSON, err := json.Marshal(UsageLogFromServiceAdmin(log))
 	require.NoError(t, err)
-	require.Contains(t, string(adminJSON), `"output_tps":200`)
+	require.NotContains(t, string(adminJSON), "output_tps")
 }
 
 func TestUsageLogFromService_IncludesImageBillingMetadataForUserAndAdmin(t *testing.T) {
