@@ -89,8 +89,6 @@ const messages: Record<string, string> = {
 	'usage.modelMismatch': 'Different model',
 	'usage.latencyFirstToken': 'First',
 	'usage.latencyDuration': 'Total',
-  'usage.latencyTps': 'Output rate',
-  'usage.tokensPerSecondUnit': 't/s',
 }
 
 vi.mock('vue-i18n', async () => {
@@ -122,70 +120,73 @@ const DataTableStub = {
 }
 
 describe('admin UsageTable output TPS', () => {
-  it('keeps generation throughput separate from the total-duration output rate', () => {
+  it('shows only official total-duration TPS even when an older response includes generation throughput', () => {
     const wrapper = mount(UsageTable, {
       props: {
         data: [{ request_id: 'two-formulas', first_token_ms: 10000, duration_ms: 20000, output_tokens: 1000, output_tps: 100 }],
         columns: [{ key: 'latency', label: 'Latency' }],
-        showOutputTps: true,
       },
       global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
     })
     expect(wrapper.get('[data-testid="output-tps"]').text()).toBe('50.0 tok/s')
-    expect(wrapper.text()).toContain('100.0 t/s')
+    expect(wrapper.text()).toContain('Output TPS')
+    expect(wrapper.text()).toContain('First')
+    expect(wrapper.text()).toContain('Total')
+    expect(wrapper.find('.grid').findAll('span')).toHaveLength(6)
+    expect(wrapper.text()).not.toContain('100.0 t/s')
+    expect(wrapper.text()).not.toContain('usage.latencyTps')
   })
 
   const row = {
     request_id: 'req-admin-tps',
     first_token_ms: 750,
     duration_ms: 4750,
-    output_tps: 12.3456,
+    output_tokens: 60,
   }
 
-  it('renders output rate to one decimal when explicitly enabled', () => {
+  it('renders official TPS to one decimal in the shared user table', () => {
     const wrapper = mount(UsageTable, {
       props: {
         data: [row],
         loading: false,
         columns: [{ key: 'latency', label: 'Latency' }],
-        showOutputTps: true,
+        showAccountBilling: false,
+        showUpstreamEndpoint: false,
       },
       global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
     })
 
-    expect(wrapper.text()).toContain('Output rate')
-    expect(wrapper.text()).toContain('12.3 t/s')
-    expect(wrapper.find('.text-violet-600').classes()).not.toContain('font-semibold')
+    expect(wrapper.text()).toContain('Output TPS')
+    expect(wrapper.get('[data-testid="output-tps"]').text()).toBe('12.6 tok/s')
+    expect(wrapper.find('.grid').findAll('span')).toHaveLength(6)
   })
 
-  it('keeps the shared table unchanged unless TPS is explicitly enabled', () => {
+  it.each([0, 10000, 19000])('includes the %i ms first-token wait in official TPS', (firstTokenMs) => {
     const wrapper = mount(UsageTable, {
       props: {
-        data: [row],
+        data: [{ ...row, first_token_ms: firstTokenMs, duration_ms: 20000, output_tokens: 1000 }],
         loading: false,
         columns: [{ key: 'latency', label: 'Latency' }],
       },
       global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
     })
 
-    expect(wrapper.text()).not.toContain('Output rate')
-    expect(wrapper.text()).not.toContain('t/s')
+    expect(wrapper.get('[data-testid="output-tps"]').text()).toBe('50.0 tok/s')
   })
 
   it('shows a dash instead of a fabricated zero when TPS is unavailable', () => {
     const wrapper = mount(UsageTable, {
       props: {
-        data: [{ ...row, output_tps: null }],
+        data: [{ ...row, duration_ms: null }],
         loading: false,
         columns: [{ key: 'latency', label: 'Latency' }],
-        showOutputTps: true,
       },
       global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
     })
 
-    expect(wrapper.text()).toContain('Output rate')
-    expect(wrapper.text()).toContain('-')
-    expect(wrapper.text()).not.toContain('t/s')
+    expect(wrapper.text()).toContain('Output TPS')
+    expect(wrapper.get('[data-testid="output-tps"]').text()).toBe('—')
+    expect(wrapper.text()).not.toContain('tok/s')
   })
 })
 

@@ -1260,7 +1260,21 @@ func setUpstreamHealthProbeOutputTPS(result *UpstreamHealthProbeResult) {
 	if result == nil || result.OutputTokens == nil || result.TTFTMs == nil || result.DurationMs == nil {
 		return
 	}
-	result.OutputTPS = CalculateOutputTPS(*result.OutputTokens, result.DurationMs, result.TTFTMs)
+	result.OutputTPS = calculateUpstreamHealthProbeOutputTPS(*result.OutputTokens, result.DurationMs, result.TTFTMs)
+}
+
+// calculateUpstreamHealthProbeOutputTPS preserves the probe generation rate
+// after the first token. Insufficient timing or token evidence returns nil.
+func calculateUpstreamHealthProbeOutputTPS(outputTokens int64, durationMs, firstTokenMs *int64) *float64 {
+	if outputTokens <= 0 || durationMs == nil || firstTokenMs == nil || *durationMs <= *firstTokenMs {
+		return nil
+	}
+	generationMs := *durationMs - *firstTokenMs
+	if generationMs <= 0 {
+		return nil
+	}
+	value := float64(outputTokens) * 1000 / float64(generationMs)
+	return &value
 }
 
 func scanUpstreamHealthSSE(reader io.Reader, handle func([]byte) (bool, error)) (bool, error) {
