@@ -1325,22 +1325,21 @@ func (s *BillingService) GetModelPricing(model string) (*ModelPricing, error) {
 	return s.getModelPricingAt(model, timezone.Now())
 }
 
+// CacheStoragePricePerTokenHour 返回模型的显式上下文缓存存储单价（每 token 每小时，USD）。
+// 优先级：价格表（override_file 等）按确定性识别配置的值 > 内置型号价 > 内置 Pro/Flash 系列兜底价；
+// 均未命中返回 0。
+func (s *BillingService) CacheStoragePricePerTokenHour(model string) float64 {
+	if s != nil && s.pricingService != nil {
+		if pricing := s.pricingService.GetIdentifiedModelPricing(model); pricing != nil && pricing.CacheStorageCostPerTokenPerHour > 0 {
+			return pricing.CacheStorageCostPerTokenPerHour
+		}
+	}
+	return builtinGeminiCacheStoragePrice(model)
+}
+
 // getModelPricingAt 是 GetModelPricing 的带计费时点内部变体：pricingAt 显式
 // 驱动 DeepSeek pro→Flash 切换判定（切换点前 Pro 价、之后 Flash 价），使
 // 展示/估算路径可与历史补账同刻复算，测试也能用固定时点钉住断言。
-// CacheStoragePricePerTokenHour 返回模型的显式上下文缓存存储单价（每 token 每小时，USD）。
-// 只做确定性识别，不按系列兜底；价格表未配置时返回 0。
-func (s *BillingService) CacheStoragePricePerTokenHour(model string) float64 {
-	if s == nil || s.pricingService == nil {
-		return 0
-	}
-	pricing := s.pricingService.GetIdentifiedModelPricing(model)
-	if pricing == nil || pricing.CacheStorageCostPerTokenPerHour <= 0 {
-		return 0
-	}
-	return pricing.CacheStorageCostPerTokenPerHour
-}
-
 func (s *BillingService) getModelPricingAt(model string, pricingAt time.Time) (*ModelPricing, error) {
 	// 标准化模型名称（转小写）
 	model = strings.ToLower(model)

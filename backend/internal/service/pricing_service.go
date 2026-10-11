@@ -223,7 +223,8 @@ type LiteLLMModelPricing struct {
 	OutputCostPerImageToken             float64 `json:"output_cost_per_image_token"` // 图片输出 token 价格
 	InputCostPerImageToken              float64 `json:"input_cost_per_image_token"`  // 图片输入 token 价格（如 gpt-image-2 图片编辑）
 	CacheReadInputImageTokenCost        float64 `json:"cache_read_input_image_token_cost"`
-	// CacheStorageCostPerTokenPerHour 显式上下文缓存存储单价（每 token 每小时，USD），仅由定价覆盖文件提供。
+	// CacheStorageCostPerTokenPerHour 显式上下文缓存存储单价（每 token 每小时，USD），一般由定价覆盖文件提供，
+	// 配置后优先于内置价（见 BillingService.CacheStoragePricePerTokenHour）。
 	CacheStorageCostPerTokenPerHour float64 `json:"cache_storage_cost_per_token_per_hour"`
 
 	// TokenPricingAbsent 表示源数据中 input/output token 价格均缺失（仅有图片价）。
