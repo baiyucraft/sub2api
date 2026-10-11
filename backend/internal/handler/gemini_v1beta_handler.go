@@ -74,7 +74,7 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		return
 	}
 
-	account, err := h.geminiCompatService.SelectAccountForAIStudioEndpoints(c.Request.Context(), apiKey.GroupID)
+	account, err := h.geminiCompatService.SelectAccountForModelsEndpoints(c.Request.Context(), apiKey.GroupID)
 	if err != nil {
 		if len(agModels) > 0 {
 			c.JSON(http.StatusOK, gemini.ModelsListResponse{Models: filterGeminiModels(agModels)})
@@ -85,7 +85,7 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		return
 	}
 
-	res, err := h.geminiCompatService.ForwardAIStudioGET(c.Request.Context(), account, "/v1beta/models")
+	res, err := h.geminiCompatService.ForwardListModels(c.Request.Context(), account)
 	if err != nil {
 		googleError(c, http.StatusBadGateway, err.Error())
 		return
@@ -251,7 +251,7 @@ func (h *GatewayHandler) GeminiV1BetaGetModel(c *gin.Context) {
 		return
 	}
 
-	account, err := h.geminiCompatService.SelectAccountForAIStudioEndpoints(c.Request.Context(), apiKey.GroupID)
+	account, err := h.geminiCompatService.SelectAccountForModelsEndpoints(c.Request.Context(), apiKey.GroupID)
 	if err != nil {
 		// 没有 gemini 账户，检查是否有 antigravity 账户可用
 		hasAntigravity, _ := h.geminiCompatService.HasAntigravityAccounts(c.Request.Context(), apiKey.GroupID)
@@ -265,7 +265,7 @@ func (h *GatewayHandler) GeminiV1BetaGetModel(c *gin.Context) {
 		return
 	}
 
-	res, err := h.geminiCompatService.ForwardAIStudioGET(c.Request.Context(), account, "/v1beta/models/"+modelName)
+	res, err := h.geminiCompatService.ForwardGetModel(c.Request.Context(), account, modelName)
 	if err != nil {
 		googleError(c, http.StatusBadGateway, err.Error())
 		return

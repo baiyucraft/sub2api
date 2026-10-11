@@ -804,9 +804,7 @@ func (s *AccountTestService) readUpstreamModelsResponse(req *http.Request, accou
 	return body, nil
 }
 
-// fetchVertexGeminiUpstreamModels 按账号默认区域分页读取 Vertex 的 Google 发布方模型列表，只保留 gemini- 前缀的模型。
-// 区域端点还会列出 Gemma、Veo、AutoML 等非 Gemini 的模型花园条目；global 端点只含 Gemini。
-// 列表接口不接受 API Key。
+// fetchVertexGeminiUpstreamModels 按账号默认区域读取 Vertex 上可用的 Gemini 模型。列表接口不接受 API Key。
 func (s *AccountTestService) fetchVertexGeminiUpstreamModels(ctx context.Context, account *Account) ([]string, error) {
 	if account.IsVertexAPIKey() {
 		return nil, newUpstreamModelSyncUnsupportedError("Vertex API key accounts do not support upstream model listing", nil)
@@ -830,13 +828,7 @@ func (s *AccountTestService) fetchVertexGeminiUpstreamModels(ctx context.Context
 		return nil, newUpstreamModelSyncConfigError("No Vertex access token is available", nil)
 	}
 
-	models := make([]string, 0)
-	pageToken := ""
-	for page := 0; page < vertexPublisherModelsMaxPages; page++ {
-		listURL, err := buildVertexPublisherModelsURL(location, pageToken)
-		if err != nil {
-			return nil, newUpstreamModelSyncConfigError("Invalid Vertex location", err)
-		}
+	return listVertexGeminiPublisherModels(location, func(page int, listURL string) ([]byte, error) {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, listURL, nil)
 		if err != nil {
 			return nil, newUpstreamModelSyncConfigError("Invalid Vertex model list URL", err)
@@ -851,6 +843,25 @@ func (s *AccountTestService) fetchVertexGeminiUpstreamModels(ctx context.Context
 			if page > 0 && errors.As(err, &syncErr) {
 				syncErr.StatusCode = 0
 			}
+			return nil, err
+		}
+		return body, nil
+	})
+}
+
+// listVertexGeminiPublisherModels 按区域分页读取 Google 发布方模型列表，只保留 gemini- 前缀的模型（去重排序）。
+// 区域端点还会列出 Gemma、Veo、AutoML 等非 Gemini 的模型花园条目；global 端点只含 Gemini。
+// fetchPage 负责发送请求并处理非 2xx 响应，返回该页的响应体；它返回的错误原样透出。
+func listVertexGeminiPublisherModels(location string, fetchPage func(page int, listURL string) ([]byte, error)) ([]string, error) {
+	models := make([]string, 0)
+	pageToken := ""
+	for page := 0; page < vertexPublisherModelsMaxPages; page++ {
+		listURL, err := buildVertexPublisherModelsURL(location, pageToken)
+		if err != nil {
+			return nil, newUpstreamModelSyncConfigError("Invalid Vertex location", err)
+		}
+		body, err := fetchPage(page, listURL)
+		if err != nil {
 			return nil, err
 		}
 		var response struct {
