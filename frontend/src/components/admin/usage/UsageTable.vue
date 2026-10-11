@@ -255,7 +255,7 @@
               <span class="text-gray-400 dark:text-gray-500">{{ t('usage.latencyDuration') }}</span>
               <span class="tabular-nums" :class="LATENCY_TEXT_CLASSES[durationSeverity(row.duration_ms ?? 0)]">{{ formatDuration(row.duration_ms) }}</span>
               <span class="text-gray-400 dark:text-gray-500" :title="t('usage.outputTpsHint')">{{ t('usage.totalOutputTps') }}</span>
-              <span data-testid="output-tps" class="tabular-nums text-gray-700 dark:text-gray-300">{{ formatUsageOutputRate(row) }}</span>
+              <span data-testid="output-tps" class="tabular-nums text-violet-600 dark:text-violet-400">{{ formatUsageOutputRate(row) }}</span>
             </div>
           </div>
         </template>
