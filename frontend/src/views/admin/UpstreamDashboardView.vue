@@ -42,12 +42,13 @@
             <div class="min-w-0"><div class="card-kicker"><span class="provider-label"><span class="provider-mark" aria-hidden="true">{{ providerInitial(item.provider) }}</span>{{ item.provider }}</span><span class="provider-dot" /><span>{{ t('admin.upstreamDashboard.windowLabel', { window: t(`admin.upstreamDashboard.windows.${rangeWindow}`) }) }}</span></div><h2 :title="item.name">{{ item.name }}</h2><p :title="item.site_url">{{ item.site_url }}</p></div>
             <span class="status-badge" :class="statusClass(item.overall_status)"><span class="status-dot" />{{ t(`admin.upstreamDashboard.status.${item.overall_status}`) }}</span>
           </div>
+          <div class="financial-metrics" data-test="card-financials">
+            <div class="financial-metric" data-test="financial-revenue"><span>{{ t('admin.upstreamDashboard.metrics.channelRevenue') }}</span><strong>{{ formatCny(item.revenue) }}</strong></div>
+            <div class="financial-metric" data-test="financial-cost"><span>{{ t('admin.upstreamDashboard.metrics.upstreamCost') }}</span><strong>{{ formatCny(item.upstream_cost) }}</strong></div>
+            <div class="financial-metric" data-test="financial-profit"><span>{{ t('admin.upstreamDashboard.metrics.estimatedProfit') }}</span><strong :class="profitClass(item.estimated_gross_profit)">{{ formatProfit(item.estimated_gross_profit) }}</strong></div>
+            <div class="financial-metric" data-test="financial-margin"><span>{{ t('admin.upstreamDashboard.metrics.grossProfitRate') }}</span><strong :class="profitClass(item.estimated_gross_profit)">{{ formatProfitRate(item) }}</strong></div>
+          </div>
           <div class="card-core-metrics">
-            <div class="window-cost-metric">
-              <span>{{ t('admin.upstreamDashboard.metrics.windowCost') }}</span>
-              <strong>{{ formatCny(item.upstream_cost) }}</strong>
-              <small>{{ t('admin.upstreamDashboard.windowLabel', { window: t(`admin.upstreamDashboard.windows.${rangeWindow}`) }) }}</small>
-            </div>
             <div class="success-metric"><span>{{ t('admin.upstreamDashboard.metrics.successRate') }}</span><strong>{{ formatRate(item.success_rate) }}</strong></div>
             <div class="request-metric"><span>{{ t('admin.upstreamDashboard.metrics.requests') }}</span><strong>{{ formatNumber(item.requests) }}</strong></div>
           </div>
@@ -76,7 +77,6 @@
           </div>
           <div class="card-footer">
             <div class="footer-metric"><span>{{ t('admin.upstreamDashboard.metrics.accounts') }}</span><strong>{{ item.schedulable_account_count }}/{{ item.account_count }}</strong></div>
-            <div class="footer-metric"><span>{{ t('admin.upstreamDashboard.metrics.estimatedProfit') }}</span><strong :class="profitClass(item.estimated_gross_profit)">{{ item.estimated_gross_profit == null ? '-' : item.estimated_gross_profit.toFixed(4) }}<small v-if="item.estimated_gross_profit != null && item.estimated_gross_profit_rate != null" class="profit-rate">({{ formatRate(item.estimated_gross_profit_rate) }})</small></strong></div>
             <span class="card-link" :aria-label="t('common.viewDetails')"><span aria-hidden="true">→</span></span>
           </div>
         </article>
@@ -92,7 +92,12 @@
           <template v-else-if="detail">
             <div class="detail-body">
               <div class="detail-kpis"><Metric :label="t('admin.upstreamDashboard.metrics.requests')" :value="formatNumber(detail.requests)" /><Metric :label="t('admin.upstreamDashboard.metrics.failed')" :value="formatNumber(detail.failed_requests)" /><Metric :label="t('admin.upstreamDashboard.metrics.p95ttft')" :value="formatMs(detail.p95_ttft_ms)" /><Metric :label="t('admin.upstreamDashboard.metrics.p95latency')" :value="formatMs(detail.p95_latency_ms)" /></div>
-              <div class="detail-window-cost"><div><span class="detail-cost-label">{{ t('admin.upstreamDashboard.metrics.windowCost') }}</span><small>{{ t('admin.upstreamDashboard.windowLabel', { window: t(`admin.upstreamDashboard.windows.${rangeWindow}`) }) }}</small></div><strong class="detail-cost-value">{{ formatCny(detail.upstream_cost) }}</strong></div>
+              <div class="financial-metrics detail-financial-metrics" data-test="detail-financials">
+                <div class="financial-metric" data-test="financial-revenue"><span>{{ t('admin.upstreamDashboard.metrics.channelRevenue') }}</span><strong>{{ formatCny(detail.revenue) }}</strong></div>
+                <div class="financial-metric" data-test="financial-cost"><span>{{ t('admin.upstreamDashboard.metrics.upstreamCost') }}</span><strong>{{ formatCny(detail.upstream_cost) }}</strong></div>
+                <div class="financial-metric" data-test="financial-profit"><span>{{ t('admin.upstreamDashboard.metrics.estimatedProfit') }}</span><strong :class="profitClass(detail.profit_unavailable ? null : detail.estimated_gross_profit)">{{ formatProfit(detail.profit_unavailable ? null : detail.estimated_gross_profit) }}</strong></div>
+                <div class="financial-metric" data-test="financial-margin"><span>{{ t('admin.upstreamDashboard.metrics.grossProfitRate') }}</span><strong :class="profitClass(detail.profit_unavailable ? null : detail.estimated_gross_profit)">{{ formatProfitRate(detail) }}</strong></div>
+              </div>
               <section class="detail-section trend-section"><div class="section-heading"><span class="section-number">00</span><h3>{{ t('admin.upstreamDashboard.sections.trend') }}</h3></div><TrendBars v-if="detail.trend?.length" :points="detail.trend" compact /><p v-else class="detail-empty trend-empty">{{ t('admin.upstreamDashboard.noTrendData') }}</p><p class="detail-meta">{{ t('admin.upstreamDashboard.metrics.requests') }} {{ formatNumber(detail.requests) }} <span>·</span> {{ t('admin.upstreamDashboard.metrics.failed') }} {{ formatNumber(detail.failed_requests) }}</p></section>
               <section class="detail-section"><div class="section-heading"><span class="section-number">01</span><h3>{{ t('admin.upstreamDashboard.sections.traffic') }}</h3></div><div class="detail-inline-metrics"><Metric :label="'429'" :value="formatNumber(detail.error_429)" /><Metric :label="'5xx'" :value="formatNumber(detail.error_5xx)" /><Metric :label="t('admin.upstreamDashboard.metrics.timeouts')" :value="formatNumber(detail.timeouts)" /></div><ul v-if="detail.traffic?.models?.length" class="model-list"><li v-for="model in detail.traffic.models" :key="model.model"><span class="truncate">{{ model.model }}</span><span>{{ formatNumber(model.requests) }}</span></li></ul><p v-else class="detail-empty">{{ t('admin.upstreamDashboard.noTrafficData') }}</p></section>
               <section class="detail-section detail-section-probe"><div class="section-heading"><span class="section-number">02</span><h3>{{ t('admin.upstreamDashboard.sections.probe') }}</h3></div><p class="detail-callout">{{ stateLabel(detail.probe.latest_state) }}<span>·</span>{{ stateLabel(detail.probe.latest_reason) || t('admin.upstreamDashboard.noReason') }}</p><p class="detail-meta">{{ t('admin.upstreamDashboard.metrics.probeSamples') }} {{ detail.probe.samples }} <span>·</span> TTFT {{ formatMs(detail.probe.average_ttft_ms) }} <span>·</span> {{ formatMs(detail.probe.average_duration_ms) }}</p><p v-if="detail.probe.latest_observed_at" class="detail-meta">{{ t('admin.upstreamDashboard.lastProbe', { time: formatObservedAt(detail.probe.latest_observed_at) }) }}</p><p v-if="detail.probe.confidence_status" class="detail-meta">{{ t('admin.upstreamDashboard.metrics.confidence') }}: {{ stateLabel(detail.probe.confidence_status) }}</p></section>
@@ -101,7 +106,7 @@
                   {{ t(rechargeActionKey(detail.provider)) }}<Icon name="externalLink" size="xs" aria-hidden="true" />
                 </a>
                 <p v-if="detail.balance_low" class="detail-callout balance-alert"><Icon name="exclamationTriangle" size="xs" />{{ t('admin.upstreamDashboard.metrics.balanceLow') }}<span v-if="detail.balance_threshold_cny != null">· {{ t('admin.upstreamDashboard.metrics.balanceThreshold', { amount: formatCny(detail.balance_threshold_cny) }) }}</span></p><p v-else-if="detail.balance_available === false" class="detail-meta">{{ detail.balance_unavailable_reason ? stateLabel(detail.balance_unavailable_reason) : t('admin.upstreamDashboard.metrics.balanceUnavailable') }}</p><p v-if="detail.balance_observed_at" class="detail-meta">{{ t('admin.upstreamDashboard.metrics.balanceUpdated', { time: formatObservedAt(detail.balance_observed_at) }) }}</p><p v-if="detail.last_rate_change_at" class="detail-meta">{{ t('admin.upstreamDashboard.metrics.lastRateChangeAt', { time: formatObservedAt(detail.last_rate_change_at) }) }}</p><ul v-if="detail.recent_incidents?.length" class="model-list"><li v-for="incident in detail.recent_incidents.slice(0, 3)" :key="incident.id"><span><b>{{ stateLabel(incident.type) }}</b><small>{{ incident.title }}</small></span><span>{{ stateLabel(incident.status) }}</span></li></ul><p v-else class="detail-empty">{{ t('admin.upstreamDashboard.noIncidentData') }}</p><ul v-if="detail.recent_rate_changes?.length" class="model-list"><li v-for="change in detail.recent_rate_changes.slice(0, 3)" :key="`${change.occurred_at}-${change.type}`"><span>{{ stateLabel(change.type) }}</span><span>{{ formatMultiplier(change.old_rate) }} → {{ formatMultiplier(change.new_rate) }}</span></li></ul><p v-else class="detail-empty">{{ t('admin.upstreamDashboard.noRateChangeData') }}</p></section>
-              <div class="detail-secondary-grid"><section class="detail-section"><div class="section-heading"><span class="section-number">04</span><h3>{{ t('admin.upstreamDashboard.sections.accounts') }}</h3></div><p class="detail-big-value">{{ formatNumber(detail.schedulable_account_count) }}<small>/{{ formatNumber(detail.account_count) }}</small></p><p class="detail-meta">{{ t('admin.upstreamDashboard.metrics.tempUnschedulable') }} {{ formatNumber(detail.temp_unschedulable_count) }}</p></section><section class="detail-section"><div class="section-heading"><span class="section-number">05</span><h3>{{ t('admin.upstreamDashboard.sections.profit') }}</h3></div><p class="detail-big-value" :class="profitClass(detail.estimated_gross_profit)">{{ detail.profit_unavailable || detail.estimated_gross_profit == null ? '-' : detail.estimated_gross_profit.toFixed(4) }}</p><p class="detail-meta">{{ detail.profit_unavailable || detail.estimated_gross_profit == null ? t('admin.upstreamDashboard.estimatedUnavailable') : formatRate(detail.estimated_gross_profit_rate) }}</p></section></div>
+              <div class="detail-secondary-grid"><section class="detail-section"><div class="section-heading"><span class="section-number">04</span><h3>{{ t('admin.upstreamDashboard.sections.accounts') }}</h3></div><p class="detail-big-value">{{ formatNumber(detail.schedulable_account_count) }}<small>/{{ formatNumber(detail.account_count) }}</small></p><p class="detail-meta">{{ t('admin.upstreamDashboard.metrics.tempUnschedulable') }} {{ formatNumber(detail.temp_unschedulable_count) }}</p></section><section class="detail-section"><div class="section-heading"><span class="section-number">05</span><h3>{{ t('admin.upstreamDashboard.sections.profit') }}</h3></div><p class="detail-accounting-note">{{ t('admin.upstreamDashboard.accountingNote') }}</p><p v-if="detail.profit_unavailable || detail.estimated_gross_profit == null || !Number.isFinite(detail.estimated_gross_profit)" class="detail-meta">{{ t('admin.upstreamDashboard.estimatedUnavailable') }}</p></section></div>
               <section v-if="detail.recent_errors?.length" class="detail-section"><div class="section-heading"><span class="section-number">06</span><h3>{{ t('admin.upstreamDashboard.sections.errors') }}</h3></div><ul class="error-list"><li v-for="item in detail.recent_errors" :key="`${item.occurred_at}-${item.status_code}`"><span><b>{{ item.status_code }}</b><span class="ml-2">{{ item.model }}</span><small>{{ stateLabel(item.category) }}</small></span><time>{{ item.occurred_at }}</time></li></ul></section>
               <div class="detail-actions"><button class="btn btn-primary" @click="router.push({ path: '/admin/upstream/channels', query: { upstream_config_id: String(detail.id) } })">{{ t('admin.upstreamDashboard.actions.channels') }}</button><button class="btn btn-secondary" @click="router.push({ path: '/admin/upstream/accounts', query: { upstream_config_id: String(detail.id) } })">{{ t('admin.upstreamDashboard.actions.accounts') }}</button><button class="btn btn-secondary" @click="router.push({ path: '/admin/usage', query: { upstream_config_id: String(detail.id) } })">{{ t('admin.upstreamDashboard.actions.usage') }}</button></div>
             </div>
@@ -218,6 +223,11 @@ const formatNumber = (value: number | null | undefined) => value == null || !Num
 const formatMs = (value: number | null | undefined) => value == null || value <= 0 ? '-' : `${Math.round(value)} ms`
 const formatRate = (value: number | null | undefined) => value == null || !Number.isFinite(value) ? '-' : `${(value * 100).toFixed(1)}%`
 const formatCny = (value: number | null | undefined) => value == null || !Number.isFinite(value) || value < 0 ? '-' : `¥${value.toFixed(2)}`
+const formatProfit = (value: number | null | undefined) => value == null || !Number.isFinite(value) ? '-' : `¥${value.toFixed(2)}`
+const formatProfitRate = (item: UpstreamDashboardCard & { profit_unavailable?: boolean }) => {
+  if (item.profit_unavailable || item.revenue == null || !Number.isFinite(item.revenue) || item.revenue <= 0 || item.estimated_gross_profit == null || !Number.isFinite(item.estimated_gross_profit)) return '-'
+  return formatRate(item.estimated_gross_profit_rate)
+}
 const formatMultiplier = (value: number | null | undefined) => value == null || !Number.isFinite(value) || value < 0 ? '-' : value.toFixed(4)
 const profitClass = (value: number | null | undefined) => value == null || !Number.isFinite(value) ? 'muted-value' : value < 0 ? 'profit-value-negative' : 'profit-value'
 const formatClock = (value: Date) => new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' }).format(value)
@@ -351,11 +361,14 @@ onMounted(() => { load(); timer = window.setInterval(load, 60000) }); onUnmounte
 .status-badge-critical { color: rgb(185 28 28); background: rgb(254 242 242); }
 .status-badge-disabled, .status-badge-data-insufficient, .status-badge-unknown { color: rgb(71 85 105); background: rgb(241 245 249); }
 
-.card-core-metrics { display: grid; grid-template-columns: 1.35fr 1fr 1fr; gap: .75rem; margin-top: 1rem; border-top: 1px solid rgb(241 245 249); border-bottom: 1px solid rgb(241 245 249); padding: .9rem 0; }
-.window-cost-metric, .success-metric, .request-metric { display: flex; min-width: 0; flex-direction: column; justify-content: center; }
-.window-cost-metric span, .success-metric span, .request-metric span, .footer-metric span { font-size: .68rem; color: rgb(100 116 139); }
-.window-cost-metric strong { margin-top: .25rem; font-size: 1.65rem; line-height: 1; font-variant-numeric: tabular-nums; color: rgb(13 148 136); }
-.window-cost-metric small { margin-top: .4rem; font-size: .64rem; color: rgb(148 163 184); }
+.financial-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: .85rem; margin-top: 1rem; border-top: 1px solid rgb(241 245 249); border-bottom: 1px solid rgb(241 245 249); }
+.financial-metric { display: flex; min-width: 0; flex-direction: column; gap: .3rem; padding: .75rem 0; }
+.financial-metric:nth-child(even) { border-left: 1px solid rgb(241 245 249); padding-left: .85rem; }
+.financial-metric:nth-child(n+3) { border-top: 1px solid rgb(241 245 249); }
+.financial-metric span, .success-metric span, .request-metric span, .footer-metric span { font-size: .68rem; color: rgb(100 116 139); }
+.financial-metric strong { font-size: 1.25rem; line-height: 1.2; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; color: rgb(13 148 136); }
+.card-core-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; border-bottom: 1px solid rgb(241 245 249); padding: .8rem 0; }
+.success-metric, .request-metric { display: flex; min-width: 0; flex-direction: column; justify-content: center; }
 .success-metric strong, .request-metric strong { margin-top: .3rem; font-size: 1.25rem; line-height: 1; font-variant-numeric: tabular-nums; color: rgb(15 23 42); }
 .request-metric { border-left: 1px solid rgb(226 232 240); padding-left: .75rem; }
 .latency-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; margin-top: .75rem; border-bottom: 1px solid rgb(241 245 249); padding: 0 0 .75rem; }
@@ -397,13 +410,12 @@ onMounted(() => { load(); timer = window.setInterval(load, 60000) }); onUnmounte
 .dark .recharge-link-alert { border-color: rgb(153 27 27); background: rgb(127 29 29 / .25); color: rgb(252 165 165); }
 .dark .recharge-link-alert:hover { background: rgb(127 29 29 / .45); }
 
-.card-footer { display: grid; grid-template-columns: 1fr 1fr auto; align-items: end; gap: .75rem; margin-top: .2rem; border-top: 1px solid rgb(241 245 249); padding-top: .8rem; }
+.card-footer { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: .75rem; margin-top: .2rem; border-top: 1px solid rgb(241 245 249); padding-top: .8rem; }
 .footer-metric { display: flex; min-width: 0; flex-direction: column; gap: .25rem; }
 .footer-metric strong { font-size: .85rem; color: rgb(30 41 59); font-variant-numeric: tabular-nums; }
 .profit-value { color: rgb(5 150 105) !important; }
 .profit-value-negative { color: rgb(220 38 38) !important; }
 .muted-value { color: rgb(148 163 184) !important; }
-.profit-rate { margin-left: .35rem; font-size: .65rem; font-weight: 600; color: rgb(100 116 139); }
 .card-link { display: grid; width: 1.9rem; height: 1.9rem; place-items: center; border: 1px solid rgb(226 232 240); border-radius: 6px; font-size: 1.1rem; color: rgb(100 116 139); transition: color .15s ease, background .15s ease, border-color .15s ease; }
 .dashboard-card:hover .card-link { border-color: rgb(153 246 228); background: rgb(240 253 250); color: rgb(13 148 136); }
 
@@ -425,10 +437,8 @@ onMounted(() => { load(); timer = window.setInterval(load, 60000) }); onUnmounte
 .detail-kpis > div { min-width: 0; border: 1px solid rgb(226 232 240); border-radius: 6px; background: rgb(248 250 252); padding: .7rem .75rem; }
 .detail-kpis > div > div:first-child { font-size: .62rem !important; }
 .detail-kpis > div > div:last-child { margin-top: .3rem; font-size: 1.05rem !important; }
-.detail-window-cost { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: .7rem; border: 1px solid rgb(153 246 228); border-left: 3px solid rgb(13 148 136); border-radius: 6px; background: rgb(240 253 250); padding: .75rem .85rem; }
-.detail-cost-label { display: block; font-size: .72rem; font-weight: 700; color: rgb(15 118 110); }
-.detail-window-cost small { display: block; margin-top: .2rem; font-size: .63rem; color: rgb(100 116 139); }
-.detail-cost-value { flex: none; font-size: 1.35rem; line-height: 1; font-variant-numeric: tabular-nums; color: rgb(13 148 136); }
+.detail-financial-metrics { margin-top: .85rem; border: 1px solid rgb(153 246 228); border-left: 3px solid rgb(13 148 136); border-radius: 6px; background: rgb(240 253 250); padding: .1rem .85rem; }
+.detail-accounting-note { margin-top: .65rem; font-size: .72rem; line-height: 1.7; color: rgb(100 116 139); }
 .detail-section { margin-top: .75rem; border-top: 1px solid rgb(226 232 240); padding: .85rem 0 0; }
 .detail-section + .detail-section { margin-top: .55rem; }
 .detail-secondary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .7rem; }
@@ -480,7 +490,6 @@ onMounted(() => { load(); timer = window.setInterval(load, 60000) }); onUnmounte
   .detail-context { flex-direction: column; gap: .65rem; }
   .detail-context-side { width: 100%; flex-direction: row; align-items: center; justify-content: space-between; }
   .detail-context-side .status-badge { padding: .25rem .45rem; font-size: .62rem; }
-  .detail-window-cost { align-items: flex-start; flex-direction: column; gap: .55rem; }
   .detail-secondary-grid { grid-template-columns: 1fr; }
   .detail-inline-metrics { grid-template-columns: 1fr; }
   .detail-actions .btn { flex: 1 1 100%; }
@@ -490,8 +499,6 @@ onMounted(() => { load(); timer = window.setInterval(load, 60000) }); onUnmounte
   .summary-row, .filter-row { grid-template-columns: 1fr; }
   .filter-window-control, .filter-search { grid-column: auto; }
   .refresh-button { justify-self: start; }
-  .card-core-metrics { grid-template-columns: 1.2fr 1fr; }
-  .request-metric { grid-column: span 2; border-top: 1px solid rgb(241 245 249); border-left: 0; padding: .65rem 0 0; }
 }
 
 /* The theme switch puts the dark marker on html; keep these selectors explicit so scoped CSS can match it. */
@@ -501,7 +508,11 @@ onMounted(() => { load(); timer = window.setInterval(load, 60000) }); onUnmounte
 .dark .upstream-dashboard .detail-kpis > div,
 .dark .upstream-dashboard .detail-secondary-grid .detail-section,
 .dark .upstream-dashboard .detail-inline-metrics > div { border-color: rgb(51 65 85); background: rgb(17 24 39); }
-.dark .upstream-dashboard .detail-window-cost { border-color: rgb(45 212 191); background: rgb(19 78 74 / .35); }
+.dark .detail-modal-content .detail-financial-metrics { border-color: rgb(45 212 191); background: rgb(19 78 74 / .35); }
+.dark .detail-modal-content .financial-metric { border-color: rgb(51 65 85); }
+.dark .detail-modal-content .financial-metric span,
+.dark .detail-modal-content .detail-accounting-note { color: rgb(148 163 184); }
+.dark .detail-modal-content .financial-metric strong { color: rgb(94 234 212); }
 .dark .upstream-dashboard .detail-section { border-color: rgb(51 65 85); }
 .dark .upstream-dashboard .control-deck { background: rgb(15 23 42 / .92); }
 .dark .upstream-dashboard .summary-item { border-color: rgb(51 65 85); }
@@ -512,7 +523,6 @@ onMounted(() => { load(); timer = window.setInterval(load, 60000) }); onUnmounte
 .dark .upstream-dashboard .footer-metric strong,
 .dark .upstream-dashboard .card-error-row b,
 .dark .upstream-dashboard .detail-section h3,
-.dark .upstream-dashboard .detail-cost-label,
 .dark .upstream-dashboard .detail-big-value,
 .dark .upstream-dashboard .latency-metrics > div > div:last-child { color: rgb(248 250 252); }
 .dark .upstream-dashboard .summary-item small,
@@ -520,7 +530,8 @@ onMounted(() => { load(); timer = window.setInterval(load, 60000) }); onUnmounte
 .dark .upstream-dashboard .dashboard-card-head p,
 .dark .upstream-dashboard .success-metric span,
 .dark .upstream-dashboard .request-metric span,
-.dark .upstream-dashboard .window-cost-metric small,
+.dark .upstream-dashboard .financial-metric span,
+.dark .upstream-dashboard .detail-accounting-note,
 .dark .upstream-dashboard .card-error-row,
 .dark .upstream-dashboard .detail-meta,
 .dark .upstream-dashboard .detail-empty { color: rgb(148 163 184); }
@@ -533,6 +544,8 @@ onMounted(() => { load(); timer = window.setInterval(load, 60000) }); onUnmounte
 .dark .upstream-dashboard .window-tab { color: rgb(148 163 184); }
 .dark .upstream-dashboard .window-tab-active { color: white; }
 .dark .upstream-dashboard .card-core-metrics,
+.dark .upstream-dashboard .financial-metrics,
+.dark .upstream-dashboard .financial-metric,
 .dark .upstream-dashboard .latency-metrics,
 .dark .upstream-dashboard .card-error-row,
 .dark .upstream-dashboard .card-signal-row,
@@ -547,17 +560,19 @@ onMounted(() => { load(); timer = window.setInterval(load, 60000) }); onUnmounte
 .dark .upstream-dashboard .detail-context { border-color: rgb(51 65 85); }
 .dark .upstream-dashboard .detail-context-endpoint,
 .dark .upstream-dashboard .detail-context-window { color: rgb(148 163 184); }
-.dark .upstream-dashboard .detail-window-cost small,
 .dark .upstream-dashboard .detail-meta,
 .dark .upstream-dashboard .detail-loading { color: rgb(148 163 184); }
-.dark .upstream-dashboard .detail-cost-value { color: rgb(94 234 212); }
+.dark .upstream-dashboard .financial-metric strong { color: rgb(94 234 212); }
 .dark .upstream-dashboard .detail-error { border-color: rgb(127 29 29); background: rgb(69 10 10 / .45); color: rgb(254 202 202); }
 .dark .upstream-dashboard .detail-empty { border-color: rgb(71 85 105); background: rgb(15 23 42); }
 .dark .upstream-dashboard .trend-section { background: rgb(15 23 42); }
 .dark .upstream-dashboard .detail-section-probe { background: rgb(66 50 12 / .28); }
-.dark .upstream-dashboard .profit-value { color: rgb(110 231 183) !important; }
-.dark .upstream-dashboard .profit-value-negative { color: rgb(248 113 113) !important; }
-.dark .upstream-dashboard .muted-value { color: rgb(148 163 184) !important; }
+.dark .upstream-dashboard .profit-value,
+.dark .detail-modal-content .profit-value { color: rgb(110 231 183) !important; }
+.dark .upstream-dashboard .profit-value-negative,
+.dark .detail-modal-content .profit-value-negative { color: rgb(248 113 113) !important; }
+.dark .upstream-dashboard .muted-value,
+.dark .detail-modal-content .muted-value { color: rgb(148 163 184) !important; }
 .dark .upstream-dashboard .provider-mark { background: rgb(19 78 74); color: rgb(94 234 212); }
 .dark .upstream-dashboard .status-badge-operational { color: rgb(110 231 183); background: rgb(6 78 59 / .35); }
 .dark .upstream-dashboard .status-badge-degraded { color: rgb(252 211 77); background: rgb(120 53 15 / .35); }
@@ -569,7 +584,6 @@ onMounted(() => { load(); timer = window.setInterval(load, 60000) }); onUnmounte
 .dark .upstream-dashboard .empty-state { border-color: rgb(71 85 105); }
 .dark .upstream-dashboard .empty-state strong { color: rgb(203 213 225); }
 .dark .upstream-dashboard .empty-state-icon { background: rgb(30 41 59); }
-.dark .upstream-dashboard .profit-rate { color: rgb(148 163 184); }
 
 /* TrendBars is a render-function child, so its nodes do not receive this SFC's scope attribute. */
 :global(.trend-bars) { display: flex; height: 2.2rem; align-items: flex-end; gap: 3px; }
