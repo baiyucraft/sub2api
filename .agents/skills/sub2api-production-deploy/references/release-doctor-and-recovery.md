@@ -234,6 +234,8 @@ profile 232 使用版本 `0.1.173-baiyu`，在 profile 215 后追加 216–232�
 
 成功判定必须同时满足：
 
+原 runner 后置失败但生产已 verified/consumed 的例外，必须由 `finalize-consumed <release_id>` 重新完成后置 doctor 与受限 VM 收口，并由独立 finalization 证据和 `verify-result` 共同验真。保留原 runner 非零退出，不改写旧 Gate/production result，不通过 already_consumed 判定直接宣布成功。本地 doctor 绑定新 helper 完整 SHA，远端 doctor 绑定原应用 SHA；详见 [release-runner-lifecycle.md](release-runner-lifecycle.md)。
+
 ```text
 `verify-result` 输出 status=verified，或正式 reconciliation 入口输出 recovered 且 `verify-recovery-result` 通过
   + state.json: vm_validate / verified

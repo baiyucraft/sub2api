@@ -154,6 +154,7 @@ _RELEASE_STATE_MACHINE_FILES = frozenset(
     {
         ".agents/skills/sub2api-production-deploy/scripts/release/cli.py",
         ".agents/skills/sub2api-production-deploy/scripts/release/doctor.py",
+        ".agents/skills/sub2api-production-deploy/scripts/release/finalization.py",
         ".agents/skills/sub2api-production-deploy/scripts/release/gate.py",
         ".agents/skills/sub2api-production-deploy/scripts/release/manifest.py",
         ".agents/skills/sub2api-production-deploy/scripts/release/production.py",

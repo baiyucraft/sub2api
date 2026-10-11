@@ -2,6 +2,24 @@
 
 生产发布必须由独立 runner 持续执行，调用端只负责启动、观察和验真。宿主工具的超时、断开 stdout 或会话关闭都不能终止 runner。
 
+## 已消费发布的后置完成
+
+生产已 `production_verified` 且 claim 已 consumed、原 worker 仅后置检查失败退出时，使用正式 `finalize-consumed <release_id>` 入口。它属于独立 `ops-control-assets` 收口，不重发应用、不重新消费 claim、不恢复数据；原 runner 非零退出及原 manifest、Gate、production result、VM 生命周期事故记录保持原样。
+
+入口独占发布全局锁与同 VM 身份锁，独立核对原 PID/进程启动 token 已退出，重新验签原应用 Gate，要求原 production result verified、无 active claim、远端 consumed 且运行镜像等于 signed candidate。全部节点 doctor 必须通过：本地检查绑定当前已提交且推送的 helper 完整 SHA，远端检查绑定原应用完整 SHA。两种提交分别登记，旧 Gate 仅证明原应用。
+
+`finalization-checks.json` 保存白名单后置检查、原事故文件 checksum、当前 helper 完整 SHA/资产 checksum 和 VM 收口的证据绑定；`finalization-result.json` 独立保存完成结果。当前入口仅接受确由本 release 启动的受管 VM，且 retained 所有权精确匹配该 release、应用 commit、VM 身份、原 worker 和同 boot。清理限本 release 的隔离任务，随后 SSH 正常 poweroff 并用 vmrun list 核实停止。原本运行的 VM、未配置生命周期或身份未知均拒绝，保留现场供其他正式审计流程处理。
+
+成功后 `verify-result` 必须同时验证原签名应用证据、独立 finalization 记录与 terminal VM 收口证据，并只读复核当前生产事实；不能仅将原 failed runner 视为成功。再次执行成功收口入口只验真既有结果，不重复清理或关机。原 worker 活跃、owner/boot 漂移、镜像变化、未消费或 doctor 失败均拒绝。
+
+新增收口 helper 的测试及现场结果不能冒充新应用 Gate，也不自动豁免未来发布中的恢复敏感 blob 分类。
+
+现场验收沿用正式 consume/verify 合同：internal、direct 公网及异地到 DMIT 的 `/health` 都核对唯一实例响应头和 Background-Ready，并核对 managed upstream 端口。生产清理后可以保留加密恢复点，按固定五文件（及格式受限的可选 backup-failure）、原备份结果、baseline image、权限和 checksum 只读验证；不能要求整个目录不存在，也不能删除正常保留的恢复证据。
+
+当前验真严格要求执行 checkout 的 helper 完整 SHA/资产等于收口记录；后续 HEAD 改动后验旧结果应回到对应 helper 提交，不能拿其他代码静默复用历史完成记录。status/follow 保留原 failed runner，并单列 finalization verified；VM cleanup 结果不覆盖事故退出码。
+
+发布 Python 与 scripts 下 README 使用 `.gitattributes` 固定 LF，使工作区执行字节与 Git blob 一致；信任公钥仍使用既有 `-text` 原字节合同。不能通过忽略换行或放宽 checksum 处理 Windows 自动 CRLF 漂移。
+
 ## 可选 VM 自动启停
 
 公共配置位于 `.ssh.local` 顶层，与 `servers` 并列；下例是字段合同，不是对本地连接资料的读取或修改：

@@ -17,6 +17,10 @@ backend/migrations/*.sql text eol=lf
 # 发布信任根以仓库字节参与 checksum，禁止 Git 自动换行转换
 .agents/skills/sub2api-production-deploy/scripts/release/trust/*.pub -text
 
+# 发布 helper 以原字节绑定 Git blob 和运行 checksum，跨平台保持 LF
+.agents/skills/sub2api-production-deploy/scripts/**/*.py text eol=lf
+.agents/skills/sub2api-production-deploy/scripts/**/README.md text eol=lf
+
 # YAML/YML 配置文件
 *.yaml text eol=lf
 *.yml text eol=lf

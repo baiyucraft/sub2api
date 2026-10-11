@@ -123,7 +123,7 @@ class SupervisorTest(unittest.TestCase):
         self.assertTrue((run_dir / "logs" / "runner.stderr.log").is_file())
 
     def test_new_commands_expose_help(self) -> None:
-        for command in ("deploy-start", "deploy-follow", "follow", "status", "logs", "wait", "verify-result", "reconcile-inspect", "reconcile"):
+        for command in ("deploy-start", "deploy-follow", "follow", "status", "logs", "wait", "verify-result", "reconcile-inspect", "reconcile", "finalize-consumed"):
             result = subprocess.run([sys.executable, str(DEPLOY_ROOT / "release.py"), command, "--help"], cwd=DEPLOY_ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             self.assertEqual(result.returncode, 0, command)
 
