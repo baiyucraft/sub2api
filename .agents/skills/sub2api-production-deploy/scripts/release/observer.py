@@ -85,6 +85,7 @@ def _status_fingerprint(value: dict[str, Any]) -> tuple[Any, ...]:
         value.get("production_status"),
         value.get("vm_power_status"),
         value.get("vm_cleanup_status"),
+        value.get("finalization_status"),
     )
 
 
@@ -95,6 +96,9 @@ def _print_change(identifier: str, value: dict[str, Any]) -> None:
     stage = production_stage if production_stage not in {"not_started", "init"} else vm_stage
     stage_text = _STAGE_TEXT.get(stage, _STATUS_TEXT.get(runner_status, "发布状态更新"))
     status_text = _STATUS_TEXT.get(runner_status)
+    if value.get("finalization_status") == "verified":
+        print(f"[{_now()}] 生产发布和独立后置收口已验真；原 runner 失败证据已保留", flush=True)
+        return
     vm_power = value.get("vm_power_status")
     if runner_status == "running" and vm_power in {"checking", "starting", "waiting_for_ssh", "stopping"}:
         stage_text = {
@@ -134,7 +138,7 @@ def follow(args: argparse.Namespace) -> int:
                 last_output = time.monotonic()
             if not value.get("runner_alive"):
                 status = value.get("runner_status")
-                if status == "verified":
+                if status == "verified" or value.get("finalization_status") == "verified":
                     try:
                         result = verified_result_view(args.release_id)
                     except Exception:

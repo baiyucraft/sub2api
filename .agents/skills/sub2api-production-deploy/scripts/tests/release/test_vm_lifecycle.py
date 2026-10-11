@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
+import shutil
 import subprocess
 import sys
 from collections import deque
@@ -15,6 +17,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 vm = importlib.import_module("release.vm_lifecycle")
+release_process = importlib.import_module("release.process")
 BOOT_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 OTHER_BOOT_ID = "11111111-2222-3333-4444-555555555555"
 
@@ -119,6 +122,8 @@ class VMHarness:
         if fields == {"vm_app_health"}:
             state = self.health.popleft() if len(self.health) > 1 else self.health[0]
             return SimpleNamespace(values={"vm_app_health": state})
+        if fields == {"vm_boot_id"}:
+            return SimpleNamespace(values={"vm_boot_id": self.boot_id})
         assert fields == {"vm_shutdown_scheduled"}
         self.shutdown_attempts += 1
         # Simulate the remote identity check; the shell itself is never executed.
@@ -717,3 +722,285 @@ def test_completion_save_failure_does_not_mark_lease_completed(h, monkeypatch, i
             lease.complete()
         assert lease.completed is False
     assert h.owner()["lease_status"] == "retained"
+
+
+@pytest.fixture
+def retained(h):
+    with h.lease(commit="a" * 40) as lease:
+        lease.ensure_ready()
+    original = {**h.owner(), "pid": 987654321}
+    h.write_owner(original)
+    (h.run_dir / "vm-lifecycle.json").write_text(json.dumps(original), encoding="utf-8")
+    runner = {
+        "schema": 1, "release_id": "release-a", "commit": "a" * 40,
+        "pid": original["pid"], "process_token": "process-a", "status": "failed", "exit_code": 1,
+    }
+    (h.run_dir / "runner.json").write_text(json.dumps(runner), encoding="utf-8")
+    h.vmrun.reset_mock()
+    h.ssh.run.reset_mock()
+    h.events.clear()
+    h.original_documents = {path: path.read_bytes() for path in (h.run_dir / "runner.json", h.run_dir / "vm-lifecycle.json")}
+    return runner
+
+
+def finalizer(h, retained, **kwargs):
+    return vm.RetainedVMFinalization(h.run_dir, "release-a", "a" * 40, retained,
+                                    process_identity=kwargs.pop("process_identity", lambda _pid: None), ssh=h.ssh, **kwargs)
+
+
+def test_retained_finalization_only_shuts_down_dead_owned_vm_and_preserves_accident(h, retained):
+    original = (h.shared / "owner.json").read_bytes()
+    with finalizer(h, retained) as lease:
+        result = lease.complete(evidence_sha256="b" * 64)
+    assert result["status"] == "verified"
+    assert result["evidence_sha256"] == "b" * 64
+    assert result["vm_boot_id"] == BOOT_ID
+    assert h.shutdown_attempts == 1
+    assert h.owner()["lease_status"] == "released"
+    assert (h.run_dir / "vm-finalization-owner.json").read_bytes() == original
+    assert all(path.read_bytes() == content for path, content in h.original_documents.items())
+    assert vm.verify_retained_finalization(h.run_dir, "release-a", "a" * 40, evidence_sha256="b" * 64) == result
+    assert all(call.args[0][3] == "list" for call in h.vmrun.call_args_list)
+
+
+def test_retained_finalization_successful_retry_only_verifies_stopped(h, retained):
+    with finalizer(h, retained) as lease:
+        first = lease.complete(evidence_sha256="b" * 64)
+    h.ssh.run.reset_mock()
+    with finalizer(h, retained) as lease:
+        assert lease.completed is True
+        assert lease.complete(evidence_sha256="b" * 64) == first
+    h.ssh.run.assert_not_called()
+    assert h.shutdown_attempts == 1
+
+
+@pytest.mark.parametrize("callback", [lambda _pid: "process-a", lambda _pid: (_ for _ in ()).throw(OSError("unknown"))])
+def test_retained_finalization_rejects_live_or_unprovable_worker(h, retained, callback):
+    original = h.owner()
+    with pytest.raises(vm.VMLifecycleError, match="vm_finalization_worker_(alive|unproven)"):
+        with finalizer(h, retained, process_identity=callback):
+            pytest.fail("worker identity was not rejected")
+    assert h.owner() == original
+    h.vmrun.assert_not_called()
+    h.ssh.run.assert_not_called()
+
+
+@pytest.mark.parametrize("field,value", [
+    ("release_id", "other"), ("source_commit", "b" * 40), ("pid", 999),
+    ("process_token", "other"), ("lease_token", "other"), ("vm_boot_id", OTHER_BOOT_ID),
+    ("vm_identity", "other"), ("initially_running", True), ("vm_started_by_release", False),
+    ("lease_status", "released"),
+])
+def test_retained_finalization_rejects_owner_or_vm_identity_drift(h, retained, field, value):
+    owner = {**h.owner(), field: value}
+    h.write_owner(owner)
+    with pytest.raises(vm.VMLifecycleError, match="vm_finalization_owner_unproven"):
+        with finalizer(h, retained):
+            pytest.fail("changed ownership was accepted")
+    assert h.owner() == owner
+    h.ssh.run.assert_not_called()
+    assert h.shutdown_attempts == 0
+
+
+def test_retained_finalization_rejects_boot_drift_before_record_or_shutdown(h, retained):
+    h.boot_id = OTHER_BOOT_ID
+    with pytest.raises(vm.VMLifecycleError, match="vm_finalization_boot_changed"):
+        with finalizer(h, retained):
+            pytest.fail("rebooted VM was accepted")
+    assert not (h.run_dir / "vm-finalization.json").exists()
+    assert h.owner()["lease_status"] == "retained"
+    assert h.shutdown_attempts == 0
+
+
+def test_retained_finalization_never_starts_an_externally_stopped_vm(h, retained):
+    h.running = False
+    with pytest.raises(vm.VMLifecycleError, match="vm_finalization_running_unproven"):
+        with finalizer(h, retained):
+            pytest.fail("stopped VM was accepted")
+    assert [call.args[0][3] for call in h.vmrun.call_args_list] == ["list"]
+    h.ssh.run.assert_not_called()
+
+
+def test_retained_finalization_rejects_originally_running_vm(h, retained):
+    owner = {**h.owner(), "initially_running": True, "vm_started_by_release": False}
+    h.write_owner(owner)
+    (h.run_dir / "vm-lifecycle.json").write_text(json.dumps(owner), encoding="utf-8")
+    with pytest.raises(vm.VMLifecycleError, match="vm_finalization_owner_unproven"):
+        with finalizer(h, retained):
+            pytest.fail("preexisting VM was accepted for shutdown")
+    h.vmrun.assert_not_called()
+
+
+@pytest.mark.parametrize("action", ["cleanup_failed", "evidence_invalid", "boot_changed", "original_changed", "worker_revived"])
+def test_retained_finalization_preflight_failure_retains_original_owner(h, retained, action):
+    original = h.owner()
+    with pytest.raises((RuntimeError, vm.VMLifecycleError)):
+        with finalizer(h, retained) as lease:
+            if action == "cleanup_failed":
+                raise RuntimeError("release task cleanup failed")
+            if action == "boot_changed":
+                h.boot_id = OTHER_BOOT_ID
+            if action == "original_changed":
+                (h.run_dir / "runner.json").write_text(json.dumps({**retained, "exit_code": 2}), encoding="utf-8")
+            if action == "worker_revived":
+                lease.process_identity = lambda _pid: "process-a"
+            lease.complete(evidence_sha256="invalid" if action == "evidence_invalid" else "b" * 64)
+    assert h.owner() == original
+    assert h.running is True
+    assert h.shutdown_requested is False
+
+
+@pytest.mark.parametrize("error", [RuntimeError("local_vm stage failed with exit code 1; remote stderr withheld"), OSError("SSH lost")])
+def test_retained_finalization_shutdown_failure_retains_vm_and_never_resends(h, retained, error):
+    original = h.owner()
+    h.shutdown_error = error
+    with pytest.raises(vm.VMLifecycleError, match="vm_finalization_shutdown_(preflight_failed|timeout)"):
+        with finalizer(h, retained) as lease:
+            lease.complete(evidence_sha256="b" * 64)
+    assert h.owner() == original
+    assert h.running is True
+    assert json.loads((h.run_dir / "vm-finalization.json").read_text())["status"] == "failed"
+    with pytest.raises(vm.VMLifecycleError, match="vm_finalization_shutdown_reconciliation_required"):
+        with finalizer(h, retained):
+            pytest.fail("ambiguous shutdown was automatically retried")
+    assert h.shutdown_attempts == 1
+
+
+def test_retained_finalization_lost_shutdown_reply_accepts_only_proven_stop(h, retained):
+    h.shutdown_error = EOFError("lost reply")
+    h.shutdown_effect_on_error = True
+    with finalizer(h, retained) as lease:
+        lease.complete(evidence_sha256="b" * 64)
+    assert h.shutdown_attempts == 1
+    assert h.owner()["lease_status"] == "released"
+
+
+def test_retained_finalization_owner_commit_failure_retries_only_local_commit(h, retained, monkeypatch):
+    write = vm.atomic_write
+
+    def fail_owner(path, content, *args, **kwargs):
+        if path == h.shared / "owner.json":
+            raise OSError("owner commit failed")
+        return write(path, content, *args, **kwargs)
+
+    monkeypatch.setattr(vm, "atomic_write", fail_owner)
+    with pytest.raises(OSError, match="owner commit failed"):
+        with finalizer(h, retained) as lease:
+            lease.complete(evidence_sha256="b" * 64)
+    assert h.owner()["lease_status"] == "retained"
+    assert json.loads((h.run_dir / "vm-finalization.json").read_text())["status"] == "verified"
+    monkeypatch.setattr(vm, "atomic_write", write)
+    h.ssh.run.reset_mock()
+    with finalizer(h, retained) as lease:
+        assert lease.completed is False
+        lease.complete(evidence_sha256="b" * 64)
+    h.ssh.run.assert_not_called()
+    assert h.shutdown_attempts == 1
+    assert h.owner()["lease_status"] == "released"
+
+
+def test_retained_finalization_verify_rejects_changed_record_owner_or_accident(h, retained):
+    with finalizer(h, retained) as lease:
+        lease.complete(evidence_sha256="b" * 64)
+    with pytest.raises(vm.VMLifecycleError, match="vm_finalization_evidence_mismatch"):
+        vm.verify_retained_finalization(h.run_dir, "release-a", "a" * 40, evidence_sha256="c" * 64)
+    original_owner = h.owner()
+    h.write_owner({**original_owner, "finalization_sha256": "c" * 64})
+    with pytest.raises(vm.VMLifecycleError, match="vm_finalization_owner_unproven"):
+        vm.verify_retained_finalization(h.run_dir, "release-a", "a" * 40)
+    h.write_owner(original_owner)
+    path = h.run_dir / "runner.json"
+    path.write_text(json.dumps({**retained, "exit_code": 2}), encoding="utf-8")
+    with pytest.raises(vm.VMLifecycleError, match="vm_finalization_record_unproven"):
+        vm.verify_retained_finalization(h.run_dir, "release-a", "a" * 40)
+
+
+def test_retained_finalization_verify_checks_current_vm_power_without_changing_it(h, retained):
+    with finalizer(h, retained) as lease:
+        lease.complete(evidence_sha256="b" * 64)
+    h.shutdown_requested = False
+    h.running = True
+    h.ssh.run.reset_mock()
+    with pytest.raises(vm.VMLifecycleError, match="vm_finalization_stopped_unproven"):
+        vm.verify_retained_finalization(h.run_dir, "release-a", "a" * 40)
+    h.ssh.run.assert_not_called()
+    assert h.running is True
+    assert h.shutdown_attempts == 1
+
+
+def test_retained_finalization_remote_shutdown_requires_owned_gate_lock(h, retained):
+    with finalizer(h, retained) as lease:
+        lease.complete(evidence_sha256="b" * 64)
+    script = next(call.args[1] for call in h.ssh.run.call_args_list if call.args[2] == {"vm_shutdown_scheduled"})
+    for check in (
+        'test "$(stat -c \'%U:%G:%a\' "$gate_root")" = root:root:700',
+        'case "$(stat -c \'%U:%G:%a:%h\' "$gate_lock")" in root:root:600:1|root:root:644:1)',
+        'case "$(stat -Lc \'%U:%G:%a:%h\' /proc/self/fd/9)" in root:root:600:1|root:root:644:1)',
+        "flock -xn 9", "run-validator.sh",
+    ):
+        assert check in script
+        assert script.index(check) < script.index("docker stop") < script.index("shutdown -h +1")
+
+
+@pytest.mark.parametrize("variable,kind", [("lock", "-f"), ("gate_root", "-d"), ("gate_lock", "-f")])
+@pytest.mark.parametrize("invalid_path", ["missing", "wrong_type"])
+def test_retained_shutdown_path_assertions_exit_before_next_action(h, retained, variable, kind, invalid_path):
+    """Execute the actual assertion pair: missing first operands must stop Bash."""
+    bash = shutil.which("bash")
+    if not bash and os.name == "nt":
+        candidate = Path("C:/Program Files/Git/bin/bash.exe")
+        bash = str(candidate) if candidate.is_file() else None
+    if not bash:
+        pytest.skip("Bash is unavailable")
+    with finalizer(h, retained) as lease:
+        lease.complete(evidence_sha256="b" * 64)
+    remote_script = next(call.args[1] for call in h.ssh.run.call_args_list if call.args[2] == {"vm_shutdown_scheduled"})
+    lines = remote_script.splitlines()
+    assertion = f'test {kind} "${variable}"'
+    start = lines.index(assertion)
+    assert lines[start + 1] == f'test ! -L "${variable}"'
+    target = h.root / f"invalid-{variable}"
+    if invalid_path == "wrong_type":
+        if kind == "-f":
+            target.mkdir()
+        else:
+            target.write_text("not a directory", encoding="utf-8")
+    environment = dict(os.environ)
+    environment.pop("BASH_ENV", None)
+    environment.pop("ENV", None)
+    environment["FINALIZATION_TEST_PATH"] = target.as_posix()
+    script = (f'set -Eeuo pipefail\n{variable}="$FINALIZATION_TEST_PATH"\n'
+              + "\n".join(lines[start:start + 2]) + "\nprintf 'DANGEROUS_ACTION_REACHED\\n'\n")
+    result = release_process.run_hidden([bash, "-c", script], env=environment,
+                                        capture_output=True, text=True, timeout=10, check=False)
+    assert result.returncode != 0
+    assert "DANGEROUS_ACTION_REACHED" not in result.stdout
+
+
+@pytest.mark.parametrize("command,assignment", [
+    ("ps", "processes=$(ps -eo args=)"),
+    ("docker", "names=$(docker ps -a --format '{{.Names}}')"),
+    ("ss", "listeners=$(ss -ltnH '( sport = :8211 )')"),
+])
+def test_retained_shutdown_query_failure_stops_before_next_action(h, retained, command, assignment):
+    bash = shutil.which("bash")
+    if not bash and os.name == "nt":
+        candidate = Path("C:/Program Files/Git/bin/bash.exe")
+        bash = str(candidate) if candidate.is_file() else None
+    if not bash:
+        pytest.skip("Bash is unavailable")
+    with finalizer(h, retained) as lease:
+        lease.complete(evidence_sha256="b" * 64)
+    remote_script = next(call.args[1] for call in h.ssh.run.call_args_list if call.args[2] == {"vm_shutdown_scheduled"})
+    assert assignment in remote_script.splitlines()
+    environment = dict(os.environ)
+    environment.pop("BASH_ENV", None)
+    environment.pop("ENV", None)
+    # A failed query can emit empty (apparently harmless) output; its exit code
+    # must still reject completion before any container stop or shutdown.
+    script = (f'set -Eeuo pipefail\n{command}() {{ return 17; }}\n'
+              + assignment + "\nprintf 'DANGEROUS_ACTION_REACHED\\n'\n")
+    result = release_process.run_hidden([bash, "-c", script], env=environment,
+                                        capture_output=True, text=True, timeout=10, check=False)
+    assert result.returncode == 17
+    assert "DANGEROUS_ACTION_REACHED" not in result.stdout

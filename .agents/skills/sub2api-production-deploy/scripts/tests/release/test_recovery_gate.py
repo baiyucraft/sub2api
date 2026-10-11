@@ -150,6 +150,26 @@ class RecoveryGateTest(unittest.TestCase):
         )
         self.assertEqual(report["estimated_extra_seconds"], 2400)
 
+    def test_finalization_addition_and_single_file_edit_require_independent_review(self) -> None:
+        relative = SCRIPTS_PREFIX + "release/finalization.py"
+        base = self.base
+        for operation, content in (("addition", "original helper\n"), ("edit", "changed helper\n")):
+            with self.subTest(operation=operation):
+                self.write(relative, content)
+                self.git("add", "-A")
+                self.git("commit", "-m", operation)
+                target = self.git("rev-parse", "HEAD")
+                report = classify(self.root, base, target)
+                self.assertEqual(report["mode"], "full")
+                self.assertEqual(
+                    report["reason_codes"],
+                    ["recovery_change_requires_review", "release_state_machine_changed"],
+                )
+                self.assertEqual(report["changed_paths_sha256"], changed_paths_sha256([relative]))
+                with self.assertRaisesRegex(RuntimeError, "recovery changes require review"):
+                    recovery_gate.assert_release_allowed(report)
+                base = target
+
     def test_reviewed_blob_pair_uses_specialized_and_extra_change_revokes_review(self) -> None:
         relative = ".agents/skills/sub2api-production-deploy/scripts/maintenance/release/context.sh"
         self.write(relative, "profiles=258\n")

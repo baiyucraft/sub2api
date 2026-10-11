@@ -43,6 +43,7 @@ STATUS_FIELDS = (
     "vm_stage", "vm_status", "production_stage", "production_status",
     "candidate_image_id", "running_image_id", "image_ids_match", "claim_final_state", "updated_at",
     "vm_power_status", "vm_started_by_release", "vm_cleanup_status",
+    "finalization_status",
 )
 DANGEROUS_STAGES = {
     "production_preflight", "pre_switch_streaming_verified", "freeze", "freeze_verified",
@@ -385,7 +386,16 @@ def status_view(identifier: str) -> dict[str, Any]:
         "candidate_image_id": candidate, "running_image_id": running,
         "image_ids_match": bool(candidate and running and candidate == running), "claim_final_state": claim, "updated_at": updated,
         **lifecycle_view(run_dir),
+        "finalization_status": "not_started",
     }
+    if (run_dir / "finalization-result.json").exists():
+        from .finalization import finalized_result_view
+
+        finalized = finalized_result_view(identifier, check_live=False)
+        value.update(
+            finalization_status=finalized["finalization_status"],
+            vm_power_status=finalized["vm_power_status"], vm_cleanup_status=finalized["vm_cleanup_status"],
+        )
     return {field: value[field] for field in STATUS_FIELDS}
 
 
@@ -779,7 +789,7 @@ def wait(args: argparse.Namespace) -> None:
         value = status_view(args.release_id)
         if not value["runner_alive"]:
             print(canonical_json(value).decode("ascii"))
-            if value["runner_status"] not in {"verified", "recovered"}:
+            if value["runner_status"] not in {"verified", "recovered"} and value.get("finalization_status") != "verified":
                 raise SystemExit(1)
             return
         if deadline is not None and time.monotonic() >= deadline:
@@ -810,18 +820,25 @@ def _final_evidence(production: dict[str, Any]) -> dict[str, Any]:
 def verified_result_view(identifier: str) -> dict[str, Any]:
     run_dir = _run_dir(identifier)
     runner = _read_json(run_dir / "runner.json", required=True) or {}
+    if (run_dir / "finalization-result.json").exists():
+        from .finalization import finalized_result_view
+
+        return finalized_result_view(identifier)
     if _runner_alive(runner) or runner.get("status") != "verified" or runner.get("exit_code") != 0:
         raise RuntimeError("release runner is not successfully terminal")
     return _verified_evidence_view(identifier)
 
 
-def _verified_evidence_view(identifier: str) -> dict[str, Any]:
+def _verified_evidence_view(identifier: str, *, allow_historical_runner: bool = False) -> dict[str, Any]:
     run_dir = _run_dir(identifier)
     manifest = _read_json(run_dir / "manifest.json", required=True) or {}
     vm = _read_json(run_dir / "state.json", required=True) or {}
     release_state = _read_json(run_dir / "release-state.json", required=True) or {}
     production = _read_json(run_dir / "gate" / "production-result.json", required=True) or {}
-    document = verify_gate(run_dir / "gate", TRUSTED_VM_PUBLIC_KEY, str(manifest.get("profile")), allow_expired=True)
+    gate_options = {"allow_expired": True}
+    if allow_historical_runner:
+        gate_options["allow_historical_runner"] = True
+    document = verify_gate(run_dir / "gate", TRUSTED_VM_PUBLIC_KEY, str(manifest.get("profile")), **gate_options)
     if document["manifest"] != manifest or manifest.get("release_id") != identifier:
         raise RuntimeError("manifest and signed Gate identity differ")
     if vm.get("stage") != "vm_validate" or vm.get("status") != "verified":
