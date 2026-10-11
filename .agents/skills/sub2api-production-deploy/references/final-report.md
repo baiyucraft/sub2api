@@ -58,6 +58,8 @@ recovery_verification_status: verified | fail | not_available | blocked | not_ap
 
 ## 变更与门禁
 
+已消费发布的后置完成另记录 `finalization_status`、`application_commit`、`helper_commit`、后置 doctor 结果、原证据 checksum 与 VM cleanup 状态。原 `release_runner_exit` 保留非零，独立 finalization 退出码单列。旧 Gate 证明原应用，新 helper 属于独立运维控制收口；不得将它报告为重新构建/发布应用或新的灾备基线晋升。
+
 ```text
 change_class: ops-readonly-assets | ops-control-assets | plugin-package | frontend-direct | dev-gated | build-chain
 vm_gate_required: true | false

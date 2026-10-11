@@ -125,6 +125,8 @@ RackNerd -> PostgreSQL + Redis + 加密备份源
 
 ## 执行顺序
 
+已 `production_verified` 且 consumed 的发布若仅后置 doctor/VM cleanup 失败，使用正式 `finalize-consumed <release_id>` 收口，不重跑 deploy/reconcile 数据恢复。原失败 runner、manifest、Gate、production result 和 VM 事故记录不改写；独立 finalization 绑定原证据 checksum、当前已提交推送 helper SHA/资产和受限 retained owner/boot。全局发布/VM 身份锁下重新证明原 worker 已退出、签名应用、无 claim/consumed/同 candidate、双健康及全节点 doctor，本地绑定 helper SHA、远端绑定应用 SHA。只清本 release 隔离任务，只有该 release 启动 VM 才 SSH 正常关机并核实停止。成功后的 `verify-result` 必须共同验真独立 finalization 与 terminal VM 证据，保留原 exit1；成功重试只验真，不重复清理/关机。该入口不自动豁免未来敏感 blob 分类，详细合同见 [release-runner-lifecycle.md](references/release-runner-lifecycle.md)。
+
 Profile 265 的兼容审阅绑定 `aeb410bccc524164bdafbd3db865d4f5f588aced` → `6f5daaaed6e0cbfae2011cfa55b47688f33634eb`。35 项接线使用独立冻结路径集；停机奖励 postflight 的 `activity-reward-cost-postflight.sh` 与 `switch.sh` 两项单独登记，未修改的 `production.py` 不纳入。每项仍核对同路径旧/新 Git blob 和模式，新增漂移、删除、改名或基线不符继续阻断。恢复算法、备份格式、ingress、信任根及 VM 生命周期不在登记范围；仍须完成当前 helper 的 specialized 真实隔离恢复和新的签名 Gate。
 
 1. 读取强制 reference，执行 `git rev-parse --verify` 校验目标 commit，检查 Git 状态并记录完整 commit SHA。

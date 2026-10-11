@@ -21,6 +21,8 @@ python .agents/skills/sub2api-production-deploy/scripts/release.py verify-result
 python .agents/skills/sub2api-production-deploy/scripts/release.py logs <release_id> --node all --tail 100
 ```
 
+已消费生产发布的后置检查/VM 收口失败，使用 `finalize-consumed <release_id>`，然后 `verify-result <release_id>`。入口持全局发布/VM 身份锁，核验原 worker 已退出、原 Gate/result、远端 consumed/无 claim/同 candidate、双健康、全节点 doctor 和 retained owner/boot。独立 finalization 证据绑定原事故文件及当前已提交推送 helper 的完整 SHA/checksum；本地 doctor 使用 helper SHA，远端使用原应用 SHA。原 runner exit1 和旧证据原样保留，不部署、迁移、消费或恢复数据。只清本 release 隔离任务，只有本次启动 VM 才正常 poweroff 并以 vmrun 核实。成功幂等重试只验真。
+
 ## 可选 VM 自动启停
 
 Profile 265 精确恢复审阅绑定 `aeb410bccc524164bdafbd3db865d4f5f588aced` → `6f5daaaed6e0cbfae2011cfa55b47688f33634eb`：35 项接线与两项停机奖励 postflight 分别冻结，不包含未修改的 `production.py`。同路径 blob、mode 或基线漂移继续阻断；仍执行 specialized 当前 helper 真实隔离恢复，登记不代表 Gate 或部署完成。
