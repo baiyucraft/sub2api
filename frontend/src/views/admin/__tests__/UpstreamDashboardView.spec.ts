@@ -34,7 +34,7 @@ describe('UpstreamDashboardView contract', () => {
 
   it('surfaces operational signals without mixing them into traffic metrics', () => {
     expect(source).toContain("metrics.balance")
-    expect(source).toContain("metrics.windowCost")
+    expect(source).toContain("metrics.upstreamCost")
     expect(source).toContain("metrics.openIncidents")
     expect(source).toContain('recent_incidents')
     expect(source).toContain('recent_rate_changes')
@@ -81,7 +81,7 @@ describe('UpstreamDashboardView contract', () => {
 
   it('keeps high-frequency decision metrics on cards and moves trends to detail', () => {
     expect(source).toContain('class="card-core-metrics"')
-    expect(source).toContain('class="window-cost-metric"')
+    expect(source).toContain('data-test="card-financials"')
     expect(source).toContain('class="request-metric"')
     expect(source).toContain('class="latency-metrics"')
     expect(source).not.toContain('class="card-trend"')
@@ -99,7 +99,7 @@ describe('UpstreamDashboardView contract', () => {
   it('styles positive, negative, and unavailable profit values distinctly', () => {
     expect(source).toContain('const profitClass = (value: number | null | undefined)')
     expect(source).toContain('profit-value-negative')
-    expect(source).toContain('class="detail-big-value" :class="profitClass(detail.estimated_gross_profit)"')
+    expect(source).toContain('formatProfit(detail.profit_unavailable ? null : detail.estimated_gross_profit)')
   })
 
   it('keeps render-function trend bars styled outside scoped CSS', () => {
@@ -122,8 +122,8 @@ describe('UpstreamDashboardView contract', () => {
   })
 
   it('keeps the modal detail hierarchy compact and responsive', () => {
-    expect(source).toContain('class="detail-cost-label"')
-    expect(source).toContain('class="detail-cost-value"')
+    expect(source).toContain('data-test="detail-financials"')
+    expect(source).toContain('class="detail-accounting-note"')
     expect(source).toContain('class="detail-inline-metrics"')
     expect(source).toContain('class="detail-secondary-grid"')
     expect(source).toMatch(/\.detail-kpis\s*\{[\s\S]*grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)/)
