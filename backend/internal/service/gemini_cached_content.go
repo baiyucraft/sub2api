@@ -54,6 +54,8 @@ const (
 	geminiCachedContentMutationRecoveryInterval = time.Minute
 	geminiCachedContentMutationRecoveryBatch    = 50
 	geminiCachedContentMutationRecoveryTimeout  = time.Minute
+	// geminiCachedContentMutationAbandonGrace 是判定"上游缓存必已自行过期"时额外容忍的网关与上游时钟偏差。
+	geminiCachedContentMutationAbandonGrace = time.Hour
 
 	// GeminiCachedContentListDefaultPageSize / GeminiCachedContentListMaxPageSize 约束 list 分页。
 	GeminiCachedContentListDefaultPageSize = 50
@@ -67,6 +69,8 @@ var (
 	ErrGeminiCachedContentMutationConflict = infraerrors.New(http.StatusConflict, "GEMINI_CACHED_CONTENT_MUTATION_CONFLICT", "another update to this cached content is in progress")
 	// ErrGeminiCachedContentRequestNotSent 表示上游缓存请求在发出前失败（地址、凭据等），上游状态未被改变。
 	ErrGeminiCachedContentRequestNotSent = errors.New("gemini cached content request was not sent")
+	// errGeminiCachedContentAccountUnsupported 表示持有缓存的账号存在，但当前不支持显式缓存（能力被关闭或认证方式不支持）。
+	errGeminiCachedContentAccountUnsupported = errors.New("gemini cached content account does not support explicit caching")
 
 	geminiCachedContentPublicIDPattern  = regexp.MustCompile(`^[a-z0-9]{1,64}$`)
 	geminiCachedContentAIStudioName     = regexp.MustCompile(`^cachedContents/[A-Za-z0-9_-]+$`)
@@ -815,7 +819,8 @@ func (s *GeminiCachedContentService) RecoverStaleMutations(ctx context.Context) 
 }
 
 // recoverStaleMutation 接管 id 上租约已过期的修改意图，把上游有效期回滚到库中的到期时间后清除意图；
-// 库中到期时间已到时删除上游缓存与本地记录。没有可接管的意图时返回 false；回滚失败时意图保留，租约过期后重试。
+// 库中到期时间已到时删除上游缓存与本地记录。没有可接管的意图时返回 false；回滚失败时意图保留，
+// 本次接管取得的新租约（geminiCachedContentMutationLease）过期后重试，期间同一缓存的修改返回 409。
 func (s *GeminiCachedContentService) recoverStaleMutation(ctx context.Context, id int64) (bool, error) {
 	token, err := NewGeminiCachedContentPublicID()
 	if err != nil {
@@ -836,11 +841,24 @@ func (s *GeminiCachedContentService) recoverStaleMutation(ctx context.Context, i
 }
 
 // rollbackUpstream 把上游有效期改回 record.ExpireTime，剩余不足 1 秒时删除上游缓存；
-// 返回 true 表示上游缓存已不存在，本地记录应移除。持有账号已不可用时不改动上游。
+// 返回 true 表示上游缓存已不存在、或已没有凭据可触达（持有账号已删除），本地记录应移除。
+// 持有账号存在但当前不支持显式缓存时不改动上游，修改意图保留到账号恢复后重试；账号可用时总是先向上游回滚。
+// 两种情况下只要 mutationUpstreamMustHaveExpired 成立（上游缓存必已自行过期），本地记录直接作废，不再重试。
 func (s *GeminiCachedContentService) rollbackUpstream(ctx context.Context, record *GeminiCachedContent) (bool, error) {
-	account, err := s.BoundAccount(ctx, record)
-	if err != nil || account == nil {
+	account, err := s.boundAccount(ctx, record)
+	if errors.Is(err, errGeminiCachedContentAccountUnsupported) {
+		if s.mutationUpstreamMustHaveExpired(record) {
+			logger.LegacyPrintf("service.gemini_cached_content", "Warning: gemini cached content %d (upstream %s) has a pending mutation but account %d stopped supporting explicit caching and the upstream cache has expired since; dropping the local record", record.ID, record.UpstreamName, record.AccountID)
+			return true, nil
+		}
+		return false, fmt.Errorf("%w (account %d)", err, record.AccountID)
+	}
+	if err != nil {
 		return false, err
+	}
+	if account == nil {
+		logger.LegacyPrintf("service.gemini_cached_content", "Warning: gemini cached content %d (upstream %s) has a pending mutation but account %d no longer exists; dropping the local record without touching upstream", record.ID, record.UpstreamName, record.AccountID)
+		return true, nil
 	}
 	remaining := record.ExpireTime.Sub(s.now())
 	if remaining < time.Second {
@@ -853,9 +871,26 @@ func (s *GeminiCachedContentService) rollbackUpstream(ctx context.Context, recor
 		return true, nil
 	}
 	if err != nil {
+		if s.mutationUpstreamMustHaveExpired(record) {
+			logger.LegacyPrintf("service.gemini_cached_content", "Warning: gemini cached content %d (upstream %s) rollback keeps failing on account %d but the upstream cache has expired since; dropping the local record: %v", record.ID, record.UpstreamName, record.AccountID, err)
+			return true, nil
+		}
 		return false, err
 	}
 	return remaining < time.Second, nil
+}
+
+// mutationUpstreamMustHaveExpired 判断 record 上未完成修改所涉及的上游缓存是否必已自行过期：
+// 修改发生时记录尚未到期（Resolve 拒绝已过期记录），且单次延长不超过 MaxTTL，
+// 所以上游有效期最晚为 record.ExpireTime + MaxTTL；再过 geminiCachedContentMutationAbandonGrace 后判定为已过期。
+// MaxTTL 取判定时刻的配置并以默认上限兜底：配置被调低后判定可能早于上游真实过期，此时只影响运营方的上游存储费，
+// 不涉及用户计费。
+func (s *GeminiCachedContentService) mutationUpstreamMustHaveExpired(record *GeminiCachedContent) bool {
+	maxTTL := s.MaxTTL()
+	if maxTTL < geminiCachedContentDefaultMaxTTL {
+		maxTTL = geminiCachedContentDefaultMaxTTL
+	}
+	return s.now().After(record.ExpireTime.Add(maxTTL + geminiCachedContentMutationAbandonGrace))
 }
 
 func (s *GeminiCachedContentService) Forget(ctx context.Context, record *GeminiCachedContent) error {
@@ -864,6 +899,16 @@ func (s *GeminiCachedContentService) Forget(ctx context.Context, record *GeminiC
 
 // BoundAccount 返回持有缓存的账号；账号已删除或不再支持显式缓存时返回 nil。
 func (s *GeminiCachedContentService) BoundAccount(ctx context.Context, record *GeminiCachedContent) (*Account, error) {
+	account, err := s.boundAccount(ctx, record)
+	if errors.Is(err, errGeminiCachedContentAccountUnsupported) {
+		return nil, nil
+	}
+	return account, err
+}
+
+// boundAccount 返回持有缓存的账号：账号已删除返回 nil；账号存在但当前不支持显式缓存返回
+// errGeminiCachedContentAccountUnsupported，调用方据此区分"永久不可用"与"暂时不可用"。
+func (s *GeminiCachedContentService) boundAccount(ctx context.Context, record *GeminiCachedContent) (*Account, error) {
 	if s.compat == nil || s.compat.accountRepo == nil {
 		return nil, errors.New("account repository not configured")
 	}
@@ -874,8 +919,11 @@ func (s *GeminiCachedContentService) BoundAccount(ctx context.Context, record *G
 		}
 		return nil, err
 	}
-	if account == nil || !IsGeminiExplicitCacheAccount(account) {
+	if account == nil {
 		return nil, nil
+	}
+	if !IsGeminiExplicitCacheAccount(account) {
+		return nil, errGeminiCachedContentAccountUnsupported
 	}
 	return account, nil
 }

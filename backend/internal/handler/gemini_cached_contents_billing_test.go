@@ -62,7 +62,7 @@ func (r *cachedBillingRepo) GetForOwner(_ context.Context, apiKeyID int64, publi
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	record, ok := r.records[publicID]
-	if !ok || record.APIKeyID != apiKeyID {
+	if !ok || record.APIKeyID != apiKeyID || r.liveLocked(record.ID) == nil {
 		return nil, service.ErrGeminiCachedContentNotFound
 	}
 	cp := *record
@@ -789,4 +789,167 @@ func TestGeminiCachedContentsDelete_UpstreamNotFoundStillForgets(t *testing.T) {
 			require.Equal(t, []int64{100}, env.repo.deleted)
 		})
 	}
+}
+
+// 持有账号暂时不支持显式缓存（能力被关闭）时，恢复流程不能把修改意图当作已回滚而清除；
+// 能力恢复后再回滚上游并清除意图。
+func TestGeminiCachedContentMutationRecovery_KeepsIntentWhileAccountCannotCache(t *testing.T) {
+	env := newCachedBillingEnv(t, 1000, 900)
+	env.accounts[900].Credentials["base_url"] = "https://gw.example.com"
+	env.accounts[900].Credentials[service.GeminiExplicitCacheUpstreamCredentialKey] = true
+	baseline := time.Now().Add(time.Hour)
+	env.seed(baseline)
+	env.repo.failCommit = true
+	require.Equal(t, http.StatusInternalServerError, env.patch().Code)
+	require.True(t, env.repo.pendingMutation(100))
+	require.Equal(t, 1, env.upstream.methodCalls(http.MethodPatch))
+	env.repo.failCommit = false
+	env.repo.expireLease(100)
+
+	env.accounts[900].Credentials[service.GeminiExplicitCacheUpstreamCredentialKey] = false
+	recovered, err := env.h.geminiCachedContentService.RecoverStaleMutations(context.Background())
+	require.Error(t, err, "账号暂不支持缓存时恢复失败")
+	require.Zero(t, recovered)
+	require.True(t, env.repo.pendingMutation(100), "未回滚上游前保留修改意图")
+	require.Equal(t, 1, env.upstream.methodCalls(http.MethodPatch), "不改动上游")
+	require.Empty(t, env.repo.deleted)
+
+	env.accounts[900].Credentials[service.GeminiExplicitCacheUpstreamCredentialKey] = true
+	env.repo.expireLease(100)
+	recovered, err = env.h.geminiCachedContentService.RecoverStaleMutations(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, 1, recovered)
+	require.Equal(t, 2, env.upstream.methodCalls(http.MethodPatch))
+	requireTTLNear(t, env.upstream.patchTTLs[1], time.Until(baseline))
+	require.False(t, env.repo.pendingMutation(100))
+	require.True(t, env.repo.records["abc"].ExpireTime.Equal(baseline))
+	require.Empty(t, env.usage.totals())
+}
+
+// 持有账号长期不支持显式缓存，且修改前到期时间加上单次最长有效期都已过去：上游缓存必已自行过期，
+// 恢复流程不再保留意图，直接移除本地记录。
+func TestGeminiCachedContentMutationRecovery_AbandonsIntentOnceUpstreamMustHaveExpired(t *testing.T) {
+	env := newCachedBillingEnv(t, 1000, 900)
+	env.accounts[900].Credentials["base_url"] = "https://gw.example.com"
+	env.accounts[900].Credentials[service.GeminiExplicitCacheUpstreamCredentialKey] = true
+	env.seed(time.Now().Add(time.Hour))
+	env.repo.failCommit = true
+	require.Equal(t, http.StatusInternalServerError, env.patch().Code)
+	env.repo.failCommit = false
+	env.repo.expireLease(100)
+	env.accounts[900].Credentials[service.GeminiExplicitCacheUpstreamCredentialKey] = false
+
+	// 修改前到期时间 + 24h 上限 + 1h 容忍仍未过去：保留意图。
+	env.repo.records["abc"].ExpireTime = time.Now().Add(-20 * time.Hour)
+	recovered, err := env.h.geminiCachedContentService.RecoverStaleMutations(context.Background())
+	require.Error(t, err)
+	require.Zero(t, recovered)
+	require.True(t, env.repo.pendingMutation(100))
+	require.Empty(t, env.repo.deleted)
+
+	env.repo.expireLease(100)
+	env.repo.records["abc"].ExpireTime = time.Now().Add(-26 * time.Hour)
+	recovered, err = env.h.geminiCachedContentService.RecoverStaleMutations(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, 1, recovered)
+	require.Equal(t, 1, env.upstream.methodCalls(http.MethodPatch), "不改动上游")
+	require.Zero(t, env.upstream.methodCalls(http.MethodDelete))
+	require.Equal(t, []int64{100}, env.repo.deleted)
+	require.Empty(t, env.usage.totals())
+
+	recovered, err = env.h.geminiCachedContentService.RecoverStaleMutations(context.Background())
+	require.NoError(t, err)
+	require.Zero(t, recovered, "作废的记录不再被选中")
+}
+
+// 作废判定的边界：默认上限 24h 加 1h 容忍；配置上限低于 24h 时仍按 24h 兜底。
+func TestGeminiCachedContentMutationRecovery_AbandonBoundary(t *testing.T) {
+	disableCache := func(env *cachedBillingEnv) {
+		env.accounts[900].Credentials["base_url"] = "https://gw.example.com"
+		env.accounts[900].Credentials[service.GeminiExplicitCacheUpstreamCredentialKey] = false
+	}
+	t.Run("within grace keeps intent", func(t *testing.T) {
+		env := newCachedBillingEnv(t, 1000, 900)
+		env.seed(time.Now().Add(-25*time.Hour + time.Minute))
+		env.repo.mutations[100] = cachedBillingMutation{token: "stale", leaseUntil: time.Now().Add(-time.Second)}
+		disableCache(env)
+
+		recovered, err := env.h.geminiCachedContentService.RecoverStaleMutations(context.Background())
+		require.Error(t, err)
+		require.Zero(t, recovered)
+		require.True(t, env.repo.pendingMutation(100))
+		require.Empty(t, env.repo.deleted)
+	})
+	t.Run("configured max ttl below default still waits a day", func(t *testing.T) {
+		env := newCachedBillingEnv(t, 1000, 900)
+		env.seed(time.Now().Add(-12 * time.Hour))
+		env.repo.mutations[100] = cachedBillingMutation{token: "stale", leaseUntil: time.Now().Add(-time.Second)}
+		disableCache(env)
+		cfg := &config.Config{}
+		cfg.Gateway.GeminiCachedContentMaxTTLSeconds = 3600
+		compat := service.NewGeminiMessagesCompatService(&cachedBillingAccountRepo{accounts: env.accounts}, nil, nil, nil, nil, nil, env.upstream, nil, cfg)
+		svc := service.NewGeminiCachedContentService(env.repo, compat, cfg)
+
+		recovered, err := svc.RecoverStaleMutations(context.Background())
+		require.Error(t, err)
+		require.Zero(t, recovered)
+		require.True(t, env.repo.pendingMutation(100))
+
+		env.repo.expireLease(100)
+		env.repo.records["abc"].ExpireTime = time.Now().Add(-26 * time.Hour)
+		recovered, err = svc.RecoverStaleMutations(context.Background())
+		require.NoError(t, err)
+		require.Equal(t, 1, recovered)
+		require.Equal(t, []int64{100}, env.repo.deleted)
+	})
+}
+
+// 持有账号可用但上游回滚持续失败（如 Key 已失效）：上游缓存必已自行过期后不再重试，移除本地记录。
+func TestGeminiCachedContentMutationRecovery_AbandonsIntentWhenRollbackKeepsFailing(t *testing.T) {
+	env := newCachedBillingEnv(t, 1000, 900)
+	env.seed(time.Now().Add(-time.Minute))
+	env.repo.mutations[100] = cachedBillingMutation{token: "stale", leaseUntil: time.Now().Add(-time.Second)}
+	env.upstream.failures = map[string]cachedBillingUpstreamFailure{http.MethodDelete: {status: http.StatusUnauthorized,
+		body: `{"error":{"code":401,"message":"API key not valid","status":"UNAUTHENTICATED"}}`}}
+
+	recovered, err := env.h.geminiCachedContentService.RecoverStaleMutations(context.Background())
+	require.Error(t, err, "上游缓存可能仍存活：保留意图等待重试")
+	require.Zero(t, recovered)
+	require.Equal(t, 1, env.upstream.methodCalls(http.MethodDelete))
+	require.True(t, env.repo.pendingMutation(100))
+	require.Empty(t, env.repo.deleted)
+
+	env.repo.expireLease(100)
+	env.repo.records["abc"].ExpireTime = time.Now().Add(-26 * time.Hour)
+	recovered, err = env.h.geminiCachedContentService.RecoverStaleMutations(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, 1, recovered)
+	require.Equal(t, 2, env.upstream.methodCalls(http.MethodDelete), "账号可用时仍先尝试回滚")
+	require.Equal(t, []int64{100}, env.repo.deleted)
+	require.Empty(t, env.usage.totals())
+}
+
+// 持有账号已删除时没有凭据可回滚上游：恢复流程移除本地记录并清除意图，不再重试。
+func TestGeminiCachedContentMutationRecovery_ForgetsRecordWhenAccountDeleted(t *testing.T) {
+	env := newCachedBillingEnv(t, 1000, 900)
+	env.seed(time.Now().Add(time.Hour))
+	env.repo.failCommit = true
+	require.Equal(t, http.StatusInternalServerError, env.patch().Code)
+	require.True(t, env.repo.pendingMutation(100))
+	env.repo.failCommit = false
+	env.repo.expireLease(100)
+
+	delete(env.accounts, 900)
+	recovered, err := env.h.geminiCachedContentService.RecoverStaleMutations(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, 1, recovered)
+	require.Equal(t, 1, env.upstream.methodCalls(http.MethodPatch), "无凭据，不改动上游")
+	require.Zero(t, env.upstream.methodCalls(http.MethodDelete))
+	require.Equal(t, []int64{100}, env.repo.deleted, "本地记录作废")
+	require.Empty(t, env.usage.totals())
+	require.Equal(t, http.StatusForbidden, env.serve(http.MethodGet, "/v1beta/cachedContents/abc", "", gin.Params{{Key: "cacheID", Value: "abc"}}, env.h.GeminiCachedContentsGet).Code, "作废的记录对客户端不可见")
+
+	recovered, err = env.h.geminiCachedContentService.RecoverStaleMutations(context.Background())
+	require.NoError(t, err)
+	require.Zero(t, recovered, "不再重复处理")
 }
