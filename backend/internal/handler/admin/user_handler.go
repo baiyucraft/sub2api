@@ -495,13 +495,15 @@ func (h *UserHandler) GetBalanceHistory(c *gin.Context) {
 		pages = 1
 	}
 	response.Success(c, gin.H{
-		"items":           out,
-		"total":           history.Total,
-		"page":            page,
-		"page_size":       pageSize,
-		"pages":           pages,
-		"total_recharged": history.TotalRecharged,
-		"total_rewarded":  history.TotalRewarded,
+		"items":             out,
+		"total":             history.Total,
+		"page":              page,
+		"page_size":         pageSize,
+		"pages":             pages,
+		"total_recharged":   history.TotalRecharged,
+		"total_rewarded":    history.TotalRewarded,
+		"filtered_amount":   history.FilteredAmount,
+		"filtered_quantity": history.FilteredQuantity,
 	})
 }
 

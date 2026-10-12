@@ -63,6 +63,9 @@ func TestActivityRewardHistoryFilterKeepsLifetimeTotalsAndZeroRewards(t *testing
 	require.Equal(t, int64(3), page.Total)
 	require.Equal(t, 100.0, page.TotalRecharged)
 	require.Equal(t, 1.25, page.TotalRewarded)
+	require.NotNil(t, page.FilteredAmount)
+	require.Equal(t, 1.25, *page.FilteredAmount)
+	require.Nil(t, page.FilteredQuantity)
 	require.Len(t, page.Items, 2)
 	require.Zero(t, page.Items[0].Value)
 	require.Equal(t, "activity_reward", page.Items[0].Type)
@@ -124,11 +127,14 @@ func TestActivityRewardHistoryLegacyFilterStillReturnsRewardTotal(t *testing.T) 
 		redeemCodeRepo: activityHistoryRedeemStub{items: []RedeemCode{{ID: 1, Type: RedeemTypeBalance, Value: 100}}}}
 	mock.ExpectQuery(`(?s)SELECT COUNT\(\*\), COALESCE\(SUM\(amount\),0\).*status='credited'`).
 		WithArgs(int64(7)).WillReturnRows(sqlmock.NewRows([]string{"count", "sum"}).AddRow(7, 3.5))
+	mock.ExpectQuery(`SELECT COALESCE\(SUM\(value\),0\) FROM redeem_codes WHERE used_by=\$1 AND type=\$2`).
+		WithArgs(int64(7), "balance").WillReturnRows(sqlmock.NewRows([]string{"sum"}).AddRow(100))
 	page, err := svc.GetUserBalanceHistory(context.Background(), 7, 1, 1, "balance")
 	require.NoError(t, err)
 	require.Equal(t, int64(1), page.Total)
 	require.Equal(t, 3.5, page.TotalRewarded)
 	require.Equal(t, 100.0, page.TotalRecharged)
+	require.Equal(t, 100.0, *page.FilteredAmount)
 	require.Equal(t, "redeem_code", page.Items[0].RecordSource)
 	require.NoError(t, mock.ExpectationsWereMet())
 }

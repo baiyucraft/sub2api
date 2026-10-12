@@ -1,18 +1,26 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { post } = vi.hoisted(() => ({
+const { post, get, put } = vi.hoisted(() => ({
   post: vi.fn(),
+  get: vi.fn(),
+  put: vi.fn(),
 }))
 
 vi.mock('@/api/client', () => ({
   apiClient: {
     post,
+    get,
+    put,
   },
 }))
 
 import {
   batchUpdateLimits,
   bindUserAuthIdentity,
+  getUserInvoices,
+  createUserInvoice,
+  updateUserInvoice,
+  voidUserInvoice,
   type AdminBindAuthIdentityRequest,
   type AdminBoundAuthIdentity,
   type BatchUpdateUserLimitsRequest,
@@ -146,5 +154,26 @@ describe('admin users api auth identity binding', () => {
     expect(result).toEqual({ affected: 2 })
     expect(batchRequestContractExact).toBe(true)
     expect(batchResponseContractExact).toBe(true)
+  })
+})
+
+describe('admin user invoice annotation API', () => {
+  beforeEach(() => vi.clearAllMocks())
+  it('uses the paginated admin endpoint and annotation write routes with no currency conversion', async () => {
+    const invoice = { id: 7, amount: 123 }
+    const list = { items: [invoice], total: 1, page: 2, pages: 2, total_invoiced: 123 }
+    get.mockResolvedValue({ data: list })
+    post.mockResolvedValue({ data: invoice })
+    put.mockResolvedValue({ data: invoice })
+    expect(await getUserInvoices(9, 2, 10)).toEqual(list)
+    expect(get).toHaveBeenCalledWith('/admin/users/9/invoices', { params: { page: 2, page_size: 10 } })
+    const input = { amount: 123, invoice_date: '2026-10-10', invoice_number: 'INV-7', notes: 'annotation' }
+    expect(await createUserInvoice(9, { ...input, operation_id: 'operation-test' })).toEqual(invoice)
+    expect(post).toHaveBeenCalledWith('/admin/users/9/invoices', { ...input, operation_id: 'operation-test' })
+    const updateInput = { ...input, expected_updated_at: '2026-10-10T12:00:00Z' }
+    expect(await updateUserInvoice(9, 7, updateInput)).toEqual(invoice)
+    expect(put).toHaveBeenCalledWith('/admin/users/9/invoices/7', updateInput)
+    expect(await voidUserInvoice(9, 7, 'duplicate')).toEqual(invoice)
+    expect(post).toHaveBeenLastCalledWith('/admin/users/9/invoices/7/void', { reason: 'duplicate' })
   })
 })

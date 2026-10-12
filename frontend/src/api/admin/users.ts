@@ -280,6 +280,62 @@ export interface BalanceHistoryItem {
 export interface BalanceHistoryResponse extends PaginatedResponse<BalanceHistoryItem> {
   total_recharged: number
   total_rewarded: number
+  filtered_amount: number | null
+  filtered_quantity: number | null
+}
+
+export interface UserInvoiceAnnotation {
+  id: number
+  user_id: number
+  amount: number
+  invoice_date: string
+  invoice_number: string
+  notes: string
+  status: 'active' | 'voided'
+  created_by: number
+  updated_by: number
+  created_at: string
+  updated_at: string
+  void_reason: string
+  voided_by: number | null
+  voided_at: string | null
+}
+
+export interface UserInvoiceAnnotationInput {
+  amount: number
+  invoice_date: string
+  invoice_number: string
+  notes: string
+}
+
+export interface UserInvoiceAnnotationUpdateInput extends UserInvoiceAnnotationInput {
+  expected_updated_at: string
+}
+
+export interface UserInvoiceAnnotationsResponse extends PaginatedResponse<UserInvoiceAnnotation> {
+  total_invoiced: number
+}
+
+export async function getUserInvoices(id: number, page = 1, pageSize = 15): Promise<UserInvoiceAnnotationsResponse> {
+  const { data } = await apiClient.get<UserInvoiceAnnotationsResponse>(`/admin/users/${id}/invoices`, {
+    params: { page, page_size: pageSize }
+  })
+  return data
+}
+
+export async function createUserInvoice(id: number, input: UserInvoiceAnnotationInput & { operation_id: string }): Promise<UserInvoiceAnnotation> {
+  const { data } = await apiClient.post<UserInvoiceAnnotation>(`/admin/users/${id}/invoices`, input)
+  return data
+}
+
+export async function updateUserInvoice(id: number, invoiceId: number, input: UserInvoiceAnnotationUpdateInput): Promise<UserInvoiceAnnotation> {
+  const { data } = await apiClient.put<UserInvoiceAnnotation>(`/admin/users/${id}/invoices/${invoiceId}`, input)
+  return data
+}
+
+export async function voidUserInvoice(id: number, invoiceId: number, reason: string): Promise<UserInvoiceAnnotation> {
+  const { data } = await apiClient.post<UserInvoiceAnnotation>(`/admin/users/${id}/invoices/${invoiceId}/void`, { reason })
+  return data
 }
 
 /**
@@ -424,6 +480,10 @@ export const usersAPI = {
   getUserApiKeys,
   getUserUsageStats,
   getUserBalanceHistory,
+  getUserInvoices,
+  createUserInvoice,
+  updateUserInvoice,
+  voidUserInvoice,
   replaceGroup,
   bindUserAuthIdentity,
   getPlatformQuotas,
