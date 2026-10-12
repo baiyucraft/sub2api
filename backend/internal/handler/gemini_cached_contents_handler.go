@@ -395,6 +395,8 @@ func (h *GatewayHandler) GeminiCachedContentsGet(c *gin.Context) {
 
 // GeminiCachedContentsPatch PATCH /v1beta/cachedContents/:cacheID
 // 只允许修改有效期；延长部分在本次请求内按增量时长收取存储费，缩短不退费。
+// 同一缓存的修改串行执行：上游修改、本地写回与计费都在修改意图的租约内完成，并发的修改返回 409。
+// 上游结果未知或本地写回失败的修改不计费，租约过期后由恢复流程把上游有效期回滚到修改前的到期时间。
 func (h *GatewayHandler) GeminiCachedContentsPatch(c *gin.Context) {
 	apiKey, _, reqLog, ok := h.geminiCachedContentsPreamble(c, "handler.gemini_v1beta.cached_contents.patch")
 	if !ok {
@@ -455,10 +457,33 @@ func (h *GatewayHandler) GeminiCachedContentsPatch(c *gin.Context) {
 	}
 
 	setOpsSelectedAccount(c, account.ID, account.Platform)
+	mutation, err := svc.BeginMutation(c.Request.Context(), record)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrGeminiCachedContentNotFound):
+			googleError(c, http.StatusForbidden, service.GeminiCachedContentNotFoundMessage)
+		case errors.Is(err, service.ErrGeminiCachedContentMutationConflict):
+			reqLog.Info("gemini.cached_content.mutation_conflict", zap.Int64("account_id", account.ID), zap.Error(err))
+			writeGeminiCachedContentMutationConflict(c)
+		default:
+			reqLog.Error("gemini.cached_content.begin_mutation_failed", zap.Int64("account_id", account.ID), zap.Error(err))
+			googleError(c, http.StatusInternalServerError, "Failed to update cached content")
+		}
+		return
+	}
 	upstream, err := svc.PatchUpstream(c.Request.Context(), account, record, ttl)
 	if err != nil {
 		var upErr *service.GeminiCachedContentUpstreamError
-		if errors.As(err, &upErr) {
+		upstreamRejected := errors.As(err, &upErr)
+		if upstreamRejected || errors.Is(err, service.ErrGeminiCachedContentRequestNotSent) {
+			// 上游有效期未变：清除修改意图。
+			persistCtx, cancelPersist := geminiCachedContentPersistContext(c)
+			if releaseErr := svc.ReleaseMutation(persistCtx, mutation); releaseErr != nil {
+				reqLog.Warn("gemini.cached_content.release_mutation_failed", zap.Error(releaseErr))
+			}
+			cancelPersist()
+		}
+		if upstreamRejected {
 			if upErr.NotFound() {
 				if forgetErr := svc.Forget(c.Request.Context(), record); forgetErr != nil {
 					reqLog.Warn("gemini.cached_content.forget_failed", zap.Error(forgetErr))
@@ -473,19 +498,19 @@ func (h *GatewayHandler) GeminiCachedContentsPatch(c *gin.Context) {
 	}
 	expireTime := service.ClampGeminiCachedContentExpire(upstream.ExpireTime, svc.Now().Add(ttl))
 	persistCtx, cancelPersist := geminiCachedContentPersistContext(c)
-	previousExpire, err := svc.UpdateExpireTime(persistCtx, record, expireTime)
+	err = svc.CommitMutation(persistCtx, mutation, expireTime)
 	cancelPersist()
 	if err != nil {
-		reqLog.Error("gemini.cached_content.update_expire_failed", zap.Int64("account_id", account.ID), zap.Error(err))
-		if errors.Is(err, service.ErrGeminiCachedContentNotFound) {
-			googleError(c, http.StatusForbidden, service.GeminiCachedContentNotFoundMessage)
+		reqLog.Error("gemini.cached_content.commit_mutation_failed", zap.Int64("account_id", account.ID), zap.Error(err))
+		if errors.Is(err, service.ErrGeminiCachedContentMutationConflict) {
+			writeGeminiCachedContentMutationConflict(c)
 			return
 		}
 		googleError(c, http.StatusInternalServerError, "Failed to persist cached content expiration")
 		return
 	}
-	// 按库中实际推进的时长收费：并发延长各自只为自己推进的部分付费。
-	if extended := expireTime.Sub(previousExpire); extended > 0 {
+	// 提交前库中的到期时间一直是修改前的值：按本次实际推进的时长收费。
+	if extended := expireTime.Sub(mutation.Baseline()); extended > 0 {
 		h.submitGeminiCachedContentUsage(c, apiKey, account, subscription, pricingAt,
 			service.GeminiCachedContentPatchUsageRequestID(record.PublicID), record.Model, record.UpstreamModelID(), 0,
 			service.GeminiCachedContentStorageTokenHours(record.TotalTokenCount, extended), record.ChannelUsage, body)
@@ -706,13 +731,11 @@ func (h *GatewayHandler) cleanupGeminiCachedContentUpstream(reqLog *zap.Logger, 
 }
 
 // reserveGeminiCachedContentCharge 校验余额 / 订阅额度 / API Key 额度足以支付确定金额 amount（倍率后），
-// 并按该金额登记在途预留（不受预留上限封顶）。返回的 done 须在 handler 结束时调用。
+// 并按该金额在用户、订阅、API Key 维度登记在途预留（不受预留上限封顶，见 ReserveFixedCharge）。
+// 返回的 done 须在 handler 结束时调用；预留随计费任务交接，落库后释放。
 func (h *GatewayHandler) reserveGeminiCachedContentCharge(c *gin.Context, apiKey *service.APIKey, subscription *service.UserSubscription, amount float64) (func(), error) {
 	ctx := c.Request.Context()
-	if err := h.billingCacheService.CheckChargeAffordable(ctx, apiKey.User, apiKey, apiKey.Group, subscription, amount); err != nil {
-		return inflightNoop, err
-	}
-	res, err := h.billingCacheService.ReserveInflightCharge(ctx, apiKey.User, apiKey.Group, subscription, amount)
+	res, err := h.billingCacheService.ReserveFixedCharge(ctx, apiKey.User, apiKey, apiKey.Group, subscription, amount)
 	if err != nil {
 		return inflightNoop, err
 	}
@@ -721,6 +744,17 @@ func (h *GatewayHandler) reserveGeminiCachedContentCharge(c *gin.Context, apiKey
 	}
 	c.Request = c.Request.WithContext(service.WithInflightReservation(ctx, res))
 	return res.HandlerDone, nil
+}
+
+// writeGeminiCachedContentMutationConflict 回写同一缓存的修改冲突（Google 并发冲突语义 ABORTED），客户端可稍后重试。
+func writeGeminiCachedContentMutationConflict(c *gin.Context) {
+	c.JSON(http.StatusConflict, gin.H{
+		"error": gin.H{
+			"code":    http.StatusConflict,
+			"message": "Another update to this cached content is in progress, please retry later",
+			"status":  "ABORTED",
+		},
+	})
 }
 
 func writeGeminiCachedContentBillingError(c *gin.Context, err error) {

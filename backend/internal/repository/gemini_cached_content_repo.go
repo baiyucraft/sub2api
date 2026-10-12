@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -78,20 +79,88 @@ func (r *geminiCachedContentRepository) ListForOwner(ctx context.Context, apiKey
 	return out, rows.Err()
 }
 
-func (r *geminiCachedContentRepository) UpdateExpireTime(ctx context.Context, id int64, expireTime time.Time) (time.Time, error) {
-	var previous time.Time
-	err := r.sql.QueryRowContext(ctx, `WITH prev AS (
- SELECT id, expire_time FROM gemini_cached_contents WHERE id = $1 AND deleted_at IS NULL FOR UPDATE
-)
-UPDATE gemini_cached_contents AS g
- SET expire_time = $2, updated_at = NOW()
- FROM prev
- WHERE g.id = prev.id
- RETURNING prev.expire_time`, id, expireTime).Scan(&previous)
+func (r *geminiCachedContentRepository) BeginMutation(ctx context.Context, id int64, baseline time.Time, token string, lease time.Duration) (bool, error) {
+	result, err := r.sql.ExecContext(ctx, `UPDATE gemini_cached_contents
+ SET mutation_token = $2, mutation_lease_until = NOW() + make_interval(secs => $3::double precision)
+ WHERE id = $1 AND deleted_at IS NULL AND mutation_token IS NULL AND expire_time = $4`,
+		id, token, lease.Seconds(), baseline)
 	if err != nil {
-		return time.Time{}, translatePersistenceError(err, service.ErrGeminiCachedContentNotFound, nil)
+		return false, err
 	}
-	return previous, nil
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	if affected > 0 {
+		return true, nil
+	}
+	var exists bool
+	if err := r.sql.QueryRowContext(ctx, `SELECT EXISTS (
+ SELECT 1 FROM gemini_cached_contents WHERE id = $1 AND deleted_at IS NULL)`, id).Scan(&exists); err != nil {
+		return false, err
+	}
+	if !exists {
+		return false, service.ErrGeminiCachedContentNotFound
+	}
+	return false, nil
+}
+
+func (r *geminiCachedContentRepository) TakeOverStaleMutation(ctx context.Context, id int64, token string, lease time.Duration) (*service.GeminiCachedContent, error) {
+	record, err := scanGeminiCachedContent(r.sql.QueryRowContext(ctx, `UPDATE gemini_cached_contents
+ SET mutation_token = $2, mutation_lease_until = NOW() + make_interval(secs => $3::double precision)
+ WHERE id = $1 AND deleted_at IS NULL AND mutation_token IS NOT NULL AND mutation_lease_until < NOW()
+ RETURNING `+geminiCachedContentColumns, id, token, lease.Seconds()))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return record, nil
+}
+
+func (r *geminiCachedContentRepository) CommitMutation(ctx context.Context, id int64, token string, expireTime time.Time) error {
+	result, err := r.sql.ExecContext(ctx, `UPDATE gemini_cached_contents
+ SET expire_time = $3, updated_at = NOW(), mutation_token = NULL, mutation_lease_until = NULL
+ WHERE id = $1 AND deleted_at IS NULL AND mutation_token = $2`, id, token, expireTime)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return service.ErrGeminiCachedContentMutationConflict
+	}
+	return nil
+}
+
+func (r *geminiCachedContentRepository) ReleaseMutation(ctx context.Context, id int64, token string) error {
+	_, err := r.sql.ExecContext(ctx, `UPDATE gemini_cached_contents
+ SET mutation_token = NULL, mutation_lease_until = NULL
+ WHERE id = $1 AND mutation_token = $2`, id, token)
+	return err
+}
+
+func (r *geminiCachedContentRepository) ListStaleMutations(ctx context.Context, limit int) ([]int64, error) {
+	rows, err := r.sql.QueryContext(ctx, `SELECT id FROM gemini_cached_contents
+ WHERE mutation_token IS NOT NULL AND deleted_at IS NULL AND mutation_lease_until < NOW()
+ ORDER BY mutation_lease_until
+ LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
 func (r *geminiCachedContentRepository) SoftDelete(ctx context.Context, id int64) error {

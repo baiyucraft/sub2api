@@ -53,15 +53,30 @@ func (r *geminiCachedContentRepoStub) ListForOwner(_ context.Context, apiKeyID, 
 	return out, nil
 }
 
-func (r *geminiCachedContentRepoStub) UpdateExpireTime(_ context.Context, id int64, expireTime time.Time) (time.Time, error) {
+func (r *geminiCachedContentRepoStub) BeginMutation(context.Context, int64, time.Time, string, time.Duration) (bool, error) {
+	return true, nil
+}
+
+func (r *geminiCachedContentRepoStub) TakeOverStaleMutation(context.Context, int64, string, time.Duration) (*GeminiCachedContent, error) {
+	return nil, nil
+}
+
+func (r *geminiCachedContentRepoStub) CommitMutation(_ context.Context, id int64, _ string, expireTime time.Time) error {
 	for _, record := range r.records {
 		if record.ID == id {
-			previous := record.ExpireTime
 			record.ExpireTime = expireTime
-			return previous, nil
+			return nil
 		}
 	}
-	return time.Time{}, ErrGeminiCachedContentNotFound
+	return ErrGeminiCachedContentMutationConflict
+}
+
+func (r *geminiCachedContentRepoStub) ReleaseMutation(context.Context, int64, string) error {
+	return nil
+}
+
+func (r *geminiCachedContentRepoStub) ListStaleMutations(context.Context, int) ([]int64, error) {
+	return nil, nil
 }
 
 func (r *geminiCachedContentRepoStub) SoftDelete(_ context.Context, id int64) error {

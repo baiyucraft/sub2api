@@ -52,8 +52,24 @@ func (r *geminiCachedContentHandlerRepoStub) ListForOwner(_ context.Context, api
 	return out, nil
 }
 
-func (r *geminiCachedContentHandlerRepoStub) UpdateExpireTime(context.Context, int64, time.Time) (time.Time, error) {
-	return time.Time{}, nil
+func (r *geminiCachedContentHandlerRepoStub) BeginMutation(context.Context, int64, time.Time, string, time.Duration) (bool, error) {
+	return true, nil
+}
+
+func (r *geminiCachedContentHandlerRepoStub) TakeOverStaleMutation(context.Context, int64, string, time.Duration) (*service.GeminiCachedContent, error) {
+	return nil, nil
+}
+
+func (r *geminiCachedContentHandlerRepoStub) CommitMutation(context.Context, int64, string, time.Time) error {
+	return nil
+}
+
+func (r *geminiCachedContentHandlerRepoStub) ReleaseMutation(context.Context, int64, string) error {
+	return nil
+}
+
+func (r *geminiCachedContentHandlerRepoStub) ListStaleMutations(context.Context, int) ([]int64, error) {
+	return nil, nil
 }
 
 func (r *geminiCachedContentHandlerRepoStub) SoftDelete(context.Context, int64) error {

@@ -295,75 +295,186 @@ func TestGeminiForwardNative_BoundCacheUpstreamGatewayErrorsSkipAccountPenalty(t
 	}
 }
 
-type chargeAffordableCacheStub struct {
+type fixedChargeCacheStub struct {
 	billingCacheWorkerStub
 	balance float64
 	sub     *SubscriptionCacheData
 	rate    *APIKeyRateLimitCacheData
+	// reserved 按维度（user:{id} / scope 名）记录在途预留。
+	reserved map[string]map[string]float64
 }
 
-func (s *chargeAffordableCacheStub) GetUserBalance(context.Context, int64) (float64, error) {
+func (s *fixedChargeCacheStub) GetUserBalance(context.Context, int64) (float64, error) {
 	return s.balance, nil
 }
 
-func (s *chargeAffordableCacheStub) GetSubscriptionCache(context.Context, int64, int64) (*SubscriptionCacheData, error) {
+func (s *fixedChargeCacheStub) GetSubscriptionCache(context.Context, int64, int64) (*SubscriptionCacheData, error) {
 	if s.sub == nil {
 		return nil, errors.New("cache miss")
 	}
 	return s.sub, nil
 }
 
-func (s *chargeAffordableCacheStub) GetAPIKeyRateLimit(context.Context, int64) (*APIKeyRateLimitCacheData, error) {
+func (s *fixedChargeCacheStub) GetAPIKeyRateLimit(context.Context, int64) (*APIKeyRateLimitCacheData, error) {
 	if s.rate == nil {
 		return nil, errors.New("cache miss")
 	}
 	return s.rate, nil
 }
 
-func TestCheckChargeAffordable(t *testing.T) {
+func (s *fixedChargeCacheStub) reserve(key, requestID string, amount float64) float64 {
+	if s.reserved == nil {
+		s.reserved = map[string]map[string]float64{}
+	}
+	if s.reserved[key] == nil {
+		s.reserved[key] = map[string]float64{}
+	}
+	sum := 0.0
+	for _, v := range s.reserved[key] {
+		sum += v
+	}
+	s.reserved[key][requestID] = amount
+	return sum
+}
+
+func (s *fixedChargeCacheStub) ReserveInflightBalance(_ context.Context, userID int64, requestID string, amount, balance float64, _ time.Duration) (bool, float64, error) {
+	key := fmt.Sprintf("user:%d", userID)
+	others := s.reserve(key, requestID, amount)
+	if len(s.reserved[key]) > 1 && balance-others < amount {
+		delete(s.reserved[key], requestID)
+		return false, others, nil
+	}
+	return true, others, nil
+}
+
+func (s *fixedChargeCacheStub) ReleaseInflightBalance(_ context.Context, userID int64, requestID string) error {
+	delete(s.reserved[fmt.Sprintf("user:%d", userID)], requestID)
+	return nil
+}
+
+func (s *fixedChargeCacheStub) ReserveInflightScope(_ context.Context, scope, requestID string, amount float64, _ time.Duration) (float64, error) {
+	return s.reserve(scope, requestID, amount), nil
+}
+
+func (s *fixedChargeCacheStub) ReleaseInflightScope(_ context.Context, scope, requestID string) error {
+	delete(s.reserved[scope], requestID)
+	return nil
+}
+
+type fixedChargeAPIKeyRepoStub struct {
+	APIKeyRepository
+	data *APIKeyRateLimitData
+}
+
+func (r *fixedChargeAPIKeyRepoStub) GetRateLimitData(context.Context, int64) (*APIKeyRateLimitData, error) {
+	return r.data, nil
+}
+
+type fixedChargeSubscriptionRepoStub struct {
+	UserSubscriptionRepository
+	sub *UserSubscription
+}
+
+func (r *fixedChargeSubscriptionRepoStub) GetActiveByUserIDAndGroupID(context.Context, int64, int64) (*UserSubscription, error) {
+	return r.sub, nil
+}
+
+func TestReserveFixedCharge(t *testing.T) {
 	ctx := context.Background()
 	user := &User{ID: 1}
-	newSvc := func(cache *chargeAffordableCacheStub) *BillingCacheService {
+	newSvc := func(cache *fixedChargeCacheStub) *BillingCacheService {
 		svc := NewBillingCacheService(cache, nil, nil, nil, nil, nil, &config.Config{}, nil)
 		t.Cleanup(svc.Stop)
 		return svc
 	}
+	reservingSvc := func(cache *fixedChargeCacheStub, subRepo UserSubscriptionRepository, apiKeyRepo APIKeyRepository) *BillingCacheService {
+		cfg := &config.Config{}
+		cfg.Billing.InflightReservation.Enabled = true
+		svc := NewBillingCacheService(cache, nil, subRepo, apiKeyRepo, nil, nil, cfg, nil)
+		t.Cleanup(svc.Stop)
+		return svc
+	}
+	reserve := func(svc *BillingCacheService, apiKey *APIKey, group *Group, sub *UserSubscription, amount float64) error {
+		res, err := svc.ReserveFixedCharge(ctx, user, apiKey, group, sub, amount)
+		res.Release()
+		return err
+	}
 
 	t.Run("balance must cover the amount", func(t *testing.T) {
-		svc := newSvc(&chargeAffordableCacheStub{balance: 10})
-		require.NoError(t, svc.CheckChargeAffordable(ctx, user, nil, nil, nil, 10))
-		require.ErrorIs(t, svc.CheckChargeAffordable(ctx, user, nil, nil, nil, 10.01), ErrInsufficientBalance)
-		require.NoError(t, svc.CheckChargeAffordable(ctx, user, nil, nil, nil, 0))
+		svc := newSvc(&fixedChargeCacheStub{balance: 10})
+		require.NoError(t, reserve(svc, nil, nil, nil, 10))
+		require.ErrorIs(t, reserve(svc, nil, nil, nil, 10.01), ErrInsufficientBalance)
+		require.NoError(t, reserve(svc, nil, nil, nil, 0))
 	})
 
 	t.Run("subscription windows must cover the amount", func(t *testing.T) {
 		daily := 5.0
 		group := &Group{ID: 2, SubscriptionType: SubscriptionTypeSubscription, DailyLimitUSD: &daily}
-		svc := newSvc(&chargeAffordableCacheStub{sub: &SubscriptionCacheData{
+		svc := newSvc(&fixedChargeCacheStub{sub: &SubscriptionCacheData{
 			Status: SubscriptionStatusActive, ExpiresAt: time.Now().Add(time.Hour), DailyUsage: 3,
 		}})
 		sub := &UserSubscription{ID: 1}
-		require.NoError(t, svc.CheckChargeAffordable(ctx, user, nil, group, sub, 2))
-		require.ErrorIs(t, svc.CheckChargeAffordable(ctx, user, nil, group, sub, 2.5), ErrDailyLimitExceeded)
+		require.NoError(t, reserve(svc, nil, group, sub, 2))
+		require.ErrorIs(t, reserve(svc, nil, group, sub, 2.5), ErrDailyLimitExceeded)
 	})
 
 	t.Run("api key quota and rate windows include the amount", func(t *testing.T) {
-		svc := newSvc(&chargeAffordableCacheStub{balance: 100, rate: &APIKeyRateLimitCacheData{
+		svc := newSvc(&fixedChargeCacheStub{balance: 100, rate: &APIKeyRateLimitCacheData{
 			Usage1d: 8, Window1d: time.Now().Unix(),
 		}})
 		quotaKey := &APIKey{ID: 5, Quota: 10, QuotaUsed: 9}
-		require.NoError(t, svc.CheckChargeAffordable(ctx, user, quotaKey, nil, nil, 1))
-		require.ErrorIs(t, svc.CheckChargeAffordable(ctx, user, quotaKey, nil, nil, 1.5), ErrAPIKeyQuotaExhausted)
+		require.NoError(t, reserve(svc, quotaKey, nil, nil, 1))
+		require.ErrorIs(t, reserve(svc, quotaKey, nil, nil, 1.5), ErrAPIKeyQuotaExhausted)
 
 		windowKey := &APIKey{ID: 6, RateLimit1d: 10}
-		require.NoError(t, svc.CheckChargeAffordable(ctx, user, windowKey, nil, nil, 2))
-		require.ErrorIs(t, svc.CheckChargeAffordable(ctx, user, windowKey, nil, nil, 2.5), ErrAPIKeyRateLimit1dExceeded)
+		require.NoError(t, reserve(svc, windowKey, nil, nil, 2))
+		require.ErrorIs(t, reserve(svc, windowKey, nil, nil, 2.5), ErrAPIKeyRateLimit1dExceeded)
+	})
+
+	t.Run("usage is read from the database instead of request snapshots", func(t *testing.T) {
+		now := time.Now()
+		apiKeyRepo := &fixedChargeAPIKeyRepoStub{data: &APIKeyRateLimitData{QuotaUsed: 9.5, Usage1d: 8, Window1dStart: &now}}
+		svc := reservingSvc(&fixedChargeCacheStub{balance: 100}, nil, apiKeyRepo)
+		require.ErrorIs(t, reserve(svc, &APIKey{ID: 5, Quota: 10}, nil, nil, 1), ErrAPIKeyQuotaExhausted, "请求上下文中的 QuotaUsed 可能滞后")
+		require.ErrorIs(t, reserve(svc, &APIKey{ID: 6, RateLimit1d: 10}, nil, nil, 2.5), ErrAPIKeyRateLimit1dExceeded)
+
+		daily := 5.0
+		group := &Group{ID: 2, SubscriptionType: SubscriptionTypeSubscription, DailyLimitUSD: &daily}
+		subRepo := &fixedChargeSubscriptionRepoStub{sub: &UserSubscription{Status: SubscriptionStatusActive, DailyUsageUSD: 4}}
+		svc = reservingSvc(&fixedChargeCacheStub{sub: &SubscriptionCacheData{Status: SubscriptionStatusActive}}, subRepo, nil)
+		require.ErrorIs(t, reserve(svc, nil, group, &UserSubscription{ID: 1}, 2), ErrDailyLimitExceeded, "订阅缓存用量可能滞后")
+	})
+
+	t.Run("unsettled charges hold subscription and api key headroom", func(t *testing.T) {
+		daily := 110.0
+		group := &Group{ID: 2, SubscriptionType: SubscriptionTypeSubscription, DailyLimitUSD: &daily}
+		sub := &UserSubscription{ID: 1}
+		cache := &fixedChargeCacheStub{balance: 1000, sub: &SubscriptionCacheData{Status: SubscriptionStatusActive}}
+		svc := reservingSvc(cache, nil, nil)
+		first, err := svc.ReserveFixedCharge(ctx, user, nil, group, sub, 103.5)
+		require.NoError(t, err)
+		_, err = svc.ReserveFixedCharge(ctx, user, nil, group, sub, 103.5)
+		require.ErrorIs(t, err, ErrDailyLimitExceeded)
+		first.Release()
+		second, err := svc.ReserveFixedCharge(ctx, user, nil, group, sub, 103.5)
+		require.NoError(t, err)
+		second.Release()
+
+		apiKey := &APIKey{ID: 5, Quota: 110}
+		first, err = svc.ReserveFixedCharge(ctx, user, apiKey, nil, nil, 103.5)
+		require.NoError(t, err)
+		_, err = svc.ReserveFixedCharge(ctx, user, apiKey, nil, nil, 103.5)
+		require.ErrorIs(t, err, ErrAPIKeyQuotaExhausted)
+		first.Release()
+		for key, reservations := range cache.reserved {
+			require.Empty(t, reservations, "拒绝与释放都不留下预留：%s", key)
+		}
 	})
 
 	t.Run("simple mode skips the check", func(t *testing.T) {
 		cfg := &config.Config{RunMode: config.RunModeSimple}
-		svc := NewBillingCacheService(&chargeAffordableCacheStub{}, nil, nil, nil, nil, nil, cfg, nil)
+		svc := NewBillingCacheService(&fixedChargeCacheStub{}, nil, nil, nil, nil, nil, cfg, nil)
 		t.Cleanup(svc.Stop)
-		require.NoError(t, svc.CheckChargeAffordable(ctx, user, nil, nil, nil, 1000))
+		require.NoError(t, reserve(svc, nil, nil, nil, 1000))
 	})
 }

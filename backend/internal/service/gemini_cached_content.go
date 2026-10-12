@@ -16,12 +16,14 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -42,6 +44,17 @@ const (
 	geminiCachedContentUpstreamTimeout     = 5 * time.Minute
 	geminiCachedContentOfficialHost        = "generativelanguage.googleapis.com"
 
+	// geminiCachedContentMutationUpstreamTimeout 是修改 / 删除上游缓存的单次调用超时。
+	geminiCachedContentMutationUpstreamTimeout = 30 * time.Second
+	// geminiCachedContentMutationLease 是修改意图的租约时长，须覆盖持有者在租约内的全部操作
+	// （一次上游修改与一次落库，或恢复流程的一次上游回滚与一次落库），租约过期后持有者不会再改动上游。
+	geminiCachedContentMutationLease = 2 * time.Minute
+	// geminiCachedContentMutationRecoveryInterval / geminiCachedContentMutationRecoveryBatch 约束后台回滚恢复的节奏；
+	// geminiCachedContentMutationRecoveryTimeout 是恢复单条记录的落库超时，与一次上游回滚合计不超过租约。
+	geminiCachedContentMutationRecoveryInterval = time.Minute
+	geminiCachedContentMutationRecoveryBatch    = 50
+	geminiCachedContentMutationRecoveryTimeout  = time.Minute
+
 	// GeminiCachedContentListDefaultPageSize / GeminiCachedContentListMaxPageSize 约束 list 分页。
 	GeminiCachedContentListDefaultPageSize = 50
 	GeminiCachedContentListMaxPageSize     = 1000
@@ -50,6 +63,10 @@ const (
 var (
 	ErrGeminiCachedContentNotFound = infraerrors.New(http.StatusNotFound, "GEMINI_CACHED_CONTENT_NOT_FOUND", "gemini cached content not found")
 	ErrGeminiCachedContentExists   = infraerrors.New(http.StatusConflict, "GEMINI_CACHED_CONTENT_EXISTS", "gemini cached content already exists")
+	// ErrGeminiCachedContentMutationConflict 表示同一缓存有进行中的修改、到期时间已被其他修改改变，或修改意图已不属于调用方。
+	ErrGeminiCachedContentMutationConflict = infraerrors.New(http.StatusConflict, "GEMINI_CACHED_CONTENT_MUTATION_CONFLICT", "another update to this cached content is in progress")
+	// ErrGeminiCachedContentRequestNotSent 表示上游缓存请求在发出前失败（地址、凭据等），上游状态未被改变。
+	ErrGeminiCachedContentRequestNotSent = errors.New("gemini cached content request was not sent")
 
 	geminiCachedContentPublicIDPattern  = regexp.MustCompile(`^[a-z0-9]{1,64}$`)
 	geminiCachedContentAIStudioName     = regexp.MustCompile(`^cachedContents/[A-Za-z0-9_-]+$`)
@@ -100,8 +117,18 @@ type GeminiCachedContentRepository interface {
 	GetForOwner(ctx context.Context, apiKeyID int64, publicID string) (*GeminiCachedContent, error)
 	// ListForOwner 按 id 倒序返回分组内 expire_time 晚于 activeAt 的记录；beforeID>0 时只返回 id 更小的记录。
 	ListForOwner(ctx context.Context, apiKeyID, groupID int64, activeAt time.Time, beforeID int64, limit int) ([]*GeminiCachedContent, error)
-	// UpdateExpireTime 原子地写入新的到期时间并返回写入前的值。
-	UpdateExpireTime(ctx context.Context, id int64, expireTime time.Time) (time.Time, error)
+	// BeginMutation 在记录没有修改意图且 expire_time 仍为 baseline 时登记修改意图（token 与自数据库当前时间起的租约），
+	// 返回是否登记成功；记录不存在或已删除时返回 ErrGeminiCachedContentNotFound。
+	BeginMutation(ctx context.Context, id int64, baseline time.Time, token string, lease time.Duration) (bool, error)
+	// TakeOverStaleMutation 把记录上租约已过期的修改意图换成 token 与新租约并返回记录；没有可接管的意图时返回 nil。
+	TakeOverStaleMutation(ctx context.Context, id int64, token string, lease time.Duration) (*GeminiCachedContent, error)
+	// CommitMutation 由 token 的持有者写入新的到期时间并清除修改意图；token 已失效或记录已删除时返回
+	// ErrGeminiCachedContentMutationConflict。
+	CommitMutation(ctx context.Context, id int64, token string, expireTime time.Time) error
+	// ReleaseMutation 由 token 的持有者清除修改意图，不改变到期时间。
+	ReleaseMutation(ctx context.Context, id int64, token string) error
+	// ListStaleMutations 返回修改意图租约已过期的未删除记录 id。
+	ListStaleMutations(ctx context.Context, limit int) ([]int64, error)
 	SoftDelete(ctx context.Context, id int64) error
 }
 
@@ -594,10 +621,48 @@ type GeminiCachedContentService struct {
 	compat *GeminiMessagesCompatService
 	cfg    *config.Config
 	now    func() time.Time
+
+	startOnce sync.Once
+	stopOnce  sync.Once
+	stopCh    chan struct{}
 }
 
 func NewGeminiCachedContentService(repo GeminiCachedContentRepository, compat *GeminiMessagesCompatService, cfg *config.Config) *GeminiCachedContentService {
-	return &GeminiCachedContentService{repo: repo, compat: compat, cfg: cfg, now: time.Now}
+	return &GeminiCachedContentService{repo: repo, compat: compat, cfg: cfg, now: time.Now, stopCh: make(chan struct{})}
+}
+
+// Start 启动后台回滚恢复：定期处理租约已过期仍未清除的修改意图。
+func (s *GeminiCachedContentService) Start() {
+	if s == nil || s.repo == nil {
+		return
+	}
+	s.startOnce.Do(func() { go s.runMutationRecovery() })
+}
+
+// Stop 停止后台回滚恢复。
+func (s *GeminiCachedContentService) Stop() {
+	if s == nil {
+		return
+	}
+	s.stopOnce.Do(func() { close(s.stopCh) })
+}
+
+func (s *GeminiCachedContentService) runMutationRecovery() {
+	ticker := time.NewTicker(geminiCachedContentMutationRecoveryInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-s.stopCh:
+			return
+		case <-ticker.C:
+			recovered, err := s.RecoverStaleMutations(context.Background())
+			if err != nil {
+				logger.LegacyPrintf("service.gemini_cached_content", "Warning: gemini cached content mutation recovery failed (recovered=%d): %v", recovered, err)
+			} else if recovered > 0 {
+				logger.LegacyPrintf("service.gemini_cached_content", "gemini cached content mutation recovery rolled back %d stale mutations", recovered)
+			}
+		}
+	}
 }
 
 // Now 返回服务时钟。
@@ -662,15 +727,135 @@ func (s *GeminiCachedContentService) List(ctx context.Context, apiKeyID, groupID
 	return s.repo.ListForOwner(ctx, apiKeyID, groupID, s.now(), beforeID, limit)
 }
 
-// UpdateExpireTime 更新到期时间并返回更新前库中的到期时间（并发更新按提交顺序各自拿到自己的前值）。
-func (s *GeminiCachedContentService) UpdateExpireTime(ctx context.Context, record *GeminiCachedContent, expireTime time.Time) (time.Time, error) {
-	previous, err := s.repo.UpdateExpireTime(ctx, record.ID, expireTime)
-	if err != nil {
-		return time.Time{}, err
+// GeminiCachedContentMutation 是一次已登记修改意图、尚未提交的有效期修改。持有期间同一缓存的其他修改被拒绝；
+// 未提交的修改（上游结果未知、落库失败、进程退出）在租约过期后由恢复流程把上游有效期回滚到 Baseline，不计费。
+type GeminiCachedContentMutation struct {
+	record   *GeminiCachedContent
+	baseline time.Time
+	token    string
+}
+
+// Baseline 返回修改前的到期时间：提交前它始终是库中的到期时间。
+func (m *GeminiCachedContentMutation) Baseline() time.Time {
+	return m.baseline
+}
+
+// BeginMutation 登记修改 record 有效期的意图并取得租约。同一缓存有进行中的修改，或库中到期时间已不是
+// record.ExpireTime 时返回 ErrGeminiCachedContentMutationConflict；租约已过期的遗留意图先回滚恢复再登记。
+func (s *GeminiCachedContentService) BeginMutation(ctx context.Context, record *GeminiCachedContent) (*GeminiCachedContentMutation, error) {
+	for attempt := 0; ; attempt++ {
+		token, err := NewGeminiCachedContentPublicID()
+		if err != nil {
+			return nil, err
+		}
+		acquired, err := s.repo.BeginMutation(ctx, record.ID, record.ExpireTime, token, geminiCachedContentMutationLease)
+		if err != nil {
+			return nil, err
+		}
+		if acquired {
+			return &GeminiCachedContentMutation{record: record, baseline: record.ExpireTime, token: token}, nil
+		}
+		if attempt > 0 {
+			return nil, ErrGeminiCachedContentMutationConflict
+		}
+		recovered, err := s.recoverStaleMutation(ctx, record.ID)
+		if err != nil {
+			return nil, errors.Join(ErrGeminiCachedContentMutationConflict, err)
+		}
+		if !recovered {
+			return nil, ErrGeminiCachedContentMutationConflict
+		}
 	}
-	record.ExpireTime = expireTime
-	record.UpdatedAt = s.now()
-	return previous, nil
+}
+
+// CommitMutation 写入新的到期时间并清除修改意图。修改意图已不属于 m（缓存已删除或租约已被接管）时返回
+// ErrGeminiCachedContentMutationConflict；其他失败时意图保留，由恢复流程回滚上游。
+func (s *GeminiCachedContentService) CommitMutation(ctx context.Context, m *GeminiCachedContentMutation, expireTime time.Time) error {
+	if err := s.repo.CommitMutation(ctx, m.record.ID, m.token, expireTime); err != nil {
+		return err
+	}
+	m.record.ExpireTime = expireTime
+	m.record.UpdatedAt = s.now()
+	return nil
+}
+
+// ReleaseMutation 放弃修改并清除修改意图，用于上游明确未改变有效期的情形。
+func (s *GeminiCachedContentService) ReleaseMutation(ctx context.Context, m *GeminiCachedContentMutation) error {
+	return s.repo.ReleaseMutation(ctx, m.record.ID, m.token)
+}
+
+// RecoverStaleMutations 回滚恢复一批租约已过期的修改意图，返回完成恢复的数量。
+func (s *GeminiCachedContentService) RecoverStaleMutations(ctx context.Context) (int, error) {
+	listCtx, cancel := context.WithTimeout(ctx, geminiCachedContentMutationRecoveryTimeout)
+	ids, err := s.repo.ListStaleMutations(listCtx, geminiCachedContentMutationRecoveryBatch)
+	cancel()
+	if err != nil {
+		return 0, err
+	}
+	recovered := 0
+	var errs []error
+	for _, id := range ids {
+		select {
+		case <-s.stopCh:
+			return recovered, errors.Join(errs...)
+		default:
+		}
+		itemCtx, cancel := context.WithTimeout(ctx, geminiCachedContentMutationRecoveryTimeout)
+		ok, err := s.recoverStaleMutation(itemCtx, id)
+		cancel()
+		if err != nil {
+			errs = append(errs, fmt.Errorf("cached content %d: %w", id, err))
+			continue
+		}
+		if ok {
+			recovered++
+		}
+	}
+	return recovered, errors.Join(errs...)
+}
+
+// recoverStaleMutation 接管 id 上租约已过期的修改意图，把上游有效期回滚到库中的到期时间后清除意图；
+// 库中到期时间已到时删除上游缓存与本地记录。没有可接管的意图时返回 false；回滚失败时意图保留，租约过期后重试。
+func (s *GeminiCachedContentService) recoverStaleMutation(ctx context.Context, id int64) (bool, error) {
+	token, err := NewGeminiCachedContentPublicID()
+	if err != nil {
+		return false, err
+	}
+	record, err := s.repo.TakeOverStaleMutation(ctx, id, token, geminiCachedContentMutationLease)
+	if err != nil || record == nil {
+		return false, err
+	}
+	forget, err := s.rollbackUpstream(ctx, record)
+	if err != nil {
+		return false, err
+	}
+	if forget {
+		return true, s.repo.SoftDelete(ctx, record.ID)
+	}
+	return true, s.repo.ReleaseMutation(ctx, record.ID, token)
+}
+
+// rollbackUpstream 把上游有效期改回 record.ExpireTime，剩余不足 1 秒时删除上游缓存；
+// 返回 true 表示上游缓存已不存在，本地记录应移除。持有账号已不可用时不改动上游。
+func (s *GeminiCachedContentService) rollbackUpstream(ctx context.Context, record *GeminiCachedContent) (bool, error) {
+	account, err := s.BoundAccount(ctx, record)
+	if err != nil || account == nil {
+		return false, err
+	}
+	remaining := record.ExpireTime.Sub(s.now())
+	if remaining < time.Second {
+		err = s.DeleteUpstream(ctx, account, record)
+	} else {
+		_, err = s.PatchUpstream(ctx, account, record, remaining)
+	}
+	var upErr *GeminiCachedContentUpstreamError
+	if errors.As(err, &upErr) && upErr.NotFound() {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return remaining < time.Second, nil
 }
 
 func (s *GeminiCachedContentService) Forget(ctx context.Context, record *GeminiCachedContent) error {
@@ -743,7 +928,7 @@ func (s *GeminiCachedContentService) CreateUpstream(ctx context.Context, account
 	if err != nil {
 		return nil, err
 	}
-	respBody, err := s.doUpstream(ctx, account, http.MethodPost, collectionURL, body)
+	respBody, err := s.doUpstream(ctx, account, http.MethodPost, collectionURL, body, geminiCachedContentUpstreamTimeout)
 	if err != nil {
 		return nil, err
 	}
@@ -759,17 +944,13 @@ func (s *GeminiCachedContentService) CreateUpstream(ctx context.Context, account
 
 // PatchUpstream 把上游缓存的有效期改为自现在起 ttl。
 func (s *GeminiCachedContentService) PatchUpstream(ctx context.Context, account *Account, record *GeminiCachedContent, ttl time.Duration) (*GeminiCachedContentUpstream, error) {
-	base, err := s.apiBase(account)
-	if err != nil {
-		return nil, err
-	}
-	resourceURL, err := geminiCachedContentResourceURL(account, base, record.UpstreamName)
+	resourceURL, err := s.upstreamResourceURL(account, record)
 	if err != nil {
 		return nil, err
 	}
 	seconds := int64(math.Ceil(ttl.Seconds()))
 	body, _ := json.Marshal(map[string]any{"ttl": fmt.Sprintf("%ds", seconds)})
-	respBody, err := s.doUpstream(ctx, account, http.MethodPatch, resourceURL+"?updateMask=ttl", body)
+	respBody, err := s.doUpstream(ctx, account, http.MethodPatch, resourceURL+"?updateMask=ttl", body, geminiCachedContentMutationUpstreamTimeout)
 	if err != nil {
 		return nil, err
 	}
@@ -784,25 +965,38 @@ func (s *GeminiCachedContentService) PatchUpstream(ctx context.Context, account 
 
 // DeleteUpstream 删除上游缓存。
 func (s *GeminiCachedContentService) DeleteUpstream(ctx context.Context, account *Account, record *GeminiCachedContent) error {
-	base, err := s.apiBase(account)
+	resourceURL, err := s.upstreamResourceURL(account, record)
 	if err != nil {
 		return err
 	}
-	resourceURL, err := geminiCachedContentResourceURL(account, base, record.UpstreamName)
-	if err != nil {
-		return err
-	}
-	_, err = s.doUpstream(ctx, account, http.MethodDelete, resourceURL, nil)
+	_, err = s.doUpstream(ctx, account, http.MethodDelete, resourceURL, nil, geminiCachedContentMutationUpstreamTimeout)
 	return err
 }
 
-// doUpstream 调用上游缓存接口并返回 2xx 响应体。上游调用与客户端连接脱钩：客户端断开不会中途取消
-// 已发出的创建 / 修改，调用方据结果完成落库、计费或清理。
-func (s *GeminiCachedContentService) doUpstream(ctx context.Context, account *Account, method, target string, body []byte) ([]byte, error) {
-	if s.compat == nil || s.compat.httpUpstream == nil {
-		return nil, errors.New("gemini upstream client not configured")
+// upstreamResourceURL 返回 record 对应上游缓存资源的地址；失败时请求不会发出。
+func (s *GeminiCachedContentService) upstreamResourceURL(account *Account, record *GeminiCachedContent) (string, error) {
+	base, err := s.apiBase(account)
+	if err != nil {
+		return "", geminiCachedContentNotSent(err)
 	}
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), geminiCachedContentUpstreamTimeout)
+	resourceURL, err := geminiCachedContentResourceURL(account, base, record.UpstreamName)
+	if err != nil {
+		return "", geminiCachedContentNotSent(err)
+	}
+	return resourceURL, nil
+}
+
+func geminiCachedContentNotSent(err error) error {
+	return fmt.Errorf("%w: %w", ErrGeminiCachedContentRequestNotSent, err)
+}
+
+// doUpstream 调用上游缓存接口并返回 2xx 响应体，单次调用不超过 timeout。上游调用与客户端连接脱钩：客户端断开不会中途取消
+// 已发出的创建 / 修改，调用方据结果完成落库、计费或清理。请求发出前的失败包装为 ErrGeminiCachedContentRequestNotSent。
+func (s *GeminiCachedContentService) doUpstream(ctx context.Context, account *Account, method, target string, body []byte, timeout time.Duration) ([]byte, error) {
+	if s.compat == nil || s.compat.httpUpstream == nil {
+		return nil, geminiCachedContentNotSent(errors.New("gemini upstream client not configured"))
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
 	defer cancel()
 	var reader io.Reader
 	if body != nil {
@@ -810,7 +1004,7 @@ func (s *GeminiCachedContentService) doUpstream(ctx context.Context, account *Ac
 	}
 	req, err := http.NewRequestWithContext(ctx, method, target, reader)
 	if err != nil {
-		return nil, err
+		return nil, geminiCachedContentNotSent(err)
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
@@ -819,20 +1013,20 @@ func (s *GeminiCachedContentService) doUpstream(ctx context.Context, account *Ac
 	case AccountTypeAPIKey:
 		apiKey := strings.TrimSpace(account.GetCredential("api_key"))
 		if apiKey == "" {
-			return nil, errors.New("gemini api_key not configured")
+			return nil, geminiCachedContentNotSent(errors.New("gemini api_key not configured"))
 		}
 		req.Header.Set("x-goog-api-key", apiKey)
 	case AccountTypeServiceAccount:
 		if s.compat.tokenProvider == nil {
-			return nil, errors.New("gemini token provider not configured")
+			return nil, geminiCachedContentNotSent(errors.New("gemini token provider not configured"))
 		}
 		accessToken, err := s.compat.tokenProvider.GetAccessToken(ctx, account)
 		if err != nil {
-			return nil, err
+			return nil, geminiCachedContentNotSent(err)
 		}
 		req.Header.Set("Authorization", "Bearer "+accessToken)
 	default:
-		return nil, fmt.Errorf("account type %s does not support explicit context caching", account.Type)
+		return nil, geminiCachedContentNotSent(fmt.Errorf("account type %s does not support explicit context caching", account.Type))
 	}
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {
