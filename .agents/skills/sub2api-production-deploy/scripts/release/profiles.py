@@ -921,7 +921,22 @@ PROFILES["265"] = {
     },
 }
 
-CURRENT_RELEASE_PROFILE = "265"
+# Profile 265 is production-verified. User invoice annotations are additive
+# metadata only and belong to a successor without changing the application version.
+PROFILES["266"] = {
+    **{key: PROFILES["265"][key] for key in _PROFILE_V2_RUNTIME_KEYS},
+    "name": "266",
+    "version": "0.2.15-baiyu",
+    "parent": "265",
+    "new_migrations": ["291_user_invoice_annotations.sql"],
+    "gate_schema": 2,
+    "release_policy": {
+        "compatibility_image": "production_current",
+        "migration_source": "database_state",
+    },
+}
+
+CURRENT_RELEASE_PROFILE = "266"
 
 
 def get_profile(name: str) -> dict:

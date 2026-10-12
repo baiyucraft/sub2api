@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "catalog_version": "2026-10-10",
+  "catalog_version": "2026-10-12",
   "version_contract": {
     "upstream_path": "backend/cmd/server/VERSION",
     "fork_suffix": "-baiyu",
@@ -126,21 +126,25 @@
     "261": {"version":"0.2.13-baiyu","parent":"260","gate_schema":2,"new_migrations":["286_add_payment_order_bonus_amount.sql","287_add_typesafe_platform.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
     "262": {"version":"0.2.13-baiyu","parent":"261","gate_schema":2,"new_migrations":["288_upstream_confidence_distribution.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
     "263": {"version":"0.2.14-baiyu","parent":"262","gate_schema":2,"new_migrations":[],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
-    "264": {"version":"0.2.14-baiyu","parent":"263","gate_schema":2,"new_migrations":["289_activity_reward_costs.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}}
+    "264": {"version":"0.2.14-baiyu","parent":"263","gate_schema":2,"new_migrations":["289_activity_reward_costs.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
+    "265": {"version":"0.2.15-baiyu","parent":"264","gate_schema":2,"new_migrations":["290_drop_platform_check_constraints.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}}
   },
   "current_profile": {
-    "id": "265",
+    "id": "266",
     "status": "pending",
     "version": "0.2.15-baiyu",
-    "parent": "264",
+    "parent": "265",
     "gate_schema": 2,
-    "new_migrations": ["290_drop_platform_check_constraints.sql"],
+    "new_migrations": [
+      "291_user_invoice_annotations.sql"
+    ],
     "release_policy": {
       "compatibility_image": "production_current",
       "migration_source": "database_state"
     }
   },
   "migration_contracts": {
+    "291_user_invoice_annotations.sql": "18c1af60bc42f747314ddd7c51d97a613c533c374d4235f8208d1f0dad7e843a",
     "290_drop_platform_check_constraints.sql": "89b9ca37806f5725fd01cd3b45d006c119d34820e29e1b8a90c0a8ba461db5bb",
     "289_activity_reward_costs.sql": "30758e5a4b758c8c22677e3713d3897d51af17fd1f34dff6fec354d3da03f1d3",
     "288_upstream_confidence_distribution.sql": "18d33b7a9d64abab88d4cda73fded0e2ac3619daa11467704a4f2565b2c46835",
@@ -241,6 +245,7 @@
     "official_238_purge_unlimited_user_platform_quotas": "275_purge_unlimited_user_platform_quotas.sql"
   },
   "migration_assertions": {
+    "backend/migrations/291_user_invoice_annotations.sql": ["CREATE TABLE IF NOT EXISTS user_invoice_annotations", "amount DECIMAL(20, 8) NOT NULL CHECK (amount > 0 AND amount < 1000000000000)", "user_invoice_annotations_void_state", "voided_by IS NOT NULL", "user_invoice_annotations_operation_unique UNIQUE (user_id, created_by, operation_id)", "CREATE TABLE IF NOT EXISTS user_invoice_annotation_events", "REFERENCES user_invoice_annotations(id) ON DELETE RESTRICT", "before_value JSONB", "after_value JSONB NOT NULL", "user_invoice_annotation_events_before", "idx_user_invoice_annotations_user_created", "idx_user_invoice_annotation_events_invoice_created"],
     "backend/migrations/290_drop_platform_check_constraints.sql": ["DROP CONSTRAINT IF EXISTS user_platform_quotas_platform_check", "DROP CONSTRAINT IF EXISTS composite_model_routes_target_platform_check"],
     "backend/migrations/289_activity_reward_costs.sql": ["activity_reward_id BIGINT", "related_user_id BIGINT", "activity_type VARCHAR", "activity-reward-cost-v1", "backfill_activity_reward_costs", "IN SHARE MODE", "Asia/Shanghai"],
     "backend/migrations/288_upstream_confidence_distribution.sql": ["upstream_confidence_distribution_states", "PRIMARY KEY REFERENCES upstream_keys(id) ON DELETE CASCADE", "revision BIGINT NOT NULL DEFAULT 1 CHECK (revision > 0)", "state_json JSONB NOT NULL"],
@@ -426,6 +431,76 @@
   },
   "registered_support_paths": [".agents/skills/sub2api-production-deploy/**", ".agents/skills/sub2api-fork-extension-audit/**", "backend/**", "frontend/**", "deploy/**", "Dockerfile", "Makefile", "DEV_GUIDE.md", "README*.md", "docs/**", ".docs/codex-key-traffic-audit-2026-09-19-ttft.md", ".docs/codex-key-traffic-audit-2026-09-19-ttft.summary.json", ".docs/codex-key-traffic-audit-2026-09-19.md", ".docs/codex-key-traffic-audit-2026-09-19.summary.json", "skills/sub2api-admin/SKILL.md", "skills/sub2api-admin/references/admin-cli.md", "openspec/**", "重磅推出活动.md", ".gitignore", ".gitattributes", ".dockerignore"],
   "extensions": [
+    {
+      "id": "user-funds-summary-and-invoice-annotations",
+      "title": "用户资金权益类型汇总与开票标注",
+      "description": "管理员按用户查看类型全部记录的跨页汇总，并独立登记、更正、作废站内金额开票标注。",
+      "ownership": "fork",
+      "risk_level": "high",
+      "paths": [
+        "backend/internal/service/admin_user_history.go",
+        "backend/internal/service/admin_user_history_totals_test.go",
+        "backend/internal/handler/admin/user_activity_reward_history_test.go",
+        "backend/internal/service/admin_user_invoice.go",
+        "backend/internal/service/admin_user_invoice_test.go",
+          "backend/internal/handler/admin/user_handler.go",
+        "backend/internal/handler/admin/user_invoice_handler.go",
+        "backend/internal/handler/admin/user_invoice_handler_test.go",
+        "backend/internal/server/routes/admin.go",
+        "backend/migrations/291_user_invoice_annotations.sql",
+        "backend/migrations/user_invoice_annotations_migration_test.go",
+        "frontend/src/api/admin/users.ts",
+        "frontend/src/api/admin/index.ts",
+        "frontend/src/components/admin/user/UserBalanceHistoryModal.vue",
+        "frontend/src/components/admin/user/UserInvoiceAnnotations.vue",
+        "frontend/src/components/admin/user/__tests__/UserBalanceHistoryModal.spec.ts",
+        "frontend/src/components/admin/user/__tests__/UserInvoiceAnnotations.spec.ts",
+        "frontend/src/i18n/locales/zh/admin/overview.ts",
+        "frontend/src/i18n/locales/en/admin/overview.ts"
+      ],
+      "symbols": [
+        "UserBalanceHistoryPage",
+        "FilteredAmount",
+        "FilteredQuantity",
+        "UserInvoiceAdminService",
+        "ListUserInvoices",
+        "CreateUserInvoice",
+        "UpdateUserInvoice",
+        "VoidUserInvoice"
+      ],
+      "api_routes": [
+        "GET /api/v1/admin/users/:id/balance-history",
+        "GET /api/v1/admin/users/:id/invoices",
+        "POST /api/v1/admin/users/:id/invoices",
+        "PUT /api/v1/admin/users/:id/invoices/:invoice_id",
+        "POST /api/v1/admin/users/:id/invoices/:invoice_id/void"
+      ],
+      "settings_keys": [],
+      "migration_files": [
+        "291_user_invoice_annotations.sql"
+      ],
+      "required_tests": [
+        "backend/internal/service/admin_user_history_totals_test.go",
+      "backend/internal/handler/admin/user_activity_reward_history_test.go",
+        "backend/internal/service/admin_user_invoice_test.go",
+        "backend/internal/handler/admin/user_invoice_handler_test.go",
+        "backend/migrations/user_invoice_annotations_migration_test.go",
+        "frontend/src/components/admin/user/__tests__/UserBalanceHistoryModal.spec.ts",
+        "frontend/src/components/admin/user/__tests__/UserInvoiceAnnotations.spec.ts",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile266_release_contract.py"
+      ],
+      "invariants": [
+        "筛选统计当前类型全部记录，翻页不改变总条数与金额；金额按正负净合计，并发使用数量，订阅和混合类型不混加不同单位",
+        "总充值和累计领奖维持独立历史口径，不被类型筛选或开票标注改变",
+        "开票按用户独立登记金额、日期、可选号码备注，完全使用站内金额单位；没有currency、汇率、税额或自动换算",
+        "开票标注不改写用户余额、充值、退款、消费、奖励和权益账本，不绑定单笔充值，不执行外部开票或税务流程",
+        "创建以user_id/created_by/operation_id幂等，相同键不同请求拒绝；更正和作废写入前后快照及操作人时间，与标注更新在同一事务",
+        "更正携带expected_updated_at；内容已相同时作为成功重试，否则更新时间不匹配返回409 USER_INVOICE_STALE并要求重新加载，不覆盖后续更正；实际更正和作废的更新时间至少递增一微秒",
+        "total_invoiced只合计active记录且跨全部开票页；voided不能修改，不物理删除，删除用户不会级联抹除标注审计",
+        "接口仅管理员可访问，作废必须填写原因，跨用户记录ID与未知用户拒绝",
+        "profile266仅新增291，版本0.2.15-baiyu/parent265；历史profile和SQL/checksum保持不变，未知267拒绝；没有新增恢复审阅豁免，静态登记不是VM Gate或生产验收"
+      ]
+    },
     {
       "id": "gateway-inflight-fork-billing-compatibility",
       "title": "在途预留与分叉计费语义兼容",
@@ -982,7 +1057,7 @@
     {
       "id": "migration-profile-contract",
       "title": "Migration、profile、版本与历史证据",
-      "description": "维护 fork migration、官方重编号、历史 profile 233–264、pending profile 265、版本递增、checksum 和 compatibility identity。",
+      "description": "维护 fork migration、官方重编号、历史 profile 233–265、pending profile 266、版本递增、checksum 和 compatibility identity。",
       "ownership": "fork",
       "risk_level": "critical",
       "paths": [
@@ -1024,6 +1099,7 @@
       "api_routes": [],
       "settings_keys": [],
       "migration_files": [
+        "291_user_invoice_annotations.sql",
         "290_drop_platform_check_constraints.sql",
         "289_activity_reward_costs.sql",
         "288_upstream_confidence_distribution.sql",
@@ -1076,6 +1152,8 @@
         "280_plugin_runtime_state.sql"
       ],
       "required_tests": [
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile266_release_contract.py",
+        "backend/migrations/user_invoice_annotations_migration_test.go",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile265_release_contract.py",
         "backend/migrations/platform_check_constraints_drop_migration_test.go",
         "backend/internal/repository/platform_list_db_integration_test.go",
@@ -1127,7 +1205,7 @@
       ],
       "invariants": [
         "官方目标固定 3a6fd1c9db07203ca308aaba69e502bc1f35b307；官方新242仅原字节重编号为290，不修改历史SQL/checksum；仅移除用户平台配额和组合路由两个平台白名单CHECK，渠道监控provider约束保留；平台成员资格由domain共享目录在handler/service/repository/ent校验；本地测试与登记不证明VM Gate或生产部署，不新增恢复分类豁免",
-        "历史 profile 263 为 0.2.14-baiyu、parent 262、new_migrations=[]；历史 264 为 0.2.14-baiyu、parent 263、仅追加 289_activity_reward_costs.sql；当前 pending 265 为 0.2.15-baiyu、parent 264、仅追加 290_drop_platform_check_constraints.sql；历史 profile 262 保持 0.2.13-baiyu、parent 261、仅追加 288_upstream_confidence_distribution.sql，261 的 0.2.13-baiyu、parent 260、286/287 合同与更早 profile/checksum 原样保留；当前 265 执行闭包含 VM/Gate/DR/生产/祖先断言/备份/清理入口，未知 266 拒绝；历史 262 恢复兼容审阅原样保留；263 审阅仅绑定 218772daab271bb32df2ac6f9969ace0c9ccbce0 到 8499d5343c5a4510f88a3b13feb58f242d4cdd13，35项 profile 与3项 VM生命周期分别精确限定路径/blob/mode；vm_lifecycle.py本身纳入敏感分类，新增文件绑定旧状态不存在；仍执行specialized真实隔离恢复，未匹配变更阻断，不增加目录豁免",
+        "历史 profile 263 为 0.2.14-baiyu、parent 262、new_migrations=[]；历史 264 为 0.2.14-baiyu、parent 263、仅追加 289_activity_reward_costs.sql；历史 265 为 0.2.15-baiyu、parent 264、仅追加 290_drop_platform_check_constraints.sql；当前 pending 266 为 0.2.15-baiyu、parent 265、仅追加 291_user_invoice_annotations.sql；历史 profile 262 保持 0.2.13-baiyu、parent 261、仅追加 288_upstream_confidence_distribution.sql，261 的 0.2.13-baiyu、parent 260、286/287 合同与更早 profile/checksum 原样保留；当前 266 执行闭包含 VM/Gate/DR/生产/祖先断言/备份/清理入口，未知 267 拒绝；历史 262 恢复兼容审阅原样保留；263 审阅仅绑定 218772daab271bb32df2ac6f9969ace0c9ccbce0 到 8499d5343c5a4510f88a3b13feb58f242d4cdd13，35项 profile 与3项 VM生命周期分别精确限定路径/blob/mode；vm_lifecycle.py本身纳入敏感分类，新增文件绑定旧状态不存在；仍执行specialized真实隔离恢复，未匹配变更阻断，不增加目录豁免",
         "profile 260 已 signed 且 2026-10-01 生产 verified，保持 0.2.11-baiyu、parent 259、new_migrations=[285_upstream_null_rate_lifecycle.sql] 及全部历史签名/checksum 不变；保留 profile 261 为 0.2.13-baiyu、parent 260，仅追加 286_add_payment_order_bonus_amount.sql 和 287_add_typesafe_platform.sql；官方目标固定 b8dece9000c68815a5b867ca5a1e6f236e173905；新官方两项 241 仅重编号，SQL 原字节不变，旧 local241 保留；新增登记不代表新 VM Gate 或生产发布",
         "285 替换 validate_account_upstream_key_binding 并将 source 纳入绑定 trigger 的更新列：actual 缺失时仅允许 existing same-binding 且身份与价格不变的暂停或归档；新增、恢复、启用、重绑定和身份或价格变更仍严格要求 actual，known-rate 恢复仍校验 active/platform；不得修改历史 241、279、284 SQL 或 checksum，不增加 checksum compatibility 放行",
         "历史 profile 233–254 不回写；profile 254 对应 0.2.7-baiyu，parent 为 253，new_migrations 精确为 [278_fork_group_ttft_guard_policies.sql, 279_proxy_ip_groups.sql, 280_plugin_runtime_state.sql]，三项原始文件 SHA-256 必须与 migration_contracts 登记一致",

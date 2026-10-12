@@ -1,5 +1,5 @@
 <template>
-  <BaseDialog :show="show" :title="t('admin.users.balanceHistoryTitle')" width="wide" :close-on-click-outside="true" :z-index="40" @close="$emit('close')">
+  <BaseDialog :show="show" :title="t('admin.users.balanceHistoryTitle')" width="wide" :close-on-click-outside="!invoiceBusy" :close-on-escape="!invoiceBusy" :show-close-button="!invoiceBusy" :z-index="40" @close="closeDialog">
     <div v-if="user" class="space-y-4">
       <!-- User header: two-row layout with full user info -->
       <div class="rounded-xl bg-gray-50 p-4 dark:bg-dark-700">
@@ -47,20 +47,22 @@
           <p class="ml-4 flex-shrink-0 text-xs text-gray-500 dark:text-dark-400">
             {{ t('admin.users.totalRewarded') }}: <span class="font-semibold text-amber-600 dark:text-amber-400">${{ totalRewarded.toFixed(2) }}</span>
           </p>
+          <UserInvoiceAnnotations :show="show" :user="user" :read-only="readOnly" class="ml-auto pt-1" @busy="invoiceBusy = $event" />
         </div>
       </div>
 
       <!-- Type filter + Action buttons -->
-      <div class="flex items-center gap-3">
+      <div class="flex flex-wrap items-center gap-3">
         <Select
           v-model="typeFilter"
           :options="typeOptions"
-          class="w-56"
+          class="w-56 max-w-full"
           @change="loadHistory(1)"
         />
         <!-- Deposit button - matches menu style -->
         <button
-          v-if="!hideActions"
+          v-if="!readOnly"
+          :disabled="invoiceBusy"
           @click="emit('deposit')"
           class="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-50 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-300 dark:hover:bg-dark-700"
         >
@@ -69,7 +71,8 @@
         </button>
         <!-- Withdraw button - matches menu style -->
         <button
-          v-if="!hideActions"
+          v-if="!readOnly"
+          :disabled="invoiceBusy"
           @click="emit('withdraw')"
           class="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-50 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-300 dark:hover:bg-dark-700"
         >
@@ -78,6 +81,11 @@
           </svg>
           {{ t('admin.users.withdraw') }}
         </button>
+        <p v-if="!loading && !historyError" data-testid="history-filter-total" class="ml-auto text-right text-xs text-gray-500 dark:text-dark-400">
+          {{ t('admin.users.filteredRecordCount', { count: total }) }}
+          <template v-if="filteredAmount !== null"> · {{ t('admin.users.filteredAmount') }} <span class="font-semibold text-gray-700 dark:text-gray-200">{{ filteredAmount < 0 ? '-' : '' }}${{ Math.abs(filteredAmount).toFixed(2) }}</span></template>
+          <template v-else-if="filteredQuantity !== null"> · {{ t('admin.users.filteredQuantity') }} <span class="font-semibold text-gray-700 dark:text-gray-200">{{ filteredQuantity >= 0 ? '+' : '' }}{{ filteredQuantity }}</span></template>
+        </p>
       </div>
 
       <!-- Loading -->
@@ -86,6 +94,11 @@
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
           <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
         </svg>
+      </div>
+
+      <div v-else-if="historyError" role="alert" class="rounded-lg bg-red-50 p-3 text-sm text-red-600 dark:bg-red-900/20 dark:text-red-400">
+        {{ historyError }}
+        <button type="button" class="ml-2 underline" @click="loadHistory(currentPage)">{{ t('common.retry') }}</button>
       </div>
 
       <!-- Empty state -->
@@ -160,9 +173,9 @@
       </div>
 
       <!-- Pagination -->
-      <div v-if="totalPages > 1" class="flex items-center justify-center gap-2 pt-2">
+      <div v-if="totalPages > 1 && !historyError" class="flex items-center justify-center gap-2 pt-2">
         <button
-          :disabled="currentPage <= 1"
+          :disabled="loading || currentPage <= 1"
           class="btn btn-secondary px-3 py-1 text-sm"
           @click="loadHistory(currentPage - 1)"
         >
@@ -172,7 +185,7 @@
           {{ currentPage }} / {{ totalPages }}
         </span>
         <button
-          :disabled="currentPage >= totalPages"
+          :disabled="loading || currentPage >= totalPages"
           class="btn btn-secondary px-3 py-1 text-sm"
           @click="loadHistory(currentPage + 1)"
         >
@@ -192,6 +205,8 @@ import type { AdminUser } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Select from '@/components/common/Select.vue'
 import Icon from '@/components/icons/Icon.vue'
+import UserInvoiceAnnotations from './UserInvoiceAnnotations.vue'
+import { extractApiErrorMessage } from '@/utils/apiError'
 
 const props = defineProps<{ show: boolean; user: AdminUser | null; hideActions?: boolean; initialType?: string }>()
 const emit = defineEmits(['close', 'deposit', 'withdraw'])
@@ -199,10 +214,15 @@ const { t } = useI18n()
 
 const history = ref<BalanceHistoryItem[]>([])
 const loading = ref(false)
+const historyError = ref('')
+const invoiceBusy = ref(false)
+const readOnly = computed(() => Boolean(props.hideActions || props.user?.deleted_at))
 const currentPage = ref(1)
 const total = ref(0)
 const totalRecharged = ref(0)
 const totalRewarded = ref(0)
+const filteredAmount = ref<number | null>(null)
+const filteredQuantity = ref<number | null>(null)
 const pageSize = 15
 const typeFilter = ref('')
 let requestVersion = 0
@@ -223,23 +243,11 @@ const typeOptions = computed(() => [
   { value: 'subscription', label: t('admin.users.typeSubscription') }
 ])
 
-// Reload when the visible user or shortcut changes, even while the dialog stays open.
-watch(() => [props.show, props.user?.id, props.initialType] as const, ([show]) => {
-  requestVersion++
-  if (show && props.user) {
-    typeFilter.value = props.initialType || ''
-    history.value = []
-    total.value = 0
-    totalRecharged.value = 0
-    totalRewarded.value = 0
-    loadHistory(1)
-  }
-})
-
 const loadHistory = async (page: number) => {
   if (!props.user) return
   const version = ++requestVersion
   loading.value = true
+  historyError.value = ''
   currentPage.value = page
   try {
     const res = await adminAPI.users.getUserBalanceHistory(
@@ -253,13 +261,18 @@ const loadHistory = async (page: number) => {
     total.value = res.total || 0
     totalRecharged.value = res.total_recharged || 0
     totalRewarded.value = res.total_rewarded || 0
+    filteredAmount.value = isBalanceType(typeFilter.value) ? res.filtered_amount ?? null : null
+    filteredQuantity.value = ['concurrency', 'admin_concurrency'].includes(typeFilter.value) ? res.filtered_quantity ?? null : null
   } catch (error) {
     if (version !== requestVersion) return
     console.error('Failed to load balance history:', error)
+    historyError.value = extractApiErrorMessage(error, t('admin.users.failedToLoadBalanceHistory'))
   } finally {
     if (version === requestVersion) loading.value = false
   }
 }
+
+const closeDialog = () => { if (!invoiceBusy.value) emit('close') }
 
 // Helper: check if admin type
 const isAdminType = (type: string) => type === 'admin_balance' || type === 'admin_concurrency'
@@ -359,4 +372,20 @@ const formatValue = (item: BalanceHistoryItem) => {
   const sign = item.value >= 0 ? '+' : ''
   return `${sign}${item.value}`
 }
+
+// Reload when the visible user or shortcut changes, even while the dialog stays open.
+watch(() => [props.show, props.user?.id, props.initialType] as const, ([show]) => {
+  requestVersion++
+  historyError.value = ''
+  filteredAmount.value = null
+  filteredQuantity.value = null
+  if (show && props.user) {
+    typeFilter.value = props.initialType || ''
+    history.value = []
+    total.value = 0
+    totalRecharged.value = 0
+    totalRewarded.value = 0
+    void loadHistory(1)
+  }
+}, { immediate: true })
 </script>
