@@ -3,14 +3,20 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 type tempUnschedScopeRepoStub struct {
@@ -320,4 +326,168 @@ func TestCheckErrorPolicy_401FollowsTempUnschedScope(t *testing.T) {
 			require.Equal(t, tc.wantModel, len(repo.modelRateLimitCalls) == 1)
 		})
 	}
+}
+
+// 计数入口把实际发往上游的模型交给错误处理：显式模型级 401 规则只冷却该模型，不把整号置为 error。
+func TestCountTokensEntries_ExplicitModelScope401OnlyCoolsModel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	unauthorized := func() *http.Response {
+		return &http.Response{
+			StatusCode: http.StatusUnauthorized,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"unauthorized"}}`)),
+		}
+	}
+	cfg := &config.Config{
+		Gateway:  config.GatewayConfig{MaxLineSize: defaultMaxLineSize},
+		Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false, AllowInsecureHTTP: true}},
+	}
+	newContext := func(path string, body []byte) (*gin.Context, *httptest.ResponseRecorder) {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body))
+		return c, rec
+	}
+
+	t.Run("openai count_tokens as anthropic", func(t *testing.T) {
+		repo := &tempUnschedScopeRepoStub{}
+		upstream := &httpUpstreamRecorder{resp: unauthorized()}
+		svc := &OpenAIGatewayService{cfg: cfg, httpUpstream: upstream, rateLimitService: &RateLimitService{accountRepo: repo, cfg: cfg}}
+		account := newTempUnschedScope401Account(PlatformOpenAI, TempUnschedScopeModel)
+		account.Credentials["api_key"] = "sk-test"
+		account.Credentials["base_url"] = "http://upstream.example"
+		account.Concurrency = 1
+		body := []byte(`{"model":"claude-sonnet-4-5","messages":[{"role":"user","content":"hello"}]}`)
+		c, _ := newContext("/v1/messages/count_tokens", body)
+
+		require.Error(t, svc.ForwardCountTokensAsAnthropic(context.Background(), c, account, body, "gpt-5.4"))
+
+		require.Equal(t, "gpt-5.4", gjson.GetBytes(upstream.lastBody, "model").String())
+		require.Zero(t, repo.errorCalls)
+		require.Zero(t, repo.tempCalls)
+		require.Len(t, repo.modelRateLimitCalls, 1)
+		require.Equal(t, "gpt-5.4", repo.modelRateLimitCalls[0].scope)
+	})
+
+	t.Run("openai responses input_tokens", func(t *testing.T) {
+		repo := &tempUnschedScopeRepoStub{}
+		upstream := &httpUpstreamRecorder{resp: unauthorized()}
+		svc := &OpenAIGatewayService{cfg: cfg, httpUpstream: upstream, rateLimitService: &RateLimitService{accountRepo: repo, cfg: cfg}}
+		account := newTempUnschedScope401Account(PlatformOpenAI, TempUnschedScopeModel)
+		account.Credentials["api_key"] = "sk-test"
+		account.Credentials["model_mapping"] = map[string]any{"gpt-5.4": "gpt-5.4-upstream"}
+		account.Concurrency = 1
+		body := []byte(`{"model":"gpt-5.4","input":"hello"}`)
+		c, _ := newContext("/v1/responses/input_tokens", body)
+
+		require.Error(t, svc.ForwardResponsesInputTokens(context.Background(), c, account, body))
+
+		require.NotNil(t, upstream.lastReq)
+		require.Equal(t, "gpt-5.4-upstream", gjson.GetBytes(upstream.lastBody, "model").String())
+		require.Zero(t, repo.errorCalls)
+		require.Zero(t, repo.tempCalls)
+		require.Len(t, repo.modelRateLimitCalls, 1)
+		require.Equal(t, "gpt-5.4-upstream", repo.modelRateLimitCalls[0].scope)
+	})
+
+	for _, passthrough := range []bool{false, true} {
+		name := "anthropic count_tokens"
+		if passthrough {
+			name = "anthropic count_tokens api key passthrough"
+		}
+		t.Run(name, func(t *testing.T) {
+			repo := &tempUnschedScopeRepoStub{}
+			upstream := &anthropicHTTPUpstreamRecorder{resp: unauthorized()}
+			svc := &GatewayService{
+				cfg:                  cfg,
+				responseHeaderFilter: compileResponseHeaderFilter(cfg),
+				httpUpstream:         upstream,
+				rateLimitService:     &RateLimitService{accountRepo: repo, cfg: cfg},
+			}
+			account := newTempUnschedScope401Account(PlatformAnthropic, TempUnschedScopeModel)
+			account.Credentials["api_key"] = "upstream-anthropic-key"
+			account.Credentials["base_url"] = "https://api.anthropic.com"
+			account.Credentials["model_mapping"] = map[string]any{"claude-sonnet-4-5": "claude-sonnet-4-5-upstream"}
+			account.Concurrency = 1
+			if passthrough {
+				account.Extra = map[string]any{"anthropic_passthrough": true}
+			}
+			body := []byte(`{"model":"claude-sonnet-4-5","messages":[{"role":"user","content":"hello"}]}`)
+			c, _ := newContext("/v1/messages/count_tokens", body)
+			parsed := &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-sonnet-4-5"}
+
+			require.Error(t, svc.ForwardCountTokens(context.Background(), c, account, parsed))
+
+			require.NotNil(t, upstream.lastReq)
+			require.Equal(t, "claude-sonnet-4-5-upstream", gjson.GetBytes(upstream.lastBody, "model").String())
+			require.Zero(t, repo.errorCalls)
+			require.Zero(t, repo.tempCalls)
+			require.Len(t, repo.modelRateLimitCalls, 1)
+			require.Equal(t, "claude-sonnet-4-5-upstream", repo.modelRateLimitCalls[0].scope)
+		})
+	}
+}
+
+// Bedrock 故障转移入口与重试耗尽入口把实际发往上游的模型交给错误处理：显式模型级规则只冷却该模型。
+func TestAnthropicFailoverEntries_ExplicitModelScopeOnlyCoolsModel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cfg := &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}}
+	newResponse := func(status int, body string) *http.Response {
+		return &http.Response{
+			StatusCode: status,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(body)),
+		}
+	}
+
+	t.Run("bedrock failover 401", func(t *testing.T) {
+		repo := &tempUnschedScopeRepoStub{}
+		upstream := &anthropicHTTPUpstreamRecorder{resp: newResponse(http.StatusUnauthorized, `{"message":"unauthorized"}`)}
+		svc := &GatewayService{cfg: cfg, httpUpstream: upstream, rateLimitService: &RateLimitService{accountRepo: repo, cfg: cfg}}
+		account := newTempUnschedScope401Account(PlatformAnthropic, TempUnschedScopeModel)
+		account.Type = AccountTypeBedrock
+		account.Status = StatusActive
+		account.Schedulable = true
+		account.Credentials["auth_mode"] = "apikey"
+		account.Credentials["api_key"] = "bedrock-key"
+		body := []byte(`{"model":"claude-sonnet-4-5","messages":[{"role":"user","content":"hello"}]}`)
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+		parsed := &ParsedRequest{Body: NewRequestBodyRef(body), Model: "claude-sonnet-4-5"}
+
+		_, err := svc.forwardBedrock(context.Background(), c, account, parsed, time.Now())
+
+		var failover *UpstreamFailoverError
+		require.ErrorAs(t, err, &failover)
+		require.NotNil(t, upstream.lastReq)
+		require.Contains(t, upstream.lastReq.URL.Path, "anthropic.claude-sonnet-4-5-", "上游收到 Bedrock 模型 ID")
+		require.Zero(t, repo.errorCalls)
+		require.Zero(t, repo.tempCalls)
+		require.Len(t, repo.modelRateLimitCalls, 1)
+		// 冷却键必须是调度器查找的键（账号映射后的模型名），而不是 Bedrock 模型 ID。
+		scope := repo.modelRateLimitCalls[0].scope
+		require.Equal(t, "claude-sonnet-4-5", scope)
+		require.True(t, account.IsSchedulableForModelWithContext(context.Background(), "claude-sonnet-4-5"))
+		setAccountModelRateLimitSnapshot(account, scope, time.Now().Add(10*time.Minute), "temp_unschedulable", time.Now())
+		require.False(t, account.IsSchedulableForModelWithContext(context.Background(), "claude-sonnet-4-5"), "调度器按同一个键排除该模型")
+	})
+
+	t.Run("oauth retry exhausted 403", func(t *testing.T) {
+		repo := &tempUnschedScopeRepoStub{}
+		svc := &GatewayService{cfg: cfg, rateLimitService: &RateLimitService{accountRepo: repo, cfg: cfg}}
+		account := newTempUnschedScopeAccount(TempUnschedScopeModel, map[string]any{
+			"error_code": float64(http.StatusForbidden),
+			"keywords":   []any{"forbidden"},
+		})
+		account.Platform = PlatformAnthropic
+		account.Type = AccountTypeOAuth
+
+		svc.handleRetryExhaustedSideEffects(context.Background(), newResponse(http.StatusForbidden, `{"error":{"message":"forbidden"}}`), account, "claude-sonnet-4-5")
+
+		require.Zero(t, repo.errorCalls)
+		require.Zero(t, repo.tempCalls)
+		require.Len(t, repo.modelRateLimitCalls, 1)
+		require.Equal(t, "claude-sonnet-4-5", repo.modelRateLimitCalls[0].scope)
+	})
 }
