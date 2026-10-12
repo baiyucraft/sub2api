@@ -3,12 +3,12 @@ import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import type { AdminUser } from '@/types'
 import UserBalanceHistoryModal from '../UserBalanceHistoryModal.vue'
 
-const mocks = vi.hoisted(() => ({ getUserBalanceHistory: vi.fn() }))
+const mocks = vi.hoisted(() => ({ getUserBalanceHistory: vi.fn(), getUserInvoices: vi.fn() }))
 vi.mock('@/api/admin', () => ({ adminAPI: { users: mocks } }))
 vi.mock('@/utils/format', () => ({ formatDateTime: () => 'date' }))
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string, params?: Record<string, unknown>) => params ? `${key}:${Object.values(params).join(',')}` : key }) }))
 enableAutoUnmount(afterEach)
-beforeEach(() => { vi.clearAllMocks(); vi.spyOn(console, 'error').mockImplementation(() => {}) })
+beforeEach(() => { vi.clearAllMocks(); mocks.getUserInvoices.mockResolvedValue({ items: [], total: 0, total_invoiced: 0, page: 1, pages: 1 }); vi.spyOn(console, 'error').mockImplementation(() => {}) })
 afterEach(() => vi.restoreAllMocks())
 function result(id: number) {
   return { items: [{ id, type: 'admin_balance', value: id, notes: `History ${id}` }], total: 1, total_recharged: id }
@@ -22,7 +22,7 @@ function deferred() {
 async function openDialog(extraProps: Record<string, unknown> = {}) {
   const wrapper = mount(UserBalanceHistoryModal, {
     props: { show: false, user: { id: 1, email: 'one@example.com', balance: 1 } as AdminUser, ...extraProps },
-    global: { stubs: { BaseDialog: { props: ['show'], template: '<div v-if="show"><slot /></div>' }, Icon: true, Select: true } }
+    global: { stubs: { BaseDialog: { name: 'BaseDialog', props: ['show'], template: '<div v-if="show"><slot /></div>' }, Icon: true, Select: true } }
   })
   await wrapper.setProps({ show: true })
   return wrapper
@@ -70,6 +70,32 @@ describe('UserBalanceHistoryModal request ordering', () => {
     expect(wrapper.findComponent({ name: 'Select' }).props('options')).toEqual(expect.arrayContaining([
       expect.objectContaining({ value: 'activity_reward' })
     ]))
+  })
+
+  it('keeps deleted users read-only including invoice registration', async () => {
+    mocks.getUserBalanceHistory.mockResolvedValue({ items: [], total: 0, total_recharged: 0, total_rewarded: 0 })
+    const wrapper = await openDialog({ user: { id: 1, email: 'deleted@example.com', deleted_at: '2026-10-01' } as AdminUser })
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('admin.users.deposit')
+    expect(wrapper.text()).not.toContain('admin.users.withdraw')
+    expect(wrapper.find('[data-testid="invoice-register"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="invoice-summary"]').exists()).toBe(true)
+  })
+
+  it('blocks parent closing and balance actions while invoice submission is unresolved', async () => {
+    mocks.getUserBalanceHistory.mockResolvedValue({ items: [], total: 0 })
+    const wrapper = await openDialog()
+    await flushPromises()
+    const annotations = wrapper.findComponent({ name: 'UserInvoiceAnnotations' })
+    annotations.vm.$emit('busy', true)
+    await flushPromises()
+    wrapper.findComponent({ name: 'BaseDialog' }).vm.$emit('close')
+    expect(wrapper.emitted('close')).toBeUndefined()
+    expect(wrapper.findAll('button').find((button) => button.text() === 'admin.users.deposit')!.attributes('disabled')).toBeDefined()
+    annotations.vm.$emit('busy', false)
+    await flushPromises()
+    wrapper.findComponent({ name: 'BaseDialog' }).vm.$emit('close')
+    expect(wrapper.emitted('close')).toHaveLength(1)
   })
 
   it('renders reward types, amounts and source IDs without treating them as redeem codes', async () => {
@@ -124,6 +150,50 @@ describe('UserBalanceHistoryModal request ordering', () => {
     await flushPromises()
     expect(mocks.getUserBalanceHistory).toHaveBeenLastCalledWith(1, 1, 15, 'balance')
     expect(wrapper.text()).toContain('$156.28')
+  })
+
+  it('uses full filtered count and signed totals across pages, without mixing units', async () => {
+    mocks.getUserBalanceHistory.mockResolvedValue({ items: [], total: 31, total_recharged: 100, total_rewarded: 15, filtered_amount: -20.5, filtered_quantity: null })
+    const wrapper = await openDialog({ initialType: 'admin_balance' })
+    await flushPromises()
+    expect(wrapper.get('[data-testid="history-filter-total"]').text()).toContain('admin.users.filteredRecordCount:31')
+    expect(wrapper.get('[data-testid="history-filter-total"]').text()).toContain('-$20.50')
+    await wrapper.findAll('button').find((button) => button.text() === 'pagination.next')!.trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="history-filter-total"]').text()).toContain('-$20.50')
+    mocks.getUserBalanceHistory.mockResolvedValue({ items: [], total: 7, total_recharged: 100, total_rewarded: 15, filtered_amount: null, filtered_quantity: 0 })
+    const filter = wrapper.findComponent({ name: 'Select' })
+    filter.vm.$emit('update:modelValue', 'concurrency')
+    filter.vm.$emit('change')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="history-filter-total"]').text()).toContain('admin.users.filteredQuantity +0')
+    expect(wrapper.get('[data-testid="history-filter-total"]').text()).not.toContain('$')
+    filter.vm.$emit('update:modelValue', 'subscription')
+    filter.vm.$emit('change')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="history-filter-total"]').text()).toBe('admin.users.filteredRecordCount:7')
+    filter.vm.$emit('update:modelValue', '')
+    filter.vm.$emit('change')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="history-filter-total"]').text()).toBe('admin.users.filteredRecordCount:7')
+  })
+
+  it('hides old totals while loading a new type and shows failures instead of a false empty result', async () => {
+    mocks.getUserBalanceHistory.mockResolvedValueOnce({ items: [], total: 30, filtered_amount: 500 })
+    const wrapper = await openDialog({ initialType: 'balance' })
+    await flushPromises()
+    const pending = deferred()
+    mocks.getUserBalanceHistory.mockReturnValueOnce(pending.promise)
+    const filter = wrapper.findComponent({ name: 'Select' })
+    filter.vm.$emit('update:modelValue', 'admin_balance')
+    filter.vm.$emit('change')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="history-filter-total"]').exists()).toBe(false)
+    pending.reject(new Error('history unavailable'))
+    await flushPromises()
+    expect(wrapper.find('[data-testid="history-filter-total"]').exists()).toBe(false)
+    expect(wrapper.get('[role="alert"]').text()).toContain('history unavailable')
+    expect(wrapper.text()).not.toContain('admin.users.noBalanceHistory')
   })
 
   it('keeps the new user history when an old response finishes later', async () => {

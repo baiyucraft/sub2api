@@ -40,6 +40,10 @@ type UserBalanceHistoryPage struct {
 	Total          int64
 	TotalRecharged float64
 	TotalRewarded  float64
+	// Filtered totals cover the entire selected type, before pagination. Nil
+	// means that the selected records do not share this unit (e.g. all types).
+	FilteredAmount   *float64
+	FilteredQuantity *float64
 }
 
 func userBalanceHistoryFromRedeem(code RedeemCode) UserBalanceHistoryRecord {
@@ -153,6 +157,7 @@ func (s *adminServiceImpl) userBalanceHistory(ctx context.Context, userID int64,
 	if codeType == "activity_reward" {
 		result.Items, err = s.listActivityRewardHistory(ctx, userID, params.Limit(), params.Offset())
 		result.Total = rewardCount
+		result.FilteredAmount = &totalRewarded
 		return result, err
 	}
 	if codeType != "" {
@@ -168,6 +173,9 @@ func (s *adminServiceImpl) userBalanceHistory(ctx context.Context, userID int64,
 		}
 		for _, code := range codes {
 			result.Items = append(result.Items, userBalanceHistoryFromRedeem(code))
+		}
+		if err == nil {
+			result.FilteredAmount, result.FilteredQuantity, err = s.filteredBalanceHistoryTotals(ctx, userID, codeType)
 		}
 		return result, err
 	}
@@ -195,4 +203,46 @@ func (s *adminServiceImpl) userBalanceHistory(ctx context.Context, userID int64,
 	result.Items = paginateUserBalanceHistory(rewards, params)
 	result.Total = redeemCount + affiliateCount + rewardCount
 	return result, nil
+}
+
+// The predicates match the selected ledger used by the list above. In
+// particular, affiliate transfers must never be counted from redeem_codes,
+// and negative administrator adjustments are included in the net change.
+func (s *adminServiceImpl) filteredBalanceHistoryTotals(ctx context.Context, userID int64, codeType string) (amount, quantity *float64, err error) {
+	if s.entClient == nil {
+		return nil, nil, nil
+	}
+	var query string
+	args := []any{userID, codeType}
+	switch codeType {
+	case RedeemTypeBalance, "admin_balance", RedeemTypeConcurrency, "admin_concurrency":
+		query = `SELECT COALESCE(SUM(value),0) FROM redeem_codes WHERE used_by=$1 AND type=$2`
+	case RedeemTypeAffiliateBalance:
+		query = `SELECT COALESCE(SUM(amount),0) FROM user_affiliate_ledger WHERE user_id=$1 AND action='transfer'`
+		args = []any{userID}
+	default:
+		return nil, nil, nil
+	}
+	rows, err := s.entClient.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		if err = rows.Err(); err != nil {
+			return nil, nil, err
+		}
+		return nil, nil, sql.ErrNoRows
+	}
+	var value float64
+	if err = rows.Scan(&value); err != nil {
+		return nil, nil, err
+	}
+	if err = rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	if codeType == RedeemTypeConcurrency || codeType == "admin_concurrency" {
+		return nil, &value, nil
+	}
+	return &value, nil, nil
 }

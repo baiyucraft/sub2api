@@ -24,11 +24,13 @@ type activityHistoryAdminStub struct {
 func (s *activityHistoryAdminStub) GetUserBalanceHistory(_ context.Context, userID int64, page, pageSize int, typeFilter string) (*service.UserBalanceHistoryPage, error) {
 	s.userID, s.page, s.pageSize, s.typeFilter = userID, page, pageSize, typeFilter
 	claimedAt := time.Date(2026, 10, 7, 4, 0, 0, 0, time.UTC)
+	amount := 1.25
 	return &service.UserBalanceHistoryPage{
 		Items: []service.UserBalanceHistoryRecord{{ID: 1, Type: "activity_reward", Value: 0,
 			Status: "credited", RecordSource: "activity_reward", SourceID: 1,
 			ActivityType: "daily_gift", CreatedAt: claimedAt, UsedAt: &claimedAt}},
 		Total: 3, TotalRecharged: 100, TotalRewarded: 1.25,
+		FilteredAmount: &amount,
 	}, nil
 }
 
@@ -50,10 +52,12 @@ func TestActivityRewardBalanceHistoryAPIKeepsLifetimeTotalsAndOrigin(t *testing.
 				SourceID     int64   `json:"source_id"`
 				ActivityType string  `json:"activity_type"`
 			} `json:"items"`
-			Total          int64   `json:"total"`
-			Pages          int     `json:"pages"`
-			TotalRewarded  float64 `json:"total_rewarded"`
-			TotalRecharged float64 `json:"total_recharged"`
+			Total            int64    `json:"total"`
+			Pages            int      `json:"pages"`
+			TotalRewarded    float64  `json:"total_rewarded"`
+			TotalRecharged   float64  `json:"total_recharged"`
+			FilteredAmount   *float64 `json:"filtered_amount"`
+			FilteredQuantity *float64 `json:"filtered_quantity"`
 		} `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
@@ -62,6 +66,8 @@ func TestActivityRewardBalanceHistoryAPIKeepsLifetimeTotalsAndOrigin(t *testing.
 	require.Equal(t, "activity_reward", stub.typeFilter)
 	require.Equal(t, 1.25, response.Data.TotalRewarded)
 	require.Equal(t, 100.0, response.Data.TotalRecharged)
+	require.Equal(t, 1.25, *response.Data.FilteredAmount)
+	require.Nil(t, response.Data.FilteredQuantity)
 	require.Equal(t, 2, response.Data.Pages)
 	require.Len(t, response.Data.Items, 1)
 	require.Empty(t, response.Data.Items[0].Code)
