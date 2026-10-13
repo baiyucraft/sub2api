@@ -210,7 +210,7 @@ class GateV2Test(unittest.TestCase):
     def test_profile_262_historical_signed_contract_rejects_drift(self) -> None:
         document = self._document(profile="262")
         self._sign(document)
-        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 267"):
+        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 268"):
             self._verify(profile="262")
         self.assertEqual(self._verify(profile="262", allow_historical_runner=True, validate_profile_contract=True), document)
         for field, value, message in (
@@ -226,15 +226,15 @@ class GateV2Test(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, message):
                     self._verify(profile="262", allow_historical_runner=True, validate_profile_contract=True)
 
-    def test_unregistered_profile_268_is_rejected_even_for_recovery(self) -> None:
+    def test_unregistered_profile_269_is_rejected_even_for_recovery(self) -> None:
         document = self._document()
-        document["profile_id"] = 268
-        document["manifest"].update(profile="268", release_id="268-aaaaaaaaaaaa-1-aaaaaaaa")
+        document["profile_id"] = 269
+        document["manifest"].update(profile="269", release_id="269-aaaaaaaaaaaa-1-aaaaaaaa")
         self._sign(document)
-        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 267"):
-            self._verify(profile="268")
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 268"):
-            self._verify(profile="268", allow_historical_runner=True)
+        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 268"):
+            self._verify(profile="269")
+        with self.assertRaisesRegex(ValueError, "unknown release profile: 269"):
+            self._verify(profile="269", allow_historical_runner=True)
 
     def test_fast_gate_requires_non_restore_evidence(self) -> None:
         document = self._document()
@@ -265,14 +265,14 @@ class GateV2Test(unittest.TestCase):
         document["profile_id"] = 246
         document["manifest"].update(profile="246", release_id="246-aaaaaaaaaaaa-1-aaaaaaaa", version="0.2.1-baiyu")
         self._sign(document)
-        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 267"):
+        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 268"):
             self._verify(profile="246")
         self.assertEqual(self._verify(profile="246", allow_historical_runner=True), document)
 
     def test_previous_profile_requires_historical_runner_for_recovery(self) -> None:
         document = self._document(profile="260")
         self._sign(document)
-        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 267"):
+        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 268"):
             self._verify(profile="260")
         self.assertEqual(self._verify(profile="260", allow_historical_runner=True, validate_profile_contract=True), document)
 

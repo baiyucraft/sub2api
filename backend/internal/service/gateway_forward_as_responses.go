@@ -147,6 +147,7 @@ func (s *GatewayService) ForwardAsResponses(
 
 	// 11. Send request
 	s.countLegacyAnthropicRPM(ctx, account)
+	BeginUpstreamCacheGuardSend(upstreamReq.Context(), account, mappedModel, "anthropic")
 	resp, err := s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
 	if err != nil {
 		if resp != nil && resp.Body != nil {
@@ -407,6 +408,7 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 			continue
 		}
 
+		observeAnthropicCacheUsageEvent(payload, &usage)
 		var event apicompat.AnthropicStreamEvent
 		if err := json.Unmarshal([]byte(payload), &event); err != nil {
 			logger.L().Warn("forward_as_responses buffered: failed to parse event",
@@ -506,14 +508,15 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 	}
 
 	return &ForwardResult{
-		RequestID:       requestID,
-		UpstreamHeaders: resp.Header,
-		Usage:           usage,
-		Model:           originalModel,
-		UpstreamModel:   mappedModel,
-		ReasoningEffort: reasoningEffort,
-		Stream:          false,
-		Duration:        time.Since(startTime),
+		RequestID:          requestID,
+		UpstreamHeaders:    resp.Header,
+		CacheUsageEvidence: usage.CacheUsageEvidence,
+		Usage:              usage,
+		Model:              originalModel,
+		UpstreamModel:      mappedModel,
+		ReasoningEffort:    reasoningEffort,
+		Stream:             false,
+		Duration:           time.Since(startTime),
 	}, nil
 }
 
@@ -546,6 +549,8 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 	var usage ClaudeUsage
 	var firstTokenMs *int
 	firstChunk := true
+	clientDisconnected := false
+	cacheTerminalComplete, cacheReadFailed := false, false
 
 	scanner := bufio.NewScanner(resp.Body)
 	maxLineSize := defaultMaxLineSize
@@ -555,16 +560,20 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 	scanner.Buffer(make([]byte, 0, 64*1024), maxLineSize)
 
 	resultWithUsage := func() *ForwardResult {
+		observedUsage := usage
+		observedUsage.CacheUsageEvidence = cacheUsageWithStreamCompletion(usage.CacheUsageEvidence, cacheTerminalComplete && !cacheReadFailed)
 		return &ForwardResult{
-			RequestID:       requestID,
-			UpstreamHeaders: resp.Header,
-			Usage:           usage,
-			Model:           originalModel,
-			UpstreamModel:   mappedModel,
-			ReasoningEffort: reasoningEffort,
-			Stream:          true,
-			Duration:        time.Since(startTime),
-			FirstTokenMs:    firstTokenMs,
+			RequestID:          requestID,
+			UpstreamHeaders:    resp.Header,
+			CacheUsageEvidence: observedUsage.CacheUsageEvidence,
+			Usage:              observedUsage,
+			Model:              originalModel,
+			UpstreamModel:      mappedModel,
+			ReasoningEffort:    reasoningEffort,
+			Stream:             true,
+			Duration:           time.Since(startTime),
+			FirstTokenMs:       firstTokenMs,
+			ClientDisconnect:   clientDisconnected,
 		}
 	}
 
@@ -614,6 +623,7 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 			for _, restored := range payloads {
 				eventType := gjson.GetBytes(restored, "type").String()
 				if _, err := fmt.Fprintf(c.Writer, "event: %s\ndata: %s\n\n", eventType, restored); err != nil {
+					clientDisconnected = true
 					logger.L().Info("forward_as_responses stream: client disconnected",
 						zap.String("request_id", requestID),
 					)
@@ -635,7 +645,9 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 					continue
 				}
 				out := string(reverseToolNamesIfPresent(c, []byte(sse)))
-				fmt.Fprint(c.Writer, out) //nolint:errcheck
+				if _, err := fmt.Fprint(c.Writer, out); err != nil {
+					clientDisconnected = true
+				}
 			}
 			c.Writer.Flush()
 		}
@@ -660,6 +672,7 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 			continue
 		}
 
+		observeAnthropicCacheUsageEvent(payload, &usage)
 		var event apicompat.AnthropicStreamEvent
 		if err := json.Unmarshal([]byte(payload), &event); err != nil {
 			logger.L().Warn("forward_as_responses stream: failed to parse event",
@@ -669,6 +682,7 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 			)
 			continue
 		}
+		cacheTerminalComplete = cacheTerminalComplete || anthropicStreamEventIsTerminal("", payload)
 
 		if processEvent(&event) {
 			return resultWithUsage(), nil
@@ -676,6 +690,7 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 	}
 
 	if err := scanner.Err(); err != nil {
+		cacheReadFailed = true
 		if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 			logger.L().Warn("forward_as_responses stream: read error",
 				zap.Error(err),

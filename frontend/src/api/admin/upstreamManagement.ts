@@ -7,6 +7,17 @@ export interface TTFTGuardSettings {
   min_samples: number
 }
 
+export interface UpstreamCacheGuardSettings {
+  mode: 'disabled' | 'observe' | 'protect'
+  group_ids: number[]
+  threshold_percent: number
+  window_minutes: number
+  min_valid_requests: number
+  recovery_threshold_percent: number
+  cooldown_minutes: number
+  trial_percent: number
+}
+
 export interface ProbeGuardSettings {
   enabled: boolean
   suspend_after_failures: number
@@ -27,6 +38,7 @@ export interface ProbePlatformDescriptor {
 
 export interface UpstreamManagementSettings {
   ttft_guard: TTFTGuardSettings
+  cache_guard?: UpstreamCacheGuardSettings
   probe_guard: ProbeGuardSettings
   probe_models: Record<string, string>
   probe_interval_seconds: number

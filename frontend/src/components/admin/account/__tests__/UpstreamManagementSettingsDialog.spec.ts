@@ -4,7 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import UpstreamManagementSettingsDialog from '../UpstreamManagementSettingsDialog.vue'
 
-const { getSettings, getProbeSettings, getCandidates, updateSettings, updateProbeSettings, showError, showSuccess } = vi.hoisted(() => ({
+const { getGroups, getSettings, getProbeSettings, getCandidates, updateSettings, updateProbeSettings, showError, showSuccess } = vi.hoisted(() => ({
+  getGroups: vi.fn(),
   getSettings: vi.fn(),
   getProbeSettings: vi.fn(),
   getCandidates: vi.fn(),
@@ -13,6 +14,8 @@ const { getSettings, getProbeSettings, getCandidates, updateSettings, updateProb
   showError: vi.fn(),
   showSuccess: vi.fn()
 }))
+
+vi.mock('@/api/admin/groups', () => ({ default: { getAllIncludingInactive: getGroups } }))
 
 vi.mock('@/api/admin/upstreamManagement', () => ({
   default: {
@@ -63,6 +66,7 @@ const ToggleStub = defineComponent({
 
 describe('UpstreamManagementSettingsDialog', () => {
   beforeEach(() => {
+    getGroups.mockReset().mockResolvedValue([{ id: 1, name: 'OpenAI', platform: 'openai' }, { id: 2, name: 'Claude', platform: 'anthropic' }])
     getSettings.mockReset()
     getProbeSettings.mockReset()
     getCandidates.mockReset()
@@ -133,6 +137,43 @@ describe('UpstreamManagementSettingsDialog', () => {
     expect(getCandidates).toHaveBeenCalledTimes(1)
     expect(wrapper.find('[data-test="help"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('admin.upstreamManagement.ttftGuard.tip.definition')
+  })
+
+  it('defaults cache protection to off and saves the group scope without changing retries', async () => {
+    const wrapper = mountDialog()
+    await flushPromises()
+    expect(wrapper.get('[data-test="cache-guard-mode"]').element).toHaveProperty('value', 'disabled')
+    await wrapper.get('[data-test="cache-guard-mode"]').setValue('observe')
+    await wrapper.get('button.btn-primary').trigger('click')
+    await flushPromises()
+    expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      cache_guard: { mode: 'observe', group_ids: [], threshold_percent: 75, window_minutes: 60, min_valid_requests: 20, recovery_threshold_percent: 80, cooldown_minutes: 10, trial_percent: 10 },
+      pool_mode_retry_status_codes: [401, 403, 429]
+    }))
+  })
+
+  it('retains scoped groups missing from the current catalog', async () => {
+    const settings = await getSettings()
+    getSettings.mockResolvedValue({ ...settings, cache_guard: { mode: 'protect', group_ids: [99, 2], threshold_percent: 75, window_minutes: 60, min_valid_requests: 20, recovery_threshold_percent: 80, cooldown_minutes: 10, trial_percent: 10 } })
+    const wrapper = mountDialog()
+    await flushPromises()
+    const groups = wrapper.findComponent('[data-test="cache-guard-groups"]')
+    expect(groups.props('options')).toEqual(expect.arrayContaining([{ value: 2, label: 'Claude' }, { value: 99, label: 'admin.upstreamManagement.cacheGuard.groupId' }]))
+    await wrapper.get('button.btn-primary').trigger('click')
+    await flushPromises()
+    expect(updateSettings.mock.calls[0]?.[0].cache_guard.group_ids).toEqual([2, 99])
+  })
+
+  it('rejects recovery thresholds at or below protection and invalid windows', async () => {
+    const wrapper = mountDialog()
+    await flushPromises()
+    await wrapper.get('[data-test="cache-guard-recovery_threshold_percent"]').setValue(75)
+    expect(wrapper.get('button.btn-primary').attributes('disabled')).toBeDefined()
+    await wrapper.get('[data-test="cache-guard-recovery_threshold_percent"]').setValue(80)
+    await wrapper.get('[data-test="cache-guard-window_minutes"]').setValue(4)
+    expect(wrapper.get('button.btn-primary').attributes('disabled')).toBeDefined()
+    await wrapper.get('[data-test="cache-guard-window_minutes"]').setValue(5)
+    expect(wrapper.get('button.btn-primary').attributes('disabled')).toBeUndefined()
   })
 
   it('renders the upstream platform catalog and marks catalog-only providers', async () => {
@@ -241,6 +282,7 @@ describe('UpstreamManagementSettingsDialog', () => {
     const wrapper = mountDialog(true, true)
     await flushPromises()
     expect(wrapper.find('[data-test="fixed-openai-probe-model"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="cache-guard-settings"]').exists()).toBe(false)
     expect(wrapper.text()).toContain('admin.upstreamManagement.confidenceProbe.window')
     await wrapper.find('button.btn-primary').trigger('click')
     await flushPromises()
@@ -248,6 +290,8 @@ describe('UpstreamManagementSettingsDialog', () => {
       confidence_probe: expect.objectContaining({ enabled: false, reasoning_effort: 'low', long_context_enabled: false, quality_degrade_threshold: 0, prompt_version: 'openai-sol-distribution-v1' }),
       probe_models: expect.objectContaining({ openai: 'gpt-live' })
     }))
+    expect(updateProbeSettings.mock.calls[0]?.[0]).not.toHaveProperty('cache_guard')
+    expect(getGroups).not.toHaveBeenCalled()
   })
 
   it('fixes the enabled OpenAI model without overwriting the ordinary model', async () => {

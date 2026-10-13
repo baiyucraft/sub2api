@@ -182,6 +182,10 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		APIKeyID:  apiKey.ID,
 	}
 	sessionHash := h.gatewayService.GenerateSessionHash(parsedReq)
+	if reqStream && service.UpstreamCacheGuardLogicalSession(c, body) != "" && service.UpstreamCacheGuardTextRequest(c.Request.URL.Path, body) {
+		requestCtx = service.WithUpstreamCacheGuardRequestSession(requestCtx, apiKey.ID, c, body)
+		c.Request = c.Request.WithContext(requestCtx)
+	}
 
 	// 3. Account selection + failover loop
 	fs := NewFailoverState(h.maxAccountSwitches, false)
@@ -268,7 +272,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		}
 		account = latest
 		selection.Account = latest
-		if selection.ProfitGateActive() {
+		if selection.RequiresStickyAdmissionBinding() {
 			if err := h.gatewayService.BindStickySessionAfterProfitAdmission(admissionCtx, apiKey.GroupID, sessionHash, account.ID); err != nil {
 				reqLog.Warn("gateway.responses.bind_sticky_session_after_profit_admission_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 			}
@@ -292,6 +296,10 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		if channelMapping.Mapped {
 			forwardBody = h.gatewayService.ReplaceModelInBody(body, channelMapping.MappedModel)
 		}
+		cacheAttemptCtx := c.Request.Context()
+		if reqStream && service.UpstreamCacheGuardTextRequest(c.Request.URL.Path, body) {
+			cacheAttemptCtx = service.WithUpstreamCacheGuardAttempt(cacheAttemptCtx, apiKey.ID, apiKey.GroupID, sessionHash, true)
+		}
 		var result *service.ForwardResult
 		setActualUpstreamEndpoint(c, "")
 		if shouldUseAntigravityCompat(account) {
@@ -303,10 +311,12 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 				return
 			}
 			setActualUpstreamEndpoint(c, EndpointAntigravityGenerateContent)
-			result, err = h.antigravityGatewayService.ForwardAsResponses(requestCtx, c, account, forwardBody, parsedReq)
+			result, err = h.antigravityGatewayService.ForwardAsResponses(cacheAttemptCtx, c, account, forwardBody, parsedReq)
 		} else {
-			result, err = h.gatewayService.ForwardAsResponses(requestCtx, c, account, forwardBody, parsedReq)
+			result, err = h.gatewayService.ForwardAsResponses(cacheAttemptCtx, c, account, forwardBody, parsedReq)
 		}
+
+		service.FinishGatewayUpstreamCacheGuardAttempt(cacheAttemptCtx, result, err)
 
 		if accountReleaseFunc != nil {
 			accountReleaseFunc()

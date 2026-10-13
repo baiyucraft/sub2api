@@ -400,6 +400,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 
 		// 发送请求
 		s.countLegacyAnthropicRPM(ctx, account)
+		BeginUpstreamCacheGuardSend(upstreamReq.Context(), account, reqModel, "anthropic")
 		resp, err = s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, tlsProfile)
 		if err != nil {
 			if resp != nil && resp.Body != nil {
@@ -897,6 +898,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	return &ForwardResult{
 		RequestID:                     resp.Header.Get("x-request-id"),
 		UpstreamHeaders:               resp.Header,
+		CacheUsageEvidence:            usage.CacheUsageEvidence,
 		Usage:                         *usage,
 		Model:                         originalModel, // 使用原始模型用于计费和日志
 		UpstreamModel:                 mappedModel,

@@ -525,6 +525,8 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		}
 	}
 	refreshIngressRouteState(firstPayload)
+	cacheTurns := newUpstreamCacheGuardWSTurns(ctx)
+	defer cacheTurns.finishRemaining()
 
 	if useHTTPBridge {
 		logOpenAIWSModeInfo(
@@ -639,7 +641,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				}
 			}
 			result, bridgeErr := s.proxyOpenAIWSHTTPBridgeTurn(
-				ctx,
+				cacheTurns.turnContext(turn, bridgePayloadRaw),
 				c,
 				account,
 				token,
@@ -653,6 +655,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				turn,
 				writeClientMessage,
 			)
+			cacheTurns.finish(turn, result, bridgeErr)
 			if bridgeErr != nil && isOpenAIWSSessionPreempted(ctx) {
 				return errOpenAIWSSessionPreempted
 			}
@@ -935,6 +938,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		payload = prepared.body
 		payloadBytes = len(payload)
 		imageBillingModel, imageSizeTier, imageInputSize = prepared.billing.Model, prepared.billing.SizeTier, prepared.billing.InputSize
+		cacheTurns.begin(turn, account, payload, gjson.GetBytes(payload, "model").String(), "openai_ws")
 		if err := lease.WriteJSONWithContextTimeout(ctx, json.RawMessage(payload), s.openAIWSWriteTimeout()); err != nil {
 			return nil, wrapOpenAIWSIngressTurnError(
 				"write_upstream",
@@ -1224,6 +1228,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				imageCount := imageCounter.Count()
 				result := &OpenAIForwardResult{
 					RequestID:                     responseID,
+					CacheUsageEvidence:            usage.CacheUsageEvidence,
 					Usage:                         usage,
 					Model:                         originalModel,
 					UpstreamModel:                 mappedModel,
@@ -1236,6 +1241,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 					Stream:                        reqStream,
 					OpenAIWSMode:                  true,
 					UpstreamTerminalEvent:         terminalEvent,
+					ClientDisconnect:              clientDisconnected,
 					ResponseHeaders:               lease.HandshakeHeaders(),
 					Duration:                      time.Since(turnStart),
 					FirstTokenMs:                  firstTokenMs,
@@ -1824,6 +1830,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			if unwrapped := errors.Unwrap(relayErr); unwrapped != nil && !errors.As(relayErr, &clientCloseErr) {
 				finalErr = unwrapped
 			}
+			cacheTurns.finish(turn, result, finalErr)
 			if hooks != nil && hooks.AfterTurn != nil {
 				hooks.AfterTurn(turn, nil, finalErr)
 			}
@@ -1834,6 +1841,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		turnPrevRecoveryTried = false
 		lastTurnFinishedAt = time.Now()
 		lastTurnClean = true
+		cacheTurns.finish(turn, result, nil)
 		if hooks != nil && hooks.AfterTurn != nil {
 			hooks.AfterTurn(turn, result, nil)
 		}

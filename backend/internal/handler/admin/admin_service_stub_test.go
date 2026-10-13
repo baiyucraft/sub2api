@@ -480,8 +480,10 @@ func (s *stubAdminService) ListAccountsScoped(ctx context.Context, page, pageSiz
 		}
 		filtered = append(filtered, account)
 	}
-	clone := *s
-	clone.accounts = filtered
+	clone := &stubAdminService{
+		accounts:         filtered,
+		lastListAccounts: s.lastListAccounts,
+	}
 	return clone.ListAccounts(ctx, page, pageSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder)
 }
 

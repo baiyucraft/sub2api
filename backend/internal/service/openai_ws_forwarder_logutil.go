@@ -172,7 +172,10 @@ func openAIWSEventShouldParseUsage(eventType string) bool {
 }
 
 func openAIWSMessageShouldParseUsage(eventType string, message []byte) bool {
-	return openAIWSEventShouldParseUsage(eventType) && bytes.Contains(message, []byte(`"usage"`))
+	// A terminal with no usage must replace progressive cache evidence with
+	// an absent fact. Keep the cheap usage filter on ordinary nonterminal frames.
+	return openAIStreamEventTypeIsTerminal(eventType) ||
+		(openAIWSEventShouldParseUsage(eventType) && bytes.Contains(message, []byte(`"usage"`)))
 }
 
 func parseOpenAIWSEventEnvelope(message []byte) (eventType string, responseID string, response gjson.Result) {
@@ -199,19 +202,10 @@ func openAIWSMessageLikelyContainsToolCalls(message []byte) bool {
 }
 
 func parseOpenAIWSResponseUsageFromCompletedEvent(message []byte, usage *OpenAIUsage) {
-	if usage == nil || len(message) == 0 || !bytes.Contains(message, []byte(`"usage"`)) {
-		return
-	}
-	if parsedUsage, ok := extractOpenAIUsageFromJSONBytes(message); ok {
-		if openAIStreamEventTypeIsTerminal(effectiveOpenAISSEEventType(message, "")) {
-			if !openAIUsageHasTokens(&parsedUsage) && openAIUsageHasTokens(usage) {
-				return
-			}
-			*usage = parsedUsage
-		} else {
-			mergeOpenAIUsageNonZero(usage, parsedUsage)
-		}
-	}
+	// Share the terminal field-presence rules with HTTP/SSE: billing may retain
+	// progressive tokens, but a missing or zero terminal cache fact is final.
+	parser := OpenAIGatewayService{}
+	parser.parseSSEUsageBytes(message, usage)
 }
 
 func parseOpenAIWSErrorEventFields(message []byte) (code string, errType string, errMessage string) {

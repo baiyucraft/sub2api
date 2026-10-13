@@ -4472,7 +4472,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_ClientDisconnect
 		events: [][]byte{
 			[]byte(`{"type":"response.created","response":{"id":"resp_ingress_disconnect","model":"gpt-5.1"}}`),
 			[]byte(`{"type":"response.output_item.added","response":{"id":"resp_ingress_disconnect"}}`),
-			[]byte(`{"type":"response.completed","response":{"id":"resp_ingress_disconnect","model":"gpt-5.1","usage":{"input_tokens":2,"output_tokens":1}}}`),
+			[]byte(`{"type":"response.completed","response":{"id":"resp_ingress_disconnect","model":"gpt-5.1","usage":{"input_tokens":2,"output_tokens":1,"input_tokens_details":{"cached_tokens":1}}}}`),
 		},
 	}
 	captureDialer := &openAIWSCaptureDialer{conn: captureConn}
@@ -4575,6 +4575,14 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_ClientDisconnect
 		require.Equal(t, "resp_ingress_disconnect", result.RequestID)
 		require.Equal(t, 2, result.Usage.InputTokens)
 		require.Equal(t, 1, result.Usage.OutputTokens)
+		require.Equal(t, 1, result.Usage.CacheReadInputTokens)
+		require.True(t, result.ClientDisconnect, "drained usage must retain the client disconnect")
+		require.True(t, result.CacheUsageEvidence.Known(), "fixture must carry otherwise valid cache usage")
+		store := cacheGuardTestRunner(t)
+		FinishOpenAIUpstreamCacheGuardAttempt(cacheGuardTestAdmittedContext(), result, nil)
+		require.Len(t, store.events, 1)
+		require.False(t, store.events[0].Success)
+		require.False(t, store.events[0].ValidSample())
 		require.NotNil(t, result.ServiceTier)
 		require.Equal(t, "flex", *result.ServiceTier)
 	case <-time.After(2 * time.Second):

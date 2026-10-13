@@ -1,10 +1,166 @@
 package service
 
-import "context"
+import (
+	"context"
+	"errors"
+
+	"github.com/Wei-Shaw/sub2api/internal/upstreamcacheguard"
+)
+
+func (s *GatewayService) SelectAccountForModelWithExclusions(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}) (*Account, error) {
+	if !cacheGuardTentativeSelection(ctx) {
+		preference, guardCtx, guardGroupID, base := s.gatewayCacheGuardPreference(ctx, groupID, sessionHash, requestedModel, excludedIDs)
+		// This entrypoint does not acquire capacity, so it cannot commit a
+		// cache-driven migration. Load-aware selection owns that decision.
+		if preference.Active {
+			tiers := preference.Tiers
+			if preference.KeepAccountID > 0 {
+				preference = gatewayCacheGuardSourcePreference(preference)
+				tiers = [][]int64{{preference.KeepAccountID}}
+			}
+			for _, tier := range tiers {
+				account, err := s.selectAccountForModelWithExclusionsCore(withCacheGuardTentativeSelection(guardCtx), guardGroupID, sessionHash, requestedModel, preference.exclusionsFor(tier, base))
+				if err == nil && account != nil {
+					if preference.KeepAccountID > 0 && account.ID != preference.KeepAccountID {
+						continue
+					}
+					_ = s.bindGatewayStickySessionDuringSelection(guardCtx, guardGroupID, sessionHash, account.ID)
+					return account, nil
+				}
+				if err != nil && !errors.Is(err, ErrNoAvailableAccounts) {
+					return account, err
+				}
+			}
+		}
+	}
+	return s.selectAccountWithUpstreamHealth(ctx, groupID, sessionHash, requestedModel, excludedIDs)
+}
+
+func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, metadataUserID string, sub2apiUserID int64) (*AccountSelectionResult, error) {
+	if !cacheGuardTentativeSelection(ctx) {
+		preference, guardCtx, guardGroupID, base := s.gatewayCacheGuardPreference(ctx, groupID, sessionHash, requestedModel, excludedIDs)
+		if preference.Active {
+			result, err, handled := selectGatewayCacheGuardTiers(guardCtx, preference, base, func(selectCtx context.Context, excluded map[int64]struct{}) (*AccountSelectionResult, error) {
+				return s.selectAccountWithLoadAwarenessCore(selectCtx, guardGroupID, sessionHash, requestedModel, excluded, metadataUserID, sub2apiUserID)
+			})
+			if handled {
+				if err == nil && result != nil && result.Account != nil && result.Acquired {
+					// Profit-controlled requests still bind at terminal admission.
+					if preference.Migration && result.Account.ID != preference.KeepAccountID {
+						result.cacheGuardMigrationAccountID = result.Account.ID
+					} else {
+						_ = s.bindGatewayStickySessionDuringSelection(guardCtx, guardGroupID, sessionHash, result.Account.ID)
+					}
+				}
+				return result, err
+			}
+		}
+	}
+	// Soft cache tiers never create a new no-account error or replace an old
+	// session with a wait-only migration target. Retain the original health path.
+	return s.selectAccountWithLoadAwarenessAndUpstreamHealth(ctx, groupID, sessionHash, requestedModel, excludedIDs, metadataUserID, sub2apiUserID)
+}
+
+func selectGatewayCacheGuardTiers(ctx context.Context, preference cacheGuardPreference, base map[int64]struct{}, selectAccount func(context.Context, map[int64]struct{}) (*AccountSelectionResult, error)) (*AccountSelectionResult, error, bool) {
+	tiers := preference.Tiers
+	if preference.KeepAccountID > 0 && !preference.Migration {
+		preference = gatewayCacheGuardSourcePreference(preference)
+		tiers = [][]int64{{preference.KeepAccountID}}
+	} else if preference.Migration && preference.KeepAccountID > 0 {
+		// A saturated destination must leave an existing session on its source.
+		// Only a hard-invalid source allows the original scheduler to replace it.
+		tiers = append(append([][]int64(nil), tiers...), []int64{preference.KeepAccountID})
+	}
+	for _, tier := range tiers {
+		result, err := selectAccount(withCacheGuardTentativeSelection(ctx), preference.exclusionsFor(tier, base))
+		if err != nil {
+			if !errors.Is(err, ErrNoAvailableAccounts) {
+				return result, err, true
+			}
+			continue
+		}
+		if result == nil || result.Account == nil {
+			continue
+		}
+		if preference.Migration || preference.KeepAccountID > 0 {
+			allowed := false
+			for _, id := range tier {
+				allowed = allowed || result.Account.ID == id
+			}
+			if !allowed {
+				if result.ReleaseFunc != nil {
+					result.ReleaseFunc()
+				}
+				continue
+			}
+		}
+		source := preference.KeepAccountID > 0 && len(tier) == 1 && tier[0] == preference.KeepAccountID && result.Account.ID == preference.KeepAccountID
+		if result.Acquired || source {
+			return result, nil, true
+		}
+		if result.ReleaseFunc != nil {
+			result.ReleaseFunc()
+		}
+	}
+	return nil, nil, false
+}
+
+func gatewayCacheGuardSourcePreference(preference cacheGuardPreference) cacheGuardPreference {
+	// The source is exclusive even when ordinary accounts share the group.
+	// They remain eligible in the final hard-fault fallback, never in this try.
+	preference.ScopeIDs = make(map[int64]struct{}, len(preference.CandidateIDs))
+	for _, id := range preference.CandidateIDs {
+		preference.ScopeIDs[id] = struct{}{}
+	}
+	preference.Migration = false
+	return preference
+}
+
+func (s *GatewayService) gatewayCacheGuardPreference(ctx context.Context, groupID *int64, sessionHash, model string, excludedIDs map[int64]struct{}) (cacheGuardPreference, context.Context, *int64, map[int64]struct{}) {
+	noPreference := cacheGuardPreference{}
+	runner := currentUpstreamCacheGuardRunner()
+	if s == nil || runner == nil || !runner.available.Load() || runner.closed.Load() || runner.engine.Settings().Mode != upstreamcacheguard.Protect || groupID == nil {
+		return noPreference, ctx, groupID, nil
+	}
+	group, resolvedGroupID, err := s.checkClaudeCodeRestriction(ctx, groupID)
+	if err != nil || resolvedGroupID == nil || !runner.engine.Settings().ContainsGroup(*resolvedGroupID) {
+		return noPreference, ctx, groupID, nil
+	}
+	guardCtx := s.withGroupContext(ctx, group)
+	guardCtx = s.withGatewayProfitControlGate(guardCtx, resolvedGroupID)
+	platform, forced, err := s.resolvePlatform(guardCtx, resolvedGroupID, group, model)
+	if err != nil {
+		return noPreference, ctx, groupID, nil
+	}
+	accounts, _, err := s.listSchedulableAccounts(guardCtx, resolvedGroupID, platform, forced)
+	if err != nil {
+		return noPreference, ctx, groupID, nil
+	}
+	base := cloneExcludedAccountIDs(excludedIDs)
+	if base == nil {
+		base = make(map[int64]struct{})
+	}
+	for id := range s.upstreamHealthExcludedAccountIDs(guardCtx, resolvedGroupID) {
+		base[id] = struct{}{}
+	}
+	eligible := make([]Account, 0, len(accounts))
+	for _, account := range accounts {
+		if _, excluded := base[account.ID]; !excluded {
+			eligible = append(eligible, account)
+		}
+	}
+	protocol := "anthropic"
+	if platform == PlatformGemini || platform == PlatformAntigravity {
+		protocol = "gemini"
+	} else if platform == PlatformOpenAI {
+		protocol = "openai"
+	}
+	return buildCacheGuardPreference(guardCtx, resolvedGroupID, sessionHash, model, protocol, eligible, nil), guardCtx, resolvedGroupID, base
+}
 
 // SelectAccountForModelWithExclusions adds the provider-neutral Key health
 // protection layer while leaving the original scheduler untouched.
-func (s *GatewayService) SelectAccountForModelWithExclusions(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}) (*Account, error) {
+func (s *GatewayService) selectAccountWithUpstreamHealth(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}) (*Account, error) {
 	healthExcluded := s.upstreamHealthExcludedAccountIDs(ctx, groupID)
 	if len(healthExcluded) == 0 {
 		return s.selectAccountForModelWithExclusionsCore(ctx, groupID, sessionHash, requestedModel, excludedIDs)
@@ -27,7 +183,7 @@ func (s *GatewayService) SelectAccountForModelWithExclusions(ctx context.Context
 	return nil, err
 }
 
-func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, metadataUserID string, sub2apiUserID int64) (*AccountSelectionResult, error) {
+func (s *GatewayService) selectAccountWithLoadAwarenessAndUpstreamHealth(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, metadataUserID string, sub2apiUserID int64) (*AccountSelectionResult, error) {
 	healthExcluded := s.upstreamHealthExcludedAccountIDs(ctx, groupID)
 	if len(healthExcluded) == 0 {
 		return s.selectAccountWithLoadAwarenessCore(ctx, groupID, sessionHash, requestedModel, excludedIDs, metadataUserID, sub2apiUserID)

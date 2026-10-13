@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/upstreamcacheusage"
 	"github.com/gin-gonic/gin"
 	"github.com/imroc/req/v3"
 	"github.com/stretchr/testify/require"
@@ -871,7 +872,8 @@ func TestOpenAIGatewayServiceForwardImages_OAuthPassesNAndReturnsAllImages(t *te
 
 func TestParseOpenAIImagesSSEUsageBytes_ToolUsagePrecedenceAndFallback(t *testing.T) {
 	svc := &OpenAIGatewayService{}
-	fallback := OpenAIUsage{InputTokens: 3, OutputTokens: 4, ImageOutputTokens: 2}
+	fallback := OpenAIUsage{InputTokens: 3, OutputTokens: 4, ImageOutputTokens: 2,
+		CacheUsageEvidence: &UpstreamCacheUsageEvidence{Status: upstreamcacheusage.Absent, Protocol: "openai", TotalInputTokens: 3, Source: "usage"}}
 	tests := []struct {
 		name      string
 		toolUsage string
@@ -901,6 +903,12 @@ func TestParseOpenAIImagesSSEUsageBytes_ToolUsagePrecedenceAndFallback(t *testin
 			var got OpenAIUsage
 			svc.parseOpenAIImagesSSEUsageBytes(payload, &got)
 			require.Equal(t, tt.want, got)
+			if tt.want.CacheUsageEvidence != nil {
+				require.Equal(t, upstreamcacheusage.Absent, got.CacheUsageEvidence.Status, "image usage without a cache field must remain unknown")
+				require.False(t, got.CacheUsageEvidence.Known())
+			} else {
+				require.Nil(t, got.CacheUsageEvidence, "atomic image-tool billing is excluded from text cache protection")
+			}
 		})
 	}
 }
@@ -911,9 +919,14 @@ func TestParseOpenAIImagesSSEUsageBytes_MalformedCompletedDoesNotOverrideUsage(t
 
 	svc.parseOpenAIImagesSSEUsageBytes([]byte(`{"type":"response.output_item.done","item":{"type":"image_generation_call","result":"aW1hZ2U="}}`), &usage)
 	svc.parseOpenAIImagesSSEUsageBytes([]byte(`{"type":"response.completed","response":{"usage":{"input_tokens":3,"output_tokens":4,"output_tokens_details":{"image_tokens":2}}}}`), &usage)
+	require.Equal(t, &UpstreamCacheUsageEvidence{Status: upstreamcacheusage.Absent, Protocol: "openai", TotalInputTokens: 3, Source: "usage"}, usage.CacheUsageEvidence)
+	beforeMalformed := usage.CacheUsageEvidence
 	svc.parseOpenAIImagesSSEUsageBytes([]byte(`{"type":"response.completed","response":{"tool_usage":{"image_gen":{"input_tokens":46,"output_tokens":2459,"output_tokens_details":{"image_tokens":2459}}}}} trailing`), &usage)
 
-	require.Equal(t, OpenAIUsage{InputTokens: 3, OutputTokens: 4, ImageOutputTokens: 2}, usage)
+	require.Equal(t, OpenAIUsage{InputTokens: 3, OutputTokens: 4, ImageOutputTokens: 2,
+		CacheUsageEvidence: &UpstreamCacheUsageEvidence{Status: upstreamcacheusage.Absent, Protocol: "openai", Source: "usage"}}, usage)
+	require.False(t, usage.CacheUsageEvidence.Known(), "a malformed terminal cannot supply a valid cache fact")
+	require.Equal(t, int64(3), beforeMalformed.TotalInputTokens, "a later frame must not mutate the earlier raw fact")
 }
 
 func TestBoundedJSONNonNegativeInt(t *testing.T) {

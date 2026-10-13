@@ -125,6 +125,7 @@ func (s *OpenAIGatewayService) forwardResponsesViaNativeAnthropic(
 	reasoningEffort := NormalizeClaudeOutputEffort(gjson.GetBytes(forwardedBody, "output_config.effort").String())
 	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, forwardedBody, upstreamModel)
 
+	BeginUpstreamCacheGuardSend(upstreamReq.Context(), account, upstreamModel, "anthropic")
 	resp, err := s.doOpenAIUpstream(upstreamReq, proxyURL, account)
 	if err != nil {
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, true)
@@ -220,6 +221,7 @@ func (s *OpenAIGatewayService) handleResponsesBufferedFromNativeAnthropic(
 			continue
 		}
 
+		observeAnthropicCacheUsageEvent(payload, &usage)
 		var event apicompat.AnthropicStreamEvent
 		if err := json.Unmarshal([]byte(payload), &event); err != nil {
 			continue
@@ -339,6 +341,7 @@ func (s *OpenAIGatewayService) handleResponsesStreamingFromNativeAnthropic(
 	var firstTokenMs *int
 	firstChunk := true
 	clientDisconnected := false
+	cacheTerminalComplete, cacheReadFailed := false, false
 
 	scanner := bufio.NewScanner(resp.Body)
 	maxLineSize := defaultMaxLineSize
@@ -348,10 +351,12 @@ func (s *OpenAIGatewayService) handleResponsesStreamingFromNativeAnthropic(
 	scanner.Buffer(make([]byte, 0, 64*1024), maxLineSize)
 
 	resultWithUsage := func() *OpenAIForwardResult {
+		observedUsage := claudeUsageToOpenAIUsage(&usage)
+		observedUsage.CacheUsageEvidence = cacheUsageWithStreamCompletion(usage.CacheUsageEvidence, cacheTerminalComplete && !cacheReadFailed)
 		return &OpenAIForwardResult{
 			RequestID:        requestID,
 			UpstreamHeaders:  resp.Header,
-			Usage:            claudeUsageToOpenAIUsage(&usage),
+			Usage:            observedUsage,
 			Model:            originalModel,
 			BillingModel:     billingModel,
 			UpstreamModel:    upstreamModel,
@@ -446,6 +451,7 @@ func (s *OpenAIGatewayService) handleResponsesStreamingFromNativeAnthropic(
 				return onIdle()
 			}
 			logReadErr(rerr)
+			cacheReadFailed = !errors.Is(rerr, io.EOF)
 			break
 		}
 		if _, ok := extractOpenAISSEEventLine(line); !ok {
@@ -458,6 +464,7 @@ func (s *OpenAIGatewayService) handleResponsesStreamingFromNativeAnthropic(
 				return onIdle()
 			}
 			logReadErr(rerr)
+			cacheReadFailed = !errors.Is(rerr, io.EOF)
 			break
 		}
 		payload, ok := extractOpenAISSEDataLine(dataLine)
@@ -465,10 +472,12 @@ func (s *OpenAIGatewayService) handleResponsesStreamingFromNativeAnthropic(
 			continue
 		}
 
+		observeAnthropicCacheUsageEvent(payload, &usage)
 		var event apicompat.AnthropicStreamEvent
 		if err := json.Unmarshal([]byte(payload), &event); err != nil {
 			continue
 		}
+		cacheTerminalComplete = cacheTerminalComplete || anthropicStreamEventIsTerminal("", payload)
 
 		processAnthropicEvent(&event)
 	}
