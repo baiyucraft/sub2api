@@ -22,7 +22,7 @@ trap 'rm -f -- "$raw_root/logs/production.raw.log"; rmdir -- "$raw_root/logs" "$
 install -m 600 /dev/null "$raw_root/logs/production.raw.log"
 cat > "$remote/case.sh" <<'CASE'
 set -Eeuo pipefail
-[[ $release_profile == 264 || $release_profile == 265 || $release_profile == 266 ]]
+[[ $release_profile == 264 || $release_profile == 265 || $release_profile == 266 || $release_profile == 267 ]]
 deployment_mode=downtime
 active_container=sub2api
 assets_dir=$remote
@@ -73,7 +73,7 @@ source "$assets_dir/postflight.sh"
 sub2api_activity_reward_cost_postflight
 CASE
 chmod 700 "$remote/case.sh"
-for release_profile in 264 265 266; do
+for release_profile in 264 265 266 267; do
 for scenario in success missing extra_app entrypoint_app path_app shell_app compose_app invalid_inspect ps_failure inspect_failure database_failure orphan cache_failure cache_invalid; do
   status=0
   case_root="$remote/$release_profile-$scenario"

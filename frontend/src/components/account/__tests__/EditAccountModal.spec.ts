@@ -347,6 +347,18 @@ function buildOpenAISetupTokenAccount() {
   } as any
 }
 
+function buildOpenAIOAuthParentAccount() {
+  return {
+    ...buildAccount(),
+    id: 7,
+    name: 'OpenAI OAuth Parent',
+    type: 'oauth',
+    parent_account_id: null,
+    credentials: { access_token: 'oauth-token' },
+    extra: {}
+  } as any
+}
+
 function buildUpstreamBoundAccount(keyID = 20) {
   const account = buildAccount()
   account.upstream_config_id = 10
@@ -2536,6 +2548,62 @@ describe('EditAccountModal', () => {
     expect(updateAccountMock).not.toHaveBeenCalled()
   })
 
+  it('keeps the redacted Vertex API key when saving without entering a new one', async () => {
+    const account = buildVertexAccount()
+    account.credentials = {
+      auth_mode: 'apikey',
+      project_id: 'demo-project',
+      location: 'us-central1',
+      tier_id: 'vertex'
+    }
+    account.credentials_status = { has_api_key: true }
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+    expect(wrapper.find('[data-testid="edit-vertex-api-key-input"]').exists()).toBe(true)
+    await wrapper.get('[data-testid="edit-vertex-api-key-project-id-input"]').setValue('')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    const credentials = updateAccountMock.mock.calls[0]?.[1]?.credentials
+    expect(credentials).toMatchObject({ auth_mode: 'apikey', location: 'us-central1', tier_id: 'vertex' })
+    expect(credentials).not.toHaveProperty('api_key')
+    expect(credentials).not.toHaveProperty('project_id')
+  })
+
+  it('submits a rotated Vertex API key', async () => {
+    const account = buildVertexAccount()
+    account.credentials = { auth_mode: 'apikey', location: 'global', tier_id: 'vertex' }
+    account.credentials_status = { has_api_key: true }
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+    await wrapper.get('[data-testid="edit-vertex-api-key-input"]').setValue(' rotated-key ')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials?.api_key).toBe('rotated-key')
+  })
+
+  it('blocks Vertex API key save when no key exists and none is entered', async () => {
+    const account = buildVertexAccount()
+    account.credentials = { auth_mode: 'apikey', location: 'global', tier_id: 'vertex' }
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+
+    const wrapper = mountModal(account)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).not.toHaveBeenCalled()
+  })
+
   it('loads and submits Antigravity configured project fallback', async () => {
     const account = buildAntigravityAccount('configured-project')
     updateAccountMock.mockReset()
@@ -2573,5 +2641,343 @@ describe('EditAccountModal', () => {
     expect(updateAccountMock.mock.calls[0]?.[1]?.credentials).not.toHaveProperty(
       'antigravity_project_id'
     )
+  })
+})
+
+describe('EditAccountModal OpenAI 自动使用重置卡', () => {
+  beforeEach(() => {
+    authIsSimpleMode.value = true
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+  })
+
+  it('仅对 OpenAI OAuth 母账号显示，默认关闭且阈值为 100/100', () => {
+    const parent = mountModal(buildOpenAIOAuthParentAccount())
+    expect(parent.find('[data-testid="auto-reset-credit-settings"]').exists()).toBe(true)
+    expect((parent.get('[data-testid="auto-reset-credit-5h-threshold"]').element as HTMLInputElement).value).toBe('100')
+    expect((parent.get('[data-testid="auto-reset-credit-7d-threshold"]').element as HTMLInputElement).value).toBe('100')
+    expect(parent.get('[data-testid="auto-reset-credit-5h-threshold"]').attributes('disabled')).toBeDefined()
+    parent.unmount()
+
+    for (const account of [buildAccount(), buildOpenAISetupTokenAccount(), buildOpenAISparkShadowAccount()]) {
+      const wrapper = mountModal(account)
+      expect(wrapper.find('[data-testid="auto-reset-credit-settings"]').exists()).toBe(false)
+      wrapper.unmount()
+    }
+  })
+
+  it('独立保存两个阈值，并禁止把运行态回写到管理请求', async () => {
+    const account = buildOpenAIOAuthParentAccount()
+    account.extra = {
+      codex_auto_reset_credit_state: {
+        status: 'success',
+        trigger_window: '5h',
+        available_count: 1
+      }
+    }
+    updateAccountMock.mockResolvedValue(account)
+    const wrapper = mountModal(account)
+
+    await wrapper.get('[data-testid="auto-reset-credit-enabled"]').trigger('click')
+    await wrapper.get('[data-testid="auto-reset-credit-5h-threshold"]').setValue('75.5')
+    await wrapper.get('[data-testid="auto-reset-credit-7d-threshold"]').setValue('92')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    const extra = updateAccountMock.mock.calls[0]?.[1]?.extra
+    expect(extra).toMatchObject({
+      auto_reset_credit_enabled: true,
+      auto_reset_credit_5h_threshold: 0.755,
+      auto_reset_credit_7d_threshold: 0.92
+    })
+    expect(extra).not.toHaveProperty('codex_auto_reset_credit_state')
+    wrapper.unmount()
+  })
+
+  it('开启后拒绝超出 0.1–100 范围的任一阈值', async () => {
+    const wrapper = mountModal(buildOpenAIOAuthParentAccount())
+    await wrapper.get('[data-testid="auto-reset-credit-enabled"]').trigger('click')
+    await wrapper.get('[data-testid="auto-reset-credit-5h-threshold"]').setValue('0')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('回显已有阈值，并在关闭后独立保存配置而不回写运行态', async () => {
+    const account = buildOpenAIOAuthParentAccount()
+    account.extra = {
+      auto_reset_credit_enabled: true,
+      auto_reset_credit_5h_threshold: 0.755,
+      auto_reset_credit_7d_threshold: 0.92,
+      codex_auto_reset_credit_state: { status: 'success' }
+    }
+    updateAccountMock.mockResolvedValue(account)
+    const wrapper = mountModal(account)
+    expect((wrapper.get('[data-testid="auto-reset-credit-5h-threshold"]').element as HTMLInputElement).value).toBe('75.5')
+    expect((wrapper.get('[data-testid="auto-reset-credit-7d-threshold"]').element as HTMLInputElement).value).toBe('92')
+    expect(wrapper.get('[data-testid="auto-reset-credit-5h-threshold"]').attributes('disabled')).toBeUndefined()
+
+    await wrapper.get('[data-testid="auto-reset-credit-enabled"]').trigger('click')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra).toMatchObject({
+      auto_reset_credit_enabled: false,
+      auto_reset_credit_5h_threshold: 0.755,
+      auto_reset_credit_7d_threshold: 0.92
+    })
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra).not.toHaveProperty('codex_auto_reset_credit_state')
+    wrapper.unmount()
+  })
+
+  it.each(['ordinary', 'upstream'] as const)('绑定上游的 OAuth 账号在 %s 模式也隐藏自动重置配置', async (mode) => {
+    const account = buildOpenAIOAuthParentAccount()
+    account.upstream_config_id = 10
+    account.upstream_key_id = 20
+    upstreamConfigsListMock.mockResolvedValue({ items: [], total: 0 })
+    upstreamConfigKeysListMock.mockResolvedValue([])
+    const wrapper = mountModal(account, { mode })
+    await flushPromises()
+    expect(wrapper.find('[data-testid="auto-reset-credit-settings"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it.each(['ordinary', 'upstream'] as const)('上游派生账号在 %s 模式隐藏配置，保留编辑白名单且不校验不可编辑的旧阈值', async (mode) => {
+    const account = buildUpstreamBoundAccount()
+    account.extra = {
+      auto_reset_credit_enabled: true,
+      auto_reset_credit_5h_threshold: 0,
+      auto_reset_credit_7d_threshold: 2,
+      codex_auto_reset_credit_state: { status: 'success' }
+    }
+    upstreamConfigsListMock.mockResolvedValue({ items: [{ id: 10, name: 'OpenAI relay', site_url: 'https://relay.example.com', status: 'active' }], total: 1 })
+    upstreamConfigKeysListMock.mockResolvedValue([buildUpstreamKey(20, 'OpenAI relay key')])
+    updateAccountMock.mockResolvedValue(account)
+    const wrapper = mountModal(account, { mode })
+    await flushPromises()
+    expect(wrapper.find('[data-testid="auto-reset-credit-settings"]').exists()).toBe(false)
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    const payload = updateAccountMock.mock.calls[0]?.[1]
+    for (const field of ['auto_reset_credit_enabled', 'auto_reset_credit_5h_threshold', 'auto_reset_credit_7d_threshold', 'codex_auto_reset_credit_state']) {
+      expect(payload.extra ?? {}).not.toHaveProperty(field)
+    }
+    expect(payload.credentials ?? {}).not.toHaveProperty('access_token')
+    expect(payload.credentials ?? {}).not.toHaveProperty('refresh_token')
+    expect(payload.credentials ?? {}).not.toHaveProperty('api_key')
+    expect(payload.credentials ?? {}).not.toHaveProperty('base_url')
+    expect(payload).not.toHaveProperty('rate_multiplier')
+    wrapper.unmount()
+  })
+
+  it('Spark 影子账号隐藏配置且不回写母账号的自动重置配置或运行态', async () => {
+    const account = buildOpenAISparkShadowAccount()
+    account.extra = {
+      auto_reset_credit_enabled: true,
+      auto_reset_credit_5h_threshold: 0,
+      auto_reset_credit_7d_threshold: 2,
+      codex_auto_reset_credit_state: { status: 'success' }
+    }
+    updateAccountMock.mockResolvedValue(account)
+    const wrapper = mountModal(account)
+    expect(wrapper.find('[data-testid="auto-reset-credit-settings"]').exists()).toBe(false)
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    const extra = updateAccountMock.mock.calls[0]?.[1]?.extra ?? {}
+    for (const field of ['auto_reset_credit_enabled', 'auto_reset_credit_5h_threshold', 'auto_reset_credit_7d_threshold', 'codex_auto_reset_credit_state']) {
+      expect(extra).not.toHaveProperty(field)
+    }
+    wrapper.unmount()
+  })
+})
+
+describe('EditAccountModal gemini explicit cache upstream switch', () => {
+  function buildGeminiApiKeyAccount(credentials: Record<string, unknown>) {
+    return {
+      id: 21,
+      name: 'Gemini upstream gateway',
+      notes: '',
+      platform: 'gemini',
+      type: 'apikey',
+      credentials: { api_key: 'sk-upstream', ...credentials },
+      credentials_status: { has_api_key: true },
+      extra: {},
+      proxy_id: null,
+      concurrency: 1,
+      priority: 1,
+      rate_multiplier: 1,
+      status: 'active',
+      group_ids: [],
+      expires_at: null,
+      auto_pause_on_expired: false
+    } as any
+  }
+
+  beforeEach(() => {
+    authIsSimpleMode.value = true
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+  })
+
+  it('hides the switch for the official AI Studio address', () => {
+    const wrapper = mountModal(buildGeminiApiKeyAccount({ base_url: 'https://generativelanguage.googleapis.com' }))
+    expect(wrapper.find('[data-testid="explicit-cache-upstream-section"]').exists()).toBe(false)
+  })
+
+  it('loads and saves the switch and ttl limit for a custom upstream', async () => {
+    const account = buildGeminiApiKeyAccount({
+      base_url: 'https://upstream.example.com',
+      explicit_cache_upstream: true,
+      explicit_cache_upstream_max_ttl_seconds: 1800
+    })
+    updateAccountMock.mockResolvedValue(account)
+    const wrapper = mountModal(account)
+
+    expect(wrapper.find('[data-testid="explicit-cache-upstream-section"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="explicit-cache-upstream-toggle"]').attributes('aria-checked')).toBe('true')
+    const ttlInput = wrapper.get('[data-testid="explicit-cache-upstream-max-ttl"]')
+    expect((ttlInput.element as HTMLInputElement).value).toBe('1800')
+
+    await ttlInput.setValue('3600')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials).toMatchObject({
+      explicit_cache_upstream: true,
+      explicit_cache_upstream_max_ttl_seconds: 3600
+    })
+  })
+
+  it('removes both fields when the switch is turned off', async () => {
+    const account = buildGeminiApiKeyAccount({
+      base_url: 'https://upstream.example.com',
+      explicit_cache_upstream: true,
+      explicit_cache_upstream_max_ttl_seconds: 1800
+    })
+    updateAccountMock.mockResolvedValue(account)
+    const wrapper = mountModal(account)
+
+    await wrapper.get('[data-testid="explicit-cache-upstream-toggle"]').trigger('click')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    const credentials = updateAccountMock.mock.calls[0]?.[1]?.credentials
+    expect(credentials).not.toHaveProperty('explicit_cache_upstream')
+    expect(credentials).not.toHaveProperty('explicit_cache_upstream_max_ttl_seconds')
+  })
+
+  it('在上游编辑模式保存显式缓存配置并保护派生字段，关闭时清除配置', async () => {
+    authIsSimpleMode.value = false
+    upstreamConfigsListMock.mockResolvedValue({ items: [{ id: 10, name: 'Gemini relay', site_url: 'https://upstream.example.com', status: 'active' }], total: 1 })
+    upstreamConfigKeysListMock.mockResolvedValue([buildUpstreamKey(20, 'Gemini relay key', 'active', 'gemini')])
+    const account = buildGeminiApiKeyAccount({
+      base_url: 'https://upstream.example.com',
+      explicit_cache_upstream: true,
+      explicit_cache_upstream_max_ttl_seconds: 1800
+    })
+    account.upstream_config_id = 10
+    account.upstream_key_id = 20
+    updateAccountMock.mockResolvedValue(account)
+    const wrapper = mountModal(account, { mode: 'upstream' })
+    await flushPromises()
+
+    await wrapper.get('[data-testid="explicit-cache-upstream-max-ttl"]').setValue('3600')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    const payload = updateAccountMock.mock.calls[0]?.[1]
+    expect(payload.credentials).toMatchObject({
+      explicit_cache_upstream: true,
+      explicit_cache_upstream_max_ttl_seconds: 3600
+    })
+    expect(payload.credentials).not.toHaveProperty('api_key')
+    expect(payload.credentials).not.toHaveProperty('base_url')
+    for (const field of ['name', 'proxy_id', 'priority', 'rate_multiplier', 'concurrency', 'load_factor']) {
+      expect(payload).not.toHaveProperty(field)
+    }
+
+    updateAccountMock.mockClear()
+    await wrapper.get('[data-testid="explicit-cache-upstream-toggle"]').trigger('click')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials).not.toHaveProperty('explicit_cache_upstream')
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials).not.toHaveProperty('explicit_cache_upstream_max_ttl_seconds')
+  })
+})
+
+describe('EditAccountModal temp-unschedulable rule scope', () => {
+  function buildAccountWithTempUnschedRules(rules: Array<Record<string, unknown>>) {
+    const account = buildAccount()
+    return {
+      ...account,
+      credentials: {
+        ...account.credentials,
+        temp_unschedulable_enabled: true,
+        temp_unschedulable_rules: rules
+      }
+    } as any
+  }
+
+  const checkedScopes = (wrapper: ReturnType<typeof mountModal>) =>
+    wrapper
+      .findAll('[data-testid^="temp-unsched-scope-"][aria-checked="true"]')
+      .map((radio) => radio.attributes('data-testid'))
+
+  const savedRules = () =>
+    updateAccountMock.mock.calls[0]?.[1]?.credentials?.temp_unschedulable_rules
+
+  beforeEach(() => {
+    authIsSimpleMode.value = true
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+  })
+
+  it('shows rules without scope the way the backend treats them and keeps that on save', async () => {
+    const account = buildAccountWithTempUnschedRules([
+      { error_code: 401, keywords: ['unauthorized'], duration_minutes: 10 },
+      { error_code: 503, keywords: ['unavailable'], duration_minutes: 30 }
+    ])
+    updateAccountMock.mockResolvedValue(account)
+    const wrapper = mountModal(account)
+
+    expect(checkedScopes(wrapper)).toEqual(['temp-unsched-scope-account', 'temp-unsched-scope-model'])
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(savedRules().map((rule: { scope: string }) => rule.scope)).toEqual(['account', 'model'])
+    wrapper.unmount()
+  })
+
+  it('respects an explicit scope and saves the card the operator picks', async () => {
+    const account = buildAccountWithTempUnschedRules([
+      { error_code: 401, keywords: ['unauthorized'], duration_minutes: 10, scope: 'model' },
+      { error_code: 503, keywords: ['unavailable'], duration_minutes: 30, scope: ' Account ' }
+    ])
+    updateAccountMock.mockResolvedValue(account)
+    const wrapper = mountModal(account)
+
+    expect(checkedScopes(wrapper)).toEqual(['temp-unsched-scope-model', 'temp-unsched-scope-account'])
+
+    await wrapper.findAll('[data-testid="temp-unsched-scope-model"]')[1].trigger('click')
+    expect(checkedScopes(wrapper)).toEqual(['temp-unsched-scope-model', 'temp-unsched-scope-model'])
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(savedRules().map((rule: { scope: string }) => rule.scope)).toEqual(['model', 'model'])
+    wrapper.unmount()
+  })
+
+  it('defaults a newly added rule to model scope', async () => {
+    const wrapper = mountModal(buildAccountWithTempUnschedRules([]))
+
+    const addRule = wrapper
+      .findAll('button')
+      .find((button) => button.text().includes('admin.accounts.tempUnschedulable.addRule'))
+    await addRule!.trigger('click')
+
+    expect(checkedScopes(wrapper)).toEqual(['temp-unsched-scope-model'])
+    wrapper.unmount()
   })
 })
