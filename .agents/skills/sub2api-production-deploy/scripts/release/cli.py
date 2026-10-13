@@ -784,6 +784,7 @@ def main() -> None:
     verify_parser.set_defaults(handler=lambda args: __import__("release.supervisor", fromlist=["verify_result"]).verify_result(args))
     finalization_parser = subparsers.add_parser("finalize-consumed")
     finalization_parser.add_argument("release_id")
+    finalization_parser.add_argument("--preserve-running-vm", action="store_true")
     finalization_parser.set_defaults(handler=lambda args: __import__("release.finalization", fromlist=["finalize_consumed"]).finalize_consumed(args))
     verify_recovery_parser = subparsers.add_parser("verify-recovery-result")
     verify_recovery_parser.add_argument("release_id")

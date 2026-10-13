@@ -127,6 +127,16 @@ class DeployCommandTest(unittest.TestCase):
         verify.assert_called_once()
         self.assertEqual(verify.call_args.args[0].release_id, "release-123")
 
+    def test_consumed_finalization_preserve_is_explicit_and_default_stays_shutdown(self) -> None:
+        from release import finalization
+
+        for flags, preserve in (([], False), (["--preserve-running-vm"], True)):
+            with self.subTest(flags=flags), mock.patch.object(sys, "argv", ["release.py", "finalize-consumed", "release-123", *flags]), mock.patch.object(finalization, "finalize_consumed") as finalize:
+                cli.main()
+            finalize.assert_called_once()
+            self.assertEqual(finalize.call_args.args[0].release_id, "release-123")
+            self.assertIs(finalize.call_args.args[0].preserve_running_vm, preserve)
+
     def test_large_pre_gate_asset_uses_local_staging_and_checksum(self) -> None:
         payload = b"recovery-payload"
         expected = __import__("hashlib").sha256(payload).hexdigest()

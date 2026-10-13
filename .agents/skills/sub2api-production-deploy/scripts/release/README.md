@@ -21,7 +21,7 @@ python .agents/skills/sub2api-production-deploy/scripts/release.py verify-result
 python .agents/skills/sub2api-production-deploy/scripts/release.py logs <release_id> --node all --tail 100
 ```
 
-已消费生产发布的后置检查/VM 收口失败，使用 `finalize-consumed <release_id>`，然后 `verify-result <release_id>`。入口持全局发布/VM 身份锁，核验原 worker 已退出、原 Gate/result、远端 consumed/无 claim/同 candidate、双健康、全节点 doctor 和 retained owner/boot。独立 finalization 证据绑定原事故文件及当前已提交推送 helper 的完整 SHA/checksum；本地 doctor 使用 helper SHA，远端使用原应用 SHA。原 runner exit1 和旧证据原样保留，不部署、迁移、消费或恢复数据。只清本 release 隔离任务，只有本次启动 VM 才正常 poweroff 并以 vmrun 核实。成功幂等重试只验真。
+已消费生产发布的后置检查/VM 收口失败，使用 `finalize-consumed <release_id>`，然后 `verify-result <release_id>`。默认保持 schema 1、本次启动 VM 的正常 poweroff/vmrun 合同；原本运行的 VM 必须显式使用 `finalize-consumed <release_id> --preserve-running-vm`，以 schema 2、`mode=preserve-running` 独立收口，要求原生命周期 initially_running=true、vm_started_by_release=false、retained_failure/retained。入口持全局发布/VM 身份锁，核验原 worker 已退出、原签名 Gate 及 production result、远端 consumed/无 claim/同 candidate、双健康、全节点 doctor 和 retained owner/同 boot。独立证据绑定原事故文件字节 SHA256、当前已提交推送 helper 完整 SHA/资产；local doctor 使用 helper SHA，remote使用原应用 SHA。原 runner exit1及旧证据字节不改，不部署、迁移、重发、消费或恢复数据；只清本 release 隔离任务。显式分支核对同 boot并保留运行，checks 与 VM 完成证据写入验真后，released owner 作为生命周期最后标记，随后写 finalization-result 汇总；成功幂等只验真，保留分支重放包含 VM 的全节点 doctor。未知 schema/mode、跨模式、失败证据/身份漂移均拒绝。
 
 ## Profile 268 精确恢复审阅
 
