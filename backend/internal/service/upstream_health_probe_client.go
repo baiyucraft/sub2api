@@ -601,6 +601,7 @@ func classifyGeminiProbeBuildError(account *Account, err error) (string, string)
 	}
 	if strings.Contains(message, "api key") || strings.Contains(message, "access token") ||
 		strings.Contains(message, "service account") || strings.Contains(message, "token provider") ||
+		strings.Contains(message, "failed to authenticate vertex request") ||
 		(account != nil && account.Type == AccountTypeOAuth && strings.Contains(message, "credential")) {
 		return "configuration_error", "probe_credentials_missing"
 	}
@@ -949,6 +950,13 @@ func (s *AccountTestService) runGeminiUpstreamHealthProbe(ctx context.Context, a
 	case AccountTypeOAuth:
 		req, err = s.buildGeminiOAuthRequest(ctx, account, result.Model, payload)
 	case AccountTypeServiceAccount:
+		if !account.IsVertexAPIKey() {
+			// Validate JSON credentials before constructing the Vertex URL so a
+			// missing JSON project does not obscure the credential failure.
+			if _, credentialErr := parseVertexServiceAccountKey(account); credentialErr != nil {
+				return failUpstreamHealthProbe(result, "configuration_error", "probe_credentials_missing", credentialErr)
+			}
+		}
 		req, err = s.buildGeminiServiceAccountRequest(ctx, account, result.Model, payload)
 	default:
 		return failUpstreamHealthProbe(result, "unsupported_account", "probe_account_unsupported", errors.New("Gemini probe credential type is unsupported"))

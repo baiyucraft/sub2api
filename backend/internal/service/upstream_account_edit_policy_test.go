@@ -182,6 +182,25 @@ func TestMergeUpstreamAccountEditableCredentialsPreservesDerivedState(t *testing
 	require.Equal(t, "derived", merged["provider_marker"])
 }
 
+func TestUpstreamAccountEditableExplicitCachePreservesDerivedCredentials(t *testing.T) {
+	incoming := map[string]any{
+		GeminiExplicitCacheUpstreamCredentialKey:       true,
+		GeminiExplicitCacheUpstreamMaxTTLCredentialKey: float64(1800),
+	}
+	require.NoError(t, validateUpstreamAccountEditableUpdate(&UpdateAccountInput{Credentials: incoming}))
+	existing := map[string]any{"api_key": "derived", "base_url": "https://relay.example.com", "provider_marker": "runtime"}
+	merged := mergeUpstreamAccountEditableCredentials(existing, incoming)
+	require.Equal(t, "derived", merged["api_key"])
+	require.Equal(t, "https://relay.example.com", merged["base_url"])
+	require.Equal(t, "runtime", merged["provider_marker"])
+	require.Equal(t, true, merged[GeminiExplicitCacheUpstreamCredentialKey])
+	require.Equal(t, float64(1800), merged[GeminiExplicitCacheUpstreamMaxTTLCredentialKey])
+	cleared := mergeUpstreamAccountEditableCredentials(merged, map[string]any{})
+	require.NotContains(t, cleared, GeminiExplicitCacheUpstreamCredentialKey)
+	require.NotContains(t, cleared, GeminiExplicitCacheUpstreamMaxTTLCredentialKey)
+	require.Equal(t, existing, cleared)
+}
+
 type upstreamAccountDefaultRepo struct {
 	AccountRepository
 	created []*Account

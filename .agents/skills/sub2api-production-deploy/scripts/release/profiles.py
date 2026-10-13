@@ -936,7 +936,27 @@ PROFILES["266"] = {
     },
 }
 
-CURRENT_RELEASE_PROFILE = "266"
+# Profile 266 stays immutable, including its pending invoice migration.
+# Official 0.2.16 migrations use fresh fork filenames without changing SQL bytes.
+PROFILES["267"] = {
+    **{key: PROFILES["266"][key] for key in _PROFILE_V2_RUNTIME_KEYS},
+    "name": "267",
+    "version": "0.2.16-baiyu",
+    "parent": "266",
+    "new_migrations": [
+        "292_group_i18n.sql",
+        "293_gemini_cached_contents.sql",
+        "294_gemini_cached_contents_channel_usage.sql",
+        "295_gemini_cached_contents_mutation_lease.sql",
+    ],
+    "gate_schema": 2,
+    "release_policy": {
+        "compatibility_image": "production_current",
+        "migration_source": "database_state",
+    },
+}
+
+CURRENT_RELEASE_PROFILE = "267"
 
 
 def get_profile(name: str) -> dict:
