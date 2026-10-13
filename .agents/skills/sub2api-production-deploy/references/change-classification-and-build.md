@@ -114,6 +114,22 @@ Profile 265 候选构建与失败租约的第三批精确审阅绑定 `aeb410bcc
 
 Profile 265 镜像代理例外的第四批精确审阅绑定 `aeb410bccc524164bdafbd3db865d4f5f588aced` → `67545c6d6e02f5210574ced9ea5c366688d28b87`，理由为 `reviewed_vm_preflight_recovery_changed`。独立集合 `_PROFILE265_REGISTRY_PROXY_REVIEW_PATHS` 仅含 `scripts/release/vm-validate.sh`，锁定完整净 validator 的 `100755:49dbe1513aafe049a76c5ae7425ae5f8824d73eb` → `100755:242622e8aa9db7d3a911b47031540d4acdc6eef3`；审阅包含既有 265/290 接线、奖励条件、失败收口与 Go 1.27.2 合同，以及仅对构建子命令添加镜像／匿名令牌两个精确主机例外。旧 35+2 批与 `99d9fcf97125ef6efc6543692697e85e27412396` 三路径批完全不变，净敏感路径并集仍为 39。未来 blob、mode、删除、移动、基线漂移与未登记 restore、ingress、trust 均阻断，显式 full 不绕过；登记及本地 Bash 回归不证明镜像在线可达、新 VM Gate、真实专项恢复或生产发布通过。
 
+### Profile 268 精确恢复审阅
+
+本批经用户明确授权，固定生产 BASE `9bf9801a40c4e6732fa81fedbf6ad52f2fa06c62` → 已审 TARGET `bd00d35ebc0b4182070510375ee6878101cfbc7a`。三个互不重叠的冻结路径组共 41 条，路径前缀统一为 `.agents/skills/sub2api-production-deploy/scripts/`：
+
+| 冻结集合 | 数量与范围 | 分类理由 |
+| --- | --- | --- |
+| `_PROFILE268_COMPATIBILITY_PATHS` | 35 项兼容接线，包含下列 18 条固定路径与 17 条祖先断言 | `reviewed_profile_compatibility_changed` |
+| `_PROFILE268_POSTFLIGHT_PATHS` | 2 项：`maintenance/release/activity-reward-cost-postflight.sh`、`maintenance/release/switch.sh` | `reviewed_reward_cost_postflight_changed` |
+| `_PROFILE268_FINALIZATION_REVIEW_PATHS` | 4 项：`release/cli.py`、`release/finalization.py`、`release/supervisor.py`、`release/vm_lifecycle.py` | `reviewed_consumed_finalization_changed` |
+
+35 项兼容闭包的固定路径为 `maintenance/181/mask-backup-units.sh`、`maintenance/181/restore-backup-units.sh`、`maintenance/release/context.sh`、`maintenance/release/prepare.sh`、`maintenance/release/promote-backup.sh`、`release/bootstrap_backup_dr_assets.sh`、`release/bootstrap_vm_signer.sh`、`release/gate.py`、`release/profiles.py`、`release/production-recovery-retention-clean.sh`、`release/production-space-clean.sh`、`release/production_cleanup.py`、`release/production_recovery_retention.py`、`release/promote-dr-baseline.sh`、`release/sign-dr-evidence.sh`、`release/sign-gate.sh`、`release/vm-only-validate.sh`、`release/vm-validate.sh`。17 条祖先断言为 `maintenance/release/migration-{number}-assert.sh`，`number` 严格限定 195、232–245、254、285。
+
+第三组独立覆盖 consumed-release 后置 doctor/VM 收口，不得描述为 profile-only；它不改变 PostgreSQL/Redis 协调恢复算法、备份格式或信任根。匹配必须同时核对同路径 BASE/TARGET 的 Git blob 与文件模式；未来内容、模式、删除、改名、额外路径及生产基线漂移均拒绝，不是目录或祖先豁免。最终提交重新分类，未来批次仍需实际审阅及负向测试，不能自动学习候选。
+
+命中本批仍强制 `specialized` 当前 helper 的真实 PostgreSQL/Redis/Compose 隔离恢复、旧 image 兼容及正式签名 Gate。profile 268 保持 `0.2.16-baiyu`、parent 267、仅 migration `296_upstream_cache_guard.sql`；旧 profiles、SQL/checksum 不回写，未知 269 拒绝。最低登记回归为 `.agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile268_recovery_review.py`；登记不证明回归、VM Gate 或生产部署通过。
+
 ### `ops-readonly-assets`
 
 只有以下条件全部成立才适用：

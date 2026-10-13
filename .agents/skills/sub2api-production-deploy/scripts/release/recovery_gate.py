@@ -94,6 +94,34 @@ _PROFILE265_BUILD_RECOVERY_REVIEW_PATHS = frozenset({
 _PROFILE265_REGISTRY_PROXY_REVIEW_PATHS = frozenset({
     _SCRIPTS_PREFIX + "release/vm-validate.sh",
 })
+# User-authorized review of the net profile 266-268 release assets. These
+# frozen groups bind the proven production tree to the reviewed target blobs;
+# additional paths, future content, mode changes and baseline drift still fail.
+_PROFILE268_COMPATIBILITY_PATHS = frozenset({
+    _SCRIPTS_PREFIX + suffix for suffix in (
+        "maintenance/181/mask-backup-units.sh", "maintenance/181/restore-backup-units.sh",
+        "maintenance/release/context.sh", "maintenance/release/prepare.sh",
+        "maintenance/release/promote-backup.sh", "release/bootstrap_backup_dr_assets.sh",
+        "release/bootstrap_vm_signer.sh", "release/gate.py", "release/profiles.py",
+        "release/production-recovery-retention-clean.sh", "release/production-space-clean.sh",
+        "release/production_cleanup.py", "release/production_recovery_retention.py",
+        "release/promote-dr-baseline.sh", "release/sign-dr-evidence.sh", "release/sign-gate.sh",
+        "release/vm-only-validate.sh", "release/vm-validate.sh",
+    )
+} | {
+    _SCRIPTS_PREFIX + f"maintenance/release/migration-{number}-assert.sh"
+    for number in (195, *range(232, 246), 254, 285)
+})
+_PROFILE268_POSTFLIGHT_PATHS = frozenset({
+    _SCRIPTS_PREFIX + "maintenance/release/" + name
+    for name in ("activity-reward-cost-postflight.sh", "switch.sh")
+})
+# Consumed-release finalization is reviewed independently of profile wiring.
+# It neither restores application data nor changes Gate signatures or trust.
+_PROFILE268_FINALIZATION_REVIEW_PATHS = frozenset({
+    _SCRIPTS_PREFIX + "release/" + name
+    for name in ("cli.py", "finalization.py", "supervisor.py", "vm_lifecycle.py")
+})
 _REVIEWED_SCOPED_TRANCHES = (
     (
         "aeb410bccc524164bdafbd3db865d4f5f588aced",
@@ -148,6 +176,24 @@ _REVIEWED_SCOPED_TRANCHES = (
         "8499d5343c5a4510f88a3b13feb58f242d4cdd13",
         "reviewed_vm_lifecycle_changed",
         _VM_LIFECYCLE_REVIEW_PATHS,
+    ),
+    (
+        "9bf9801a40c4e6732fa81fedbf6ad52f2fa06c62",
+        "bd00d35ebc0b4182070510375ee6878101cfbc7a",
+        "reviewed_profile_compatibility_changed",
+        _PROFILE268_COMPATIBILITY_PATHS,
+    ),
+    (
+        "9bf9801a40c4e6732fa81fedbf6ad52f2fa06c62",
+        "bd00d35ebc0b4182070510375ee6878101cfbc7a",
+        "reviewed_reward_cost_postflight_changed",
+        _PROFILE268_POSTFLIGHT_PATHS,
+    ),
+    (
+        "9bf9801a40c4e6732fa81fedbf6ad52f2fa06c62",
+        "bd00d35ebc0b4182070510375ee6878101cfbc7a",
+        "reviewed_consumed_finalization_changed",
+        _PROFILE268_FINALIZATION_REVIEW_PATHS,
     ),
 )
 _RELEASE_STATE_MACHINE_FILES = frozenset(

@@ -52,6 +52,20 @@ description: 面向 Sub2API fork 的构建、开发门禁、应用与独立插�
 
 285 的发布语义断言由 `migration-285-assert.sh` 提供：生产仅执行只读 schema、函数原文指纹和 trigger 校验；VM 在隔离数据库的临时表中调用已安装函数，事务回滚。signed Gate 必须同时绑定 checksum、preflight、postflight、vm_semantics 和 verified_replay；已应用迁移也不能省略语义证据。精确审阅登记 `71016a197ea2cd3fc44987d8db421afc3983c040` → `7abbf4a504780f6f4ed73b54c9410f6f054f3380` 仅覆盖明确的五条迁移门禁路径及其 Git blob/模式，不涵盖恢复算法；仍须执行 specialized 真实隔离恢复。
 
+## Profile 268 精确恢复审阅
+
+本批经用户明确授权，固定生产 BASE `9bf9801a40c4e6732fa81fedbf6ad52f2fa06c62` → 已审 TARGET `bd00d35ebc0b4182070510375ee6878101cfbc7a`。登记分为三个互不重叠的冻结路径组，共 41 条；全部路径位于 `.agents/skills/sub2api-production-deploy/scripts/`：
+
+| 路径组 | 数量与范围 | 分类理由 |
+| --- | --- | --- |
+| `_PROFILE268_COMPATIBILITY_PATHS` | 35 项 profile 白名单、版本、自测与祖先迁移断言兼容接线；完整闭包见 [分类与构建](references/change-classification-and-build.md) | `reviewed_profile_compatibility_changed` |
+| `_PROFILE268_POSTFLIGHT_PATHS` | 2 项：`maintenance/release/activity-reward-cost-postflight.sh`、`maintenance/release/switch.sh` | `reviewed_reward_cost_postflight_changed` |
+| `_PROFILE268_FINALIZATION_REVIEW_PATHS` | 4 项：`release/cli.py`、`release/finalization.py`、`release/supervisor.py`、`release/vm_lifecycle.py`；独立 consumed-release 后置收口合同 | `reviewed_consumed_finalization_changed` |
+
+第三组覆盖已 consumed 且 production verified 发布的后置 doctor/VM 收口，必须独立审阅，不能归为 profile-only。三组均按同路径 BASE/TARGET 的 Git blob 和文件模式精确匹配；未来内容、模式、删除、改名、额外路径或生产基线漂移仍拒绝，不构成目录、祖先或自动豁免。最终提交须重新分类；未来批次仍须审阅实际差异并完成负向测试，禁止自动学习候选。
+
+本批不改变 PostgreSQL/Redis 协调恢复算法、备份格式或信任根，仍强制 `specialized` 当前 helper 的真实 PostgreSQL/Redis/Compose 隔离恢复、旧 image 兼容及正式签名 Gate。profile 268 保持 `0.2.16-baiyu`、parent 267、仅新增 `296_upstream_cache_guard.sql`；旧 profiles、SQL 与 checksum 不回写，未知 269 拒绝。最低登记回归为 `scripts/tests/release/test_profile268_recovery_review.py`；文档与 catalog 登记不代表本地回归、VM Gate 或生产部署已完成。
+
 ## 当前链路摘要
 
 ```text
