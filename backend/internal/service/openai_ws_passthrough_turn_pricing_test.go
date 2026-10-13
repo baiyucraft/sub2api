@@ -71,6 +71,12 @@ func TestPassthroughIngressFollowUpCallsBeforeTurnAfterBeforeRequest(t *testing.
 	var hooksMu sync.Mutex
 	var callbacks []string
 	afterTurnCalls := 0
+	type completedTurn struct {
+		turn   int
+		result *OpenAIForwardResult
+		err    error
+	}
+	turnCompletions := make(chan completedTurn, 2)
 	hooks := &OpenAIWSIngressHooks{
 		BeforeRequest: func(int, []byte, string) error {
 			hooksMu.Lock()
@@ -84,14 +90,21 @@ func TestPassthroughIngressFollowUpCallsBeforeTurnAfterBeforeRequest(t *testing.
 			hooksMu.Unlock()
 			return nil
 		},
-		AfterTurn: func(int, *OpenAIForwardResult, error) {
+		AfterTurn: func(turn int, result *OpenAIForwardResult, turnErr error) {
 			hooksMu.Lock()
+			callbacks = append(callbacks, "after_turn")
 			afterTurnCalls++
 			hooksMu.Unlock()
+			select {
+			case turnCompletions <- completedTurn{turn: turn, result: result, err: turnErr}:
+			default:
+				// Duplicate callbacks must fail the exact count below, not block
+				// the server while the test is waiting for it to exit.
+			}
 		},
 	}
 
-	server, _ := startPassthroughHookRecordingServer(
+	server, serverErr := startPassthroughHookRecordingServer(
 		t,
 		controlCtx,
 		newPassthroughLifecycleService(passthroughLifecycleConfig(), upstream),
@@ -117,12 +130,38 @@ func TestPassthroughIngressFollowUpCallsBeforeTurnAfterBeforeRequest(t *testing.
 	require.NoError(t, err)
 	require.Equal(t, "response.completed", gjson.GetBytes(event, "type").String())
 
+	// Receiving the terminal frame does not synchronize with the server's
+	// WriteFrame return or its subsequent billing callback. Keep the immediate
+	// follow-up above to exercise the lifecycle barrier, then wait for both
+	// actual AfterTurn callbacks before reading their state.
+	for index, requestID := range []string{"resp_pricing_1", "resp_pricing_2"} {
+		select {
+		case completed := <-turnCompletions:
+			require.Equal(t, index+1, completed.turn)
+			require.NoError(t, completed.err)
+			require.NotNil(t, completed.result)
+			require.Equal(t, requestID, completed.result.RequestID)
+			require.Equal(t, 1, completed.result.Usage.InputTokens)
+			require.Equal(t, 1, completed.result.Usage.OutputTokens)
+			require.Equal(t, 0, completed.result.Usage.CacheReadInputTokens)
+		case <-time.After(3 * time.Second):
+			t.Fatalf("turn %d billing callback was not completed", index+1)
+		}
+	}
+	require.NoError(t, clientConn.CloseNow())
+	select {
+	case err = <-serverErr:
+		require.NoError(t, err)
+	case <-time.After(3 * time.Second):
+		t.Fatal("passthrough ingress did not exit after both completed turns")
+	}
+
 	hooksMu.Lock()
 	gotCallbacks := append([]string(nil), callbacks...)
 	gotAfter := afterTurnCalls
 	hooksMu.Unlock()
 
-	require.Equal(t, []string{"before_request", "before_turn"}, gotCallbacks)
+	require.Equal(t, []string{"after_turn", "before_request", "before_turn", "after_turn"}, gotCallbacks)
 	require.Equal(t, 2, gotAfter)
 }
 

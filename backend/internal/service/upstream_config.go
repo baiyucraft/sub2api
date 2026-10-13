@@ -104,6 +104,7 @@ type UpstreamConfig struct {
 }
 
 type UpstreamManagementSettings struct {
+	CacheGuard               *UpstreamCacheGuardSettings     `json:"cache_guard"`
 	TTFTGuard                OpenAITTFTGuardSettings         `json:"ttft_guard"`
 	ProbeModels              UpstreamProbeModels             `json:"probe_models"`
 	ProbeIntervalSeconds     int                             `json:"probe_interval_seconds"`
@@ -545,7 +546,8 @@ func (s *UpstreamConfigService) GetProbePlatformCatalog() []UpstreamProbePlatfor
 
 func (s *UpstreamConfigService) GetManagementSettings(ctx context.Context) (UpstreamManagementSettings, error) {
 	if s == nil || s.settingService == nil {
-		return UpstreamManagementSettings{TTFTGuard: *DefaultOpenAITTFTGuardSettings(), ProbeModels: DefaultUpstreamProbeModels(), ProbeIntervalSeconds: DefaultUpstreamProbeIntervalSeconds, ProbeGuard: DefaultUpstreamProbeGuardSettings(), ModelAliasRules: map[string]string{}, ConfidenceProbe: DefaultUpstreamConfidenceProbeSettings(), PoolModeRetryStatusCodes: cloneUpstreamPoolModeRetryStatusCodes(defaultUpstreamPoolModeRetryStatusCodes)}, nil
+		cacheGuard := DefaultUpstreamCacheGuardSettings()
+		return UpstreamManagementSettings{CacheGuard: &cacheGuard, TTFTGuard: *DefaultOpenAITTFTGuardSettings(), ProbeModels: DefaultUpstreamProbeModels(), ProbeIntervalSeconds: DefaultUpstreamProbeIntervalSeconds, ProbeGuard: DefaultUpstreamProbeGuardSettings(), ModelAliasRules: map[string]string{}, ConfidenceProbe: DefaultUpstreamConfidenceProbeSettings(), PoolModeRetryStatusCodes: cloneUpstreamPoolModeRetryStatusCodes(defaultUpstreamPoolModeRetryStatusCodes)}, nil
 	}
 	ttft, err := s.settingService.GetOpenAITTFTGuardSettings(ctx)
 	if err != nil {
@@ -576,7 +578,11 @@ func (s *UpstreamConfigService) GetManagementSettings(ctx context.Context) (Upst
 	if retryErr != nil {
 		return UpstreamManagementSettings{}, retryErr
 	}
-	return UpstreamManagementSettings{TTFTGuard: *ttft, ProbeModels: models, ProbeIntervalSeconds: interval, ProbeGuard: guard, ModelAliasRules: aliases, ConfidenceProbe: confidence, PoolModeRetryStatusCodes: retryCodes}, nil
+	cacheGuard, cacheErr := s.settingService.GetUpstreamCacheGuardSettings(ctx)
+	if cacheErr != nil {
+		return UpstreamManagementSettings{}, cacheErr
+	}
+	return UpstreamManagementSettings{CacheGuard: &cacheGuard, TTFTGuard: *ttft, ProbeModels: models, ProbeIntervalSeconds: interval, ProbeGuard: guard, ModelAliasRules: aliases, ConfidenceProbe: confidence, PoolModeRetryStatusCodes: retryCodes}, nil
 }
 
 func (s *UpstreamConfigService) getManagementRetryStatusCodes(ctx context.Context) ([]int, error) {
@@ -633,6 +639,9 @@ func (s *UpstreamConfigService) SetManagementSettingsWithRetryStatusCodes(ctx co
 }
 
 func (s *UpstreamConfigService) SetManagementSettings(ctx context.Context, settings UpstreamManagementSettings) error {
+	if err := validateUpstreamCacheGuardSettings(settings.CacheGuard); err != nil {
+		return err
+	}
 	if s == nil || s.settingService == nil {
 		return infraerrors.ServiceUnavailable("UPSTREAM_MANAGEMENT_SETTINGS_UNAVAILABLE", "upstream management settings are unavailable")
 	}
@@ -651,6 +660,11 @@ func (s *UpstreamConfigService) SetManagementSettings(ctx context.Context, setti
 	}
 	if err := s.settingService.SetUpstreamConfidenceProbeSettings(ctx, settings.ConfidenceProbe); err != nil {
 		return err
+	}
+	if settings.CacheGuard != nil {
+		if err := s.settingService.SetUpstreamCacheGuardSettings(ctx, *settings.CacheGuard); err != nil {
+			return err
+		}
 	}
 	settings.ProbeGuard, _ = NormalizeUpstreamProbeGuardSettings(settings.ProbeGuard)
 	transitions := GlobalUpstreamHealthRegistry().ReevaluateProbeGuard(settings.ProbeGuard, time.Now().UTC())

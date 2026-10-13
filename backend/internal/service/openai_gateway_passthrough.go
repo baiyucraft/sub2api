@@ -383,6 +383,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		}
 
 		upstreamStart := time.Now()
+		BeginUpstreamCacheGuardSend(upstreamReq.Context(), account, gjson.GetBytes(body, "model").String(), "openai")
 		resp, err = s.doOpenAIUpstream(upstreamReq, proxyURL, account)
 		SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(upstreamStart).Milliseconds())
 		if err != nil {
@@ -530,6 +531,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		RequestID:                     resp.Header.Get("x-request-id"),
 		UpstreamHeaders:               resp.Header,
 		ResponseID:                    responseID,
+		CacheUsageEvidence:            usage.CacheUsageEvidence,
 		Usage:                         *usage,
 		Model:                         reqModel,
 		UpstreamModel:                 upstreamPassthroughModel,
@@ -2019,6 +2021,9 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 
 	needModelReplace := strings.TrimSpace(originalModel) != "" && strings.TrimSpace(mappedModel) != "" && strings.TrimSpace(originalModel) != strings.TrimSpace(mappedModel)
 	resultWithUsage := func() *openaiStreamingResultPassthrough {
+		if !cacheGuardResponsesTerminalSucceeded(nil, terminalEventType) || clientDisconnected {
+			usage.CacheUsageEvidence = cacheUsageWithStreamCompletion(usage.CacheUsageEvidence, false)
+		}
 		return &openaiStreamingResultPassthrough{
 			usage:            usage,
 			firstTokenMs:     firstTokenMs,
@@ -2041,6 +2046,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			dataBytes := []byte(data)
 			trimmedData := strings.TrimSpace(data)
 			rawEventType := effectiveOpenAISSEEventType(dataBytes, pendingSSEEventType)
+			var upstreamFailureCacheEvidence *UpstreamCacheUsageEvidence
 			observer.ObserveOpenAI(dataBytes, rawEventType)
 			if needModelReplace {
 				line = s.replaceModelInSSELine(line, mappedModel, originalModel)
@@ -2100,6 +2106,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 				// 再打 cyber 标记，否则 mark 记到的是解析前的 0，导致流式 cyber 按 0 token 计费
 				// 而漏记真实用量。对齐 WS V2 / Chat 流式路径（均先解析 usage 再 Mark）。
 				s.parseSSEUsageBytesWithType(dataBytes, eventType, usage)
+				upstreamFailureCacheEvidence = usage.CacheUsageEvidence
 				if hit, code, msg := detectOpenAICyberPolicy(dataBytes); hit {
 					cyberHit = true
 					MarkOpsCyberPolicy(c, CyberPolicyMark{
@@ -2206,6 +2213,9 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 				firstTokenMs = &ms
 			}
 			s.parseSSEUsageBytesWithType(dataBytes, eventType, usage)
+			if upstreamFailureCacheEvidence != nil {
+				usage.CacheUsageEvidence = upstreamFailureCacheEvidence
+			}
 		}
 		if line == "" {
 			pendingSSEEventType = ""

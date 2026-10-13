@@ -189,6 +189,9 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		fs = NewFailoverState(h.maxAccountSwitchesGemini, false)
 	}
 
+	if reqStream && service.UpstreamCacheGuardLogicalSession(c, body) != "" && service.UpstreamCacheGuardTextRequest(c.Request.URL.Path, body) {
+		c.Request = c.Request.WithContext(service.WithUpstreamCacheGuardRequestSession(c.Request.Context(), apiKey.ID, c, body))
+	}
 	for {
 		if failoverClientGone(c) {
 			return
@@ -269,7 +272,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		}
 		account = latest
 		selection.Account = latest
-		if selection.ProfitGateActive() {
+		if selection.RequiresStickyAdmissionBinding() {
 			if err := h.gatewayService.BindStickySessionAfterProfitAdmission(admissionCtx, apiKey.GroupID, selectionSessionHash, account.ID); err != nil {
 				reqLog.Warn("gateway.cc.bind_sticky_session_after_profit_admission_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 			}
@@ -301,6 +304,10 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		if channelMapping.Mapped {
 			forwardBody = h.gatewayService.ReplaceModelInBody(body, channelMapping.MappedModel)
 		}
+		cacheAttemptCtx := c.Request.Context()
+		if reqStream && service.UpstreamCacheGuardTextRequest(c.Request.URL.Path, body) {
+			cacheAttemptCtx = service.WithUpstreamCacheGuardAttempt(cacheAttemptCtx, apiKey.ID, apiKey.GroupID, selectionSessionHash, true)
+		}
 		var result *service.ForwardResult
 		setActualUpstreamEndpoint(c, "")
 		if account.Platform == service.PlatformGemini {
@@ -311,7 +318,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 				}
 				return
 			}
-			result, err = h.geminiCompatService.ForwardAsChatCompletions(c.Request.Context(), c, account, forwardBody)
+			result, err = h.geminiCompatService.ForwardAsChatCompletions(cacheAttemptCtx, c, account, forwardBody)
 		} else if shouldUseAntigravityCompat(account) {
 			if h.antigravityGatewayService == nil {
 				h.chatCompletionsErrorResponse(c, http.StatusBadGateway, "upstream_error", "Antigravity compatibility service is not configured")
@@ -321,10 +328,12 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 				return
 			}
 			setActualUpstreamEndpoint(c, EndpointAntigravityGenerateContent)
-			result, err = h.antigravityGatewayService.ForwardAsChatCompletions(c.Request.Context(), c, account, forwardBody, parsedReq)
+			result, err = h.antigravityGatewayService.ForwardAsChatCompletions(cacheAttemptCtx, c, account, forwardBody, parsedReq)
 		} else {
-			result, err = h.gatewayService.ForwardAsChatCompletions(c.Request.Context(), c, account, forwardBody, parsedReq)
+			result, err = h.gatewayService.ForwardAsChatCompletions(cacheAttemptCtx, c, account, forwardBody, parsedReq)
 		}
+
+		service.FinishGatewayUpstreamCacheGuardAttempt(cacheAttemptCtx, result, err)
 
 		if accountReleaseFunc != nil {
 			accountReleaseFunc()

@@ -350,6 +350,9 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 	// both list the same call_id — counting both would ~2× the surcharge).
 	streamSearchSeen := make(map[string]struct{})
 	resultWithUsage := func() *openaiStreamingResult {
+		if !cacheGuardResponsesTerminalSucceeded(nil, terminalEventType) || clientDisconnected {
+			usage.CacheUsageEvidence = cacheUsageWithStreamCompletion(usage.CacheUsageEvidence, false)
+		}
 		return &openaiStreamingResult{
 			usage:            usage,
 			firstTokenMs:     firstTokenMs,
@@ -486,6 +489,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		if data, ok := extractOpenAISSEDataLine(line); ok {
 			dataBytes := []byte(data)
 			eventType := effectiveOpenAISSEEventType(dataBytes, pendingSSEEventType)
+			var upstreamFailureCacheEvidence *UpstreamCacheUsageEvidence
 			if codexFailureTerminal && sawBareError && !sawResponseFailed &&
 				(eventType == "response.completed" || eventType == "response.done") {
 				// A later successful terminal is authoritative over a pending bare
@@ -538,6 +542,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				// 再打 cyber 标记，否则 mark 记到的是解析前的 0，导致流式 cyber 按 0 token 计费
 				// 而漏记真实用量。对齐 WS V2 / Chat 流式路径（均先解析 usage 再 Mark）。
 				s.parseSSEUsageBytesWithType(dataBytes, eventType, usage)
+				upstreamFailureCacheEvidence = usage.CacheUsageEvidence
 				if hit, code, msg := detectOpenAICyberPolicy(dataBytes); hit {
 					cyberHit = true
 					MarkOpsCyberPolicy(c, CyberPolicyMark{
@@ -725,6 +730,11 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				stopFirstOutputTimer()
 			}
 			s.parseSSEUsageBytesWithType(dataBytes, eventType, usage)
+			if upstreamFailureCacheEvidence != nil {
+				// Client error sanitization may remove usage; it must not replace
+				// the original failed upstream frame's immutable cache fact.
+				usage.CacheUsageEvidence = upstreamFailureCacheEvidence
+			}
 			return
 		}
 
@@ -1227,13 +1237,23 @@ func (s *OpenAIGatewayService) parseSSEUsageBytesWithType(data []byte, eventType
 	// and four gjson path scans on that hot path while retaining progressive
 	// usage from compatible upstreams on any event type.
 	if !bytes.Contains(data, []byte(`"usage"`)) {
+		if openAIStreamEventTypeIsTerminal(effectiveOpenAISSEEventType(data, eventType)) {
+			usage.CacheUsageEvidence = parseOpenAICacheUsageEvidence(gjson.Result{})
+		}
 		return
 	}
 	parsedUsage, ok := extractOpenAIUsageFromJSONBytes(data)
 	if !ok {
+		if openAIStreamEventTypeIsTerminal(effectiveOpenAISSEEventType(data, eventType)) {
+			usage.CacheUsageEvidence = parseOpenAICacheUsageEvidence(gjson.Result{})
+		}
 		return
 	}
-	if openAIStreamEventTypeIsTerminal(effectiveOpenAISSEEventType(data, eventType)) {
+	if terminalType := effectiveOpenAISSEEventType(data, eventType); openAIStreamEventTypeIsTerminal(terminalType) {
+		// Cache protection observes this frame as a whole, even when billing
+		// retains progressive tokens after an empty terminal usage.
+		parsedUsage.CacheUsageEvidence = cacheUsageWithStreamCompletion(parsedUsage.CacheUsageEvidence, cacheGuardResponsesTerminalSucceeded(data, terminalType))
+		usage.CacheUsageEvidence = parsedUsage.CacheUsageEvidence
 		if !openAIUsageHasTokens(&parsedUsage) && openAIUsageHasTokens(usage) {
 			return
 		}
@@ -1243,6 +1263,17 @@ func (s *OpenAIGatewayService) parseSSEUsageBytesWithType(data []byte, eventType
 	mergeOpenAIUsageNonZero(usage, parsedUsage)
 }
 
+// Completion for cache observation is stricter than returning collected usage
+// for billing. Compatible transports may return incomplete/cancelled terminals
+// without a Go error, or encode their non-success status in a completed event.
+func cacheGuardResponsesTerminalSucceeded(data []byte, eventType string) bool {
+	if eventType != "response.completed" && eventType != "response.done" {
+		return false
+	}
+	status := strings.TrimSpace(gjson.GetBytes(data, "response.status").String())
+	return status == "" || status == "completed"
+}
+
 // Compatible Responses upstreams may report usage before the terminal event.
 // Retain those non-zero fields as a fallback. A terminal usage with any billed
 // tokens is authoritative as a whole; an all-zero terminal does not erase a
@@ -1250,6 +1281,9 @@ func (s *OpenAIGatewayService) parseSSEUsageBytesWithType(data []byte, eventType
 func mergeOpenAIUsageNonZero(dst *OpenAIUsage, src OpenAIUsage) {
 	if dst == nil {
 		return
+	}
+	if src.CacheUsageEvidence != nil {
+		dst.CacheUsageEvidence = src.CacheUsageEvidence
 	}
 	if src.InputTokens > 0 {
 		dst.InputTokens = src.InputTokens
@@ -1550,6 +1584,7 @@ func openAIUsageFromGJSON(value gjson.Result) (OpenAIUsage, bool) {
 		value.Get("prompt_tokens_details.image_tokens"),
 	)
 	return OpenAIUsage{
+		CacheUsageEvidence:       parseOpenAICacheUsageEvidence(value),
 		InputTokens:              int(inputTokens),
 		ImageInputTokens:         imageInputTokens,
 		OutputTokens:             int(outputTokens),

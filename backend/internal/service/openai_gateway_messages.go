@@ -414,6 +414,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 				return nil, fmt.Errorf("build grok retry request: %w", err)
 			}
 		}
+		BeginUpstreamCacheGuardSend(upstreamReq.Context(), account, gjson.GetBytes(responsesBody, "model").String(), "openai")
 		resp, err = s.doOpenAIUpstream(upstreamReq, proxyURL, account)
 		if err != nil {
 			return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
@@ -675,6 +676,7 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 		RequestID:                     requestID,
 		UpstreamHeaders:               resp.Header,
 		ResponseID:                    finalResponse.ID,
+		CacheUsageEvidence:            usage.CacheUsageEvidence,
 		Usage:                         usage,
 		Model:                         originalModel,
 		BillingModel:                  billingModel,
@@ -853,13 +855,13 @@ func (s *OpenAIGatewayService) readOpenAICompatBufferedTerminal(
 						acc.ProcessEvent(&event)
 						if response := openAICompatTerminalResponse(&event, []byte(payload)); isOpenAICompatResponsesTerminalEvent(event.Type) && response != nil {
 							if event.Usage != nil {
-								usage = copyOpenAIUsageFromResponsesUsage(event.Usage)
+								usage = copyOpenAIResponsesBillingUsagePreservingCache(usage, event.Usage)
 								if response.Usage == nil {
 									response.Usage = event.Usage
 								}
 							}
 							if response.Usage != nil {
-								usage = copyOpenAIUsageFromResponsesUsage(response.Usage)
+								usage = copyOpenAIResponsesBillingUsagePreservingCache(usage, response.Usage)
 							}
 							return response, usage, acc, nil
 						}
@@ -902,13 +904,13 @@ func (s *OpenAIGatewayService) readOpenAICompatBufferedTerminal(
 
 			if response := openAICompatTerminalResponse(&event, []byte(payload)); isOpenAICompatResponsesTerminalEvent(event.Type) && response != nil {
 				if event.Usage != nil {
-					usage = copyOpenAIUsageFromResponsesUsage(event.Usage)
+					usage = copyOpenAIResponsesBillingUsagePreservingCache(usage, event.Usage)
 					if response.Usage == nil {
 						response.Usage = event.Usage
 					}
 				}
 				if response.Usage != nil {
-					usage = copyOpenAIUsageFromResponsesUsage(response.Usage)
+					usage = copyOpenAIResponsesBillingUsagePreservingCache(usage, response.Usage)
 				}
 				return response, usage, acc, nil
 			}
@@ -982,6 +984,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 			RequestID:                     requestID,
 			UpstreamHeaders:               resp.Header,
 			ResponseID:                    responseID,
+			CacheUsageEvidence:            usage.CacheUsageEvidence,
 			Usage:                         usage,
 			Model:                         originalModel,
 			BillingModel:                  billingModel,
@@ -1033,11 +1036,11 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 					responseID = id
 				}
 				if event.Response.Usage != nil {
-					usage = copyOpenAIUsageFromResponsesUsage(event.Response.Usage)
+					usage = copyOpenAIResponsesBillingUsagePreservingCache(usage, event.Response.Usage)
 				}
 			}
 			if event.Usage != nil {
-				usage = copyOpenAIUsageFromResponsesUsage(event.Usage)
+				usage = copyOpenAIResponsesBillingUsagePreservingCache(usage, event.Usage)
 			}
 			// cyber_policy 致命不可重试：标记供 handler 事后记录；以 Anthropic SSE error 事件
 			// 回写让客户端感知并停止重试（F4），丢弃后续转换输出。
@@ -1370,6 +1373,12 @@ func buildAnthropicStreamErrorSSE(errType, message string) string {
 		return "event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"" + errType + "\",\"message\":\"upstream error\"}}\n\n"
 	}
 	return "event: error\ndata: " + string(payload) + "\n\n"
+}
+
+func copyOpenAIResponsesBillingUsagePreservingCache(current OpenAIUsage, usage *apicompat.ResponsesUsage) OpenAIUsage {
+	out := copyOpenAIUsageFromResponsesUsage(usage)
+	out.CacheUsageEvidence = current.CacheUsageEvidence
+	return out
 }
 
 func copyOpenAIUsageFromResponsesUsage(usage *apicompat.ResponsesUsage) OpenAIUsage {

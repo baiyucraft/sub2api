@@ -908,6 +908,9 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 	previousResponseCanMove bool,
 	useUpstreamTokenCost bool,
 ) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
+	if selection, decision, err, handled := s.selectWithCacheGuardPreference(ctx, groupID, previousResponseID, sessionHash, requestedModel, excludedIDs, requiredTransport, requiredCapability, requiredImageCapability, requireCompact, platform, previousResponseCanMove, useUpstreamTokenCost); handled {
+		return selection, decision, err
+	}
 	guardExcludedIDs := s.openAITTFTGuardExclusions(ctx, groupID, platform, requestedModel, requiredTransport, requiredCapability, requiredImageCapability, requireCompact, excludedIDs)
 	if len(guardExcludedIDs) == 0 {
 		return s.selectAccountWithSchedulerOnce(ctx, groupID, previousResponseID, sessionHash, requestedModel, excludedIDs, excludedIDs, false, requiredTransport, requiredCapability, requiredImageCapability, requireCompact, platform, previousResponseCanMove, useUpstreamTokenCost)
@@ -968,8 +971,15 @@ func (s *OpenAIGatewayService) openAITTFTGuardExclusions(
 	requireCompact bool,
 	callerExcluded map[int64]struct{},
 ) map[int64]struct{} {
+	health, ttft := s.openAIGuardExclusionParts(ctx, groupID, platform, requestedModel, requiredTransport, requiredCapability, requiredImageCapability, requireCompact, callerExcluded)
+	return mergeOpenAIExcludedAccountIDs(health, ttft)
+}
+
+// Keep health admission and TTFT preference separate so cache affinity is
+// evaluated before a slow account can be removed by the latency guard.
+func (s *OpenAIGatewayService) openAIGuardExclusionParts(ctx context.Context, groupID *int64, platform, requestedModel string, requiredTransport OpenAIUpstreamTransport, requiredCapability OpenAIEndpointCapability, requiredImageCapability OpenAIImagesCapability, requireCompact bool, callerExcluded map[int64]struct{}) (map[int64]struct{}, map[int64]struct{}) {
 	if s == nil {
-		return nil
+		return nil, nil
 	}
 	hasGroupTTFTContext := groupID != nil && *groupID > 0 && NormalizeOpenAICompatiblePlatform(platform) == PlatformOpenAI
 	cfg := OpenAITTFTGuardConfigSnapshot{Source: "disabled"}
@@ -983,12 +993,12 @@ func (s *OpenAIGatewayService) openAITTFTGuardExclusions(
 			s.getOpenAITTFTGuard().clearForConfig(*groupID, cfg)
 		}
 		if !healthReader.HasTemporaryExclusions() {
-			return nil
+			return nil, nil
 		}
 	}
 	accounts, err := s.listSchedulableAccounts(ctx, groupID, NormalizeOpenAICompatiblePlatform(platform))
 	if err != nil || len(accounts) == 0 {
-		return nil
+		return nil, nil
 	}
 	candidates := make([]openAITTFTGuardCandidate, 0, len(accounts))
 	healthExcluded := make(map[int64]struct{})
@@ -1031,7 +1041,7 @@ func (s *OpenAIGatewayService) openAITTFTGuardExclusions(
 	if len(contractCandidates) > 0 {
 		ttftExcluded = s.forkTTFTRuntime().Exclusions(contractCandidates, callerExcluded, forkscheduling.TTFTConfig{Enabled: cfg.Enabled, Threshold: cfg.Threshold, MinSamples: cfg.MinSamples, Source: cfg.Source, GroupName: cfg.GroupName})
 	}
-	return mergeOpenAIExcludedAccountIDs(healthExcluded, ttftExcluded)
+	return healthExcluded, ttftExcluded
 }
 
 func mergeOpenAIExcludedAccountIDs(base, additions map[int64]struct{}) map[int64]struct{} {
@@ -1053,4 +1063,74 @@ func openAITTFTGuardShouldFailOpen(selection *AccountSelectionResult, err error)
 		return selection == nil || selection.Account == nil
 	}
 	return errors.Is(err, ErrNoAvailableAccounts) || errors.Is(err, ErrNoAvailableCompactAccounts)
+}
+
+// quality reads real per-scope sample quality without applying the five-percent
+// recovery-probe exception. Expired or superseded config evidence is unknown;
+// this lookup never touches LRU state, changes config or advances probe cadence.
+func (g *openAITTFTGuard) quality(candidates []openAITTFTGuardCandidate, cfg OpenAITTFTGuardConfigSnapshot) map[int64]forkscheduling.TTFTQuality {
+	if g == nil || len(candidates) == 0 {
+		return nil
+	}
+	cfg = normalizeOpenAITTFTGuardConfig(cfg)
+	if !cfg.Enabled {
+		return nil
+	}
+	now := g.now()
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	alive := func(key openAITTFTGuardKey, e *openAITTFTGuardEntry) bool {
+		if e == nil || e.sampleLen == 0 || e.lastSampleAt.IsZero() || now.Sub(e.lastSampleAt) >= g.ttl || !e.config.Enabled {
+			return false
+		}
+		current, ok := g.groupConfigs[key.scopeID]
+		return !ok || sameOpenAITTFTGuardRuntimeConfig(current, e.config)
+	}
+	out := make(map[int64]forkscheduling.TTFTQuality)
+	for _, candidate := range candidates {
+		scope, ok := openAITTFTGuardScopeFor(candidate.groupID, cfg)
+		if !ok {
+			continue
+		}
+		key, ok := openAITTFTGuardKeyFor(scope, candidate.accountID, candidate.model)
+		if !ok {
+			continue
+		}
+		var selected *openAITTFTGuardEntry
+		direct := g.entries[key]
+		if alive(key, direct) && sameOpenAITTFTGuardRuntimeConfig(direct.config, cfg) {
+			selected = direct
+		}
+		// Cascade evidence keeps its source scope's latency. Choose the largest
+		// effective threshold, then the lowest scope ID deterministically.
+		var inherited *openAITTFTGuardEntry
+		var inheritedScope int64
+		for sourceKey, entry := range g.entries {
+			if sourceKey == key || sourceKey.accountID != candidate.accountID || sourceKey.model != key.model || !alive(sourceKey, entry) || !entry.degraded || entry.config.Threshold < cfg.Threshold {
+				continue
+			}
+			if entry.config.Threshold == cfg.Threshold && selected != nil && selected.degraded && scope < sourceKey.scopeID {
+				continue
+			}
+			if inherited == nil || entry.config.Threshold > inherited.config.Threshold || (entry.config.Threshold == inherited.config.Threshold && sourceKey.scopeID < inheritedScope) {
+				inherited = entry
+				inheritedScope = sourceKey.scopeID
+			}
+		}
+		if inherited != nil {
+			selected = inherited
+		}
+		if selected == nil {
+			continue
+		}
+		value := forkscheduling.TTFTQuality{Degraded: selected.degraded, EWMAms: selected.recentEWMA(), SampleCount: selected.sampleCount}
+		old, exists := out[candidate.accountID]
+		if !exists || (value.Degraded && !old.Degraded) || (value.Degraded == old.Degraded && value.EWMAms > old.EWMAms) {
+			out[candidate.accountID] = value
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }

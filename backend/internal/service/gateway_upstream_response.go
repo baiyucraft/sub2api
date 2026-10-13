@@ -693,6 +693,7 @@ func partialStreamUsageResult(c *gin.Context, resp *http.Response, streamResult 
 	return &ForwardResult{
 		RequestID:                     resp.Header.Get("x-request-id"),
 		UpstreamHeaders:               resp.Header,
+		CacheUsageEvidence:            streamResult.usage.CacheUsageEvidence,
 		Usage:                         *streamResult.usage,
 		Model:                         model,
 		UpstreamModel:                 upstreamModel,
@@ -1163,6 +1164,7 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 }
 
 func (s *GatewayService) parseSSEUsage(data string, usage *ClaudeUsage) {
+	observeAnthropicCacheUsageEvent(data, usage)
 	if usage == nil {
 		return
 	}
@@ -1420,6 +1422,7 @@ func (s *GatewayService) handleNonStreamingResponse(ctx context.Context, resp *h
 	}
 
 	// 解析嵌套的 cache_creation 对象中的 5m/1h 明细
+	response.Usage.CacheUsageEvidence = parseAnthropicCacheUsageEvidenceResult(gjson.GetBytes(body, "usage"))
 	cc5m := gjson.GetBytes(body, "usage.cache_creation.ephemeral_5m_input_tokens")
 	cc1h := gjson.GetBytes(body, "usage.cache_creation.ephemeral_1h_input_tokens")
 	if cc5m.Exists() || cc1h.Exists() {

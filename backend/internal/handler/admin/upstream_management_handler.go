@@ -16,6 +16,7 @@ type upstreamProbeModelsRequest struct {
 }
 
 type upstreamManagementSettingsRequest struct {
+	CacheGuard               *service.UpstreamCacheGuardSettings      `json:"cache_guard"`
 	TTFTGuard                service.OpenAITTFTGuardSettings          `json:"ttft_guard"`
 	ProbeModels              service.UpstreamProbeModels              `json:"probe_models"`
 	ProbeIntervalSeconds     int                                      `json:"probe_interval_seconds"`
@@ -129,7 +130,7 @@ func (h *UpstreamConfigHandler) PutUpstreamManagementSettings(c *gin.Context) {
 	if req.ConfidenceProbe != nil {
 		confidenceProbe = *req.ConfidenceProbe
 	}
-	settings := service.UpstreamManagementSettings{TTFTGuard: req.TTFTGuard, ProbeModels: req.ProbeModels, ProbeIntervalSeconds: req.ProbeIntervalSeconds, ProbeGuard: probeGuard, ModelAliasRules: modelAliasRules, ConfidenceProbe: confidenceProbe}
+	settings := service.UpstreamManagementSettings{CacheGuard: req.CacheGuard, TTFTGuard: req.TTFTGuard, ProbeModels: req.ProbeModels, ProbeIntervalSeconds: req.ProbeIntervalSeconds, ProbeGuard: probeGuard, ModelAliasRules: modelAliasRules, ConfidenceProbe: confidenceProbe}
 	if settings.ProbeIntervalSeconds == 0 {
 		settings.ProbeIntervalSeconds = service.DefaultUpstreamProbeIntervalSeconds
 	}
@@ -139,6 +140,7 @@ func (h *UpstreamConfigHandler) PutUpstreamManagementSettings(c *gin.Context) {
 	// upstream-management settings action only.
 	if strings.HasSuffix(c.Request.URL.Path, "/probe-settings") {
 		req.PoolModeRetryStatusCodes = nil
+		settings.CacheGuard = nil
 	}
 	if req.PoolModeRetryStatusCodes != nil {
 		setErr = h.service.SetManagementSettingsWithRetryStatusCodes(c.Request.Context(), settings, req.PoolModeRetryStatusCodes)

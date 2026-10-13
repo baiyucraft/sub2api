@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/upstreamcacheusage"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
@@ -50,13 +51,16 @@ func TestParseSSEUsageEffectiveTerminalRules(t *testing.T) {
 	usage := &OpenAIUsage{}
 	svc.parseSSEUsageBytesWithType([]byte(`{"usage":{"input_tokens":17,"output_tokens":5,"input_tokens_details":{"cached_tokens":3}}}`), "response.in_progress", usage)
 	svc.parseSSEUsageBytesWithType([]byte(`{"response":{"id":"resp_1"}}`), "response.completed", usage)
-	require.Equal(t, OpenAIUsage{InputTokens: 17, OutputTokens: 5, CacheReadInputTokens: 3}, *usage)
+	require.Equal(t, OpenAIUsage{InputTokens: 17, OutputTokens: 5, CacheReadInputTokens: 3,
+		CacheUsageEvidence: &UpstreamCacheUsageEvidence{Status: upstreamcacheusage.Absent, Protocol: "openai", Source: "usage"}}, *usage)
 
 	svc.parseSSEUsageBytesWithType([]byte(`{"response":{"usage":{"input_tokens":0,"output_tokens":0,"input_tokens_details":{"cached_tokens":0}}}}`), "response.completed", usage)
-	require.Equal(t, OpenAIUsage{InputTokens: 17, OutputTokens: 5, CacheReadInputTokens: 3}, *usage)
+	require.Equal(t, OpenAIUsage{InputTokens: 17, OutputTokens: 5, CacheReadInputTokens: 3,
+		CacheUsageEvidence: &UpstreamCacheUsageEvidence{Status: upstreamcacheusage.Known, Protocol: "openai", Source: "usage"}}, *usage)
 
 	svc.parseSSEUsageBytesWithType([]byte(`{"response":{"usage":{"input_tokens":2,"output_tokens":0,"input_tokens_details":{"cached_tokens":0}}}}`), "response.completed", usage)
-	require.Equal(t, OpenAIUsage{InputTokens: 2}, *usage)
+	require.Equal(t, OpenAIUsage{InputTokens: 2,
+		CacheUsageEvidence: &UpstreamCacheUsageEvidence{Status: upstreamcacheusage.Known, Protocol: "openai", Source: "usage", TotalInputTokens: 2}}, *usage)
 }
 
 func BenchmarkParseSSEUsageNoUsageDelta(b *testing.B) {

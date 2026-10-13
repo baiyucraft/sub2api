@@ -668,6 +668,9 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 
 	// Generate session hash (header first; fallback to prompt_cache_key)
 	sessionHash := h.gatewayService.GenerateSessionHash(c, sessionHashBody)
+	if reqStream && service.UpstreamCacheGuardLogicalSession(c, body) != "" && service.UpstreamCacheGuardTextRequest(c.Request.URL.Path, body) {
+		c.Request = c.Request.WithContext(service.WithUpstreamCacheGuardRequestSession(c.Request.Context(), apiKey.ID, c, body))
+	}
 	if h.rejectIfCyberSessionBlocked(c, apiKey, sessionHashBody, reqModel, cyberBlockFormatResponses) {
 		return
 	}
@@ -882,14 +885,19 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		// 从不可变的 canonical forwardBody 派生本次尝试 body 并整块剔除上游私有的加密
 		// reasoning item（含耦合的 id/summary），避免非透传上游 400 拒绝 Kiro reasoning 形态。
 		attemptBody := h.deriveOpenAIForwardAttemptBody(reqLog, forwardBody, account, &passthroughFailoverState)
+		cacheAttemptCtx := c.Request.Context()
+		if reqStream && service.UpstreamCacheGuardTextRequest(c.Request.URL.Path, body) {
+			cacheAttemptCtx = service.WithUpstreamCacheGuardAttempt(cacheAttemptCtx, apiKey.ID, apiKey.GroupID, sessionHash, true)
+		}
 		result, err := func() (*service.OpenAIForwardResult, error) {
 			defer func() {
 				if accountReleaseFunc != nil {
 					accountReleaseFunc()
 				}
 			}()
-			return h.gatewayService.Forward(c.Request.Context(), c, account, attemptBody)
+			return h.gatewayService.Forward(cacheAttemptCtx, c, account, attemptBody)
 		}()
+		service.FinishOpenAIUpstreamCacheGuardAttempt(cacheAttemptCtx, result, err)
 		var cyberBlockBodyHTTP []byte
 		if service.GetOpsCyberPolicy(c) != nil {
 			cyberBlockBodyHTTP = sessionHashBody
@@ -1394,6 +1402,9 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	sessionHash := h.gatewayService.GenerateSessionHash(c, body)
 	promptCacheKey := h.gatewayService.ExtractSessionID(c, body)
 	sessionHash, promptCacheKey = resolveOpenAIMessagesMetadataSession(c, sessionHash, promptCacheKey, reqModel, body)
+	if reqStream && service.UpstreamCacheGuardLogicalSession(c, body) != "" && service.UpstreamCacheGuardTextRequest(c.Request.URL.Path, body) {
+		c.Request = c.Request.WithContext(service.WithUpstreamCacheGuardRequestSession(c.Request.Context(), apiKey.ID, c, body))
+	}
 	if h.rejectIfCyberSessionBlocked(c, apiKey, body, reqModel, cyberBlockFormatAnthropic) {
 		return
 	}
@@ -1546,14 +1557,19 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		// 应用渠道模型映射到请求体
 		forwardBody := mappedBodyForMessages(channelMappingMsg.Mapped, channelMappingMsg.MappedModel)
 		writerSizeBeforeForward := c.Writer.Size()
+		cacheAttemptCtx := c.Request.Context()
+		if reqStream && service.UpstreamCacheGuardTextRequest(c.Request.URL.Path, body) {
+			cacheAttemptCtx = service.WithUpstreamCacheGuardAttempt(cacheAttemptCtx, apiKey.ID, apiKey.GroupID, sessionHash, true)
+		}
 		result, err := func() (*service.OpenAIForwardResult, error) {
 			defer func() {
 				if accountReleaseFunc != nil {
 					accountReleaseFunc()
 				}
 			}()
-			return h.gatewayService.ForwardAsAnthropic(c.Request.Context(), c, account, forwardBody, promptCacheKey, defaultMappedModel)
+			return h.gatewayService.ForwardAsAnthropic(cacheAttemptCtx, c, account, forwardBody, promptCacheKey, defaultMappedModel)
 		}()
+		service.FinishOpenAIUpstreamCacheGuardAttempt(cacheAttemptCtx, result, err)
 		var cyberBlockBodyMsg []byte
 		if service.GetOpsCyberPolicy(c) != nil {
 			cyberBlockBodyMsg = body
@@ -2824,7 +2840,7 @@ func (h *OpenAIGatewayHandler) acquireOpenAIAccountSlot(
 		selection.Account = latest
 		// 调度器已抢槽路径无门时由选号内部完成 eager 绑定；门下选号内部
 		// 推迟绑定，这里在代理成员也完成准入后补绑定。
-		return h.finalizeOpenAIAccountAdmission(ctx, groupID, sessionHash, selection, selection.ReleaseFunc, selection.ProfitGateActive(), reqLog, writeError)
+		return h.finalizeOpenAIAccountAdmission(ctx, groupID, sessionHash, selection, selection.ReleaseFunc, selection.RequiresStickyAdmissionBinding(), reqLog, writeError)
 	}
 	if selection.WaitPlan == nil {
 		markOpsRoutingCapacityLimited(c)
@@ -3247,6 +3263,9 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		firstMessage,
 		openAIWSIngressFallbackSessionSeed(subject.UserID, apiKey.ID, apiKey.GroupID),
 	)
+	if service.UpstreamCacheGuardLogicalSession(c, firstMessage) != "" && service.UpstreamCacheGuardTextRequest(c.Request.URL.Path, firstMessage) {
+		ctx = service.WithUpstreamCacheGuardRequestSession(ctx, apiKey.ID, c, firstMessage)
+	}
 	ctx = service.WithOpenAIGuardianParentAffinity(ctx, c, firstMessage, reqModel)
 	maxAccountSwitches := h.maxAccountSwitches
 	switchCount := 0
@@ -3857,7 +3876,8 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		}
 
 		for {
-			err := h.gatewayService.ProxyResponsesWebSocketFromClient(ctx, c, wsConn, account, token, wsFirstMessage, hooks)
+			cacheConnectionCtx := service.WithUpstreamCacheGuardAttempt(ctx, apiKey.ID, apiKey.GroupID, sessionHash, service.UpstreamCacheGuardTextRequest(c.Request.URL.Path, wsFirstMessage))
+			err := h.gatewayService.ProxyResponsesWebSocketFromClient(cacheConnectionCtx, c, wsConn, account, token, wsFirstMessage, hooks)
 			if err == nil {
 				reqLog.Info("openai.websocket_ingress_closed", zap.Int64("account_id", account.ID))
 				return

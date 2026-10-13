@@ -932,8 +932,14 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	}
 	pendingImageRequest := DescribeOpenAIImageRequest(openAIResponsesEndpoint, initialRequestModel, originalFirstClientMessage, isCodexCLI)
 	imageSendCount := 0
+	cacheTurns := newUpstreamCacheGuardWSTurns(ctx)
+	defer cacheTurns.finishRemaining()
+	cacheUpstreamFrameConn := &upstreamCacheGuardWSFrameConn{
+		inner: upstreamFrameConn, turns: cacheTurns, account: account,
+		model: func() string { _, model := usageMeta.turnModels(""); return model },
+	}
 	guardedUpstreamFrameConn := &openAIWSImageGuardFrameConn{
-		inner:    upstreamFrameConn,
+		inner:    cacheUpstreamFrameConn,
 		describe: func(_ []byte) OpenAIImageRequest { return pendingImageRequest },
 		prepare: func(sendCtx context.Context, payload []byte, original OpenAIImageRequest) ([]byte, error) {
 			prepared, err := s.prepareOpenAIWSImageSend(sendCtx, c, account, payload, original, false)
@@ -1256,6 +1262,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 						ImageInputTokens:         turn.Usage.ImageInputTokens,
 						OutputTokens:             turn.Usage.OutputTokens,
 						CacheCreationInputTokens: turn.Usage.CacheCreationInputTokens,
+						CacheUsageEvidence:       turn.Usage.CacheUsageEvidence,
 						CacheReadInputTokens:     turn.Usage.CacheReadInputTokens,
 						ImageOutputTokens:        turn.Usage.ImageOutputTokens,
 					},
@@ -1269,11 +1276,13 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 					RequestedReasoningEffort:      usageMeta.requestedReasoningEffort.Load(),
 					Stream:                        true,
 					OpenAIWSMode:                  true,
+					ClientDisconnect:              turn.ClientDisconnected,
 					UpstreamTerminalEvent:         normalizeOpenAIWSTerminalEvent(turn.TerminalEventType),
 					ResponseHeaders:               cloneHeader(handshakeHeaders),
 					Duration:                      turn.Duration,
 					FirstTokenMs:                  turn.FirstTokenMs,
 				}
+				cacheTurns.finish(turnNo, turnResult, nil)
 				logOpenAIWSV2Passthrough(
 					"relay_turn_completed account_id=%d turn=%d request_id=%s terminal_event=%s turn_requested_model=%s turn_upstream_model=%s duration_ms=%d first_token_ms=%d input_tokens=%d output_tokens=%d cache_read_tokens=%d",
 					account.ID,
@@ -1409,6 +1418,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			ImageInputTokens:         relayResult.Usage.ImageInputTokens,
 			OutputTokens:             relayResult.Usage.OutputTokens,
 			CacheCreationInputTokens: relayResult.Usage.CacheCreationInputTokens,
+			CacheUsageEvidence:       relayResult.Usage.CacheUsageEvidence,
 			CacheReadInputTokens:     relayResult.Usage.CacheReadInputTokens,
 			ImageOutputTokens:        relayResult.Usage.ImageOutputTokens,
 		},
@@ -1422,6 +1432,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		RequestedReasoningEffort:      usageMeta.requestedReasoningEffort.Load(),
 		Stream:                        true,
 		OpenAIWSMode:                  true,
+		ClientDisconnect:              relayResult.ClientDisconnected,
 		UpstreamTerminalEvent:         normalizeOpenAIWSTerminalEvent(relayResult.TerminalEventType),
 		ResponseHeaders:               cloneHeader(handshakeHeaders),
 		Duration:                      relayResult.Duration,

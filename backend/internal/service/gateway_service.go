@@ -588,10 +588,11 @@ type AccountWaitPlan struct {
 }
 
 type AccountSelectionResult struct {
-	Account     *Account
-	Acquired    bool
-	ReleaseFunc func()
-	WaitPlan    *AccountWaitPlan // nil means no wait allowed
+	cacheGuardMigrationAccountID int64
+	Account                      *Account
+	Acquired                     bool
+	ReleaseFunc                  func()
+	WaitPlan                     *AccountWaitPlan // nil means no wait allowed
 	// stickySessionHit 标记账号来自会话粘性绑定命中，供非高级调度路径回填决策标签。
 	stickySessionHit bool
 	// profitGate 携带本次选号真实生效的利润门（无门为 nil）。门安装在调度栈的
@@ -610,15 +611,22 @@ func (r *AccountSelectionResult) ProfitGateActive() bool {
 	return r != nil && r.profitGate != nil
 }
 
+// RequiresStickyAdmissionBinding includes cache migrations even when profit
+// control is disabled. The handler calls it only after the final slot check.
+func (r *AccountSelectionResult) RequiresStickyAdmissionBinding() bool {
+	return r != nil && (r.ProfitGateActive() || r.cacheGuardMigrationAccountID > 0)
+}
+
 // ClaudeUsage 表示Claude API返回的usage信息
 type ClaudeUsage struct {
-	InputTokens              int `json:"input_tokens"`
-	OutputTokens             int `json:"output_tokens"`
-	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
-	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
-	CacheCreation5mTokens    int // 5分钟缓存创建token（来自嵌套 cache_creation 对象）
-	CacheCreation1hTokens    int // 1小时缓存创建token（来自嵌套 cache_creation 对象）
-	ImageOutputTokens        int `json:"image_output_tokens,omitempty"`
+	CacheUsageEvidence       *UpstreamCacheUsageEvidence `json:"-"`
+	InputTokens              int                         `json:"input_tokens"`
+	OutputTokens             int                         `json:"output_tokens"`
+	CacheCreationInputTokens int                         `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int                         `json:"cache_read_input_tokens"`
+	CacheCreation5mTokens    int                         // 5分钟缓存创建token（来自嵌套 cache_creation 对象）
+	CacheCreation1hTokens    int                         // 1小时缓存创建token（来自嵌套 cache_creation 对象）
+	ImageOutputTokens        int                         `json:"image_output_tokens,omitempty"`
 }
 
 // ForwardResult 转发结果
@@ -628,7 +636,8 @@ type AudioUsage struct {
 }
 
 type ForwardResult struct {
-	RequestID string
+	CacheUsageEvidence *UpstreamCacheUsageEvidence `json:"-"`
+	RequestID          string
 	// UpstreamHeaders 是直接上游的响应头，用于按账户配置解析上游请求标识。
 	UpstreamHeaders http.Header
 	Usage           ClaudeUsage
@@ -1012,7 +1021,7 @@ func (s *GatewayService) BindStickySession(ctx context.Context, groupID *int64, 
 // only after the terminal post-slot check, otherwise a rejected candidate could
 // overwrite a healthy pre-existing sticky binding.
 func (s *GatewayService) bindGatewayStickySessionDuringSelection(ctx context.Context, groupID *int64, sessionHash string, accountID int64) error {
-	if gatewayProfitControlGateActive(ctx) {
+	if gatewayProfitControlGateActive(ctx) || cacheGuardTentativeSelection(ctx) {
 		return nil
 	}
 	return s.BindStickySession(ctx, groupID, sessionHash, accountID)
@@ -1027,6 +1036,9 @@ func (s *GatewayService) bindGatewayStickySessionDuringSelection(ctx context.Con
 func (s *GatewayService) BindStickySessionAfterProfitAdmission(ctx context.Context, groupID *int64, sessionHash string, accountID int64) error {
 	if sessionHash == "" || accountID <= 0 || s.cache == nil {
 		return nil
+	}
+	if cacheGuardAdmittedMigration(ctx, accountID) {
+		return s.BindStickySession(ctx, groupID, sessionHash, accountID)
 	}
 	if !gatewayProfitControlGateActive(ctx) {
 		return s.BindStickySession(ctx, groupID, sessionHash, accountID)

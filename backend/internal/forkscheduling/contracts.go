@@ -4,6 +4,7 @@ package forkscheduling
 
 import (
 	"context"
+	"github.com/Wei-Shaw/sub2api/internal/upstreamcacheguard"
 	"strconv"
 	"time"
 )
@@ -200,6 +201,20 @@ type TTFTDegradationReader interface {
 	Degradations(accountIDs []int64) map[int64][]TTFTDegradation
 }
 
+// TTFTQuality is real sample evidence, independent of recovery probe admission.
+// An absent account in Quality's result means that latency is unknown.
+type TTFTQuality struct {
+	Degraded    bool
+	EWMAms      float64
+	SampleCount uint64
+}
+
+// TTFTQualityReader is optional: the existing TTFTRuntime contract stays intact.
+// Reads must not advance recovery probes or touch LRU timestamps.
+type TTFTQualityReader interface {
+	Quality(candidates []CandidateView, cfg TTFTConfig) map[int64]TTFTQuality
+}
+
 // TTFTRuntime is a convenience aggregate; consumers should depend on the
 // narrow interface above whenever they need only one operation.
 type TTFTRuntime interface {
@@ -266,10 +281,20 @@ type RetryPolicyReader interface {
 	IsRetryableStatus(statusCode int) bool
 }
 
+// CacheGuardReader exposes provider-neutral shared affinity snapshots and
+// atomic natural-session trial admission. Nil means no scheduling opinion.
+type CacheGuardReader interface {
+	Settings() upstreamcacheguard.Settings
+	CachedSnapshot(int64) upstreamcacheguard.Snapshot
+	CachedSessionRead(upstreamcacheguard.Request) upstreamcacheguard.SessionRead
+	PlanTrial(context.Context, upstreamcacheguard.Request) (upstreamcacheguard.TrialPlan, error)
+}
+
 // Runtime groups optional narrow views for a single application instance.
 // A nil member means that capability is unavailable; it does not imply that
 // the existing legacy service should be disabled.
 type Runtime struct {
+	CacheGuard      CacheGuardReader
 	TTFT            TTFTRuntime
 	HealthReader    HealthReader
 	HealthEvidence  HealthEvidenceSink

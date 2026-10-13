@@ -136,6 +136,7 @@ func (s *GatewayService) ForwardAsChatCompletions(
 
 	// 11. Send request
 	s.countLegacyAnthropicRPM(ctx, account)
+	BeginUpstreamCacheGuardSend(upstreamReq.Context(), account, mappedModel, "anthropic")
 	resp, err := s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
 	if err != nil {
 		if resp != nil && resp.Body != nil {
@@ -256,6 +257,7 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 			continue
 		}
 
+		observeAnthropicCacheUsageEvent(payload, &usage)
 		var event apicompat.AnthropicStreamEvent
 		if err := json.Unmarshal([]byte(payload), &event); err != nil {
 			continue
@@ -341,14 +343,15 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 	}
 
 	return &ForwardResult{
-		RequestID:       requestID,
-		UpstreamHeaders: resp.Header,
-		Usage:           usage,
-		Model:           originalModel,
-		UpstreamModel:   mappedModel,
-		ReasoningEffort: reasoningEffort,
-		Stream:          false,
-		Duration:        time.Since(startTime),
+		RequestID:          requestID,
+		UpstreamHeaders:    resp.Header,
+		CacheUsageEvidence: usage.CacheUsageEvidence,
+		Usage:              usage,
+		Model:              originalModel,
+		UpstreamModel:      mappedModel,
+		ReasoningEffort:    reasoningEffort,
+		Stream:             false,
+		Duration:           time.Since(startTime),
 	}, nil
 }
 
@@ -382,6 +385,8 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 	var usage ClaudeUsage
 	var firstTokenMs *int
 	firstChunk := true
+	clientDisconnected := false
+	cacheTerminalComplete, cacheReadFailed := false, false
 
 	scanner := bufio.NewScanner(resp.Body)
 	maxLineSize := defaultMaxLineSize
@@ -391,16 +396,20 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 	scanner.Buffer(make([]byte, 0, 64*1024), maxLineSize)
 
 	resultWithUsage := func() *ForwardResult {
+		observedUsage := usage
+		observedUsage.CacheUsageEvidence = cacheUsageWithStreamCompletion(usage.CacheUsageEvidence, cacheTerminalComplete && !cacheReadFailed)
 		return &ForwardResult{
-			RequestID:       requestID,
-			UpstreamHeaders: resp.Header,
-			Usage:           usage,
-			Model:           originalModel,
-			UpstreamModel:   mappedModel,
-			ReasoningEffort: reasoningEffort,
-			Stream:          true,
-			Duration:        time.Since(startTime),
-			FirstTokenMs:    firstTokenMs,
+			RequestID:          requestID,
+			UpstreamHeaders:    resp.Header,
+			CacheUsageEvidence: observedUsage.CacheUsageEvidence,
+			Usage:              observedUsage,
+			Model:              originalModel,
+			UpstreamModel:      mappedModel,
+			ReasoningEffort:    reasoningEffort,
+			Stream:             true,
+			Duration:           time.Since(startTime),
+			FirstTokenMs:       firstTokenMs,
+			ClientDisconnect:   clientDisconnected,
 		}
 	}
 
@@ -413,6 +422,7 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 		// c 可能持有请求侧注入的 ToolNameRewrite；无则仅做静态前缀还原。
 		out := string(reverseToolNamesIfPresent(c, []byte(sse)))
 		if _, err := fmt.Fprint(c.Writer, out); err != nil {
+			clientDisconnected = true
 			return true // client disconnected
 		}
 		return false
@@ -424,6 +434,7 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 		}
 		if event.Type == "ping" {
 			if _, err := fmt.Fprint(c.Writer, ": ping\n\n"); err != nil {
+				clientDisconnected = true
 				return true
 			}
 			c.Writer.Flush()
@@ -478,10 +489,12 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 			continue
 		}
 
+		observeAnthropicCacheUsageEvent(payload, &usage)
 		var event apicompat.AnthropicStreamEvent
 		if err := json.Unmarshal([]byte(payload), &event); err != nil {
 			continue
 		}
+		cacheTerminalComplete = cacheTerminalComplete || anthropicStreamEventIsTerminal("", payload)
 
 		// Forward received usage regardless of the client stream_options.
 		// The intermediate Responses converter synthesizes usage even when absent.
@@ -493,6 +506,7 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 	}
 
 	if err := scanner.Err(); err != nil {
+		cacheReadFailed = true
 		if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 			logger.L().Warn("forward_as_cc stream: read error",
 				zap.Error(err),
@@ -515,7 +529,9 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 	}
 
 	// Write [DONE] marker
-	fmt.Fprint(c.Writer, "data: [DONE]\n\n") //nolint:errcheck
+	if _, err := fmt.Fprint(c.Writer, "data: [DONE]\n\n"); err != nil {
+		clientDisconnected = true
+	}
 	c.Writer.Flush()
 
 	return resultWithUsage(), nil

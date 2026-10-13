@@ -231,6 +231,8 @@ func normalizeOpenAIWSTerminalEvent(eventType string) string {
 		return "response.incomplete"
 	case "response.cancelled", "response.canceled":
 		return "response.cancelled"
+	case "error":
+		return "error"
 	default:
 		return ""
 	}

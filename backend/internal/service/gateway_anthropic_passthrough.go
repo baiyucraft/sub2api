@@ -110,6 +110,7 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 		}
 
 		s.countLegacyAnthropicRPM(ctx, account)
+		BeginUpstreamCacheGuardSend(upstreamReq.Context(), account, input.RequestModel, "anthropic")
 		resp, err = s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
 		if err != nil {
 			if resp != nil && resp.Body != nil {
@@ -280,6 +281,7 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 	return &ForwardResult{
 		RequestID:                     resp.Header.Get("x-request-id"),
 		UpstreamHeaders:               resp.Header,
+		CacheUsageEvidence:            usage.CacheUsageEvidence,
 		Usage:                         *usage,
 		Model:                         input.OriginalModel,
 		UpstreamModel:                 input.RequestModel,
@@ -626,6 +628,7 @@ func extractAnthropicSSEDataLine(line string) (string, bool) {
 // parseSSEUsagePassthrough 从 Anthropic SSE data 行提取 usage（包级函数：
 // Anthropic 平台 passthrough 与国产供应商原生 Anthropic 直通共用）。
 func parseSSEUsagePassthrough(data string, usage *ClaudeUsage) {
+	observeAnthropicCacheUsageEvent(data, usage)
 	if usage == nil || data == "" || data == "[DONE]" {
 		return
 	}
@@ -770,6 +773,7 @@ func parseClaudeUsageFromResponseBody(body []byte) *ClaudeUsage {
 
 	parsed := gjson.ParseBytes(body)
 	usageNode := parsed.Get("usage")
+	usage.CacheUsageEvidence = parseAnthropicCacheUsageEvidenceResult(usageNode)
 	if !usageNode.Exists() {
 		return usage
 	}

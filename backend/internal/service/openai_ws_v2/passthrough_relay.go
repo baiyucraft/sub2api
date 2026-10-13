@@ -15,6 +15,7 @@ import (
 	coderws "github.com/coder/websocket"
 	"github.com/tidwall/gjson"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/upstreamcacheusage"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 )
 
@@ -25,6 +26,7 @@ type FrameConn interface {
 }
 
 type Usage struct {
+	CacheUsageEvidence       *upstreamcacheusage.Evidence `json:"-"`
 	InputTokens              int
 	ImageInputTokens         int
 	OutputTokens             int
@@ -43,6 +45,7 @@ type RelayResult struct {
 	Usage                   Usage
 	RequestID               string
 	TerminalEventType       string
+	ClientDisconnected      bool
 	FirstTokenMs            *int
 	Duration                time.Duration
 	ClientToUpstreamFrames  int64
@@ -58,9 +61,12 @@ type RelayTurnResult struct {
 	Usage                 Usage
 	RequestID             string
 	TerminalEventType     string
-	StartedAt             time.Time
-	Duration              time.Duration
-	FirstTokenMs          *int
+	// Terminal usage remains billable after a failed delivery or client drain,
+	// but it must not become successful cache-quality evidence.
+	ClientDisconnected bool
+	StartedAt          time.Time
+	Duration           time.Duration
+	FirstTokenMs       *int
 }
 
 type RelayExit struct {
@@ -104,6 +110,7 @@ type relayState struct {
 	usage                   Usage
 	turnUsage               Usage
 	turnWroteDownstream     atomic.Bool
+	clientDisconnected      atomic.Bool
 	requestModelMu          sync.RWMutex
 	requestModel            string
 	pendingTurnStart        atomic.Pointer[time.Time]
@@ -287,7 +294,22 @@ func Relay(
 		if !clientReaderStarted.CompareAndSwap(false, true) {
 			return
 		}
-		go runClientToUpstream(relayCtx, clientConn, options.ReadClientFrame, writeClientFrameUpstream, markActivity, clientToUpstreamFrames, onTrace, exitCh)
+		readClient := options.ReadClientFrame
+		if readClient == nil {
+			readClient = func(readCtx context.Context, conn FrameConn) (coderws.MessageType, []byte, error) {
+				return conn.ReadFrame(readCtx)
+			}
+		}
+		go runClientToUpstream(relayCtx, clientConn, func(readCtx context.Context, conn FrameConn) (coderws.MessageType, []byte, error) {
+			msgType, payload, err := readClient(readCtx, conn)
+			if err != nil && relayCtx.Err() == nil {
+				// Publish the disconnect before the exit channel is consumed; an
+				// upstream terminal can arrive concurrently with the client EOF.
+				state.clientDisconnected.Store(true)
+				dropDownstreamWrites.Store(true)
+			}
+			return msgType, payload, err
+		}, writeClientFrameUpstream, markActivity, clientToUpstreamFrames, onTrace, exitCh)
 	}
 	if !options.StartClientAfterFirstDownstream {
 		startClientReader()
@@ -351,6 +373,7 @@ func Relay(
 
 	// 客户端断开后尽力继续读取上游短窗口，捕获延迟 usage/terminal 事件用于计费。
 	if firstExit.stage == "read_client" && firstExit.graceful {
+		state.clientDisconnected.Store(true)
 		dropDownstreamWrites.Store(true)
 		secondExit, hasSecondExit = waitRelayExit(exitCh, drainTimeout)
 	} else {
@@ -611,8 +634,13 @@ func runUpstreamToClient(
 				openAIWSRelayDiscardActiveTurnTiming(state)
 			}
 		}
-		emitTurnComplete(onTurnComplete, state, observedEvent)
 		if dropDownstreamWrites != nil && dropDownstreamWrites.Load() {
+			if state != nil {
+				state.clientDisconnected.Store(true)
+			}
+			// Drained terminals still settle exactly one billing turn, carrying
+			// the disconnect instead of treating upstream completion as delivery.
+			emitTurnComplete(onTurnComplete, state, observedEvent)
 			if droppedFrames != nil {
 				droppedFrames.Add(1)
 			}
@@ -638,6 +666,13 @@ func runUpstreamToClient(
 			beforeClientWrite(msgType, payload)
 		}
 		writeErr := writeClient(msgType, payload)
+		if writeErr != nil && state != nil {
+			state.clientDisconnected.Store(true)
+		}
+		// Wait for the actual terminal write result, but settle billing before
+		// AfterClientWrite releases the adapter's next-turn lifecycle barrier.
+		// Both failed writes and successful delivery retain the same callback.
+		emitTurnComplete(onTurnComplete, state, observedEvent)
 		if afterClientWrite != nil {
 			afterClientWrite(msgType, payload, writeErr)
 		}
@@ -893,17 +928,26 @@ func emitTurnComplete(
 		return
 	}
 	requestModel := ""
+	clientDisconnected := false
 	if state != nil {
 		requestModel = state.currentRequestModel()
+		clientDisconnected = state.clientDisconnected.Load()
+	}
+	usage := observed.usage
+	if clientDisconnected && usage.CacheUsageEvidence != nil {
+		raw := *usage.CacheUsageEvidence
+		raw.StreamIncomplete = true
+		usage.CacheUsageEvidence = &raw
 	}
 	onTurnComplete(RelayTurnResult{
 		RequestModel:          requestModel,
 		ResponseModel:         observed.responseModel,
 		ResponseModelConflict: observed.responseConflict,
 		ResponseServiceTier:   observed.responseServiceTier,
-		Usage:                 observed.usage,
+		Usage:                 usage,
 		RequestID:             responseID,
 		TerminalEventType:     observed.eventType,
+		ClientDisconnected:    clientDisconnected,
 		StartedAt:             observed.startedAt,
 		Duration:              observed.duration,
 		FirstTokenMs:          openAIWSRelayCloneIntPtr(observed.firstToken),
@@ -1084,6 +1128,9 @@ func parseUsageAndAccumulate(
 	onParseFailure func(eventType string, usageRaw string),
 ) Usage {
 	if state == nil || len(message) == 0 || !shouldParseUsage(eventType) || !bytes.Contains(message, []byte(`"usage"`)) {
+		if state != nil && isTerminalEvent(strings.TrimSpace(eventType)) {
+			state.turnUsage.CacheUsageEvidence = upstreamcacheusage.ParseOpenAI(gjson.Result{})
+		}
 		return Usage{}
 	}
 	usageResult := gjson.GetBytes(message, "response.usage")
@@ -1091,7 +1138,14 @@ func parseUsageAndAccumulate(
 		usageResult = gjson.GetBytes(message, "usage")
 	}
 	if !usageResult.Exists() {
+		if isTerminalEvent(strings.TrimSpace(eventType)) {
+			state.turnUsage.CacheUsageEvidence = upstreamcacheusage.ParseOpenAI(gjson.Result{})
+		}
 		return Usage{}
+	}
+	rawCacheEvidence := upstreamcacheusage.ParseOpenAI(usageResult)
+	if isTerminalEvent(strings.TrimSpace(eventType)) {
+		state.turnUsage.CacheUsageEvidence = rawCacheEvidence
 	}
 	usageRaw := strings.TrimSpace(usageResult.Raw)
 	if usageRaw == "" || !strings.HasPrefix(usageRaw, "{") {
@@ -1156,6 +1210,7 @@ func parseUsageAndAccumulate(
 		))
 	}
 	parsedUsage := Usage{
+		CacheUsageEvidence:       rawCacheEvidence,
 		InputTokens:              inputTokens,
 		ImageInputTokens:         int(imageInputTokens),
 		OutputTokens:             outputTokens,
@@ -1184,6 +1239,9 @@ func relayUsageHasTokens(usage Usage) bool {
 func mergeRelayUsageNonZero(dst *Usage, src Usage) {
 	if dst == nil {
 		return
+	}
+	if src.CacheUsageEvidence != nil {
+		dst.CacheUsageEvidence = src.CacheUsageEvidence
 	}
 	if src.InputTokens > 0 {
 		dst.InputTokens = src.InputTokens
@@ -1270,6 +1328,7 @@ func enrichResult(result *RelayResult, state *relayState, duration time.Duration
 	result.Usage = state.usage
 	result.RequestID = state.lastResponseID
 	result.TerminalEventType = state.terminalEventType
+	result.ClientDisconnected = state.clientDisconnected.Load()
 	result.FirstTokenMs = state.firstTokenMs
 }
 

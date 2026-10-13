@@ -1434,6 +1434,46 @@ export interface OpenCodeGoUsageSettings {
   debounce_minutes: number
 }
 
+export interface UpstreamCacheGuardState {
+  group_id: number
+  group_name?: string
+  state: 'disabled' | 'observing' | 'insufficient' | 'normal' | 'protected' | 'recovering'
+  rate_percent: number | null
+  valid_requests: number
+  reason: string
+  recovery_valid_requests: number
+  recovery_rate_percent: number | null
+  recovery_sessions: number
+  recovery_started_at: string | null
+  cooldown_until: string | null
+  updated_at: string | null
+  native_state?: UpstreamCacheGuardState['state']
+  native_reason?: string
+  linked_protection?: {
+    protected: boolean
+    reason: string
+    primary_source_group_id: number
+    sources: UpstreamCacheGuardProtectionSource[]
+  }
+}
+
+export interface UpstreamCacheGuardProtectionSource {
+  group_id: number
+  group_name?: string
+  threshold_percent: number
+  recovery_threshold_percent: number
+  phase: 'healthy' | 'degraded' | 'cooling' | 'trial'
+  rate_percent: number | null
+  valid_requests: number
+  min_valid_requests: number
+  recovery_valid_requests: number
+  recovery_rate_percent: number | null
+  recovery_sessions: number
+  recovery_started_at: string | null
+  cooldown_until: string | null
+  updated_at: string | null
+}
+
 export interface Account {
   id: number
   name: string
@@ -1555,6 +1595,8 @@ export interface Account {
   temp_unschedulable_reason: string | null
   /** Runtime TTFT Guard state, scoped globally or by group plus account and canonical mapped model. */
   ttft_guard_degradations?: AccountTTFTGuardDegradation[]
+  /** Cache utilization for this group and account, across models and excluding cold starts. */
+  upstream_cache_guard_states?: UpstreamCacheGuardState[]
   upstream_health?: {
     key_id: number
     status: 'healthy' | 'degraded' | 'suspended' | 'observing' | 'recovering' | 'disabled'

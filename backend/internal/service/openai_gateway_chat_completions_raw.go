@@ -324,6 +324,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 	pendingLines := make([]string, 0, 8)
 	refusalDetector := newOpenAIChatSilentRefusalDetector(requestBodyLen)
 	var terminal openAIRawStreamTerminalState
+	cacheStreamFailed := false
 
 	writeLine := func(line string) {
 		if clientDisconnected {
@@ -364,6 +365,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 			trimmedPayload := strings.TrimSpace(payload)
 			terminal.ObserveDataLine(trimmedPayload)
 			if trimmedPayload != "[DONE]" {
+				cacheStreamFailed = cacheStreamFailed || cacheGuardCCChunkFailed(payload)
 				observer.ObserveOpenAI([]byte(payload), strings.TrimSpace(gjson.Get(payload, "type").String()))
 				usageOnlyChunk := isOpenAIChatUsageOnlyStreamChunk(payload)
 				if u := extractCCStreamUsage(payload); u != nil {
@@ -392,9 +394,12 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 	}
 
 	resultWithUsage := func() *OpenAIForwardResult {
+		usage.CacheUsageEvidence = cacheUsageWithStreamCompletion(usage.CacheUsageEvidence,
+			(terminal.sawDone || terminal.sawFinishReason) && !cacheStreamFailed && !clientDisconnected)
 		return &OpenAIForwardResult{
 			RequestID:                     requestID,
 			UpstreamHeaders:               resp.Header,
+			CacheUsageEvidence:            usage.CacheUsageEvidence,
 			Usage:                         usage,
 			Model:                         originalModel,
 			BillingModel:                  billingModel,
@@ -407,6 +412,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 			Stream:                        true,
 			Duration:                      time.Since(startTime),
 			FirstTokenMs:                  firstTokenMs,
+			ClientDisconnect:              clientDisconnected,
 		}
 	}
 
@@ -565,6 +571,7 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 	return &OpenAIForwardResult{
 		RequestID:                     requestID,
 		UpstreamHeaders:               resp.Header,
+		CacheUsageEvidence:            usage.CacheUsageEvidence,
 		Usage:                         usage,
 		Model:                         originalModel,
 		BillingModel:                  billingModel,

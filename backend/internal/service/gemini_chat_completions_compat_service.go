@@ -122,6 +122,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 		}
 		requestIDHeader = idHeader
 
+		BeginUpstreamCacheGuardSend(upstreamReq.Context(), account, mappedModel, "gemini")
 		resp, err = s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
 		if err != nil {
 			return nil, s.handleUpstreamTransportError(ctx, c, account, err)
@@ -274,19 +275,20 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 	}
 
 	return &ForwardResult{
-		RequestID:        requestID,
-		UpstreamHeaders:  resp.Header,
-		Usage:            *usage,
-		Model:            originalModel,
-		UpstreamModel:    mappedModel,
-		Stream:           clientStream,
-		Duration:         time.Since(startTime),
-		FirstTokenMs:     firstTokenMs,
-		ReasoningEffort:  reasoningEffort,
-		ImageCount:       imageCount,
-		ImageSize:        imageSize,
-		ImageInputSize:   imageInputSize,
-		ClientDisconnect: false,
+		RequestID:          requestID,
+		UpstreamHeaders:    resp.Header,
+		CacheUsageEvidence: usage.CacheUsageEvidence,
+		Usage:              *usage,
+		Model:              originalModel,
+		UpstreamModel:      mappedModel,
+		Stream:             clientStream,
+		Duration:           time.Since(startTime),
+		FirstTokenMs:       firstTokenMs,
+		ReasoningEffort:    reasoningEffort,
+		ImageCount:         imageCount,
+		ImageSize:          imageSize,
+		ImageInputSize:     imageInputSize,
+		ClientDisconnect:   false,
 	}, nil
 }
 
@@ -515,6 +517,11 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 	ccState.IncludeUsage = includeUsage
 
 	var usage ClaudeUsage
+	finishReason := ""
+	cacheWriter := &cacheUsageStreamWriter{writer: c.Writer}
+	defer func() {
+		usage.CacheUsageEvidence = cacheUsageWithStreamCompletion(usage.CacheUsageEvidence, cacheGuardGeminiTerminalSucceeded(finishReason) && !cacheWriter.failed)
+	}()
 	var firstTokenMs *int
 	firstChunk := true
 
@@ -523,7 +530,7 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 		if err != nil {
 			return false
 		}
-		if _, err := io.WriteString(c.Writer, sse); err != nil {
+		if _, err := io.WriteString(cacheWriter, sse); err != nil {
 			return true
 		}
 		return false
@@ -559,7 +566,6 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 		return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, nil
 	}
 
-	finishReason := ""
 	sawToolUse := false
 	nextBlockIndex := 0
 	openBlockIndex := -1
@@ -779,7 +785,7 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 		}
 	}
 
-	_, _ = io.WriteString(c.Writer, "data: [DONE]\n\n")
+	_, _ = io.WriteString(cacheWriter, "data: [DONE]\n\n")
 	flusher.Flush()
 
 	return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, nil

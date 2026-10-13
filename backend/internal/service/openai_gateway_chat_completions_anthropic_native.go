@@ -120,6 +120,7 @@ func (s *OpenAIGatewayService) forwardChatCompletionsViaNativeAnthropic(
 		return nil, fmt.Errorf("build upstream request: %w", err)
 	}
 
+	BeginUpstreamCacheGuardSend(upstreamReq.Context(), account, upstreamModel, "anthropic")
 	resp, err := s.doOpenAIUpstream(upstreamReq, proxyURL, account)
 	if err != nil {
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, true)
@@ -219,6 +220,7 @@ func (s *OpenAIGatewayService) handleCCBufferedFromNativeAnthropic(
 			continue
 		}
 
+		observeAnthropicCacheUsageEvent(payload, &usage)
 		var event apicompat.AnthropicStreamEvent
 		if err := json.Unmarshal([]byte(payload), &event); err != nil {
 			continue
@@ -328,6 +330,7 @@ func (s *OpenAIGatewayService) handleCCStreamingFromNativeAnthropic(
 	var firstTokenMs *int
 	firstChunk := true
 	clientDisconnected := false
+	cacheTerminalComplete, cacheReadFailed := false, false
 
 	scanner := bufio.NewScanner(resp.Body)
 	maxLineSize := defaultMaxLineSize
@@ -337,10 +340,12 @@ func (s *OpenAIGatewayService) handleCCStreamingFromNativeAnthropic(
 	scanner.Buffer(make([]byte, 0, 64*1024), maxLineSize)
 
 	resultWithUsage := func() *OpenAIForwardResult {
+		observedUsage := claudeUsageToOpenAIUsage(&usage)
+		observedUsage.CacheUsageEvidence = cacheUsageWithStreamCompletion(usage.CacheUsageEvidence, cacheTerminalComplete && !cacheReadFailed)
 		return &OpenAIForwardResult{
 			RequestID:        requestID,
 			UpstreamHeaders:  resp.Header,
-			Usage:            claudeUsageToOpenAIUsage(&usage),
+			Usage:            observedUsage,
 			Model:            originalModel,
 			BillingModel:     billingModel,
 			UpstreamModel:    upstreamModel,
@@ -443,6 +448,7 @@ func (s *OpenAIGatewayService) handleCCStreamingFromNativeAnthropic(
 				return onIdle()
 			}
 			logReadErr(rerr)
+			cacheReadFailed = !errors.Is(rerr, io.EOF)
 			break
 		}
 		if _, ok := extractOpenAISSEEventLine(line); !ok {
@@ -456,6 +462,7 @@ func (s *OpenAIGatewayService) handleCCStreamingFromNativeAnthropic(
 			}
 			// EOF / 读错误：事件行后流终止，进入 finalize。
 			logReadErr(rerr)
+			cacheReadFailed = !errors.Is(rerr, io.EOF)
 			break
 		}
 		payload, ok := extractOpenAISSEDataLine(dataLine)
@@ -463,10 +470,12 @@ func (s *OpenAIGatewayService) handleCCStreamingFromNativeAnthropic(
 			continue
 		}
 
+		observeAnthropicCacheUsageEvent(payload, &usage)
 		var event apicompat.AnthropicStreamEvent
 		if err := json.Unmarshal([]byte(payload), &event); err != nil {
 			continue
 		}
+		cacheTerminalComplete = cacheTerminalComplete || anthropicStreamEventIsTerminal("", payload)
 
 		// Forward received usage regardless of the client stream_options.
 		// The intermediate Responses converter synthesizes usage even when absent.
@@ -491,7 +500,9 @@ func (s *OpenAIGatewayService) handleCCStreamingFromNativeAnthropic(
 	}
 
 	if !clientDisconnected {
-		fmt.Fprint(c.Writer, "data: [DONE]\n\n") //nolint:errcheck
+		if _, err := fmt.Fprint(c.Writer, "data: [DONE]\n\n"); err != nil {
+			clientDisconnected = true
+		}
 		c.Writer.Flush()
 	}
 

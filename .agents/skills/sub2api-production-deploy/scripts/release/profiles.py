@@ -956,7 +956,21 @@ PROFILES["267"] = {
     },
 }
 
-CURRENT_RELEASE_PROFILE = "267"
+# Cache protection persists factual metadata without changing billing or retry policy.
+PROFILES["268"] = {
+    **{key: PROFILES["267"][key] for key in _PROFILE_V2_RUNTIME_KEYS},
+    "name": "268",
+    "version": "0.2.16-baiyu",
+    "parent": "267",
+    "new_migrations": ["296_upstream_cache_guard.sql"],
+    "gate_schema": 2,
+    "release_policy": {
+        "compatibility_image": "production_current",
+        "migration_source": "database_state",
+    },
+}
+
+CURRENT_RELEASE_PROFILE = "268"
 
 
 def get_profile(name: str) -> dict:

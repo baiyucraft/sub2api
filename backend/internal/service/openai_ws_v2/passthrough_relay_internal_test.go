@@ -9,10 +9,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/upstreamcacheusage"
 	coderws "github.com/coder/websocket"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
+
+func relayCacheEvidenceFixture(status upstreamcacheusage.Status, input, cached int64) *upstreamcacheusage.Evidence {
+	return &upstreamcacheusage.Evidence{Status: status, Protocol: "openai", TotalInputTokens: input, CacheReadTokens: cached, Source: "usage"}
+}
 
 func TestRunEntry_DelegatesRelay(t *testing.T) {
 	t.Parallel()
@@ -363,7 +368,13 @@ func TestParseUsageAndAccumulateAcceptsChatUsageAliases(t *testing.T) {
 	require.Equal(t, 6, got.OutputTokens)
 	require.Equal(t, 4, got.CacheReadInputTokens)
 	require.Equal(t, 2, got.ImageOutputTokens)
-	require.Equal(t, got, state.usage)
+	require.Equal(t, Usage{
+		CacheUsageEvidence: relayCacheEvidenceFixture(upstreamcacheusage.Known, 12, 4),
+		InputTokens:        12, OutputTokens: 6, CacheReadInputTokens: 4, ImageOutputTokens: 2,
+	}, got)
+	// Raw cache evidence belongs to the individual turn, never the cumulative
+	// billing counters shared by multiple conversations.
+	require.Equal(t, Usage{InputTokens: 12, OutputTokens: 6, CacheReadInputTokens: 4, ImageOutputTokens: 2}, state.usage)
 }
 
 func TestRelayUsageTerminalWithoutUsageKeepsFallback(t *testing.T) {
@@ -374,8 +385,11 @@ func TestRelayUsageTerminalWithoutUsageKeepsFallback(t *testing.T) {
 	parseUsageAndAccumulate(state, []byte(`{"type":"response.completed","response":{"id":"resp_1"}}`), "response.completed", nil)
 
 	turnUsage := finalizeRelayTurnUsage(state)
-	require.Equal(t, Usage{InputTokens: 9, OutputTokens: 4}, turnUsage)
-	require.Equal(t, turnUsage, state.usage)
+	require.Equal(t, Usage{
+		CacheUsageEvidence: relayCacheEvidenceFixture(upstreamcacheusage.Absent, 0, 0),
+		InputTokens:        9, OutputTokens: 4,
+	}, turnUsage, "terminal field absence must override fallback raw evidence")
+	require.Equal(t, Usage{InputTokens: 9, OutputTokens: 4}, state.usage)
 }
 
 func TestRelayUsageTerminalZeroKeepsFallback(t *testing.T) {
@@ -385,7 +399,10 @@ func TestRelayUsageTerminalZeroKeepsFallback(t *testing.T) {
 	parseUsageAndAccumulate(state, []byte(`{"type":"response.in_progress","usage":{"input_tokens":9,"output_tokens":4}}`), "response.in_progress", nil)
 	parseUsageAndAccumulate(state, []byte(`{"type":"response.completed","usage":{"input_tokens":0,"output_tokens":0}}`), "response.completed", nil)
 
-	require.Equal(t, Usage{InputTokens: 9, OutputTokens: 4}, finalizeRelayTurnUsage(state))
+	require.Equal(t, Usage{
+		CacheUsageEvidence: relayCacheEvidenceFixture(upstreamcacheusage.Absent, 0, 0),
+		InputTokens:        9, OutputTokens: 4,
+	}, finalizeRelayTurnUsage(state), "zero terminal totals do not invent known cached tokens")
 	require.Equal(t, Usage{InputTokens: 9, OutputTokens: 4}, state.usage)
 }
 
@@ -396,7 +413,10 @@ func TestRelayUsageTerminalNonZeroReplacesFallbackAsWhole(t *testing.T) {
 	parseUsageAndAccumulate(state, []byte(`{"type":"response.in_progress","usage":{"input_tokens":9,"output_tokens":4,"input_tokens_details":{"cached_tokens":2}}}`), "response.in_progress", nil)
 	parseUsageAndAccumulate(state, []byte(`{"type":"response.completed","usage":{"input_tokens":3,"output_tokens":0,"input_tokens_details":{"cached_tokens":0}}}`), "response.completed", nil)
 
-	require.Equal(t, Usage{InputTokens: 3}, finalizeRelayTurnUsage(state))
+	require.Equal(t, Usage{
+		CacheUsageEvidence: relayCacheEvidenceFixture(upstreamcacheusage.Known, 3, 0),
+		InputTokens:        3,
+	}, finalizeRelayTurnUsage(state), "explicit terminal cached_tokens zero is authoritative known evidence")
 	require.Equal(t, Usage{InputTokens: 3}, state.usage)
 }
 
@@ -423,8 +443,11 @@ func TestObserveUpstreamMessageBareErrorClearsTurnStateAndFinalizesUsageOnce(t *
 	require.Equal(t, "error", observed.eventType)
 	observed = finalizePendingBareError(state, now)
 	require.True(t, observed.terminal)
-	require.Equal(t, Usage{InputTokens: 3, OutputTokens: 1}, observed.usage)
-	require.Equal(t, observed.usage, state.usage)
+	require.Equal(t, Usage{
+		CacheUsageEvidence: relayCacheEvidenceFixture(upstreamcacheusage.Absent, 3, 0),
+		InputTokens:        3, OutputTokens: 1,
+	}, observed.usage)
+	require.Equal(t, Usage{InputTokens: 3, OutputTokens: 1}, state.usage)
 	require.Equal(t, Usage{}, state.turnUsage)
 	require.Nil(t, state.activeTurn)
 	require.Empty(t, state.turnTimingByID)
@@ -466,8 +489,11 @@ func TestObserveUpstreamMessageErrorThenFailedSettlesUsageOnce(t *testing.T) {
 		nil,
 	)
 	require.True(t, failedObserved.terminal)
-	require.Equal(t, Usage{InputTokens: 7, OutputTokens: 2}, failedObserved.usage)
-	require.Equal(t, failedObserved.usage, state.usage)
+	require.Equal(t, Usage{
+		CacheUsageEvidence: relayCacheEvidenceFixture(upstreamcacheusage.Absent, 7, 0),
+		InputTokens:        7, OutputTokens: 2,
+	}, failedObserved.usage)
+	require.Equal(t, Usage{InputTokens: 7, OutputTokens: 2}, state.usage)
 	require.Nil(t, state.pendingBareError)
 }
 
@@ -487,7 +513,10 @@ func TestObserveUpstreamMessageBareErrorBeforeNextCompletedKeepsBothTurns(t *tes
 	require.False(t, bare.terminal)
 	bare = finalizePendingBareError(state, now)
 	require.True(t, bare.terminal)
-	require.Equal(t, Usage{InputTokens: 5, OutputTokens: 1}, bare.usage)
+	require.Equal(t, Usage{
+		CacheUsageEvidence: relayCacheEvidenceFixture(upstreamcacheusage.Absent, 0, 0),
+		InputTokens:        5, OutputTokens: 1,
+	}, bare.usage, "bare terminal without usage cannot inherit fallback raw evidence")
 
 	completed := observeUpstreamMessage(
 		state,
@@ -497,7 +526,10 @@ func TestObserveUpstreamMessageBareErrorBeforeNextCompletedKeepsBothTurns(t *tes
 		nil,
 	)
 	require.True(t, completed.terminal)
-	require.Equal(t, Usage{InputTokens: 3, OutputTokens: 2}, completed.usage)
+	require.Equal(t, Usage{
+		CacheUsageEvidence: relayCacheEvidenceFixture(upstreamcacheusage.Absent, 3, 0),
+		InputTokens:        3, OutputTokens: 2,
+	}, completed.usage)
 	require.Equal(t, Usage{InputTokens: 8, OutputTokens: 3}, state.usage)
 }
 
@@ -565,6 +597,26 @@ func TestEmitTurnCompleteCoverage(t *testing.T) {
 	require.Equal(t, 2, got.Usage.InputTokens)
 	require.Equal(t, 3, got.Usage.OutputTokens)
 	require.Equal(t, "", got.RequestModel)
+}
+
+func TestEmitTurnCompleteDisconnectClonesRawEvidence(t *testing.T) {
+	t.Parallel()
+
+	state := &relayState{requestModel: "gpt-test"}
+	state.clientDisconnected.Store(true)
+	raw := relayCacheEvidenceFixture(upstreamcacheusage.Known, 9, 8)
+	var turn RelayTurnResult
+	emitTurnComplete(func(result RelayTurnResult) { turn = result }, state, observedUpstreamEvent{
+		terminal: true, eventType: "response.completed", responseID: "resp_incomplete",
+		usage: Usage{InputTokens: 9, OutputTokens: 1, CacheReadInputTokens: 8, CacheUsageEvidence: raw},
+	})
+	require.True(t, turn.ClientDisconnected)
+	require.NotNil(t, turn.Usage.CacheUsageEvidence)
+	require.True(t, turn.Usage.CacheUsageEvidence.StreamIncomplete)
+	require.NotSame(t, raw, turn.Usage.CacheUsageEvidence)
+	require.False(t, raw.StreamIncomplete, "settlement must not mutate an earlier immutable raw observation")
+	require.Equal(t, int64(9), turn.Usage.CacheUsageEvidence.TotalInputTokens)
+	require.Equal(t, int64(8), turn.Usage.CacheUsageEvidence.CacheReadTokens)
 }
 
 func TestIsDisconnectErrorCoverage_CloseStatusesAndMessageBranches(t *testing.T) {

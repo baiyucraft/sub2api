@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/upstreamcacheusage"
 	coderws "github.com/coder/websocket"
 	"github.com/stretchr/testify/require"
 )
@@ -418,8 +419,12 @@ func TestRelay_ClientDisconnect_DrainCapturesLateUsage(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
+	var turns []RelayTurnResult
 	result, relayExit := Relay(ctx, clientConn, upstreamConn, firstPayload, RelayOptions{
 		UpstreamDrainTimeout: 400 * time.Millisecond,
+		OnTurnComplete: func(turn RelayTurnResult) {
+			turns = append(turns, turn)
+		},
 	})
 	require.NotNil(t, relayExit)
 	require.Equal(t, "client_disconnected", relayExit.Stage)
@@ -431,6 +436,91 @@ func TestRelay_ClientDisconnect_DrainCapturesLateUsage(t *testing.T) {
 	require.Equal(t, int64(1), result.ClientToUpstreamFrames)
 	require.Equal(t, int64(0), result.UpstreamToClientFrames)
 	require.Equal(t, int64(1), result.DroppedDownstreamFrames)
+	require.True(t, result.ClientDisconnected)
+	require.Len(t, turns, 1, "drained usage must still bill the completed turn once")
+	require.True(t, turns[0].ClientDisconnected)
+	raw := relayCacheEvidenceFixture(upstreamcacheusage.Known, 6, 1)
+	raw.StreamIncomplete = true
+	require.Equal(t, Usage{InputTokens: 6, OutputTokens: 4, CacheReadInputTokens: 1, CacheUsageEvidence: raw}, turns[0].Usage)
+	require.Empty(t, clientConn.Writes(), "drain must not fabricate successful client delivery")
+}
+
+func TestRelay_TerminalWriteFailureStillSettlesBillingAsIncomplete(t *testing.T) {
+	t.Parallel()
+
+	clientConn := &errorOnWriteFrameConn{}
+	upstreamConn := newPassthroughTestFrameConn([]passthroughTestFrame{{
+		msgType: coderws.MessageText,
+		payload: []byte(`{"type":"response.completed","response":{"id":"resp_write_failed","usage":{"input_tokens":10,"output_tokens":2,"input_tokens_details":{"cached_tokens":8}}}}`),
+	}}, true)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	var turns []RelayTurnResult
+	var writeAttempted, afterWriteCalled bool
+	result, relayExit := Relay(ctx, clientConn, upstreamConn, []byte(`{"type":"response.create","model":"gpt-test","input":[]}`), RelayOptions{
+		StartClientAfterFirstDownstream: true,
+		BeforeClientWrite: func(_ coderws.MessageType, _ []byte) {
+			writeAttempted = true
+			require.Empty(t, turns, "cache completion cannot precede the terminal write")
+		},
+		OnTurnComplete: func(turn RelayTurnResult) {
+			require.True(t, writeAttempted)
+			require.False(t, afterWriteCalled, "billing must settle before the next-turn lifecycle is released")
+			turns = append(turns, turn)
+		},
+		AfterClientWrite: func(_ coderws.MessageType, _ []byte, err error) {
+			require.Error(t, err)
+			require.Len(t, turns, 1)
+			afterWriteCalled = true
+		},
+	})
+	require.NotNil(t, relayExit)
+	require.Equal(t, "write_client", relayExit.Stage)
+	require.True(t, afterWriteCalled)
+	require.True(t, result.ClientDisconnected)
+	require.Len(t, turns, 1)
+	require.True(t, turns[0].ClientDisconnected)
+	raw := relayCacheEvidenceFixture(upstreamcacheusage.Known, 10, 8)
+	raw.StreamIncomplete = true
+	require.Equal(t, Usage{InputTokens: 10, OutputTokens: 2, CacheReadInputTokens: 8, CacheUsageEvidence: raw}, turns[0].Usage)
+	require.Equal(t, Usage{InputTokens: 10, OutputTokens: 2, CacheReadInputTokens: 8}, result.Usage, "failed client delivery must not lose billable usage")
+}
+
+func TestRelay_TerminalCompletionFollowsSuccessfulWriteBeforeLifecycleRelease(t *testing.T) {
+	t.Parallel()
+
+	clientConn := newPassthroughTestFrameConn(nil, false)
+	upstreamConn := newPassthroughTestFrameConn([]passthroughTestFrame{{
+		msgType: coderws.MessageText,
+		payload: []byte(`{"type":"response.completed","response":{"id":"resp_delivered","usage":{"input_tokens":10,"output_tokens":2,"input_tokens_details":{"cached_tokens":8}}}}`),
+	}}, true)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	var turns []RelayTurnResult
+	var afterWriteCalled bool
+	result, relayExit := Relay(ctx, clientConn, upstreamConn, []byte(`{"type":"response.create","model":"gpt-test","input":[]}`), RelayOptions{
+		StartClientAfterFirstDownstream: true,
+		BeforeClientWrite: func(_ coderws.MessageType, _ []byte) {
+			require.Empty(t, turns)
+		},
+		OnTurnComplete: func(turn RelayTurnResult) {
+			require.Len(t, clientConn.Writes(), 1, "complete only after terminal frame delivery succeeds")
+			require.False(t, afterWriteCalled)
+			turns = append(turns, turn)
+		},
+		AfterClientWrite: func(_ coderws.MessageType, _ []byte, err error) {
+			require.NoError(t, err)
+			require.Len(t, turns, 1, "old turn metadata must settle before accepting the next response.create")
+			afterWriteCalled = true
+		},
+	})
+	require.Nil(t, relayExit)
+	require.True(t, afterWriteCalled)
+	require.Len(t, turns, 1)
+	require.False(t, turns[0].ClientDisconnected)
+	require.Equal(t, Usage{InputTokens: 10, OutputTokens: 2, CacheReadInputTokens: 8,
+		CacheUsageEvidence: relayCacheEvidenceFixture(upstreamcacheusage.Known, 10, 8)}, turns[0].Usage)
+	require.Equal(t, Usage{InputTokens: 10, OutputTokens: 2, CacheReadInputTokens: 8}, result.Usage)
 }
 
 func TestRelay_IdleTimeout(t *testing.T) {
@@ -677,10 +767,16 @@ func TestRelay_OnTurnComplete_BareErrorWithoutIDBeforeLaterCompleted(t *testing.
 	require.Len(t, turns, 2)
 	require.Equal(t, "error", turns[0].TerminalEventType)
 	require.Empty(t, turns[0].RequestID)
-	require.Equal(t, Usage{InputTokens: 5, OutputTokens: 1}, turns[0].Usage)
+	require.Equal(t, Usage{
+		CacheUsageEvidence: relayCacheEvidenceFixture(upstreamcacheusage.Absent, 5, 0),
+		InputTokens:        5, OutputTokens: 1,
+	}, turns[0].Usage)
 	require.Equal(t, "response.completed", turns[1].TerminalEventType)
 	require.Equal(t, "resp_next", turns[1].RequestID)
-	require.Equal(t, Usage{InputTokens: 3, OutputTokens: 2}, turns[1].Usage)
+	require.Equal(t, Usage{
+		CacheUsageEvidence: relayCacheEvidenceFixture(upstreamcacheusage.Absent, 3, 0),
+		InputTokens:        3, OutputTokens: 2,
+	}, turns[1].Usage)
 	require.Equal(t, Usage{InputTokens: 8, OutputTokens: 3}, result.Usage)
 }
 
@@ -705,8 +801,11 @@ func TestRelay_OnTurnComplete_AuxiliaryFrameDoesNotSettleBareErrorBeforeFailed(t
 	require.Len(t, turns, 1)
 	require.Equal(t, "response.failed", turns[0].TerminalEventType)
 	require.Equal(t, "resp_authoritative", turns[0].RequestID)
-	require.Equal(t, Usage{InputTokens: 7, OutputTokens: 2}, turns[0].Usage)
-	require.Equal(t, turns[0].Usage, result.Usage)
+	require.Equal(t, Usage{
+		CacheUsageEvidence: relayCacheEvidenceFixture(upstreamcacheusage.Absent, 7, 0),
+		InputTokens:        7, OutputTokens: 2,
+	}, turns[0].Usage)
+	require.Equal(t, Usage{InputTokens: 7, OutputTokens: 2}, result.Usage)
 }
 
 func TestRelay_OnTurnComplete_UsesCurrentResponseCreateModel(t *testing.T) {

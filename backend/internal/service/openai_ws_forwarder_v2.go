@@ -401,6 +401,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		return nil, prepareErr
 	}
 	payloadBytes = len(prepared.body)
+	BeginUpstreamCacheGuardSend(ctx, account, gjson.GetBytes(prepared.body, "model").String(), "openai_ws")
 	if err := lease.WriteJSONWithContextTimeout(ctx, json.RawMessage(prepared.body), s.openAIWSWriteTimeout()); err != nil {
 		lease.MarkBroken()
 		logOpenAIWSModeInfo(
@@ -480,6 +481,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		result := &OpenAIForwardResult{
 			RequestID:                     responseID,
 			ResponseID:                    responseID,
+			CacheUsageEvidence:            usage.CacheUsageEvidence,
 			Usage:                         *usage,
 			Model:                         originalModel,
 			UpstreamModel:                 mappedModel,

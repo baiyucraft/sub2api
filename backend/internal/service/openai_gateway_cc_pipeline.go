@@ -16,6 +16,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 	"go.uber.org/zap"
 )
 
@@ -254,6 +255,7 @@ func (s *OpenAIGatewayService) sendCCUpstreamRequest(
 	if account.ProxyID != nil && account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
 	}
+	BeginUpstreamCacheGuardSend(upstreamReq.Context(), account, extractOpenAIOutboundModel(body), "openai")
 	resp, err := s.doOpenAIUpstream(upstreamReq, proxyURL, account)
 	if err != nil {
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
@@ -269,7 +271,8 @@ type ccStreamScanState struct {
 	// FirstTokenMs 为首个实际输出 chunk（排除 usage-only chunk）的到达时延。
 	FirstTokenMs *int
 	// SawDone 表示上游发出了 [DONE] 哨兵。
-	SawDone bool
+	SawDone         bool
+	SawFinishReason bool
 	// Err 为 scanner 读错误（客户端 context 取消不属于此类，会原样带出）。
 	// 非 nil 时调用方必须跳过 finalize 并返回 usage-incomplete 错误，避免
 	// 把上游截断伪装成正常收尾。
@@ -289,6 +292,7 @@ func (s *OpenAIGatewayService) scanCCStream(
 	emit func(*apicompat.ChatCompletionsChunk),
 ) ccStreamScanState {
 	var st ccStreamScanState
+	cacheStreamFailed := false
 
 	scanner := s.newUpstreamSSEScanner(resp.Body)
 	for scanner.Scan() {
@@ -315,6 +319,7 @@ func (s *OpenAIGatewayService) scanCCStream(
 		if u := extractCCStreamUsage(payload); u != nil {
 			st.Usage = *u
 		}
+		cacheStreamFailed = cacheStreamFailed || cacheGuardCCChunkFailed(payload)
 
 		var chunk apicompat.ChatCompletionsChunk
 		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
@@ -328,6 +333,11 @@ func (s *OpenAIGatewayService) scanCCStream(
 			ms := int(time.Since(startTime).Milliseconds())
 			st.FirstTokenMs = &ms
 		}
+		for _, choice := range chunk.Choices {
+			if choice.FinishReason != nil && strings.TrimSpace(*choice.FinishReason) != "" {
+				st.SawFinishReason = true
+			}
+		}
 		emit(&chunk)
 	}
 
@@ -340,7 +350,23 @@ func (s *OpenAIGatewayService) scanCCStream(
 		}
 		st.Err = err
 	}
+	st.Usage.CacheUsageEvidence = cacheUsageWithStreamCompletion(st.Usage.CacheUsageEvidence, st.Err == nil && (st.SawDone || st.SawFinishReason) && !cacheStreamFailed)
 	return st
+}
+
+func cacheGuardCCChunkFailed(payload string) bool {
+	value := gjson.Parse(payload)
+	if errorValue := value.Get("error"); errorValue.Exists() && errorValue.Type != gjson.Null {
+		return true
+	}
+	for _, choice := range value.Get("choices").Array() {
+		switch strings.TrimSpace(choice.Get("finish_reason").String()) {
+		case "", "stop", "tool_calls", "function_call", "length":
+		default:
+			return true
+		}
+	}
+	return false
 }
 
 // logCCStreamMissingDoneSentinel 记录"上游未发 [DONE] 哨兵即结束"的 debug 日志。
