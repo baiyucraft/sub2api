@@ -410,6 +410,10 @@
     "backend/internal/service/openai_codex_models_service.go": "逐块合并后与官方 ab99d56e9626e6cd731592dae8553c9758a0efa2 一致：官方 Astra 识别、默认目录与 live/pinned 能力已覆盖 fork workaround，删除重复 helper；保留专项 Astra 清单、别名、metadata、pinned 和推理策略回归。"
   },
   "composed_marker_evidence": {
+    "GET /api/v1/admin/users/:id/invoices": ["users := admin.Group(\"/users\")", "users.GET(\"/:id/invoices\", h.Admin.User.ListInvoices)"],
+    "POST /api/v1/admin/users/:id/invoices": ["users := admin.Group(\"/users\")", "users.POST(\"/:id/invoices\", middleware.RequestBodyLimit(32<<10), h.Admin.User.CreateInvoice)"],
+    "PUT /api/v1/admin/users/:id/invoices/:invoice_id": ["users := admin.Group(\"/users\")", "users.PUT(\"/:id/invoices/:invoice_id\", middleware.RequestBodyLimit(32<<10), h.Admin.User.UpdateInvoice)"],
+    "POST /api/v1/admin/users/:id/invoices/:invoice_id/void": ["users := admin.Group(\"/users\")", "users.POST(\"/:id/invoices/:invoice_id/void\", middleware.RequestBodyLimit(32<<10), h.Admin.User.VoidInvoice)"],
     "CustomizationService.ModelMappingMiddleware": ["func (s *CustomizationService) ModelMappingMiddleware"],
     "WebSocketTurnCustomizer.ApplyTurn": ["func (w *WebSocketTurnCustomizer) ApplyTurn"],
     "CustomizationService.MayMatchGroupMapping": ["customization.MayMatchGroupMapping"],
