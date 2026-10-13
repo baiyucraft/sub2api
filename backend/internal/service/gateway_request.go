@@ -602,6 +602,9 @@ func validateClaude55Request(body []byte, model string) error {
 		return fmt.Errorf("claude-opus-5-5 requires adaptive thinking; omit thinking or use thinking.type=adaptive and output_config.effort")
 	case "between_tools":
 		if !isSonnet55 {
+			if isHaiku55 {
+				return fmt.Errorf("claude-haiku-5-5 requires adaptive thinking; thinking.type=between_tools is unsupported (use thinking.type=disabled at high effort or below)")
+			}
 			return fmt.Errorf("claude-opus-5-5 requires adaptive thinking; thinking.type=between_tools is unsupported")
 		}
 		effort := gjson.GetBytes(body, "output_config.effort").String()
