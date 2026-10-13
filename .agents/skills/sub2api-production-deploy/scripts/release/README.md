@@ -23,6 +23,20 @@ python .agents/skills/sub2api-production-deploy/scripts/release.py logs <release
 
 已消费生产发布的后置检查/VM 收口失败，使用 `finalize-consumed <release_id>`，然后 `verify-result <release_id>`。入口持全局发布/VM 身份锁，核验原 worker 已退出、原 Gate/result、远端 consumed/无 claim/同 candidate、双健康、全节点 doctor 和 retained owner/boot。独立 finalization 证据绑定原事故文件及当前已提交推送 helper 的完整 SHA/checksum；本地 doctor 使用 helper SHA，远端使用原应用 SHA。原 runner exit1 和旧证据原样保留，不部署、迁移、消费或恢复数据。只清本 release 隔离任务，只有本次启动 VM 才正常 poweroff 并以 vmrun 核实。成功幂等重试只验真。
 
+## Profile 268 精确恢复审阅
+
+本批经用户明确授权，固定生产 BASE `9bf9801a40c4e6732fa81fedbf6ad52f2fa06c62` → 已审 TARGET `bd00d35ebc0b4182070510375ee6878101cfbc7a`。三个互不重叠的冻结路径组共 41 条；以下路径均相对 `.agents/skills/sub2api-production-deploy/scripts/`：
+
+| 冻结集合 | 数量与范围 | 分类理由 |
+| --- | --- | --- |
+| `_PROFILE268_COMPATIBILITY_PATHS` | 35 项 profile 兼容接线；完整闭包见 [分类与构建](../../references/change-classification-and-build.md) | `reviewed_profile_compatibility_changed` |
+| `_PROFILE268_POSTFLIGHT_PATHS` | 2 项：`maintenance/release/activity-reward-cost-postflight.sh`、`maintenance/release/switch.sh` | `reviewed_reward_cost_postflight_changed` |
+| `_PROFILE268_FINALIZATION_REVIEW_PATHS` | 4 项：`release/cli.py`、`release/finalization.py`、`release/supervisor.py`、`release/vm_lifecycle.py` | `reviewed_consumed_finalization_changed` |
+
+第三组是独立 consumed-release 后置 doctor/VM 收口审阅，不能归为 profile-only。三组匹配同路径 BASE/TARGET 的 Git blob 和文件模式；未来内容、模式、删除、改名、额外路径及生产基线漂移仍拒绝，不是目录、祖先或自动豁免。最终提交重新分类，未来批次仍需实际审阅及负向测试，不能自动学习候选。
+
+PostgreSQL/Redis 协调恢复算法、备份格式和信任根不在本批改动范围。仍强制 `specialized` 当前 helper 的真实 PostgreSQL/Redis/Compose 隔离恢复、旧 image 兼容及正式签名 Gate；profile 268 保持 `0.2.16-baiyu`、parent 267、仅 `296_upstream_cache_guard.sql`，旧 profiles、SQL/checksum 不回写，未知 269 拒绝。最低登记回归为 `scripts/tests/release/test_profile268_recovery_review.py`，路径相对 skill 根；登记不代表回归、VM Gate 或生产部署完成。
+
 ## 可选 VM 自动启停
 
 Profile 265 精确恢复审阅绑定 `aeb410bccc524164bdafbd3db865d4f5f588aced` → `6f5daaaed6e0cbfae2011cfa55b47688f33634eb`：35 项接线与两项停机奖励 postflight 分别冻结，不包含未修改的 `production.py`。同路径 blob、mode 或基线漂移继续阻断；仍执行 specialized 当前 helper 真实隔离恢复，登记不代表 Gate 或部署完成。
