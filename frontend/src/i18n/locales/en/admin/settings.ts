@@ -547,6 +547,8 @@ export default {
         saveFailed: 'Failed to save OpenCode Go usage refresh settings'
       },
       gatewayForwarding: {
+        gpt61SolNewLongContext: 'Enable new GPT-6.1 Sol long-context rules',
+        gpt61SolNewLongContextHint: 'Off by default: generated context windows default to 272k and existing long-context surcharge rules apply. When enabled, the default is 500k and GPT-6.1 Sol requests using OpenAI OAuth or subscription access tokens are exempt from model long-context surcharges. Subscription refers to the upstream account, not a site plan. Explicit upstream window values take precedence; API key accounts and custom pricing intervals retain their existing rules. Saving applies to this instance; other instances synchronize within about 60 seconds. Clients use the new default after refreshing their model catalog.',
         title: 'Request Forwarding',
         description: 'Control how requests are forwarded to upstream OAuth accounts',
         grokDefaultTextModel: 'Default Grok text model',

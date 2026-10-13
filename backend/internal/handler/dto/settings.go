@@ -212,6 +212,7 @@ type SystemSettings struct {
 
 	// Gateway forwarding behavior
 	OpenAITTFTMode                         string `json:"openai_ttft_mode"`
+	OpenAIGPT61SolNewLongContextEnabled    bool   `json:"openai_gpt61_sol_new_long_context_enabled"`
 	EnableFingerprintUnification           bool   `json:"enable_fingerprint_unification"`
 	EnableMetadataPassthrough              bool   `json:"enable_metadata_passthrough"`
 	EnableCCHSigning                       bool   `json:"enable_cch_signing"`

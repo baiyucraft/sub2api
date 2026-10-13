@@ -665,6 +665,7 @@ export interface SystemSettings {
   enable_anthropic_cache_ttl_1h_injection: boolean;
   rewrite_message_cache_control: boolean;
   enable_client_dateline_normalization: boolean;
+  openai_gpt61_sol_new_long_context_enabled: boolean;
   antigravity_user_agent_version: string;
   openai_codex_user_agent: string;
   openai_codex_client_version: string;
@@ -1007,6 +1008,7 @@ export interface UpdateSettingsRequest {
   enable_anthropic_cache_ttl_1h_injection?: boolean;
   rewrite_message_cache_control?: boolean;
   enable_client_dateline_normalization?: boolean;
+  openai_gpt61_sol_new_long_context_enabled?: boolean;
   antigravity_user_agent_version?: string;
   openai_codex_user_agent?: string;
   openai_codex_client_version?: string;

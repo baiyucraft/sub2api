@@ -260,6 +260,7 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyEnableAnthropicCacheTTL1hInjection:                 "false",
 		SettingKeyRewriteMessageCacheControl:                         strconv.FormatBool(s.defaultRewriteMessageCacheControl()),
 		SettingKeyEnableClientDatelineNormalization:                  "true",
+		SettingKeyOpenAIGPT61SolNewLongContextEnabled:                "false",
 		SettingKeyAntigravityUserAgentVersion:                        "",
 		SettingKeyOpenAICodexUserAgent:                               "",
 		SettingKeyOpenAICodexClientVersion:                           "",
@@ -903,6 +904,9 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	// Gateway forwarding behavior (defaults: fingerprint=true, metadata_passthrough=false,
 	// cch_signing=false, claude_oauth_system_prompt_injection=true)
 	result.OpenAITTFTMode = normalizeOpenAITTFTMode(settings[SettingKeyOpenAITTFTMode])
+	// This temporary switch is opt-in: only an exact true enables the new
+	// behavior; missing, empty, and malformed values remain safely disabled.
+	result.OpenAIGPT61SolNewLongContextEnabled = settings[SettingKeyOpenAIGPT61SolNewLongContextEnabled] == "true"
 	if v, ok := settings[SettingKeyEnableFingerprintUnification]; ok && v != "" {
 		result.EnableFingerprintUnification = v == "true"
 	} else {

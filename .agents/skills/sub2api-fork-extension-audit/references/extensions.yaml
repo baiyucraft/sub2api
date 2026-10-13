@@ -1511,6 +1511,69 @@
         "同账号 retry 只能重选原 account_id 并重新做准入与并发，等待前释放 slot；不可借 sticky 自动换号，失败后显式计入换号预算；取消后不新增尝试",
         "新日志不记录正文、prompt、凭据、Token、代理 URL 或原始持久化错误；不启用 observer，不新增 migration、改写历史 profile 或扩大恢复门禁豁免"
       ]
+    },
+    {
+      "id": "gpt61-sol-long-context-opt-in",
+      "title": "GPT-6.1 Sol 新版长上下文联合开关",
+      "description": "临时管理员全局开关，默认关闭；联合控制官方订阅模型价卡长上下文豁免与本地生成/补全的500k默认窗口，后续移除保留新版官方行为。",
+      "ownership": "fork",
+      "risk_level": "high",
+      "paths": [
+        "backend/internal/service/domain_constants.go",
+        "backend/internal/service/settings_view.go",
+        "backend/internal/service/setting_service.go",
+        "backend/internal/service/setting_parse.go",
+        "backend/internal/service/setting_update.go",
+        "backend/internal/service/setting_gateway_runtime.go",
+        "backend/internal/handler/dto/settings.go",
+        "backend/internal/handler/admin/setting_handler.go",
+        "backend/internal/handler/admin/setting_handler_update.go",
+        "backend/internal/service/openai_gateway_usage.go",
+        "backend/internal/service/openai_subscription_long_context_test.go",
+        "backend/internal/service/openai_codex_models_service.go",
+        "backend/internal/service/openai_codex_models_service_test.go",
+        "backend/internal/service/openai_gpt61_sol_long_context_catalog_test.go",
+        "backend/internal/service/setting_gpt61_long_context_test.go",
+        "backend/internal/handler/admin/setting_handler_audit.go",
+        "backend/internal/handler/admin/setting_handler_gpt61_long_context_test.go",
+        "frontend/src/api/admin/settings.ts",
+        "frontend/src/views/admin/SettingsView.vue",
+        "frontend/src/views/admin/__tests__/SettingsView.spec.ts",
+        "frontend/src/i18n/locales/zh/admin/settings.ts",
+        "frontend/src/i18n/locales/en/admin/settings.ts"
+      ],
+      "symbols": [
+        "IsOpenAIGPT61SolNewLongContextEnabled",
+        "openAISubscriptionLongContextExempt",
+        "codexModelDefaults"
+      ],
+      "api_routes": [
+        "/api/v1/admin/settings",
+        "/backend-api/codex/models",
+        "/models"
+      ],
+      "settings_keys": [
+        "openai_gpt61_sol_new_long_context_enabled"
+      ],
+      "migration_files": [],
+      "required_tests": [
+        "backend/internal/service/setting_gpt61_long_context_test.go",
+        "backend/internal/handler/admin/setting_handler_gpt61_long_context_test.go",
+        "backend/internal/service/openai_subscription_long_context_test.go",
+        "backend/internal/service/openai_gpt61_sol_long_context_catalog_test.go",
+        "backend/internal/service/openai_codex_models_service_test.go",
+        "frontend/src/views/admin/__tests__/SettingsView.spec.ts",
+        "frontend/src/i18n/__tests__/localeKeyCompleteness.spec.ts"
+      ],
+      "invariants": [
+        "基线为官方43768680d38ccdbd8fffc2cb91d3c1fc778a61c6与07185812655ec2e0740ca76882879c0b9ae5ee0a；保留官方历史，不回退整版本或复制整套计费实现",
+        "管理员私有设置默认false；缺失、非法、nil服务或首次读取失败均关闭；旧payload省略保留；当前实例保存后刷新，其他实例按60秒TTL收敛，不进入PublicSettings",
+        "关闭恢复原分组/账号/价卡长上下文规则和272k生成默认值；开启仅实际OpenAI OAuth/SetupToken凭据与最终发送GPT-6.1 Sol模型满足官方条件时免模型附加费，并使用500k生成默认值；不是本站订阅豁免",
+        "一次RecordUsage只读取一次策略，所有重算、免费Fast标准价格和账号成本统计一致；API Key、其他模型、自定义区间定价及历史账单不受豁免影响",
+        "目录策略显式传入本地生成、别名补充和API Key元数据补全；上游明确context_window优先，max_context_window不因开关变化改写；没有进程级可变模型常量",
+        "缓存保留原始上游内容，每次客户端补全应用当前策略，最终内容计算ETag；双向切换不会因旧ETag误304",
+        "后续删除临时设置/UI/旧分支并恢复500k和订阅豁免；不新增migration、不修改历史profile或生产状态"
+      ]
     }
   ]
 }

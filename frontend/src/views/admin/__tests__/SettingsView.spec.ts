@@ -802,6 +802,39 @@ describe("admin SettingsView payment visible method controls", () => {
     adminSettingsFetch.mockResolvedValue(undefined);
   });
 
+  it("defaults GPT-6.1 Sol long-context rules off and persists both directions", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    await openGatewayTab(wrapper);
+    const toggle = wrapper.get('[data-testid="gpt61-sol-new-long-context-enabled"]');
+    expect((toggle.element as HTMLInputElement).checked).toBe(false);
+    await toggle.setValue(true);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({
+      openai_gpt61_sol_new_long_context_enabled: true,
+    }));
+    await toggle.setValue(false);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({
+      openai_gpt61_sol_new_long_context_enabled: false,
+    }));
+    wrapper.unmount();
+  });
+
+  it("loads enabled GPT-6.1 Sol long-context rules from admin settings", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      openai_gpt61_sol_new_long_context_enabled: true,
+    });
+    const wrapper = mountView();
+    await flushPromises();
+    await openGatewayTab(wrapper);
+    expect((wrapper.get('[data-testid="gpt61-sol-new-long-context-enabled"]').element as HTMLInputElement).checked).toBe(true);
+    wrapper.unmount();
+  });
+
   it("loads and saves the V1 channel monitor degradation policy", async () => {
     getSettings.mockResolvedValueOnce({
       ...baseSettingsResponse,

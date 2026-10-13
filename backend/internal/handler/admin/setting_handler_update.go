@@ -253,6 +253,7 @@ type UpdateSettingsRequest struct {
 
 	// Gateway forwarding behavior
 	OpenAITTFTMode                         *string `json:"openai_ttft_mode"`
+	OpenAIGPT61SolNewLongContextEnabled    *bool   `json:"openai_gpt61_sol_new_long_context_enabled"`
 	EnableFingerprintUnification           *bool   `json:"enable_fingerprint_unification"`
 	EnableMetadataPassthrough              *bool   `json:"enable_metadata_passthrough"`
 	EnableCCHSigning                       *bool   `json:"enable_cch_signing"`
@@ -1779,6 +1780,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.OpenAITTFTMode
 		}(),
+		OpenAIGPT61SolNewLongContextEnabled: func() bool {
+			if req.OpenAIGPT61SolNewLongContextEnabled != nil {
+				return *req.OpenAIGPT61SolNewLongContextEnabled
+			}
+			return previousSettings.OpenAIGPT61SolNewLongContextEnabled
+		}(),
 		EnableMetadataPassthrough: func() bool {
 			if req.EnableMetadataPassthrough != nil {
 				return *req.EnableMetadataPassthrough
@@ -2438,6 +2445,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		MaxClaudeCodeVersion:                                   updatedSettings.MaxClaudeCodeVersion,
 		AllowUngroupedKeyScheduling:                            updatedSettings.AllowUngroupedKeyScheduling,
 		BackendModeEnabled:                                     updatedSettings.BackendModeEnabled,
+		OpenAIGPT61SolNewLongContextEnabled:                    updatedSettings.OpenAIGPT61SolNewLongContextEnabled,
 		EnableFingerprintUnification:                           updatedSettings.EnableFingerprintUnification,
 		EnableMetadataPassthrough:                              updatedSettings.EnableMetadataPassthrough,
 		EnableCCHSigning:                                       updatedSettings.EnableCCHSigning,
