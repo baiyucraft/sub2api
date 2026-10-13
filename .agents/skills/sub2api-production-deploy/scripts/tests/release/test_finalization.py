@@ -48,9 +48,19 @@ class FinalizationTest(unittest.TestCase):
         self.lease.record = {"vm_boot_id": "00000000-0000-0000-0000-000000000001"}
         self.lease.__enter__.return_value = self.lease
 
-        def complete(*, evidence_sha256):
-            self.write("vm-finalization.json", {"schema": 1, "status": "verified", "evidence_sha256": evidence_sha256, "vm_power_status": "stopped", "vm_cleanup_status": "verified"})
-            self.lease.record = {"status": "verified"}
+        def complete(*, evidence_sha256, before_owner_commit=None):
+            if before_owner_commit is not None:
+                before_owner_commit()
+            preserve = finalization.RetainedVMFinalization.call_args.kwargs.get("preserve_running_vm") is True
+            record = {
+                "schema": 2 if preserve else 1, "status": "verified", "evidence_sha256": evidence_sha256,
+                "vm_boot_id": "00000000-0000-0000-0000-000000000001",
+                "vm_power_status": "running" if preserve else "stopped", "vm_cleanup_status": "preserved" if preserve else "verified",
+            }
+            if preserve:
+                record["mode"] = "preserve-running"
+            self.write("vm-finalization.json", record)
+            self.lease.record = record
 
         self.lease.complete.side_effect = complete
         self.patches = [
@@ -74,8 +84,8 @@ class FinalizationTest(unittest.TestCase):
     def write(self, name, value):
         (self.run / name).write_bytes(canonical_json(value) + b"\n")
 
-    def finalize(self):
-        finalization.finalize_consumed(argparse.Namespace(release_id=self.identifier))
+    def finalize(self, *, preserve=False):
+        finalization.finalize_consumed(argparse.Namespace(release_id=self.identifier, preserve_running_vm=preserve))
 
     def test_success_preserves_original_worker_and_application_evidence(self):
         before = {name: (self.run / name).read_bytes() for name in finalization.ORIGINAL_FILES}
@@ -233,6 +243,178 @@ class FinalizationTest(unittest.TestCase):
         for field, value in (("release_sha256", "f" * 64), ("artifact_size", "0"), ("artifact", "../fixture.tar.age"), ("traffic_preserved", "false")):
             with self.subTest(field=field), self.assertRaises(RuntimeError):
                 finalization._retained_recovery_script(manifest, {**backup, field: value})
+
+    def test_preserve_success_binds_three_schema2_records_and_keeps_originals(self):
+        before = {name: (self.run / name).read_bytes() for name in finalization.ORIGINAL_FILES}
+        self.finalize(preserve=True)
+        self.assertEqual(before, {name: (self.run / name).read_bytes() for name in finalization.ORIGINAL_FILES})
+        for name in ("finalization-checks.json", "finalization-result.json", "vm-finalization.json"):
+            value = json.loads((self.run / name).read_bytes())
+            self.assertEqual((value["schema"], value["mode"]), (2, "preserve-running"))
+        value = supervisor.verified_result_view(self.identifier)
+        self.assertEqual((value["vm_power_status"], value["vm_cleanup_status"]), ("running", "preserved"))
+        self.assertEqual((value["original_runner_status"], value["original_runner_exit"]), ("failed", 1))
+        self.assertTrue(all(call.kwargs["include_vm"] is True for call in finalization._doctor_checks.call_args_list))
+
+    def test_preserve_success_retry_rechecks_vm_and_never_repeats_cleanup(self):
+        self.finalize(preserve=True)
+        self.lease.complete.reset_mock()
+        finalization._cleanup_vm_tasks.reset_mock()
+        finalization._doctor_checks.reset_mock()
+        self.finalize(preserve=True)
+        self.lease.complete.assert_not_called()
+        finalization._cleanup_vm_tasks.assert_not_called()
+        finalization._doctor_checks.assert_called_once()
+        self.assertTrue(finalization._doctor_checks.call_args.kwargs["include_vm"])
+        with self.assertRaisesRegex(RuntimeError, "mode mismatch"):
+            self.finalize()
+
+    def test_shutdown_result_cannot_be_replayed_as_preserve(self):
+        self.finalize()
+        self.lease.complete.reset_mock()
+        finalization._cleanup_vm_tasks.reset_mock()
+        with self.assertRaisesRegex(RuntimeError, "mode mismatch"):
+            self.finalize(preserve=True)
+        self.lease.complete.assert_not_called()
+        finalization._cleanup_vm_tasks.assert_not_called()
+
+    def test_preserve_owner_and_result_write_failure_retry_skips_cleanup_but_keeps_vm_doctor(self):
+        for failure in ("owner", "result"):
+            with self.subTest(failure=failure):
+                for name in ("finalization-checks.json", "finalization-result.json", "vm-finalization.json"):
+                    (self.run / name).unlink(missing_ok=True)
+                self.lease.record = {"vm_boot_id": "00000000-0000-0000-0000-000000000001"}
+                complete = self.lease.complete.side_effect
+                write = supervisor._write_json
+
+                def fail_owner(**kwargs):
+                    complete(**kwargs)
+                    raise OSError("owner commit rejected")
+
+                def fail_result(path, value):
+                    if path.name == "finalization-result.json":
+                        raise OSError("result commit rejected")
+                    return write(path, value)
+
+                patch = mock.patch.object(self.lease, "complete", side_effect=fail_owner) if failure == "owner" else mock.patch.object(supervisor, "_write_json", side_effect=fail_result)
+                with patch, self.assertRaises(OSError):
+                    self.finalize(preserve=True)
+                self.assertEqual(self.lease.record["status"], "verified")
+                finalization._cleanup_vm_tasks.reset_mock()
+                finalization._doctor_checks.reset_mock()
+                self.finalize(preserve=True)
+                finalization._cleanup_vm_tasks.assert_not_called()
+                self.assertTrue(all(call.kwargs["include_vm"] is True for call in finalization._doctor_checks.call_args_list))
+
+    def test_preserve_failures_before_and_after_cleanup_do_not_create_success(self):
+        for target in ("_doctor_checks", "_cleanup_vm_tasks", "complete"):
+            with self.subTest(target=target):
+                before = {name: (self.run / name).read_bytes() for name in finalization.ORIGINAL_FILES}
+                patch = mock.patch.object(self.lease, target, side_effect=RuntimeError("completion failed")) if target == "complete" else mock.patch.object(finalization, target, side_effect=RuntimeError("preflight failed"))
+                finalization._cleanup_vm_tasks.reset_mock()
+                with patch, self.assertRaises(RuntimeError):
+                    self.finalize(preserve=True)
+                if target == "_doctor_checks":
+                    finalization._cleanup_vm_tasks.assert_not_called()
+                self.assertFalse((self.run / "finalization-result.json").exists())
+                self.assertEqual(before, {name: (self.run / name).read_bytes() for name in finalization.ORIGINAL_FILES})
+
+    def test_preserve_late_original_helper_and_checks_drift_reject_owner_commit(self):
+        original_complete = self.lease.complete.side_effect
+        for drift in ("original", "helper", "checks"):
+            with self.subTest(drift=drift):
+                for name in ("finalization-checks.json", "finalization-result.json", "vm-finalization.json"):
+                    (self.run / name).unlink(missing_ok=True)
+                self.lease.record = {"vm_boot_id": "00000000-0000-0000-0000-000000000001"}
+                before = (self.run / "manifest.json").read_bytes()
+
+                def change_before_completion(**kwargs):
+                    if drift == "original":
+                        self.write("manifest.json", {**self.manifest, "changed": True})
+                    elif drift == "checks":
+                        checks = json.loads((self.run / "finalization-checks.json").read_bytes())
+                        self.write("finalization-checks.json", {**checks, "checked_at": 0})
+                    else:
+                        finalization._helper_identity.return_value = {**self.helper, "commit_sha": "e" * 40}
+                    return original_complete(**kwargs)
+
+                with mock.patch.object(self.lease, "complete", side_effect=change_before_completion), self.assertRaisesRegex(RuntimeError, "before owner commit"):
+                    self.finalize(preserve=True)
+                self.assertFalse((self.run / "finalization-result.json").exists())
+                (self.run / "manifest.json").write_bytes(before)
+                finalization._helper_identity.return_value = self.helper
+
+    def test_preserve_unknown_schema_mode_and_cross_record_modes_are_rejected(self):
+        self.finalize(preserve=True)
+        for name in ("finalization-checks.json", "finalization-result.json", "vm-finalization.json"):
+            original = (self.run / name).read_bytes()
+            for change in ({"schema": 3}, {"schema": True}, {"mode": "shutdown-owned"}, {"mode": None}):
+                with self.subTest(name=name, change=change):
+                    self.write(name, {**json.loads(original), **change})
+                    with self.assertRaises(RuntimeError):
+                        supervisor.verified_result_view(self.identifier)
+            (self.run / name).write_bytes(original)
+        checks = json.loads((self.run / "finalization-checks.json").read_bytes())
+        checks.pop("mode")
+        self.write("finalization-checks.json", {**checks, "schema": 1})
+        finalization._cleanup_vm_tasks.reset_mock()
+        with self.assertRaisesRegex(RuntimeError, "mode mismatch"):
+            self.finalize(preserve=True)
+        finalization._cleanup_vm_tasks.assert_not_called()
+
+    def test_preserve_checks_mode_is_rechecked_inside_lease(self):
+        self.finalize(preserve=True)
+        (self.run / "finalization-result.json").unlink()
+        read = supervisor._read_json
+        checks_path = self.run / "finalization-checks.json"
+        reads = 0
+
+        def changed_checks(path, **kwargs):
+            nonlocal reads
+            value = read(path, **kwargs)
+            if path == checks_path:
+                reads += 1
+                if reads > 1:
+                    value = {**value, "schema": 1}
+                    value.pop("mode")
+            return value
+
+        self.lease.complete.reset_mock()
+        with mock.patch.object(supervisor, "_read_json", side_effect=changed_checks), self.assertRaisesRegex(RuntimeError, "mode mismatch"):
+            self.finalize(preserve=True)
+        self.lease.complete.assert_not_called()
+        self.assertFalse((self.run / "finalization-result.json").exists())
+
+    def test_preserve_doctor_requires_complete_current_catalog_and_all_nodes(self):
+        from release.migration_planner import discover_migration_catalog
+
+        catalog = discover_migration_catalog(finalization.WORKSPACE)
+        self.assertEqual(len(catalog), 347)
+        self.assertTrue(any(row["filename"] == "296_upstream_cache_guard.sql" for row in catalog))
+        rows = [{"filename": row["filename"], "checksum": row["checksum"]} for row in catalog]
+        for drift in ("none", "pending", "checksum", "unknown", "backup"):
+            with self.subTest(drift=drift):
+                observed = [dict(row) for row in rows]
+                if drift == "pending":
+                    observed = [row for row in observed if row["filename"] != "296_upstream_cache_guard.sql"]
+                elif drift == "checksum":
+                    next(row for row in observed if row["filename"] == "296_upstream_cache_guard.sql")["checksum"] = "0" * 64
+                elif drift == "unknown":
+                    observed.append({"filename": "999_unregistered.sql", "checksum": "0" * 64})
+                snapshot = {"current_image_id": self.candidate, "production_current_commit_sha": "a" * 40, "schema_migrations": observed}
+                remote = {**self.doctor, "production_snapshot_b64": base64.b64encode(canonical_json(snapshot)).decode()}
+                if drift == "backup":
+                    remote["backup_ready"] = "false"
+                doctor = mock.Mock()
+                doctor.run.side_effect = [{"local_ready": "true", "host_keys_ready": "true"}, remote]
+                manifest = {**self.manifest, "schema": 2, "migration_catalog": catalog}
+                with mock.patch.object(finalization, "ReleaseDoctor", return_value=doctor):
+                    if drift == "none":
+                        self.assertEqual(DOCTOR_CHECKS(manifest, self.helper, mock.Mock(), include_vm=True)["migration_catalog_verified"], "true")
+                    else:
+                        with self.assertRaises((RuntimeError, ValueError)):
+                            DOCTOR_CHECKS(manifest, self.helper, mock.Mock(), include_vm=True)
+                self.assertEqual(doctor.run.call_args_list[1].args[0], ("vm", "racknerd", "dmit", "backup"))
 
 
 if __name__ == "__main__":
