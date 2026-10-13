@@ -540,6 +540,8 @@ export default {
         saveFailed: '保存 OpenCode Go 用量刷新设置失败'
       },
       gatewayForwarding: {
+        gpt61SolNewLongContext: '启用 GPT-6.1 Sol 新版长上下文规则',
+        gpt61SolNewLongContextHint: '默认关闭：生成的上下文窗口默认值为 272k，并按原规则计算长上下文附加费。开启后默认值为 500k，OpenAI OAuth / 订阅访问令牌账号使用 GPT-6.1 Sol 时免模型长上下文附加费；此处订阅指上游账号，不是本站套餐。上游明确提供的窗口值优先，API Key 账号和自定义区间定价保持原规则。保存后当前实例生效，其他实例最多约 60 秒同步；客户端刷新模型目录后采用新的默认窗口。',
         title: '请求转发行为',
         description: '控制请求转发到上游 OAuth 账号时的行为',
         grokDefaultTextModel: '默认 Grok 文本模型',
