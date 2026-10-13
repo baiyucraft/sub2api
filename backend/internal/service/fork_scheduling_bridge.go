@@ -49,6 +49,19 @@ type legacyTTFTRuntime struct {
 	guard *openAITTFTGuard
 }
 
+var _ forkscheduling.TTFTQualityReader = legacyTTFTRuntime{}
+
+func (r legacyTTFTRuntime) Quality(candidates []forkscheduling.CandidateView, cfg forkscheduling.TTFTConfig) map[int64]forkscheduling.TTFTQuality {
+	if r.guard == nil {
+		return nil
+	}
+	views := make([]openAITTFTGuardCandidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		views = append(views, openAITTFTGuardCandidate{groupID: candidate.GroupID, accountID: candidate.ID, model: candidate.Model})
+	}
+	return r.guard.quality(views, openAITTFTGuardConfigFromContract(cfg))
+}
+
 func (r legacyTTFTRuntime) Report(sample forkscheduling.TTFTSample, cfg forkscheduling.TTFTConfig) {
 	if r.guard == nil {
 		return
@@ -326,6 +339,7 @@ func (s *OpenAIGatewayService) ForkSchedulingRuntime() forkscheduling.Runtime {
 	}
 	healthRuntime := legacyHealthRuntime{registry: GlobalUpstreamHealthRegistry()}
 	return forkscheduling.Runtime{
+		CacheGuard:      forkCacheGuardReader(),
 		TTFT:            legacyTTFTRuntime{guard: s.getOpenAITTFTGuard()},
 		HealthReader:    healthRuntime,
 		HealthEvidence:  healthRuntime,
@@ -334,6 +348,14 @@ func (s *OpenAIGatewayService) ForkSchedulingRuntime() forkscheduling.Runtime {
 		RPM:             rpm,
 		Capacity:        legacyCapacityRuntime{service: s.concurrencyService},
 	}
+}
+
+func forkCacheGuardReader() forkscheduling.CacheGuardReader {
+	r := currentUpstreamCacheGuardRunner()
+	if r == nil || !r.available.Load() || r.closed.Load() {
+		return nil
+	}
+	return r.engine
 }
 
 func (s *OpenAIGatewayService) forkHealthReader() forkscheduling.HealthReader {

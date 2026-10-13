@@ -43,6 +43,34 @@
         </div>
       </section>
 
+      <section v-if="!probeOnly" data-test="cache-guard-settings" class="rounded-2xl border border-violet-200 bg-violet-50/50 p-5 dark:border-violet-900/60 dark:bg-violet-950/20">
+        <h4 class="text-base font-semibold text-gray-900 dark:text-white">{{ t('admin.upstreamManagement.cacheGuard.title') }}</h4>
+        <p class="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">{{ t('admin.upstreamManagement.cacheGuard.description') }}</p>
+        <div class="mt-5 grid gap-4 sm:grid-cols-2">
+          <label class="space-y-1.5">
+            <span class="text-sm font-medium text-gray-700 dark:text-gray-200">{{ t('admin.upstreamManagement.cacheGuard.mode') }}</span>
+            <select v-model="draft.cache_guard.mode" data-test="cache-guard-mode" class="input">
+              <option value="disabled">{{ t('admin.upstreamManagement.cacheGuard.modes.disabled') }}</option>
+              <option value="observe">{{ t('admin.upstreamManagement.cacheGuard.modes.observe') }}</option>
+              <option value="protect">{{ t('admin.upstreamManagement.cacheGuard.modes.protect') }}</option>
+            </select>
+          </label>
+          <div class="space-y-1.5">
+            <span class="text-sm font-medium text-gray-700 dark:text-gray-200">{{ t('admin.upstreamManagement.cacheGuard.groups') }}</span>
+            <Select v-model="draft.cache_guard.group_ids" data-test="cache-guard-groups" :options="cacheGroupOptions" multiple searchable clearable :aria-label="t('admin.upstreamManagement.cacheGuard.groups')" :placeholder="t('admin.upstreamManagement.cacheGuard.allGroups')" />
+            <span class="block text-xs text-gray-500 dark:text-gray-400">{{ t('admin.upstreamManagement.cacheGuard.groupHint') }}</span>
+          </div>
+          <label v-for="field in cacheNumericFields" :key="field.key" class="space-y-1.5">
+            <span class="text-sm font-medium text-gray-700 dark:text-gray-200">{{ t(`admin.upstreamManagement.cacheGuard.${field.key}`) }}</span>
+            <input v-model.number="draft.cache_guard[field.key]" :data-test="`cache-guard-${field.key}`" type="number" :min="field.min" :max="field.max" :step="field.step || 1" class="input" />
+          </label>
+        </div>
+        <p class="mt-3 text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('admin.upstreamManagement.cacheGuard.sampleHint', { count: draft.cache_guard.min_valid_requests }) }}</p>
+        <p class="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('admin.upstreamManagement.cacheGuard.recoveryHint') }}</p>
+        <p class="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('admin.upstreamManagement.cacheGuard.sessionHint') }}</p>
+        <p v-if="!cacheGuardValid" role="alert" class="mt-2 text-sm text-red-600 dark:text-red-400">{{ t('admin.upstreamManagement.cacheGuard.invalid') }}</p>
+      </section>
+
       <section v-if="!probeOnly" class="rounded-2xl border border-amber-200 bg-amber-50/60 p-5 dark:border-amber-900/60 dark:bg-amber-950/20">
         <div class="flex items-start gap-3">
           <div class="min-w-0 flex-1">
@@ -185,7 +213,8 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import upstreamManagementAPI, { type ProbePlatformDescriptor, type UpstreamManagementSettings } from '@/api/admin/upstreamManagement'
+import upstreamManagementAPI, { type ProbePlatformDescriptor, type UpstreamManagementSettings, type UpstreamCacheGuardSettings } from '@/api/admin/upstreamManagement'
+import groupsAPI from '@/api/admin/groups'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import BaseDialog from '@/components/common/BaseDialog.vue'
@@ -207,7 +236,9 @@ const legacyPlatforms: ProbePlatformDescriptor[] = [
   { id: 'anthropic', label: 'Anthropic', models: [], probe_supported: true },
   { id: 'gemini', label: 'Gemini', models: [], probe_supported: true }
 ]
-const defaults: UpstreamManagementSettings = {
+type SettingsDraft = UpstreamManagementSettings & { cache_guard: UpstreamCacheGuardSettings }
+const defaults: SettingsDraft = {
+  cache_guard: { mode: 'disabled', group_ids: [], threshold_percent: 75, window_minutes: 60, min_valid_requests: 20, recovery_threshold_percent: 80, cooldown_minutes: 10, trial_percent: 10 },
   ttft_guard: { enabled: false, degradation_ttft_seconds: 20, min_samples: 5 },
   probe_guard: {
     enabled: true,
@@ -221,7 +252,23 @@ const defaults: UpstreamManagementSettings = {
   confidence_probe: { enabled: false, reasoning_effort: 'low', long_context_enabled: false, long_context_max_tokens: 2048, quality_degrade_threshold: 0, prompt_version: 'openai-sol-distribution-v1' }
   , pool_mode_retry_status_codes: [401, 403, 429]
 }
-const draft = reactive<UpstreamManagementSettings>(structuredClone(defaults))
+const draft = reactive<SettingsDraft>(structuredClone(defaults))
+const cacheGroupOptions = ref<SelectOption[]>([])
+const cacheNumericFields: { key: Exclude<keyof UpstreamCacheGuardSettings, 'mode' | 'group_ids'>; min: number; max: number; step?: number }[] = [
+  { key: 'threshold_percent', min: 0, max: 100, step: 0.1 },
+  { key: 'window_minutes', min: 5, max: 1440 },
+  { key: 'min_valid_requests', min: 1, max: 100000 },
+  { key: 'recovery_threshold_percent', min: 0, max: 100, step: 0.1 },
+  { key: 'cooldown_minutes', min: 1, max: 1440 },
+  { key: 'trial_percent', min: 1, max: 100 }
+]
+const cacheGuardValid = computed(() => {
+  const guard = draft.cache_guard
+  return ['disabled', 'observe', 'protect'].includes(guard.mode) &&
+    guard.group_ids.every(id => Number.isInteger(id) && id > 0) &&
+    cacheNumericFields.every(field => Number.isFinite(guard[field.key]) && guard[field.key] >= field.min && guard[field.key] <= field.max && (field.step === 0.1 || Number.isInteger(guard[field.key]))) &&
+    guard.recovery_threshold_percent > guard.threshold_percent
+})
 const probeIntervalMinutes = ref(5)
 const candidates = reactive<Record<string, string[]>>({})
 const loading = ref(false)
@@ -251,7 +298,7 @@ const valid = computed(() => {
     platforms.value.filter(platform => platform.probe_supported).every(platform => {
       const value = draft.probe_models[platform.id]?.trim() || ''
       return value.length > 0 && value.length <= 120
-    }) && parsePoolModeRetryStatusCodes() !== null
+    }) && parsePoolModeRetryStatusCodes() !== null && (probeOnly.value || cacheGuardValid.value)
 })
 
 function parsePoolModeRetryStatusCodes(): number[] | null {
@@ -278,10 +325,16 @@ function parsePoolModeRetryStatusCodes(): number[] | null {
 async function load() {
   loading.value = true
   try {
-    const [settings, options] = await Promise.all([
+    const [settings, options, groups] = await Promise.all([
       (probeOnly.value ? upstreamManagementAPI.getProbeSettings() : upstreamManagementAPI.getSettings()),
-      upstreamManagementAPI.getProbeModelCandidates()
+      upstreamManagementAPI.getProbeModelCandidates(),
+      probeOnly.value ? Promise.resolve([]) : groupsAPI.getAllIncludingInactive()
     ])
+    draft.cache_guard = { ...defaults.cache_guard, ...settings.cache_guard, group_ids: [...(settings.cache_guard?.group_ids || [])] }
+    cacheGroupOptions.value = groups.map(group => ({ value: group.id, label: group.name }))
+    for (const id of draft.cache_guard.group_ids) {
+      if (!groups.some(group => group.id === id)) cacheGroupOptions.value.push({ value: id, label: t('admin.upstreamManagement.cacheGuard.groupId', { id }) })
+    }
     Object.assign(draft.ttft_guard, settings.ttft_guard)
     Object.assign(draft.probe_guard, settings.probe_guard || defaults.probe_guard)
     draft.probe_models = { ...defaults.probe_models, ...(settings.probe_models || {}) }
@@ -338,7 +391,7 @@ async function save() {
       probe_models: Object.fromEntries(Object.entries(draft.probe_models).map(([platform, model]) => [platform, model.trim()])),
       probe_interval_seconds: probeIntervalMinutes.value * 60,
       confidence_probe: { ...draft.confidence_probe, reasoning_effort: 'low', long_context_enabled: false, quality_degrade_threshold: 0, prompt_version: 'openai-sol-distribution-v1' },
-      ...(probeOnly.value ? {} : { pool_mode_retry_status_codes: retryStatusCodes })
+      ...(probeOnly.value ? {} : { pool_mode_retry_status_codes: retryStatusCodes, cache_guard: { ...draft.cache_guard, group_ids: [...new Set(draft.cache_guard.group_ids)].sort((a, b) => a - b) } })
     }
     const saved = probeOnly.value
       ? await upstreamManagementAPI.updateProbeSettings(payload)

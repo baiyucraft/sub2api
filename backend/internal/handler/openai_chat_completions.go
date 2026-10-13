@@ -163,6 +163,9 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 	defer inflightRelease()
 
 	sessionHash := h.gatewayService.GenerateSessionHash(c, body)
+	if reqStream && service.UpstreamCacheGuardLogicalSession(c, body) != "" && service.UpstreamCacheGuardTextRequest(c.Request.URL.Path, body) {
+		c.Request = c.Request.WithContext(service.WithUpstreamCacheGuardRequestSession(c.Request.Context(), apiKey.ID, c, body))
+	}
 	promptCacheKey := h.gatewayService.ExtractSessionID(c, body)
 
 	maxAccountSwitches := h.maxAccountSwitches
@@ -307,14 +310,19 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 			forwardBody = h.gatewayService.ReplaceModelInBody(body, channelMapping.MappedModel)
 		}
 		writerSizeBeforeForward := c.Writer.Size()
+		cacheAttemptCtx := c.Request.Context()
+		if reqStream && service.UpstreamCacheGuardTextRequest(c.Request.URL.Path, body) {
+			cacheAttemptCtx = service.WithUpstreamCacheGuardAttempt(cacheAttemptCtx, apiKey.ID, apiKey.GroupID, sessionHash, true)
+		}
 		result, err := func() (*service.OpenAIForwardResult, error) {
 			defer func() {
 				if accountReleaseFunc != nil {
 					accountReleaseFunc()
 				}
 			}()
-			return h.gatewayService.ForwardAsChatCompletions(c.Request.Context(), c, account, forwardBody, promptCacheKey, "")
+			return h.gatewayService.ForwardAsChatCompletions(cacheAttemptCtx, c, account, forwardBody, promptCacheKey, "")
 		}()
+		service.FinishOpenAIUpstreamCacheGuardAttempt(cacheAttemptCtx, result, err)
 		var cyberBlockBodyChat []byte
 		if service.GetOpsCyberPolicy(c) != nil {
 			cyberBlockBodyChat = body

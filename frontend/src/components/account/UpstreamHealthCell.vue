@@ -171,6 +171,7 @@
       {{ t('admin.upstreamManagement.health.noData') }}
     </span>
 
+    <UpstreamCacheGuardStates :account="account" />
     <UpstreamHealthHistory :observations="health?.history" :limit="24" @show-history="emit('showHistory')" />
   </div>
 </template>
@@ -182,6 +183,7 @@ import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import type { Account } from '@/types'
 import { formatDateTime } from '@/utils/format'
 import UpstreamHealthHistory from './UpstreamHealthHistory.vue'
+import UpstreamCacheGuardStates from './UpstreamCacheGuardStates.vue'
 
 const props = defineProps<{
   account: Account
