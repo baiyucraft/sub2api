@@ -1966,13 +1966,15 @@ func TestHaiku55ResponsesThinkingAndSampling(t *testing.T) {
 	temperature := 0.7
 	_, err := ResponsesToAnthropicRequest(&ResponsesRequest{Model: "claude-haiku-5-5", Input: json.RawMessage(`"hello"`), Temperature: &temperature})
 	require.ErrorContains(t, err, "temperature")
-	topP := 0.5
-	_, err = ResponsesToAnthropicRequest(&ResponsesRequest{Model: "claude-haiku-5-5", Input: json.RawMessage(`"hello"`), TopP: &topP})
-	require.ErrorContains(t, err, "top_p")
+	for _, topP := range []float64{0.5, 0.995, 1} {
+		_, err = ResponsesToAnthropicRequest(&ResponsesRequest{Model: "claude-haiku-5-5", Input: json.RawMessage(`"hello"`), TopP: &topP})
+		require.ErrorContains(t, err, "top_p", "top_p=%v", topP)
+	}
 	_, err = ResponsesToAnthropicRequest(&ResponsesRequest{Model: "claude-haiku-5-5", Input: json.RawMessage(`"hello"`), Reasoning: &ResponsesReasoning{Effort: "minimal"}})
 	require.ErrorContains(t, err, "reasoning effort")
 
-	temperature, topP = 1, 0.99
+	temperature = 1
+	topP := 0.99
 	_, err = ResponsesToAnthropicRequest(&ResponsesRequest{Model: "claude-haiku-5-5", Input: json.RawMessage(`"hello"`), Temperature: &temperature})
 	require.NoError(t, err)
 	_, err = ResponsesToAnthropicRequest(&ResponsesRequest{Model: "claude-haiku-5-5", Input: json.RawMessage(`"hello"`), TopP: &topP})

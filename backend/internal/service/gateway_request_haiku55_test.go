@@ -22,6 +22,7 @@ func TestValidateClaude55Request_Haiku55(t *testing.T) {
 		{name: "adaptive thinking passes", extra: `,"thinking":{"type":"adaptive"},"output_config":{"effort":"medium"}`},
 		{name: "omitted thinking passes", extra: ``},
 		{name: "enabled thinking rejected", extra: `,"thinking":{"type":"enabled","budget_tokens":8000}`, wantErr: "requires adaptive thinking"},
+		{name: "拒绝 between_tools 并返回 Haiku 错误说明", extra: `,"thinking":{"type":"between_tools"}`, wantErr: "claude-haiku-5-5 requires adaptive thinking; thinking.type=between_tools is unsupported"},
 		{name: "disabled thinking allowed at medium effort", extra: `,"thinking":{"type":"disabled"},"output_config":{"effort":"medium"}`},
 		{name: "disabled thinking allowed when effort omitted", extra: `,"thinking":{"type":"disabled"}`},
 		{name: "disabled thinking rejected at xhigh", extra: `,"thinking":{"type":"disabled"},"output_config":{"effort":"xhigh"}`, wantErr: "supports only low, medium or high effort"},
@@ -29,9 +30,9 @@ func TestValidateClaude55Request_Haiku55(t *testing.T) {
 		{name: "temperature 1 passes", extra: `,"temperature":1`},
 		{name: "non-default temperature rejected", extra: `,"temperature":0.5`, wantErr: "non-default temperature"},
 		{name: "top_p 0.99 passes", extra: `,"top_p":0.99`},
-		// 与 sonnet-5-5 同口径：区间 [0.99, 1.0] 放行，越界才拦；
-		// 官方称 top_p=1 会 400，如上游收紧以它为准，网关保持 fail-open。
-		{name: "top_p 1 passes (sonnet bar)", extra: `,"top_p":1`},
+		{name: "拒绝 top_p=0.995", extra: `,"top_p":0.995`, wantErr: "non-default top_p"},
+		{name: "拒绝 top_p=1", extra: `,"top_p":1`, wantErr: "non-default top_p"},
+		{name: "拒绝字符串 top_p", extra: `,"top_p":"0.99"`, wantErr: "non-default top_p"},
 		{name: "top_p 0.5 rejected", extra: `,"top_p":0.5`, wantErr: "non-default top_p"},
 		{name: "top_k rejected", extra: `,"top_k":5`, wantErr: "does not support top_k"},
 		{name: "temperature and top_p together rejected", extra: `,"temperature":1,"top_p":0.99`, wantErr: "does not allow temperature and top_p together"},

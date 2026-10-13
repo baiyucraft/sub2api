@@ -89,7 +89,7 @@ func ResponsesToAnthropicRequest(req *ResponsesRequest) (*AnthropicRequest, erro
 			if req.Temperature != nil && *req.Temperature != 1 {
 				return nil, fmt.Errorf("claude-haiku-5-5 does not support non-default temperature")
 			}
-			if req.TopP != nil && (*req.TopP < 0.99 || *req.TopP > 1) {
+			if req.TopP != nil && *req.TopP != 0.99 {
 				return nil, fmt.Errorf("claude-haiku-5-5 does not support non-default top_p")
 			}
 			if req.Temperature != nil && req.TopP != nil {
