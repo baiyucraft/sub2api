@@ -3836,7 +3836,7 @@ func TestGPT61SolOfflineCodexCatalog(t *testing.T) {
 	m := catalog.Models[0]
 	require.Equal(t, "gpt-6.1-sol", m["slug"])
 	require.Equal(t, "low", m["default_reasoning_level"])
-	require.EqualValues(t, 500000, m["context_window"])
+	require.EqualValues(t, 272000, m["context_window"])
 	require.EqualValues(t, 872000, m["max_context_window"])
 	require.Equal(t, "xhigh", m["multi_agent_reasoning_effort"])
 	require.Equal(t, "v2", m["multi_agent_version"])
@@ -3903,7 +3903,7 @@ func TestGPT61SolAPIKeyCatalogContextWindow(t *testing.T) {
 		{"higher upstream window is preserved", `{"models":[{"slug":"gpt-6.1-sol","context_window":1000000,"max_context_window":1000000}]}`, 1_000_000},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			body, err := completeAPIKeyCodexModelsManifestMetadata([]byte(tc.body), true, account)
+			body, err := completeAPIKeyCodexModelsManifestMetadata([]byte(tc.body), true, account, codexModelDefaults{gpt61SolNewLongContextEnabled: true})
 			require.NoError(t, err)
 			models := decodeCodexManifestModels(t, body)
 			require.Len(t, models, 1)

@@ -6173,6 +6173,22 @@
                 />
               </div>
 
+              <div class="flex items-center justify-between gap-4">
+                <div>
+                  <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    {{ t("admin.settings.gatewayForwarding.gpt61SolNewLongContext") }}
+                  </label>
+                  <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t("admin.settings.gatewayForwarding.gpt61SolNewLongContextHint") }}
+                  </p>
+                </div>
+                <Toggle
+                  v-model="form.openai_gpt61_sol_new_long_context_enabled"
+                  :aria-label="t('admin.settings.gatewayForwarding.gpt61SolNewLongContext')"
+                  data-testid="gpt61-sol-new-long-context-enabled"
+                />
+              </div>
+
               <!-- Antigravity UA 版本 -->
               <div>
                 <label
@@ -10687,6 +10703,7 @@ const form = reactive<SettingsForm>({
   enable_anthropic_cache_ttl_1h_injection: false,
   rewrite_message_cache_control: false,
   enable_client_dateline_normalization: true,
+  openai_gpt61_sol_new_long_context_enabled: false,
   antigravity_user_agent_version: "",
   openai_codex_user_agent: "",
   openai_codex_client_version: "",
@@ -12398,6 +12415,8 @@ async function saveSettings() {
       rewrite_message_cache_control: form.rewrite_message_cache_control,
       enable_client_dateline_normalization:
         form.enable_client_dateline_normalization,
+      openai_gpt61_sol_new_long_context_enabled:
+        form.openai_gpt61_sol_new_long_context_enabled,
       antigravity_user_agent_version:
         form.antigravity_user_agent_version?.trim() || "",
       openai_codex_user_agent:
