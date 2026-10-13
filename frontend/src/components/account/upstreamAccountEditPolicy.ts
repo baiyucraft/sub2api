@@ -4,6 +4,8 @@ const EDITABLE_CREDENTIAL_KEYS = new Set([
   'compact_model_mapping',
   'custom_error_codes',
   'custom_error_codes_enabled',
+  'explicit_cache_upstream',
+  'explicit_cache_upstream_max_ttl_seconds',
   'header_override_enabled',
   'header_overrides',
   'intercept_warmup_requests',

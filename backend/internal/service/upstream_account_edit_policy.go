@@ -12,21 +12,23 @@ import (
 // account-local behavior controls and are intentionally editable from the
 // upstream-management account editor.
 var upstreamAccountEditableCredentialKeys = map[string]struct{}{
-	"account_scheduling_threshold": {},
-	"api_protocol":                 {},
-	"compact_model_mapping":        {},
-	"custom_error_codes":           {},
-	"custom_error_codes_enabled":   {},
-	"header_override_enabled":      {},
-	"header_overrides":             {},
-	"intercept_warmup_requests":    {},
-	"model_mapping":                {},
-	"openai_capabilities":          {},
-	"pool_mode":                    {},
-	"pool_mode_retry_count":        {},
-	"pool_mode_retry_status_codes": {},
-	"temp_unschedulable_enabled":   {},
-	"temp_unschedulable_rules":     {},
+	"account_scheduling_threshold":                 {},
+	"api_protocol":                                 {},
+	"compact_model_mapping":                        {},
+	"custom_error_codes":                           {},
+	"custom_error_codes_enabled":                   {},
+	GeminiExplicitCacheUpstreamCredentialKey:       {},
+	GeminiExplicitCacheUpstreamMaxTTLCredentialKey: {},
+	"header_override_enabled":                      {},
+	"header_overrides":                             {},
+	"intercept_warmup_requests":                    {},
+	"model_mapping":                                {},
+	"openai_capabilities":                          {},
+	"pool_mode":                                    {},
+	"pool_mode_retry_count":                        {},
+	"pool_mode_retry_status_codes":                 {},
+	"temp_unschedulable_enabled":                   {},
+	"temp_unschedulable_rules":                     {},
 }
 
 var upstreamAccountEditableExtraKeys = map[string]struct{}{

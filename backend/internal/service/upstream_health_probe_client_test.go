@@ -1175,18 +1175,29 @@ func TestRunGeminiCodeAssistOAuthUpstreamHealthProbeUsesWrappedRequest(t *testin
 }
 
 func TestRunGeminiServiceAccountUpstreamHealthProbeMissingCredentialsIsConfigurationFailure(t *testing.T) {
-	upstream := &upstreamHealthProbeHTTPStub{}
-	account := &Account{ID: 106, Platform: PlatformGemini, Type: AccountTypeServiceAccount, Concurrency: 1, Credentials: map[string]any{}}
-	svc := &AccountTestService{
-		geminiTokenProvider: &GeminiTokenProvider{},
-		httpUpstream:        upstream,
-		cfg:                 &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
+	for _, tc := range []struct {
+		name        string
+		credentials map[string]any
+	}{
+		{name: "missing JSON and project", credentials: map[string]any{}},
+		{name: "missing JSON with project", credentials: map[string]any{"project_id": "vertex-project"}},
+		{name: "invalid JSON with project", credentials: map[string]any{"project_id": "vertex-project", "service_account_json": "invalid-json"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			upstream := &upstreamHealthProbeHTTPStub{}
+			account := &Account{ID: 106, Platform: PlatformGemini, Type: AccountTypeServiceAccount, Concurrency: 1, Credentials: tc.credentials}
+			svc := &AccountTestService{
+				geminiTokenProvider: &GeminiTokenProvider{},
+				httpUpstream:        upstream,
+				cfg:                 &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
+			}
+			result, err := svc.RunUpstreamHealthProbe(context.Background(), account, "gemini-probe")
+			require.Error(t, err)
+			require.Equal(t, "configuration_error", result.Result)
+			require.Equal(t, "probe_credentials_missing", result.Reason)
+			require.Nil(t, upstream.req)
+		})
 	}
-	result, err := svc.RunUpstreamHealthProbe(context.Background(), account, "gemini-probe")
-	require.Error(t, err)
-	require.Equal(t, "configuration_error", result.Result)
-	require.Equal(t, "probe_credentials_missing", result.Reason)
-	require.Nil(t, upstream.req)
 }
 
 func TestRunGeminiServiceAccountUpstreamHealthProbeUsesVertexEndpoint(t *testing.T) {
@@ -1206,6 +1217,57 @@ func TestRunGeminiServiceAccountUpstreamHealthProbeUsesVertexEndpoint(t *testing
 	require.Equal(t, "https://us-central1-aiplatform.googleapis.com/v1/projects/vertex-project/locations/us-central1/publishers/google/models/gemini-probe:streamGenerateContent?alt=sse", upstream.req.URL.String())
 	require.Equal(t, "Bearer vertex-token", upstream.req.Header.Get("Authorization"))
 	require.Empty(t, upstream.req.Header.Get("x-goog-api-key"))
+}
+
+func TestRunGeminiVertexAPIKeyUpstreamHealthProbeUsesExpressEndpoint(t *testing.T) {
+	upstream := &upstreamHealthProbeHTTPStub{}
+	account := &Account{ID: 107, Platform: PlatformGemini, Type: AccountTypeServiceAccount, Concurrency: 1, Credentials: map[string]any{
+		"auth_mode": "apikey", "api_key": "vertex-secret",
+	}}
+	svc := &AccountTestService{
+		httpUpstream: upstream,
+		cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
+	}
+	result, err := svc.RunUpstreamHealthProbe(context.Background(), account, "gemini-probe")
+	require.NoError(t, err)
+	require.Equal(t, "success", result.Result)
+	require.Equal(t, "https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-probe:streamGenerateContent?alt=sse", upstream.req.URL.String())
+	require.Equal(t, "vertex-secret", upstream.req.Header.Get("x-goog-api-key"))
+	require.Empty(t, upstream.req.Header.Get("Authorization"))
+}
+
+func TestRunGeminiVertexAPIKeyUpstreamHealthProbeMissingKeyIsConfigurationFailure(t *testing.T) {
+	upstream := &upstreamHealthProbeHTTPStub{}
+	account := &Account{ID: 107, Platform: PlatformGemini, Type: AccountTypeServiceAccount, Concurrency: 1, Credentials: map[string]any{
+		"auth_mode": "apikey",
+	}}
+	svc := &AccountTestService{
+		httpUpstream: upstream,
+		cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
+	}
+	result, err := svc.RunUpstreamHealthProbe(context.Background(), account, "gemini-probe")
+	require.Error(t, err)
+	require.Equal(t, "configuration_error", result.Result)
+	require.Equal(t, "probe_credentials_missing", result.Reason)
+	require.Nil(t, upstream.req)
+}
+
+func TestRunGeminiServiceAccountUpstreamHealthProbeInvalidLocationRemainsRequestFailure(t *testing.T) {
+	upstream := &upstreamHealthProbeHTTPStub{}
+	account := &Account{ID: 107, Platform: PlatformGemini, Type: AccountTypeServiceAccount, Concurrency: 1, Credentials: map[string]any{
+		"service_account_json": `{"type":"service_account","project_id":"vertex-project","private_key_id":"key-107","private_key":"not-used-in-cache-test","client_email":"probe@vertex-project.iam.gserviceaccount.com"}`,
+		"vertex_location":      "invalid/location",
+	}}
+	svc := &AccountTestService{
+		geminiTokenProvider: &GeminiTokenProvider{tokenCache: &upstreamHealthProbeGeminiTokenCache{token: "vertex-token"}},
+		httpUpstream:        upstream,
+		cfg:                 &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
+	}
+	result, err := svc.RunUpstreamHealthProbe(context.Background(), account, "gemini-probe")
+	require.ErrorContains(t, err, "invalid vertex location")
+	require.Equal(t, "configuration_error", result.Result)
+	require.Equal(t, "probe_request_invalid", result.Reason)
+	require.Nil(t, upstream.req)
 }
 
 func TestGeminiHTTPModelNotFoundDoesNotAdvanceProbeGuard(t *testing.T) {

@@ -13,7 +13,8 @@
           :subscription-type="group.subscription_type"
           :rate-multiplier="group.rate_multiplier"
           :show-rate="false"
-          class="min-w-0 max-w-[10rem]"
+          :truncate="false"
+          class="min-w-0 max-w-full"
         />
         <button
           v-if="shouldShowPreferredState && interactive && accountId !== null && accountId !== undefined"

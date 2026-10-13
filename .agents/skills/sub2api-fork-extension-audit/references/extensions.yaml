@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "catalog_version": "2026-10-12",
+  "catalog_version": "2026-10-13",
   "version_contract": {
     "upstream_path": "backend/cmd/server/VERSION",
     "fork_suffix": "-baiyu",
@@ -12,7 +12,8 @@
       "42bc7f6cffe24bcb471608e48e66b4a0afa1f882": "0.2.11",
       "b8dece9000c68815a5b867ca5a1e6f236e173905": "0.2.13",
       "3f1a2ea0a760730e3bc528105c00b4ee4f23e469": "0.2.14",
-      "3a6fd1c9db07203ca308aaba69e502bc1f35b307": "0.2.15"
+      "3a6fd1c9db07203ca308aaba69e502bc1f35b307": "0.2.15",
+      "4d9ac3e482106d2da3a39fe3e546d8d6801f1cc1": "0.2.16"
     }
   },
   "upstream_overlap_reviews": [
@@ -127,16 +128,20 @@
     "262": {"version":"0.2.13-baiyu","parent":"261","gate_schema":2,"new_migrations":["288_upstream_confidence_distribution.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
     "263": {"version":"0.2.14-baiyu","parent":"262","gate_schema":2,"new_migrations":[],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
     "264": {"version":"0.2.14-baiyu","parent":"263","gate_schema":2,"new_migrations":["289_activity_reward_costs.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
-    "265": {"version":"0.2.15-baiyu","parent":"264","gate_schema":2,"new_migrations":["290_drop_platform_check_constraints.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}}
+    "265": {"version":"0.2.15-baiyu","parent":"264","gate_schema":2,"new_migrations":["290_drop_platform_check_constraints.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
+    "266": {"version":"0.2.15-baiyu","parent":"265","gate_schema":2,"new_migrations":["291_user_invoice_annotations.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}}
   },
   "current_profile": {
-    "id": "266",
+    "id": "267",
     "status": "pending",
-    "version": "0.2.15-baiyu",
-    "parent": "265",
+    "version": "0.2.16-baiyu",
+    "parent": "266",
     "gate_schema": 2,
     "new_migrations": [
-      "291_user_invoice_annotations.sql"
+      "292_group_i18n.sql",
+      "293_gemini_cached_contents.sql",
+      "294_gemini_cached_contents_channel_usage.sql",
+      "295_gemini_cached_contents_mutation_lease.sql"
     ],
     "release_policy": {
       "compatibility_image": "production_current",
@@ -144,6 +149,11 @@
     }
   },
   "migration_contracts": {
+    "292_group_i18n.sql": "9df295380bd4349bb510a64a3f3d829d7ee28904eab2bdf60ec50599b2128f28",
+    "293_gemini_cached_contents.sql": "48d05b5795e22f45458fdd56e32e3af89ebc68002ddb9320bff4d19bacc71dc3",
+    "294_gemini_cached_contents_channel_usage.sql": "282f55ed98d623f0a07cf4e7975f3ba0de09777ec664de612817a0ed2698577d",
+    "295_gemini_cached_contents_mutation_lease.sql": "d9e2fdc9e974cf35870cf0d46dba34399fde760a08e97632d6d20abae412ea25",
+
     "291_user_invoice_annotations.sql": "18c1af60bc42f747314ddd7c51d97a613c533c374d4235f8208d1f0dad7e843a",
     "290_drop_platform_check_constraints.sql": "89b9ca37806f5725fd01cd3b45d006c119d34820e29e1b8a90c0a8ba461db5bb",
     "289_activity_reward_costs.sql": "30758e5a4b758c8c22677e3713d3897d51af17fd1f34dff6fec354d3da03f1d3",
@@ -221,6 +231,11 @@
     "280_plugin_runtime_state.sql": "700479dfaf0ecee741ded67df3e670a53433a5a486a7c7b2d87d27c6d48d8341"
   },
   "migration_renames": {
+    "official_242_group_i18n": "292_group_i18n.sql",
+    "official_243_gemini_cached_contents": "293_gemini_cached_contents.sql",
+    "official_244_gemini_cached_contents_channel_usage": "294_gemini_cached_contents_channel_usage.sql",
+    "official_245_gemini_cached_contents_mutation_lease": "295_gemini_cached_contents_mutation_lease.sql",
+
     "official_242_drop_platform_check_constraints": "290_drop_platform_check_constraints.sql",
     "official_241_add_payment_order_bonus_amount": "286_add_payment_order_bonus_amount.sql",
     "official_241_add_typesafe_platform": "287_add_typesafe_platform.sql",
@@ -245,6 +260,11 @@
     "official_238_purge_unlimited_user_platform_quotas": "275_purge_unlimited_user_platform_quotas.sql"
   },
   "migration_assertions": {
+    "backend/migrations/292_group_i18n.sql": ["ALTER TABLE groups", "ADD COLUMN IF NOT EXISTS i18n JSONB NOT NULL DEFAULT '{}'::jsonb"],
+    "backend/migrations/293_gemini_cached_contents.sql": ["CREATE TABLE IF NOT EXISTS gemini_cached_contents", "public_id", "upstream_name", "idx_gemini_cached_contents_public_id", "idx_gemini_cached_contents_api_key_active", "WHERE deleted_at IS NULL"],
+    "backend/migrations/294_gemini_cached_contents_channel_usage.sql": ["ALTER TABLE gemini_cached_contents", "ADD COLUMN IF NOT EXISTS channel_usage JSONB NOT NULL DEFAULT '{}'::jsonb"],
+    "backend/migrations/295_gemini_cached_contents_mutation_lease.sql": ["ALTER TABLE gemini_cached_contents", "mutation_token", "mutation_lease_until", "idx_gemini_cached_contents_pending_mutation", "WHERE mutation_token IS NOT NULL AND deleted_at IS NULL"],
+
     "backend/migrations/291_user_invoice_annotations.sql": ["CREATE TABLE IF NOT EXISTS user_invoice_annotations", "amount DECIMAL(20, 8) NOT NULL CHECK (amount > 0 AND amount < 1000000000000)", "user_invoice_annotations_void_state", "voided_by IS NOT NULL", "user_invoice_annotations_operation_unique UNIQUE (user_id, created_by, operation_id)", "CREATE TABLE IF NOT EXISTS user_invoice_annotation_events", "REFERENCES user_invoice_annotations(id) ON DELETE RESTRICT", "before_value JSONB", "after_value JSONB NOT NULL", "user_invoice_annotation_events_before", "idx_user_invoice_annotations_user_created", "idx_user_invoice_annotation_events_invoice_created"],
     "backend/migrations/290_drop_platform_check_constraints.sql": ["DROP CONSTRAINT IF EXISTS user_platform_quotas_platform_check", "DROP CONSTRAINT IF EXISTS composite_model_routes_target_platform_check"],
     "backend/migrations/289_activity_reward_costs.sql": ["activity_reward_id BIGINT", "related_user_id BIGINT", "activity_type VARCHAR", "activity-reward-cost-v1", "backfill_activity_reward_costs", "IN SHARE MODE", "Asia/Shanghai"],
@@ -502,7 +522,7 @@
         "更正携带expected_updated_at；内容已相同时作为成功重试，否则更新时间不匹配返回409 USER_INVOICE_STALE并要求重新加载，不覆盖后续更正；实际更正和作废的更新时间至少递增一微秒",
         "total_invoiced只合计active记录且跨全部开票页；voided不能修改，不物理删除，删除用户不会级联抹除标注审计",
         "接口仅管理员可访问，作废必须填写原因，跨用户记录ID与未知用户拒绝",
-        "profile266仅新增291，版本0.2.15-baiyu/parent265；历史profile和SQL/checksum保持不变，未知267拒绝；没有新增恢复审阅豁免，静态登记不是VM Gate或生产验收"
+        "profile266仅新增291，版本0.2.15-baiyu/parent265；历史profile和SQL/checksum保持不变，未知268拒绝；没有新增恢复审阅豁免，静态登记不是VM Gate或生产验收"
       ]
     },
     {
@@ -515,21 +535,31 @@
         "backend/internal/handler/gateway_inflight_reservation.go",
         "backend/internal/handler/gateway_inflight_reservation_test.go",
         "backend/internal/service/billing_inflight_reservation.go",
-        "backend/internal/service/billing_inflight_reservation_test.go"
+        "backend/internal/service/billing_inflight_reservation_test.go",
+        "backend/internal/handler/gemini_cached_contents_handler.go",
+        "backend/internal/service/gateway_usage_billing.go",
+        "backend/internal/service/billing_cache_service.go",
+        "backend/internal/service/gemini_cached_content_fork_billing_test.go",
+        "backend/internal/handler/gemini_cached_contents_fork_billing_test.go"
       ],
-      "symbols": ["reserveInflightBalanceCtx", "inflightBillingModelCandidates", "computePeakAwareMultipliersForUser"],
+      "symbols": ["reserveInflightBalanceCtx", "inflightBillingModelCandidates", "computePeakAwareMultipliersForUser", "reserveGeminiCachedContentCosts", "ReserveFixedChargeCosts", "QuoteUsageCosts", "cacheStoragePrice"],
       "api_routes": [],
       "settings_keys": [],
       "migration_files": [],
       "required_tests": [
         "backend/internal/handler/gateway_inflight_reservation_test.go",
-        "backend/internal/service/billing_inflight_reservation_test.go"
+        "backend/internal/service/billing_inflight_reservation_test.go",
+        "backend/internal/service/gemini_cached_content_fork_billing_test.go",
+        "backend/internal/handler/gemini_cached_contents_fork_billing_test.go"
       ],
       "invariants": [
         "预留使用渠道定制前的 API Key、订阅和客户端计费模型；目标路由身份不被修改",
         "定制模型没有价格时不得借用渠道或账号映射模型价格，未定价策略仍由官方配置决定",
         "显式用户 0% 同时抑制独立图片倍率预留；隐式零文本倍率不抑制有效独立图片价格",
-        "普通请求、Redis 原子预留、续期和异步计费引用释放仍由官方实现维护"
+        "普通请求、Redis 原子预留、续期和异步计费引用释放仍由官方实现维护",
+        "Gemini显式缓存创建/延期的固定费用报价与最终落账共用原API Key、原分组、订阅和计费模型快照；渠道定制原模型无存储价时不得借用目标映射模型价格",
+        "ReserveFixedChargeCosts分别接收actual金额和quota_meter金额：余额/订阅按实付预留，API Key总额度/时间窗及非订阅用户平台额度按分组原价计量预留，显式用户0%仍占用并检查Key/平台headroom",
+        "缓存PATCH在出站前校验可知的存储计量费用；创建返回token数后计量不足时遵循官方删除缓存与输入费落账路径，零倍率输入/存储费实付均为0，预留释放继续使用官方引用交接生命周期"
       ]
     },
     {
@@ -631,8 +661,8 @@
     },
     {
       "id": "upstream-model-capability-sync", "title": "上游模型能力自动同步", "description": "为 sync_managed 派生账号自动同步并维护模型白名单：NewAPI 的有效 model_limits 优先，其他平台通过上游模型目录同步；30 分钟 freshness 控制重复请求，24 小时 enforcement 窗口控制旧映射继续生效。", "ownership": "fork", "risk_level": "high",
-      "paths": ["backend/internal/service/upstream_model_sync.go", "backend/internal/service/upstream_models.go", "backend/internal/service/newapi_upstream_adapter.go", "backend/internal/service/upstream_config.go", "backend/internal/service/account.go", "backend/internal/repository/account_repo.go", "backend/internal/repository/upstream_config_repo.go"],
-      "symbols": ["AccountUpstreamModelSyncExtraKey", "AccountNewAPIModelLimitsExtraKey", "UpstreamModelSyncFreshDuration", "UpstreamModelSyncEnforceDuration", "SyncUpstreamAccountModels", "automaticModelMappingEnforced", "PersistUpstreamModelSync", "newAPIModelLimitsPlatformEvidence"], "api_routes": [], "settings_keys": [], "migration_files": [], "required_tests": ["backend/internal/service/upstream_models_test.go", "backend/internal/service/newapi_upstream_adapter_platform_test.go"], "recommended_tests": ["backend/internal/service/upstream_model_sync_test.go", "backend/internal/repository/account_repo_upstream_model_sync_test.go", "backend/internal/service/upstream_config_model_sync_test.go"], "invariants": ["只有 sync_managed 派生账号自动写入 model_mapping；manual 账号的同步调用只返回探测结果，不改持久化白名单", "NewAPI model_limits 仅在 enabled、解析有效且非空时优先于 live /models；无效配置必须记录失败而不清空上一次成功映射", "模型 ID 必须去重、排序并移除 models/ 前缀等协议包装", "成功同步 freshness 为 30 分钟；fresh 期间不重复请求；超过 30 分钟但未超过 24 小时继续沿用最近成功映射；超过 24 小时停止强制自动映射并允许人工/其他能力回退", "成功和失败状态写入 upstream_model_sync，但失败不得覆盖最近成功的 model_mapping", "持久化模型映射、同步状态、force_refresh 清理、scheduler outbox 和当前 scheduler snapshot 必须保持原子/可见一致", "同步并发最多 4 个账号、单账号超时 15 秒，失败分类不得泄露 URL、凭据、响应体或原始错误", "从 Key 复制 NewAPI model_limits 元数据时只复制 allowlisted fields，并保持 invalid 标记和脱敏边界"]
+      "paths": ["backend/internal/service/upstream_model_sync.go", "backend/internal/service/upstream_models.go", "backend/internal/service/newapi_upstream_adapter.go", "backend/internal/service/upstream_config.go", "backend/internal/service/account.go", "backend/internal/repository/account_repo.go", "backend/internal/repository/upstream_config_repo.go", "backend/internal/service/gemini_models_endpoints.go", "backend/internal/service/gemini_models_endpoints_test.go"],
+      "symbols": ["AccountUpstreamModelSyncExtraKey", "AccountNewAPIModelLimitsExtraKey", "UpstreamModelSyncFreshDuration", "UpstreamModelSyncEnforceDuration", "SyncUpstreamAccountModels", "automaticModelMappingEnforced", "PersistUpstreamModelSync", "newAPIModelLimitsPlatformEvidence", "SelectAccountForModelsEndpoints", "selectAccountForModelsEndpoints", "errGeminiModelsNoAvailableAccounts", "compareAccountSchedulingTier"], "api_routes": [], "settings_keys": [], "migration_files": [], "required_tests": ["backend/internal/service/upstream_models_test.go", "backend/internal/service/newapi_upstream_adapter_platform_test.go", "backend/internal/service/gemini_models_endpoints_test.go"], "recommended_tests": ["backend/internal/service/upstream_model_sync_test.go", "backend/internal/repository/account_repo_upstream_model_sync_test.go", "backend/internal/service/upstream_config_model_sync_test.go"], "invariants": ["只有 sync_managed 派生账号自动写入 model_mapping；manual 账号的同步调用只返回探测结果，不改持久化白名单", "NewAPI model_limits 仅在 enabled、解析有效且非空时优先于 live /models；无效配置必须记录失败而不清空上一次成功映射", "模型 ID 必须去重、排序并移除 models/ 前缀等协议包装", "成功同步 freshness 为 30 分钟；fresh 期间不重复请求；超过 30 分钟但未超过 24 小时继续沿用最近成功映射；超过 24 小时停止强制自动映射并允许人工/其他能力回退", "成功和失败状态写入 upstream_model_sync，但失败不得覆盖最近成功的 model_mapping", "持久化模型映射、同步状态、force_refresh 清理、scheduler outbox 和当前 scheduler snapshot 必须保持原子/可见一致", "同步并发最多 4 个账号、单账号超时 15 秒，失败分类不得泄露 URL、凭据、响应体或原始错误", "从 Key 复制 NewAPI model_limits 元数据时只复制 allowlisted fields，并保持 invalid 标记和脱敏边界", "Gemini模型列表/详情的新选号入口保留官方API Key/AI Studio/Code Assist/Vertex类型优先级；同类候选按priority、未舍入的精确有效上游成本和最近使用时间排序，并继承上游健康排除", "只有errGeminiModelsNoAvailableAccounts表示候选耗尽时才允许去掉临时健康排除重试；查询或完整账号补水失败原样返回，不能凭错误文字把基础设施错误当作候选耗尽"]
     },
     {
       "id": "newapi-compatibility", "title": "NewAPI 新旧登录会话适配", "description": "兼容旧 Cookie、平铺/嵌套登录及新版短期 access_token、路径受限 refresh Cookie 和同会话续期；按 QuantumNous/new-api v1.0.0-rc.41 协议独立适配。", "ownership": "fork", "risk_level": "high",
@@ -642,7 +672,7 @@
       "invariants": ["认证 Token 和 Cookie 不回写配置 credentials/extra；只允许在 upstream_auth_sessions.secret_ciphertext 加密持久化，API/日志不暴露正文", "保留 Cookie、access_token、user_login 三种认证模式及旧响应数字 code 兼容", "Cookie 或 Token 至少存在一个", "优先按 access_expires_at 或 JWT exp 判断过期，已过期缓存保留刷新材料并优先续期原会话", "refresh Cookie 保留 Path、Domain、Secure 与到期时间，轮转或删除后不得被固定 Cookie 头和旧快照覆盖", "刷新仅同源 POST /api/user/auth/refresh，携带 Origin 和已知 X-Auth-Session，不携带过期 Bearer，跨源重定向拒绝", "刷新后的用户或 SID 变更拒绝；成功刷新后业务再次失败不追加登录；transport、403、409、5xx 禁止登录回退，仅明确 401 或旧版无刷新 Cookie/404/405/501 可回退", "login/refresh 的 409 与业务接口 409 分离；仅白名单 AUTH 错误码可公开，记录结构化 HTTP 状态，禁止原始响应或凭据进入诊断"]
     },
     {
-      "id": "upstream-edit-policy", "title": "上游派生账号编辑白名单", "description": "上游派生账号的身份、Key、URL、代理、倍率和 Priority 受保护，只允许局部运行行为字段。", "ownership": "fork", "risk_level": "high", "paths": ["backend/internal/service/upstream_account_edit_policy.go", "backend/internal/service/admin_upstream_account.go", "backend/internal/handler/admin/account_handler.go", "frontend/src/components/account/upstreamAccountEditPolicy.ts", "frontend/src/components/account/EditAccountModal.vue"], "symbols": ["validateUpstreamAccountEditableUpdate", "upstreamAccountEditableCredentialKeys"], "api_routes": ["/accounts"], "settings_keys": [], "migration_files": [], "required_tests": ["backend/internal/service/upstream_account_edit_policy.go", "frontend/src/components/account/__tests__/EditAccountModal.spec.ts"], "invariants": ["普通账号编辑不受影响", "批量编辑不能扩大上游白名单"]
+      "id": "upstream-edit-policy", "title": "上游派生账号编辑白名单", "description": "上游派生账号的身份、Key、URL、代理、倍率和 Priority 受保护，只允许局部运行行为字段。", "ownership": "fork", "risk_level": "high", "paths": ["backend/internal/service/upstream_account_edit_policy.go", "backend/internal/service/admin_upstream_account.go", "backend/internal/handler/admin/account_handler.go", "frontend/src/components/account/upstreamAccountEditPolicy.ts", "frontend/src/components/account/EditAccountModal.vue", "backend/internal/service/upstream_account_edit_policy_test.go", "frontend/src/components/account/__tests__/EditAccountModal.spec.ts"], "symbols": ["validateUpstreamAccountEditableUpdate", "upstreamAccountEditableCredentialKeys", "GeminiExplicitCacheUpstreamCredentialKey", "GeminiExplicitCacheUpstreamMaxTTLCredentialKey", "pickUpstreamAccountEditableCredentials", "mergeUpstreamAccountEditableCredentials"], "api_routes": ["/accounts"], "settings_keys": [], "migration_files": [], "required_tests": ["frontend/src/components/account/__tests__/EditAccountModal.spec.ts", "backend/internal/service/upstream_account_edit_policy_test.go"], "invariants": ["普通账号编辑不受影响", "批量编辑不能扩大上游白名单", "Gemini显式缓存本地声明explicit_cache_upstream及explicit_cache_upstream_max_ttl_seconds在前后端派生账号credentials白名单同步准入；关闭时删除这两个本地键，保留继承的api_key/base_url和运行态元数据", "上游编辑payload只提交本地允许字段，不提交派生name/proxy_id/priority/rate_multiplier/concurrency/load_factor或继承Key/URL；身份/来源/代理/成本与能力同步仍由既有上游合同维护", "官方自动重置卡配置仅普通 OpenAI OAuth 母账号可编辑；Spark shadow、上游绑定派生账号及 upstream 模式不展示、不校验不可编辑的历史阈值、不提交三个配置键，运行态 codex_auto_reset_credit_state 始终由后端维护"]
     },
     {
       "id": "account-import-copy-proxies", "title": "账号导入按代理复制（协议拒绝残留）", "description": "历史导入协议曾按代理创建独立账号副本；代理组上线后新建能力已删除，只保留旧 copy_proxy_ids 字段识别与稳定拒绝，历史副本和旧共享指纹字段不自动清理。", "ownership": "fork", "risk_level": "high", "lifecycle": "deprecated", "support_mode": "protocol-reject-only", "paths": ["backend/internal/handler/admin/account_data.go", "backend/internal/handler/admin/account_data_handler_test.go", "backend/internal/service/openai_codex_fingerprint.go", "frontend/src/api/admin/accounts.ts", "frontend/src/components/admin/account/ImportDataModal.vue", "frontend/src/components/common/GroupSelector.vue", "frontend/src/__tests__/integration/data-import.spec.ts", "frontend/src/i18n/locales/zh/admin/accounts.ts", "frontend/src/i18n/locales/en/admin/accounts.ts"], "symbols": ["DataImportRequest", "CopyProxyIDs", "OverrideConcurrency", "OverrideRateMultiplier", "OverridePriority", "OverrideCodexFingerprintMode", "PreferredGroupIDs", "codexImportReplicaFingerprintSeedExtraKey"], "api_routes": ["/admin/accounts/data"], "settings_keys": [], "migration_files": [], "required_tests": ["backend/internal/handler/admin/account_data_handler_test.go", "backend/internal/service/account_codex_fingerprint_seed_lifecycle_test.go", "backend/internal/service/openai_codex_fingerprint_test.go", "frontend/src/__tests__/integration/data-import.spec.ts"], "invariants": ["非空 copy_proxy_ids 只作为旧客户端协议输入识别，必须返回稳定错误 COPY_PROXY_IMPORT_DEPRECATED，不得静默创建单条账号或继续复制", "新导入不再写入 codex_import_replica_fingerprint_seed，每个启用指纹收敛的新账号只生成自己的 codex_fingerprint_seed", "历史 codex_import_replica_fingerprint_seed 不做 migration 清理、普通编辑保持原值、外部请求不能写入，但运行时不得再用其派生 installation、session 或 thread 身份", "历史复制账号不自动归并、不自动停用、不自动删除；管理员显式建立代理组并处理副本", "并发、账号倍率、优先级、Codex 指纹模式、代理组、账号分组和优先星标覆盖能力由普通单账号导入继续维护", "管理端不得重新暴露复制代理入口，旧复制逻辑不得成为代理组失败时的隐式回退"]
@@ -980,10 +1010,10 @@
       "id": "ttft-guard", "title": "OpenAI 分组级 TTFT Guard", "description": "按 group_id + account_id + canonical model 隔离真实业务 TTFT 状态；分组策略使用 fork 独立表并支持继承全局、自定义启用和单独停用。", "ownership": "fork", "risk_level": "critical", "paths": ["backend/migrations/278_fork_group_ttft_guard_policies.sql", "backend/internal/repository/group_ttft_guard_policy_repo.go", "backend/internal/repository/group_ttft_guard_policy_invalidation_bus.go", "backend/internal/service/group_ttft_guard_policy.go", "backend/internal/service/openai_ttft_guard*.go", "backend/internal/service/openai_account_scheduler.go", "backend/internal/handler/admin/group_handler.go", "backend/internal/server/routes/admin.go", "frontend/src/api/admin/groups.ts", "frontend/src/components/admin/group/GroupTTFTGuardPolicyModal.vue", "frontend/src/components/account/TTFTGuardStatusBadge.vue", "frontend/src/views/admin/GroupsView.vue"], "symbols": ["GroupTTFTGuardPolicyResolver", "GroupTTFTGuardResolvedPolicy", "GroupTTFTGuardPolicyInvalidationBus", "fork_group_ttft_guard_policies", "OpenAITTFTGuard", "reportOpenAITTFTGuard", "ttft_guard_degradations"], "api_routes": ["/admin/upstream-management/ttft-guard", "/admin/groups/ttft-guard-policies", "/admin/groups/:id/ttft-guard-policy"], "settings_keys": ["openai_ttft_guard_settings"], "migration_files": ["278_fork_group_ttft_guard_policies.sql"], "required_tests": ["backend/migrations/group_ttft_guard_policy_migration_test.go", "backend/internal/repository/group_ttft_guard_policy_repo_test.go", "backend/internal/repository/group_ttft_guard_policy_invalidation_bus_test.go", "backend/internal/service/group_ttft_guard_policy_test.go", "backend/internal/service/scheduler_snapshot_ttft_policy_test.go", "backend/internal/service/openai_ttft_guard_test.go", "backend/internal/handler/admin/group_handler_ttft_guard_policy_test.go", "frontend/src/api/admin/__tests__/groupsTTFTGuardPolicies.spec.ts", "frontend/src/components/admin/group/__tests__/GroupTTFTGuardPolicyModal.spec.ts", "frontend/src/components/account/__tests__/TTFTGuardStatusBadge.spec.ts"], "invariants": ["只采样带实际 group_id 的真实业务可见首 Token，无分组后台探针不得写入", "状态按 group_id + account_id + canonical model 隔离，分组间阈值、摘除、恢复探测和 fail-open 互不污染", "inherit 使用全局热快照中的开关与阈值，enabled 使用分组值，disabled 不采样不排除并清理该分组旧状态；全局变化不得改写自定义策略", "全局设置通过 fork Redis 通道广播；远端读取成功后只清配置变化的 global 状态，读取失败和自定义策略不得清理", "策略缓存失效期间启动的旧 DB 读取不得重新回填缓存", "仅 OpenAI 与 Composite 分组允许保存策略，Composite 只在实际调度平台为 OpenAI 时生效", "策略写入和 group_changed scheduler outbox 在同一事务；幂等写入不产生无意义事件", "各实例消费 group_changed 后清 policy cache，并通过本地 runtime invalidator 清该分组 TTFT 状态；缓存自然过期不得清运行态", "运行时 degradation 必须携带 group_id、group_name 与策略来源", "fork 策略表和管理 API 不向官方 groups 表增加字段，也不改变倍率、Priority、健康探针、模型限流或高级调度语义"]
     },
     {
-      "id": "group-profit-control-display", "title": "分组利润控制与账号倍率上限展示", "description": "基于官方分组倍率、计费与利润控制链，fork 增加用户专属 rate_percent 真值、动态有效倍率、显式 0% 语义和管理端账号倍率上限预览；金额限额仍按分组原价计量。", "ownership": "fork", "risk_level": "high", "paths": ["backend/migrations/277_user_group_rate_percent.sql", "backend/internal/repository/user_group_rate_repo.go", "backend/internal/service/user_group_rate.go", "backend/internal/service/user_group_rate_resolver.go", "backend/internal/service/admin_group.go", "backend/internal/service/admin_user.go", "backend/internal/service/openai_profit_control.go", "backend/internal/service/gateway_profit_control.go", "backend/internal/service/billing_cache_service.go", "backend/internal/service/gateway_usage_billing.go", "backend/internal/service/openai_gateway_usage.go", "backend/internal/handler/admin/user_handler.go", "backend/internal/handler/dto/types.go", "backend/internal/handler/dto/mappers.go", "frontend/src/api/admin/groups.ts", "frontend/src/types/index.ts", "frontend/src/views/admin/GroupsView.vue", "frontend/src/views/admin/groupsProfitControl.ts", "frontend/src/components/admin/group/GroupRateMultipliersModal.vue", "frontend/src/components/admin/user/UserAllowedGroupsModal.vue", "frontend/src/i18n/locales/zh/admin/overview.ts", "frontend/src/i18n/locales/en/admin/overview.ts"], "symbols": ["rate_percent", "SyncUserGroupRatePercents", "ResolveUserGroupRateMultiplier", "ResolveWithExplicitZero", "CheckBillingEligibility", "buildUsageBillingCommand", "calculateProfitControlMaxAccountRate", "formatProfitControlMaxAccountRate"], "api_routes": ["/admin/users/:id", "/admin/groups/:id/rate-multipliers"], "settings_keys": [], "migration_files": ["277_user_group_rate_percent.sql"], "required_tests": ["backend/migrations/user_group_rate_percent_migration_test.go", "backend/internal/repository/user_group_rate_repo_test.go", "backend/internal/service/openai_profit_control_test.go", "backend/internal/service/openai_profit_control_pricing_test.go", "backend/internal/service/user_group_rate_resolver_test.go", "backend/internal/service/gateway_service_subscription_billing_test.go", "backend/internal/service/admin_service_group_rate_test.go", "backend/internal/service/admin_service_update_user_rpm_test.go", "frontend/src/api/admin/__tests__/groupsRateMultipliers.spec.ts", "frontend/src/components/admin/group/__tests__/GroupRateMultipliersModal.spec.ts", "frontend/src/components/admin/user/__tests__/UserAllowedGroupsModal.spec.ts", "frontend/src/views/admin/__tests__/groupsProfitControl.spec.ts"], "invariants": ["官方拥有基础分组倍率和利润控制，fork 只拥有 rate_percent、显式 0%、计费/配额分离与管理端预览扩展", "rate_percent 是用户专属倍率唯一业务真值，有效倍率始终等于分组普通倍率 × rate_percent ÷ 100", "分组普通倍率变化只刷新兼容 rate_multiplier 影子值和缓存，不得改写 rate_percent", "旧客户端提交 rate_multiplier 时服务端按当前普通倍率反算百分比；rate_percent 与 rate_multiplier 同时提交必须拒绝", "显式 0% 与 NULL 必须区分，NULL 表示回退分组默认倍率", "清空专属倍率不得删除同一用户分组关系上的 RPM override，批量替换必须事务化", "用户专属倍率显式 0 时 actual_cost/用户余额和订阅消费为 0，但 token、请求数、total_cost、原始成本、账号成本和统计保留", "API Key 配额、时间窗限速和用户×平台配额使用按分组原价计算的 quota_meter_cost", "显式 0 仅豁免当前用户-计费分组的利润控制，非 0 用户和其它分组继续执行利润门", "订阅高峰窗口内阈值叠加当前高峰因子", "管理端预览只读且向下保留四位", "未启用利润控制或配置无效时不展示伪造上限", "分组默认倍率仍必须大于 0"]
+      "id": "group-profit-control-display", "title": "分组利润控制与账号倍率上限展示", "description": "基于官方分组倍率、计费与利润控制链，fork 增加用户专属 rate_percent 真值、动态有效倍率、显式 0% 语义和管理端账号倍率上限预览；金额限额仍按分组原价计量。", "ownership": "fork", "risk_level": "high", "paths": ["backend/migrations/277_user_group_rate_percent.sql", "backend/internal/repository/user_group_rate_repo.go", "backend/internal/service/user_group_rate.go", "backend/internal/service/user_group_rate_resolver.go", "backend/internal/service/admin_group.go", "backend/internal/service/admin_user.go", "backend/internal/service/openai_profit_control.go", "backend/internal/service/gateway_profit_control.go", "backend/internal/service/billing_cache_service.go", "backend/internal/service/gateway_usage_billing.go", "backend/internal/service/openai_gateway_usage.go", "backend/internal/handler/admin/user_handler.go", "backend/internal/handler/dto/types.go", "backend/internal/handler/dto/mappers.go", "frontend/src/api/admin/groups.ts", "frontend/src/types/index.ts", "frontend/src/views/admin/GroupsView.vue", "frontend/src/views/admin/groupsProfitControl.ts", "frontend/src/components/admin/group/GroupRateMultipliersModal.vue", "frontend/src/components/admin/user/UserAllowedGroupsModal.vue", "frontend/src/i18n/locales/zh/admin/overview.ts", "frontend/src/i18n/locales/en/admin/overview.ts", "backend/internal/handler/gemini_cached_contents_handler.go", "backend/internal/service/gemini_cached_content_fork_billing_test.go", "backend/internal/handler/gemini_cached_contents_fork_billing_test.go"], "symbols": ["rate_percent", "SyncUserGroupRatePercents", "ResolveUserGroupRateMultiplier", "ResolveWithExplicitZero", "CheckBillingEligibility", "buildUsageBillingCommand", "calculateProfitControlMaxAccountRate", "formatProfitControlMaxAccountRate", "QuoteUsageCosts", "applyRecordUsageQuotaMeterCost", "QuotaMeterCostSet", "ReserveFixedChargeCosts"], "api_routes": ["/admin/users/:id", "/admin/groups/:id/rate-multipliers"], "settings_keys": [], "migration_files": ["277_user_group_rate_percent.sql"], "required_tests": ["backend/migrations/user_group_rate_percent_migration_test.go", "backend/internal/repository/user_group_rate_repo_test.go", "backend/internal/service/openai_profit_control_test.go", "backend/internal/service/openai_profit_control_pricing_test.go", "backend/internal/service/user_group_rate_resolver_test.go", "backend/internal/service/gateway_service_subscription_billing_test.go", "backend/internal/service/admin_service_group_rate_test.go", "backend/internal/service/admin_service_update_user_rpm_test.go", "frontend/src/api/admin/__tests__/groupsRateMultipliers.spec.ts", "frontend/src/components/admin/group/__tests__/GroupRateMultipliersModal.spec.ts", "frontend/src/components/admin/user/__tests__/UserAllowedGroupsModal.spec.ts", "frontend/src/views/admin/__tests__/groupsProfitControl.spec.ts", "backend/internal/service/gemini_cached_content_fork_billing_test.go", "backend/internal/handler/gemini_cached_contents_fork_billing_test.go"], "invariants": ["官方拥有基础分组倍率和利润控制，fork 只拥有 rate_percent、显式 0%、计费/配额分离与管理端预览扩展", "rate_percent 是用户专属倍率唯一业务真值，有效倍率始终等于分组普通倍率 × rate_percent ÷ 100", "分组普通倍率变化只刷新兼容 rate_multiplier 影子值和缓存，不得改写 rate_percent", "旧客户端提交 rate_multiplier 时服务端按当前普通倍率反算百分比；rate_percent 与 rate_multiplier 同时提交必须拒绝", "显式 0% 与 NULL 必须区分，NULL 表示回退分组默认倍率", "清空专属倍率不得删除同一用户分组关系上的 RPM override，批量替换必须事务化", "用户专属倍率显式 0 时 actual_cost/用户余额和订阅消费为 0，但 token、请求数、total_cost、原始成本、账号成本和统计保留", "API Key 配额、时间窗限速和用户×平台配额使用按分组原价计算的 quota_meter_cost", "显式 0 仅豁免当前用户-计费分组的利润控制，非 0 用户和其它分组继续执行利润门", "订阅高峰窗口内阈值叠加当前高峰因子", "管理端预览只读且向下保留四位", "未启用利润控制或配置无效时不展示伪造上限", "分组默认倍率仍必须大于 0", "Gemini缓存创建含输入费与存储token-hours，延期仅存储费；显式0%令actual_cost为0，但quota_meter_cost保留原分组计量，两种金额在报价、在途预留和落账中保持一致", "固定缓存费的余额与订阅额度按actual计算；订阅路径延续平台额度豁免，API Key额度/时间窗仍检查quota_meter，零actual不能跳过非订阅平台计量限制"]
     },
     {
-      "id": "upstream-health-probes", "title": "三平台上游健康探针与趋势", "description": "OpenAI Responses、Anthropic Claude Code profile、Gemini 原生流式探针，保存健康证据、趋势和最近状态点；Grok 与 Antigravity 主动探针同样使用增量流式解析。 健康探针独立保留首字后生成 TPS 与历史观测，不复用用量页面的官方总耗时 TPS。", "ownership": "fork", "risk_level": "critical", "paths": ["backend/internal/service/upstream_health*.go", "backend/internal/service/upstream_health_probe_client.go", "backend/internal/service/ratelimit_service.go", "backend/internal/service/ratelimit_cn_providers.go", "backend/internal/service/antigravity_gateway_service.go", "backend/internal/repository/upstream_health*.go", "backend/internal/handler/admin/upstream_management_handler.go", "frontend/src/components/account/UpstreamHealth*.vue", "frontend/src/components/admin/account/UpstreamHealth*.vue", "frontend/src/components/charts/TrendChart.vue"], "symbols": ["response.output_text.delta", "content_block_delta", "streamGenerateContent", "parseOpenAIUpstreamHealthStream", "parseOpenAIChatCompletionsUpstreamHealthStream", "TestConnectionWithPromptStreaming", "upstream_health_observations", "HealthTrend", "shouldReportUpstreamHealthFailure", "calculateUpstreamHealthProbeOutputTPS", "setUpstreamHealthProbeOutputTPS", "output_tps"], "api_routes": ["/health-trend", "/upstream-management/keys"], "settings_keys": ["upstream_probe_models", "upstream_probe_interval_seconds"], "migration_files": ["233_upstream_management.sql"], "required_tests": ["backend/internal/service/upstream_health_probe_client_test.go", "backend/internal/service/upstream_health_service_test.go", "backend/internal/service/ratelimit_service_403_html_test.go", "backend/internal/service/ratelimit_service_cn_quota_403_test.go", "backend/internal/service/antigravity_gateway_service_test.go", "frontend/src/components/admin/account/__tests__/UpstreamHealthTrendChart.spec.ts"], "invariants": ["首 Token 只认首个非空文本", "活动探针以 SSE 增量解析并区分完整终端、空流、断流和网络错误", "Grok/Antigravity 流式主动探针不改变普通业务请求", "请求级 OpenAI HTML 403 不写账号或共享上游 Key 健康处罚", "国内 Coding Plan 配额耗尽与并发限制 403 只保留账号级可恢复冷却，不得把共享上游 Key 标记为认证失败或 suspended", "列表最多 24 点", "历史保留 35 天", "探针暂停后仍继续探测", "健康探针生成 TPS = output_tokens × 1000 / (duration_ms - first_token_ms)，仅输出 Token 为正、首字存在且总耗时大于首字时有效，否则为空；计算器属于探针，不再向用量 API 返回自定义 output_tps", "探针 output_tps 观测字段、历史数据与 migration 233 保持不变；删除用量自定义输出速率无需数据库迁移"]
+      "id": "upstream-health-probes", "title": "三平台上游健康探针与趋势", "description": "OpenAI Responses、Anthropic Claude Code profile、Gemini 原生流式探针，保存健康证据、趋势和最近状态点；Grok 与 Antigravity 主动探针同样使用增量流式解析。 健康探针独立保留首字后生成 TPS 与历史观测，不复用用量页面的官方总耗时 TPS。", "ownership": "fork", "risk_level": "critical", "paths": ["backend/internal/service/upstream_health*.go", "backend/internal/service/upstream_health_probe_client.go", "backend/internal/service/ratelimit_service.go", "backend/internal/service/ratelimit_cn_providers.go", "backend/internal/service/antigravity_gateway_service.go", "backend/internal/repository/upstream_health*.go", "backend/internal/handler/admin/upstream_management_handler.go", "frontend/src/components/account/UpstreamHealth*.vue", "frontend/src/components/admin/account/UpstreamHealth*.vue", "frontend/src/components/charts/TrendChart.vue"], "symbols": ["response.output_text.delta", "content_block_delta", "streamGenerateContent", "parseOpenAIUpstreamHealthStream", "parseOpenAIChatCompletionsUpstreamHealthStream", "TestConnectionWithPromptStreaming", "upstream_health_observations", "HealthTrend", "shouldReportUpstreamHealthFailure", "calculateUpstreamHealthProbeOutputTPS", "setUpstreamHealthProbeOutputTPS", "output_tps"], "api_routes": ["/health-trend", "/upstream-management/keys"], "settings_keys": ["upstream_probe_models", "upstream_probe_interval_seconds"], "migration_files": ["233_upstream_management.sql"], "required_tests": ["backend/internal/service/upstream_health_probe_client_test.go", "backend/internal/service/upstream_health_service_test.go", "backend/internal/service/ratelimit_service_403_html_test.go", "backend/internal/service/ratelimit_service_cn_quota_403_test.go", "backend/internal/service/antigravity_gateway_service_test.go", "frontend/src/components/admin/account/__tests__/UpstreamHealthTrendChart.spec.ts"], "invariants": ["首 Token 只认首个非空文本", "活动探针以 SSE 增量解析并区分完整终端、空流、断流和网络错误", "Grok/Antigravity 流式主动探针不改变普通业务请求", "请求级 OpenAI HTML 403 不写账号或共享上游 Key 健康处罚", "国内 Coding Plan 配额耗尽与并发限制 403 只保留账号级可恢复冷却，不得把共享上游 Key 标记为认证失败或 suspended", "列表最多 24 点", "历史保留 35 天", "探针暂停后仍继续探测", "健康探针生成 TPS = output_tokens × 1000 / (duration_ms - first_token_ms)，仅输出 Token 为正、首字存在且总耗时大于首字时有效，否则为空；计算器属于探针，不再向用量 API 返回自定义 output_tps", "探针 output_tps 观测字段、历史数据与 migration 233 保持不变；删除用量自定义输出速率无需数据库迁移", "Gemini 健康探针保留官方 Vertex API Key Express 与项目端点；Service Account JSON 在构造 URL 前校验，缺失或无效凭据归为 probe_credentials_missing，非法区域仍归为 probe_request_invalid，配置失败不发送上游请求"]
     },
     {
       "id": "admin-account-runtime-isolation", "title": "账号页面运行态隔离与渲染收敛", "description": "普通账号和上游管理复用页面时隔离列、排序、自动刷新和请求代际，并收敛健康 Tooltip、TTFT ticker、表格测量及图片成本摘要渲染。", "ownership": "fork", "risk_level": "high",
@@ -1061,7 +1091,7 @@
     {
       "id": "migration-profile-contract",
       "title": "Migration、profile、版本与历史证据",
-      "description": "维护 fork migration、官方重编号、历史 profile 233–265、pending profile 266、版本递增、checksum 和 compatibility identity。",
+      "description": "维护 fork migration、官方重编号、历史 profile 233–266、pending profile 267、版本递增、checksum 和 compatibility identity。",
       "ownership": "fork",
       "risk_level": "critical",
       "paths": [
@@ -1098,11 +1128,17 @@
         "0.2.11-baiyu",
         "0.2.13-baiyu",
         "0.2.14-baiyu",
-        "0.2.15-baiyu"
+        "0.2.15-baiyu",
+        "0.2.16-baiyu"
       ],
       "api_routes": [],
       "settings_keys": [],
       "migration_files": [
+        "292_group_i18n.sql",
+        "293_gemini_cached_contents.sql",
+        "294_gemini_cached_contents_channel_usage.sql",
+        "295_gemini_cached_contents_mutation_lease.sql",
+
         "291_user_invoice_annotations.sql",
         "290_drop_platform_check_constraints.sql",
         "289_activity_reward_costs.sql",
@@ -1156,6 +1192,8 @@
         "280_plugin_runtime_state.sql"
       ],
       "required_tests": [
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile267_release_contract.py",
+        "backend/migrations/profile_267_migrations_test.go",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile266_release_contract.py",
         "backend/migrations/user_invoice_annotations_migration_test.go",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile265_release_contract.py",
@@ -1208,8 +1246,9 @@
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_production_release.py"
       ],
       "invariants": [
+        "官方0.2.16目标固定4d9ac3e482106d2da3a39fe3e546d8d6801f1cc1；仅把官方242_group_i18n/243_gemini_cached_contents/244_channel_usage/245_mutation_lease原字节重编号292–295，293建表先于294/295；新增pending profile267为0.2.16-baiyu、parent266、new_migrations精确四项，266及更早版本/parent/SQL/checksum不变；未知268拒绝，未增加恢复审阅豁免，本地登记不代表VM或PostgreSQL验证",
         "官方目标固定 3a6fd1c9db07203ca308aaba69e502bc1f35b307；官方新242仅原字节重编号为290，不修改历史SQL/checksum；仅移除用户平台配额和组合路由两个平台白名单CHECK，渠道监控provider约束保留；平台成员资格由domain共享目录在handler/service/repository/ent校验；本地测试与登记不证明VM Gate或生产部署，不新增恢复分类豁免",
-        "历史 profile 263 为 0.2.14-baiyu、parent 262、new_migrations=[]；历史 264 为 0.2.14-baiyu、parent 263、仅追加 289_activity_reward_costs.sql；历史 265 为 0.2.15-baiyu、parent 264、仅追加 290_drop_platform_check_constraints.sql；当前 pending 266 为 0.2.15-baiyu、parent 265、仅追加 291_user_invoice_annotations.sql；历史 profile 262 保持 0.2.13-baiyu、parent 261、仅追加 288_upstream_confidence_distribution.sql，261 的 0.2.13-baiyu、parent 260、286/287 合同与更早 profile/checksum 原样保留；当前 266 执行闭包含 VM/Gate/DR/生产/祖先断言/备份/清理入口，未知 267 拒绝；历史 262 恢复兼容审阅原样保留；263 审阅仅绑定 218772daab271bb32df2ac6f9969ace0c9ccbce0 到 8499d5343c5a4510f88a3b13feb58f242d4cdd13，35项 profile 与3项 VM生命周期分别精确限定路径/blob/mode；vm_lifecycle.py本身纳入敏感分类，新增文件绑定旧状态不存在；仍执行specialized真实隔离恢复，未匹配变更阻断，不增加目录豁免",
+        "历史 profile 263 为 0.2.14-baiyu、parent 262、new_migrations=[]；历史 264 为 0.2.14-baiyu、parent 263、仅追加 289_activity_reward_costs.sql；历史 265 为 0.2.15-baiyu、parent 264、仅追加 290_drop_platform_check_constraints.sql；历史保留 266 为 0.2.15-baiyu、parent 265、仅追加 291_user_invoice_annotations.sql；历史 profile 262 保持 0.2.13-baiyu、parent 261、仅追加 288_upstream_confidence_distribution.sql，261 的 0.2.13-baiyu、parent 260、286/287 合同与更早 profile/checksum 原样保留；当前 267 执行闭包含 VM/Gate/DR/生产/祖先断言/备份/清理入口，未知 268 拒绝；历史 262 恢复兼容审阅原样保留；263 审阅仅绑定 218772daab271bb32df2ac6f9969ace0c9ccbce0 到 8499d5343c5a4510f88a3b13feb58f242d4cdd13，35项 profile 与3项 VM生命周期分别精确限定路径/blob/mode；vm_lifecycle.py本身纳入敏感分类，新增文件绑定旧状态不存在；仍执行specialized真实隔离恢复，未匹配变更阻断，不增加目录豁免",
         "profile 260 已 signed 且 2026-10-01 生产 verified，保持 0.2.11-baiyu、parent 259、new_migrations=[285_upstream_null_rate_lifecycle.sql] 及全部历史签名/checksum 不变；保留 profile 261 为 0.2.13-baiyu、parent 260，仅追加 286_add_payment_order_bonus_amount.sql 和 287_add_typesafe_platform.sql；官方目标固定 b8dece9000c68815a5b867ca5a1e6f236e173905；新官方两项 241 仅重编号，SQL 原字节不变，旧 local241 保留；新增登记不代表新 VM Gate 或生产发布",
         "285 替换 validate_account_upstream_key_binding 并将 source 纳入绑定 trigger 的更新列：actual 缺失时仅允许 existing same-binding 且身份与价格不变的暂停或归档；新增、恢复、启用、重绑定和身份或价格变更仍严格要求 actual，known-rate 恢复仍校验 active/platform；不得修改历史 241、279、284 SQL 或 checksum，不增加 checksum compatibility 放行",
         "历史 profile 233–254 不回写；profile 254 对应 0.2.7-baiyu，parent 为 253，new_migrations 精确为 [278_fork_group_ttft_guard_policies.sql, 279_proxy_ip_groups.sql, 280_plugin_runtime_state.sql]，三项原始文件 SHA-256 必须与 migration_contracts 登记一致",
