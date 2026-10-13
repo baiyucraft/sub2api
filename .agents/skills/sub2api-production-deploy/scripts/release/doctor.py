@@ -112,16 +112,29 @@ class ReleaseDoctor:
 set -Eeuo pipefail
 for command in docker git jq df openssl sha256sum stat cmp flock; do command -v "$command" >/dev/null; done
 unit_lock=/usr/local/libexec/.sub2api-release-unit.lock
-test -f "$unit_lock" && test ! -L "$unit_lock" && test "$(stat -c '%U:%G:%a:%h' "$unit_lock")" = root:root:600:1
+test -f "$unit_lock"
+test ! -L "$unit_lock"
+test "$(stat -c '%U:%G:%a:%h' "$unit_lock")" = root:root:600:1
 exec 8<>"$unit_lock"
 test "$(stat -Lc '%U:%G:%a:%h' /proc/self/fd/8)" = root:root:600:1
 flock -s 8
-test -d {profile['vm_source']} && test -d {profile['vm_deploy']} && test -d {profile['vm_data']}
-test ! -L {profile['vm_source']} && test ! -L {profile['vm_deploy']} && test ! -L {profile['vm_data']}
+test -d {profile['vm_source']}
+test -d {profile['vm_deploy']}
+test -d {profile['vm_data']}
+test ! -L {profile['vm_source']}
+test ! -L {profile['vm_deploy']}
+test ! -L {profile['vm_data']}
 test "$(stat -c '%U:%G:%a' /opt/sub2api-release-signer/vm-gate-ed25519.pem)" = root:root:600
 test "$(stat -c '%U:%G:%a' /opt/sub2api-release-signer/vm-gate-ed25519.pub)" = root:root:644
-for asset in /usr/local/libexec/sub2api-vm-validate /usr/local/libexec/sub2api-sign-gate /usr/local/libexec/sub2api-sign-dr-evidence; do test -f "$asset" && test ! -L "$asset" && test "$(stat -c '%U:%G:%a' "$asset")" = root:root:700; done
-for asset in /opt/sub2api-release-signer/vm-gate-ed25519.pem /opt/sub2api-release-signer/vm-gate-ed25519.pub; do test -f "$asset" && test ! -L "$asset"; done
+for asset in /usr/local/libexec/sub2api-vm-validate /usr/local/libexec/sub2api-sign-gate /usr/local/libexec/sub2api-sign-dr-evidence; do
+  test -f "$asset"
+  test ! -L "$asset"
+  test "$(stat -c '%U:%G:%a' "$asset")" = root:root:700
+done
+for asset in /opt/sub2api-release-signer/vm-gate-ed25519.pem /opt/sub2api-release-signer/vm-gate-ed25519.pub; do
+  test -f "$asset"
+  test ! -L "$asset"
+done
 test "$(sha256sum /opt/sub2api-release-signer/vm-gate-ed25519.pub | awk '{{print $1}}')" = {trust_sha}
 test "$(sha256sum /usr/local/libexec/sub2api-vm-validate | awk '{{print $1}}')" = {validator_sha}
 test "$(sha256sum /usr/local/libexec/sub2api-sign-gate | awk '{{print $1}}')" = {gate_signer_sha}

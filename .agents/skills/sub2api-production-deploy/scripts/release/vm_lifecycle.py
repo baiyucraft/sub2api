@@ -82,7 +82,7 @@ def _shared_dir(settings: VMSettings) -> Path:
     return root / "sub2api-release" / "vm-lifecycle" / settings.identity
 
 
-def _read_state(path: Path) -> dict:
+def _read_state(path: Path, *, finalization: bool = False) -> dict:
     if path.is_symlink() or path.parent.is_symlink():
         raise VMLifecycleError("vm_lifecycle_state_unsafe")
     if not path.exists():
@@ -91,7 +91,11 @@ def _read_state(path: Path) -> dict:
         if not path.is_file() or path.stat().st_size > 16384:
             raise ValueError
         value = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(value, dict) or value.get("schema") != 1:
+        if not isinstance(value, dict):
+            raise ValueError
+        if finalization:
+            finalization_mode(value)
+        elif type(value.get("schema")) is not int or value["schema"] != 1:
             raise ValueError
         return value
     except (OSError, ValueError) as error:
@@ -279,7 +283,8 @@ printf 'vm_app_health=%s\\n' "$health"
 test "$(id -u)" = 0
 test "$(cat /proc/sys/kernel/random/boot_id)" = BOOT_ID
 lock=/usr/local/libexec/.sub2api-release-unit.lock
-test -f "$lock" && test ! -L "$lock"
+test -f "$lock"
+test ! -L "$lock"
 test "$(stat -c '%U:%G:%a:%h' "$lock")" = root:root:600:1
 exec 8<>"$lock"
 flock -xn 8
@@ -334,6 +339,73 @@ _FINALIZATION_IDENTITY = (
     "schema", "vm_identity", "release_id", "source_commit", "pid", "process_token",
     "lease_token", "initially_running", "vm_started_by_release", "vm_boot_id",
 )
+FINALIZATION_SHUTDOWN = "shutdown-owned"
+FINALIZATION_PRESERVE = "preserve-running"
+
+
+def finalization_mode(document: dict) -> str:
+    """Legacy records only authorize owned shutdown; schema 2 is explicit preserve."""
+    if type(document.get("schema")) is int:
+        if document["schema"] == 1 and "mode" not in document:
+            return FINALIZATION_SHUTDOWN
+        if document["schema"] == 2 and document.get("mode") == FINALIZATION_PRESERVE:
+            return FINALIZATION_PRESERVE
+    raise VMLifecycleError("vm_finalization_mode_unproven")
+
+
+def _preserve_running_probe(probe: VMLease, boot_id: str) -> None:
+    """Prove the same live boot and idle VM under both remote locks, read-only."""
+    if not re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", boot_id):
+        raise VMLifecycleError("vm_finalization_boot_changed")
+    if not probe._running():
+        raise VMLifecycleError("vm_finalization_running_unproven")
+    if probe.ssh is None:
+        probe.ssh = SSHRunner()
+    script = '''set -Eeuo pipefail
+test "$(id -u)" = 0
+test "$(cat /proc/sys/kernel/random/boot_id)" = BOOT_ID
+lock=/usr/local/libexec/.sub2api-release-unit.lock
+test -f "$lock"
+test ! -L "$lock"
+test "$(stat -c '%U:%G:%a:%h' "$lock")" = root:root:600:1
+exec 8<>"$lock"
+test "$(stat -Lc '%U:%G:%a:%h' /proc/self/fd/8)" = root:root:600:1
+flock -xn 8
+gate_root=/opt/sub2api-deploy/release-gates
+test -d "$gate_root"
+test ! -L "$gate_root"
+test "$(stat -c '%U:%G:%a' "$gate_root")" = root:root:700
+gate_lock="$gate_root/release.lock"
+test -f "$gate_lock"
+test ! -L "$gate_lock"
+case "$(stat -c '%U:%G:%a:%h' "$gate_lock")" in root:root:600:1|root:root:644:1) ;; *) exit 1 ;; esac
+exec 9<>"$gate_lock"
+case "$(stat -Lc '%U:%G:%a:%h' /proc/self/fd/9)" in root:root:600:1|root:root:644:1) ;; *) exit 1 ;; esac
+flock -xn 9
+processes=$(ps -eo args=)
+process_count=$(awk '/vm-space-clean.sh|sub2api-vm-validate|run-validator.sh|docker (build|buildx)|buildctl/ && ! /awk/ {n++} END {print n+0}' <<<"$processes")
+test "$process_count" = 0
+names=$(docker ps -a --format '{{.Names}}')
+while IFS= read -r name; do
+  case "$name" in sub2api-v2-*|sub2api-probe-*|sub2api-preview-*) exit 1 ;; esac
+done <<<"$names"
+networks=$(docker network ls --format '{{.Name}}')
+network_count=$(awk '/^sub2api-(v2-|probe-|preview-)/ {n++} END {print n+0}' <<<"$networks")
+test "$network_count" = 0
+test "$(docker inspect -f '{{.State.Running}}' sub2api-dev)" = true
+test "$(docker inspect -f '{{.State.Health.Status}}' sub2api-dev)" = healthy
+test "$(curl -sS --max-time 10 -o /dev/null -w '%{http_code}' http://127.0.0.1:8211/health)" = 200
+test "$(cat /proc/sys/kernel/random/boot_id)" = BOOT_ID
+printf 'vm_preserve_verified=true\\n'
+'''.replace("BOOT_ID", boot_id)
+    try:
+        values = probe.ssh.run("local_vm", script, {"vm_preserve_verified"}, timeout=60).values
+        if values != {"vm_preserve_verified": "true"}:
+            raise VMLifecycleError("vm_finalization_preserve_preflight_failed")
+    except (OSError, EOFError, RuntimeError, paramiko.SSHException):
+        raise VMLifecycleError("vm_finalization_preserve_preflight_failed") from None
+    if not probe._running():
+        raise VMLifecycleError("vm_finalization_running_unproven")
 
 
 def _file_sha256(path: Path) -> str:
@@ -342,29 +414,35 @@ def _file_sha256(path: Path) -> str:
 
 
 def _finalization_owner(original: dict, record: dict) -> dict:
+    preserve = finalization_mode(record) == FINALIZATION_PRESERVE
     return {
-        **original, "lease_status": "released", "vm_power_status": "stopped",
-        "vm_cleanup_status": "verified", "updated_at": record["finished_at"],
+        **original, "lease_status": "released", "vm_power_status": "running" if preserve else "stopped",
+        "vm_cleanup_status": "preserved" if preserve else "verified", "updated_at": record["finished_at"],
         "finalization_sha256": hashlib.sha256(canonical_json(record) + b"\n").hexdigest(),
     }
 
 
 def _validate_finalization_record(run_dir: Path, settings: VMSettings, release_id: str, commit: str) -> tuple[dict, dict]:
-    record = _read_state(run_dir / "vm-finalization.json")
+    record = _read_state(run_dir / "vm-finalization.json", finalization=True)
     original = _read_state(run_dir / "vm-finalization-owner.json")
     lifecycle = _read_state(run_dir / "vm-lifecycle.json")
     runner = _read_state(run_dir / "runner.json")
+    preserve = finalization_mode(record) == FINALIZATION_PRESERVE
     if (
         not record or not original or record.get("release_id") != release_id
         or record.get("source_commit") != commit or record.get("vm_identity") != settings.identity
-        or record.get("status") != "verified" or record.get("vm_power_status") != "stopped"
-        or record.get("vm_cleanup_status") != "verified" or record.get("vm_started_by_release") is not True
-        or record.get("shutdown_requested") is not True or record.get("boot_verified") is not True
+        or record.get("status") != "verified" or record.get("vm_power_status") != ("running" if preserve else "stopped")
+        or record.get("vm_cleanup_status") != ("preserved" if preserve else "verified")
+        or record.get("vm_started_by_release") is not (not preserve)
+        or record.get("shutdown_requested") is not (not preserve) or record.get("boot_verified") is not True
         or type(record.get("finished_at")) is not int
         or not re.fullmatch(r"[0-9a-f]{64}", str(record.get("evidence_sha256", "")))
         or original.get("lease_status") != "retained"
         or lifecycle.get("lease_status") != "retained"
-        or original.get("initially_running") is not False or original.get("vm_started_by_release") is not True
+        or original.get("initially_running") is not preserve or original.get("vm_started_by_release") is not (not preserve)
+        or (preserve and (type(lifecycle.get("schema")) is not int or lifecycle["schema"] != 1
+                          or original.get("vm_cleanup_status") != "retained_failure" or original.get("vm_power_status") != "running"))
+        or (preserve and original != lifecycle)
         or any(original.get(key) != lifecycle.get(key) for key in _FINALIZATION_IDENTITY)
         or original.get("release_id") != release_id or original.get("source_commit") != commit
         or original.get("vm_identity") != settings.identity or record.get("vm_boot_id") != original.get("vm_boot_id")
@@ -391,7 +469,13 @@ def verify_retained_finalization(run_dir: Path, release_id: str, commit: str, *,
     if shared.is_symlink() or _read_state(shared / "owner.json") != _finalization_owner(original, record):
         raise VMLifecycleError("vm_finalization_owner_unproven")
     probe = VMLease(run_dir, release_id)
-    if probe.settings != settings or probe._running():
+    if probe.settings != settings:
+        raise VMLifecycleError("vm_finalization_config_required")
+    if finalization_mode(record) == FINALIZATION_PRESERVE:
+        _preserve_running_probe(probe, record["vm_boot_id"])
+        if _read_state(shared / "owner.json") != _finalization_owner(original, record):
+            raise VMLifecycleError("vm_finalization_owner_unproven")
+    elif probe._running():
         raise VMLifecycleError("vm_finalization_stopped_unproven")
     return record
 
@@ -404,7 +488,7 @@ class RetainedVMFinalization(VMLease):
     Original runner/lifecycle documents remain immutable throughout this API.
     """
 
-    def __init__(self, run_dir: Path, release_id: str, commit: str, runner: dict, *, process_identity: Callable[[int], str | None], ssh=None):
+    def __init__(self, run_dir: Path, release_id: str, commit: str, runner: dict, *, process_identity: Callable[[int], str | None], ssh=None, preserve_running_vm: bool = False):
         super().__init__(run_dir, release_id, ssh, commit=commit)
         self.commit = commit
         self.runner = runner
@@ -413,6 +497,10 @@ class RetainedVMFinalization(VMLease):
         self.original_lifecycle: dict = {}
         self.record: dict = {}
         self.original_bytes: dict[Path, bytes] = {}
+        if type(preserve_running_vm) is not bool:
+            raise VMLifecycleError("vm_finalization_mode_unproven")
+        self.preserve_running_vm = preserve_running_vm
+        self.mode = FINALIZATION_PRESERVE if preserve_running_vm else FINALIZATION_SHUTDOWN
 
     def ensure_ready(self) -> None:
         raise VMLifecycleError("vm_finalization_start_forbidden")
@@ -457,13 +545,17 @@ class RetainedVMFinalization(VMLease):
                 or type(current_runner.get("exit_code")) is not int or current_runner["exit_code"] == 0
             ):
                 raise VMLifecycleError("vm_finalization_worker_unproven")
-            existing = _read_state(self.run_dir / "vm-finalization.json")
+            existing = _read_state(self.run_dir / "vm-finalization.json", finalization=True)
+            if existing and finalization_mode(existing) != self.mode:
+                raise VMLifecycleError("vm_finalization_mode_mismatch")
             if existing.get("status") == "verified":
                 self.record, self.original_owner = _validate_finalization_record(self.run_dir, self.settings, self.release_id, self.commit)
                 owner = _read_state(self.shared / "owner.json")
                 if owner not in (self.original_owner, _finalization_owner(self.original_owner, self.record)):
                     raise VMLifecycleError("vm_finalization_owner_changed")
-                if self._running():
+                if self.preserve_running_vm:
+                    _preserve_running_probe(self, self.record["vm_boot_id"])
+                elif self._running():
                     raise VMLifecycleError("vm_finalization_stopped_unproven")
                 self.completed = owner == _finalization_owner(self.original_owner, self.record)
                 return self
@@ -478,7 +570,10 @@ class RetainedVMFinalization(VMLease):
                 or lifecycle.get("release_id") != self.release_id or lifecycle.get("source_commit") != self.commit
                 or lifecycle.get("vm_identity") != self.settings.identity
                 or lifecycle.get("pid") != current_runner["pid"] or lifecycle.get("process_token") != current_runner["process_token"]
-                or lifecycle.get("initially_running") is not False or lifecycle.get("vm_started_by_release") is not True
+                or lifecycle.get("initially_running") is not self.preserve_running_vm
+                or lifecycle.get("vm_started_by_release") is not (not self.preserve_running_vm)
+                or (self.preserve_running_vm and (type(lifecycle.get("schema")) is not int or lifecycle["schema"] != 1
+                                                  or lifecycle.get("vm_cleanup_status") != "retained_failure" or lifecycle.get("vm_power_status") != "running"))
                 or not isinstance(lifecycle.get("lease_token"), str) or not lifecycle["lease_token"]
                 or not re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", str(lifecycle.get("vm_boot_id", "")))
             ):
@@ -505,15 +600,17 @@ printf 'vm_boot_id=%s\\n' "$(cat /proc/sys/kernel/random/boot_id)"
                 atomic_write(snapshot, owner_bytes)
             self.original_bytes[snapshot] = owner_bytes
             self.record = {
-                "schema": 1, "release_id": self.release_id, "source_commit": self.commit,
+                "schema": 2 if self.preserve_running_vm else 1, "release_id": self.release_id, "source_commit": self.commit,
                 "vm_identity": self.settings.identity, "vm_boot_id": lifecycle["vm_boot_id"],
                 "original_owner_sha256": hashlib.sha256(owner_bytes).hexdigest(),
                 "original_lifecycle_sha256": _file_sha256(self.run_dir / "vm-lifecycle.json"),
                 "original_runner_sha256": _file_sha256(self.run_dir / "runner.json"),
-                "vm_started_by_release": True, "vm_power_status": "running",
+                "vm_started_by_release": not self.preserve_running_vm, "vm_power_status": "running",
                 "vm_cleanup_status": "pending", "status": "ready", "shutdown_requested": False,
                 "boot_verified": True,
             }
+            if self.preserve_running_vm:
+                self.record["mode"] = FINALIZATION_PRESERVE
             self._assert_unchanged()
             return self
         except BaseException:
@@ -525,7 +622,7 @@ printf 'vm_boot_id=%s\\n' "$(cat /proc/sys/kernel/random/boot_id)"
         self.record.update(changes)
         atomic_write(self.run_dir / "vm-finalization.json", canonical_json(self.record) + b"\n")
 
-    def complete(self, *, evidence_sha256: str) -> dict:
+    def complete(self, *, evidence_sha256: str, before_owner_commit: Callable[[], None] | None = None) -> dict:
         if self.lock is None or self.settings is None:
             raise VMLifecycleError("vm_finalization_lock_required")
         if not re.fullmatch(r"[0-9a-f]{64}", str(evidence_sha256)):
@@ -534,18 +631,50 @@ printf 'vm_boot_id=%s\\n' "$(cat /proc/sys/kernel/random/boot_id)"
             if self.record.get("evidence_sha256") != evidence_sha256:
                 raise VMLifecycleError("vm_finalization_evidence_mismatch")
             self._assert_original_worker_dead()
-            if self._running():
+            if self.preserve_running_vm:
+                _preserve_running_probe(self, self.record["vm_boot_id"])
+            elif self._running():
                 raise VMLifecycleError("vm_finalization_stopped_unproven")
             _validate_finalization_record(self.run_dir, self.settings, self.release_id, self.commit)
             owner = _read_state(self.shared / "owner.json")
             if owner not in (self.original_owner, _finalization_owner(self.original_owner, self.record)):
                 raise VMLifecycleError("vm_finalization_owner_changed")
+            if self.preserve_running_vm and before_owner_commit is not None:
+                before_owner_commit()
+            if self.preserve_running_vm:
+                if _validate_finalization_record(self.run_dir, self.settings, self.release_id, self.commit) != (self.record, self.original_owner):
+                    raise VMLifecycleError("vm_finalization_record_unproven")
+                if _read_state(self.shared / "owner.json") != owner:
+                    raise VMLifecycleError("vm_finalization_owner_changed")
             atomic_write(self.shared / "owner.json", canonical_json(_finalization_owner(self.original_owner, self.record)) + b"\n")
             self.completed = True
             return self.record
         self._assert_unchanged()
         if not self._running():
             raise VMLifecycleError("vm_finalization_running_unproven")
+        if self.preserve_running_vm:
+            self._save_record(status="finalizing", evidence_sha256=evidence_sha256, shutdown_requested=False,
+                              vm_power_status="running", vm_cleanup_status="running")
+            try:
+                _preserve_running_probe(self, self.record["vm_boot_id"])
+                self._assert_unchanged()
+                if before_owner_commit is not None:
+                    before_owner_commit()
+                self._assert_unchanged()
+                self._save_record(status="verified", vm_power_status="running", vm_cleanup_status="preserved", finished_at=int(time.time()))
+                self._assert_unchanged()
+                if before_owner_commit is not None:
+                    before_owner_commit()
+                self._assert_unchanged()
+                if _validate_finalization_record(self.run_dir, self.settings, self.release_id, self.commit) != (self.record, self.original_owner):
+                    raise VMLifecycleError("vm_finalization_record_unproven")
+                atomic_write(self.shared / "owner.json", canonical_json(_finalization_owner(self.original_owner, self.record)) + b"\n")
+                self.completed = True
+                return self.record
+            except BaseException:
+                if self.record.get("status") != "verified":
+                    self._save_record(status="failed", vm_power_status="unknown", vm_cleanup_status="failed")
+                raise
         self._save_record(status="finalizing", evidence_sha256=evidence_sha256, shutdown_requested=True,
                           vm_power_status="stopping", vm_cleanup_status="running")
         try:

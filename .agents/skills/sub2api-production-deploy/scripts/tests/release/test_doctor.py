@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import sys
 import unittest
+import os
+import shutil
+import tempfile
 from pathlib import Path
 from unittest import mock
 
@@ -11,9 +14,97 @@ sys.path.insert(0, str(DEPLOY_ROOT))
 
 from release.doctor import ReleaseDoctor, import_trusted_host_keys
 from release.production_bootstrap import bootstrap_production
+from release.process import run_hidden
 
 
 class DoctorTest(unittest.TestCase):
+    def vm_script(self):
+        runner = mock.Mock()
+        runner.run.return_value.values = {"vm_ready": "true", "vm_free_bytes": str(20 * 1024 ** 3), "vm_database_bytes": "0", "vm_release_unit_status": "verified"}
+        ReleaseDoctor("268", runner=runner).check_vm()
+        return runner.run.call_args.args[1]
+
+    def bash(self):
+        candidate = Path("C:/Program Files/Git/bin/bash.exe")
+        value = str(candidate) if candidate.is_file() else shutil.which("bash")
+        if not value:
+            self.skipTest("Bash is required for the inert VM doctor preflight fixture")
+        return value
+
+    def test_vm_unit_lock_missing_symlink_or_permissions_fail_before_open(self):
+        self.check_vm_unit_lock_fixtures(("missing", "bad-mode", "healthy"))
+
+    def test_vm_unit_lock_real_symlink_is_rejected_before_touching_target(self):
+        self.check_vm_unit_lock_fixtures(("symlink",))
+
+    def check_vm_unit_lock_fixtures(self, kinds):
+        lines = self.vm_script().splitlines()
+        start = lines.index('unit_lock=/usr/local/libexec/.sub2api-release-unit.lock')
+        end = lines.index('flock -s 8')
+        self.assertEqual(lines[start + 1:start + 3], ['test -f "$unit_lock"', 'test ! -L "$unit_lock"'])
+        checks = "\n".join(lines[start + 1:end + 1])
+        for kind in kinds:
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory(prefix="doctor-lock-fixture-") as directory:
+                root = Path(directory)
+                lock = root / "unit.lock"
+                target = root / "untouched-target"
+                target.write_bytes(b"sentinel")
+                marker = root / "stat-reached"
+                if kind in ("bad-mode", "healthy"):
+                    lock.touch()
+                environment = {**os.environ, "LOCK_PATH": lock.as_posix(), "TARGET_PATH": target.as_posix(),
+                               "STAT_MARKER": marker.as_posix(), "MODE": "root:root:644:1" if kind == "bad-mode" else "root:root:600:1"}
+                environment.pop("BASH_ENV", None)
+                environment.pop("ENV", None)
+                prepare = 'ln -s "$TARGET_PATH" "$LOCK_PATH"\ntest -L "$LOCK_PATH"\nprintf "SYMLINK_READY\\n"\n' if kind == "symlink" else ""
+                stubs = ('stat() { printf x >> "$STAT_MARKER"; printf "%s\\n" "$MODE"; }\n'
+                         'flock() { test "$*" = "-s 8"; }\n')
+                script = ('set -Eeuo pipefail\n' + prepare + stubs + 'unit_lock="$LOCK_PATH"\n' + checks
+                          + "\nprintf 'LOCK_CHECK_PASSED\\n'\n")
+                result = run_hidden([self.bash(), "--noprofile", "--norc", "-s"], input=script, env=environment,
+                                    text=True, capture_output=True, timeout=10)
+                if kind == "symlink" and "SYMLINK_READY" not in result.stdout:
+                    self.skipTest("Host Bash cannot prepare a real symlink; this guard scenario was not verified")
+                self.assertEqual(target.read_bytes(), b"sentinel")
+                if kind == "healthy":
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn("LOCK_CHECK_PASSED", result.stdout)
+                else:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertNotIn("LOCK_CHECK_PASSED", result.stdout)
+                    if kind in ("missing", "symlink"):
+                        self.assertFalse(marker.exists())
+                    if kind == "symlink":
+                        self.assertIn("SYMLINK_READY", result.stdout, result.stderr)
+                    if kind == "missing":
+                        self.assertFalse(lock.exists())
+
+    def test_vm_directory_and_asset_assertions_stop_before_later_checks(self):
+        script = self.vm_script()
+        # Select actual VM directory assertions independently of profile paths.
+        lines = script.splitlines()
+        start = lines.index('flock -s 8') + 1
+        directory_lines = lines[start:start + 6]
+        self.assertEqual(len(directory_lines), 6)
+        self.assertTrue(all('&&' not in line for line in directory_lines))
+        for position, line in enumerate(directory_lines):
+            with self.subTest(directory_assertion=position):
+                code = 'set -Eeuo pipefail\n' + line
+                if line.startswith("test ! -L"):
+                    code = 'set -Eeuo pipefail\ntest() { if [[ $1 == "!" && $2 == -L ]]; then return 1; fi; command test "$@"; }\n' + line
+                environment = dict(os.environ, MISSING_PATH="/nonexistent-doctor-fixture-path")
+                environment.pop("BASH_ENV", None)
+                environment.pop("ENV", None)
+                # Missing checks are executed against their exact asserted path.
+                if line.startswith("test -d"):
+                    code = 'set -Eeuo pipefail\n' + 'test -d "$MISSING_PATH"'
+                result = run_hidden([self.bash(), "-s"], input=code + "\nprintf 'LATER_CHECK_REACHED\\n'\n",
+                                    env=environment, text=True, capture_output=True, timeout=10)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn("LATER_CHECK_REACHED", result.stdout)
+        self.assertIn('  test -f "$asset"\n  test ! -L "$asset"\n  test "$(stat', script)
+        self.assertIn('  test -f "$asset"\n  test ! -L "$asset"\ndone', script)
+
     def test_dmit_check_requires_release_proxy_and_disables_legacy_proxy(self) -> None:
         runner = mock.Mock()
         runner.run.return_value.values = {

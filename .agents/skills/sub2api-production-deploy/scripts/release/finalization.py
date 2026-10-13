@@ -27,7 +27,7 @@ from .production_snapshot import decode_snapshot
 from .profiles import get_profile
 from .ssh import SSHRunner
 from .state import RunLock
-from .vm_lifecycle import RetainedVMFinalization, verify_retained_finalization
+from .vm_lifecycle import FINALIZATION_PRESERVE, FINALIZATION_SHUTDOWN, RetainedVMFinalization, finalization_mode, verify_retained_finalization
 
 
 ORIGINAL_FILES = (
@@ -420,9 +420,12 @@ printf 'vm_tasks_cleanup=verified\\n'
 
 
 def _validate_checks(run_dir: Path, checks: dict[str, Any], manifest: dict[str, Any], helper: dict[str, Any], originals: dict[str, str]) -> None:
+    preserve = finalization_mode(checks) == FINALIZATION_PRESERVE
+    fields = {"schema", "scope", "release_id", "profile", "application_commit", "helper", "original_sha256", "production", "doctor", "vm_tasks_cleanup", "checked_at"}
+    if preserve:
+        fields.add("mode")
     if (
-        set(checks) != {"schema", "scope", "release_id", "profile", "application_commit", "helper", "original_sha256", "production", "doctor", "vm_tasks_cleanup", "checked_at"}
-        or checks.get("schema") != 1 or checks.get("scope") != "consumed-release-finalization"
+        set(checks) != fields or checks.get("scope") != "consumed-release-finalization"
         or checks.get("release_id") != manifest["release_id"] or checks.get("profile") != manifest["profile"]
         or checks.get("application_commit") != manifest["commit_sha"] or checks.get("helper") != helper
         or checks.get("original_sha256") != originals or checks.get("vm_tasks_cleanup") != "verified"
@@ -451,10 +454,15 @@ def finalized_result_view(identifier: str, *, check_live: bool = True) -> dict[s
     helper, originals = _helper_identity(), _original_hashes(run_dir)
     checks = supervisor._read_json(run_dir / "finalization-checks.json", required=True) or {}
     _validate_checks(run_dir, checks, manifest, helper, originals)
+    mode = finalization_mode(checks)
+    if finalization_mode(result) != mode:
+        raise RuntimeError("finalization mode mismatch")
     checks_sha = _hash_file(run_dir / "finalization-checks.json")
+    fields = {"schema", "scope", "release_id", "status", "application_commit", "helper_commit", "original_runner_status", "original_runner_exit", "original_sha256", "checks_sha256", "vm_finalization_sha256", "finalized_at"}
+    if mode == FINALIZATION_PRESERVE:
+        fields.add("mode")
     if (
-        set(result) != {"schema", "scope", "release_id", "status", "application_commit", "helper_commit", "original_runner_status", "original_runner_exit", "original_sha256", "checks_sha256", "vm_finalization_sha256", "finalized_at"}
-        or result.get("schema") != 1 or result.get("scope") != "consumed-release-finalization"
+        set(result) != fields or result.get("scope") != "consumed-release-finalization"
         or result.get("release_id") != identifier or result.get("status") != "verified"
         or result.get("application_commit") != manifest["commit_sha"] or result.get("helper_commit") != helper["commit_sha"]
         or result.get("original_runner_status") != runner["status"] or result.get("original_runner_exit") != runner["exit_code"]
@@ -464,9 +472,11 @@ def finalized_result_view(identifier: str, *, check_live: bool = True) -> dict[s
     ):
         raise RuntimeError("finalization result identity or evidence checksum differs")
     vm = verify_retained_finalization(run_dir, identifier, manifest["commit_sha"], evidence_sha256=checks_sha)
+    if finalization_mode(vm) != mode:
+        raise RuntimeError("finalization VM mode mismatch")
     if check_live:
         ssh = SSHRunner()
-        _doctor_checks(manifest, helper, ssh, include_vm=False)
+        _doctor_checks(manifest, helper, ssh, include_vm=mode == FINALIZATION_PRESERVE)
         _remote_consumed(ssh, manifest, original["candidate_image_id"], originals)
     return {
         **original, "finalization_status": "verified", "application_commit": manifest["commit_sha"],
@@ -477,32 +487,45 @@ def finalized_result_view(identifier: str, *, check_live: bool = True) -> dict[s
 
 def finalize_consumed(args: argparse.Namespace) -> None:
     identifier = args.release_id
+    preserve = getattr(args, "preserve_running_vm", False)
+    if type(preserve) is not bool:
+        raise RuntimeError("finalization mode unproven")
+    mode = FINALIZATION_PRESERVE if preserve else FINALIZATION_SHUTDOWN
+    metadata = {"schema": 2, "mode": FINALIZATION_PRESERVE} if preserve else {"schema": 1}
     run_dir = supervisor._run_dir(identifier)
     with RunLock(supervisor.RUN_ROOT / ".release.lock"):
         if (run_dir / "finalization-result.json").exists():
+            existing_result = supervisor._read_json(run_dir / "finalization-result.json", required=True) or {}
+            if finalization_mode(existing_result) != mode:
+                raise RuntimeError("finalization mode mismatch")
             value = finalized_result_view(identifier)
         else:
             manifest = supervisor._read_json(run_dir / "manifest.json", required=True) or {}
             runner = _failed_worker(run_dir, manifest)
             original = supervisor._verified_evidence_view(identifier, allow_historical_runner=True)
             helper, originals = _helper_identity(), _original_hashes(run_dir)
+            checks_path = run_dir / "finalization-checks.json"
+            existing_checks = supervisor._read_json(checks_path)
+            if existing_checks is not None:
+                if finalization_mode(existing_checks) != mode:
+                    raise RuntimeError("finalization mode mismatch")
+                _validate_checks(run_dir, existing_checks, manifest, helper, originals)
             ssh = SSHRunner()
             # Local commit checks happen before any VM or production operation.
             ReleaseDoctor(manifest["profile"], helper["commit_sha"], runner=ssh).run(("local",))
-            with RetainedVMFinalization(run_dir, identifier, manifest["commit_sha"], runner, process_identity=_process_identity, ssh=ssh) as lease:
+            with RetainedVMFinalization(run_dir, identifier, manifest["commit_sha"], runner, process_identity=_process_identity, ssh=ssh, preserve_running_vm=preserve) as lease:
                 production = _remote_consumed(ssh, manifest, original["candidate_image_id"], originals)
                 vm_already_verified = lease.record.get("status") == "verified"
-                doctor = _doctor_checks(manifest, helper, ssh, include_vm=not vm_already_verified)
+                doctor = _doctor_checks(manifest, helper, ssh, include_vm=preserve or not vm_already_verified)
                 cleanup = {} if vm_already_verified else _cleanup_vm_tasks(ssh, manifest, originals["manifest.json"], boot_id=lease.record["vm_boot_id"])
                 if _original_hashes(run_dir) != originals:
                     raise RuntimeError("original release evidence changed during finalization")
-                checks_path = run_dir / "finalization-checks.json"
                 checks = supervisor._read_json(checks_path)
                 if checks is None:
                     if vm_already_verified:
                         raise RuntimeError("finalization verified VM lacks immutable pre-shutdown checks")
                     checks = {
-                        "schema": 1, "scope": "consumed-release-finalization", "release_id": identifier,
+                        **metadata, "scope": "consumed-release-finalization", "release_id": identifier,
                         "profile": manifest["profile"], "application_commit": manifest["commit_sha"],
                         "helper": helper, "original_sha256": originals, "production": production, "doctor": doctor,
                         **cleanup, "checked_at": int(time.time()),
@@ -511,13 +534,25 @@ def finalize_consumed(args: argparse.Namespace) -> None:
                     supervisor._write_json(checks_path, checks)
                 else:
                     _validate_checks(run_dir, checks, manifest, helper, originals)
+                if finalization_mode(checks) != mode:
+                    raise RuntimeError("finalization mode mismatch")
                 checks_sha = _hash_file(checks_path)
-                lease.complete(evidence_sha256=checks_sha)
+                def before_owner_commit() -> None:
+                    if _original_hashes(run_dir) != originals or _helper_identity() != helper or _hash_file(checks_path) != checks_sha:
+                        raise RuntimeError("finalization evidence or helper changed before owner commit")
+
+                if preserve:
+                    lease.complete(evidence_sha256=checks_sha, before_owner_commit=before_owner_commit)
+                else:
+                    lease.complete(evidence_sha256=checks_sha)
                 # Write independent success only after the strict lease commits
-                # verified poweroff and terminal owner.  Old JSONs remain intact.
-                verify_retained_finalization(run_dir, identifier, manifest["commit_sha"], evidence_sha256=checks_sha)
+                # verified shutdown/preservation and terminal owner. Originals
+                # remain intact; preserve binds all evidence before releasing.
+                vm = verify_retained_finalization(run_dir, identifier, manifest["commit_sha"], evidence_sha256=checks_sha)
+                if finalization_mode(vm) != mode:
+                    raise RuntimeError("finalization VM mode mismatch")
                 result = {
-                    "schema": 1, "scope": "consumed-release-finalization", "release_id": identifier, "status": "verified",
+                    **metadata, "scope": "consumed-release-finalization", "release_id": identifier, "status": "verified",
                     "application_commit": manifest["commit_sha"], "helper_commit": helper["commit_sha"],
                     "original_runner_status": runner["status"], "original_runner_exit": runner["exit_code"],
                     "original_sha256": originals, "checks_sha256": checks_sha,

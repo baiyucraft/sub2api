@@ -8,9 +8,13 @@
 
 入口独占发布全局锁与同 VM 身份锁，独立核对原 PID/进程启动 token 已退出，重新验签原应用 Gate，要求原 production result verified、无 active claim、远端 consumed 且运行镜像等于 signed candidate。全部节点 doctor 必须通过：本地检查绑定当前已提交且推送的 helper 完整 SHA，远端检查绑定原应用完整 SHA。两种提交分别登记，旧 Gate 仅证明原应用。
 
-`finalization-checks.json` 保存白名单后置检查、原事故文件 checksum、当前 helper 完整 SHA/资产 checksum 和 VM 收口的证据绑定；`finalization-result.json` 独立保存完成结果。当前入口仅接受确由本 release 启动的受管 VM，且 retained 所有权精确匹配该 release、应用 commit、VM 身份、原 worker 和同 boot。清理限本 release 的隔离任务，随后 SSH 正常 poweroff 并用 vmrun list 核实停止。原本运行的 VM、未配置生命周期或身份未知均拒绝，保留现场供其他正式审计流程处理。
+`finalization-checks.json` 保存白名单后置检查、原事故文件 checksum、当前 helper 完整 SHA/资产 checksum 和 VM 收口的证据绑定；`finalization-result.json` 独立保存完成结果。默认 `finalize-consumed <release_id>` 保持 schema 1 的关机合同：仅接受原本停止、确由本 release 启动的受管 VM，retained 所有权精确匹配 release、应用 commit、VM 身份、原 worker 和同 boot。清理限本 release 的隔离任务，随后 SSH 正常 poweroff 并用 vmrun list 核实停止。
 
-成功后 `verify-result` 必须同时验证原签名应用证据、独立 finalization 记录与 terminal VM 收口证据，并只读复核当前生产事实；不能仅将原 failed runner 视为成功。再次执行成功收口入口只验真既有结果，不重复清理或关机。原 worker 活跃、owner/boot 漂移、镜像变化、未消费或 doctor 失败均拒绝。
+原本运行的 VM 必须显式使用 `finalize-consumed <release_id> --preserve-running-vm`。该分支的独立 `finalization-checks.json`、`finalization-result.json`、`vm-finalization.json` 均使用 schema 2、`mode=preserve-running`；旧关机分支三份记录保持 schema 1 且无 mode。保留分支只接受原生命周期 `initially_running=true`、`vm_started_by_release=false`、`vm_cleanup_status=retained_failure` 且 `lease_status=retained`。原失败 runner、manifest、signed Gate、production result 和生命周期文件字节不改；独立记录绑定这些原始 SHA256、应用与当前已提交推送 helper 的完整 SHA/资产、原进程、VM 身份和同 boot。
+
+显式保留分支仍持全局发布与跨 checkout VM 身份锁，复核原 worker 已退出、原签名 Gate 及 production result、远端 consumed、无 active claim、运行 image 等于原 signed candidate、双路健康及全节点 doctor。仅清本 release 的隔离任务，保持 VM 运行；完成及验真都通过只读 probe 核对 VM 的双远端锁、同 boot、健康及无在途任务。独立 VM 终值为 status=verified、vm_power_status=running、vm_cleanup_status=preserved、shutdown_requested=false、vm_started_by_release=false；checks 与 VM 完成证据先写入并验真，shared owner 的 released/running/preserved 作为生命周期最后提交标记；随后写 finalization-result 汇总。它不启动、关停 VM，也不部署、迁移、重发应用、重消费 claim 或恢复数据。任何前序失败保留原 owner，不能把 partial 写成 completed。
+
+成功后 `verify-result` 必须同时验证原签名应用证据、独立 finalization 记录与 terminal VM 收口证据，并只读复核当前生产事实；不能仅将原 failed runner 视为成功。再次执行成功收口入口只验真既有结果，不重复清理或关机。schema 2 保留分支的重放及验真仍执行包含 VM 的全节点 doctor；schema 1 默认关机分支保持停止 VM 的原验真合同。未知 schema/mode、跨模式重试、原 worker 活跃、原失败文件/owner/boot 漂移、镜像变化、未消费或 doctor 失败均拒绝。未配置生命周期或身份未知也拒绝。
 
 新增收口 helper 的测试及现场结果不能冒充新应用 Gate，也不自动豁免未来发布中的恢复敏感 blob 分类。
 
