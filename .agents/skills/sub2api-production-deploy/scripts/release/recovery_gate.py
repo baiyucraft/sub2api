@@ -254,6 +254,14 @@ _RECOVERY_RUNTIME_FILES = frozenset(
         "vm-only-validate.sh", "vm-validate.sh", "vm-space-clean.sh", "bootstrap.py", "production_bootstrap.py",
         "production_cleanup.py", "production_recovery_retention.py", "profiles.py",
         "paths.py", "atomic.py", "migration_planner.py",
+        # These collectors, signing domains and baseline publishers can alter
+        # which recovery evidence is accepted or promoted. A future change to
+        # one must obtain a fresh full review, even without a shell edit.
+        "backup_keys.py", "baseline.py", "postrelease_baseline.py", "baseline_candidate_load.py",
+        "full_recovery_authorization.py", "full_recovery_drill_authorization.py",
+        "full_recovery_drill.py", "full_recovery_guest.py", "full_recovery_source.py",
+        "sign-full-recovery-review.sh", "stage-dr-baseline-candidate.sh",
+        "recovery-compose-drill.sh",
     }
 )
 
