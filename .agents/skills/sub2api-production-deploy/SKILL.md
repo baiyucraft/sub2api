@@ -66,6 +66,20 @@ description: 面向 Sub2API fork 的构建、开发门禁、应用与独立插�
 
 本批不改变 PostgreSQL/Redis 协调恢复算法、备份格式或信任根，仍强制 `specialized` 当前 helper 的真实 PostgreSQL/Redis/Compose 隔离恢复、旧 image 兼容及正式签名 Gate。profile 268 保持 `0.2.16-baiyu`、parent 267、仅新增 `296_upstream_cache_guard.sql`；旧 profiles、SQL 与 checksum 不回写；本段的未知 269 拒绝仅描述当时冻结的 268 审阅，不扩展为当前 269 的豁免。最低登记回归为 `scripts/tests/release/test_profile268_recovery_review.py`；文档与 catalog 登记不代表本地回归、VM Gate 或生产部署已完成。
 
+## Profile 269 精确恢复审阅
+
+经用户确认，本批仅绑定实际生产 BASE `c4d857235cecdc3458c21b5eec9411f1fd115674` → 已审应用 TARGET `f14ca8f65e3526370bf24a2fa0bca3ec490448ab` 的净差异；41 条同路径旧/新 Git blob 与模式由 `scripts/release/recovery_gate.py` 的冻结登记精确约束，本地审阅材料另见 `.tmp/account-cache-guard/deployment-sensitive-review.md`。路径均相对 `.agents/skills/sub2api-production-deploy/scripts/`，分为三个互斥冻结集合：
+
+| 路径组 | 范围 | 分类理由 |
+| --- | --- | --- |
+| `_PROFILE269_COMPATIBILITY_PATHS` | 35 条 profile 269 白名单、版本、自测、备份和祖先迁移断言接线；18 条固定路径及 17 条祖先断言见 [分类与构建](references/change-classification-and-build.md) | `reviewed_profile_compatibility_changed` |
+| `_PROFILE269_POSTFLIGHT_PATHS` | `maintenance/release/activity-reward-cost-postflight.sh`、`maintenance/release/switch.sh` 两条 downtime-only 奖励成本 postflight 接线 | `reviewed_reward_cost_postflight_changed` |
+| `_PROFILE269_FINALIZATION_REVIEW_PATHS` | `release/cli.py`、`release/doctor.py`、`release/finalization.py`、`release/vm_lifecycle.py` 四条独立发布收口与 doctor 实现；**不含** `release/supervisor.py` | `reviewed_consumed_finalization_changed` |
+
+第三组包含显式 `--preserve-running-vm` 的后置收口、原证据与同 boot/owner 的锁内验真，以及 doctor 拆分检查，不能归为 profile-only。第二组仍须在停机旧写者退出后执行，失败沿原协调恢复路径。历史 profile 268 登记及其不同的 BASE/TARGET 和 `supervisor.py` 路径保持冻结，不继承到 269。三组必须按相同 BASE/TARGET、同路径 Git blob 和模式逐项匹配；额外敏感路径、删除、改名、模式或任一 blob/BASE 漂移均阻断，显式 `full` 不能绕过未知审阅。
+
+本批净差异未触及 PostgreSQL/Redis 协调恢复算法、恢复快照、备份格式或信任根；仍须以当前 helper 执行 `specialized` 真实 PostgreSQL/Redis/Compose 隔离恢复、旧镜像兼容和正式签名 VM Gate。最低回归登记为 `scripts/tests/release/test_profile269_recovery_review.py`，并覆盖 41 条匹配与负向漂移、preserve-running 生命周期/doctor 和 downtime postflight 失败路径。登记与本地测试不代表 VM Gate 或生产部署已通过；未来目标提交或生产 BASE 变化须重新审阅。
+
 ## 当前链路摘要
 
 ```text

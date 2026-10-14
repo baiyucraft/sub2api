@@ -130,6 +130,22 @@ Profile 265 镜像代理例外的第四批精确审阅绑定 `aeb410bccc524164bd
 
 命中本批仍强制 `specialized` 当前 helper 的真实 PostgreSQL/Redis/Compose 隔离恢复、旧 image 兼容及正式签名 Gate。profile 268 保持 `0.2.16-baiyu`、parent 267、仅 migration `296_upstream_cache_guard.sql`；旧 profiles、SQL/checksum 不回写，未知 269 拒绝。最低登记回归为 `.agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile268_recovery_review.py`；登记不证明回归、VM Gate 或生产部署通过。
 
+### Profile 269 精确恢复审阅
+
+用户确认的实际生产 BASE `c4d857235cecdc3458c21b5eec9411f1fd115674` → 已审 TARGET `f14ca8f65e3526370bf24a2fa0bca3ec490448ab`，净变更的 41 条敏感路径按相对 `.agents/skills/sub2api-production-deploy/scripts/` 的同路径 Git blob/mode 精确冻结；权威登记在 `scripts/release/recovery_gate.py`，本地逐项审阅材料另见 `.tmp/account-cache-guard/deployment-sensitive-review.md`：
+
+| 冻结集合 | 数量与范围 | 分类理由 |
+| --- | --- | --- |
+| `_PROFILE269_COMPATIBILITY_PATHS` | 35 条接线：下述 18 条固定路径和 17 条祖先断言 | `reviewed_profile_compatibility_changed` |
+| `_PROFILE269_POSTFLIGHT_PATHS` | 2 条：`maintenance/release/activity-reward-cost-postflight.sh`、`maintenance/release/switch.sh` | `reviewed_reward_cost_postflight_changed` |
+| `_PROFILE269_FINALIZATION_REVIEW_PATHS` | 4 条：`release/cli.py`、`release/doctor.py`、`release/finalization.py`、`release/vm_lifecycle.py` | `reviewed_consumed_finalization_changed` |
+
+35 条的固定路径为 `maintenance/181/mask-backup-units.sh`、`maintenance/181/restore-backup-units.sh`、`maintenance/release/context.sh`、`maintenance/release/prepare.sh`、`maintenance/release/promote-backup.sh`、`release/bootstrap_backup_dr_assets.sh`、`release/bootstrap_vm_signer.sh`、`release/gate.py`、`release/profiles.py`、`release/production-recovery-retention-clean.sh`、`release/production-space-clean.sh`、`release/production_cleanup.py`、`release/production_recovery_retention.py`、`release/promote-dr-baseline.sh`、`release/sign-dr-evidence.sh`、`release/sign-gate.sh`、`release/vm-only-validate.sh`、`release/vm-validate.sh`。17 条祖先断言仅为 `maintenance/release/migration-{number}-assert.sh`，number 为 195、232–245、254、285。此闭包的净变化接入 profile 269，版本 `0.2.16-baiyu`、parent 268、仅迁移 `297_upstream_cache_guard_account_scope.sql`；历史 268/296 不回写。
+
+postflight 两条只扩展 269 的停机奖励成本钩子条件，仍在旧写者退出后、新写入前执行并保持失败协调恢复；最后四条是独立发布终结及 doctor 语义，不得与 35 条 profile-only 合并。`cli.py` 的显式 preserve 模式、`finalization.py` 的 schema 2/证据绑定、`vm_lifecycle.py` 的同 boot 活体/所有权检查及 `doctor.py` 的谓词拆分须单独执行正负向验证；本批不含 `supervisor.py`。历史 268 审阅的生产 BASE、TARGET、blob/mode 与第三组 `supervisor.py` 保持冻结，不因该批登记而扩张。
+
+新增/删除/改名、额外敏感路径、任一 blob/mode 或 BASE 漂移仍报 `full/recovery_change_requires_review`；`--recovery-gate-mode full` 不解除阻断。本批净差异未触及协调 restore、快照、备份格式或信任根，仍强制 `specialized` 当前 helper 的真实 PostgreSQL/Redis/Compose 隔离恢复、旧镜像兼容及正式签名 Gate。最低登记 `scripts/tests/release/test_profile269_recovery_review.py` 与后置收口、doctor、postflight 故障回归；登记不证明 VM Gate 或生产发布已完成。
+
 ### `ops-readonly-assets`
 
 只有以下条件全部成立才适用：

@@ -185,7 +185,7 @@ class Profile268RecoveryReviewTest(unittest.TestCase):
                 self.assertEqual(getattr(gate, name), baseline[name])
         old_scoped = baseline["_REVIEWED_SCOPED_TRANCHES"]
         self.assertEqual(
-            gate._REVIEWED_SCOPED_TRANCHES,
+            gate._REVIEWED_SCOPED_TRANCHES[:len(old_scoped) + len(REVIEWS)],
             (*old_scoped, *REVIEWS),
         )
 
