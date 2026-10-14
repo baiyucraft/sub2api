@@ -251,6 +251,7 @@ type AccountWithConcurrency struct {
 	SchedulerScores                 []AccountSchedulerGroupScore         `json:"scheduler_scores,omitempty"`
 	TTFTGuardDegradations           []service.OpenAITTFTGuardDegradation `json:"ttft_guard_degradations,omitempty"`
 	UpstreamCacheGuardStates        []service.UpstreamCacheGuardState    `json:"upstream_cache_guard_states,omitempty"`
+	UpstreamCacheGuard              *service.UpstreamCacheGuardSummary   `json:"upstream_cache_guard,omitempty"`
 	UpstreamHealth                  *AccountUpstreamHealth               `json:"upstream_health,omitempty"`
 	AvailableActions                []string                             `json:"available_actions,omitempty"`
 	// 以下字段仅对 Anthropic OAuth/SetupToken 账号有效，且仅在启用相应功能时返回
@@ -285,6 +286,7 @@ type AccountListItemWithConcurrency struct {
 	SchedulerConcurrencyUnlimited   bool                                 `json:"scheduler_concurrency_unlimited,omitempty"`
 	TTFTGuardDegradations           []service.OpenAITTFTGuardDegradation `json:"ttft_guard_degradations,omitempty"`
 	UpstreamCacheGuardStates        []service.UpstreamCacheGuardState    `json:"upstream_cache_guard_states,omitempty"`
+	UpstreamCacheGuard              *service.UpstreamCacheGuardSummary   `json:"upstream_cache_guard,omitempty"`
 	UpstreamHealth                  *AccountUpstreamHealth               `json:"upstream_health,omitempty"`
 	AvailableActions                []string                             `json:"available_actions,omitempty"`
 	CurrentConcurrency              int                                  `json:"current_concurrency"`
@@ -470,7 +472,8 @@ func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, ac
 	}
 	if account.IsUpstreamBound() {
 		item.AvailableActions = upstreamAccountAvailableActions(account)
-		item.UpstreamCacheGuardStates = service.UpstreamCacheGuardAccountStates(account)
+		guard := service.GetUpstreamCacheGuardAccountView(account)
+		item.UpstreamCacheGuard, item.UpstreamCacheGuardStates = guard.Summary, guard.States
 	}
 	if h.ttftGuardReader != nil && account.Platform == service.PlatformOpenAI && account.IsUpstreamBound() {
 		item.TTFTGuardDegradations = h.ttftGuardReader.OpenAITTFTGuardDegradations([]int64{account.ID})[account.ID]
@@ -1103,7 +1106,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 	}
 	upstreamKeyIDs := accountListUpstreamKeyIDs(accounts)
 	upstreamConfidences := h.accountListHealthConfidences(c.Request.Context(), upstreamKeyIDs)
-	upstreamCacheGuardStates := service.UpstreamCacheGuardAccountStatesBatch(accounts)
+	upstreamCacheGuardViews := service.UpstreamCacheGuardAccountViewsBatch(accounts)
 	if scope == service.AccountListScopeUpstream && h.upstreamHealthReader != nil {
 		if len(upstreamKeyIDs) > 0 {
 			upstreamHealthHistories, err = h.upstreamHealthReader.ListUpstreamHealthHistories(c.Request.Context(), upstreamKeyIDs, service.UpstreamHealthListHistoryLimit)
@@ -1206,7 +1209,8 @@ func (h *AccountHandler) List(c *gin.Context) {
 			SchedulerScore:           schedulerScores[acc.ID],
 			SchedulerScores:          schedulerGroupScores[acc.ID],
 			TTFTGuardDegradations:    accountTTFTGuardDegradations,
-			UpstreamCacheGuardStates: upstreamCacheGuardStates[acc.ID],
+			UpstreamCacheGuardStates: upstreamCacheGuardViews[acc.ID].States,
+			UpstreamCacheGuard:       upstreamCacheGuardViews[acc.ID].Summary,
 			ProxyConcurrency:         proxyConcurrency[acc.ID],
 		}
 		target := acc.SchedulingConcurrencyTarget()
@@ -1265,6 +1269,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 				SchedulerConcurrencyUnlimited:   item.SchedulerConcurrencyUnlimited,
 				TTFTGuardDegradations:           item.TTFTGuardDegradations,
 				UpstreamCacheGuardStates:        item.UpstreamCacheGuardStates,
+				UpstreamCacheGuard:              item.UpstreamCacheGuard,
 				UpstreamHealth:                  item.UpstreamHealth,
 				AvailableActions:                item.AvailableActions,
 				CurrentConcurrency:              item.CurrentConcurrency,

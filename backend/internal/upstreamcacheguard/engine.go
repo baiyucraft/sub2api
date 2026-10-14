@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -22,18 +21,20 @@ const MinRecoverySessions = 3
 const RecoveryLifetime = 10 * time.Minute
 
 type Engine struct {
-	store    Store
-	settings atomic.Pointer[Settings]
-	mu       sync.RWMutex
-	groups   map[int64]Snapshot
-	sessions map[string]SessionState
-	loadedAt time.Time
-	now      func() time.Time
-	bornAt   time.Time
+	store       Store
+	settings    atomic.Pointer[Settings]
+	mu          sync.RWMutex
+	groups      map[int64]Snapshot
+	accounts    map[string]AccountSnapshot
+	accountGaps map[string]bool
+	sessions    map[string]SessionState
+	loadedAt    time.Time
+	now         func() time.Time
+	bornAt      time.Time
 }
 
 func NewEngine(store Store) *Engine {
-	e := &Engine{store: store, groups: map[int64]Snapshot{}, sessions: map[string]SessionState{}, now: time.Now, bornAt: time.Now().UTC()}
+	e := &Engine{store: store, groups: map[int64]Snapshot{}, accounts: map[string]AccountSnapshot{}, accountGaps: map[string]bool{}, sessions: map[string]SessionState{}, now: time.Now, bornAt: time.Now().UTC()}
 	s := DefaultSettings()
 	e.settings.Store(&s)
 	return e
@@ -65,7 +66,7 @@ func SessionKey(r Request) string {
 	return digest(fmt.Sprintf("%d:%d:%s", r.GroupID, r.APIKeyID, r.LogicalSessionDigest))
 }
 
-// Quality and recovery are shared by every model/protocol in one group/account.
+// AccountKey is retained only for reading legacy group-local rows.
 func AccountKey(r Request) string { return fmt.Sprintf("%d", r.AccountID) }
 
 // Warmness, unlike account quality, belongs to a concrete cache context.
@@ -75,6 +76,16 @@ func WarmRouteKey(r Request) string {
 func sessionCacheKey(group int64, key string) string { return fmt.Sprintf("%d:%s", group, key) }
 func admissionKey(r Request) string {
 	return digest(fmt.Sprintf("%s:%s:%d", r.ID, AccountKey(r), r.StartedAt.UnixNano()))
+}
+func admissionMatchesKey(a Admission, r Request) bool {
+	if a.Mode == Disabled && !a.Sample {
+		return true // Acknowledge old neutral outcomes without creating evidence.
+	}
+	if a.UpstreamKeyID > 0 {
+		return a.UpstreamKeyID == r.UpstreamKeyID
+	}
+	// Pre-migration admissions already freeze a route digest containing the Key.
+	return a.RouteKey == WarmRouteKey(r)
 }
 func routeWarm(route SessionRoute, at time.Time) bool {
 	return !route.LastSuccessfulAt.IsZero() && !at.Before(route.LastSuccessfulAt) && at.Sub(route.LastSuccessfulAt) <= WarmLifetime
@@ -122,6 +133,9 @@ func (e *Engine) PlanTrial(ctx context.Context, r Request) (TrialPlan, error) {
 	if v.AccountID == 0 {
 		v.AccountID = 1
 	}
+	if v.UpstreamKeyID == 0 {
+		v.UpstreamKeyID = 1
+	}
 	if err := validateRequest(v); err != nil {
 		return p, err
 	}
@@ -148,8 +162,8 @@ func (e *Engine) PlanTrial(ctx context.Context, r Request) (TrialPlan, error) {
 
 func (e *Engine) Admit(ctx context.Context, r Request) (Admission, error) {
 	s := e.Settings()
-	a := Admission{RequestID: r.ID, GroupID: r.GroupID, AccountID: r.AccountID, StartedAt: r.StartedAt.UTC(), Mode: s.Mode}
-	if s.Mode == Disabled || !s.ContainsGroup(r.GroupID) {
+	a := Admission{RequestID: r.ID, GroupID: r.GroupID, AccountID: r.AccountID, UpstreamKeyID: r.UpstreamKeyID, StartedAt: r.StartedAt.UTC(), Mode: s.Mode}
+	if s.Mode == Disabled {
 		return a, nil
 	}
 	if err := validateRequest(r); err != nil {
@@ -160,27 +174,37 @@ func (e *Engine) Admit(ctx context.Context, r Request) (Admission, error) {
 	}
 	a.SessionKey = SessionKey(r)
 	var saved SessionState
-	linkedProtection := snapshotProtectsAccount(e.CachedSnapshot(r.GroupID), r.AccountID, r.UpstreamKeyID)
+	executing := s.ContainsGroup(r.GroupID)
 	// The caller may already have a deadline; this never extends it.
 	ctx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
 	defer cancel()
-	err := e.store.Transact(ctx, r.GroupID, func(tx Tx) error {
+	err := e.transactAccount(ctx, r, func(tx Tx) error {
 		var session SessionState
 		if _, err := tx.Read(SessionKind, a.SessionKey, &session); err != nil {
 			return err
 		}
 		if old, ok := session.Admissions[admissionKey(r)]; ok {
+			if !admissionMatchesKey(old, r) {
+				return errors.New("cache guard admission Key changed")
+			}
 			a = old
 			return nil
 		}
-		plan, err := planInTx(tx, r, &session, s)
+		var plan TrialPlan
+		var err error
+		if executing {
+			plan, err = planInTx(tx, r, &session, s)
+			if err != nil {
+				return err
+			}
+		} else if session.FirstSeenAt.IsZero() {
+			session.Key, session.FirstSeenAt = a.SessionKey, r.StartedAt.UTC()
+		}
+		account, _, err := e.readAccount(tx, r, s, r.StartedAt)
 		if err != nil {
 			return err
 		}
-		var account AccountState
-		if _, err := tx.Read(AccountKind, AccountKey(r), &account); err != nil {
-			return err
-		}
+		account.GroupIDs = appendGroup(account.GroupIDs, r.GroupID)
 		a.NaturalNew = plan.NaturalNew
 		a.Sample = true
 		a.RouteKey = WarmRouteKey(r)
@@ -191,8 +215,8 @@ func (e *Engine) Admit(ctx context.Context, r Request) (Admission, error) {
 			session.Admissions = map[string]Admission{}
 		}
 		a.WarmAtStart = routeWarm(session.Routes[WarmRouteKey(r)], r.StartedAt)
-		a.ProtectedAtStart = (account.Phase != "" && account.Phase != Healthy) || linkedProtection
-		if plan.NaturalNew && session.NaturalAccountID == 0 {
+		a.ProtectedAtStart = executing && account.Phase != "" && account.Phase != Healthy
+		if executing && plan.NaturalNew && session.NaturalAccountID == 0 {
 			session.NaturalAccountID = r.AccountID
 			if plan.TrialSlot && account.Phase != Healthy && account.Phase != "" && !r.StartedAt.Before(account.CooldownUntil) {
 				if account.CohortID == "" {
@@ -214,16 +238,20 @@ func (e *Engine) Admit(ctx context.Context, r Request) (Admission, error) {
 				session.TrialModel = r.Model
 				session.TrialProtocol = r.Protocol
 				session.CohortID = a.CohortID
-				if _, err := tx.Write(AccountKind, AccountKey(r), &account); err != nil {
-					return err
-				}
+
 				if _, err := tx.Write(GroupKind, "quota", &group); err != nil {
 					return err
 				}
 			}
-		} else if session.TrialAccountID == r.AccountID && session.CohortID != "" && session.CohortID == account.CohortID {
+		} else if executing && session.TrialAccountID == r.AccountID && session.CohortID != "" && session.CohortID == account.CohortID {
 			a.Trial = true
 			a.CohortID = session.CohortID
+		}
+		if a.Trial {
+			account.TrialGroupIDs = appendGroup(account.TrialGroupIDs, r.GroupID)
+		}
+		if _, err := tx.(AccountTx).WriteAccount(r.AccountID, r.UpstreamKeyID, &account); err != nil {
+			return err
 		}
 		if r.StartedAt.After(session.LastStartedAt) {
 			session.LastStartedAt = r.StartedAt.UTC()
@@ -262,7 +290,7 @@ func (e *Engine) Complete(ctx context.Context, v Evidence) error {
 	if err := validateRequest(v.Request); err != nil {
 		return err
 	}
-	if v.ID == "" || len(v.ID) > 200 || v.CompletedAt.IsZero() || v.CompletedAt.Before(v.Request.StartedAt) || v.Admission.SessionKey != SessionKey(v.Request) || v.Admission.RequestID != v.Request.ID || v.Admission.AccountID != v.Request.AccountID || v.Admission.GroupID != v.Request.GroupID {
+	if v.ID == "" || len(v.ID) > 200 || v.CompletedAt.IsZero() || v.CompletedAt.Before(v.Request.StartedAt) || v.Admission.SessionKey != SessionKey(v.Request) || v.Admission.RequestID != v.Request.ID || v.Admission.AccountID != v.Request.AccountID || v.Admission.GroupID != v.Request.GroupID || !admissionMatchesKey(v.Admission, v.Request) {
 		return errors.New("cache guard evidence/admission mismatch")
 	}
 	now := e.now().UTC()
@@ -270,11 +298,11 @@ func (e *Engine) Complete(ctx context.Context, v Evidence) error {
 		return errors.New("cache guard completion in future")
 	}
 	// Very late delivery is outside the deduplication/recomputation horizon.
-	applyPolicy := v.Admission.Mode != Disabled && v.Admission.Sample && s.ContainsGroup(v.Request.GroupID) && s.Mode != Disabled && !v.CompletedAt.Before(now.Add(-FactLifetime))
+	applyPolicy := v.Admission.Mode != Disabled && v.Admission.Sample && s.Mode != Disabled && !v.CompletedAt.Before(now.Add(-FactLifetime))
 	v.CompletedAt = v.CompletedAt.UTC()
 	v.RawUsage.CompletedAt = v.CompletedAt
 	v.RawUsage.Success = v.Success
-	return e.store.Transact(ctx, v.Request.GroupID, func(tx Tx) error {
+	return e.transactAccount(ctx, v.Request, func(tx Tx) error {
 		inserted, err := tx.InsertFact(v)
 		if err != nil || !inserted {
 			return err
@@ -302,7 +330,6 @@ func (e *Engine) Complete(ctx context.Context, v Evidence) error {
 			_, err = tx.Write(SessionKind, v.Admission.SessionKey, &session)
 			return err
 		}
-		key := AccountKey(v.Request)
 		routeKey := WarmRouteKey(v.Request)
 		route := session.Routes[routeKey]
 		if v.Success && v.RawUsage.Known() && v.CompletedAt.After(route.LastSuccessfulAt) {
@@ -325,13 +352,11 @@ func (e *Engine) Complete(ctx context.Context, v Evidence) error {
 				session.LastCompletedAt = v.CompletedAt
 			}
 		}
-		var account AccountState
-		if _, err = tx.Read(AccountKind, key, &account); err != nil {
+		account, _, err := e.readAccount(tx, v.Request, s, now)
+		if err != nil {
 			return err
 		}
-		if account.AccountID == 0 {
-			account = AccountState{AccountID: v.Request.AccountID, UpstreamKeyID: v.Request.UpstreamKeyID, Phase: Healthy}
-		}
+		account.GroupIDs = appendGroup(account.GroupIDs, v.Request.GroupID)
 		reference := now
 		if v.CompletedAt.After(reference) {
 			reference = v.CompletedAt
@@ -340,7 +365,7 @@ func (e *Engine) Complete(ctx context.Context, v Evidence) error {
 		if historyWindow < WarmLifetime {
 			historyWindow = WarmLifetime
 		}
-		facts, err := tx.Facts(v.Request.AccountID, reference.Add(-historyWindow))
+		facts, err := tx.(AccountTx).AccountFacts(v.Request.AccountID, v.Request.UpstreamKeyID, reference.Add(-historyWindow))
 		if err != nil {
 			return err
 		}
@@ -348,7 +373,8 @@ func (e *Engine) Complete(ctx context.Context, v Evidence) error {
 			return errors.New("cache guard bounded recomputation exceeded")
 		}
 		fresh := v.ValidSample() && !v.CompletedAt.Before(reference.Add(-time.Duration(s.WindowMinutes)*time.Minute)) &&
-			(account.QualitySince.IsZero() || v.CompletedAt.After(account.QualitySince))
+			(account.QualitySince.IsZero() || v.CompletedAt.After(account.QualitySince)) &&
+			(account.LegacyQualitySince[v.Request.GroupID].IsZero() || v.CompletedAt.After(account.LegacyQualitySince[v.Request.GroupID]))
 		if err = RecomputeAccount(&account, facts, s, reference, fresh); err != nil {
 			return err
 		}
@@ -390,7 +416,7 @@ func (e *Engine) Complete(ctx context.Context, v Evidence) error {
 		}
 		route.PendingLow = route.LowStreak >= 2
 		session.Routes[routeKey] = route
-		if _, err = tx.Write(AccountKind, key, &account); err != nil {
+		if _, err = tx.(AccountTx).WriteAccount(v.Request.AccountID, v.Request.UpstreamKeyID, &account); err != nil {
 			return err
 		}
 		_, err = tx.Write(SessionKind, v.Admission.SessionKey, &session)
@@ -407,7 +433,10 @@ func RecomputeAccount(a *AccountState, facts []Evidence, s Settings, now time.Ti
 	cutoff := now.Add(-time.Duration(s.WindowMinutes) * time.Minute)
 	var newest time.Time
 	for _, f := range facts {
-		if !f.ValidSample() || f.CompletedAt.Before(cutoff) || f.CompletedAt.After(now) || (!a.QualitySince.IsZero() && !f.CompletedAt.After(a.QualitySince)) {
+		if (a.AccountID > 0 && f.Request.AccountID > 0 && a.AccountID != f.Request.AccountID) || (a.UpstreamKeyID > 0 && f.Request.UpstreamKeyID > 0 && a.UpstreamKeyID != f.Request.UpstreamKeyID) || !f.ValidSample() || f.CompletedAt.Before(cutoff) || f.CompletedAt.After(now) || (!a.QualitySince.IsZero() && !f.CompletedAt.After(a.QualitySince)) {
+			continue
+		}
+		if since := a.LegacyQualitySince[f.Request.GroupID]; !since.IsZero() && !f.CompletedAt.After(since) {
 			continue
 		}
 		if f.CompletedAt.After(newest) {
@@ -423,7 +452,7 @@ func RecomputeAccount(a *AccountState, facts []Evidence, s Settings, now time.Ti
 			trialTotal += f.RawUsage.TotalInputTokens
 			trialRead += f.RawUsage.CacheReadTokens
 			trialValid++
-			trialSessions[f.Admission.SessionKey] = struct{}{}
+			trialSessions[sessionCacheKey(f.Request.GroupID, f.Admission.SessionKey)] = struct{}{}
 		}
 	}
 	a.ValidRequests = valid
@@ -458,6 +487,7 @@ func RecomputeAccount(a *AccountState, facts []Evidence, s Settings, now time.Ti
 		a.DegradedAt = now
 		a.CooldownUntil = now.Add(time.Duration(s.CooldownMinutes) * time.Minute)
 		a.CohortID = ""
+		a.TrialGroupIDs = nil
 		a.FirstTrialAt = time.Time{}
 		return nil
 	}
@@ -468,6 +498,7 @@ func RecomputeAccount(a *AccountState, facts []Evidence, s Settings, now time.Ti
 	if a.TrialCachePercent >= s.RecoveryThresholdPercent {
 		a.Phase = Healthy
 		a.CohortID = ""
+		a.TrialGroupIDs = nil
 		a.FirstTrialAt = time.Time{}
 		a.CooldownUntil = time.Time{}
 		a.QualitySince = now
@@ -481,98 +512,14 @@ func RecomputeAccount(a *AccountState, facts []Evidence, s Settings, now time.Ti
 		a.Phase = Cooling
 		a.CooldownUntil = now.Add(time.Duration(s.CooldownMinutes) * time.Minute)
 		a.CohortID = ""
+		a.TrialGroupIDs = nil
 		a.FirstTrialAt = time.Time{}
 	}
 	return nil
 }
 
 func (e *Engine) Refresh(ctx context.Context) error {
-	if e.store == nil {
-		return ErrUnavailable
-	}
-	s := e.Settings()
-	rows, err := e.store.Rows(ctx, s.GroupIDs)
-	if err != nil {
-		return err
-	}
-	if len(rows) > MaxRuntimeRows {
-		return errors.New("cache guard runtime bound exceeded")
-	}
-	now := e.now().UTC()
-	groups := map[int64]Snapshot{}
-	sessions := map[string]SessionState{}
-	for _, row := range rows {
-		if !s.ContainsGroup(row.GroupID) {
-			continue
-		}
-		snapshot := groups[row.GroupID]
-		snapshot.GroupID = row.GroupID
-		snapshot.Mode = s.Mode
-		snapshot.Available = true
-		snapshot.LoadedAt = now
-		switch row.Kind {
-		case GroupKind:
-			var g GroupState
-			if err = json.Unmarshal(row.Payload, &g); err != nil {
-				return err
-			}
-			snapshot.NaturalNewCount = g.NaturalNewCount
-			snapshot.TrialCount = g.TrialCount
-		case AccountKind:
-			var a AccountState
-			if err = json.Unmarshal(row.Payload, &a); err != nil {
-				return err
-			}
-			// Refresh expired counts even without new completions. State transitions
-			// still require new valid evidence, so time alone never recovers quality.
-			version := row.Version
-			err = e.store.Transact(ctx, row.GroupID, func(tx Tx) error {
-				if _, err := tx.Read(AccountKind, row.Key, &a); err != nil {
-					return err
-				}
-				facts, err := tx.Facts(a.AccountID, now.Add(-time.Duration(s.WindowMinutes)*time.Minute))
-				if err != nil {
-					return err
-				}
-				if err = RecomputeAccount(&a, facts, s, now, false); err != nil {
-					return err
-				}
-				version, err = tx.Write(AccountKind, row.Key, &a)
-				return err
-			})
-			if err != nil {
-				return err
-			}
-			snapshot.Accounts = append(snapshot.Accounts, AccountSnapshot{AccountState: a, Version: version})
-		case SessionKind:
-			var x SessionState
-			if err = json.Unmarshal(row.Payload, &x); err != nil {
-				return err
-			}
-			sessions[sessionCacheKey(row.GroupID, row.Key)] = x
-			for _, admission := range x.Admissions {
-				// A prior-process in-flight admission or a five-minute overdue
-				// outcome is durable evidence of an incomplete sampling window.
-				if !admission.Completed && (admission.StartedAt.Before(e.bornAt) || now.Sub(admission.StartedAt) > 5*time.Minute) {
-					snapshot.SamplingGap = true
-				}
-			}
-		default:
-			return errors.New("unknown cache guard typed state")
-		}
-		groups[row.GroupID] = snapshot
-	}
-	for id, g := range groups {
-		g.Available = !g.SamplingGap
-		sort.Slice(g.Accounts, func(i, j int) bool { return g.Accounts[i].AccountID < g.Accounts[j].AccountID })
-		groups[id] = g
-	}
-	e.mu.Lock()
-	e.groups = groups
-	e.sessions = sessions
-	e.loadedAt = now
-	e.mu.Unlock()
-	return nil
+	return e.refreshAccounts(ctx)
 }
 
 // Rebuild rehydrates typed durable runtime rows after process restart. Every
@@ -589,13 +536,16 @@ func (e *Engine) CachedSnapshot(groupID int64) Snapshot {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	g := e.groups[groupID]
-	g.GroupID = groupID
-	g.Mode = s.Mode
-	g.LoadedAt = e.loadedAt
-	now := e.now().UTC()
-	g.Available = !g.SamplingGap && !e.loadedAt.IsZero() && !now.Before(e.loadedAt) && now.Sub(e.loadedAt) <= RefreshLifetime && s.ContainsGroup(groupID)
-	g.Accounts = append([]AccountSnapshot(nil), g.Accounts...)
-	return e.cachedCascade(g, s, now)
+	g.GroupID, g.Mode, g.LoadedAt = groupID, s.Mode, e.loadedAt
+	g.Available = s.Mode != Disabled && e.freshLocked()
+	g.Accounts = nil
+	for id, account := range e.accounts {
+		if !e.accountGaps[id] {
+			g.Accounts = append(g.Accounts, cloneAccountSnapshot(account))
+		}
+	}
+	sort.Slice(g.Accounts, func(i, j int) bool { return g.Accounts[i].AccountID < g.Accounts[j].AccountID })
+	return g
 }
 func (e *Engine) Snapshot(_ context.Context, groupID int64) (Snapshot, error) {
 	s := e.CachedSnapshot(groupID)
@@ -619,6 +569,11 @@ func (e *Engine) CachedSessionRead(r Request) SessionRead {
 		return SessionRead{}
 	}
 	read := SessionRead{Known: true, PreferredAccountID: x.LastAccountID, ResidenceUntil: x.ResidenceUntil}
+	if r.AccountID == x.LastAccountID && r.UpstreamKeyID > 0 {
+		if route, ok := x.Routes[x.LastRouteKey]; !ok || route.UpstreamKeyID != r.UpstreamKeyID {
+			return SessionRead{}
+		}
+	}
 	if x.LastModel != r.Model || x.LastProtocol != r.Protocol ||
 		(r.AccountID > 0 && r.UpstreamKeyID > 0 && x.LastRouteKey != WarmRouteKey(r)) {
 		return read

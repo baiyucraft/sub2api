@@ -202,18 +202,15 @@ func buildCacheGuardPreference(ctx context.Context, groupID *int64, sessionHash,
 }
 
 func cacheGuardAccountProtected(account upstreamcacheguard.AccountSnapshot) bool {
-	return (account.Phase != "" && account.Phase != upstreamcacheguard.Healthy) ||
-		(account.DerivedProtection != nil && account.DerivedProtection.Protected)
+	return account.Phase != "" && account.Phase != upstreamcacheguard.Healthy
 }
 
 func cacheGuardRecoveryReady(account upstreamcacheguard.AccountSnapshot, at time.Time) bool {
-	// Native recovery keeps its own cohort and cooldown even when another group
-	// also protects this account. A derived trial can never recover its source.
+	// All executing groups share the account cohort and cooldown.
 	if account.Phase != "" && account.Phase != upstreamcacheguard.Healthy {
 		return !at.Before(account.CooldownUntil)
 	}
-	linked := account.DerivedProtection
-	return linked != nil && linked.Protected && linked.PrimarySource != nil && !at.Before(linked.PrimarySource.CooldownUntil)
+	return false
 }
 
 func cacheGuardPoolBetter(a, b *Account, groupID *int64) bool {

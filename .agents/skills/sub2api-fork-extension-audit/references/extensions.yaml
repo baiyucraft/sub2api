@@ -130,16 +130,17 @@
     "264": {"version":"0.2.14-baiyu","parent":"263","gate_schema":2,"new_migrations":["289_activity_reward_costs.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
     "265": {"version":"0.2.15-baiyu","parent":"264","gate_schema":2,"new_migrations":["290_drop_platform_check_constraints.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
     "266": {"version":"0.2.15-baiyu","parent":"265","gate_schema":2,"new_migrations":["291_user_invoice_annotations.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
-    "267": {"version":"0.2.16-baiyu","parent":"266","gate_schema":2,"new_migrations":["292_group_i18n.sql","293_gemini_cached_contents.sql","294_gemini_cached_contents_channel_usage.sql","295_gemini_cached_contents_mutation_lease.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}}
+    "267": {"version":"0.2.16-baiyu","parent":"266","gate_schema":2,"new_migrations":["292_group_i18n.sql","293_gemini_cached_contents.sql","294_gemini_cached_contents_channel_usage.sql","295_gemini_cached_contents_mutation_lease.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
+    "268": {"version":"0.2.16-baiyu","parent":"267","gate_schema":2,"new_migrations":["296_upstream_cache_guard.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}}
   },
   "current_profile": {
-    "id": "268",
+    "id": "269",
     "status": "pending",
     "version": "0.2.16-baiyu",
-    "parent": "267",
+    "parent": "268",
     "gate_schema": 2,
     "new_migrations": [
-      "296_upstream_cache_guard.sql"
+      "297_upstream_cache_guard_account_scope.sql"
     ],
     "release_policy": {
       "compatibility_image": "production_current",
@@ -147,6 +148,7 @@
     }
   },
   "migration_contracts": {
+    "297_upstream_cache_guard_account_scope.sql": "a17cdd895a2fd8306eebc4d21c4c93ae22defaa93f9e54e2e7b8208ed2725244",
     "296_upstream_cache_guard.sql": "2b898a8b429766799819f7ee83052adfc269bbb58f493ea44ebbc023f1576b5d",
     "292_group_i18n.sql": "9df295380bd4349bb510a64a3f3d829d7ee28904eab2bdf60ec50599b2128f28",
     "293_gemini_cached_contents.sql": "48d05b5795e22f45458fdd56e32e3af89ebc68002ddb9320bff4d19bacc71dc3",
@@ -259,6 +261,7 @@
     "official_238_purge_unlimited_user_platform_quotas": "275_purge_unlimited_user_platform_quotas.sql"
   },
   "migration_assertions": {
+    "backend/migrations/297_upstream_cache_guard_account_scope.sql": ["ADD COLUMN upstream_key_id BIGINT NOT NULL DEFAULT 0", "idx_upstream_cache_guard_account_history", "CREATE TABLE upstream_cache_guard_accounts", "PRIMARY KEY (account_id, upstream_key_id)"],
     "backend/migrations/296_upstream_cache_guard.sql": ["CREATE TABLE IF NOT EXISTS upstream_cache_guard_facts", "PRIMARY KEY (group_id, evidence_id)", "WHERE valid_sample = TRUE", "CREATE TABLE IF NOT EXISTS upstream_cache_guard_runtime", "PRIMARY KEY (group_id, state_kind, state_key)", "state_kind IN ('group', 'account', 'session')"],
     "backend/migrations/292_group_i18n.sql": ["ALTER TABLE groups", "ADD COLUMN IF NOT EXISTS i18n JSONB NOT NULL DEFAULT '{}'::jsonb"],
     "backend/migrations/293_gemini_cached_contents.sql": ["CREATE TABLE IF NOT EXISTS gemini_cached_contents", "public_id", "upstream_name", "idx_gemini_cached_contents_public_id", "idx_gemini_cached_contents_api_key_active", "WHERE deleted_at IS NULL"],
@@ -458,7 +461,7 @@
     {
       "id": "upstream-cache-affinity-guard",
       "title": "上游有效续聊缓存保护",
-      "description": "默认关闭的跨模型分组加账号有效续聊缓存保护，独立恢复cohort、自然新会话试用及同账号跨组阈值方向联动；本组与来源样本独立，不改变计费或错误重试策略。",
+      "description": "默认关闭的上游账号与当前Key级有效续聊缓存保护；全分组Token加权样本、统一phase和恢复cohort，group_ids只限定执行，分组仍独立维护会话和试用配额；不改变计费或错误重试策略。",
       "ownership": "fork",
       "risk_level": "critical",
       "paths": [
@@ -466,15 +469,19 @@
         "backend/internal/pkg/upstreamcacheusage/evidence_test.go",
         "backend/internal/upstreamcacheguard/types.go",
         "backend/internal/upstreamcacheguard/engine.go",
+        "backend/internal/upstreamcacheguard/account_scope.go",
+        "backend/internal/upstreamcacheguard/account_scope_test.go",
+        "backend/internal/upstreamcacheguard/account_window.go",
+        "backend/internal/upstreamcacheguard/account_window_test.go",
+        "backend/internal/upstreamcacheguard/account_snapshot_test.go",
         "backend/internal/upstreamcacheguard/cascade.go",
-        "backend/internal/upstreamcacheguard/cascade_test.go",
-        "backend/internal/upstreamcacheguard/snapshot_cascade.go",
-        "backend/internal/upstreamcacheguard/snapshot_cascade_test.go",
         "backend/internal/repository/upstream_cache_guard_repo.go",
+        "backend/internal/repository/upstream_cache_guard_account_pg_test.go",
         "backend/internal/repository/wire.go",
         "backend/internal/service/upstream_cache_guard_settings.go",
         "backend/internal/service/upstream_cache_guard_runtime.go",
         "backend/internal/service/upstream_cache_guard_runner.go",
+        "backend/internal/service/upstream_cache_guard_account_store_test.go",
         "backend/internal/service/upstream_cache_guard_scheduling.go",
         "backend/internal/service/upstream_cache_guard_api.go",
         "backend/internal/service/upstream_cache_guard_api_test.go",
@@ -488,17 +495,24 @@
         "backend/cmd/server/wire.go",
         "backend/cmd/server/wire_gen.go",
         "backend/internal/handler/admin/account_handler.go",
+        "backend/internal/handler/admin/account_handler_cache_guard_etag_test.go",
         "backend/internal/handler/admin/upstream_management_handler.go",
         "frontend/src/api/admin/upstreamManagement.ts",
         "frontend/src/types/index.ts",
         "frontend/src/components/admin/account/UpstreamManagementSettingsDialog.vue",
         "frontend/src/components/account/UpstreamHealthCell.vue",
         "frontend/src/components/account/UpstreamCacheGuardStates.vue",
+        "frontend/src/components/common/HelpTooltip.vue",
+        "frontend/src/components/common/__tests__/HelpTooltip.spec.ts",
+        "frontend/src/views/admin/AccountsView.vue",
+        "frontend/src/views/admin/__tests__/AccountsView.upstreamManagement.spec.ts",
+        "frontend/src/views/admin/__tests__/AccountsView.lite.spec.ts",
         "frontend/src/components/admin/account/__tests__/UpstreamManagementSettingsDialog.spec.ts",
         "frontend/src/components/account/__tests__/UpstreamCacheGuardStates.spec.ts",
         "frontend/src/i18n/locales/zh/admin/upstreamManagement.ts",
         "frontend/src/i18n/locales/en/admin/upstreamManagement.ts",
         "backend/migrations/296_upstream_cache_guard.sql",
+        "backend/migrations/297_upstream_cache_guard_account_scope.sql",
         ".wiki/03-模块指南/14-上游缓存保护.md",
         "backend/internal/upstreamcacheguard/engine_test.go",
         "backend/internal/repository/upstream_cache_guard_repo_test.go",
@@ -577,9 +591,11 @@
         "buildCacheGuardPreference",
         "NewUpstreamCacheGuardRuntime",
         "UpstreamCacheGuardState",
-        "UpstreamCacheGuardLinkedProtection",
-        "DerivedProtection",
-        "DeriveAccountProtection",
+        "UpstreamCacheGuardAccountView",
+        "CachedAccount",
+        "AccountWindow",
+        "GetUpstreamCacheGuardAccountView",
+        "UpstreamCacheGuardAccountViewsBatch",
         "selectGatewayCacheGuardTiers",
         "UpstreamCacheGuardAccountStatesBatch"
       ],
@@ -591,21 +607,30 @@
         "upstream_cache_guard_settings"
       ],
       "migration_files": [
-        "296_upstream_cache_guard.sql"
+        "296_upstream_cache_guard.sql",
+        "297_upstream_cache_guard_account_scope.sql"
       ],
       "required_tests": [
         "backend/internal/pkg/upstreamcacheusage/evidence_test.go",
         "frontend/src/components/admin/account/__tests__/UpstreamManagementSettingsDialog.spec.ts",
         "frontend/src/components/account/__tests__/UpstreamCacheGuardStates.spec.ts",
+        "frontend/src/components/common/__tests__/HelpTooltip.spec.ts",
+        "frontend/src/views/admin/__tests__/AccountsView.upstreamManagement.spec.ts",
+        "frontend/src/views/admin/__tests__/AccountsView.lite.spec.ts",
+        "backend/internal/handler/admin/account_handler_cache_guard_etag_test.go",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile268_release_contract.py",
         "backend/internal/upstreamcacheguard/engine_test.go",
-        "backend/internal/upstreamcacheguard/cascade_test.go",
-        "backend/internal/upstreamcacheguard/snapshot_cascade_test.go",
+        "backend/internal/upstreamcacheguard/account_scope_test.go",
+        "backend/internal/upstreamcacheguard/account_window_test.go",
+        "backend/internal/upstreamcacheguard/account_snapshot_test.go",
         "backend/internal/service/upstream_cache_guard_api_test.go",
         "backend/internal/service/upstream_cache_guard_protocol_test.go",
         "backend/internal/handler/upstream_cache_guard_admission_test.go",
         "backend/internal/repository/upstream_cache_guard_repo_test.go",
+        "backend/internal/repository/upstream_cache_guard_account_pg_test.go",
         "backend/internal/service/upstream_cache_guard_runner_test.go",
+        "backend/internal/service/upstream_cache_guard_account_store_test.go",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile269_release_contract.py",
         "backend/internal/service/upstream_cache_guard_settings_test.go",
         "backend/internal/service/upstream_health_scheduling_cache_guard_test.go",
         "backend/internal/service/upstream_cache_usage_evidence_test.go",
@@ -630,21 +655,20 @@
         "backend/internal/handler/admin/account_handler_refresh_test.go"
       ],
       "invariants": [
-        "统计固定group加account跨模型，排除冷首轮和无效样本，原始上游输入与缓存Token在计费转换前捕获；未知率不是零",
+        "统计固定account ID加当前upstream Key ID，所有组、模型、协议有效样本按Token加权合并，排除冷首轮和无效样本；Key轮换不继承旧证据，未知率不是零",
         "正常N严格超过20且缓存率低于75时保护，默认disabled、observe不改变调度；旧PUT省略配置保留已有值",
         "保护给自然新会话让路；旧会话连续两次有效低率后才允许迁移至有效率高至少5个百分点且有实际容量的账号；迁移冷首轮不计、成功迁移最短驻留5分钟",
         "不可迁移previous_response和固定同账号重试保持原语义；不更改错误状态码重试配置",
         "全低仍在硬合法池按cache择优，差不超过5个百分点优先TTFT正常再负载，cache或TTFT软限制不新增拒绝，不撤caller失败排除及其他硬条件",
         "冷却10分钟后分组总体10%自然新会话试用并固定账号，多个恢复账号轮转分配，不解释为每账号或每请求10%",
-        "恢复cohort独立，每轮排除冷首轮；同窗口N严格超过20、至少3会话、率达到80%且观察至少10分钟恢复；低于75重新冷却，中间率或不足继续试用，无多档流量阶梯",
+        "账号恢复cohort统一收集各启用组的有效试用样本；未启用组普通样本只参与正常窗口，不替代恢复验证；同窗口N严格超过20、至少3会话、率达到80%且观察至少10分钟恢复",
         "仅保存事实metadata、HMAC会话摘要和分布式版本状态，不保存原始请求正文、提示词或凭据，跨实例保证请求幂等与试用份额一致",
-        "状态按分组显示正常窗口率和独立恢复率、有效样本、恢复会话与时间，不显示兜底次数",
-        "同account且当前同upstream key的原生保护仅向threshold大于或等于source的启用target组联动；统一阈值下所有启用组联动，observe只显示同模式拟联动不改调度，disabled不派生；来源仅取真实原生状态，不级联派生来源形成循环",
-        "联动决策不复制本组rate/count/recovery、不改目标原生phase或建立伪造cohort；无本组runtime仍可显示来源，本组率未知count0；API新增可选linked_protection及native_state/native_reason，来源组阈值/phase/恢复进度独立展示",
-        "每个source独立恢复前保留其联动原因，本组高缓存不能替代source恢复；来源离开统计窗口不解除原生保护；多来源按threshold再group ID稳定主来源，一源恢复不清除其他来源；不可用/过期快照、sampling gap、Key轮换与范围外来源不联动",
-        "profile268为0.2.16-baiyu,parent267,仅迁移296；全部历史profile/SQL/checksum不回写，完整执行闭包接线，未知269拒绝；本地登记不代表VM、数据库升级或生产部署，无新恢复豁免",
+        "账号列表/详情统一摘要，状态列仅一个状态加一位小数缓存率badge，悬浮展示账号窗口与分组启用/执行/试用信息；未知显示未知不伪装0%，不显示兜底次数",
+        "group_ids仅限制观察/保护执行；非选中组普通有效事实仍贡献账号窗口，各启用组共享账号phase/冷却/cohort，分组会话/暖上下文/候选池/容量/自然新会话配额仍分离",
+        "账号锁内迁移旧组事实并遵守质量重置边界；旧保护保守继承及最晚冷却，旧cohort不混入；账号/Key锁、事实幂等、固定锁序，多实例不可重复计入或自动解封",
+        "profile269为0.2.16-baiyu,parent268,仅迁移297；全部历史profile/SQL/checksum不回写，完整执行闭包接线，未知270拒绝；本地登记不代表VM、数据库升级或生产部署，无新恢复豁免",
         "迁移目标仅Wait时优先保留硬合法source及其Wait；只有source也硬失效才回原硬候选池，软迁移不提前覆盖sticky绑定；普通账号不参与缓存评分但可参与最终硬故障fallback",
-        "账号列表在单次请求内按组复用现有CachedSnapshot并按账号及Key索引，保留5秒新鲜度、不可用、原生与跨组联动显示；不跨请求缓存、不修改engine采样判定或调度"
+        "账号列表在单次请求内复用可信共享快照，账号摘要与分组兼容投影全部参与ETag且仅缓存字段变化仍完整刷新；不跨请求缓存或延长新鲜度"
       ]
     },
     {

@@ -19,10 +19,11 @@ type memoryStore struct {
 	rows      map[string]RuntimeRow
 	facts     map[string]Evidence
 	processed map[string]bool
+	accounts  map[string]AccountRuntimeRow
 }
 
 func newMemoryStore() *memoryStore {
-	return &memoryStore{rows: map[string]RuntimeRow{}, facts: map[string]Evidence{}, processed: map[string]bool{}}
+	return &memoryStore{rows: map[string]RuntimeRow{}, facts: map[string]Evidence{}, processed: map[string]bool{}, accounts: map[string]AccountRuntimeRow{}}
 }
 
 type memoryTx struct {
@@ -41,6 +42,9 @@ func (s *memoryStore) Transact(ctx context.Context, g int64, fn func(Tx) error) 
 	for k, v := range s.rows {
 		copy.rows[k] = v
 	}
+	for k, v := range s.accounts {
+		copy.accounts[k] = v
+	}
 	for k, v := range s.facts {
 		copy.facts[k] = v
 	}
@@ -53,6 +57,7 @@ func (s *memoryStore) Transact(ctx context.Context, g int64, fn func(Tx) error) 
 	s.rows = copy.rows
 	s.facts = copy.facts
 	s.processed = copy.processed
+	s.accounts = copy.accounts
 	return nil
 }
 func (t *memoryTx) Read(kind, k string, out any) (int64, error) {
@@ -202,14 +207,11 @@ func account(t *testing.T, e *Engine) AccountState {
 	if err := e.Refresh(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	s := e.CachedSnapshot(1)
-	if len(s.Accounts) != 1 {
-		t.Fatalf("accounts=%+v", s.Accounts)
-	}
-	return s.Accounts[0].AccountState
+	a, _ := e.CachedAccount(2, 3)
+	return a.AccountState
 }
 
-func TestAccountProtectionIsIndependentAcrossGroupsAndKeyChanges(t *testing.T) {
+func TestAccountProtectionIsSharedAcrossGroupsAndIsolatedAcrossKeyChanges(t *testing.T) {
 	e, _ := testEngine(t)
 	for _, group := range []int64{1, 2} {
 		for round := 0; round < 22; round++ {
@@ -227,8 +229,8 @@ func TestAccountProtectionIsIndependentAcrossGroupsAndKeyChanges(t *testing.T) {
 		t.Fatal(err)
 	}
 	low, high := e.CachedSnapshot(1), e.CachedSnapshot(2)
-	if len(low.Accounts) != 1 || len(high.Accounts) != 1 || low.Accounts[0].Phase != Cooling || high.Accounts[0].Phase != Healthy {
-		t.Fatalf("same account must have independent group states: low=%+v high=%+v", low, high)
+	if len(low.Accounts) != 1 || len(high.Accounts) != 1 || low.Accounts[0].Phase != Cooling || high.Accounts[0].Phase != Cooling || low.Accounts[0].ValidRequests != high.Accounts[0].ValidRequests || low.Accounts[0].CachePercent != high.Accounts[0].CachePercent {
+		t.Fatalf("same account must share a global state: low=%+v high=%+v", low, high)
 	}
 	// Two subsequent lows under protection make this concrete warm route pending.
 	for round := 0; round < 2; round++ {
@@ -243,7 +245,7 @@ func TestAccountProtectionIsIndependentAcrossGroupsAndKeyChanges(t *testing.T) {
 		t.Fatal("the original protected warm route should be pending migration")
 	}
 	next.UpstreamKeyID++
-	if read := e.CachedSessionRead(next); !read.Known || read.PendingLow || read.WarmAtStart || read.Protected {
+	if read := e.CachedSessionRead(next); read.Known || read.PreferredAccountID != 0 || read.PendingLow || read.WarmAtStart || read.Protected {
 		t.Fatalf("replacing the upstream key must not reuse the old route's low streak: %+v", read)
 	}
 }
@@ -339,7 +341,7 @@ func TestSequentialLowFailureBarrierOutOfOrder(t *testing.T) {
 		t.Fatalf("two adjacent low ignored=%+v", read)
 	}
 	old := request("late-old", "s", base.Add(500*time.Millisecond))
-	complete(t, e, old, Admission{RequestID: old.ID, SessionKey: SessionKey(old), GroupID: 1, AccountID: 2, StartedAt: old.StartedAt, Mode: Protect, Sample: true, WarmAtStart: true}, 95, true, upstreamcacheusage.Known)
+	complete(t, e, old, Admission{RequestID: old.ID, SessionKey: SessionKey(old), GroupID: 1, AccountID: 2, RouteKey: WarmRouteKey(old), StartedAt: old.StartedAt, Mode: Protect, Sample: true, WarmAtStart: true}, 95, true, upstreamcacheusage.Known)
 	account(t, e)
 	read = e.CachedSessionRead(request("next3", "s", base.Add(6*time.Minute)))
 	if !read.PendingLow || !read.LastSuccessfulAt.Equal(r.StartedAt.Add(time.Second)) {
@@ -391,7 +393,7 @@ func TestRecoveryCohortRequiresSessionsCountTimeAndFreshEvidence(t *testing.T) {
 	s := e.Settings()
 	var facts []Evidence
 	for i := 0; i < 21; i++ {
-		facts = append(facts, Evidence{Admission: Admission{Sample: true, WarmAtStart: true, Trial: true, CohortID: "c", SessionKey: fmt.Sprint(i % 3)}, Success: true, RawUsage: RawUsage{Status: upstreamcacheusage.Known, TotalInputTokens: 100, CacheReadTokens: 85}, CompletedAt: testNow.Add(-time.Duration(21-i) * time.Second)})
+		facts = append(facts, Evidence{Request: Request{GroupID: 1}, Admission: Admission{Sample: true, WarmAtStart: true, Trial: true, CohortID: "c", SessionKey: fmt.Sprint(i % 3)}, Success: true, RawUsage: RawUsage{Status: upstreamcacheusage.Known, TotalInputTokens: 100, CacheReadTokens: 85}, CompletedAt: testNow.Add(-time.Duration(21-i) * time.Second)})
 	}
 	a := AccountState{Phase: Trial, CohortID: "c", FirstTrialAt: testNow.Add(-9 * time.Minute)}
 	if err := RecomputeAccount(&a, facts, s, testNow, true); err != nil {
@@ -406,7 +408,7 @@ func TestRecoveryCohortRequiresSessionsCountTimeAndFreshEvidence(t *testing.T) {
 	if a.Phase != Trial {
 		t.Fatal("timer alone recovered")
 	}
-	facts = append(facts, Evidence{Admission: facts[0].Admission, Success: true, RawUsage: facts[0].RawUsage, CompletedAt: testNow.Add(2 * time.Minute)})
+	facts = append(facts, Evidence{Request: facts[0].Request, Admission: facts[0].Admission, Success: true, RawUsage: facts[0].RawUsage, CompletedAt: testNow.Add(2 * time.Minute)})
 	if err := RecomputeAccount(&a, facts, s, testNow.Add(2*time.Minute), true); err != nil {
 		t.Fatal(err)
 	}
@@ -455,7 +457,7 @@ func TestDurableOutboxRestartGapAndOldDisabledAck(t *testing.T) {
 	if err := restarted.Rebuild(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if restarted.CachedSnapshot(1).Available {
+	if _, ok := restarted.CachedAccount(2, 3); ok {
 		t.Fatal("missing outcome became available on restart")
 	}
 	if err := restarted.Complete(context.Background(), v); err != nil {
@@ -464,7 +466,7 @@ func TestDurableOutboxRestartGapAndOldDisabledAck(t *testing.T) {
 	if err := restarted.Refresh(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if !restarted.CachedSnapshot(1).Available {
+	if _, ok := restarted.CachedAccount(2, 3); !ok {
 		t.Fatal("completed durable outcome did not restore")
 	}
 	if pending, _ := s.ClaimPending(context.Background(), "test", 10, time.Second); len(pending) != 0 {
@@ -577,7 +579,7 @@ func TestCompleteLateLargeFactStillEvaluatesWhenWindowExpiryOffsetsCount(t *test
 			makeEvidence := func(id string, completed time.Time, input, read int64) Evidence {
 				r := request(id, id, completed.Add(-time.Second))
 				return Evidence{ID: id, Request: r, Admission: Admission{
-					RequestID: r.ID, SessionKey: SessionKey(r), GroupID: r.GroupID, AccountID: r.AccountID,
+					RequestID: r.ID, SessionKey: SessionKey(r), GroupID: r.GroupID, AccountID: r.AccountID, RouteKey: WarmRouteKey(r),
 					StartedAt: r.StartedAt, Mode: Protect, Sample: true, WarmAtStart: true,
 				}, Success: true, CompletedAt: completed, RawUsage: RawUsage{
 					Status: upstreamcacheusage.Known, TotalInputTokens: input, CacheReadTokens: read,
@@ -621,7 +623,7 @@ func TestCompleteLateLargeFactStillEvaluatesWhenWindowExpiryOffsetsCount(t *test
 func seedCooling(t *testing.T, e *Engine) {
 	t.Helper()
 	if err := e.store.Transact(context.Background(), 1, func(tx Tx) error {
-		_, err := tx.Write(AccountKind, "2", &AccountState{AccountID: 2, Phase: Cooling, CooldownUntil: testNow.Add(time.Hour)})
+		_, err := tx.Write(AccountKind, "2", &AccountState{AccountID: 2, UpstreamKeyID: 3, Phase: Cooling, CooldownUntil: testNow.Add(time.Hour)})
 		return err
 	}); err != nil {
 		t.Fatal(err)

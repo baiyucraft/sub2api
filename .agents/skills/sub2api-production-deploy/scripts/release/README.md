@@ -320,7 +320,7 @@ profile 239 继续使用版本 `0.1.177-baiyu`，完整继承 profile 238 的 54
 migration 232 之后重新出现的非 Grok/Composite 视频价格，并增加数据库约束阻止再次漂移。
 profile 233–238 的历史证据保持不可变。
 
-VM Gate signer、DR signer、备份机 verifier/promoter 当前同时保留 legacy profile 195、199、202、206、207、208、209、210、212、213、215、232–241，以及 Gate v2 profile 242–268 合同；267 及以前的合同保留，268 是当前 pending profile，VM signer 自测和备份机目录 bootstrap 都必须覆盖它。未登记的 269 必须被拒绝。此处登记不代表 267 已完成 VM 验证或签名。发布资产定向回归至少执行：
+VM Gate signer、DR signer、备份机 verifier/promoter 当前同时保留 legacy profile 195、199、202、206、207、208、209、210、212、213、215、232–241，以及 Gate v2 profile 242–269 合同；268 及以前的合同保留，269 是当前 pending profile，VM signer 自测和备份机目录 bootstrap 都必须覆盖它。未登记的 270 必须被拒绝。此处登记不代表 267 已完成 VM 验证或签名。发布资产定向回归至少执行：
 
 ```text
 python -m pytest .agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile260_release_contract.py .agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile260_maintenance_contract.py .agents/skills/sub2api-production-deploy/scripts/tests/release/test_migration_planner_v2.py -q
@@ -404,6 +404,6 @@ SSH 超时后以远端 committed marker 重新判定阶段，不凭本地异常�
 
 ## 上游缓存保护发布合同
 
-当前连续 pending profile 268，parent 267，版本 `0.2.16-baiyu`，仅新增 `296_upstream_cache_guard.sql`。267 保留原四项官方迁移与身份，全部历史 profile、SQL 和 checksum 不回写。Python/Shell、VM validator、Gate/DR signer、bootstrap 自测、生产 context/prepare、祖先断言、奖励 postflight、备份和清理入口共同支持 268，未知 269 拒绝。新增迁移只承载缓存判定事实和分布式状态，不写余额、计费或错误重试配置，不保存原始请求正文、认证头或凭据。
+历史 profile 268，parent 267，版本 `0.2.16-baiyu`，仅新增 `296_upstream_cache_guard.sql`。当前连续 pending profile 269，parent 268，沿用 `0.2.16-baiyu`，仅新增 `297_upstream_cache_guard_account_scope.sql`。267/268 及全部历史 profile、SQL 和 checksum 不回写。Python/Shell、VM validator、Gate/DR signer、bootstrap 自测、生产 context/prepare、祖先断言、奖励 postflight、备份和清理入口共同支持 269，未知 270 拒绝。新迁移为事实补当前 Key 身份、建立跨组查询索引与账号级状态，不写余额、计费或错误重试配置，不保存原始请求正文、认证头或凭据。
 
-本地最低验证包括 `test_profile268_release_contract.py`、缓存核心与调度/API 回归、前端设置/状态测试、双语键完整性、typecheck/lint/build、完整 release suite、修改 Shell 语法及 `git diff --check`。本地登记不证明 PostgreSQL 实际升级、旧镜像兼容、VM Gate 或生产上线；恢复敏感最终 blob/模式重新精确分类，未分类继续阻断，不增加新的审阅豁免。长期产品合同见 `.wiki/03-模块指南/14-上游缓存保护.md`。
+本地最低验证包括 `test_profile269_release_contract.py`、缓存核心与调度/API 回归、前端设置/状态测试、双语键完整性、typecheck/lint/build、完整 release suite、修改 Shell 语法及 `git diff --check`。本地登记不证明 PostgreSQL 实际升级、旧镜像兼容、VM Gate 或生产上线；恢复敏感最终 blob/模式重新精确分类，未分类继续阻断，不增加新的审阅豁免。长期产品合同见 `.wiki/03-模块指南/14-上游缓存保护.md`。

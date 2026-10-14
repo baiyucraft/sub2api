@@ -358,8 +358,9 @@
             <AccountCapacityCell :account="row" />
           </template>
           <template #cell-status="{ row }">
-            <div class="flex items-center gap-1.5">
+            <div class="flex min-w-0 flex-col items-start gap-1.5">
               <AccountStatusIndicator :account="row" @show-temp-unsched="handleShowTempUnsched" />
+              <UpstreamCacheGuardStates v-if="scope === 'upstream'" :account="row" />
             </div>
           </template>
           <template #cell-upstream_health="{ row }">
@@ -736,6 +737,7 @@ import AccountActionMenu from '@/components/admin/account/AccountActionMenu.vue'
 import type { SelectOption } from '@/components/common/Select.vue'
 import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.vue'
 import UpstreamHealthCell from '@/components/account/UpstreamHealthCell.vue'
+import UpstreamCacheGuardStates from '@/components/account/UpstreamCacheGuardStates.vue'
 import AccountUsageCell from '@/components/account/AccountUsageCell.vue'
 import AccountTodayStatsCell from '@/components/account/AccountTodayStatsCell.vue'
 import AccountQualityCell from '@/components/account/AccountQualityCell.vue'

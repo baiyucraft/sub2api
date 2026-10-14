@@ -38,7 +38,7 @@ class Profile268ReleaseContractTest(unittest.TestCase):
         baseline = {}
         exec(compile(git_blob(".agents/skills/sub2api-production-deploy/scripts/release/profiles.py"), "baseline", "exec"), baseline)
         self.assertEqual(baseline["CURRENT_RELEASE_PROFILE"], "267")
-        self.assertEqual(set(PROFILES), set(baseline["PROFILES"]) | {"268"})
+        self.assertEqual(set(PROFILES), set(baseline["PROFILES"]) | {"268", "269"})
         for name, profile in baseline["PROFILES"].items():
             self.assertEqual(get_profile(name), profile, name)
             with self.assertRaisesRegex(ValueError, "historical"):
@@ -51,7 +51,7 @@ class Profile268ReleaseContractTest(unittest.TestCase):
         for path in historical:
             self.assertEqual((WORKSPACE / path).read_bytes(), git_blob(path), path)
         current = {path.relative_to(WORKSPACE).as_posix() for path in (WORKSPACE / "backend/migrations").glob("*.sql")}
-        self.assertEqual(current, historical | {f"backend/migrations/{MIGRATION}"})
+        self.assertEqual(current, historical | {f"backend/migrations/{MIGRATION}", "backend/migrations/297_upstream_cache_guard_account_scope.sql"})
         prior = json.loads(git_blob(".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml"))
         registration = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
         for name, checksum in prior["migration_contracts"].items():
@@ -61,18 +61,18 @@ class Profile268ReleaseContractTest(unittest.TestCase):
         self.assertEqual(registration["historical_profiles"]["267"], {key: value for key, value in prior["current_profile"].items() if key not in ("id", "status")})
 
     def test_profile_registration_and_raw_vs_runner_checksum(self):
-        profile = get_release_profile("268")
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "268")
+        profile = get_profile("268")
+        self.assertEqual(CURRENT_RELEASE_PROFILE, "269")
         self.assertEqual((profile["version"], profile["parent"], profile["gate_schema"]), ("0.2.16-baiyu", "267", 2))
         self.assertEqual(profile["new_migrations"], [MIGRATION])
         self.assertEqual(profile["release_policy"], get_profile("267")["release_policy"])
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 269"):
-            get_profile("269")
+        with self.assertRaisesRegex(ValueError, "unknown release profile: 270"):
+            get_profile("270")
         registration = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(registration["current_profile"]["id"], "268")
+        self.assertEqual(registration["current_profile"]["id"], "269")
         self.assertEqual(registration["current_profile"]["status"], "pending")
         for field in ("version", "parent", "gate_schema", "new_migrations", "release_policy"):
-            self.assertEqual(registration["current_profile"][field], profile[field])
+            self.assertEqual(registration["historical_profiles"]["268"][field], profile[field])
         raw = (WORKSPACE / "backend/migrations" / MIGRATION).read_bytes()
         self.assertEqual(registration["migration_contracts"][MIGRATION], hashlib.sha256(raw).hexdigest())
         catalog = {entry["filename"]: entry for entry in discover_migration_catalog(WORKSPACE)}
@@ -82,7 +82,7 @@ class Profile268ReleaseContractTest(unittest.TestCase):
         for marker in registration["migration_assertions"][f"backend/migrations/{MIGRATION}"]:
             self.assertIn(marker, raw.decode())
         extension = next(item for item in registration["extensions"] if item["id"] == "upstream-cache-affinity-guard")
-        self.assertEqual(extension["migration_files"], [MIGRATION])
+        self.assertEqual(extension["migration_files"], [MIGRATION, "297_upstream_cache_guard_account_scope.sql"])
         for path in extension["required_tests"]:
             self.assertTrue((WORKSPACE / path).is_file(), path)
 
@@ -99,7 +99,7 @@ class Profile268ReleaseContractTest(unittest.TestCase):
         self.assertFalse(bad["existing_checksums_verified"])
         self.assertEqual([entry["filename"] for entry in bad["conflicts"]], [MIGRATION])
         self.assertIsNotNone(RELEASE_ID.fullmatch("268-aaaaaaaaaaaa-1-aaaaaaaa"))
-        self.assertIsNone(RELEASE_ID.fullmatch("269-aaaaaaaaaaaa-1-aaaaaaaa"))
+        self.assertIsNone(RELEASE_ID.fullmatch("270-aaaaaaaaaaaa-1-aaaaaaaa"))
 
     def test_manifest_identity_and_ancestor_evidence_remain_required(self):
         profile = get_profile("268")
@@ -130,7 +130,7 @@ class Profile268BashContractTest(unittest.TestCase):
     execute = bash_helpers.Profile263BashContractTest.execute
     assert_guard_cases = bash_helpers.Profile263BashContractTest.assert_guard_cases
     test_release_id_guards = bash_helpers.Profile263BashContractTest.test_release_id_guards_retain_history_and_reject_unknown
-    test_ancestor_assertion_guards = bash_helpers.Profile263BashContractTest.test_ancestor_assertion_guards_admit_263_through_268_and_reject_269
+    test_ancestor_assertion_guards = bash_helpers.Profile263BashContractTest.test_ancestor_assertion_guards_admit_263_through_269_and_reject_270
 
     def test_vm_admits_exact_268_and_retains_267(self):
         source = (DEPLOY_ROOT / "release/vm-validate.sh").read_text(encoding="utf-8")
