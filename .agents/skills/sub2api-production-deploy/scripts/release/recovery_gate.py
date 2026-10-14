@@ -122,6 +122,14 @@ _PROFILE268_FINALIZATION_REVIEW_PATHS = frozenset({
     _SCRIPTS_PREFIX + "release/" + name
     for name in ("cli.py", "finalization.py", "supervisor.py", "vm_lifecycle.py")
 })
+# Exact production-to-target review for profile 269. Keep these disjoint from
+# the prior tranche: doctor replaces supervisor in the finalization net diff.
+_PROFILE269_COMPATIBILITY_PATHS = frozenset(_PROFILE268_COMPATIBILITY_PATHS)
+_PROFILE269_POSTFLIGHT_PATHS = frozenset(_PROFILE268_POSTFLIGHT_PATHS)
+_PROFILE269_FINALIZATION_REVIEW_PATHS = frozenset({
+    _SCRIPTS_PREFIX + "release/" + name
+    for name in ("cli.py", "doctor.py", "finalization.py", "vm_lifecycle.py")
+})
 _REVIEWED_SCOPED_TRANCHES = (
     (
         "aeb410bccc524164bdafbd3db865d4f5f588aced",
@@ -194,6 +202,24 @@ _REVIEWED_SCOPED_TRANCHES = (
         "bd00d35ebc0b4182070510375ee6878101cfbc7a",
         "reviewed_consumed_finalization_changed",
         _PROFILE268_FINALIZATION_REVIEW_PATHS,
+    ),
+    (
+        "c4d857235cecdc3458c21b5eec9411f1fd115674",
+        "f14ca8f65e3526370bf24a2fa0bca3ec490448ab",
+        "reviewed_profile_compatibility_changed",
+        _PROFILE269_COMPATIBILITY_PATHS,
+    ),
+    (
+        "c4d857235cecdc3458c21b5eec9411f1fd115674",
+        "f14ca8f65e3526370bf24a2fa0bca3ec490448ab",
+        "reviewed_reward_cost_postflight_changed",
+        _PROFILE269_POSTFLIGHT_PATHS,
+    ),
+    (
+        "c4d857235cecdc3458c21b5eec9411f1fd115674",
+        "f14ca8f65e3526370bf24a2fa0bca3ec490448ab",
+        "reviewed_consumed_finalization_changed",
+        _PROFILE269_FINALIZATION_REVIEW_PATHS,
     ),
 )
 _RELEASE_STATE_MACHINE_FILES = frozenset(
