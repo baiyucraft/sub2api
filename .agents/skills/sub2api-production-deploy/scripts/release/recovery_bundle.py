@@ -30,6 +30,11 @@ REQUIRED = frozenset({
     'nginx-ingress-contract.sh',
     'restore-backup-units.sh', 'recovery_bundle.py', 'recovery_drill.py',
 })
+FULL_RECOVERY_REQUIRED = frozenset({
+    'full_recovery_drill.py', 'full_recovery_drill_authorization.py',
+    'full_recovery_authorization.py', 'full_recovery_source.py', 'full_recovery_guest.py',
+    'baseline_candidate_load.py', 'process.py',
+})
 
 
 def canonical(value: Any) -> bytes:
@@ -64,6 +69,8 @@ def validate_bundle(document: dict[str, Any]) -> dict[str, Any]:
     aliases = execution_paths(files)
     if not REQUIRED.issubset(aliases):
         raise RuntimeError('formal recovery helper closure is incomplete')
+    if 'full_recovery_drill.py' in aliases and not FULL_RECOVERY_REQUIRED.issubset(aliases):
+        raise RuntimeError('full recovery helper closure is incomplete')
     return document
 
 
@@ -73,7 +80,7 @@ def execution_paths(files: dict[str, str]) -> dict[str, str]:
         relative = path[len(PREFIX):]
         selected = (
             relative.startswith('maintenance/release/')
-            or relative in {'maintenance/181/restore-backup-units.sh', 'maintenance/181/mask-backup-units.sh', 'release/recovery_bundle.py', 'release/recovery_drill.py'}
+            or relative in {'maintenance/181/restore-backup-units.sh', 'maintenance/181/mask-backup-units.sh', 'release/recovery_bundle.py', 'release/recovery_drill.py', 'release/full_recovery_drill.py', 'release/full_recovery_drill_authorization.py', 'release/full_recovery_authorization.py', 'release/full_recovery_source.py', 'release/full_recovery_guest.py', 'release/baseline_candidate_load.py', 'release/process.py'}
         )
         if not selected:
             continue

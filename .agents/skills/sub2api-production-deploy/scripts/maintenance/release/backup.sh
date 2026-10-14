@@ -10,6 +10,25 @@ source "$assets_dir/recovery-compose.sh"
 [[ $backup_attempt_id == "$release_id-1" || $backup_attempt_id == "$release_id-2" || $backup_attempt_id == "$release_id-3" ]]
 backup_root=${BACKUP_ROOT:-$deploy_dir/backups/automated}
 recipient_file=${AGE_RECIPIENT_FILE:-/root/.config/sub2api-backup/age-recipient.txt}
+review_schema=$(jq -er '.manifest.recovery_gate.schema // 1' "$release_dir/gate.json")
+if [[ $review_schema == 2 ]]; then
+  # The current full review proves possession and actual recovery with this
+  # exact dedicated recipient. Bind release backup encryption to the same
+  # public key without changing the daily recipient or copying any identity.
+  [[ $recipient_file == "$release_dir/backup-recipient.txt" ]]
+  [[ -f $recipient_file && ! -L $recipient_file && $(realpath -e -- "$recipient_file") == "$recipient_file" ]]
+  [[ $(stat -c '%U:%G:%a:%h' "$recipient_file") == root:root:400:1 ]]
+  approved_recipient=$(jq -er '.manifest.recovery_gate.full_recovery_evidence.payload.source | select(.recipient_type == "age1") | .approved_recipient_sha256' "$release_dir/gate.json")
+  [[ $approved_recipient =~ ^[0-9a-f]{64}$ ]]
+  observed_recipient=$(python3 - "$recipient_file" <<'PY'
+import hashlib, pathlib, re, sys
+raw=pathlib.Path(sys.argv[1]).read_bytes()
+if re.fullmatch(rb'age1[023456789acdefghjklmnpqrstuvwxyz]{58}\n', raw) is None: raise SystemExit(1)
+print(hashlib.sha256(raw[:-1]).hexdigest())
+PY
+)
+  [[ $observed_recipient == "$approved_recipient" ]]
+fi
 upload_key=${BACKUP_UPLOAD_KEY:-/root/.ssh/sub2api_backup_upload}
 upload_target=${BACKUP_UPLOAD_TARGET:-sub2api-backup@47.85.205.94}
 timestamp=$(date -u +%Y%m%dT%H%M%SZ)

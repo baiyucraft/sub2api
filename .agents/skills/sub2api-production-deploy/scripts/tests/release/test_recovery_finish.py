@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import shutil
+import subprocess
 import unittest
 
 import test_recovery_checkpoint as checkpoint_module
@@ -78,6 +81,19 @@ recovery_checkpoint_run claim_reconciled recovery_finish_verify_claim_reconcile 
 
     def calls(self) -> list[str]:
         return (self.fixture.base / "helper-calls").read_text().splitlines()
+
+    def test_offline_finish_requires_verified_context_and_production_requires_gate(self) -> None:
+        source = (checkpoint_module.ROOT / "maintenance/release/recovery-finish.sh").read_text()
+        block = source[source.index('if [[ -n ${RECOVERY_DRILL_AUTHORIZATION:-} ]]; then'):source.index('recovery_checkpoint_assert_directory "$release_dir"')]
+        bash = shutil.which('bash')
+        if os.name == 'nt':
+            bash = r'C:\Program Files\Git\bin\bash.exe'
+        cases = [({}, False), ({'RECOVERY_DRILL_MODE': '1', 'recovery_drill_context_verified': '1'}, False), ({'RECOVERY_HELPER_GATE': '/signed/gate', 'RECOVERY_HELPER_SIGNATURE': '/signed/sig'}, True), ({'RECOVERY_DRILL_AUTHORIZATION': '/signed/offline', 'RECOVERY_DRILL_MODE': '1'}, False), ({'RECOVERY_DRILL_AUTHORIZATION': '/signed/offline', 'recovery_drill_context_verified': '1'}, False), ({'RECOVERY_DRILL_AUTHORIZATION': '/signed/offline', 'RECOVERY_DRILL_MODE': '1', 'recovery_drill_context_verified': '1'}, True)]
+        env = {k: v for k, v in os.environ.items() if not k.startswith('RECOVERY_') and k != 'recovery_drill_context_verified'}
+        for values, expected in cases:
+            with self.subTest(values=values):
+                result = subprocess.run([bash, '-c', 'set -eu\n' + block], env={**env, **values}, capture_output=True)
+                self.assertEqual(result.returncode == 0, expected, result.stderr)
 
     def test_cleanup_interruption_resume_only_reconciles_claim(self) -> None:
         first = self.fixture.run_script(STOP_AFTER_CLEANUP="yes")

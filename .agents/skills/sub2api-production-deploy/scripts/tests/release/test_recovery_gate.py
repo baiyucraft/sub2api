@@ -83,6 +83,32 @@ class RecoveryGateTest(unittest.TestCase):
         self.assertEqual(report["reason_codes"], ["ordinary_change"])
         self.assertEqual(report["estimated_extra_seconds"], 0)
 
+    def test_new_full_recovery_collectors_and_publishers_require_fresh_full_review(self) -> None:
+        base = self.base
+        for name in ("backup_keys.py", "baseline.py", "postrelease_baseline.py", "baseline_candidate_load.py", "full_recovery_authorization.py", "full_recovery_drill_authorization.py", "full_recovery_drill.py", "full_recovery_guest.py", "full_recovery_source.py", "sign-full-recovery-review.sh", "stage-dr-baseline-candidate.sh", "recovery-compose-drill.sh"):
+            relative = SCRIPTS_PREFIX + "release/" + name
+            with self.subTest(name=name):
+                target = self.commit_change(relative)
+                report = classify(self.root, base, target)
+                self.assertEqual(report["mode"], "full")
+                self.assertEqual(report["reason_codes"], ["recovery_change_requires_review", "release_state_machine_changed"])
+                self.assertEqual(report["changed_paths_sha256"], changed_paths_sha256([relative]))
+                with self.assertRaises(RuntimeError):
+                    recovery_gate.assert_release_allowed(report)
+                base = target
+
+    def test_full_recovery_sensitive_content_cannot_escape_review_by_rename(self) -> None:
+        source = SCRIPTS_PREFIX + "release/full_recovery_drill_authorization.py"
+        before = self.commit_change(source)
+        target_path = self.root / "tools/renamed-review.py"
+        target_path.parent.mkdir(parents=True)
+        (self.root / source).rename(target_path)
+        self.git("add", "-A")
+        self.git("commit", "-m", "rename recovery signer fixture")
+        report = classify(self.root, before, self.git("rev-parse", "HEAD"))
+        self.assertEqual(report["mode"], "full")
+        self.assertIn("recovery_change_requires_review", report["reason_codes"])
+
     def test_billing_inflight_cache_uses_specialized_mode(self) -> None:
         relative = "backend/internal/repository/billing_inflight_cache.go"
         target = self.commit_change(relative)

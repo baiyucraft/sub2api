@@ -10,6 +10,7 @@ description: 面向 Sub2API fork 的构建、开发门禁、应用与独立插�
 ## 不可违反的边界
 
 - 读取 `.ssh.local` 只能作为连接输入；禁止输出、提交或记录密码、私钥、token、`.env`、完整环境变量、展开后的 Compose 和原始连接资料。
+- 用户已授权发布或恢复演练时，所需的新备份加密 identity 由执行器自行准备：优先复用权限合格且可证明匹配的专用 identity；缺失时自动生成唯一的新 age X25519 identity，用其公开 recipient 加密新建备份，不再询问用户是否生成、要求用户提供私钥或指定存放路径。私钥持久保存在工作区外的用户专属安全存储，隔离恢复环境仅使用受控副本；生成、权限、持久保管、加解密自检及新资产真实恢复均需验证。新 key 不能解密旧密文；本次未取得旧资产匹配 key 时保留旧资产并报告其恢复验证未完成，当前发布采用新建备份继续验证。普通停机回退使用已校验的临时明文恢复包，无需提供解密私钥。备份 key 与 VM Gate/DR Ed25519 签名信任根分别管理，本条不授权替换签名信任根、改写旧证据或绕过门禁。完整规则见 [备份密钥自动准备](references/backup-and-restore.md#备份密钥自动准备)。
 - RackNerd 的发布命令、状态检查、镜像与恢复包传输必须使用 `.ssh.local` 的 `http_connect_via_ssh` 路由，经 DMIT SSH 和仅监听 WireGuard 的 `10.77.0.1:1080` HTTP CONNECT 代理到达 RackNerd；禁止静默回退到本机 SOCKS、旧 `8888` 或直连。DMIT 中继或 1080 失败时发布必须停止。
 - 任何远程写操作前先给出方案并获得用户确认；只读核验也必须采用字段白名单。
 - 生产旧容器在 candidate 构建、传输和验证完成前保持运行。
@@ -196,7 +197,7 @@ Profile 265 的兼容审阅绑定 `aeb410bccc524164bdafbd3db865d4f5f588aced` →
 - Gate 通过后需要展示 candidate 时，将已签名的 `candidate_image_id` 原位切换到 `sub2api-dev`。切换过程可短暂创建 next/backup 容器，但必须先验证 `8211` 页面、health、实际 image ID 和日志，再删除临时容器后交接。
 - `8211` 已被非 `sub2api-dev` 进程占用、存在额外 preview 容器或临时代理时，先停止展示并整理到上述单实例状态；禁止为绕过冲突继续增加端口。
 
-灾备 candidate 在进入任何晋升写操作前，必须先通过 [backup-and-restore.md](references/backup-and-restore.md) 的 exact-content bundle 合同。测试自测签名只能证明 signer 可用，不能替代真实解密、PostgreSQL/Redis 恢复和临时材料销毁；缺少批准的解密身份或恢复 helper 时必须停在 `restore pending`，保留 `candidate`，不得伪造 `verified`。
+灾备 candidate 在进入任何晋升写操作前，必须先通过 [backup-and-restore.md](references/backup-and-restore.md) 的 exact-content bundle 合同。测试自测签名只能证明 signer 可用，不能替代真实解密、PostgreSQL/Redis 恢复和临时材料销毁。新备份缺少解密 identity 时按备份密钥自动准备规则自行生成并新建备份；旧密文缺原 key 时保留旧资产并报告历史恢复能力缺口。自动准备、恢复 helper 或真实恢复尚未完成时保持 `restore pending`，保留 `candidate`，不得伪造 `verified`。
 
 不兼容 migration 还必须在生产停写后完成数据 preflight、migration plan checksum 和 postflight 语义校验。VM fixture 通过不能替代生产数据证据；没有可证明来源的历史行必须停止。
 
@@ -330,7 +331,7 @@ jq -cS '.manifest.migration_sha256' | sha256sum
 ### 生产成功与灾备基线
 
 - `verify-result=verified` 只证明生产切换成功。完整发布还需要真实隔离恢复、PostgreSQL/Redis 与 TTL 对账、签名 evidence 和 verified pointer 晋升。
-- 缺少仓库化恢复 helper 或已批准的解密身份时，将版本基线报告为 `partial` 并保留 candidate；禁止用 synthetic evidence 冒充真实恢复或 verified 基线。
+- 新备份缺少解密 identity 时执行器自动生成并验证，不再要求用户提供；缺仓库化恢复 helper、自动准备失败或真实恢复未完成时，将版本基线报告为 `partial` 并保留 candidate。旧密文缺原 key 另报历史恢复能力缺口；禁止用 synthetic evidence 冒充真实恢复或 verified 基线。
 
 ### 一次性收口清单
 

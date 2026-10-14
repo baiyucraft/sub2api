@@ -18,6 +18,7 @@ ID_GUARDS = {
     "release/context.sh": "release_dir",
     "release/prepare.sh": "release_id",
     "release/promote-backup.sh": "release_id",
+    "release/full-recovery-capture.sh": "release_id",
     "181/mask-backup-units.sh": "base",
     "181/restore-backup-units.sh": "base",
 }

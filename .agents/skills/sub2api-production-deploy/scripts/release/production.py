@@ -142,6 +142,31 @@ def emit_progress(message: str) -> None:
 
 
 class ProductionRelease:
+    def _backup_recipient_asset(self) -> Path | None:
+        """Stage only the public recipient bound by the verified full review.
+
+        The identity remains in persistent private storage. Daily backup
+        recipients and every historical release contract stay unchanged.
+        """
+        report = self.manifest.get("recovery_gate", {})
+        if not isinstance(report, dict) or report.get("schema") != 2:
+            return None
+        source = report.get("full_recovery_evidence", {}).get("payload", {}).get("source", {})
+        expected = source.get("approved_recipient_sha256")
+        if source.get("recipient_type") != "age1" or not isinstance(expected, str) or len(expected) != 64:
+            raise RuntimeError("signed full review backup recipient is unsupported")
+        from .backup_keys import prepare_identity
+        prepared = prepare_identity(expected_recipient_sha256=expected)
+        if (prepared.metadata.get("recipient_sha256") != expected
+                or prepared.metadata.get("identity_sha256") != source.get("approved_identity_sha256")):
+            raise RuntimeError("release backup identity differs from signed full review")
+        recipient = prepared.metadata["recipient"]
+        if hashlib.sha256(recipient.encode("ascii")).hexdigest() != expected:
+            raise RuntimeError("release backup recipient fingerprint differs")
+        path = self.gate_dir / "backup-recipient.txt"
+        atomic_write(path, (recipient + "\n").encode("ascii"), mode=0o400)
+        return path
+
     def __init__(self, gate_dir: Path, profile_name: str) -> None:
         self.gate_dir = gate_dir
         self.profile = get_release_profile(profile_name)
@@ -335,6 +360,9 @@ exit "$code"
             "gate.sig": self.gate_dir / "gate.sig",
             "candidate.tar.gz": self.gate_dir / "candidate.tar.gz",
         }
+        recipient_asset = self._backup_recipient_asset()
+        if recipient_asset is not None:
+            files["backup-recipient.txt"] = recipient_asset
         for path in sorted(MAINTENANCE_ROOT.glob("*")):
             if path.is_file():
                 files[f"assets/{path.name}"] = path
@@ -680,7 +708,10 @@ exit "$code"
 
     def _generate_backup(self, attempt: int) -> dict[str, str]:
         attempt_id = f"{self.release_id}-{attempt}"
-        backup_env = quoted_env({"RELEASE_DIR": self.release_dir, "BACKUP_ATTEMPT_ID": attempt_id})
+        backup_values = {"RELEASE_DIR": self.release_dir, "BACKUP_ATTEMPT_ID": attempt_id}
+        if self.manifest.get("recovery_gate", {}).get("schema") == 2:
+            backup_values["AGE_RECIPIENT_FILE"] = f"{self.release_dir}/backup-recipient.txt"
+        backup_env = quoted_env(backup_values)
         try:
             return self.run_remote(
                 "racknerd",

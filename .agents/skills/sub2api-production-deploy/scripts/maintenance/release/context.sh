@@ -12,7 +12,14 @@ active_claim=${ACTIVE_CLAIM:-/opt/sub2api/releases/.active-release}
    ($active_claim == "$release_dir/.recovered" && -n ${RECOVERY_ASSETS_DIR:-}) ]] || return 1
 [[ -d $active_claim && ! -L $active_claim ]]
 grep -Fxq "release_id=$release_id" "$active_claim/release_id"
-[[ -f $active_claim/gate.json && ! -L $active_claim/gate.json ]]
+unset recovery_drill_context_verified
+if [[ -n ${RECOVERY_DRILL_AUTHORIZATION:-} ]]; then
+  [[ -n ${RECOVERY_ASSETS_DIR:-} && ${RECOVERY_DRILL_MODE:-} == 1 ]] || return 1
+  [[ ! -e $active_claim/gate.json && ! -L $active_claim/gate.json ]] || return 1
+  [[ -f $active_claim/drill-metadata.json && ! -L $active_claim/drill-metadata.json && $(stat -c '%u:%g:%a:%h' "$active_claim/drill-metadata.json") == 0:0:400:1 ]] || return 1
+else
+  [[ -f $active_claim/gate.json && ! -L $active_claim/gate.json ]]
+fi
 (cd "$active_claim" && sha256sum -c CLAIM_SHA256SUMS >/dev/null)
 assets_dir="$active_claim/assets"
 if [[ -n ${RECOVERY_ASSETS_DIR:-} ]]; then
@@ -22,6 +29,55 @@ if [[ -n ${RECOVERY_ASSETS_DIR:-} ]]; then
   [[ $(stat -c '%u:%g:%a' "$recovery_assets") == 0:0:700 ]] || return 1
   recovery_authorization=${RECOVERY_HELPER_GATE:-$active_claim/gate.json}
   recovery_signature=${RECOVERY_HELPER_SIGNATURE:-$active_claim/gate.sig}
+  if [[ -n ${RECOVERY_DRILL_AUTHORIZATION:-} ]]; then
+    # This distinct domain only permits executing the reviewed helper closure
+    # inside a proven offline private-user Guest. It asserts no VM Gate pass.
+    [[ ${RECOVERY_DRILL_MODE:-} == 1 && ${RECOVERY_FULL_DRILL_ID:-} =~ ^full-dr-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]] || return 1
+    recovery_authorization=$RECOVERY_DRILL_AUTHORIZATION
+    [[ -f $recovery_authorization && ! -L $recovery_authorization && $(stat -c '%u:%g:%a:%h' "$recovery_authorization") == 0:0:400:1 ]] || return 1
+    recovery_trust=/opt/sub2api-release-trust/vm-gate-ed25519.pub
+    [[ -f $recovery_trust && ! -L $recovery_trust ]] || return 1
+    # Authenticate the separate envelope before sourcing either shell guard
+    # or Python verifier. No Gate signer or fake evidence is involved.
+    /usr/bin/python3 -I - "$recovery_authorization" "$recovery_trust" "$recovery_assets" <<'PY'
+import base64, hashlib, json, pathlib, sys
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+def unique(pairs):
+    out = {}
+    for key, value in pairs:
+        if key in out: raise SystemExit('duplicate authorization field')
+        out[key] = value
+    return out
+root = pathlib.Path(sys.argv[3])
+envelope = json.loads(pathlib.Path(sys.argv[1]).read_bytes(), object_pairs_hook=unique)
+assert set(envelope) == {'payload', 'signature'}
+payload, signature = envelope['payload'], envelope['signature']
+assert payload['type'] == 'sub2api-isolated-recovery-authorization'
+assert payload['intended_use'] == 'offline-full-dr-only'
+assert set(signature) == {'algorithm', 'key_sha256', 'value'} and signature['algorithm'] == 'Ed25519'
+trust = pathlib.Path(sys.argv[2]).read_bytes()
+assert hashlib.sha256(trust).hexdigest() == signature['key_sha256'] == payload['trusted_public_key_sha256']
+key = serialization.load_pem_public_key(trust)
+assert isinstance(key, Ed25519PublicKey)
+raw = base64.b64decode(signature['value'], validate=True)
+assert len(raw) == 64 and base64.b64encode(raw).decode() == signature['value']
+key.verify(raw, json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(',', ':')).encode())
+for name, field in (('recovery-isolation.sh', 'isolation_guard_sha256'), ('full_recovery_drill_authorization.py', 'verifier_sha256')):
+    file = root / name
+    assert file.is_file() and not file.is_symlink() and file.stat().st_nlink == 1
+    assert hashlib.sha256(file.read_bytes()).hexdigest() == payload[field]
+PY
+    [[ $? == 0 ]] || return 1
+    source "$recovery_assets/recovery-isolation.sh"
+    recovery_drill_assert_isolated "$RECOVERY_HELPER_BUNDLE_SHA256" || return 1
+    /usr/bin/python3 -I "$recovery_assets/full_recovery_drill_authorization.py" \
+      --authorization "$recovery_authorization" --trust "$recovery_trust" \
+      --bundle "$recovery_assets" --drill-id "$RECOVERY_FULL_DRILL_ID" \
+      --release-id "$release_id" --expected-bundle "$RECOVERY_HELPER_BUNDLE_SHA256" \
+      --context "$active_claim/drill-metadata.json" || return 1
+    recovery_drill_context_verified=1
+  else
   for recovery_file in "$recovery_authorization" "$recovery_signature"; do
     [[ -f $recovery_file && ! -L $recovery_file && $(stat -c '%u:%g:%a:%h' "$recovery_file") == 0:0:400:1 ]] || return 1
   done
@@ -35,6 +91,7 @@ if [[ -n ${RECOVERY_ASSETS_DIR:-} ]]; then
   [[ $(sha256sum "$recovery_assets/recovery_bundle.py" | awk '{print $1}') == "$recovery_verifier_sha" ]] || return 1
   python3 "$recovery_assets/recovery_bundle.py" --verify "$recovery_assets" \
     --expected "$RECOVERY_HELPER_BUNDLE_SHA256" --gate "$recovery_authorization" >/dev/null || return 1
+  fi
   if [[ $active_claim == "$release_dir/.recovered" ]]; then
     [[ ! -e /opt/sub2api/releases/.active-release && ! -L /opt/sub2api/releases/.active-release ]] || return 1
     [[ -f $active_claim/marker && ! -L $active_claim/marker ]] || return 1
@@ -43,6 +100,20 @@ if [[ -n ${RECOVERY_ASSETS_DIR:-} ]]; then
   assets_dir=$recovery_assets
 fi
 source "$assets_dir/compose-contract.sh"
+if [[ -n ${RECOVERY_DRILL_AUTHORIZATION:-} ]]; then
+  [[ ${recovery_drill_context_verified:-} == 1 ]] || return 1
+  # These are explicitly authorized offline source metadata, never a Gate or
+  # a candidate archive. The formal restore path only uses the old image.
+  candidate_image_id=$(jq -er '.candidate_image_id' "$active_claim/drill-metadata.json")
+  candidate_archive_sha=$(jq -er '.archive_sha256' "$active_claim/drill-metadata.json")
+  commit=$(jq -er '.commit_sha' "$active_claim/drill-metadata.json")
+  profile=$(jq -er '.profile' "$active_claim/drill-metadata.json")
+  version=$(jq -er '.version' "$active_claim/drill-metadata.json")
+  [[ -z ${DEPLOYMENT_MODE:-} || $DEPLOYMENT_MODE == downtime ]] || return 1
+  deployment_mode=downtime
+  manifest_schema=2
+  migrations=()
+else
 candidate_image_id=$(jq -er '.evidence.candidate_image_id' "$active_claim/gate.json")
 candidate_archive_sha=$(jq -er '.evidence.candidate_archive_sha256' "$active_claim/gate.json")
 commit=$(jq -er '.manifest.commit_sha' "$active_claim/gate.json")
@@ -50,13 +121,14 @@ profile=$(jq -er '.manifest.profile' "$active_claim/gate.json")
 version=$(jq -er '.manifest.version' "$active_claim/gate.json")
 deployment_mode=${DEPLOYMENT_MODE:-$(jq -er '.manifest.deployment_mode' "$active_claim/gate.json")}
 [[ $deployment_mode == blue-green || $deployment_mode == downtime ]]
-candidate_tag="sub2api:baiyu-$version-$commit"
 manifest_schema=$(jq -er '.manifest.schema' "$active_claim/gate.json")
 if [[ $manifest_schema == 2 ]]; then
   mapfile -t migrations < <(jq -er '.evidence.migration_evidence.pending[]?.filename' "$active_claim/gate.json")
 else
   mapfile -t migrations < <(jq -er '.manifest.migrations[]' "$active_claim/gate.json")
 fi
+fi
+candidate_tag="sub2api:baiyu-$version-$commit"
 [[ $candidate_image_id =~ ^sha256:[0-9a-f]{64}$ ]]
 [[ $candidate_archive_sha =~ ^[0-9a-f]{64}$ ]]
 [[ $commit =~ ^[0-9a-f]{40}$ ]]
