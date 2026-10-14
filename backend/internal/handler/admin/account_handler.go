@@ -895,6 +895,49 @@ func (h *AccountHandler) listAccountsWithQualityFilter(
 	return filtered[start:end], int64(total), nil
 }
 
+func accountListUpstreamKeyIDs(accounts []service.Account) []int64 {
+	keyIDs := make([]int64, 0, len(accounts))
+	seen := make(map[int64]struct{}, len(accounts))
+	for i := range accounts {
+		keyID := accounts[i].UpstreamKeyID
+		if keyID == nil || *keyID <= 0 {
+			continue
+		}
+		if _, exists := seen[*keyID]; exists {
+			continue
+		}
+		seen[*keyID] = struct{}{}
+		keyIDs = append(keyIDs, *keyID)
+	}
+	return keyIDs
+}
+
+func (h *AccountHandler) accountListHealthConfidences(ctx context.Context, keyIDs []int64) map[int64]service.UpstreamHealthConfidenceSummary {
+	if len(keyIDs) == 0 {
+		return nil
+	}
+	if reader, ok := h.upstreamHealthReader.(service.UpstreamHealthConfidencesReader); ok {
+		results, err := reader.GetUpstreamHealthConfidences(ctx, keyIDs)
+		if err != nil {
+			slog.Warn("failed to load upstream confidence summaries", "reason", "confidence_read_unavailable")
+		}
+		return results
+	}
+	// Older readers remain compatible; the production reader implements the
+	// page-wide interface so no per-account query runs on the normal list path.
+	reader, ok := h.upstreamHealthReader.(service.UpstreamHealthConfidenceReader)
+	if !ok {
+		return nil
+	}
+	results := make(map[int64]service.UpstreamHealthConfidenceSummary, len(keyIDs))
+	for _, keyID := range keyIDs {
+		if summary, err := reader.GetUpstreamHealthConfidence(ctx, keyID); err == nil {
+			results[keyID] = summary
+		}
+	}
+	return results
+}
+
 // List handles listing all accounts with pagination
 // GET /api/v1/admin/accounts
 func (h *AccountHandler) List(c *gin.Context) {
@@ -1058,15 +1101,12 @@ func (h *AccountHandler) List(c *gin.Context) {
 	if h.ttftGuardReader != nil && len(ttftGuardAccountIDs) > 0 {
 		ttftGuardDegradations = h.ttftGuardReader.OpenAITTFTGuardDegradations(ttftGuardAccountIDs)
 	}
+	upstreamKeyIDs := accountListUpstreamKeyIDs(accounts)
+	upstreamConfidences := h.accountListHealthConfidences(c.Request.Context(), upstreamKeyIDs)
+	upstreamCacheGuardStates := service.UpstreamCacheGuardAccountStatesBatch(accounts)
 	if scope == service.AccountListScopeUpstream && h.upstreamHealthReader != nil {
-		keyIDs := make([]int64, 0, len(accounts))
-		for i := range accounts {
-			if accounts[i].UpstreamKeyID != nil && *accounts[i].UpstreamKeyID > 0 {
-				keyIDs = append(keyIDs, *accounts[i].UpstreamKeyID)
-			}
-		}
-		if len(keyIDs) > 0 {
-			upstreamHealthHistories, err = h.upstreamHealthReader.ListUpstreamHealthHistories(c.Request.Context(), keyIDs, service.UpstreamHealthListHistoryLimit)
+		if len(upstreamKeyIDs) > 0 {
+			upstreamHealthHistories, err = h.upstreamHealthReader.ListUpstreamHealthHistories(c.Request.Context(), upstreamKeyIDs, service.UpstreamHealthListHistoryLimit)
 			if err != nil {
 				slog.Warn("failed to load upstream health histories", "error", err)
 				upstreamHealthHistories = nil
@@ -1166,7 +1206,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 			SchedulerScore:           schedulerScores[acc.ID],
 			SchedulerScores:          schedulerGroupScores[acc.ID],
 			TTFTGuardDegradations:    accountTTFTGuardDegradations,
-			UpstreamCacheGuardStates: service.UpstreamCacheGuardAccountStates(acc),
+			UpstreamCacheGuardStates: upstreamCacheGuardStates[acc.ID],
 			ProxyConcurrency:         proxyConcurrency[acc.ID],
 		}
 		target := acc.SchedulingConcurrencyTarget()
@@ -1180,10 +1220,8 @@ func (h *AccountHandler) List(c *gin.Context) {
 		}
 		if acc.UpstreamKeyID != nil {
 			health := service.GlobalUpstreamHealthRegistry().Snapshot(*acc.UpstreamKeyID)
-			if reader, ok := h.upstreamHealthReader.(service.UpstreamHealthConfidenceReader); ok {
-				if confidence, err := reader.GetUpstreamHealthConfidence(c.Request.Context(), *acc.UpstreamKeyID); err == nil {
-					health = service.MergeUpstreamHealthConfidence(health, confidence)
-				}
+			if confidence, ok := upstreamConfidences[*acc.UpstreamKeyID]; ok {
+				health = service.MergeUpstreamHealthConfidence(health, confidence)
 			}
 			item.UpstreamHealth = &AccountUpstreamHealth{UpstreamHealthSnapshot: health, History: upstreamHealthHistories[*acc.UpstreamKeyID]}
 		}

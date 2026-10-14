@@ -568,7 +568,8 @@
         "backend/internal/service/upstream_cache_usage_session.go",
         "backend/internal/service/upstream_cache_usage_session_test.go",
         "backend/internal/service/openai_ttft_guard_quality_test.go",
-        "backend/internal/service/openai_response_terminal_usage_compat_test.go"
+        "backend/internal/service/openai_response_terminal_usage_compat_test.go",
+        "backend/internal/service/upstream_cache_guard_api_batch_test.go"
       ],
       "symbols": [
         "SettingKeyUpstreamCacheGuard",
@@ -579,7 +580,8 @@
         "UpstreamCacheGuardLinkedProtection",
         "DerivedProtection",
         "DeriveAccountProtection",
-        "selectGatewayCacheGuardTiers"
+        "selectGatewayCacheGuardTiers",
+        "UpstreamCacheGuardAccountStatesBatch"
       ],
       "api_routes": [
         "/admin/upstream-management/settings",
@@ -623,7 +625,9 @@
         "backend/internal/service/upstream_cache_guard_anthropic_lifecycle_test.go",
         "backend/internal/service/upstream_cache_usage_session_test.go",
         "backend/internal/service/openai_ttft_guard_quality_test.go",
-        "backend/internal/service/openai_response_terminal_usage_compat_test.go"
+        "backend/internal/service/openai_response_terminal_usage_compat_test.go",
+        "backend/internal/service/upstream_cache_guard_api_batch_test.go",
+        "backend/internal/handler/admin/account_handler_refresh_test.go"
       ],
       "invariants": [
         "统计固定group加account跨模型，排除冷首轮和无效样本，原始上游输入与缓存Token在计费转换前捕获；未知率不是零",
@@ -639,7 +643,8 @@
         "联动决策不复制本组rate/count/recovery、不改目标原生phase或建立伪造cohort；无本组runtime仍可显示来源，本组率未知count0；API新增可选linked_protection及native_state/native_reason，来源组阈值/phase/恢复进度独立展示",
         "每个source独立恢复前保留其联动原因，本组高缓存不能替代source恢复；来源离开统计窗口不解除原生保护；多来源按threshold再group ID稳定主来源，一源恢复不清除其他来源；不可用/过期快照、sampling gap、Key轮换与范围外来源不联动",
         "profile268为0.2.16-baiyu,parent267,仅迁移296；全部历史profile/SQL/checksum不回写，完整执行闭包接线，未知269拒绝；本地登记不代表VM、数据库升级或生产部署，无新恢复豁免",
-        "迁移目标仅Wait时优先保留硬合法source及其Wait；只有source也硬失效才回原硬候选池，软迁移不提前覆盖sticky绑定；普通账号不参与缓存评分但可参与最终硬故障fallback"
+        "迁移目标仅Wait时优先保留硬合法source及其Wait；只有source也硬失效才回原硬候选池，软迁移不提前覆盖sticky绑定；普通账号不参与缓存评分但可参与最终硬故障fallback",
+        "账号列表在单次请求内按组复用现有CachedSnapshot并按账号及Key索引，保留5秒新鲜度、不可用、原生与跨组联动显示；不跨请求缓存、不修改engine采样判定或调度"
       ]
     },
     {
@@ -775,7 +780,8 @@
         "frontend/src/views/admin/AccountsView.vue",
         "frontend/src/components/layout/AppSidebar.vue",
         "frontend/src/router/index.ts",
-        "backend/migrations/251_upstream_key_platform_catalog.sql"
+        "backend/migrations/251_upstream_key_platform_catalog.sql",
+        "backend/internal/handler/admin/account_handler_refresh_test.go"
       ],
       "symbols": [
         "GetUpstreamDashboard",
@@ -784,7 +790,8 @@
         "ListUpstreamManagement",
         "UpstreamConfigID",
         "isAssignableUpstreamKeyPlatform",
-        "upstream-config-dashboard"
+        "upstream-config-dashboard",
+        "accountListHealthConfidences"
       ],
       "api_routes": [
         "/upstream-dashboard",
@@ -810,7 +817,8 @@
         "frontend/src/views/admin/__tests__/UpstreamDashboardView.spec.ts",
         "frontend/src/views/admin/__tests__/UpstreamDashboardView.recharge.spec.ts",
         "frontend/src/utils/__tests__/upstreamRecharge.spec.ts",
-        "frontend/src/views/admin/__tests__/AccountsView.lite.spec.ts"
+        "frontend/src/views/admin/__tests__/AccountsView.lite.spec.ts",
+        "backend/internal/handler/admin/account_handler_refresh_test.go"
       ],
       "invariants": [
         "本合同只拥有配置、Key、聚合看板和账号入口，不吸收 lifecycle、model sync、edit policy、balance alert 等独立扩展的所有权",
@@ -828,7 +836,8 @@
         "Key 平台白名单复用 concrete platform catalog，排除 composite",
         "未知上游平台保留在结构化 extra 证据并置为未分配，不因单个 Key 阻断整次 Sub2API 同步",
         "compact 列表只暴露清洗后的派生、能力与调度元数据，不暴露凭据；编辑按需加载详情，列表刷新不得用 lite 数据覆盖完整编辑对象",
-        "官方模型元数据同步与 fork sync_managed 持久白名单同步分开执行，各自保留 ownership"
+        "官方模型元数据同步与 fork sync_managed 持久白名单同步分开执行，各自保留 ownership",
+        "上游账号列表按页去重Key并使用可选批量可信度reader和批量缓存保护显示投影，旧single reader兼容；汇总变化仍参与ETag，304不代表跳过列表组装查询"
       ]
     },
     {
@@ -1204,8 +1213,8 @@
     },
     {
       "id": "admin-account-runtime-isolation", "title": "账号页面运行态隔离与渲染收敛", "description": "普通账号和上游管理复用页面时隔离列、排序、自动刷新和请求代际，并收敛健康 Tooltip、TTFT ticker、表格测量及图片成本摘要渲染。", "ownership": "fork", "risk_level": "high",
-      "paths": ["frontend/src/views/admin/AccountsView.vue", "frontend/src/components/account/UpstreamHealthHistory.vue", "frontend/src/components/account/TTFTGuardStatusBadge.vue", "frontend/src/composables/useTTFTGuardTicker.ts", "frontend/src/components/common/DataTable.vue", "frontend/src/components/account/UpstreamImagePricingSummary.vue", "frontend/src/types/index.ts"],
-      "symbols": ["getViewPreferenceStorageConfig", "useTTFTGuardTicker", "requestAnimationFrame", "UpstreamImagePricingSummary", "UpstreamHealthHistory"], "api_routes": [], "settings_keys": [], "migration_files": [], "required_tests": ["frontend/src/views/admin/__tests__/AccountsView.upstreamManagement.spec.ts", "frontend/src/components/account/__tests__/UpstreamHealthHistory.spec.ts", "frontend/src/components/account/__tests__/TTFTGuardStatusBadge.spec.ts", "frontend/src/components/common/__tests__/DataTable.spec.ts", "frontend/src/components/account/__tests__/UpstreamImagePricingSummary.spec.ts"], "invariants": ["普通账号页与上游管理页的隐藏列 localStorage key 完全隔离", "普通账号页与上游管理页的排序状态完全隔离", "普通账号页与上游管理页的自动刷新开关、间隔、ETag、请求 generation 和静默窗口完全隔离", "切换页面 scope 后旧自动刷新响应不得覆盖新页面数据", "健康历史整列只创建一个共享 Tooltip，不得为每个状态点创建独立浮层", "TTFT 徽标全页共用单一 ticker，不得每行建立独立定时器", "DataTable 尺寸测量必须通过 requestAnimationFrame 合并且卸载时取消", "图片成本必须以结构化摘要展示能力、倍率来源和 1K/2K/4K 成本"]
+      "paths": ["frontend/src/views/admin/AccountsView.vue", "frontend/src/components/account/UpstreamHealthHistory.vue", "frontend/src/components/account/TTFTGuardStatusBadge.vue", "frontend/src/composables/useTTFTGuardTicker.ts", "frontend/src/components/common/DataTable.vue", "frontend/src/components/account/UpstreamImagePricingSummary.vue", "frontend/src/types/index.ts", "frontend/src/api/admin/upstreamManagement.ts"],
+      "symbols": ["getViewPreferenceStorageConfig", "useTTFTGuardTicker", "requestAnimationFrame", "UpstreamImagePricingSummary", "UpstreamHealthHistory", "buildAccountListContext", "refreshAccountsIncrementally", "handleManualRefresh"], "api_routes": [], "settings_keys": [], "migration_files": [], "required_tests": ["frontend/src/views/admin/__tests__/AccountsView.upstreamManagement.spec.ts", "frontend/src/components/account/__tests__/UpstreamHealthHistory.spec.ts", "frontend/src/components/account/__tests__/TTFTGuardStatusBadge.spec.ts", "frontend/src/components/common/__tests__/DataTable.spec.ts", "frontend/src/components/account/__tests__/UpstreamImagePricingSummary.spec.ts", "frontend/src/api/admin/__tests__/upstreamManagementAccountFilters.spec.ts", "frontend/src/views/admin/__tests__/AccountsView.lite.spec.ts"], "invariants": ["普通账号页与上游管理页的隐藏列 localStorage key 完全隔离", "普通账号页与上游管理页的排序状态完全隔离", "普通账号页与上游管理页的自动刷新开关、间隔、ETag、请求 generation 和静默窗口完全隔离", "切换页面 scope 后旧自动刷新响应不得覆盖新页面数据", "健康历史整列只创建一个共享 Tooltip，不得为每个状态点创建独立浮层", "TTFT 徽标全页共用单一 ticker，不得每行建立独立定时器", "DataTable 尺寸测量必须通过 requestAnimationFrame 合并且卸载时取消", "图片成本必须以结构化摘要展示能力、倍率来源和 1K/2K/4K 成本", "上游账号同查询条件手动与自动刷新保留已有行并完整比较lite显示投影，缓存保护或调度字段变化不能依赖updated_at；初载及查询条件切换沿用加载反馈，编辑草稿不被列表覆盖", "列表请求绑定scope、分页、筛选、排序版本并透传HTTP取消；同上下文刷新合并在途请求，迟到或卸载后响应不得覆盖当前页面", "今日统计、质量与支持平台用量独立更新；手动强制用量刷新不能被五分钟缓存或普通在途吞掉，重复force意图在普通请求结束后最多合并一次后续强制批量读取"]
     },
     {
       "id": "probe-guard", "title": "全局 Probe Guard 与临时不可调度联动", "description": "全局错误码追加、失败/恢复阈值、默认错误分类及 probe-owned 临时不可调度联动。", "ownership": "fork", "risk_level": "high", "paths": ["backend/internal/service/upstream_probe_guard*.go", "backend/internal/service/upstream_health.go", "backend/internal/handler/admin/upstream_management_handler.go", "frontend/src/components/admin/account/UpstreamManagementSettingsDialog.vue", "frontend/src/components/account/CustomErrorCodeSelector.vue"], "symbols": ["UpstreamProbeGuardSettings", "custom_error_codes", "suspend_after_failures", "recovery_successes"], "api_routes": ["/upstream-management/settings"], "settings_keys": ["upstream_probe_guard_settings"], "migration_files": [], "required_tests": ["backend/internal/service/upstream_probe_guard_settings_test.go", "frontend/src/components/admin/account/__tests__/UpstreamManagementSettingsDialog.spec.ts"], "invariants": ["自定义错误码追加而非替换默认规则", "429/529 默认降级", "业务来源状态不受全局探针开关覆盖"]
@@ -1509,7 +1518,7 @@
       "invariants": ["一个未删除 upstream key 最多绑定一个派生账号，历史重复在迁移前 fail-closed", "认证会话按 upstream_config_id 唯一且与配置删除同事务清理", "secret_ciphertext 只允许加密存储，禁止出现在 API、日志和错误文本", "策略返回认证成功 handle 后，业务请求前即时密文 checkpoint；保存失败停止业务，业务失败记账读取最新快照，不覆盖轮转凭据", "NewAPI 通过可选 DurableAuthLifecycle 启用过期句柄续期和即时认证计数；Sub2API 保留原计数与恢复预算，checkpoint 本身不改变旧计数；LCodex认证策略退场不改变共享密文存储和历史lcodex_login_password安全边界；旧认证指纹材料遗留字段只用于内部摘要兼容，避免Sub2API/NewAPI现有持久会话因退场整体失效，最低回归绑定upstream_auth_session_test.go的TestUpstreamAuthFingerprintRetiredProviderRemovalPreservesActiveSessions", "成功业务后重新序列化最新 Cookie；NewAPI 失败请求不清零连续认证异常，原冷却阈值与持续时间不变", "Key base_url 为空时回退配置 URL，显式 Key URL 优先", "上游绑定账号的实际 Key base_url 高于历史 api_base_urls 与平台官方默认地址，任何协议探针和业务请求都不得把第三方 Key 静默发送到官方域名", "国产平台 adaptive 仅在真实端点能力明确为 supported 时走原生 Responses，unknown、not_configured 与 unsupported 走 Chat Completions 转换；OpenCode Go 继续以模型级 protocol_rules 为准", "上游绑定账号只允许保存经过校验的账号级 api_protocol，base_url、api_base_urls 与 api_key 继续由绑定 Key 管理"]
     },
     {
-      "id": "upstream-confidence-juice-probe", "title": "Juice 单请求多探针可信度与有效样本调度反馈", "description": "使用 openai-juice-multiprobe-v2 单请求随机探针：70% Juice、15% Coverage、15% 输出完整性；Juice 固定使用 high effort。按 current_success/mixed/unsuccessful/network_error 记录 Juice，保存 expected/observed/matched-models 结构化证据；Coverage 与输出改写作为独立 24h 硬异常。可信度配置未明确启用时不进入独立后台探针和调度反馈。", "ownership": "fork", "risk_level": "critical", "paths": ["backend/ent/schema/upstream_health_observation.go", "backend/internal/service/upstream_confidence_probe_settings.go", "backend/internal/service/upstream_health_probe_client.go", "backend/internal/service/upstream_health_probe.go", "backend/internal/service/upstream_config.go", "backend/internal/repository/upstream_health_observation_repo.go", "backend/internal/service/openai_account_scheduler.go", "backend/internal/handler/admin/upstream_management_handler.go", "frontend/src/components/admin/account/UpstreamManagementSettingsDialog.vue", "frontend/src/components/account/UpstreamHealthCell.vue", "frontend/src/i18n/locales/zh/admin/upstreamManagement.ts", "frontend/src/i18n/locales/en/admin/upstreamManagement.ts", "backend/migrations/248_upstream_confidence_probe.sql", "backend/migrations/249_upstream_confidence_juice_reset.sql", "backend/migrations/250_upstream_confidence_multiprobe_v2.sql"], "symbols": ["UpstreamConfidenceProbeSettings", "GetUpstreamConfidenceProbeSettingsState", "openai-juice-multiprobe-v2", "confidenceEvidence", "current_success", "mixed", "network_error", "ReportOpenAIAccountScheduleResult", "confidenceProbeIndependent"], "api_routes": ["/admin/upstream-management/settings", "/admin/upstream-management/keys"], "settings_keys": ["upstream_confidence_probe_settings"], "migration_files": ["248_upstream_confidence_probe.sql", "249_upstream_confidence_juice_reset.sql", "250_upstream_confidence_multiprobe_v2.sql"], "required_tests": ["backend/internal/service/upstream_confidence_probe_settings_test.go", "backend/internal/service/upstream_health_probe_client_test.go", "backend/internal/service/upstream_health_service_test.go", "backend/internal/repository/upstream_health_confidence_test.go", "backend/internal/repository/upstream_health_observation_repo_test.go", "backend/migrations/profile_249_migrations_test.go", "frontend/src/components/account/__tests__/UpstreamHealthCell.spec.ts", "frontend/src/components/admin/account/__tests__/UpstreamManagementSettingsDialog.spec.ts"], "invariants": ["只有数据库中存在合法配置且 enabled=true 才启用独立模式；缺失、空值、disabled、读取失败和非法 JSON 均视为未启用", "可信度版本固定为 openai-juice-multiprobe-v2；每次只发送一个请求，Juice/覆盖/输出完整性分别按 70/15/15 选择", "Juice effort 固定为 high；不再随机选择 low/medium/xhigh/max；不比较 response.completed.response.model，不注入额外 instructions 或 max_output_tokens", "网络错误、HTTP 错误、超时、流中断和无有效返回不进入 Juice 分母；有效完成但 Juice 错误值或 mixed 保留为可信度失败证据", "Coverage 与输出完整性不进入 Juice 数字分数；24h 出现硬异常时可信度徽标降级", "24h/7d Juice 分数按 current_success/valid_completed 计算，样本不足单独标记，不伪装成 0", "Juice 探针首字和网络结果仅在可信度配置明确启用时进入调度反馈；TTFT 保留，质量降级不改写网络 success", "非 OpenAI 不显示可信度占位；健康和可信度徽标同行；旧 v1 不参与 v2 统计；清理只清空旧可信度字段，保留普通健康证据"]
+      "id": "upstream-confidence-juice-probe", "title": "Juice 单请求多探针可信度与有效样本调度反馈", "description": "使用 openai-juice-multiprobe-v2 单请求随机探针：70% Juice、15% Coverage、15% 输出完整性；Juice 固定使用 high effort。按 current_success/mixed/unsuccessful/network_error 记录 Juice，保存 expected/observed/matched-models 结构化证据；Coverage 与输出改写作为独立 24h 硬异常。可信度配置未明确启用时不进入独立后台探针和调度反馈。", "ownership": "fork", "risk_level": "critical", "paths": ["backend/ent/schema/upstream_health_observation.go", "backend/internal/service/upstream_confidence_probe_settings.go", "backend/internal/service/upstream_health_probe_client.go", "backend/internal/service/upstream_health_probe.go", "backend/internal/service/upstream_config.go", "backend/internal/repository/upstream_health_observation_repo.go", "backend/internal/service/openai_account_scheduler.go", "backend/internal/handler/admin/upstream_management_handler.go", "frontend/src/components/admin/account/UpstreamManagementSettingsDialog.vue", "frontend/src/components/account/UpstreamHealthCell.vue", "frontend/src/i18n/locales/zh/admin/upstreamManagement.ts", "frontend/src/i18n/locales/en/admin/upstreamManagement.ts", "backend/migrations/248_upstream_confidence_probe.sql", "backend/migrations/249_upstream_confidence_juice_reset.sql", "backend/migrations/250_upstream_confidence_multiprobe_v2.sql", "backend/internal/service/upstream_health_confidence_batch.go", "backend/internal/service/upstream_health_confidence_batch_test.go", "backend/internal/repository/upstream_health_confidence_batch_test.go"], "symbols": ["UpstreamConfidenceProbeSettings", "GetUpstreamConfidenceProbeSettingsState", "openai-juice-multiprobe-v2", "confidenceEvidence", "current_success", "mixed", "network_error", "ReportOpenAIAccountScheduleResult", "confidenceProbeIndependent", "GetUpstreamHealthConfidences", "UpstreamHealthConfidencesReader"], "api_routes": ["/admin/upstream-management/settings", "/admin/upstream-management/keys"], "settings_keys": ["upstream_confidence_probe_settings"], "migration_files": ["248_upstream_confidence_probe.sql", "249_upstream_confidence_juice_reset.sql", "250_upstream_confidence_multiprobe_v2.sql"], "required_tests": ["backend/internal/service/upstream_confidence_probe_settings_test.go", "backend/internal/service/upstream_health_probe_client_test.go", "backend/internal/service/upstream_health_service_test.go", "backend/internal/repository/upstream_health_confidence_test.go", "backend/internal/repository/upstream_health_observation_repo_test.go", "backend/migrations/profile_249_migrations_test.go", "frontend/src/components/account/__tests__/UpstreamHealthCell.spec.ts", "frontend/src/components/admin/account/__tests__/UpstreamManagementSettingsDialog.spec.ts", "backend/internal/repository/upstream_health_confidence_batch_test.go", "backend/internal/service/upstream_health_confidence_batch_test.go"], "invariants": ["只有数据库中存在合法配置且 enabled=true 才启用独立模式；缺失、空值、disabled、读取失败和非法 JSON 均视为未启用", "可信度版本固定为 openai-juice-multiprobe-v2；每次只发送一个请求，Juice/覆盖/输出完整性分别按 70/15/15 选择", "Juice effort 固定为 high；不再随机选择 low/medium/xhigh/max；不比较 response.completed.response.model，不注入额外 instructions 或 max_output_tokens", "网络错误、HTTP 错误、超时、流中断和无有效返回不进入 Juice 分母；有效完成但 Juice 错误值或 mixed 保留为可信度失败证据", "Coverage 与输出完整性不进入 Juice 数字分数；24h 出现硬异常时可信度徽标降级", "24h/7d Juice 分数按 current_success/valid_completed 计算，样本不足单独标记，不伪装成 0", "Juice 探针首字和网络结果仅在可信度配置明确启用时进入调度反馈；TTFT 保留，质量降级不改写网络 success", "非 OpenAI 不显示可信度占位；健康和可信度徽标同行；旧 v1 不参与 v2 统计；清理只清空旧可信度字段，保留普通健康证据", "列表可信度批量读取保留完整七天窗口、版本和每Key原有时间/ID顺序及聚合口径，不以Limit截断窗口；配置仅在本次请求复用，无跨请求结果缓存"]
     },
     {
       "id": "registration-email-abuse-guard", "title": "注册邮箱别名与 Gmail 普通地址限制", "description": "基于官方注册、验证码、OAuth 建号与邮箱白名单基座，fork 增加收件箱身份归一化去重，并在白名单显式包含 Gmail 家族时限制为字母数字普通地址。", "ownership": "fork", "risk_level": "high",
@@ -1577,12 +1586,12 @@
       "description": "每次真实探针只发送一个随机短题，以持久化固定题序及最近 128 次尝试计算 Sol 行为匹配分数，判定只用于展示和独立告警。",
       "ownership": "fork",
       "risk_level": "high",
-      "paths": ["backend/internal/service/upstream_confidence_distribution.go", "backend/internal/service/upstream_confidence_distribution_state.go", "backend/internal/service/upstream_confidence_distribution_probe.go", "backend/internal/service/upstream_confidence_distribution_identity.go", "backend/internal/service/upstream_confidence_probe_settings.go", "backend/internal/service/confidence_baselines/**", "backend/internal/service/upstream_health_probe_client.go", "backend/internal/service/upstream_config.go", "backend/internal/handler/admin/upstream_management_handler.go", "backend/internal/service/upstream_health.go", "backend/internal/repository/upstream_confidence_distribution_repo.go", "backend/internal/repository/upstream_health_observation_repo.go", "backend/migrations/288_upstream_confidence_distribution.sql", "frontend/src/components/account/UpstreamHealthCell.vue", "frontend/src/views/admin/upstream/UpstreamKeyRateTrendPanel.vue", "frontend/src/i18n/locales/zh/admin/upstreamConfigs.ts", "frontend/src/i18n/locales/en/admin/upstreamConfigs.ts", "frontend/src/components/admin/account/UpstreamManagementSettingsDialog.vue", "frontend/src/types/index.ts", "frontend/src/api/admin/upstreamManagement.ts", "frontend/src/api/admin/upstreamConfigs.ts", "frontend/src/components/common/HelpTooltip.vue", "frontend/src/i18n/locales/zh/admin/upstreamManagement.ts", "frontend/src/i18n/locales/en/admin/upstreamManagement.ts"],
-      "symbols": ["ScoreUpstreamConfidenceDistribution", "NewDistributionProbeOrder", "NormalizeDistributionAnswer", "ClaimConfidenceDistribution", "FinishConfidenceDistribution", "LoadConfidenceDistributionForSeries", "ResolveConfidenceDistributionIdentity", "ConfidenceDistributionIdentity", "ConfidenceDistributionSeriesReset"],
+      "paths": ["backend/internal/service/upstream_confidence_distribution.go", "backend/internal/service/upstream_confidence_distribution_state.go", "backend/internal/service/upstream_confidence_distribution_probe.go", "backend/internal/service/upstream_confidence_distribution_identity.go", "backend/internal/service/upstream_confidence_probe_settings.go", "backend/internal/service/confidence_baselines/**", "backend/internal/service/upstream_health_probe_client.go", "backend/internal/service/upstream_config.go", "backend/internal/handler/admin/upstream_management_handler.go", "backend/internal/service/upstream_health.go", "backend/internal/repository/upstream_confidence_distribution_repo.go", "backend/internal/repository/upstream_health_observation_repo.go", "backend/migrations/288_upstream_confidence_distribution.sql", "frontend/src/components/account/UpstreamHealthCell.vue", "frontend/src/views/admin/upstream/UpstreamKeyRateTrendPanel.vue", "frontend/src/i18n/locales/zh/admin/upstreamConfigs.ts", "frontend/src/i18n/locales/en/admin/upstreamConfigs.ts", "frontend/src/components/admin/account/UpstreamManagementSettingsDialog.vue", "frontend/src/types/index.ts", "frontend/src/api/admin/upstreamManagement.ts", "frontend/src/api/admin/upstreamConfigs.ts", "frontend/src/components/common/HelpTooltip.vue", "frontend/src/i18n/locales/zh/admin/upstreamManagement.ts", "frontend/src/i18n/locales/en/admin/upstreamManagement.ts", "backend/internal/service/upstream_health_confidence_batch.go", "backend/internal/service/upstream_confidence_identity_batch.go", "backend/internal/service/upstream_health_confidence_batch_test.go", "backend/internal/repository/upstream_health_confidence_batch_test.go"],
+      "symbols": ["ScoreUpstreamConfidenceDistribution", "NewDistributionProbeOrder", "NormalizeDistributionAnswer", "ClaimConfidenceDistribution", "FinishConfidenceDistribution", "LoadConfidenceDistributionForSeries", "ResolveConfidenceDistributionIdentity", "ConfidenceDistributionIdentity", "ConfidenceDistributionSeriesReset", "LoadConfidenceDistributionsForSeries", "ResolveConfidenceDistributionIdentities"],
       "api_routes": [],
       "settings_keys": ["upstream_confidence_probe_settings"],
       "migration_files": ["288_upstream_confidence_distribution.sql"],
-      "required_tests": ["backend/internal/service/upstream_confidence_distribution_test.go", "backend/internal/service/upstream_confidence_distribution_state_test.go", "backend/internal/service/upstream_confidence_distribution_probe_test.go", "backend/internal/service/upstream_confidence_distribution_identity_test.go", "backend/internal/handler/admin/upstream_management_distribution_test.go", "backend/internal/service/upstream_confidence_probe_settings_test.go", "backend/internal/repository/upstream_confidence_distribution_repo_test.go", "backend/internal/repository/upstream_confidence_distribution_integration_test.go", "backend/internal/repository/upstream_confidence_distribution_postgres_test.go", "frontend/src/components/account/__tests__/UpstreamHealthCell.spec.ts", "frontend/src/views/admin/upstream/__tests__/UpstreamKeyRateTrendPanel.spec.ts", "frontend/src/components/admin/account/__tests__/UpstreamManagementSettingsDialog.spec.ts", "frontend/src/components/common/__tests__/HelpTooltip.spec.ts", "backend/migrations/profile_262_migrations_test.go", ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile262_release_contract.py"],
+      "required_tests": ["backend/internal/service/upstream_confidence_distribution_test.go", "backend/internal/service/upstream_confidence_distribution_state_test.go", "backend/internal/service/upstream_confidence_distribution_probe_test.go", "backend/internal/service/upstream_confidence_distribution_identity_test.go", "backend/internal/handler/admin/upstream_management_distribution_test.go", "backend/internal/service/upstream_confidence_probe_settings_test.go", "backend/internal/repository/upstream_confidence_distribution_repo_test.go", "backend/internal/repository/upstream_confidence_distribution_integration_test.go", "backend/internal/repository/upstream_confidence_distribution_postgres_test.go", "frontend/src/components/account/__tests__/UpstreamHealthCell.spec.ts", "frontend/src/views/admin/upstream/__tests__/UpstreamKeyRateTrendPanel.spec.ts", "frontend/src/components/admin/account/__tests__/UpstreamManagementSettingsDialog.spec.ts", "frontend/src/components/common/__tests__/HelpTooltip.spec.ts", "backend/migrations/profile_262_migrations_test.go", ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile262_release_contract.py", "backend/internal/repository/upstream_health_confidence_batch_test.go", "backend/internal/service/upstream_health_confidence_batch_test.go"],
       "invariants": [
         "OpenAI 真实探针固定 gpt-6.1-sol、空历史、system 点号、low、128 输出 token、流式；Responses store=false 与 Chat Completions 协议各用对应授权基准，不进行 padding、额外挑战、立即重试或第二请求",
         "随机排列包含 64 标点、16 国家、48 整数并始终循环同一序列，严格最近 128 次尝试的任意完整窗口保持配额；失败和不完整响应占槽，未发出的配置失败或跳过不消费",
@@ -1597,7 +1606,8 @@
         "Responses系列固定系统生成的Codex客户端版本，实际发送的自动User-Agent版本片段与version使用持久化系列版本；自动同步或默认版本更新不重置，只有自动版本字段被身份归一化，模板其他内容仍参与；管理员生效请求头覆写保留实际值，不被系列版本覆盖；Chat协议不应用此固定规则",
         "全局管理员固定客户端版本仅在自动User-Agent/version至少一项仍生效时参与身份，合法固定版本修改或清除仍headers_changed；账号同时显式覆写两项则全局固定版本不参与；固定策略读取失败不领取槽，身份与发送使用同一策略快照；公开SemVer生成参数仅保存于内部state_json，不进入API/证据/事件/日志",
         "v2窗口仅在当前完整v2指纹/协议/基准精确一致时CAS原位升级v3，不匹配按legacy_identity_unverifiable保守重开，不猜历史自动版本；无版本旧窗口继续要求完整legacy指纹及新增身份维度连续性可验证；升级保留系列/题序/样本/pending/原租约/判定，已有v3相同身份不覆盖系列固定版本；不合并历史系列，不支持旧新版探针混写",
-        "读取配置变化只返回空窗口与series_reset.pending说明；有效pending不被覆盖；下次Claim的新系列/新槽和key_confidence_distribution_reset info事件同事务提交，初始化与原位升级不产生重置事件；详情只显示安全原因枚举和窗口槽数，不输出摘要或配置原值；配置不可用返回可替换缓存旧判定的insufficient，手动探针/开关响应保留完整分布"
+        "读取配置变化只返回空窗口与series_reset.pending说明；有效pending不被覆盖；下次Claim的新系列/新槽和key_confidence_distribution_reset info事件同事务提交，初始化与原位升级不产生重置事件；详情只显示安全原因枚举和窗口槽数，不输出摘要或配置原值；配置不可用返回可替换缓存旧判定的insufficient，手动探针/开关响应保留完整分布",
+        "独立分布批量读取保持全库账号绑定唯一性、协议/模型/凭据配置身份及unavailable原因；稳定态只读，原lease恢复和身份升级继续走既有CAS；单Key损坏不污染其它Key，不以旧Juice汇总替代分布判定"
       ]
     },
     {

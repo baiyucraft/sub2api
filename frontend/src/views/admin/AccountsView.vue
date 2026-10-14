@@ -14,7 +14,7 @@
             @update:searchQuery="debouncedReload"
           />
           <AccountTableActions
-            :loading="loading"
+            :loading="loading || manualRefreshing"
             :show-create="props.scope !== 'upstream'"
             @refresh="handleManualRefresh"
             @create="showCreate = true"
@@ -751,8 +751,7 @@ import AccountPriorityCell from '@/components/account/AccountPriorityCell.vue'
 import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { fetchAllAccountIds } from '@/utils/accountSelection'
-import { buildGrokUsageRefreshKey, buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
-import { buildTTFTGuardDegradationKey, buildUpstreamHealthKey, mergeRuntimeFields } from '@/utils/accountRuntimeState'
+import { mergeRuntimeFields } from '@/utils/accountRuntimeState'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
 import { proxyExpiryBadgeClass, proxyExpiryLabelKey } from '@/utils/proxyExpiry'
 import { filterRealProxies } from '@/utils/proxy'
@@ -1087,6 +1086,11 @@ const autoRefreshDeadline = ref(0)
 const autoRefreshETag = ref<string | null>(null)
 const autoRefreshFetching = ref(false)
 let autoRefreshRequestGeneration = 0
+let accountListDisposed = false
+const loadedAccountListContext = ref('')
+const manualRefreshing = ref(false)
+let manualRefreshPromise: Promise<void> | null = null
+let accountRefreshFlight: { context: string; controller: AbortController; promise: Promise<boolean> } | null = null
 const AUTO_REFRESH_SILENT_WINDOW_MS = 15000
 let autoRefreshSilentUntil = 0
 const hasPendingListSync = ref(false)
@@ -1152,6 +1156,8 @@ let usageBatchFlushTimer: ReturnType<typeof setTimeout> | null = null
 let queuedUsageBatchForce = false
 let usageBatchRequestToken = 0
 let usageBatchGeneration = 0
+const inFlightUsageBatch = new Map<number, { token: number; force: boolean }>()
+const forcedUsageBatchFollowups = new Set<number>()
 
 const buildDefaultTodayStats = (): WindowStats => ({
   requests: 0,
@@ -1203,6 +1209,9 @@ const flushQueuedUsageBatch = async () => {
     acc[String(accountID)] = usageBatchRequestTokenByAccountId.value[String(accountID)] ?? 0
     return acc
   }, {})
+  for (const accountID of accountIDs) {
+    inFlightUsageBatch.set(accountID, { token: requestTokensByAccount[String(accountID)], force })
+  }
 
   try {
     const result = await adminAPI.accounts.getBatchUsage(accountIDs, force)
@@ -1249,6 +1258,18 @@ const flushQueuedUsageBatch = async () => {
     usageBatchErrorByAccountId.value = nextErrors
     usageBatchLoadingByAccountId.value = nextLoading
     console.error('Failed to load account usage batch:', error)
+  } finally {
+    if (generation === usageBatchGeneration) {
+      const followupIDs = new Set<number>()
+      for (const accountID of accountIDs) {
+        if (inFlightUsageBatch.get(accountID)?.token !== requestTokensByAccount[String(accountID)]) continue
+        inFlightUsageBatch.delete(accountID)
+        if (forcedUsageBatchFollowups.delete(accountID)) followupIDs.add(accountID)
+      }
+      // Finish the current upstream fetch before issuing the one required forced refresh.
+      // Multiple clicks share this followup; they never cancel and restart upstream usage.
+      if (followupIDs.size) queueUsageBatchAccounts(accounts.value.filter(account => followupIDs.has(account.id)), { force: true })
+    }
   }
 }
 
@@ -1271,8 +1292,26 @@ const queueUsageBatchAccounts = (candidateAccounts: Account[], options?: { force
     const key = String(accountID)
 
     if (force) {
+      if (pendingUsageBatchIds.has(accountID)) {
+        queuedUsageBatchForce = true
+        continue
+      }
+      const inFlight = inFlightUsageBatch.get(accountID)
+      if (inFlight) {
+        if (!inFlight.force) forcedUsageBatchFollowups.add(accountID)
+        continue
+      }
       usageBatchCache.delete(accountID)
     } else {
+      const inFlight = inFlightUsageBatch.get(accountID)
+      if (inFlight) {
+        // Page changes prune visible state but must not restart upstream usage.
+        // Restore ownership so its response can populate a row that becomes visible again.
+        nextLoading[key] = true
+        nextTokens[key] = inFlight.token
+        changed = true
+        continue
+      }
       const cached = usageBatchCache.get(accountID)
       if (cached && now - cached.ts < USAGE_BATCH_CACHE_TTL) {
         nextUsage[key] = cached.data
@@ -1672,10 +1711,47 @@ const upstreamVisibleFilters = (filters: Record<string, unknown>) => {
   return visibleFilters
 }
 
-const fetchAccounts = (page: number, pageSize: number, filters: Record<string, unknown>) =>
-  props.scope === 'upstream'
-    ? upstreamManagementAPI.listAccounts({ page, page_size: pageSize, ...upstreamVisibleFilters(filters) })
-: adminAPI.accounts.list(page, pageSize, filters as any)
+const buildAccountListContext = (page: number, pageSize: number, filters: Record<string, unknown>) => {
+  const effectiveFilters = props.scope === 'upstream' ? upstreamVisibleFilters(filters) : filters
+  return JSON.stringify([props.scope, page, pageSize, Object.entries(effectiveFilters).sort(([left], [right]) => left.localeCompare(right))])
+}
+
+const invalidateAccountRefresh = () => {
+  autoRefreshRequestGeneration += 1
+  accountRefreshFlight?.controller.abort()
+  accountRefreshFlight = null
+  autoRefreshFetching.value = false
+  autoRefreshETag.value = null
+}
+
+const reportAccountListError = (error: any, context: string, generation: number) => {
+  if (accountListDisposed || generation !== autoRefreshRequestGeneration || context !== accountListContextKey.value) return
+  if (error?.name === 'AbortError' || error?.name === 'CanceledError' || error?.code === 'ERR_CANCELED') return
+  appStore.showError(t('admin.accounts.failedToLoad'))
+}
+
+const fetchAccounts = (page: number, pageSize: number, filters: Record<string, unknown>, options?: { signal?: AbortSignal }) => {
+  if (props.scope === 'upstream') {
+    const request = { page, page_size: pageSize, ...upstreamVisibleFilters(filters) }
+    return options ? upstreamManagementAPI.listAccounts(request, options) : upstreamManagementAPI.listAccounts(request)
+  }
+  return options ? adminAPI.accounts.list(page, pageSize, filters as any, options) : adminAPI.accounts.list(page, pageSize, filters as any)
+}
+
+// Export/selection queries also use fetchAccounts; only table-owned requests advance
+// the table generation or invalidate a background refresh.
+const fetchAccountTablePage = async (page: number, pageSize: number, filters: Record<string, unknown>, options?: { signal?: AbortSignal }) => {
+  invalidateAccountRefresh()
+  const generation = autoRefreshRequestGeneration
+  const snapshotFilters = { ...filters }
+  const context = buildAccountListContext(page, pageSize, snapshotFilters)
+  const result = await fetchAccounts(page, pageSize, snapshotFilters, options)
+  if (accountListDisposed || options?.signal?.aborted || generation !== autoRefreshRequestGeneration || context !== accountListContextKey.value) {
+    throw new DOMException('Obsolete account list request', 'AbortError')
+  }
+  loadedAccountListContext.value = context
+  return result
+}
 
 const {
   items: accounts,
@@ -1688,7 +1764,7 @@ const {
   handlePageChange: baseHandlePageChange,
   handlePageSizeChange: baseHandlePageSizeChange
 } = useTableLoader<AccountListItem, any>({
-  fetchFn: fetchAccounts,
+  fetchFn: fetchAccountTablePage,
   initialParams: {
     platform: '',
     status: '',
@@ -1707,6 +1783,9 @@ const {
     ...(props.scope !== 'all' ? { scope: props.scope } : {})
   }
 })
+
+const accountListContextKey = computed(() => buildAccountListContext(pagination.page, pagination.page_size, params))
+watch(accountListContextKey, invalidateAccountRefresh, { flush: 'sync' })
 
 const {
   selectedSet,
@@ -1766,6 +1845,8 @@ watch(() => props.scope, (scope, previousScope) => {
     usageBatchFlushTimer = null
   }
   pendingUsageBatchIds.clear()
+  inFlightUsageBatch.clear()
+  forcedUsageBatchFollowups.clear()
   queuedUsageBatchForce = false
   usageBatchByAccountId.value = {}
   usageBatchErrorByAccountId.value = {}
@@ -1793,8 +1874,7 @@ watch(() => props.scope, (scope, previousScope) => {
   todayStatsSnapshotKey.value = ''
   todayStatsLastRefreshedAt.value = 0
   autoRefreshETag.value = null
-  autoRefreshRequestGeneration += 1
-  autoRefreshFetching.value = false
+  invalidateAccountRefresh()
   accounts.value = []
   pagination.total = 0
   pagination.pages = 0
@@ -1829,6 +1909,7 @@ const resetAutoRefreshCache = () => {
 
 type AccountLoadOptions = {
   refreshTodayStats?: boolean
+  forceUsage?: boolean
 }
 
 function markUpstreamBillingSortRefresh() {
@@ -1848,7 +1929,11 @@ const load = async (options: AccountLoadOptions = {}) => {
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = false
   requestParams.lite = '1'
-  await baseLoad()
+  const task = baseLoad()
+  const generation = autoRefreshRequestGeneration
+  await task
+  if (accountListDisposed || generation !== autoRefreshRequestGeneration) return
+  if (options.forceUsage) queueVisibleBatchedUsage({ force: true })
   const refreshTasks = [refreshAccountQualityBatch({ force: true })]
   if (options.refreshTodayStats !== false) {
     refreshTasks.push(refreshTodayStatsBatch({ force: true }))
@@ -1863,7 +1948,10 @@ const reload = async () => {
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = false
-  await baseReload()
+  const task = baseReload()
+  const generation = autoRefreshRequestGeneration
+  await task
+  if (accountListDisposed || generation !== autoRefreshRequestGeneration) return
   await Promise.all([
     refreshTodayStatsBatch({ force: true }),
     refreshAccountQualityBatch({ force: true })
@@ -2094,24 +2182,9 @@ const inAutoRefreshSilentWindow = () => {
   return Date.now() < autoRefreshSilentUntil
 }
 
-const shouldReplaceAutoRefreshRow = (current: Account, next: Account) => {
-  return (
-    current.updated_at !== next.updated_at ||
-    current.current_concurrency !== next.current_concurrency ||
-    current.current_window_cost !== next.current_window_cost ||
-    current.active_sessions !== next.active_sessions ||
-    current.schedulable !== next.schedulable ||
-    JSON.stringify(current.preferred_group_ids ?? []) !== JSON.stringify(next.preferred_group_ids ?? []) ||
-    current.status !== next.status ||
-    current.rate_limit_reset_at !== next.rate_limit_reset_at ||
-    current.overload_until !== next.overload_until ||
-    current.temp_unschedulable_until !== next.temp_unschedulable_until ||
-	buildTTFTGuardDegradationKey(current) !== buildTTFTGuardDegradationKey(next) ||
-	buildUpstreamHealthKey(current) !== buildUpstreamHealthKey(next) ||
-	buildOpenAIUsageRefreshKey(current) !== buildOpenAIUsageRefreshKey(next) ||
-	buildGrokUsageRefreshKey(current) !== buildGrokUsageRefreshKey(next)
-  )
-}
+// Compare the complete lite snapshot: cache protection, mappings, rates and scores
+// can change independently of account.updated_at. Equal rows keep their component identity.
+const shouldReplaceAutoRefreshRow = (current: Account, next: Account) => JSON.stringify(current) !== JSON.stringify(next)
 
 const syncAccountRefs = (nextAccount: Account) => {
   // List refreshes must not replace detail snapshots or reset unsaved editor state.
@@ -2151,53 +2224,80 @@ const mergeAccountsIncrementally = (nextRows: Account[]) => {
   }
 }
 
-const refreshAccountsIncrementally = async () => {
-  if (autoRefreshFetching.value) return
-  const generation = autoRefreshRequestGeneration
-  const refreshScope = props.scope
+const refreshAccountsIncrementally = async (options: { force?: boolean } = {}) => {
   syncAccountListDerivedParams()
-  autoRefreshFetching.value = true
-  try {
-    const filters = toRaw(params) as Record<string, unknown>
-    const result = refreshScope === 'upstream'
-      ? await upstreamManagementAPI.listAccountsWithEtag(
-        { page: pagination.page, page_size: pagination.page_size, ...filters },
-        { etag: autoRefreshETag.value }
-      )
-      : await adminAPI.accounts.listWithEtag(
-        pagination.page,
-        pagination.page_size,
-        filters,
-        { etag: autoRefreshETag.value }
-      )
-
-    if (generation !== autoRefreshRequestGeneration || refreshScope !== props.scope) return
-
-    if (result.etag) {
-      autoRefreshETag.value = result.etag
-    }
-    if (!result.notModified && result.data) {
-      pagination.total = result.data.total || 0
-      pagination.pages = result.data.pages || 0
-      mergeAccountsIncrementally(result.data.items || [])
-      hasPendingListSync.value = false
-    }
-    upstreamBillingNow.value = Date.now()
-
-    await Promise.all([refreshTodayStatsBatch(), refreshAccountQualityBatch()])
-  } catch (error) {
-    if (generation !== autoRefreshRequestGeneration) return
-    console.error('Auto refresh failed:', error)
-  } finally {
-    if (generation === autoRefreshRequestGeneration) {
-      autoRefreshFetching.value = false
-    }
+  const context = accountListContextKey.value
+  if (loading.value || loadedAccountListContext.value !== context || accountListDisposed) return
+  if (!accountRefreshFlight || accountRefreshFlight.context !== context) {
+    const generation = ++autoRefreshRequestGeneration
+    const controller = new AbortController()
+    const refreshScope = props.scope
+    const filters = { ...toRaw(params) } as Record<string, unknown>
+    const page = pagination.page
+    const pageSize = pagination.page_size
+    autoRefreshFetching.value = true
+    const promise = (async () => {
+      try {
+        const result = refreshScope === 'upstream'
+          ? await upstreamManagementAPI.listAccountsWithEtag(
+            { page, page_size: pageSize, ...upstreamVisibleFilters(filters) },
+            { etag: autoRefreshETag.value, signal: controller.signal }
+          )
+          : await adminAPI.accounts.listWithEtag(page, pageSize, filters, { etag: autoRefreshETag.value, signal: controller.signal })
+        if (accountListDisposed || controller.signal.aborted || generation !== autoRefreshRequestGeneration || context !== accountListContextKey.value) return false
+        if (result.etag) autoRefreshETag.value = result.etag
+        if (!result.notModified && result.data) {
+          pagination.total = result.data.total || 0
+          pagination.pages = result.data.pages || 0
+          mergeAccountsIncrementally(result.data.items || [])
+          hasPendingListSync.value = false
+        }
+        upstreamBillingNow.value = Date.now()
+        return true
+      } catch (error: any) {
+        if (!controller.signal.aborted && generation === autoRefreshRequestGeneration && error?.code !== 'ERR_CANCELED') {
+          console.error('Account refresh failed:', error)
+        }
+        return false
+      } finally {
+        if (accountRefreshFlight?.controller === controller) {
+          accountRefreshFlight = null
+          autoRefreshFetching.value = false
+        }
+      }
+    })()
+    accountRefreshFlight = { context, controller, promise }
   }
+  const flight = accountRefreshFlight
+  const refreshed = await flight.promise
+  if (context !== accountListContextKey.value || accountListDisposed || flight.controller.signal.aborted) return
+  if (!refreshed) {
+    if (options.force) appStore.showError(t('admin.accounts.failedToLoad'))
+    return
+  }
+  // Usage, today's totals and quality refresh independently after the list settles.
+  if (options.force) queueVisibleBatchedUsage({ force: true })
+  await Promise.all([refreshTodayStatsBatch({ force: options.force }), refreshAccountQualityBatch({ force: options.force })])
 }
 
-const handleManualRefresh = async () => {
-  await Promise.all([load(), loadUpstreamBillingProbeGlobalState()])
-  queueVisibleBatchedUsage({ force: true })
+const handleManualRefresh = () => {
+  if (manualRefreshPromise) return manualRefreshPromise
+  manualRefreshing.value = true
+  const context = accountListContextKey.value
+  const refreshTask = props.scope === 'upstream' && loadedAccountListContext.value === context
+    ? refreshAccountsIncrementally({ force: true })
+    : load({ forceUsage: true })
+  const generation = autoRefreshRequestGeneration
+  manualRefreshPromise = Promise.all([
+    refreshTask,
+    loadUpstreamBillingProbeGlobalState()
+  ]).then(() => undefined).catch(error => {
+    reportAccountListError(error, context, generation)
+  }).finally(() => {
+    manualRefreshing.value = false
+    manualRefreshPromise = null
+  })
+  return manualRefreshPromise
 }
 
 const loadUpstreamBillingProbeGlobalState = async () => {
@@ -2406,7 +2506,7 @@ const { pause: pauseAutoRefresh, resume: resumeAutoRefresh } = useIntervalFn(
   async () => {
     if (!autoRefreshEnabled.value) return
     if (document.hidden) return
-    if (loading.value || autoRefreshFetching.value) return
+    if (loading.value || manualRefreshing.value || autoRefreshFetching.value) return
     if (isAnyModalOpen.value) return
     if (menu.show || showAccountToolsDropdown.value || showAutoRefreshDropdown.value) return
     if (inAutoRefreshSilentWindow()) return
@@ -3444,7 +3544,10 @@ onMounted(async () => {
     }
   }
 
-  load()
+  const initialContext = accountListContextKey.value
+  const initialLoad = load()
+  const initialGeneration = autoRefreshRequestGeneration
+  void initialLoad.catch(error => reportAccountListError(error, initialContext, initialGeneration))
   loadUpstreamBillingProbeGlobalState()
   const [proxiesResult, groupsResult] = await Promise.allSettled([
     adminAPI.proxies.getAll(),
@@ -3473,6 +3576,11 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  accountListDisposed = true
+  invalidateAccountRefresh()
+  usageBatchGeneration += 1
+  inFlightUsageBatch.clear()
+  forcedUsageBatchFollowups.clear()
   cancelAccountQualityRequest()
   upstreamBillingRateAbortController?.abort()
   if (usageBatchFlushTimer !== null) {

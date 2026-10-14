@@ -1606,6 +1606,22 @@ func (r *accountRepository) ListByUpstreamKeyID(ctx context.Context, keyID int64
 	return r.accountsToService(ctx, rows)
 }
 
+// ListByUpstreamKeyIDs preserves all bindings, including duplicates, so callers
+// can enforce the same exactly-one-account contract as the single-key lookup.
+func (r *accountRepository) ListByUpstreamKeyIDs(ctx context.Context, keyIDs []int64) ([]service.Account, error) {
+	keyIDs = uniquePositiveInt64sForConfidence(keyIDs)
+	var rows []*dbent.Account
+	for start := 0; start < len(keyIDs); start += postgresParameterBatchSize {
+		end := min(start+postgresParameterBatchSize, len(keyIDs))
+		batch, err := r.client.Account.Query().Where(dbaccount.UpstreamKeyIDIn(keyIDs[start:end]...)).Order(dbent.Asc(dbaccount.FieldID)).All(ctx)
+		if err != nil {
+			return nil, err
+		}
+		rows = append(rows, batch...)
+	}
+	return r.accountsToService(ctx, rows)
+}
+
 func (r *accountRepository) ListOpsAccountsForStats(ctx context.Context, platformFilter string, groupIDFilter *int64) ([]service.Account, error) {
 	if r == nil || r.client == nil {
 		return []service.Account{}, nil

@@ -30,7 +30,16 @@ describe('upstream account quality filter API', () => {
         group: '7',
         quality_filter: '1h-A',
         scope: 'upstream'
-      }
+      },
+      signal: undefined
+    })
+  })
+
+  it('forwards cancellation to the initial upstream list transport', async () => {
+    const controller = new AbortController()
+    await listAccounts({ page: 1 }, { signal: controller.signal })
+    expect(get).toHaveBeenCalledWith('/admin/upstream-management/accounts', {
+      params: { page: 1 }, signal: controller.signal
     })
   })
 

@@ -163,8 +163,8 @@ export interface UpstreamAccountListParams extends Record<string, unknown> {
   scope?: 'upstream'
 }
 
-export async function listAccounts(params: UpstreamAccountListParams = {}): Promise<PaginatedResponse<Account>> {
-  const { data } = await apiClient.get<PaginatedResponse<Account>>('/admin/upstream-management/accounts', { params })
+export async function listAccounts(params: UpstreamAccountListParams = {}, options?: { signal?: AbortSignal }): Promise<PaginatedResponse<Account>> {
+  const { data } = await apiClient.get<PaginatedResponse<Account>>('/admin/upstream-management/accounts', { params, signal: options?.signal })
   return data
 }
 
