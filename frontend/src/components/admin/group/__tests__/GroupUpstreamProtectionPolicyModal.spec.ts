@@ -1,12 +1,13 @@
 import { defineComponent } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import GroupUpstreamProtectionPolicyModal from '../GroupUpstreamProtectionPolicyModal.vue'
 import type { AdminGroup } from '@/types'
 import type { GroupUpstreamProtectionPolicy } from '@/api/admin/groups'
+import { SCHEDULING_PROTECTION_SETTINGS_UPDATED } from '@/utils/schedulingProtection'
 
-const { getPolicy, updatePolicy, showError } = vi.hoisted(() => ({ getPolicy: vi.fn(), updatePolicy: vi.fn(), showError: vi.fn() }))
-vi.mock('@/api/admin', () => ({ adminAPI: { groups: { getUpstreamProtectionPolicy: getPolicy, updateUpstreamProtectionPolicy: updatePolicy } } }))
+const { getPolicy, updatePolicy, getSettings, showError } = vi.hoisted(() => ({ getPolicy: vi.fn(), updatePolicy: vi.fn(), getSettings: vi.fn(), showError: vi.fn() }))
+vi.mock('@/api/admin', () => ({ adminAPI: { upstreamManagement: { getSettings }, groups: { getUpstreamProtectionPolicy: getPolicy, updateUpstreamProtectionPolicy: updatePolicy } } }))
 vi.mock('@/stores/app', () => ({ useAppStore: () => ({ showError, showSuccess: vi.fn() }) }))
 vi.mock('vue-i18n', async () => ({ ...await vi.importActual<typeof import('vue-i18n')>('vue-i18n'), useI18n: () => ({ t: (key: string, params?: Record<string, unknown>) => params ? `${key} ${JSON.stringify(params)}` : key }) }))
 const dialog = defineComponent({ props: ['show'], template: '<div v-if="show"><slot/><slot name="footer"/></div>' })
@@ -16,8 +17,14 @@ const policy: GroupUpstreamProtectionPolicy = {
   ttft: { group_id: 7, group_name: '分组 7', group_platform: 'openai', mode: 'inherit', degradation_ttft_seconds: null, min_samples: null, enabled: false, effective_enabled: false, effective_degradation_ttft_seconds: 20, effective_min_samples: 5, global_enabled: false, global_degradation_ttft_seconds: 20, global_min_samples: 5, source: 'global' },
   cache: { mode: 'inherit', threshold_percent: null, recovery_threshold_percent: null, min_valid_requests: null, effective_mode: 'disabled', effective_threshold_percent: 75, effective_recovery_threshold_percent: 80, effective_min_valid_requests: 20, global_mode: 'disabled', global_threshold_percent: 75, global_recovery_threshold_percent: 80, global_min_valid_requests: 20, window_minutes: 60, cooldown_minutes: 10, trial_percent: 10, source: 'global' }
 }
-const render = (selected = group) => mount(GroupUpstreamProtectionPolicyModal, { props: { show: true, group: selected }, global: { stubs: { BaseDialog: dialog, Icon: true, PlatformIcon: true } } })
-beforeEach(() => { getPolicy.mockReset().mockResolvedValue(policy); updatePolicy.mockReset().mockResolvedValue(policy); showError.mockReset() })
+const wrappers: ReturnType<typeof mount>[] = []
+const render = (selected = group) => {
+  const wrapper = mount(GroupUpstreamProtectionPolicyModal, { props: { show: true, group: selected }, global: { stubs: { BaseDialog: dialog, Icon: true, PlatformIcon: true } } })
+  wrappers.push(wrapper)
+  return wrapper
+}
+beforeEach(() => { getSettings.mockReset().mockResolvedValue({ scheduling_protection_platforms: ['openai'] }); getPolicy.mockReset().mockResolvedValue(policy); updatePolicy.mockReset().mockResolvedValue(policy); showError.mockReset() })
+afterEach(() => { wrappers.forEach(wrapper => wrapper.unmount()); wrappers.length = 0 })
 
 describe('GroupUpstreamProtectionPolicyModal', () => {
   it('atomically saves both custom guards and the chosen priority, even with global protection off', async () => {
@@ -83,11 +90,103 @@ describe('GroupUpstreamProtectionPolicyModal', () => {
   })
 
   it('allows cache customization on a platform that does not support TTFT', async () => {
+    getSettings.mockResolvedValue({ scheduling_protection_platforms: ['anthropic'] })
+    getPolicy.mockResolvedValue({ ...policy, group_platform: 'anthropic' })
     const wrapper = render({ ...group, platform: 'anthropic' })
     await flushPromises()
     expect(wrapper.get('[data-test="protection-ttft-mode"] option[value="enabled"]').attributes('disabled')).toBeDefined()
     await wrapper.get('[data-test="protection-cache-mode"]').setValue('enabled')
     expect(wrapper.get('[data-test="protection-save"]').attributes('disabled')).toBeUndefined()
+  })
+
+  it.each(['anthropic', 'composite'])('closes direct access to an excluded group (%s) before reading or editing its policy', async platform => {
+    const wrapper = render({ ...group, platform })
+    await flushPromises()
+    expect(getPolicy).not.toHaveBeenCalled()
+    expect(updatePolicy).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-test="protection-cache-mode"]').exists()).toBe(false)
+    expect(wrapper.emitted('close')).toHaveLength(1)
+  })
+
+  it('closes when the authoritative policy projection excludes the platform', async () => {
+    getPolicy.mockResolvedValue({ ...policy, platform_selected: false })
+    const wrapper = render()
+    await flushPromises()
+    expect(wrapper.find('[data-test="protection-save"]').exists()).toBe(false)
+    expect(wrapper.emitted('close')).toHaveLength(1)
+  })
+
+  it('rechecks scope before saving and closes without updating a removed platform', async () => {
+    const wrapper = render()
+    await flushPromises()
+    getSettings.mockResolvedValue({ scheduling_protection_platforms: [] })
+    await wrapper.get('[data-test="protection-save"]').trigger('click')
+    await flushPromises()
+    expect(updatePolicy).not.toHaveBeenCalled()
+    expect(wrapper.emitted('close')).toHaveLength(1)
+    expect(wrapper.find('[data-test="protection-cache-mode"]').exists()).toBe(false)
+  })
+
+  it('closes an already-open dialog when a saved global range removes its platform', async () => {
+    const wrapper = render()
+    await flushPromises()
+    getSettings.mockResolvedValue({ scheduling_protection_platforms: ['antigravity'] })
+    window.dispatchEvent(new Event(SCHEDULING_PROTECTION_SETTINGS_UPDATED))
+    await flushPromises()
+    expect(wrapper.emitted('close')).toHaveLength(1)
+    expect(wrapper.find('[data-test="protection-cache-mode"]').exists()).toBe(false)
+    expect(updatePolicy).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { code: 400, reason: 'GROUP_PROTECTION_PLATFORM_NOT_SELECTED' },
+    { response: { data: { code: 400, reason: 'GROUP_PROTECTION_PLATFORM_NOT_SELECTED' } } }
+  ])('honors the backend platform rejection if the range changes after the last check (%j)', async error => {
+    updatePolicy.mockRejectedValue(error)
+    const wrapper = render()
+    await flushPromises()
+    await wrapper.get('[data-test="protection-save"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.emitted('close')).toHaveLength(1)
+    expect(wrapper.emitted('saved')).toBeUndefined()
+    expect(wrapper.find('[data-test="protection-cache-mode"]').exists()).toBe(false)
+  })
+
+  it('ignores an old focus-check failure after switching to another group', async () => {
+    const wrapper = render()
+    await flushPromises()
+    let reject!: (reason: Error) => void
+    getSettings.mockImplementationOnce(() => new Promise((_, fail) => { reject = fail }))
+    window.dispatchEvent(new Event('focus'))
+    await flushPromises()
+    getPolicy.mockResolvedValue({ ...policy, group_id: 8, group_name: 'New group' })
+    await wrapper.setProps({ group: { ...group, id: 8, name: 'New group' } })
+    await flushPromises()
+    reject(new Error('old scope failed'))
+    await flushPromises()
+    expect(wrapper.get('[data-test="protection-cache-mode"]').exists()).toBe(true)
+    expect(wrapper.get('[data-test="protection-save"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.emitted('close')).toBeUndefined()
+    expect(showError).not.toHaveBeenCalled()
+  })
+
+  it('ignores an old save response after switching to another group', async () => {
+    const wrapper = render()
+    await flushPromises()
+    let resolve!: (value: GroupUpstreamProtectionPolicy) => void
+    updatePolicy.mockImplementationOnce(() => new Promise(done => { resolve = done }))
+    await wrapper.get('[data-test="protection-save"]').trigger('click')
+    await flushPromises()
+    expect(updatePolicy).toHaveBeenCalledOnce()
+    getPolicy.mockResolvedValue({ ...policy, group_id: 8, group_name: 'New group' })
+    await wrapper.setProps({ group: { ...group, id: 8, name: 'New group' } })
+    await flushPromises()
+    resolve(policy)
+    await flushPromises()
+    expect(wrapper.get('[data-test="protection-cache-mode"]').exists()).toBe(true)
+    expect(wrapper.get('[data-test="protection-save"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.emitted('close')).toBeUndefined()
+    expect(wrapper.emitted('saved')).toBeUndefined()
   })
 
   it('keeps failed saves open and blocks saves after stale loading fails', async () => {

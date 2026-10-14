@@ -39,6 +39,49 @@ function render(value: UpstreamProtectionSummary) {
 afterEach(() => { wrappers.forEach(wrapper => wrapper.unmount()); wrappers.length = 0; document.body.innerHTML = '' })
 
 describe('UpstreamProtectionStatus', () => {
+  it('shows an excluded account scope over retained facts and historical protection progress', async () => {
+    const value = protection()
+    value.platform_selected = false
+    value.groups[0].cache.state = 'recovering'
+    value.groups[0].cache.recovery_started_at = '2026-10-14T01:00:00Z'
+    const wrapper = render(value)
+    expect(wrapper.get('[data-test="protection-platform-summary"]').text()).toBe('调度保护 · 未纳入平台范围')
+    expect(wrapper.find('[data-test="protection-cache-summary"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="protection-ttft-summary"]').exists()).toBe(false)
+    await wrapper.get('[data-test="protection-platform-summary"]').trigger('click')
+    expect(wrapper.get('[data-test="protection-platform-excluded"]').text()).toContain('历史共享观测保留')
+    expect(wrapper.get('[data-test="protection-cache-metrics"]').text()).toContain('82.6%')
+    expect(wrapper.get('[data-test="protection-ttft-detail"]').text()).toContain('共享观测')
+    expect(wrapper.get('[data-test="upstream-protection-details"]').text()).not.toContain('恢复进度')
+    expect(wrapper.get('[data-test="upstream-protection-details"]').text()).not.toContain('渐出保护')
+  })
+
+  it('does not count excluded groups as protected and updates scope in an open detail view', async () => {
+    const value = protection()
+    value.platform_selected = true
+    value.groups[0].platform_selected = false
+    const wrapper = render(value)
+    expect(wrapper.get('[data-test="protection-ttft-summary"]').text()).toContain('1模型／1组保护')
+    await wrapper.get('[data-test="protection-ttft-summary"]').trigger('click')
+    expect(wrapper.get('[data-protection-group="1"]').text()).toContain('未纳入平台范围')
+    value.platform_selected = false
+    await wrapper.setProps({ account: { id: 1, name: '上游账号', upstream_protection: structuredClone(value) } as Account })
+    expect(wrapper.get('[data-test="protection-platform-summary"]').text()).toContain('未纳入平台范围')
+    expect(wrapper.get('[data-test="upstream-protection-details"]').text()).not.toContain('恢复进度')
+  })
+
+  it('does not let an excluded group\'s historical protection override an active group\'s normal summary', () => {
+    const value = protection()
+    value.platform_selected = true
+    value.groups[0].platform_selected = false
+    value.groups[1].ttft.state = 'normal'
+    value.groups[1].ttft.models[0].state = 'normal'
+    value.groups[1].cache.state = 'normal'
+    const wrapper = render(value)
+    expect(wrapper.get('[data-test="protection-ttft-summary"]').text()).toBe('TTFT · 正常')
+    expect(wrapper.get('[data-test="protection-cache-summary"]').text()).toBe('缓存 82.6% · 正常')
+  })
+
   it('uses two compact summaries and one detail view for shared metrics and independent groups', async () => {
     const value = protection()
     const wrapper = render(value)

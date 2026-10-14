@@ -74,6 +74,9 @@ func PrepareOpenAIUpstreamCacheGuardSend(ctx context.Context, account *Account, 
 }
 
 func beginUpstreamCacheGuardSend(ctx context.Context, account *Account, model, protocol string) {
+	if !schedulingProtectionSendSelected(ctx, account) {
+		return
+	}
 	a, _ := ctx.Value(cacheUsageAttemptContextKey{}).(*cacheUsageAttempt)
 	if a == nil {
 		return
@@ -174,32 +177,38 @@ func FinishOpenAIUpstreamCacheGuardAttempt(ctx context.Context, result *OpenAIFo
 			ms = result.FirstTokenMs
 		}
 		if selection.trial != nil && selection.trial.sent.Load() {
-			selection.trial.finish(success && ctx.Err() == nil, ms)
+			if schedulingProtectionSendSelected(ctx, &Account{ID: selection.trial.key.accountID, Platform: PlatformOpenAI}) {
+				selection.trial.finish(success && ctx.Err() == nil, ms)
+			} else {
+				selection.trial.once.Do(func() {})
+			}
 		}
 		a, _ := ctx.Value(cacheUsageAttemptContextKey{}).(*cacheUsageAttempt)
 		if a != nil {
 			a.mu.Lock()
 			if !a.protectionFinished {
 				a.protectionFinished = true
-				var ms *int
-				if result != nil {
-					ms = result.FirstTokenMs
-				}
-				if key, ok := protectionSessionKey(ctx, selection.groupID, a.account, a.model, a.protocol); ok && a.account != nil {
-					now := time.Now()
-					e := selection.service.protectionSession(key, now)
-					e.mu.Lock()
-					if now.Sub(e.last) >= 15*time.Minute || e.threshold != selection.threshold {
-						e.slow = 0
+				if schedulingProtectionSendSelected(ctx, a.account) {
+					var ms *int
+					if result != nil {
+						ms = result.FirstTokenMs
 					}
-					e.threshold = selection.threshold
-					if success && ctx.Err() == nil && ms != nil && time.Duration(*ms)*time.Millisecond > selection.threshold {
-						e.slow++
-					} else {
-						e.slow = 0
+					if key, ok := protectionSessionKey(ctx, selection.groupID, a.account, a.model, a.protocol); ok && a.account != nil {
+						now := time.Now()
+						e := selection.service.protectionSession(key, now)
+						e.mu.Lock()
+						if now.Sub(e.last) >= 15*time.Minute || e.threshold != selection.threshold {
+							e.slow = 0
+						}
+						e.threshold = selection.threshold
+						if success && ctx.Err() == nil && ms != nil && time.Duration(*ms)*time.Millisecond > selection.threshold {
+							e.slow++
+						} else {
+							e.slow = 0
+						}
+						e.last = now
+						e.mu.Unlock()
 					}
-					e.last = now
-					e.mu.Unlock()
 				}
 			}
 			a.mu.Unlock()

@@ -15,18 +15,20 @@ type accountProtectionPolicies interface {
 }
 
 type AccountUpstreamProtection struct {
-	Cache      *service.UpstreamCacheGuardSummary `json:"cache"`
-	TTFTModels []service.TTFTProtectionModelView  `json:"ttft_models"`
-	Groups     []AccountUpstreamProtectionGroup   `json:"groups"`
+	PlatformSelected bool                               `json:"platform_selected"`
+	Cache            *service.UpstreamCacheGuardSummary `json:"cache"`
+	TTFTModels       []service.TTFTProtectionModelView  `json:"ttft_models"`
+	Groups           []AccountUpstreamProtectionGroup   `json:"groups"`
 }
 
 type AccountUpstreamProtectionGroup struct {
-	GroupID        int64                          `json:"group_id"`
-	GroupName      string                         `json:"group_name"`
-	Priority       string                         `json:"priority"`
-	PrioritySource string                         `json:"priority_source"`
-	TTFT           AccountUpstreamTTFTProjection  `json:"ttft"`
-	Cache          AccountUpstreamCacheProjection `json:"cache"`
+	PlatformSelected bool                           `json:"platform_selected"`
+	GroupID          int64                          `json:"group_id"`
+	GroupName        string                         `json:"group_name"`
+	Priority         string                         `json:"priority"`
+	PrioritySource   string                         `json:"priority_source"`
+	TTFT             AccountUpstreamTTFTProjection  `json:"ttft"`
+	Cache            AccountUpstreamCacheProjection `json:"cache"`
 }
 
 type AccountUpstreamTTFTProjection struct {
@@ -46,7 +48,20 @@ func (h *AccountHandler) SetSchedulingProtectionPolicyService(policies *service.
 	h.protectionPolicyReader = policies
 }
 
-func accountCurrentKeyTTFTDegradations(account *service.Account, degradations []service.OpenAITTFTGuardDegradation) []service.OpenAITTFTGuardDegradation {
+func accountCurrentKeyTTFTDegradations(account *service.Account, degradations []service.OpenAITTFTGuardDegradation, readers ...any) []service.OpenAITTFTGuardDegradation {
+	if len(readers) > 0 && account != nil {
+		platforms, _ := readers[0].(interface{ PlatformSelected(string) bool })
+		if !service.SchedulingProtectionPlatformSelected(platforms, account.Platform) {
+			return nil
+		}
+		selected := make([]service.OpenAITTFTGuardDegradation, 0, len(degradations))
+		for _, degradation := range degradations {
+			if service.SchedulingProtectionGroupSelected(readers[0], degradation.GroupID) {
+				selected = append(selected, degradation)
+			}
+		}
+		degradations = selected
+	}
 	if account == nil || !account.IsUpstreamBound() {
 		return degradations
 	}
@@ -67,7 +82,16 @@ func (h *AccountHandler) upstreamProtection(account *service.Account, cache serv
 	if reader == nil && h.protectionPolicyReader == nil {
 		return nil
 	}
-	view := &AccountUpstreamProtection{Cache: cache.Summary, TTFTModels: []service.TTFTProtectionModelView{}, Groups: []AccountUpstreamProtectionGroup{}}
+	platforms, _ := h.protectionPolicyReader.(interface{ PlatformSelected(string) bool })
+	selected := service.SchedulingProtectionPlatformSelected(platforms, account.Platform)
+	view := &AccountUpstreamProtection{PlatformSelected: selected, Cache: cache.Summary, TTFTModels: []service.TTFTProtectionModelView{}, Groups: []AccountUpstreamProtectionGroup{}}
+	if !selected && view.Cache != nil {
+		summary := *view.Cache
+		summary.State, summary.Reason = "platform_not_selected", "platform_not_selected"
+		summary.RecoveryValidRequests, summary.RecoverySessions = 0, 0
+		summary.RecoveryRatePercent, summary.RecoveryStartedAt, summary.CooldownUntil = nil, nil, nil
+		view.Cache = &summary
+	}
 	keyID := int64(0)
 	if account.UpstreamKeyID != nil {
 		keyID = *account.UpstreamKeyID
@@ -98,7 +122,11 @@ func (h *AccountHandler) upstreamProtection(account *service.Account, cache serv
 		seen[id] = true
 		policy, ok := policies[id]
 		if !ok {
-			view.Groups = append(view.Groups, AccountUpstreamProtectionGroup{GroupID: id, Priority: "cache_first", PrioritySource: "unavailable", TTFT: AccountUpstreamTTFTProjection{State: "unavailable", Source: "unavailable", Models: []service.TTFTProtectionModelView{}}, Cache: AccountUpstreamCacheProjection{UpstreamCacheGuardState: service.UpstreamCacheGuardState{GroupID: id, State: "unavailable", Reason: "snapshot_unavailable"}, Source: "unavailable"}})
+			state, reason := "unavailable", "snapshot_unavailable"
+			if !selected {
+				state, reason = "platform_not_selected", "platform_not_selected"
+			}
+			view.Groups = append(view.Groups, AccountUpstreamProtectionGroup{PlatformSelected: selected, GroupID: id, Priority: "cache_first", PrioritySource: "unavailable", TTFT: AccountUpstreamTTFTProjection{State: state, Source: "unavailable", Models: []service.TTFTProtectionModelView{}}, Cache: AccountUpstreamCacheProjection{UpstreamCacheGuardState: service.UpstreamCacheGuardState{GroupID: id, State: state, Reason: reason}, Source: "unavailable"}})
 			continue
 		}
 		state, cacheKnown := cacheGroups[id]
@@ -130,7 +158,15 @@ func (h *AccountHandler) upstreamProtection(account *service.Account, cache serv
 				}
 			}
 		}
-		view.Groups = append(view.Groups, AccountUpstreamProtectionGroup{GroupID: id, GroupName: policy.TTFT.GroupName, Priority: policy.Priority, PrioritySource: policy.PrioritySource, TTFT: ttft, Cache: AccountUpstreamCacheProjection{UpstreamCacheGuardState: state, Source: policy.CacheSource}})
+		groupSelected := selected && service.SchedulingProtectionGroupSelected(h.protectionPolicyReader, id)
+		if !groupSelected {
+			service.MarkUpstreamCacheGuardPlatformNotSelected(&state)
+			ttft.State = "platform_not_selected"
+			for i := range ttft.Models {
+				ttft.Models[i].State, ttft.Models[i].RecoverySamples = "platform_not_selected", 0
+			}
+		}
+		view.Groups = append(view.Groups, AccountUpstreamProtectionGroup{PlatformSelected: groupSelected, GroupID: id, GroupName: policy.TTFT.GroupName, Priority: policy.Priority, PrioritySource: policy.PrioritySource, TTFT: ttft, Cache: AccountUpstreamCacheProjection{UpstreamCacheGuardState: state, Source: policy.CacheSource}})
 	}
 	return view
 }

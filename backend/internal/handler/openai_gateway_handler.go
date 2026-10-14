@@ -2811,6 +2811,7 @@ func (h *OpenAIGatewayHandler) withSchedulingProtectionSendAdmission(ctx context
 		frozenGroupID = &id
 	}
 	accountID := selection.Account.ID
+	ctx = service.WithSchedulingProtectionGroup(ctx, frozenGroupID)
 	return service.WithSchedulingProtectionBeforeSend(ctx, accountID, func(admitted context.Context) error {
 		return h.gatewayService.BindStickySessionAfterProfitAdmission(admitted, frozenGroupID, sessionHash, accountID)
 	})

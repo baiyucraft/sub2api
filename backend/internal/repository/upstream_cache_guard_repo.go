@@ -192,10 +192,11 @@ func (r *upstreamCacheGuardRepository) AccountWindows(ctx context.Context, since
 	rows, err := r.db.QueryContext(ctx, `WITH eligible AS (
 		SELECT state.account_id,state.upstream_key_id,
 			fact.group_id,fact.completed_at,fact.evidence_json->'admission' AS admission,
+			COALESCE(fact.evidence_json->>'protection_paused','false') = 'true' AS protection_paused,
 			(fact.evidence_json->'raw_usage'->>'TotalInputTokens')::BIGINT AS input_tokens,
 			(fact.evidence_json->'raw_usage'->>'CacheReadTokens')::BIGINT AS cache_read_tokens,
 			fact.evidence_json->'admission'->>'session_key' AS session_key,
-			(fact.evidence_json->'admission'->>'trial' = 'true'
+			(COALESCE(fact.evidence_json->>'protection_paused','false') <> 'true' AND fact.evidence_json->'admission'->>'trial' = 'true'
 				AND NULLIF(state.state_json->>'cohort_id','') IS NOT NULL
 				AND fact.evidence_json->'admission'->>'cohort_id' = state.state_json->>'cohort_id') AS trial
 		FROM upstream_cache_guard_accounts AS state
@@ -231,7 +232,7 @@ func (r *upstreamCacheGuardRepository) AccountWindows(ctx context.Context, since
 				'GroupIDs',COALESCE(ARRAY_AGG(DISTINCT f.group_id),'{}'::BIGINT[]),
 				'TrialGroupIDs',COALESCE(ARRAY_AGG(DISTINCT f.group_id) FILTER (WHERE f.cohort_trial),'{}'::BIGINT[])) AS metrics
 				FROM (SELECT normal.*,
-					(normal.admission->>'trial' = 'true'
+					(NOT normal.protection_paused AND normal.admission->>'trial' = 'true'
 					 AND NULLIF(policy.value->'state'->>'cohort_id','') IS NOT NULL
 					 AND normal.admission->>'cohort_id'=policy.value->'state'->>'cohort_id'
 					 AND (COALESCE(normal.admission->>'policy_signature','')=''

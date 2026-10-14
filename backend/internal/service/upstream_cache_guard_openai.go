@@ -23,6 +23,9 @@ func (s *OpenAIGatewayService) selectWithCacheGuardPreference(ctx context.Contex
 	if groupID == nil || *groupID <= 0 {
 		return nil, neutral, nil, false
 	}
+	if !SchedulingProtectionGroupSelected(s.groupProtectionPolicyResolver, *groupID) {
+		return nil, neutral, nil, false
+	}
 	s.syncTTFTProtectionPolicies()
 	cfg, resolved := s.resolveOpenAITTFTGuardConfig(ctx, *groupID)
 	priority := SchedulingPriorityCacheFirst
@@ -54,20 +57,25 @@ func (s *OpenAIGatewayService) selectWithCacheGuardPreference(ctx context.Contex
 		return nil, neutral, nil, false
 	}
 	eligible := make([]Account, 0, len(accounts))
+	selectedAccountAvailable := false
 	for _, a := range accounts {
 		if _, excluded := base[a.ID]; excluded {
 			continue
 		}
 		if a.IsSchedulable() && a.IsModelSupported(model) && accountSupportsOpenAICapabilities(&a, capability, imageCapability) && s.isOpenAIAccountTransportCompatible(&a, transport) {
 			eligible = append(eligible, a)
+			selectedAccountAvailable = selectedAccountAvailable || schedulingProtectionAccountSelected(s.groupProtectionPolicyResolver, &a)
 		}
+	}
+	if !selectedAccountAvailable {
+		return nil, neutral, nil, false
 	}
 	var qualities map[int64]forkscheduling.TTFTQuality
 	if reader, ok := s.forkTTFTRuntime().(forkscheduling.TTFTQualityReader); ok {
 		candidates := make([]forkscheduling.CandidateView, 0, len(eligible))
 		for i := range eligible {
 			a := &eligible[i]
-			if s.ttftGuardEligibleAccount(a) {
+			if schedulingProtectionAccountSelected(s.groupProtectionPolicyResolver, a) && s.ttftGuardEligibleAccount(a) {
 				candidates = append(candidates, forkscheduling.CandidateView{ID: a.ID, UpstreamKeyID: accountUpstreamKeyID(a), GroupID: *groupID, Model: canonicalOpenAIAccountSchedulingModel(a, model)})
 			}
 		}
@@ -90,8 +98,8 @@ func (s *OpenAIGatewayService) selectWithCacheGuardPreference(ctx context.Contex
 		p = cacheGuardPreference{Active: true, ScopeIDs: map[int64]struct{}{}}
 		for i := range eligible {
 			a := &eligible[i]
-			p.CandidateIDs = append(p.CandidateIDs, a.ID)
-			if s.ttftGuardEligibleAccount(a) {
+			if schedulingProtectionAccountSelected(s.groupProtectionPolicyResolver, a) && s.ttftGuardEligibleAccount(a) {
+				p.CandidateIDs = append(p.CandidateIDs, a.ID)
 				p.ScopeIDs[a.ID] = struct{}{}
 			}
 		}
@@ -135,7 +143,7 @@ func (s *OpenAIGatewayService) selectWithCacheGuardPreference(ctx context.Contex
 			for i := range eligible {
 				observed := &eligible[i]
 				if observed.ID == result.Account.ID {
-					identityMatches = accountUpstreamKeyID(observed) == accountUpstreamKeyID(result.Account) && canonicalOpenAIAccountSchedulingModel(observed, model) == canonicalOpenAIAccountSchedulingModel(result.Account, model)
+					identityMatches = schedulingProtectionAccountSelected(s.groupProtectionPolicyResolver, result.Account) && accountUpstreamKeyID(observed) == accountUpstreamKeyID(result.Account) && canonicalOpenAIAccountSchedulingModel(observed, model) == canonicalOpenAIAccountSchedulingModel(result.Account, model)
 					break
 				}
 			}

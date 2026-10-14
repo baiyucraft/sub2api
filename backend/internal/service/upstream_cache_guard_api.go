@@ -119,7 +119,38 @@ func UpstreamCacheGuardAccountViewsBatch(accounts []Account) map[int64]UpstreamC
 	if r == nil || !r.engine.AnyPolicyActive() {
 		return map[int64]UpstreamCacheGuardAccountView{}
 	}
-	return upstreamCacheGuardPolicyAccountViewsBatch(accounts, settings, available, readAccount, r.engine.ResolvedSettings, r.cachePolicyMetadata)
+	views := upstreamCacheGuardPolicyAccountViewsBatch(accounts, settings, available, readAccount, r.engine.ResolvedSettings, r.cachePolicyMetadata)
+	for i := range accounts {
+		account := &accounts[i]
+		view, ok := views[account.ID]
+		if !ok {
+			continue
+		}
+		for j := range view.States {
+			if !r.protectionScopeSelected(view.States[j].GroupID, account) {
+				MarkUpstreamCacheGuardPlatformNotSelected(&view.States[j])
+			}
+		}
+		selected := mostSevereUpstreamCacheGuardState(view.States)
+		if !schedulingProtectionAccountSelected(r.protectionPolicyReader(), account) || selected == nil {
+			view.Summary.State, view.Summary.Reason = "platform_not_selected", "platform_not_selected"
+			view.Summary.RecoveryValidRequests, view.Summary.RecoverySessions = 0, 0
+			view.Summary.RecoveryRatePercent, view.Summary.RecoveryStartedAt, view.Summary.CooldownUntil = nil, nil, nil
+		} else {
+			view.Summary.State, view.Summary.Reason = selected.State, selected.Reason
+		}
+		views[account.ID] = view
+	}
+	return views
+}
+
+func MarkUpstreamCacheGuardPlatformNotSelected(state *UpstreamCacheGuardState) {
+	state.State, state.Reason = "platform_not_selected", "platform_not_selected"
+	state.RecoveryValidRequests, state.RecoverySessions = 0, 0
+	state.RecoveryRatePercent, state.RecoveryStartedAt, state.CooldownUntil = nil, nil, nil
+	state.TrialParticipant = false
+	state.LinkedProtection = nil
+	state.NativeState, state.NativeReason = "", ""
 }
 
 func upstreamCacheGuardAccountViewsBatch(accounts []Account, settings UpstreamCacheGuardSettings, available bool, readAccount func(int64, int64) (upstreamcacheguard.AccountSnapshot, bool)) map[int64]UpstreamCacheGuardAccountView {
@@ -174,14 +205,7 @@ func upstreamCacheGuardPolicyAccountViewsBatch(accounts []Account, settings Upst
 			}
 		}
 		if resolve != nil {
-			priority := map[string]int{"unavailable": 7, "protected": 6, "recovering": 5, "observing": 4, "normal": 3, "insufficient": 2, "disabled": 1}
-			var selected *UpstreamCacheGuardState
-			for i := range states {
-				if selected == nil || priority[states[i].State] > priority[selected.State] {
-					selected = &states[i]
-				}
-			}
-			if selected != nil {
+			if selected := mostSevereUpstreamCacheGuardState(states); selected != nil {
 				summary.State, summary.Reason = selected.State, selected.Reason
 			}
 			// Recovery cohorts can differ across strategies; their progress is
@@ -192,6 +216,20 @@ func upstreamCacheGuardPolicyAccountViewsBatch(accounts []Account, settings Upst
 		result[account.ID] = UpstreamCacheGuardAccountView{Summary: &summary, States: states}
 	}
 	return result
+}
+
+func mostSevereUpstreamCacheGuardState(states []UpstreamCacheGuardState) *UpstreamCacheGuardState {
+	priority := map[string]int{"unavailable": 7, "protected": 6, "recovering": 5, "observing": 4, "normal": 3, "insufficient": 2, "disabled": 1}
+	var selected *UpstreamCacheGuardState
+	for i := range states {
+		if states[i].State == "platform_not_selected" {
+			continue
+		}
+		if selected == nil || priority[states[i].State] > priority[selected.State] {
+			selected = &states[i]
+		}
+	}
+	return selected
 }
 
 func accountMatchesCacheGuardGroup(account *Account, groupID int64) bool {

@@ -136,6 +136,52 @@ func TestNewCustomPolicyDoesNotBorrowLegacyTrial(t *testing.T) {
 	}
 }
 
+func TestPausedCompletionKeepsTerminalAndSharedFact(t *testing.T) {
+	e, store := testEngine(t)
+	r := request("paused", "paused-session", testNow.Add(-time.Second))
+	a := admit(t, e, r)
+	v := Evidence{ID: "paused-evidence", Request: r, Admission: a, ProtectionPaused: true, Success: true, CompletedAt: testNow, RawUsage: RawUsage{Status: upstreamcacheusage.Known, TotalInputTokens: 1000, CacheReadTokens: 900}}
+	if err := e.Complete(context.Background(), v); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.TransactAccount(context.Background(), r.GroupID, r.AccountID, r.UpstreamKeyID, func(tx Tx) error {
+		var session SessionState
+		if _, err := tx.Read(SessionKind, a.SessionKey, &session); err != nil {
+			return err
+		}
+		if !session.Admissions[admissionKey(r)].Completed {
+			t.Fatal("scope pause left a durable incomplete admission")
+		}
+		facts, err := tx.(AccountTx).AccountFacts(r.AccountID, r.UpstreamKeyID, testNow.Add(-time.Minute))
+		if err != nil {
+			return err
+		}
+		if len(facts) != 1 || !facts[0].ProtectionPaused || facts[0].RawUsage.TotalInputTokens != 1000 {
+			t.Fatalf("paused terminal fact was lost: %+v", facts)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPausedTrialFactsRemainRawAndCannotRecoverAfterReselection(t *testing.T) {
+	s := DefaultSettings()
+	s.Mode, s.MinValidRequests = Protect, 2
+	a := AccountState{AccountID: 2, UpstreamKeyID: 3, Phase: Trial, CohortID: "cohort", PolicySignature: PolicySignature(s), FirstTrialAt: testNow.Add(-11 * time.Minute)}
+	var facts []Evidence
+	for i := 0; i < 3; i++ {
+		r := request(fmt.Sprint(i), fmt.Sprint(i), testNow.Add(-time.Minute))
+		facts = append(facts, Evidence{ID: r.ID, Request: r, Admission: Admission{Sample: true, WarmAtStart: true, Trial: true, CohortID: "cohort", PolicySignature: a.PolicySignature, SessionKey: fmt.Sprint(i)}, ProtectionPaused: true, Success: true, CompletedAt: testNow.Add(-time.Second), RawUsage: RawUsage{Status: upstreamcacheusage.Known, TotalInputTokens: 1000, CacheReadTokens: 900}})
+	}
+	if err := RecomputeAccount(&a, facts, s, testNow, true); err != nil {
+		t.Fatal(err)
+	}
+	if a.Phase != Trial || a.ValidRequests != 3 || a.CachePercent != 90 || a.TrialValidRequests != 0 || a.TrialSessions != 0 {
+		t.Fatalf("paused raw facts entered recovery: %+v", a)
+	}
+}
+
 func TestSamePolicyGroupsShareRecoveryAdmissions(t *testing.T) {
 	e, store := testEngine(t)
 	s := e.Settings()

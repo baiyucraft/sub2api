@@ -1,12 +1,123 @@
 package service
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/upstreamcacheguard"
 	"github.com/stretchr/testify/require"
 )
+
+type cacheGuardAccountViewStore struct {
+	upstreamcacheguard.Store
+	upstreamcacheguard.AccountStore
+	window upstreamcacheguard.AccountWindow
+}
+
+func (s *cacheGuardAccountViewStore) Rows(context.Context, []int64) ([]upstreamcacheguard.RuntimeRow, error) {
+	return nil, nil
+}
+
+func (s *cacheGuardAccountViewStore) AccountRows(context.Context) ([]upstreamcacheguard.AccountRuntimeRow, error) {
+	return nil, nil
+}
+
+func (s *cacheGuardAccountViewStore) AccountWindows(context.Context, time.Time, time.Time) (map[string]upstreamcacheguard.AccountWindow, error) {
+	return map[string]upstreamcacheguard.AccountWindow{"7:11": s.window}, nil
+}
+
+func TestUpstreamCacheGuardAccountSummaryRespectsPlatformScope(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		platform      string
+		otherPlatform string
+		groupIDs      []int64
+		phase         upstreamcacheguard.Phase
+		want          string
+	}{
+		{"unselected_anthropic_protected", PlatformOpenAI, PlatformAnthropic, []int64{1, 2}, upstreamcacheguard.Cooling, "normal"},
+		{"unselected_anthropic_recovering", PlatformOpenAI, PlatformAnthropic, []int64{1, 2}, upstreamcacheguard.Trial, "normal"},
+		{"unselected_composite_protected", PlatformOpenAI, PlatformComposite, []int64{1, 2}, upstreamcacheguard.Cooling, "normal"},
+		{"unselected_composite_recovering", PlatformOpenAI, PlatformComposite, []int64{1, 2}, upstreamcacheguard.Trial, "normal"},
+		{"no_selected_group", PlatformOpenAI, PlatformAnthropic, []int64{2}, upstreamcacheguard.Cooling, "platform_not_selected"},
+		{"no_group", PlatformOpenAI, PlatformAnthropic, nil, upstreamcacheguard.Cooling, "platform_not_selected"},
+		{"unselected_account", PlatformAnthropic, PlatformAnthropic, []int64{1, 2}, upstreamcacheguard.Cooling, "platform_not_selected"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			settings := DefaultUpstreamCacheGuardSettings()
+			settings.Mode = upstreamcacheguard.Protect
+			settings.ThresholdPercent, settings.RecoveryThresholdPercent = 60, 65
+			strict := settings
+			strict.ThresholdPercent, strict.RecoveryThresholdPercent = 85, 90
+			strict.GroupIDs = []int64{2}
+			now := time.Now().UTC()
+			healthy := upstreamcacheguard.AccountState{AccountID: 7, UpstreamKeyID: 11,
+				Phase: upstreamcacheguard.Healthy, ValidRequests: 43, CachePercent: 75, UpdatedAt: now}
+			protected := healthy
+			protected.Phase, protected.CooldownUntil = tc.phase, now.Add(time.Hour)
+			if tc.phase == upstreamcacheguard.Trial {
+				protected.FirstTrialAt = now.Add(-time.Minute)
+				protected.TrialValidRequests, protected.TrialSessions, protected.TrialCachePercent = 22, 3, 84
+			}
+			shared := healthy
+			shared.GroupIDs = tc.groupIDs
+			shared.Policies = map[string]upstreamcacheguard.PolicyProjection{
+				upstreamcacheguard.PolicySignature(settings): {Settings: settings, State: healthy},
+				upstreamcacheguard.PolicySignature(strict):   {Settings: strict, State: protected},
+			}
+			store := &cacheGuardAccountViewStore{window: upstreamcacheguard.AccountWindow{
+				AccountID: 7, UpstreamKeyID: 11, Version: 1, State: shared,
+				ValidRequests: 43, TotalInputTokens: 43000, CacheReadTokens: 32250,
+			}}
+			runner := &UpstreamCacheGuardRunner{engine: upstreamcacheguard.NewEngine(store), store: store}
+			require.NoError(t, runner.engine.ApplySettings(settings))
+			require.NoError(t, runner.engine.ApplyPolicySettings(map[int64]upstreamcacheguard.Settings{1: settings, 2: strict}))
+			reader := newProtectionPlatformScopeResolver()
+			reader.groups = map[int64]string{1: PlatformOpenAI, 2: tc.otherPlatform}
+			runner.SetProtectionPolicyResolver(reader)
+			require.NoError(t, runner.engine.Refresh(context.Background()))
+			runner.available.Store(true)
+			previous := installedCacheGuardRunner.Swap(runner)
+			t.Cleanup(func() { installedCacheGuardRunner.Store(previous) })
+			configID, keyID := int64(1), int64(11)
+			account := Account{ID: 7, Platform: tc.platform, UpstreamConfigID: &configID, UpstreamKeyID: &keyID, GroupIDs: tc.groupIDs}
+			// Confirm the raw policy projection contains the stronger excluded
+			// strategy before the public API applies the platform scope.
+			raw := upstreamCacheGuardPolicyAccountViewsBatch([]Account{account}, settings, true,
+				runner.engine.CachedSharedAccount, runner.engine.ResolvedSettings, nil)[account.ID]
+			if len(tc.groupIDs) > 0 && tc.groupIDs[len(tc.groupIDs)-1] == 2 {
+				wantRaw := "protected"
+				if tc.phase == upstreamcacheguard.Trial {
+					wantRaw = "recovering"
+				}
+				require.Equal(t, wantRaw, raw.Summary.State)
+			}
+			view := UpstreamCacheGuardAccountViewsBatch([]Account{account})[account.ID]
+			require.NotNil(t, view.Summary)
+			require.Equal(t, tc.want, view.Summary.State)
+			wantReason := "healthy"
+			if tc.want == "platform_not_selected" {
+				wantReason = tc.want
+			}
+			require.Equal(t, wantReason, view.Summary.Reason)
+			require.Equal(t, 43, view.Summary.ValidRequests, "shared observations remain visible")
+			require.Equal(t, 75.0, *view.Summary.RatePercent)
+			require.Zero(t, view.Summary.RecoveryValidRequests)
+			require.Zero(t, view.Summary.RecoverySessions)
+			require.Nil(t, view.Summary.RecoveryRatePercent)
+			require.Nil(t, view.Summary.RecoveryStartedAt)
+			require.Nil(t, view.Summary.CooldownUntil)
+			for _, state := range view.States {
+				wantState := "platform_not_selected"
+				if tc.platform == PlatformOpenAI && state.GroupID == 1 {
+					wantState = "normal"
+				}
+				require.Equal(t, wantState, state.State)
+			}
+		})
+	}
+}
 
 func TestUpstreamCacheGuardAccountSummaryAndGroupProjection(t *testing.T) {
 	configID, keyID := int64(1), int64(11)
