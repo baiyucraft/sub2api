@@ -37,6 +37,18 @@ python .agents/skills/sub2api-production-deploy/scripts/release.py logs <release
 
 PostgreSQL/Redis 协调恢复算法、备份格式和信任根不在本批改动范围。仍强制 `specialized` 当前 helper 的真实 PostgreSQL/Redis/Compose 隔离恢复、旧 image 兼容及正式签名 Gate；profile 268 保持 `0.2.16-baiyu`、parent 267、仅 `296_upstream_cache_guard.sql`，旧 profiles、SQL/checksum 不回写，未知 269 拒绝。最低登记回归为 `scripts/tests/release/test_profile268_recovery_review.py`，路径相对 skill 根；登记不代表回归、VM Gate 或生产部署完成。
 
+## Profile 269 精确恢复审阅
+
+本次经用户确认的实际生产 BASE `c4d857235cecdc3458c21b5eec9411f1fd115674` → 已审 TARGET `f14ca8f65e3526370bf24a2fa0bca3ec490448ab`，其 41 条恢复敏感净变更按同路径 Git blob 与模式冻结；权威对象身份在 `release/recovery_gate.py`，本地审阅材料另见 `.tmp/account-cache-guard/deployment-sensitive-review.md`，固定路径与祖先断言闭包见 [分类与构建](../../references/change-classification-and-build.md)。路径均相对 skill 的 `scripts/`：
+
+| 冻结集合 | 范围 | 分类理由 |
+| --- | --- | --- |
+| `_PROFILE269_COMPATIBILITY_PATHS` | 35 条 profile 269 接线，18 条固定路径加 17 条祖先断言 | `reviewed_profile_compatibility_changed` |
+| `_PROFILE269_POSTFLIGHT_PATHS` | 2 条 `maintenance/release/activity-reward-cost-postflight.sh`、`maintenance/release/switch.sh` | `reviewed_reward_cost_postflight_changed` |
+| `_PROFILE269_FINALIZATION_REVIEW_PATHS` | 4 条 `release/cli.py`、`release/doctor.py`、`release/finalization.py`、`release/vm_lifecycle.py`，不含 `supervisor.py` | `reviewed_consumed_finalization_changed` |
+
+第三组包含显式 preserve-running VM 后置收口及 doctor 谓词检查，不能作为 profile-only。第二组维持旧写者停止后执行与失败协调恢复。profile 268 既有冻结 BASE/TARGET 及包含 `supervisor.py` 的不同四路径组不变；269 不继承历史审阅。BASE、任一同路径 blob/mode、删除、改名或额外敏感路径漂移均拒绝；显式 full 不豁免未知变更。净差异未修改协调 restore、快照、备份格式或信任根，但仍强制 `specialized` 的真实 PostgreSQL/Redis/Compose 隔离恢复、旧镜像兼容及签名 Gate。最低回归 `scripts/tests/release/test_profile269_recovery_review.py`，路径相对 skill 根；登记不等于 VM Gate 或生产上线通过。
+
 ## 可选 VM 自动启停
 
 Profile 265 精确恢复审阅绑定 `aeb410bccc524164bdafbd3db865d4f5f588aced` → `6f5daaaed6e0cbfae2011cfa55b47688f33634eb`：35 项接线与两项停机奖励 postflight 分别冻结，不包含未修改的 `production.py`。同路径 blob、mode 或基线漂移继续阻断；仍执行 specialized 当前 helper 真实隔离恢复，登记不代表 Gate 或部署完成。
