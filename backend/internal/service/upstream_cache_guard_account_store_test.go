@@ -77,7 +77,7 @@ func (s *runnerTestStore) AccountWindows(ctx context.Context, since, until time.
 			if !s.processed[id] || f.Request.AccountID != a.AccountID || f.Request.UpstreamKeyID != a.UpstreamKeyID || !f.ValidSample() || f.CompletedAt.Before(since) || f.CompletedAt.After(until) {
 				continue
 			}
-			if !a.QualitySince.IsZero() && !f.CompletedAt.After(a.QualitySince) {
+			if a.Policies == nil && !a.QualitySince.IsZero() && !f.CompletedAt.After(a.QualitySince) {
 				continue
 			}
 			w.ValidRequests++
@@ -86,6 +86,27 @@ func (s *runnerTestStore) AccountWindows(ctx context.Context, since, until time.
 			if f.CompletedAt.After(w.LastEvidenceAt) {
 				w.LastEvidenceAt = f.CompletedAt
 			}
+		}
+		w.Policies = map[string]upstreamcacheguard.AccountWindow{}
+		for signature, policy := range a.Policies {
+			var facts []upstreamcacheguard.Evidence
+			for id, fact := range s.events {
+				if s.processed[id] && fact.Request.AccountID == a.AccountID && fact.Request.UpstreamKeyID == a.UpstreamKeyID && !fact.CompletedAt.Before(since) {
+					facts = append(facts, fact)
+				}
+			}
+			p := policy.State
+			if err := upstreamcacheguard.RecomputeAccount(&p, facts, policy.Settings, until, false); err != nil {
+				return nil, err
+			}
+			pw := upstreamcacheguard.AccountWindow{ValidRequests: p.ValidRequests, TotalInputTokens: p.TotalInputTokens, CacheReadTokens: p.CacheReadTokens, TrialValidRequests: p.TrialValidRequests, TrialSessions: p.TrialSessions, LastEvidenceAt: p.LastEvidenceAt}
+			for _, f := range facts {
+				if f.ValidSample() && !f.CompletedAt.After(until) && (p.QualitySince.IsZero() || f.CompletedAt.After(p.QualitySince)) && f.Admission.Trial && f.Admission.CohortID != "" && f.Admission.CohortID == p.CohortID && (f.Admission.PolicySignature == signature || f.Admission.PolicySignature == "") {
+					pw.TrialInputTokens += f.RawUsage.TotalInputTokens
+					pw.TrialCacheReadTokens += f.RawUsage.CacheReadTokens
+				}
+			}
+			w.Policies[signature] = pw
 		}
 		out[fmt.Sprintf("%d:%d", a.AccountID, a.UpstreamKeyID)] = w
 	}

@@ -1,7 +1,6 @@
 package service
 
 import (
-	"reflect"
 	"testing"
 	"time"
 
@@ -21,9 +20,10 @@ func TestLegacyTTFTQualityProbeDoesNotBecomeHealthyOrAdvanceCadence(t *testing.T
 	for i := 0; i < openAITTFTGuardProbeEvery; i++ {
 		runtime.Exclusions(views, nil, cfg)
 	}
-	probeKey := openAITTFTGuardProbeKey{scopeID: 0, model: "gpt-a"}
+	scope, _ := openAITTFTGuardScopeFor(100, openAITTFTGuardConfigFromContract(cfg))
+	probeKey := openAITTFTGuardProbeKey{scopeID: scope, model: "gpt-a"}
 	before := *g.groupProbes[probeKey]
-	touch := g.entries[openAITTFTGuardKey{scopeID: 0, accountID: 1, model: "gpt-a"}].lastTouchedAt
+	touch := g.entries[openAITTFTGuardKey{scopeID: scope, accountID: 1, model: "gpt-a"}].lastTouchedAt
 	now = now.Add(time.Minute)
 	for i := 0; i < 40; i++ {
 		q := runtime.Quality(views, cfg)
@@ -36,7 +36,7 @@ func TestLegacyTTFTQualityProbeDoesNotBecomeHealthyOrAdvanceCadence(t *testing.T
 	if *g.groupProbes[probeKey] != before {
 		t.Fatal("quality advanced recovery cadence")
 	}
-	if !g.entries[openAITTFTGuardKey{scopeID: 0, accountID: 1, model: "gpt-a"}].lastTouchedAt.Equal(touch) {
+	if !g.entries[openAITTFTGuardKey{scopeID: scope, accountID: 1, model: "gpt-a"}].lastTouchedAt.Equal(touch) {
 		t.Fatal("quality changed LRU touch")
 	}
 	q := runtime.Quality(views, cfg)
@@ -46,7 +46,7 @@ func TestLegacyTTFTQualityProbeDoesNotBecomeHealthyOrAdvanceCadence(t *testing.T
 	}
 }
 
-func TestLegacyTTFTQualityCascadeRetainsSourceLatency(t *testing.T) {
+func TestLegacyTTFTQualityProjectsSharedLatencyAtIndependentThresholds(t *testing.T) {
 	g := newOpenAITTFTGuard()
 	runtime := legacyTTFTRuntime{guard: g}
 	source := forkscheduling.TTFTConfig{Enabled: true, Threshold: 30 * time.Second, MinSamples: 2, Source: GroupTTFTGuardSourceGroup}
@@ -57,13 +57,13 @@ func TestLegacyTTFTQualityCascadeRetainsSourceLatency(t *testing.T) {
 	fast := 1000
 	runtime.Report(forkscheduling.TTFTSample{GroupID: 200, AccountID: 1, Model: "gpt-a", Success: true, FirstTokenMs: &fast}, target)
 	q := runtime.Quality([]forkscheduling.CandidateView{{ID: 1, GroupID: 200, Model: "gpt-a"}}, target)[1]
-	if !q.Degraded || q.EWMAms != 90000 || q.SampleCount != 1 {
-		t.Fatalf("healthy local record bypassed cascade: %+v", q)
+	if !q.Degraded || q.EWMAms != 72200 || q.SampleCount != 2 {
+		t.Fatalf("shared observation projection was lost: %+v", q)
 	}
 	weaker := source
-	weaker.Threshold = 60 * time.Second
-	if q := runtime.Quality([]forkscheduling.CandidateView{{ID: 1, GroupID: 300, Model: "gpt-a"}}, weaker); len(q) != 0 {
-		t.Fatalf("strict source incorrectly cascaded into larger threshold: %+v", q)
+	weaker.Threshold = 100 * time.Second
+	if q := runtime.Quality([]forkscheduling.CandidateView{{ID: 1, GroupID: 300, Model: "gpt-a"}}, weaker)[1]; q.Degraded || q.SampleCount != 2 || q.EWMAms != 72200 {
+		t.Fatalf("loose policy did not independently evaluate shared evidence: %+v", q)
 	}
 }
 
@@ -81,15 +81,8 @@ func TestLegacyTTFTQualityUnknownHealthyTTLAndConfigIsolation(t *testing.T) {
 	}
 	changed := cfg
 	changed.Threshold = 30 * time.Second
-	configs := make(map[int64]OpenAITTFTGuardConfigSnapshot)
-	for k, v := range g.groupConfigs {
-		configs[k] = v
-	}
-	if q := runtime.Quality(views, changed); len(q) != 0 {
-		t.Fatalf("superseded threshold remained valid: %+v", q)
-	}
-	if !reflect.DeepEqual(configs, g.groupConfigs) {
-		t.Fatal("quality changed runtime configuration")
+	if q := runtime.Quality(views, changed); len(q) != 1 || q[1].SampleCount != 1 || q[1].Degraded {
+		t.Fatalf("changed policy did not reuse shared normal observations: %+v", q)
 	}
 	disabled := cfg
 	disabled.Enabled = false
@@ -100,8 +93,8 @@ func TestLegacyTTFTQualityUnknownHealthyTTLAndConfigIsolation(t *testing.T) {
 	if q := runtime.Quality(views, cfg); len(q) != 0 {
 		t.Fatalf("expired quality=%+v", q)
 	}
-	if len(g.entries) != 1 {
-		t.Fatal("read-only quality mutated entry map")
+	if len(g.entries) != 0 || len(g.observations) != 1 {
+		t.Fatal("inactive projections should retire without clearing shared observations")
 	}
 	if q := (legacyTTFTRuntime{}).Quality(views, cfg); q != nil {
 		t.Fatal("nil runtime was known")
@@ -117,7 +110,7 @@ func TestLegacyTTFTQualityEqualScopeAndModelIsolation(t *testing.T) {
 	runtime.Report(forkscheduling.TTFTSample{GroupID: 200, AccountID: 1, Model: "gpt-a", Success: true, FirstTokenMs: &slowB}, cfg)
 	for _, group := range []int64{100, 200, 300} {
 		q := runtime.Quality([]forkscheduling.CandidateView{{ID: 1, GroupID: group, Model: "gpt-a"}}, cfg)[1]
-		if !q.Degraded || q.EWMAms != 60000 {
+		if !q.Degraded || q.EWMAms != 64000 || q.SampleCount != 2 {
 			t.Fatalf("equal owner group=%d quality=%+v", group, q)
 		}
 	}

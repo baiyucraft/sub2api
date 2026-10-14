@@ -1437,7 +1437,7 @@ export interface OpenCodeGoUsageSettings {
 export interface UpstreamCacheGuardState {
   group_id: number
   group_name?: string
-  state: 'disabled' | 'observing' | 'insufficient' | 'normal' | 'protected' | 'recovering' | 'unavailable'
+  state: 'disabled' | 'observing' | 'insufficient' | 'normal' | 'protected' | 'recovering' | 'expired' | 'unavailable'
   rate_percent: number | null
   valid_requests: number
   reason: string
@@ -1487,6 +1487,52 @@ export interface UpstreamCacheGuardProtectionSource {
   recovery_started_at: string | null
   cooldown_until: string | null
   updated_at: string | null
+}
+
+export type UpstreamProtectionState = UpstreamCacheGuardState['state'] | 'degraded' | 'draining' | 'observed'
+export type UpstreamProtectionSource = 'global' | 'group' | 'disabled' | 'unavailable'
+
+/** Shared observations for the current upstream Key and actual routed model. */
+export interface UpstreamTTFTModelObservation {
+  model: string
+  state: UpstreamProtectionState
+  ewma_ms: number | null
+  last_ttft_ms: number | null
+  sample_count: number
+  last_sample_at: string | null
+  expires_at: string | null
+}
+
+export interface UpstreamTTFTModelPolicyState extends UpstreamTTFTModelObservation {
+  reason: string
+  recovery_samples: number
+  recovery_samples_required: number
+}
+
+export interface UpstreamProtectionGroupState {
+  group_id: number
+  group_name: string
+  priority: 'cache_first' | 'ttft_first'
+  priority_source: 'global' | 'group' | 'unavailable'
+  ttft: {
+    state: UpstreamProtectionState
+    threshold_ms: number
+    min_samples: number
+    source: UpstreamProtectionSource
+    models: UpstreamTTFTModelPolicyState[]
+  }
+  cache: UpstreamCacheGuardState & {
+    threshold_percent: number
+    recovery_threshold_percent: number
+    min_valid_requests: number
+    source: UpstreamProtectionSource
+  }
+}
+
+export interface UpstreamProtectionSummary {
+  cache?: UpstreamCacheGuardSummary | null
+  ttft_models: UpstreamTTFTModelObservation[]
+  groups: UpstreamProtectionGroupState[]
 }
 
 export interface Account {
@@ -1614,6 +1660,8 @@ export interface Account {
   upstream_cache_guard?: UpstreamCacheGuardSummary
   /** Execution projection per group; all enabled groups share the account decision. */
   upstream_cache_guard_states?: UpstreamCacheGuardState[]
+  /** Shared observations plus the independently resolved policy of each group. */
+  upstream_protection?: UpstreamProtectionSummary
   upstream_health?: {
     key_id: number
     status: 'healthy' | 'degraded' | 'suspended' | 'observing' | 'recovering' | 'disabled'

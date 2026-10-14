@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -58,11 +59,18 @@ func (s *cacheGuardAdmissionStore) AccountWindows(ctx context.Context, _, _ time
 			return nil, err
 		}
 		// Fixed scheduler quality fixtures do not represent transaction facts.
-		result[fmt.Sprintf("%d:%d", row.AccountID, row.UpstreamKeyID)] = upstreamcacheguard.AccountWindow{
+		window := upstreamcacheguard.AccountWindow{
 			AccountID: row.AccountID, UpstreamKeyID: row.UpstreamKeyID, Version: row.Version, State: state,
 			ValidRequests: state.ValidRequests, TotalInputTokens: int64(state.ValidRequests) * 1000,
 			CacheReadTokens: int64(state.CachePercent*10) * int64(state.ValidRequests),
 		}
+		window.Policies = make(map[string]upstreamcacheguard.AccountWindow, len(state.Policies))
+		for signature := range state.Policies {
+			projection := window
+			projection.Policies = nil
+			window.Policies[signature] = projection
+		}
+		result[fmt.Sprintf("%d:%d", row.AccountID, row.UpstreamKeyID)] = window
 	}
 	return result, nil
 }
@@ -108,6 +116,13 @@ type cacheGuardAdmissionCache struct {
 	stickyID int64
 	writes   int
 	attempts []int64
+	writeErr error
+}
+
+type cacheGuardAdmissionRPMCache struct{ service.RPMCache }
+
+func (*cacheGuardAdmissionRPMCache) TryAcquireRPM(context.Context, int64, int) (bool, int, time.Duration, error) {
+	return false, 1, time.Second, nil
 }
 
 func (c *cacheGuardAdmissionCache) GetSessionAccountID(context.Context, int64, string) (int64, error) {
@@ -115,6 +130,9 @@ func (c *cacheGuardAdmissionCache) GetSessionAccountID(context.Context, int64, s
 }
 
 func (c *cacheGuardAdmissionCache) SetSessionAccountID(_ context.Context, _ int64, _ string, id int64, _ time.Duration) error {
+	if c.writeErr != nil {
+		return c.writeErr
+	}
 	c.stickyID = id
 	c.writes++
 	return nil
@@ -149,6 +167,8 @@ func newCacheGuardAdmissionFixture(t *testing.T, targetCapacity bool) (*OpenAIGa
 		}},
 	})
 	var accounts []service.Account
+	settings := service.DefaultUpstreamCacheGuardSettings()
+	settings.Mode = upstreamcacheguard.Protect
 	for id := int64(1); id <= 2; id++ {
 		key, upstreamID := id, id
 		account := service.Account{ID: id, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey,
@@ -159,17 +179,17 @@ func newCacheGuardAdmissionFixture(t *testing.T, targetCapacity bool) (*OpenAIGa
 			phase, rate = upstreamcacheguard.Cooling, 60
 		}
 		accounts = append(accounts, account)
-		store.appendRow(t, upstreamcacheguard.AccountKind, fmt.Sprint(id), upstreamcacheguard.AccountState{
+		state := upstreamcacheguard.AccountState{
 			AccountID: id, UpstreamKeyID: id, Phase: phase, ValidRequests: 21, CachePercent: rate, CooldownUntil: time.Now().Add(time.Hour),
-		})
+		}
+		state.Policies = map[string]upstreamcacheguard.PolicyProjection{upstreamcacheguard.PolicySignature(settings): {Settings: settings, State: state}}
+		store.appendRow(t, upstreamcacheguard.AccountKind, fmt.Sprint(id), state)
 	}
-	settings := service.DefaultUpstreamCacheGuardSettings()
-	settings.Mode = upstreamcacheguard.Protect
 	raw, err := json.Marshal(settings)
 	require.NoError(t, err)
 	cfg := &config.Config{RunMode: config.RunModeSimple}
 	cfg.JWT.Secret = secret
-	runner := service.ProvideUpstreamCacheGuardRunner(store, service.NewSettingService(&cacheGuardAdmissionSettingsRepo{raw: string(raw)}, cfg), cfg)
+	runner := service.ProvideUpstreamCacheGuardRunner(store, service.NewSettingService(&cacheGuardAdmissionSettingsRepo{raw: string(raw)}, cfg), cfg, nil)
 	t.Cleanup(runner.Close)
 	require.Eventually(t, func() bool {
 		states := service.UpstreamCacheGuardAccountStates(&accounts[0])
@@ -218,6 +238,11 @@ func TestCacheGuardHandlerTerminalBindingWithoutProfitGate(t *testing.T) {
 			streamStarted := false
 			release, result := h.acquireResponsesAccountSlot(c, &groupID, "conversation", selection, true, &streamStarted, zap.NewNop())
 			require.Equal(t, tc.wantResult, result, "response=%s", w.Body.String())
+			require.Equal(t, int64(1), cache.stickyID, "slot admission must not commit migration ahead of RPM and physical send")
+			require.Zero(t, cache.writes)
+			admitted := h.withSchedulingProtectionSendAdmission(service.ContextWithSelectionProfitGate(ctx, selection), &groupID, "conversation", selection)
+			require.NoError(t, service.BeginUpstreamCacheGuardSend(admitted, selection.Account, "gpt-test", "openai_ws"))
+			require.NoError(t, service.BeginUpstreamCacheGuardSend(admitted, selection.Account, "gpt-test", "openai_ws"))
 			require.Equal(t, tc.wantBinding, cache.stickyID)
 			if tc.wantBinding == 2 {
 				require.Equal(t, 1, cache.writes)
@@ -229,6 +254,47 @@ func TestCacheGuardHandlerTerminalBindingWithoutProfitGate(t *testing.T) {
 				release()
 			}
 			require.EqualValues(t, 1, cache.releaseAccountCalled, "admitted and rejected attempts must release their slot")
+		})
+	}
+}
+
+func TestCacheGuardHandlerPreservesBindingOnFinalAdmissionFailure(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, boundary := range []string{"rpm", "attempt_budget", "credential", "binding"} {
+		t.Run(boundary, func(t *testing.T) {
+			h, ctx, cache := newCacheGuardAdmissionFixture(t, true)
+			groupID := int64(100)
+			selection, _, err := h.gatewayService.SelectAccountWithScheduler(ctx, &groupID, "", "conversation", "gpt-test", nil, service.OpenAIUpstreamTransportAny, false)
+			require.NoError(t, err)
+			require.True(t, selection.IsSchedulingProtectionMigration())
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil).WithContext(ctx)
+			streamStarted := false
+			release, outcome := h.acquireResponsesAccountSlot(c, &groupID, "conversation", selection, false, &streamStarted, zap.NewNop())
+			require.Equal(t, openAISlotAcquireOK, outcome)
+			admitted := h.withSchedulingProtectionSendAdmission(service.ContextWithSelectionProfitGate(ctx, selection), &groupID, "conversation", selection)
+			switch boundary {
+			case "rpm":
+				selection.Account.RPMLimit = 1
+				h.gatewayService.SetRPMCache(&cacheGuardAdmissionRPMCache{})
+				allowed, _, err := h.acquireOpenAIAccountRPM(c, selection.Account, release, map[int64]struct{}{}, zap.NewNop())
+				require.NoError(t, err)
+				require.False(t, allowed)
+				release = nil
+			case "attempt_budget":
+				require.False(t, (openAIUpstreamAttemptBudget{1: {}}).allows(selection.Account.ID, 0))
+			case "credential":
+				_, _, err := h.gatewayService.GetRequestCredential(admitted, c, selection.Account)
+				require.Error(t, err)
+			case "binding":
+				cache.writeErr = errors.New("sticky storage unavailable")
+				require.Error(t, service.BeginUpstreamCacheGuardSend(admitted, selection.Account, "gpt-test", "openai_ws"))
+			}
+			require.Equal(t, int64(1), cache.stickyID)
+			require.Zero(t, cache.writes)
+			if release != nil {
+				release()
+			}
 		})
 	}
 }

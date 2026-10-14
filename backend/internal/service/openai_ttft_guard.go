@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"math"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -39,6 +38,7 @@ type OpenAITTFTGuardConfigProvider interface {
 // account/model pair. It intentionally contains only in-memory runtime state;
 // it is not persisted and must not be used to make scheduling decisions.
 type OpenAITTFTGuardDegradation struct {
+	UpstreamKeyID           int64     `json:"-"`
 	GroupID                 int64     `json:"group_id"`
 	GroupName               string    `json:"group_name,omitempty"`
 	PolicySource            string    `json:"policy_source"`
@@ -88,26 +88,34 @@ func validOpenAITTFTGuardConfig(cfg OpenAITTFTGuardConfigSnapshot) bool {
 }
 
 type openAITTFTGuardKey struct {
-	scopeID   int64 // 0 is the shared global scope; positive values are group scopes.
-	accountID int64
-	model     string
+	scopeID       int64 // Effective-policy signature; zero is the shared observation identity.
+	upstreamKeyID int64
+	accountID     int64
+	model         string
 }
 
 type openAITTFTGuardEntry struct {
-	lastGroupID          int64
-	lastGroupName        string
-	samples              [openAITTFTGuardSampleWindow]float64
-	sampleLen            int
-	nextSample           int
-	sampleCount          uint64
-	consecutiveElevated  int
-	consecutiveRecovered int
-	degraded             bool
-	degradedReason       string
-	degradedAt           time.Time
-	lastSampleAt         time.Time
-	lastTouchedAt        time.Time
-	config               OpenAITTFTGuardConfigSnapshot
+	lastGroupID           int64
+	lastGroupName         string
+	samples               [openAITTFTGuardSampleWindow]float64
+	successes             [openAITTFTGuardSampleWindow]bool
+	sampleLen             int
+	nextSample            int
+	sampleCount           uint64
+	consecutiveElevated   int
+	consecutiveRecovered  int
+	degraded              bool
+	degradedReason        string
+	degradedAt            time.Time
+	lastSampleAt          time.Time
+	lastTouchedAt         time.Time
+	config                OpenAITTFTGuardConfigSnapshot
+	trialCycle            uint64
+	generation            uint64
+	recoveryEpoch         uint64
+	completedTrialCycles  [64]uint64
+	completedTrialCount   int
+	highestCompletedCycle uint64
 }
 
 func (e *openAITTFTGuardEntry) addSample(sample float64) {
@@ -138,6 +146,10 @@ func (e *openAITTFTGuardEntry) recentEWMA() float64 {
 }
 
 func (e *openAITTFTGuardEntry) resetAfterRecovery(fastSample float64, now time.Time) {
+	e.recoveryEpoch++
+	e.completedTrialCycles = [64]uint64{}
+	e.completedTrialCount = 0
+	e.highestCompletedCycle = 0
 	e.samples = [openAITTFTGuardSampleWindow]float64{}
 	e.sampleLen = 1
 	e.nextSample = 1
@@ -153,20 +165,24 @@ func (e *openAITTFTGuardEntry) resetAfterRecovery(fastSample float64, now time.T
 }
 
 type openAITTFTGuardCandidate struct {
-	groupID   int64
-	accountID int64
-	model     string
+	upstreamKeyID int64
+	groupID       int64
+	accountID     int64
+	model         string
 }
 
 type openAITTFTGuard struct {
-	mu           sync.Mutex
-	entries      map[openAITTFTGuardKey]*openAITTFTGuardEntry
-	maxEntries   int
-	ttl          time.Duration
-	now          func() time.Time
-	groupProbes  map[openAITTFTGuardProbeKey]*openAITTFTGuardProbeState
-	nextExpiryAt time.Time
-	groupConfigs map[int64]OpenAITTFTGuardConfigSnapshot
+	mu                  sync.Mutex
+	entries             map[openAITTFTGuardKey]*openAITTFTGuardEntry
+	observations        map[openAITTFTGuardKey]*openAITTFTGuardEntry
+	accountKeys         map[int64]int64
+	maxEntries          int
+	ttl                 time.Duration
+	now                 func() time.Time
+	groupProbes         map[openAITTFTGuardProbeKey]*openAITTFTGuardProbeState
+	nextExpiryAt        time.Time
+	groupConfigs        map[int64]OpenAITTFTGuardConfigSnapshot
+	nextEntryGeneration uint64
 }
 
 type openAITTFTGuardProbeKey struct {
@@ -175,8 +191,10 @@ type openAITTFTGuardProbeKey struct {
 }
 
 type openAITTFTGuardProbeState struct {
-	sequence uint64
-	cursor   uint64
+	sequence  uint64
+	cursor    uint64
+	nominated int64
+	cycle     uint64
 }
 
 func newOpenAITTFTGuard() *openAITTFTGuard {
@@ -195,6 +213,8 @@ func newOpenAITTFTGuardWithOptions(maxEntries int, ttl time.Duration, now func()
 	}
 	return &openAITTFTGuard{
 		entries:      make(map[openAITTFTGuardKey]*openAITTFTGuardEntry),
+		observations: make(map[openAITTFTGuardKey]*openAITTFTGuardEntry),
+		accountKeys:  make(map[int64]int64),
 		groupProbes:  make(map[openAITTFTGuardProbeKey]*openAITTFTGuardProbeState),
 		groupConfigs: make(map[int64]OpenAITTFTGuardConfigSnapshot),
 		maxEntries:   maxEntries,
@@ -211,318 +231,6 @@ func openAITTFTGuardKeyFor(scopeID, accountID int64, model string) (openAITTFTGu
 	return openAITTFTGuardKey{scopeID: scopeID, accountID: accountID, model: model}, true
 }
 
-func openAITTFTGuardScopeFor(groupID int64, cfg OpenAITTFTGuardConfigSnapshot) (int64, bool) {
-	if groupID <= 0 {
-		return 0, false
-	}
-	switch cfg.Source {
-	case "", GroupTTFTGuardSourceGlobal:
-		return 0, true
-	case GroupTTFTGuardSourceGroup, GroupTTFTGuardSourceDisabled:
-		return groupID, true
-	default:
-		return 0, false
-	}
-}
-
-func (g *openAITTFTGuard) report(groupID, accountID int64, model string, success bool, firstTokenMs *int, cfg OpenAITTFTGuardConfigSnapshot) {
-	if g == nil {
-		return
-	}
-	cfg = normalizeOpenAITTFTGuardConfig(cfg)
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	scopeID, scopeOK := openAITTFTGuardScopeFor(groupID, cfg)
-	if !scopeOK {
-		return
-	}
-	g.syncConfigLocked(scopeID, cfg)
-	if !cfg.Enabled || firstTokenMs == nil || *firstTokenMs <= 0 {
-		return
-	}
-	key, ok := openAITTFTGuardKeyFor(scopeID, accountID, model)
-	if !ok {
-		return
-	}
-	now := g.now()
-	sample := float64(*firstTokenMs)
-	threshold := float64(cfg.Threshold.Milliseconds())
-	g.deleteExpiredLocked(now)
-	entry := g.entries[key]
-	if entry == nil {
-		g.evictLRULocked()
-		entry = &openAITTFTGuardEntry{config: cfg}
-		g.entries[key] = entry
-	}
-	entry.lastTouchedAt = now
-	entry.lastSampleAt = now
-	entry.lastGroupID = groupID
-	entry.lastGroupName = cfg.GroupName
-	entry.addSample(sample)
-	expiresAt := now.Add(g.ttl)
-	if g.nextExpiryAt.IsZero() || expiresAt.Before(g.nextExpiryAt) {
-		g.nextExpiryAt = expiresAt
-	}
-
-	if entry.degraded {
-		if success && sample <= 0.6*threshold {
-			entry.consecutiveRecovered++
-		} else {
-			entry.consecutiveRecovered = 0
-		}
-		if entry.consecutiveRecovered >= openAITTFTGuardRecoverySamples {
-			entry.resetAfterRecovery(sample, now)
-		}
-		return
-	}
-
-	if sample >= 1.5*threshold {
-		entry.consecutiveElevated++
-	} else {
-		entry.consecutiveElevated = 0
-	}
-	switch {
-	case sample >= 3*threshold:
-		entry.degraded = true
-		entry.degradedReason = "critical_sample"
-		entry.degradedAt = now
-	case entry.consecutiveElevated >= 2:
-		entry.degraded = true
-		entry.degradedReason = "consecutive_elevated"
-		entry.degradedAt = now
-	case entry.sampleCount >= uint64(cfg.MinSamples) && entry.recentEWMA() >= threshold:
-		entry.degraded = true
-		entry.degradedReason = "ewma"
-		entry.degradedAt = now
-	}
-}
-
-// degradations returns a copied snapshot while holding the guard lock. The
-// lookup performs TTL cleanup and config synchronization under the same lock,
-// but deliberately does not update LRU touch timestamps.
-func (g *openAITTFTGuard) degradations(accountIDs []int64) map[int64][]OpenAITTFTGuardDegradation {
-	if g == nil {
-		return nil
-	}
-	now := g.now()
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	if len(accountIDs) == 0 {
-		return nil
-	}
-	g.deleteExpiredLocked(now)
-
-	requested := make(map[int64]struct{}, len(accountIDs))
-	for _, accountID := range accountIDs {
-		if accountID > 0 {
-			requested[accountID] = struct{}{}
-		}
-	}
-	if len(requested) == 0 {
-		return nil
-	}
-
-	result := make(map[int64][]OpenAITTFTGuardDegradation)
-	for key, entry := range g.entries {
-		if entry == nil || !entry.degraded {
-			continue
-		}
-		if _, ok := requested[key.accountID]; !ok {
-			continue
-		}
-		degradedAt := entry.degradedAt
-		if degradedAt.IsZero() {
-			// Defensive fallback for entries created before degraded_at was added.
-			degradedAt = entry.lastSampleAt
-		}
-		lastTTFTMs := int64(0)
-		if entry.sampleLen > 0 {
-			lastIndex := (entry.nextSample - 1 + openAITTFTGuardSampleWindow) % openAITTFTGuardSampleWindow
-			lastTTFTMs = int64(entry.samples[lastIndex])
-		}
-		groupID := entry.lastGroupID
-		groupName := entry.lastGroupName
-		if groupID <= 0 && key.scopeID > 0 {
-			groupID = key.scopeID
-		}
-		if groupName == "" && key.scopeID > 0 {
-			groupName = entry.config.GroupName
-		}
-		result[key.accountID] = append(result[key.accountID], OpenAITTFTGuardDegradation{
-			GroupID:                 groupID,
-			GroupName:               groupName,
-			PolicySource:            entry.config.Source,
-			Model:                   key.model,
-			Reason:                  entry.degradedReason,
-			ThresholdMs:             entry.config.Threshold.Milliseconds(),
-			LastTTFTMs:              lastTTFTMs,
-			EWMAms:                  entry.recentEWMA(),
-			SampleCount:             entry.sampleCount,
-			DegradedAt:              degradedAt,
-			LastSampleAt:            entry.lastSampleAt,
-			ExpiresAt:               entry.lastSampleAt.Add(g.ttl),
-			RecoverySamples:         entry.consecutiveRecovered,
-			RecoverySamplesRequired: openAITTFTGuardRecoverySamples,
-		})
-	}
-	for accountID := range result {
-		sort.Slice(result[accountID], func(i, j int) bool {
-			if result[accountID][i].GroupID != result[accountID][j].GroupID {
-				return result[accountID][i].GroupID < result[accountID][j].GroupID
-			}
-			return result[accountID][i].Model < result[accountID][j].Model
-		})
-	}
-	if len(result) == 0 {
-		return nil
-	}
-	return result
-}
-
-func (g *openAITTFTGuard) exclusions(candidates []openAITTFTGuardCandidate, callerExcluded map[int64]struct{}, cfg OpenAITTFTGuardConfigSnapshot) map[int64]struct{} {
-	if g == nil {
-		return nil
-	}
-	cfg = normalizeOpenAITTFTGuardConfig(cfg)
-	now := g.now()
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	if len(candidates) == 0 {
-		return nil
-	}
-	groupID := candidates[0].groupID
-	scopeID, scopeOK := openAITTFTGuardScopeFor(groupID, cfg)
-	if !scopeOK {
-		return nil
-	}
-	g.syncConfigLocked(scopeID, cfg)
-	if !cfg.Enabled || groupID <= 0 {
-		return nil
-	}
-	g.deleteExpiredLocked(now)
-
-	degradedByModel := make(map[string][]int64)
-	cascadeExcluded := make(map[int64]struct{})
-	seen := make(map[openAITTFTGuardKey]struct{}, len(candidates))
-	for _, candidate := range candidates {
-		if _, excluded := callerExcluded[candidate.accountID]; excluded {
-			continue
-		}
-		if candidate.groupID != groupID {
-			continue
-		}
-		key, ok := openAITTFTGuardKeyFor(scopeID, candidate.accountID, candidate.model)
-		if !ok {
-			continue
-		}
-		// A degradation recorded by a different scope with an equal or larger
-		// effective threshold is sufficient evidence for this stricter scope.
-		// Cascade exclusions are deliberately not added to degradedByModel: the
-		// source scope owns recovery probing, so a target scope must not probe its
-		// way around an inherited exclusion.
-		if g.hasTTFTThresholdCascadeLocked(candidate.accountID, key.model, scopeID, cfg.Threshold) {
-			cascadeExcluded[candidate.accountID] = struct{}{}
-			continue
-		}
-		entry := g.entries[key]
-		if entry == nil || !entry.degraded {
-			continue
-		}
-		entry.lastTouchedAt = now
-		if _, duplicate := seen[key]; duplicate {
-			continue
-		}
-		seen[key] = struct{}{}
-		degradedByModel[key.model] = append(degradedByModel[key.model], candidate.accountID)
-	}
-	if len(degradedByModel) == 0 && len(cascadeExcluded) == 0 {
-		return nil
-	}
-	models := make([]string, 0, len(degradedByModel))
-	for model := range degradedByModel {
-		models = append(models, model)
-	}
-	sort.Strings(models)
-
-	excluded := cascadeExcluded
-	if excluded == nil {
-		excluded = make(map[int64]struct{}, len(candidates))
-	}
-	for _, model := range models {
-		degraded := degradedByModel[model]
-		sort.Slice(degraded, func(i, j int) bool { return degraded[i] < degraded[j] })
-		probeKey := openAITTFTGuardProbeKey{scopeID: scopeID, model: model}
-		probe := g.groupProbes[probeKey]
-		if probe == nil {
-			probe = &openAITTFTGuardProbeState{}
-			g.groupProbes[probeKey] = probe
-		}
-		probe.sequence++
-		probeAccountID := int64(0)
-		if probe.sequence%openAITTFTGuardProbeEvery == 0 {
-			probeAccountID = degraded[probe.cursor%uint64(len(degraded))]
-			probe.cursor++
-		}
-		for _, accountID := range degraded {
-			if accountID != probeAccountID {
-				excluded[accountID] = struct{}{}
-			}
-		}
-	}
-	return excluded
-}
-
-// hasTTFTThresholdCascadeLocked reports whether an active TTFT scope has
-// already degraded the same account/model at an equal or larger threshold.
-// The caller must hold g.mu. Equal-threshold scopes use the lowest scope ID as
-// the deterministic recovery owner; other equal-threshold scopes are derived
-// exclusions and do not get independent recovery probes.
-func (g *openAITTFTGuard) hasTTFTThresholdCascadeLocked(accountID int64, model string, targetScopeID int64, targetThreshold time.Duration) bool {
-	if g == nil || accountID <= 0 || model == "" || targetThreshold <= 0 {
-		return false
-	}
-	equalThresholdSource := int64(0)
-	equalThresholdFound := false
-	for key, entry := range g.entries {
-		if key.accountID != accountID || key.model != model || entry == nil || !entry.degraded || !entry.config.Enabled {
-			continue
-		}
-		if entry.config.Threshold > targetThreshold {
-			return true
-		}
-		if entry.config.Threshold == targetThreshold && (!equalThresholdFound || key.scopeID < equalThresholdSource) {
-			equalThresholdSource = key.scopeID
-			equalThresholdFound = true
-		}
-	}
-	// Equal-threshold scopes cascade too, but only the deterministic lowest
-	// scope owns the recovery probe. This prevents two equal-threshold native
-	// degradations from blocking each other's recovery indefinitely.
-	return equalThresholdFound && equalThresholdSource != targetScopeID
-}
-
-func (g *openAITTFTGuard) isDegraded(groupID, accountID int64, model string) bool {
-	if g == nil {
-		return false
-	}
-	now := g.now()
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.deleteExpiredLocked(now)
-	for _, scopeID := range []int64{groupID, 0} {
-		key, ok := openAITTFTGuardKeyFor(scopeID, accountID, model)
-		if !ok {
-			continue
-		}
-		entry := g.entries[key]
-		if entry != nil {
-			entry.lastTouchedAt = now
-			return entry.degraded
-		}
-	}
-	return false
-}
-
 func (g *openAITTFTGuard) size() int {
 	if g == nil {
 		return 0
@@ -531,47 +239,6 @@ func (g *openAITTFTGuard) size() int {
 	defer g.mu.Unlock()
 	g.deleteExpiredLocked(g.now())
 	return len(g.entries)
-}
-
-func (g *openAITTFTGuard) deleteExpiredLocked(now time.Time) {
-	if !g.nextExpiryAt.IsZero() && now.Before(g.nextExpiryAt) {
-		return
-	}
-	var nextExpiryAt time.Time
-	for key, entry := range g.entries {
-		if entry == nil || entry.lastSampleAt.IsZero() || now.Sub(entry.lastSampleAt) >= g.ttl {
-			delete(g.entries, key)
-			continue
-		}
-		expiresAt := entry.lastSampleAt.Add(g.ttl)
-		if nextExpiryAt.IsZero() || expiresAt.Before(nextExpiryAt) {
-			nextExpiryAt = expiresAt
-		}
-	}
-	g.nextExpiryAt = nextExpiryAt
-}
-
-func (g *openAITTFTGuard) syncConfigLocked(scopeID int64, cfg OpenAITTFTGuardConfigSnapshot) {
-	if scopeID < 0 {
-		return
-	}
-	cfg = normalizeOpenAITTFTGuardConfig(cfg)
-	if previous, ok := g.groupConfigs[scopeID]; ok && sameOpenAITTFTGuardRuntimeConfig(previous, cfg) {
-		g.groupConfigs[scopeID] = cfg
-		for key, entry := range g.entries {
-			if key.scopeID == scopeID && entry != nil {
-				entry.config = cfg
-				if scopeID > 0 {
-					entry.lastGroupName = cfg.GroupName
-				}
-			}
-		}
-		return
-	}
-	g.clearScopeLocked(scopeID)
-	if cfg.Enabled {
-		g.groupConfigs[scopeID] = cfg
-	}
 }
 
 func sameOpenAITTFTGuardRuntimeConfig(left, right OpenAITTFTGuardConfigSnapshot) bool {
@@ -589,28 +256,6 @@ func (g *openAITTFTGuard) clearGroup(groupID int64) {
 	g.clearGroupLocked(groupID)
 }
 
-func (g *openAITTFTGuard) clearGroupLocked(groupID int64) {
-	if groupID <= 0 {
-		return
-	}
-	g.clearScopeLocked(groupID)
-}
-
-func (g *openAITTFTGuard) clearScopeLocked(scopeID int64) {
-	for key := range g.entries {
-		if key.scopeID == scopeID {
-			delete(g.entries, key)
-		}
-	}
-	delete(g.groupConfigs, scopeID)
-	for key := range g.groupProbes {
-		if key.scopeID == scopeID {
-			delete(g.groupProbes, key)
-		}
-	}
-	g.recalculateNextExpiryLocked()
-}
-
 func (g *openAITTFTGuard) clearGlobal() {
 	if g == nil {
 		return
@@ -618,33 +263,6 @@ func (g *openAITTFTGuard) clearGlobal() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.clearScopeLocked(0)
-}
-
-func (g *openAITTFTGuard) clearForConfig(groupID int64, cfg OpenAITTFTGuardConfigSnapshot) {
-	if g == nil {
-		return
-	}
-	scopeID, ok := openAITTFTGuardScopeFor(groupID, normalizeOpenAITTFTGuardConfig(cfg))
-	if !ok {
-		return
-	}
-	if scopeID == 0 {
-		g.clearGlobal()
-		return
-	}
-	g.clearGroup(scopeID)
-}
-
-func (g *openAITTFTGuard) clearInheritedConfigMismatch(global OpenAITTFTGuardConfigSnapshot) {
-	if g == nil {
-		return
-	}
-	global = normalizeOpenAITTFTGuardConfig(global)
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	if previous, ok := g.groupConfigs[0]; ok && !sameOpenAITTFTGuardRuntimeConfig(previous, global) {
-		g.clearScopeLocked(0)
-	}
 }
 
 func (g *openAITTFTGuard) recalculateNextExpiryLocked() {
@@ -715,6 +333,12 @@ func (s *OpenAIGatewayService) SetOpenAITTFTGuardConfigProvider(provider OpenAIT
 func (s *OpenAIGatewayService) SetGroupTTFTGuardPolicyResolver(resolver GroupTTFTGuardPolicyResolver) {
 	if s != nil {
 		s.groupTTFTGuardPolicyResolver = resolver
+	}
+}
+
+func (s *OpenAIGatewayService) SetGroupSchedulingProtectionPolicyResolver(resolver GroupSchedulingProtectionPolicyResolver) {
+	if s != nil {
+		s.groupProtectionPolicyResolver = resolver
 	}
 }
 
@@ -795,6 +419,15 @@ func (s *OpenAIGatewayService) resolveOpenAITTFTGuardConfig(ctx context.Context,
 	if s == nil || groupID <= 0 {
 		return OpenAITTFTGuardConfigSnapshot{Source: "disabled"}, false
 	}
+	if s.groupProtectionPolicyResolver != nil {
+		policy, err := s.groupProtectionPolicyResolver.ResolveProtection(ctx, groupID)
+		if err != nil {
+			return OpenAITTFTGuardConfigSnapshot{Source: "unavailable"}, false
+		}
+		p := policy.TTFT
+		cfg := OpenAITTFTGuardConfigSnapshot{Enabled: p.Enabled, Threshold: p.Threshold, MinSamples: p.MinSamples, Source: p.Source, GroupName: p.GroupName}
+		return cfg, validOpenAITTFTGuardConfig(cfg)
+	}
 	if s.groupTTFTGuardPolicyResolver == nil {
 		return s.openAITTFTGuardConfigWithValidity()
 	}
@@ -827,7 +460,7 @@ func (s *OpenAIGatewayService) getOpenAITTFTGuard() *openAITTFTGuard {
 	return s.openaiTTFTGuard
 }
 
-func (s *OpenAIGatewayService) reportOpenAITTFTGuard(groupID, accountID int64, model string, success bool, firstTokenMs *int) {
+func (s *OpenAIGatewayService) reportOpenAITTFTGuard(groupID, accountID int64, model string, success bool, firstTokenMs *int, upstreamKeyIDs ...int64) {
 	if s == nil || groupID <= 0 {
 		return
 	}
@@ -844,12 +477,13 @@ func (s *OpenAIGatewayService) reportOpenAITTFTGuard(groupID, accountID int64, m
 	if !resolved {
 		return
 	}
-	if !cfg.Enabled {
-		s.getOpenAITTFTGuard().clearForConfig(groupID, cfg)
-		return
+	s.syncTTFTProtectionPolicies()
+	keyID := int64(0)
+	if len(upstreamKeyIDs) > 0 {
+		keyID = upstreamKeyIDs[0]
 	}
 	s.forkTTFTRuntime().Report(
-		forkscheduling.TTFTSample{GroupID: groupID, AccountID: accountID, Model: model, Success: success, FirstTokenMs: firstTokenMs},
+		forkscheduling.TTFTSample{GroupID: groupID, AccountID: accountID, UpstreamKeyID: keyID, Model: model, Success: success, FirstTokenMs: firstTokenMs},
 		forkscheduling.TTFTConfig{Enabled: cfg.Enabled, Threshold: cfg.Threshold, MinSamples: cfg.MinSamples, Source: cfg.Source, GroupName: cfg.GroupName},
 	)
 }
@@ -860,6 +494,7 @@ func (s *OpenAIGatewayService) OpenAITTFTGuardDegradations(accountIDs []int64) m
 	if s == nil {
 		return nil
 	}
+	s.syncTTFTProtectionPolicies()
 	if global, valid := s.openAITTFTGuardConfigWithValidity(); valid {
 		s.getOpenAITTFTGuard().clearInheritedConfigMismatch(global)
 	}
@@ -977,7 +612,7 @@ func (s *OpenAIGatewayService) openAITTFTGuardExclusions(
 
 // Keep health admission and TTFT preference separate so cache affinity is
 // evaluated before a slow account can be removed by the latency guard.
-func (s *OpenAIGatewayService) openAIGuardExclusionParts(ctx context.Context, groupID *int64, platform, requestedModel string, requiredTransport OpenAIUpstreamTransport, requiredCapability OpenAIEndpointCapability, requiredImageCapability OpenAIImagesCapability, requireCompact bool, callerExcluded map[int64]struct{}) (map[int64]struct{}, map[int64]struct{}) {
+func (s *OpenAIGatewayService) openAIGuardExclusionParts(ctx context.Context, groupID *int64, platform, requestedModel string, requiredTransport OpenAIUpstreamTransport, requiredCapability OpenAIEndpointCapability, requiredImageCapability OpenAIImagesCapability, requireCompact bool, callerExcluded map[int64]struct{}, tickets ...map[int64]*openAITTFTTrial) (map[int64]struct{}, map[int64]struct{}) {
 	if s == nil {
 		return nil, nil
 	}
@@ -1027,19 +662,24 @@ func (s *OpenAIGatewayService) openAIGuardExclusionParts(ctx context.Context, gr
 		}
 		if hasGroupTTFTContext && cfg.Enabled {
 			candidates = append(candidates, openAITTFTGuardCandidate{
-				groupID:   *groupID,
-				accountID: account.ID,
-				model:     canonicalOpenAIAccountSchedulingModel(account, requestedModel),
+				upstreamKeyID: accountUpstreamKeyID(account),
+				groupID:       *groupID,
+				accountID:     account.ID,
+				model:         canonicalOpenAIAccountSchedulingModel(account, requestedModel),
 			})
 		}
 	}
 	contractCandidates := make([]forkscheduling.CandidateView, 0, len(candidates))
 	for _, candidate := range candidates {
-		contractCandidates = append(contractCandidates, forkscheduling.CandidateView{ID: candidate.accountID, GroupID: candidate.groupID, Model: candidate.model})
+		contractCandidates = append(contractCandidates, forkscheduling.CandidateView{ID: candidate.accountID, UpstreamKeyID: candidate.upstreamKeyID, GroupID: candidate.groupID, Model: candidate.model})
 	}
 	var ttftExcluded map[int64]struct{}
 	if len(contractCandidates) > 0 {
-		ttftExcluded = s.forkTTFTRuntime().Exclusions(contractCandidates, callerExcluded, forkscheduling.TTFTConfig{Enabled: cfg.Enabled, Threshold: cfg.Threshold, MinSamples: cfg.MinSamples, Source: cfg.Source, GroupName: cfg.GroupName})
+		if runtime, ok := s.forkTTFTRuntime().(legacyTTFTRuntime); ok {
+			ttftExcluded = runtime.guard.exclusions(candidates, callerExcluded, cfg, tickets...)
+		} else {
+			ttftExcluded = s.forkTTFTRuntime().Exclusions(contractCandidates, callerExcluded, forkscheduling.TTFTConfig{Enabled: cfg.Enabled, Threshold: cfg.Threshold, MinSamples: cfg.MinSamples, Source: cfg.Source, GroupName: cfg.GroupName})
+		}
 	}
 	return healthExcluded, ttftExcluded
 }
@@ -1063,74 +703,4 @@ func openAITTFTGuardShouldFailOpen(selection *AccountSelectionResult, err error)
 		return selection == nil || selection.Account == nil
 	}
 	return errors.Is(err, ErrNoAvailableAccounts) || errors.Is(err, ErrNoAvailableCompactAccounts)
-}
-
-// quality reads real per-scope sample quality without applying the five-percent
-// recovery-probe exception. Expired or superseded config evidence is unknown;
-// this lookup never touches LRU state, changes config or advances probe cadence.
-func (g *openAITTFTGuard) quality(candidates []openAITTFTGuardCandidate, cfg OpenAITTFTGuardConfigSnapshot) map[int64]forkscheduling.TTFTQuality {
-	if g == nil || len(candidates) == 0 {
-		return nil
-	}
-	cfg = normalizeOpenAITTFTGuardConfig(cfg)
-	if !cfg.Enabled {
-		return nil
-	}
-	now := g.now()
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	alive := func(key openAITTFTGuardKey, e *openAITTFTGuardEntry) bool {
-		if e == nil || e.sampleLen == 0 || e.lastSampleAt.IsZero() || now.Sub(e.lastSampleAt) >= g.ttl || !e.config.Enabled {
-			return false
-		}
-		current, ok := g.groupConfigs[key.scopeID]
-		return !ok || sameOpenAITTFTGuardRuntimeConfig(current, e.config)
-	}
-	out := make(map[int64]forkscheduling.TTFTQuality)
-	for _, candidate := range candidates {
-		scope, ok := openAITTFTGuardScopeFor(candidate.groupID, cfg)
-		if !ok {
-			continue
-		}
-		key, ok := openAITTFTGuardKeyFor(scope, candidate.accountID, candidate.model)
-		if !ok {
-			continue
-		}
-		var selected *openAITTFTGuardEntry
-		direct := g.entries[key]
-		if alive(key, direct) && sameOpenAITTFTGuardRuntimeConfig(direct.config, cfg) {
-			selected = direct
-		}
-		// Cascade evidence keeps its source scope's latency. Choose the largest
-		// effective threshold, then the lowest scope ID deterministically.
-		var inherited *openAITTFTGuardEntry
-		var inheritedScope int64
-		for sourceKey, entry := range g.entries {
-			if sourceKey == key || sourceKey.accountID != candidate.accountID || sourceKey.model != key.model || !alive(sourceKey, entry) || !entry.degraded || entry.config.Threshold < cfg.Threshold {
-				continue
-			}
-			if entry.config.Threshold == cfg.Threshold && selected != nil && selected.degraded && scope < sourceKey.scopeID {
-				continue
-			}
-			if inherited == nil || entry.config.Threshold > inherited.config.Threshold || (entry.config.Threshold == inherited.config.Threshold && sourceKey.scopeID < inheritedScope) {
-				inherited = entry
-				inheritedScope = sourceKey.scopeID
-			}
-		}
-		if inherited != nil {
-			selected = inherited
-		}
-		if selected == nil {
-			continue
-		}
-		value := forkscheduling.TTFTQuality{Degraded: selected.degraded, EWMAms: selected.recentEWMA(), SampleCount: selected.sampleCount}
-		old, exists := out[candidate.accountID]
-		if !exists || (value.Degraded && !old.Degraded) || (value.Degraded == old.Degraded && value.EWMAms > old.EWMAms) {
-			out[candidate.accountID] = value
-		}
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
 }

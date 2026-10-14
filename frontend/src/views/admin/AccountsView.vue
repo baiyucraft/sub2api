@@ -359,8 +359,8 @@
           </template>
           <template #cell-status="{ row }">
             <div class="flex min-w-0 flex-col items-start gap-1.5">
-              <AccountStatusIndicator :account="row" @show-temp-unsched="handleShowTempUnsched" />
-              <UpstreamCacheGuardStates v-if="scope === 'upstream'" :account="row" />
+              <AccountStatusIndicator :account="row" :hide-protection="scope === 'upstream' || !!row.upstream_key_id || !!row.upstream_protection" @show-temp-unsched="handleShowTempUnsched" />
+              <UpstreamProtectionStatus v-if="scope === 'upstream' || row.upstream_key_id || row.upstream_protection" :account="row" />
             </div>
           </template>
           <template #cell-upstream_health="{ row }">
@@ -737,7 +737,7 @@ import AccountActionMenu from '@/components/admin/account/AccountActionMenu.vue'
 import type { SelectOption } from '@/components/common/Select.vue'
 import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.vue'
 import UpstreamHealthCell from '@/components/account/UpstreamHealthCell.vue'
-import UpstreamCacheGuardStates from '@/components/account/UpstreamCacheGuardStates.vue'
+import UpstreamProtectionStatus from '@/components/account/UpstreamProtectionStatus.vue'
 import AccountUsageCell from '@/components/account/AccountUsageCell.vue'
 import AccountTodayStatsCell from '@/components/account/AccountTodayStatsCell.vue'
 import AccountQualityCell from '@/components/account/AccountQualityCell.vue'
@@ -2286,7 +2286,7 @@ const handleManualRefresh = () => {
   if (manualRefreshPromise) return manualRefreshPromise
   manualRefreshing.value = true
   const context = accountListContextKey.value
-  const refreshTask = props.scope === 'upstream' && loadedAccountListContext.value === context
+  const refreshTask = loadedAccountListContext.value === context
     ? refreshAccountsIncrementally({ force: true })
     : load({ forceUsage: true })
   const generation = autoRefreshRequestGeneration

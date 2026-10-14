@@ -65,6 +65,7 @@ type AccountHandler struct {
 	rpmCache                service.RPMCache
 	tokenCacheInvalidator   service.TokenCacheInvalidator
 	ttftGuardReader         service.OpenAITTFTGuardDegradationReader
+	protectionPolicyReader  accountProtectionPolicies
 	upstreamHealthReader    service.UpstreamHealthHistoryReader
 	grokImportProber        grokImportProber
 	upstreamBillingProbe    *service.UpstreamBillingProbeService
@@ -252,6 +253,7 @@ type AccountWithConcurrency struct {
 	TTFTGuardDegradations           []service.OpenAITTFTGuardDegradation `json:"ttft_guard_degradations,omitempty"`
 	UpstreamCacheGuardStates        []service.UpstreamCacheGuardState    `json:"upstream_cache_guard_states,omitempty"`
 	UpstreamCacheGuard              *service.UpstreamCacheGuardSummary   `json:"upstream_cache_guard,omitempty"`
+	UpstreamProtection              *AccountUpstreamProtection           `json:"upstream_protection,omitempty"`
 	UpstreamHealth                  *AccountUpstreamHealth               `json:"upstream_health,omitempty"`
 	AvailableActions                []string                             `json:"available_actions,omitempty"`
 	// 以下字段仅对 Anthropic OAuth/SetupToken 账号有效，且仅在启用相应功能时返回
@@ -287,6 +289,7 @@ type AccountListItemWithConcurrency struct {
 	TTFTGuardDegradations           []service.OpenAITTFTGuardDegradation `json:"ttft_guard_degradations,omitempty"`
 	UpstreamCacheGuardStates        []service.UpstreamCacheGuardState    `json:"upstream_cache_guard_states,omitempty"`
 	UpstreamCacheGuard              *service.UpstreamCacheGuardSummary   `json:"upstream_cache_guard,omitempty"`
+	UpstreamProtection              *AccountUpstreamProtection           `json:"upstream_protection,omitempty"`
 	UpstreamHealth                  *AccountUpstreamHealth               `json:"upstream_health,omitempty"`
 	AvailableActions                []string                             `json:"available_actions,omitempty"`
 	CurrentConcurrency              int                                  `json:"current_concurrency"`
@@ -474,9 +477,10 @@ func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, ac
 		item.AvailableActions = upstreamAccountAvailableActions(account)
 		guard := service.GetUpstreamCacheGuardAccountView(account)
 		item.UpstreamCacheGuard, item.UpstreamCacheGuardStates = guard.Summary, guard.States
+		item.UpstreamProtection = h.upstreamProtection(account, guard)
 	}
 	if h.ttftGuardReader != nil && account.Platform == service.PlatformOpenAI && account.IsUpstreamBound() {
-		item.TTFTGuardDegradations = h.ttftGuardReader.OpenAITTFTGuardDegradations([]int64{account.ID})[account.ID]
+		item.TTFTGuardDegradations = accountCurrentKeyTTFTDegradations(account, h.ttftGuardReader.OpenAITTFTGuardDegradations([]int64{account.ID})[account.ID])
 	}
 
 	if h.concurrencyService != nil {
@@ -1200,7 +1204,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 		}
 		var accountTTFTGuardDegradations []service.OpenAITTFTGuardDegradation
 		if acc.Platform == service.PlatformOpenAI && (scope == service.AccountListScopeAll || acc.IsUpstreamBound()) {
-			accountTTFTGuardDegradations = ttftGuardDegradations[acc.ID]
+			accountTTFTGuardDegradations = accountCurrentKeyTTFTDegradations(acc, ttftGuardDegradations[acc.ID])
 		}
 		item := AccountWithConcurrency{
 			Account:                  accountResponse,
@@ -1211,6 +1215,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 			TTFTGuardDegradations:    accountTTFTGuardDegradations,
 			UpstreamCacheGuardStates: upstreamCacheGuardViews[acc.ID].States,
 			UpstreamCacheGuard:       upstreamCacheGuardViews[acc.ID].Summary,
+			UpstreamProtection:       h.upstreamProtection(acc, upstreamCacheGuardViews[acc.ID]),
 			ProxyConcurrency:         proxyConcurrency[acc.ID],
 		}
 		target := acc.SchedulingConcurrencyTarget()
@@ -1270,6 +1275,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 				TTFTGuardDegradations:           item.TTFTGuardDegradations,
 				UpstreamCacheGuardStates:        item.UpstreamCacheGuardStates,
 				UpstreamCacheGuard:              item.UpstreamCacheGuard,
+				UpstreamProtection:              item.UpstreamProtection,
 				UpstreamHealth:                  item.UpstreamHealth,
 				AvailableActions:                item.AvailableActions,
 				CurrentConcurrency:              item.CurrentConcurrency,

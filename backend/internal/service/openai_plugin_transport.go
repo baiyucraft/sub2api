@@ -15,6 +15,9 @@ func (s *OpenAIGatewayService) doOpenAIUpstream(request *http.Request, proxyURL 
 			return response, err
 		}
 	}
+	if err := runSchedulingProtectionBeforeSend(request.Context(), account); err != nil {
+		return nil, err
+	}
 	return s.httpUpstream.Do(request, proxyURL, account.ID, account.Concurrency)
 }
 

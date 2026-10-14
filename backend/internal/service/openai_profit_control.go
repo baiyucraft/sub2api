@@ -297,6 +297,9 @@ func attachSelectionProfitGate(ctx context.Context, sel *AccountSelectionResult)
 // （ProfitControlVetoLatest / GatewayProfitControlVetoLatest）与准入后粘性
 // 绑定，否则这两步会因为看不到调度栈内安装的门而退化为空操作。
 func ContextWithSelectionProfitGate(ctx context.Context, sel *AccountSelectionResult) context.Context {
+	if sel != nil && sel.protection != nil {
+		ctx = context.WithValue(ctx, protectionSelectionKey{}, sel.protection)
+	}
 	if sel != nil && sel.cacheGuardMigrationAccountID > 0 {
 		ctx = context.WithValue(ctx, cacheGuardMigrationKey{}, sel.cacheGuardMigrationAccountID)
 	}
@@ -377,7 +380,11 @@ func (s *OpenAIGatewayService) BindStickySessionAfterProfitAdmission(ctx context
 		return nil
 	}
 	if cacheGuardAdmittedMigration(ctx, accountID) {
-		return s.BindStickySession(ctx, groupID, sessionHash, accountID)
+		err := s.BindStickySession(ctx, groupID, sessionHash, accountID)
+		if err == nil {
+			s.recordProtectionMigration(ctx, groupID)
+		}
+		return err
 	}
 	if !gatewayProfitControlGateActive(ctx) {
 		return s.BindStickySession(ctx, groupID, sessionHash, accountID)

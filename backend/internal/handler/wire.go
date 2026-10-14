@@ -15,9 +15,11 @@ func ProvideAdminGroupHandler(
 	groupCapacityService *service.GroupCapacityService,
 	cfg *config.Config,
 	policyService *service.GroupTTFTGuardPolicyService,
+	protectionPolicies *service.GroupSchedulingProtectionPolicyService,
 ) *admin.GroupHandler {
 	h := admin.NewGroupHandlerWithConfig(adminService, dashboardService, groupCapacityService, cfg)
 	h.SetTTFTGuardPolicyService(policyService)
+	h.SetSchedulingProtectionPolicyService(protectionPolicies)
 	return h
 }
 

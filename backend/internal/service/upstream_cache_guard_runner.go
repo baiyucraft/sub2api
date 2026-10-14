@@ -62,6 +62,8 @@ type UpstreamCacheGuardRunner struct {
 	retrying       atomic.Int64
 	lost           atomic.Bool
 	pendingFailure atomic.Bool
+	policyMu       sync.RWMutex
+	policyResolver GroupSchedulingProtectionPolicyResolver
 }
 
 var installedCacheGuardRunner atomic.Pointer[UpstreamCacheGuardRunner]
@@ -70,10 +72,13 @@ func currentUpstreamCacheGuardRunner() *UpstreamCacheGuardRunner {
 	return installedCacheGuardRunner.Load()
 }
 
-func ProvideUpstreamCacheGuardRunner(store upstreamcacheguard.Store, settings *SettingService, cfg *config.Config) *UpstreamCacheGuardRunner {
+func ProvideUpstreamCacheGuardRunner(store upstreamcacheguard.Store, settings *SettingService, cfg *config.Config, policies *GroupSchedulingProtectionPolicyService) *UpstreamCacheGuardRunner {
 	r := &UpstreamCacheGuardRunner{engine: NewUpstreamCacheGuardRuntime(store), store: store, owner: newCacheGuardID(), settings: settings, queue: make(chan upstreamcacheguard.Evidence, 16384), wake: make(chan struct{}, 1), stop: make(chan struct{}), done: make(chan struct{})}
 	if cfg != nil {
 		r.secret = []byte(cfg.JWT.Secret)
+	}
+	if policies != nil {
+		r.SetProtectionPolicyResolver(policies)
 	}
 	installedCacheGuardRunner.Store(r)
 	go r.run()
@@ -83,6 +88,37 @@ func (r *UpstreamCacheGuardRunner) applySettings(s UpstreamCacheGuardSettings) {
 	if r != nil {
 		_ = r.engine.ApplySettings(s)
 	}
+}
+
+func (r *UpstreamCacheGuardRunner) SetProtectionPolicyResolver(resolver GroupSchedulingProtectionPolicyResolver) {
+	if r == nil {
+		return
+	}
+	r.policyMu.Lock()
+	r.policyResolver = resolver
+	r.policyMu.Unlock()
+	r.applyPolicySnapshot()
+}
+
+func (r *UpstreamCacheGuardRunner) applyPolicySnapshot() {
+	r.policyMu.RLock()
+	resolver := r.policyResolver
+	r.policyMu.RUnlock()
+	if provider, ok := resolver.(interface {
+		CachePolicies() map[int64]UpstreamCacheGuardSettings
+	}); ok {
+		_ = r.engine.ApplyPolicySettings(provider.CachePolicies())
+	}
+}
+
+func (r *UpstreamCacheGuardRunner) cachePolicyMetadata(groupID int64) (string, string) {
+	r.policyMu.RLock()
+	resolver := r.policyResolver
+	r.policyMu.RUnlock()
+	if provider, ok := resolver.(interface{ CachePolicyMetadata(int64) (string, string) }); ok {
+		return provider.CachePolicyMetadata(groupID)
+	}
+	return "inherit", "global"
 }
 func (r *UpstreamCacheGuardRunner) refresh() {
 	ctx, cancel := context.WithTimeout(context.Background(), 750*time.Millisecond)
@@ -100,7 +136,8 @@ func (r *UpstreamCacheGuardRunner) refresh() {
 		r.available.Store(false)
 		return
 	}
-	if s.Mode == upstreamcacheguard.Disabled {
+	r.applyPolicySnapshot()
+	if !r.engine.AnyPolicyActive() {
 		r.available.Store(false)
 		return
 	}

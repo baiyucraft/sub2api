@@ -329,6 +329,13 @@ func (r *pluginRuntime) roundTrip(ctx context.Context, request *http.Request, pr
 		requestID = strconv.FormatInt(time.Now().UnixNano(), 36) + "-" + strconv.FormatInt(account.ID, 36)
 	}
 	metadata, _ := ctx.Value(pluginRequestMetadataKey{}).(pluginRequestMetadata)
+	if err := runSchedulingProtectionBeforeSend(ctx, account); err != nil {
+		cancel()
+		if guarded {
+			r.requests.complete(requestID)
+		}
+		return nil, err
+	}
 	if err := stream.Send(&pluginv1.ForwardRequest{Frame: &pluginv1.ForwardRequest_Start{Start: &pluginv1.ForwardRequestStart{
 		RequestId:          requestID,
 		Method:             request.Method,

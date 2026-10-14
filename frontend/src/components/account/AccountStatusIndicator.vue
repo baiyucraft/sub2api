@@ -138,7 +138,7 @@
     </div>
 
     <TTFTGuardStatusBadge
-      v-if="account.ttft_guard_degradations && Object.keys(account.ttft_guard_degradations).length > 0"
+      v-if="!hideProtection && account.ttft_guard_degradations && Object.keys(account.ttft_guard_degradations).length > 0"
       :degradations="account.ttft_guard_degradations"
       class="max-w-full"
     />
@@ -177,6 +177,7 @@ const { t } = useI18n()
 
 const props = defineProps<{
   account: Account
+  hideProtection?: boolean
 }>()
 
 const emit = defineEmits<{

@@ -15,13 +15,17 @@ type cacheUsageAttemptContextKey struct{}
 // One holder belongs to one physical-account attempt, not an entire retry chain
 // or WebSocket connection. Probes never install this request metadata.
 type cacheUsageAttempt struct {
-	mu          sync.Mutex
-	apiKeyID    int64
-	groupID     *int64
-	sessionHash string
-	admission   *UpstreamCacheGuardAdmission
-	begun       bool
-	finished    bool
+	mu                 sync.Mutex
+	apiKeyID           int64
+	groupID            *int64
+	sessionHash        string
+	admission          *UpstreamCacheGuardAdmission
+	begun              bool
+	finished           bool
+	protectionFinished bool
+	account            *Account
+	model              string
+	protocol           string
 }
 
 func WithUpstreamCacheGuardAttempt(ctx context.Context, apiKeyID int64, groupID *int64, sessionHash string, stream bool) context.Context {
@@ -38,10 +42,38 @@ func WithUpstreamCacheGuardAttempt(ctx context.Context, apiKeyID int64, groupID 
 
 // BeginUpstreamCacheGuardSend freezes warm/cohort state immediately before the
 // first send to this account. Same-account transport retries share the holder.
-func BeginUpstreamCacheGuardSend(ctx context.Context, account *Account, model, protocol string) {
+func BeginUpstreamCacheGuardSend(ctx context.Context, account *Account, model, protocol string) error {
+	if ctx == nil {
+		return nil
+	}
+	if protocol == "openai_ws" {
+		if err := runSchedulingProtectionBeforeSend(ctx, account, model); err != nil {
+			return err
+		}
+	}
+	beginUpstreamCacheGuardSend(ctx, account, model, protocol)
+	return nil
+}
+
+// HTTP OpenAI paths prepare metadata before host/plugin admission, then freeze
+// the admission at their shared physical transport entry. Other providers and
+// WS frame writes keep their existing immediate Begin behavior.
+func PrepareOpenAIUpstreamCacheGuardSend(ctx context.Context, account *Account, model, protocol string) {
 	if ctx == nil {
 		return
 	}
+	a, _ := ctx.Value(cacheUsageAttemptContextKey{}).(*cacheUsageAttempt)
+	if a == nil {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if !a.begun {
+		a.account, a.model, a.protocol = account, model, protocol
+	}
+}
+
+func beginUpstreamCacheGuardSend(ctx context.Context, account *Account, model, protocol string) {
 	a, _ := ctx.Value(cacheUsageAttemptContextKey{}).(*cacheUsageAttempt)
 	if a == nil {
 		return
@@ -52,6 +84,7 @@ func BeginUpstreamCacheGuardSend(ctx context.Context, account *Account, model, p
 		return
 	}
 	a.begun = true
+	a.account, a.model, a.protocol = account, model, protocol
 	a.admission = BeginUpstreamCacheGuardRequest(ctx, a.apiKeyID, a.groupID, a.sessionHash, model, protocol, account)
 }
 
@@ -133,6 +166,43 @@ func FinishOpenAIUpstreamCacheGuardAttempt(ctx context.Context, result *OpenAIFo
 		}
 		if result.ImageCount > 0 || result.VideoCount > 0 || result.AudioUsage != nil || result.WebSearchCalls > 0 {
 			success = false
+		}
+	}
+	if selection, _ := ctx.Value(protectionSelectionKey{}).(*protectionSelection); selection != nil {
+		var ms *int
+		if result != nil {
+			ms = result.FirstTokenMs
+		}
+		if selection.trial != nil && selection.trial.sent.Load() {
+			selection.trial.finish(success && ctx.Err() == nil, ms)
+		}
+		a, _ := ctx.Value(cacheUsageAttemptContextKey{}).(*cacheUsageAttempt)
+		if a != nil {
+			a.mu.Lock()
+			if !a.protectionFinished {
+				a.protectionFinished = true
+				var ms *int
+				if result != nil {
+					ms = result.FirstTokenMs
+				}
+				if key, ok := protectionSessionKey(ctx, selection.groupID, a.account, a.model, a.protocol); ok && a.account != nil {
+					now := time.Now()
+					e := selection.service.protectionSession(key, now)
+					e.mu.Lock()
+					if now.Sub(e.last) >= 15*time.Minute || e.threshold != selection.threshold {
+						e.slow = 0
+					}
+					e.threshold = selection.threshold
+					if success && ctx.Err() == nil && ms != nil && time.Duration(*ms)*time.Millisecond > selection.threshold {
+						e.slow++
+					} else {
+						e.slow = 0
+					}
+					e.last = now
+					e.mu.Unlock()
+				}
+			}
+			a.mu.Unlock()
 		}
 	}
 	FinishUpstreamCacheGuardAttempt(ctx, evidence, success && ctx.Err() == nil, time.Now())

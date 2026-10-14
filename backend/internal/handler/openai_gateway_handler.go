@@ -885,7 +885,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		// 从不可变的 canonical forwardBody 派生本次尝试 body 并整块剔除上游私有的加密
 		// reasoning item（含耦合的 id/summary），避免非透传上游 400 拒绝 Kiro reasoning 形态。
 		attemptBody := h.deriveOpenAIForwardAttemptBody(reqLog, forwardBody, account, &passthroughFailoverState)
-		cacheAttemptCtx := c.Request.Context()
+		cacheAttemptCtx := h.withSchedulingProtectionSendAdmission(service.ContextWithSelectionProfitGate(c.Request.Context(), selection), apiKey.GroupID, sessionHash, selection)
 		if reqStream && service.UpstreamCacheGuardTextRequest(c.Request.URL.Path, body) {
 			cacheAttemptCtx = service.WithUpstreamCacheGuardAttempt(cacheAttemptCtx, apiKey.ID, apiKey.GroupID, sessionHash, true)
 		}
@@ -1557,7 +1557,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		// 应用渠道模型映射到请求体
 		forwardBody := mappedBodyForMessages(channelMappingMsg.Mapped, channelMappingMsg.MappedModel)
 		writerSizeBeforeForward := c.Writer.Size()
-		cacheAttemptCtx := c.Request.Context()
+		cacheAttemptCtx := h.withSchedulingProtectionSendAdmission(service.ContextWithSelectionProfitGate(c.Request.Context(), selection), apiKey.GroupID, sessionHash, selection)
 		if reqStream && service.UpstreamCacheGuardTextRequest(c.Request.URL.Path, body) {
 			cacheAttemptCtx = service.WithUpstreamCacheGuardAttempt(cacheAttemptCtx, apiKey.ID, apiKey.GroupID, sessionHash, true)
 		}
@@ -2785,7 +2785,7 @@ func (h *OpenAIGatewayHandler) finalizeOpenAIAccountAdmission(
 		return nil, openAISlotAcquireFailed
 	}
 	selection.Account = resolved
-	if bindSticky {
+	if bindSticky && !selection.IsSchedulingProtectionMigration() {
 		if err := h.gatewayService.BindStickySessionAfterProfitAdmission(ctx, groupID, sessionHash, resolved.ID); err != nil {
 			reqLog.Warn("openai.bind_sticky_session_after_profit_admission_failed", zap.Int64("account_id", resolved.ID), zap.Error(err))
 		}
@@ -2797,6 +2797,23 @@ func (h *OpenAIGatewayHandler) finalizeOpenAIAccountAdmission(
 		)
 	}
 	return wrapReleaseOnDone(ctx, combineOpenAIReleaseFuncs(proxyRelease, accountRelease)), openAISlotAcquireOK
+}
+
+// A protection migration keeps its source binding until every host admission
+// check has passed and the prepared HTTP request or WS frame is about to send.
+func (h *OpenAIGatewayHandler) withSchedulingProtectionSendAdmission(ctx context.Context, groupID *int64, sessionHash string, selection *service.AccountSelectionResult) context.Context {
+	if !selection.IsSchedulingProtectionMigration() {
+		return service.WithSchedulingProtectionBeforeSend(ctx, 0, nil)
+	}
+	var frozenGroupID *int64
+	if groupID != nil {
+		id := *groupID
+		frozenGroupID = &id
+	}
+	accountID := selection.Account.ID
+	return service.WithSchedulingProtectionBeforeSend(ctx, accountID, func(admitted context.Context) error {
+		return h.gatewayService.BindStickySessionAfterProfitAdmission(admitted, frozenGroupID, sessionHash, accountID)
+	})
 }
 
 // acquireOpenAIAccountSlot centralizes scheduler selection admission. The
@@ -3506,9 +3523,12 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		// captured by the previous failover account before credential lookup.
 		setOpsSelectedAccount(c, account.ID, account.Platform)
 		currentAccountRelease = wrapReleaseOnDone(ctx, accountReleaseFunc)
-		if err := h.gatewayService.BindStickySessionAfterProfitAdmission(ctx, apiKey.GroupID, sessionHash, account.ID); err != nil {
-			reqLog.Warn("openai.websocket_bind_sticky_session_after_profit_admission_failed", zap.Int64("account_id", account.ID), zap.Error(err))
+		if !selection.IsSchedulingProtectionMigration() {
+			if err := h.gatewayService.BindStickySessionAfterProfitAdmission(ctx, apiKey.GroupID, sessionHash, account.ID); err != nil {
+				reqLog.Warn("openai.websocket_bind_sticky_session_after_profit_admission_failed", zap.Int64("account_id", account.ID), zap.Error(err))
+			}
 		}
+		ctx = h.withSchedulingProtectionSendAdmission(ctx, apiKey.GroupID, sessionHash, selection)
 
 		token, _, err := h.gatewayService.GetRequestCredential(ctx, c, account)
 		if err != nil {

@@ -30,7 +30,13 @@ func (s *SettingService) GetUpstreamCacheGuardSettings(ctx context.Context) (Ups
 		return defaults, err
 	}
 	var settings UpstreamCacheGuardSettings
-	if json.Unmarshal([]byte(raw), &settings) != nil || settings.Validate() != nil {
+	if json.Unmarshal([]byte(raw), &settings) != nil {
+		return defaults, nil
+	}
+	if settings.Priority == "" {
+		settings.Priority = "cache_first"
+	}
+	if settings.Validate() != nil {
 		return defaults, nil
 	}
 	return settings, nil
@@ -63,5 +69,6 @@ func (s *SettingService) SetUpstreamCacheGuardSettings(ctx context.Context, sett
 	if runner := currentUpstreamCacheGuardRunner(); runner != nil {
 		runner.applySettings(settings)
 	}
+	_ = s.notifyOpenAITTFTGuardGlobalUpdate(ctx)
 	return nil
 }

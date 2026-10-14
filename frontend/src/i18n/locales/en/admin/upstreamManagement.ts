@@ -1,5 +1,33 @@
 export default {
   upstreamManagement: {
+    protection: {
+      ttftUnsupported: 'TTFT protection is available for OpenAI and Composite groups.',
+      action: 'Protection', groupTitle: 'Group scheduling protection', openHint: 'Configure cache, TTFT protection and scheduling preference together',
+      sharedMetrics: 'TTFT is shared by account, current upstream Key and actual model; cache rate by account and current Key. Group policies decide how these observations are used.',
+      priority: 'Scheduling preference', priorities: { inherit: 'Inherit global', cache_first: 'Cache first', ttft_first: 'TTFT first' },
+      priorityHints: { inherit: 'Follow global settings; cache first by default.', cache_first: 'Prefer cache benefit while considering first-token latency.', ttft_first: 'Prefer first-token speed while considering cache benefit.' },
+      globalPriority: 'Global scheduling preference', mode: 'Policy mode', modes: { inherit: 'Inherit global', enabled: 'Group custom', disabled: 'Off' },
+      effective: 'Effective policy', cacheValues: 'Protect below {threshold}% · recover at {recovery}% · more than {samples} valid requests',
+      cacheInherited: 'Global defaults: {window} min window · {cooldown} min cooldown · {trial}% recovery trial',
+      ttftHint: 'New sessions gradually avoid slow accounts. Existing sessions migrate according to the group preference. Samples are shared across groups.',
+      atomicHint: 'Save updates both guards and the scheduling preference together. Custom cache mode enables protection. Window, cooldown and trial ratio always follow global settings.',
+      cacheInvalid: 'Cache thresholds must be 0–100%; recovery must exceed the protection threshold. The request minimum must be an integer from 1 to 100000.',
+      loadFailed: 'Failed to load group scheduling protection', saveFailed: 'Failed to save group scheduling protection', saved: 'Group scheduling protection saved',
+      details: 'Scheduling protection details', viewDetails: 'View scheduling protection details', summary: 'Protection status', ttftModels: 'TTFT: {count} models',
+      viewCacheDetails: 'View cache protection details', viewTTFTDetails: 'View TTFT protection details',
+      protectedGroups: '{count} groups protected', protectedModelsGroups: '{models} models / {groups} groups protected',
+      protectedModels: '{count} models under draining protection', legacyTTFTMetrics: 'Legacy TTFT degradation has been reported; shared observation details are currently unavailable.',
+      sourceUnavailable: 'Policy source unavailable', priorityUnavailable: 'Scheduling preference unavailable',
+      noTTFTSamples: 'No valid TTFT observations yet; this does not establish normal performance.', ttftValues: 'First-token threshold {threshold} · At least {samples} samples',
+      noTTFTDegradation: 'No TTFT degradation reported', noData: 'No protection metrics yet', unknown: 'Unknown',
+      metrics: 'Account metrics', models: 'Model TTFT', groups: 'Group execution', sharedHint: 'Metrics are shared for this account. Each group applies its own thresholds and preference.',
+      state: { normal: 'Normal', insufficient: 'Insufficient samples', observed: 'Shared observations', degraded: 'Draining protection', draining: 'Draining protection', protected: 'Draining protection', recovering: 'Recovering', observing: 'Observing', expired: 'Expired data', disabled: 'Off', unavailable: 'Unavailable' },
+      reason: 'Reason', lastSample: 'Last sample', threshold: 'Threshold', samples: 'Samples', lastTTFT: 'Latest TTFT', ewma: 'Smoothed TTFT',
+      recovery: 'Recovery {current}/{required}', cache: 'Cache', ttft: 'TTFT', noGroups: 'No group execution state yet',
+      elapsed: 'For {time}', startedAt: 'Started', expiresAt: 'State expires', source: 'Policy source',
+      linkedFrom: 'Linked from: {group}', legacyScope: 'Legacy state group: {group}',
+      legacyGroupsHint: 'Legacy group scope is still applied. Scheduling protection in group management can override the inherited policy.'
+    },
     title: 'Upstream Management',
     description: 'Manage accounts derived from upstream keys, scheduling, health, TTFT and quality.',
     saved: 'Saved',
@@ -20,7 +48,7 @@ export default {
     },
     cacheGuard: {
       title: 'Upstream cache protection',
-      description: 'Combine valid continuation samples across all groups, models and protocols for each upstream account. Applicable groups only control enforcement; observe mode does not change scheduling.',
+      description: 'Share valid continuation samples across groups, models and protocols for each account and current Key. Group scheduling protection sets independent thresholds and scope; observe mode does not change scheduling.',
       mode: 'Mode',
       modes: { disabled: 'Off', observe: 'Observe only', protect: 'Protect' },
       groups: 'Applicable groups',
@@ -34,7 +62,7 @@ export default {
       cooldown_minutes: 'Cooldown (minutes)',
       trial_percent: 'Recovery share of new sessions (%)',
       sampleHint: 'Decisions require strictly more than {count} valid requests. Cache rate is cached input tokens / all input tokens.',
-      recoveryHint: 'After cooldown, new sessions in enabled groups enter one account-wide recovery trial. Trial samples are separate from ordinary traffic and require at least 3 sessions and 10 minutes of observation.',
+      recoveryHint: 'After cooldown, new sessions enter a recovery trial for their effective policy. Identical policies share progress. Trial samples are separate from ordinary traffic and require at least 3 sessions and 10 minutes of observation.',
       sessionHint: 'Two consecutive low-rate continuations allow migration to an account with capacity and at least 5 percentage points higher cache rate. Stay for at least 5 minutes after migration. When all rates are low, choose among callable accounts.',
       invalid: 'Use a 5–1440 minute window, a recovery threshold above protection and at most 100%, 1–100000 valid requests, a 1–1440 minute cooldown, and a 1–100% trial share.',
       rate: 'Valid continuation cache rate',
@@ -67,8 +95,8 @@ export default {
       linkedObserveHint: 'Observe mode shows proposed linked sources and their recovery progress without changing scheduling. Samples in this group and source groups remain independent.',
       linkedObserveReason: 'Low-cache observations for the same upstream account in another group',
       sourcePhases: { healthy: 'Healthy', degraded: 'Low-cache protection', cooling: 'Cooling down', trial: 'Recovery trial' },
-      metricHint: 'This rate belongs to this upstream account only: valid samples across groups are weighted by input tokens. Cold starts and invalid samples are excluded. Unknown is not 0%. Group rows show execution, not separate rates.',
-      states: { disabled: 'Off', observing: 'Observing', insufficient: 'Insufficient samples', normal: 'Normal', protected: 'Protected', recovering: 'Recovery trial', unavailable: 'Temporarily unavailable' },
+      metricHint: 'Valid samples for the current account and Key are shared across groups and weighted by input tokens. Cold starts and invalid samples are excluded. Unknown is not 0%. Each group applies its own effective thresholds and recovery criteria.',
+      states: { disabled: 'Off', observing: 'Observing', insufficient: 'Insufficient samples', normal: 'Normal', protected: 'Protected', recovering: 'Recovery trial', expired: 'Expired data', unavailable: 'Temporarily unavailable' },
       reasons: { disabled: 'Protection is off', collecting_samples: 'Collecting valid samples', insufficient_samples: 'Insufficient valid continuation samples', low_cache_rate: 'Below protection threshold', below_threshold: 'Below protection threshold', cooldown: 'Waiting for cooldown', waiting_recovery_samples: 'Waiting for recovery samples and observation time', waiting_recovery_validation: 'Waiting for independent recovery validation', recovery_verified: 'Recovery verified', healthy: 'Normal window cache performance', unavailable: 'State temporarily unavailable', snapshot_unavailable: 'Shared state temporarily unavailable', linked_group_protection: 'The same upstream account is protected by another group' }
     },
     retryStatusCodes: {
@@ -87,7 +115,7 @@ export default {
     rateTrend: { keyId: 'Key #{id}' },
     ttftGuard: {
       title: 'First-token performance protection',
-      description: 'Applies only to upstream accounts; slow accounts are temporarily downgraded without changing the built-in scheduler.',
+      description: 'Shared first-token observations let each group gradually avoid slow upstream accounts and jointly consider cache protection.',
       enabled: 'Enabled',
       threshold: 'Threshold (seconds)',
       minSamples: 'Minimum samples',
@@ -97,8 +125,8 @@ export default {
         scope: 'It applies only to upstream accounts and does not change multipliers, priority, billing, or scheduler scoring.',
         normal: 'Degrade when the minimum sample count is reached and EWMA meets the threshold.',
         fast: 'Degrade quickly after two samples at 1.5× the threshold, or immediately after one sample at 3×.',
-        immediate: 'A degraded account retains about 5% of scheduling opportunities for recovery probes.',
-        recovery: 'Recover after three probes at or below 0.6×; if the entire group is degraded, the original scheduler fails open.'
+        immediate: 'One recovery admission opportunity is offered every 20 scheduling calls. Only actual traffic produces recovery samples.',
+        recovery: 'Recover after three successful trials at or below 0.6× the threshold. Soft protection alone cannot leave the request without an account.'
       }
     },
     probeModels: {

@@ -142,7 +142,7 @@ const AccountUsageCellStub = {
   template: '<div data-test="usage-cell" />'
 }
 
-const mountView = (scope: 'ordinary' | 'upstream' = 'upstream') => mount(AccountsView, {
+const mountView = (scope: 'all' | 'ordinary' | 'upstream' = 'upstream') => mount(AccountsView, {
   props: { scope },
   global: {
     stubs: {
@@ -161,10 +161,11 @@ const mountView = (scope: 'ordinary' | 'upstream' = 'upstream') => mount(Account
           >
             <button data-test="sort-status" @click="$emit('sort', 'status', 'desc')">sort</button>
             <div v-if="loading" data-test="skeleton" />
-            <template v-else><div v-for="row in data" :key="row.id">
+            <template v-else><div v-for="row in data" :key="row.id" :data-account-row="row.id">
               <slot name="cell-name" :row="row" :value="row.name" />
               <slot name="cell-rate_multiplier" :row="row" :value="row.rate_multiplier" />
               <slot name="cell-usage" :row="row" />
+              <slot name="cell-status" :row="row" />
               <slot name="cell-actions" :row="row" />
             </div></template>
           </div>
@@ -223,6 +224,7 @@ describe('admin AccountsView upstream management mode', () => {
   beforeEach(() => {
     localStorage.clear()
     ordinaryList.mockReset()
+    vi.mocked(adminAPI.accounts.listWithEtag).mockReset()
     upstreamList.mockReset()
     upstreamListWithEtag.mockReset()
     getSettings.mockReset()
@@ -292,6 +294,7 @@ describe('admin AccountsView upstream management mode', () => {
       pages: 1
     })
     upstreamListWithEtag.mockResolvedValue({ notModified: true, etag: 'upstream-etag', data: null })
+    vi.mocked(adminAPI.accounts.listWithEtag).mockResolvedValue({ notModified: true, etag: 'ordinary-etag', data: null })
     getSettings.mockResolvedValue({
       ttft_guard: { enabled: false, degradation_ttft_seconds: 20, min_samples: 5 },
       probe_models: { openai: 'gpt-5.4-mini', anthropic: 'claude-haiku-4-5', gemini: 'gemini-2.5-flash' }
@@ -657,6 +660,50 @@ describe('admin AccountsView upstream management mode', () => {
     vi.useRealTimers()
   })
 
+  it('uses unified protection for upstream rows in the all-account list and refreshes an open dialog in place', async () => {
+    const ordinary = { id: 11, name: 'ordinary-account', platform: 'openai', type: 'apikey', status: 'active', schedulable: true, created_at: '2026-08-10T00:00:00Z', updated_at: '2026-08-10T00:00:00Z' }
+    const bound = {
+      ...ordinary, id: 71, name: 'bound-upstream-account', upstream_config_id: 81, upstream_key_id: 91,
+      upstream_protection: {
+        cache: null,
+        ttft_models: [{ model: 'gpt-real', state: 'expired', ewma_ms: 35000, last_ttft_ms: 36000, sample_count: 5, last_sample_at: null, expires_at: null }],
+        groups: []
+      },
+      ttft_guard_degradations: [{ model: 'gpt-real', group_id: 7 }]
+    }
+    ordinaryList.mockResolvedValue({ items: [ordinary, bound], total: 2, page: 1, page_size: 20, pages: 1 })
+    const wrapper = mountView('all')
+    await flushPromises()
+    const ordinaryRow = wrapper.get('[data-account-row="11"]')
+    const upstreamRow = wrapper.get('[data-account-row="71"]')
+    expect(ordinaryRow.find('[data-test="protection-ttft-summary"]').exists()).toBe(false)
+    expect(ordinaryRow.findComponent({ name: 'AccountStatusIndicator' }).props('hideProtection')).toBe(false)
+    expect(upstreamRow.findComponent({ name: 'AccountStatusIndicator' }).props('hideProtection')).toBe(true)
+    await upstreamRow.get('[data-test="protection-ttft-summary"]').trigger('click')
+    const openedDialog = wrapper.get('[data-test="upstream-protection-details"]').element
+    expect(wrapper.get('[data-test="protection-ttft-detail"]').text()).toContain('35.0s')
+    const pending = deferred()
+    vi.mocked(adminAPI.accounts.listWithEtag).mockReturnValueOnce(pending.promise)
+    await wrapper.get('[data-test="refresh"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-test="skeleton"]').exists()).toBe(false)
+    expect(wrapper.get('[data-test="upstream-protection-details"]').element).toBe(openedDialog)
+    const updatedBound = { ...bound, upstream_protection: {
+      ...bound.upstream_protection,
+      ttft_models: [{ ...bound.upstream_protection.ttft_models[0], state: 'observed', ewma_ms: 4000, sample_count: 6 }]
+    } }
+    pending.resolve({ notModified: false, etag: 'protection-updated', data: { items: [ordinary, updatedBound], total: 2, pages: 1 } })
+    await flushPromises()
+    expect(ordinaryList).toHaveBeenCalledTimes(1)
+    expect(adminAPI.accounts.listWithEtag).toHaveBeenCalledWith(1, 20, expect.objectContaining({ lite: '1' }), expect.objectContaining({ signal: expect.any(AbortSignal) }))
+    expect(wrapper.get('[data-test="upstream-protection-details"]').element).toBe(openedDialog)
+    expect(wrapper.get('[data-test="protection-ttft-detail"]').text()).toContain('4.0s')
+    expect(wrapper.get('[data-test="protection-ttft-summary"]').text()).toContain('state.observed')
+    await wrapper.get('[data-test="protection-close"]').trigger('click')
+    expect(wrapper.find('[data-test="upstream-protection-details"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('keeps mounted rows during manual refresh and applies cache guard changes without updated_at changing', async () => {
     const wrapper = mountView()
     await flushPromises()
@@ -675,7 +722,7 @@ describe('admin AccountsView upstream management mode', () => {
     expect((upstreamListWithEtag.mock.calls[0][1] as any).signal.aborted).toBe(false)
 
     pending.resolve({ notModified: false, etag: 'cache-changed', data: {
-      items: [{ ...row, upstream_cache_guard: { state: 'protected', rate_percent: 50, valid_requests: 21 }, upstream_cache_guard_states: [{ group_id: 7, state: 'protected', valid_requests: 21, rate_percent: 50 }] }],
+      items: [{ ...row, upstream_cache_guard: { state: 'protected', rate_percent: 50, valid_requests: 21 }, upstream_cache_guard_states: [{ group_id: 7, state: 'protected', valid_requests: 21, rate_percent: 50 }], upstream_protection: { ttft_models: [{ model: 'gpt-real', state: 'insufficient', sample_count: 1 }], groups: [] } }],
       total: 1, pages: 1
     } })
     await flushPromises()
@@ -684,11 +731,12 @@ describe('admin AccountsView upstream management mode', () => {
     expect(updated.priority).toBe(row.priority)
     expect(updated.upstream_cache_guard.state).toBe('protected')
     expect(updated.upstream_cache_guard_states[0].state).toBe('protected')
+    expect(updated.upstream_protection.ttft_models[0].state).toBe('insufficient')
     expect(wrapper.get('[data-test="usage-cell"]').element).toBe(oldCell)
     expect(upstreamListWithEtag.mock.calls[0][1].signal.aborted).toBe(false)
 
     upstreamListWithEtag.mockResolvedValueOnce({ notModified: false, etag: 'cache-reverted', data: {
-      items: [{ ...row, upstream_cache_guard: { state: 'normal', rate_percent: 93.2, valid_requests: 21 }, upstream_cache_guard_states: [{ group_id: 7, state: 'normal', valid_requests: 21, rate_percent: 93.2 }] }],
+      items: [{ ...row, upstream_cache_guard: { state: 'normal', rate_percent: 93.2, valid_requests: 21 }, upstream_cache_guard_states: [{ group_id: 7, state: 'normal', valid_requests: 21, rate_percent: 93.2 }], upstream_protection: { ttft_models: [{ model: 'gpt-real', state: 'normal', sample_count: 5 }], groups: [] } }],
       total: 1, pages: 1
     } })
     await wrapper.get('[data-test="refresh"]').trigger('click')
@@ -697,6 +745,7 @@ describe('admin AccountsView upstream management mode', () => {
     expect(reverted.updated_at).toBe(row.updated_at)
     expect(reverted.upstream_cache_guard.state).toBe('normal')
     expect(reverted.upstream_cache_guard_states[0].state).toBe('normal')
+    expect(reverted.upstream_protection.ttft_models[0].state).toBe('normal')
     expect(wrapper.get('[data-test="usage-cell"]').element).toBe(oldCell)
     wrapper.unmount()
   })

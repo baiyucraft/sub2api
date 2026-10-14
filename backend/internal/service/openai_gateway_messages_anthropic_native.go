@@ -101,7 +101,7 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeAnthropicEndpoint(
 		return nil, err
 	}
 
-	BeginUpstreamCacheGuardSend(upstreamReq.Context(), account, upstreamModel, "anthropic")
+	PrepareOpenAIUpstreamCacheGuardSend(upstreamReq.Context(), account, upstreamModel, "anthropic")
 	resp, err := s.doOpenAIUpstream(upstreamReq, proxyURL, account)
 	if err != nil {
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, true)

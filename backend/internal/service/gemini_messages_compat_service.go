@@ -776,7 +776,9 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		}
 		requestIDHeader = idHeader
 
-		BeginUpstreamCacheGuardSend(upstreamReq.Context(), account, mappedModel, "gemini")
+		if err := beginGatewaySchedulingProtectionSend(upstreamReq.Context(), account, mappedModel, "gemini"); err != nil {
+			return nil, err
+		}
 		resp, err = s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
 		if err != nil {
 			return nil, s.handleUpstreamTransportError(ctx, c, account, err)
@@ -1307,7 +1309,9 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 		}
 		requestIDHeader = idHeader
 
-		BeginUpstreamCacheGuardSend(upstreamReq.Context(), account, mappedModel, "gemini")
+		if err := beginGatewaySchedulingProtectionSend(upstreamReq.Context(), account, mappedModel, "gemini"); err != nil {
+			return nil, err
+		}
 		resp, err = s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
 		if err != nil {
 			transportErr := s.handleUpstreamTransportError(ctx, c, account, err)
