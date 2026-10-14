@@ -1408,6 +1408,56 @@ func modelIDsForTest(models []gatewayModelItemForTest) []string {
 	return ids
 }
 
+func TestGatewayModels_AntigravityExplicitMappingDefinesBothCatalogs(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	const groupID int64 = 93
+	mapping := map[string]any{
+		"gemini-3.8-flash":      "gemini-3.8-flash-high",
+		"gemini-3.8-flash-high": "gemini-3.8-flash-high",
+		"claude-opus-5-5-high":  "claude-opus-5-5-high",
+		"gemini-pro-agent":      "gemini-pro-agent",
+	}
+	for _, platform := range []string{service.PlatformAntigravity, service.PlatformComposite, service.PlatformGemini} {
+		t.Run(platform, func(t *testing.T) {
+			h := newGatewayModelsHandlerForTest(&gatewayModelsAccountRepoStub{
+				byGroup: map[int64][]service.Account{groupID: {{
+					ID: 25, Platform: service.PlatformAntigravity,
+					Extra:       map[string]any{"mixed_scheduling": true},
+					Credentials: map[string]any{"model_mapping": mapping},
+				}}},
+			})
+			want := []string{"gemini-3.8-flash", "gemini-3.8-flash-high", "gemini-pro-agent", "claude-opus-5-5-high"}
+			if platform == service.PlatformGemini {
+				want = want[:3]
+			}
+			for _, codex := range []bool{false, true} {
+				rec := httptest.NewRecorder()
+				c, _ := gin.CreateTestContext(rec)
+				c.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+				c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
+					Group: &service.Group{ID: groupID, Platform: platform},
+				})
+				var ids []string
+				if codex {
+					h.CodexModels(c)
+					var got codexModelsResponseForTest
+					require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+					for _, model := range got.Models {
+						ids = append(ids, model.Slug)
+					}
+				} else {
+					h.Models(c)
+					var got gatewayModelsResponseForTest
+					require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+					ids = modelIDsForTest(got.Data)
+				}
+				require.Equal(t, http.StatusOK, rec.Code)
+				require.ElementsMatch(t, want, ids, "codex=%t", codex)
+			}
+		})
+	}
+}
+
 // gemini 分组混合调度：组内 antigravity 账号的 gemini-* 映射也应出现在 /v1/models，
 // 与路由层（listSchedulableAccountsOnce 的 useMixedScheduling）同源；claude-* 不带入，
 // 非混合调度的异平台账号（anthropic）仍被过滤。
@@ -1467,12 +1517,7 @@ func TestGatewayModels_GeminiGroupIncludesAntigravityGeminiMappings(t *testing.T
 	var got gatewayModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 	ids := modelIDsForTest(got.Data)
-	// 账号显式配置的 gemini-* 映射必须出现（resolveModelMapping 还会补一组 antigravity
-	// 默认透传别名，这里只断言显式条目与排除项，不锁定补齐后的完整集合）。
-	require.Contains(t, ids, "gemini-3.8-flash-high")
-	require.Contains(t, ids, "gemini-synced-custom")
-	require.Contains(t, ids, "gemini-3.8-flash-low")
-	require.Contains(t, ids, "gemini-native-only")
+	require.ElementsMatch(t, []string{"gemini-3.8-flash-high", "gemini-synced-custom", "gemini-3.8-flash-low", "gemini-native-only"}, ids)
 	require.NotContains(t, ids, "gemini-disabled-only")
 	require.NotContains(t, ids, "gemini-unset-only")
 	// antigravity 账号的 claude-* 映射与 anthropic 账号的映射都不应出现在 gemini 分组。
