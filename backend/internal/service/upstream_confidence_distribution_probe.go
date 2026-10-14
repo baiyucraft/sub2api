@@ -69,8 +69,10 @@ func (s *AccountTestService) runOpenAIDistributionHealthProbe(ctx context.Contex
 	result.ConfidenceProbeKind = attempt.ProbeID
 	result.ConfidenceEvidence = map[string]any{
 		"kind": "distribution", "probe_id": attempt.ProbeID, "series_id": attempt.SeriesID,
-		"sequence": attempt.Sequence, "claimed_model": UpstreamConfidenceDistributionClaimedModel,
-		"requested_model": UpstreamConfidenceDistributionClaimedModel, "effective_model": result.Model,
+		"sequence": attempt.Sequence, "valid_sequence": attempt.ValidSequence,
+		"sampling_policy_version": UpstreamConfidenceDistributionSamplingPolicyVersion,
+		"claimed_model":           UpstreamConfidenceDistributionClaimedModel,
+		"requested_model":         UpstreamConfidenceDistributionClaimedModel, "effective_model": result.Model,
 		"requested_effort": "low", "baseline_version": DistributionBaselineVersion(protocol),
 	}
 	messages := []map[string]string{{"role": "system", "content": "."}, {"role": "user", "content": DistributionPrompt(attempt.ProbeID)}}
@@ -96,6 +98,7 @@ func (s *AccountTestService) runOpenAIDistributionHealthProbe(ctx context.Contex
 		}
 	}
 	result.distributionSample.Sequence = attempt.Sequence
+	result.distributionSample.ValidSequence = attempt.ValidSequence
 	result.distributionSample.ProbeID = attempt.ProbeID
 	result.distributionSample.ObservedAt = time.Now().UTC()
 	result.ConfidenceChecks = map[string]int{"attempted": 1, "valid_completed": 0}

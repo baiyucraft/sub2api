@@ -49,7 +49,7 @@ func distributionSamplesFromCounts(counts map[string]map[string]int) []Distribut
 		for _, category := range categories {
 			for i := 0; i < counts[identity][category]; i++ {
 				sequence := int64(len(samples) + 1)
-				samples = append(samples, DistributionSample{Sequence: sequence, ProbeID: identity, Answer: category, Valid: true,
+				samples = append(samples, DistributionSample{Sequence: sequence, ValidSequence: sequence, ProbeID: identity, Answer: category, Valid: true,
 					ObservedAt: time.Date(2026, 10, 6, 0, 0, 0, 0, time.UTC).Add(time.Duration(sequence) * time.Minute)})
 			}
 		}
@@ -147,7 +147,7 @@ func TestDistributionFixedCyclePreservesEveryRollingWindow(t *testing.T) {
 	}
 }
 
-func TestDistributionCollectsUntil128AndDrops129thOldestAttempt(t *testing.T) {
+func TestDistributionCollectsUntil128AndDrops129thOldestValidSample(t *testing.T) {
 	fixture := distributionFixtures(t, "responses")[0]
 	samples := distributionSamplesFromCounts(fixture.Counts)
 	before := append([]DistributionSample(nil), samples...)
@@ -158,8 +158,10 @@ func TestDistributionCollectsUntil128AndDrops129thOldestAttempt(t *testing.T) {
 	if partial.Status != "collecting" || partial.Attempted != 127 || len(partial.Matches) != 0 || partial.ClosestModel != "" {
 		t.Fatalf("premature judgment: %+v", partial)
 	}
-	first := DistributionSample{Sequence: 0, ProbeID: DistributionProbePunctuation, Answer: "OLD_SHOULD_BE_DROPPED", Valid: false, ObservedAt: time.Unix(1, 0)}
-	samples = append([]DistributionSample{first}, samples...)
+	newest := samples[0]
+	newest.Sequence, newest.ValidSequence = 129, 129
+	newest.ObservedAt = before[127].ObservedAt.Add(time.Minute)
+	samples = append(samples, newest)
 	for i, j := 0, len(samples)-1; i < j; i, j = i+1, j-1 {
 		samples[i], samples[j] = samples[j], samples[i]
 	}
@@ -168,53 +170,50 @@ func TestDistributionCollectsUntil128AndDrops129thOldestAttempt(t *testing.T) {
 		t.Fatal(err)
 	}
 	if result.Attempted != 128 || result.ValidSamples != 128 || result.Status != "match" || result.Cells[DistributionProbePunctuation].Completed != 64 {
-		t.Fatalf("old failed attempt retained: %+v", result)
+		t.Fatalf("old valid sample retained: %+v", result)
 	}
-	if !result.WindowStart.Equal(before[0].ObservedAt) || !result.WindowEnd.Equal(before[127].ObservedAt) {
+	if !result.WindowStart.Equal(before[1].ObservedAt) || !result.WindowEnd.Equal(newest.ObservedAt) {
 		t.Fatal("window timestamps must follow retained sequence")
 	}
-	if !reflect.DeepEqual(samples[0], before[127]) {
+	if !reflect.DeepEqual(samples[0], newest) {
 		t.Fatal("caller samples mutated")
 	}
 }
 
-func TestDistributionFailuresConsumeSlotsAndPerCellMinimumIsEnforced(t *testing.T) {
+func TestDistributionFailuresDoNotFillOrEvictTheValidWindow(t *testing.T) {
 	fixture := distributionFixtures(t, "responses")[0]
 	samples := distributionSamplesFromCounts(fixture.Counts)
-	seen := make(map[string]int)
-	minimum := map[string]int{DistributionProbePunctuation: 39, DistributionProbeCountry: 10, DistributionProbeInteger: 29}
+	withFailures := make([]DistributionSample, 0, 256)
 	for i := range samples {
-		seen[samples[i].ProbeID]++
-		if seen[samples[i].ProbeID] > minimum[samples[i].ProbeID] {
-			samples[i].Valid = false
-			samples[i].Reason = "request_failed"
-		}
+		samples[i].Sequence = int64(2*i + 2)
+		withFailures = append(withFailures, DistributionSample{Sequence: int64(2*i + 1), ProbeID: samples[i].ProbeID, Reason: "timeout"}, samples[i])
 	}
-	result, err := ScoreUpstreamConfidenceDistribution("responses", samples)
+	partial, err := ScoreUpstreamConfidenceDistribution("responses", withFailures[:254])
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Attempted != 128 || result.ValidSamples != 78 || distributionHasReason(result, "samples_incomplete") {
-		t.Fatalf("minimum boundary failed: %+v", result)
+	if partial.Status != "collecting" || partial.ValidSamples != 127 || len(partial.Matches) != 0 {
+		t.Fatalf("failed requests filled the window: %+v", partial)
 	}
-	for identity, count := range minimum {
-		if result.Cells[identity].Valid != count {
-			t.Fatalf("%s valid %d want %d", identity, result.Cells[identity].Valid, count)
-		}
-	}
-	// Overall valid remains above 78, but one cell is below its own minimum.
-	samples = distributionSamplesFromCounts(fixture.Counts)
-	for i := range samples {
-		if samples[i].ProbeID == DistributionProbeCountry && i >= 64+9 {
-			samples[i].Valid = false
-		}
-	}
-	result, err = ScoreUpstreamConfidenceDistribution("responses", samples)
+	result, err := ScoreUpstreamConfidenceDistribution("responses", withFailures)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Status != "insufficient" || !distributionHasReason(result, "samples_incomplete") || result.ValidSamples != 121 {
-		t.Fatalf("cell minimum bypassed: %+v", result)
+	if result.Status != fixture.Expected.Verdict || result.ValidSamples != 128 || distributionHasReason(result, "sequence_incomplete") {
+		t.Fatalf("actual request sequence gaps invalidated valid samples: %+v", result)
+	}
+	for identity, count := range DistributionProbeQuotas() {
+		if result.Cells[identity].Valid != count || result.Cells[identity].Minimum != count {
+			t.Fatalf("%s quota/minimum mismatch: %+v", identity, result.Cells[identity])
+		}
+	}
+	withFailures = append(withFailures, DistributionSample{Sequence: 257, ProbeID: DistributionProbeInteger, Reason: "timeout"})
+	afterFailure, err := ScoreUpstreamConfidenceDistribution("responses", withFailures)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(result, afterFailure) {
+		t.Fatal("later failure evicted or changed a valid window")
 	}
 	// Empty content is invalid even if the transport caller marked it valid.
 	samples = distributionSamplesFromCounts(fixture.Counts)
@@ -225,7 +224,7 @@ func TestDistributionFailuresConsumeSlotsAndPerCellMinimumIsEnforced(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.ValidSamples != 0 || result.Attempted != 128 || result.Status != "insufficient" || !distributionHasReason(result, "no_valid_samples") {
+	if result.ValidSamples != 0 || result.Attempted != 0 || result.Status != "collecting" || !distributionHasReason(result, "window_incomplete") {
 		t.Fatalf("empty slot handling: %+v", result)
 	}
 }
@@ -261,13 +260,44 @@ func TestDistributionUnknownAnswersRemainValidAndLegacyProbesCannotMix(t *testin
 		t.Fatalf("legacy mixed: %+v", result)
 	}
 	samples[0].ProbeID = DistributionProbePunctuation
-	samples[0].Sequence = samples[1].Sequence
+	samples[0].ValidSequence = samples[1].ValidSequence
 	result, err = ScoreUpstreamConfidenceDistribution("responses", samples)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.Status != "insufficient" || !distributionHasReason(result, "sequence_incomplete") {
 		t.Fatalf("duplicate sequence accepted: %+v", result)
+	}
+}
+
+func TestDistributionRejectsBrokenEffectiveSequenceAndFullWindowQuota(t *testing.T) {
+	for _, test := range []struct {
+		name, reason string
+		mutate       func([]DistributionSample)
+	}{
+		{"missing effective slot", "sequence_incomplete", func(samples []DistributionSample) {
+			for i := 64; i < len(samples); i++ {
+				samples[i].ValidSequence++
+			}
+		}},
+		{"duplicate actual request", "sequence_incomplete", func(samples []DistributionSample) {
+			samples[0].Sequence = samples[1].Sequence
+		}},
+		{"full window wrong quota", "quota_mismatch", func(samples []DistributionSample) {
+			samples[64].ProbeID = DistributionProbeInteger
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			samples := distributionSamplesFromCounts(distributionFixtures(t, "responses")[0].Counts)
+			test.mutate(samples)
+			result, err := ScoreUpstreamConfidenceDistribution("responses", samples)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Status != "insufficient" || !distributionHasReason(result, test.reason) {
+				t.Fatalf("invalid effective window accepted: %+v", result)
+			}
+		})
 	}
 }
 

@@ -53,3 +53,12 @@ func TestConfidenceDistributionPostgresV2ClientIdentityUpgrade(t *testing.T) {
 		})
 	}
 }
+
+func TestConfidenceDistributionPostgresSamplingPolicyUpgrade(t *testing.T) {
+	for _, pendingOutcome := range []string{"idle", "finish", "expire"} {
+		t.Run(pendingOutcome, func(t *testing.T) {
+			repo, db, keyID := newConfidenceDistributionPostgresFixture(t)
+			testConfidenceDistributionSamplingPolicyUpgrade(t, repo, db, keyID, pendingOutcome)
+		})
+	}
+}

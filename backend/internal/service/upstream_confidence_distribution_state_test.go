@@ -18,6 +18,7 @@ func TestConfidenceDistributionStateEveryWindowHasExactQuota(t *testing.T) {
 		attempt, err := state.Claim(at)
 		require.NoError(t, err)
 		require.Equal(t, int64(i+1), attempt.Sequence)
+		require.Equal(t, int64(i+1), attempt.ValidSequence)
 		_, _, err = state.Finish(attempt, DistributionSample{Valid: true, Answer: "unseen-fixture-answer"}, at.Add(time.Second))
 		require.NoError(t, err)
 		require.Equal(t, originalOrder, state.ProbeOrder)
@@ -50,8 +51,10 @@ func TestConfidenceDistributionStateRecoverConsumesLostAttempt(t *testing.T) {
 	second, err := restored.Claim(now.Add(UpstreamConfidenceDistributionLease))
 	require.NoError(t, err)
 	require.Equal(t, int64(2), second.Sequence)
-	require.Equal(t, "lease_expired", restored.Samples[0].Reason)
-	require.False(t, restored.Samples[0].Valid)
+	require.Empty(t, restored.Samples)
+	require.Equal(t, 1, restored.FailedAttempts)
+	require.Equal(t, first.ValidSequence, second.ValidSequence)
+	require.Equal(t, first.ProbeID, second.ProbeID)
 	_, _, err = restored.Finish(first, DistributionSample{Valid: true, Answer: "42"}, now.Add(UpstreamConfidenceDistributionLease+time.Second))
 	require.ErrorIs(t, err, ErrConfidenceDistributionLeaseLost)
 }
@@ -62,13 +65,14 @@ func TestConfidenceDistributionStateRetentionKeepsAttemptSequence(t *testing.T) 
 	require.NoError(t, err)
 	first, err := state.Claim(now)
 	require.NoError(t, err)
-	_, _, err = state.Finish(first, DistributionSample{Reason: "network_error"}, now.Add(time.Second))
+	_, _, err = state.Finish(first, DistributionSample{Answer: "47", Valid: true}, now.Add(time.Second))
 	require.NoError(t, err)
 	require.True(t, state.Recover(now.Add(UpstreamHealthObservationRetention+time.Second)))
 	require.Empty(t, state.Samples)
 	second, err := state.Claim(now.Add(UpstreamHealthObservationRetention + 2*time.Second))
 	require.NoError(t, err)
 	require.Equal(t, int64(2), second.Sequence)
+	require.Equal(t, int64(2), second.ValidSequence)
 	require.Equal(t, state.ProbeOrder[1], second.ProbeID)
 }
 
@@ -109,6 +113,129 @@ func TestConfidenceDistributionStateDoesNotJudgePending128thAttempt(t *testing.T
 	require.Empty(t, summary.ClosestModel)
 	require.Empty(t, summary.Matches)
 	require.Empty(t, summary.Scores)
+}
+
+func TestConfidenceDistributionFailedAttemptsNeverOccupyEffectiveQuota(t *testing.T) {
+	now := time.Now().UTC()
+	state, err := NewConfidenceDistributionState("series", "responses")
+	require.NoError(t, err)
+	for _, sample := range []DistributionSample{
+		{Reason: "probe_timeout"},
+		{Reason: "probe_incomplete_stream"},
+		{Valid: true, Answer: "  "},
+	} {
+		at := now.Add(time.Duration(state.NextSequence) * time.Minute)
+		attempt, err := state.Claim(at)
+		require.NoError(t, err)
+		require.Equal(t, int64(1), attempt.ValidSequence)
+		require.Equal(t, state.ProbeOrder[0], attempt.ProbeID)
+		require.Empty(t, state.Samples, "a claim cannot displace effective evidence")
+		summary, _, err := state.Finish(attempt, sample, at.Add(time.Second))
+		require.NoError(t, err)
+		require.Equal(t, int(attempt.Sequence), summary.Attempted)
+		require.Equal(t, int(attempt.Sequence), summary.FailedAttempts)
+		require.Zero(t, summary.ValidSamples)
+		require.Equal(t, int64(1), state.NextValidSequence)
+		_, _, err = state.Finish(attempt, DistributionSample{Valid: true, Answer: "47"}, at.Add(2*time.Second))
+		require.ErrorIs(t, err, ErrConfidenceDistributionLeaseLost)
+	}
+	attempt, err := state.Claim(now.Add(4 * time.Minute))
+	require.NoError(t, err)
+	summary, _, err := state.Finish(attempt, DistributionSample{Answer: "  New Zealand  ", Valid: true}, now.Add(4*time.Minute+time.Second))
+	require.NoError(t, err)
+	require.Equal(t, 4, summary.Attempted)
+	require.Equal(t, 3, summary.FailedAttempts)
+	require.Equal(t, 1, summary.ValidSamples)
+	require.Equal(t, int64(4), state.Samples[0].Sequence)
+	require.Equal(t, int64(1), state.Samples[0].ValidSequence)
+	require.Equal(t, "new zealand", state.Samples[0].Answer)
+	require.Equal(t, attempt.ObservedAt, state.Samples[0].ObservedAt)
+}
+
+func TestConfidenceDistributionFullEffectiveWindowSurvivesPendingAndFailure(t *testing.T) {
+	now := time.Now().UTC()
+	state, err := NewConfidenceDistributionState("series", "responses")
+	require.NoError(t, err)
+	for i := 0; i < UpstreamConfidenceDistributionWindowSize; i++ {
+		at := now.Add(time.Duration(i) * time.Minute)
+		attempt, err := state.Claim(at)
+		require.NoError(t, err)
+		_, _, err = state.Finish(attempt, DistributionSample{Answer: "valid-answer", Valid: true}, at.Add(time.Second))
+		require.NoError(t, err)
+	}
+	before, err := state.Summary()
+	require.NoError(t, err)
+	window := append([]DistributionSample(nil), state.Samples...)
+	for i := 128; i < 140; i++ {
+		at := now.Add(time.Duration(i) * time.Minute)
+		attempt, err := state.Claim(at)
+		require.NoError(t, err)
+		pending, err := state.Summary()
+		require.NoError(t, err)
+		require.Equal(t, before.Status, pending.Status)
+		require.Equal(t, before.Matches, pending.Matches)
+		require.Equal(t, window, state.Samples)
+		summary, _, err := state.Finish(attempt, DistributionSample{Reason: "probe_timeout"}, at.Add(time.Second))
+		require.NoError(t, err)
+		require.Equal(t, i+1, summary.Attempted)
+		require.Equal(t, i-127, summary.FailedAttempts)
+		require.Equal(t, 128, summary.ValidSamples)
+		require.Equal(t, before.Status, summary.Status)
+		require.Equal(t, before.Matches, summary.Matches)
+		require.Equal(t, window, state.Samples)
+	}
+	require.NoError(t, state.Validate())
+	at := now.Add(140 * time.Minute)
+	attempt, err := state.Claim(at)
+	require.NoError(t, err)
+	_, _, err = state.Finish(attempt, DistributionSample{Answer: "replacement", Valid: true}, at.Add(time.Second))
+	require.NoError(t, err)
+	require.Equal(t, int64(2), state.Samples[0].ValidSequence)
+	require.Equal(t, int64(141), state.Samples[127].Sequence)
+	require.Equal(t, int64(129), state.Samples[127].ValidSequence)
+	counts := make(map[string]int)
+	for _, sample := range state.Samples {
+		counts[sample.ProbeID]++
+	}
+	require.Equal(t, DistributionProbeQuotas(), counts)
+}
+
+func TestConfidenceDistributionExpiredLeaseIsCountedExactlyOnce(t *testing.T) {
+	now := time.Now().UTC()
+	state, err := NewConfidenceDistributionState("series", "responses")
+	require.NoError(t, err)
+	_, err = state.Claim(now)
+	require.NoError(t, err)
+	require.True(t, state.Recover(now.Add(UpstreamConfidenceDistributionLease)))
+	require.False(t, state.Recover(now.Add(UpstreamConfidenceDistributionLease+time.Second)))
+	require.Equal(t, 1, state.FailedAttempts)
+	require.Equal(t, int64(1), state.NextValidSequence)
+	require.NoError(t, state.Validate())
+}
+
+func TestConfidenceDistributionRetentionKeepsContiguousSuffixAfterClockRollback(t *testing.T) {
+	now := time.Now().UTC()
+	state, err := NewConfidenceDistributionState("series", "responses")
+	require.NoError(t, err)
+	for _, at := range []time.Time{now, now.Add(time.Second), now.Add(2 * time.Second)} {
+		attempt, err := state.Claim(at)
+		require.NoError(t, err)
+		_, _, err = state.Finish(attempt, DistributionSample{Answer: "47", Valid: true}, at.Add(time.Millisecond))
+		require.NoError(t, err)
+	}
+	require.Len(t, state.Samples, 3)
+	state.Samples[1].ObservedAt = now.Add(-UpstreamHealthObservationRetention - time.Second)
+	require.True(t, state.Recover(now.Add(3*time.Second)))
+	require.Len(t, state.Samples, 1)
+	require.Equal(t, int64(3), state.Samples[0].ValidSequence)
+	require.Equal(t, int64(4), state.NextValidSequence)
+	require.NoError(t, state.Validate())
+	attempt, err := state.Claim(now.Add(4 * time.Second))
+	require.NoError(t, err)
+	require.Equal(t, int64(4), attempt.ValidSequence)
+	_, _, err = state.Finish(attempt, DistributionSample{Answer: "47", Valid: true}, now.Add(5*time.Second))
+	require.NoError(t, err)
+	require.NoError(t, state.Validate())
 }
 
 func testDistributionStateIdentity() ConfidenceDistributionIdentity {
