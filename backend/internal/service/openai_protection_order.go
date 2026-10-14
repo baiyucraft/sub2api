@@ -119,6 +119,9 @@ func jointTTFTOrder(tiers [][]int64, accounts []Account, groupID *int64, quality
 }
 
 func (s *OpenAIGatewayService) jointSessionPreference(ctx context.Context, p cacheGuardPreference, groupID int64, model, protocol string, accounts []Account, quality map[int64]forkscheduling.TTFTQuality, cfg OpenAITTFTGuardConfigSnapshot, priority string) cacheGuardPreference {
+	if !SchedulingProtectionGroupSelected(s.groupProtectionPolicyResolver, groupID) {
+		return cacheGuardPreference{}
+	}
 	if p.KeepAccountID <= 0 {
 		return p
 	}
@@ -141,6 +144,10 @@ func (s *OpenAIGatewayService) jointSessionPreference(ctx context.Context, p cac
 	if source == nil {
 		return p
 	}
+	if !schedulingProtectionAccountSelected(s.groupProtectionPolicyResolver, source) {
+		p.Migration, p.Tiers = false, nil
+		return p
+	}
 	cacheTargets := map[int64]bool{}
 	if p.Migration {
 		for _, tier := range p.Tiers {
@@ -158,7 +165,7 @@ func (s *OpenAIGatewayService) jointSessionPreference(ctx context.Context, p cac
 		for i := range accounts {
 			a := &accounts[i]
 			q, ok := quality[a.ID]
-			if a.ID != source.ID && canonicalOpenAIAccountSchedulingModel(a, model) == sourceModel && cacheGuardSamePool(a, first, &groupID) && ok && !q.Degraded && q.SampleCount >= uint64(cfg.MinSamples) && q.EWMAms > 0 && q.EWMAms < float64(cfg.Threshold.Milliseconds()) {
+			if schedulingProtectionAccountSelected(s.groupProtectionPolicyResolver, a) && a.ID != source.ID && canonicalOpenAIAccountSchedulingModel(a, model) == sourceModel && cacheGuardSamePool(a, first, &groupID) && ok && !q.Degraded && q.SampleCount >= uint64(cfg.MinSamples) && q.EWMAms > 0 && q.EWMAms < float64(cfg.Threshold.Milliseconds()) {
 				fast = append(fast, a.ID)
 			}
 		}

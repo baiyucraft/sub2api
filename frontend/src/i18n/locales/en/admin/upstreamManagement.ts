@@ -1,7 +1,10 @@
 export default {
   upstreamManagement: {
     protection: {
-      ttftUnsupported: 'TTFT protection is available for OpenAI and Composite groups.',
+      ttftUnsupported: 'TTFT protection currently supports OpenAI groups and their upstream accounts only.',
+      platforms: 'Scheduling protection platforms', platformsHint: 'The platform scope applies to upstream accounts and groups. OpenAI is selected by default. TTFT currently supports OpenAI; other selected platforms use cache protection.',
+      platformsEmpty: 'No platforms selected: scheduling protection is off for all upstream accounts and groups.', platformNotSelected: 'This platform is outside the scheduling protection scope. Select it in Upstream Management settings.',
+      platformExcludedHint: 'This account platform is outside the scheduling protection scope. Historical shared observations are retained; protection, migration and recovery trials are inactive.',
       action: 'Protection', groupTitle: 'Group scheduling protection', openHint: 'Configure cache, TTFT protection and scheduling preference together',
       sharedMetrics: 'TTFT is shared by account, current upstream Key and actual model; cache rate by account and current Key. Group policies decide how these observations are used.',
       priority: 'Scheduling preference', priorities: { inherit: 'Inherit global', cache_first: 'Cache first', ttft_first: 'TTFT first' },
@@ -21,7 +24,7 @@ export default {
       noTTFTSamples: 'No valid TTFT observations yet; this does not establish normal performance.', ttftValues: 'First-token threshold {threshold} · At least {samples} samples',
       noTTFTDegradation: 'No TTFT degradation reported', noData: 'No protection metrics yet', unknown: 'Unknown',
       metrics: 'Account metrics', models: 'Model TTFT', groups: 'Group execution', sharedHint: 'Metrics are shared for this account. Each group applies its own thresholds and preference.',
-      state: { normal: 'Normal', insufficient: 'Insufficient samples', observed: 'Shared observations', degraded: 'Draining protection', draining: 'Draining protection', protected: 'Draining protection', recovering: 'Recovering', observing: 'Observing', expired: 'Expired data', disabled: 'Off', unavailable: 'Unavailable' },
+      state: { normal: 'Normal', insufficient: 'Insufficient samples', observed: 'Shared observations', degraded: 'Draining protection', draining: 'Draining protection', protected: 'Draining protection', recovering: 'Recovering', observing: 'Observing', expired: 'Expired data', disabled: 'Off', unavailable: 'Unavailable', platform_not_selected: 'Platform outside scope' },
       reason: 'Reason', lastSample: 'Last sample', threshold: 'Threshold', samples: 'Samples', lastTTFT: 'Latest TTFT', ewma: 'Smoothed TTFT',
       recovery: 'Recovery {current}/{required}', cache: 'Cache', ttft: 'TTFT', noGroups: 'No group execution state yet',
       elapsed: 'For {time}', startedAt: 'Started', expiresAt: 'State expires', source: 'Policy source',

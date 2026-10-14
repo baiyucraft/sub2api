@@ -7,6 +7,18 @@
 
     <div v-else class="space-y-6">
       <section v-if="!probeOnly" class="rounded-2xl border border-gray-200 p-5 dark:border-dark-700">
+        <fieldset class="mb-5 space-y-3" data-test="scheduling-protection-platforms" aria-describedby="protection-platform-hint">
+          <legend class="font-semibold text-gray-900 dark:text-white">{{ t('admin.upstreamManagement.protection.platforms') }}</legend>
+          <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            <label v-for="platform in CONCRETE_PLATFORM_OPTIONS" :key="platform.value" :class="['flex min-w-0 cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2.5 text-sm transition-colors focus-within:ring-2 focus-within:ring-primary-500', draft.scheduling_protection_platforms.includes(platform.value) ? 'border-primary-500 bg-primary-50 dark:bg-primary-950/20' : 'border-gray-200 hover:bg-gray-50 dark:border-dark-600 dark:hover:bg-dark-800']">
+              <input v-model="draft.scheduling_protection_platforms" type="checkbox" :value="platform.value" :data-test="`protection-platform-${platform.value}`" class="shrink-0" />
+              <PlatformIcon :platform="platform.value" size="sm" class="shrink-0" />
+              <span class="min-w-0 break-words font-medium text-gray-700 dark:text-gray-200">{{ platform.label }}</span>
+            </label>
+          </div>
+          <p id="protection-platform-hint" class="text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('admin.upstreamManagement.protection.platformsHint') }}</p>
+          <p v-if="!draft.scheduling_protection_platforms.length" role="status" data-test="protection-platforms-empty" class="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600 dark:bg-dark-800 dark:text-gray-300">{{ t('admin.upstreamManagement.protection.platformsEmpty') }}</p>
+        </fieldset>
         <label class="block max-w-md space-y-2">
           <span class="font-semibold text-gray-900 dark:text-white">{{ t('admin.upstreamManagement.protection.globalPriority') }}</span>
           <select v-model="draft.scheduling_priority" class="input" data-test="global-scheduling-priority">
@@ -226,6 +238,9 @@ import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import Toggle from '@/components/common/Toggle.vue'
 import Select, { type SelectOption } from '@/components/common/Select.vue'
 import Icon from '@/components/icons/Icon.vue'
+import PlatformIcon from '@/components/common/PlatformIcon.vue'
+import { CONCRETE_PLATFORM_OPTIONS } from '@/constants/platforms'
+import { schedulingProtectionPlatforms } from '@/utils/schedulingProtection'
 import CustomErrorCodeSelector from '@/components/account/CustomErrorCodeSelector.vue'
 
 const props = defineProps<{ show: boolean; probeOnly?: boolean }>()
@@ -240,9 +255,10 @@ const legacyPlatforms: ProbePlatformDescriptor[] = [
   { id: 'anthropic', label: 'Anthropic', models: [], probe_supported: true },
   { id: 'gemini', label: 'Gemini', models: [], probe_supported: true }
 ]
-type SettingsDraft = UpstreamManagementSettings & { cache_guard: UpstreamCacheGuardSettings }
+type SettingsDraft = UpstreamManagementSettings & { cache_guard: UpstreamCacheGuardSettings; scheduling_protection_platforms: string[] }
 const defaults: SettingsDraft = {
   scheduling_priority: 'cache_first',
+  scheduling_protection_platforms: ['openai'],
   cache_guard: { mode: 'disabled', group_ids: [], threshold_percent: 75, window_minutes: 60, min_valid_requests: 20, recovery_threshold_percent: 80, cooldown_minutes: 10, trial_percent: 10 },
   ttft_guard: { enabled: false, degradation_ttft_seconds: 20, min_samples: 5 },
   probe_guard: {
@@ -276,6 +292,7 @@ const cacheGuardValid = computed(() => {
 const probeIntervalMinutes = ref(5)
 const candidates = reactive<Record<string, string[]>>({})
 const loading = ref(false)
+let loadGeneration = 0
 const saving = ref(false)
 const poolModeRetryStatusCodesInput = ref('')
 const retryStatusCodesError = ref('')
@@ -327,15 +344,18 @@ function parsePoolModeRetryStatusCodes(): number[] | null {
 }
 
 async function load() {
+  const request = ++loadGeneration
   loading.value = true
   try {
     const [settings, options] = await Promise.all([
       (probeOnly.value ? upstreamManagementAPI.getProbeSettings() : upstreamManagementAPI.getSettings()),
       upstreamManagementAPI.getProbeModelCandidates()
     ])
+    if (request !== loadGeneration || !props.show) return
     draft.cache_guard = { ...defaults.cache_guard, ...settings.cache_guard, group_ids: [...(settings.cache_guard?.group_ids || [])] }
     Object.assign(draft.ttft_guard, settings.ttft_guard)
     draft.scheduling_priority = settings.scheduling_priority ?? 'cache_first'
+    draft.scheduling_protection_platforms = schedulingProtectionPlatforms(settings)
     Object.assign(draft.probe_guard, settings.probe_guard || defaults.probe_guard)
     draft.probe_models = { ...defaults.probe_models, ...(settings.probe_models || {}) }
     draft.probe_interval_seconds = settings.probe_interval_seconds ?? defaults.probe_interval_seconds
@@ -355,10 +375,11 @@ async function load() {
       if (draft.probe_models[platform.id] === undefined) draft.probe_models[platform.id] = candidates[platform.id][0] || ''
     }
   } catch (error) {
+    if (request !== loadGeneration || !props.show) return
     appStore.showError(extractApiErrorMessage(error, t('admin.upstreamManagement.settings.loadFailed')))
     emit('close')
   } finally {
-    loading.value = false
+    if (request === loadGeneration) loading.value = false
   }
 }
 
@@ -380,7 +401,7 @@ async function save() {
       if (!confirmed) return
     }
     const payload: UpstreamManagementSettings = {
-      ...(probeOnly.value ? {} : { scheduling_priority: draft.scheduling_priority }),
+      ...(probeOnly.value ? {} : { scheduling_priority: draft.scheduling_priority, scheduling_protection_platforms: [...draft.scheduling_protection_platforms].sort() }),
       ttft_guard: { ...draft.ttft_guard },
       probe_guard: {
         enabled: Boolean(draft.probe_guard.enabled),
@@ -413,5 +434,6 @@ function closeDialog() {
 
 watch(() => props.show, visible => {
   if (visible) load()
+  else { ++loadGeneration; loading.value = false }
 }, { immediate: true })
 </script>

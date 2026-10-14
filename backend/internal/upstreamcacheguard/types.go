@@ -110,12 +110,13 @@ type TrialPlan struct {
 	TrialOrdinal int64  `json:"trial_ordinal"`
 }
 type Evidence struct {
-	ID          string    `json:"id"`
-	Request     Request   `json:"request"`
-	Admission   Admission `json:"admission"`
-	RawUsage    RawUsage  `json:"raw_usage"`
-	CompletedAt time.Time `json:"completed_at"`
-	Success     bool      `json:"success"`
+	ID               string    `json:"id"`
+	Request          Request   `json:"request"`
+	Admission        Admission `json:"admission"`
+	RawUsage         RawUsage  `json:"raw_usage"`
+	CompletedAt      time.Time `json:"completed_at"`
+	Success          bool      `json:"success"`
+	ProtectionPaused bool      `json:"protection_paused,omitempty"`
 }
 
 func (e Evidence) ValidSample() bool {

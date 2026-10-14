@@ -314,7 +314,7 @@ func TestUpstreamCacheGuardBeginRequiresExistingIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	group, upstream, configID := int64(1), int64(3), int64(4)
-	account := &Account{ID: 2, UpstreamConfigID: &configID, UpstreamKeyID: &upstream}
+	account := &Account{ID: 2, Platform: PlatformOpenAI, UpstreamConfigID: &configID, UpstreamKeyID: &upstream}
 	if a := BeginUpstreamCacheGuardRequest(context.Background(), 7, &group, "session", "gpt-test", "openai", account); a != nil {
 		t.Fatal("invented identity for unclassified request")
 	}
@@ -323,7 +323,7 @@ func TestUpstreamCacheGuardBeginRequiresExistingIdentity(t *testing.T) {
 		t.Fatal("accepted mismatched API key identity")
 	}
 	ctx = WithUpstreamCacheGuardScheduling(context.Background(), 7)
-	ordinary := &Account{ID: 2, UpstreamKeyID: &upstream}
+	ordinary := &Account{ID: 2, Platform: PlatformOpenAI, UpstreamKeyID: &upstream}
 	if a := BeginUpstreamCacheGuardRequest(ctx, 7, &group, "session", "gpt-test", "openai", ordinary); a != nil {
 		t.Fatal("sampled ordinary account with an upstream key but no upstream config")
 	}

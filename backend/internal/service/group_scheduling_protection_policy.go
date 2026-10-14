@@ -77,6 +77,7 @@ type GroupCacheGuardPolicyView struct {
 }
 
 type GroupSchedulingProtectionPolicyView struct {
+	PlatformSelected  bool                      `json:"platform_selected"`
 	GroupID           int64                     `json:"group_id"`
 	GroupName         string                    `json:"group_name"`
 	GroupPlatform     string                    `json:"group_platform"`
@@ -90,13 +91,15 @@ type GroupSchedulingProtectionPolicyView struct {
 }
 
 type GroupSchedulingProtectionResolvedPolicy struct {
-	GroupID        int64
-	TTFT           GroupTTFTGuardResolvedPolicy
-	Cache          UpstreamCacheGuardSettings
-	Priority       string
-	CacheMode      string
-	CacheSource    string
-	PrioritySource string
+	GroupPlatform    string
+	PlatformSelected bool
+	GroupID          int64
+	TTFT             GroupTTFTGuardResolvedPolicy
+	Cache            UpstreamCacheGuardSettings
+	Priority         string
+	CacheMode        string
+	CacheSource      string
+	PrioritySource   string
 }
 
 type GroupSchedulingProtectionPolicyResolver interface {
@@ -117,6 +120,7 @@ type GroupSchedulingProtectionPolicyService struct {
 	bus        GroupTTFTGuardPolicyInvalidationBus
 	mu         sync.RWMutex
 	snapshot   map[int64]GroupSchedulingProtectionResolvedPolicy
+	platforms  []string
 	loadedAt   time.Time
 	refreshing atomic.Bool
 	refreshMu  sync.Mutex
@@ -167,6 +171,9 @@ func (s *SettingService) SetSchedulingProtectionPriority(ctx context.Context, va
 }
 
 func (s *GroupSchedulingProtectionPolicyService) globals(ctx context.Context) (*OpenAITTFTGuardSettings, UpstreamCacheGuardSettings, string, error) {
+	if _, err := s.settings.GetSchedulingProtectionPlatforms(ctx); err != nil {
+		return nil, UpstreamCacheGuardSettings{}, "", err
+	}
 	ttft, err := s.settings.GetOpenAITTFTGuardSettings(ctx)
 	if err != nil {
 		return nil, UpstreamCacheGuardSettings{}, "", err
@@ -179,12 +186,17 @@ func (s *GroupSchedulingProtectionPolicyService) globals(ctx context.Context) (*
 	return ttft, cache, priority, err
 }
 
-func normalizeSchedulingProtectionPolicy(record GroupSchedulingProtectionPolicyRecord, ttftGlobal *OpenAITTFTGuardSettings, cacheGlobal UpstreamCacheGuardSettings, priorityGlobal string) (GroupSchedulingProtectionPolicyView, GroupSchedulingProtectionResolvedPolicy, error) {
+func normalizeSchedulingProtectionPolicy(record GroupSchedulingProtectionPolicyRecord, ttftGlobal *OpenAITTFTGuardSettings, cacheGlobal UpstreamCacheGuardSettings, priorityGlobal string, platformScope ...[]string) (GroupSchedulingProtectionPolicyView, GroupSchedulingProtectionResolvedPolicy, error) {
+	platforms := DefaultSchedulingProtectionPlatforms()
+	if len(platformScope) > 0 {
+		platforms = platformScope[0]
+	}
+	selected := schedulingProtectionContainsPlatform(platforms, record.TTFT.GroupPlatform)
 	ttft, ttftResolved, err := normalizeGroupTTFTGuardPolicy(&record.TTFT, ttftGlobal)
 	if err != nil {
 		return GroupSchedulingProtectionPolicyView{}, GroupSchedulingProtectionResolvedPolicy{}, err
 	}
-	if record.TTFT.GroupPlatform != PlatformOpenAI && record.TTFT.GroupPlatform != PlatformComposite {
+	if record.TTFT.GroupPlatform != PlatformOpenAI {
 		ttft.EffectiveEnabled, ttft.Enabled, ttftResolved.Enabled = false, false, false
 	}
 	mode := GroupTTFTGuardModeInherit
@@ -232,7 +244,13 @@ func normalizeSchedulingProtectionPolicy(record GroupSchedulingProtectionPolicyR
 			GlobalMode: cacheGlobal.Mode, GlobalThresholdPercent: cacheGlobal.ThresholdPercent, GlobalRecoveryThresholdPercent: cacheGlobal.RecoveryThresholdPercent, GlobalMinValidRequests: cacheGlobal.MinValidRequests,
 			WindowMinutes: cache.WindowMinutes, CooldownMinutes: cache.CooldownMinutes, TrialPercent: cache.TrialPercent, Source: source},
 		Priority: priority, EffectivePriority: effectivePriority, GlobalPriority: priorityGlobal, PrioritySource: prioritySource, UpdatedAt: record.UpdatedAt}
-	return view, GroupSchedulingProtectionResolvedPolicy{GroupID: view.GroupID, TTFT: ttftResolved, Cache: cache, Priority: effectivePriority, CacheMode: mode, CacheSource: source, PrioritySource: prioritySource}, nil
+	view.PlatformSelected = selected
+	view.TTFT.PlatformSelected = selected
+	if !selected {
+		view.TTFT.Enabled, view.TTFT.EffectiveEnabled = false, false
+		view.Cache.EffectiveMode = upstreamcacheguard.Disabled
+	}
+	return view, GroupSchedulingProtectionResolvedPolicy{GroupID: view.GroupID, GroupPlatform: record.TTFT.GroupPlatform, PlatformSelected: selected, TTFT: ttftResolved, Cache: cache, Priority: effectivePriority, CacheMode: mode, CacheSource: source, PrioritySource: prioritySource}, nil
 }
 
 func (s *GroupSchedulingProtectionPolicyService) RefreshProtectionPolicies(ctx context.Context) error {
@@ -249,7 +267,7 @@ func (s *GroupSchedulingProtectionPolicyService) RefreshProtectionPolicies(ctx c
 	}
 	next := make(map[int64]GroupSchedulingProtectionResolvedPolicy, len(records))
 	for _, record := range records {
-		_, resolved, err := normalizeSchedulingProtectionPolicy(record, ttft, cache, priority)
+		_, resolved, err := normalizeSchedulingProtectionPolicy(record, ttft, cache, priority, s.settings.SchedulingProtectionPlatformsSnapshot())
 		if err != nil {
 			return err
 		}
@@ -257,6 +275,7 @@ func (s *GroupSchedulingProtectionPolicyService) RefreshProtectionPolicies(ctx c
 	}
 	s.mu.Lock()
 	s.snapshot, s.loadedAt = next, time.Now()
+	s.platforms = s.settings.SchedulingProtectionPlatformsSnapshot()
 	s.mu.Unlock()
 	return nil
 }
@@ -285,6 +304,46 @@ func (s *GroupSchedulingProtectionPolicyService) CachePolicies() map[int64]Upstr
 		out[id] = policy.Cache
 	}
 	return out
+}
+
+// PlatformSelected reads the shared platform range without database I/O.
+func (s *GroupSchedulingProtectionPolicyService) PlatformSelected(platform string) bool {
+	return schedulingProtectionContainsPlatform(s.ProtectionPlatformsSnapshot(), platform)
+}
+
+func (s *GroupSchedulingProtectionPolicyService) ProtectionPlatformsSnapshot() []string {
+	if s == nil {
+		return DefaultSchedulingProtectionPlatforms()
+	}
+	if s.settings != nil {
+		return s.settings.SchedulingProtectionPlatformsSnapshot()
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.platforms == nil {
+		return DefaultSchedulingProtectionPlatforms()
+	}
+	return append([]string{}, s.platforms...)
+}
+
+func (s *GroupSchedulingProtectionPolicyService) ProtectionGroupPlatform(groupID int64) (string, bool) {
+	if s == nil {
+		return "", false
+	}
+	s.refreshStale()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	policy, ok := s.snapshot[groupID]
+	return policy.GroupPlatform, ok
+}
+
+func (s *GroupSchedulingProtectionPolicyService) effectiveProtectionPolicy(policy GroupSchedulingProtectionResolvedPolicy) GroupSchedulingProtectionResolvedPolicy {
+	policy.PlatformSelected = s.PlatformSelected(policy.GroupPlatform)
+	if !policy.PlatformSelected {
+		policy.TTFT.Enabled = false
+		policy.Cache.Mode = upstreamcacheguard.Disabled
+	}
+	return policy
 }
 
 // ProtectionPolicies returns a caller-owned hot snapshot without database I/O.
@@ -327,7 +386,7 @@ func (s *GroupSchedulingProtectionPolicyService) ResolveProtection(ctx context.C
 	policy, ok := s.snapshot[groupID]
 	s.mu.RUnlock()
 	if ok {
-		return policy, nil
+		return s.effectiveProtectionPolicy(policy), nil
 	}
 	record, err := s.repo.Get(ctx, groupID)
 	if err != nil {
@@ -337,8 +396,8 @@ func (s *GroupSchedulingProtectionPolicyService) ResolveProtection(ctx context.C
 	if err != nil {
 		return GroupSchedulingProtectionResolvedPolicy{}, err
 	}
-	_, resolved, err := normalizeSchedulingProtectionPolicy(*record, ttft, cache, priority)
-	return resolved, err
+	_, resolved, err := normalizeSchedulingProtectionPolicy(*record, ttft, cache, priority, s.settings.SchedulingProtectionPlatformsSnapshot())
+	return s.effectiveProtectionPolicy(resolved), err
 }
 
 func (s *GroupSchedulingProtectionPolicyService) ListProtectionPolicies(ctx context.Context) ([]GroupSchedulingProtectionPolicyView, error) {
@@ -352,11 +411,13 @@ func (s *GroupSchedulingProtectionPolicyService) ListProtectionPolicies(ctx cont
 	}
 	views := make([]GroupSchedulingProtectionPolicyView, 0, len(records))
 	for _, record := range records {
-		view, _, err := normalizeSchedulingProtectionPolicy(record, ttft, cache, priority)
+		view, _, err := normalizeSchedulingProtectionPolicy(record, ttft, cache, priority, s.settings.SchedulingProtectionPlatformsSnapshot())
 		if err != nil {
 			return nil, err
 		}
-		views = append(views, view)
+		if view.PlatformSelected {
+			views = append(views, view)
+		}
 	}
 	return views, nil
 }
@@ -370,7 +431,7 @@ func (s *GroupSchedulingProtectionPolicyService) GetProtectionPolicy(ctx context
 	if err != nil {
 		return nil, err
 	}
-	view, _, err := normalizeSchedulingProtectionPolicy(*record, ttft, cache, priority)
+	view, _, err := normalizeSchedulingProtectionPolicy(*record, ttft, cache, priority, s.settings.SchedulingProtectionPlatformsSnapshot())
 	return &view, err
 }
 
@@ -381,6 +442,12 @@ func (s *GroupSchedulingProtectionPolicyService) PutProtectionPolicy(ctx context
 	record, err := s.repo.Get(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+	if _, err := s.settings.GetSchedulingProtectionPlatforms(ctx); err != nil {
+		return nil, err
+	}
+	if !s.PlatformSelected(record.TTFT.GroupPlatform) {
+		return nil, groupProtectionPlatformNotSelected()
 	}
 	if err := validateGroupTTFTGuardMode(input.TTFT.Mode); err != nil {
 		return nil, err

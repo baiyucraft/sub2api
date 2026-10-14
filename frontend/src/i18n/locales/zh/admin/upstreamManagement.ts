@@ -1,7 +1,10 @@
 export default {
   upstreamManagement: {
     protection: {
-      ttftUnsupported: 'TTFT 保护适用于 OpenAI 与 Composite 分组。',
+      ttftUnsupported: 'TTFT 保护目前仅适用于 OpenAI 分组及其上游账号。',
+      platforms: '调度保护生效平台', platformsHint: '平台范围同时约束上游账号和分组。默认 OpenAI；TTFT 目前仅支持 OpenAI，其他选中平台应用缓存保护。',
+      platformsEmpty: '未选择平台：所有上游账号和分组均停用调度保护。', platformNotSelected: '当前平台未纳入调度保护范围，请在上游管理设置中选择生效平台。',
+      platformExcludedHint: '当前账号平台未纳入调度保护范围。历史共享观测保留，当前不执行保护、迁移或恢复试用。',
       action: '调度保护', groupTitle: '分组调度保护', openHint: '统一配置缓存、首 Token 性能保护与优先策略',
       sharedMetrics: 'TTFT 按账号、当前上游 Key 与实际模型汇总，缓存率按账号与当前上游 Key 汇总。分组配置决定如何使用这些统计。',
       priority: '调度优先策略', priorities: { inherit: '继承全局', cache_first: '缓存优先', ttft_first: 'TTFT 优先' },
@@ -21,7 +24,7 @@ export default {
       noTTFTSamples: '暂无有效 TTFT 观测，不能据此判定正常。', ttftValues: '首字阈值 {threshold} · 至少 {samples} 个样本',
       noTTFTDegradation: 'TTFT 未见降级', noData: '暂无保护统计', unknown: '未知',
       metrics: '账号统计', models: '模型 TTFT', groups: '分组执行', sharedHint: '同一账号共享统计；各分组使用自己的阈值与优先策略。',
-      state: { normal: '正常', insufficient: '样本不足', observed: '共享观测', degraded: '渐出保护', draining: '渐出保护', protected: '渐出保护', recovering: '恢复中', observing: '观察中', expired: '数据过期', disabled: '已关闭', unavailable: '暂不可用' },
+      state: { normal: '正常', insufficient: '样本不足', observed: '共享观测', degraded: '渐出保护', draining: '渐出保护', protected: '渐出保护', recovering: '恢复中', observing: '观察中', expired: '数据过期', disabled: '已关闭', unavailable: '暂不可用', platform_not_selected: '未纳入平台范围' },
       reason: '原因', lastSample: '最后样本', threshold: '阈值', samples: '样本', lastTTFT: '最近 TTFT', ewma: '平滑 TTFT',
       recovery: '恢复进度 {current}/{required}', cache: '缓存', ttft: 'TTFT', noGroups: '暂无分组执行状态',
       elapsed: '已持续 {time}', startedAt: '开始时间', expiresAt: '状态过期', source: '策略来源',

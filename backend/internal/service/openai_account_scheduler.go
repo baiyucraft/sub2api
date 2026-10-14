@@ -3075,7 +3075,7 @@ func (s *OpenAIGatewayService) reportOpenAIAccountScheduleResult(groupID *int64,
 			healthTripped = s.rateLimitService.ObserveOpenAIAPIKeyHealthFailure(context.Background(), account, observedErr[0])
 		}
 	}
-	if groupID != nil && *groupID > 0 && ((account != nil && account.Platform == PlatformOpenAI) || (account == nil && s != nil && s.isOpenAITTFTGuardEligibleAccount(accountID))) {
+	if groupID != nil && *groupID > 0 && ((account != nil && account.Platform == PlatformOpenAI && schedulingProtectionAccountSelected(s.groupProtectionPolicyResolver, account)) || (account == nil && s != nil && schedulingProtectionPlatformSelected(s.groupProtectionPolicyResolver, PlatformOpenAI) && s.isOpenAITTFTGuardEligibleAccount(accountID))) {
 		s.reportOpenAITTFTGuard(*groupID, accountID, model, success, firstTokenMs, accountUpstreamKeyID(account))
 	}
 	if success {

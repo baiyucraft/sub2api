@@ -45,13 +45,14 @@ type GroupTTFTGuardPolicyRepository interface {
 // scheduler. Threshold is a duration so callers cannot accidentally treat it
 // as milliseconds.
 type GroupTTFTGuardResolvedPolicy struct {
-	GroupID    int64
-	GroupName  string
-	Mode       string
-	Enabled    bool
-	Threshold  time.Duration
-	MinSamples int
-	Source     string
+	GroupPlatform string
+	GroupID       int64
+	GroupName     string
+	Mode          string
+	Enabled       bool
+	Threshold     time.Duration
+	MinSamples    int
+	Source        string
 }
 
 // GroupTTFTGuardPolicyResolver is the exported runtime boundary. Implementors
@@ -82,6 +83,7 @@ type GroupTTFTGuardPolicyInput struct {
 }
 
 type GroupTTFTGuardPolicyView struct {
+	PlatformSelected                bool       `json:"platform_selected"`
 	GroupID                         int64      `json:"group_id"`
 	GroupName                       string     `json:"group_name"`
 	GroupPlatform                   string     `json:"group_platform"`
@@ -138,6 +140,9 @@ func NewGroupTTFTGuardPolicyService(repo GroupTTFTGuardPolicyRepository, setting
 		cacheGenerations: make(map[int64]uint64),
 		invalidationBus:  invalidationBus,
 	}
+	if settings != nil {
+		_, _ = settings.GetSchedulingProtectionPlatforms(context.Background())
+	}
 	if invalidationBus != nil {
 		if settings != nil {
 			settings.SetOpenAITTFTGuardInvalidationBus(invalidationBus)
@@ -158,7 +163,7 @@ func (s *GroupTTFTGuardPolicyService) Resolve(ctx context.Context, groupID int64
 		return GroupTTFTGuardResolvedPolicy{}, infraerrors.BadRequest("INVALID_GROUP_ID", "group_id must be positive")
 	}
 	if cached, ok := s.loadCached(groupID); ok {
-		return s.refreshInheritedPolicy(cached), nil
+		return s.applyPlatformScope(s.refreshInheritedPolicy(cached)), nil
 	}
 	for attempt := 0; attempt < 2; attempt++ {
 		generation := s.cacheGeneration(groupID)
@@ -178,10 +183,10 @@ func (s *GroupTTFTGuardPolicyService) Resolve(ctx context.Context, groupID int64
 			return GroupTTFTGuardResolvedPolicy{}, err
 		}
 		if s.storeCachedIfCurrent(groupID, generation, resolved) {
-			return resolved, nil
+			return s.applyPlatformScope(resolved), nil
 		}
 		if attempt == 1 {
-			return resolved, nil
+			return s.applyPlatformScope(resolved), nil
 		}
 	}
 	return GroupTTFTGuardResolvedPolicy{}, fmt.Errorf("resolve group TTFT guard policy: cache generation retry exhausted")
@@ -236,6 +241,17 @@ func (s *GroupTTFTGuardPolicyService) refreshGlobalSettingsAndInvalidateInherite
 	if s == nil || s.globalSettings == nil {
 		return
 	}
+	if _, err := s.refreshProtectionPlatforms(ctx); err != nil {
+		return
+	}
+	// A platform-range change also affects custom policies. Only clear resolver
+	// caches; the runtime's separate scope gate preserves historical evidence.
+	s.cacheMu.Lock()
+	for id := range s.cache {
+		s.cacheGenerations[id]++
+		delete(s.cache, id)
+	}
+	s.cacheMu.Unlock()
 	snapshot, ok := s.globalSettings.RefreshOpenAITTFTGuardConfig(ctx)
 	if !ok {
 		return
@@ -249,6 +265,10 @@ func (s *GroupTTFTGuardPolicyService) refreshGlobalSettingsAndInvalidateInherite
 }
 
 func (s *GroupTTFTGuardPolicyService) ListPolicies(ctx context.Context) ([]GroupTTFTGuardPolicyView, error) {
+	platforms, err := s.refreshProtectionPlatforms(ctx)
+	if err != nil {
+		return nil, err
+	}
 	records, err := s.repo.List(ctx)
 	if err != nil {
 		return nil, err
@@ -259,6 +279,9 @@ func (s *GroupTTFTGuardPolicyService) ListPolicies(ctx context.Context) ([]Group
 	}
 	result := make([]GroupTTFTGuardPolicyView, 0, len(records))
 	for i := range records {
+		if records[i].GroupPlatform != PlatformOpenAI || !schedulingProtectionContainsPlatform(platforms, records[i].GroupPlatform) {
+			continue
+		}
 		view, _, normalizeErr := normalizeGroupTTFTGuardPolicy(&records[i], global)
 		if normalizeErr != nil {
 			return nil, normalizeErr
@@ -284,6 +307,14 @@ func (s *GroupTTFTGuardPolicyService) GetPolicy(ctx context.Context, groupID int
 		return nil, fmt.Errorf("resolve global OpenAI TTFT guard settings: %w", err)
 	}
 	view, _, err := normalizeGroupTTFTGuardPolicy(record, global)
+	platforms, platformErr := s.refreshProtectionPlatforms(ctx)
+	if platformErr != nil {
+		return nil, platformErr
+	}
+	view.PlatformSelected = schedulingProtectionContainsPlatform(platforms, record.GroupPlatform)
+	if !view.PlatformSelected {
+		view.Enabled, view.EffectiveEnabled = false, false
+	}
 	return &view, err
 }
 
@@ -294,6 +325,13 @@ func (s *GroupTTFTGuardPolicyService) PutPolicy(ctx context.Context, groupID int
 	record, err := s.repo.Get(ctx, groupID)
 	if err != nil {
 		return nil, err
+	}
+	platforms, err := s.refreshProtectionPlatforms(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !schedulingProtectionContainsPlatform(platforms, record.GroupPlatform) {
+		return nil, groupProtectionPlatformNotSelected()
 	}
 	if err := validateGroupTTFTGuardPlatform(record.GroupPlatform); err != nil {
 		return nil, err
@@ -341,7 +379,7 @@ func normalizeGroupTTFTGuardPolicy(record *GroupTTFTGuardPolicyRecord, global *O
 		return GroupTTFTGuardPolicyView{}, GroupTTFTGuardResolvedPolicy{}, err
 	}
 	resolved := GroupTTFTGuardResolvedPolicy{
-		GroupID: record.GroupID, GroupName: record.GroupName, Mode: mode,
+		GroupID: record.GroupID, GroupName: record.GroupName, GroupPlatform: record.GroupPlatform, Mode: mode,
 		Threshold: time.Duration(threshold) * time.Second, MinSamples: minSamples,
 	}
 	switch mode {
@@ -358,7 +396,8 @@ func normalizeGroupTTFTGuardPolicy(record *GroupTTFTGuardPolicyRecord, global *O
 		resolved.Source = GroupTTFTGuardSourceDisabled
 	}
 	view := GroupTTFTGuardPolicyView{
-		GroupID: record.GroupID, GroupName: record.GroupName, GroupPlatform: record.GroupPlatform,
+		PlatformSelected: record.GroupPlatform == PlatformOpenAI,
+		GroupID:          record.GroupID, GroupName: record.GroupName, GroupPlatform: record.GroupPlatform,
 		Mode: mode, DegradationTTFTSeconds: record.DegradationTTFTSeconds, MinSamples: record.MinSamples,
 		Enabled: resolved.Enabled, EffectiveEnabled: resolved.Enabled,
 		EffectiveDegradationTTFTSeconds: int(resolved.Threshold / time.Second), EffectiveMinSamples: resolved.MinSamples,
@@ -368,9 +407,33 @@ func normalizeGroupTTFTGuardPolicy(record *GroupTTFTGuardPolicyRecord, global *O
 	return view, resolved, nil
 }
 
+func (s *GroupTTFTGuardPolicyService) refreshProtectionPlatforms(ctx context.Context) ([]string, error) {
+	if s != nil {
+		if provider, ok := s.globalSettings.(interface {
+			GetSchedulingProtectionPlatforms(context.Context) ([]string, error)
+		}); ok {
+			return provider.GetSchedulingProtectionPlatforms(ctx)
+		}
+	}
+	return DefaultSchedulingProtectionPlatforms(), nil
+}
+
+func (s *GroupTTFTGuardPolicyService) applyPlatformScope(policy GroupTTFTGuardResolvedPolicy) GroupTTFTGuardResolvedPolicy {
+	platforms := DefaultSchedulingProtectionPlatforms()
+	if s != nil {
+		if provider, ok := s.globalSettings.(interface{ SchedulingProtectionPlatformsSnapshot() []string }); ok {
+			platforms = provider.SchedulingProtectionPlatformsSnapshot()
+		}
+	}
+	if policy.GroupPlatform != PlatformOpenAI || !schedulingProtectionContainsPlatform(platforms, policy.GroupPlatform) {
+		policy.Enabled = false
+	}
+	return policy
+}
+
 func validateGroupTTFTGuardPlatform(platform string) error {
-	if platform != PlatformOpenAI && platform != PlatformComposite {
-		return infraerrors.BadRequest("GROUP_TTFT_GUARD_UNSUPPORTED_PLATFORM", "TTFT guard policies are only supported for OpenAI and Composite groups")
+	if platform != PlatformOpenAI {
+		return infraerrors.BadRequest("GROUP_TTFT_GUARD_UNSUPPORTED_PLATFORM", "TTFT guard policies are only supported for OpenAI groups")
 	}
 	return nil
 }

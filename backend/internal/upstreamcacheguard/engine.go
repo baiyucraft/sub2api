@@ -318,7 +318,7 @@ func (e *Engine) Complete(ctx context.Context, v Evidence) error {
 		return errors.New("cache guard completion in future")
 	}
 	// Very late delivery is outside the deduplication/recomputation horizon.
-	applyPolicy := v.Admission.Sample && e.AnyPolicyActive() && !v.CompletedAt.Before(now.Add(-FactLifetime))
+	applyPolicy := !v.ProtectionPaused && v.Admission.Sample && e.AnyPolicyActive() && !v.CompletedAt.Before(now.Add(-FactLifetime))
 	v.CompletedAt = v.CompletedAt.UTC()
 	v.RawUsage.CompletedAt = v.CompletedAt
 	v.RawUsage.Success = v.Success
@@ -474,7 +474,7 @@ func RecomputeAccount(a *AccountState, facts []Evidence, s Settings, now time.Ti
 		total += f.RawUsage.TotalInputTokens
 		read += f.RawUsage.CacheReadTokens
 		valid++
-		if a.CohortID != "" && f.Admission.Trial && f.Admission.CohortID == a.CohortID && (f.Admission.PolicySignature == a.PolicySignature || f.Admission.PolicySignature == "") {
+		if !f.ProtectionPaused && a.CohortID != "" && f.Admission.Trial && f.Admission.CohortID == a.CohortID && (f.Admission.PolicySignature == a.PolicySignature || f.Admission.PolicySignature == "") {
 			trialTotal += f.RawUsage.TotalInputTokens
 			trialRead += f.RawUsage.CacheReadTokens
 			trialValid++

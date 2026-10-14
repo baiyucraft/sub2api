@@ -134,7 +134,7 @@ func TestGroupTTFTGuardPolicyResolveModesAndIdentity(t *testing.T) {
 }
 
 func TestGroupTTFTGuardPolicyInheritUsesGlobalAndPutValidates(t *testing.T) {
-	repo := &groupTTFTGuardPolicyRepoStub{record: GroupTTFTGuardPolicyRecord{GroupID: 8, GroupName: "mix", GroupPlatform: PlatformComposite}}
+	repo := &groupTTFTGuardPolicyRepoStub{record: GroupTTFTGuardPolicyRecord{GroupID: 8, GroupName: "openai", GroupPlatform: PlatformOpenAI}}
 	svc := newGroupTTFTGuardPolicyServiceForTest(repo, OpenAITTFTGuardSettings{Enabled: true, DegradationTTFTSeconds: 30, MinSamples: 6})
 
 	resolved, err := svc.Resolve(context.Background(), 8)

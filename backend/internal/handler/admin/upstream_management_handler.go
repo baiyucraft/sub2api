@@ -16,15 +16,16 @@ type upstreamProbeModelsRequest struct {
 }
 
 type upstreamManagementSettingsRequest struct {
-	SchedulingPriority       *string                                  `json:"scheduling_priority"`
-	CacheGuard               *service.UpstreamCacheGuardSettings      `json:"cache_guard"`
-	TTFTGuard                service.OpenAITTFTGuardSettings          `json:"ttft_guard"`
-	ProbeModels              service.UpstreamProbeModels              `json:"probe_models"`
-	ProbeIntervalSeconds     int                                      `json:"probe_interval_seconds"`
-	ProbeGuard               *service.UpstreamProbeGuardSettings      `json:"probe_guard"`
-	ModelAliasRules          map[string]string                        `json:"model_alias_rules"`
-	ConfidenceProbe          *service.UpstreamConfidenceProbeSettings `json:"confidence_probe"`
-	PoolModeRetryStatusCodes *[]int                                   `json:"pool_mode_retry_status_codes"`
+	SchedulingProtectionPlatforms *[]string                                `json:"scheduling_protection_platforms"`
+	SchedulingPriority            *string                                  `json:"scheduling_priority"`
+	CacheGuard                    *service.UpstreamCacheGuardSettings      `json:"cache_guard"`
+	TTFTGuard                     service.OpenAITTFTGuardSettings          `json:"ttft_guard"`
+	ProbeModels                   service.UpstreamProbeModels              `json:"probe_models"`
+	ProbeIntervalSeconds          int                                      `json:"probe_interval_seconds"`
+	ProbeGuard                    *service.UpstreamProbeGuardSettings      `json:"probe_guard"`
+	ModelAliasRules               map[string]string                        `json:"model_alias_rules"`
+	ConfidenceProbe               *service.UpstreamConfidenceProbeSettings `json:"confidence_probe"`
+	PoolModeRetryStatusCodes      *[]int                                   `json:"pool_mode_retry_status_codes"`
 }
 
 func (h *UpstreamConfigHandler) ListUpstreamHealthHistories(ctx context.Context, keyIDs []int64, limit int) (map[int64][]service.UpstreamHealthObservation, error) {
@@ -136,6 +137,9 @@ func (h *UpstreamConfigHandler) PutUpstreamManagementSettings(c *gin.Context) {
 		priority = *req.SchedulingPriority
 	}
 	settings := service.UpstreamManagementSettings{SchedulingPriority: priority, CacheGuard: req.CacheGuard, TTFTGuard: req.TTFTGuard, ProbeModels: req.ProbeModels, ProbeIntervalSeconds: req.ProbeIntervalSeconds, ProbeGuard: probeGuard, ModelAliasRules: modelAliasRules, ConfidenceProbe: confidenceProbe}
+	if req.SchedulingProtectionPlatforms != nil {
+		settings.SchedulingProtectionPlatforms = append([]string{}, (*req.SchedulingProtectionPlatforms)...)
+	}
 	if settings.ProbeIntervalSeconds == 0 {
 		settings.ProbeIntervalSeconds = service.DefaultUpstreamProbeIntervalSeconds
 	}
@@ -146,6 +150,7 @@ func (h *UpstreamConfigHandler) PutUpstreamManagementSettings(c *gin.Context) {
 	if strings.HasSuffix(c.Request.URL.Path, "/probe-settings") {
 		req.PoolModeRetryStatusCodes = nil
 		settings.CacheGuard = nil
+		settings.SchedulingProtectionPlatforms = nil
 	}
 	if req.PoolModeRetryStatusCodes != nil {
 		setErr = h.service.SetManagementSettingsWithRetryStatusCodes(c.Request.Context(), settings, req.PoolModeRetryStatusCodes)
