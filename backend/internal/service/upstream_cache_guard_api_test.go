@@ -1,7 +1,6 @@
 package service
 
 import (
-	"encoding/json"
 	"testing"
 	"time"
 
@@ -9,83 +8,82 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestUpstreamCacheGuardAPILinkedProtectionPreservesNativeEvidence(t *testing.T) {
-	for _, mode := range []upstreamcacheguard.Mode{upstreamcacheguard.Protect, upstreamcacheguard.Observe} {
-		t.Run(string(mode), func(t *testing.T) {
-			localRate := 95.0
-			item := UpstreamCacheGuardState{GroupID: 2, State: "normal", Reason: "healthy", RatePercent: &localRate, ValidRequests: 42}
-			source := upstreamcacheguard.ProtectionSource{GroupID: 1, ThresholdPercent: 75, RecoveryThresholdPercent: 80,
-				Phase: upstreamcacheguard.Trial, ValidRequests: 100, CachePercent: 40, MinValidRequests: 20,
-				TrialValidRequests: 25, TrialCachePercent: 82, TrialSessions: 3, FirstTrialAt: time.Now()}
-			derived := upstreamcacheguard.DerivedProtection{Protected: true, Reason: upstreamcacheguard.ProtectionReasonThresholdCascade,
-				PrimarySource: &source, Sources: []upstreamcacheguard.ProtectionSource{source}}
-			applyCacheGuardLinkedProtection(&item, &derived, mode, map[int64]string{1: "Source"})
-			wantState := "protected"
-			if mode == upstreamcacheguard.Observe {
-				wantState = "observing"
-			}
-			require.Equal(t, wantState, item.State)
-			require.Equal(t, "normal", item.NativeState)
-			require.Equal(t, "healthy", item.NativeReason)
-			require.Equal(t, "linked_group_protection", item.Reason)
-			require.Equal(t, 95.0, *item.RatePercent)
-			require.Equal(t, 42, item.ValidRequests)
-			require.Zero(t, item.RecoveryValidRequests)
-			require.Nil(t, item.RecoveryRatePercent)
-			require.Len(t, item.LinkedProtection.Sources, 1)
-			linked := item.LinkedProtection.Sources[0]
-			require.Equal(t, int64(1), item.LinkedProtection.PrimarySourceGroupID)
-			require.Equal(t, "Source", linked.GroupName)
-			require.Equal(t, 100, linked.ValidRequests)
-			require.Equal(t, 25, linked.RecoveryValidRequests)
-			require.Equal(t, 82.0, *linked.RecoveryRatePercent)
-		})
+func TestUpstreamCacheGuardAccountSummaryAndGroupProjection(t *testing.T) {
+	configID, keyID := int64(1), int64(11)
+	account := Account{ID: 7, UpstreamConfigID: &configID, UpstreamKeyID: &keyID,
+		GroupIDs: []int64{2, 1}, Groups: []*Group{{ID: 1, Name: "Executed"}, {ID: 2, Name: "Samples only"}}}
+	settings := DefaultUpstreamCacheGuardSettings()
+	settings.Mode, settings.GroupIDs = upstreamcacheguard.Protect, []int64{1}
+	now := time.Now().UTC()
+	snapshot := upstreamcacheguard.AccountSnapshot{AccountState: upstreamcacheguard.AccountState{
+		AccountID: 7, UpstreamKeyID: 11, Phase: upstreamcacheguard.Trial, ValidRequests: 43,
+		CachePercent: 74.4, TrialValidRequests: 22, TrialCachePercent: 84.6,
+		TrialSessions: 3, FirstTrialAt: now.Add(-time.Minute), CooldownUntil: now.Add(time.Hour),
+		GroupIDs: []int64{1, 2, 3}, TrialGroupIDs: []int64{1}, UpdatedAt: now,
+	}}
+	calls := 0
+	read := func(accountID, currentKey int64) (upstreamcacheguard.AccountSnapshot, bool) {
+		calls++
+		require.Equal(t, int64(7), accountID)
+		require.Equal(t, int64(11), currentKey)
+		return snapshot, true
 	}
+	view := upstreamCacheGuardAccountViewsBatch([]Account{account}, settings, true, read)[account.ID]
+	require.Equal(t, 1, calls)
+	require.Equal(t, "recovering", view.Summary.State)
+	require.Equal(t, 74.4, *view.Summary.RatePercent)
+	require.Equal(t, 22, view.Summary.RecoveryValidRequests)
+	require.Equal(t, 84.6, *view.Summary.RecoveryRatePercent)
+	require.Equal(t, settings.WindowMinutes, view.Summary.WindowMinutes)
+	require.Len(t, view.States, 3)
+	require.Equal(t, "recovering", view.States[0].State)
+	require.Equal(t, *view.Summary.RatePercent, *view.States[0].RatePercent)
+	require.True(t, view.States[0].TrialParticipant)
+	require.Equal(t, "disabled", view.States[1].State)
+	require.Nil(t, view.States[1].RatePercent)
+	require.Equal(t, "disabled", view.States[2].State, "past fact groups can contribute without execution")
+	require.Nil(t, view.States[0].LinkedProtection)
 }
 
-func TestUpstreamCacheGuardAPILinkedUnknownAndLegacyCompatibility(t *testing.T) {
-	item := UpstreamCacheGuardState{GroupID: 2, State: "insufficient", Reason: "insufficient_samples"}
-	encoded, err := json.Marshal(item)
-	require.NoError(t, err)
-	require.NotContains(t, string(encoded), "linked_protection")
-	source := upstreamcacheguard.ProtectionSource{GroupID: 1, Phase: upstreamcacheguard.Cooling, ValidRequests: 21, CachePercent: 0}
-	derived := upstreamcacheguard.DerivedProtection{Protected: true, PrimarySource: &source, Sources: []upstreamcacheguard.ProtectionSource{source}}
-	applyCacheGuardLinkedProtection(&item, &derived, upstreamcacheguard.Protect, nil)
-	require.Nil(t, item.RatePercent, "source zero must not replace this group's unknown rate")
-	require.Zero(t, item.ValidRequests)
-	require.Nil(t, item.RecoveryRatePercent)
-	require.Equal(t, "insufficient", item.NativeState)
-	require.Equal(t, 0.0, *item.LinkedProtection.Sources[0].RatePercent)
-	require.Nil(t, item.LinkedProtection.Sources[0].RecoveryRatePercent, "missing source recovery samples are unknown")
+func TestUpstreamCacheGuardAccountSummaryUnknownZeroAndUnavailable(t *testing.T) {
+	configID, keyID := int64(1), int64(11)
+	account := Account{ID: 7, UpstreamConfigID: &configID, UpstreamKeyID: &keyID, GroupIDs: []int64{1}}
+	settings := DefaultUpstreamCacheGuardSettings()
+	settings.Mode = upstreamcacheguard.Protect
+	read := func(_, _ int64) (upstreamcacheguard.AccountSnapshot, bool) {
+		return upstreamcacheguard.AccountSnapshot{AccountState: upstreamcacheguard.AccountState{Phase: upstreamcacheguard.Healthy}}, true
+	}
+	view := upstreamCacheGuardAccountViewsBatch([]Account{account}, settings, true, read)[account.ID]
+	require.Equal(t, "insufficient", view.Summary.State)
+	require.Nil(t, view.Summary.RatePercent)
+	require.Equal(t, "insufficient", view.States[0].State)
+	read = func(_, _ int64) (upstreamcacheguard.AccountSnapshot, bool) {
+		return upstreamcacheguard.AccountSnapshot{AccountState: upstreamcacheguard.AccountState{
+			Phase: upstreamcacheguard.Cooling, ValidRequests: settings.MinValidRequests + 1, CachePercent: 0}}, true
+	}
+	view = upstreamCacheGuardAccountViewsBatch([]Account{account}, settings, true, read)[account.ID]
+	require.Equal(t, "protected", view.Summary.State)
+	require.NotNil(t, view.Summary.RatePercent)
+	require.Zero(t, *view.Summary.RatePercent)
+	view = upstreamCacheGuardAccountViewsBatch([]Account{account}, settings, false, read)[account.ID]
+	require.Equal(t, "unavailable", view.Summary.State)
+	require.Equal(t, "snapshot_unavailable", view.Summary.Reason)
+	require.Nil(t, view.Summary.RatePercent)
+	settings.Mode = upstreamcacheguard.Disabled
+	require.Empty(t, upstreamCacheGuardAccountViewsBatch([]Account{account}, settings, true, read))
 }
 
-func TestUpstreamCacheGuardAPIShowsLinkedProtectionWithoutLocalRuntime(t *testing.T) {
-	svc, ctx, _, _ := cacheGuardSelectionFixture(t, false, []float64{60}, map[int64]bool{1: true}, false, time.Time{}, nil)
-	account, err := svc.accountRepo.GetByID(ctx, 1)
-	require.NoError(t, err)
-	account.GroupIDs = []int64{100, 200}
-	account.Groups = []*Group{{ID: 100, Name: "Source"}, {ID: 200, Name: "Target"}}
-	states := UpstreamCacheGuardAccountStates(account)
-	require.Len(t, states, 2)
-	target := states[1]
-	require.Equal(t, int64(200), target.GroupID)
-	require.Equal(t, "protected", target.State)
-	require.Equal(t, "insufficient", target.NativeState)
-	require.Nil(t, target.RatePercent, "an absent native runtime must not acquire the source's cache rate")
-	require.Zero(t, target.ValidRequests)
-	require.Nil(t, target.RecoveryRatePercent)
-	require.NotNil(t, target.LinkedProtection)
-	require.Len(t, target.LinkedProtection.Sources, 1)
-	require.Equal(t, int64(100), target.LinkedProtection.PrimarySourceGroupID)
-	require.Equal(t, "Source", target.LinkedProtection.Sources[0].GroupName)
-	require.Equal(t, 21, target.LinkedProtection.Sources[0].ValidRequests)
-	require.Equal(t, 60.0, *target.LinkedProtection.Sources[0].RatePercent)
-	rotatedKey := int64(99)
-	account.UpstreamKeyID = &rotatedKey
-	for _, rotated := range UpstreamCacheGuardAccountStates(account) {
-		require.Equal(t, "insufficient", rotated.State, "a rebound key must not display old-key native or linked protection")
-		require.Nil(t, rotated.RatePercent)
-		require.Zero(t, rotated.ValidRequests)
-		require.Nil(t, rotated.LinkedProtection)
-	}
+func TestUpstreamCacheGuardPastFactGroupDoesNotClaimCurrentExecution(t *testing.T) {
+	configID, keyID := int64(1), int64(11)
+	account := Account{ID: 7, UpstreamConfigID: &configID, UpstreamKeyID: &keyID, GroupIDs: []int64{1}}
+	settings := DefaultUpstreamCacheGuardSettings()
+	settings.Mode = upstreamcacheguard.Protect
+	view := upstreamCacheGuardAccountViewsBatch([]Account{account}, settings, true,
+		func(_, _ int64) (upstreamcacheguard.AccountSnapshot, bool) {
+			return upstreamcacheguard.AccountSnapshot{AccountState: upstreamcacheguard.AccountState{
+				Phase: upstreamcacheguard.Healthy, ValidRequests: 21, CachePercent: 91, GroupIDs: []int64{1, 9}}}, true
+		})[account.ID]
+	require.Len(t, view.States, 2)
+	require.Equal(t, "normal", view.States[0].State)
+	require.Equal(t, "disabled", view.States[1].State, "past fact groups cannot execute after membership is removed")
 }

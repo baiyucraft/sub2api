@@ -31,6 +31,46 @@ func (s *cacheGuardAdmissionStore) Rows(context.Context, []int64) ([]upstreamcac
 	return s.rows, nil
 }
 
+func (s *cacheGuardAdmissionStore) AccountRows(context.Context) ([]upstreamcacheguard.AccountRuntimeRow, error) {
+	var result []upstreamcacheguard.AccountRuntimeRow
+	for _, row := range s.rows {
+		if row.Kind != upstreamcacheguard.AccountKind {
+			continue
+		}
+		var state upstreamcacheguard.AccountState
+		if err := json.Unmarshal(row.Payload, &state); err != nil {
+			return nil, err
+		}
+		result = append(result, upstreamcacheguard.AccountRuntimeRow{AccountID: state.AccountID, UpstreamKeyID: state.UpstreamKeyID, Version: row.Version, Payload: row.Payload})
+	}
+	return result, nil
+}
+
+func (s *cacheGuardAdmissionStore) AccountWindows(ctx context.Context, _, _ time.Time) (map[string]upstreamcacheguard.AccountWindow, error) {
+	rows, err := s.AccountRows(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[string]upstreamcacheguard.AccountWindow, len(rows))
+	for _, row := range rows {
+		var state upstreamcacheguard.AccountState
+		if err := json.Unmarshal(row.Payload, &state); err != nil {
+			return nil, err
+		}
+		// Fixed scheduler quality fixtures do not represent transaction facts.
+		result[fmt.Sprintf("%d:%d", row.AccountID, row.UpstreamKeyID)] = upstreamcacheguard.AccountWindow{
+			AccountID: row.AccountID, UpstreamKeyID: row.UpstreamKeyID, Version: row.Version, State: state,
+			ValidRequests: state.ValidRequests, TotalInputTokens: int64(state.ValidRequests) * 1000,
+			CacheReadTokens: int64(state.CachePercent*10) * int64(state.ValidRequests),
+		}
+	}
+	return result, nil
+}
+
+func (s *cacheGuardAdmissionStore) TransactAccount(context.Context, int64, int64, int64, func(upstreamcacheguard.Tx) error) error {
+	return upstreamcacheguard.ErrUnavailable
+}
+
 func (s *cacheGuardAdmissionStore) Transact(context.Context, int64, func(upstreamcacheguard.Tx) error) error {
 	return nil
 }

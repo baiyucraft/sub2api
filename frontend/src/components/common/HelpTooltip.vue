@@ -3,7 +3,7 @@ import { onBeforeUnmount, ref, useTemplateRef, nextTick, watch } from 'vue'
 
 const props = withDefaults(defineProps<{
   content?: string
-  trigger?: 'hover' | 'click'
+  trigger?: 'hover' | 'click' | 'adaptive'
   widthClass?: string
   triggerClass?: string
 }>(), {
@@ -18,6 +18,7 @@ const tooltipRef = useTemplateRef<HTMLElement>('tooltip')
 const tooltipStyle = ref({ top: '0px', left: '0px', maxWidth: 'calc(100vw - 32px)' })
 const placement = ref<'top' | 'bottom'>('top')
 const arrowLeft = ref('50%')
+let openedOnFocus = false
 
 function openTooltip() {
   show.value = true
@@ -25,10 +26,11 @@ function openTooltip() {
 
 function closeTooltip() {
   show.value = false
+  openedOnFocus = false
 }
 
 function onEnter() {
-  if (props.trigger !== 'hover') return
+  if (props.trigger !== 'hover' && props.trigger !== 'adaptive') return
   openTooltip()
 }
 
@@ -38,20 +40,42 @@ function isInside(container: HTMLElement | null, target: EventTarget | null): bo
 
 // 悬停模式下指针在触发图标与提示框之间往返时保持打开，便于选中提示里的文字。
 function onLeave(event: MouseEvent) {
-  if (props.trigger !== 'hover') return
+  if (props.trigger !== 'hover' && props.trigger !== 'adaptive') return
   if (isInside(tooltipRef.value, event.relatedTarget)) return
+  if (props.trigger === 'adaptive' && isInside(triggerRef.value, document.activeElement)) return
   closeTooltip()
 }
 
 function onTooltipLeave(event: MouseEvent) {
-  if (props.trigger !== 'hover') return
+  if (props.trigger !== 'hover' && props.trigger !== 'adaptive') return
   if (isInside(triggerRef.value, event.relatedTarget)) return
+  if (props.trigger === 'adaptive' && isInside(triggerRef.value, document.activeElement)) return
+  closeTooltip()
+}
+
+function onFocusIn() {
+  if (props.trigger === 'adaptive' && !show.value) {
+    openedOnFocus = true
+    openTooltip()
+  }
+}
+
+function onFocusOut(event: FocusEvent) {
+  if (props.trigger !== 'adaptive') return
+  if (isInside(triggerRef.value, event.relatedTarget) || isInside(tooltipRef.value, event.relatedTarget)) return
+  openedOnFocus = false
   closeTooltip()
 }
 
 function onClick(event: MouseEvent) {
-  if (props.trigger !== 'click') return
+  if (props.trigger !== 'click' && props.trigger !== 'adaptive') return
+  const touch = window.matchMedia?.('(hover: none)').matches || (event as PointerEvent).pointerType === 'touch'
+  if (props.trigger === 'adaptive' && !touch && event.detail !== 0) return
   event.stopPropagation()
+  if (props.trigger === 'adaptive' && touch && openedOnFocus) {
+    openedOnFocus = false
+    return
+  }
   if (show.value) {
     closeTooltip()
     return
@@ -60,7 +84,7 @@ function onClick(event: MouseEvent) {
 }
 
 function onDocumentClick(event: MouseEvent) {
-  if (props.trigger !== 'click' || !show.value) return
+  if (props.trigger !== 'click' && props.trigger !== 'adaptive' || !show.value) return
   const target = event.target as Node | null
   if (!target) return
   if (triggerRef.value?.contains(target) || tooltipRef.value?.contains(target)) return
@@ -68,7 +92,7 @@ function onDocumentClick(event: MouseEvent) {
 }
 
 function onDocumentKeydown(event: KeyboardEvent) {
-  if (props.trigger !== 'click') return
+  if (props.trigger !== 'click' && props.trigger !== 'adaptive') return
   if (event.key === 'Escape') {
     closeTooltip()
   }
@@ -145,6 +169,8 @@ onBeforeUnmount(() => {
     :class="['group relative ml-1 inline-flex items-center align-middle', props.triggerClass]"
     @mouseenter="onEnter"
     @mouseleave="onLeave"
+    @focusin="onFocusIn"
+    @focusout="onFocusOut"
     @click="onClick"
   >
     <!-- Trigger Icon -->
@@ -180,7 +206,7 @@ onBeforeUnmount(() => {
         @mouseleave="onTooltipLeave"
       >
         <button
-          v-if="props.trigger === 'click'"
+          v-if="props.trigger === 'click' || props.trigger === 'adaptive'"
           type="button"
           class="absolute right-1.5 top-1.5 rounded p-1 text-gray-300 transition-colors hover:bg-white/10 hover:text-white"
           aria-label="Close"

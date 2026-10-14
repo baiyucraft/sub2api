@@ -1437,7 +1437,7 @@ export interface OpenCodeGoUsageSettings {
 export interface UpstreamCacheGuardState {
   group_id: number
   group_name?: string
-  state: 'disabled' | 'observing' | 'insufficient' | 'normal' | 'protected' | 'recovering'
+  state: 'disabled' | 'observing' | 'insufficient' | 'normal' | 'protected' | 'recovering' | 'unavailable'
   rate_percent: number | null
   valid_requests: number
   reason: string
@@ -1447,6 +1447,7 @@ export interface UpstreamCacheGuardState {
   recovery_started_at: string | null
   cooldown_until: string | null
   updated_at: string | null
+  trial_participant?: boolean
   native_state?: UpstreamCacheGuardState['state']
   native_reason?: string
   linked_protection?: {
@@ -1455,6 +1456,20 @@ export interface UpstreamCacheGuardState {
     primary_source_group_id: number
     sources: UpstreamCacheGuardProtectionSource[]
   }
+}
+
+export interface UpstreamCacheGuardSummary {
+  state: UpstreamCacheGuardState['state']
+  rate_percent: number | null
+  valid_requests: number
+  window_minutes: number
+  reason: string
+  recovery_valid_requests: number
+  recovery_rate_percent: number | null
+  recovery_sessions: number
+  recovery_started_at: string | null
+  cooldown_until: string | null
+  updated_at: string | null
 }
 
 export interface UpstreamCacheGuardProtectionSource {
@@ -1595,7 +1610,9 @@ export interface Account {
   temp_unschedulable_reason: string | null
   /** Runtime TTFT Guard state, scoped globally or by group plus account and canonical mapped model. */
   ttft_guard_degradations?: AccountTTFTGuardDegradation[]
-  /** Cache utilization for this group and account, across models and excluding cold starts. */
+  /** Shared account/key cache utilization across groups, models and protocols. */
+  upstream_cache_guard?: UpstreamCacheGuardSummary
+  /** Execution projection per group; all enabled groups share the account decision. */
   upstream_cache_guard_states?: UpstreamCacheGuardState[]
   upstream_health?: {
     key_id: number

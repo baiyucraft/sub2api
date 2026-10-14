@@ -143,6 +143,58 @@ describe('HelpTooltip', () => {
     wrapper.unmount()
   })
 
+  it('opens adaptive details on keyboard focus and closes on blur or Escape', async () => {
+    const wrapper = mount(HelpTooltip, {
+      attachTo: document.body,
+      props: { trigger: 'adaptive', content: 'account details' },
+      slots: { trigger: '<button type="button">Account status</button>' },
+    })
+    const button = wrapper.get('button').element as HTMLButtonElement
+    button.focus()
+    await nextTick()
+    expect(getTooltipElement().textContent).toContain('account details')
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await nextTick()
+    expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
+    // Native button activation with Enter/Space emits a detail=0 click.
+    for (const key of ['Enter', 'Space']) {
+      button.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))
+      button.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 0 }))
+      await nextTick()
+      expect(getTooltipElement().textContent).toContain('account details')
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+      await nextTick()
+      expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
+    }
+    button.blur()
+    button.focus()
+    await nextTick()
+    expect(getTooltipElement().textContent).toContain('account details')
+    button.blur()
+    await nextTick()
+    expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
+    wrapper.unmount()
+  })
+
+  it('opens adaptive details on touch without requiring hover', async () => {
+    vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList)
+    const wrapper = mount(HelpTooltip, {
+      attachTo: document.body,
+      props: { trigger: 'adaptive', content: 'touch details' },
+    })
+    const trigger = wrapper.get('.group')
+    await trigger.trigger('click')
+    await nextTick()
+    expect(getTooltipElement().textContent).toContain('touch details')
+    document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await nextTick()
+    expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
+    await trigger.trigger('click')
+    await nextTick()
+    expect(getTooltipElement().textContent).toContain('touch details')
+    wrapper.unmount()
+  })
+
   it('only attaches viewport and document listeners while open', async () => {
     const documentAddSpy = vi.spyOn(document, 'addEventListener')
     const documentRemoveSpy = vi.spyOn(document, 'removeEventListener')
