@@ -131,16 +131,17 @@
     "265": {"version":"0.2.15-baiyu","parent":"264","gate_schema":2,"new_migrations":["290_drop_platform_check_constraints.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
     "266": {"version":"0.2.15-baiyu","parent":"265","gate_schema":2,"new_migrations":["291_user_invoice_annotations.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
     "267": {"version":"0.2.16-baiyu","parent":"266","gate_schema":2,"new_migrations":["292_group_i18n.sql","293_gemini_cached_contents.sql","294_gemini_cached_contents_channel_usage.sql","295_gemini_cached_contents_mutation_lease.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
-    "268": {"version":"0.2.16-baiyu","parent":"267","gate_schema":2,"new_migrations":["296_upstream_cache_guard.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}}
+    "268": {"version":"0.2.16-baiyu","parent":"267","gate_schema":2,"new_migrations":["296_upstream_cache_guard.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
+    "269": {"version":"0.2.16-baiyu","parent":"268","gate_schema":2,"new_migrations":["297_upstream_cache_guard_account_scope.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}}
   },
   "current_profile": {
-    "id": "269",
+    "id": "270",
     "status": "pending",
     "version": "0.2.16-baiyu",
-    "parent": "268",
+    "parent": "269",
     "gate_schema": 2,
     "new_migrations": [
-      "297_upstream_cache_guard_account_scope.sql"
+      "298_group_scheduling_protection_policies.sql"
     ],
     "release_policy": {
       "compatibility_image": "production_current",
@@ -229,7 +230,8 @@
     "277_user_group_rate_percent.sql": "7496e93f5f77c93637e0f68f13fc39e6f793a8968bd01371e357c952b44f47b7",
     "278_fork_group_ttft_guard_policies.sql": "0637f2c51df53a76ea66730cc5f7127c1f20adf187ec649edda5f1993e42d207",
     "279_proxy_ip_groups.sql": "6d9e622320d7c4264f9ea501f1f56d3dc7124774d52ff2c3a263e538c4b4e039",
-    "280_plugin_runtime_state.sql": "700479dfaf0ecee741ded67df3e670a53433a5a486a7c7b2d87d27c6d48d8341"
+    "280_plugin_runtime_state.sql": "700479dfaf0ecee741ded67df3e670a53433a5a486a7c7b2d87d27c6d48d8341",
+    "298_group_scheduling_protection_policies.sql": "97ccd6842138d835393d61e719e84b4b17bd169e95d92053416e62411989b568"
   },
   "migration_renames": {
     "official_242_group_i18n": "292_group_i18n.sql",
@@ -406,7 +408,8 @@
       "fence BIGINT NOT NULL DEFAULT 0 CHECK (fence >= 0)",
       "expires_at TIMESTAMPTZ NOT NULL DEFAULT '-infinity'",
       "PRIMARY KEY (plugin_key, namespace, key)"
-    ]
+    ],
+    "backend/migrations/298_group_scheduling_protection_policies.sql": ["CREATE TABLE IF NOT EXISTS fork_group_scheduling_protection_policies","REFERENCES groups(id) ON DELETE CASCADE","ON CONFLICT (group_id) DO NOTHING","Keep legacy group_ids intact"]
   },
   "semantic_overlap": {
     "ui_path_patterns": [
@@ -461,7 +464,7 @@
     {
       "id": "upstream-cache-affinity-guard",
       "title": "上游有效续聊缓存保护",
-      "description": "默认关闭的上游账号与当前Key级有效续聊缓存保护；全分组Token加权样本、统一phase和恢复cohort，group_ids只限定执行，分组仍独立维护会话和试用配额；不改变计费或错误重试策略。",
+      "description": "默认关闭的上游账号与当前Key级有效续聊缓存保护；原始Token加权窗口共享，按三个质量阈值投影phase/冷却/恢复cohort。组inherit/enabled/disabled与cache_first/ttft_first统一配置，自定义enabled独立protect，不改变计费或错误重试策略。",
       "ownership": "fork",
       "risk_level": "critical",
       "paths": [
@@ -583,7 +586,21 @@
         "backend/internal/service/upstream_cache_usage_session_test.go",
         "backend/internal/service/openai_ttft_guard_quality_test.go",
         "backend/internal/service/openai_response_terminal_usage_compat_test.go",
-        "backend/internal/service/upstream_cache_guard_api_batch_test.go"
+        "backend/internal/service/upstream_cache_guard_api_batch_test.go",
+        "backend/internal/upstreamcacheguard/policy.go",
+        "backend/internal/upstreamcacheguard/policy_test.go",
+        "backend/migrations/298_group_scheduling_protection_policies.sql",
+        "backend/internal/service/group_scheduling_protection_policy.go",
+        "backend/internal/handler/admin/account_scheduling_protection.go",
+        "frontend/src/components/account/UpstreamProtectionStatus.vue",
+        "backend/internal/service/protection_send_admission.go",
+        "backend/internal/service/gateway_protection_send_admission.go",
+        "backend/internal/service/plugin_runtime.go",
+        "backend/internal/service/plugin_scoped_routing.go",
+        "backend/internal/service/openai_plugin_transport.go",
+        "backend/internal/service/antigravity_gateway_retry.go",
+        "backend/internal/service/antigravity_gateway_upstream.go",
+        "backend/internal/service/gateway_protection_send_admission_test.go"
       ],
       "symbols": [
         "SettingKeyUpstreamCacheGuard",
@@ -597,18 +614,25 @@
         "GetUpstreamCacheGuardAccountView",
         "UpstreamCacheGuardAccountViewsBatch",
         "selectGatewayCacheGuardTiers",
-        "UpstreamCacheGuardAccountStatesBatch"
+        "UpstreamCacheGuardAccountStatesBatch",
+        "PolicySignature",
+        "GroupSchedulingProtectionPolicyService",
+        "AccountUpstreamProtection"
       ],
       "api_routes": [
         "/admin/upstream-management/settings",
-        "/admin/upstream-management/accounts"
+        "/admin/upstream-management/accounts",
+        "/admin/groups/upstream-protection-policies",
+        "/admin/groups/:id/upstream-protection-policy"
       ],
       "settings_keys": [
-        "upstream_cache_guard_settings"
+        "upstream_cache_guard_settings",
+        "upstream_scheduling_priority"
       ],
       "migration_files": [
         "296_upstream_cache_guard.sql",
-        "297_upstream_cache_guard_account_scope.sql"
+        "297_upstream_cache_guard_account_scope.sql",
+        "298_group_scheduling_protection_policies.sql"
       ],
       "required_tests": [
         "backend/internal/pkg/upstreamcacheusage/evidence_test.go",
@@ -652,7 +676,15 @@
         "backend/internal/service/openai_ttft_guard_quality_test.go",
         "backend/internal/service/openai_response_terminal_usage_compat_test.go",
         "backend/internal/service/upstream_cache_guard_api_batch_test.go",
-        "backend/internal/handler/admin/account_handler_refresh_test.go"
+        "backend/internal/handler/admin/account_handler_refresh_test.go",
+        "backend/internal/upstreamcacheguard/policy_test.go",
+        "backend/internal/repository/group_scheduling_protection_pg_test.go",
+        "backend/internal/handler/admin/account_scheduling_protection_test.go",
+        "backend/migrations/group_scheduling_protection_migration_test.go",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile270_release_contract.py",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_migration_298.py",
+        "backend/internal/service/gateway_protection_send_admission_test.go",
+        "backend/internal/service/openai_protection_regression_test.go"
       ],
       "invariants": [
         "统计固定account ID加当前upstream Key ID，所有组、模型、协议有效样本按Token加权合并，排除冷首轮和无效样本；Key轮换不继承旧证据，未知率不是零",
@@ -663,12 +695,15 @@
         "冷却10分钟后分组总体10%自然新会话试用并固定账号，多个恢复账号轮转分配，不解释为每账号或每请求10%",
         "账号恢复cohort统一收集各启用组的有效试用样本；未启用组普通样本只参与正常窗口，不替代恢复验证；同窗口N严格超过20、至少3会话、率达到80%且观察至少10分钟恢复",
         "仅保存事实metadata、HMAC会话摘要和分布式版本状态，不保存原始请求正文、提示词或凭据，跨实例保证请求幂等与试用份额一致",
-        "账号列表/详情统一摘要，状态列仅一个状态加一位小数缓存率badge，悬浮展示账号窗口与分组启用/执行/试用信息；未知显示未知不伪装0%，不显示兜底次数",
-        "group_ids仅限制观察/保护执行；非选中组普通有效事实仍贡献账号窗口，各启用组共享账号phase/冷却/cohort，分组会话/暖上下文/候选池/容量/自然新会话配额仍分离",
+        "账号上游保护统一入口展示缓存原始窗口、共享模型TTFT与逐组策略投影，明确来源/阈值/priority/恢复进度；未知不当0%，shared observed不当normal，full/detail/lite与ETag一致",
+        "原始账号/Key窗口跨组共享，phase/冷却/cohort/reset按质量签名投影；签名仅含保护阈值/恢复阈值/最小有效请求数，同签名共享，不同阈值独立；组会话/暖上下文/容量/自然新会话配额仍分开",
         "账号锁内迁移旧组事实并遵守质量重置边界；旧保护保守继承及最晚冷却，旧cohort不混入；账号/Key锁、事实幂等、固定锁序，多实例不可重复计入或自动解封",
-        "profile269为0.2.16-baiyu,parent268,仅迁移297；全部历史profile/SQL/checksum不回写，完整执行闭包接线，未知270拒绝；本地登记不代表VM、数据库升级或生产部署，无新恢复豁免",
+        "历史profile269保持0.2.16-baiyu,parent268,只迁移297；当前270,parent269,只迁移298；旧profile/SQL/checksum不回写，全部执行入口支持270，未知271拒绝；新增敏感blob未分类保持阻断，不扩展冻结审阅",
         "迁移目标仅Wait时优先保留硬合法source及其Wait；只有source也硬失效才回原硬候选池，软迁移不提前覆盖sticky绑定；普通账号不参与缓存评分但可参与最终硬故障fallback",
-        "账号列表在单次请求内复用可信共享快照，账号摘要与分组兼容投影全部参与ETag且仅缓存字段变化仍完整刷新；不跨请求缓存或延长新鲜度"
+        "账号列表在单次请求内复用可信共享快照，账号摘要与分组兼容投影全部参与ETag且仅缓存字段变化仍完整刷新；不跨请求缓存或延长新鲜度",
+        "缓存分组inherit/enabled/disabled，仅三个阈值门槛自定义，时间与试用配额继承全局；enabled在全局disabled/observe下独立protect",
+        "迁移298将旧非空group_ids白名单投影为inherit/disabled，重放不覆盖自定义且保留原settings供旧镜像回滚",
+        "软保护迁移与试用仅在实际transport发送前的最终准入点提交；本地校验、插件或利润准入拒绝、取消、目标Key改变时不迁移绑定、不启动缓存cohort、不计TTFT试用发送；同账号重试与WS turn共用once提交边界"
       ]
     },
     {
@@ -1227,7 +1262,99 @@
       "id": "gateway-request-group-mapping", "title": "渠道定制请求级分组映射", "description": "在既有渠道定制首条匹配规则中增加请求级 group_mapping 动作；身份认证后克隆 API Key 并临时替换分组，再按最终分组执行准入、调度、计费、流水与 TTFT，而永久 Key 绑定和 billing 元信息保持原分组。", "ownership": "fork", "risk_level": "critical", "paths": ["backend/internal/service/gateway_channel_customization_settings.go", "backend/internal/service/api_key_service.go", "backend/internal/observer/gateway_customization.go", "backend/internal/server/middleware/api_key_auth.go", "backend/internal/server/middleware/api_key_auth_google.go", "backend/internal/server/middleware/api_key_final_group_billing.go", "backend/internal/handler/dto/settings.go", "backend/internal/handler/admin/setting_handler_runtime.go", "backend/internal/server/router.go", "backend/internal/server/routes/gateway.go", "frontend/src/api/admin/channelCustomization.ts", "frontend/src/views/admin/ChannelCustomizationView.vue", "frontend/src/i18n/locales/zh/admin/channels.ts", "frontend/src/i18n/locales/en/admin/channels.ts"], "symbols": ["GatewayChannelCustomizationActionGroupMapping", "ResolveCustomizationTargetGroup", "GroupMappingMiddleware", "LocalResponseMiddleware", "CustomizationService.MayMatchGroupMapping", "DeferAPIKeyGroupBilling", "FinalAPIKeyGroupBilling", "GatewayRouteOptions.PreAuthMiddleware", "GatewayRouteOptions.PostAuthMiddleware"], "api_routes": ["/admin/settings/channel-customization", "/v1/*", "/v1beta/*", "/antigravity/v1/*", "/antigravity/v1beta/*", "/backend-api/codex/*", "/v1/sub2api/billing"], "settings_keys": ["gateway_channel_customization_settings"], "migration_files": [], "required_tests": ["backend/internal/service/gateway_channel_customization_group_mapping_test.go", "backend/internal/observer/gateway_customization_group_mapping_test.go", "backend/internal/server/middleware/api_key_auth_test.go", "backend/internal/server/routes/gateway_model_allowlist_test.go", "backend/internal/server/routes/gateway_key_billing_test.go", "frontend/src/api/admin/__tests__/channelCustomization.spec.ts", "frontend/src/views/admin/__tests__/ChannelCustomizationView.spec.ts"], "invariants": ["旧规则 action 缺失时仍按 local_response 执行；规则按页面顺序首条命中生效，不叠加动作", "group_mapping 只克隆请求上下文中的 API Key 并替换 GroupID/Group，不修改数据库或原 API Key 对象；同时保存原分组计费快照", "仅请求条件可能命中 group_mapping 时延期原分组路由准入；身份认证仍先拒绝失效 Key 和用户，随后按目标分组统一检查状态、授权和路由准入，计费使用原分组", "目标分组必须是可信加载、启用且当前用户可绑定；订阅分组必须存在可用订阅并通过窗口维护与限额校验", "Gemini、Antigravity 和强制平台入口必须校验目标平台兼容；不兼容、无权限、无订阅或目标失效均 fail-closed，不回落原分组", "映射发生在身份认证后、模型白名单与 Composite 路由前；后续调度、TTFT Guard、利润保护、专属/高峰倍率读取目标分组，用户扣费和 usage 计费字段读取原分组快照", "请求体匹配读取后必须可重放；精确消息文本对配置值和请求值只裁剪首尾空白", "/v1/sub2api/billing、倍率探针和永久 Key 分组保持原分组语义", "两种动作命中统计每次请求最多增加一次，不新增数据库字段或 migration"]
     },
     {
-      "id": "ttft-guard", "title": "OpenAI 分组级 TTFT Guard", "description": "按 group_id + account_id + canonical model 隔离真实业务 TTFT 状态；分组策略使用 fork 独立表并支持继承全局、自定义启用和单独停用。", "ownership": "fork", "risk_level": "critical", "paths": ["backend/migrations/278_fork_group_ttft_guard_policies.sql", "backend/internal/repository/group_ttft_guard_policy_repo.go", "backend/internal/repository/group_ttft_guard_policy_invalidation_bus.go", "backend/internal/service/group_ttft_guard_policy.go", "backend/internal/service/openai_ttft_guard*.go", "backend/internal/service/openai_account_scheduler.go", "backend/internal/handler/admin/group_handler.go", "backend/internal/server/routes/admin.go", "frontend/src/api/admin/groups.ts", "frontend/src/components/admin/group/GroupTTFTGuardPolicyModal.vue", "frontend/src/components/account/TTFTGuardStatusBadge.vue", "frontend/src/views/admin/GroupsView.vue"], "symbols": ["GroupTTFTGuardPolicyResolver", "GroupTTFTGuardResolvedPolicy", "GroupTTFTGuardPolicyInvalidationBus", "fork_group_ttft_guard_policies", "OpenAITTFTGuard", "reportOpenAITTFTGuard", "ttft_guard_degradations"], "api_routes": ["/admin/upstream-management/ttft-guard", "/admin/groups/ttft-guard-policies", "/admin/groups/:id/ttft-guard-policy"], "settings_keys": ["openai_ttft_guard_settings"], "migration_files": ["278_fork_group_ttft_guard_policies.sql"], "required_tests": ["backend/migrations/group_ttft_guard_policy_migration_test.go", "backend/internal/repository/group_ttft_guard_policy_repo_test.go", "backend/internal/repository/group_ttft_guard_policy_invalidation_bus_test.go", "backend/internal/service/group_ttft_guard_policy_test.go", "backend/internal/service/scheduler_snapshot_ttft_policy_test.go", "backend/internal/service/openai_ttft_guard_test.go", "backend/internal/handler/admin/group_handler_ttft_guard_policy_test.go", "frontend/src/api/admin/__tests__/groupsTTFTGuardPolicies.spec.ts", "frontend/src/components/admin/group/__tests__/GroupTTFTGuardPolicyModal.spec.ts", "frontend/src/components/account/__tests__/TTFTGuardStatusBadge.spec.ts"], "invariants": ["只采样带实际 group_id 的真实业务可见首 Token，无分组后台探针不得写入", "状态按 group_id + account_id + canonical model 隔离，分组间阈值、摘除、恢复探测和 fail-open 互不污染", "inherit 使用全局热快照中的开关与阈值，enabled 使用分组值，disabled 不采样不排除并清理该分组旧状态；全局变化不得改写自定义策略", "全局设置通过 fork Redis 通道广播；远端读取成功后只清配置变化的 global 状态，读取失败和自定义策略不得清理", "策略缓存失效期间启动的旧 DB 读取不得重新回填缓存", "仅 OpenAI 与 Composite 分组允许保存策略，Composite 只在实际调度平台为 OpenAI 时生效", "策略写入和 group_changed scheduler outbox 在同一事务；幂等写入不产生无意义事件", "各实例消费 group_changed 后清 policy cache，并通过本地 runtime invalidator 清该分组 TTFT 状态；缓存自然过期不得清运行态", "运行时 degradation 必须携带 group_id、group_name 与策略来源", "fork 策略表和管理 API 不向官方 groups 表增加字段，也不改变倍率、Priority、健康探针、模型限流或高级调度语义"]
+      "id": "ttft-guard",
+      "title": "OpenAI 分组级 TTFT Guard",
+      "description": "TTFT 原始业务观测按 account_id + 当前 UpstreamKey + canonical model 共享；各组阈值和恢复投影独立，渐出让新会话，持续慢旧会话迁移。统一入口配置缓存、TTFT 与两种明确分层优先策略。",
+      "ownership": "fork",
+      "risk_level": "critical",
+      "paths": [
+        "backend/migrations/278_fork_group_ttft_guard_policies.sql",
+        "backend/internal/repository/group_ttft_guard_policy_repo.go",
+        "backend/internal/repository/group_ttft_guard_policy_invalidation_bus.go",
+        "backend/internal/service/group_ttft_guard_policy.go",
+        "backend/internal/service/openai_ttft_guard*.go",
+        "backend/internal/service/openai_account_scheduler.go",
+        "backend/internal/handler/admin/group_handler.go",
+        "backend/internal/server/routes/admin.go",
+        "frontend/src/api/admin/groups.ts",
+        "frontend/src/components/admin/group/GroupTTFTGuardPolicyModal.vue",
+        "frontend/src/components/account/TTFTGuardStatusBadge.vue",
+        "frontend/src/views/admin/GroupsView.vue",
+        "backend/migrations/298_group_scheduling_protection_policies.sql",
+        "backend/internal/service/group_scheduling_protection_policy.go",
+        "backend/internal/repository/group_scheduling_protection_policy_repo.go",
+        "backend/internal/handler/admin/group_scheduling_protection_handler.go",
+        "backend/internal/handler/admin/account_scheduling_protection.go",
+        "backend/internal/service/openai_protection*.go",
+        "frontend/src/components/admin/group/GroupUpstreamProtectionPolicyModal.vue",
+        "frontend/src/components/account/UpstreamProtectionStatus.vue",
+        "backend/internal/service/protection_send_admission.go",
+        "backend/internal/service/gateway_protection_send_admission.go",
+        "backend/internal/service/plugin_runtime.go",
+        "backend/internal/service/plugin_scoped_routing.go",
+        "backend/internal/service/openai_plugin_transport.go",
+        "backend/internal/service/antigravity_gateway_retry.go",
+        "backend/internal/service/antigravity_gateway_upstream.go",
+        "backend/internal/service/gateway_protection_send_admission_test.go"
+      ],
+      "symbols": [
+        "GroupTTFTGuardPolicyResolver",
+        "GroupTTFTGuardResolvedPolicy",
+        "GroupTTFTGuardPolicyInvalidationBus",
+        "fork_group_ttft_guard_policies",
+        "OpenAITTFTGuard",
+        "reportOpenAITTFTGuard",
+        "ttft_guard_degradations"
+      ],
+      "api_routes": [
+        "/admin/upstream-management/ttft-guard",
+        "/admin/groups/ttft-guard-policies",
+        "/admin/groups/:id/ttft-guard-policy",
+        "/admin/groups/upstream-protection-policies",
+        "/admin/groups/:id/upstream-protection-policy"
+      ],
+      "settings_keys": [
+        "openai_ttft_guard_settings",
+        "upstream_scheduling_priority"
+      ],
+      "migration_files": [
+        "278_fork_group_ttft_guard_policies.sql",
+        "298_group_scheduling_protection_policies.sql"
+      ],
+      "required_tests": [
+        "backend/migrations/group_ttft_guard_policy_migration_test.go",
+        "backend/internal/repository/group_ttft_guard_policy_repo_test.go",
+        "backend/internal/repository/group_ttft_guard_policy_invalidation_bus_test.go",
+        "backend/internal/service/group_ttft_guard_policy_test.go",
+        "backend/internal/service/scheduler_snapshot_ttft_policy_test.go",
+        "backend/internal/service/openai_ttft_guard_test.go",
+        "backend/internal/handler/admin/group_handler_ttft_guard_policy_test.go",
+        "frontend/src/api/admin/__tests__/groupsTTFTGuardPolicies.spec.ts",
+        "frontend/src/components/admin/group/__tests__/GroupTTFTGuardPolicyModal.spec.ts",
+        "frontend/src/components/account/__tests__/TTFTGuardStatusBadge.spec.ts",
+        "backend/internal/service/group_scheduling_protection_policy_test.go",
+        "backend/internal/repository/group_scheduling_protection_policy_repo_test.go",
+        "backend/internal/repository/group_scheduling_protection_pg_test.go",
+        "backend/internal/handler/admin/account_scheduling_protection_test.go",
+        "frontend/src/components/admin/group/__tests__/GroupUpstreamProtectionPolicyModal.spec.ts",
+        "frontend/src/components/account/__tests__/UpstreamProtectionStatus.spec.ts",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile270_release_contract.py",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_migration_298.py",
+        "backend/internal/service/gateway_protection_send_admission_test.go",
+        "backend/internal/service/openai_protection_regression_test.go"
+      ],
+      "invariants": [
+        "只采样真实业务可见首 Token；原始证据按 account_id + 当前 UpstreamKey + canonical model 共享，跨组相同阈值复用恢复投影，换 Key 不继承旧证据",
+        "组 TTFT/cache 各自 inherit/enabled/disabled；缓存自定义 enabled 独立 protect，只有阈值、恢复阈值、最小有效请求数自定义，时间和试用配额全局继承",
+        "TTFT 保护渐出自然新会话；已有可靠会话连续两次超该组阈值才迁移，保留 previous_response 和同账号重试约束",
+        "TTFT 保留 1/20 恢复选择机会，连续三次成功且 TTFT <= 0.6 阈值恢复；样本不足、过期与不可用明确显示，不能显示正常",
+        "cache_first/ttft_first 是明确分层排序，不是加权总分；任何软保护不得新增无账号拒绝，硬合法与容量边界仍生效",
+        "统一分组 PUT 在同一事务保存 TTFT、缓存、优先策略与单次 group_changed outbox；旧 TTFT API 保留兼容",
+        "迁移 298 将旧非空 group_ids 白名单一次性投影为组 inherit/disabled，不覆盖自定义，不删除旧 settings.group_ids，保留旧镜像回滚语义",
+        "新账号 DTO upstream_protection 同时给共享证据和各组策略投影，full/detail/lite 与 ETag 保持一致；simple mode 隐藏",
+        "profile 270 parent269 仅新增 298，旧 profile/SQL/checksum 不回写；未分类恢复敏感 blob 保持阻断，不扩展历史审阅豁免",
+        "软保护迁移与试用仅在实际transport发送前的最终准入点提交；本地校验、插件或利润准入拒绝、取消、目标Key改变时不迁移绑定、不启动缓存cohort、不计TTFT试用发送；同账号重试与WS turn共用once提交边界"
+      ]
     },
     {
       "id": "group-profit-control-display", "title": "分组利润控制与账号倍率上限展示", "description": "基于官方分组倍率、计费与利润控制链，fork 增加用户专属 rate_percent 真值、动态有效倍率、显式 0% 语义和管理端账号倍率上限预览；金额限额仍按分组原价计量。", "ownership": "fork", "risk_level": "high", "paths": ["backend/migrations/277_user_group_rate_percent.sql", "backend/internal/repository/user_group_rate_repo.go", "backend/internal/service/user_group_rate.go", "backend/internal/service/user_group_rate_resolver.go", "backend/internal/service/admin_group.go", "backend/internal/service/admin_user.go", "backend/internal/service/openai_profit_control.go", "backend/internal/service/gateway_profit_control.go", "backend/internal/service/billing_cache_service.go", "backend/internal/service/gateway_usage_billing.go", "backend/internal/service/openai_gateway_usage.go", "backend/internal/handler/admin/user_handler.go", "backend/internal/handler/dto/types.go", "backend/internal/handler/dto/mappers.go", "frontend/src/api/admin/groups.ts", "frontend/src/types/index.ts", "frontend/src/views/admin/GroupsView.vue", "frontend/src/views/admin/groupsProfitControl.ts", "frontend/src/components/admin/group/GroupRateMultipliersModal.vue", "frontend/src/components/admin/user/UserAllowedGroupsModal.vue", "frontend/src/i18n/locales/zh/admin/overview.ts", "frontend/src/i18n/locales/en/admin/overview.ts", "backend/internal/handler/gemini_cached_contents_handler.go", "backend/internal/service/gemini_cached_content_fork_billing_test.go", "backend/internal/handler/gemini_cached_contents_fork_billing_test.go"], "symbols": ["rate_percent", "SyncUserGroupRatePercents", "ResolveUserGroupRateMultiplier", "ResolveWithExplicitZero", "CheckBillingEligibility", "buildUsageBillingCommand", "calculateProfitControlMaxAccountRate", "formatProfitControlMaxAccountRate", "QuoteUsageCosts", "applyRecordUsageQuotaMeterCost", "QuotaMeterCostSet", "ReserveFixedChargeCosts"], "api_routes": ["/admin/users/:id", "/admin/groups/:id/rate-multipliers"], "settings_keys": [], "migration_files": ["277_user_group_rate_percent.sql"], "required_tests": ["backend/migrations/user_group_rate_percent_migration_test.go", "backend/internal/repository/user_group_rate_repo_test.go", "backend/internal/service/openai_profit_control_test.go", "backend/internal/service/openai_profit_control_pricing_test.go", "backend/internal/service/user_group_rate_resolver_test.go", "backend/internal/service/gateway_service_subscription_billing_test.go", "backend/internal/service/admin_service_group_rate_test.go", "backend/internal/service/admin_service_update_user_rpm_test.go", "frontend/src/api/admin/__tests__/groupsRateMultipliers.spec.ts", "frontend/src/components/admin/group/__tests__/GroupRateMultipliersModal.spec.ts", "frontend/src/components/admin/user/__tests__/UserAllowedGroupsModal.spec.ts", "frontend/src/views/admin/__tests__/groupsProfitControl.spec.ts", "backend/internal/service/gemini_cached_content_fork_billing_test.go", "backend/internal/handler/gemini_cached_contents_fork_billing_test.go"], "invariants": ["官方拥有基础分组倍率和利润控制，fork 只拥有 rate_percent、显式 0%、计费/配额分离与管理端预览扩展", "rate_percent 是用户专属倍率唯一业务真值，有效倍率始终等于分组普通倍率 × rate_percent ÷ 100", "分组普通倍率变化只刷新兼容 rate_multiplier 影子值和缓存，不得改写 rate_percent", "旧客户端提交 rate_multiplier 时服务端按当前普通倍率反算百分比；rate_percent 与 rate_multiplier 同时提交必须拒绝", "显式 0% 与 NULL 必须区分，NULL 表示回退分组默认倍率", "清空专属倍率不得删除同一用户分组关系上的 RPM override，批量替换必须事务化", "用户专属倍率显式 0 时 actual_cost/用户余额和订阅消费为 0，但 token、请求数、total_cost、原始成本、账号成本和统计保留", "API Key 配额、时间窗限速和用户×平台配额使用按分组原价计算的 quota_meter_cost", "显式 0 仅豁免当前用户-计费分组的利润控制，非 0 用户和其它分组继续执行利润门", "订阅高峰窗口内阈值叠加当前高峰因子", "管理端预览只读且向下保留四位", "未启用利润控制或配置无效时不展示伪造上限", "分组默认倍率仍必须大于 0", "Gemini缓存创建含输入费与存储token-hours，延期仅存储费；显式0%令actual_cost为0，但quota_meter_cost保留原分组计量，两种金额在报价、在途预留和落账中保持一致", "固定缓存费的余额与订阅额度按actual计算；订阅路径延续平台额度豁免，API Key额度/时间窗仍检查quota_meter，零actual不能跳过非订阅平台计量限制"]
@@ -1409,7 +1536,8 @@
         "278_fork_group_ttft_guard_policies.sql",
         "279_proxy_ip_groups.sql",
         "280_plugin_runtime_state.sql",
-        "296_upstream_cache_guard.sql"
+        "296_upstream_cache_guard.sql",
+        "298_group_scheduling_protection_policies.sql"
       ],
       "required_tests": [
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile267_release_contract.py",
@@ -1460,7 +1588,10 @@
         "backend/cmd/server/dashboard_cache_maintenance_test.go",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/activity_reward_postflight_integration.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile264_recovery_review.py",
-        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile268_release_contract.py"
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile268_release_contract.py",
+        "backend/migrations/group_scheduling_protection_migration_test.go",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile270_release_contract.py",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_migration_298.py"
       ],
       "recommended_tests": [
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_signer_assets.py",
@@ -1491,7 +1622,8 @@
         "Profile 264 已授权停机发布在全部旧实例退出、289 迁移后、新进程启动前执行签名 check/apply/check；扫描、身份、账本或缓存失败进入既有恢复分支；独立/在线 catch-up 仍需授权",
         "同一 signed candidate 的 --clear-dashboard-cache 复用运行时配置，仅删除单个 dashboard snapshot 并核验缺失，不启动后台、不迁移、不清其他 Redis 键；结果保存在 root-only release state；新进程重建本地缓存",
         "264 精确恢复审阅：生产 0898fe8c6289f87a1a4d90cf74a50e296689960e 到 7c58225c34f876e1fe3967f1d8cf941d7d3d5f49 仅35项接线；同一 before 到 bc57b804fe4467d96b530c8874dd7152d28386a0 仅五项奖励停机 helper/prepare/switch/production/validator；新文件旧状态不存在，blob/mode/基线漂移拒绝，仍执行 specialized 真实恢复",
-        "缓存保护新增连续profile268，parent267，version0.2.16-baiyu，仅296_upstream_cache_guard.sql；历史267四项官方迁移和全部旧SQL/profile/checksum不回写；Python/Shell/VM/Gate/DR/生产/祖先断言/备份/清理接线，未知269拒绝；不增加恢复审阅豁免。"
+        "缓存保护新增连续profile268，parent267，version0.2.16-baiyu，仅296_upstream_cache_guard.sql；历史267四项官方迁移和全部旧SQL/profile/checksum不回写；Python/Shell/VM/Gate/DR/生产/祖先断言/备份/清理接线，未知269拒绝；不增加恢复审阅豁免。",
+        "profile270保持0.2.16-baiyu,parent269,只新增298_group_scheduling_protection_policies.sql；269及所有历史SQL/checksum不回写；298生产只读核验，VM隔离fixture绑定source与catalog checksum，四phase全部验真，未知271拒绝"
       ]
     },
     {

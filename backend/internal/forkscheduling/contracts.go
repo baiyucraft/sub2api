@@ -40,17 +40,18 @@ type GroupRelationView struct {
 
 // CandidateView is a safe copy of the values used by fork-only pool rules.
 type CandidateView struct {
-	ID          int64      `json:"id"`
-	GroupID     int64      `json:"group_id,omitempty"`
-	Model       string     `json:"model,omitempty"`
-	Priority    int        `json:"priority"`
-	Rate        float64    `json:"rate"`
-	RateKnown   bool       `json:"rate_known"`
-	Preferred   bool       `json:"preferred"`
-	LoadRate    int        `json:"load_rate"`
-	LastUsedAt  *time.Time `json:"last_used_at,omitempty"`
-	OAuth       bool       `json:"oauth"`
-	CompactTier int        `json:"compact_tier"`
+	ID            int64      `json:"id"`
+	UpstreamKeyID int64      `json:"upstream_key_id,omitempty"`
+	GroupID       int64      `json:"group_id,omitempty"`
+	Model         string     `json:"model,omitempty"`
+	Priority      int        `json:"priority"`
+	Rate          float64    `json:"rate"`
+	RateKnown     bool       `json:"rate_known"`
+	Preferred     bool       `json:"preferred"`
+	LoadRate      int        `json:"load_rate"`
+	LastUsedAt    *time.Time `json:"last_used_at,omitempty"`
+	OAuth         bool       `json:"oauth"`
+	CompactTier   int        `json:"compact_tier"`
 }
 
 // PreferredPoolPolicy is intentionally limited to pure candidate decisions.
@@ -161,11 +162,12 @@ type TTFTConfig struct {
 }
 
 type TTFTSample struct {
-	GroupID      int64  `json:"group_id"`
-	AccountID    int64  `json:"account_id"`
-	Model        string `json:"model"`
-	Success      bool   `json:"success"`
-	FirstTokenMs *int   `json:"first_token_ms,omitempty"`
+	GroupID       int64  `json:"group_id"`
+	UpstreamKeyID int64  `json:"upstream_key_id,omitempty"`
+	AccountID     int64  `json:"account_id"`
+	Model         string `json:"model"`
+	Success       bool   `json:"success"`
+	FirstTokenMs  *int   `json:"first_token_ms,omitempty"`
 }
 
 type TTFTDegradation struct {

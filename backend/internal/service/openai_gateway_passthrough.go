@@ -383,7 +383,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		}
 
 		upstreamStart := time.Now()
-		BeginUpstreamCacheGuardSend(upstreamReq.Context(), account, gjson.GetBytes(body, "model").String(), "openai")
+		PrepareOpenAIUpstreamCacheGuardSend(upstreamReq.Context(), account, gjson.GetBytes(body, "model").String(), "openai")
 		resp, err = s.doOpenAIUpstream(upstreamReq, proxyURL, account)
 		SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(upstreamStart).Milliseconds())
 		if err != nil {

@@ -128,6 +128,12 @@ func (s *cacheGuardSelectionStore) AccountWindows(_ context.Context, _, _ time.T
 			window = upstreamcacheguard.AccountWindow{AccountID: state.AccountID, UpstreamKeyID: state.UpstreamKeyID, State: state}
 		}
 		window.State, window.Version = state, int64(len(s.rows)*2+2)
+		window.Policies = map[string]upstreamcacheguard.AccountWindow{}
+		for signature := range state.Policies {
+			projection := window
+			projection.Policies = nil
+			window.Policies[signature] = projection
+		}
 		windows[identity] = window
 	}
 	return windows, nil
@@ -362,7 +368,11 @@ func TestUpstreamCacheGuardMigrationCommitsOnlyAfterCapacityAndTerminalAdmission
 func TestUpstreamCacheGuardResidenceAndFixedRetryKeepSource(t *testing.T) {
 	for _, fixed := range []bool{false, true} {
 		t.Run(map[bool]string{false: "residence", true: "fixed_retry"}[fixed], func(t *testing.T) {
-			svc, ctx, _, _ := cacheGuardSelectionFixture(t, true, []float64{60, 90}, map[int64]bool{1: true}, true, time.Now().Add(5*time.Minute), nil)
+			residence := time.Now().Add(5 * time.Minute)
+			if fixed {
+				residence = time.Now().Add(-time.Minute)
+			}
+			svc, ctx, _, _ := cacheGuardSelectionFixture(t, true, []float64{60, 90}, map[int64]bool{1: true}, true, residence, nil)
 			if fixed {
 				ctx = WithOpenAIFixedRetryAccount(ctx, 1)
 			}

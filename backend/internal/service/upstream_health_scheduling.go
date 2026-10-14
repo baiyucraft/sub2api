@@ -94,6 +94,14 @@ func selectGatewayCacheGuardTiers(ctx context.Context, preference cacheGuardPref
 				continue
 			}
 		}
+		if preference.Migration && result.Account.ID != preference.KeepAccountID {
+			if keyID, observed := preference.CandidateKeyIDs[result.Account.ID]; observed && keyID != accountUpstreamKeyID(result.Account) {
+				if result.ReleaseFunc != nil {
+					result.ReleaseFunc()
+				}
+				continue
+			}
+		}
 		source := preference.KeepAccountID > 0 && len(tier) == 1 && tier[0] == preference.KeepAccountID && result.Account.ID == preference.KeepAccountID
 		if result.Acquired || source {
 			return result, nil, true
@@ -119,11 +127,15 @@ func gatewayCacheGuardSourcePreference(preference cacheGuardPreference) cacheGua
 func (s *GatewayService) gatewayCacheGuardPreference(ctx context.Context, groupID *int64, sessionHash, model string, excludedIDs map[int64]struct{}) (cacheGuardPreference, context.Context, *int64, map[int64]struct{}) {
 	noPreference := cacheGuardPreference{}
 	runner := currentUpstreamCacheGuardRunner()
-	if s == nil || runner == nil || !runner.available.Load() || runner.closed.Load() || runner.engine.Settings().Mode != upstreamcacheguard.Protect || groupID == nil {
+	if s == nil || runner == nil || !runner.available.Load() || runner.closed.Load() || groupID == nil {
 		return noPreference, ctx, groupID, nil
 	}
 	group, resolvedGroupID, err := s.checkClaudeCodeRestriction(ctx, groupID)
-	if err != nil || resolvedGroupID == nil || !runner.engine.Settings().ContainsGroup(*resolvedGroupID) {
+	if err != nil || resolvedGroupID == nil {
+		return noPreference, ctx, groupID, nil
+	}
+	settings := runner.engine.ResolvedSettings(*resolvedGroupID)
+	if settings.Mode != upstreamcacheguard.Protect || !settings.ContainsGroup(*resolvedGroupID) {
 		return noPreference, ctx, groupID, nil
 	}
 	guardCtx := s.withGroupContext(ctx, group)

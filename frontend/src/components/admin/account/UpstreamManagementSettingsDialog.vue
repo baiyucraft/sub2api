@@ -6,6 +6,16 @@
     </div>
 
     <div v-else class="space-y-6">
+      <section v-if="!probeOnly" class="rounded-2xl border border-gray-200 p-5 dark:border-dark-700">
+        <label class="block max-w-md space-y-2">
+          <span class="font-semibold text-gray-900 dark:text-white">{{ t('admin.upstreamManagement.protection.globalPriority') }}</span>
+          <select v-model="draft.scheduling_priority" class="input" data-test="global-scheduling-priority">
+            <option value="cache_first">{{ t('admin.upstreamManagement.protection.priorities.cache_first') }}</option>
+            <option value="ttft_first">{{ t('admin.upstreamManagement.protection.priorities.ttft_first') }}</option>
+          </select>
+        </label>
+        <p class="mt-2 text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('admin.upstreamManagement.protection.sharedMetrics') }}</p>
+      </section>
       <section v-if="!probeOnly" class="rounded-2xl border border-gray-200 bg-gray-50/70 p-5 dark:border-dark-700 dark:bg-dark-800/60">
         <div class="flex items-start justify-between gap-5">
           <div class="min-w-0">
@@ -55,11 +65,6 @@
               <option value="protect">{{ t('admin.upstreamManagement.cacheGuard.modes.protect') }}</option>
             </select>
           </label>
-          <div class="space-y-1.5">
-            <span class="text-sm font-medium text-gray-700 dark:text-gray-200">{{ t('admin.upstreamManagement.cacheGuard.groups') }}</span>
-            <Select v-model="draft.cache_guard.group_ids" data-test="cache-guard-groups" :options="cacheGroupOptions" multiple searchable clearable :aria-label="t('admin.upstreamManagement.cacheGuard.groups')" :placeholder="t('admin.upstreamManagement.cacheGuard.allGroups')" />
-            <span class="block text-xs text-gray-500 dark:text-gray-400">{{ t('admin.upstreamManagement.cacheGuard.groupHint') }}</span>
-          </div>
           <label v-for="field in cacheNumericFields" :key="field.key" class="space-y-1.5">
             <span class="text-sm font-medium text-gray-700 dark:text-gray-200">{{ t(`admin.upstreamManagement.cacheGuard.${field.key}`) }}</span>
             <input v-model.number="draft.cache_guard[field.key]" :data-test="`cache-guard-${field.key}`" type="number" :min="field.min" :max="field.max" :step="field.step || 1" class="input" />
@@ -214,7 +219,6 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import upstreamManagementAPI, { type ProbePlatformDescriptor, type UpstreamManagementSettings, type UpstreamCacheGuardSettings } from '@/api/admin/upstreamManagement'
-import groupsAPI from '@/api/admin/groups'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import BaseDialog from '@/components/common/BaseDialog.vue'
@@ -238,6 +242,7 @@ const legacyPlatforms: ProbePlatformDescriptor[] = [
 ]
 type SettingsDraft = UpstreamManagementSettings & { cache_guard: UpstreamCacheGuardSettings }
 const defaults: SettingsDraft = {
+  scheduling_priority: 'cache_first',
   cache_guard: { mode: 'disabled', group_ids: [], threshold_percent: 75, window_minutes: 60, min_valid_requests: 20, recovery_threshold_percent: 80, cooldown_minutes: 10, trial_percent: 10 },
   ttft_guard: { enabled: false, degradation_ttft_seconds: 20, min_samples: 5 },
   probe_guard: {
@@ -253,7 +258,6 @@ const defaults: SettingsDraft = {
   , pool_mode_retry_status_codes: [401, 403, 429]
 }
 const draft = reactive<SettingsDraft>(structuredClone(defaults))
-const cacheGroupOptions = ref<SelectOption[]>([])
 const cacheNumericFields: { key: Exclude<keyof UpstreamCacheGuardSettings, 'mode' | 'group_ids'>; min: number; max: number; step?: number }[] = [
   { key: 'threshold_percent', min: 0, max: 100, step: 0.1 },
   { key: 'window_minutes', min: 5, max: 1440 },
@@ -325,17 +329,13 @@ function parsePoolModeRetryStatusCodes(): number[] | null {
 async function load() {
   loading.value = true
   try {
-    const [settings, options, groups] = await Promise.all([
+    const [settings, options] = await Promise.all([
       (probeOnly.value ? upstreamManagementAPI.getProbeSettings() : upstreamManagementAPI.getSettings()),
-      upstreamManagementAPI.getProbeModelCandidates(),
-      probeOnly.value ? Promise.resolve([]) : groupsAPI.getAllIncludingInactive()
+      upstreamManagementAPI.getProbeModelCandidates()
     ])
     draft.cache_guard = { ...defaults.cache_guard, ...settings.cache_guard, group_ids: [...(settings.cache_guard?.group_ids || [])] }
-    cacheGroupOptions.value = groups.map(group => ({ value: group.id, label: group.name }))
-    for (const id of draft.cache_guard.group_ids) {
-      if (!groups.some(group => group.id === id)) cacheGroupOptions.value.push({ value: id, label: t('admin.upstreamManagement.cacheGuard.groupId', { id }) })
-    }
     Object.assign(draft.ttft_guard, settings.ttft_guard)
+    draft.scheduling_priority = settings.scheduling_priority ?? 'cache_first'
     Object.assign(draft.probe_guard, settings.probe_guard || defaults.probe_guard)
     draft.probe_models = { ...defaults.probe_models, ...(settings.probe_models || {}) }
     draft.probe_interval_seconds = settings.probe_interval_seconds ?? defaults.probe_interval_seconds
@@ -380,6 +380,7 @@ async function save() {
       if (!confirmed) return
     }
     const payload: UpstreamManagementSettings = {
+      ...(probeOnly.value ? {} : { scheduling_priority: draft.scheduling_priority }),
       ttft_guard: { ...draft.ttft_guard },
       probe_guard: {
         enabled: Boolean(draft.probe_guard.enabled),

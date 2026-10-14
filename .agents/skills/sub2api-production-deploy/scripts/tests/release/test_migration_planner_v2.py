@@ -108,6 +108,10 @@ class MigrationPlannerV2Test(unittest.TestCase):
             with self.subTest(script=hook["script"]):
                 script = (DEPLOY_ROOT / "maintenance" / "release" / hook["script"]).read_text(encoding="utf-8")
                 allowed = re.findall(r"\$profile == ([0-9]+)", script)
+                if hook["script"] == "migration-298-assert.sh":
+                    self.assertEqual(allowed, ["270"])
+                    continue
+                self.assertIn("270", allowed)
                 self.assertIn("260", allowed)
                 self.assertIn("261", allowed)
         script = (DEPLOY_ROOT / "maintenance" / "release" / "migration-195-assert.sh").read_text(encoding="utf-8")

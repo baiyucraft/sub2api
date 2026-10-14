@@ -122,7 +122,9 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 		}
 		requestIDHeader = idHeader
 
-		BeginUpstreamCacheGuardSend(upstreamReq.Context(), account, mappedModel, "gemini")
+		if err := beginGatewaySchedulingProtectionSend(upstreamReq.Context(), account, mappedModel, "gemini"); err != nil {
+			return nil, err
+		}
 		resp, err = s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
 		if err != nil {
 			return nil, s.handleUpstreamTransportError(ctx, c, account, err)

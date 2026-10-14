@@ -416,6 +416,10 @@ SSH 超时后以远端 committed marker 重新判定阶段，不凭本地异常�
 
 ## 上游缓存保护发布合同
 
-历史 profile 268，parent 267，版本 `0.2.16-baiyu`，仅新增 `296_upstream_cache_guard.sql`。当前连续 pending profile 269，parent 268，沿用 `0.2.16-baiyu`，仅新增 `297_upstream_cache_guard_account_scope.sql`。267/268 及全部历史 profile、SQL 和 checksum 不回写。Python/Shell、VM validator、Gate/DR signer、bootstrap 自测、生产 context/prepare、祖先断言、奖励 postflight、备份和清理入口共同支持 269，未知 270 拒绝。新迁移为事实补当前 Key 身份、建立跨组查询索引与账号级状态，不写余额、计费或错误重试配置，不保存原始请求正文、认证头或凭据。
+当前连续 pending profile 270 保持 `0.2.16-baiyu`，parent 269，仅新增 `298_group_scheduling_protection_policies.sql`。分组缓存模式与两保护优先策略保存于 fork 独立表；旧非空 group_ids 白名单一次性投影为 inherit/disabled，自定义重放不覆盖，原 settings 保留旧镜像回滚依据。269 及所有历史 SQL/profile/checksum 不回写。
+
+298 assertion helper 绑定 source/catalog checksum，生产 preflight/postflight/verified replay 只读，VM 写 fixture 仅在精确确认的 `sub2api_v2_*` 隔离库内事务回滚；签名 Gate 必须具有四个语义 phase 及精确 checksum。最低回归为 `test_profile270_release_contract.py`、`test_migration_298.py` 和真实 PostgreSQL 的 `TestGroupSchedulingProtectionPostgres`。Python/Shell 所有执行入口支持 270，未知 271 拒绝；未分类敏感 blob/模式继续阻断，不扩展历史审阅豁免。dirty 未提交工作树不能用旧 HEAD 代替新 candidate，正式 VM-only Gate 仍要求干净、完整且远端精确匹配的提交。
+
+历史 profile 268，parent 267，版本 `0.2.16-baiyu`，仅新增 `296_upstream_cache_guard.sql`。历史保留 profile 269，parent 268，沿用 `0.2.16-baiyu`，仅新增 `297_upstream_cache_guard_account_scope.sql`。267/268 及全部历史 profile、SQL 和 checksum 不回写。Python/Shell、VM validator、Gate/DR signer、bootstrap 自测、生产 context/prepare、祖先断言、奖励 postflight、备份和清理入口共同支持当前 270，未知 271 拒绝。新迁移为事实补当前 Key 身份、建立跨组查询索引与账号级状态，不写余额、计费或错误重试配置，不保存原始请求正文、认证头或凭据。
 
 本地最低验证包括 `test_profile269_release_contract.py`、缓存核心与调度/API 回归、前端设置/状态测试、双语键完整性、typecheck/lint/build、完整 release suite、修改 Shell 语法及 `git diff --check`。本地登记不证明 PostgreSQL 实际升级、旧镜像兼容、VM Gate 或生产上线；恢复敏感最终 blob/模式重新精确分类，未分类继续阻断，不增加新的审阅豁免。长期产品合同见 `.wiki/03-模块指南/14-上游缓存保护.md`。

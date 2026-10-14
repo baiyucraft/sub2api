@@ -157,13 +157,12 @@ describe('UpstreamManagementSettingsDialog', () => {
     }))
   })
 
-  it('retains scoped groups missing from the current catalog', async () => {
+  it('removes the duplicate group selector while preserving compatibility scope fields', async () => {
     const settings = await getSettings()
     getSettings.mockResolvedValue({ ...settings, cache_guard: { mode: 'protect', group_ids: [99, 2], threshold_percent: 75, window_minutes: 60, min_valid_requests: 20, recovery_threshold_percent: 80, cooldown_minutes: 10, trial_percent: 10 } })
     const wrapper = mountDialog()
     await flushPromises()
-    const groups = wrapper.findComponent('[data-test="cache-guard-groups"]')
-    expect(groups.props('options')).toEqual(expect.arrayContaining([{ value: 2, label: 'Claude' }, { value: 99, label: 'admin.upstreamManagement.cacheGuard.groupId' }]))
+    expect(wrapper.find('[data-test="cache-guard-groups"]').exists()).toBe(false)
     await wrapper.get('button.btn-primary').trigger('click')
     await flushPromises()
     expect(updateSettings.mock.calls[0]?.[0].cache_guard.group_ids).toEqual([2, 99])

@@ -568,6 +568,9 @@ urlFallbackLoop:
 				return nil, err
 			}
 
+			if err := beginGatewaySchedulingProtectionSend(upstreamReq.Context(), p.account, p.requestedModel, "gemini"); err != nil {
+				return nil, err
+			}
 			resp, err = p.httpUpstream.Do(upstreamReq, p.proxyURL, p.account.ID, p.account.Concurrency)
 			if err == nil && resp == nil {
 				err = errors.New("upstream returned nil response")

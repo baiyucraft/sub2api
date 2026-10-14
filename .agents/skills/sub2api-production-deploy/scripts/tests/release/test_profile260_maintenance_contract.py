@@ -13,7 +13,7 @@ EARLY_PROFILES = (
     "182", "187", "191", "192", "194", "195", "197", "198", "199",
     "202", "206", "207", "208", "209", "210", "212", "213", "215",
 )
-RELEASE_PROFILES = EARLY_PROFILES + tuple(str(value) for value in range(232, 270))
+RELEASE_PROFILES = EARLY_PROFILES + tuple(str(value) for value in range(232, 271))
 ID_GUARDS = {
     "release/context.sh": "release_dir",
     "release/prepare.sh": "release_id",
@@ -23,23 +23,24 @@ ID_GUARDS = {
 }
 PROFILE_GUARDS = {
     "release/prepare.sh": RELEASE_PROFILES,
-    "release/migration-195-assert.sh": EARLY_PROFILES[5:] + tuple(str(value) for value in range(232, 270)),
-    "release/migration-232-assert.sh": tuple(str(value) for value in range(232, 270)),
-    "release/migration-233-assert.sh": tuple(str(value) for value in range(233, 270)),
-    "release/migration-234-assert.sh": tuple(str(value) for value in range(235, 246)) + ("258", "259", "260", "261", "262", "263", "264", "265", "266", "267", "268", "269"),
-    "release/migration-235-assert.sh": tuple(str(value) for value in range(237, 246)) + ("258", "259", "260", "261", "262", "263", "264", "265", "266", "267", "268", "269"),
-    "release/migration-236-assert.sh": tuple(str(value) for value in range(237, 246)) + ("258", "259", "260", "261", "262", "263", "264", "265", "266", "267", "268", "269"),
-    "release/migration-237-assert.sh": tuple(str(value) for value in range(238, 246)) + ("258", "259", "260", "261", "262", "263", "264", "265", "266", "267", "268", "269"),
-    "release/migration-238-assert.sh": tuple(str(value) for value in range(239, 246)) + ("258", "259", "260", "261", "262", "263", "264", "265", "266", "267", "268", "269"),
-    "release/migration-239-assert.sh": tuple(str(value) for value in range(239, 270)),
-    "release/migration-240-assert.sh": tuple(str(value) for value in range(240, 246)) + ("258", "259", "260", "261", "262", "263", "264", "265", "266", "267", "268", "269"),
-    "release/migration-241-assert.sh": tuple(str(value) for value in range(240, 246)) + ("258", "259", "260", "261", "262", "263", "264", "265", "266", "267", "268", "269"),
-    "release/migration-242-assert.sh": tuple(str(value) for value in range(241, 270)),
-    "release/migration-243-assert.sh": tuple(str(value) for value in range(241, 270)),
-    "release/migration-244-assert.sh": tuple(str(value) for value in range(241, 270)),
-    "release/migration-245-assert.sh": tuple(str(value) for value in range(241, 270)),
-    "release/migration-254-assert.sh": tuple(str(value) for value in range(242, 270)),
-    "release/migration-285-assert.sh": ("260", "261", "262", "263", "264", "265", "266", "267", "268", "269"),
+    "release/migration-195-assert.sh": EARLY_PROFILES[5:] + tuple(str(value) for value in range(232, 271)),
+    "release/migration-232-assert.sh": tuple(str(value) for value in range(232, 271)),
+    "release/migration-233-assert.sh": tuple(str(value) for value in range(233, 271)),
+    "release/migration-234-assert.sh": tuple(str(value) for value in range(235, 246)) + ("258", "259", "260", "261", "262", "263", "264", "265", "266", "267", "268", "269", "270"),
+    "release/migration-235-assert.sh": tuple(str(value) for value in range(237, 246)) + ("258", "259", "260", "261", "262", "263", "264", "265", "266", "267", "268", "269", "270"),
+    "release/migration-236-assert.sh": tuple(str(value) for value in range(237, 246)) + ("258", "259", "260", "261", "262", "263", "264", "265", "266", "267", "268", "269", "270"),
+    "release/migration-237-assert.sh": tuple(str(value) for value in range(238, 246)) + ("258", "259", "260", "261", "262", "263", "264", "265", "266", "267", "268", "269", "270"),
+    "release/migration-238-assert.sh": tuple(str(value) for value in range(239, 246)) + ("258", "259", "260", "261", "262", "263", "264", "265", "266", "267", "268", "269", "270"),
+    "release/migration-239-assert.sh": tuple(str(value) for value in range(239, 271)),
+    "release/migration-240-assert.sh": tuple(str(value) for value in range(240, 246)) + ("258", "259", "260", "261", "262", "263", "264", "265", "266", "267", "268", "269", "270"),
+    "release/migration-241-assert.sh": tuple(str(value) for value in range(240, 246)) + ("258", "259", "260", "261", "262", "263", "264", "265", "266", "267", "268", "269", "270"),
+    "release/migration-242-assert.sh": tuple(str(value) for value in range(241, 271)),
+    "release/migration-243-assert.sh": tuple(str(value) for value in range(241, 271)),
+    "release/migration-244-assert.sh": tuple(str(value) for value in range(241, 271)),
+    "release/migration-245-assert.sh": tuple(str(value) for value in range(241, 271)),
+    "release/migration-254-assert.sh": tuple(str(value) for value in range(242, 271)),
+    "release/migration-298-assert.sh": ("270",),
+    "release/migration-285-assert.sh": ("260", "261", "262", "263", "264", "265", "266", "267", "268", "269", "270"),
 }
 
 
@@ -61,7 +62,7 @@ class Profile260MaintenanceContractTest(unittest.TestCase):
                 continue
             for match in re.finditer(r"\[\[.*?\]\]", line):
                 expression = match.group()
-                if re.search(rf"\${variable}\b", expression) and re.search(r"\b(?:258|260|261|262|263|264|265|266|267|268|269)\b", expression):
+                if re.search(rf"\${variable}\b", expression) and re.search(r"\b(?:258|260|261|262|263|264|265|266|267|268|269|270)\b", expression):
                     self.assertNotIn("$(", expression)
                     guards.append(expression)
         self.assertTrue(guards, f"no executable {variable} guard in {relative_path}")
@@ -107,7 +108,7 @@ class Profile260MaintenanceContractTest(unittest.TestCase):
 
     def test_release_id_guards_reject_unknown_profiles_and_malformed_paths(self) -> None:
         invalid_ids = (
-            "270-aaaaaaaaaaaa-1-aaaaaaaa",
+            "271-aaaaaaaaaaaa-1-aaaaaaaa",
             "0259-aaaaaaaaaaaa-1-aaaaaaaa",
             "259-AAAAAAAAAAAA-1-aaaaaaaa",
             "259-aaaaaaaaaaa-1-aaaaaaaa",
@@ -127,7 +128,7 @@ class Profile260MaintenanceContractTest(unittest.TestCase):
     def test_profile_guards_preserve_history_and_reject_unknown_profiles(self) -> None:
         for relative_path, profiles in PROFILE_GUARDS.items():
             cases = [(profile, True) for profile in profiles]
-            cases += [(value, False) for value in ("270", "0259", "2590", "259;true")]
+            cases += [(value, False) for value in ("271", "0259", "2590", "259;true")]
             for guard in self.guards(relative_path, "profile"):
                 with self.subTest(script=relative_path):
                     self.check_cases(guard, "profile", cases)
@@ -135,8 +136,8 @@ class Profile260MaintenanceContractTest(unittest.TestCase):
     def test_profile_260_uses_inherited_precise_data_plan_branches(self) -> None:
         guards = self.guards("release/migration-195-assert.sh", "release_profile")
         self.assertEqual(len(guards), 2)
-        cases = [(str(value), True) for value in range(240, 270)]
-        cases += [("239", False), ("270", False), ("0259", False)]
+        cases = [(str(value), True) for value in range(240, 271)]
+        cases += [("239", False), ("271", False), ("0259", False)]
         for guard in guards:
             with self.subTest(guard=guard):
                 self.check_cases(guard, "release_profile", cases)

@@ -37,6 +37,7 @@ export interface ProbePlatformDescriptor {
 }
 
 export interface UpstreamManagementSettings {
+  scheduling_priority?: 'cache_first' | 'ttft_first'
   ttft_guard: TTFTGuardSettings
   cache_guard?: UpstreamCacheGuardSettings
   probe_guard: ProbeGuardSettings

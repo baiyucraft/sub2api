@@ -57,7 +57,7 @@ func (r legacyTTFTRuntime) Quality(candidates []forkscheduling.CandidateView, cf
 	}
 	views := make([]openAITTFTGuardCandidate, 0, len(candidates))
 	for _, candidate := range candidates {
-		views = append(views, openAITTFTGuardCandidate{groupID: candidate.GroupID, accountID: candidate.ID, model: candidate.Model})
+		views = append(views, openAITTFTGuardCandidate{groupID: candidate.GroupID, accountID: candidate.ID, model: candidate.Model, upstreamKeyID: candidate.UpstreamKeyID})
 	}
 	return r.guard.quality(views, openAITTFTGuardConfigFromContract(cfg))
 }
@@ -66,7 +66,7 @@ func (r legacyTTFTRuntime) Report(sample forkscheduling.TTFTSample, cfg forksche
 	if r.guard == nil {
 		return
 	}
-	r.guard.report(sample.GroupID, sample.AccountID, sample.Model, sample.Success, sample.FirstTokenMs, openAITTFTGuardConfigFromContract(cfg))
+	r.guard.reportForKey(sample.GroupID, sample.AccountID, sample.UpstreamKeyID, sample.Model, sample.Success, sample.FirstTokenMs, openAITTFTGuardConfigFromContract(cfg))
 }
 
 func (r legacyTTFTRuntime) Exclusions(candidates []forkscheduling.CandidateView, callerExcluded map[int64]struct{}, cfg forkscheduling.TTFTConfig) map[int64]struct{} {
@@ -75,7 +75,7 @@ func (r legacyTTFTRuntime) Exclusions(candidates []forkscheduling.CandidateView,
 	}
 	legacyCandidates := make([]openAITTFTGuardCandidate, 0, len(candidates))
 	for _, candidate := range candidates {
-		legacyCandidates = append(legacyCandidates, openAITTFTGuardCandidate{groupID: candidate.GroupID, accountID: candidate.ID, model: candidate.Model})
+		legacyCandidates = append(legacyCandidates, openAITTFTGuardCandidate{groupID: candidate.GroupID, accountID: candidate.ID, model: candidate.Model, upstreamKeyID: candidate.UpstreamKeyID})
 	}
 	return r.guard.exclusions(legacyCandidates, callerExcluded, openAITTFTGuardConfigFromContract(cfg))
 }

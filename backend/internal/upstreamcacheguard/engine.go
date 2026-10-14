@@ -23,6 +23,7 @@ const RecoveryLifetime = 10 * time.Minute
 type Engine struct {
 	store       Store
 	settings    atomic.Pointer[Settings]
+	policies    atomic.Pointer[map[int64]Settings]
 	mu          sync.RWMutex
 	groups      map[int64]Snapshot
 	accounts    map[string]AccountSnapshot
@@ -42,6 +43,9 @@ func NewEngine(store Store) *Engine {
 func (e *Engine) ApplySettings(s Settings) error {
 	if err := s.Validate(); err != nil {
 		return err
+	}
+	if s.Priority == "" {
+		s.Priority = "cache_first"
 	}
 	s.GroupIDs = append([]int64(nil), s.GroupIDs...)
 	sort.Slice(s.GroupIDs, func(i, j int) bool { return s.GroupIDs[i] < s.GroupIDs[j] })
@@ -124,7 +128,7 @@ func planInTx(tx Tx, r Request, session *SessionState, s Settings) (TrialPlan, e
 // PlanTrial atomically reserves a group-shared natural-new slot before routing.
 // The request must already have its stable gateway ID and HMAC logical identity.
 func (e *Engine) PlanTrial(ctx context.Context, r Request) (TrialPlan, error) {
-	s := e.Settings()
+	s := e.ResolvedSettings(r.GroupID)
 	p := TrialPlan{RequestID: r.ID, GroupID: r.GroupID}
 	if s.Mode == Disabled || !s.ContainsGroup(r.GroupID) {
 		return p, nil
@@ -161,9 +165,9 @@ func (e *Engine) PlanTrial(ctx context.Context, r Request) (TrialPlan, error) {
 }
 
 func (e *Engine) Admit(ctx context.Context, r Request) (Admission, error) {
-	s := e.Settings()
+	s := e.ResolvedSettings(r.GroupID)
 	a := Admission{RequestID: r.ID, GroupID: r.GroupID, AccountID: r.AccountID, UpstreamKeyID: r.UpstreamKeyID, StartedAt: r.StartedAt.UTC(), Mode: s.Mode}
-	if s.Mode == Disabled {
+	if !e.AnyPolicyActive() {
 		return a, nil
 	}
 	if err := validateRequest(r); err != nil {
@@ -174,7 +178,7 @@ func (e *Engine) Admit(ctx context.Context, r Request) (Admission, error) {
 	}
 	a.SessionKey = SessionKey(r)
 	var saved SessionState
-	executing := s.ContainsGroup(r.GroupID)
+	executing := s.Mode != Disabled && s.ContainsGroup(r.GroupID)
 	// The caller may already have a deadline; this never extends it.
 	ctx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
 	defer cancel()
@@ -204,6 +208,18 @@ func (e *Engine) Admit(ctx context.Context, r Request) (Admission, error) {
 		if err != nil {
 			return err
 		}
+		e.preparePolicies(&account)
+		facts, err := tx.(AccountTx).AccountFacts(r.AccountID, r.UpstreamKeyID, r.StartedAt.Add(-time.Duration(s.WindowMinutes)*time.Minute))
+		if err != nil {
+			return err
+		}
+		if err = e.recomputePolicies(&account, facts, r.StartedAt, false); err != nil {
+			return err
+		}
+		signature := PolicySignature(s)
+		projection := account.Policies[signature]
+		selected := &projection.State
+		a.PolicySignature = signature
 		account.GroupIDs = appendGroup(account.GroupIDs, r.GroupID)
 		a.NaturalNew = plan.NaturalNew
 		a.Sample = true
@@ -215,20 +231,20 @@ func (e *Engine) Admit(ctx context.Context, r Request) (Admission, error) {
 			session.Admissions = map[string]Admission{}
 		}
 		a.WarmAtStart = routeWarm(session.Routes[WarmRouteKey(r)], r.StartedAt)
-		a.ProtectedAtStart = executing && account.Phase != "" && account.Phase != Healthy
+		a.ProtectedAtStart = executing && selected.Phase != "" && selected.Phase != Healthy
 		if executing && plan.NaturalNew && session.NaturalAccountID == 0 {
 			session.NaturalAccountID = r.AccountID
-			if plan.TrialSlot && account.Phase != Healthy && account.Phase != "" && !r.StartedAt.Before(account.CooldownUntil) {
-				if account.CohortID == "" {
-					account.CohortID = digest(fmt.Sprintf("%s:%d:%s", AccountKey(r), r.StartedAt.UnixNano(), session.Key))
-					account.FirstTrialAt = r.StartedAt.UTC()
-					account.TrialValidRequests = 0
-					account.TrialSessions = 0
-					account.TrialCachePercent = 0
+			if plan.TrialSlot && selected.Phase != Healthy && selected.Phase != "" && !r.StartedAt.Before(selected.CooldownUntil) {
+				if selected.CohortID == "" {
+					selected.CohortID = digest(fmt.Sprintf("%s:%s:%d:%s", AccountKey(r), signature, r.StartedAt.UnixNano(), session.Key))
+					selected.FirstTrialAt = r.StartedAt.UTC()
+					selected.TrialValidRequests = 0
+					selected.TrialSessions = 0
+					selected.TrialCachePercent = 0
 				}
-				account.Phase = Trial
+				selected.Phase = Trial
 				a.Trial = true
-				a.CohortID = account.CohortID
+				a.CohortID = selected.CohortID
 				var group GroupState
 				if _, err := tx.Read(GroupKind, "quota", &group); err != nil {
 					return err
@@ -238,17 +254,21 @@ func (e *Engine) Admit(ctx context.Context, r Request) (Admission, error) {
 				session.TrialModel = r.Model
 				session.TrialProtocol = r.Protocol
 				session.CohortID = a.CohortID
+				session.PolicySignature = signature
 
 				if _, err := tx.Write(GroupKind, "quota", &group); err != nil {
 					return err
 				}
 			}
-		} else if executing && session.TrialAccountID == r.AccountID && session.CohortID != "" && session.CohortID == account.CohortID {
+		} else if executing && session.TrialAccountID == r.AccountID && session.CohortID != "" && session.CohortID == selected.CohortID && (session.PolicySignature == signature || (session.PolicySignature == "" && signature == PolicySignature(e.Settings()))) {
 			a.Trial = true
 			a.CohortID = session.CohortID
 		}
 		if a.Trial {
-			account.TrialGroupIDs = appendGroup(account.TrialGroupIDs, r.GroupID)
+			selected.TrialGroupIDs = appendGroup(selected.TrialGroupIDs, r.GroupID)
+		}
+		if executing {
+			account.Policies[signature] = projection
 		}
 		if _, err := tx.(AccountTx).WriteAccount(r.AccountID, r.UpstreamKeyID, &account); err != nil {
 			return err
@@ -283,7 +303,7 @@ func (e *Engine) Admit(ctx context.Context, r Request) (Admission, error) {
 }
 
 func (e *Engine) Complete(ctx context.Context, v Evidence) error {
-	s := e.Settings()
+	s := e.ResolvedSettings(v.Request.GroupID)
 	if e.store == nil {
 		return ErrUnavailable
 	}
@@ -298,7 +318,7 @@ func (e *Engine) Complete(ctx context.Context, v Evidence) error {
 		return errors.New("cache guard completion in future")
 	}
 	// Very late delivery is outside the deduplication/recomputation horizon.
-	applyPolicy := v.Admission.Mode != Disabled && v.Admission.Sample && s.Mode != Disabled && !v.CompletedAt.Before(now.Add(-FactLifetime))
+	applyPolicy := v.Admission.Sample && e.AnyPolicyActive() && !v.CompletedAt.Before(now.Add(-FactLifetime))
 	v.CompletedAt = v.CompletedAt.UTC()
 	v.RawUsage.CompletedAt = v.CompletedAt
 	v.RawUsage.Success = v.Success
@@ -332,6 +352,13 @@ func (e *Engine) Complete(ctx context.Context, v Evidence) error {
 		}
 		routeKey := WarmRouteKey(v.Request)
 		route := session.Routes[routeKey]
+		signature := PolicySignature(s)
+		if route.PolicySignature != signature {
+			// Warmness is a physical fact. Affinity and pending migration are
+			// interpretations of that fact under one effective quality rule.
+			route.HighCacheSeen, route.PendingLow, route.LowStreak = false, false, 0
+			route.PolicySignature = signature
+		}
 		if v.Success && v.RawUsage.Known() && v.CompletedAt.After(route.LastSuccessfulAt) {
 			if session.LastAccountID > 0 && session.LastAccountID != v.Request.AccountID && !v.CompletedAt.Before(session.LastCompletedAt) {
 				session.ResidenceUntil = v.CompletedAt.Add(ResidenceLifetime)
@@ -356,6 +383,7 @@ func (e *Engine) Complete(ctx context.Context, v Evidence) error {
 		if err != nil {
 			return err
 		}
+		e.preparePolicies(&account)
 		account.GroupIDs = appendGroup(account.GroupIDs, v.Request.GroupID)
 		reference := now
 		if v.CompletedAt.After(reference) {
@@ -372,10 +400,8 @@ func (e *Engine) Complete(ctx context.Context, v Evidence) error {
 		if len(facts) > MaxFacts {
 			return errors.New("cache guard bounded recomputation exceeded")
 		}
-		fresh := v.ValidSample() && !v.CompletedAt.Before(reference.Add(-time.Duration(s.WindowMinutes)*time.Minute)) &&
-			(account.QualitySince.IsZero() || v.CompletedAt.After(account.QualitySince)) &&
-			(account.LegacyQualitySince[v.Request.GroupID].IsZero() || v.CompletedAt.After(account.LegacyQualitySince[v.Request.GroupID]))
-		if err = RecomputeAccount(&account, facts, s, reference, fresh); err != nil {
+		fresh := v.ValidSample() && !v.CompletedAt.Before(reference.Add(-time.Duration(s.WindowMinutes)*time.Minute))
+		if err = e.recomputePolicies(&account, facts, reference, fresh); err != nil {
 			return err
 		}
 		// Recompute the last two valid warm outcomes, including out-of-order facts.
@@ -405,7 +431,7 @@ func (e *Engine) Complete(ctx context.Context, v Evidence) error {
 		})
 		route.LowStreak = 0
 		for i := len(own) - 1; i >= 0 && route.LowStreak < 2; i-- {
-			if !own[i].ValidSample() || !own[i].Admission.ProtectedAtStart {
+			if !own[i].ValidSample() || !own[i].Admission.ProtectedAtStart || (own[i].Admission.PolicySignature != "" && own[i].Admission.PolicySignature != PolicySignature(s)) {
 				break
 			}
 			rate, _ := own[i].RawUsage.Rate()
@@ -448,7 +474,7 @@ func RecomputeAccount(a *AccountState, facts []Evidence, s Settings, now time.Ti
 		total += f.RawUsage.TotalInputTokens
 		read += f.RawUsage.CacheReadTokens
 		valid++
-		if a.CohortID != "" && f.Admission.Trial && f.Admission.CohortID == a.CohortID {
+		if a.CohortID != "" && f.Admission.Trial && f.Admission.CohortID == a.CohortID && (f.Admission.PolicySignature == a.PolicySignature || f.Admission.PolicySignature == "") {
 			trialTotal += f.RawUsage.TotalInputTokens
 			trialRead += f.RawUsage.CacheReadTokens
 			trialValid++
@@ -532,16 +558,17 @@ func (e *Engine) Cleanup(ctx context.Context) error {
 	return e.store.Cleanup(ctx, e.now().UTC().Add(-FactLifetime))
 }
 func (e *Engine) CachedSnapshot(groupID int64) Snapshot {
-	s := e.Settings()
+	s := e.ResolvedSettings(groupID)
+	active := e.AnyPolicyActive()
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	g := e.groups[groupID]
 	g.GroupID, g.Mode, g.LoadedAt = groupID, s.Mode, e.loadedAt
-	g.Available = s.Mode != Disabled && e.freshLocked()
+	g.Available = active && e.freshLocked()
 	g.Accounts = nil
 	for id, account := range e.accounts {
 		if !e.accountGaps[id] {
-			g.Accounts = append(g.Accounts, cloneAccountSnapshot(account))
+			g.Accounts = append(g.Accounts, projectAccountSnapshot(account, s))
 		}
 	}
 	sort.Slice(g.Accounts, func(i, j int) bool { return g.Accounts[i].AccountID < g.Accounts[j].AccountID })
@@ -558,7 +585,7 @@ func (e *Engine) CachedSessionRead(r Request) SessionRead {
 	if !e.CachedSnapshot(r.GroupID).Available {
 		return SessionRead{}
 	}
-	s := e.Settings()
+	s := e.ResolvedSettings(r.GroupID)
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	if e.loadedAt.IsZero() || e.now().Sub(e.loadedAt) > RefreshLifetime || !s.ContainsGroup(r.GroupID) {
@@ -581,10 +608,11 @@ func (e *Engine) CachedSessionRead(r Request) SessionRead {
 	if route, ok := x.Routes[x.LastRouteKey]; ok {
 		read.LastSuccessfulAt = route.LastSuccessfulAt
 		read.WarmAtStart = routeWarm(route, r.StartedAt)
-		read.PendingLow = route.PendingLow
-		read.Protected = read.WarmAtStart && ((route.HighCacheSeen && !route.PendingLow) || r.StartedAt.Before(x.ResidenceUntil))
+		samePolicy := route.PolicySignature == PolicySignature(s) || (route.PolicySignature == "" && PolicySignature(s) == PolicySignature(e.Settings()))
+		read.PendingLow = samePolicy && route.PendingLow
+		read.Protected = read.WarmAtStart && ((samePolicy && route.HighCacheSeen && !route.PendingLow) || r.StartedAt.Before(x.ResidenceUntil))
 	}
-	read.Trial = x.CohortID != "" && x.TrialAccountID == x.LastAccountID && x.TrialModel == r.Model && x.TrialProtocol == r.Protocol
+	read.Trial = x.CohortID != "" && x.TrialAccountID == x.LastAccountID && x.TrialModel == r.Model && x.TrialProtocol == r.Protocol && (x.PolicySignature == PolicySignature(s) || (x.PolicySignature == "" && PolicySignature(s) == PolicySignature(e.Settings())))
 	read.CohortID = x.CohortID
 	if s.Mode != Protect {
 		read.Protected = false

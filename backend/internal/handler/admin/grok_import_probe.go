@@ -212,6 +212,7 @@ func ProvideAccountHandler(
 	tokenCacheInvalidator service.TokenCacheInvalidator,
 	grokQuotaService *service.GrokQuotaService,
 	openAIGatewayService *service.OpenAIGatewayService,
+	protectionPolicies *service.GroupSchedulingProtectionPolicyService,
 ) *AccountHandler {
 	handler := NewAccountHandler(
 		adminService,
@@ -231,6 +232,7 @@ func ProvideAccountHandler(
 	)
 	handler.grokImportProber = grokQuotaService
 	handler.SetOpenAITTFTGuardDegradationReader(openAIGatewayService)
+	handler.SetSchedulingProtectionPolicyService(protectionPolicies)
 	handler.cfg = cfg
 	return handler
 }

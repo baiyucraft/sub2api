@@ -290,12 +290,12 @@ func TestUpstreamCacheGuardAccountWindowsAggregatesCurrentKey(t *testing.T) {
 	repo := NewUpstreamCacheGuardRepository(db).(upstreamcacheguard.AccountStore)
 	since := time.Date(2026, 10, 14, 0, 0, 0, 0, time.UTC)
 	until := since.Add(time.Hour)
-	columns := []string{"account_id", "upstream_key_id", "version", "state_json", "valid_requests", "input_tokens", "read_tokens", "trial_valid_requests", "trial_input_tokens", "trial_read_tokens", "trial_sessions", "last_evidence_at", "group_ids", "trial_group_ids"}
+	columns := []string{"account_id", "upstream_key_id", "version", "state_json", "valid_requests", "input_tokens", "read_tokens", "trial_valid_requests", "trial_input_tokens", "trial_read_tokens", "trial_sessions", "last_evidence_at", "group_ids", "trial_group_ids", "policy_windows"}
 	firstState, _ := json.Marshal(upstreamcacheguard.AccountState{AccountID: 2, UpstreamKeyID: 5})
 	secondState, _ := json.Marshal(upstreamcacheguard.AccountState{AccountID: 3, UpstreamKeyID: 6})
 	mock.ExpectQuery(`(?s)WITH eligible AS .*fact.processed=TRUE AND fact.valid_sample=TRUE.*fact.completed_at <= \$2.*legacy_quality_since.*COUNT\(DISTINCT \(fact.group_id,fact.session_key\)\).*LIMIT \$3`).WithArgs(since, until, upstreamcacheguard.MaxRuntimeRows+1).WillReturnRows(sqlmock.NewRows(columns).
-		AddRow(2, 5, 4, firstState, 2, 110, 60, 1, 10, 0, 1, since.Add(time.Second), "{9,10}", "{10}").
-		AddRow(3, 6, 1, secondState, 0, 0, 0, 0, 0, 0, 0, nil, nil, nil))
+		AddRow(2, 5, 4, firstState, 2, 110, 60, 1, 10, 0, 1, since.Add(time.Second), "{9,10}", "{10}", "{}").
+		AddRow(3, 6, 1, secondState, 0, 0, 0, 0, 0, 0, 0, nil, nil, nil, "{}"))
 	windows, err := repo.AccountWindows(context.Background(), since, until)
 	if err != nil || len(windows) != 2 {
 		t.Fatalf("windows=%+v err=%v", windows, err)

@@ -389,7 +389,8 @@ class FinalizationTest(unittest.TestCase):
         from release.migration_planner import discover_migration_catalog
 
         catalog = discover_migration_catalog(finalization.WORKSPACE)
-        self.assertEqual(len(catalog), 348)
+        self.assertEqual(len(catalog), 349)
+        self.assertTrue(any(row["filename"] == "298_group_scheduling_protection_policies.sql" for row in catalog))
         self.assertTrue(any(row["filename"] == "296_upstream_cache_guard.sql" for row in catalog))
         rows = [{"filename": row["filename"], "checksum": row["checksum"]} for row in catalog]
         for drift in ("none", "pending", "checksum", "unknown", "backup"):

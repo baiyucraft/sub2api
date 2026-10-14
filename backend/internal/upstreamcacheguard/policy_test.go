@@ -1,0 +1,210 @@
+package upstreamcacheguard
+
+import (
+	"context"
+	"fmt"
+	"testing"
+	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/upstreamcacheusage"
+)
+
+func TestPolicySharedFactsSeparateThresholdsAndDisabledSampling(t *testing.T) {
+	e, _ := testEngine(t)
+	global := e.Settings()
+	global.MinValidRequests = 2
+	if err := e.ApplySettings(global); err != nil {
+		t.Fatal(err)
+	}
+	loose := global
+	loose.ThresholdPercent = 50
+	disabled := global
+	disabled.Mode = Disabled
+	if err := e.ApplyPolicySettings(map[int64]Settings{2: loose, 3: disabled}); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		r := request(fmt.Sprint(i), "passive", testNow.Add(-time.Minute+time.Duration(i)*time.Second))
+		r.GroupID = 3
+		a := admit(t, e, r)
+		if a.ProtectedAtStart || a.Trial || !a.Sample {
+			t.Fatalf("disabled group admission=%+v", a)
+		}
+		a.WarmAtStart = true
+		complete(t, e, r, a, 60, true, upstreamcacheusage.Known)
+	}
+	if err := e.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	strict, _ := e.CachedAccountForGroup(1, 2, 3)
+	looseView, _ := e.CachedAccountForGroup(2, 2, 3)
+	shared, _ := e.CachedSharedAccount(2, 3)
+	if strict.Phase != Cooling || looseView.Phase != Healthy || strict.ValidRequests != 3 || looseView.ValidRequests != 3 || shared.CachePercent != 60 {
+		t.Fatalf("strict=%+v loose=%+v shared=%+v", strict, looseView, shared)
+	}
+	rotated, _ := e.CachedAccountForGroup(1, 2, 4)
+	if rotated.Phase != Healthy || rotated.ValidRequests != 0 {
+		t.Fatalf("new Key reused evidence=%+v", rotated)
+	}
+}
+
+func TestCustomPolicyProtectsWhenGlobalDisabled(t *testing.T) {
+	e, _ := testEngine(t)
+	global := e.Settings()
+	global.Mode = Disabled
+	global.MinValidRequests = 1
+	if err := e.ApplySettings(global); err != nil {
+		t.Fatal(err)
+	}
+	custom := global
+	custom.Mode = Protect
+	if err := e.ApplyPolicySettings(map[int64]Settings{2: custom}); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		r := request(fmt.Sprint(i), "other-group", testNow.Add(-time.Minute+time.Duration(i)*time.Second))
+		a := admit(t, e, r)
+		a.WarmAtStart = true
+		complete(t, e, r, a, 0, true, upstreamcacheusage.Known)
+	}
+	if err := e.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	view := e.CachedSnapshot(2)
+	if !view.Available || view.Mode != Protect || len(view.Accounts) != 1 || view.Accounts[0].Phase != Cooling {
+		t.Fatalf("custom global-disabled=%+v", view)
+	}
+	if e.ResolvedSettings(1).Mode != Disabled {
+		t.Fatal("inherit group unexpectedly protects")
+	}
+}
+
+func TestPolicyRecoveryKeepsSharedFactsAndOtherCohort(t *testing.T) {
+	e, _ := testEngine(t)
+	global := e.Settings()
+	global.MinValidRequests = 2
+	if err := e.ApplySettings(global); err != nil {
+		t.Fatal(err)
+	}
+	custom := global
+	custom.ThresholdPercent = 50
+	custom.RecoveryThresholdPercent = 90
+	if err := e.ApplyPolicySettings(map[int64]Settings{2: custom, 3: global}); err != nil {
+		t.Fatal(err)
+	}
+	strictSig, customSig := PolicySignature(global), PolicySignature(custom)
+	a := AccountState{AccountID: 2, UpstreamKeyID: 3, Policies: map[string]PolicyProjection{
+		strictSig: {Settings: global, State: AccountState{AccountID: 2, UpstreamKeyID: 3, PolicySignature: strictSig, Phase: Trial, CohortID: "strict-cohort", FirstTrialAt: testNow.Add(-11 * time.Minute)}},
+		customSig: {Settings: custom, State: AccountState{AccountID: 2, UpstreamKeyID: 3, PolicySignature: customSig, Phase: Trial, CohortID: "custom-cohort", FirstTrialAt: testNow.Add(-11 * time.Minute)}},
+	}}
+	var facts []Evidence
+	for i := 0; i < 3; i++ {
+		r := request(fmt.Sprint(i), fmt.Sprint(i), testNow.Add(-time.Minute))
+		r.GroupID = int64(i%2*2 + 1)
+		facts = append(facts, Evidence{ID: r.ID, Request: r, Admission: Admission{Sample: true, WarmAtStart: true, Trial: true, CohortID: "strict-cohort", PolicySignature: strictSig, SessionKey: fmt.Sprint(i)}, Success: true, CompletedAt: testNow.Add(-time.Second), RawUsage: RawUsage{Status: upstreamcacheusage.Known, TotalInputTokens: 100, CacheReadTokens: 85}})
+	}
+	if err := e.recomputePolicies(&a, facts, testNow, true); err != nil {
+		t.Fatal(err)
+	}
+	if a.Policies[strictSig].State.Phase != Healthy || a.Policies[customSig].State.Phase != Trial || a.Policies[customSig].State.TrialValidRequests != 0 || a.ValidRequests != 3 || a.CachePercent != 85 {
+		t.Fatalf("recovery contaminated shared/foreign state=%+v", a)
+	}
+	if a.Policies[strictSig].State.QualitySince.IsZero() || !a.Policies[customSig].State.QualitySince.IsZero() {
+		t.Fatal("reset boundary leaked")
+	}
+	if PolicySignature(global) != PolicySignature(e.ResolvedSettings(3)) {
+		t.Fatal("identical cross-group policy split")
+	}
+	global.Priority = "ttft_first"
+	if PolicySignature(global) != strictSig {
+		t.Fatal("priority reset cohort")
+	}
+}
+
+func TestNewCustomPolicyDoesNotBorrowLegacyTrial(t *testing.T) {
+	e, _ := testEngine(t)
+	global := e.Settings()
+	custom := global
+	custom.ThresholdPercent = 50
+	if err := e.ApplyPolicySettings(map[int64]Settings{2: custom}); err != nil {
+		t.Fatal(err)
+	}
+	a := AccountState{AccountID: 2, UpstreamKeyID: 3, Phase: Trial, CohortID: "legacy", FirstTrialAt: testNow.Add(-time.Hour), QualitySince: testNow.Add(-time.Hour)}
+	e.preparePolicies(&a)
+	if a.Policies[PolicySignature(global)].State.CohortID != "legacy" || a.Policies[PolicySignature(custom)].State.CohortID != "" || a.Policies[PolicySignature(custom)].State.Phase != Healthy {
+		t.Fatalf("legacy trial migration=%+v", a)
+	}
+}
+
+func TestSamePolicyGroupsShareRecoveryAdmissions(t *testing.T) {
+	e, store := testEngine(t)
+	s := e.Settings()
+	s.TrialPercent = 100
+	if err := e.ApplySettings(s); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.ApplyPolicySettings(map[int64]Settings{2: s}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.TransactAccount(context.Background(), 1, 2, 3, func(tx Tx) error {
+		_, err := tx.(AccountTx).WriteAccount(2, 3, AccountState{AccountID: 2, UpstreamKeyID: 3, Phase: Cooling, CooldownUntil: testNow.Add(-time.Second)})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	first := request("trial-first", "first", testNow)
+	second := request("trial-second", "second", testNow.Add(time.Second))
+	second.GroupID = 2
+	a, b := admit(t, e, first), admit(t, e, second)
+	if !a.Trial || !b.Trial || a.CohortID == "" || a.CohortID != b.CohortID || a.PolicySignature != b.PolicySignature {
+		t.Fatalf("same strategy trial split: %+v %+v", a, b)
+	}
+}
+
+func TestSessionPolicyChangeDoesNotReuseAffinityOrLowStreak(t *testing.T) {
+	for _, prior := range []struct {
+		name          string
+		high, pending bool
+		threshold     float64
+	}{
+		{name: "stricter does not reuse earlier high cache", high: true, threshold: 90},
+		{name: "looser does not reuse earlier low streak", pending: true, threshold: 50},
+	} {
+		t.Run(prior.name, func(t *testing.T) {
+			e, store := testEngine(t)
+			old := e.Settings()
+			r := request("current", "stable", testNow)
+			routeKey := WarmRouteKey(r)
+			session := SessionState{Key: SessionKey(r), FirstSeenAt: testNow.Add(-time.Minute), LastAccountID: r.AccountID, LastModel: r.Model, LastProtocol: r.Protocol, LastRouteKey: routeKey,
+				Routes: map[string]SessionRoute{routeKey: {AccountID: r.AccountID, UpstreamKeyID: r.UpstreamKeyID, PolicySignature: PolicySignature(old), LastSuccessfulAt: testNow.Add(-time.Second), HighCacheSeen: prior.high, PendingLow: prior.pending, LowStreak: 2}}}
+			if err := store.Transact(context.Background(), r.GroupID, func(tx Tx) error {
+				_, err := tx.Write(SessionKind, session.Key, session)
+				return err
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if err := e.Refresh(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			changed := old
+			changed.ThresholdPercent, changed.RecoveryThresholdPercent = prior.threshold, 95
+			if err := e.ApplyPolicySettings(map[int64]Settings{r.GroupID: changed}); err != nil {
+				t.Fatal(err)
+			}
+			read := e.CachedSessionRead(r)
+			if !read.Known || !read.WarmAtStart || read.PendingLow || read.Protected || read.PreferredAccountID != r.AccountID {
+				t.Fatalf("strategy reused old interpretation or lost physical warmth: %+v", read)
+			}
+			// A switch in ranking preference alone keeps the same quality rule.
+			changed = old
+			changed.Priority = "ttft_first"
+			if err := e.ApplyPolicySettings(map[int64]Settings{r.GroupID: changed}); err != nil {
+				t.Fatal(err)
+			}
+			read = e.CachedSessionRead(r)
+			if read.PendingLow != prior.pending || read.Protected != (prior.high && !prior.pending) {
+				t.Fatalf("priority change discarded affinity: %+v", read)
+			}
+		})
+	}
+}
