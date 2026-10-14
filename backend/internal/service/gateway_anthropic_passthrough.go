@@ -110,7 +110,9 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 		}
 
 		s.countLegacyAnthropicRPM(ctx, account)
-		BeginUpstreamCacheGuardSend(upstreamReq.Context(), account, input.RequestModel, "anthropic")
+		if err := beginGatewaySchedulingProtectionSend(upstreamReq.Context(), account, input.RequestModel, "anthropic"); err != nil {
+			return nil, err
+		}
 		resp, err = s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
 		if err != nil {
 			if resp != nil && resp.Body != nil {

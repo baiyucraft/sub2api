@@ -8,22 +8,28 @@ import (
 )
 
 type UpstreamCacheGuardState struct {
-	GroupID               int64                               `json:"group_id"`
-	GroupName             string                              `json:"group_name,omitempty"`
-	State                 string                              `json:"state"`
-	RatePercent           *float64                            `json:"rate_percent"`
-	ValidRequests         int                                 `json:"valid_requests"`
-	Reason                string                              `json:"reason"`
-	RecoveryValidRequests int                                 `json:"recovery_valid_requests"`
-	RecoveryRatePercent   *float64                            `json:"recovery_rate_percent"`
-	RecoverySessions      int                                 `json:"recovery_sessions"`
-	RecoveryStartedAt     *time.Time                          `json:"recovery_started_at"`
-	CooldownUntil         *time.Time                          `json:"cooldown_until"`
-	UpdatedAt             *time.Time                          `json:"updated_at"`
-	NativeState           string                              `json:"native_state,omitempty"`
-	NativeReason          string                              `json:"native_reason,omitempty"`
-	LinkedProtection      *UpstreamCacheGuardLinkedProtection `json:"linked_protection,omitempty"`
-	TrialParticipant      bool                                `json:"trial_participant"`
+	PolicySource             string                              `json:"policy_source"`
+	PolicyMode               string                              `json:"policy_mode"`
+	ThresholdPercent         float64                             `json:"threshold_percent"`
+	RecoveryThresholdPercent float64                             `json:"recovery_threshold_percent"`
+	MinValidRequests         int                                 `json:"min_valid_requests"`
+	SchedulingPriority       string                              `json:"scheduling_priority"`
+	GroupID                  int64                               `json:"group_id"`
+	GroupName                string                              `json:"group_name,omitempty"`
+	State                    string                              `json:"state"`
+	RatePercent              *float64                            `json:"rate_percent"`
+	ValidRequests            int                                 `json:"valid_requests"`
+	Reason                   string                              `json:"reason"`
+	RecoveryValidRequests    int                                 `json:"recovery_valid_requests"`
+	RecoveryRatePercent      *float64                            `json:"recovery_rate_percent"`
+	RecoverySessions         int                                 `json:"recovery_sessions"`
+	RecoveryStartedAt        *time.Time                          `json:"recovery_started_at"`
+	CooldownUntil            *time.Time                          `json:"cooldown_until"`
+	UpdatedAt                *time.Time                          `json:"updated_at"`
+	NativeState              string                              `json:"native_state,omitempty"`
+	NativeReason             string                              `json:"native_reason,omitempty"`
+	LinkedProtection         *UpstreamCacheGuardLinkedProtection `json:"linked_protection,omitempty"`
+	TrialParticipant         bool                                `json:"trial_participant"`
 }
 
 type UpstreamCacheGuardSummary struct {
@@ -108,14 +114,21 @@ func UpstreamCacheGuardAccountViewsBatch(accounts []Account) map[int64]UpstreamC
 	available := r != nil && r.available.Load()
 	var readAccount func(int64, int64) (upstreamcacheguard.AccountSnapshot, bool)
 	if available {
-		readAccount = r.engine.CachedAccount
+		readAccount = r.engine.CachedSharedAccount
 	}
-	return upstreamCacheGuardAccountViewsBatch(accounts, settings, available, readAccount)
+	if r == nil || !r.engine.AnyPolicyActive() {
+		return map[int64]UpstreamCacheGuardAccountView{}
+	}
+	return upstreamCacheGuardPolicyAccountViewsBatch(accounts, settings, available, readAccount, r.engine.ResolvedSettings, r.cachePolicyMetadata)
 }
 
 func upstreamCacheGuardAccountViewsBatch(accounts []Account, settings UpstreamCacheGuardSettings, available bool, readAccount func(int64, int64) (upstreamcacheguard.AccountSnapshot, bool)) map[int64]UpstreamCacheGuardAccountView {
+	return upstreamCacheGuardPolicyAccountViewsBatch(accounts, settings, available, readAccount, nil, nil)
+}
+
+func upstreamCacheGuardPolicyAccountViewsBatch(accounts []Account, settings UpstreamCacheGuardSettings, available bool, readAccount func(int64, int64) (upstreamcacheguard.AccountSnapshot, bool), resolve func(int64) UpstreamCacheGuardSettings, metadata func(int64) (string, string)) map[int64]UpstreamCacheGuardAccountView {
 	result := make(map[int64]UpstreamCacheGuardAccountView, len(accounts))
-	if settings.Mode == upstreamcacheguard.Disabled {
+	if settings.Mode == upstreamcacheguard.Disabled && resolve == nil {
 		return result
 	}
 	for i := range accounts {
@@ -127,10 +140,85 @@ func upstreamCacheGuardAccountViewsBatch(accounts []Account, settings UpstreamCa
 		if available && readAccount != nil {
 			snapshot, fresh = readAccount(account.ID, *account.UpstreamKeyID)
 		}
+		// The header reports shared observations. Policy-local recovery resets
+		// only affect the per-group details below.
 		summary := upstreamCacheGuardSummary(snapshot, fresh, settings)
-		result[account.ID] = UpstreamCacheGuardAccountView{Summary: &summary, States: upstreamCacheGuardGroupStates(account, settings, summary, snapshot)}
+		states := upstreamCacheGuardGroupStates(account, settings, summary, snapshot)
+		for i := range states {
+			groupSettings := settings
+			if resolve != nil {
+				groupSettings = resolve(states[i].GroupID)
+			}
+			states[i].ThresholdPercent = groupSettings.ThresholdPercent
+			states[i].RecoveryThresholdPercent = groupSettings.RecoveryThresholdPercent
+			states[i].MinValidRequests = groupSettings.MinValidRequests
+			states[i].SchedulingPriority = groupSettings.Priority
+			states[i].PolicyMode, states[i].PolicySource = "inherit", "global"
+			if metadata != nil {
+				states[i].PolicyMode, states[i].PolicySource = metadata(states[i].GroupID)
+			}
+			if resolve != nil && accountMatchesCacheGuardGroup(account, states[i].GroupID) && groupSettings.Mode != upstreamcacheguard.Disabled && groupSettings.ContainsGroup(states[i].GroupID) {
+				projected := upstreamcacheguard.ProjectAccountSnapshot(snapshot, groupSettings)
+				groupSummary := upstreamCacheGuardSummary(projected, fresh, groupSettings)
+				applyCacheGuardGroupSummary(&states[i], groupSummary)
+				states[i].TrialParticipant = false
+				for _, id := range projected.TrialGroupIDs {
+					states[i].TrialParticipant = states[i].TrialParticipant || id == states[i].GroupID
+				}
+			} else if resolve != nil {
+				states[i].State, states[i].Reason = "disabled", "disabled"
+				states[i].RatePercent, states[i].ValidRequests = nil, 0
+				states[i].RecoveryRatePercent, states[i].RecoveryValidRequests, states[i].RecoverySessions = nil, 0, 0
+				states[i].RecoveryStartedAt, states[i].CooldownUntil = nil, nil
+				states[i].TrialParticipant = false
+			}
+		}
+		if resolve != nil {
+			priority := map[string]int{"unavailable": 7, "protected": 6, "recovering": 5, "observing": 4, "normal": 3, "insufficient": 2, "disabled": 1}
+			var selected *UpstreamCacheGuardState
+			for i := range states {
+				if selected == nil || priority[states[i].State] > priority[selected.State] {
+					selected = &states[i]
+				}
+			}
+			if selected != nil {
+				summary.State, summary.Reason = selected.State, selected.Reason
+			}
+			// Recovery cohorts can differ across strategies; their progress is
+			// intentionally shown only in the corresponding group detail.
+			summary.RecoveryValidRequests, summary.RecoverySessions = 0, 0
+			summary.RecoveryRatePercent, summary.RecoveryStartedAt, summary.CooldownUntil = nil, nil, nil
+		}
+		result[account.ID] = UpstreamCacheGuardAccountView{Summary: &summary, States: states}
 	}
 	return result
+}
+
+func accountMatchesCacheGuardGroup(account *Account, groupID int64) bool {
+	for _, id := range account.GroupIDs {
+		if id == groupID {
+			return true
+		}
+	}
+	for _, group := range account.Groups {
+		if group != nil && group.ID == groupID {
+			return true
+		}
+	}
+	for _, group := range account.AccountGroups {
+		if group.GroupID == groupID {
+			return true
+		}
+	}
+	return false
+}
+
+func applyCacheGuardGroupSummary(item *UpstreamCacheGuardState, summary UpstreamCacheGuardSummary) {
+	item.State, item.Reason = summary.State, summary.Reason
+	item.RatePercent, item.ValidRequests = summary.RatePercent, summary.ValidRequests
+	item.UpdatedAt, item.CooldownUntil = summary.UpdatedAt, summary.CooldownUntil
+	item.RecoveryStartedAt, item.RecoveryValidRequests = summary.RecoveryStartedAt, summary.RecoveryValidRequests
+	item.RecoveryRatePercent, item.RecoverySessions = summary.RecoveryRatePercent, summary.RecoverySessions
 }
 
 func upstreamCacheGuardSummary(a upstreamcacheguard.AccountSnapshot, fresh bool, settings UpstreamCacheGuardSettings) UpstreamCacheGuardSummary {

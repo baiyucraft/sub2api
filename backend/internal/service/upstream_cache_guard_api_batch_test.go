@@ -64,3 +64,41 @@ func TestUpstreamCacheGuardAccountViewsBatchObserveAndUnavailable(t *testing.T) 
 	require.Equal(t, "unavailable", view.Summary.State)
 	require.Equal(t, "unavailable", view.States[0].State)
 }
+
+func TestUpstreamCacheGuardPolicyViewsResolvePerGroupWithGlobalDisabled(t *testing.T) {
+	global := DefaultUpstreamCacheGuardSettings()
+	custom := global
+	custom.Mode, custom.ThresholdPercent, custom.RecoveryThresholdPercent, custom.MinValidRequests = upstreamcacheguard.Protect, 60, 85, 2
+	custom.Priority = "ttft_first"
+	configID, keyID := int64(1), int64(2)
+	account := Account{ID: 3, UpstreamConfigID: &configID, UpstreamKeyID: &keyID, GroupIDs: []int64{10, 20}}
+	snapshot := upstreamcacheguard.AccountSnapshot{AccountState: upstreamcacheguard.AccountState{AccountID: 3, UpstreamKeyID: keyID, Phase: upstreamcacheguard.Healthy, ValidRequests: 7, CachePercent: 50, Policies: map[string]upstreamcacheguard.PolicyProjection{
+		upstreamcacheguard.PolicySignature(custom): {Settings: custom, State: upstreamcacheguard.AccountState{AccountID: 3, UpstreamKeyID: keyID, Phase: upstreamcacheguard.Cooling, ValidRequests: 7, CachePercent: 50}},
+	}}}
+	reads := 0
+	views := upstreamCacheGuardPolicyAccountViewsBatch([]Account{account}, global, true, func(_, _ int64) (upstreamcacheguard.AccountSnapshot, bool) { reads++; return snapshot, true },
+		func(id int64) UpstreamCacheGuardSettings {
+			if id == 20 {
+				return custom
+			}
+			return global
+		},
+		func(id int64) (string, string) {
+			if id == 20 {
+				return "enabled", "group"
+			}
+			return "inherit", "global"
+		})
+	require.Equal(t, 1, reads)
+	require.Equal(t, "protected", views[3].Summary.State)
+	require.Equal(t, 7, views[3].Summary.ValidRequests)
+	require.Equal(t, 50.0, *views[3].Summary.RatePercent)
+	states := views[3].States
+	require.Len(t, states, 2)
+	require.Equal(t, "disabled", states[0].State)
+	require.Equal(t, "protected", states[1].State)
+	require.Equal(t, "group", states[1].PolicySource)
+	require.Equal(t, 60.0, states[1].ThresholdPercent)
+	require.Equal(t, 2, states[1].MinValidRequests)
+	require.Equal(t, "ttft_first", states[1].SchedulingPriority)
+}

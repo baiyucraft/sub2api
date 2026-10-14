@@ -316,8 +316,13 @@ func TestGroupTTFTGuardPolicyGlobalRefreshInvalidatesOnlyInheritedRuntime(t *tes
 
 	svc.refreshGlobalSettingsAndInvalidateInherited(context.Background())
 
-	require.False(t, gateway.getOpenAITTFTGuard().isDegraded(14, 1, "gpt-test"))
+	guard := gateway.getOpenAITTFTGuard()
+	require.True(t, guard.isDegraded(14, 1, "gpt-test"), "shared 90s evidence still meets the updated 30s critical threshold")
 	require.True(t, gateway.getOpenAITTFTGuard().isDegraded(15, 2, "gpt-test"))
+	require.Equal(t, 30*time.Second, guard.groupConfigs[14].Threshold)
+	require.Equal(t, 6, guard.groupConfigs[14].MinSamples)
+	require.Equal(t, 20*time.Second, guard.groupConfigs[15].Threshold)
+	require.Len(t, guard.observations, 2, "global refresh must retain shared facts and independent custom policy state")
 }
 
 func TestGroupTTFTGuardPolicyGlobalRefreshFailurePreservesRuntime(t *testing.T) {

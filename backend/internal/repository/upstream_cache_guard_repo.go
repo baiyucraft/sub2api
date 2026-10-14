@@ -191,7 +191,7 @@ func (r *upstreamCacheGuardRepository) AccountWindows(ctx context.Context, since
 	// are the raw upstream usage before billing or model normalization.
 	rows, err := r.db.QueryContext(ctx, `WITH eligible AS (
 		SELECT state.account_id,state.upstream_key_id,
-			fact.group_id,fact.completed_at,
+			fact.group_id,fact.completed_at,fact.evidence_json->'admission' AS admission,
 			(fact.evidence_json->'raw_usage'->>'TotalInputTokens')::BIGINT AS input_tokens,
 			(fact.evidence_json->'raw_usage'->>'CacheReadTokens')::BIGINT AS cache_read_tokens,
 			fact.evidence_json->'admission'->>'session_key' AS session_key,
@@ -205,7 +205,7 @@ func (r *upstreamCacheGuardRepository) AccountWindows(ctx context.Context, since
 			AND fact.evidence_json->'raw_usage'->>'Status' = 'known'
 			AND jsonb_typeof(fact.evidence_json->'raw_usage'->'TotalInputTokens') = 'number'
 			AND jsonb_typeof(fact.evidence_json->'raw_usage'->'CacheReadTokens') = 'number'
-			AND fact.completed_at > COALESCE(NULLIF(state.state_json->>'quality_since','')::TIMESTAMPTZ, '-infinity'::TIMESTAMPTZ)
+			AND (state.state_json ? 'policies' OR fact.completed_at > COALESCE(NULLIF(state.state_json->>'quality_since','')::TIMESTAMPTZ, '-infinity'::TIMESTAMPTZ))
 			AND fact.completed_at > COALESCE(NULLIF(state.state_json->'legacy_quality_since'->>(fact.group_id::TEXT),'')::TIMESTAMPTZ, '-infinity'::TIMESTAMPTZ)
 	)
 	SELECT state.account_id,state.upstream_key_id,state.version,state.state_json,
@@ -216,7 +216,29 @@ func (r *upstreamCacheGuardRepository) AccountWindows(ctx context.Context, since
 		COUNT(DISTINCT (fact.group_id,fact.session_key)) FILTER (WHERE fact.trial),
 		MAX(fact.completed_at),
 		ARRAY_AGG(DISTINCT fact.group_id) FILTER (WHERE fact.group_id IS NOT NULL),
-		ARRAY_AGG(DISTINCT fact.group_id) FILTER (WHERE fact.trial)
+		ARRAY_AGG(DISTINCT fact.group_id) FILTER (WHERE fact.trial),
+		COALESCE((SELECT jsonb_object_agg(policy.key, projection_window.metrics)
+			FROM jsonb_each(COALESCE(state.state_json->'policies','{}'::JSONB)) AS policy
+			CROSS JOIN LATERAL (SELECT jsonb_build_object(
+				'ValidRequests',COUNT(f.group_id),
+				'TotalInputTokens',COALESCE(SUM(f.input_tokens),0)::BIGINT,
+				'CacheReadTokens',COALESCE(SUM(f.cache_read_tokens),0)::BIGINT,
+				'TrialValidRequests',COUNT(f.group_id) FILTER (WHERE f.cohort_trial),
+				'TrialInputTokens',COALESCE(SUM(f.input_tokens) FILTER (WHERE f.cohort_trial),0)::BIGINT,
+				'TrialCacheReadTokens',COALESCE(SUM(f.cache_read_tokens) FILTER (WHERE f.cohort_trial),0)::BIGINT,
+				'TrialSessions',COUNT(DISTINCT (f.group_id,f.session_key)) FILTER (WHERE f.cohort_trial),
+				'LastEvidenceAt',to_char(MAX(f.completed_at) AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
+				'GroupIDs',COALESCE(ARRAY_AGG(DISTINCT f.group_id),'{}'::BIGINT[]),
+				'TrialGroupIDs',COALESCE(ARRAY_AGG(DISTINCT f.group_id) FILTER (WHERE f.cohort_trial),'{}'::BIGINT[])) AS metrics
+				FROM (SELECT normal.*,
+					(normal.admission->>'trial' = 'true'
+					 AND NULLIF(policy.value->'state'->>'cohort_id','') IS NOT NULL
+					 AND normal.admission->>'cohort_id'=policy.value->'state'->>'cohort_id'
+					 AND (COALESCE(normal.admission->>'policy_signature','')=''
+					      OR normal.admission->>'policy_signature'=policy.key)) AS cohort_trial
+					FROM eligible AS normal
+					WHERE normal.account_id=state.account_id AND normal.upstream_key_id=state.upstream_key_id
+					AND normal.completed_at>COALESCE(NULLIF(policy.value->'state'->>'quality_since','')::TIMESTAMPTZ,'-infinity'::TIMESTAMPTZ)) AS f) AS projection_window),'{}'::JSONB)
 	FROM upstream_cache_guard_accounts AS state
 	JOIN accounts AS account ON account.id=state.account_id AND account.upstream_key_id=state.upstream_key_id AND account.deleted_at IS NULL
 	LEFT JOIN eligible AS fact ON fact.account_id=state.account_id AND fact.upstream_key_id=state.upstream_key_id
@@ -230,16 +252,22 @@ func (r *upstreamCacheGuardRepository) AccountWindows(ctx context.Context, since
 	for rows.Next() {
 		var w upstreamcacheguard.AccountWindow
 		var stateJSON []byte
+		var policyJSON []byte
 		var latest sql.NullTime
 		var groups, trialGroups pq.Int64Array
 		if err = rows.Scan(&w.AccountID, &w.UpstreamKeyID, &w.Version, &stateJSON, &w.ValidRequests,
 			&w.TotalInputTokens, &w.CacheReadTokens, &w.TrialValidRequests,
 			&w.TrialInputTokens, &w.TrialCacheReadTokens, &w.TrialSessions,
-			&latest, &groups, &trialGroups); err != nil {
+			&latest, &groups, &trialGroups, &policyJSON); err != nil {
 			return nil, err
 		}
 		if err = json.Unmarshal(stateJSON, &w.State); err != nil {
 			return nil, fmt.Errorf("cache guard account window state decode: %w", err)
+		}
+		if len(policyJSON) > 0 {
+			if err = json.Unmarshal(policyJSON, &w.Policies); err != nil {
+				return nil, fmt.Errorf("cache guard policy window decode: %w", err)
+			}
 		}
 		if w.State.AccountID != w.AccountID || w.State.UpstreamKeyID != w.UpstreamKeyID {
 			return nil, errors.New("cache guard account window identity mismatch")

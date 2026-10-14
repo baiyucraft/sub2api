@@ -938,7 +938,9 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		payload = prepared.body
 		payloadBytes = len(payload)
 		imageBillingModel, imageSizeTier, imageInputSize = prepared.billing.Model, prepared.billing.SizeTier, prepared.billing.InputSize
-		cacheTurns.begin(turn, account, payload, gjson.GetBytes(payload, "model").String(), "openai_ws")
+		if _, err := cacheTurns.beginAdmitted(turn, account, payload, gjson.GetBytes(payload, "model").String(), "openai_ws"); err != nil {
+			return nil, err
+		}
 		if err := lease.WriteJSONWithContextTimeout(ctx, json.RawMessage(payload), s.openAIWSWriteTimeout()); err != nil {
 			return nil, wrapOpenAIWSIngressTurnError(
 				"write_upstream",

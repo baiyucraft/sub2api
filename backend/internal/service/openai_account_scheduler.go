@@ -3076,7 +3076,7 @@ func (s *OpenAIGatewayService) reportOpenAIAccountScheduleResult(groupID *int64,
 		}
 	}
 	if groupID != nil && *groupID > 0 && ((account != nil && account.Platform == PlatformOpenAI) || (account == nil && s != nil && s.isOpenAITTFTGuardEligibleAccount(accountID))) {
-		s.reportOpenAITTFTGuard(*groupID, accountID, model, success, firstTokenMs)
+		s.reportOpenAITTFTGuard(*groupID, accountID, model, success, firstTokenMs, accountUpstreamKeyID(account))
 	}
 	if success {
 		s.openaiOAuth429RetryStartedAt.Delete(accountID)

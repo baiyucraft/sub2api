@@ -17,6 +17,34 @@ func enabledOpenAITTFTGuardConfig(threshold time.Duration, minSamples int) OpenA
 
 func ttftGuardTestGroupID(value int64) *int64 { return &value }
 
+// A scheduling opportunity is not a recovery sample: claim the actual account
+// nomination, then finish only the successfully admitted physical attempt.
+func ttftGuardAdmitTestTrial(t *testing.T, guard *openAITTFTGuard, groupID, accountID, keyID int64, model string, cfg OpenAITTFTGuardConfigSnapshot) *openAITTFTTrial {
+	t.Helper()
+	candidates := []openAITTFTGuardCandidate{{groupID: groupID, accountID: accountID, upstreamKeyID: keyID, model: model}}
+	for i := 0; i < openAITTFTGuardProbeEvery; i++ {
+		if _, excluded := guard.exclusions(candidates, nil, cfg)[accountID]; excluded {
+			continue
+		}
+		account := &Account{ID: accountID}
+		if keyID > 0 {
+			account.UpstreamKeyID = &keyID
+		}
+		ticket := guard.claimTrial(groupID, account, model, cfg)
+		require.NotNil(t, ticket, "a nominated account must receive a frozen recovery ticket")
+		return ticket
+	}
+	t.Fatal("no recovery opportunity after 20 scheduling calls")
+	return nil
+}
+
+func ttftGuardCompleteTestTrial(t *testing.T, guard *openAITTFTGuard, groupID, accountID int64, model string, success bool, ms int, cfg OpenAITTFTGuardConfigSnapshot) {
+	t.Helper()
+	ticket := ttftGuardAdmitTestTrial(t, guard, groupID, accountID, 0, model, cfg)
+	guard.report(groupID, accountID, model, success, &ms, cfg)
+	ticket.finish(success, &ms)
+}
+
 func TestOpenAITTFTGuard_DegradationTriggers(t *testing.T) {
 	t.Run("single critical sample", func(t *testing.T) {
 		guard := newOpenAITTFTGuard()
@@ -56,13 +84,121 @@ func TestOpenAITTFTGuard_RecoveryNeedsThreeSuccessfulFastProbes(t *testing.T) {
 	guard.report(100, 1, "gpt-test", true, &critical, cfg)
 
 	fast := 12_000
-	guard.report(100, 1, "gpt-test", true, &fast, cfg)
-	guard.report(100, 1, "gpt-test", false, &fast, cfg)
-	guard.report(100, 1, "gpt-test", true, &fast, cfg)
+	for i := 0; i < 5; i++ {
+		guard.report(100, 1, "gpt-test", true, &fast, cfg)
+	}
+	require.Zero(t, guard.degradations([]int64{1})[1][0].RecoverySamples, "ordinary fast traffic cannot advance recovery")
+	ttftGuardCompleteTestTrial(t, guard, 100, 1, "gpt-test", true, fast, cfg)
+	ttftGuardCompleteTestTrial(t, guard, 100, 1, "gpt-test", false, fast, cfg)
+	ttftGuardCompleteTestTrial(t, guard, 100, 1, "gpt-test", true, fast, cfg)
 	require.True(t, guard.isDegraded(100, 1, "gpt-test"), "failed fast samples reset the recovery streak")
-	guard.report(100, 1, "gpt-test", true, &fast, cfg)
-	guard.report(100, 1, "gpt-test", true, &fast, cfg)
+	require.Equal(t, 1, guard.degradations([]int64{1})[1][0].RecoverySamples)
+	ttftGuardCompleteTestTrial(t, guard, 100, 1, "gpt-test", true, fast, cfg)
+	ttftGuardCompleteTestTrial(t, guard, 100, 1, "gpt-test", true, fast, cfg)
 	require.False(t, guard.isDegraded(100, 1, "gpt-test"))
+}
+
+func TestOpenAITTFTGuard_KeyAndModelIsolationWithCrossGroupSharedObservations(t *testing.T) {
+	guard := newOpenAITTFTGuard()
+	cfg := enabledOpenAITTFTGuardConfig(20*time.Second, 5)
+	critical, fast := 60_000, 1_000
+	guard.reportForKey(100, 1, 11, "gpt-real", true, &critical, cfg)
+	shared := guard.quality([]openAITTFTGuardCandidate{{groupID: 200, accountID: 1, upstreamKeyID: 11, model: "gpt-real"}}, cfg)
+	require.True(t, shared[1].Degraded)
+	require.Equal(t, uint64(1), shared[1].SampleCount, "reading another group must not double count the physical observation")
+	require.Empty(t, guard.quality([]openAITTFTGuardCandidate{{groupID: 200, accountID: 1, upstreamKeyID: 12, model: "gpt-real"}}, cfg), "a different upstream Key begins unknown")
+	require.Empty(t, guard.quality([]openAITTFTGuardCandidate{{groupID: 200, accountID: 1, upstreamKeyID: 11, model: "gpt-other"}}, cfg), "a different actual routed model begins unknown")
+	guard.reportForKey(200, 1, 12, "gpt-real", true, &fast, cfg)
+	current := guard.quality([]openAITTFTGuardCandidate{{groupID: 100, accountID: 1, upstreamKeyID: 12, model: "gpt-real"}}, cfg)[1]
+	require.False(t, current.Degraded)
+	require.Equal(t, uint64(1), current.SampleCount)
+	require.Equal(t, float64(fast), current.EWMAms)
+	require.False(t, guard.isDegraded(100, 1, "gpt-real"), "current Key lookup cannot reuse old Key protection")
+	require.Empty(t, guard.degradations([]int64{1}), "the current account summary must omit old Key evidence")
+	require.True(t, guard.quality([]openAITTFTGuardCandidate{{groupID: 100, accountID: 1, upstreamKeyID: 11, model: "gpt-real"}}, cfg)[1].Degraded, "old evidence remains independently identifiable")
+}
+
+func TestOpenAITTFTGuard_DisabledGroupSamplesContributeToDistinctMinimumPolicies(t *testing.T) {
+	guard := newOpenAITTFTGuard()
+	strict := enabledOpenAITTFTGuardConfig(20*time.Second, 2)
+	lenient := enabledOpenAITTFTGuardConfig(20*time.Second, 5)
+	disabled := lenient
+	disabled.Enabled = false
+	disabled.Source = GroupTTFTGuardSourceDisabled
+	sample := 21_000
+	guard.clearForConfig(100, strict)
+	guard.clearForConfig(200, lenient)
+	for i := 0; i < 2; i++ {
+		guard.report(300, 1, "gpt-real", true, &sample, disabled)
+	}
+	require.True(t, guard.isDegraded(100, 1, "gpt-real"), "samples from a disabled execution group are still shared business facts")
+	require.False(t, guard.isDegraded(200, 1, "gpt-real"), "different minimum sample counts get independent decisions")
+	require.False(t, guard.isDegraded(300, 1, "gpt-real"), "a disabled group never executes protection")
+	for i := 0; i < 3; i++ {
+		guard.report(300, 1, "gpt-real", true, &sample, disabled)
+	}
+	require.True(t, guard.isDegraded(200, 1, "gpt-real"))
+	require.Len(t, guard.observations, 1)
+	require.Len(t, guard.entries, 2)
+	for _, raw := range guard.observations {
+		require.Equal(t, uint64(5), raw.sampleCount, "a physical request contributes exactly once across all policy projections")
+	}
+}
+
+func TestOpenAITTFTGuard_TrialTicketsKeepAdmittedCyclesAndCannotCrossRecoveryEpoch(t *testing.T) {
+	guard := newOpenAITTFTGuard()
+	cfg := enabledOpenAITTFTGuardConfig(20*time.Second, 5)
+	critical, fast := 60_000, 10_000
+	guard.report(100, 1, "gpt-real", true, &critical, cfg)
+	candidates := []openAITTFTGuardCandidate{{groupID: 100, accountID: 1, model: "gpt-real"}}
+	var old, current, late *openAITTFTTrial
+	for round := 0; round < 2; round++ {
+		tickets := map[int64]*openAITTFTTrial{}
+		for i := 0; i < openAITTFTGuardProbeEvery; i++ {
+			guard.exclusions(candidates, nil, cfg, tickets)
+		}
+		require.NotNil(t, tickets[1], "the real admission opportunity freezes its own cycle")
+		if round == 0 {
+			old = tickets[1]
+			late = guard.claimTrial(100, &Account{ID: 1}, "gpt-real", cfg)
+			require.NotNil(t, late)
+		} else {
+			current = tickets[1]
+		}
+	}
+	guard.report(100, 1, "gpt-real", true, &fast, cfg)
+	old.finish(true, &fast)
+	require.Equal(t, 1, guard.degradations([]int64{1})[1][0].RecoverySamples, "a newer admission opportunity must not cancel an already admitted trial")
+	current.finish(true, &fast)
+	current.finish(true, &fast)
+	require.Equal(t, 2, guard.degradations([]int64{1})[1][0].RecoverySamples, "distinct admitted cycles count once and one physical trial cannot finish twice")
+	guard.report(100, 1, "gpt-real", true, &fast, cfg)
+	require.Equal(t, 2, guard.degradations([]int64{1})[1][0].RecoverySamples, "ordinary fast traffic cannot advance a frozen trial cycle")
+	ttftGuardCompleteTestTrial(t, guard, 100, 1, "gpt-real", true, fast, cfg)
+	require.False(t, guard.isDegraded(100, 1, "gpt-real"))
+	guard.report(100, 1, "gpt-real", true, &critical, cfg)
+	require.True(t, guard.isDegraded(100, 1, "gpt-real"))
+	late.finish(true, &fast)
+	require.Zero(t, guard.degradations([]int64{1})[1][0].RecoverySamples, "an unfinished ticket from before recovery cannot advance the new degradation epoch")
+}
+
+func TestOpenAITTFTGuard_TrialTicketCannotCrossPolicyDisableAndReenable(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	guard := newOpenAITTFTGuardWithOptions(16, time.Hour, func() time.Time { return now })
+	cfg := enabledOpenAITTFTGuardConfig(20*time.Second, 5)
+	critical, fast := 60_000, 10_000
+	guard.report(100, 1, "gpt-real", true, &critical, cfg)
+	old := ttftGuardAdmitTestTrial(t, guard, 100, 1, 0, "gpt-real", cfg)
+	disabled := cfg
+	disabled.Enabled = false
+	guard.clearForConfig(100, disabled)
+	guard.clearForConfig(100, cfg)
+	current := ttftGuardAdmitTestTrial(t, guard, 100, 1, 0, "gpt-real", cfg)
+	guard.report(100, 1, "gpt-real", true, &fast, cfg)
+	old.finish(true, &fast)
+	require.Zero(t, guard.degradations([]int64{1})[1][0].RecoverySamples, "recreating a policy projection must not reuse an old trial generation, even when shared evidence has the same timestamp")
+	current.finish(true, &fast)
+	require.Equal(t, 1, guard.degradations([]int64{1})[1][0].RecoverySamples)
 }
 
 func TestOpenAITTFTGuard_GlobalFivePercentProbe(t *testing.T) {
@@ -89,7 +225,7 @@ func TestOpenAITTFTGuard_GlobalFivePercentProbe(t *testing.T) {
 	require.NotContains(t, secondProbe, int64(2))
 }
 
-func TestOpenAITTFTGuard_ProbeCadenceIsIsolatedByGroupAndCanonicalModel(t *testing.T) {
+func TestOpenAITTFTGuard_ProbeCadenceIsIsolatedByEffectivePolicyAndCanonicalModel(t *testing.T) {
 	guard := newOpenAITTFTGuard()
 	cfg := enabledOpenAITTFTGuardConfig(20*time.Second, 5)
 	critical := 60_000
@@ -124,7 +260,7 @@ func TestOpenAITTFTGuard_InheritedGlobalProbeCadenceIsSharedAcrossGroups(t *test
 	require.NotContains(t, guard.exclusions(groupTwo, nil, cfg), int64(1), "inherited groups must share recovery probe cadence")
 }
 
-func TestOpenAITTFTGuard_CustomProbeCadenceIsIsolatedAcrossGroups(t *testing.T) {
+func TestOpenAITTFTGuard_CustomProbeCadenceIsIsolatedByEffectiveParameters(t *testing.T) {
 	guard := newOpenAITTFTGuard()
 	groupOneCfg := enabledOpenAITTFTGuardConfig(10*time.Second, 5)
 	groupOneCfg.Source = GroupTTFTGuardSourceGroup
@@ -144,7 +280,7 @@ func TestOpenAITTFTGuard_CustomProbeCadenceIsIsolatedAcrossGroups(t *testing.T) 
 	require.NotContains(t, guard.exclusions(groupOne, nil, groupOneCfg), int64(1))
 }
 
-func TestOpenAITTFTGuard_ClearGroupRemovesAllModelProbeState(t *testing.T) {
+func TestOpenAITTFTGuard_ClearGroupStopsProjectionWithoutErasingSharedEvidence(t *testing.T) {
 	guard := newOpenAITTFTGuard()
 	cfg := enabledOpenAITTFTGuardConfig(20*time.Second, 5)
 	cfg.Source = GroupTTFTGuardSourceGroup
@@ -158,13 +294,10 @@ func TestOpenAITTFTGuard_ClearGroupRemovesAllModelProbeState(t *testing.T) {
 
 	guard.clearGroup(100)
 
-	for key := range guard.entries {
-		require.NotEqual(t, int64(100), key.scopeID)
-	}
-	for key := range guard.groupProbes {
-		require.NotEqual(t, int64(100), key.scopeID)
-	}
+	require.False(t, guard.isDegraded(100, 1, "model-a"), "an unregistered group must not execute protection")
+	require.Len(t, guard.observations, 3, "removing a group must preserve all shared business samples")
 	require.True(t, guard.isDegraded(200, 3, "model-c"), "clearing one group must not remove another group's state")
+	require.Contains(t, guard.exclusions([]openAITTFTGuardCandidate{{groupID: 200, accountID: 1, model: "model-a"}}, nil, cfg), int64(1), "another active group must retain the removed group's shared model evidence")
 }
 
 func TestOpenAITTFTGuard_GroupNameChangePreservesRuntimeState(t *testing.T) {
@@ -201,7 +334,7 @@ func TestOpenAITTFTGuard_InheritedGlobalStateIsSharedAcrossGroupsAndIsolatedByMo
 	require.NotContains(t, otherModel, int64(7))
 }
 
-func TestOpenAITTFTGuard_CustomStateIsScopedByGroupAndCascadesByThreshold(t *testing.T) {
+func TestOpenAITTFTGuard_CustomAndInheritedSourcesShareIdenticalEffectivePolicy(t *testing.T) {
 	guard := newOpenAITTFTGuard()
 	sourceCfg := enabledOpenAITTFTGuardConfig(20*time.Second, 5)
 	sourceCfg.Source = GroupTTFTGuardSourceGroup
@@ -209,11 +342,14 @@ func TestOpenAITTFTGuard_CustomStateIsScopedByGroupAndCascadesByThreshold(t *tes
 	guard.report(100, 7, "gpt-slow", true, &critical, sourceCfg)
 
 	require.Contains(t, guard.exclusions([]openAITTFTGuardCandidate{{groupID: 100, accountID: 7, model: "gpt-slow"}}, nil, sourceCfg), int64(7))
-	require.Contains(t, guard.exclusions([]openAITTFTGuardCandidate{{groupID: 200, accountID: 7, model: "gpt-slow"}}, nil, sourceCfg), int64(7), "equal thresholds cascade to another custom group")
+	inherited := sourceCfg
+	inherited.Source = GroupTTFTGuardSourceGlobal
+	require.Contains(t, guard.exclusions([]openAITTFTGuardCandidate{{groupID: 200, accountID: 7, model: "gpt-slow"}}, nil, inherited), int64(7), "identical effective parameters share the observation and decision regardless of configuration source")
+	require.Len(t, guard.entries, 1)
 	require.NotContains(t, guard.exclusions([]openAITTFTGuardCandidate{{groupID: 100, accountID: 7, model: "gpt-fast"}}, nil, sourceCfg), int64(7))
 }
 
-func TestOpenAITTFTGuard_LargerThresholdCascadesToStricterGroupsWithoutTargetProbe(t *testing.T) {
+func TestOpenAITTFTGuard_SharedCriticalObservationCreatesIndependentThresholdProbes(t *testing.T) {
 	guard := newOpenAITTFTGuard()
 	sourceCfg := enabledOpenAITTFTGuardConfig(30*time.Second, 20)
 	sourceCfg.Source = GroupTTFTGuardSourceGroup
@@ -223,16 +359,18 @@ func TestOpenAITTFTGuard_LargerThresholdCascadesToStricterGroupsWithoutTargetPro
 	guard.report(100, 7, "gpt-test", true, &critical, sourceCfg)
 
 	candidate := []openAITTFTGuardCandidate{{groupID: 200, accountID: 7, model: "gpt-test"}}
-	for i := 0; i < openAITTFTGuardProbeEvery+2; i++ {
-		require.Contains(t, guard.exclusions(candidate, nil, targetCfg), int64(7), "target scope must not probe around a cascaded exclusion")
+	for i := 1; i < openAITTFTGuardProbeEvery; i++ {
+		require.Contains(t, guard.exclusions(candidate, nil, targetCfg), int64(7))
 	}
+	require.NotContains(t, guard.exclusions(candidate, nil, targetCfg), int64(7), "each distinct policy owns its own recovery cadence")
+	require.Contains(t, guard.exclusions([]openAITTFTGuardCandidate{{groupID: 100, accountID: 7, model: "gpt-test"}}, nil, sourceCfg), int64(7), "target probe calls must not advance the other threshold's cadence")
 
 	lenientCfg := enabledOpenAITTFTGuardConfig(40*time.Second, 2)
 	lenientCfg.Source = GroupTTFTGuardSourceGroup
-	require.NotContains(t, guard.exclusions(candidate, nil, lenientCfg), int64(7), "a stricter source must not exclude a more lenient group")
+	require.NotContains(t, guard.exclusions(candidate, nil, lenientCfg), int64(7), "a single 90s sample is insufficient at a 40s threshold and two-sample minimum")
 }
 
-func TestOpenAITTFTGuard_CascadeClearsWhenSourceRecovers(t *testing.T) {
+func TestOpenAITTFTGuard_RecoveryResetsOnlyTheMatchingPolicyBoundary(t *testing.T) {
 	guard := newOpenAITTFTGuard()
 	sourceCfg := enabledOpenAITTFTGuardConfig(30*time.Second, 5)
 	sourceCfg.Source = GroupTTFTGuardSourceGroup
@@ -245,12 +383,17 @@ func TestOpenAITTFTGuard_CascadeClearsWhenSourceRecovers(t *testing.T) {
 	require.Contains(t, guard.exclusions(candidate, nil, targetCfg), int64(7))
 
 	for i := 0; i < openAITTFTGuardRecoverySamples; i++ {
-		guard.report(100, 7, "gpt-test", true, &fast, sourceCfg)
+		ttftGuardCompleteTestTrial(t, guard, 100, 7, "gpt-test", true, fast, sourceCfg)
 	}
-	require.NotContains(t, guard.exclusions(candidate, nil, targetCfg), int64(7), "target scope follows source recovery")
+	require.False(t, guard.isDegraded(100, 7, "gpt-test"))
+	require.Contains(t, guard.exclusions(candidate, nil, targetCfg), int64(7), "another threshold keeps its independent degradation and recovery progress")
+	require.Zero(t, guard.degradations([]int64{7})[7][0].RecoverySamples)
+	rawKey, ok := openAITTFTGuardKeyFor(0, 7, "gpt-test")
+	require.True(t, ok)
+	require.Equal(t, uint64(4), guard.observations[rawKey].sampleCount, "successful recovery must not erase shared observations")
 }
 
-func TestOpenAITTFTGuard_EqualThresholdUsesDeterministicRecoverySource(t *testing.T) {
+func TestOpenAITTFTGuard_IdenticalParametersShareRecoveryAcrossGroups(t *testing.T) {
 	guard := newOpenAITTFTGuard()
 	cfg := enabledOpenAITTFTGuardConfig(20*time.Second, 5)
 	cfg.Source = GroupTTFTGuardSourceGroup
@@ -259,12 +402,27 @@ func TestOpenAITTFTGuard_EqualThresholdUsesDeterministicRecoverySource(t *testin
 
 	groupOne := []openAITTFTGuardCandidate{{groupID: 100, accountID: 1, model: "gpt-test"}}
 	groupTwo := []openAITTFTGuardCandidate{{groupID: 200, accountID: 1, model: "gpt-test"}}
-	for i := 0; i < openAITTFTGuardProbeEvery-1; i++ {
-		require.Contains(t, guard.exclusions(groupOne, nil, cfg), int64(1))
-		require.Contains(t, guard.exclusions(groupTwo, nil, cfg), int64(1), "other equal-threshold scopes remain cascaded")
+	for i := 1; i < openAITTFTGuardProbeEvery; i++ {
+		candidate := groupOne
+		if i%2 == 0 {
+			candidate = groupTwo
+		}
+		require.Contains(t, guard.exclusions(candidate, nil, cfg), int64(1))
 	}
-	require.NotContains(t, guard.exclusions(groupOne, nil, cfg), int64(1), "source scope owns recovery probing")
-	require.Contains(t, guard.exclusions(groupTwo, nil, cfg), int64(1), "cascade must not be bypassed by target probing")
+	require.NotContains(t, guard.exclusions(groupTwo, nil, cfg), int64(1), "shared cadence can nominate a trial in either group")
+	ticket := guard.claimTrial(200, &Account{ID: 1}, "gpt-test", cfg)
+	require.NotNil(t, ticket)
+	fast := 10_000
+	guard.report(200, 1, "gpt-test", true, &fast, cfg)
+	ticket.finish(true, &fast)
+	ttftGuardCompleteTestTrial(t, guard, 100, 1, "gpt-test", true, fast, cfg)
+	items := guard.degradations([]int64{1})[1]
+	require.Len(t, items, 2)
+	require.Equal(t, 2, items[0].RecoverySamples)
+	require.Equal(t, 2, items[1].RecoverySamples)
+	ttftGuardCompleteTestTrial(t, guard, 200, 1, "gpt-test", true, fast, cfg)
+	require.False(t, guard.isDegraded(100, 1, "gpt-test"))
+	require.False(t, guard.isDegraded(200, 1, "gpt-test"))
 }
 
 func TestOpenAITTFTGuard_DifferentGroupThresholdsAreIndependent(t *testing.T) {
@@ -284,7 +442,7 @@ func TestOpenAITTFTGuard_DifferentGroupThresholdsAreIndependent(t *testing.T) {
 	require.False(t, guard.isDegraded(202, 7, "gpt-test"))
 }
 
-func TestOpenAITTFTGuard_GlobalChangeClearsOnlyInheritedGroups(t *testing.T) {
+func TestOpenAITTFTGuard_GlobalChangeReevaluatesSharedFactsOnlyForInheritedGroups(t *testing.T) {
 	guard := newOpenAITTFTGuard()
 	inherited := enabledOpenAITTFTGuardConfig(20*time.Second, 5)
 	custom := enabledOpenAITTFTGuardConfig(20*time.Second, 5)
@@ -296,8 +454,11 @@ func TestOpenAITTFTGuard_GlobalChangeClearsOnlyInheritedGroups(t *testing.T) {
 	changedGlobal := enabledOpenAITTFTGuardConfig(21*time.Second, 5)
 	guard.clearInheritedConfigMismatch(changedGlobal)
 
-	require.False(t, guard.isDegraded(101, 7, "gpt-test"))
+	require.True(t, guard.isDegraded(101, 7, "gpt-test"), "two shared 60s samples still exceed the new 1.5T rule")
 	require.True(t, guard.isDegraded(202, 7, "gpt-test"))
+	require.Equal(t, 21*time.Second, guard.groupConfigs[101].Threshold)
+	require.Equal(t, 20*time.Second, guard.groupConfigs[202].Threshold)
+	require.Equal(t, uint64(2), guard.degradations([]int64{7})[7][0].SampleCount)
 }
 
 func TestOpenAITTFTGuard_DisabledGroupDoesNotClearInheritedGlobalState(t *testing.T) {
@@ -314,7 +475,7 @@ func TestOpenAITTFTGuard_DisabledGroupDoesNotClearInheritedGlobalState(t *testin
 	require.Contains(t, guard.exclusions([]openAITTFTGuardCandidate{{groupID: 303, accountID: 7, model: "gpt-test"}}, nil, global), int64(7))
 }
 
-func TestOpenAITTFTGuard_GlobalSnapshotUsesMostRecentSampleGroup(t *testing.T) {
+func TestOpenAITTFTGuard_SnapshotListsAllRegisteredGroupsWithStableSharedStatistics(t *testing.T) {
 	guard := newOpenAITTFTGuard()
 	cfg := enabledOpenAITTFTGuardConfig(20*time.Second, 5)
 	critical := 60_000
@@ -324,14 +485,17 @@ func TestOpenAITTFTGuard_GlobalSnapshotUsesMostRecentSampleGroup(t *testing.T) {
 	guard.report(202, 7, "gpt-test", true, &critical, cfg)
 
 	items := guard.degradations([]int64{7})[7]
-	require.Len(t, items, 1)
-	require.Equal(t, int64(202), items[0].GroupID)
-	require.Equal(t, "second", items[0].GroupName)
+	require.Len(t, items, 2)
+	require.Equal(t, int64(101), items[0].GroupID)
+	require.Equal(t, "first", items[0].GroupName)
+	require.Equal(t, int64(202), items[1].GroupID)
+	require.Equal(t, "second", items[1].GroupName)
 	require.Equal(t, GroupTTFTGuardSourceGlobal, items[0].PolicySource)
 	require.Equal(t, uint64(2), items[0].SampleCount)
+	require.Equal(t, items[0].SampleCount, items[1].SampleCount)
 }
 
-func TestOpenAITTFTGuard_TTLAndLRU(t *testing.T) {
+func TestOpenAITTFTGuard_TTLAndBoundedObservationState(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 	guard := newOpenAITTFTGuardWithOptions(2, 15*time.Minute, func() time.Time { return now })
 	cfg := enabledOpenAITTFTGuardConfig(20*time.Second, 5)
@@ -344,12 +508,18 @@ func TestOpenAITTFTGuard_TTLAndLRU(t *testing.T) {
 	now = now.Add(time.Second)
 	guard.report(100, 3, "gpt-test", true, &critical, cfg)
 
-	require.True(t, guard.isDegraded(100, 1, "gpt-test"))
-	require.False(t, guard.isDegraded(100, 2, "gpt-test"), "least recently used entry must be evicted")
+	require.False(t, guard.isDegraded(100, 1, "gpt-test"), "bounded shared facts evict the oldest physical observation; status reads must not refresh its age")
+	require.True(t, guard.isDegraded(100, 2, "gpt-test"))
 	require.True(t, guard.isDegraded(100, 3, "gpt-test"))
+	require.LessOrEqual(t, len(guard.entries), 2)
+	require.LessOrEqual(t, len(guard.observations), 2)
 
 	now = now.Add(15 * time.Minute)
 	require.Zero(t, guard.size())
+	require.Empty(t, guard.quality([]openAITTFTGuardCandidate{{groupID: 100, accountID: 3, model: "gpt-test"}}, cfg), "expired observations cannot imply healthy or degraded current quality")
+	now = now.Add(15 * time.Minute)
+	guard.size()
+	require.Empty(t, guard.observations, "even expired shared evidence must remain bounded in time")
 }
 
 func TestOpenAITTFTGuard_DegradationSnapshots(t *testing.T) {
@@ -368,7 +538,9 @@ func TestOpenAITTFTGuard_DegradationSnapshots(t *testing.T) {
 	aDegradedAt := now
 	guard.report(100, 2, "other-model", true, &critical, cfg)
 
-	key, ok := openAITTFTGuardKeyFor(0, 1, "a-model")
+	scope, valid := openAITTFTGuardScopeFor(100, cfg)
+	require.True(t, valid)
+	key, ok := openAITTFTGuardKeyFor(scope, 1, "a-model")
 	require.True(t, ok)
 	touchedAt := guard.entries[key].lastTouchedAt
 	snapshots := guard.degradations([]int64{2, 1, 1, 0})
@@ -408,13 +580,13 @@ func TestOpenAITTFTGuard_DegradationSnapshotsTrackRecoveryAndCleanup(t *testing.
 
 	fast := 10_000
 	now = now.Add(time.Minute)
-	guard.report(100, 1, "gpt-test", true, &fast, cfg)
+	ttftGuardCompleteTestTrial(t, guard, 100, 1, "gpt-test", true, fast, cfg)
 	snapshots := guard.degradations([]int64{1})
 	require.Equal(t, 1, snapshots[1][0].RecoverySamples)
 	require.Equal(t, now.Add(15*time.Minute), snapshots[1][0].ExpiresAt)
 
-	guard.report(100, 1, "gpt-test", true, &fast, cfg)
-	guard.report(100, 1, "gpt-test", true, &fast, cfg)
+	ttftGuardCompleteTestTrial(t, guard, 100, 1, "gpt-test", true, fast, cfg)
+	ttftGuardCompleteTestTrial(t, guard, 100, 1, "gpt-test", true, fast, cfg)
 	require.Empty(t, guard.degradations([]int64{1}), "recovery must remove the degradation snapshot")
 
 	guard.report(100, 1, "gpt-test", true, &critical, cfg)
@@ -427,7 +599,7 @@ func TestOpenAITTFTGuard_DegradationSnapshotsTrackRecoveryAndCleanup(t *testing.
 	disabled.Enabled = false
 	guard.exclusions([]openAITTFTGuardCandidate{{groupID: 100, accountID: 1, model: "gpt-test"}}, nil, disabled)
 	require.Empty(t, guard.degradations([]int64{1}))
-	require.Zero(t, guard.size(), "disabling the guard through a snapshot read must clear transient state")
+	require.Len(t, guard.observations, 1, "disabling execution must preserve shared account evidence")
 }
 
 func TestOpenAITTFTGuard_DegradationSnapshotReportsEWMAReason(t *testing.T) {
@@ -443,23 +615,28 @@ func TestOpenAITTFTGuard_DegradationSnapshotReportsEWMAReason(t *testing.T) {
 	require.Equal(t, "ewma", snapshots[9][0].Reason)
 }
 
-func TestOpenAITTFTGuard_ConfigChangeClearsTransientState(t *testing.T) {
+func TestOpenAITTFTGuard_ConfigChangeReevaluatesFactsWithoutClearingOtherPolicy(t *testing.T) {
 	guard := newOpenAITTFTGuard()
 	cfg := enabledOpenAITTFTGuardConfig(20*time.Second, 5)
 	critical := 60_000
 	guard.report(100, 1, "gpt-test", true, &critical, cfg)
+	guard.clearForConfig(200, cfg)
 	require.True(t, guard.isDegraded(100, 1, "gpt-test"))
 
 	changed := enabledOpenAITTFTGuardConfig(21*time.Second, 5)
 	require.Empty(t, guard.exclusions([]openAITTFTGuardCandidate{{groupID: 100, accountID: 1, model: "gpt-test"}}, nil, changed))
-	require.Zero(t, guard.size())
+	require.Len(t, guard.observations, 1)
+	require.False(t, guard.isDegraded(100, 1, "gpt-test"), "one 60s sample is insufficient under the new 21s threshold")
 	guard.report(100, 1, "gpt-test", true, &critical, changed)
-	require.False(t, guard.isDegraded(100, 1, "gpt-test"), "60s is below the new 3T critical threshold")
+	require.True(t, guard.isDegraded(100, 1, "gpt-test"), "the prior 60s sample remains valid shared evidence for two consecutive elevated observations")
+	require.Len(t, guard.entries, 2, "both effective policy states remain independent")
+	require.Contains(t, guard.exclusions([]openAITTFTGuardCandidate{{groupID: 200, accountID: 1, model: "gpt-test"}}, nil, cfg), int64(1))
 
 	disabled := changed
 	disabled.Enabled = false
 	guard.exclusions([]openAITTFTGuardCandidate{{groupID: 100, accountID: 1, model: "gpt-test"}}, nil, disabled)
-	require.Zero(t, guard.size())
+	require.False(t, guard.isDegraded(100, 1, "gpt-test"))
+	require.True(t, guard.isDegraded(200, 1, "gpt-test"), "disabling one group must not stop another policy")
 }
 
 func TestOpenAITTFTGuard_ConcurrentAccess(t *testing.T) {
@@ -580,7 +757,7 @@ func TestOpenAIGatewayService_TTFTGuardOnlyValidGlobalDisableClearsState(t *test
 	})
 }
 
-func TestOpenAIGatewayService_TTFTGuardMappedModelCrossesPriority(t *testing.T) {
+func TestOpenAIGatewayService_TTFTGuardMappedModelWithinPriorityPool(t *testing.T) {
 	ctx := context.Background()
 	groupID := int64(901)
 	accounts := []Account{
@@ -591,7 +768,7 @@ func TestOpenAIGatewayService_TTFTGuardMappedModelCrossesPriority(t *testing.T) 
 		},
 		{
 			ID: 2, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true,
-			Concurrency: 1, Priority: 3,
+			Concurrency: 1, Priority: 2,
 			Credentials: map[string]any{"model_mapping": map[string]any{"client-model": "upstream-fast"}},
 		},
 	}
@@ -611,6 +788,31 @@ func TestOpenAIGatewayService_TTFTGuardMappedModelCrossesPriority(t *testing.T) 
 	require.NoError(t, err)
 	require.NotNil(t, selection)
 	require.Equal(t, int64(2), selection.Account.ID)
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
+}
+
+func TestOpenAIGatewayService_TTFTGuardPreservesOuterPriorityPool(t *testing.T) {
+	groupID := int64(903)
+	accounts := []Account{
+		{ID: 81, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 2},
+		{ID: 82, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 3},
+	}
+	svc := &OpenAIGatewayService{
+		accountRepo: schedulerTestOpenAIAccountRepo{accounts: accounts}, cfg: &config.Config{},
+		rateLimitService:   newOpenAIAdvancedSchedulerRateLimitService("true"),
+		concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{}),
+	}
+	svc.SetOpenAITTFTGuardConfigProvider(openAITTFTGuardConfigProviderFunc(func() OpenAITTFTGuardConfigSnapshot {
+		return enabledOpenAITTFTGuardConfig(20*time.Second, 5)
+	}))
+	critical := 60_000
+	svc.ReportOpenAIAccountScheduleResultForGroup(&groupID, &accounts[0], "gpt-test", true, &critical)
+	selection, _, err := svc.SelectAccountWithScheduler(context.Background(), &groupID, "", "", "gpt-test", nil, OpenAIUpstreamTransportAny, false)
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.Equal(t, int64(81), selection.Account.ID, "soft quality ordering stays within the outer account-priority pool")
 	if selection.ReleaseFunc != nil {
 		selection.ReleaseFunc()
 	}
@@ -747,10 +949,10 @@ func TestOpenAIGatewayService_TTFTGuardPreservesStickyBinding(t *testing.T) {
 			ctx := context.Background()
 			groupID := int64(902)
 			accounts := []Account{
-				{ID: 21, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 2},
-				{ID: 22, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 3},
+				{ID: 21, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 2, GroupIDs: []int64{groupID}},
+				{ID: 22, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 2, GroupIDs: []int64{groupID}},
 			}
-			cache := &schedulerTestGatewayCache{sessionBindings: map[string]int64{"sticky": 21}}
+			cache := &schedulerTestGatewayCache{sessionBindings: make(map[string]int64)}
 			svc := &OpenAIGatewayService{
 				accountRepo:        schedulerTestOpenAIAccountRepo{accounts: accounts},
 				cache:              cache,
@@ -758,6 +960,7 @@ func TestOpenAIGatewayService_TTFTGuardPreservesStickyBinding(t *testing.T) {
 				rateLimitService:   newOpenAIAdvancedSchedulerRateLimitService(map[bool]string{false: "false", true: "true"}[advanced]),
 				concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{}),
 			}
+			cache.sessionBindings[svc.openAISessionCacheKey("sticky")] = 21
 			svc.SetOpenAITTFTGuardConfigProvider(openAITTFTGuardConfigProviderFunc(func() OpenAITTFTGuardConfigSnapshot {
 				return enabledOpenAITTFTGuardConfig(20*time.Second, 5)
 			}))
@@ -768,10 +971,16 @@ func TestOpenAIGatewayService_TTFTGuardPreservesStickyBinding(t *testing.T) {
 			selection, _, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "sticky", "gpt-test", nil, OpenAIUpstreamTransportAny, false)
 			require.NoError(t, err)
 			require.NotNil(t, selection)
-			require.Equal(t, int64(22), selection.Account.ID)
-			require.Equal(t, int64(21), cache.sessionBindings["sticky"])
+			require.Equal(t, int64(21), selection.Account.ID, "shared account degradation alone must not move an existing session")
+			require.Equal(t, int64(21), cache.sessionBindings[svc.openAISessionCacheKey("sticky")])
 			if selection.ReleaseFunc != nil {
 				selection.ReleaseFunc()
+			}
+			newSession, _, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "", "gpt-test", nil, OpenAIUpstreamTransportAny, false)
+			require.NoError(t, err)
+			require.Equal(t, int64(22), newSession.Account.ID, "new sessions can avoid the slow account in the same priority pool")
+			if newSession.ReleaseFunc != nil {
+				newSession.ReleaseFunc()
 			}
 		})
 	}
@@ -832,7 +1041,7 @@ func TestOpenAIGatewayService_TTFTGuardMovablePreviousResponseStillApplies(t *te
 	groupID := int64(100)
 	accounts := []Account{
 		{ID: 41, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 2},
-		{ID: 42, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 3},
+		{ID: 42, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 2},
 	}
 	svc := &OpenAIGatewayService{
 		accountRepo:        schedulerTestOpenAIAccountRepo{accounts: accounts},
@@ -910,7 +1119,7 @@ func TestOpenAIGatewayService_TTFTGuardUnknownOrStalePreviousResponseUsesOverlay
 			groupID := int64(904)
 			accounts := []Account{
 				{ID: 53, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 2, GroupIDs: []int64{groupID}},
-				{ID: 54, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 3, GroupIDs: []int64{groupID}},
+				{ID: 54, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 2, GroupIDs: []int64{groupID}},
 			}
 			svc := &OpenAIGatewayService{
 				accountRepo:        schedulerGroupAwareOpenAIAccountRepo{schedulerTestOpenAIAccountRepo{accounts: accounts}},
@@ -950,8 +1159,8 @@ func TestOpenAIGatewayService_TTFTGuardSharesInheritedGlobalStateAcrossGroups(t 
 			groupTwo := int64(912)
 			accounts := []Account{
 				{ID: 61, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 2, GroupIDs: []int64{groupOne, groupTwo}},
-				{ID: 62, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 3, GroupIDs: []int64{groupOne}},
-				{ID: 63, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 3, GroupIDs: []int64{groupTwo}},
+				{ID: 62, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 2, GroupIDs: []int64{groupOne}},
+				{ID: 63, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 2, GroupIDs: []int64{groupTwo}},
 			}
 			svc := &OpenAIGatewayService{
 				accountRepo:        schedulerGroupAwareOpenAIAccountRepo{schedulerTestOpenAIAccountRepo{accounts: accounts}},
@@ -985,13 +1194,13 @@ func TestOpenAIGatewayService_TTFTGuardSharesInheritedGlobalStateAcrossGroups(t 
 	}
 }
 
-func TestOpenAIGatewayService_TTFTGuardCascadesEqualThresholdAcrossGroups(t *testing.T) {
+func TestOpenAIGatewayService_TTFTGuardSharesIdenticalCustomPolicyAcrossGroups(t *testing.T) {
 	groupOne := int64(913)
 	groupTwo := int64(914)
 	accounts := []Account{
 		{ID: 64, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 2, GroupIDs: []int64{groupOne, groupTwo}},
-		{ID: 65, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 3, GroupIDs: []int64{groupOne}},
-		{ID: 66, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 3, GroupIDs: []int64{groupTwo}},
+		{ID: 65, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 2, GroupIDs: []int64{groupOne}},
+		{ID: 66, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 2, GroupIDs: []int64{groupTwo}},
 	}
 	resolver := &openAITTFTGuardPolicyResolverStub{policies: map[int64]GroupTTFTGuardResolvedPolicy{
 		groupOne: {GroupID: groupOne, GroupName: "strict", Enabled: true, Threshold: 20 * time.Second, MinSamples: 5, Source: GroupTTFTGuardSourceGroup},

@@ -280,6 +280,39 @@ func TestCacheGuardAccountPostgres(t *testing.T) {
 	if !fresh || legacyAccount.Phase != upstreamcacheguard.Cooling || legacyAccount.CooldownUntil.IsZero() {
 		t.Fatalf("legacy protection lifted by bootstrap: %+v fresh=%v", legacyAccount, fresh)
 	}
+	custom := settings
+	custom.ThresholdPercent, custom.RecoveryThresholdPercent, custom.MinValidRequests = 60, 90, 2
+	if err := engine.ApplyPolicySettings(map[int64]upstreamcacheguard.Settings{10: custom}); err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.Refresh(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.TransactAccount(ctx, 0, 2, 5, func(rawTx upstreamcacheguard.Tx) error {
+		tx := rawTx.(upstreamcacheguard.AccountTx)
+		var a upstreamcacheguard.AccountState
+		if _, err := tx.ReadAccount(2, 5, &a); err != nil {
+			return err
+		}
+		p := a.Policies[upstreamcacheguard.PolicySignature(custom)]
+		p.State.Phase, p.State.CohortID = upstreamcacheguard.Trial, "separate-custom-cohort"
+		p.State.FirstTrialAt = windowNow.Add(-11 * time.Minute)
+		a.Policies[upstreamcacheguard.PolicySignature(custom)] = p
+		_, err := tx.WriteAccount(2, 5, a)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	windows, err = repo.AccountWindows(ctx, windowNow.Add(-6*time.Minute), windowNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	window = windows["2:5"]
+	globalWindow := window.Policies[upstreamcacheguard.PolicySignature(settings)]
+	customWindow := window.Policies[upstreamcacheguard.PolicySignature(custom)]
+	if window.ValidRequests != 6 || window.TotalInputTokens != 1200 || globalWindow.ValidRequests != 5 || globalWindow.TrialValidRequests != 2 || customWindow.ValidRequests != 6 || customWindow.TrialValidRequests != 0 {
+		t.Fatalf("shared facts/policy reset/cohort isolation: shared=%+v global=%+v custom=%+v", window, globalWindow, customWindow)
+	}
 	if _, err := scopedDB.ExecContext(ctx, `UPDATE accounts SET upstream_key_id=7 WHERE id=2`); err != nil {
 		t.Fatal(err)
 	}
@@ -315,9 +348,12 @@ func cacheGuardScopedDSN(dsn, schema string) string {
 		if err == nil {
 			q := u.Query()
 			q.Set("search_path", schema)
+			// Exercise JSON timestamps in a non-UTC session, including empty
+			// policy windows whose zero instant has a historical second offset.
+			q.Set("TimeZone", "Asia/Shanghai")
 			u.RawQuery = q.Encode()
 			return u.String()
 		}
 	}
-	return dsn + " search_path=" + schema
+	return dsn + " search_path=" + schema + " TimeZone=Asia/Shanghai"
 }

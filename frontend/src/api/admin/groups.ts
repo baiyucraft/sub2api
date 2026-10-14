@@ -50,6 +50,59 @@ export interface UpdateGroupTTFTGuardPolicyRequest {
   min_samples?: number | null
 }
 
+export type UpstreamSchedulingPriority = 'cache_first' | 'ttft_first'
+export interface GroupCacheGuardPolicy {
+  mode: GroupTTFTGuardPolicyMode
+  threshold_percent: number | null
+  recovery_threshold_percent: number | null
+  min_valid_requests: number | null
+  effective_mode: 'disabled' | 'observe' | 'protect'
+  effective_threshold_percent: number
+  effective_recovery_threshold_percent: number
+  effective_min_valid_requests: number
+  global_mode: 'disabled' | 'observe' | 'protect'
+  global_threshold_percent: number
+  global_recovery_threshold_percent: number
+  global_min_valid_requests: number
+  window_minutes: number
+  cooldown_minutes: number
+  trial_percent: number
+  source: GroupTTFTGuardPolicySource
+}
+export interface GroupUpstreamProtectionPolicy {
+  group_id: number
+  group_name: string
+  group_platform: GroupPlatform
+  priority: 'inherit' | UpstreamSchedulingPriority
+  effective_priority: UpstreamSchedulingPriority
+  global_priority: UpstreamSchedulingPriority
+  priority_source: 'global' | 'group'
+  ttft: GroupTTFTGuardPolicy
+  cache: GroupCacheGuardPolicy
+  updated_at?: string
+}
+export interface UpdateGroupUpstreamProtectionPolicyRequest {
+  priority: GroupUpstreamProtectionPolicy['priority']
+  ttft: UpdateGroupTTFTGuardPolicyRequest
+  cache: Pick<GroupCacheGuardPolicy, 'mode' | 'threshold_percent' | 'recovery_threshold_percent' | 'min_valid_requests'>
+}
+
+export async function listUpstreamProtectionPolicies(): Promise<GroupUpstreamProtectionPolicy[]> {
+  const { data } = await apiClient.get<GroupUpstreamProtectionPolicy[]>('/admin/groups/upstream-protection-policies')
+  return data
+}
+
+export async function getUpstreamProtectionPolicy(id: number): Promise<GroupUpstreamProtectionPolicy> {
+  const { data } = await apiClient.get<GroupUpstreamProtectionPolicy>(`/admin/groups/${id}/upstream-protection-policy`)
+  return data
+}
+
+/** Atomically replace both guards and the scheduling preference. */
+export async function updateUpstreamProtectionPolicy(id: number, policy: UpdateGroupUpstreamProtectionPolicyRequest): Promise<GroupUpstreamProtectionPolicy> {
+  const { data } = await apiClient.put<GroupUpstreamProtectionPolicy>(`/admin/groups/${id}/upstream-protection-policy`, policy)
+  return data
+}
+
 /**
  * List all groups with pagination
  * @param page - Page number (default: 1)
@@ -595,6 +648,9 @@ export const groupsAPI = {
   listTTFTGuardPolicies,
   getTTFTGuardPolicy,
   updateTTFTGuardPolicy,
+  listUpstreamProtectionPolicies,
+  getUpstreamProtectionPolicy,
+  updateUpstreamProtectionPolicy,
   getById,
   getModelAllowlistCandidates,
   create,

@@ -795,6 +795,7 @@ func ProvideOpenAIGatewayService(
 	settingService *SettingService,
 	userPlatformQuotaRepo UserPlatformQuotaRepository,
 	policyService *GroupTTFTGuardPolicyService,
+	protectionPolicies *GroupSchedulingProtectionPolicyService,
 ) *OpenAIGatewayService {
 	gateway := NewOpenAIGatewayService(
 		accountRepo,
@@ -822,6 +823,7 @@ func ProvideOpenAIGatewayService(
 	)
 	gateway.SetOpenAIProxyGroupRepositories(proxyIPGroupRepo, proxyRepo)
 	gateway.SetGroupTTFTGuardPolicyResolver(policyService)
+	gateway.SetGroupSchedulingProtectionPolicyResolver(protectionPolicies)
 	policyService.SetRuntimeInvalidator(gateway.InvalidateGroupTTFTGuardRuntime)
 	policyService.SetGlobalRuntimeInvalidator(gateway.InvalidateInheritedOpenAITTFTGuardRuntime)
 	return gateway
@@ -1222,6 +1224,7 @@ var ProviderSet = wire.NewSet(
 	ProvideAuthCacheInvalidationWorker,
 	NewGroupService,
 	NewGroupTTFTGuardPolicyService,
+	NewGroupSchedulingProtectionPolicyService,
 	NewCompositeRouteResolver,
 	NewAccountService,
 	NewProxyService,

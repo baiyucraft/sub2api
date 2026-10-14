@@ -16,6 +16,7 @@ type upstreamProbeModelsRequest struct {
 }
 
 type upstreamManagementSettingsRequest struct {
+	SchedulingPriority       *string                                  `json:"scheduling_priority"`
 	CacheGuard               *service.UpstreamCacheGuardSettings      `json:"cache_guard"`
 	TTFTGuard                service.OpenAITTFTGuardSettings          `json:"ttft_guard"`
 	ProbeModels              service.UpstreamProbeModels              `json:"probe_models"`
@@ -130,7 +131,11 @@ func (h *UpstreamConfigHandler) PutUpstreamManagementSettings(c *gin.Context) {
 	if req.ConfidenceProbe != nil {
 		confidenceProbe = *req.ConfidenceProbe
 	}
-	settings := service.UpstreamManagementSettings{CacheGuard: req.CacheGuard, TTFTGuard: req.TTFTGuard, ProbeModels: req.ProbeModels, ProbeIntervalSeconds: req.ProbeIntervalSeconds, ProbeGuard: probeGuard, ModelAliasRules: modelAliasRules, ConfidenceProbe: confidenceProbe}
+	priority := currentSettings.SchedulingPriority
+	if req.SchedulingPriority != nil {
+		priority = *req.SchedulingPriority
+	}
+	settings := service.UpstreamManagementSettings{SchedulingPriority: priority, CacheGuard: req.CacheGuard, TTFTGuard: req.TTFTGuard, ProbeModels: req.ProbeModels, ProbeIntervalSeconds: req.ProbeIntervalSeconds, ProbeGuard: probeGuard, ModelAliasRules: modelAliasRules, ConfidenceProbe: confidenceProbe}
 	if settings.ProbeIntervalSeconds == 0 {
 		settings.ProbeIntervalSeconds = service.DefaultUpstreamProbeIntervalSeconds
 	}

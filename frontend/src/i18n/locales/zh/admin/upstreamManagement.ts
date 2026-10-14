@@ -1,5 +1,33 @@
 export default {
   upstreamManagement: {
+    protection: {
+      ttftUnsupported: 'TTFT 保护适用于 OpenAI 与 Composite 分组。',
+      action: '调度保护', groupTitle: '分组调度保护', openHint: '统一配置缓存、首 Token 性能保护与优先策略',
+      sharedMetrics: 'TTFT 按账号、当前上游 Key 与实际模型汇总，缓存率按账号与当前上游 Key 汇总。分组配置决定如何使用这些统计。',
+      priority: '调度优先策略', priorities: { inherit: '继承全局', cache_first: '缓存优先', ttft_first: 'TTFT 优先' },
+      priorityHints: { inherit: '随全局设置更新，默认缓存优先。', cache_first: '优先保留缓存收益，兼顾首 Token 延迟。', ttft_first: '优先首 Token 响应速度，兼顾缓存收益。' },
+      globalPriority: '全局默认优先策略', mode: '策略模式', modes: { inherit: '继承全局', enabled: '分组自定义', disabled: '关闭' },
+      effective: '当前生效', cacheValues: '低于 {threshold}% 保护 · 达到 {recovery}% 恢复 · 有效请求超过 {samples} 次',
+      cacheInherited: '继承全局：窗口 {window} 分钟 · 冷却 {cooldown} 分钟 · 恢复试用 {trial}%',
+      ttftHint: '新会话逐步避开慢账号；旧会话根据分组优先策略择机迁移。统计样本在分组之间共享。',
+      atomicHint: '保存会同时更新两项保护与优先策略。缓存自定义会启用保护；窗口、冷却和试用比例始终继承全局。',
+      cacheInvalid: '缓存阈值需为 0–100%，恢复阈值必须高于保护阈值；有效请求门槛需为 1–100000 的整数。',
+      loadFailed: '加载分组调度保护失败', saveFailed: '保存分组调度保护失败', saved: '分组调度保护已保存',
+      details: '调度保护详情', viewDetails: '查看调度保护详情', summary: '保护状态', ttftModels: 'TTFT {count} 模型',
+      viewCacheDetails: '查看缓存保护详情', viewTTFTDetails: '查看 TTFT 保护详情',
+      protectedGroups: '{count}组保护', protectedModelsGroups: '{models}模型／{groups}组保护',
+      protectedModels: '{count}模型渐出保护', legacyTTFTMetrics: '已有旧格式 TTFT 降级记录；当前共享观测详情暂不可用。',
+      sourceUnavailable: '配置来源暂不可用', priorityUnavailable: '优先策略暂不可用',
+      noTTFTSamples: '暂无有效 TTFT 观测，不能据此判定正常。', ttftValues: '首字阈值 {threshold} · 至少 {samples} 个样本',
+      noTTFTDegradation: 'TTFT 未见降级', noData: '暂无保护统计', unknown: '未知',
+      metrics: '账号统计', models: '模型 TTFT', groups: '分组执行', sharedHint: '同一账号共享统计；各分组使用自己的阈值与优先策略。',
+      state: { normal: '正常', insufficient: '样本不足', observed: '共享观测', degraded: '渐出保护', draining: '渐出保护', protected: '渐出保护', recovering: '恢复中', observing: '观察中', expired: '数据过期', disabled: '已关闭', unavailable: '暂不可用' },
+      reason: '原因', lastSample: '最后样本', threshold: '阈值', samples: '样本', lastTTFT: '最近 TTFT', ewma: '平滑 TTFT',
+      recovery: '恢复进度 {current}/{required}', cache: '缓存', ttft: 'TTFT', noGroups: '暂无分组执行状态',
+      elapsed: '已持续 {time}', startedAt: '开始时间', expiresAt: '状态过期', source: '策略来源',
+      linkedFrom: '联动来源：{group}', legacyScope: '旧状态作用组：{group}',
+      legacyGroupsHint: '旧版适用分组仍生效。分组管理中的“调度保护”可独立覆盖继承策略。'
+    },
     title: '上游管理',
     description: '管理由上游 Key 派生的账号、调度状态、健康、首 Token 性能和质量。',
     saved: '已保存',
@@ -20,7 +48,7 @@ export default {
     },
     cacheGuard: {
       title: '上游缓存保护',
-      description: '按上游账号合并所有分组、模型与协议的有效续聊样本统计缓存利用率。适用分组仅决定观察或保护执行范围；仅观察模式不改变调度。',
+      description: '按上游账号与当前 Key 合并所有分组、模型与协议的有效续聊样本。分组管理中的“调度保护”决定各组阈值与执行范围；仅观察模式不改变调度。',
       mode: '运行模式',
       modes: { disabled: '关闭', observe: '仅观察', protect: '启用保护' },
       groups: '适用分组',
@@ -34,7 +62,7 @@ export default {
       cooldown_minutes: '冷却时间（分钟）',
       trial_percent: '恢复试用新会话比例（%）',
       sampleHint: '有效请求数严格超过 {count} 次后才判定；缓存率为缓存输入 Token / 全部输入 Token。',
-      recoveryHint: '冷却结束后，各启用分组的新会话按比例进入同一账号恢复试用，按会话固定账号。试用样本独立于普通流量，至少 3 个会话并观察 10 分钟。',
+      recoveryHint: '冷却结束后，新会话按比例进入对应生效策略的恢复试用；参数相同的策略共享进度。试用样本独立于普通流量，至少 3 个会话并观察 10 分钟。',
       sessionHint: '旧会话连续两次有效续聊低率后尝试迁移；目标缓存率需高至少 5 个百分点且有容量，迁移后至少驻留 5 分钟。全组偏低时仍在可调用账号中择优。',
       invalid: '窗口需为 5–1440 分钟，恢复阈值必须高于保护阈值且不超过 100%；请求门槛需为 1–100000，冷却需为 1–1440 分钟，试用比例需为 1–100%，均使用有效数值。',
       rate: '有效续聊缓存率',
@@ -67,8 +95,8 @@ export default {
       linkedObserveHint: '仅观察模式展示拟联动来源及其恢复进度，不改变调度。本组与来源组的样本独立统计。',
       linkedObserveReason: '同一上游账号在其他分组出现低缓存观察结果',
       sourcePhases: { healthy: '正常', degraded: '低缓存保护', cooling: '冷却中', trial: '恢复试用' },
-      metricHint: '缓存率仅属于此上游账号：所有分组有效样本按输入 Token 加权合并，冷启动和无效样本不计。未知不等于 0%。分组仅表示统一策略的执行状态。',
-      states: { disabled: '关闭', observing: '观察中', insufficient: '样本不足', normal: '正常', protected: '保护中', recovering: '恢复试用', unavailable: '状态暂不可用' },
+      metricHint: '当前账号与 Key 的所有分组有效样本按输入 Token 加权合并，冷启动和无效样本不计。未知不等于 0%。各组按自己的生效阈值判定和恢复。',
+      states: { disabled: '关闭', observing: '观察中', insufficient: '样本不足', normal: '正常', protected: '保护中', recovering: '恢复试用', expired: '数据过期', unavailable: '状态暂不可用' },
       reasons: { disabled: '保护已关闭', collecting_samples: '收集有效样本', insufficient_samples: '有效续聊样本不足', low_cache_rate: '缓存率低于保护阈值', below_threshold: '低于保护阈值', cooldown: '等待冷却结束', waiting_recovery_samples: '等待恢复样本与观察时间', waiting_recovery_validation: '等待独立试用验证', recovery_verified: '恢复判定通过', healthy: '正常窗口缓存表现', unavailable: '状态暂不可用', snapshot_unavailable: '共享状态暂不可用', linked_group_protection: '同一上游账号受到其他分组联动保护' }
     },
     retryStatusCodes: {
@@ -87,7 +115,7 @@ export default {
     rateTrend: { keyId: 'Key #{id}' },
     ttftGuard: {
       title: '首 Token 性能保护',
-      description: '仅作用于上游账号；慢账号会被临时降级，原有调度策略保持不变。',
+      description: '仅作用于上游账号；共享首字观测，各组按生效阈值渐出慢账号，并与缓存保护共同择优。',
       enabled: '启用',
       threshold: '降级阈值（秒）',
       minSamples: '最少样本',
@@ -97,8 +125,8 @@ export default {
         scope: '仅对上游账号生效，不修改倍率、Priority、计费或原调度评分。',
         normal: '有效样本达到最少样本数且 EWMA 达到阈值时降级。',
         fast: '连续 2 次达到阈值的 1.5 倍时快速降级；单次达到 3 倍时立即降级。',
-        immediate: '降级账号仍保留约 5% 调度机会用于恢复探测。',
-        recovery: '连续 3 次探测低于 0.6 倍阈值后恢复；若全组都被降级则按原策略 fail-open。'
+        immediate: '每 20 次调度提供一次恢复准入机会；实际分配成功才产生恢复样本。',
+        recovery: '连续 3 次成功试用不超过 0.6 倍阈值后恢复；软保护不会单独造成无账号。'
       }
     },
     probeModels: {

@@ -10,6 +10,12 @@ func (w AccountWindow) Apply(a *AccountState, now time.Time) {
 	if a == nil {
 		return
 	}
+	for sig, window := range w.Policies {
+		if p, ok := a.Policies[sig]; ok {
+			window.Apply(&p.State, now)
+			a.Policies[sig] = p
+		}
+	}
 	changed := a.ValidRequests != w.ValidRequests || a.TotalInputTokens != w.TotalInputTokens ||
 		a.CacheReadTokens != w.CacheReadTokens || a.TrialValidRequests != w.TrialValidRequests ||
 		a.TrialSessions != w.TrialSessions ||

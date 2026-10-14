@@ -361,7 +361,7 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 	if account.ProxyID != nil && account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
 	}
-	BeginUpstreamCacheGuardSend(upstreamReq.Context(), account, gjson.GetBytes(responsesBody, "model").String(), "openai")
+	PrepareOpenAIUpstreamCacheGuardSend(upstreamReq.Context(), account, gjson.GetBytes(responsesBody, "model").String(), "openai")
 	resp, err := s.doOpenAIUpstream(upstreamReq, proxyURL, account)
 	if err != nil {
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)

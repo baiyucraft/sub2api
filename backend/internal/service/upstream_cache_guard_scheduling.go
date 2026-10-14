@@ -10,12 +10,13 @@ import (
 )
 
 type cacheGuardPreference struct {
-	Active        bool
-	KeepAccountID int64
-	Migration     bool
-	Tiers         [][]int64
-	ScopeIDs      map[int64]struct{}
-	CandidateIDs  []int64
+	Active          bool
+	KeepAccountID   int64
+	Migration       bool
+	Tiers           [][]int64
+	ScopeIDs        map[int64]struct{}
+	CandidateIDs    []int64
+	CandidateKeyIDs map[int64]int64
 }
 type cacheGuardTentativeKey struct{}
 type cacheGuardMigrationKey struct{}
@@ -45,8 +46,11 @@ func buildCacheGuardPreference(ctx context.Context, groupID *int64, sessionHash,
 	if guard == nil {
 		return p
 	}
-	s := guard.Settings()
-	if s.Mode != upstreamcacheguard.Protect || groupID == nil || !s.ContainsGroup(*groupID) {
+	if groupID == nil {
+		return p
+	}
+	s := r.engine.ResolvedSettings(*groupID)
+	if s.Mode != upstreamcacheguard.Protect || !s.ContainsGroup(*groupID) {
 		return p
 	}
 	req, ok := r.logicalRequest(ctx, groupID, sessionHash, model, protocol)
@@ -59,6 +63,7 @@ func buildCacheGuardPreference(ctx context.Context, groupID *int64, sessionHash,
 	}
 	p.Active = true
 	p.ScopeIDs = map[int64]struct{}{}
+	p.CandidateKeyIDs = map[int64]int64{}
 	states := map[int64]upstreamcacheguard.AccountSnapshot{}
 	for _, a := range snapshot.Accounts {
 		states[a.AccountID] = a
@@ -68,6 +73,7 @@ func buildCacheGuardPreference(ctx context.Context, groupID *int64, sessionHash,
 		p.CandidateIDs = append(p.CandidateIDs, a.ID)
 		if a.IsUpstreamBound() && a.IsSchedulable() && a.IsModelSupported(model) {
 			p.ScopeIDs[a.ID] = struct{}{}
+			p.CandidateKeyIDs[a.ID] = accountUpstreamKeyID(&a)
 			eligible[a.ID] = a
 			if cached := states[a.ID]; a.UpstreamKeyID != nil && cached.UpstreamKeyID != 0 && cached.UpstreamKeyID != *a.UpstreamKeyID {
 				delete(states, a.ID)

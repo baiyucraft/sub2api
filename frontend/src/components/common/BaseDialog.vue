@@ -110,9 +110,27 @@ const handleClose = () => {
   }
 }
 
+const focusableElements = () => Array.from(dialogRef.value?.querySelectorAll<HTMLElement>(
+  'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'
+) ?? []).filter(element => !element.closest('[hidden], [aria-hidden="true"]'))
+
 const handleEscape = (event: KeyboardEvent) => {
-  if (props.show && props.closeOnEscape && event.key === 'Escape' && [...openDialogs].pop() === dialogId) {
+  if (!props.show || [...openDialogs].pop() !== dialogId) return
+  if (props.closeOnEscape && event.key === 'Escape') {
     emit('close')
+  }
+  if (event.key === 'Tab') {
+    const elements = focusableElements()
+    const first = elements[0]
+    const last = elements[elements.length - 1]
+    if (!first) return
+    if (event.shiftKey && (document.activeElement === first || !dialogRef.value?.contains(document.activeElement))) {
+      event.preventDefault()
+      last.focus()
+    } else if (!event.shiftKey && (document.activeElement === last || !dialogRef.value?.contains(document.activeElement))) {
+      event.preventDefault()
+      first.focus()
+    }
   }
 }
 
@@ -142,10 +160,7 @@ watch(
         modalBodyRef.value.scrollTop = 0
       }
       if (dialogRef.value) {
-        const firstFocusable = dialogRef.value.querySelector<HTMLElement>(
-          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-        )
-        firstFocusable?.focus()
+        focusableElements()[0]?.focus()
       }
     } else {
       updateScrollLock(false)

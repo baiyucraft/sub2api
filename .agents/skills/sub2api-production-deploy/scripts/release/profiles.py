@@ -984,7 +984,21 @@ PROFILES["269"] = {
     },
 }
 
-CURRENT_RELEASE_PROFILE = "269"
+# Joint scheduling policy is a new migration; historical profiles remain immutable.
+PROFILES["270"] = {
+    **{key: PROFILES["269"][key] for key in _PROFILE_V2_RUNTIME_KEYS},
+    "name": "270",
+    "version": "0.2.16-baiyu",
+    "parent": "269",
+    "new_migrations": ["298_group_scheduling_protection_policies.sql"],
+    "gate_schema": 2,
+    "release_policy": {
+        "compatibility_image": "production_current",
+        "migration_source": "database_state",
+    },
+}
+
+CURRENT_RELEASE_PROFILE = "270"
 
 
 def get_profile(name: str) -> dict:

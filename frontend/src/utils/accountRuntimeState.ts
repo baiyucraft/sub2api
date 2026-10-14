@@ -63,9 +63,12 @@ export const mergeRuntimeFields = (oldAccount: Account, updatedAccount: Account)
   current_concurrency: updatedAccount.current_concurrency ?? oldAccount.current_concurrency,
   current_window_cost: updatedAccount.current_window_cost ?? oldAccount.current_window_cost,
   active_sessions: updatedAccount.active_sessions ?? oldAccount.active_sessions,
+  upstream_protection: updatedAccount.upstream_protection ?? (updatedAccount.upstream_key_id === oldAccount.upstream_key_id ? oldAccount.upstream_protection : undefined),
+  upstream_cache_guard: updatedAccount.upstream_cache_guard ?? (updatedAccount.upstream_key_id === oldAccount.upstream_key_id ? oldAccount.upstream_cache_guard : undefined),
+  upstream_cache_guard_states: updatedAccount.upstream_cache_guard_states ?? (updatedAccount.upstream_key_id === oldAccount.upstream_key_id ? oldAccount.upstream_cache_guard_states : undefined),
   ttft_guard_degradations:
     updatedAccount.platform === 'openai'
-      ? updatedAccount.ttft_guard_degradations ?? oldAccount.ttft_guard_degradations
+      ? updatedAccount.ttft_guard_degradations ?? (updatedAccount.upstream_key_id === oldAccount.upstream_key_id ? oldAccount.ttft_guard_degradations : undefined)
       : undefined,
   upstream_health: updatedAccount.upstream_health
     ? {

@@ -30,10 +30,16 @@ type Settings struct {
 	RecoveryThresholdPercent float64 `json:"recovery_threshold_percent"`
 	CooldownMinutes          int     `json:"cooldown_minutes"`
 	TrialPercent             int     `json:"trial_percent"`
+	Priority                 string  `json:"scheduling_priority,omitempty"`
 }
 
-func DefaultSettings() Settings { return Settings{Disabled, []int64{}, 75, 60, 20, 80, 10, 10} }
+func DefaultSettings() Settings {
+	return Settings{Mode: Disabled, GroupIDs: []int64{}, ThresholdPercent: 75, WindowMinutes: 60, MinValidRequests: 20, RecoveryThresholdPercent: 80, CooldownMinutes: 10, TrialPercent: 10, Priority: "cache_first"}
+}
 func (s Settings) Validate() error {
+	if s.Priority != "" && s.Priority != "cache_first" && s.Priority != "ttft_first" {
+		return errors.New("invalid scheduling protection priority")
+	}
 	if s.Mode != Disabled && s.Mode != Observe && s.Mode != Protect {
 		return errors.New("invalid cache guard mode")
 	}
@@ -78,6 +84,7 @@ type Request struct {
 	StartedAt            time.Time `json:"started_at"`
 }
 type Admission struct {
+	PolicySignature  string    `json:"policy_signature,omitempty"`
 	RequestID        string    `json:"request_id"`
 	SessionKey       string    `json:"session_key"`
 	GroupID          int64     `json:"group_id"`
@@ -125,30 +132,39 @@ const (
 )
 
 type AccountState struct {
-	AccountID          int64               `json:"account_id"`
-	UpstreamKeyID      int64               `json:"upstream_key_id"`
-	Model              string              `json:"model"`
-	Protocol           string              `json:"protocol"`
-	Phase              Phase               `json:"phase"`
-	ValidRequests      int                 `json:"valid_requests"`
-	CachePercent       float64             `json:"cache_percent"`
-	TotalInputTokens   int64               `json:"total_input_tokens"`
-	CacheReadTokens    int64               `json:"cache_read_tokens"`
-	UpdatedAt          time.Time           `json:"updated_at"`
-	LastEvidenceAt     time.Time           `json:"last_evidence_at"`
-	QualitySince       time.Time           `json:"quality_since,omitempty"`
-	DegradedAt         time.Time           `json:"degraded_at,omitempty"`
-	CooldownUntil      time.Time           `json:"cooldown_until,omitempty"`
-	CohortID           string              `json:"cohort_id,omitempty"`
-	FirstTrialAt       time.Time           `json:"first_trial_at,omitempty"`
-	TrialValidRequests int                 `json:"trial_valid_requests"`
-	TrialSessions      int                 `json:"trial_sessions"`
-	TrialCachePercent  float64             `json:"trial_cache_percent"`
-	GroupIDs           []int64             `json:"group_ids,omitempty"`
-	TrialGroupIDs      []int64             `json:"trial_group_ids,omitempty"`
-	LegacyQualitySince map[int64]time.Time `json:"legacy_quality_since,omitempty"`
+	// Policies share immutable observations, but own recovery/reset boundaries.
+	Policies           map[string]PolicyProjection `json:"policies,omitempty"`
+	PolicySignature    string                      `json:"policy_signature,omitempty"`
+	AccountID          int64                       `json:"account_id"`
+	UpstreamKeyID      int64                       `json:"upstream_key_id"`
+	Model              string                      `json:"model"`
+	Protocol           string                      `json:"protocol"`
+	Phase              Phase                       `json:"phase"`
+	ValidRequests      int                         `json:"valid_requests"`
+	CachePercent       float64                     `json:"cache_percent"`
+	TotalInputTokens   int64                       `json:"total_input_tokens"`
+	CacheReadTokens    int64                       `json:"cache_read_tokens"`
+	UpdatedAt          time.Time                   `json:"updated_at"`
+	LastEvidenceAt     time.Time                   `json:"last_evidence_at"`
+	QualitySince       time.Time                   `json:"quality_since,omitempty"`
+	DegradedAt         time.Time                   `json:"degraded_at,omitempty"`
+	CooldownUntil      time.Time                   `json:"cooldown_until,omitempty"`
+	CohortID           string                      `json:"cohort_id,omitempty"`
+	FirstTrialAt       time.Time                   `json:"first_trial_at,omitempty"`
+	TrialValidRequests int                         `json:"trial_valid_requests"`
+	TrialSessions      int                         `json:"trial_sessions"`
+	TrialCachePercent  float64                     `json:"trial_cache_percent"`
+	GroupIDs           []int64                     `json:"group_ids,omitempty"`
+	TrialGroupIDs      []int64                     `json:"trial_group_ids,omitempty"`
+	LegacyQualitySince map[int64]time.Time         `json:"legacy_quality_since,omitempty"`
+}
+
+type PolicyProjection struct {
+	Settings Settings     `json:"settings"`
+	State    AccountState `json:"state"`
 }
 type SessionRoute struct {
+	PolicySignature  string    `json:"policy_signature,omitempty"`
 	AccountID        int64     `json:"account_id"`
 	UpstreamKeyID    int64     `json:"upstream_key_id"`
 	LastSuccessfulAt time.Time `json:"last_successful_at"`
@@ -158,6 +174,7 @@ type SessionRoute struct {
 	HighCacheSeen    bool      `json:"high_cache_seen"`
 }
 type SessionState struct {
+	PolicySignature     string                  `json:"policy_signature,omitempty"`
 	Key                 string                  `json:"key"`
 	FirstSeenAt         time.Time               `json:"first_seen_at"`
 	NaturalRequestID    string                  `json:"natural_request_id"`
@@ -267,6 +284,7 @@ type AccountWindow struct {
 	TrialInputTokens, TrialCacheReadTokens int64
 	LastEvidenceAt                         time.Time
 	GroupIDs, TrialGroupIDs                []int64
+	Policies                               map[string]AccountWindow
 }
 
 type AccountTx interface {

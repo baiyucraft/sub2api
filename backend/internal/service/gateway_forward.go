@@ -400,7 +400,9 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 
 		// 发送请求
 		s.countLegacyAnthropicRPM(ctx, account)
-		BeginUpstreamCacheGuardSend(upstreamReq.Context(), account, reqModel, "anthropic")
+		if err := beginGatewaySchedulingProtectionSend(upstreamReq.Context(), account, reqModel, "anthropic"); err != nil {
+			return nil, err
+		}
 		resp, err = s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, tlsProfile)
 		if err != nil {
 			if resp != nil && resp.Body != nil {

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"sync"
 
 	openaiwsv2 "github.com/Wei-Shaw/sub2api/internal/service/openai_ws_v2"
@@ -42,6 +43,15 @@ func (t *upstreamCacheGuardWSTurns) begin(turn int, account *Account, payload []
 	return ctx
 }
 
+func (t *upstreamCacheGuardWSTurns) beginAdmitted(turn int, account *Account, payload []byte, model, protocol string) (context.Context, error) {
+	ctx := t.turnContext(turn, payload)
+	if err := BeginUpstreamCacheGuardSend(ctx, account, model, protocol); err != nil {
+		t.finish(turn, nil, err)
+		return ctx, err
+	}
+	return ctx, nil
+}
+
 func (t *upstreamCacheGuardWSTurns) finish(turn int, result *OpenAIForwardResult, err error) {
 	t.mu.Lock()
 	ctx := t.pending[turn]
@@ -58,7 +68,7 @@ func (t *upstreamCacheGuardWSTurns) finishRemaining() {
 	t.pending = make(map[int]context.Context)
 	t.mu.Unlock()
 	for _, ctx := range pending {
-		FinishUpstreamCacheGuardAttempt(ctx, nil, false, cacheGuardNow())
+		FinishOpenAIUpstreamCacheGuardAttempt(ctx, nil, errors.New("upstream turn ended without completion"))
 	}
 }
 
@@ -85,7 +95,9 @@ func (c *upstreamCacheGuardWSFrameConn) WriteFrame(ctx context.Context, typ code
 		if model == "" && c.model != nil {
 			model = c.model()
 		}
-		c.turns.begin(turn, c.account, payload, model, "openai_ws")
+		if _, err := c.turns.beginAdmitted(turn, c.account, payload, model, "openai_ws"); err != nil {
+			return err
+		}
 	}
 	err := c.inner.WriteFrame(ctx, typ, payload)
 	if err != nil && turn > 0 {

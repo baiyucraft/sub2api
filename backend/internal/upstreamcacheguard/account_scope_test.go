@@ -107,7 +107,7 @@ func (s *memoryStore) AccountWindows(ctx context.Context, since, until time.Time
 			if !s.processed[key] || f.Request.AccountID != a.AccountID || f.Request.UpstreamKeyID != a.UpstreamKeyID || !f.ValidSample() || f.CompletedAt.Before(since) || f.CompletedAt.After(until) {
 				continue
 			}
-			if !a.QualitySince.IsZero() && !f.CompletedAt.After(a.QualitySince) {
+			if a.Policies == nil && !a.QualitySince.IsZero() && !f.CompletedAt.After(a.QualitySince) {
 				continue
 			}
 			if reset := a.LegacyQualitySince[f.Request.GroupID]; !reset.IsZero() && !f.CompletedAt.After(reset) {
@@ -129,6 +129,30 @@ func (s *memoryStore) AccountWindows(ctx context.Context, since, until time.Time
 			}
 		}
 		w.TrialSessions = len(seen)
+		w.Policies = map[string]AccountWindow{}
+		for signature, projection := range a.Policies {
+			p := projection.State
+			var facts []Evidence
+			for key, f := range s.facts {
+				if s.processed[key] && f.Request.AccountID == a.AccountID && f.Request.UpstreamKeyID == a.UpstreamKeyID && !f.CompletedAt.Before(since) {
+					facts = append(facts, f)
+				}
+			}
+			if err := RecomputeAccount(&p, facts, projection.Settings, until, false); err != nil {
+				return nil, err
+			}
+			policyWindow := AccountWindow{ValidRequests: p.ValidRequests, TotalInputTokens: p.TotalInputTokens, CacheReadTokens: p.CacheReadTokens, TrialValidRequests: p.TrialValidRequests, TrialSessions: p.TrialSessions, LastEvidenceAt: p.LastEvidenceAt, GroupIDs: p.GroupIDs, TrialGroupIDs: p.TrialGroupIDs}
+			for _, f := range facts {
+				if !f.ValidSample() || f.CompletedAt.Before(since) || f.CompletedAt.After(until) || (!p.QualitySince.IsZero() && !f.CompletedAt.After(p.QualitySince)) {
+					continue
+				}
+				if f.Admission.Trial && f.Admission.CohortID != "" && f.Admission.CohortID == p.CohortID && (f.Admission.PolicySignature == signature || f.Admission.PolicySignature == "") {
+					policyWindow.TrialInputTokens += f.RawUsage.TotalInputTokens
+					policyWindow.TrialCacheReadTokens += f.RawUsage.CacheReadTokens
+				}
+			}
+			w.Policies[signature] = policyWindow
+		}
 		out[id] = w
 	}
 	return out, ctx.Err()

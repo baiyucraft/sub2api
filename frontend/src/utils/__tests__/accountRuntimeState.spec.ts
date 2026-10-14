@@ -51,6 +51,14 @@ const account = (overrides: Partial<Account> = {}): Account => ({
 })
 
 describe('accountRuntimeState', () => {
+  it('保留同 Key 的共享保护快照，切换 Key 时不沿用旧证据，显式空观测会清除', () => {
+    const current = account({ upstream_key_id: 9, ttft_guard_degradations: [degradation('gpt-real')], upstream_protection: { ttft_models: [{ model: 'gpt-real', state: 'degraded', ewma_ms: 21000, last_ttft_ms: 24000, sample_count: 5, last_sample_at: null, expires_at: null }], groups: [] } })
+    expect(mergeRuntimeFields(current, account({ upstream_key_id: 9 })).upstream_protection).toEqual(current.upstream_protection)
+    expect(mergeRuntimeFields(current, account({ upstream_key_id: 10 })).upstream_protection).toBeUndefined()
+    expect(mergeRuntimeFields(current, account({ upstream_key_id: 10 })).ttft_guard_degradations).toBeUndefined()
+    expect(mergeRuntimeFields(current, account({ upstream_key_id: 9 })).ttft_guard_degradations).toEqual(current.ttft_guard_degradations)
+    expect(mergeRuntimeFields(current, account({ upstream_key_id: 9, upstream_protection: { ttft_models: [], groups: [] } })).upstream_protection?.ttft_models).toEqual([])
+  })
   it('降级签名不受后端模型数组顺序影响，但会响应指标变化', () => {
     const first = account({ ttft_guard_degradations: [degradation('gpt-b'), degradation('gpt-a')] })
     const reordered = account({ ttft_guard_degradations: [degradation('gpt-a'), degradation('gpt-b')] })

@@ -588,6 +588,7 @@ type AccountWaitPlan struct {
 }
 
 type AccountSelectionResult struct {
+	protection                   *protectionSelection
 	cacheGuardMigrationAccountID int64
 	Account                      *Account
 	Acquired                     bool
@@ -615,6 +616,12 @@ func (r *AccountSelectionResult) ProfitGateActive() bool {
 // control is disabled. The handler calls it only after the final slot check.
 func (r *AccountSelectionResult) RequiresStickyAdmissionBinding() bool {
 	return r != nil && (r.ProfitGateActive() || r.cacheGuardMigrationAccountID > 0)
+}
+
+// IsSchedulingProtectionMigration reports a tentative migration to the actual
+// selected account. Its sticky binding is committed only at physical send.
+func (r *AccountSelectionResult) IsSchedulingProtectionMigration() bool {
+	return r != nil && r.Account != nil && r.cacheGuardMigrationAccountID > 0 && r.cacheGuardMigrationAccountID == r.Account.ID
 }
 
 // ClaudeUsage 表示Claude API返回的usage信息

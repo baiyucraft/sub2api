@@ -84,7 +84,7 @@ func (e *Engine) readAccount(tx Tx, r Request, s Settings, now time.Time) (Accou
 	}
 	// A new unified identity must judge the combined existing window at once.
 	// Legacy protection is Cooling, never Trial, so replay cannot recover it.
-	if err = RecomputeAccount(&a, facts, s, now, true); err != nil {
+	if err = RecomputeAccount(&a, facts, e.Settings(), now, true); err != nil {
 		return a, 0, err
 	}
 	version, err = t.WriteAccount(r.AccountID, r.UpstreamKeyID, &a)
@@ -147,14 +147,38 @@ func (e *Engine) refreshAccounts(ctx context.Context) error {
 		}
 		groups[row.GroupID] = g
 	}
-	// Bootstrap legacy protection before the single-statement account/window read.
+	// Materialize new policy projections under the same account lock as facts.
 	for _, row := range accountRows {
-		if row.Version != 0 {
+		var existing AccountState
+		if len(row.Payload) > 0 {
+			if err := json.Unmarshal(row.Payload, &existing); err != nil {
+				return err
+			}
+		}
+		missing := existing.Policies == nil
+		active := e.activePolicies()
+		for sig, settings := range active {
+			projection, exists := existing.Policies[sig]
+			missing = missing || !exists || projection.Settings.WindowMinutes != settings.WindowMinutes || projection.Settings.CooldownMinutes != settings.CooldownMinutes || projection.Settings.TrialPercent != settings.TrialPercent
+		}
+		if row.Version != 0 && !missing && len(active) == len(existing.Policies) {
 			continue
 		}
 		r := Request{AccountID: row.AccountID, UpstreamKeyID: row.UpstreamKeyID}
 		if err := e.transactAccount(ctx, r, func(tx Tx) error {
-			_, _, err := e.readAccount(tx, r, s, now)
+			a, _, err := e.readAccount(tx, r, s, now)
+			if err != nil {
+				return err
+			}
+			e.preparePolicies(&a)
+			facts, err := tx.(AccountTx).AccountFacts(r.AccountID, r.UpstreamKeyID, now.Add(-time.Duration(s.WindowMinutes)*time.Minute))
+			if err != nil {
+				return err
+			}
+			if err = e.recomputePolicies(&a, facts, now, false); err != nil {
+				return err
+			}
+			_, err = tx.(AccountTx).WriteAccount(r.AccountID, r.UpstreamKeyID, &a)
 			return err
 		}); err != nil {
 			return err
@@ -198,6 +222,15 @@ func (e *Engine) freshLocked() bool {
 func cloneAccountSnapshot(a AccountSnapshot) AccountSnapshot {
 	a.GroupIDs = append([]int64(nil), a.GroupIDs...)
 	a.TrialGroupIDs = append([]int64(nil), a.TrialGroupIDs...)
+	if a.Policies != nil {
+		policies := make(map[string]PolicyProjection, len(a.Policies))
+		for sig, p := range a.Policies {
+			p.State = cloneAccountSnapshot(AccountSnapshot{AccountState: p.State}).AccountState
+			p.Settings.GroupIDs = append([]int64(nil), p.Settings.GroupIDs...)
+			policies[sig] = p
+		}
+		a.Policies = policies
+	}
 	if a.LegacyQualitySince != nil {
 		values := make(map[int64]time.Time, len(a.LegacyQualitySince))
 		for id, at := range a.LegacyQualitySince {
@@ -209,8 +242,8 @@ func cloneAccountSnapshot(a AccountSnapshot) AccountSnapshot {
 }
 
 // Missing account evidence is a fresh empty window, not a zero-percent sample.
-func (e *Engine) CachedAccount(accountID, keyID int64) (AccountSnapshot, bool) {
-	s := e.Settings()
+func (e *Engine) CachedSharedAccount(accountID, keyID int64) (AccountSnapshot, bool) {
+	active := e.AnyPolicyActive()
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	id := accountIdentity(accountID, keyID)
@@ -218,10 +251,16 @@ func (e *Engine) CachedAccount(accountID, keyID int64) (AccountSnapshot, bool) {
 	if !exists {
 		a.AccountState = AccountState{AccountID: accountID, UpstreamKeyID: keyID, Phase: Healthy}
 	}
-	return cloneAccountSnapshot(a), s.Mode != Disabled && e.freshLocked() && !e.accountGaps[id]
+	return cloneAccountSnapshot(a), active && e.freshLocked() && !e.accountGaps[id]
+}
+
+// CachedAccount preserves the global-policy reader contract for old callers.
+func (e *Engine) CachedAccount(accountID, keyID int64) (AccountSnapshot, bool) {
+	a, fresh := e.CachedSharedAccount(accountID, keyID)
+	return projectAccountSnapshot(a, e.Settings()), fresh
 }
 
 func (e *Engine) CachedAccountGroups(accountID, keyID int64) []int64 {
-	a, _ := e.CachedAccount(accountID, keyID)
+	a, _ := e.CachedSharedAccount(accountID, keyID)
 	return a.GroupIDs
 }
