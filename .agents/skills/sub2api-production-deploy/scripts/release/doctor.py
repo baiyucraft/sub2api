@@ -110,7 +110,8 @@ class ReleaseDoctor:
         dr_signer_sha = sha256_file(DR_SIGNER)
         script = f"""
 set -Eeuo pipefail
-for command in docker git jq df openssl sha256sum stat cmp flock; do command -v "$command" >/dev/null; done
+for command in docker git jq df openssl sha256sum stat cmp flock python3; do command -v "$command" >/dev/null; done
+python3 -c 'import yaml' >/dev/null 2>&1
 unit_lock=/usr/local/libexec/.sub2api-release-unit.lock
 test -f "$unit_lock"
 test ! -L "$unit_lock"
@@ -171,7 +172,8 @@ if [[ -z $migration_row ]]; then production_migration_status=absent; else [[ $mi
             )
         script = f"""
 set -Eeuo pipefail
-for command in docker jq age flock nginx curl ssh; do command -v "$command" >/dev/null; done
+for command in docker jq age flock nginx curl ssh python3; do command -v "$command" >/dev/null; done
+python3 -c 'import yaml' >/dev/null 2>&1
 test -d /opt/sub2api/releases && test ! -L /opt/sub2api/releases
 test -d /opt/sub2api/backups/release-state && test ! -L /opt/sub2api/backups/release-state
 test -f /opt/sub2api-release-trust/vm-gate-ed25519.pub

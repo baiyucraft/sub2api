@@ -23,6 +23,7 @@ from release.production import ProductionRelease, write_stage_bundle
 from release.production import emit_progress
 from release.production import gate_consumption_probe_script
 from release.production import quoted_env
+from release import recovery_bundle
 
 
 class ProductionRecoveryTest(unittest.TestCase):
@@ -160,10 +161,19 @@ class ProductionRecoveryTest(unittest.TestCase):
         instance.route_switch_attempted = False
         instance.route_switched = False
         instance.migration_started = False
-        instance.state_dir = "/state"
+        instance.state_dir = "/opt/sub2api/backups/release-state/182-aaaaaaaaaaaa-1-aaaaaaaa"
         instance.profile = {"public_domain": "example.test", "rack_public_ip": "192.0.2.1"}
         instance.release_id = "182-aaaaaaaaaaaa-1-aaaaaaaa"
-        instance.release_dir = "/release"
+        instance.release_dir = "/opt/sub2api/releases/" + instance.release_id
+        instance.runner = mock.Mock()
+        instance.gate_dir = Path("fixture-release/gate")
+        files = {}
+        for name in recovery_bundle.REQUIRED:
+            category = "release" if name.endswith(".py") else "maintenance/181" if name == "restore-backup-units.sh" else "maintenance/release"
+            files[recovery_bundle.PREFIX + category + "/" + name] = "a" * 64
+        helper_bundle = recovery_bundle.recovery_bundle_document("a" * 40, files)
+        instance.manifest = {"schema": 1, "commit_sha": "a" * 40, "release_asset_sha256": files,
+                             "recovery_helper_bundle_sha256": recovery_bundle.recovery_bundle_sha256(helper_bundle)}
         instance.image_id = "sha256:" + "a" * 64
         instance.active_assets = "/active/assets"
         instance.result = {"status": "running", "history": []}
@@ -194,7 +204,14 @@ class ProductionRecoveryTest(unittest.TestCase):
                 release.migration_started = True
                 release.remote_pre_switch_recovery_needed = mock.Mock(return_value=True)
                 release.remote_migration_committed = mock.Mock(return_value=committed)
-                release.recover()
+                bundle_sha = "b" * 64
+                if committed:
+                    release.run_remote.side_effect = [{"coordinated_restore": "verified", "application_health": "pass",
+                                                       "backup_units_restored": "true", "plaintext_state_removed": "true",
+                                                       "release_claim_reconciled": "true", "recovery_helper_bundle_sha256": bundle_sha}]
+                with mock.patch("release.production.stage_recovery_bundle", return_value=(release.release_dir + "/recovery-helpers/" + bundle_sha, bundle_sha)) as stage:
+                    release.recover()
+                self.assertEqual(stage.call_count, int(committed))
                 release.remote_migration_committed.assert_called_once_with()
                 self.assertIn(script, release.run_remote.call_args_list[0].args[1])
                 self.assertEqual(release.result["status"], "recovered")
@@ -606,17 +623,45 @@ class ProductionRecoveryTest(unittest.TestCase):
         release = self.release()
         release.migration_started = True
         release.remote_pre_switch_recovery_needed = mock.Mock(return_value=True)
-        release.run_remote.side_effect = [
-            {"coordinated_restore": "verified", "restored_image_id": "old", "application_health": "pass"},
-            {"backup_units_restored": "true"},
-            {"plaintext_state_removed": "true"},
-            {"release_claim_reconciled": "true"},
-        ]
-        release.recover()
+        bundle_sha = "b" * 64
+        release.run_remote.side_effect = [{"coordinated_restore": "verified", "restored_image_id": "sha256:" + "c" * 64,
+                                          "application_health": "pass", "backup_units_restored": "true",
+                                          "plaintext_state_removed": "true", "release_claim_reconciled": "true",
+                                          "recovery_helper_bundle_sha256": bundle_sha}]
+        with mock.patch("release.production.stage_recovery_bundle", return_value=(release.release_dir + "/recovery-helpers/" + bundle_sha, bundle_sha)) as stage:
+            release.recover()
+        stage.assert_called_once_with(release.runner, release.manifest, release.release_dir,
+                                      release.gate_dir.parent / "recovery-helper-bundles", WORKSPACE, release.gate_dir)
         first_script = release.run_remote.call_args_list[0].args[1]
         self.assertIn("/restore.sh", first_script)
+        self.assertIn("/recovery-finish.sh", first_script)
+        self.assertIn("RECOVERY_HELPER_GATE=", first_script)
+        self.assertIn("RECOVERY_HELPER_SIGNATURE=", first_script)
+        self.assertNotIn(release.active_assets, first_script)
         self.assertNotIn("resume-old.sh", first_script)
+        self.assertEqual(release.run_remote.call_count, 1)
         self.assertEqual(release.result["status"], "recovered")
+
+    def test_post_migration_recovery_rejects_historical_gate_without_bundle(self) -> None:
+        release = self.release()
+        release.migration_started = True
+        release.remote_pre_switch_recovery_needed = mock.Mock(return_value=True)
+        release.manifest.pop("recovery_helper_bundle_sha256")
+        with self.assertRaisesRegex(RuntimeError, "helper binding is absent"):
+            release.recover()
+        release.run_remote.assert_not_called()
+        release.runner.upload_file.assert_not_called()
+        self.assertNotEqual(release.result["status"], "recovered")
+
+    def test_post_migration_bundle_stage_failure_does_not_run_recovery(self) -> None:
+        release = self.release()
+        release.migration_started = True
+        release.remote_pre_switch_recovery_needed = mock.Mock(return_value=True)
+        with mock.patch("release.production.stage_recovery_bundle", side_effect=RuntimeError("bundle stage refused")):
+            with self.assertRaisesRegex(RuntimeError, "bundle stage refused"):
+                release.recover()
+        release.run_remote.assert_not_called()
+        self.assertNotEqual(release.result["status"], "recovered")
 
     def test_reconcile_lost_reply_checks_committed_recovery(self) -> None:
         release = self.release()
@@ -1460,14 +1505,21 @@ class ReleaseClaimScriptTest(unittest.TestCase):
     def test_coordinated_restore_allows_slow_verified_redis_startup(self) -> None:
         restore = self.script("restore.sh")
 
-        self.assertIn("for _ in $(seq 1 180); do", restore)
+        health_loop = "for _ in {1..180}; do"
+        self.assertIn(health_loop, restore)
         self.assertNotIn("for _ in $(seq 1 60); do", restore)
+        self.assertNotIn("for _ in {1..60}; do", restore)
+        self.assertIn("redis_restore_health_deadline=$((redis_restore_health_started + 180))", restore)
+        self.assertIn("((SECONDS < redis_restore_health_deadline)) || break", restore)
+        self.assertIn("timeout 5 docker inspect", restore)
+        self.assertIn("((SECONDS <= redis_restore_health_deadline)) || return 1", restore)
+        self.assertIn('recovery_checkpoint_store redis.health-wait-seconds "$((SECONDS - redis_restore_health_started))" || return 1', restore)
         self.assertLess(
             restore.index("docker start sub2api-redis"),
-            restore.index("for _ in $(seq 1 180); do"),
+            restore.index(health_loop),
         )
         self.assertLess(
-            restore.index("for _ in $(seq 1 180); do"),
+            restore.index(health_loop),
             restore.index("redis_password=$(docker inspect sub2api-redis"),
         )
 
@@ -2009,9 +2061,11 @@ class ReleaseClaimScriptTest(unittest.TestCase):
             self.assertIn("old_port=$(sed -n 's/^port=//p'", script)
             self.assertIn('port=%s\\nimage_id=%s\\nrelease_id=%s\\ninstance_id=%s', script)
             self.assertNotIn("port=18080\\nimage_id", script)
-        self.assertIn('SERVER_PORT=%s', restore)
-        self.assertIn('restore_network_mode=$(sub2api_compose_network_mode', restore)
-        self.assertIn('write_release_active_override', restore)
+        self.assertIn('recovery_compose_restore_verify "$recovery/config/app"', restore)
+        self.assertIn('recovery_compose_verify_live "$recovery/config/app" "$deploy_dir" "$pre_image_id"', restore)
+        self.assertIn('restore_network_mode=$(assert_sub2api_compose_closure "$deploy_dir" "$old_port" "$pre_image_id" "$old_instance_id")', restore)
+        self.assertNotIn('write_release_active_override', restore)
+        self.assertNotIn('SERVER_PORT=%s', restore)
         self.assertIn('assert_sub2api_runtime_contract', restore)
         self.assertIn('resume_network_mode=$(sub2api_compose_network_mode', resume)
         self.assertIn('assert_sub2api_compose_closure "$deploy_dir" "$old_port"', resume)
@@ -2215,7 +2269,8 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         self.assertIn("redis-check-rdb /tmp/sub2api-release.rdb", backup)
         self.assertIn("redis_rdb_keys", backup)
         self.assertIn("redis-rdb-counts.txt", backup)
-        self.assertIn('docker compose "${release_compose_args[@]}" config --format json', backup)
+        self.assertIn('_recovery_compose_config "$deploy_dir" "${release_compose_args[@]}"', backup)
+        self.assertIn('recovery_compose_snapshot "$deploy_dir" "$work/config/app"', backup)
         self.assertNotIn("docker compose stop", backup)
 
     def test_backup_keeps_temporary_local_restore_tar_until_release_finishes(self) -> None:
@@ -2229,10 +2284,16 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         self.assertIn("find . -type f ! -name SHA256SUMS", backup)
         self.assertIn('sha256sum -c recovery-point.tar.sha256', restore)
         self.assertIn('tar -C "$recovery" -xf "$state_dir/recovery-point.tar"', restore)
-        self.assertIn('write_release_active_override "$restore_override_tmp" "$(<"$state_dir/pre-image-id")"', restore)
-        self.assertIn("release_compose_value_with_active_override", restore)
+        self.assertIn('recovery_compose_restore_verify "$recovery/config/app" "$recovery/compose-restored" "$pre_image_id"', restore)
+        self.assertIn('recovery_compose_verify_live "$recovery/config/app" "$deploy_dir" "$pre_image_id"', restore)
+        self.assertLess(restore.index('recovery_compose_restore_verify "$recovery/config/app"'),
+                        restore.index('docker rm -f "$active_container"'))
+        self.assertLess(restore.index('recovery_checkpoint_run compose_restored'),
+                        restore.index('recovery_checkpoint_run postgres_restored'))
+        self.assertIn('_recovery_compose_inventory "$recovery/config/app"', restore)
         self.assertIn("load_release_compose_files", restore)
-        self.assertIn("SUB2API_RELEASE_IMAGE=%s", restore)
+        self.assertIn('pre_image_id=$(<"$state_dir/pre-image-id")', restore)
+        self.assertNotIn("SUB2API_RELEASE_IMAGE=%s", restore)
         self.assertNotIn("age-identity", restore)
         self.assertIn("if ! docker info", restore)
         self.assertIn('elif docker inspect "$active_container"', restore)
