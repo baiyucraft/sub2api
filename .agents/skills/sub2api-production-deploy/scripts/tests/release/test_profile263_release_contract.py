@@ -175,19 +175,19 @@ jq() {
                     self.assert_guard_cases(f'[[ $release_id =~ ^{group}-[0-9a-f]{{12}}-[0-9]+-[0-9a-f]{{8}}$ ]]', "release_id", cases)
 
     def test_ancestor_assertion_guards_admit_263_through_270_and_reject_271(self) -> None:
+        newer_profiles = {
+            "migration-297-assert.sh": {"269", "270"},
+            "migration-298-assert.sh": {"270"},
+        }
         for path in sorted((DEPLOY_ROOT / "maintenance/release").glob("migration-*-assert.sh")):
             source = path.read_text(encoding="utf-8")
             guards = [re.search(r"\[\[.*?\]\]", line)[0] for line in source.splitlines() if line.startswith("[[ $profile ==")]
             self.assertTrue(guards, path.name)
             for guard in guards:
                 with self.subTest(file=path.name):
-                    if path.name == "migration-297-assert.sh":
-                        self.assert_guard_cases(guard, "profile", (("268", False), ("269", True), ("270", True), ("271", False)))
-                        continue
-                    if path.name == "migration-298-assert.sh":
-                        self.assert_guard_cases(guard, "profile", (("269", False), ("270", True), ("271", False)))
-                        continue
-                    self.assert_guard_cases(guard, "profile", (("262", True), ("263", True), ("264", True), ("265", True), ("266", True), ("267", True), ("268", True), ("269", True), ("270", True), ("271", False)))
+                    accepted = newer_profiles.get(path.name, {str(value) for value in range(262, 271)})
+                    cases = tuple((str(value), str(value) in accepted) for value in range(262, 272))
+                    self.assert_guard_cases(guard, "profile", cases)
 
 
 if __name__ == "__main__":

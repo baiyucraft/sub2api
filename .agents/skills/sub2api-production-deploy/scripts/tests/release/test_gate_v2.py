@@ -41,6 +41,7 @@ class GateV2Test(unittest.TestCase):
             units["validator"]: "validator",
             units["gate_signer"]: "gate-signer",
             units["dr_signer"]: "dr-signer",
+            ".agents/skills/sub2api-production-deploy/scripts/maintenance/release/migration-297-assert.sh": "7" * 64,
             ".agents/skills/sub2api-production-deploy/scripts/maintenance/release/migration-298-assert.sh": "8" * 64,
         }
 
@@ -59,6 +60,7 @@ class GateV2Test(unittest.TestCase):
             {"filename": "285_upstream_null_rate_lifecycle.sql", "checksum": "b" * 64, "non_transactional": False},
             {"filename": "286_add_payment_order_bonus_amount.sql", "checksum": "c" * 64, "non_transactional": False},
             {"filename": "287_add_typesafe_platform.sql", "checksum": "d" * 64, "non_transactional": False},
+            {"filename": "297_upstream_cache_guard_account_scope.sql", "checksum": "e" * 64, "non_transactional": False},
             {"filename": "298_group_scheduling_protection_policies.sql", "checksum": "f" * 64, "non_transactional": False},
         ]
 
@@ -128,6 +130,10 @@ class GateV2Test(unittest.TestCase):
         }
         evidence["migration_evidence"]["migration_285"] = {
             "checksum": catalog[1]["checksum"], "preflight": True, "postflight": True,
+            "vm_semantics": True, "verified_replay": True,
+        }
+        evidence["migration_evidence"]["migration_297"] = {
+            "checksum": next(row["checksum"] for row in catalog if row["filename"].startswith("297_")), "preflight": True, "postflight": True,
             "vm_semantics": True, "verified_replay": True,
         }
         evidence["migration_evidence"]["migration_298"] = {
@@ -358,6 +364,7 @@ class GateV2Test(unittest.TestCase):
         document = self._document(profile="259")
         document["manifest"]["migration_catalog"] = document["manifest"]["migration_catalog"][:1]
         del document["evidence"]["migration_evidence"]["migration_285"]
+        del document["evidence"]["migration_evidence"]["migration_297"]
         del document["evidence"]["migration_evidence"]["migration_298"]
         _validate_v2_pending(document["manifest"], document["evidence"])
 

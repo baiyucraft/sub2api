@@ -1050,7 +1050,7 @@ exit "$code"
             status = item.get("status", "absent")
             if status not in {"absent", "verified"}:
                 raise RuntimeError("migration semantic hook status is unknown")
-            env = quoted_env({"RELEASE_DIR": self.release_dir, "MIGRATION_STATUS": status})
+            env = quoted_env({"RELEASE_DIR": self.release_dir, "MIGRATION_STATUS": status, "ASSERT_MANIFEST_FILE": f"{self.release_dir}/gate.json"})
             phases = hook.get("preflight", ("preflight",))
             for phase in phases:
                 self.run_remote("racknerd", f"{env} {self.active_assets}/{hook['script']} {phase} >/dev/null && printf 'hook_verified=true\\n'", {"hook_verified"})
@@ -1105,7 +1105,7 @@ exit "$code"
             if not hook:
                 continue
             self.stage(f"migration_hook_postflight_{item['filename'].split('.')[0]}")
-            env = quoted_env({"RELEASE_DIR": self.release_dir, "MIGRATION_STATUS": "verified"})
+            env = quoted_env({"RELEASE_DIR": self.release_dir, "MIGRATION_STATUS": "verified", "ASSERT_MANIFEST_FILE": f"{self.release_dir}/gate.json"})
             for phase in hook.get("postflight", ("postflight",)):
                 self.run_remote("racknerd", f"{env} {self.active_assets}/{hook['script']} {phase} >/dev/null && printf 'hook_verified=true\\n'", {"hook_verified"})
 
