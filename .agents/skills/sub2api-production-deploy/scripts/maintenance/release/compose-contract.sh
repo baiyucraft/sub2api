@@ -5,6 +5,37 @@
 # host published port is never confused with the port used inside a bridge
 # container.
 
+# Resolve the exact Compose closure declared by the deployment .env.  Release
+# scripts must not silently fall back to docker-compose.yml because production
+# commonly adds docker-compose.local.yml for the real /app/data bind mount.
+load_release_compose_files() {
+  local root=${1:?compose root is required}
+  local env_file="$root/.env"
+  [[ -f $env_file && ! -L $env_file ]] || return 1
+  local count raw item
+  count=$(awk '/^COMPOSE_FILE=/ {count++} END {print count+0}' "$env_file") || return 1
+  [[ $count == 0 || $count == 1 ]] || return 1
+  if [[ $count == 1 ]]; then
+    raw=$(sed -n 's/^COMPOSE_FILE=//p' "$env_file") || return 1
+    [[ -n $raw && $raw != *[[:space:]]* ]] || return 1
+  else
+    raw=docker-compose.yml
+  fi
+  [[ $raw =~ ^[A-Za-z0-9_.-]+\.ya?ml(:[A-Za-z0-9_.-]+\.ya?ml)*$ ]] || return 1
+  IFS=':' read -r -a release_compose_files <<<"$raw" || return 1
+  [[ ${#release_compose_files[@]} -gt 0 ]] || return 1
+  release_compose_args=()
+  local seen=':'
+  for item in "${release_compose_files[@]}"; do
+    [[ $item =~ ^[A-Za-z0-9_.-]+\.ya?ml$ && $item != *..* ]] || return 1
+    [[ $seen != *":$item:"* ]] || return 1
+    [[ -f $root/$item && ! -L $root/$item ]] || return 1
+    seen+="$item:"
+    release_compose_args+=(-f "$root/$item")
+  done
+  [[ $seen == *':docker-compose.yml:'* ]]
+}
+
 # The runtime image starts as root only long enough to repair /app/data and
 # then execs the application as the non-root sub2api user. Release scripts run
 # as host root, so a plain `printf > marker && chmod 600` creates a root-owned
@@ -69,25 +100,27 @@ assert_http_header_equals() {
   local headers=${1:?headers file is required}
   local name=${2:?header name is required}
   local expected=${3:?expected header value is required}
-  [[ -f $headers && ! -L $headers ]]
-  [[ $name =~ ^[A-Za-z0-9-]+$ ]]
-  [[ $expected =~ ^[A-Za-z0-9_.-]{1,128}$ ]]
+  [[ -f $headers && ! -L $headers ]] || return 1
+  [[ $name =~ ^[A-Za-z0-9-]+$ ]] || return 1
+  [[ $expected =~ ^[A-Za-z0-9_.-]{1,128}$ ]] || return 1
   local actual
-  actual=$(tr -d '\r' < "$headers" | awk -F: -v name="$name" '
+  actual=$(set -o pipefail; tr -d '\r' < "$headers" | awk -F: -v name="$name" '
     tolower($1) == tolower(name) {
+      count++
       sub(/^[^:]*:[[:space:]]*/, "")
       gsub(/^[[:space:]]+|[[:space:]]+$/, "")
-      print
+      value=$0
     }
-  ')
-  [[ $(printf '%s\n' "$actual" | grep -c .) == 1 ]]
+    END { if (count != 1) exit 1; print value }
+  ') || return 1
+  [[ -n $actual && $actual != *$'\n'* ]] || return 1
   [[ $actual == "$expected" ]]
 }
 
 sub2api_compose_network_mode() {
   local compose_json=${1:?compose json is required}
   local host_port=${2:?host port is required}
-  [[ $host_port == 18080 || $host_port == 18081 ]]
+  [[ $host_port == 18080 || $host_port == 18081 ]] || return 1
   jq -er --arg port "$host_port" '
     .services.sub2api as $service |
     if (
@@ -120,7 +153,7 @@ sub2api_compose_network_mode() {
 sub2api_healthcheck_url() {
   local network_mode=${1:?network mode is required}
   local host_port=${2:?host port is required}
-  [[ $host_port == 18080 || $host_port == 18081 ]]
+  [[ $host_port == 18080 || $host_port == 18081 ]] || return 1
   case "$network_mode" in
     host) printf 'http://127.0.0.1:%s/health\n' "$host_port" ;;
     bridge) printf 'http://127.0.0.1:8080/health\n' ;;
@@ -133,9 +166,9 @@ assert_sub2api_healthcheck_contract() {
   local network_mode=${2:?network mode is required}
   local host_port=${3:?host port is required}
   local policy=${4:-strict}
-  [[ $policy == strict || $policy == active_compat ]]
+  [[ $policy == strict || $policy == active_compat ]] || return 1
   local expected_url
-  expected_url=$(sub2api_healthcheck_url "$network_mode" "$host_port")
+  expected_url=$(sub2api_healthcheck_url "$network_mode" "$host_port") || return 1
   if [[ $network_mode == bridge ]]; then
     jq -e --arg expected "$expected_url" --arg policy "$policy" '
       .services.sub2api.healthcheck.test == ["CMD", "wget", "-q", "-T", "5", "-O", "/dev/null", $expected] or
@@ -177,7 +210,7 @@ assert_sub2api_runtime_contract() {
   local network_mode=${3:?network mode is required}
   local host_port=${4:?host port is required}
   local policy=${5:-strict}
-  [[ $policy == strict || $policy == active_compat ]]
+  [[ $policy == strict || $policy == active_compat ]] || return 1
   local expected_host expected_internal_port expected_health_url inspect_json
   case "$network_mode" in
     host)
@@ -190,8 +223,8 @@ assert_sub2api_runtime_contract() {
       ;;
     *) return 1 ;;
   esac
-  expected_health_url=$(sub2api_healthcheck_url "$network_mode" "$host_port")
-  inspect_json=$(docker inspect "$container")
+  expected_health_url=$(sub2api_healthcheck_url "$network_mode" "$host_port") || return 1
+  inspect_json=$(docker inspect "$container") || return 1
   jq -e \
     --arg image "$expected_image" \
     --arg mode "$network_mode" \
@@ -246,7 +279,7 @@ write_release_active_override() {
   local host_port=${4:?host port is required}
   local network_mode=${5:?network mode is required}
   local health_url
-  health_url=$(sub2api_healthcheck_url "$network_mode" "$host_port")
+  health_url=$(sub2api_healthcheck_url "$network_mode" "$host_port") || return 1
   {
     printf 'services:\n  sub2api:\n    image: %s\n    container_name: sub2api\n' "$image"
     if [[ $network_mode == host || -n $instance_id ]]; then

@@ -3,7 +3,11 @@ set -Eeuo pipefail
 
 release_dir=${RELEASE_DIR:?RELEASE_DIR is required}
 ACTIVE_CLAIM=${ACTIVE_CLAIM:-/opt/sub2api/releases/.active-release}
-source "$ACTIVE_CLAIM/assets/context.sh"
+if [[ -n ${RECOVERY_ASSETS_DIR:-} ]]; then
+  source "$RECOVERY_ASSETS_DIR/context.sh"
+else
+  source "$ACTIVE_CLAIM/assets/context.sh"
+fi
 verify_migrations_restored() {
   [[ -f $state_dir/pre-migrations.tsv && ! -L $state_dir/pre-migrations.tsv ]]
   diff -u "$state_dir/pre-migrations.tsv" <(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT filename,checksum FROM schema_migrations ORDER BY filename") >/dev/null

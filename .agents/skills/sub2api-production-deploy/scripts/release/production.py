@@ -15,7 +15,8 @@ from .gate import verify_gate
 from .manifest import sha256_file
 from .migration_planner import HOOK_REGISTRY, plan_migrations
 from .production_snapshot import decode_snapshot, snapshot_script, snapshot_sha256
-from .paths import MAINTENANCE_ROOT, RELEASE_PACKAGE_ROOT, TRUSTED_VM_PUBLIC_KEY, UNIT_ROOT
+from .paths import MAINTENANCE_ROOT, RELEASE_PACKAGE_ROOT, TRUSTED_VM_PUBLIC_KEY, UNIT_ROOT, WORKSPACE
+from .recovery_bundle import stage_recovery_bundle, recovery_command, RECOVERY_RESULT_FIELDS
 from .profiles import get_profile, get_release_profile
 from .recovery_gate import assert_release_allowed
 from .ssh import SSHRunner
@@ -1517,13 +1518,20 @@ printf 'switch_failure_substage=%s\\nswitch_failure_code=%s\\nswitch_failure_lin
             if migration_committed is None:
                 raise RuntimeError("migration committed state is unknown")
         if recovery_needed and migration_committed:
-            env = quoted_env({"RELEASE_DIR": self.release_dir})
+            assets, bundle_sha = stage_recovery_bundle(
+                self.runner, self.manifest, self.release_dir,
+                self.gate_dir.parent / 'recovery-helper-bundles', WORKSPACE, self.gate_dir,
+            )
             values = self.run_remote(
                 "racknerd",
-                f"{env} {self.active_assets}/restore.sh",
-                {"coordinated_restore", "restored_image_id", "application_health"},
-                timeout=2400,
+                recovery_command(assets, bundle_sha, self.release_dir),
+                set(RECOVERY_RESULT_FIELDS),
+                timeout=3300,
             )
+            self.units_masked = False
+            self.result["status"] = "recovered"
+            self.stage("recovered", values)
+            return
         elif recovery_needed:
             env = quoted_env({"RELEASE_DIR": self.release_dir})
             values = self.run_remote(

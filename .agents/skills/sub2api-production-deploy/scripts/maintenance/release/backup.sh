@@ -6,6 +6,7 @@ release_dir=${RELEASE_DIR:?RELEASE_DIR is required}
 backup_attempt_id=${BACKUP_ATTEMPT_ID:?BACKUP_ATTEMPT_ID is required}
 source /opt/sub2api/releases/.active-release/assets/context.sh
 source "$assets_dir/nginx-ingress-contract.sh"
+source "$assets_dir/recovery-compose.sh"
 [[ $backup_attempt_id == "$release_id-1" || $backup_attempt_id == "$release_id-2" || $backup_attempt_id == "$release_id-3" ]]
 backup_root=${BACKUP_ROOT:-$deploy_dir/backups/automated}
 recipient_file=${AGE_RECIPIENT_FILE:-/root/.config/sub2api-backup/age-recipient.txt}
@@ -57,7 +58,7 @@ load_release_compose_files "$deploy_dir"
 [[ $(systemctl is-enabled sub2api-backup.timer 2>/dev/null || true) == masked ]]
 [[ $(docker image inspect -f '{{.Id}}' "$candidate_image_id") == "$candidate_image_id" ]]
 [[ $(docker inspect -f '{{.Image}}' "$active_container") == "$(<"$state_dir/pre-image-id")" ]]
-compose_image=$(docker compose "${release_compose_args[@]}" config --format json | jq -r '.services.sub2api.image // empty')
+compose_image=$(_recovery_compose_config "$deploy_dir" "${release_compose_args[@]}" | jq -r '.services.sub2api.image // empty')
 [[ -n $compose_image ]]
 [[ $(docker image inspect -f '{{.Id}}' "$compose_image") == "$(<"$state_dir/pre-image-id")" ]]
 if [[ ${RELEASE_LOCK_HELD:-false} != true ]]; then
@@ -91,14 +92,7 @@ docker exec sub2api-redis rm -f /tmp/sub2api-release.rdb
 [[ -s $work/redis/dump.rdb ]]
 [[ $(docker inspect -f '{{.State.Health.Status}}' sub2api-redis) == healthy ]]
 backup_stage=config
-install -m 600 "$deploy_dir/.env" "$work/config/app/.env"
-for compose_file in "${release_compose_files[@]}"; do
-  install -m 600 "$deploy_dir/$compose_file" "$work/config/app/$compose_file"
-done
-if [[ " ${release_compose_files[*]} " != *" docker-compose.release-active.yml "* ]]; then
-  : > "$work/config/app/no-release-active-override"
-  chmod 600 "$work/config/app/no-release-active-override"
-fi
+recovery_compose_snapshot "$deploy_dir" "$work/config/app" >/dev/null
 cp -a "$deploy_dir/data" "$work/config/app/data"
 (cd "$work/config/app/data" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum > "$work/metadata/data.sha256")
 nginx -T > "$work/config/nginx/nginx-T.txt" 2>&1

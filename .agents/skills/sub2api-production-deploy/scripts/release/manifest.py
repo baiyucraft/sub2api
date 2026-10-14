@@ -30,6 +30,7 @@ from .paths import (
     skill_asset_path,
 )
 from .profiles import CURRENT_RELEASE_PROFILE, get_profile
+from .recovery_bundle import PREFIX as RECOVERY_BUNDLE_PREFIX, recovery_bundle_document, recovery_bundle_sha256
 from .recovery_gate import unproven_report, validate_report
 
 
@@ -291,6 +292,12 @@ def validate_manifest_profile_contract(manifest: dict[str, Any], profile: dict[s
     if layout == LAYOUT_DEPLOY_V1 and deployment_mode is not None and deployment_mode not in {"blue-green", "downtime"}:
         raise RuntimeError("historical manifest deployment mode is invalid")
     commit = validate_commit(str(manifest.get("commit_sha", "")))
+    assets = manifest.get("release_asset_sha256", {})
+    bundle_helper = RECOVERY_BUNDLE_PREFIX + "release/recovery_bundle.py"
+    if bundle_helper in assets or "recovery_helper_bundle_sha256" in manifest:
+        bundle = recovery_bundle_document(commit, assets)
+        if manifest.get("recovery_helper_bundle_sha256") != recovery_bundle_sha256(bundle):
+            raise RuntimeError("manifest recovery helper bundle binding differs")
     match = RELEASE_ID.fullmatch(str(manifest.get("release_id", "")))
     if match is None or match.group(1) != profile["name"] or match.group(2) != commit[:12]:
         raise RuntimeError("manifest release ID does not match profile and commit")
@@ -319,6 +326,11 @@ def validate_manifest_profile_contract(manifest: dict[str, Any], profile: dict[s
                 raise RuntimeError("manifest production snapshot checksum is invalid")
             if manifest.get("recovery_gate") is not None:
                 validate_report(manifest["recovery_gate"], target_commit=commit)
+                report = manifest["recovery_gate"]
+                if report.get("schema") == 2:
+                    old_image = report["full_recovery_evidence"].get("payload", {}).get("measurements", {}).get("compose", {}).get("old_image_id")
+                    if old_image != manifest["production_current_image_id"]:
+                        raise RuntimeError("full recovery evidence old image differs from production snapshot")
         if manifest.get("parent_profile") != profile.get("parent"):
             raise RuntimeError("manifest parent profile does not match")
         if manifest.get("new_migrations") != profile.get("new_migrations"):
@@ -385,6 +397,8 @@ def create_manifest(commit: str, profile: dict[str, Any], release_id: str, deplo
         "release_asset_sha256": asset_checksums,
         "vm_identity": profile["vm_identity"],
     }
+    if RECOVERY_BUNDLE_PREFIX + "release/recovery_bundle.py" in asset_checksums:
+        manifest["recovery_helper_bundle_sha256"] = recovery_bundle_sha256(recovery_bundle_document(commit, asset_checksums))
     if schema == 2:
         if production_current_image_id is not None:
             validate_image_id(production_current_image_id)

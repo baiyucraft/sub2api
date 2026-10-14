@@ -70,17 +70,25 @@ python .agents/skills/sub2api-production-deploy/scripts/release.py doctor --prof
 协调恢复至少保存以下语义 checkpoint；具体文件名可以演进，但语义、顺序和幂等性不能漂移：
 
 ```text
+compose_restored
 postgres_restored
 redis_restored
-compose_restored
 app_healthy
 nginx_restored
 backup_units_restored
-claim_reconciled
 state_cleanup
+claim_reconciled
 ```
 
 续跑前逐项复核已完成 checkpoint，满足现场不变量时跳过；复核失败则 fail-closed。禁止因为 finish/cleanup 阶段中断而重复恢复 PostgreSQL 或 Redis。
+
+`recovery_bundle.py` 使用 manifest 的完整 `release_asset_sha256` 原路径闭包计算 bundle：规范 JSON 无尾换行，绑定完整 helper commit。原路径副本位于 `sources/`，仅正式执行入口提供平铺副本；重复 basename、额外文件/目录、symlink、hardlink 或字节漂移拒绝。生产恢复使用 `recovery-helpers/<sha>`，历史 claim 资产保持原样。当前 Gate 的既有 Ed25519 信任根签名必须证明完整包；旧 Gate 无此绑定时，协调恢复须显式指定 `--recovery-helper-gate`，不能上传单个新版脚本再调用旧版 cleanup/reconcile。
+
+`restore.sh` 完成前五阶段，`recovery-finish.sh` 调用同包的 backup units、cleanup 与 reconcile 完成后三阶段。checkpoint 绑定 release、明文恢复点 checksum、旧镜像与 helper 包，保存于 release 目录，明文清理后仍保留。`.started` 没有 `.done` 的阶段只能在完整现场复验成功后收养，不盲重放数据写入；started 持久化失败不得 apply，done 写失败不得报告完成。先清理明文再释放 claim，防止下一个发布进入仍有恢复明文的现场。
+
+Compose 快照使用真实 Docker Compose JSON 解析 `env_file/configs/secrets` 文件闭包；固定清空宿主插值和 Docker endpoint 环境。当前支持同目录 basename 文件，依赖 Python 3 + PyYAML 和 Compose `--no-env-resolution`；其他路径、`include`/`extends`（包括引号或转义键）在写入前拒绝。恢复目录与现场渲染摘要及不可变镜像一致后才允许删除容器或修改数据库。
+
+`recovery_drill.py probe/plan/run` 的 offline/private-user nspawn 隔离演练只接受专用完整合成 fixture，复用正式 restore/finish。该演练验证故障续跑，不是 full DR：没有真实加密资产、批准解密身份、签名完整恢复证据时仍不得解除生产硬门禁。
 
 - 首次修复发布不要先运行独立的 strict `doctor`。当 pre-Gate doctor 只报告
   `nginx_ingress_policy=needs_update` 时，由 `deploy-start`/`deploy-follow` 内部的宽松
@@ -385,3 +393,11 @@ python .agents/skills/sub2api-production-deploy/scripts/release.py cleanup-produ
 5. apply 删除候选 image 后，允许执行一次 `docker buildx prune --all --max-used-space 2gb --reserved-space 2gb`。禁止 `docker image prune`、`docker system prune`、强制删 image、删除 volume 或扩大到 migration/container/recovery artifacts。
 6. candidate archive 使用固定 retention：保留最近 3 天内全部 `candidate.tar.gz`，若窗口内不足 3 个则补足最近 3 个；当前 release、带 `.recovered`/`.reconciliation` 标记和非单链接文件的归档不得删除。镜像保护集合仍独立保护 current、pre-switch 和 recovery point 的 image。apply 只删除 dry-run 计划中的归档文件，不删除 release 目录、Gate、marker 或其他证据。
 7. image inspect size、candidate archive 文件大小和 BuildKit 逻辑大小只作分类观察，不能承诺物理释放量；最终以根文件系统及 containerd 所在文件系统的 `df -PB1` 前后差值验收。释放未达预期不授权自动第二轮或扩大范围。
+
+### 独立完整灾备审阅证据入口
+
+`recovery-review-scope --profile <profile> --commit <完整SHA>` 从当前生产只读快照与目标提交推导最终分类和完整 Git/资产审阅范围；不会准备生产恢复包或写入生产。手工选择 full 时同时传 `--recovery-gate-mode full`，签名后不能更改理由集合。
+
+`vm-validate`、`deploy`、`deploy-start`、`deploy-follow` 接受 `--full-recovery-evidence <已有签名JSON>`。仅接受既有固定信任根签名的 schema 2、`sub2api-full-recovery-review` 独立 domain；完整验证器重新计算 Git blob/模式/原始字节、分类与helper闭包，不接受 schema 1 裸 pass 或合成fixture。后台worker先保存本release证据副本，分类报告包含完整签名证明。首次准入登记唯一 drill id，同 id 只能重读同一digest/target的canonical receipt。生产准入证据24小时内有效；事故恢复的历史验真显式允许过期，仍核验原签名、完整闭包与恢复身份。
+
+完整灾备证明必须来自真实加密生产基线与批准的匹配解密identity、独立离线Guest/私有Docker、同包restore/finish、真实exit79中断续跑与数据未重灌、Compose闭包/旧image、PostgreSQL行数/迁移、Redis真实等待和惰性过期、八阶段原始checkpoint、RTO及owned清理。证明旧image必须匹配发布只读快照。`recovery_drill.py`当前只运行合成隔离fixture，旧 `sign-dr-evidence.sh` 不发行该新domain证明；本地签名负例测试与合成演练均不能声称full DR通过。缺真实资源或签名时保持阻断，不能借手工full选择或旧Gate解除。
