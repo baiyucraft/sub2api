@@ -118,7 +118,8 @@ describe('admin AccountsView priority column preferences', () => {
     expect(listAccounts).toHaveBeenLastCalledWith(
       1,
       20,
-      expect.objectContaining({ sort_by: 'priority', sort_order: 'desc' })
+      expect.objectContaining({ sort_by: 'priority', sort_order: 'desc' }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
     )
   })
 

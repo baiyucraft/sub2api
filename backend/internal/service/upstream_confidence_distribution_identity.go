@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
@@ -91,6 +90,10 @@ func (s *AccountTestService) ResolveConfidenceDistributionIdentity(account *Acco
 }
 
 func (s *AccountTestService) resolveDistributionRequest(account *Account) (*distributionRequestSpec, error) {
+	return s.resolveDistributionRequestWithPolicy(account, &distributionClientPolicy{ctx: context.Background()})
+}
+
+func (s *AccountTestService) resolveDistributionRequestWithPolicy(account *Account, policy *distributionClientPolicy) (*distributionRequestSpec, error) {
 	if account == nil {
 		return nil, errors.New("confidence distribution account is missing")
 	}
@@ -144,34 +147,13 @@ func (s *AccountTestService) resolveDistributionRequest(account *Account) (*dist
 		_, uaOverridden := snapshot.HeaderOverrideValue("user-agent")
 		_, versionOverridden := snapshot.HeaderOverrideValue("version")
 		if (!uaOverridden || !versionOverridden) && s.settingService != nil && s.settingService.settingRepo != nil {
-			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-			value, readErr := s.settingService.settingRepo.GetValue(ctx, SettingKeyOpenAICodexClientVersion)
-			cancel()
-			if readErr != nil && !errors.Is(readErr, ErrSettingNotFound) {
+			var readErr error
+			manualVersion, clientVersion, readErr = policy.load(s.settingService)
+			if readErr != nil {
 				return nil, &distributionConfigurationError{"configuration_error", "probe_client_identity_unavailable", errors.New("probe client identity policy is unavailable")}
 			}
-			manualVersion = NormalizeCodexClientVersion(value)
-			if manualVersion != "" && CompareVersions(manualVersion, codexUpstreamMinVersion) >= 0 {
-				clientVersion = manualVersion
-				headers.Set("User-Agent", openai.SetCodexUserAgentVersion(headers.Get("User-Agent"), clientVersion))
-				headers.Set("version", clientVersion)
-			} else {
-				manualVersion = ""
-				// A removed fixed policy must not seed a new series from the
-				// canonical resolver's cached, formerly fixed version.
-				ctx, cancel = context.WithTimeout(context.Background(), 3*time.Second)
-				synced, readErr := s.settingService.settingRepo.GetValue(ctx, SettingKeyOpenAICodexClientVersionSynced)
-				cancel()
-				if readErr != nil && !errors.Is(readErr, ErrSettingNotFound) {
-					return nil, &distributionConfigurationError{"configuration_error", "probe_client_identity_unavailable", errors.New("probe client identity policy is unavailable")}
-				}
-				clientVersion = NormalizeCodexClientVersion(synced)
-				if clientVersion == "" || CompareVersions(clientVersion, codexUpstreamMinVersion) < 0 {
-					clientVersion = codexCLIVersion
-				}
-				headers.Set("User-Agent", openai.SetCodexUserAgentVersion(headers.Get("User-Agent"), clientVersion))
-				headers.Set("version", clientVersion)
-			}
+			headers.Set("User-Agent", openai.SetCodexUserAgentVersion(headers.Get("User-Agent"), clientVersion))
+			headers.Set("version", clientVersion)
 		}
 	}
 	snapshot.ApplyHeaderOverrides(headers)

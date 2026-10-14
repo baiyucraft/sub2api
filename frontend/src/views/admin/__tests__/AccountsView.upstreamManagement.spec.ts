@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 
 import AccountsView from '../AccountsView.vue'
+import { adminAPI } from '@/api/admin'
 
 const {
   ordinaryList,
@@ -98,8 +99,8 @@ vi.mock('vue-i18n', async () => {
 })
 
 const AccountTableActionsStub = {
-  props: ['showCreate'],
-  template: '<div data-test="table-actions" :data-show-create="String(showCreate)"><slot name="afterRefresh" /><slot name="after" /></div>'
+  props: ['showCreate', 'loading'],
+  template: '<div data-test="table-actions" :data-show-create="String(showCreate)"><button data-test="refresh" :disabled="loading" @click="$emit(\'refresh\')" /><slot name="afterRefresh" /><slot name="after" /></div>'
 }
 
 const AccountBulkActionsBarStub = {
@@ -149,7 +150,8 @@ const mountView = (scope: 'ordinary' | 'upstream' = 'upstream') => mount(Account
       TablePageLayout: { template: '<div><slot name="filters" /><slot name="table" /><slot name="pagination" /></div>' },
       Teleport: true,
       DataTable: {
-        props: ['data', 'columns', 'sortStorageKey'],
+        name: 'DataTable',
+        props: ['data', 'columns', 'sortStorageKey', 'loading'],
         template: `
           <div
             data-test="data-table"
@@ -158,12 +160,13 @@ const mountView = (scope: 'ordinary' | 'upstream' = 'upstream') => mount(Account
             :data-sort-storage-key="sortStorageKey"
           >
             <button data-test="sort-status" @click="$emit('sort', 'status', 'desc')">sort</button>
-            <div v-for="row in data" :key="row.id">
+            <div v-if="loading" data-test="skeleton" />
+            <template v-else><div v-for="row in data" :key="row.id">
               <slot name="cell-name" :row="row" :value="row.name" />
               <slot name="cell-rate_multiplier" :row="row" :value="row.rate_multiplier" />
               <slot name="cell-usage" :row="row" />
               <slot name="cell-actions" :row="row" />
-            </div>
+            </div></template>
           </div>
         `
       },
@@ -206,7 +209,17 @@ const mountView = (scope: 'ordinary' | 'upstream' = 'upstream') => mount(Account
   }
 })
 
+function deferred<T = any>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>(done => { resolve = done })
+  return { promise, resolve }
+}
+
 describe('admin AccountsView upstream management mode', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
   beforeEach(() => {
     localStorage.clear()
     ordinaryList.mockReset()
@@ -221,6 +234,8 @@ describe('admin AccountsView upstream management mode', () => {
     probeKey.mockReset()
     setKeyObservation.mockReset()
     showError.mockReset()
+    vi.mocked(adminAPI.proxies.getAll).mockResolvedValue([])
+    vi.mocked(adminAPI.groups.getAll).mockResolvedValue([])
 
     upstreamList.mockResolvedValue({
       items: [{
@@ -298,7 +313,7 @@ describe('admin AccountsView upstream management mode', () => {
       page: 1,
       page_size: 20,
       scope: 'upstream'
-    }))
+    }), expect.objectContaining({ signal: expect.any(AbortSignal) }))
     expect(ordinaryList).not.toHaveBeenCalled()
     expect(getSettings).not.toHaveBeenCalled()
     expect(getProbeModelCandidates).not.toHaveBeenCalled()
@@ -307,7 +322,7 @@ describe('admin AccountsView upstream management mode', () => {
       privacy_mode: expect.anything(),
       upstream_config_id: expect.anything(),
       upstream_key_id: expect.anything()
-    }))
+    }), expect.objectContaining({ signal: expect.any(AbortSignal) }))
 
     expect(wrapper.get('[data-test="filters"]').attributes('data-mode')).toBe('upstream')
     expect(wrapper.get('[data-test="table-actions"]').attributes('data-show-create')).toBe('false')
@@ -347,12 +362,12 @@ describe('admin AccountsView upstream management mode', () => {
     await wrapper.get('[data-test="quality-filter-1h-a"]').trigger('click')
     await vi.advanceTimersByTimeAsync(300)
     await flushPromises()
-    expect(upstreamList).toHaveBeenLastCalledWith(expect.objectContaining({ quality_filter: '1h-A' }))
+    expect(upstreamList).toHaveBeenLastCalledWith(expect.objectContaining({ quality_filter: '1h-A' }), expect.objectContaining({ signal: expect.any(AbortSignal) }))
 
     await wrapper.get('[data-test="quality-filter-clear"]').trigger('click')
     await vi.advanceTimersByTimeAsync(300)
     await flushPromises()
-    expect(upstreamList).toHaveBeenLastCalledWith(expect.objectContaining({ quality_filter: '' }))
+    expect(upstreamList).toHaveBeenLastCalledWith(expect.objectContaining({ quality_filter: '' }), expect.objectContaining({ signal: expect.any(AbortSignal) }))
 
     wrapper.unmount()
     vi.useRealTimers()
@@ -562,7 +577,7 @@ describe('admin AccountsView upstream management mode', () => {
     expect(ordinaryList).toHaveBeenLastCalledWith(1, 20, expect.objectContaining({
       sort_by: 'status',
       sort_order: 'desc'
-    }))
+    }), expect.objectContaining({ signal: expect.any(AbortSignal) }))
     expect(wrapper.text()).toContain('admin.accounts.autoRefreshCountdown')
 
     await wrapper.setProps({ scope: 'upstream' })
@@ -572,7 +587,7 @@ describe('admin AccountsView upstream management mode', () => {
     expect(upstreamList).toHaveBeenLastCalledWith(expect.objectContaining({
       sort_by: 'id',
       sort_order: 'asc'
-    }))
+    }), expect.objectContaining({ signal: expect.any(AbortSignal) }))
     expect(wrapper.text()).toContain('admin.accounts.autoRefresh')
     expect(wrapper.text()).not.toContain('admin.accounts.autoRefreshCountdown')
 
@@ -640,5 +655,266 @@ describe('admin AccountsView upstream management mode', () => {
     expect(getBatchUsage).toHaveBeenCalledWith([101, 102], false)
     wrapper.unmount()
     vi.useRealTimers()
+  })
+
+  it('keeps mounted rows during manual refresh and applies cache guard changes without updated_at changing', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    const table = wrapper.findComponent({ name: 'DataTable' })
+    const oldCell = wrapper.get('[data-test="usage-cell"]').element
+    const row = (table.props('data') as any[])[0]
+    const pending = deferred()
+    upstreamListWithEtag.mockReturnValueOnce(pending.promise)
+
+    await wrapper.get('[data-test="refresh"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-test="skeleton"]').exists()).toBe(false)
+    expect(wrapper.get('[data-test="usage-cell"]').element).toBe(oldCell)
+    expect(upstreamList).toHaveBeenCalledTimes(1)
+    expect(upstreamListWithEtag).toHaveBeenCalledTimes(1)
+    expect((upstreamListWithEtag.mock.calls[0][1] as any).signal.aborted).toBe(false)
+
+    pending.resolve({ notModified: false, etag: 'cache-changed', data: {
+      items: [{ ...row, priority: 9, upstream_cache_guard_states: [{ group_id: 7, state: 'protected', valid_requests: 21, rate_percent: 50 }] }],
+      total: 1, pages: 1
+    } })
+    await flushPromises()
+    const updated = (table.props('data') as any[])[0]
+    expect(updated.updated_at).toBe(row.updated_at)
+    expect(updated.priority).toBe(9)
+    expect(updated.upstream_cache_guard_states[0].state).toBe('protected')
+    expect(wrapper.get('[data-test="usage-cell"]').element).toBe(oldCell)
+    expect(upstreamListWithEtag.mock.calls[0][1].signal.aborted).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('shares an automatic list refresh with a manual click and starts forced usage before slow statistics and settings finish', async () => {
+    vi.useFakeTimers()
+    const initial = await upstreamList()
+    initial.items[0].type = 'oauth'
+    upstreamList.mockClear().mockResolvedValue(initial)
+    const wrapper = mountView()
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(0)
+    await flushPromises()
+    getBatchUsage.mockClear()
+    const pendingList = deferred()
+    const pendingToday = deferred()
+    const pendingQuality = deferred()
+    const pendingSettings = deferred()
+    upstreamListWithEtag.mockReturnValueOnce(pendingList.promise)
+    getBatchTodayStats.mockReturnValueOnce(pendingToday.promise)
+    getBatchQualityStats.mockReturnValueOnce(pendingQuality.promise)
+    getUpstreamBillingProbeSettings.mockReturnValueOnce(pendingSettings.promise)
+    const automatic = (wrapper.vm as any).$.setupState.refreshAccountsIncrementally()
+    await wrapper.get('[data-test="refresh"]').trigger('click')
+    await flushPromises()
+    expect(upstreamListWithEtag).toHaveBeenCalledTimes(1)
+
+    pendingList.resolve({ notModified: true, etag: 'same', data: null })
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(0)
+    await flushPromises()
+    expect(getBatchUsage).toHaveBeenCalledWith([71], true)
+    expect(wrapper.find('[data-test="skeleton"]').exists()).toBe(false)
+    expect(wrapper.get('[data-test="refresh"]').attributes('disabled')).toBeDefined()
+
+    pendingToday.resolve({ stats: {} })
+    pendingQuality.resolve({ data: { stats: {} } })
+    pendingSettings.resolve({ enabled: true })
+    await automatic
+    await flushPromises()
+    expect(wrapper.get('[data-test="refresh"]').attributes('disabled')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('aborts the automatic HTTP request on a sort change and ignores its late result', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    const pending = deferred()
+    upstreamListWithEtag.mockReturnValueOnce(pending.promise)
+    const refresh = (wrapper.vm as any).$.setupState.refreshAccountsIncrementally()
+    const signal = upstreamListWithEtag.mock.calls[0][1].signal
+    const nextList = deferred()
+    upstreamList.mockReturnValueOnce(nextList.promise)
+    await wrapper.get('[data-test="sort-status"]').trigger('click')
+    expect(signal.aborted).toBe(true)
+    expect(wrapper.find('[data-test="skeleton"]').exists()).toBe(true)
+    nextList.resolve({ items: [{ id: 99, name: 'sorted-current', platform: 'openai', type: 'apikey' }], total: 1, pages: 1 })
+    await flushPromises()
+    pending.resolve({ notModified: false, etag: 'old', data: { items: [{ id: 1, name: 'obsolete' }], total: 500, pages: 25 } })
+    await refresh
+    await flushPromises()
+    expect(wrapper.text()).toContain('sorted-current')
+    expect(wrapper.text()).not.toContain('obsolete')
+    expect(wrapper.get('[data-test="data-table"]').attributes('data-count')).toBe('1')
+    wrapper.unmount()
+  })
+
+  it('passes initial-load cancellation through and rejects late results after a sort change', async () => {
+    const pending = deferred()
+    upstreamList.mockReturnValueOnce(pending.promise)
+    const wrapper = mountView()
+    await flushPromises()
+    const firstSignal = upstreamList.mock.calls[0][1].signal
+    expect(wrapper.find('[data-test="skeleton"]').exists()).toBe(true)
+    await wrapper.get('[data-test="sort-status"]').trigger('click')
+    await flushPromises()
+    expect(firstSignal.aborted).toBe(true)
+    pending.resolve({ items: [{ id: 1, name: 'obsolete-load' }], total: 1, pages: 1 })
+    await flushPromises()
+    expect(wrapper.text()).toContain('derived-key-account')
+    expect(wrapper.text()).not.toContain('obsolete-load')
+    wrapper.unmount()
+  })
+
+  it('finishes ordinary in-flight usage before exactly one forced followup and shares forced in-flight requests', async () => {
+    vi.useFakeTimers()
+    const initial = await upstreamList()
+    initial.items[0].type = 'oauth'
+    upstreamList.mockClear().mockResolvedValue(initial)
+    const ordinaryUsage = deferred()
+    const forcedUsage = deferred()
+    getBatchUsage.mockReturnValueOnce(ordinaryUsage.promise).mockReturnValueOnce(forcedUsage.promise)
+    const wrapper = mountView()
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(0)
+    await flushPromises()
+    expect(getBatchUsage).toHaveBeenCalledWith([71], false)
+
+    await wrapper.get('[data-test="refresh"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-test="refresh"]').trigger('click')
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(getBatchUsage).toHaveBeenCalledTimes(1)
+    ordinaryUsage.resolve({ usage: { 71: { source: 'passive' } }, errors: {} })
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(0)
+    await flushPromises()
+    expect(getBatchUsage).toHaveBeenCalledTimes(2)
+    expect(getBatchUsage).toHaveBeenLastCalledWith([71], true)
+
+    await wrapper.get('[data-test="refresh"]').trigger('click')
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(getBatchUsage).toHaveBeenCalledTimes(2)
+    forcedUsage.resolve({ usage: { 71: { source: 'active' } }, errors: {} })
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(getBatchUsage).toHaveBeenCalledTimes(2)
+    wrapper.unmount()
+  })
+
+  it('reuses an upstream usage request when its account leaves and returns to the visible page', async () => {
+    vi.useFakeTimers()
+    const initial = await upstreamList()
+    initial.items[0].type = 'oauth'
+    initial.pages = 2
+    initial.total = 21
+    upstreamList.mockClear().mockResolvedValue(initial)
+    const pending = deferred()
+    getBatchUsage.mockReturnValueOnce(pending.promise)
+    const wrapper = mountView()
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(0)
+    await flushPromises()
+    expect(getBatchUsage).toHaveBeenCalledWith([71], false)
+
+    upstreamList.mockResolvedValueOnce({ ...initial, items: [{ ...initial.items[0], id: 72 }] })
+    ;(wrapper.vm as any).$.setupState.handlePageChange(2)
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(0)
+    await flushPromises()
+    expect(getBatchUsage).toHaveBeenCalledTimes(2)
+    expect(getBatchUsage).toHaveBeenLastCalledWith([72], false)
+
+    ;(wrapper.vm as any).$.setupState.handlePageChange(1)
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(0)
+    await flushPromises()
+    expect(getBatchUsage).toHaveBeenCalledTimes(2)
+    pending.resolve({ usage: { 71: { source: 'passive' } }, errors: {} })
+    await flushPromises()
+    expect((wrapper.vm as any).$.setupState.usageBatchByAccountId['71'].source).toBe('passive')
+    wrapper.unmount()
+  })
+
+  it('keeps the same row object for unchanged snapshots and retains it when a background refresh fails', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    const table = wrapper.findComponent({ name: 'DataTable' })
+    const rows = table.props('data') as any[]
+    upstreamListWithEtag.mockResolvedValueOnce({ notModified: false, etag: 'identical', data: {
+      items: JSON.parse(JSON.stringify(rows)), total: 1, pages: 1
+    } })
+    await wrapper.get('[data-test="refresh"]').trigger('click')
+    await flushPromises()
+    expect((table.props('data') as any[])[0]).toBe(rows[0])
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    upstreamListWithEtag.mockRejectedValueOnce(new Error('network unavailable'))
+    await wrapper.get('[data-test="refresh"]').trigger('click')
+    await flushPromises()
+    expect((table.props('data') as any[])[0]).toBe(rows[0])
+    expect(wrapper.find('[data-test="skeleton"]').exists()).toBe(false)
+    expect(error).toHaveBeenCalled()
+    expect(showError).toHaveBeenCalledWith('admin.accounts.failedToLoad')
+    wrapper.unmount()
+  })
+
+  it('reports a failed manual retry after initial loading failed without leaving an unhandled rejection', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    upstreamList.mockRejectedValueOnce(new Error('initial load unavailable'))
+    const wrapper = mountView()
+    await flushPromises()
+    expect(showError).toHaveBeenCalledWith('admin.accounts.failedToLoad')
+    showError.mockClear()
+    upstreamList.mockRejectedValueOnce(new Error('manual retry unavailable'))
+    await expect((wrapper.vm as any).$.setupState.handleManualRefresh()).resolves.toBeUndefined()
+    await flushPromises()
+    expect(showError).toHaveBeenCalledTimes(1)
+    expect(showError).toHaveBeenCalledWith('admin.accounts.failedToLoad')
+    expect(wrapper.get('[data-test="refresh"]').attributes('disabled')).toBeUndefined()
+    expect(upstreamListWithEtag).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('keeps automatic refresh failures quiet and suppresses automatic requests while manual statistics are pending', async () => {
+    vi.useFakeTimers()
+    vi.spyOn(document, 'hidden', 'get').mockReturnValue(false)
+    localStorage.setItem('upstream-account-auto-refresh', JSON.stringify({ enabled: true, interval_seconds: 5 }))
+    const wrapper = mountView()
+    await flushPromises()
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    upstreamListWithEtag.mockRejectedValueOnce(new Error('automatic failure'))
+    await (wrapper.vm as any).$.setupState.refreshAccountsIncrementally()
+    expect(showError).not.toHaveBeenCalled()
+
+    const today = deferred()
+    getBatchTodayStats.mockReturnValueOnce(today.promise)
+    await wrapper.get('[data-test="refresh"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-test="refresh"]').attributes('disabled')).toBeDefined()
+    expect(upstreamListWithEtag).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(6000)
+    expect(upstreamListWithEtag).toHaveBeenCalledTimes(2)
+    today.resolve({ stats: {} })
+    await flushPromises()
+    wrapper.unmount()
+  })
+
+  it('cancels an incremental refresh on unmount and does not start statistics for its late response', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    const pending = deferred()
+    upstreamListWithEtag.mockReturnValueOnce(pending.promise)
+    const refresh = (wrapper.vm as any).$.setupState.refreshAccountsIncrementally()
+    const signal = upstreamListWithEtag.mock.calls[0][1].signal
+    const todayCalls = getBatchTodayStats.mock.calls.length
+    wrapper.unmount()
+    expect(signal.aborted).toBe(true)
+    pending.resolve({ notModified: true, etag: 'late', data: null })
+    await refresh
+    expect(getBatchTodayStats).toHaveBeenCalledTimes(todayCalls)
   })
 })

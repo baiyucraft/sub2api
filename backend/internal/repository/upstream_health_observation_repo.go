@@ -263,6 +263,40 @@ func (r *upstreamConfigRepository) GetUpstreamHealthConfidence(ctx context.Conte
 	return aggregateUpstreamHealthConfidence(now, rows), nil
 }
 
+func (r *upstreamConfigRepository) GetUpstreamHealthConfidences(ctx context.Context, keyIDs []int64) (map[int64]service.UpstreamHealthConfidenceSummary, error) {
+	keyIDs = uniquePositiveInt64sForConfidence(keyIDs)
+	out := make(map[int64]service.UpstreamHealthConfidenceSummary, len(keyIDs))
+	if len(keyIDs) == 0 {
+		return out, nil
+	}
+	now := time.Now().UTC()
+	byKey := make(map[int64][]*dbent.UpstreamHealthObservation, len(keyIDs))
+	for start := 0; start < len(keyIDs); start += postgresParameterBatchSize {
+		end := min(start+postgresParameterBatchSize, len(keyIDs))
+		rows, err := r.client.UpstreamHealthObservation.Query().Where(
+			dbupstreamhealthobservation.UpstreamKeyIDIn(keyIDs[start:end]...),
+			dbupstreamhealthobservation.PlatformEQ(service.PlatformOpenAI),
+			dbupstreamhealthobservation.SourceEQ("probe"),
+			dbupstreamhealthobservation.ConfidencePromptVersionEQ(service.UpstreamConfidencePromptVersion),
+			dbupstreamhealthobservation.ObservedAtGTE(now.Add(-7*24*time.Hour)),
+		).Order(dbent.Desc(dbupstreamhealthobservation.FieldObservedAt), dbent.Desc(dbupstreamhealthobservation.FieldID)).All(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, row := range rows {
+			byKey[row.UpstreamKeyID] = append(byKey[row.UpstreamKeyID], row)
+		}
+	}
+	for _, id := range keyIDs {
+		out[id] = aggregateUpstreamHealthConfidence(now, byKey[id])
+	}
+	return out, nil
+}
+
+func uniquePositiveInt64sForConfidence(ids []int64) []int64 {
+	return uniqueSortedInt64s(uniquePositiveInt64s(ids))
+}
+
 func aggregateUpstreamHealthConfidence(now time.Time, rows []*dbent.UpstreamHealthObservation) service.UpstreamHealthConfidenceSummary {
 	summary := service.UpstreamHealthConfidenceSummary{
 		Status: "data_insufficient", RequestedEffort: service.UpstreamConfidenceDefaultEffort,

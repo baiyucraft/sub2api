@@ -98,11 +98,62 @@ func UpstreamCacheGuardAccountStates(account *Account) []UpstreamCacheGuardState
 	if account == nil || !account.IsUpstreamBound() {
 		return nil
 	}
+	return UpstreamCacheGuardAccountStatesBatch([]Account{*account})[account.ID]
+}
+
+// UpstreamCacheGuardAccountStatesBatch projects the shared runtime state for a
+// list response. Each group snapshot is read and indexed once within this call;
+// nothing is retained between requests or used to change scheduling decisions.
+func UpstreamCacheGuardAccountStatesBatch(accounts []Account) map[int64][]UpstreamCacheGuardState {
 	r := currentUpstreamCacheGuardRunner()
 	settings := DefaultUpstreamCacheGuardSettings()
 	if r != nil {
 		settings = r.engine.Settings()
 	}
+	available := r != nil && r.available.Load()
+	var snapshotReader func(int64) upstreamcacheguard.Snapshot
+	if available {
+		snapshotReader = r.engine.CachedSnapshot
+	}
+	return upstreamCacheGuardAccountStatesBatch(accounts, settings, available, snapshotReader)
+}
+
+type upstreamCacheGuardGroupStateIndex struct {
+	available bool
+	accounts  map[int64][]upstreamcacheguard.AccountSnapshot
+}
+
+func upstreamCacheGuardAccountStatesBatch(accounts []Account, settings UpstreamCacheGuardSettings, available bool, snapshotReader func(int64) upstreamcacheguard.Snapshot) map[int64][]UpstreamCacheGuardState {
+	result := make(map[int64][]UpstreamCacheGuardState, len(accounts))
+	groups := make(map[int64]upstreamCacheGuardGroupStateIndex)
+	readGroup := func(id int64) upstreamCacheGuardGroupStateIndex {
+		if cached, ok := groups[id]; ok {
+			return cached
+		}
+		index := upstreamCacheGuardGroupStateIndex{}
+		if available && snapshotReader != nil {
+			snapshot := snapshotReader(id)
+			index.available = snapshot.Available
+			if index.available {
+				index.accounts = make(map[int64][]upstreamcacheguard.AccountSnapshot, len(snapshot.Accounts))
+				for _, account := range snapshot.Accounts {
+					index.accounts[account.AccountID] = append(index.accounts[account.AccountID], account)
+				}
+			}
+		}
+		groups[id] = index
+		return index
+	}
+	for i := range accounts {
+		account := &accounts[i]
+		if account.IsUpstreamBound() {
+			result[account.ID] = upstreamCacheGuardAccountStates(account, settings, readGroup)
+		}
+	}
+	return result
+}
+
+func upstreamCacheGuardAccountStates(account *Account, settings UpstreamCacheGuardSettings, readGroup func(int64) upstreamCacheGuardGroupStateIndex) []UpstreamCacheGuardState {
 	groups := map[int64]string{}
 	for _, id := range account.GroupIDs {
 		groups[id] = ""
@@ -126,19 +177,14 @@ func UpstreamCacheGuardAccountStates(account *Account) []UpstreamCacheGuardState
 		}
 		item.State = "insufficient"
 		item.Reason = "insufficient_samples"
-		if r == nil || !r.available.Load() {
+		snapshot := readGroup(id)
+		if !snapshot.available {
 			item.Reason = "snapshot_unavailable"
 			result = append(result, item)
 			continue
 		}
-		snapshot := r.engine.CachedSnapshot(id)
-		if !snapshot.Available {
-			item.Reason = "snapshot_unavailable"
-			result = append(result, item)
-			continue
-		}
-		for _, a := range snapshot.Accounts {
-			if a.AccountID != account.ID || (a.UpstreamKeyID > 0 && a.UpstreamKeyID != *account.UpstreamKeyID) {
+		for _, a := range snapshot.accounts[account.ID] {
+			if a.UpstreamKeyID > 0 && a.UpstreamKeyID != *account.UpstreamKeyID {
 				continue
 			}
 			item.ValidRequests = a.ValidRequests
