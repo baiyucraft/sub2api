@@ -472,7 +472,7 @@
                 }}</span>
               </button>
               <button
-                v-if="!authStore.isSimpleMode"
+                v-if="!authStore.isSimpleMode && protectionPlatformSelected(row.platform)"
                 data-testid="group-upstream-protection"
                 :title="t('admin.upstreamManagement.protection.openHint')"
                 @click="handleUpstreamProtectionPolicy(row)"
@@ -4484,6 +4484,7 @@ import {
 } from "@/components/admin/channel/types";
 import type { ChannelModelPricing } from "@/api/admin/channels";
 import type { GroupUpstreamProtectionPolicy } from "@/api/admin/groups";
+import { isSchedulingProtectionPlatformSelected, schedulingProtectionPlatforms, SCHEDULING_PROTECTION_SETTINGS_UPDATED } from "@/utils/schedulingProtection";
 import { VueDraggable } from "vue-draggable-plus";
 import { createStableObjectKeyResolver } from "@/utils/stableObjectKey";
 import { extractApiErrorMessage } from "@/utils/apiError";
@@ -5079,6 +5080,9 @@ const rpmOverridesGroup = ref<AdminGroup | null>(null);
 const showUpstreamProtectionPolicyModal = ref(false);
 const upstreamProtectionPolicyGroup = ref<AdminGroup | null>(null);
 const upstreamProtectionPolicies = ref<Map<number, GroupUpstreamProtectionPolicy>>(new Map());
+const upstreamProtectionPlatforms = ref<string[]>([]);
+let protectionScopeGeneration = 0;
+const protectionPlatformSelected = (platform: string) => isSchedulingProtectionPlatformSelected(platform, upstreamProtectionPlatforms.value);
 const preferredAccounts = ref<Account[]>([]);
 const preferredAccountIDs = ref<number[]>([]);
 const preferredAccountSearch = ref("");
@@ -5960,15 +5964,32 @@ const loadGroups = async () => {
 
 const loadUpstreamProtectionPolicies = async () => {
   const loader = adminAPI.groups.listUpstreamProtectionPolicies;
-  if (typeof loader !== "function") return;
+  const settingsLoader = adminAPI.upstreamManagement?.getSettings;
+  const request = ++protectionScopeGeneration;
+  upstreamProtectionPlatforms.value = [];
+  if (typeof loader !== "function" || typeof settingsLoader !== "function") return false;
   try {
-    const policies = await loader();
+    const [settings, policies] = await Promise.all([settingsLoader(), loader()]);
+    if (request !== protectionScopeGeneration) return false;
+    upstreamProtectionPlatforms.value = schedulingProtectionPlatforms(settings);
     upstreamProtectionPolicies.value = new Map(
       policies.map((policy) => [policy.group_id, policy]),
     );
+    if (upstreamProtectionPolicyGroup.value && !protectionPlatformSelected(upstreamProtectionPolicyGroup.value.platform)) {
+      showUpstreamProtectionPolicyModal.value = false;
+      upstreamProtectionPolicyGroup.value = null;
+    }
+    return true;
   } catch (error) {
+    if (request !== protectionScopeGeneration) return false;
+    showUpstreamProtectionPolicyModal.value = false;
     console.error("Error loading group upstream protection policies:", error);
+    return false;
   }
+};
+
+const refreshProtectionScope = () => {
+  if (!authStore.isSimpleMode && document.visibilityState !== "hidden") void loadUpstreamProtectionPolicies();
 };
 
 const formatCost = (cost: number): string => {
@@ -6905,7 +6926,16 @@ const upstreamProtectionPolicyClass = (policy?: GroupUpstreamProtectionPolicy) =
   return "text-blue-600 dark:text-blue-400";
 };
 
-const handleUpstreamProtectionPolicy = (group: AdminGroup) => {
+const handleUpstreamProtectionPolicy = async (group: AdminGroup) => {
+  if (authStore.isSimpleMode) return;
+  if (!await loadUpstreamProtectionPolicies()) {
+    appStore.showError(t("admin.upstreamManagement.protection.loadFailed"));
+    return;
+  }
+  if (!protectionPlatformSelected(group.platform)) {
+    appStore.showError(t("admin.upstreamManagement.protection.platformNotSelected"));
+    return;
+  }
   upstreamProtectionPolicyGroup.value = group;
   showUpstreamProtectionPolicyModal.value = true;
 };
@@ -7365,18 +7395,25 @@ onMounted(() => {
     loadModelAllowlistCandidates("create", 0, createForm.platform);
   }
   document.addEventListener("click", handleClickOutside);
+  document.addEventListener("visibilitychange", refreshProtectionScope);
+  window.addEventListener("focus", refreshProtectionScope);
+  window.addEventListener(SCHEDULING_PROTECTION_SETTINGS_UPDATED, refreshProtectionScope);
   previewClock = setInterval(() => {
     previewNow.value = Date.now();
   }, 60_000);
 });
 
 onUnmounted(() => {
+  ++protectionScopeGeneration;
   if (previewClock) {
     clearInterval(previewClock);
     previewClock = null;
   }
   cancelGroupQualityRequest();
   document.removeEventListener("click", handleClickOutside);
+  document.removeEventListener("visibilitychange", refreshProtectionScope);
+  window.removeEventListener("focus", refreshProtectionScope);
+  window.removeEventListener(SCHEDULING_PROTECTION_SETTINGS_UPDATED, refreshProtectionScope);
   accountSearchRunner.clearAll();
   clearAllAccountSearchState();
 });

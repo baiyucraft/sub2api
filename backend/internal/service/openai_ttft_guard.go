@@ -420,9 +420,25 @@ func (s *OpenAIGatewayService) resolveOpenAITTFTGuardConfig(ctx context.Context,
 		return OpenAITTFTGuardConfigSnapshot{Source: "disabled"}, false
 	}
 	if s.groupProtectionPolicyResolver != nil {
-		policy, err := s.groupProtectionPolicyResolver.ResolveProtection(ctx, groupID)
-		if err != nil {
-			return OpenAITTFTGuardConfigSnapshot{Source: "unavailable"}, false
+		var policy GroupSchedulingProtectionResolvedPolicy
+		if raw, ok := s.groupProtectionPolicyResolver.(interface {
+			ProtectionPolicies() map[int64]GroupSchedulingProtectionResolvedPolicy
+		}); ok {
+			// Runtime state tracks the stored policy independently from the hot
+			// platform gate. An effective disabled API view during a scope pause
+			// must never prune historical observations or recovery cohorts.
+			var known bool
+			policy, known = raw.ProtectionPolicies()[groupID]
+			if !known {
+				return OpenAITTFTGuardConfigSnapshot{Source: "unavailable"}, false
+			}
+		} else {
+			// Keep legacy resolvers and small test integrations compatible.
+			var err error
+			policy, err = s.groupProtectionPolicyResolver.ResolveProtection(ctx, groupID)
+			if err != nil {
+				return OpenAITTFTGuardConfigSnapshot{Source: "unavailable"}, false
+			}
 		}
 		p := policy.TTFT
 		cfg := OpenAITTFTGuardConfigSnapshot{Enabled: p.Enabled, Threshold: p.Threshold, MinSamples: p.MinSamples, Source: p.Source, GroupName: p.GroupName}
@@ -464,6 +480,9 @@ func (s *OpenAIGatewayService) reportOpenAITTFTGuard(groupID, accountID int64, m
 	if s == nil || groupID <= 0 {
 		return
 	}
+	if !SchedulingProtectionGroupSelected(s.groupProtectionPolicyResolver, groupID) || !schedulingProtectionPlatformSelected(s.groupProtectionPolicyResolver, PlatformOpenAI) {
+		return
+	}
 	// TTFT Guard is an upstream-account protection layer. Ordinary OAuth/API
 	// accounts continue to be handled solely by the built-in scheduler. The
 	// eligibility cache is populated from the same candidate snapshot used by
@@ -478,6 +497,9 @@ func (s *OpenAIGatewayService) reportOpenAITTFTGuard(groupID, accountID int64, m
 		return
 	}
 	s.syncTTFTProtectionPolicies()
+	if !SchedulingProtectionGroupSelected(s.groupProtectionPolicyResolver, groupID) || !schedulingProtectionPlatformSelected(s.groupProtectionPolicyResolver, PlatformOpenAI) {
+		return
+	}
 	keyID := int64(0)
 	if len(upstreamKeyIDs) > 0 {
 		keyID = upstreamKeyIDs[0]
@@ -491,7 +513,7 @@ func (s *OpenAIGatewayService) reportOpenAITTFTGuard(groupID, accountID int64, m
 // OpenAITTFTGuardDegradations implements OpenAITTFTGuardDegradationReader.
 // The returned map and slices are owned by the caller and may be modified.
 func (s *OpenAIGatewayService) OpenAITTFTGuardDegradations(accountIDs []int64) map[int64][]OpenAITTFTGuardDegradation {
-	if s == nil {
+	if s == nil || !schedulingProtectionPlatformSelected(s.groupProtectionPolicyResolver, PlatformOpenAI) {
 		return nil
 	}
 	s.syncTTFTProtectionPolicies()
@@ -506,6 +528,9 @@ func (s *OpenAIGatewayService) OpenAITTFTGuardDegradations(accountIDs []int64) m
 	for accountID, items := range degradations {
 		converted := make([]OpenAITTFTGuardDegradation, 0, len(items))
 		for _, item := range items {
+			if !SchedulingProtectionGroupSelected(s.groupProtectionPolicyResolver, item.GroupID) {
+				continue
+			}
 			converted = append(converted, OpenAITTFTGuardDegradation{
 				GroupID:                 item.GroupID,
 				GroupName:               item.GroupName,
@@ -523,7 +548,9 @@ func (s *OpenAIGatewayService) OpenAITTFTGuardDegradations(accountIDs []int64) m
 				RecoverySamplesRequired: item.RecoverySamplesRequired,
 			})
 		}
-		result[accountID] = converted
+		if len(converted) > 0 {
+			result[accountID] = converted
+		}
 	}
 	return result
 }
@@ -616,11 +643,14 @@ func (s *OpenAIGatewayService) openAIGuardExclusionParts(ctx context.Context, gr
 	if s == nil {
 		return nil, nil
 	}
-	hasGroupTTFTContext := groupID != nil && *groupID > 0 && NormalizeOpenAICompatiblePlatform(platform) == PlatformOpenAI
+	hasGroupTTFTContext := groupID != nil && *groupID > 0 && NormalizeOpenAICompatiblePlatform(platform) == PlatformOpenAI && SchedulingProtectionGroupSelected(s.groupProtectionPolicyResolver, *groupID)
 	cfg := OpenAITTFTGuardConfigSnapshot{Source: "disabled"}
 	policyResolved := false
 	if hasGroupTTFTContext {
 		cfg, policyResolved = s.resolveOpenAITTFTGuardConfig(ctx, *groupID)
+		if !SchedulingProtectionGroupSelected(s.groupProtectionPolicyResolver, *groupID) || !schedulingProtectionPlatformSelected(s.groupProtectionPolicyResolver, PlatformOpenAI) {
+			cfg, policyResolved = OpenAITTFTGuardConfigSnapshot{Source: "disabled"}, false
+		}
 	}
 	healthReader := s.forkHealthReader()
 	if !cfg.Enabled {
@@ -660,7 +690,7 @@ func (s *OpenAIGatewayService) openAIGuardExclusionParts(ctx context.Context, gr
 		if strings.TrimSpace(requestedModel) == "" {
 			continue
 		}
-		if hasGroupTTFTContext && cfg.Enabled {
+		if hasGroupTTFTContext && cfg.Enabled && schedulingProtectionAccountSelected(s.groupProtectionPolicyResolver, account) {
 			candidates = append(candidates, openAITTFTGuardCandidate{
 				upstreamKeyID: accountUpstreamKeyID(account),
 				groupID:       *groupID,

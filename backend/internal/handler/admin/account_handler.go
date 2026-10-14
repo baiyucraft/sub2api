@@ -480,7 +480,7 @@ func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, ac
 		item.UpstreamProtection = h.upstreamProtection(account, guard)
 	}
 	if h.ttftGuardReader != nil && account.Platform == service.PlatformOpenAI && account.IsUpstreamBound() {
-		item.TTFTGuardDegradations = accountCurrentKeyTTFTDegradations(account, h.ttftGuardReader.OpenAITTFTGuardDegradations([]int64{account.ID})[account.ID])
+		item.TTFTGuardDegradations = accountCurrentKeyTTFTDegradations(account, h.ttftGuardReader.OpenAITTFTGuardDegradations([]int64{account.ID})[account.ID], h.protectionPolicyReader)
 	}
 
 	if h.concurrencyService != nil {
@@ -1204,7 +1204,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 		}
 		var accountTTFTGuardDegradations []service.OpenAITTFTGuardDegradation
 		if acc.Platform == service.PlatformOpenAI && (scope == service.AccountListScopeAll || acc.IsUpstreamBound()) {
-			accountTTFTGuardDegradations = accountCurrentKeyTTFTDegradations(acc, ttftGuardDegradations[acc.ID])
+			accountTTFTGuardDegradations = accountCurrentKeyTTFTDegradations(acc, ttftGuardDegradations[acc.ID], h.protectionPolicyReader)
 		}
 		item := AccountWithConcurrency{
 			Account:                  accountResponse,

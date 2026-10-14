@@ -696,6 +696,7 @@
     <UpstreamManagementSettingsDialog
       :show="showUpstreamManagementSettings"
       @close="showUpstreamManagementSettings = false"
+      @saved="handleUpstreamManagementSettingsSaved"
     />
     <UpstreamManagementSettingsDialog
       :show="showUpstreamProbeSettings"
@@ -2286,7 +2287,7 @@ const handleManualRefresh = () => {
   if (manualRefreshPromise) return manualRefreshPromise
   manualRefreshing.value = true
   const context = accountListContextKey.value
-  const refreshTask = loadedAccountListContext.value === context
+  const refreshTask = !loading.value && loadedAccountListContext.value === context
     ? refreshAccountsIncrementally({ force: true })
     : load({ forceUsage: true })
   const generation = autoRefreshRequestGeneration
@@ -2300,6 +2301,19 @@ const handleManualRefresh = () => {
     manualRefreshPromise = null
   })
   return manualRefreshPromise
+}
+
+const handleUpstreamManagementSettingsSaved = async () => {
+  const context = accountListContextKey.value
+  // A request started before the save cannot satisfy the post-save refresh.
+  // Keep ordinary refresh deduplication, then fetch a new snapshot for this save.
+  while (manualRefreshPromise || accountRefreshFlight) {
+    await Promise.all([manualRefreshPromise, accountRefreshFlight?.promise])
+    if (accountListDisposed || context !== accountListContextKey.value) return
+  }
+  if (accountListDisposed || context !== accountListContextKey.value) return
+  invalidateAccountRefresh()
+  await handleManualRefresh()
 }
 
 const loadUpstreamBillingProbeGlobalState = async () => {

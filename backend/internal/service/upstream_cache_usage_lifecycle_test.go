@@ -145,7 +145,7 @@ func TestCacheGuardWSBeginRunsBeforePhysicalFrameWrite(t *testing.T) {
 	ctx := WithUpstreamCacheGuardAttempt(WithUpstreamCacheGuardScheduling(context.Background(), 8), 8, &group, "session", true)
 	turns := newUpstreamCacheGuardWSTurns(ctx)
 	writes := 0
-	conn := &upstreamCacheGuardWSFrameConn{turns: turns, inner: &cacheGuardFakeFrameConn{write: func() {
+	conn := &upstreamCacheGuardWSFrameConn{turns: turns, account: &Account{ID: 12, Platform: PlatformOpenAI}, inner: &cacheGuardFakeFrameConn{write: func() {
 		writes++
 		if len(turns.pending) != writes {
 			t.Fatal("physical send preceded turn admission")

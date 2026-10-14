@@ -43,8 +43,9 @@ func newCacheGuardID() string {
 }
 
 type UpstreamCacheGuardAdmission struct {
-	Request   upstreamcacheguard.Request
-	Admission upstreamcacheguard.Admission
+	Request         upstreamcacheguard.Request
+	Admission       upstreamcacheguard.Admission
+	AccountPlatform string
 }
 type UpstreamCacheGuardRunner struct {
 	engine         *upstreamcacheguard.Engine
@@ -285,6 +286,9 @@ func BeginUpstreamCacheGuardRequest(ctx context.Context, apiKeyID int64, groupID
 	if r == nil || !r.available.Load() || r.closed.Load() || account == nil || !account.IsUpstreamBound() || account.UpstreamKeyID == nil || groupID == nil || !r.engine.CachedSnapshot(*groupID).Available {
 		return nil
 	}
+	if !r.protectionScopeSelected(*groupID, account) {
+		return nil
+	}
 	identity, authorized := ctx.Value(cacheGuardSchedulingKey{}).(cacheGuardSchedulingIdentity)
 	if !authorized || identity.APIKeyID != apiKeyID {
 		return nil
@@ -307,7 +311,7 @@ func BeginUpstreamCacheGuardRequest(ctx context.Context, apiKeyID int64, groupID
 	if !a.Sample {
 		return nil
 	}
-	return &UpstreamCacheGuardAdmission{Request: req, Admission: a}
+	return &UpstreamCacheGuardAdmission{Request: req, Admission: a, AccountPlatform: account.Platform}
 }
 func ObserveUpstreamCacheGuardResult(admission *UpstreamCacheGuardAdmission, evidence *UpstreamCacheUsageEvidence, success bool, completedAt time.Time) {
 	r := currentUpstreamCacheGuardRunner()
@@ -315,6 +319,7 @@ func ObserveUpstreamCacheGuardResult(admission *UpstreamCacheGuardAdmission, evi
 		return
 	}
 	v := upstreamcacheguard.Evidence{ID: fmt.Sprintf("%s:%d:%d", admission.Request.ID, admission.Request.AccountID, admission.Request.StartedAt.UnixNano()), Request: admission.Request, Admission: admission.Admission, Success: success, CompletedAt: completedAt}
+	v.ProtectionPaused = !r.protectionScopeSelected(admission.Request.GroupID, &Account{Platform: admission.AccountPlatform})
 	if evidence != nil {
 		v.RawUsage = *evidence
 	}

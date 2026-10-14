@@ -132,6 +132,9 @@ type OpenAIOAuthModelSyncScheduler interface {
 
 // SettingService 系统设置服务
 type SettingService struct {
+	schedulingProtectionPlatformsCache atomic.Value // *schedulingProtectionPlatformsSnapshot
+	schedulingProtectionPlatformsMu    sync.Mutex
+
 	settingRepo                 SettingRepository
 	defaultSubGroupReader       DefaultSubscriptionGroupReader
 	proxyRepo                   ProxyRepository // for resolving websearch provider proxy URLs

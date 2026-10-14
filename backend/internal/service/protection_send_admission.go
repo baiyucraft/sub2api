@@ -3,7 +3,9 @@ package service
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"sync"
+	"sync/atomic"
 )
 
 type schedulingProtectionBeforeSendKey struct{}
@@ -13,6 +15,7 @@ type schedulingProtectionBeforeSend struct {
 	accountID int64
 	commit    func(context.Context) error
 	err       error
+	committed atomic.Bool
 }
 
 // WithSchedulingProtectionBeforeSend freezes one migration's final binding.
@@ -39,19 +42,30 @@ func runSchedulingProtectionBeforeSend(ctx context.Context, account *Account, ac
 		return err
 	}
 	admission, _ := ctx.Value(schedulingProtectionBeforeSendKey{}).(*schedulingProtectionBeforeSend)
+	if admission != nil && (account == nil || account.ID != admission.accountID) {
+		return fmt.Errorf("scheduling protection send account changed")
+	}
+	if !schedulingProtectionSendSelected(ctx, account) {
+		if admission != nil && !admission.committed.Load() {
+			return schedulingProtectionScopeChangedError()
+		}
+		return nil
+	}
 	if admission != nil {
 		if err := admission.ctx.Err(); err != nil {
 			return err
-		}
-		if account == nil || account.ID != admission.accountID {
-			return fmt.Errorf("scheduling protection send account changed")
 		}
 		admission.once.Do(func() {
 			if err := admission.ctx.Err(); err != nil {
 				admission.err = err
 				return
 			}
+			if !schedulingProtectionSendSelected(ctx, account) {
+				admission.err = schedulingProtectionScopeChangedError()
+				return
+			}
 			admission.err = admission.commit(admission.ctx)
+			admission.committed.Store(admission.err == nil)
 		})
 		if admission.err != nil {
 			return admission.err
@@ -83,4 +97,16 @@ func runSchedulingProtectionBeforeSend(ctx context.Context, account *Account, ac
 		}
 	}
 	return nil
+}
+
+func schedulingProtectionScopeChangedError() *UpstreamFailoverError {
+	// Scope changes happen before any send. Reuse request-local admission
+	// reselection so this cannot consume the upstream-failure budget or health.
+	return &UpstreamFailoverError{
+		PluginAdmissionRejected: true,
+		StatusCode:              http.StatusServiceUnavailable,
+		Scope:                   GatewayFailureScopeRequest,
+		Reason:                  "scheduling_protection_scope_changed",
+		ResponseBody:            []byte(`{"error":{"type":"api_error","message":"Scheduling protection settings changed; retry account selection"}}`),
+	}
 }

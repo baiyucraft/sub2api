@@ -113,7 +113,7 @@ func TestProtectionRegressionTrialCompletesWithoutCacheHolder(t *testing.T) {
 	ctx := context.WithValue(context.Background(), protectionSelectionKey{}, &protectionSelection{trial: ticket})
 	require.Nil(t, ctx.Value(cacheUsageAttemptContextKey{}))
 	key := int64(11)
-	require.NoError(t, BeginUpstreamCacheGuardSend(ctx, &Account{ID: 1, UpstreamKeyID: &key}, "gpt-test", "openai_ws"))
+	require.NoError(t, BeginUpstreamCacheGuardSend(ctx, &Account{ID: 1, Platform: PlatformOpenAI, UpstreamKeyID: &key}, "gpt-test", "openai_ws"))
 	fast := 3000
 	FinishOpenAIUpstreamCacheGuardAttempt(ctx, &OpenAIForwardResult{FirstTokenMs: &fast}, nil)
 	FinishOpenAIUpstreamCacheGuardAttempt(ctx, &OpenAIForwardResult{FirstTokenMs: &fast}, nil)
@@ -130,7 +130,7 @@ func TestProtectionRegressionUnfinishedWSTurnResetsRecovery(t *testing.T) {
 	ctx := context.WithValue(context.Background(), protectionSelectionKey{}, &protectionSelection{trial: ticket})
 	turns := newUpstreamCacheGuardWSTurns(ctx)
 	key := int64(11)
-	_, err := turns.beginAdmitted(1, &Account{ID: 1, UpstreamKeyID: &key}, []byte(`{"type":"response.create","model":"gpt-test"}`), "gpt-test", "openai_ws")
+	_, err := turns.beginAdmitted(1, &Account{ID: 1, Platform: PlatformOpenAI, UpstreamKeyID: &key}, []byte(`{"type":"response.create","model":"gpt-test"}`), "gpt-test", "openai_ws")
 	require.NoError(t, err)
 	turns.finishRemaining()
 	require.Empty(t, turns.pending)
@@ -239,7 +239,7 @@ func TestProtectionRegressionWSWriteHonorsBindingAdmission(t *testing.T) {
 			}
 			inner := &protectionRegressionFrameConn{}
 			turns := newUpstreamCacheGuardWSTurns(ctx)
-			writer := &upstreamCacheGuardWSFrameConn{inner: inner, turns: turns, account: &Account{ID: 1}}
+			writer := &upstreamCacheGuardWSFrameConn{inner: inner, turns: turns, account: &Account{ID: 1, Platform: PlatformOpenAI}}
 			body := []byte(`{"type":"response.create","model":"gpt-test"}`)
 			err := writer.WriteFrame(context.WithoutCancel(ctx), coderws.MessageText, body)
 			if boundary == "admitted" {
@@ -247,7 +247,7 @@ func TestProtectionRegressionWSWriteHonorsBindingAdmission(t *testing.T) {
 				require.NoError(t, writer.WriteFrame(ctx, coderws.MessageText, body))
 				require.Equal(t, 1, commits, "successive WS turns share one migration commit")
 				require.Equal(t, 2, inner.writes)
-				writer.account = &Account{ID: 2}
+				writer.account = &Account{ID: 2, Platform: PlatformOpenAI}
 				require.Error(t, writer.WriteFrame(ctx, coderws.MessageText, body))
 				require.Equal(t, 2, inner.writes, "a reused context must not send to a changed account")
 			} else {
@@ -283,7 +283,7 @@ func TestProtectionRegressionTrialSendRequiresFinalIdentity(t *testing.T) {
 			if boundary == "cancelled" {
 				cancel()
 			}
-			err := runSchedulingProtectionBeforeSend(ctx, &Account{ID: 1, UpstreamKeyID: &key})
+			err := runSchedulingProtectionBeforeSend(ctx, &Account{ID: 1, Platform: PlatformOpenAI, UpstreamKeyID: &key})
 			if boundary == "cancelled" {
 				require.ErrorIs(t, err, context.Canceled)
 			} else {

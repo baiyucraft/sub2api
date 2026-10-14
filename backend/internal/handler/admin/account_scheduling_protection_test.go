@@ -26,7 +26,7 @@ func (s *accountProtectionTTFTStub) OpenAITTFTGuardDegradations([]int64) map[int
 
 func (s *accountProtectionTTFTStub) TTFTProtectionSnapshots(_ int64, keyID int64, groupID int64, _ service.OpenAITTFTGuardConfigSnapshot) []service.TTFTProtectionModelView {
 	s.seenKeyID = keyID
-	return s.states[groupID]
+	return append([]service.TTFTProtectionModelView{}, s.states[groupID]...)
 }
 
 func TestAccountUpstreamProtectionProjectsSharedEvidenceAndGroupPolicies(t *testing.T) {
@@ -86,4 +86,56 @@ func TestAccountTTFTCompatibilityDTOFiltersOldKey(t *testing.T) {
 	require.Equal(t, "current", filtered[0].Model)
 	account.UpstreamKeyID = nil
 	require.Equal(t, states, accountCurrentKeyTTFTDegradations(account, states))
+}
+
+type accountProtectionScopedPolicyStub struct {
+	accountProtectionPolicyStub
+	selected map[string]bool
+}
+
+func (s accountProtectionScopedPolicyStub) PlatformSelected(platform string) bool {
+	return platform != service.PlatformComposite && s.selected[platform]
+}
+
+func TestAccountUpstreamProtectionPlatformScopeOverridesOldExecutionLabels(t *testing.T) {
+	policies := accountProtectionScopedPolicyStub{accountProtectionPolicyStub: accountProtectionPolicyStub{
+		1: {GroupID: 1, GroupPlatform: service.PlatformOpenAI, TTFT: service.GroupTTFTGuardResolvedPolicy{Enabled: true}, Cache: service.UpstreamCacheGuardSettings{Mode: "protect"}},
+		2: {GroupID: 2, GroupPlatform: service.PlatformComposite, TTFT: service.GroupTTFTGuardResolvedPolicy{Enabled: true}, Cache: service.UpstreamCacheGuardSettings{Mode: "protect"}},
+		3: {GroupID: 3, GroupPlatform: service.PlatformAnthropic, TTFT: service.GroupTTFTGuardResolvedPolicy{Enabled: true}, Cache: service.UpstreamCacheGuardSettings{Mode: "protect"}},
+	}, selected: map[string]bool{}}
+	reader := &accountProtectionTTFTStub{states: map[int64][]service.TTFTProtectionModelView{0: {{Model: "gpt-test", State: "observed", SampleCount: 23}}, 1: {{Model: "gpt-test", State: "recovering", SampleCount: 23, RecoverySamples: 2}}}}
+	h := &AccountHandler{ttftGuardReader: reader, protectionPolicyReader: policies}
+	upstreamID, keyID := int64(12), int64(45)
+	account := &service.Account{ID: 9, Platform: service.PlatformOpenAI, UpstreamConfigID: &upstreamID, UpstreamKeyID: &keyID, GroupIDs: []int64{1, 2, 3}}
+	rate := float64(90)
+	cache := service.UpstreamCacheGuardAccountView{Summary: &service.UpstreamCacheGuardSummary{State: "protected", RatePercent: &rate, ValidRequests: 23, RecoverySessions: 3}, States: []service.UpstreamCacheGuardState{{GroupID: 1, State: "recovering", RecoverySessions: 3, TrialParticipant: true}}}
+	view := h.upstreamProtection(account, cache)
+	require.False(t, view.PlatformSelected)
+	require.Equal(t, "platform_not_selected", view.Cache.State)
+	require.Zero(t, view.Cache.RecoverySessions)
+	require.Equal(t, 23, view.Cache.ValidRequests)
+	require.Equal(t, "observed", view.TTFTModels[0].State)
+	for _, group := range view.Groups {
+		require.False(t, group.PlatformSelected)
+		require.Equal(t, "platform_not_selected", group.TTFT.State)
+		require.Equal(t, "platform_not_selected", group.Cache.State)
+		require.Zero(t, group.Cache.RecoverySessions)
+		require.False(t, group.Cache.TrialParticipant)
+	}
+	degradations := []service.OpenAITTFTGuardDegradation{{GroupID: 1, UpstreamKeyID: keyID}, {GroupID: 2, UpstreamKeyID: keyID}}
+	require.Empty(t, accountCurrentKeyTTFTDegradations(account, degradations, policies))
+	policies.selected[service.PlatformOpenAI] = true
+	view = h.upstreamProtection(account, cache)
+	require.True(t, view.PlatformSelected)
+	require.True(t, view.Groups[0].PlatformSelected)
+	require.Equal(t, "recovering", view.Groups[0].TTFT.State)
+	require.False(t, view.Groups[1].PlatformSelected)
+	require.False(t, view.Groups[2].PlatformSelected)
+	require.Len(t, accountCurrentKeyTTFTDegradations(account, degradations, policies), 1)
+	account.Platform = service.PlatformAnthropic
+	view = h.upstreamProtection(account, cache)
+	require.False(t, view.PlatformSelected, "a selected group cannot include an unselected physical account")
+	for _, group := range view.Groups {
+		require.Equal(t, "platform_not_selected", group.Cache.State)
+	}
 }

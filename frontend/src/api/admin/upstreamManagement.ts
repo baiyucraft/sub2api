@@ -1,5 +1,6 @@
 import { apiClient } from '../client'
 import type { Account, AccountQualityFilter, PaginatedResponse, UpstreamConfidenceDistribution, UpstreamHealthObservation } from '@/types'
+import { SCHEDULING_PROTECTION_SETTINGS_UPDATED } from '@/utils/schedulingProtection'
 
 export interface TTFTGuardSettings {
   enabled: boolean
@@ -38,6 +39,7 @@ export interface ProbePlatformDescriptor {
 
 export interface UpstreamManagementSettings {
   scheduling_priority?: 'cache_first' | 'ttft_first'
+  scheduling_protection_platforms?: string[]
   ttft_guard: TTFTGuardSettings
   cache_guard?: UpstreamCacheGuardSettings
   probe_guard: ProbeGuardSettings
@@ -221,6 +223,7 @@ export async function getSettings(): Promise<UpstreamManagementSettings> {
 
 export async function updateSettings(payload: UpstreamManagementSettings): Promise<UpstreamManagementSettings> {
   const { data } = await apiClient.put<UpstreamManagementSettings>('/admin/upstream-management/settings', payload)
+  window.dispatchEvent(new Event(SCHEDULING_PROTECTION_SETTINGS_UPDATED))
   return data
 }
 

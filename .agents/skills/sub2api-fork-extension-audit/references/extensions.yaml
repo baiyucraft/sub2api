@@ -468,6 +468,8 @@
       "ownership": "fork",
       "risk_level": "critical",
       "paths": [
+        "backend/internal/service/scheduling_protection_platforms.go",
+        "backend/internal/service/protection_platform_scope.go",
         "backend/internal/pkg/upstreamcacheusage/evidence.go",
         "backend/internal/pkg/upstreamcacheusage/evidence_test.go",
         "backend/internal/upstreamcacheguard/types.go",
@@ -626,6 +628,7 @@
         "/admin/groups/:id/upstream-protection-policy"
       ],
       "settings_keys": [
+        "upstream_scheduling_protection_platforms",
         "upstream_cache_guard_settings",
         "upstream_scheduling_priority"
       ],
@@ -635,6 +638,11 @@
         "298_group_scheduling_protection_policies.sql"
       ],
       "required_tests": [
+        "backend/internal/handler/scheduling_protection_scope_failover_test.go",
+        "backend/internal/service/scheduling_protection_platforms_test.go",
+        "backend/internal/handler/admin/upstream_management_platforms_test.go",
+        "backend/internal/service/protection_platform_scope_test.go",
+        "frontend/src/api/admin/__tests__/upstreamManagementSchedulingProtection.spec.ts",
         "backend/internal/pkg/upstreamcacheusage/evidence_test.go",
         "frontend/src/components/admin/account/__tests__/UpstreamManagementSettingsDialog.spec.ts",
         "frontend/src/components/account/__tests__/UpstreamCacheGuardStates.spec.ts",
@@ -687,6 +695,7 @@
         "backend/internal/service/openai_protection_regression_test.go"
       ],
       "invariants": [
+        "全局 scheduling_protection_platforms 默认仅 openai；仅选中具体平台的分组提供配置并执行保护，实际账号平台也须选中；composite 不支持；自定义不能绕过范围，空选全部停用，旧客户端省略保留，取消选择保留历史事实与组配置，状态明确 platform_not_selected",
         "统计固定account ID加当前upstream Key ID，所有组、模型、协议有效样本按Token加权合并，排除冷首轮和无效样本；Key轮换不继承旧证据，未知率不是零",
         "正常N严格超过20且缓存率低于75时保护，默认disabled、observe不改变调度；旧PUT省略配置保留已有值",
         "保护给自然新会话让路；旧会话连续两次有效低率后才允许迁移至有效率高至少5个百分点且有实际容量的账号；迁移冷首轮不计、成功迁移最短驻留5分钟",
@@ -1268,6 +1277,8 @@
       "ownership": "fork",
       "risk_level": "critical",
       "paths": [
+        "backend/internal/service/scheduling_protection_platforms.go",
+        "backend/internal/service/protection_platform_scope.go",
         "backend/migrations/278_fork_group_ttft_guard_policies.sql",
         "backend/internal/repository/group_ttft_guard_policy_repo.go",
         "backend/internal/repository/group_ttft_guard_policy_invalidation_bus.go",
@@ -1314,6 +1325,7 @@
         "/admin/groups/:id/upstream-protection-policy"
       ],
       "settings_keys": [
+        "upstream_scheduling_protection_platforms",
         "openai_ttft_guard_settings",
         "upstream_scheduling_priority"
       ],
@@ -1322,6 +1334,11 @@
         "298_group_scheduling_protection_policies.sql"
       ],
       "required_tests": [
+        "backend/internal/handler/scheduling_protection_scope_failover_test.go",
+        "backend/internal/service/scheduling_protection_platforms_test.go",
+        "backend/internal/handler/admin/upstream_management_platforms_test.go",
+        "backend/internal/service/protection_platform_scope_test.go",
+        "frontend/src/api/admin/__tests__/upstreamManagementSchedulingProtection.spec.ts",
         "backend/migrations/group_ttft_guard_policy_migration_test.go",
         "backend/internal/repository/group_ttft_guard_policy_repo_test.go",
         "backend/internal/repository/group_ttft_guard_policy_invalidation_bus_test.go",
@@ -1344,6 +1361,7 @@
         "backend/internal/service/openai_protection_regression_test.go"
       ],
       "invariants": [
+        "全局 scheduling_protection_platforms 默认仅 openai；仅选中具体平台的分组提供配置并执行保护，实际账号平台也须选中；composite 不支持；自定义不能绕过范围，空选全部停用，旧客户端省略保留，取消选择保留历史事实与组配置，状态明确 platform_not_selected",
         "只采样真实业务可见首 Token；原始证据按 account_id + 当前 UpstreamKey + canonical model 共享，跨组相同阈值复用恢复投影，换 Key 不继承旧证据",
         "组 TTFT/cache 各自 inherit/enabled/disabled；缓存自定义 enabled 独立 protect，只有阈值、恢复阈值、最小有效请求数自定义，时间和试用配额全局继承",
         "TTFT 保护渐出自然新会话；已有可靠会话连续两次超该组阈值才迁移，保留 previous_response 和同账号重试约束",

@@ -104,15 +104,16 @@ type UpstreamConfig struct {
 }
 
 type UpstreamManagementSettings struct {
-	SchedulingPriority       string                          `json:"scheduling_priority"`
-	CacheGuard               *UpstreamCacheGuardSettings     `json:"cache_guard"`
-	TTFTGuard                OpenAITTFTGuardSettings         `json:"ttft_guard"`
-	ProbeModels              UpstreamProbeModels             `json:"probe_models"`
-	ProbeIntervalSeconds     int                             `json:"probe_interval_seconds"`
-	ProbeGuard               UpstreamProbeGuardSettings      `json:"probe_guard"`
-	ModelAliasRules          map[string]string               `json:"model_alias_rules"`
-	ConfidenceProbe          UpstreamConfidenceProbeSettings `json:"confidence_probe"`
-	PoolModeRetryStatusCodes []int                           `json:"pool_mode_retry_status_codes"`
+	SchedulingProtectionPlatforms []string                        `json:"scheduling_protection_platforms"`
+	SchedulingPriority            string                          `json:"scheduling_priority"`
+	CacheGuard                    *UpstreamCacheGuardSettings     `json:"cache_guard"`
+	TTFTGuard                     OpenAITTFTGuardSettings         `json:"ttft_guard"`
+	ProbeModels                   UpstreamProbeModels             `json:"probe_models"`
+	ProbeIntervalSeconds          int                             `json:"probe_interval_seconds"`
+	ProbeGuard                    UpstreamProbeGuardSettings      `json:"probe_guard"`
+	ModelAliasRules               map[string]string               `json:"model_alias_rules"`
+	ConfidenceProbe               UpstreamConfidenceProbeSettings `json:"confidence_probe"`
+	PoolModeRetryStatusCodes      []int                           `json:"pool_mode_retry_status_codes"`
 }
 
 var defaultUpstreamPoolModeRetryStatusCodes = []int{401, 403, 429}
@@ -548,7 +549,7 @@ func (s *UpstreamConfigService) GetProbePlatformCatalog() []UpstreamProbePlatfor
 func (s *UpstreamConfigService) GetManagementSettings(ctx context.Context) (UpstreamManagementSettings, error) {
 	if s == nil || s.settingService == nil {
 		cacheGuard := DefaultUpstreamCacheGuardSettings()
-		return UpstreamManagementSettings{SchedulingPriority: SchedulingPriorityCacheFirst, CacheGuard: &cacheGuard, TTFTGuard: *DefaultOpenAITTFTGuardSettings(), ProbeModels: DefaultUpstreamProbeModels(), ProbeIntervalSeconds: DefaultUpstreamProbeIntervalSeconds, ProbeGuard: DefaultUpstreamProbeGuardSettings(), ModelAliasRules: map[string]string{}, ConfidenceProbe: DefaultUpstreamConfidenceProbeSettings(), PoolModeRetryStatusCodes: cloneUpstreamPoolModeRetryStatusCodes(defaultUpstreamPoolModeRetryStatusCodes)}, nil
+		return UpstreamManagementSettings{SchedulingProtectionPlatforms: DefaultSchedulingProtectionPlatforms(), SchedulingPriority: SchedulingPriorityCacheFirst, CacheGuard: &cacheGuard, TTFTGuard: *DefaultOpenAITTFTGuardSettings(), ProbeModels: DefaultUpstreamProbeModels(), ProbeIntervalSeconds: DefaultUpstreamProbeIntervalSeconds, ProbeGuard: DefaultUpstreamProbeGuardSettings(), ModelAliasRules: map[string]string{}, ConfidenceProbe: DefaultUpstreamConfidenceProbeSettings(), PoolModeRetryStatusCodes: cloneUpstreamPoolModeRetryStatusCodes(defaultUpstreamPoolModeRetryStatusCodes)}, nil
 	}
 	ttft, err := s.settingService.GetOpenAITTFTGuardSettings(ctx)
 	if err != nil {
@@ -588,7 +589,11 @@ func (s *UpstreamConfigService) GetManagementSettings(ctx context.Context) (Upst
 		return UpstreamManagementSettings{}, priorityErr
 	}
 	cacheGuard.Priority = priority
-	return UpstreamManagementSettings{SchedulingPriority: priority, CacheGuard: &cacheGuard, TTFTGuard: *ttft, ProbeModels: models, ProbeIntervalSeconds: interval, ProbeGuard: guard, ModelAliasRules: aliases, ConfidenceProbe: confidence, PoolModeRetryStatusCodes: retryCodes}, nil
+	platforms, err := s.settingService.GetSchedulingProtectionPlatforms(ctx)
+	if err != nil {
+		return UpstreamManagementSettings{}, err
+	}
+	return UpstreamManagementSettings{SchedulingProtectionPlatforms: platforms, SchedulingPriority: priority, CacheGuard: &cacheGuard, TTFTGuard: *ttft, ProbeModels: models, ProbeIntervalSeconds: interval, ProbeGuard: guard, ModelAliasRules: aliases, ConfidenceProbe: confidence, PoolModeRetryStatusCodes: retryCodes}, nil
 }
 
 func (s *UpstreamConfigService) getManagementRetryStatusCodes(ctx context.Context) ([]int, error) {
@@ -645,6 +650,13 @@ func (s *UpstreamConfigService) SetManagementSettingsWithRetryStatusCodes(ctx co
 }
 
 func (s *UpstreamConfigService) SetManagementSettings(ctx context.Context, settings UpstreamManagementSettings) error {
+	if settings.SchedulingProtectionPlatforms != nil {
+		platforms, err := normalizeSchedulingProtectionPlatforms(settings.SchedulingProtectionPlatforms)
+		if err != nil {
+			return err
+		}
+		settings.SchedulingProtectionPlatforms = platforms
+	}
 	if settings.SchedulingPriority != "" && !validSchedulingPriority(settings.SchedulingPriority, false) {
 		return infraerrors.BadRequest("INVALID_SCHEDULING_PRIORITY", "scheduling_priority must be cache_first or ttft_first")
 	}
@@ -681,6 +693,11 @@ func (s *UpstreamConfigService) SetManagementSettings(ctx context.Context, setti
 	}
 	if settings.SchedulingPriority != "" {
 		if err := s.settingService.SetSchedulingProtectionPriority(ctx, settings.SchedulingPriority); err != nil {
+			return err
+		}
+	}
+	if settings.SchedulingProtectionPlatforms != nil {
+		if err := s.settingService.SetSchedulingProtectionPlatforms(ctx, settings.SchedulingProtectionPlatforms); err != nil {
 			return err
 		}
 	}

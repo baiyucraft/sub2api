@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import UpstreamManagementSettingsDialog from '../UpstreamManagementSettingsDialog.vue'
 import zh from '@/i18n/locales/zh/admin/upstreamManagement'
+import { CONCRETE_PLATFORM_OPTIONS } from '@/constants/platforms'
 
 const { getGroups, getSettings, getProbeSettings, getCandidates, updateSettings, updateProbeSettings, showError, showSuccess } = vi.hoisted(() => ({
   getGroups: vi.fn(),
@@ -125,7 +126,8 @@ describe('UpstreamManagementSettingsDialog', () => {
           Select: SelectStub,
           Toggle: ToggleStub,
           HelpTooltip: { template: '<span data-test="help"><slot /></span>' },
-          Icon: true
+          Icon: true,
+          PlatformIcon: true
         }
       }
     })
@@ -152,9 +154,54 @@ describe('UpstreamManagementSettingsDialog', () => {
     await wrapper.get('button.btn-primary').trigger('click')
     await flushPromises()
     expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      scheduling_protection_platforms: ['openai'],
       cache_guard: { mode: 'observe', group_ids: [], threshold_percent: 75, window_minutes: 60, min_valid_requests: 20, recovery_threshold_percent: 80, cooldown_minutes: 10, trial_percent: 10 },
       pool_mode_retry_status_codes: [401, 403, 429]
     }))
+  })
+
+  it('uses the concrete catalog for accessible platform checkboxes and saves the selected platforms atomically', async () => {
+    const wrapper = mountDialog()
+    await flushPromises()
+    expect(wrapper.findAll('[data-test="scheduling-protection-platforms"] input[type="checkbox"]')).toHaveLength(CONCRETE_PLATFORM_OPTIONS.length)
+    expect(wrapper.get('[data-test="protection-platform-openai"]').element).toHaveProperty('checked', true)
+    expect(wrapper.get('[data-test="protection-platform-antigravity"]').element).toHaveProperty('checked', false)
+    expect(wrapper.find('[data-test="protection-platform-composite"]').exists()).toBe(false)
+    expect(wrapper.get('[data-test="protection-platform-antigravity"]').element.closest('label')?.textContent).toContain('Antigravity')
+    await wrapper.get('[data-test="protection-platform-antigravity"]').setValue(true)
+    await wrapper.get('button.btn-primary').trigger('click')
+    await flushPromises()
+    expect(updateSettings).toHaveBeenCalledOnce()
+    expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({ scheduling_protection_platforms: ['antigravity', 'openai'], ttft_guard: { enabled: true, degradation_ttft_seconds: 30, min_samples: 7 } }))
+  })
+
+  it('preserves an explicit empty platform scope and allows all platforms to stay off', async () => {
+    const settings = await getSettings()
+    getSettings.mockResolvedValue({ ...settings, scheduling_protection_platforms: [] })
+    const wrapper = mountDialog()
+    await flushPromises()
+    expect(wrapper.get('[data-test="protection-platform-openai"]').element).toHaveProperty('checked', false)
+    expect(wrapper.find('[data-test="protection-platforms-empty"]').exists()).toBe(true)
+    expect(wrapper.get('button.btn-primary').attributes('disabled')).toBeUndefined()
+    await wrapper.get('button.btn-primary').trigger('click')
+    await flushPromises()
+    expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({ scheduling_protection_platforms: [] }))
+  })
+
+  it('allows clearing the default scope and reloads the backend selection when reopened', async () => {
+    const wrapper = mountDialog()
+    await flushPromises()
+    await wrapper.get('[data-test="protection-platform-openai"]').setValue(false)
+    await wrapper.get('button.btn-primary').trigger('click')
+    await flushPromises()
+    expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({ scheduling_protection_platforms: [] }))
+    const settings = await getSettings()
+    getSettings.mockResolvedValue({ ...settings, scheduling_protection_platforms: ['gemini'] })
+    await wrapper.setProps({ show: false })
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+    expect(wrapper.get('[data-test="protection-platform-gemini"]').element).toHaveProperty('checked', true)
+    expect(wrapper.get('[data-test="protection-platform-openai"]').element).toHaveProperty('checked', false)
   })
 
   it('removes the duplicate group selector while preserving compatibility scope fields', async () => {

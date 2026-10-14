@@ -1,5 +1,5 @@
 <template>
-  <BaseDialog :show="show" :title="t('admin.upstreamManagement.protection.groupTitle')" width="wide" :close-on-escape="!saving" :show-close-button="!saving" @close="close">
+  <BaseDialog :show="show && !blocked" :title="t('admin.upstreamManagement.protection.groupTitle')" width="wide" :close-on-escape="!saving" :show-close-button="!saving" @close="close">
     <div v-if="group" class="space-y-5">
       <div class="flex items-center gap-3 border-b border-gray-200 pb-4 dark:border-dark-700">
         <PlatformIcon :platform="group.platform" size="sm" />
@@ -57,12 +57,12 @@
         <p class="text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('admin.upstreamManagement.protection.atomicHint') }}</p>
       </template>
     </div>
-    <template #footer><div class="flex justify-end gap-3"><button type="button" class="btn btn-secondary" :disabled="saving" @click="close">{{ t('common.cancel') }}</button><button type="button" class="btn btn-primary" data-test="protection-save" :disabled="loading || saving || !policy || !!validationError" @click="save">{{ saving ? t('admin.groups.saving') : t('common.save') }}</button></div></template>
+    <template #footer><div class="flex justify-end gap-3"><button type="button" class="btn btn-secondary" :disabled="saving" @click="close">{{ t('common.cancel') }}</button><button type="button" class="btn btn-primary" data-test="protection-save" :disabled="loading || saving || scopeChecking || !policy || !!validationError" @click="save">{{ saving ? t('admin.groups.saving') : t('common.save') }}</button></div></template>
   </BaseDialog>
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
 import type { AdminGroup } from '@/types'
@@ -72,6 +72,7 @@ import { extractApiErrorMessage } from '@/utils/apiError'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import Icon from '@/components/icons/Icon.vue'
+import { isSchedulingProtectionPlatformError, isSchedulingProtectionPlatformSelected, schedulingProtectionPlatforms, SCHEDULING_PROTECTION_SETTINGS_UPDATED } from '@/utils/schedulingProtection'
 
 const props = defineProps<{ show: boolean; group: AdminGroup | null }>()
 const emit = defineEmits<{ close: []; saved: [policy: GroupUpstreamProtectionPolicy] }>()
@@ -80,10 +81,12 @@ const appStore = useAppStore()
 const policy = ref<GroupUpstreamProtectionPolicy | null>(null)
 const loading = ref(false)
 const saving = ref(false)
+const blocked = ref(false)
+const scopeChecking = ref(false)
 let generation = 0
 const modes = ['inherit', 'enabled', 'disabled'] as const
 const priorities = ['inherit', 'cache_first', 'ttft_first'] as const
-const supportsTTFT = computed(() => props.group?.platform === 'openai' || props.group?.platform === 'composite')
+const supportsTTFT = computed(() => props.group?.platform === 'openai')
 const draft = reactive({ priority: 'inherit' as GroupUpstreamProtectionPolicy['priority'], ttft: { mode: 'inherit' as typeof modes[number], degradation_ttft_seconds: 20, min_samples: 5 }, cache: { mode: 'inherit' as typeof modes[number], threshold_percent: 75, recovery_threshold_percent: 80, min_valid_requests: 20 } })
 const cacheFields = [{ key: 'threshold_percent', min: 0, max: 100, step: 0.1 }, { key: 'recovery_threshold_percent', min: 0, max: 100, step: 0.1 }, { key: 'min_valid_requests', min: 1, max: 100000, step: 1 }] as const
 const effectivePriority = computed(() => draft.priority === 'inherit' ? policy.value?.global_priority ?? 'cache_first' : draft.priority)
@@ -108,31 +111,86 @@ async function load() {
   const request = ++generation
   const groupID = props.group?.id
   policy.value = null
+  blocked.value = false
+  saving.value = false
+  scopeChecking.value = false
   if (!groupID) return
   loading.value = true
   try {
+    if (!await checkLatestScope(request)) return
+    if (request !== generation || !props.show || props.group?.id !== groupID) return
     const result = await adminAPI.groups.getUpstreamProtectionPolicy(groupID)
     if (request !== generation || !props.show || props.group?.id !== groupID) return
+    if (result.platform_selected === false) { rejectPlatform(); return }
     policy.value = result
     draft.priority = result.priority
     Object.assign(draft.ttft, { mode: result.ttft.mode, degradation_ttft_seconds: result.ttft.degradation_ttft_seconds ?? result.ttft.global_degradation_ttft_seconds, min_samples: result.ttft.min_samples ?? result.ttft.global_min_samples })
     Object.assign(draft.cache, { mode: result.cache.mode, threshold_percent: result.cache.threshold_percent ?? result.cache.global_threshold_percent, recovery_threshold_percent: result.cache.recovery_threshold_percent ?? result.cache.global_recovery_threshold_percent, min_valid_requests: result.cache.min_valid_requests ?? result.cache.global_min_valid_requests })
   } catch (error) {
-    if (request === generation) appStore.showError(extractApiErrorMessage(error, t('admin.upstreamManagement.protection.loadFailed')))
+    if (request === generation) {
+      if (isSchedulingProtectionPlatformError(error)) rejectPlatform()
+      else appStore.showError(extractApiErrorMessage(error, t('admin.upstreamManagement.protection.loadFailed')))
+    }
   } finally { if (request === generation) loading.value = false }
 }
 async function save() {
-  if (!props.group || !policy.value || saving.value || validationError.value) return
+  if (!props.group || !policy.value || loading.value || scopeChecking.value || blocked.value || saving.value || validationError.value) return
+  const groupID = props.group.id
+  const request = generation
   saving.value = true
   try {
+    if (!await checkLatestScope(request) || !props.show || props.group?.id !== groupID) return
     const body: UpdateGroupUpstreamProtectionPolicyRequest = { priority: draft.priority, ttft: { ...draft.ttft }, cache: { ...draft.cache } }
-    const result = await adminAPI.groups.updateUpstreamProtectionPolicy(props.group.id, body)
+    const result = await adminAPI.groups.updateUpstreamProtectionPolicy(groupID, body)
+    if (request !== generation || !props.show || props.group?.id !== groupID) return
+    if (result.platform_selected === false) { rejectPlatform(); return }
     appStore.showSuccess(t('admin.upstreamManagement.protection.saved'))
     emit('saved', result)
     emit('close')
-  } catch (error) { appStore.showError(extractApiErrorMessage(error, t('admin.upstreamManagement.protection.saveFailed'))) }
-  finally { saving.value = false }
+  } catch (error) {
+    if (request !== generation || !props.show || props.group?.id !== groupID) return
+    if (isSchedulingProtectionPlatformError(error)) rejectPlatform()
+    else appStore.showError(extractApiErrorMessage(error, t('admin.upstreamManagement.protection.saveFailed')))
+  }
+  finally { if (request === generation) saving.value = false }
 }
 function close() { if (!saving.value) emit('close') }
-watch(() => [props.show, props.group?.id] as const, ([show]) => { if (show) void load(); else { ++generation; policy.value = null; loading.value = false } }, { immediate: true })
+function rejectPlatform() {
+  blocked.value = true
+  policy.value = null
+  appStore.showError(t('admin.upstreamManagement.protection.platformNotSelected'))
+  emit('close')
+}
+async function checkLatestScope(request = generation) {
+  const group = props.group
+  if (!group || group.platform === 'composite') { rejectPlatform(); return false }
+  const settings = await adminAPI.upstreamManagement.getSettings()
+  if (request !== generation || !props.show || props.group?.id !== group.id || props.group?.platform !== group.platform) return false
+  if (!isSchedulingProtectionPlatformSelected(group.platform, schedulingProtectionPlatforms(settings))) { rejectPlatform(); return false }
+  return true
+}
+async function refreshScope() {
+  if (!props.show || !policy.value || scopeChecking.value || document.visibilityState === 'hidden') return
+  scopeChecking.value = true
+  const request = generation
+  const groupID = props.group?.id
+  try { await checkLatestScope(request) }
+  catch (error) {
+    if (request !== generation || !props.show || props.group?.id !== groupID) return
+    policy.value = null
+    appStore.showError(extractApiErrorMessage(error, t('admin.upstreamManagement.protection.loadFailed')))
+  } finally { if (request === generation) scopeChecking.value = false }
+}
+watch(() => [props.show, props.group?.id, props.group?.platform] as const, ([show]) => { if (show) void load(); else { ++generation; policy.value = null; loading.value = false; saving.value = false; scopeChecking.value = false } }, { immediate: true })
+onMounted(() => {
+  window.addEventListener('focus', refreshScope)
+  window.addEventListener(SCHEDULING_PROTECTION_SETTINGS_UPDATED, refreshScope)
+  document.addEventListener('visibilitychange', refreshScope)
+})
+onUnmounted(() => {
+  ++generation
+  window.removeEventListener('focus', refreshScope)
+  window.removeEventListener(SCHEDULING_PROTECTION_SETTINGS_UPDATED, refreshScope)
+  document.removeEventListener('visibilitychange', refreshScope)
+})
 </script>

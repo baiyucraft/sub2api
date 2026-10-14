@@ -12,6 +12,7 @@ func (s *GatewayService) WithGatewaySchedulingProtectionMigration(ctx context.Co
 		return WithSchedulingProtectionBeforeSend(ctx, 0, nil)
 	}
 	account := selection.Account
+	ctx = WithSchedulingProtectionGroup(ctx, groupID)
 	return WithSchedulingProtectionBeforeSend(ctx, account.ID, func(sendCtx context.Context) error {
 		latest, vetoed, reason := s.GatewayProfitControlVetoLatest(sendCtx, account)
 		if vetoed {

@@ -51,6 +51,13 @@ func TestGatewayProtectionAdmissionRealForwardPreservesSourceUntilSend(t *testin
 	for _, platform := range []string{PlatformAnthropic, PlatformGemini} {
 		for _, boundary := range []string{"credential", "binding", "canceled", "sent_transport_failure"} {
 			t.Run(platform+"/"+boundary, func(t *testing.T) {
+				// These provider paths opt into cache protection explicitly; the
+				// default platform range remains OpenAI only.
+				cacheGuardTestRunner(t)
+				policy := newProtectionPlatformScopeResolver()
+				policy.selected = map[string]bool{platform: true}
+				policy.groups[100] = platform
+				currentUpstreamCacheGuardRunner().SetProtectionPolicyResolver(policy)
 				cache := &gatewayProtectionAdmissionCache{bound: 1}
 				upstream := &gatewayProtectionAdmissionUpstream{cache: cache}
 				svc := &GatewayService{cache: cache, httpUpstream: upstream, cfg: &config.Config{}}

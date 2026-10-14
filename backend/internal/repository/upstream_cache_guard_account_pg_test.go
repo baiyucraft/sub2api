@@ -313,6 +313,45 @@ func TestCacheGuardAccountPostgres(t *testing.T) {
 	if window.ValidRequests != 6 || window.TotalInputTokens != 1200 || globalWindow.ValidRequests != 5 || globalWindow.TrialValidRequests != 2 || customWindow.ValidRequests != 6 || customWindow.TrialValidRequests != 0 {
 		t.Fatalf("shared facts/policy reset/cohort isolation: shared=%+v global=%+v custom=%+v", window, globalWindow, customWindow)
 	}
+	// Requests sent before platform removal still complete their durable fact.
+	// Their ordinary evidence remains shared, but no policy may borrow them as
+	// recovery samples, even when the old cohort and policy signature match.
+	for index, trial := range []struct {
+		settings upstreamcacheguard.Settings
+		cohort   string
+	}{{settings, "cohort-A"}, {custom, "separate-custom-cohort"}} {
+		fact := upstreamcacheguard.Evidence{
+			ID: fmt.Sprintf("platform-paused-%d", index), Request: upstreamcacheguard.Request{GroupID: 10, AccountID: 2, UpstreamKeyID: 5},
+			Admission: upstreamcacheguard.Admission{SessionKey: fmt.Sprintf("paused-session-%d", index), Sample: true, WarmAtStart: true, Trial: true, CohortID: trial.cohort, PolicySignature: upstreamcacheguard.PolicySignature(trial.settings)},
+			RawUsage:  upstreamcacheusage.Evidence{Status: upstreamcacheusage.Known, TotalInputTokens: 200, CacheReadTokens: 100},
+			Success:   true, CompletedAt: windowNow.Add(-5 * time.Second), ProtectionPaused: true,
+		}
+		if err := repo.Enqueue(ctx, fact); err != nil {
+			t.Fatal(err)
+		}
+		if err := repo.TransactAccount(ctx, 10, 2, 5, func(tx upstreamcacheguard.Tx) error {
+			inserted, err := tx.InsertFact(fact)
+			if err != nil || !inserted {
+				return fmt.Errorf("paused fact inserted=%v: %w", inserted, err)
+			}
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := scopedDB.QueryRowContext(ctx, `SELECT processed FROM upstream_cache_guard_facts WHERE evidence_id=$1`, fact.ID).Scan(&processed); err != nil || !processed {
+			t.Fatalf("paused terminal fact processed=%v err=%v", processed, err)
+		}
+	}
+	windows, err = repo.AccountWindows(ctx, windowNow.Add(-6*time.Minute), windowNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	window = windows["2:5"]
+	globalWindow = window.Policies[upstreamcacheguard.PolicySignature(settings)]
+	customWindow = window.Policies[upstreamcacheguard.PolicySignature(custom)]
+	if window.ValidRequests != 8 || window.TotalInputTokens != 1600 || globalWindow.ValidRequests != 7 || globalWindow.TrialValidRequests != 2 || globalWindow.TrialSessions != 2 || customWindow.ValidRequests != 8 || customWindow.TrialValidRequests != 0 || customWindow.TrialSessions != 0 {
+		t.Fatalf("paused evidence must not enter recovery: shared=%+v global=%+v custom=%+v", window, globalWindow, customWindow)
+	}
 	if _, err := scopedDB.ExecContext(ctx, `UPDATE accounts SET upstream_key_id=7 WHERE id=2`); err != nil {
 		t.Fatal(err)
 	}

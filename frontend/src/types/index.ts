@@ -1437,7 +1437,7 @@ export interface OpenCodeGoUsageSettings {
 export interface UpstreamCacheGuardState {
   group_id: number
   group_name?: string
-  state: 'disabled' | 'observing' | 'insufficient' | 'normal' | 'protected' | 'recovering' | 'expired' | 'unavailable'
+  state: 'disabled' | 'observing' | 'insufficient' | 'normal' | 'protected' | 'recovering' | 'expired' | 'unavailable' | 'platform_not_selected'
   rate_percent: number | null
   valid_requests: number
   reason: string
@@ -1511,6 +1511,7 @@ export interface UpstreamTTFTModelPolicyState extends UpstreamTTFTModelObservati
 
 export interface UpstreamProtectionGroupState {
   group_id: number
+  platform_selected?: boolean
   group_name: string
   priority: 'cache_first' | 'ttft_first'
   priority_source: 'global' | 'group' | 'unavailable'
@@ -1530,6 +1531,7 @@ export interface UpstreamProtectionGroupState {
 }
 
 export interface UpstreamProtectionSummary {
+  platform_selected?: boolean
   cache?: UpstreamCacheGuardSummary | null
   ttft_models: UpstreamTTFTModelObservation[]
   groups: UpstreamProtectionGroupState[]

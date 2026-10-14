@@ -454,6 +454,10 @@ func TestUpstreamCacheGuardNativeAnthropicWarmRouteCanMigrate(t *testing.T) {
 	for _, advanced := range []bool{false, true} {
 		t.Run(map[bool]string{false: "legacy", true: "advanced"}[advanced], func(t *testing.T) {
 			svc, ctx, runner, cache := cacheGuardSelectionFixture(t, advanced, []float64{60, 90}, map[int64]bool{1: true}, true, time.Time{}, nil)
+			reader := newProtectionPlatformScopeResolver()
+			reader.selected[PlatformKimi] = true // Native Anthropic protocol still uses the actual Kimi account platform.
+			runner.SetProtectionPolicyResolver(reader)
+			svc.SetGroupSchedulingProtectionPolicyResolver(reader)
 			accounts := svc.accountRepo.(schedulerTestOpenAIAccountRepo).accounts
 			for i := range accounts {
 				accounts[i].Platform = PlatformKimi

@@ -73,6 +73,7 @@ export interface GroupUpstreamProtectionPolicy {
   group_id: number
   group_name: string
   group_platform: GroupPlatform
+  platform_selected?: boolean
   priority: 'inherit' | UpstreamSchedulingPriority
   effective_priority: UpstreamSchedulingPriority
   global_priority: UpstreamSchedulingPriority

@@ -49,6 +49,9 @@ func buildCacheGuardPreference(ctx context.Context, groupID *int64, sessionHash,
 	if groupID == nil {
 		return p
 	}
+	if !SchedulingProtectionGroupSelected(r.protectionPolicyReader(), *groupID) {
+		return p
+	}
 	s := r.engine.ResolvedSettings(*groupID)
 	if s.Mode != upstreamcacheguard.Protect || !s.ContainsGroup(*groupID) {
 		return p
@@ -70,6 +73,9 @@ func buildCacheGuardPreference(ctx context.Context, groupID *int64, sessionHash,
 	}
 	eligible := map[int64]Account{}
 	for _, a := range accounts {
+		if !schedulingProtectionAccountSelected(r.protectionPolicyReader(), &a) {
+			continue
+		}
 		p.CandidateIDs = append(p.CandidateIDs, a.ID)
 		if a.IsUpstreamBound() && a.IsSchedulable() && a.IsModelSupported(model) {
 			p.ScopeIDs[a.ID] = struct{}{}

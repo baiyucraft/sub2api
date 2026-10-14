@@ -109,7 +109,7 @@ func (s *OpenAIGatewayService) recordProtectionMigration(ctx context.Context, gr
 }
 
 func (s *OpenAIGatewayService) attachProtectionSelection(result *AccountSelectionResult, groupID int64, model string, cfg OpenAITTFTGuardConfigSnapshot, trials ...*openAITTFTTrial) {
-	if result == nil || result.Account == nil {
+	if result == nil || result.Account == nil || !SchedulingProtectionGroupSelected(s.groupProtectionPolicyResolver, groupID) || !schedulingProtectionAccountSelected(s.groupProtectionPolicyResolver, result.Account) {
 		return
 	}
 	var trial *openAITTFTTrial
