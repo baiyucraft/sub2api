@@ -120,12 +120,13 @@ func TestConfidenceDistributionIdleRetentionDoesNotOverwriteConcurrentExecution(
 			require.NoError(t, cleanupExpiredConfidenceDistributionStates(ctx, client, now))
 			state, _, err := readConfidenceDistributionState(ctx, db, 1)
 			require.NoError(t, err)
-			require.Len(t, state.Samples, 1)
-			require.Equal(t, attempt.Sequence, state.Samples[0].Sequence)
 			if operation == "claim" {
+				require.Empty(t, state.Samples, "a pending request is not effective evidence")
 				require.NotNil(t, state.Pending)
-				require.Equal(t, "pending", state.Samples[0].Reason)
+				require.Equal(t, attempt.Sequence, state.Pending.Sequence)
 			} else {
+				require.Len(t, state.Samples, 1)
+				require.Equal(t, attempt.Sequence, state.Samples[0].Sequence)
 				require.Nil(t, state.Pending)
 				require.True(t, state.Samples[0].Valid)
 				require.Equal(t, "new answer", state.Samples[0].Answer)
@@ -193,7 +194,8 @@ func testConfidenceDistributionConcurrentClaims(t *testing.T, repo *upstreamConf
 	state, _, err := readConfidenceDistributionState(context.Background(), db, keyID)
 	require.NoError(t, err)
 	require.Equal(t, int64(2), state.NextSequence)
-	require.Len(t, state.Samples, 1)
+	require.Empty(t, state.Samples)
+	require.Equal(t, int64(1), state.NextValidSequence)
 	_, _, err = repo.FinishConfidenceDistribution(context.Background(), keyID, winner, service.DistributionSample{Valid: false, Reason: "request_failed"}, now.Add(time.Second))
 	require.NoError(t, err)
 	_, _, err = repo.FinishConfidenceDistribution(context.Background(), keyID, winner, service.DistributionSample{Valid: true, Answer: "42"}, now.Add(2*time.Second))
@@ -213,11 +215,14 @@ func TestConfidenceDistributionRepositoryRestartAndSeriesIsolation(t *testing.T)
 	require.Equal(t, 0, summary.ValidSamples)
 	state, _, err := readConfidenceDistributionState(ctx, db, 1)
 	require.NoError(t, err)
-	require.Equal(t, "lease_expired", state.Samples[0].Reason)
+	require.Empty(t, state.Samples)
+	require.Equal(t, 1, state.FailedAttempts)
 	require.Nil(t, state.Pending)
 	second, err := restarted.ClaimConfidenceDistribution(ctx, 1, testConfidenceDistributionIdentity("original", "responses"), now.Add(3*time.Minute))
 	require.NoError(t, err)
 	require.Equal(t, int64(2), second.Sequence)
+	require.Equal(t, first.ValidSequence, second.ValidSequence)
+	require.Equal(t, first.ProbeID, second.ProbeID)
 	_, _, err = restarted.FinishConfidenceDistribution(ctx, 1, second, service.DistributionSample{Valid: true, Answer: "42"}, now.Add(3*time.Minute+time.Second))
 	require.NoError(t, err)
 	summary, err = restarted.LoadConfidenceDistributionForSeries(ctx, 1, testConfidenceDistributionIdentity("changed", "chat_completions"), now.Add(4*time.Minute))
@@ -248,7 +253,8 @@ func TestConfidenceDistributionRepositoryRetentionAndForeignKey(t *testing.T) {
 	summary, err := repo.LoadConfidenceDistribution(ctx, 1, now.Add(service.UpstreamHealthObservationRetention+time.Second))
 	require.NoError(t, err)
 	require.Equal(t, "collecting", summary.Status)
-	require.Equal(t, 0, summary.Attempted)
+	require.Equal(t, 1, summary.Attempted)
+	require.Equal(t, 1, summary.FailedAttempts)
 	state, _, err := readConfidenceDistributionState(ctx, db, 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(2), state.NextSequence)
@@ -285,7 +291,7 @@ func TestConfidenceDistributionEventPayloadAllowlist(t *testing.T) {
 	require.Equal(t, "key_confidence_distribution_changed", eventType)
 	var payload map[string]any
 	require.NoError(t, json.Unmarshal([]byte(raw), &payload))
-	require.Len(t, payload, 5)
+	require.Len(t, payload, 8)
 	require.Equal(t, "safe-series", payload["series_id"])
 	require.Equal(t, float64(128), payload["valid_samples"])
 }
@@ -318,11 +324,11 @@ func newConfidenceDistributionFixtureState(t *testing.T, index int, now time.Tim
 		answer := answers[probeID][0]
 		answers[probeID] = answers[probeID][1:]
 		samples = append(samples, service.DistributionSample{
-			Sequence: int64(i + 1), ProbeID: probeID, Answer: answer, Valid: true,
+			Sequence: int64(i + 1), ValidSequence: int64(i + 1), ProbeID: probeID, Answer: answer, Valid: true,
 			ObservedAt: now.Add(time.Duration(i-127) * time.Minute),
 		})
 	}
-	state.NextSequence, state.Samples = 128, samples[:127]
+	state.NextSequence, state.NextValidSequence, state.Samples = 128, 128, samples[:127]
 	return state, samples
 }
 
@@ -348,7 +354,8 @@ func TestConfidenceDistributionRepositoryEventAtomicityAndDeduplication(t *testi
 	require.NoError(t, err)
 	require.NotNil(t, persisted.Pending)
 	require.Empty(t, persisted.LastDecisive)
-	require.Equal(t, "pending", persisted.Samples[127].Reason)
+	require.Len(t, persisted.Samples, 127)
+	require.Equal(t, int64(128), persisted.Pending.ValidSequence)
 	_, err = db.Exec(`DROP TRIGGER distribution_event_fail`)
 	require.NoError(t, err)
 	summary, alert, err := repo.FinishConfidenceDistribution(ctx, 1, claim, samples[127], now.Add(2*time.Second))
@@ -450,13 +457,14 @@ func testConfidenceDistributionIdentityLifecycle(t *testing.T, repo *upstreamCon
 	require.NoError(t, err)
 	require.Equal(t, revision, readRevision)
 	require.Equal(t, upgraded.SeriesID, persisted.SeriesID)
-	// A restarted reader expires the abandoned slot; it must remain in the window.
+	// A restarted reader expires the abandoned attempt without creating evidence.
 	_, err = repo.LoadConfidenceDistribution(ctx, keyID, now.Add(service.UpstreamConfidenceDistributionLease))
 	require.NoError(t, err)
 	persisted, _, err = readConfidenceDistributionState(ctx, db, keyID)
 	require.NoError(t, err)
 	require.Nil(t, persisted.Pending)
-	require.Equal(t, "lease_expired", persisted.Samples[0].Reason)
+	require.Empty(t, persisted.Samples)
+	require.Equal(t, 1, persisted.FailedAttempts)
 	claims := make(chan *service.DistributionAttempt, 16)
 	errs = make(chan error, 16)
 	resetAt := now.Add(3 * time.Minute)
@@ -559,7 +567,7 @@ func testConfidenceDistributionStableWindow(t *testing.T, repo *upstreamConfigRe
 	ctx, now := context.Background(), time.Now().UTC()
 	identity := testConfidenceDistributionIdentity("request-stable", "responses")
 	var series string
-	for i := 0; i < 129; i++ {
+	for i := 0; i < 130; i++ {
 		// Automatic model-list sync can change the legacy full hash every time;
 		// the canonical request identity is the sole owner of a v3 series.
 		identity.LegacyFingerprint = fmt.Sprintf("unrelated-model-sync-%d", i)
@@ -594,6 +602,13 @@ func testConfidenceDistributionStableWindow(t *testing.T, repo *upstreamConfigRe
 		}
 		if i == 127 {
 			require.Equal(t, 128, summary.Attempted)
+			require.Equal(t, 127, summary.ValidSamples)
+			require.Equal(t, "collecting", summary.Status)
+		}
+		if i == 128 {
+			require.Equal(t, 129, summary.Attempted)
+			require.Equal(t, 128, summary.ValidSamples)
+			require.Equal(t, 1, summary.FailedAttempts)
 			require.NotEqual(t, "collecting", summary.Status)
 		}
 	}
@@ -602,10 +617,13 @@ func testConfidenceDistributionStableWindow(t *testing.T, repo *upstreamConfigRe
 	require.Len(t, state.Samples, 128)
 	require.Equal(t, int64(2), state.Samples[0].Sequence)
 	require.Equal(t, "0.160.0", state.ClientVersion)
-	require.Equal(t, "request_failed", state.Samples[30].Reason)
-	require.False(t, state.Samples[30].Valid)
+	require.Equal(t, 1, state.FailedAttempts)
+	require.Equal(t, int64(131), state.NextSequence)
+	require.Equal(t, int64(130), state.NextValidSequence)
 	counts := make(map[string]int)
 	for _, sample := range state.Samples {
+		require.True(t, sample.Valid)
+		require.NotEqual(t, int64(32), sample.Sequence)
 		counts[sample.ProbeID]++
 	}
 	require.Equal(t, service.DistributionProbeQuotas(), counts)
@@ -686,6 +704,133 @@ func TestConfidenceDistributionRepositoryV2ClientIdentityUpgrade(t *testing.T) {
 			testConfidenceDistributionV2ClientIdentityUpgrade(t, repo, db, 1, exact)
 		})
 	}
+}
+
+func TestConfidenceDistributionRepositorySamplingPolicyUpgrade(t *testing.T) {
+	for _, pendingOutcome := range []string{"idle", "finish", "expire"} {
+		t.Run(pendingOutcome, func(t *testing.T) {
+			repo, db := newConfidenceDistributionSQLite(t)
+			testConfidenceDistributionSamplingPolicyUpgrade(t, repo, db, 1, pendingOutcome)
+		})
+	}
+}
+
+// Shared by SQLite and PostgreSQL: missing policy JSON is intentionally an old
+// attempts window, even when the request identity itself is already current.
+func testConfidenceDistributionSamplingPolicyUpgrade(t *testing.T, repo *upstreamConfigRepository, db *sql.DB, keyID int64, pendingOutcome string) {
+	t.Helper()
+	ctx, now := context.Background(), time.Now().UTC()
+	identity := testConfidenceDistributionIdentity("same-request-identity", "responses")
+	legacy, err := service.NewConfidenceDistributionStateForIdentity(identity)
+	require.NoError(t, err)
+	legacy.SamplingPolicyVersion, legacy.NextValidSequence, legacy.FailedAttempts = 0, 0, 0
+	legacy.NextSequence = 3
+	legacy.Samples = []service.DistributionSample{
+		{Sequence: 1, ProbeID: legacy.ProbeOrder[0], Reason: "probe_timeout", ObservedAt: now.Add(-2 * time.Minute)},
+		{Sequence: 2, ProbeID: legacy.ProbeOrder[1], Valid: true, Answer: "47", ObservedAt: now.Add(-time.Minute)},
+	}
+	legacy.LastDecisive = "mismatch"
+	var oldAttempt *service.DistributionAttempt
+	if pendingOutcome != "idle" {
+		oldAttempt = &service.DistributionAttempt{SeriesID: legacy.SeriesID, LeaseToken: "legacy-lease", Sequence: 3, ProbeID: legacy.ProbeOrder[2]}
+		legacy.Pending = oldAttempt
+		legacy.LeaseExpiresAt = now.Add(service.UpstreamConfidenceDistributionLease)
+		legacy.NextSequence = 4
+		legacy.Samples = append(legacy.Samples, service.DistributionSample{Sequence: 3, ProbeID: oldAttempt.ProbeID, Reason: "pending", ObservedAt: now})
+	}
+	raw, err := json.Marshal(legacy)
+	require.NoError(t, err)
+	require.NotContains(t, string(raw), "sampling_policy_version", "fixture must decode a genuinely old JSON contract")
+	require.NoError(t, legacy.Validate())
+	changed, err := saveConfidenceDistributionState(ctx, db, keyID, 0, legacy, now)
+	require.NoError(t, err)
+	require.True(t, changed)
+	summary, err := repo.LoadConfidenceDistribution(ctx, keyID, now.Add(time.Second))
+	require.NoError(t, err)
+	require.Equal(t, 0, summary.SamplingPolicyVersion)
+	require.Equal(t, "collecting", summary.Status)
+	require.Empty(t, summary.Matches, "old attempts evidence must not be scored as effective evidence")
+	summary, err = repo.LoadConfidenceDistributionForSeries(ctx, keyID, identity, now.Add(time.Second))
+	require.NoError(t, err)
+	require.True(t, summary.SeriesReset.Pending)
+	require.Equal(t, []string{"sampling_policy_changed"}, summary.SeriesReset.Reasons)
+	require.Zero(t, summary.ValidSamples)
+	require.Zero(t, summary.Attempted)
+	require.Equal(t, int(legacy.NextSequence-1), summary.SeriesReset.PreviousAttempted)
+	resetAt := now.Add(2 * time.Second)
+	if oldAttempt != nil {
+		busy, err := repo.ClaimConfidenceDistribution(ctx, keyID, identity, resetAt)
+		require.NoError(t, err)
+		require.Nil(t, busy, "policy replacement must wait for its legacy lease")
+		if pendingOutcome == "finish" {
+			_, _, err = repo.FinishConfidenceDistribution(ctx, keyID, oldAttempt, service.DistributionSample{Valid: true, Answer: "42"}, resetAt.Add(time.Second))
+			require.NoError(t, err)
+			resetAt = resetAt.Add(2 * time.Second)
+		} else {
+			resetAt = now.Add(service.UpstreamConfidenceDistributionLease)
+		}
+	}
+	// Failure to register the policy reset must not replace state or acquire a lease.
+	removeFailure := installConfidenceDistributionResetFailure(t, repo, db, keyID)
+	_, err = repo.ClaimConfidenceDistribution(ctx, keyID, identity, resetAt)
+	require.ErrorContains(t, err, "reset event persistence failed")
+	before, _, err := readConfidenceDistributionState(ctx, db, keyID)
+	require.NoError(t, err)
+	require.Equal(t, legacy.SeriesID, before.SeriesID)
+	require.Equal(t, 0, before.SamplingPolicyVersion)
+	removeFailure()
+	var wg sync.WaitGroup
+	claims := make(chan *service.DistributionAttempt, 8)
+	errs := make(chan error, 8)
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			other := &upstreamConfigRepository{client: repo.client}
+			attempt, err := other.ClaimConfidenceDistribution(ctx, keyID, identity, resetAt)
+			claims <- attempt
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(claims)
+	close(errs)
+	for err := range errs {
+		require.NoError(t, err)
+	}
+	var winner *service.DistributionAttempt
+	for attempt := range claims {
+		if attempt != nil {
+			require.Nil(t, winner)
+			winner = attempt
+		}
+	}
+	require.NotNil(t, winner)
+	require.NotEqual(t, legacy.SeriesID, winner.SeriesID)
+	require.Equal(t, int64(1), winner.Sequence)
+	require.Equal(t, int64(1), winner.ValidSequence)
+	state, _, err := readConfidenceDistributionState(ctx, db, keyID)
+	require.NoError(t, err)
+	require.Equal(t, service.UpstreamConfidenceDistributionSamplingPolicyVersion, state.SamplingPolicyVersion)
+	require.Empty(t, state.Samples)
+	require.Empty(t, state.LastDecisive)
+	require.Zero(t, state.FailedAttempts)
+	require.Equal(t, legacy.Fingerprint, state.Fingerprint, "sampling policy is independent of request identity")
+	require.Equal(t, []string{"sampling_policy_changed"}, state.SeriesReset.Reasons)
+	var events int
+	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM upstream_events WHERE upstream_key_id=$1 AND event_type='key_confidence_distribution_reset'`, keyID).Scan(&events))
+	require.Equal(t, 1, events, "competing instances emit one reset event")
+	if oldAttempt != nil {
+		_, _, err = repo.FinishConfidenceDistribution(ctx, keyID, oldAttempt, service.DistributionSample{Valid: true, Answer: "47"}, resetAt.Add(time.Second))
+		require.ErrorIs(t, err, service.ErrConfidenceDistributionLeaseLost)
+	}
+	summary, _, err = repo.FinishConfidenceDistribution(ctx, keyID, winner, service.DistributionSample{Valid: true, Answer: "47"}, resetAt.Add(time.Second))
+	require.NoError(t, err)
+	require.Equal(t, 1, summary.Attempted)
+	require.Equal(t, 1, summary.ValidSamples)
+	require.Zero(t, summary.FailedAttempts)
+	_, _, err = repo.FinishConfidenceDistribution(ctx, keyID, winner, service.DistributionSample{Reason: "probe_timeout"}, resetAt.Add(2*time.Second))
+	require.ErrorIs(t, err, service.ErrConfidenceDistributionLeaseLost)
 }
 
 // Both database suites exercise the upgrade against persisted JSON, including

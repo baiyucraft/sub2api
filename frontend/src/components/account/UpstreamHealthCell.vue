@@ -57,7 +57,7 @@
           <button
             type="button"
             data-test="distribution-badge"
-            :data-distribution-status="distribution.status"
+            :data-distribution-status="distributionCurrentPolicy ? distribution.status : 'collecting'"
             :aria-label="`${t('admin.upstreamManagement.health.distribution.title')} · ${distributionLabel}`"
             :class="['inline-flex min-h-6 max-w-full items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-current focus-visible:ring-offset-2', distributionBadgeClass]"
           >
@@ -71,13 +71,24 @@
             <div class="mt-1 text-gray-300">{{ distributionLabel }}</div>
           </div>
           <dl class="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1">
-            <dt class="text-gray-300">{{ t('admin.upstreamManagement.health.distribution.attempts') }}</dt>
-            <dd class="text-right tabular-nums">{{ distribution.attempted }} / {{ distribution.window_size }}</dd>
-            <dt class="text-gray-300">{{ t('admin.upstreamManagement.health.distribution.validSamples') }}</dt>
-            <dd class="text-right tabular-nums">{{ distribution.valid_samples }} / {{ distribution.attempted }}</dd>
+            <template v-if="distributionCurrentPolicy">
+              <dt class="text-gray-300">{{ t('admin.upstreamManagement.health.distribution.validSamples') }}</dt>
+              <dd data-test="distribution-valid-progress" class="text-right tabular-nums">{{ distribution.valid_samples }} / {{ distribution.window_size }}</dd>
+              <dt class="text-gray-300">{{ t('admin.upstreamManagement.health.distribution.attempts') }}</dt>
+              <dd data-test="distribution-attempts" class="text-right tabular-nums">{{ distribution.attempted }}</dd>
+              <dt class="text-gray-300">{{ t('admin.upstreamManagement.health.distribution.failedAttempts') }}</dt>
+              <dd data-test="distribution-failed-attempts" class="text-right tabular-nums">{{ distribution.failed_attempts ?? '-' }}</dd>
+            </template>
+            <template v-else>
+              <dt class="text-gray-300">{{ t('admin.upstreamManagement.health.distribution.legacyAttempts') }}</dt>
+              <dd class="text-right tabular-nums">{{ distribution.attempted }} / {{ distribution.window_size }}</dd>
+              <dt class="text-gray-300">{{ t('admin.upstreamManagement.health.distribution.legacyValidSamples') }}</dt>
+              <dd class="text-right tabular-nums">{{ distribution.valid_samples }}</dd>
+            </template>
             <dt class="text-gray-300">{{ t('admin.upstreamManagement.health.claimedModel') }}</dt>
             <dd class="break-all text-right">{{ distribution.claimed_model }}</dd>
           </dl>
+          <p v-if="!distributionCurrentPolicy" data-test="distribution-legacy-policy" class="text-amber-200">{{ t('admin.upstreamManagement.health.distribution.legacyPolicy') }}</p>
           <section v-if="distribution.series_reset" data-test="distribution-reset" class="space-y-2 rounded-lg border border-white/10 bg-white/5 p-2.5">
             <div class="font-medium text-gray-100">{{ t('admin.upstreamManagement.health.distribution.resetTitle') }}</div>
             <p v-if="distribution.series_reset.pending" data-test="distribution-reset-pending" class="text-amber-200">
@@ -91,7 +102,7 @@
               <dt class="text-gray-300">{{ t('admin.upstreamManagement.health.distribution.resetReasonsLabel') }}</dt>
               <dd data-test="distribution-reset-reasons" class="break-words text-right">{{ distributionResetReasons.join(' · ') || '-' }}</dd>
               <dt class="text-gray-300">{{ t('admin.upstreamManagement.health.distribution.previousAttempts') }}</dt>
-              <dd data-test="distribution-reset-previous" class="text-right tabular-nums">{{ distribution.series_reset.previous_attempted }} / {{ distribution.window_size }}</dd>
+              <dd data-test="distribution-reset-previous" class="text-right tabular-nums">{{ distribution.series_reset.previous_attempted }}</dd>
             </dl>
           </section>
           <div v-if="distributionCandidates.length" class="border-t border-white/10 pt-2">
@@ -101,12 +112,12 @@
               <span class="font-mono tabular-nums" :data-test="`distribution-score-${candidate.model}`">{{ formatDistributionScore(candidate.score) }}</span>
             </div>
           </div>
-          <div class="space-y-2 border-t border-white/10 pt-2">
+          <div v-if="distributionCurrentPolicy" class="space-y-2 border-t border-white/10 pt-2">
             <div class="font-medium">{{ t('admin.upstreamManagement.health.distribution.answerDistribution') }}</div>
             <div v-for="cell in distributionCells" :key="cell.id">
               <div class="mb-1 flex items-center justify-between gap-3">
                 <span class="text-gray-200">{{ cell.label }}</span>
-                <span class="text-gray-300 tabular-nums">{{ cell.value.valid }} / {{ cell.value.completed }} · {{ t('admin.upstreamManagement.health.distribution.minimum', { count: cell.value.minimum }) }}</span>
+                <span :data-test="`distribution-cell-${cell.id}`" class="text-gray-300 tabular-nums">{{ cell.value.valid }} / {{ cell.value.planned }}</span>
               </div>
               <div v-if="cell.answers.length" class="flex flex-wrap gap-1">
                 <span v-for="answer in cell.answers" :key="answer.value" class="inline-flex max-w-full items-baseline gap-1.5 rounded border border-white/10 bg-white/5 px-1.5 py-0.5">
@@ -195,23 +206,27 @@ const { t, te } = useI18n()
 const health = computed(() => props.account.upstream_health)
 const distribution = computed(() => props.account.platform?.toLowerCase() === 'openai'
   ? health.value?.confidence_distribution : undefined)
+const distributionCurrentPolicy = computed(() => distribution.value?.sampling_policy_version === 2)
 const distributionLabel = computed(() => {
+  if (!distributionCurrentPolicy.value) return t('admin.upstreamManagement.health.distribution.waitingResample')
   switch (distribution.value?.status) {
-    case 'collecting': return t('admin.upstreamManagement.health.distribution.collecting', { count: distribution.value.attempted, total: distribution.value.window_size })
+    case 'collecting': return t('admin.upstreamManagement.health.distribution.collecting', { count: distribution.value.valid_samples, total: distribution.value.window_size })
     case 'match': return t('admin.upstreamManagement.health.distribution.match')
     case 'mismatch': return t('admin.upstreamManagement.health.distribution.mismatch', { model: distributionModelLabel(distribution.value.closest_model || 'other_known_external') })
     default: return t('admin.upstreamManagement.health.distribution.insufficient')
   }
 })
 const distributionBadgeClass = computed(() => {
-  switch (distribution.value?.status) {
+  switch (distributionCurrentPolicy.value ? distribution.value?.status : 'collecting') {
     case 'match': return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
     case 'mismatch': return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
     case 'insufficient': return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
     default: return 'bg-gray-100 text-gray-600 dark:bg-dark-700 dark:text-gray-300'
   }
 })
-const distributionCandidates = computed(() => Object.entries(distribution.value?.matches || {})
+const distributionCandidates = computed(() => Object.entries(distributionCurrentPolicy.value && distribution.value &&
+  distribution.value.valid_samples >= distribution.value.window_size && distribution.value.status !== 'collecting'
+  ? distribution.value.matches : {})
   .map(([model, score]) => ({ model, score }))
   .sort((a, b) => b.score - a.score || a.model.localeCompare(b.model)))
 const distributionCells = computed(() => [
@@ -230,7 +245,7 @@ const distributionReasons = computed(() => (distribution.value?.reasons || []).m
 const knownDistributionResetReasons = new Set([
   'binding_changed', 'protocol_changed', 'endpoint_changed', 'credential_changed',
   'model_changed', 'proxy_changed', 'headers_changed', 'contract_changed',
-  'baseline_changed', 'legacy_identity_unverifiable'
+  'baseline_changed', 'legacy_identity_unverifiable', 'sampling_policy_changed'
 ])
 const distributionResetReasons = computed(() => [...new Set((distribution.value?.series_reset?.reasons || []).map(reason =>
   t(`admin.upstreamManagement.health.distribution.resetReasons.${knownDistributionResetReasons.has(reason) ? reason : 'unknown'}`)

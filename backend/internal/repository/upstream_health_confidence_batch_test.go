@@ -133,8 +133,9 @@ func TestConfidenceDistributionBatchMatchesSingleReadAndPreservesLeaseRecovery(t
 	recovered, revision, err := readConfidenceDistributionState(ctx, db, 1)
 	require.NoError(t, err)
 	require.Nil(t, recovered.Pending)
-	require.Len(t, recovered.Samples, 1)
-	require.False(t, recovered.Samples[0].Valid)
+	require.Empty(t, recovered.Samples)
+	require.Equal(t, 1, recovered.FailedAttempts)
+	require.Equal(t, int64(1), recovered.NextValidSequence)
 	require.Equal(t, int64(2), revision)
 	_, stableRevision, err := readConfidenceDistributionState(ctx, db, 2)
 	require.NoError(t, err)
@@ -142,4 +143,45 @@ func TestConfidenceDistributionBatchMatchesSingleReadAndPreservesLeaseRecovery(t
 	var missing int
 	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM upstream_confidence_distribution_states WHERE upstream_key_id=3`).Scan(&missing))
 	require.Zero(t, missing, "a missing series remains missing")
+}
+
+func TestConfidenceDistributionBatchPolicyResetMatchesSingleReadWithoutMutation(t *testing.T) {
+	repo, db := newConfidenceDistributionSQLite(t)
+	ctx, now := context.Background(), time.Now().UTC()
+	_, err := db.Exec(`INSERT INTO upstream_keys(id,upstream_config_id) VALUES (2,1)`)
+	require.NoError(t, err)
+	identity := testConfidenceDistributionIdentity("current", "responses")
+	identities := map[int64]service.ConfidenceDistributionIdentity{1: identity, 2: identity}
+	for id := int64(1); id <= 2; id++ {
+		legacy, err := service.NewConfidenceDistributionStateForIdentity(identity)
+		require.NoError(t, err)
+		legacy.SamplingPolicyVersion, legacy.NextValidSequence = 0, 0
+		legacy.NextSequence = 2
+		legacy.Samples = []service.DistributionSample{{Sequence: 1, ProbeID: legacy.ProbeOrder[0], Valid: true, Answer: "47", ObservedAt: now}}
+		if id == 2 {
+			legacy.Pending = &service.DistributionAttempt{SeriesID: legacy.SeriesID, LeaseToken: "old-lease", Sequence: 2, ProbeID: legacy.ProbeOrder[1]}
+			legacy.LeaseExpiresAt = now.Add(service.UpstreamConfidenceDistributionLease)
+			legacy.NextSequence = 3
+			legacy.Samples = append(legacy.Samples, service.DistributionSample{Sequence: 2, ProbeID: legacy.Pending.ProbeID, Reason: "pending", ObservedAt: now})
+		}
+		saved, err := saveConfidenceDistributionState(ctx, db, id, 0, legacy, now)
+		require.NoError(t, err)
+		require.True(t, saved)
+	}
+	got, err := repo.LoadConfidenceDistributionsForSeries(ctx, identities, now.Add(time.Second))
+	require.NoError(t, err)
+	for id := int64(1); id <= 2; id++ {
+		want, err := repo.LoadConfidenceDistributionForSeries(ctx, id, identity, now.Add(time.Second))
+		require.NoError(t, err)
+		require.NoError(t, got[id].Err)
+		require.Equal(t, want, got[id].Distribution)
+		require.True(t, want.SeriesReset.Pending)
+		require.Equal(t, []string{"sampling_policy_changed"}, want.SeriesReset.Reasons)
+		require.Equal(t, 0, want.SamplingPolicyVersion)
+		require.Empty(t, want.Matches)
+		state, revision, err := readConfidenceDistributionState(ctx, db, id)
+		require.NoError(t, err)
+		require.Equal(t, int64(1), revision, "policy reset listing never acquires a new series")
+		require.Equal(t, 0, state.SamplingPolicyVersion)
+	}
 }
