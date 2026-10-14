@@ -90,6 +90,12 @@ type UpstreamHealthConfidenceReader interface {
 	GetUpstreamHealthConfidence(ctx context.Context, keyID int64) (UpstreamHealthConfidenceSummary, error)
 }
 
+// UpstreamHealthConfidencesReader is optional so existing single-key readers
+// remain compatible with callers that do not need a complete account page.
+type UpstreamHealthConfidencesReader interface {
+	GetUpstreamHealthConfidences(ctx context.Context, keyIDs []int64) (map[int64]UpstreamHealthConfidenceSummary, error)
+}
+
 func MergeUpstreamHealthConfidence(snapshot UpstreamHealthSnapshot, summary UpstreamHealthConfidenceSummary) UpstreamHealthSnapshot {
 	snapshot.ConfidenceDistribution = summary.Distribution
 	snapshot.ConfidenceScore24h, snapshot.ConfidenceScore7d = summary.Score24h, summary.Score7d

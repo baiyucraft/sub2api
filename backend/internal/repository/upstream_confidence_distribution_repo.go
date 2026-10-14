@@ -297,6 +297,86 @@ func (r *upstreamConfigRepository) LoadConfidenceDistributionForSeries(ctx conte
 	return r.loadConfidenceDistribution(ctx, keyID, &identity, now)
 }
 
+// LoadConfidenceDistributionsForSeries batches stable reads. Only rows needing
+// the existing lease recovery or identity-upgrade CAS use the single-key path.
+// Invalid JSON or identity on one key never hides healthy results on other keys.
+func (r *upstreamConfigRepository) LoadConfidenceDistributionsForSeries(ctx context.Context, identities map[int64]service.ConfidenceDistributionIdentity, now time.Time) (map[int64]service.ConfidenceDistributionReadResult, error) {
+	out := make(map[int64]service.ConfidenceDistributionReadResult, len(identities))
+	if len(identities) == 0 {
+		return out, nil
+	}
+	db, err := r.confidenceDistributionDB()
+	if err != nil {
+		return nil, err
+	}
+	keyIDs := make([]int64, 0, len(identities))
+	for id := range identities {
+		keyIDs = append(keyIDs, id)
+	}
+	keyIDs = uniquePositiveInt64sForConfidence(keyIDs)
+	states := make(map[int64]*service.ConfidenceDistributionState, len(keyIDs))
+	for start := 0; start < len(keyIDs); start += postgresParameterBatchSize {
+		end := min(start+postgresParameterBatchSize, len(keyIDs))
+		args := make([]any, end-start)
+		placeholders := make([]string, end-start)
+		for i, id := range keyIDs[start:end] {
+			args[i] = id
+			placeholders[i] = fmt.Sprintf("$%d", i+1)
+		}
+		rows, err := db.QueryContext(ctx, `SELECT upstream_key_id, state_json FROM upstream_confidence_distribution_states WHERE upstream_key_id IN (`+strings.Join(placeholders, ",")+`)`, args...)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var id int64
+			var raw []byte
+			if err := rows.Scan(&id, &raw); err != nil {
+				_ = rows.Close()
+				return nil, err
+			}
+			state := new(service.ConfidenceDistributionState)
+			if err := json.Unmarshal(raw, state); err != nil {
+				out[id] = service.ConfidenceDistributionReadResult{Err: fmt.Errorf("decode confidence distribution state: %w", err)}
+				continue
+			}
+			if err := state.Validate(); err != nil {
+				out[id] = service.ConfidenceDistributionReadResult{Err: err}
+				continue
+			}
+			states[id] = state
+		}
+		err = rows.Err()
+		_ = rows.Close()
+		if err != nil {
+			return nil, err
+		}
+	}
+	for _, id := range keyIDs {
+		if out[id].Err != nil {
+			continue
+		}
+		state := states[id]
+		if state == nil {
+			out[id] = service.ConfidenceDistributionReadResult{}
+			continue
+		}
+		identity := identities[id]
+		changed := state.Recover(now)
+		reasons, upgrade := state.IdentityChange(identity)
+		var summary *service.UpstreamConfidenceDistribution
+		var err error
+		if changed || upgrade {
+			summary, err = r.LoadConfidenceDistributionForSeries(ctx, id, identity, now)
+		} else if len(reasons) > 0 {
+			summary, err = state.PendingResetSummary(identity, reasons)
+		} else {
+			summary, err = state.Summary()
+		}
+		out[id] = service.ConfidenceDistributionReadResult{Distribution: summary, Err: err}
+	}
+	return out, nil
+}
+
 func (r *upstreamConfigRepository) loadConfidenceDistribution(ctx context.Context, keyID int64, identity *service.ConfidenceDistributionIdentity, now time.Time) (*service.UpstreamConfidenceDistribution, error) {
 	db, err := r.confidenceDistributionDB()
 	if err != nil {
