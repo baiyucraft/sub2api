@@ -1,0 +1,324 @@
+"""Prepare the owned offline Guest for a full recovery drill.
+
+This helper only consumes a signed drill manifest and exact source bytes. It
+does not issue a VM Gate, create a production claim, or start a runner when an
+input is missing. Host preparation stages immutable image/pre-state files;
+Guest preparation loads images and creates the drill-only active claim.
+"""
+from __future__ import annotations
+
+import argparse, hashlib, json, os, re, shutil, stat, subprocess, sys
+from pathlib import Path, PurePosixPath
+from typing import Any
+
+SHA = re.compile(r"[0-9a-f]{64}\Z")
+IMAGE = re.compile(r"sha256:[0-9a-f]{64}\Z")
+DRILL = re.compile(r"full-dr-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\Z")
+RELEASE = re.compile(r"[0-9]{3}-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}\Z")
+ROLES = ("app", "postgres", "redis")
+ROOT = Path("/var/lib/sub2api-full-recovery-drills")
+DAEMON_CONFIG={'features':{'containerd-snapshotter':True},'storage-driver':'overlayfs','iptables':False,'ip6tables':False,'bridge':'none','ip-forward':False,'ip-masq':False}
+DAEMON_BYTES=json.dumps(DAEMON_CONFIG,sort_keys=True,separators=(',',':')).encode()
+
+
+class GuestPreparationBlocked(RuntimeError):
+    pass
+
+
+def require(value: bool, reason: str) -> None:
+    if not value:
+        raise GuestPreparationBlocked(reason)
+
+
+def digest(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def regular(path: Path, *, mode: int | None = None) -> None:
+    info = path.lstat()
+    require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1 and not path.is_symlink(), "regular private file required")
+    require(path.resolve() == path.absolute(), "noncanonical path")
+    if mode is not None:
+        require(stat.S_IMODE(info.st_mode) == mode and info.st_uid == 0 and info.st_gid == 0, "private file ownership")
+
+
+def strict_json(path: Path) -> dict[str, Any]:
+    regular(path, mode=0o400)
+    require(path.stat().st_size<=4*1024*1024,"manifest size limit")
+    def unique(pairs):
+        out = {}
+        for key, value in pairs:
+            require(key not in out, "duplicate manifest field")
+            out[key] = value
+        return out
+    try:
+        value = json.loads(path.read_bytes(), object_pairs_hook=unique, parse_constant=lambda _: (_ for _ in ()).throw(ValueError()))
+    except (ValueError, UnicodeDecodeError, RecursionError) as error:
+        raise GuestPreparationBlocked("invalid manifest JSON") from error
+    require(isinstance(value, dict), "manifest object required")
+    return value
+
+
+def path_field(value: Any, prefix: str) -> Path:
+    require(isinstance(value, str) and value.startswith(prefix), "manifest path")
+    require("\\" not in value and "\x00" not in value and ".." not in PurePosixPath(value).parts, "unsafe manifest path")
+    require(str(PurePosixPath(value))==value,"canonical manifest path")
+    result = Path(value)
+    return result
+
+
+def validate_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
+    fields = {"schema", "drill_id", "release_id", "pre_image_id", "images", "backup_units", "active_app", "source_snapshot_path", "compose_plugin_sha256", "docker_daemon_config_sha256", "docker_version"}
+    require(set(manifest) == fields and type(manifest["schema"]) is int and manifest["schema"] == 1, "manifest fields")
+    require(isinstance(manifest['drill_id'],str) and DRILL.fullmatch(manifest["drill_id"]) and isinstance(manifest['release_id'],str) and RELEASE.fullmatch(manifest["release_id"]), "manifest identity")
+    require(isinstance(manifest['pre_image_id'],str) and IMAGE.fullmatch(manifest["pre_image_id"]), "manifest old image")
+    require(isinstance(manifest['compose_plugin_sha256'],str) and SHA.fullmatch(manifest['compose_plugin_sha256']),"Compose plugin fingerprint")
+    require(manifest['docker_daemon_config_sha256']==hashlib.sha256(DAEMON_BYTES).hexdigest(),"offline containerd Docker configuration required")
+    require(isinstance(manifest['docker_version'],str) and re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+',manifest['docker_version']),"Docker version contract")
+    images = manifest["images"]
+    require(isinstance(images, list) and len(images) == 3, "three exact images required")
+    roles = set()
+    for item in images:
+        require(isinstance(item, dict) and set(item) == {"role", "image_id", "path", "sha256", "bytes"}, "image manifest fields")
+        require(item["role"] in ROLES and item["role"] not in roles, "image role")
+        roles.add(item["role"]); require(isinstance(item['image_id'],str) and IMAGE.fullmatch(item["image_id"]), "image identity")
+        path_field(item["path"], "/opt/sub2api-full-recovery-input/images/")
+        require(isinstance(item['sha256'],str) and SHA.fullmatch(item["sha256"]) and type(item["bytes"]) is int and item["bytes"] > 0, "image archive digest")
+    require(roles == set(ROLES), "app/postgres/redis images required")
+    prestate = manifest["backup_units"]
+    require(isinstance(prestate, list) and len(prestate)==2, "two actual backup units required")
+    seen = set()
+    for item in prestate:
+        require(isinstance(item, dict) and set(item) == {"name", "path", "sha256", "bytes"}, "pre-state fields")
+        require(item["name"] in {"sub2api-backup.service","sub2api-backup.timer"} and item["name"] not in seen, "backup unit name")
+        seen.add(item["name"]); path_field(item["path"], "/opt/sub2api-full-recovery-input/units/")
+        require(isinstance(item['sha256'],str) and SHA.fullmatch(item["sha256"]) and type(item["bytes"]) is int and item["bytes"] > 0, "pre-state digest")
+    path_field(manifest["source_snapshot_path"],"/opt/sub2api-full-recovery-input/")
+    slot=manifest["active_app"]
+    require(isinstance(slot,dict) and set(slot)=={"container","port","instance_id","release_id"},"active app fields")
+    require(isinstance(slot["container"],str) and re.fullmatch(r"[A-Za-z0-9_.-]{1,80}",slot["container"]),"active container")
+    require(type(slot["port"]) is int and slot["port"] in {18080,18081},"active port")
+    for key in ("instance_id","release_id"):
+        require(isinstance(slot[key],str) and (not slot[key] or re.fullmatch(r"[A-Za-z0-9_.-]{1,128}",slot[key])),"active slot identity")
+    return manifest
+
+
+def stage(rootfs: Path, manifest_path: Path) -> dict[str, Any]:
+    """Stage only owned image/pre-state inputs and the exact manifest."""
+    manifest = validate_manifest(strict_json(manifest_path))
+    expected = ROOT / manifest["drill_id"] / "rootfs"
+    require(rootfs == expected and rootfs.resolve() == rootfs, "owned rootfs")
+    require(rootfs.is_dir() and rootfs.stat().st_uid == 0 and stat.S_IMODE(rootfs.stat().st_mode) == 0o700, "rootfs ownership")
+    input_dir = rootfs / "opt/sub2api-full-recovery-input"
+    require(input_dir.is_dir() and not input_dir.is_symlink(), "Guest input directory")
+    require(not any(line.split()[4]==str(rootfs) or line.split()[4].startswith(str(rootfs)+'/') for line in Path('/proc/self/mountinfo').read_text().splitlines()),"Guest rootfs is mounted")
+    plugin=rootfs/'usr/libexec/docker/cli-plugins/docker-compose'
+    if not plugin.exists():
+        candidates=[Path(p) for p in ('/usr/libexec/docker/cli-plugins/docker-compose','/usr/lib/docker/cli-plugins/docker-compose','/usr/local/lib/docker/cli-plugins/docker-compose','/root/.docker/cli-plugins/docker-compose')]
+        sources=[p for p in candidates if p.is_file() and not p.is_symlink() and digest(p)==manifest['compose_plugin_sha256']]
+        require(len(sources)>=1,"approved Compose plugin unavailable")
+        plugin.parent.mkdir(mode=0o755,parents=True,exist_ok=True)
+        require(plugin.parent.resolve()==plugin.parent,"unsafe plugin directory")
+        shutil.copyfile(sources[0],plugin); plugin.chmod(0o755)
+    regular(plugin); require(digest(plugin)==manifest['compose_plugin_sha256'] and plugin.stat().st_uid==0 and stat.S_IMODE(plugin.stat().st_mode)==0o755,"Guest Compose plugin differs")
+    config=rootfs/'etc/docker/daemon.json'; regular(config)
+    config.write_bytes(DAEMON_BYTES); config.chmod(0o600)
+    for item in [*manifest["images"], *manifest["backup_units"]]:
+        guest_path = Path(item["path"])
+        source = rootfs/str(guest_path).lstrip('/')
+        regular(source, mode=0o400)
+        require(source.stat().st_size == item["bytes"], "input byte count")
+        require(digest(source) == item["sha256"], "input digest")
+    target_manifest = input_dir / "guest-manifest.json"
+    if target_manifest.exists():
+        regular(target_manifest,mode=0o400)
+        require(target_manifest.read_bytes()==manifest_path.read_bytes(),"staged manifest differs")
+    else:
+        shutil.copyfile(manifest_path, target_manifest); os.chmod(target_manifest, 0o400)
+    return {"schema": 1, "status": "staged", "drill_id": manifest["drill_id"], "guest_manifest_sha256": digest(target_manifest)}
+
+
+def approved_manifest(manifest_path: Path, approval: dict[str,Any]) -> dict[str,Any]:
+    regular(manifest_path,mode=0o400)
+    require(digest(manifest_path)==approval["guest_manifest_sha256"],"signed manifest bytes differ")
+    manifest=validate_manifest(strict_json(manifest_path))
+    require(all(manifest[k]==approval[k] for k in ("drill_id","release_id","pre_image_id")),"signed Guest identity differs")
+    snapshot=Path(manifest["source_snapshot_path"]); regular(snapshot,mode=0o400)
+    require(digest(snapshot)==approval["drill_context"]["source_snapshot_sha256"],"source snapshot differs")
+    snapshot_data=strict_json(snapshot)
+    context=approval['drill_context']
+    require(snapshot_data['production_current_commit_sha']==context['commit_sha'] and snapshot_data['current_image_id']==context['candidate_image_id']==manifest['pre_image_id'],"actual source identity differs")
+    if 'profile' in snapshot_data: require(snapshot_data['profile']==context['profile'],"source profile differs")
+    if 'version' in snapshot_data: require(snapshot_data['version']==context['version'],"source version differs")
+    return manifest
+
+
+def verify_inputs(manifest,root=Path('/')):
+    for item in [*manifest['images'],*manifest['backup_units']]:
+        path=root/item['path'].lstrip('/')
+        regular(path,mode=0o400)
+        require(path.stat().st_size==item['bytes'] and digest(path)==item['sha256'],'preparation input bytes differ')
+
+
+def command(argv,raw,env=None):
+    result=subprocess.run(argv,capture_output=True,env=env,timeout=600,check=False)
+    with raw.open('ab') as stream: stream.write(result.stdout+result.stderr)
+    require(result.returncode==0,"owned Guest preparation command failed")
+    return result.stdout
+
+
+def prepare_system(manifest,approval,helpers,env,raw):
+    verify_inputs(manifest)
+    plugin=Path('/usr/libexec/docker/cli-plugins/docker-compose'); regular(plugin)
+    require(digest(plugin)==manifest['compose_plugin_sha256'],"Guest Compose plugin differs")
+    config=Path('/etc/docker/daemon.json'); regular(config,mode=0o600)
+    require(digest(config)==manifest['docker_daemon_config_sha256'],"Guest Docker daemon configuration differs")
+    require(command(['docker','version','--format','{{.Server.Version}}'],raw,env).decode().strip()==manifest['docker_version'],'actual Guest Docker version differs')
+    driver=command(['docker','info','--format','{{json .DriverStatus}}'],raw,env)
+    require(['driver-type','io.containerd.snapshotter.v1'] in json.loads(driver),'actual Docker containerd image store required')
+    command(['docker','compose','version','--short'],raw,env)
+    loaded=set()
+    for item in manifest["images"]:
+        archive = Path(item["path"])
+        regular(archive, mode=0o400); require(archive.stat().st_size == item["bytes"] and digest(archive) == item["sha256"], "staged image drift")
+        if str(archive) not in loaded:
+            command(["docker","load","--input",str(archive)],raw,env); loaded.add(str(archive))
+        observed=command(["docker","image","inspect","--format","{{.Id}}",item["image_id"]],raw,env)
+        require(observed.decode().strip()==item["image_id"], "loaded image identity differs")
+    require(manifest["images"][[item["role"] for item in manifest["images"]].index("app")]["image_id"] == manifest["pre_image_id"], "old app image binding")
+    for item in manifest["backup_units"]:
+        source=Path(item["path"]); regular(source,mode=0o400)
+        require(source.stat().st_size==item["bytes"] and digest(source)==item["sha256"],"backup unit source differs")
+        target=Path('/etc/systemd/system')/item["name"]
+        require(not target.exists() and not target.is_symlink(),"backup unit already installed")
+        shutil.copyfile(source,target); target.chmod(0o644)
+    command(['systemctl','daemon-reload'],raw,env)
+    command(['systemctl','enable','sub2api-backup.timer'],raw,env)
+    command(['systemctl','start','sub2api-backup.timer'],raw,env)
+    # A persistent source timer may request an immediate catch-up invocation.
+    # Stop that owned Guest job before the formal mask helper observes its
+    # original state; no backup success or historical timer event is invented.
+    command(['systemctl','stop','sub2api-backup.service'],raw,env)
+    command(['systemctl','reset-failed','sub2api-backup.service'],raw,env)
+    require(command(['systemctl','is-active','sub2api-backup.timer'],raw,env).decode().strip()=='active','actual Guest backup timer inactive')
+    service=subprocess.run(['systemctl','is-active','sub2api-backup.service'],capture_output=True,env=env,check=False)
+    require(service.stdout.decode().strip()=='inactive','actual Guest backup service not inactive')
+    state=Path('/opt/sub2api/backups/release-state')/manifest['release_id']
+    state.parent.mkdir(parents=True,mode=0o700,exist_ok=True)
+    require(not state.exists() and not state.is_symlink(),"preexisting recovery state")
+    maskenv=dict(env,STATE_ROOT=str(state.parent),STATE_DIR=str(state))
+    command(['bash',str(helpers/'mask-backup-units.sh')],raw,maskenv)
+    return state
+
+
+def write_private(path,data,mode=0o400):
+    require(not path.exists() and not path.is_symlink(),"private output already exists")
+    with path.open('xb') as stream: stream.write(data)
+    path.chmod(mode)
+
+
+def prepare_source(manifest,approval,inventory,source,helpers,env,raw):
+    deploy=Path('/opt/sub2api')
+    archive=inventory/'config/app'
+    for item in archive.iterdir():
+        target=deploy/item.name
+        require(not target.exists() and not target.is_symlink(),"deployment input already exists")
+        if item.is_dir(): shutil.copytree(item,target,copy_function=shutil.copy2)
+        else: shutil.copy2(item,target)
+    state=deploy/'backups/release-state'/manifest['release_id']
+    slot=manifest['active_app']
+    slot_bytes=(f"container={slot['container']}\nport={slot['port']}\nimage_id={manifest['pre_image_id']}\nrelease_id={slot['release_id']}\ninstance_id={slot['instance_id']}\n").encode()
+    write_private(state/'pre-active-app',slot_bytes,0o600)
+    write_private(deploy/'active-app',slot_bytes,0o600)
+    write_private(state/'pre-image-id',(manifest['pre_image_id']+'\n').encode(),0o600)
+    migration_file=inventory/'metadata/migrations.txt'
+    if not migration_file.exists():
+        lines=[line for line in (inventory/'metadata/postgres.txt').read_text().splitlines() if '|' in line and line.split('|',1)[0].endswith('.sql')]
+        require(lines,"archive migration evidence missing")
+        migration_file=state/'pre-migrations.tsv'; write_private(migration_file,('\n'.join(lines)+'\n').encode(),0o600)
+    else: write_private(state/'pre-migrations.tsv',migration_file.read_bytes(),0o600)
+    files=sorted(p for p in state.iterdir() if p.is_file())
+    write_private(state/'SHA256SUMS',''.join(digest(p)+'  '+p.name+'\n' for p in files).encode(),0o600)
+    release = Path("/opt/sub2api/releases") / manifest["release_id"]
+    write_private(release/'.prepared',(f"release_id={manifest['release_id']}\ncandidate_image_id={manifest['pre_image_id']}\n").encode())
+    claim = Path("/opt/sub2api/releases") / ".active-release"
+    require(not claim.exists() and not claim.is_symlink(), "recovery claim already exists")
+    claim.mkdir(mode=0o700)
+    write_private(claim/'drill-metadata.json',json.dumps(approval['drill_context'],sort_keys=True,separators=(',',':')).encode())
+    write_private(claim/'release_id',(f"release_id={manifest['release_id']}\n").encode())
+    shutil.copytree(helpers,claim/'assets',copy_function=shutil.copy2)
+    claim_files=sorted(p for p in claim.rglob('*') if p.is_file())
+    write_private(claim/'CLAIM_SHA256SUMS',''.join(digest(p)+'  '+str(p.relative_to(claim))+'\n' for p in claim_files).encode())
+    # Exact source configuration stays inside the proven offline Guest.
+    ng=inventory/'config/nginx'
+    targets={'nginx.conf':Path('/etc/nginx/nginx.conf'),'sites-enabled':Path('/etc/nginx/sites-enabled'),'conf.d':Path('/etc/nginx/conf.d'),'snippets':Path('/etc/nginx/snippets'),'release-backups':Path('/etc/nginx/sub2api-release-backups'),'logrotate':Path('/etc/logrotate.d')}
+    default=Path('/etc/nginx/sites-enabled/default')
+    if default.is_symlink() or default.is_file(): default.unlink()
+    for name,target in targets.items():
+        src=ng/name
+        if src.is_file(): shutil.copy2(src,target); continue
+        target.mkdir(mode=0o700 if name=='release-backups' else 0o755,exist_ok=True)
+        for p in src.iterdir():
+            if p.name.startswith('.'): continue
+            dst=target/p.name; require(not dst.is_symlink(),"Nginx target symlink")
+            shutil.copy2(p,dst)
+    if (ng/'observability.conf').exists(): shutil.copy2(ng/'observability.conf',Path('/etc/nginx/conf.d/sub2api-release-observability.conf'))
+    cert=inventory/'config/certbot'
+    Path('/etc/letsencrypt').mkdir(mode=0o755,exist_ok=True)
+    for item in cert.iterdir():
+        target=Path('/etc/letsencrypt')/item.name
+        require(not target.exists() and not target.is_symlink(),"certificate target exists")
+        shutil.copytree(item,target,copy_function=shutil.copy2)
+    image_lines=(inventory/'metadata/images.txt').read_text().splitlines()
+    expected={item['image_id'] for item in manifest['images']}
+    require({line.split()[-1] for line in image_lines}==expected,"archived image inventory differs")
+    # Compose may refer to immutable repo digests that docker-save does not
+    # preserve as RepoDigests. Require the original references to resolve to
+    # their exact captured image IDs before starting anything; never pull.
+    for line in image_lines:
+        parts=line.split(); require(len(parts)==3,"archive image metadata")
+        if '@sha256:' in parts[1]:
+            require(parts[1].split('@',1)[1]==parts[2],'source registry digest differs from OCI descriptor')
+            require(re.fullmatch(r'(?:docker\.io/)?(?:library/)?(?:postgres|redis)@sha256:[0-9a-f]{64}',parts[1]),'unsupported immutable source image reference')
+            refs=command(['ctr','--address','/run/docker/containerd/containerd.sock','--namespace','moby','images','list','--quiet'],raw,env).decode().splitlines()
+            matched=[]
+            for ref in refs:
+                value=command(['ctr','--address','/run/docker/containerd/containerd.sock','--namespace','moby','images','inspect',ref],raw,env)
+                item=json.loads(value)
+                if item.get('target',item.get('Target',{})).get('digest',item.get('target',item.get('Target',{})).get('Digest'))==parts[2]: matched.append(ref)
+            require(matched,'exact OCI image descriptor missing from containerd')
+            repository=parts[1].split('@',1)[0]
+            if not repository.startswith('docker.io/'): repository='docker.io/'+('library/' if '/' not in repository else '')+repository
+            reference=repository+'@'+parts[2]
+            if reference not in refs: command(['ctr','--address','/run/docker/containerd/containerd.sock','--namespace','moby','images','tag',matched[0],reference],raw,env)
+        actual=command(['docker','image','inspect','--format','{{.Id}}',parts[1]],raw,env).decode().strip()
+        require(actual==parts[2],"original Compose image reference unavailable offline")
+    shell='set -Eeuo pipefail; source "$1/recovery-compose.sh"; recovery_compose_verify_live "$2/config/app" /opt/sub2api "$3"; cd /opt/sub2api; load_release_compose_files /opt/sub2api; docker compose "${release_compose_args[@]}" up -d --pull never postgres redis; for x in sub2api-postgres sub2api-redis; do for n in {1..90}; do [[ $(docker inspect -f "{{.State.Health.Status}}" "$x") == healthy ]] && break; sleep 2; done; [[ $(docker inspect -f "{{.State.Health.Status}}" "$x") == healthy ]]; done'
+    command(['bash','-c',shell,'prepare',str(helpers),str(inventory),manifest['pre_image_id']],raw,env)
+    command(['nginx','-t'],raw,env); command(['systemctl','start','nginx'],raw,env)
+    # This file records the actual encrypted source measurement, not a Gate.
+    result=json.dumps(source,sort_keys=True,separators=(',',':')).encode()
+    write_private(state/'backup-result',result,0o600)
+    write_private(state/'backup-result.sha256',(digest(state/'backup-result')+'  backup-result\n').encode(),0o600)
+    command(['bash',str(helpers/'apply-nginx-ingress.sh')],raw,env)
+    return {'schema':1,'status':'prepared','drill_id':manifest['drill_id']}
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(); sub = parser.add_subparsers(dest="command", required=True)
+    p = sub.add_parser("stage"); p.add_argument("rootfs", type=Path); p.add_argument("manifest", type=Path)
+    args = parser.parse_args()
+    try:
+        result = stage(args.rootfs, args.manifest)
+        print(json.dumps(result, sort_keys=True))
+    except (GuestPreparationBlocked, OSError, ValueError, KeyError, subprocess.SubprocessError):
+        print(json.dumps({"schema": 1, "status": "blocked", "reason": "guest_preparation_failed; owned diagnostics preserved"}))
+        raise SystemExit(1)
+
+
+if __name__ == "__main__":
+    main()

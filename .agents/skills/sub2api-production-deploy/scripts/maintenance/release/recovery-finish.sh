@@ -13,8 +13,16 @@ if [[ -n ${RECOVERY_INTERRUPT_AFTER_PHASE:-} ]]; then source "$bundle_assets_dir
 unset COMPOSE_FILE COMPOSE_PROFILES COMPOSE_ENV_FILES COMPOSE_PATH_SEPARATOR DOCKER_HOST DOCKER_CONTEXT
 export RECOVERY_HELPER_BUNDLE_SHA256=${RECOVERY_HELPER_BUNDLE_SHA256:?verified helper bundle SHA is required}
 export RELEASE_DIR=$release_dir
-export RECOVERY_HELPER_GATE=${RECOVERY_HELPER_GATE:?signed helper authorization Gate is required}
-export RECOVERY_HELPER_SIGNATURE=${RECOVERY_HELPER_SIGNATURE:?helper authorization signature is required}
+if [[ -n ${RECOVERY_DRILL_AUTHORIZATION:-} ]]; then
+  # context.sh must have authenticated the distinct offline domain and run
+  # the real isolation guard before the Gate-free Guest path can proceed.
+  [[ ${recovery_drill_context_verified:-} == 1 && ${RECOVERY_DRILL_MODE:-} == 1 ]] || exit 1
+  export RECOVERY_DRILL_AUTHORIZATION
+  unset RECOVERY_HELPER_GATE RECOVERY_HELPER_SIGNATURE
+else
+  export RECOVERY_HELPER_GATE=${RECOVERY_HELPER_GATE:?signed helper authorization Gate is required}
+  export RECOVERY_HELPER_SIGNATURE=${RECOVERY_HELPER_SIGNATURE:?helper authorization signature is required}
+fi
 
 recovery_checkpoint_assert_directory "$release_dir"
 checkpoint_root="$release_dir/recovery-checkpoints"

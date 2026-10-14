@@ -14,6 +14,7 @@
 - [恢复演练](#恢复演练)
 - [RPO、RTO 与保留](#rpo-rto-与保留)
 - [密钥与告警](#密钥与告警)
+- [备份密钥自动准备](#备份密钥自动准备)
 
 ## 恢复目标
 
@@ -191,6 +192,34 @@ redis_restored_expiring_keys <= redis_backup_expiring_keys
 
 ## 版本基线状态机
 
+当前完整恢复审阅发布使用独立的每次 release recipient：签名 Gate 中
+`recovery_gate.full_recovery_evidence.payload.source.approved_recipient_sha256`
+约束公开 recipient，`approved_identity_sha256` 约束本机持久 identity。
+执行器自动取回匹配 identity 并自检，只把公开 recipient 写入该 release 的
+`backup-recipient.txt`；正式 `backup.sh` 再次核对指纹，显式用于本次备份。
+这不改变 daily recipient，也不把解密 identity 复制到生产或备份机。
+
+停机发布的四文件恢复点晋升，与版本基线的七文件 candidate 是两个合同。
+`full-recovery-capture.sh` 在停机切换完成、candidate 已成为运行镜像后，以
+`CAPTURE_PURPOSE=postrelease`、同一正式 `RELEASE_ID` 和
+`EXPECTED_PRE_IMAGE_ID=<candidate_image_id>` 新建加密恢复点；其 receipt 必须记录
+`capture_purpose=postrelease`、`captured_image_id`、artifact 字节数和
+`cross_store_writes_frozen=false`。将该 artifact、receipt、已验签 Gate、Gate 签名和
+candidate 归档放进私有 staging 后执行
+`stage-dr-baseline-candidate.sh <release-id> <private-input-dir> <artifact-sha256>`。
+脚本拒绝旧四文件 pre-switch 恢复点、image/Release 不匹配或 receipt 缺失，只组成新的
+candidate；不会更新 `verified`。随后使用 `full_recovery_drill.py` 在隔离 Guest 中真正
+解密和恢复本次 release 资产，并在同一 Guest 加载 Gate 绑定的 candidate 镜像。恢复旧
+镜像成功不能替代 candidate 镜像加载观察。
+
+`python -m release.postrelease_baseline build-evidence` 验证本次独立签名完整恢复
+报告、精确 candidate bundle、同 Guest 的实际 image-load receipt 及审阅摘要，
+再输出旧 signer 要求的 schema 1 证据；不能使用 Gate 前的另一个 capture 冒充
+发布后的资产恢复。若旧晋升器要求的 Redis TTL 差值等式不成立，保留旧 verified，
+不得把当前永久键下界不等式强行映射成旧合同成功。完成后用该模块的
+`sign-promote` 子命令调用既有 signer 和 `promote-dr-baseline.sh`；签名存在时先验真
+续跑。生成 key、candidate staging、单元测试或来源解密本身均不是基线晋升证明。
+
 ```text
 candidate-created
   -> encrypted-and-checksummed
@@ -218,6 +247,23 @@ candidate-created
 10. 销毁临时数据库、Redis、解出的 secret、配置目录和测试镜像，只保留白名单结果。
 11. VM 把白名单结果写入固定 `dr-evidence/<release-id>/<drill-id>/evidence.json`；文件必须包含严格 schema、候选与迁移 checksum、全部恢复断言、时间字段以及 Redis TTL 对账等式。只允许通过 `/usr/local/libexec/sub2api-sign-dr-evidence` 使用既有 signer 身份签名，禁止直接调用私钥。
 12. 操作端使用仓库 trust key验签，备份机再次核对 evidence/signature checksum、candidate pointer 和全部绑定字段；任一不一致停止。
+
+postrelease collector 的执行串必须保持为：
+
+```text
+停机切换完成
+  -> CAPTURE_PURPOSE=postrelease fresh full-recovery-capture
+  -> stage-dr-baseline-candidate (artifact + receipt + Gate + candidate archive)
+  -> full_recovery_drill optional postrelease_candidate
+       -> Guest 内真实 docker load/inspect
+       -> Guest 销毁前保留 candidate-load.json
+  -> same-Guest/rootfs/engine/time 校验
+  -> full-review findings 绑定 candidate-load receipt
+  -> build-evidence -> sign-promote
+```
+
+没有 `postrelease_candidate` 时只能输出 `candidate_load_status=not_required`，该路径不
+得声称已完成版本基线；pre-Gate full DR 不得复用为 postrelease candidate load。
 13. 全部通过后原子晋升 candidate 并原子更新 `verified` pointer。
 14. 晋升完成前保留旧 verified baseline。
 
@@ -225,7 +271,7 @@ candidate-created
 
 ### 真实恢复的前置阻断
 
-在开始下载或解密前，先验证隔离环境具有批准的 age 解密身份/恢复 helper，并能在不接触备份机明文的前提下使用。只有 `candidate`、解密身份可用、镜像和恢复点来源一致时，才能进入 PostgreSQL/Redis 恢复。只有 signer 自测证据、VM fixture、合成计数或人工填写的 `pass` 字段时，必须保持 `restore pending`；不能把 bootstrap 自测证据复制成真实 drill，也不能向备份机晋升 `verified`。
+在开始下载或解密前，先验证隔离环境具有按 [备份密钥自动准备](#备份密钥自动准备) 规则复用或自动生成的 age 解密身份、恢复 helper，并能在不接触备份机明文的前提下使用。用户已授权发布或演练即包含新备份专用 identity 的自动准备，不要求用户另行提供 key 或存放路径。已有密文必须与原 identity 匹配；缺失时保留旧资产，明确记录本次未取得匹配 identity、旧资产恢复验证未完成，并为当前验证自动准备新 identity 与新备份。只有 `candidate`、对应解密身份可用、镜像和恢复点来源一致时，才能进入 PostgreSQL/Redis 恢复。只有 signer 自测证据、VM fixture、合成计数或人工填写的 `pass` 字段时，必须保持 `restore pending`；不能把 bootstrap 自测证据复制成真实 drill，也不能向备份机晋升 `verified`。
 
 ## 恢复演练
 
@@ -381,7 +427,63 @@ backup-host-space-clean.sh dry-run
 ## 密钥与告警
 
 - 加密私钥不得与密文包同库存放，不得进入 Git、日志、manifest 明文或最终报告。
-- 只记录密钥存储类别、owner、轮换/吊销状态和恢复演练可用性，不记录路径和值。
+- 公开报告、日志和演练证据只记录密钥存储类别、owner、版本/指纹、轮换/吊销状态和恢复演练可用性，不记录私钥路径和值；工作区外的受保护执行注册可保存私有位置引用，供后续自动定位。
 - 解密出的 secret 只存在于临时恢复环境，验证完成后销毁。
 - Healthchecks 只记录 `configured / missing / last_success / last_failure / checked_at`，不记录 URL 或 token。
 - 没有外部告警不能抹掉已完成备份，但必须降级为 `external alerting incomplete`。
+
+## 备份密钥自动准备
+
+### 授权与用途
+
+用户明确授权发布、停机部署或恢复演练后，执行器自行处理本次所需的备份加密密钥，不再询问“是否生成”、要求用户提供私钥或选择密钥路径。优先复用已登记、权限合格且 recipient 指纹匹配的专用 identity；没有可用 identity 时，使用 `age-keygen` 自动生成唯一版本的 age X25519 identity。执行器选择并建立符合下述权限要求的持久存储，不把常规密钥准备交回用户处理。
+
+普通停机部署的即时协调回退使用停写阶段生成并校验的 root-only 临时明文恢复 tar，因此不依赖用户提供解密私钥。真实加密备份灾备演练和版本基线晋升另须证明新加密资产可被对应 identity 解密并完整恢复。备份解密 identity 与 VM Gate/DR 的 Ed25519 签名信任根是不同用途：自动生成只适用于新备份加密，不创建、替换或轮换既有签名信任根，也不生成虚假演练签名。
+
+### 生成、保管与新资产绑定
+
+1. 私钥在工作区外、当前用户独占的持久安全目录生成并保存；Linux 目录 `0700`、私钥文件 `0600` 且 owner 为执行身份，Windows 使用仅当前用户和必要系统管理主体可访问的显式 ACL，不能把 `chmod` 当作 Windows ACL 验证。拒绝 symlink、reparse point、硬链接及不安全父目录，采用独占创建，禁止覆盖现有 key。
+2. 生成前选定与一次性 Guest、Gate 临时目录及单台 VM 生命周期分离的安全保管位置；需要向隔离恢复环境传入私钥时使用受控副本并单独验证其权限。私钥不得进入 Git、工作区 `.tmp`、日志、终端输出、生产机、DMIT 或异地备份机，也不得作为命令行参数或完整环境输出。
+3. 登记 key 版本、生成时间、recipient 与 identity 的 SHA-256、权限检查结果和私有存储引用。公开报告和演练证据只保留版本、指纹、布尔状态及时间，不暴露私钥或存储连接资料；私有引用用于后续自动定位，不能只依靠当前进程记忆。
+4. 使用新 key 做一次小型临时加密/解密自检并核对字节，随后销毁测试明文和隔离环境中的临时私钥副本。自检只证明 key 可用，不能作为真实 PostgreSQL/Redis 恢复、full DR 或版本基线通过的证据。
+5. 只将公开 recipient 传给新建备份的受控加密步骤，使用唯一资产身份，并将 key 版本与 recipient 指纹绑定到新资产来源证据；现有已签 manifest 不回写。新资产须绑定当前生产 image、完整 Compose/config 闭包与一致的 PostgreSQL/Redis 快照，再进入真实隔离恢复、独立审阅、受信签名和原子晋升。生成 key 不代表这些入口已实现或门禁已通过。
+6. 新 identity 无法解密旧密文。旧 key 缺失时，保留旧密文及原证据，明确记录历史恢复能力缺口；为当前发布新建并验证备份，不能把新 key 指纹写入旧 manifest 或将旧资产标为已恢复。更换既有 daily/生产备份 recipient 属于单独的密钥轮换，不能借一次演练静默修改。
+7. 新 key 的持久主副本不属于 Gate/Guest 临时清理范围，至少保留到所有引用资产按既有 retention 合同退役。新基线真实恢复、独立签名和原子晋升完成前保留旧 verified 指针与旧 key；旧 key 的后续保留仍由其引用资产决定。
+
+工具、权限、持久存储、备份创建或真实恢复失败时，执行器先处理其授权范围内的环境和实现问题，保留失败证据并报告具体阻塞；不能以“请用户提供密钥”代替可自行完成的新备份密钥准备，也不能因此放宽恢复或签名门禁。必须恢复某一旧密文且其原 key 确实缺失时，应说明该历史资产无法通过新生成 key 解密。
+
+### 自动准备入口
+
+在仓库根目录运行以下入口。它自动选择工作区外的持久存储，复用通过权限、registry、工具版本、recipient 和加解密自检的专用身份；没有专用身份时独占创建新版本。默认工具安装使用固定 `filippo.io/age` `v1.2.1` 与 Go checksum database，已有经验证同字节工具可通过 `--tool-dir` 指定。Windows 使用显式 ACL 并核验 owner，Unix 使用实际 owner/mode 核验。终端只输出版本、时间、SHA-256 与验证状态。
+
+```powershell
+$env:PYTHONPATH='.agents/skills/sub2api-production-deploy/scripts'
+python -m release.backup_keys
+```
+
+入口不更改 daily recipient 或签名信任根。私有 registry 持久保存公开 recipient 和 key 引用；`PreparedIdentity.identity_path` 仅供执行器受控传输到隔离 Guest，不写入公开报告。`--expected-recipient-sha256` 用于查找特定历史资产的身份；未找到时明确拒绝，不能生成新 key 冒充匹配身份。新资产使用不带该历史指纹约束的自动准备流程。
+
+`maintenance/release/full-recovery-capture.sh` 是 Gate 前的新基线捕获入口：绑定已核验的 active container/旧 image、持有备份全局锁、通过显式公开 recipient 加密新资产，保持应用和既有 timer 运行。PostgreSQL dump、counts、content digests 和迁移观察使用同一 export snapshot；globals 独立读取，Redis 使用独立 RDB，明确记录 `cross_store_writes_frozen=false`。这是灾备验证来源，不替代正式停写阶段的即时协调恢复点，也不发行 Gate 或恢复通过证据。
+
+### Full DR 与发布后基线的可重跑调度串
+
+以下顺序只记录入口和依赖，私有路径以执行器实际 root-only staging 为准；命令不会把 key、identity 或原始请求写入终端：
+
+```text
+backup_keys
+  -> full-recovery-capture.sh (Gate 前，真实生产 source)
+  -> full_recovery_guest stage (Guest manifest/images/units)
+  -> full_recovery_authorization authorize-drill
+  -> full_recovery_drill probe -> plan -> run
+  -> full_recovery_authorization request (collector receipt + 独立 approval)
+  -> full_recovery_authorization sign / sign-full-recovery-review.sh (同一签发入口二选一)
+  -> deploy-follow --full-recovery-evidence (VM Gate / downtime deploy)
+  -> fresh CAPTURE_PURPOSE=postrelease full-recovery-capture.sh
+  -> stage-dr-baseline-candidate.sh <release-id> <private-stage> <artifact-sha256>
+  -> full_recovery_drill run (配置含 postrelease_candidate；同 Guest docker load/inspect)
+  -> postrelease_baseline build-evidence -> sign-promote
+```
+
+`full_recovery_drill` 的真实 Guest runtime 前置必须同时满足 Docker `29.1.3`、`containerd-snapshotter`/`overlayfs`、daemon 配置 SHA-256 `b19f3cd112d1066390ec91f16034398a19d767869019862c48d5d8c9fdcfcc10`、Compose 插件 SHA-256 `5633cb21e06a7c88c7ca48a9334d3d0f7f892e9605ae9e9a45f9a095d4ffceb8`，并显式校验 `/usr/share/zoneinfo/UTC`。这些是 provisioning/runtime 前置观察，不能单独证明恢复通过；失败必须保留诊断并保持 `verified` 不变。
+
+发布后 candidate 必须来自同一 release 的 fresh postrelease capture，且在同一 Guest 产生实际 `docker load/inspect` receipt；`postrelease_baseline` 还要绑定独立 findings、candidate bundle checksum、engine/rootfs identity 与时间窗口。旧 Redis TTL 等式或任一恢复断言失败时，保留旧 `verified`，不得把健康发布报告成灾备基线完成。

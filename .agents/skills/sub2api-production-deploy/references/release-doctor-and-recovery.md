@@ -17,6 +17,10 @@
 
 ## 标准入口
 
+### 备份密钥由执行器自动准备
+
+已授权的发布或演练需要新的备份解密 identity 时，执行器按 [备份密钥自动准备](backup-and-restore.md#备份密钥自动准备) 自行复用或生成并安全持久保管，不再向用户索取私钥、询问是否生成或要求指定路径。原停机回退使用已校验的临时明文恢复包；真实加密灾备验证使用与新 identity 匹配的新建备份。新 key 无法解密旧密文，旧资产及旧证据必须保留，历史恢复能力缺口如实报告。此规则不授权更换 Gate/DR 签名信任根，不代替真实演练、独立审阅或签名验真；执行链缺失时继续补齐并验证，不以生成 key 冒充门禁通过。
+
 ### Nginx ingress policy 模式
 
 普通 doctor 和 post-deploy doctor 对生产 ingress 使用严格模式：受管站点必须在每个 `sub2api_release_backend` proxy 前加载 `/etc/nginx/snippets/sub2api-release-ingress.conf`，并由 `nginx -T` 证明请求缓冲开启、响应缓冲关闭及专用 upstream 日志实际生效。为了避免在签名 Gate 和恢复点之前修改生产，`deploy` 与 `vm-validate` 的 pre-Gate RackNerd 快照使用宽松模式；旧配置健康时返回 `nginx_ingress_policy=needs_update`，而不是提前写入 Nginx。
@@ -401,3 +405,9 @@ python .agents/skills/sub2api-production-deploy/scripts/release.py cleanup-produ
 `vm-validate`、`deploy`、`deploy-start`、`deploy-follow` 接受 `--full-recovery-evidence <已有签名JSON>`。仅接受既有固定信任根签名的 schema 2、`sub2api-full-recovery-review` 独立 domain；完整验证器重新计算 Git blob/模式/原始字节、分类与helper闭包，不接受 schema 1 裸 pass 或合成fixture。后台worker先保存本release证据副本，分类报告包含完整签名证明。首次准入登记唯一 drill id，同 id 只能重读同一digest/target的canonical receipt。生产准入证据24小时内有效；事故恢复的历史验真显式允许过期，仍核验原签名、完整闭包与恢复身份。
 
 完整灾备证明必须来自真实加密生产基线与批准的匹配解密identity、独立离线Guest/私有Docker、同包restore/finish、真实exit79中断续跑与数据未重灌、Compose闭包/旧image、PostgreSQL行数/迁移、Redis真实等待和惰性过期、八阶段原始checkpoint、RTO及owned清理。证明旧image必须匹配发布只读快照。`recovery_drill.py`当前只运行合成隔离fixture，旧 `sign-dr-evidence.sh` 不发行该新domain证明；本地签名负例测试与合成演练均不能声称full DR通过。缺真实资源或签名时保持阻断，不能借手工full选择或旧Gate解除。
+
+真实来源使用 `full_recovery_source.py`，真实执行与观测使用 `full_recovery_drill.py`，合成入口语义保持独立。Gate 前 Guest 执行使用 `sub2api-isolated-recovery-authorization` 独立签名 domain：绑定最终提交、完整 helper 闭包、collector/verifier/隔离 guard 字节、真实加密资产与新 key 指纹、drill/release/旧 image 和两小时有效期。独立审阅批准后由既有签名身份签发；它只授权同包 helper 在已证明的离线 Guest 内运行，不包含 Gate pass、candidate 验收或生产准入声明。`context.sh` 先验证独立签名和 guard/verifier 字节，再执行完整 namespace/私有 Docker/网络隔离核验，生产恢复仍使用原 Gate 合同。
+
+`full_recovery_authorization.py` 的 `authorize-drill` 签发隔离执行授权，`request`/`sign` 只处理实际 collector receipt 与其完成后的独立审阅批准；`sign-full-recovery-review.sh` 使用既有固定 Ed25519 身份。完整证据仍由现有 `recovery_evidence.py` 重算 Git/分类/资产与全部真实恢复字段。实际 Guest 失败保留 root-only 诊断，不生成完整通过证明；单元测试密钥、工具自检、资源安装、来源捕获与签发代码存在均不证明真实恢复或生产发布完成。
+
+Guest manifest 必须绑定实际 Docker 版本、离线 daemon 配置和 Compose 插件字节，provisioning 显式核验 UTC zoneinfo；capture release 命名空间不得冒充真实生产 source commit/profile/version。发布后基线另用 fresh postrelease capture 和同 Guest candidate-load receipt，独立 findings 绑定 exact bundle/engine/rootfs/time，保留旧晋升器 TTL 等式与旧 `verified`。执行顺序与 runtime 前置基准见 [Full DR 与发布后基线调度串](backup-and-restore.md#full-dr-与发布后基线的可重跑调度串)；这些前置观察不证明真实恢复或基线晋升。
