@@ -59,6 +59,8 @@ def verify_gate_v1(bundle_dir: Path, public_key: Path, expected_profile: str, al
     document = verified_document if verified_document is not None else _verify_gate_signature(bundle_dir, public_key)
     manifest = document["manifest"]
     evidence = document["evidence"]
+    if isinstance(manifest.get("recovery_gate"), dict) and manifest["recovery_gate"].get("schema") == 2:
+        raise RuntimeError("reviewed recovery evidence requires Gate v2")
     validate_commit(manifest["commit_sha"])
     validate_image_id(evidence["candidate_image_id"])
     if manifest["profile"] != expected_profile:
@@ -382,6 +384,10 @@ def verify_gate_v2(bundle_dir: Path, public_key: Path, expected_profile: str, al
         raise RuntimeError(f"Gate v2 is only accepted for current profile {CURRENT_RELEASE_PROFILE}")
     profile = get_profile(expected_profile)
     validate_manifest_profile_contract(manifest, profile)
+    if (manifest.get("recovery_gate") or {}).get("schema") == 2:
+        from .recovery_evidence import verify_reviewed_report
+        from .paths import WORKSPACE
+        verify_reviewed_report(manifest["recovery_gate"], workspace=WORKSPACE, allow_expired=allow_expired)
     validate_commit(manifest["commit_sha"])
     expected_evidence_fields = {
         "candidate_image_id",

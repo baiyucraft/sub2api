@@ -232,6 +232,9 @@ _RELEASE_STATE_MACHINE_FILES = frozenset(
         ".agents/skills/sub2api-production-deploy/scripts/release/production.py",
         ".agents/skills/sub2api-production-deploy/scripts/release/production_snapshot.py",
         ".agents/skills/sub2api-production-deploy/scripts/release/recovery_gate.py",
+        ".agents/skills/sub2api-production-deploy/scripts/release/recovery_bundle.py",
+        ".agents/skills/sub2api-production-deploy/scripts/release/recovery_drill.py",
+        ".agents/skills/sub2api-production-deploy/scripts/release/recovery_evidence.py",
         ".agents/skills/sub2api-production-deploy/scripts/release/state.py",
         ".agents/skills/sub2api-production-deploy/scripts/release/supervisor.py",
         ".agents/skills/sub2api-production-deploy/scripts/release/vm_validate.py",
@@ -402,9 +405,11 @@ def validate_report(report: dict[str, Any], *, target_commit: str | None = None)
         "changed_paths_sha256",
         "estimated_extra_seconds",
     }
+    if isinstance(report, dict) and report.get("schema") == 2:
+        expected_fields |= {"full_recovery_evidence", "evidence_sha256"}
     if not isinstance(report, dict) or set(report) != expected_fields:
         raise RuntimeError("recovery Gate report shape is invalid")
-    if report.get("schema") != REPORT_SCHEMA or report.get("mode") not in MODES:
+    if type(report.get("schema")) is not int or report.get("schema") not in {REPORT_SCHEMA, 2} or report.get("mode") not in MODES:
         raise RuntimeError("recovery Gate report identity is invalid")
     base_commit = report.get("base_commit")
     if base_commit is not None and not FULL_SHA.fullmatch(str(base_commit)):
@@ -423,6 +428,11 @@ def validate_report(report: dict[str, Any], *, target_commit: str | None = None)
         raise RuntimeError("recovery Gate changed-path checksum is invalid")
     if report.get("estimated_extra_seconds") != ESTIMATED_EXTRA_SECONDS[report["mode"]]:
         raise RuntimeError("recovery Gate time estimate is invalid")
+    if report["schema"] == 2:
+        if report["mode"] != "full" or "recovery_change_requires_review" not in reasons:
+            raise RuntimeError("reviewed full recovery report classification is invalid")
+        if not isinstance(report["full_recovery_evidence"], dict) or not SHA256.fullmatch(str(report["evidence_sha256"])):
+            raise RuntimeError("reviewed full recovery report evidence is invalid")
     return dict(report)
 
 
@@ -494,11 +504,17 @@ def require_specialized(report: dict[str, Any], reason: str) -> dict[str, Any]:
     return validate_report(value, target_commit=value["target_commit"])
 
 
-def assert_release_allowed(report: dict[str, Any] | None) -> None:
+def assert_release_allowed(report: dict[str, Any] | None, *, allow_historical_evidence: bool = False) -> None:
     reasons = set((report or {}).get("reason_codes", []))
     if "production_commit_unproven" in reasons:
         raise RuntimeError("production commit is unproven; recovery classification requires an immutable release identity")
     if "recovery_change_requires_review" in reasons:
+        if (report or {}).get("schema") == 2:
+            validate_report(report)
+            from .paths import WORKSPACE
+            from .recovery_evidence import verify_reviewed_report
+            verify_reviewed_report(report, workspace=WORKSPACE, allow_expired=allow_historical_evidence)
+            return
         raise RuntimeError(
             "recovery changes require review and an independent full DR drill before production; "
             "--recovery-gate-mode full only verifies the VM restore portion"

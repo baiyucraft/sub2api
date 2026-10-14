@@ -8,12 +8,40 @@ release_id=${BASH_REMATCH[1]}
 [[ -d $release_dir && ! -L $release_dir ]]
 [[ -f $release_dir/.prepared && ! -L $release_dir/.prepared ]]
 active_claim=${ACTIVE_CLAIM:-/opt/sub2api/releases/.active-release}
-[[ $active_claim == /opt/sub2api/releases/.active-release || $active_claim == "$release_dir/.consumed" ]]
+[[ $active_claim == /opt/sub2api/releases/.active-release || $active_claim == "$release_dir/.consumed" ||
+   ($active_claim == "$release_dir/.recovered" && -n ${RECOVERY_ASSETS_DIR:-}) ]] || return 1
 [[ -d $active_claim && ! -L $active_claim ]]
 grep -Fxq "release_id=$release_id" "$active_claim/release_id"
 [[ -f $active_claim/gate.json && ! -L $active_claim/gate.json ]]
 (cd "$active_claim" && sha256sum -c CLAIM_SHA256SUMS >/dev/null)
 assets_dir="$active_claim/assets"
+if [[ -n ${RECOVERY_ASSETS_DIR:-} ]]; then
+  [[ -n ${RECOVERY_HELPER_BUNDLE_SHA256:-} && $RECOVERY_HELPER_BUNDLE_SHA256 =~ ^[0-9a-f]{64}$ ]] || return 1
+  recovery_assets=$RECOVERY_ASSETS_DIR
+  [[ -d $recovery_assets && ! -L $recovery_assets && $(realpath -e -- "$recovery_assets") == "$recovery_assets" ]] || return 1
+  [[ $(stat -c '%u:%g:%a' "$recovery_assets") == 0:0:700 ]] || return 1
+  recovery_authorization=${RECOVERY_HELPER_GATE:-$active_claim/gate.json}
+  recovery_signature=${RECOVERY_HELPER_SIGNATURE:-$active_claim/gate.sig}
+  for recovery_file in "$recovery_authorization" "$recovery_signature"; do
+    [[ -f $recovery_file && ! -L $recovery_file && $(stat -c '%u:%g:%a:%h' "$recovery_file") == 0:0:400:1 ]] || return 1
+  done
+  recovery_trust=/opt/sub2api-release-trust/vm-gate-ed25519.pub
+  [[ -f $recovery_trust && ! -L $recovery_trust ]] || return 1
+  openssl pkeyutl -verify -pubin -inkey "$recovery_trust" -rawin \
+    -in "$recovery_authorization" -sigfile "$recovery_signature" >/dev/null 2>&1 || return 1
+  [[ $(jq -er '.manifest.recovery_helper_bundle_sha256' "$recovery_authorization") == "$RECOVERY_HELPER_BUNDLE_SHA256" ]] || return 1
+  recovery_verifier_sha=$(jq -er '.manifest.release_asset_sha256[".agents/skills/sub2api-production-deploy/scripts/release/recovery_bundle.py"]' "$recovery_authorization") || return 1
+  [[ $recovery_verifier_sha =~ ^[0-9a-f]{64}$ && -f $recovery_assets/recovery_bundle.py && ! -L $recovery_assets/recovery_bundle.py ]] || return 1
+  [[ $(sha256sum "$recovery_assets/recovery_bundle.py" | awk '{print $1}') == "$recovery_verifier_sha" ]] || return 1
+  python3 "$recovery_assets/recovery_bundle.py" --verify "$recovery_assets" \
+    --expected "$RECOVERY_HELPER_BUNDLE_SHA256" --gate "$recovery_authorization" >/dev/null || return 1
+  if [[ $active_claim == "$release_dir/.recovered" ]]; then
+    [[ ! -e /opt/sub2api/releases/.active-release && ! -L /opt/sub2api/releases/.active-release ]] || return 1
+    [[ -f $active_claim/marker && ! -L $active_claim/marker ]] || return 1
+    grep -Fxq "release_id=$release_id" "$active_claim/marker" || return 1
+  fi
+  assets_dir=$recovery_assets
+fi
 source "$assets_dir/compose-contract.sh"
 candidate_image_id=$(jq -er '.evidence.candidate_image_id' "$active_claim/gate.json")
 candidate_archive_sha=$(jq -er '.evidence.candidate_archive_sha256' "$active_claim/gate.json")
@@ -135,53 +163,25 @@ assert_http_header_equals() {
   local headers=${1:?headers file is required}
   local name=${2:?header name is required}
   local expected=${3:?expected header value is required}
-  [[ -f $headers && ! -L $headers ]]
-  [[ $name =~ ^[A-Za-z0-9-]+$ ]]
-  [[ $expected =~ ^[A-Za-z0-9_.-]{1,128}$ ]]
+  [[ -f $headers && ! -L $headers ]] || return 1
+  [[ $name =~ ^[A-Za-z0-9-]+$ ]] || return 1
+  [[ $expected =~ ^[A-Za-z0-9_.-]{1,128}$ ]] || return 1
   local actual
-  actual=$(tr -d '\r' < "$headers" | awk -F: -v name="$name" '
+  actual=$(set -o pipefail; tr -d '\r' < "$headers" | awk -F: -v name="$name" '
     tolower($1) == tolower(name) {
+      count++
       # Header names are case-insensitive and proxies may leave optional
       # whitespace around the field value.  Normalize both sides before the
       # single-value assertion so curl/HTTP/1.1 formatting cannot make a
       # valid health response fail closed.
       sub(/^[^:]*:[[:space:]]*/, "")
       gsub(/^[[:space:]]+|[[:space:]]+$/, "")
-      print
+      value=$0
     }
-  ')
-  [[ $(printf '%s\n' "$actual" | grep -c .) == 1 ]]
+    END { if (count != 1) exit 1; print value }
+  ') || return 1
+  [[ -n $actual && $actual != *$'\n'* ]] || return 1
   [[ $actual == "$expected" ]]
-}
-
-# Resolve the exact Compose closure declared by the deployment .env.  Release
-# scripts must not silently fall back to docker-compose.yml because production
-# commonly adds docker-compose.local.yml for the real /app/data bind mount.
-load_release_compose_files() {
-  local root=${1:?compose root is required}
-  local env_file="$root/.env"
-  [[ -f $env_file && ! -L $env_file ]]
-  local count raw item
-  count=$(grep -c '^COMPOSE_FILE=' "$env_file" || true)
-  [[ $count == 0 || $count == 1 ]]
-  if [[ $count == 1 ]]; then
-    raw=$(sed -n 's/^COMPOSE_FILE=//p' "$env_file")
-    [[ -n $raw && $raw != *[[:space:]]* ]]
-  else
-    raw=docker-compose.yml
-  fi
-  IFS=':' read -r -a release_compose_files <<<"$raw"
-  [[ ${#release_compose_files[@]} -gt 0 ]]
-  release_compose_args=()
-  local seen=':'
-  for item in "${release_compose_files[@]}"; do
-    [[ $item =~ ^[A-Za-z0-9_.-]+\.ya?ml$ ]]
-    [[ $seen != *":$item:"* ]]
-    [[ -f $root/$item && ! -L $root/$item ]]
-    seen+="$item:"
-    release_compose_args+=(-f "$root/$item")
-  done
-  [[ " $raw " == *docker-compose.yml* ]]
 }
 
 release_compose_value_with_active_override() {
@@ -190,7 +190,7 @@ release_compose_value_with_active_override() {
     [[ $item == docker-compose.release-active.yml ]] && continue
     [[ -z $result ]] && result=$item || result+=":$item"
   done
-  [[ -n $result ]]
+  [[ -n $result ]] || return 1
   printf '%s:docker-compose.release-active.yml\n' "$result"
 }
 
@@ -199,16 +199,18 @@ assert_sub2api_compose_closure() {
   local expected_port=${2:?published port is required}
   local expected_image=${3:?expected image is required}
   local expected_instance=${4-}
-  [[ $expected_port == 18080 || $expected_port == 18081 ]]
-  load_release_compose_files "$root"
+  [[ $expected_port == 18080 || $expected_port == 18081 ]] || return 1
+  load_release_compose_files "$root" || return 1
   local compose_json compose_image network_mode
-  compose_json=$(docker compose "${release_compose_args[@]}" config --format json)
-  compose_image=$(jq -r '.services.sub2api.image // empty' <<<"$compose_json")
-  [[ -n $compose_image ]]
-  [[ $(docker image inspect -f '{{.Id}}' "$compose_image") == "$expected_image" ]]
-  network_mode=$(sub2api_compose_network_mode "$compose_json" "$expected_port")
-  assert_sub2api_healthcheck_contract "$compose_json" "$network_mode" "$expected_port"
-  assert_sub2api_observer_storage_contract "$compose_json"
+  compose_json=$(docker compose "${release_compose_args[@]}" config --format json) || return 1
+  compose_image=$(jq -r '.services.sub2api.image // empty' <<<"$compose_json") || return 1
+  [[ -n $compose_image ]] || return 1
+  local actual_image
+  actual_image=$(docker image inspect -f '{{.Id}}' "$compose_image") || return 1
+  [[ $actual_image == "$expected_image" ]] || return 1
+  network_mode=$(sub2api_compose_network_mode "$compose_json" "$expected_port") || return 1
+  assert_sub2api_healthcheck_contract "$compose_json" "$network_mode" "$expected_port" || return 1
+  assert_sub2api_observer_storage_contract "$compose_json" || return 1
   jq -e --arg instance "$expected_instance" '
     .services.sub2api.container_name == "sub2api" and
     (
@@ -218,7 +220,7 @@ assert_sub2api_compose_closure() {
         .services.sub2api.environment.SUB2API_BACKGROUND_ACTIVATION_FILE == "/app/data/.sub2api-active-instance"
       )
     )
-  ' <<<"$compose_json" >/dev/null
+  ' <<<"$compose_json" >/dev/null || return 1
   printf '%s\n' "$network_mode"
 }
 

@@ -21,6 +21,8 @@ from .manifest import create_manifest, runner_checksum, validate_commit, validat
 from .paths import ENTRYPOINT, MAINTENANCE_ROOT, RUN_ROOT, SCRIPTS_ROOT, TRUSTED_VM_PUBLIC_KEY, WORKSPACE
 from .process import popen_detached_worker
 from .profiles import get_profile, get_release_profile
+from .recovery_bundle import stage_recovery_bundle, recovery_command, RECOVERY_RESULT_FIELDS, bundle_from_manifest
+from .recovery_gate import assert_release_allowed
 from .ssh import SSHRunner
 from .state import RunLock, RunState, TERMINAL_STATES
 from .vm_lifecycle import VMLease, lifecycle_view
@@ -34,8 +36,6 @@ from release_logging import EventContext, JSONLEventLogger, LogQuery, query_even
 
 
 DEPLOY_ROOT = SCRIPTS_ROOT
-COORDINATED_RESTORE = MAINTENANCE_ROOT / "restore.sh"
-COORDINATED_CLEANUP = MAINTENANCE_ROOT / "cleanup-state.sh"
 RELEASE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.-]{0,127}$")
 MAX_JSON_BYTES = 2 * 1024 * 1024
 STATUS_FIELDS = (
@@ -218,6 +218,12 @@ def start(args: argparse.Namespace, *, announce: bool = True) -> str:
         "--profile", args.profile, "--commit", commit, "--release-id", identifier, "--mode", deployment_mode,
         "--recovery-gate-mode", getattr(args, "recovery_gate_mode", "auto"),
     ]
+    if getattr(args, "full_recovery_evidence", None):
+        from .recovery_evidence import load_signed_evidence
+        evidence = load_signed_evidence(Path(args.full_recovery_evidence).absolute())
+        evidence_path = run_dir / "full-recovery-evidence.json"
+        atomic_write(evidence_path, canonical_json(evidence), 0o400)
+        command.extend(["--full-recovery-evidence", str(evidence_path)])
     try:
         with _open_raw_log(run_dir / "logs" / "runner.stdout.log") as stdout, _open_raw_log(run_dir / "logs" / "runner.stderr.log") as stderr:
             process = popen_detached_worker(command, cwd=DEPLOY_ROOT, stdout=stdout, stderr=stderr)
@@ -306,6 +312,7 @@ def worker(args: argparse.Namespace) -> None:
                         profile=args.profile, commit=args.commit, release_id=args.release_id,
                         deployment_mode=deployment_mode,
                         recovery_gate_mode=getattr(args, "recovery_gate_mode", "auto"),
+                        full_recovery_evidence=getattr(args, "full_recovery_evidence", None),
                     ),
                     acquire_lock=False,
                 )
@@ -1186,95 +1193,33 @@ def reconcile(args: argparse.Namespace) -> None:
     identifier = args.release_id
     release_dir = f"/opt/sub2api/releases/{identifier}"
     if args.mode == "coordinated-recover":
-        if inspection["decision"] == "already_recovered" and not inspection["runner_alive"]:
-            verify_script = f"""set -Eeuo pipefail
-test -d {release_dir}/.recovered
-test ! -L {release_dir}/.recovered
-test -f {release_dir}/.recovered/marker
-test -f {release_dir}/.recovered/plaintext-cleaned
-test ! -e /opt/sub2api/releases/.active-release
-active_container=$(sed -n 's/^container=//p' /opt/sub2api/active-app)
-test -n "$active_container"
-test "$(docker inspect -f '{{{{.State.Health.Status}}}}' "$active_container")" = healthy
-test "$(systemctl is-active nginx)" = active
-test "$(systemctl is-enabled sub2api-backup.timer)" = enabled
-test "$(systemctl is-active sub2api-backup.timer)" = active
-printf 'backup_units_restored=true\nrelease_claim_reconciled=true\nplaintext_state_removed=true\n'
-"""
-            values = SSHRunner().run(
-                "racknerd",
-                verify_script,
-                {"backup_units_restored", "release_claim_reconciled", "plaintext_state_removed"},
-                timeout=300,
-            ).values
-            recovery_stage = "recovered_after_coordinated_restore"
-        elif inspection["decision"] != "coordinated_restore_required" or inspection["runner_alive"]:
+        if inspection["decision"] not in {"coordinated_restore_required", "already_recovered"} or inspection["runner_alive"]:
             raise RuntimeError(f"coordinated recovery is not allowed: {inspection['decision']}")
-        else:
-            runner = SSHRunner()
-            remote_temp = runner.create_temp_dir("racknerd", "/opt/sub2api/releases", "coordinated-restore")
-            remote_cleanup = f"{remote_temp}/cleanup-state.sh"
-            runner.upload_file("racknerd", COORDINATED_CLEANUP, remote_cleanup, 0o500)
-            try:
-                restore_already_applied = (
-                    inspection.get("ingress_transaction") == "recovery_restored"
-                    and inspection.get("app_health") == "healthy"
-                    and inspection.get("nginx_active") == "true"
-                    and inspection.get("backup_timer_enabled") == "true"
-                    and inspection.get("running_image_id") not in {None, "unknown"}
-                    and inspection.get("running_image_id") != inspection.get("candidate_image_id")
-                )
-                if restore_already_applied:
-                    restore = {
-                        "coordinated_restore": "already_restored",
-                        "restored_image_id": inspection["running_image_id"],
-                        "application_health": "pass",
-                    }
-                else:
-                    remote_restore = f"{remote_temp}/restore.sh"
-                    runner.upload_file("racknerd", COORDINATED_RESTORE, remote_restore, 0o500)
-                    restore = runner.run(
-                        "racknerd",
-                        f"RELEASE_DIR={release_dir} {remote_restore}",
-                        {"coordinated_restore", "restored_image_id", "application_health"},
-                        timeout=2400,
-                    ).values
-                state_dir = f"/opt/sub2api/backups/release-state/{identifier}"
-                finish_script = f"""set -Eeuo pipefail
-export RELEASE_DIR={release_dir}
-export STATE_ROOT=/opt/sub2api/backups/release-state
-export STATE_DIR={state_dir}
-stderr_file={release_dir}/reconcile.stderr
-if test -e "$stderr_file"; then
-  test -f "$stderr_file" && test ! -L "$stderr_file"
-else
-  install -m 600 /dev/null "$stderr_file"
-fi
-chmod 600 "$stderr_file"
-/opt/sub2api/releases/.active-release/assets/restore-backup-units.sh 2>>"$stderr_file"
-{remote_cleanup} 2>>"$stderr_file"
-/opt/sub2api/releases/.active-release/assets/reconcile.sh 2>>"$stderr_file"
-test -f {release_dir}/.recovered/marker
-test -f {release_dir}/.recovered/plaintext-cleaned
-test ! -e /opt/sub2api/releases/.active-release
-active_container=$(sed -n 's/^container=//p' /opt/sub2api/active-app)
-test -n "$active_container"
-test "$(docker inspect -f '{{{{.State.Health.Status}}}}' "$active_container")" = healthy
-test "$(systemctl is-active nginx)" = active
-test "$(systemctl is-enabled sub2api-backup.timer)" = enabled
-test "$(systemctl is-active sub2api-backup.timer)" = active
-printf 'backup_units_restored=true\nrelease_claim_reconciled=true\nplaintext_state_removed=true\n'
-"""
-                finished = runner.run(
-                    "racknerd",
-                    finish_script,
-                    {"backup_units_restored", "release_claim_reconciled", "plaintext_state_removed", "state_cleanup"},
-                    timeout=900,
-                ).values
-            finally:
-                runner.run("racknerd", f"rm -rf {remote_temp} && printf 'cleanup=true\\n'", {"cleanup"})
-            values = {**restore, **finished}
-            recovery_stage = "recovered_after_coordinated_restore"
+        original_gate = _run_dir(identifier) / "gate"
+        helper_gate_arg = getattr(args, "recovery_helper_gate", None)
+        helper_gate = Path(helper_gate_arg).resolve() if helper_gate_arg else original_gate
+        unsigned = _read_json(helper_gate / "gate.json", required=True) or {}
+        helper_profile = str(unsigned.get("manifest", {}).get("profile", ""))
+        document = verify_gate(
+            helper_gate, TRUSTED_VM_PUBLIC_KEY, helper_profile,
+            allow_expired=helper_gate == original_gate,
+            allow_historical_runner=helper_gate == original_gate,
+        )
+        helper_manifest = document["manifest"]
+        # A historical Gate without the new complete closure is evidence only.
+        # Never mix uploaded current restore code with old active-claim helpers.
+        bundle_from_manifest(helper_manifest)
+        assert_release_allowed(helper_manifest.get("recovery_gate"), allow_historical_evidence=helper_gate == original_gate)
+        runner = SSHRunner()
+        assets, checksum = stage_recovery_bundle(
+            runner, helper_manifest, release_dir,
+            _run_dir(identifier) / "recovery-helper-bundles", WORKSPACE, helper_gate,
+        )
+        values = runner.run(
+            "racknerd", recovery_command(assets, checksum, release_dir),
+            set(RECOVERY_RESULT_FIELDS), timeout=3300,
+        ).values
+        recovery_stage = "recovered_after_coordinated_restore"
     else:
         if inspection["decision"] not in {"claim_only_recover", "cleanup_completed_recover"}:
             raise RuntimeError(f"automatic recovery is not allowed: {inspection['decision']}")

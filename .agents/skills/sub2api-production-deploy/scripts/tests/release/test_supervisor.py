@@ -16,7 +16,7 @@ from unittest import mock
 DEPLOY_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(DEPLOY_ROOT))
 
-from release import supervisor
+from release import supervisor, recovery_bundle
 from release.atomic import canonical_json
 from release_logging import EventContext, JSONLEventLogger
 
@@ -569,107 +569,135 @@ class SupervisorTest(unittest.TestCase):
 
         self.assertEqual(value["decision"], "coordinated_restore_required")
 
-    def test_coordinated_recovery_uses_versioned_restore_and_reconciles_claim(self) -> None:
+    def coordinated_recovery_fixture(self, decision: str = "coordinated_restore_required"):
         identifier = "198-aaaaaaaaaaaa-1-deadbeef"
         self.minimum_release(identifier)
         self.write(identifier, "runner.json", {"status": "blocked_reconciliation", "pid": 123, "process_token": "token", "exit_code": 1})
         self.write(identifier, "release-state.json", {"schema": 1, "release_id": identifier, "stage": "production_release", "status": "blocked_reconciliation", "history": []})
         self.write(identifier, "gate/production-result.json", {"release_id": identifier, "stage": "blocked_reconciliation", "status": "blocked_reconciliation", "history": []})
-        inspection = {"decision": "coordinated_restore_required", "runner_alive": False}
+        files = {}
+        for name in recovery_bundle.REQUIRED:
+            category = "release" if name.endswith(".py") else "maintenance/181" if name == "restore-backup-units.sh" else "maintenance/release"
+            files[recovery_bundle.PREFIX + category + "/" + name] = "a" * 64
+        closure = recovery_bundle.recovery_bundle_document("a" * 40, files)
+        bundle_sha = recovery_bundle.recovery_bundle_sha256(closure)
+        document = {"manifest": {"profile": "198", "commit_sha": "a" * 40,
+                                 "release_asset_sha256": files, "recovery_helper_bundle_sha256": bundle_sha},
+                    "evidence": {"vm_restore_verified": True, "integration_verified": True}}
+        self.write(identifier, "gate/gate.json", document)
+        assets = f"/opt/sub2api/releases/{identifier}/recovery-helpers/{bundle_sha}"
+        inspection = {"decision": decision, "runner_alive": False}
         ssh = mock.Mock()
-        ssh.create_temp_dir.return_value = "/opt/sub2api/releases/coordinated-restore.abcdefgh"
-        ssh.run.side_effect = [
-            mock.Mock(values={"coordinated_restore": "verified", "restored_image_id": "old", "application_health": "pass"}),
-            mock.Mock(values={"backup_units_restored": "true", "release_claim_reconciled": "true", "plaintext_state_removed": "true", "state_cleanup": "recovery_point_preserved"}),
-            mock.Mock(values={"cleanup": "true"}),
-        ]
+        ssh.run.return_value.values = {"coordinated_restore": "verified", "restored_image_id": "sha256:" + "c" * 64,
+                                       "application_health": "pass", "backup_units_restored": "true",
+                                       "release_claim_reconciled": "true", "plaintext_state_removed": "true",
+                                       "recovery_helper_bundle_sha256": bundle_sha}
+        return identifier, inspection, ssh, document, assets, bundle_sha
 
-        with mock.patch.object(supervisor, "_inspect_reconciliation", return_value=inspection), mock.patch.object(supervisor, "SSHRunner", return_value=ssh), mock.patch("builtins.print"):
+    def test_coordinated_recovery_uses_signed_whole_bundle_and_one_formal_command(self) -> None:
+        identifier, inspection, ssh, document, assets, checksum = self.coordinated_recovery_fixture()
+        with mock.patch.object(supervisor, "_inspect_reconciliation", return_value=inspection), \
+             mock.patch.object(supervisor, "verify_gate", return_value=document) as verify, \
+             mock.patch.object(supervisor, "stage_recovery_bundle", return_value=(assets, checksum)) as stage, \
+             mock.patch.object(supervisor, "SSHRunner", return_value=ssh), mock.patch("builtins.print"):
             supervisor.reconcile(argparse.Namespace(release_id=identifier, mode="coordinated-recover"))
-
-        self.assertEqual(ssh.upload_file.call_count, 2)
-        ssh.upload_file.assert_any_call(
-            "racknerd",
-            supervisor.COORDINATED_RESTORE,
-            "/opt/sub2api/releases/coordinated-restore.abcdefgh/restore.sh",
-            0o500,
-        )
-        ssh.upload_file.assert_any_call(
-            "racknerd",
-            supervisor.COORDINATED_CLEANUP,
-            "/opt/sub2api/releases/coordinated-restore.abcdefgh/cleanup-state.sh",
-            0o500,
-        )
-        restore_command = ssh.run.call_args_list[0].args[1]
-        self.assertIn(f"RELEASE_DIR=/opt/sub2api/releases/{identifier}", restore_command)
-        self.assertIn("/coordinated-restore.abcdefgh/restore.sh", restore_command)
-        finish_command = ssh.run.call_args_list[1].args[1]
-        self.assertIn("restore-backup-units.sh", finish_command)
-        self.assertIn("/coordinated-restore.abcdefgh/cleanup-state.sh", finish_command)
-        self.assertIn("reconcile.sh", finish_command)
-        self.assertIn("reconcile.stderr", finish_command)
-        self.assertEqual(finish_command.count('2>>"$stderr_file"'), 3)
-        production = json.loads((self.root / identifier / "gate" / "production-result.json").read_text(encoding="utf-8"))
+        gate = self.root / identifier / "gate"
+        verify.assert_called_once_with(gate, supervisor.TRUSTED_VM_PUBLIC_KEY, "198", allow_expired=True, allow_historical_runner=True)
+        stage.assert_called_once_with(ssh, document["manifest"], f"/opt/sub2api/releases/{identifier}",
+                                      self.root / identifier / "recovery-helper-bundles", supervisor.WORKSPACE, gate)
+        ssh.run.assert_called_once()
+        command = ssh.run.call_args.args[1]
+        self.assertIn(f"RELEASE_DIR=/opt/sub2api/releases/{identifier}", command)
+        self.assertIn(f"RECOVERY_ASSETS_DIR={assets}", command)
+        self.assertIn(f"RECOVERY_HELPER_BUNDLE_SHA256={checksum}", command)
+        self.assertIn(f"RECOVERY_HELPER_GATE={assets}.authorization/gate.json", command)
+        self.assertIn(f"RECOVERY_HELPER_SIGNATURE={assets}.authorization/gate.sig", command)
+        self.assertIn('bash "$RECOVERY_ASSETS_DIR/restore.sh"', command)
+        self.assertIn('bash "$RECOVERY_ASSETS_DIR/recovery-finish.sh"', command)
+        self.assertNotIn(".active-release/assets", command)
+        self.assertNotIn("coordinated-restore.", command)
+        self.assertIn('>>"$SUB2API_RELEASE_RAW_LOG" 2>&1', command)
+        self.assertEqual(ssh.run.call_args.kwargs["timeout"], 3300)
+        self.assertEqual(ssh.run.call_args.args[2], set(recovery_bundle.RECOVERY_RESULT_FIELDS))
+        production = json.loads((gate / "production-result.json").read_text())
         self.assertEqual(production["status"], "recovered")
         self.assertEqual(production["stage"], "recovered_after_coordinated_restore")
+        self.assertEqual(production["history"][-1]["evidence"]["recovery_helper_bundle_sha256"], checksum)
 
-    def test_coordinated_recovery_records_already_recovered_remote_state(self) -> None:
-        identifier = "198-aaaaaaaaaaaa-1-deadbeef"
-        self.minimum_release(identifier)
-        self.write(identifier, "runner.json", {"status": "blocked_reconciliation", "pid": 123, "process_token": "token", "exit_code": 1})
-        self.write(identifier, "release-state.json", {"schema": 1, "release_id": identifier, "stage": "production_release", "status": "blocked_reconciliation", "history": []})
-        self.write(identifier, "gate/production-result.json", {"release_id": identifier, "stage": "blocked_reconciliation", "status": "blocked_reconciliation", "history": []})
-        inspection = {"decision": "already_recovered", "runner_alive": False}
-        ssh = mock.Mock()
-        ssh.run.return_value.values = {"backup_units_restored": "true", "release_claim_reconciled": "true", "plaintext_state_removed": "true"}
-
-        with mock.patch.object(supervisor, "_inspect_reconciliation", return_value=inspection), mock.patch.object(supervisor, "SSHRunner", return_value=ssh), mock.patch("builtins.print"):
+    def test_coordinated_recovery_already_recovered_still_verifies_and_stages_bundle(self) -> None:
+        identifier, inspection, ssh, document, assets, checksum = self.coordinated_recovery_fixture("already_recovered")
+        with mock.patch.object(supervisor, "_inspect_reconciliation", return_value=inspection), \
+             mock.patch.object(supervisor, "verify_gate", return_value=document) as verify, \
+             mock.patch.object(supervisor, "stage_recovery_bundle", return_value=(assets, checksum)) as stage, \
+             mock.patch.object(supervisor, "SSHRunner", return_value=ssh), mock.patch("builtins.print"):
             supervisor.reconcile(argparse.Namespace(release_id=identifier, mode="coordinated-recover"))
+        verify.assert_called_once()
+        stage.assert_called_once()
+        ssh.run.assert_called_once()
+        command = ssh.run.call_args.args[1]
+        self.assertIn('bash "$RECOVERY_ASSETS_DIR/recovery-finish.sh"', command)
+        self.assertIn('test -f "$RELEASE_DIR/recovery-checkpoints/nginx_restored.done"', command)
+        self.assertNotIn("already_restored", command)
+        self.assertNotIn(".active-release/assets", command)
 
-        self.assertIn(f"{identifier}/.recovered/marker", ssh.run.call_args.args[1])
-        self.assertNotIn("restore.sh", ssh.run.call_args.args[1])
-        production = json.loads((self.root / identifier / "gate" / "production-result.json").read_text(encoding="utf-8"))
-        self.assertEqual(production["status"], "recovered")
-
-    def test_coordinated_recovery_resumes_cleanup_without_restoring_data_again(self) -> None:
-        identifier = "198-aaaaaaaaaaaa-1-deadbeef"
-        self.minimum_release(identifier)
-        self.write(identifier, "runner.json", {"status": "blocked_reconciliation", "pid": 123, "process_token": "token", "exit_code": 1})
-        self.write(identifier, "release-state.json", {"schema": 1, "release_id": identifier, "stage": "production_release", "status": "blocked_reconciliation", "history": []})
-        self.write(identifier, "gate/production-result.json", {"release_id": identifier, "stage": "blocked_reconciliation", "status": "blocked_reconciliation", "history": []})
-        inspection = {
-            "decision": "coordinated_restore_required",
-            "runner_alive": False,
-            "ingress_transaction": "recovery_restored",
-            "app_health": "healthy",
-            "nginx_active": "true",
-            "backup_timer_enabled": "true",
-            "running_image_id": "sha256:" + "a" * 64,
-            "candidate_image_id": "sha256:" + "b" * 64,
-        }
-        ssh = mock.Mock()
-        ssh.create_temp_dir.return_value = "/opt/sub2api/releases/coordinated-restore.abcdefgh"
-        ssh.run.return_value.values = {
-            "backup_units_restored": "true",
-            "release_claim_reconciled": "true",
-            "plaintext_state_removed": "true",
-            "state_cleanup": "recovery_point_preserved",
-        }
-
-        with mock.patch.object(supervisor, "_inspect_reconciliation", return_value=inspection), mock.patch.object(supervisor, "SSHRunner", return_value=ssh), mock.patch("builtins.print"):
+    def test_coordinated_recovery_cleanup_marker_alone_cannot_skip_checkpoint_validation(self) -> None:
+        identifier, inspection, ssh, document, assets, checksum = self.coordinated_recovery_fixture()
+        inspection.update(ingress_transaction="recovery_restored", app_health="healthy", nginx_active="true",
+                          backup_timer_enabled="true", running_image_id="sha256:" + "a" * 64, candidate_image_id="sha256:" + "b" * 64)
+        with mock.patch.object(supervisor, "_inspect_reconciliation", return_value=inspection), \
+             mock.patch.object(supervisor, "verify_gate", return_value=document), \
+             mock.patch.object(supervisor, "stage_recovery_bundle", return_value=(assets, checksum)) as stage, \
+             mock.patch.object(supervisor, "SSHRunner", return_value=ssh), mock.patch("builtins.print"):
             supervisor.reconcile(argparse.Namespace(release_id=identifier, mode="coordinated-recover"))
+        stage.assert_called_once()
+        ssh.run.assert_called_once()
+        command = ssh.run.call_args.args[1]
+        self.assertIn('test -f "$state/recovery-point.tar"', command)
+        self.assertIn('test -f "$RELEASE_DIR/recovery-checkpoints/nginx_restored.done"', command)
+        self.assertIn('bash "$RECOVERY_ASSETS_DIR/recovery-finish.sh"', command)
+        self.assertNotIn("already_restored", command)
+        self.assertNotIn(".active-release/assets", command)
 
-        ssh.create_temp_dir.assert_called_once()
-        ssh.upload_file.assert_called_once_with(
-            "racknerd",
-            supervisor.COORDINATED_CLEANUP,
-            "/opt/sub2api/releases/coordinated-restore.abcdefgh/cleanup-state.sh",
-            0o500,
-        )
-        self.assertEqual(ssh.run.call_count, 2)
-        finish_command = ssh.run.call_args_list[0].args[1]
-        self.assertNotIn("/restore.sh", finish_command)
-        self.assertIn("/coordinated-restore.abcdefgh/cleanup-state.sh", finish_command)
+    def test_coordinated_recovery_rejects_historical_gate_without_bundle_before_ssh(self) -> None:
+        identifier, inspection, _, document, _, _ = self.coordinated_recovery_fixture()
+        document["manifest"].pop("recovery_helper_bundle_sha256")
+        with mock.patch.object(supervisor, "_inspect_reconciliation", return_value=inspection), \
+             mock.patch.object(supervisor, "verify_gate", return_value=document), \
+             mock.patch.object(supervisor, "stage_recovery_bundle") as stage, \
+             mock.patch.object(supervisor, "SSHRunner") as ssh:
+            with self.assertRaisesRegex(RuntimeError, "helper binding is absent"):
+                supervisor.reconcile(argparse.Namespace(release_id=identifier, mode="coordinated-recover"))
+        stage.assert_not_called()
+        ssh.assert_not_called()
+        production = json.loads((self.root / identifier / "gate/production-result.json").read_text())
+        self.assertEqual(production["status"], "blocked_reconciliation")
+
+    def test_coordinated_recovery_stage_failure_never_executes_restore_or_finish(self) -> None:
+        identifier, inspection, ssh, document, _, _ = self.coordinated_recovery_fixture()
+        with mock.patch.object(supervisor, "_inspect_reconciliation", return_value=inspection), \
+             mock.patch.object(supervisor, "verify_gate", return_value=document), \
+             mock.patch.object(supervisor, "stage_recovery_bundle", side_effect=RuntimeError("bundle stage refused")), \
+             mock.patch.object(supervisor, "SSHRunner", return_value=ssh):
+            with self.assertRaisesRegex(RuntimeError, "bundle stage refused"):
+                supervisor.reconcile(argparse.Namespace(release_id=identifier, mode="coordinated-recover"))
+        ssh.run.assert_not_called()
+        production = json.loads((self.root / identifier / "gate/production-result.json").read_text())
+        self.assertEqual(production["status"], "blocked_reconciliation")
+
+    def test_coordinated_recovery_explicit_helper_gate_is_verified_without_historical_relaxation(self) -> None:
+        identifier, inspection, ssh, document, assets, checksum = self.coordinated_recovery_fixture()
+        external = self.root / "270-bbbbbbbbbbbb-2-cafebabe" / "gate"
+        external.mkdir(parents=True)
+        document["manifest"]["profile"] = "270"
+        (external / "gate.json").write_bytes(canonical_json(document))
+        with mock.patch.object(supervisor, "_inspect_reconciliation", return_value=inspection), \
+             mock.patch.object(supervisor, "verify_gate", return_value=document) as verify, \
+             mock.patch.object(supervisor, "stage_recovery_bundle", return_value=(assets, checksum)) as stage, \
+             mock.patch.object(supervisor, "SSHRunner", return_value=ssh), mock.patch("builtins.print"):
+            supervisor.reconcile(argparse.Namespace(release_id=identifier, mode="coordinated-recover", recovery_helper_gate=str(external)))
+        verify.assert_called_once_with(external.resolve(), supervisor.TRUSTED_VM_PUBLIC_KEY, "270", allow_expired=False, allow_historical_runner=False)
+        self.assertEqual(stage.call_args.args[-1], external.resolve())
+        self.assertIn('bash "$RECOVERY_ASSETS_DIR/recovery-finish.sh"', ssh.run.call_args.args[1])
 
     def test_coordinated_recovery_rejects_active_runner(self) -> None:
         inspection = {"decision": "coordinated_restore_required", "runner_alive": True}

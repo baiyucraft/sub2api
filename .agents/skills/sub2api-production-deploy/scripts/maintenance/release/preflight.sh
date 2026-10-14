@@ -34,6 +34,8 @@ trap 'failure_line=$LINENO' ERR
 trap record_preflight_result EXIT
 preflight_phase=context
 source /opt/sub2api/releases/.active-release/assets/context.sh
+python3 -c 'import yaml' >/dev/null 2>&1
+docker compose config --help | grep -Fq -- '--no-env-resolution'
 [[ ! -e $release_dir/.consumed ]]
 [[ $(docker image inspect -f '{{.Id}}' "$candidate_image_id") == "$candidate_image_id" ]]
 cd "$deploy_dir"

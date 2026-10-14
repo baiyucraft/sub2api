@@ -48,10 +48,10 @@ def _recovery_gate_report(
     production_snapshot: dict,
     migration_catalog: list[dict[str, str]],
     requested_mode: str = "auto",
+    full_recovery_evidence: str | None = None,
 ) -> dict:
     base_commit = production_snapshot.get("production_current_commit_sha") or None
     report = classify_recovery_gate(WORKSPACE, base_commit, commit)
-    assert_release_allowed(report)
     plan = plan_migrations(migration_catalog, production_snapshot.get("schema_migrations", []))
     if plan.get("pending"):
         report = require_specialized(report, "pending_migrations")
@@ -59,7 +59,35 @@ def _recovery_gate_report(
         report = require_full(report)
     elif requested_mode != "auto":
         raise ValueError("recovery Gate mode must be auto or full")
+    if full_recovery_evidence:
+        from .recovery_evidence import apply_review, load_signed_evidence, verify_reviewed_report, EvidenceLedger
+        report = apply_review(report, load_signed_evidence(Path(full_recovery_evidence).absolute()), workspace=WORKSPACE)
+        verified = verify_reviewed_report(report, workspace=WORKSPACE)
+        ledger_path = RUN_ROOT / ".full-recovery-evidence"
+        ledger_path.mkdir(parents=True, exist_ok=True, mode=0o700)
+        ledger = EvidenceLedger(ledger_path.absolute())
+        try:
+            ledger.register(verified)
+        except RuntimeError:
+            # Only an exact receipt may be reused by the same immutable proof.
+            ledger.read_registered(verified)
+    assert_release_allowed(report)
     return report
+
+
+def recovery_review_scope(args: argparse.Namespace) -> None:
+    """Derive an external review's scope without preparing or changing production."""
+    from .migration_planner import discover_migration_catalog
+    from .recovery_evidence import derive_expected_scope
+    doctor = ReleaseDoctor(args.profile, args.commit)
+    observed = doctor.run(("racknerd",), require_ingress_policy=False)
+    snapshot = decode_snapshot(observed["production_snapshot_b64"])
+    report = classify_recovery_gate(WORKSPACE, snapshot.get("production_current_commit_sha"), args.commit)
+    if plan_migrations(discover_migration_catalog(WORKSPACE, args.commit), snapshot.get("schema_migrations", [])).get("pending"):
+        report = require_specialized(report, "pending_migrations")
+    if args.recovery_gate_mode == "full":
+        report = require_full(report)
+    print(canonical_json({"report": report, "scope": derive_expected_scope(WORKSPACE, report), "production_current_image_id": observed["production_current_image_id"]}).decode("ascii"))
 
 
 def _deployment_mode(args: argparse.Namespace | None = None, manifest: dict | None = None) -> str:
@@ -368,6 +396,7 @@ def vm_validate(args: argparse.Namespace) -> None:
                 production_snapshot,
                 current_manifest.get("migration_catalog", []),
                 getattr(args, "recovery_gate_mode", "auto"),
+                getattr(args, "full_recovery_evidence", None),
             )
             if recovery_gate["mode"] != "fast":
                 pre_gate_input, rack_pre_gate_dir, vm_pre_gate_dir = prepare_pre_gate_inputs(
@@ -486,6 +515,7 @@ def deploy(args: argparse.Namespace, acquire_lock: bool = True) -> None:
                 production_snapshot,
                 current_manifest.get("migration_catalog", []),
                 getattr(args, "recovery_gate_mode", "auto"),
+                getattr(args, "full_recovery_evidence", None),
             )
             if recovery_gate["mode"] != "fast":
                 pre_gate_input, rack_pre_gate_dir, vm_pre_gate_dir = prepare_pre_gate_inputs(
@@ -721,11 +751,17 @@ def main() -> None:
     doctor_parser.add_argument("--commit")
     doctor_parser.add_argument("--node", choices=("all", *NODES), default="all")
     doctor_parser.set_defaults(handler=doctor)
+    review_scope_parser = subparsers.add_parser("recovery-review-scope")
+    review_scope_parser.add_argument("--profile", default=CURRENT_RELEASE_PROFILE)
+    review_scope_parser.add_argument("--commit", required=True)
+    review_scope_parser.add_argument("--recovery-gate-mode", choices=("auto", "full"), default="auto")
+    review_scope_parser.set_defaults(handler=recovery_review_scope)
     validate_parser = subparsers.add_parser("vm-validate")
     validate_parser.add_argument("--profile", default=CURRENT_RELEASE_PROFILE)
     validate_parser.add_argument("--commit", required=True)
     validate_parser.add_argument("--mode", dest="deployment_mode", choices=DEPLOYMENT_MODES, required=True)
     validate_parser.add_argument("--recovery-gate-mode", choices=("auto", "full"), default="auto")
+    validate_parser.add_argument("--full-recovery-evidence", help="existing trusted signed full DR review JSON")
     validate_parser.set_defaults(handler=vm_validate)
     vm_only_validate_parser = subparsers.add_parser("vm-only-validate")
     vm_only_validate_parser.add_argument("--profile", default=CURRENT_RELEASE_PROFILE)
@@ -740,6 +776,7 @@ def main() -> None:
     deploy_parser.add_argument("--commit", required=True)
     deploy_parser.add_argument("--mode", dest="deployment_mode", choices=DEPLOYMENT_MODES)
     deploy_parser.add_argument("--recovery-gate-mode", choices=("auto", "full"), default="auto")
+    deploy_parser.add_argument("--full-recovery-evidence", help="existing trusted signed full DR review JSON")
     deploy_parser.set_defaults(handler=deploy)
     release_parser = subparsers.add_parser("release")
     release_parser.add_argument("--profile", default=CURRENT_RELEASE_PROFILE)
@@ -761,12 +798,14 @@ def main() -> None:
     start_parser.add_argument("--commit", required=True)
     start_parser.add_argument("--mode", dest="deployment_mode", choices=DEPLOYMENT_MODES)
     start_parser.add_argument("--recovery-gate-mode", choices=("auto", "full"), default="auto")
+    start_parser.add_argument("--full-recovery-evidence", help="existing trusted signed full DR review JSON")
     start_parser.set_defaults(handler=lambda args: __import__("release.supervisor", fromlist=["start"]).start(args))
     follow_start_parser = subparsers.add_parser("deploy-follow")
     follow_start_parser.add_argument("--profile", default=CURRENT_RELEASE_PROFILE)
     follow_start_parser.add_argument("--commit", required=True)
     follow_start_parser.add_argument("--mode", dest="deployment_mode", choices=DEPLOYMENT_MODES)
     follow_start_parser.add_argument("--recovery-gate-mode", choices=("auto", "full"), default="auto")
+    follow_start_parser.add_argument("--full-recovery-evidence", help="existing trusted signed full DR review JSON")
     follow_start_parser.add_argument("--lang", choices=("zh-CN",), default="zh-CN")
     follow_start_parser.add_argument("--heartbeat", type=int, default=60)
     follow_start_parser.set_defaults(handler=lambda args: __import__("release.observer", fromlist=["deploy_follow"]).deploy_follow(args))
@@ -815,6 +854,7 @@ def main() -> None:
     reconcile_parser = subparsers.add_parser("reconcile")
     reconcile_parser.add_argument("release_id")
     reconcile_parser.add_argument("--mode", choices=("recover", "coordinated-recover"), required=True)
+    reconcile_parser.add_argument("--recovery-helper-gate", help="signed current-helper Gate directory for recovery of an older release")
     reconcile_parser.set_defaults(handler=lambda args: __import__("release.supervisor", fromlist=["reconcile"]).reconcile(args))
     worker_parser = subparsers.add_parser("_deploy-worker", help=argparse.SUPPRESS)
     worker_parser.add_argument("--profile", required=True)
@@ -822,6 +862,7 @@ def main() -> None:
     worker_parser.add_argument("--release-id", required=True)
     worker_parser.add_argument("--mode", dest="deployment_mode", choices=DEPLOYMENT_MODES, required=True)
     worker_parser.add_argument("--recovery-gate-mode", choices=("auto", "full"), default="auto")
+    worker_parser.add_argument("--full-recovery-evidence", help="existing trusted signed full DR review JSON")
     worker_parser.set_defaults(handler=lambda args: __import__("release.supervisor", fromlist=["worker"]).worker(args))
     from .plugin_cli import register_commands as register_plugin_commands
     register_plugin_commands(subparsers)
