@@ -3,10 +3,13 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"math"
 	"testing"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/upstreamcacheusage"
 	"github.com/Wei-Shaw/sub2api/internal/upstreamcacheguard"
 	"github.com/stretchr/testify/require"
 )
@@ -16,7 +19,202 @@ import (
 // read snapshot, including actual slot acquisition and sticky cache writes.
 type cacheGuardSelectionStore struct {
 	upstreamcacheguard.Store
-	rows []upstreamcacheguard.RuntimeRow
+	rows     []upstreamcacheguard.RuntimeRow
+	accounts map[string]upstreamcacheguard.AccountState
+}
+
+func cacheGuardSelectionIdentity(id, keyID int64) string { return fmt.Sprintf("%d:%d", id, keyID) }
+
+func (s *cacheGuardSelectionStore) seed(id, keyID int64) (upstreamcacheguard.AccountState, bool, error) {
+	a := upstreamcacheguard.AccountState{AccountID: id, UpstreamKeyID: keyID, Phase: upstreamcacheguard.Healthy}
+	found := false
+	for _, row := range s.rows {
+		if row.Kind != upstreamcacheguard.AccountKind {
+			continue
+		}
+		var previous upstreamcacheguard.AccountState
+		if err := json.Unmarshal(row.Payload, &previous); err != nil {
+			return a, false, err
+		}
+		if previous.AccountID != id || previous.UpstreamKeyID != keyID {
+			continue
+		}
+		found = true
+		a.GroupIDs = append(a.GroupIDs, row.GroupID)
+		if previous.Phase != upstreamcacheguard.Healthy && previous.Phase != "" {
+			a.Phase = previous.Phase
+			if previous.CooldownUntil.After(a.CooldownUntil) {
+				a.CooldownUntil = previous.CooldownUntil
+			}
+		}
+		if previous.Phase == upstreamcacheguard.Trial {
+			a.CohortID = "fixture"
+			a.TrialGroupIDs = append(a.TrialGroupIDs, row.GroupID)
+			a.FirstTrialAt = previous.FirstTrialAt
+		}
+	}
+	return a, found, nil
+}
+
+func (s *cacheGuardSelectionStore) AccountRows(context.Context) ([]upstreamcacheguard.AccountRuntimeRow, error) {
+	seen := map[string]upstreamcacheguard.AccountRuntimeRow{}
+	for _, row := range s.rows {
+		if row.Kind != upstreamcacheguard.AccountKind {
+			continue
+		}
+		var a upstreamcacheguard.AccountState
+		if err := json.Unmarshal(row.Payload, &a); err != nil {
+			return nil, err
+		}
+		if a.UpstreamKeyID == 0 {
+			continue
+		}
+		seen[cacheGuardSelectionIdentity(a.AccountID, a.UpstreamKeyID)] = upstreamcacheguard.AccountRuntimeRow{AccountID: a.AccountID, UpstreamKeyID: a.UpstreamKeyID, Version: 1}
+	}
+	for id, a := range s.accounts {
+		seen[id] = upstreamcacheguard.AccountRuntimeRow{AccountID: a.AccountID, UpstreamKeyID: a.UpstreamKeyID, Version: 2}
+	}
+	rows := make([]upstreamcacheguard.AccountRuntimeRow, 0, len(seen))
+	for _, row := range seen {
+		rows = append(rows, row)
+	}
+	return rows, nil
+}
+
+// Scheduler fixtures store fixed quality rows, not durable facts. Build the
+// same account-window projection without inventing transaction evidence.
+func (s *cacheGuardSelectionStore) AccountWindows(_ context.Context, _, _ time.Time) (map[string]upstreamcacheguard.AccountWindow, error) {
+	windows := map[string]upstreamcacheguard.AccountWindow{}
+	for _, row := range s.rows {
+		if row.Kind != upstreamcacheguard.AccountKind {
+			continue
+		}
+		var state upstreamcacheguard.AccountState
+		if err := json.Unmarshal(row.Payload, &state); err != nil {
+			return nil, err
+		}
+		if state.UpstreamKeyID <= 0 {
+			continue
+		}
+		identity := cacheGuardSelectionIdentity(state.AccountID, state.UpstreamKeyID)
+		window, ok := windows[identity]
+		if !ok {
+			current, exists := s.accounts[identity]
+			if !exists {
+				var err error
+				current, _, err = s.seed(state.AccountID, state.UpstreamKeyID)
+				if err != nil {
+					return nil, err
+				}
+			}
+			window = upstreamcacheguard.AccountWindow{AccountID: state.AccountID, UpstreamKeyID: state.UpstreamKeyID, Version: int64(len(s.rows)*2 + 1), State: current}
+		}
+		window.ValidRequests += state.ValidRequests
+		window.TotalInputTokens += int64(state.ValidRequests) * 1000
+		window.CacheReadTokens += int64(math.Round(state.CachePercent*10)) * int64(state.ValidRequests)
+		window.GroupIDs = append(window.GroupIDs, row.GroupID)
+		if state.Phase == upstreamcacheguard.Trial {
+			window.TrialValidRequests += state.TrialValidRequests
+			window.TrialInputTokens += int64(state.TrialValidRequests) * 1000
+			window.TrialCacheReadTokens += int64(math.Round(state.TrialCachePercent*10)) * int64(state.TrialValidRequests)
+			window.TrialSessions += state.TrialSessions
+			window.TrialGroupIDs = append(window.TrialGroupIDs, row.GroupID)
+		}
+		windows[identity] = window
+	}
+	for identity, state := range s.accounts {
+		window, ok := windows[identity]
+		if !ok {
+			window = upstreamcacheguard.AccountWindow{AccountID: state.AccountID, UpstreamKeyID: state.UpstreamKeyID, State: state}
+		}
+		window.State, window.Version = state, int64(len(s.rows)*2+2)
+		windows[identity] = window
+	}
+	return windows, nil
+}
+
+func (s *cacheGuardSelectionStore) TransactAccount(_ context.Context, _, accountID, keyID int64, fn func(upstreamcacheguard.Tx) error) error {
+	return fn(&cacheGuardSelectionTx{store: s, accountID: accountID, keyID: keyID})
+}
+
+type cacheGuardSelectionTx struct {
+	upstreamcacheguard.Tx
+	store            *cacheGuardSelectionStore
+	accountID, keyID int64
+}
+
+func (tx *cacheGuardSelectionTx) ReadAccount(id, keyID int64, out any) (int64, error) {
+	if a, exists := tx.store.accounts[cacheGuardSelectionIdentity(id, keyID)]; exists {
+		raw, err := json.Marshal(a)
+		if err != nil {
+			return 0, err
+		}
+		return 1, json.Unmarshal(raw, out)
+	}
+	a, exists, err := tx.store.seed(id, keyID)
+	if err != nil || !exists {
+		return 0, err
+	}
+	raw, err := json.Marshal(a)
+	if err != nil {
+		return 0, err
+	}
+	return 1, json.Unmarshal(raw, out)
+}
+
+func (tx *cacheGuardSelectionTx) WriteAccount(id, keyID int64, value any) (int64, error) {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return 0, err
+	}
+	var a upstreamcacheguard.AccountState
+	if err = json.Unmarshal(raw, &a); err != nil {
+		return 0, err
+	}
+	if tx.store.accounts == nil {
+		tx.store.accounts = map[string]upstreamcacheguard.AccountState{}
+	}
+	tx.store.accounts[cacheGuardSelectionIdentity(id, keyID)] = a
+	return 2, nil
+}
+
+func (tx *cacheGuardSelectionTx) AccountFacts(id, keyID int64, since time.Time) ([]upstreamcacheguard.Evidence, error) {
+	var facts []upstreamcacheguard.Evidence
+	for _, row := range tx.store.rows {
+		if row.Kind != upstreamcacheguard.AccountKind {
+			continue
+		}
+		var a upstreamcacheguard.AccountState
+		if err := json.Unmarshal(row.Payload, &a); err != nil {
+			return nil, err
+		}
+		if a.AccountID != id || a.UpstreamKeyID != keyID {
+			continue
+		}
+		for i := 0; i < a.ValidRequests; i++ {
+			completed := time.Now().UTC().Add(-10 * time.Second)
+			if completed.Before(since) {
+				continue
+			}
+			trial := a.Phase == upstreamcacheguard.Trial && i < a.TrialValidRequests
+			read := int64(math.Round(a.CachePercent * 10))
+			if trial {
+				read = int64(math.Round(a.TrialCachePercent * 10))
+			}
+			facts = append(facts, upstreamcacheguard.Evidence{
+				ID:        fmt.Sprintf("fixture-%d-%d-%d", id, row.GroupID, i),
+				Request:   upstreamcacheguard.Request{GroupID: row.GroupID, AccountID: id, UpstreamKeyID: keyID},
+				Admission: upstreamcacheguard.Admission{Sample: true, WarmAtStart: true, Trial: trial, CohortID: "fixture", SessionKey: fmt.Sprintf("session-%d", i%3)},
+				RawUsage:  upstreamcacheguard.RawUsage{Status: upstreamcacheusage.Known, TotalInputTokens: 1000, CacheReadTokens: read},
+				Success:   true, CompletedAt: completed,
+			})
+		}
+	}
+	return facts, nil
+}
+
+func (tx *cacheGuardSelectionTx) LegacyAccounts(int64, int64) ([]upstreamcacheguard.LegacyAccountState, error) {
+	return nil, nil
 }
 
 func (s *cacheGuardSelectionStore) Rows(context.Context, []int64) ([]upstreamcacheguard.RuntimeRow, error) {
@@ -305,11 +503,13 @@ func TestUpstreamCacheGuardObserveAndDisabledUseExistingRouting(t *testing.T) {
 				raw, err := json.Marshal(source)
 				require.NoError(t, err)
 				store.rows = append(store.rows, upstreamcacheguard.RuntimeRow{GroupID: 200, Kind: upstreamcacheguard.AccountKind, Key: "1", Version: 1, Payload: raw})
+				store.accounts = nil // Rehydrate the synthetic fixture with the new cross-group row.
 				require.NoError(t, runner.engine.Refresh(ctx))
 				group := int64(100)
 				if mode == upstreamcacheguard.Observe {
-					snapshot := runner.engine.CachedSnapshot(group)
-					require.NotNil(t, snapshot.Accounts[0].DerivedProtection, "observe displays the linked source")
+					account, fresh := runner.engine.CachedAccount(1, 1)
+					require.True(t, fresh)
+					require.Equal(t, upstreamcacheguard.Cooling, account.Phase, "observation uses the same cross-group account decision")
 				}
 				ms := 60000
 				account, _ := svc.accountRepo.GetByID(ctx, 1)
@@ -325,7 +525,7 @@ func TestUpstreamCacheGuardObserveAndDisabledUseExistingRouting(t *testing.T) {
 	}
 }
 
-func TestUpstreamCacheGuardLinkedGroupProtectionChangesOnlyNewSessionPreference(t *testing.T) {
+func TestUpstreamCacheGuardAccountProtectionChangesOnlyNewSessionPreference(t *testing.T) {
 	for _, advanced := range []bool{false, true} {
 		for _, oldSession := range []bool{false, true} {
 			name := map[bool]string{false: "legacy", true: "advanced"}[advanced] + "/" + map[bool]string{false: "new", true: "old_high_cache"}[oldSession]
@@ -340,12 +540,13 @@ func TestUpstreamCacheGuardLinkedGroupProtectionChangesOnlyNewSessionPreference(
 				raw, err := json.Marshal(source)
 				require.NoError(t, err)
 				store.rows = append(store.rows, upstreamcacheguard.RuntimeRow{GroupID: 200, Kind: upstreamcacheguard.AccountKind, Key: "1", Version: 1, Payload: raw})
+				store.accounts = nil // Rehydrate the synthetic fixture with the new cross-group row.
 				require.NoError(t, runner.engine.Refresh(ctx))
 				group := int64(100)
-				snapshot := runner.engine.CachedSnapshot(group)
-				require.Equal(t, upstreamcacheguard.Healthy, snapshot.Accounts[0].Phase)
-				require.Equal(t, 90.0, snapshot.Accounts[0].CachePercent)
-				require.NotNil(t, snapshot.Accounts[0].DerivedProtection)
+				account, fresh := runner.engine.CachedAccount(1, 1)
+				require.True(t, fresh)
+				require.Equal(t, upstreamcacheguard.Cooling, account.Phase)
+				require.InDelta(t, 55, account.CachePercent, 0.01, "the account window combines both group samples")
 				selection, _, err := svc.SelectAccountWithScheduler(ctx, &group, "", "conversation", "gpt-test", nil, OpenAIUpstreamTransportAny, false)
 				require.NoError(t, err)
 				want := int64(2)

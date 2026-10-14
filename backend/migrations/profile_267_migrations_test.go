@@ -48,6 +48,7 @@ func TestProfile267CacheSchemaFollowsCreationOrder(t *testing.T) {
 		"290_drop_platform_check_constraints.sql", "291_user_invoice_annotations.sql", "292_group_i18n.sql",
 		"293_gemini_cached_contents.sql", "294_gemini_cached_contents_channel_usage.sql", "295_gemini_cached_contents_mutation_lease.sql",
 		"296_upstream_cache_guard.sql",
+		"297_upstream_cache_guard_account_scope.sql",
 	}, names)
 	checks := map[string][]string{
 		"292_group_i18n.sql":                            {"ALTER TABLE groups", "ADD COLUMN IF NOT EXISTS i18n JSONB NOT NULL DEFAULT '{}'::jsonb"},

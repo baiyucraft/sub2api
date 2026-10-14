@@ -675,16 +675,29 @@ describe('admin AccountsView upstream management mode', () => {
     expect((upstreamListWithEtag.mock.calls[0][1] as any).signal.aborted).toBe(false)
 
     pending.resolve({ notModified: false, etag: 'cache-changed', data: {
-      items: [{ ...row, priority: 9, upstream_cache_guard_states: [{ group_id: 7, state: 'protected', valid_requests: 21, rate_percent: 50 }] }],
+      items: [{ ...row, upstream_cache_guard: { state: 'protected', rate_percent: 50, valid_requests: 21 }, upstream_cache_guard_states: [{ group_id: 7, state: 'protected', valid_requests: 21, rate_percent: 50 }] }],
       total: 1, pages: 1
     } })
     await flushPromises()
     const updated = (table.props('data') as any[])[0]
     expect(updated.updated_at).toBe(row.updated_at)
-    expect(updated.priority).toBe(9)
+    expect(updated.priority).toBe(row.priority)
+    expect(updated.upstream_cache_guard.state).toBe('protected')
     expect(updated.upstream_cache_guard_states[0].state).toBe('protected')
     expect(wrapper.get('[data-test="usage-cell"]').element).toBe(oldCell)
     expect(upstreamListWithEtag.mock.calls[0][1].signal.aborted).toBe(false)
+
+    upstreamListWithEtag.mockResolvedValueOnce({ notModified: false, etag: 'cache-reverted', data: {
+      items: [{ ...row, upstream_cache_guard: { state: 'normal', rate_percent: 93.2, valid_requests: 21 }, upstream_cache_guard_states: [{ group_id: 7, state: 'normal', valid_requests: 21, rate_percent: 93.2 }] }],
+      total: 1, pages: 1
+    } })
+    await wrapper.get('[data-test="refresh"]').trigger('click')
+    await flushPromises()
+    const reverted = (table.props('data') as any[])[0]
+    expect(reverted.updated_at).toBe(row.updated_at)
+    expect(reverted.upstream_cache_guard.state).toBe('normal')
+    expect(reverted.upstream_cache_guard_states[0].state).toBe('normal')
+    expect(wrapper.get('[data-test="usage-cell"]').element).toBe(oldCell)
     wrapper.unmount()
   })
 

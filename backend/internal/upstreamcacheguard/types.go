@@ -82,6 +82,7 @@ type Admission struct {
 	SessionKey       string    `json:"session_key"`
 	GroupID          int64     `json:"group_id"`
 	AccountID        int64     `json:"account_id"`
+	UpstreamKeyID    int64     `json:"upstream_key_id,omitempty"`
 	StartedAt        time.Time `json:"started_at"`
 	NaturalNew       bool      `json:"natural_new"`
 	WarmAtStart      bool      `json:"warm_at_start"`
@@ -124,25 +125,28 @@ const (
 )
 
 type AccountState struct {
-	AccountID          int64     `json:"account_id"`
-	UpstreamKeyID      int64     `json:"upstream_key_id"`
-	Model              string    `json:"model"`
-	Protocol           string    `json:"protocol"`
-	Phase              Phase     `json:"phase"`
-	ValidRequests      int       `json:"valid_requests"`
-	CachePercent       float64   `json:"cache_percent"`
-	TotalInputTokens   int64     `json:"total_input_tokens"`
-	CacheReadTokens    int64     `json:"cache_read_tokens"`
-	UpdatedAt          time.Time `json:"updated_at"`
-	LastEvidenceAt     time.Time `json:"last_evidence_at"`
-	QualitySince       time.Time `json:"quality_since,omitempty"`
-	DegradedAt         time.Time `json:"degraded_at,omitempty"`
-	CooldownUntil      time.Time `json:"cooldown_until,omitempty"`
-	CohortID           string    `json:"cohort_id,omitempty"`
-	FirstTrialAt       time.Time `json:"first_trial_at,omitempty"`
-	TrialValidRequests int       `json:"trial_valid_requests"`
-	TrialSessions      int       `json:"trial_sessions"`
-	TrialCachePercent  float64   `json:"trial_cache_percent"`
+	AccountID          int64               `json:"account_id"`
+	UpstreamKeyID      int64               `json:"upstream_key_id"`
+	Model              string              `json:"model"`
+	Protocol           string              `json:"protocol"`
+	Phase              Phase               `json:"phase"`
+	ValidRequests      int                 `json:"valid_requests"`
+	CachePercent       float64             `json:"cache_percent"`
+	TotalInputTokens   int64               `json:"total_input_tokens"`
+	CacheReadTokens    int64               `json:"cache_read_tokens"`
+	UpdatedAt          time.Time           `json:"updated_at"`
+	LastEvidenceAt     time.Time           `json:"last_evidence_at"`
+	QualitySince       time.Time           `json:"quality_since,omitempty"`
+	DegradedAt         time.Time           `json:"degraded_at,omitempty"`
+	CooldownUntil      time.Time           `json:"cooldown_until,omitempty"`
+	CohortID           string              `json:"cohort_id,omitempty"`
+	FirstTrialAt       time.Time           `json:"first_trial_at,omitempty"`
+	TrialValidRequests int                 `json:"trial_valid_requests"`
+	TrialSessions      int                 `json:"trial_sessions"`
+	TrialCachePercent  float64             `json:"trial_cache_percent"`
+	GroupIDs           []int64             `json:"group_ids,omitempty"`
+	TrialGroupIDs      []int64             `json:"trial_group_ids,omitempty"`
+	LegacyQualitySince map[int64]time.Time `json:"legacy_quality_since,omitempty"`
 }
 type SessionRoute struct {
 	AccountID        int64     `json:"account_id"`
@@ -244,10 +248,50 @@ type Store interface {
 	Cleanup(context.Context, time.Time) error
 }
 
+// Account transactions acquire the account identity lock before the optional
+// group lock. Group-only trial planning must never upgrade to an account lock.
+type AccountStore interface {
+	TransactAccount(context.Context, int64, int64, int64, func(Tx) error) error
+	AccountRows(context.Context) ([]AccountRuntimeRow, error)
+	AccountWindows(context.Context, time.Time, time.Time) (map[string]AccountWindow, error)
+}
+
+// AccountWindow is a read-only projection of processed facts for one current
+// account/Key identity. Version ties it to the policy reset boundaries used.
+type AccountWindow struct {
+	AccountID, UpstreamKeyID, Version      int64
+	State                                  AccountState
+	ValidRequests                          int
+	TotalInputTokens, CacheReadTokens      int64
+	TrialValidRequests, TrialSessions      int
+	TrialInputTokens, TrialCacheReadTokens int64
+	LastEvidenceAt                         time.Time
+	GroupIDs, TrialGroupIDs                []int64
+}
+
+type AccountTx interface {
+	Tx
+	ReadAccount(int64, int64, any) (int64, error)
+	WriteAccount(int64, int64, any) (int64, error)
+	AccountFacts(int64, int64, time.Time) ([]Evidence, error)
+	LegacyAccounts(int64, int64) ([]LegacyAccountState, error)
+}
+
+type LegacyAccountState struct {
+	GroupID int64
+	AccountState
+}
+
+type AccountRuntimeRow struct {
+	AccountID, UpstreamKeyID, Version int64
+	Payload                           []byte
+	UpdatedAt                         time.Time
+}
+
 var ErrUnavailable = errors.New("cache guard persistence unavailable")
 
 func validateRequest(r Request) error {
-	if r.ID == "" || len(r.ID) > 200 || r.GroupID <= 0 || r.APIKeyID <= 0 || r.AccountID <= 0 || r.StartedAt.IsZero() || len(r.Model) > 256 || r.Model == "" || len(r.Protocol) > 32 || r.Protocol == "" {
+	if r.ID == "" || len(r.ID) > 200 || r.GroupID <= 0 || r.APIKeyID <= 0 || r.AccountID <= 0 || r.UpstreamKeyID <= 0 || r.StartedAt.IsZero() || len(r.Model) > 256 || r.Model == "" || len(r.Protocol) > 32 || r.Protocol == "" {
 		return errors.New("invalid cache guard request")
 	}
 	if len(r.LogicalSessionDigest) < 32 || len(r.LogicalSessionDigest) > 128 {

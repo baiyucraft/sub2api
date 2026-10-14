@@ -52,7 +52,7 @@ class Profile267ReleaseContractTest(unittest.TestCase):
         before = {}
         exec(compile(git_blob(BASELINE, ".agents/skills/sub2api-production-deploy/scripts/release/profiles.py"), "baseline", "exec"), before)
         self.assertEqual(before["CURRENT_RELEASE_PROFILE"], "266")
-        self.assertEqual(set(PROFILES), set(before["PROFILES"]) | {"267", "268"})
+        self.assertEqual(set(PROFILES), set(before["PROFILES"]) | {"267", "268", "269"})
         for name, contract in before["PROFILES"].items():
             self.assertEqual(get_profile(name), contract, name)
             with self.assertRaisesRegex(ValueError, "historical"):
@@ -70,14 +70,14 @@ class Profile267ReleaseContractTest(unittest.TestCase):
             raw = (WORKSPACE / path).read_bytes()
             self.assertEqual(hashlib.sha1(f"blob {len(raw)}\0".encode() + raw).hexdigest(), blob, path)
         current = {p.relative_to(WORKSPACE).as_posix() for p in (WORKSPACE / "backend/migrations").glob("*.sql")}
-        self.assertEqual(current, set(historical) | {f"backend/migrations/{name}" for name in [*MIGRATIONS, *get_profile("268")["new_migrations"]]})
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "268")
+        self.assertEqual(current, set(historical) | {f"backend/migrations/{name}" for name in [*MIGRATIONS, *get_profile("268")["new_migrations"], *get_profile("269")["new_migrations"]]})
+        self.assertEqual(CURRENT_RELEASE_PROFILE, "269")
         profile = get_profile("267")
         self.assertEqual((profile["version"], profile["parent"], profile["gate_schema"]), ("0.2.16-baiyu", "266", 2))
         self.assertEqual(profile["new_migrations"], MIGRATIONS)
         self.assertEqual(profile["release_policy"], get_profile("266")["release_policy"])
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 269"):
-            get_profile("269")
+        with self.assertRaisesRegex(ValueError, "unknown release profile: 270"):
+            get_profile("270")
 
     def test_raw_upstream_blobs_registration_and_separate_checksums(self):
         registration = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
@@ -85,9 +85,9 @@ class Profile267ReleaseContractTest(unittest.TestCase):
         for name, historical in prior["historical_profiles"].items():
             self.assertEqual(registration["historical_profiles"][name], historical)
         for field in ("version", "parent", "gate_schema", "new_migrations", "release_policy"):
-            self.assertEqual(registration["current_profile"][field], get_profile("268")[field])
+            self.assertEqual(registration["current_profile"][field], get_profile("269")[field])
             self.assertEqual(registration["historical_profiles"]["266"][field], get_profile("266")[field])
-        self.assertEqual(registration["current_profile"]["id"], "268")
+        self.assertEqual(registration["current_profile"]["id"], "269")
         self.assertEqual(registration["current_profile"]["status"], "pending")
         self.assertEqual(git_blob(UPSTREAM, "backend/cmd/server/VERSION").decode().strip(), "0.2.16")
         self.assertEqual((WORKSPACE / "backend/cmd/server/VERSION").read_text().strip(), "0.2.16-baiyu")
@@ -134,7 +134,7 @@ class Profile267ReleaseContractTest(unittest.TestCase):
             unknown = plan_migrations(catalog, {**snapshot, official: "a" * 64})
             self.assertEqual(unknown["unknown"], [{"filename": official, "checksum": "a" * 64}])
         self.assertIsNotNone(RELEASE_ID.fullmatch("267-aaaaaaaaaaaa-1-aaaaaaaa"))
-        self.assertIsNone(RELEASE_ID.fullmatch("269-aaaaaaaaaaaa-1-aaaaaaaa"))
+        self.assertIsNone(RELEASE_ID.fullmatch("270-aaaaaaaaaaaa-1-aaaaaaaa"))
 
     def test_manifest_binds_exact_profile_and_preserves_ancestor_evidence(self):
         profile = get_profile("267")
@@ -170,7 +170,7 @@ class Profile267BashContractTest(unittest.TestCase):
     execute = bash_helpers.Profile263BashContractTest.execute
     assert_guard_cases = bash_helpers.Profile263BashContractTest.assert_guard_cases
     test_release_id_guards = bash_helpers.Profile263BashContractTest.test_release_id_guards_retain_history_and_reject_unknown
-    test_ancestor_assertion_guards = bash_helpers.Profile263BashContractTest.test_ancestor_assertion_guards_admit_263_through_268_and_reject_269
+    test_ancestor_assertion_guards = bash_helpers.Profile263BashContractTest.test_ancestor_assertion_guards_admit_263_through_269_and_reject_270
 
     def test_vm_exact_267_contract_retains_266_and_rejects_268(self):
         source = (DEPLOY_ROOT / "release/vm-validate.sh").read_text(encoding="utf-8")

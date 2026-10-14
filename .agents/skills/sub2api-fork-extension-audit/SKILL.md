@@ -140,6 +140,6 @@ python .agents/skills/sub2api-fork-extension-audit/scripts/audit_fork_extensions
 
 ## 上游缓存保护发布合同
 
-当前连续 pending profile 268，parent 267，版本 `0.2.16-baiyu`，仅新增 `296_upstream_cache_guard.sql`。267 保留原四项官方迁移与身份，全部历史 profile、SQL 和 checksum 不回写。Python/Shell、VM validator、Gate/DR signer、bootstrap 自测、生产 context/prepare、祖先断言、奖励 postflight、备份和清理入口共同支持 268，未知 269 拒绝。新增迁移只承载缓存判定事实和分布式状态，不写余额、计费或错误重试配置，不保存原始请求正文、认证头或凭据。
+历史 profile 268，parent 267，版本 `0.2.16-baiyu`，仅新增 `296_upstream_cache_guard.sql`。当前连续 pending profile 269，parent 268，同版本仅新增 `297_upstream_cache_guard_account_scope.sql`；全部历史 profile、SQL 和 checksum 不回写。Python/Shell、VM validator、Gate/DR signer、bootstrap 自测、生产 context/prepare、祖先断言、奖励 postflight、备份和清理入口共同支持 269，未知 270 拒绝。新迁移持久化账号与当前 Key 的统一状态、跨组事实索引，不写余额、计费或错误重试配置，不保存原始请求正文、认证头或凭据。
 
-本地最低验证包括 `test_profile268_release_contract.py`、缓存核心与调度/API 回归、前端设置/状态测试、双语键完整性、typecheck/lint/build、完整 release suite、修改 Shell 语法及 `git diff --check`。本地登记不证明 PostgreSQL 实际升级、旧镜像兼容、VM Gate 或生产上线；恢复敏感最终 blob/模式重新精确分类，未分类继续阻断，不增加新的审阅豁免。长期产品合同见 `.wiki/03-模块指南/14-上游缓存保护.md`。
+本地最低验证包括 `test_profile269_release_contract.py`、缓存核心与调度/API 回归、前端设置/状态测试、双语键完整性、typecheck/lint/build、完整 release suite、修改 Shell 语法及 `git diff --check`。本地登记不证明 PostgreSQL 实际升级、旧镜像兼容、VM Gate 或生产上线；恢复敏感最终 blob/模式重新精确分类，未分类继续阻断，不增加新的审阅豁免。长期产品合同见 `.wiki/03-模块指南/14-上游缓存保护.md`。

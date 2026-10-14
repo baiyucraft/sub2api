@@ -252,6 +252,9 @@ func BeginUpstreamCacheGuardRequest(ctx context.Context, apiKeyID int64, groupID
 	if !authorized || identity.APIKeyID != apiKeyID {
 		return nil
 	}
+	if _, ok := r.engine.CachedAccount(account.ID, *account.UpstreamKeyID); !ok {
+		return nil
+	}
 	req, ok := r.logicalRequest(ctx, groupID, sessionHash, model, protocol)
 	if !ok {
 		return nil

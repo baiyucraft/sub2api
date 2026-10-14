@@ -970,7 +970,21 @@ PROFILES["268"] = {
     },
 }
 
-CURRENT_RELEASE_PROFILE = "268"
+# Account-scoped cache quality extends the existing evidence without rewriting 268.
+PROFILES["269"] = {
+    **{key: PROFILES["268"][key] for key in _PROFILE_V2_RUNTIME_KEYS},
+    "name": "269",
+    "version": "0.2.16-baiyu",
+    "parent": "268",
+    "new_migrations": ["297_upstream_cache_guard_account_scope.sql"],
+    "gate_schema": 2,
+    "release_policy": {
+        "compatibility_image": "production_current",
+        "migration_source": "database_state",
+    },
+}
+
+CURRENT_RELEASE_PROFILE = "269"
 
 
 def get_profile(name: str) -> dict:
