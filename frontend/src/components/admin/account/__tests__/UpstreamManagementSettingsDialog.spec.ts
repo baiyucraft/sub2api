@@ -3,6 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import UpstreamManagementSettingsDialog from '../UpstreamManagementSettingsDialog.vue'
+import zh from '@/i18n/locales/zh/admin/upstreamManagement'
 
 const { getGroups, getSettings, getProbeSettings, getCandidates, updateSettings, updateProbeSettings, showError, showSuccess } = vi.hoisted(() => ({
   getGroups: vi.fn(),
@@ -35,7 +36,11 @@ vi.mock('vue-i18n', async () => {
   const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
   return {
     ...actual,
-    useI18n: () => ({ t: (key: string) => key })
+    useI18n: () => ({ t: (key: string) => {
+      if (key === 'admin.upstreamManagement.confidenceProbe.window') return zh.upstreamManagement.confidenceProbe.window
+      if (key === 'admin.upstreamManagement.confidenceProbe.samplePolicy') return zh.upstreamManagement.confidenceProbe.samplePolicy
+      return key
+    } })
   }
 })
 
@@ -283,7 +288,10 @@ describe('UpstreamManagementSettingsDialog', () => {
     await flushPromises()
     expect(wrapper.find('[data-test="fixed-openai-probe-model"]').exists()).toBe(false)
     expect(wrapper.find('[data-test="cache-guard-settings"]').exists()).toBe(false)
-    expect(wrapper.text()).toContain('admin.upstreamManagement.confidenceProbe.window')
+    expect(wrapper.text()).toContain('128 条有效样本滑动窗口')
+    expect(wrapper.get('[data-test="confidence-sample-policy"]').text()).toContain('标点 64 条、国家 16 条、整数 48 条')
+    expect(wrapper.get('[data-test="confidence-sample-policy"]').text()).toContain('超时、失败和空回答不占有效窗口')
+    expect(wrapper.get('[data-test="confidence-sample-policy"]').text()).toContain('下一次正常探测继续补采')
     await wrapper.find('button.btn-primary').trigger('click')
     await flushPromises()
     expect(updateProbeSettings).toHaveBeenCalledWith(expect.objectContaining({

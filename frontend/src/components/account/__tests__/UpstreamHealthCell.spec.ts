@@ -58,11 +58,11 @@ const stubs = {
 
 describe('UpstreamHealthCell', () => {
   const distribution = (overrides: Partial<UpstreamConfidenceDistribution> = {}): UpstreamConfidenceDistribution => ({
-    status: 'collecting', window_size: 128, attempted: 42, valid_samples: 40,
+    status: 'collecting', sampling_policy_version: 2, window_size: 128, attempted: 42, valid_samples: 40, failed_attempts: 2,
     cells: {
-      gpt__screen067: { planned: 64, minimum: 39, completed: 21, valid: 20, counts: { '！': 14, '。': 6 } },
-      gpt__screen101: { planned: 16, minimum: 10, completed: 7, valid: 7, counts: { uruguay: 5, __UNSEEN_IN_TRAINING__: 2 } },
-      gpt__screen108: { planned: 48, minimum: 29, completed: 14, valid: 13, counts: { '47': 13 } }
+      gpt__screen067: { planned: 64, minimum: 64, completed: 20, valid: 20, counts: { '！': 14, '。': 6 } },
+      gpt__screen101: { planned: 16, minimum: 16, completed: 7, valid: 7, counts: { uruguay: 5, __UNSEEN_IN_TRAINING__: 2 } },
+      gpt__screen108: { planned: 48, minimum: 48, completed: 13, valid: 13, counts: { '47': 13 } }
     },
     matches: {}, scores: {}, thresholds: {}, claimed_model: 'gpt-6.1-sol',
     window_start: '2026-10-06T00:00:00Z', window_end: '2026-10-06T03:30:00Z',
@@ -78,10 +78,15 @@ describe('UpstreamHealthCell', () => {
 
   it('shows collection progress without old ratios or premature candidate scores', () => {
     const wrapper = mountDistribution(distribution())
-    expect(wrapper.get('[data-test="distribution-badge"]').text()).toBe('采集中 42/128')
+    expect(wrapper.get('[data-test="distribution-badge"]').text()).toBe('采集中 40/128')
     expect(wrapper.get('[data-test="distribution-badge"]').classes()).toContain('bg-gray-100')
     expect(wrapper.get('[data-test="health-confidence-row"]').classes()).toContain('flex-wrap')
-    expect(wrapper.text()).toContain('40 / 42')
+    expect(wrapper.get('[data-test="distribution-valid-progress"]').text()).toBe('40 / 128')
+    expect(wrapper.get('[data-test="distribution-attempts"]').text()).toBe('42')
+    expect(wrapper.get('[data-test="distribution-failed-attempts"]').text()).toBe('2')
+    expect(wrapper.get('[data-test="distribution-cell-gpt__screen067"]').text()).toBe('20 / 64')
+    expect(wrapper.get('[data-test="distribution-cell-gpt__screen101"]').text()).toBe('7 / 16')
+    expect(wrapper.get('[data-test="distribution-cell-gpt__screen108"]').text()).toBe('13 / 48')
     expect(wrapper.text()).toContain('uruguay')
     expect(wrapper.text()).toContain('未见答案')
     expect(wrapper.text()).toContain('4.5.4-predictive.20261003.1')
@@ -99,7 +104,7 @@ describe('UpstreamHealthCell', () => {
     expect(wrapper.get('[data-test="distribution-badge"]').classes()).toContain('bg-gray-100')
     expect(wrapper.get('[data-test="distribution-reset-pending"]').text()).toBe('配置已变化，等待下一次探针重新累计')
     expect(wrapper.get('[data-test="distribution-reset-reasons"]').text()).toBe('鉴权凭据变化 · 请求端点变化')
-    expect(wrapper.get('[data-test="distribution-reset-previous"]').text()).toBe('113 / 128')
+    expect(wrapper.get('[data-test="distribution-reset-previous"]').text()).toBe('113')
     expect(wrapper.find('[data-test="distribution-reset-at"]').exists()).toBe(false)
   })
 
@@ -112,7 +117,7 @@ describe('UpstreamHealthCell', () => {
     expect(wrapper.find('[data-test="distribution-reset-pending"]').exists()).toBe(false)
     expect(wrapper.get('[data-test="distribution-reset-at"]').text()).toBe(formatDateTime(at))
     expect(wrapper.get('[data-test="distribution-reset-reasons"]').text()).toBe('旧采样身份无法验证连续性')
-    expect(wrapper.get('[data-test="distribution-reset-previous"]').text()).toBe('18 / 128')
+    expect(wrapper.get('[data-test="distribution-reset-previous"]').text()).toBe('18')
   })
 
   it('uses a safe fallback for unknown reset reasons and tolerates an omitted reset timestamp', () => {
@@ -126,9 +131,19 @@ describe('UpstreamHealthCell', () => {
     expect(wrapper.text()).not.toContain('new_server_reason')
   })
 
+  it('shows previous series attempts above 128 without a window denominator', () => {
+    const wrapper = mountDistribution(distribution({ attempted: 1, valid_samples: 0, failed_attempts: 1, series_reset: {
+      pending: false, reasons: ['sampling_policy_changed'], previous_attempted: 768
+    } }))
+    expect(wrapper.text()).toContain('上一系列尝试')
+    expect(wrapper.get('[data-test="distribution-reset-previous"]').text()).toBe('768')
+    expect(wrapper.text()).not.toContain('768 / 128')
+    expect(en.upstreamManagement.health.distribution.previousAttempts).toBe('Previous series attempts')
+  })
+
   it('translates every identity reset reason in both locales', () => {
     const reasons = ['binding_changed', 'protocol_changed', 'endpoint_changed', 'credential_changed',
-      'model_changed', 'proxy_changed', 'headers_changed', 'contract_changed', 'baseline_changed', 'legacy_identity_unverifiable']
+      'model_changed', 'proxy_changed', 'headers_changed', 'contract_changed', 'baseline_changed', 'legacy_identity_unverifiable', 'sampling_policy_changed']
     const wrapper = mountDistribution(distribution({ series_reset: { pending: false, reasons, previous_attempted: 128 } }))
     for (const reason of reasons) {
       const zhMessage = zh.upstreamManagement.health.distribution.resetReasons[reason as keyof typeof zh.upstreamManagement.health.distribution.resetReasons]
@@ -146,8 +161,8 @@ describe('UpstreamHealthCell', () => {
     { status: 'mismatch' as const, closest_model: 'other_known_external', label: '疑似 other', color: 'bg-red-100' },
     { status: 'insufficient' as const, closest_model: 'gpt-6-astra', label: '证据不足', color: 'bg-amber-100' }
   ])('renders $label while leaving health unchanged', ({ status, closest_model, label, color }) => {
-    const wrapper = mountDistribution(distribution({ status, closest_model, attempted: 128, valid_samples: 121,
-      matches: { 'gpt-6-astra': 0.57321, 'gpt-6.1-sol': 0.42679 }, reasons: status === 'insufficient' ? ['samples_incomplete'] : [] }))
+    const wrapper = mountDistribution(distribution({ status, closest_model, attempted: 256, valid_samples: 128, failed_attempts: 128,
+      matches: { 'gpt-6-astra': 0.57321, 'gpt-6.1-sol': 0.42679 }, reasons: status === 'insufficient' ? ['no_threshold'] : [] }))
     expect(wrapper.get('[data-test="distribution-badge"]').text()).toBe(label)
     expect(wrapper.get('[data-test="distribution-badge"]').classes()).toContain(color)
     expect(wrapper.get('[data-upstream-health-state="healthy"]').classes()).toContain('bg-emerald-100')
@@ -155,7 +170,28 @@ describe('UpstreamHealthCell', () => {
     expect(wrapper.text()).toContain('行为匹配分数')
     expect(wrapper.text()).toContain('不是模型身份概率')
     expect(wrapper.text()).not.toContain('57%')
-    if (status === 'insufficient') expect(wrapper.text()).toContain('有效样本不足')
+    expect(wrapper.get('[data-test="distribution-valid-progress"]').text()).toBe('128 / 128')
+    expect(wrapper.get('[data-test="distribution-attempts"]').text()).toBe('256')
+    if (status === 'insufficient') expect(wrapper.text()).toContain('匹配证据未达到判定线')
+  })
+
+  it.each([undefined, 0, 1, 3])('does not present sampling policy %s as a current valid window', sampling_policy_version => {
+    const wrapper = mountDistribution(distribution({ sampling_policy_version, status: 'match', attempted: 128, valid_samples: 35,
+      matches: { 'gpt-6.1-sol': 0.9 } }))
+    expect(wrapper.get('[data-test="distribution-badge"]').text()).toBe('等待重新采样')
+    expect(wrapper.get('[data-test="distribution-badge"]').classes()).toContain('bg-gray-100')
+    expect(wrapper.get('[data-test="distribution-legacy-policy"]').text()).toContain('旧样本不自动计入新窗口')
+    expect(wrapper.find('[data-test="distribution-valid-progress"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="distribution-score-gpt-6.1-sol"]').exists()).toBe(false)
+  })
+
+  it('keeps full valid-window scores available while an actual attempt is pending', () => {
+    const wrapper = mountDistribution(distribution({ status: 'match', attempted: 257, valid_samples: 128, failed_attempts: 128,
+      matches: { 'gpt-6.1-sol': 0.9 } }))
+    expect(wrapper.get('[data-test="distribution-badge"]').text()).toBe('Sol 匹配')
+    expect(wrapper.get('[data-test="distribution-score-gpt-6.1-sol"]').text()).toBe('0.900000')
+    expect(wrapper.get('[data-test="distribution-valid-progress"]').text()).toBe('128 / 128')
+    expect(wrapper.get('[data-test="distribution-attempts"]').text()).toBe('257')
   })
 
   it('does not show an OpenAI distribution for another platform', () => {

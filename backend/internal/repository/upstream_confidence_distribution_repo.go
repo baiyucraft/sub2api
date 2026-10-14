@@ -198,7 +198,7 @@ func (r *upstreamConfigRepository) ClaimConfidenceDistribution(ctx context.Conte
 			}
 			if len(reasons) > 0 {
 				previousSeries = state.SeriesID
-				previousAttempted := len(state.Samples)
+				previousAttempted := int(state.NextSequence - 1)
 				state, err = service.NewConfidenceDistributionStateForIdentity(identity)
 				if err != nil {
 					_ = tx.Rollback()
@@ -442,6 +442,8 @@ func persistConfidenceDistributionEvent(ctx context.Context, tx *sql.Tx, keyID i
 	payload, err := json.Marshal(map[string]any{
 		"series_id": seriesID, "status": summary.Status, "closest_model": summary.ClosestModel,
 		"valid_samples": summary.ValidSamples, "baseline_version": summary.BaselineVersion,
+		"sampling_policy_version": summary.SamplingPolicyVersion, "attempted": summary.Attempted,
+		"failed_attempts": summary.FailedAttempts,
 	})
 	if err != nil {
 		return err

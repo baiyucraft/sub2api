@@ -20,26 +20,28 @@ import (
 )
 
 const (
-	UpstreamConfidenceDistributionWindowSize    = 128
-	UpstreamConfidenceDistributionClaimedModel  = "gpt-6.1-sol"
-	UpstreamConfidenceDistributionPromptVersion = "openai-sol-distribution-v1"
-	DistributionProbePunctuation                = "gpt__screen067"
-	DistributionProbeCountry                    = "gpt__screen101"
-	DistributionProbeInteger                    = "gpt__screen108"
-	distributionUnknown                         = "__UNSEEN_IN_TRAINING__"
-	distributionOther                           = "other_known_external"
-	distributionScoringVersion                  = "meow-fingerprint-v3-predictive"
+	UpstreamConfidenceDistributionWindowSize            = 128
+	UpstreamConfidenceDistributionSamplingPolicyVersion = 2
+	UpstreamConfidenceDistributionClaimedModel          = "gpt-6.1-sol"
+	UpstreamConfidenceDistributionPromptVersion         = "openai-sol-distribution-v1"
+	DistributionProbePunctuation                        = "gpt__screen067"
+	DistributionProbeCountry                            = "gpt__screen101"
+	DistributionProbeInteger                            = "gpt__screen108"
+	distributionUnknown                                 = "__UNSEEN_IN_TRAINING__"
+	distributionOther                                   = "other_known_external"
+	distributionScoringVersion                          = "meow-fingerprint-v3-predictive"
 )
 
-// DistributionSample represents one issued request, including unsuccessful
-// requests. Series/protocol isolation is the persistent collector's contract.
+// DistributionSample keeps the actual request sequence distinct from the
+// successful sampling position. Only valid samples enter the effective window.
 type DistributionSample struct {
-	Sequence   int64     `json:"sequence"`
-	ProbeID    string    `json:"probe_id"`
-	Answer     string    `json:"answer,omitempty"`
-	Valid      bool      `json:"valid"`
-	Reason     string    `json:"reason,omitempty"`
-	ObservedAt time.Time `json:"observed_at"`
+	Sequence      int64     `json:"sequence"`
+	ValidSequence int64     `json:"valid_sequence,omitempty"`
+	ProbeID       string    `json:"probe_id"`
+	Answer        string    `json:"answer,omitempty"`
+	Valid         bool      `json:"valid"`
+	Reason        string    `json:"reason,omitempty"`
+	ObservedAt    time.Time `json:"observed_at"`
 }
 
 type UpstreamConfidenceDistributionCell struct {
@@ -60,22 +62,24 @@ type ConfidenceDistributionSeriesReset struct {
 
 // Matches are relative behavioral fit scores, not identity probabilities.
 type UpstreamConfidenceDistribution struct {
-	SeriesReset     *ConfidenceDistributionSeriesReset            `json:"series_reset,omitempty"`
-	Status          string                                        `json:"status"`
-	WindowSize      int                                           `json:"window_size"`
-	Attempted       int                                           `json:"attempted"`
-	ValidSamples    int                                           `json:"valid_samples"`
-	Cells           map[string]UpstreamConfidenceDistributionCell `json:"cells"`
-	Matches         map[string]float64                            `json:"matches"`
-	Scores          map[string]float64                            `json:"scores"`
-	Thresholds      map[string]float64                            `json:"thresholds"`
-	ClosestModel    string                                        `json:"closest_model,omitempty"`
-	ClaimedModel    string                                        `json:"claimed_model"`
-	WindowStart     *time.Time                                    `json:"window_start,omitempty"`
-	WindowEnd       *time.Time                                    `json:"window_end,omitempty"`
-	BaselineVersion string                                        `json:"baseline_version"`
-	Protocol        string                                        `json:"protocol"`
-	Reasons         []string                                      `json:"reasons"`
+	SeriesReset           *ConfidenceDistributionSeriesReset            `json:"series_reset,omitempty"`
+	Status                string                                        `json:"status"`
+	WindowSize            int                                           `json:"window_size"`
+	Attempted             int                                           `json:"attempted"`
+	ValidSamples          int                                           `json:"valid_samples"`
+	SamplingPolicyVersion int                                           `json:"sampling_policy_version"`
+	FailedAttempts        int                                           `json:"failed_attempts"`
+	Cells                 map[string]UpstreamConfidenceDistributionCell `json:"cells"`
+	Matches               map[string]float64                            `json:"matches"`
+	Scores                map[string]float64                            `json:"scores"`
+	Thresholds            map[string]float64                            `json:"thresholds"`
+	ClosestModel          string                                        `json:"closest_model,omitempty"`
+	ClaimedModel          string                                        `json:"claimed_model"`
+	WindowStart           *time.Time                                    `json:"window_start,omitempty"`
+	WindowEnd             *time.Time                                    `json:"window_end,omitempty"`
+	BaselineVersion       string                                        `json:"baseline_version"`
+	Protocol              string                                        `json:"protocol"`
+	Reasons               []string                                      `json:"reasons"`
 }
 
 type distributionBaselineCell struct {
@@ -289,12 +293,18 @@ func NormalizeDistributionAnswer(raw string) (string, bool) {
 func ScoreUpstreamConfidenceDistribution(protocol string, samples []DistributionSample) (*UpstreamConfidenceDistribution, error) {
 	result := &UpstreamConfidenceDistribution{
 		Status: "collecting", WindowSize: UpstreamConfidenceDistributionWindowSize,
-		ClaimedModel: UpstreamConfidenceDistributionClaimedModel, Protocol: distributionProtocol(protocol),
+		SamplingPolicyVersion: UpstreamConfidenceDistributionSamplingPolicyVersion,
+		ClaimedModel:          UpstreamConfidenceDistributionClaimedModel, Protocol: distributionProtocol(protocol),
 		Cells: make(map[string]UpstreamConfidenceDistributionCell), Matches: make(map[string]float64),
 		Scores: make(map[string]float64), Thresholds: make(map[string]float64), Reasons: []string{},
 	}
-	window := append([]DistributionSample(nil), samples...)
-	sort.SliceStable(window, func(i, j int) bool { return window[i].Sequence < window[j].Sequence })
+	window := make([]DistributionSample, 0, len(samples))
+	for _, sample := range samples {
+		if _, valid := NormalizeDistributionAnswer(sample.Answer); sample.Valid && valid {
+			window = append(window, sample)
+		}
+	}
+	sort.SliceStable(window, func(i, j int) bool { return window[i].ValidSequence < window[j].ValidSequence })
 	if len(window) > result.WindowSize {
 		window = window[len(window)-result.WindowSize:]
 	}
@@ -314,13 +324,13 @@ func ScoreUpstreamConfidenceDistribution(protocol string, samples []Distribution
 
 func distributionScoreWindow(baseline *distributionBaseline, result *UpstreamConfidenceDistribution, window []DistributionSample) *UpstreamConfidenceDistribution {
 	for identity, planned := range baseline.High.Counts {
-		result.Cells[identity] = UpstreamConfidenceDistributionCell{Planned: planned, Minimum: int(math.Ceil(.6 * float64(planned))), Counts: make(map[string]int)}
+		result.Cells[identity] = UpstreamConfidenceDistributionCell{Planned: planned, Minimum: planned, Counts: make(map[string]int)}
 	}
 	for model, threshold := range baseline.High.Thresholds {
 		result.Thresholds[model] = threshold
 	}
 	for i, sample := range window {
-		if i > 0 && sample.Sequence != window[i-1].Sequence+1 {
+		if sample.Sequence < 1 || sample.ValidSequence < 1 || (i > 0 && (sample.ValidSequence != window[i-1].ValidSequence+1 || sample.Sequence <= window[i-1].Sequence)) {
 			result.Reasons = append(result.Reasons, "sequence_incomplete")
 		}
 		cell, exists := result.Cells[sample.ProbeID]
@@ -347,24 +357,25 @@ func distributionScoreWindow(baseline *distributionBaseline, result *UpstreamCon
 		}
 		result.Cells[sample.ProbeID] = cell
 	}
-	// No numerical result is published before the complete 128-attempt window.
-	if result.Attempted < result.WindowSize {
-		result.Reasons = []string{"window_incomplete"}
+	if len(window) == result.WindowSize {
+		for _, cell := range result.Cells {
+			if cell.Completed != cell.Planned {
+				result.Reasons = append(result.Reasons, "quota_mismatch")
+			}
+			if cell.Valid < cell.Minimum {
+				result.Reasons = append(result.Reasons, "samples_incomplete")
+			}
+		}
+	}
+	// Failed requests do not fill this window. Only a complete valid window may
+	// publish a numerical verdict; structural faults remain insufficient.
+	if result.ValidSamples < result.WindowSize {
+		if len(result.Reasons) > 0 {
+			result.Status = "insufficient"
+		} else {
+			result.Reasons = []string{"window_incomplete"}
+		}
 		return result
-	}
-	for _, cell := range result.Cells {
-		if cell.Completed != cell.Planned {
-			result.Reasons = append(result.Reasons, "quota_mismatch")
-		}
-		if cell.Valid < cell.Minimum {
-			result.Reasons = append(result.Reasons, "samples_incomplete")
-		}
-	}
-	if result.ValidSamples < 78 {
-		result.Reasons = append(result.Reasons, "samples_incomplete")
-	}
-	if result.ValidSamples == 0 {
-		result.Reasons = append(result.Reasons, "no_valid_samples")
 	}
 	result.Matches, result.Scores = distributionPredictiveScores(baseline, result.Cells, result.ValidSamples)
 	winner := ""

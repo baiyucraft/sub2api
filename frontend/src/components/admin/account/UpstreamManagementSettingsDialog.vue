@@ -148,7 +148,7 @@
             <span class="rounded-md border border-gray-200 px-2.5 py-1.5 text-gray-600 dark:border-dark-600 dark:text-gray-300">{{ t('admin.upstreamManagement.confidenceProbe.fixedEffort') }}</span>
             <span class="rounded-md border border-gray-200 px-2.5 py-1.5 text-gray-600 dark:border-dark-600 dark:text-gray-300">{{ t('admin.upstreamManagement.confidenceProbe.window') }}</span>
           </div>
-          <p class="mt-3 text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('admin.upstreamManagement.confidenceProbe.samplePolicy') }}</p>
+          <p data-test="confidence-sample-policy" class="mt-3 text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('admin.upstreamManagement.confidenceProbe.samplePolicy') }}</p>
           <p class="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('admin.upstreamManagement.confidenceProbe.displayOnly') }}</p>
         </div>
         <div class="mt-6 border-t border-gray-200 pt-5 dark:border-dark-700">

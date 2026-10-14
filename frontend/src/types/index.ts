@@ -1753,6 +1753,8 @@ export interface UpstreamConfidenceDistribution {
   window_size: number
   attempted: number
   valid_samples: number
+  sampling_policy_version?: number
+  failed_attempts?: number
   cells: Record<string, UpstreamConfidenceDistributionCell>
   matches: Record<string, number>
   scores: Record<string, number>

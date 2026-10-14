@@ -64,6 +64,74 @@ type distributionSequenceHTTPStub struct {
 	counts map[string]map[string]int
 }
 
+type distributionTimeoutFixtureProber struct {
+	*AccountTestService
+	timedOut bool
+}
+
+func (p *distributionTimeoutFixtureProber) RunUpstreamHealthProbe(ctx context.Context, account *Account, model string) (UpstreamHealthProbeResult, error) {
+	if p.timedOut {
+		return p.AccountTestService.RunUpstreamHealthProbe(ctx, account, model)
+	}
+	p.timedOut = true
+	identity, err := p.ResolveConfidenceDistributionIdentity(account)
+	if err != nil {
+		return UpstreamHealthProbeResult{}, err
+	}
+	claim := ctx.Value(distributionProbeContextKey{}).(distributionProbeClaim)
+	attempt, err := claim(ctx, identity)
+	if err != nil {
+		return UpstreamHealthProbeResult{}, err
+	}
+	status, ttft, duration := http.StatusOK, int64(100), int64(30000)
+	return UpstreamHealthProbeResult{
+		Model: model, Protocol: upstreamHealthProbeProtocolOpenAI,
+		Result: "timeout", Reason: "probe_timeout", HTTPStatus: &status, TTFTMs: &ttft, DurationMs: &duration,
+		ConfidencePromptVersion: UpstreamConfidenceDistributionPromptVersion, RequestedEffort: "low",
+		ConfidenceChecks:    map[string]int{"attempted": 1, "valid_completed": 0},
+		ConfidenceEvidence:  map[string]any{"kind": "distribution", "failure_reason": "probe_timeout", "valid": false},
+		distributionAttempt: attempt, distributionSample: DistributionSample{Reason: "probe_timeout"},
+	}, context.DeadlineExceeded
+}
+
+func TestDistributionTimeoutWithHTTP200RemainsHealthEvidenceWithoutEffectiveSample(t *testing.T) {
+	distributionTestClientResolver(t, func() string { return buildCodexCLIUserAgent("0.160.0") })
+	const keyID int64 = 92325
+	GlobalUpstreamHealthRegistry().Forget(keyID)
+	defer GlobalUpstreamHealthRegistry().Forget(keyID)
+	platform := PlatformOpenAI
+	repo := &distributionWindowTestRepo{healthProbeLockRepo: &healthProbeLockRepo{key: UpstreamKey{ID: keyID, UpstreamConfigID: 42, Status: StatusActive, Platform: &platform}}}
+	accounts := &healthProbeAccountRepo{account: Account{ID: 22325, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Concurrency: 1, UpstreamKeyID: int64Ptr(keyID), Credentials: map[string]any{"api_key": "synthetic-key", "base_url": "https://probe.example"}}}
+	upstream := &upstreamHealthProbeHTTPStub{stream: "data: {\"type\":\"response.output_text.delta\",\"delta\":\"47\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\"}}\n\n"}
+	client := &AccountTestService{httpUpstream: upstream, cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}}}
+	settings := NewSettingService(&upstreamManagementSettingRepoStub{values: map[string]string{SettingKeyUpstreamConfidenceProbe: `{"enabled":true}`}}, nil)
+	prober := &distributionTimeoutFixtureProber{AccountTestService: client}
+	svc := NewUpstreamConfigService(repo, nil, accounts)
+	svc.SetHealthProbeDependencies(prober, settings)
+	_, err := svc.ProbeKey(context.Background(), keyID)
+	require.Error(t, err)
+	require.Empty(t, repo.state.Samples)
+	require.Equal(t, int64(1), repo.state.NextValidSequence)
+	require.Equal(t, 1, repo.state.FailedAttempts)
+	require.Len(t, repo.histories[keyID], 1)
+	failed := repo.histories[keyID][0]
+	require.Equal(t, "timeout", failed.Result)
+	require.Equal(t, "probe_timeout", failed.Reason)
+	require.Equal(t, http.StatusOK, *failed.HTTPStatus)
+	require.Equal(t, 0, failed.ConfidenceChecks["valid_completed"])
+	require.Equal(t, "probe_timeout", failed.ConfidenceEvidence["failure_reason"])
+	item, err := svc.ProbeKey(context.Background(), keyID)
+	require.NoError(t, err)
+	require.Equal(t, "success", item.LastProbeStatus)
+	require.Equal(t, 2, item.ConfidenceDistribution.Attempted)
+	require.Equal(t, 1, item.ConfidenceDistribution.FailedAttempts)
+	require.Equal(t, 1, item.ConfidenceDistribution.ValidSamples)
+	require.Equal(t, int64(2), repo.state.Samples[0].Sequence)
+	require.Equal(t, int64(1), repo.state.Samples[0].ValidSequence)
+	require.Equal(t, repo.state.ProbeOrder[0], repo.state.Samples[0].ProbeID)
+	require.Len(t, repo.histories[keyID], 2, "failed health history remains after successful collection")
+}
+
 type distributionUnavailableTestRepo struct {
 	*distributionWindowTestRepo
 	readerErr, distributionErr error
@@ -226,7 +294,7 @@ func TestDistributionProbeFullWindowIntegration(t *testing.T) {
 	item, err := svc.ProbeKey(context.Background(), keyID)
 	require.NoError(t, err)
 	require.Equal(t, seriesID, repo.state.SeriesID)
-	require.Equal(t, 128, item.ConfidenceDistribution.Attempted)
+	require.Equal(t, 129, item.ConfidenceDistribution.Attempted)
 	require.Len(t, repo.state.Samples, 128)
 	require.Equal(t, oldest+1, repo.state.Samples[0].Sequence)
 	require.Len(t, upstream.requests, 129)
