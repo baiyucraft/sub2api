@@ -64,6 +64,11 @@ func shouldEmulateWebSearchFor(
 	if getWebSearchManager() == nil || account == nil || settingService == nil {
 		return false
 	}
+	// OpenAI OAuth/setup-token accounts retain native search regardless of
+	// channel configuration. Only API key accounts opt into emulation.
+	if account.Platform == PlatformOpenAI && account.Type != AccountTypeAPIKey {
+		return false
+	}
 	if !isOnlyWebSearchToolInBody(body) {
 		return false
 	}
