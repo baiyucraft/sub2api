@@ -371,3 +371,7 @@ jq -cS '.manifest.migration_sha256' | sha256sum
 历史 profile 268，parent 267，版本 `0.2.16-baiyu`，仅新增 `296_upstream_cache_guard.sql`。历史保留 profile 269，parent 268，同版本仅新增 `297_upstream_cache_guard_account_scope.sql`。全部历史 profile、SQL 和 checksum 不回写。Python/Shell、VM validator、Gate/DR signer、bootstrap 自测、生产 context/prepare、祖先断言、奖励 postflight、备份和清理入口共同支持当前 270，未知 271 拒绝。新迁移为事实补当前 Key 身份与跨组索引，保存账号级统一状态，不写余额、计费或错误重试配置，不保存原始请求正文、认证头或凭据。
 
 本地最低验证包括 `test_profile269_release_contract.py`、缓存核心与调度/API 回归、前端设置/状态测试、双语键完整性、typecheck/lint/build、完整 release suite、修改 Shell 语法及 `git diff --check`。本地登记不证明 PostgreSQL 实际升级、旧镜像兼容、VM Gate 或生产上线；恢复敏感最终 blob/模式重新精确分类，未分类继续阻断，不增加新的审阅豁免。长期产品合同见 `.wiki/03-模块指南/14-上游缓存保护.md`。
+
+迁移 297 使用正式 `migration-297-assert.sh` 资产。生产各 phase 保持只读，VM 用绑定隔离数据库的 `pg_temp`/ROLLBACK 验证原字节迁移；pending 与已应用迁移都必须提供 checksum 和 preflight/postflight/vm_semantics/verified_replay 完整签名证据。PostgreSQL 18 的 NOT NULL 目录行不计入三项 PK/CHECK 总数，但各列非空及所有约束类型/validated 仍严格校验。最低回归追加 `test_migration_297.py`、planner/Gate v2 两支证据负例和真实 PG 的 `migration-297-integration.sh`。成功要求拥有的测试库及临时目录已清理，失败原始诊断仅保留 VM root-only；不以这些断言或本地测试豁免完整恢复门禁，不复用旧 helper 字节签出的 Gate。
+
+迁移 297/298 的已安装 public schema 还必须核对原默认值、精确 CHECK/主键/外键列映射及非延迟、validated/enforced 状态；拒绝会改变写入语义的额外 UNIQUE 约束或独立唯一索引，允许不改变唯一性的普通索引。PG18 的 NOT NULL 目录行按独立非空合同验证；真实 PostgreSQL 负例包括默认值、CHECK、主键/外键及独立唯一索引漂移，原迁移字节不改。

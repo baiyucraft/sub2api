@@ -549,6 +549,7 @@ SQL
     245_channel_monitor_quota_mode.sql \
     254_enable_balance_notifications_for_existing_users.sql \
     285_upstream_null_rate_lifecycle.sql \
+    297_upstream_cache_guard_account_scope.sql \
     298_group_scheduling_protection_policies.sql; do
     is_pending_v2 "$filename" || continue
     case "$filename" in
@@ -562,6 +563,7 @@ SQL
       245_*) script=migration-245-assert.sh ;;
       254_*) script=migration-254-assert.sh ;;
       285_*) script=migration-285-assert.sh ;;
+      297_*) script=migration-297-assert.sh ;;
       298_*) script=migration-298-assert.sh ;;
     esac
     run_hook_v2 "$filename" "$script" preflight absent
@@ -576,6 +578,15 @@ SQL
     if ! is_pending_v2 "$lifecycle_filename"; then
       printf '%s' "$plan_before" | jq -e --arg filename "$lifecycle_filename" '.existing | any(.filename == $filename and .status == "existing")' >/dev/null
       run_hook_v2 "$lifecycle_filename" migration-285-assert.sh preflight verified
+    fi
+  fi
+  account_scope_filename=297_upstream_cache_guard_account_scope.sql
+  account_scope_in_catalog=false
+  if jq -e --arg filename "$account_scope_filename" '.migration_catalog | any(.filename == $filename)' "$manifest" >/dev/null; then
+    account_scope_in_catalog=true
+    if ! is_pending_v2 "$account_scope_filename"; then
+      printf '%s' "$plan_before" | jq -e --arg filename "$account_scope_filename" '.existing | any(.filename == $filename and .status == "existing")' >/dev/null
+      run_hook_v2 "$account_scope_filename" migration-297-assert.sh preflight verified
     fi
   fi
   protection_filename=298_group_scheduling_protection_policies.sql
@@ -607,6 +618,7 @@ SQL
     245_channel_monitor_quota_mode.sql \
     254_enable_balance_notifications_for_existing_users.sql \
     285_upstream_null_rate_lifecycle.sql \
+    297_upstream_cache_guard_account_scope.sql \
     298_group_scheduling_protection_policies.sql; do
     is_pending_v2 "$filename" || continue
     case "$filename" in
@@ -620,6 +632,7 @@ SQL
       245_*) run_hook_v2 "$filename" migration-245-assert.sh postflight verified ;;
       254_*) run_hook_v2 "$filename" migration-254-assert.sh postflight verified ;;
       285_*) run_hook_v2 "$filename" migration-285-assert.sh postflight verified ;;
+      297_*) run_hook_v2 "$filename" migration-297-assert.sh postflight verified ;;
       298_*) run_hook_v2 "$filename" migration-298-assert.sh postflight verified ;;
     esac
   done
@@ -629,6 +642,13 @@ SQL
     fi
     run_hook_v2 "$lifecycle_filename" migration-285-assert.sh vm_semantics verified
     run_hook_v2 "$lifecycle_filename" migration-285-assert.sh verified_replay verified
+  fi
+  if [[ "$account_scope_in_catalog" == true ]]; then
+    if ! is_pending_v2 "$account_scope_filename"; then
+      run_hook_v2 "$account_scope_filename" migration-297-assert.sh postflight verified
+    fi
+    run_hook_v2 "$account_scope_filename" migration-297-assert.sh vm_semantics verified
+    run_hook_v2 "$account_scope_filename" migration-297-assert.sh verified_replay verified
   fi
   if [[ "$protection_in_catalog" == true ]]; then
     if ! is_pending_v2 "$protection_filename"; then
@@ -706,6 +726,9 @@ SQL
     | ($m[0].migration_catalog | map(select(.filename == "285_upstream_null_rate_lifecycle.sql")) | first) as $lifecycle
     | if $lifecycle == null then . else .evidence.migration_evidence.migration_285 =
         ($hooks[0][$lifecycle.filename] + {checksum:$lifecycle.checksum}) end
+    | ($m[0].migration_catalog | map(select(.filename == "297_upstream_cache_guard_account_scope.sql")) | first) as $account_scope
+    | if $account_scope == null then . else .evidence.migration_evidence.migration_297 =
+        ($hooks[0][$account_scope.filename] + {checksum:$account_scope.checksum}) end
     | ($m[0].migration_catalog | map(select(.filename == "298_group_scheduling_protection_policies.sql")) | first) as $protection
     | if $protection == null then . else .evidence.migration_evidence.migration_298 =
         ($hooks[0][$protection.filename] + {checksum:$protection.checksum}) end' > "$output_dir/gate.json"

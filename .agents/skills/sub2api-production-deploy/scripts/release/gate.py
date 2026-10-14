@@ -266,6 +266,14 @@ def _validate_v2_pending(manifest: dict[str, Any], evidence: dict[str, Any]) -> 
         raise RuntimeError("Gate v2 lacks migration 285 catalog entry")
     if lifecycle_catalog is not None:
         required_fields.add("migration_285")
+    account_scope_catalog = next(
+        (item for item in catalog if isinstance(item, dict) and item.get("filename") == "297_upstream_cache_guard_account_scope.sql"),
+        None,
+    )
+    if manifest.get("profile") in {"269", "270"} and account_scope_catalog is None:
+        raise RuntimeError("Gate v2 lacks migration 297 catalog entry")
+    if account_scope_catalog is not None:
+        required_fields.add("migration_297")
     protection_catalog = next((item for item in catalog if isinstance(item, dict) and item.get("filename") == "298_group_scheduling_protection_policies.sql"), None)
     if manifest.get("profile") == "270" and protection_catalog is None:
         raise RuntimeError("Gate v2 lacks migration 298 catalog entry")
@@ -331,6 +339,13 @@ def _validate_v2_pending(manifest: dict[str, Any], evidence: dict[str, Any]) -> 
             raise RuntimeError("Gate v2 lacks migration 285 semantic evidence")
         if semantic["checksum"] != lifecycle_catalog["checksum"] or any(semantic[phase] is not True for phase in phases):
             raise RuntimeError("Gate v2 migration 285 semantic evidence is incomplete or unbound")
+    if account_scope_catalog is not None:
+        semantic = migration.get("migration_297")
+        phases = {"preflight", "postflight", "vm_semantics", "verified_replay"}
+        if not isinstance(semantic, dict) or set(semantic) != {"checksum", *phases}:
+            raise RuntimeError("Gate v2 lacks migration 297 semantic evidence")
+        if semantic["checksum"] != account_scope_catalog["checksum"] or any(semantic[phase] is not True for phase in phases):
+            raise RuntimeError("Gate v2 migration 297 semantic evidence is incomplete or unbound")
     if protection_catalog is not None:
         semantic = migration.get("migration_298")
         phases = {"preflight", "postflight", "vm_semantics", "verified_replay"}

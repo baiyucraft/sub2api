@@ -81,7 +81,7 @@ class Migration298ContractTest(unittest.TestCase):
 @unittest.skipUnless(BASH and Path(BASH).exists(), "Bash unavailable")
 class Migration298HelperTest(unittest.TestCase):
     def run_helper(self, phase="preflight", status="absent", *, profile="270", false_query="", bad_manifest=False,
-                   db="sub2api", isolated="", fixture_result="verified", manifest_override=True):
+                   db="sub2api", isolated="", fixture_result="verified", manifest_override=True, error_query=""):
         # The docker/jq functions are stubs and never contact a host.
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -98,6 +98,7 @@ class Migration298HelperTest(unittest.TestCase):
                 "MIGRATION_STATUS": status,
                 "TASK_298_QUERY_LOG": log.as_posix(),
                 "TASK_298_FALSE_QUERY": false_query,
+                "TASK_298_ERROR_QUERY": error_query,
                 "TASK_298_BAD_MANIFEST": "1" if bad_manifest else "0",
                 "ASSERT_DB_NAME": db,
                 "ASSERT_VM_ISOLATED_DB": isolated,
@@ -118,6 +119,9 @@ docker() {
   fi
   local statement=${!#}
   printf '%s\n' "$statement" >> "$TASK_298_QUERY_LOG"
+  if [[ -n $TASK_298_ERROR_QUERY && $statement == *"$TASK_298_ERROR_QUERY"* ]]; then
+    return 1
+  fi
   if [[ -n $TASK_298_FALSE_QUERY && $statement == *"$TASK_298_FALSE_QUERY"* ]]; then
     printf 'f\n'
   else
@@ -143,9 +147,20 @@ bash "$1" "$2"
         result, queries = self.run_helper()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(queries.count("BEGIN READ ONLY"), 2)
-        for marker, code in (("FROM public.schema_migrations", "migration_record"), ("WITH expected(col,typ)", "column_contract"), ("FROM pg_constraint", "constraint_contract")):
+        for marker, code in (("FROM public.schema_migrations", "migration_record"),
+                             ("WITH expected(col,typ,default_sql)", "column_contract"),
+                             ("WITH expected(name,kind,keys,definition)", "constraint_contract"),
+                             ("FROM pg_index", "index_contract")):
             result, queries = self.run_helper("verified_replay", "verified", false_query=marker)
             self.assertIn("migration_298_failure_code=" + code, result.stdout)
+            self.assertNotEqual(result.returncode, 0)
+        for marker, code in (("FROM public.schema_migrations", "record_query"),
+                             ("WITH expected(col,typ,default_sql)", "column_query"),
+                             ("WITH expected(name,kind,keys,definition)", "constraint_query"),
+                             ("FROM pg_index", "index_query")):
+            result, _ = self.run_helper("verified_replay", "verified", error_query=marker)
+            self.assertIn("migration_298_failure_code=" + code, result.stdout)
+            self.assertNotEqual(result.returncode, 0)
         for kwargs in ({"profile": "269"}, {"phase": "unknown"}, {"phase": "postflight"}, {"bad_manifest": True}):
             result, queries = self.run_helper(**kwargs)
             self.assertNotEqual(result.returncode, 0)
@@ -157,6 +172,23 @@ bash "$1" "$2"
             self.assertIn("isolation_boundary", result.stdout)
         result, _ = self.run_helper("vm_semantics", "verified", db="sub2api_v2_test", isolated="sub2api_v2_test")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        for marker, code, failure in (("SELECT current_database()", "isolation_boundary", "false_query"),
+                                      ("SELECT current_database()", "isolation_query", "error_query")):
+            result, _ = self.run_helper("vm_semantics", "verified", db="sub2api_v2_test",
+                                        isolated="sub2api_v2_test", **{failure: marker})
+            self.assertIn("migration_298_failure_code=" + code, result.stdout)
+        result, _ = self.run_helper("vm_semantics", "verified", db="sub2api_v2_test",
+                                    isolated="sub2api_v2_test", fixture_result="wrong")
+        self.assertIn("migration_298_failure_code=vm_semantics", result.stdout)
+
+    def test_installed_schema_queries_are_readonly_in_all_production_phases(self):
+        for phase in ("preflight", "postflight", "verified_replay"):
+            with self.subTest(phase=phase):
+                result, queries = self.run_helper(phase, "verified")
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(queries.count("BEGIN READ ONLY;"), 5)
+                self.assertEqual(queries.count("SET LOCAL search_path = public, pg_catalog;"), 5)
+                self.assertNotRegex(queries, r"(?:^|;)\s*(?:CREATE|ALTER|INSERT|UPDATE|DELETE|DROP)\b")
 
 
 if __name__ == "__main__":

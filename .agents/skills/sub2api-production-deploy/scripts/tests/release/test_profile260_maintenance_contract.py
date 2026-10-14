@@ -39,6 +39,7 @@ PROFILE_GUARDS = {
     "release/migration-244-assert.sh": tuple(str(value) for value in range(241, 271)),
     "release/migration-245-assert.sh": tuple(str(value) for value in range(241, 271)),
     "release/migration-254-assert.sh": tuple(str(value) for value in range(242, 271)),
+    "release/migration-297-assert.sh": ("269", "270"),
     "release/migration-298-assert.sh": ("270",),
     "release/migration-285-assert.sh": ("260", "261", "262", "263", "264", "265", "266", "267", "268", "269", "270"),
 }
@@ -128,6 +129,8 @@ class Profile260MaintenanceContractTest(unittest.TestCase):
     def test_profile_guards_preserve_history_and_reject_unknown_profiles(self) -> None:
         for relative_path, profiles in PROFILE_GUARDS.items():
             cases = [(profile, True) for profile in profiles]
+            if relative_path in {"release/migration-297-assert.sh", "release/migration-298-assert.sh"}:
+                cases += [(profile, False) for profile in RELEASE_PROFILES if profile not in profiles]
             cases += [(value, False) for value in ("271", "0259", "2590", "259;true")]
             for guard in self.guards(relative_path, "profile"):
                 with self.subTest(script=relative_path):
