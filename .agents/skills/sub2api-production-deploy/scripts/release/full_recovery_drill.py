@@ -262,19 +262,29 @@ def guest_run():
     d=cfg(read_json(config_path,True)); proof=read_json(proof_path,True)
     h=helper(d); out=Path("/opt/sub2api-full-recovery"); sd(out); env=guest_environment(d)
     raw=out/"helpers.raw.log"; private_write(raw,b"",0o600)
+    # Keep failure diagnosis structured and root-only without persisting exception text.
+    def stage(name):
+        need(re.fullmatch(r"[a-z_]+",name) is not None,"invalid Guest stage")
+        private_write(out/("stage-"+name),canon({"schema":1,"stage":name}))
+
+    stage("guest_preflight")
     # The formal isolation guard's proof format remains unchanged.
     guard={k:proof[k] for k in ("schema","backend","helper_bundle_sha256","host_namespaces","host_docker_engine_id")}
     private_write(Path("/run/sub2api-recovery-drill-host.json"),canon(guard),0o600)
     private_write(Path("/run/sub2api-recovery-drill-isolated"),(d["recovery_helper_bundle_sha256"]+"\n").encode(),0o600)
+    stage("guest_isolation_guard")
     code,_,_=vals(["bash","-c",'source "$1/recovery-isolation.sh"; recovery_drill_assert_isolated "$2"',"guard",str(h),d["recovery_helper_bundle_sha256"]],env,raw)
     need(code==0,"formal isolation guard rejected Guest")
+    stage("guest_isolation_observation")
     isolated=isolation(d,proof)
+    stage("guest_authorization")
     approval=mod("full_recovery_drill_authorization").verify_authorization(Path(d["authorization_path"]),trust=Path("/opt/sub2api-release-trust/vm-gate-ed25519.pub"),bundle=h,drill_id=d["drill_id"],release_id=d["release_id"],expected_bundle=d["recovery_helper_bundle_sha256"])
     for name in ("artifact_sha256","pre_image_id","approved_identity_sha256","approved_recipient_sha256","guest_manifest_sha256"):
         need(approval[name]==d[name],"approved source differs from config")
     need(approval["collector_sha256"]==sha(Path(__file__).resolve()),"approved collector differs")
     guest_api=mod('full_recovery_guest')
     manifest=guest_api.approved_manifest(Path(d['guest_manifest_path']),approval)
+    stage("guest_prepare_system")
     guest_api.prepare_system(manifest,approval,h,env,raw)
     source_api=mod("full_recovery_source"); artifact=Path(d["artifact_path"]); staged_identity=Path(d["identity_path"])
     for file in (artifact,staged_identity): sf(file,True)
@@ -285,6 +295,7 @@ def guest_run():
     state=Path("/opt/sub2api/backups/release-state")/d["release_id"]; sd(state); point=state/"recovery-point.tar"
     expected={k:approval[k] for k in ("artifact_sha256","artifact_bytes","approved_identity_sha256","approved_recipient_sha256","recipient_type","release_id","pre_image_id")}
     started=int(time.time())
+    stage("guest_decrypt_source")
     source=source_api.decrypt_source(artifact,identity,point,expected=expected,host_namespaces=proof["host_namespaces"])
     private_write(state/"recovery-point.tar.sha256",(sha(point)+"  recovery-point.tar\n").encode(),0o600)
     with artifact.open("rb") as inp,(state/"recovery-point.age").open("xb") as dst:
@@ -294,6 +305,7 @@ def guest_run():
     inventory=out/"source-inventory"
     source_api.extract_archive(point,inventory,release_id=d["release_id"],pre_image_id=d["pre_image_id"])
     guest_api.prepare_source(manifest,approval,inventory,source,h,env,raw)
+    stage("guest_restore_phases")
     render_before=(inventory/"config/app/.recovery-compose-render.sha256").read_text().strip()
     need(SHA.fullmatch(render_before),"archive Compose render missing")
     migrations_before=b"".join(line+b"\n" for line in (inventory/"metadata/postgres.txt").read_bytes().splitlines() if re.fullmatch(rb"[^|]+\.sql\|[0-9a-f]{64}",line))
@@ -351,6 +363,7 @@ def guest_run():
     measured["cleanup"]={"plaintext_destroyed":not point.exists() and not inventory.exists() and not identity.exists() and not staged_identity.exists(),"active_claim_cleared":not Path("/opt/sub2api/releases/.active-release").exists(),"stale_ingress_removed":not (ingress/"applied").exists()}
     candidate_status=collect_candidate(d,proof,approval,out)
     document={"schema":1,"type":"sub2api-full-recovery-measurements","drill_id":d["drill_id"],"created_at":started,"completed_at":int(time.time()),"source":source,"measurements":measured,"recovery_helper_bundle_sha256":d["recovery_helper_bundle_sha256"]}
+    stage("guest_measurement_write")
     private_write(out/"guest-measurements.json",canon(document))
     return {"schema":1,"status":"measured","drill_id":d["drill_id"],"signed_review":"pending","candidate_load_status":candidate_status}
 
