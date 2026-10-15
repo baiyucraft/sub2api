@@ -165,6 +165,11 @@ func standardOpenAIModelsBody(body []byte, fromManifest bool) ([]byte, error) {
 // representations while retaining the source entry's metadata. It never changes
 // the shared response and never synthesizes models absent from this account.
 func projectAccountModelsBody(body []byte, account *Account, group *Group, codex bool) ([]byte, error) {
+	filtered, _, err := filterRetiredOpenAIModelsBody(body, []Account{*account}, codex)
+	if err != nil {
+		return nil, err
+	}
+	body = filtered
 	if account.IsOpenAIPassthroughEnabled() || len(account.GetModelMapping()) == 0 {
 		return body, nil
 	}
