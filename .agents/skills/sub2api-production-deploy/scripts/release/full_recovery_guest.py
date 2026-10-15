@@ -49,6 +49,27 @@ def regular(path: Path, *, mode: int | None = None) -> None:
         require(stat.S_IMODE(info.st_mode) == mode and info.st_uid == 0 and info.st_gid == 0, "private file ownership")
 
 
+def private_directory(path: Path) -> None:
+    """Require an owned, canonical root-only directory for recovery state."""
+    require(path.is_absolute(), "absolute directory required")
+    try:
+        info = path.lstat()
+    except OSError as error:
+        raise GuestPreparationBlocked("private directory unavailable") from error
+    require(stat.S_ISDIR(info.st_mode) and not path.is_symlink(), "private directory required")
+    require(info.st_uid == 0 and info.st_gid == 0 and stat.S_IMODE(info.st_mode) == 0o700,
+            "private directory ownership")
+
+
+def create_private_directory(path: Path) -> Path:
+    """Create one exclusive recovery directory and validate its contract."""
+    require(path.is_absolute(), "absolute directory required")
+    require(not path.exists() and not path.is_symlink(), "preexisting private directory")
+    path.mkdir(mode=0o700)
+    private_directory(path)
+    return path
+
+
 def strict_json(path: Path) -> dict[str, Any]:
     regular(path, mode=0o400)
     require(path.stat().st_size<=4*1024*1024,"manifest size limit")
@@ -310,7 +331,7 @@ def prepare_system(manifest,approval,helpers,env,raw):
     require(service.stdout.decode().strip()=='inactive','actual Guest backup service not inactive')
     state=Path('/opt/sub2api/backups/release-state')/manifest['release_id']
     state.parent.mkdir(parents=True,mode=0o700,exist_ok=True)
-    require(not state.exists() and not state.is_symlink(),"preexisting recovery state")
+    create_private_directory(state)
     maskenv=dict(env,STATE_ROOT=str(state.parent),STATE_DIR=str(state))
     command(['bash',str(helpers/'mask-backup-units.sh')],raw,maskenv)
     return state
@@ -331,6 +352,7 @@ def prepare_source(manifest,approval,inventory,source,helpers,env,raw):
         if item.is_dir(): shutil.copytree(item,target,copy_function=shutil.copy2)
         else: shutil.copy2(item,target)
     state=deploy/'backups/release-state'/manifest['release_id']
+    private_directory(state)
     slot=manifest['active_app']
     slot_bytes=(f"container={slot['container']}\nport={slot['port']}\nimage_id={manifest['pre_image_id']}\nrelease_id={slot['release_id']}\ninstance_id={slot['instance_id']}\n").encode()
     write_private(state/'pre-active-app',slot_bytes,0o600)
