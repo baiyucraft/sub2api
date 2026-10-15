@@ -347,7 +347,9 @@ def decrypt_source(
     recipient_digest = hashlib.sha256(recipient.encode("ascii")).hexdigest()
     _require(recipient_digest == expected["approved_recipient_sha256"], "recipient differs from approval")
     try:
-        result = run_hidden([age_command, "-d", "-i", str(identity), "-o", str(output_tar), str(artifact)], capture_output=True, timeout=900)
+        # age creates its output with 0666 filtered by the child umask. Set it
+        # before creation without changing the caller's process-wide mask.
+        result = run_hidden([age_command, "-d", "-i", str(identity), "-o", str(output_tar), str(artifact)], capture_output=True, timeout=900, umask=0o077)
         _require(result.returncode == 0, "age decryption failed")
         _regular_private(output_tar, maximum=8 * 1024 * 1024 * 1024)
         archive = inspect_archive(output_tar, release_id=expected["release_id"], pre_image_id=expected["pre_image_id"])
