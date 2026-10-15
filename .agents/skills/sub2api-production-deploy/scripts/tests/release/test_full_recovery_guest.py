@@ -141,6 +141,17 @@ class FullRecoveryGuestTests(unittest.TestCase):
                     mime.write_bytes(data)
                     with self.assertRaises(RuntimeError): guest.verify_nginx_runtime(root)
 
+    def test_missing_nginx_upgrade_map_is_added_idempotently(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); path = root / 'nginx.conf'
+            path.write_text('http {\n    include /etc/nginx/sites-enabled/*;\n}\n')
+            self.assertFalse(guest.ensure_nginx_upgrade_map(path))
+            sites = root / 'sites-enabled'; sites.mkdir()
+            (sites / 'sub2api').write_text('proxy_set_header Connection $connection_upgrade;\n')
+            self.assertTrue(guest.ensure_nginx_upgrade_map(path))
+            self.assertIn('map $http_upgrade $connection_upgrade', path.read_text())
+            self.assertFalse(guest.ensure_nginx_upgrade_map(path))
+
     def test_oci_content_chain_is_parsed_as_digest_verified_json(self):
         config = b'{"architecture":"amd64","os":"linux"}'
         config_id = 'sha256:'+hashlib.sha256(config).hexdigest()
