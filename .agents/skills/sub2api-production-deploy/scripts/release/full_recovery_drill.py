@@ -257,6 +257,7 @@ class RedisDelay:
         need(not self.thread.is_alive() and self.failure is None and self.elapsed>60,"actual Guest Redis delay failed")
 
 def guest_run():
+    os.umask(0o077)
     config_path=Path("/etc/sub2api-full-recovery.json"); proof_path=Path("/etc/sub2api-full-recovery-host.json")
     sf(config_path,True); sf(proof_path,True)
     d=cfg(read_json(config_path,True)); proof=read_json(proof_path,True)
@@ -378,7 +379,7 @@ def execute(rootfs: Path, document: dict[str, Any], timeout: int = 7200) -> dict
     for filename,value in (("sub2api-full-recovery.json",document),("sub2api-full-recovery-host.json",proof)):
         private_write(rootfs/"etc"/filename,canon(value))
     service=rootfs/"etc/systemd/system/sub2api-full-recovery.service"
-    service_data="[Unit]\nAfter=docker.service nginx.service\nRequires=docker.service\n[Service]\nType=oneshot\nEnvironment=PYTHONDONTWRITEBYTECODE=1\nExecStart=/usr/bin/python3 -B "+str(helper(document)/"full_recovery_drill.py")+" guest-run\nExecStopPost=/usr/bin/systemctl --no-block poweroff\nTimeoutStartSec=infinity\n[Install]\nWantedBy=multi-user.target\n"
+    service_data="[Unit]\nAfter=docker.service nginx.service\nRequires=docker.service\n[Service]\nType=oneshot\nUMask=0077\nEnvironment=PYTHONDONTWRITEBYTECODE=1\nExecStart=/usr/bin/python3 -B "+str(helper(document)/"full_recovery_drill.py")+" guest-run\nExecStopPost=/usr/bin/systemctl --no-block poweroff\nTimeoutStartSec=infinity\n[Install]\nWantedBy=multi-user.target\n"
     private_write(service,service_data.encode(),0o600)
     wants=service.parent/"multi-user.target.wants"
     need(not wants.is_symlink(),"unsafe Guest systemd wants")

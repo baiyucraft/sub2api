@@ -1,8 +1,10 @@
 """Fail-closed boundaries and actual checkpoint receipt measurement tests."""
 from __future__ import annotations
 from copy import deepcopy
+import configparser
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -84,6 +86,45 @@ class FullRecoveryDrillTests(unittest.TestCase):
         self.assertIn("--private-users=pick",command)
         self.assertIn("--settings=no",command)
         self.assertFalse(any("--bind" in item or "--network-veth" in item or "--network-interface" in item for item in command))
+
+    @unittest.skipUnless(os.name == "posix", "private Guest file modes require POSIX")
+    def test_guest_entry_creates_private_files_before_reading_inputs(self):
+        class InputBoundary(Exception):
+            pass
+        with tempfile.TemporaryDirectory() as temp:
+            probe = Path(temp) / "first-guest-file"
+            def first_input(*args, **kwargs):
+                with probe.open("xb") as stream:
+                    stream.write(b"synthetic Guest entry probe")
+                raise InputBoundary()
+            original_mask = os.umask(0o022)
+            try:
+                with mock.patch.object(drill, "sf", side_effect=first_input), self.assertRaises(InputBoundary):
+                    drill.guest_run()
+                self.assertEqual(probe.stat().st_mode & 0o777, 0o600)
+                self.assertEqual(os.umask(0o077), 0o077)
+            finally:
+                os.umask(original_mask)
+
+    def test_execute_stages_private_service_before_guest_launch(self):
+        class ServiceStaged(Exception):
+            pass
+        service = configparser.RawConfigParser()
+        def capture_service(path, data, mode=0o600):
+            if path.name == "sub2api-full-recovery.service":
+                service.read_string(data.decode())
+                self.assertEqual(mode, 0o600)
+                raise ServiceStaged()
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve() / "rootfs"
+            (root / "etc").mkdir(parents=True)
+            (root / "etc/machine-id").write_text("synthetic-guest-id")
+            with mock.patch.object(drill, "plan", return_value={"status":"planned"}), mock.patch.object(drill, "foreign_resources", return_value="synthetic"), mock.patch.object(drill.os, "readlink", return_value="mnt:[123]"), mock.patch.object(drill, "observed", return_value=b"synthetic-engine"), mock.patch.object(Path, "read_bytes", return_value=b"synthetic-host-id"), mock.patch.object(drill, "private_write", side_effect=capture_service), mock.patch.object(drill.subprocess, "Popen") as launch:
+                with self.assertRaises(ServiceStaged):
+                    drill.execute(root, self.config)
+                launch.assert_not_called()
+        self.assertEqual(service["Service"]["UMask"], "0077")
+        self.assertEqual(service["Service"]["Type"], "oneshot")
 
     def test_guest_helper_environment_excludes_parent_docker_and_secrets(self):
         with mock.patch.dict(drill.os.environ,{"DOCKER_HOST":"unix:///host.sock","RECOVERY_INTERRUPT_AFTER_PHASE":"bad","EXAMPLE_SECRET":"private"}):
