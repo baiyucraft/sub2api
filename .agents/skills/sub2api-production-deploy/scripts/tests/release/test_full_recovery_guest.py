@@ -168,4 +168,11 @@ class FullRecoveryGuestTests(unittest.TestCase):
                 guest.verify_containerd_runtime(Path('/raw'),{})
 
 
+    def test_guest_docker_runtime_disables_nested_runc_keyring_creation(self):
+        self.assertEqual(
+            guest.DAEMON_CONFIG['runtimes']['runc'],
+            {'path': 'runc', 'runtimeArgs': ['--no-new-keyring']},
+        )
+
+
 if __name__=='__main__': unittest.main()

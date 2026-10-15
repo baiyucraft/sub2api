@@ -18,7 +18,12 @@ RELEASE = re.compile(r"[0-9]{3}-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}\Z")
 ROLES = ("app", "postgres", "redis")
 ROOT = Path("/var/lib/sub2api-full-recovery-drills")
 CONTAINERD_SOCKET = "/run/containerd/containerd.sock"
-DAEMON_CONFIG={'features':{'containerd-snapshotter':True},'storage-driver':'overlayfs','iptables':False,'ip6tables':False,'bridge':'none','ip-forward':False,'ip-masq':False}
+# Docker starts restored services inside a systemd-nspawn private-user Guest.
+# runc otherwise tries to create a new kernel session keyring for each nested
+# container; the VM kernel rejects that operation from the private user
+# namespace before the container process starts. Keep the workaround scoped
+# to this isolated runtime instead of weakening the host Docker daemon.
+DAEMON_CONFIG={'features':{'containerd-snapshotter':True},'storage-driver':'overlayfs','iptables':False,'ip6tables':False,'bridge':'none','ip-forward':False,'ip-masq':False,'runtimes':{'runc':{'path':'runc','runtimeArgs':['--no-new-keyring']}}}
 DAEMON_BYTES=json.dumps(DAEMON_CONFIG,sort_keys=True,separators=(',',':')).encode()
 NGINX_MIME_BYTES = 3957
 NGINX_MIME_SHA256 = '632f37cafbdce8ebfba27f7d8264da1ea462880c4961c32354455c8ab722f7c3'
