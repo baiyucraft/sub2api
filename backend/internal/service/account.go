@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/url"
 	"reflect"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -690,8 +691,7 @@ func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]stri
 	}
 	if len(result) > 0 {
 		if a.Platform == domain.PlatformAntigravity {
-			// Explicit mappings define this account's whitelist. Injecting static
-			// defaults re-enables retired models after an upstream model sync.
+			ensureAntigravityDefaultPassthroughs(result, antigravityDefaultPassthroughModels)
 			applyAntigravityGemini31ProAliases(result)
 		}
 		return result
@@ -741,6 +741,72 @@ func modelMappingSignature(rawMapping map[string]any) uint64 {
 	return h.Sum64()
 }
 
+// antigravityDefaultPassthroughModels 是 Antigravity 显式 model_mapping 运行时补齐的默认透传条目：
+// 让新模型发布前保存的映射也能调用这些模型。
+var antigravityDefaultPassthroughModels = []string{
+	"gemini-3-flash",
+	"gemini-3.1-pro-high",
+	"gemini-3.1-pro-low",
+	"gemini-3.6-flash",
+	"gemini-3.6-flash-high",
+	"gemini-3.6-flash-low",
+	"gemini-3.6-flash-medium",
+	"gemini-3.6-flash-tiered",
+	"gemini-3.7-flash",
+	"gemini-3.7-flash-high",
+	"gemini-3.7-flash-low",
+	"gemini-3.7-flash-medium",
+	"gemini-3.7-flash-tiered",
+	"gemini-3.8-flash",
+	"gemini-3.8-flash-high",
+	"gemini-3.8-flash-low",
+	"gemini-3.8-flash-medium",
+	"gemini-3.8-flash-tiered",
+}
+
+// isAntigravityInjectedDefaultPassthrough 判断 GetModelMapping 中的 key→target 是否仅由
+// resolveModelMapping 运行时补齐（管理员未写入 credentials.model_mapping）。
+func (a *Account) isAntigravityInjectedDefaultPassthrough(key, target string) bool {
+	if a == nil || a.Platform != domain.PlatformAntigravity || key != target || !slices.Contains(antigravityDefaultPassthroughModels, key) {
+		return false
+	}
+	rawMapping, _ := a.Credentials["model_mapping"].(map[string]any)
+	hasExplicitEntry := false
+	for _, v := range rawMapping {
+		if _, ok := v.(string); ok {
+			hasExplicitEntry = true
+			break
+		}
+	}
+	if !hasExplicitEntry {
+		// 空映射走默认目录，不做运行时补齐。
+		return false
+	}
+	_, configured := rawMapping[key].(string)
+	return !configured
+}
+
+func ensureAntigravityDefaultPassthrough(mapping map[string]string, model string) {
+	if mapping == nil || model == "" {
+		return
+	}
+	if _, exists := mapping[model]; exists {
+		return
+	}
+	for pattern := range mapping {
+		if matchWildcard(pattern, model) {
+			return
+		}
+	}
+	mapping[model] = model
+}
+
+func ensureAntigravityDefaultPassthroughs(mapping map[string]string, models []string) {
+	for _, model := range models {
+		ensureAntigravityDefaultPassthrough(mapping, model)
+	}
+}
+
 func applyAntigravityGemini31ProAliases(mapping map[string]string) {
 	target := strings.TrimSpace(mapping[domain.AntigravityGemini31ProAgentModel])
 	if target == "" {
@@ -774,13 +840,26 @@ func applyAntigravityGemini31ProAliases(mapping map[string]string) {
 
 	for _, alias := range aliases {
 		current, exists := mapping[alias.model]
-		if !exists {
+		if exists {
+			if _, legacy := alias.legacyTargets[current]; legacy {
+				mapping[alias.model] = target
+			}
 			continue
 		}
-		if _, legacy := alias.legacyTargets[current]; legacy {
-			mapping[alias.model] = target
+		if mappingHasWildcardForModel(mapping, alias.model) {
+			continue
+		}
+		mapping[alias.model] = target
+	}
+}
+
+func mappingHasWildcardForModel(mapping map[string]string, model string) bool {
+	for pattern := range mapping {
+		if matchWildcard(pattern, model) {
+			return true
 		}
 	}
+	return false
 }
 
 func normalizeRequestedModelForLookup(platform, requestedModel string) string {

@@ -340,7 +340,11 @@ func configuredUpstreamModelsForCapabilitySync(account *Account) []string {
 		return nil
 	}
 	models := make([]string, 0)
-	for _, mappedModel := range account.GetModelMapping() {
+	for requestedModel, mappedModel := range account.GetModelMapping() {
+		// Antigravity 运行时补齐的默认透传不是管理员配置的目标，上游目录未列出时不应拉低能力同步完整度。
+		if account.isAntigravityInjectedDefaultPassthrough(requestedModel, mappedModel) {
+			continue
+		}
 		mappedModel = strings.TrimSpace(mappedModel)
 		if mappedModel == "" || strings.Contains(mappedModel, "*") {
 			continue
