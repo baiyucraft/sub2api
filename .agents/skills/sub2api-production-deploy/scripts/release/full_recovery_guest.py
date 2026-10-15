@@ -61,15 +61,6 @@ def private_directory(path: Path) -> None:
             "private directory ownership")
 
 
-def create_private_directory(path: Path) -> Path:
-    """Create one exclusive recovery directory and validate its contract."""
-    require(path.is_absolute(), "absolute directory required")
-    require(not path.exists() and not path.is_symlink(), "preexisting private directory")
-    path.mkdir(mode=0o700)
-    private_directory(path)
-    return path
-
-
 def strict_json(path: Path) -> dict[str, Any]:
     regular(path, mode=0o400)
     require(path.stat().st_size<=4*1024*1024,"manifest size limit")
@@ -331,9 +322,10 @@ def prepare_system(manifest,approval,helpers,env,raw):
     require(service.stdout.decode().strip()=='inactive','actual Guest backup service not inactive')
     state=Path('/opt/sub2api/backups/release-state')/manifest['release_id']
     state.parent.mkdir(parents=True,mode=0o700,exist_ok=True)
-    create_private_directory(state)
+    require(not state.exists() and not state.is_symlink(),"preexisting recovery state")
     maskenv=dict(env,STATE_ROOT=str(state.parent),STATE_DIR=str(state))
     command(['bash',str(helpers/'mask-backup-units.sh')],raw,maskenv)
+    private_directory(state)
     return state
 
 
