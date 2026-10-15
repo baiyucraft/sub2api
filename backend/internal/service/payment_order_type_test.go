@@ -4,9 +4,11 @@ package service
 
 import (
 	"context"
+	"strconv"
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/ent/paymentauditlog"
 	"github.com/Wei-Shaw/sub2api/internal/payment"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/stretchr/testify/require"
@@ -54,12 +56,25 @@ func TestFulfillmentRejectsUnknownOrderType(t *testing.T) {
 	}
 	svc := &PaymentService{entClient: client, userRepo: userRepo}
 
-	err = svc.executeFulfillment(ctx, order.ID)
-	require.Equal(t, "INVALID_ORDER_TYPE", infraerrors.Reason(err))
 	err = svc.ExecuteBalanceFulfillment(ctx, order.ID)
 	require.Equal(t, "INVALID_ORDER_TYPE", infraerrors.Reason(err))
 
+	// 不履约，但标记 FAILED 并正常返回，使支付回调得到确认而不是无限重试。
+	require.NoError(t, svc.executeFulfillment(ctx, order.ID))
 	reloaded, err := client.PaymentOrder.Get(ctx, order.ID)
 	require.NoError(t, err)
-	require.Equal(t, OrderStatusPaid, reloaded.Status)
+	require.Equal(t, OrderStatusFailed, reloaded.Status)
+	require.NotNil(t, reloaded.FailedReason)
+	require.Contains(t, *reloaded.FailedReason, "unsupported order type")
+
+	// 回调重试经 alreadyProcessed 再次进入履约：幂等，不重复写审计。
+	require.NoError(t, svc.executeFulfillment(ctx, order.ID))
+	audits, err := client.PaymentAuditLog.Query().
+		Where(paymentauditlog.OrderIDEQ(strconv.FormatInt(order.ID, 10)), paymentauditlog.ActionEQ("FULFILLMENT_FAILED")).
+		Count(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 1, audits)
+
+	err = svc.RetryFulfillment(ctx, order.ID)
+	require.Equal(t, "INVALID_ORDER_TYPE", infraerrors.Reason(err))
 }
