@@ -89,6 +89,20 @@ def validate_root(root,d):
     b=root/str(helper(d)).lstrip("/"); mod("recovery_drill").verify_helper_bundle(b,d["recovery_helper_bundle_sha256"]); sf(b/"full_recovery_drill.py"); need(sha(b/"full_recovery_drill.py")==sha(Path(__file__).resolve()),"collector drift")
     state=root/"opt/sub2api/backups/release-state"/d["release_id"]; need(not state.exists() and not state.is_symlink(),"preexisting recovery state")
     need(sha(root/d["guest_manifest_path"].lstrip('/'))==d["guest_manifest_sha256"],"Guest manifest drift")
+
+
+def disable_optional_boot_services(root: Path) -> None:
+    """Avoid boot retries before archived Guest configuration is restored."""
+    for name in ("nginx.service", "systemd-resolved.service"):
+        for parent in (
+            root / "etc/systemd/system/multi-user.target.wants",
+            root / "lib/systemd/system/multi-user.target.wants",
+        ):
+            link = parent / name
+            if link.is_symlink():
+                target = link.resolve()
+                need(target.is_file() and target.name == name, "unexpected optional service enablement")
+                link.unlink()
 def plan(root,d):
     cfg(d); p=probe()
     if p["blockers"]: return {**p,"drill_id":d["drill_id"],"required_resources":["offline authorization","approved age identity","encrypted baseline","formal helper bundle","dedicated nspawn rootfs"]}
@@ -372,6 +386,7 @@ def execute(rootfs: Path, document: dict[str, Any], timeout: int = 7200) -> dict
     document=cfg(document)
     prepared=plan(rootfs,document)
     need(prepared.get("status") == "planned", "full drill resources unavailable; Guest not launched")
+    disable_optional_boot_services(rootfs)
     need(type(timeout) is int and 300<=timeout<=7200,"execution timeout")
     foreign_before=foreign_resources()
     proof={"schema":1,"backend":BACKEND,"helper_bundle_sha256":document["recovery_helper_bundle_sha256"],"host_namespaces":{n:os.readlink("/proc/1/ns/"+n) for n in NAMESPACES},"host_docker_engine_id":observed(["docker","info","--format","{{.ID}}"]).decode().strip(),"host_identity_sha256":hashlib.sha256(Path("/etc/machine-id").read_bytes()).hexdigest(),"rootfs_identity_sha256":hashlib.sha256(canon({"device":rootfs.stat().st_dev,"inode":rootfs.stat().st_ino,"guest_machine_id":(rootfs/"etc/machine-id").read_text().strip(),"collector":sha(Path(__file__).resolve())})).hexdigest()}
