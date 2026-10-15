@@ -80,6 +80,31 @@ class FullRecoveryDrillTests(unittest.TestCase):
             with self.assertRaises(RuntimeError): drill.execute(Path("/not-provisioned"),self.config)
             launch.assert_not_called()
 
+    @unittest.skipUnless(os.name == "posix", "Guest systemd links require POSIX")
+    def test_optional_boot_services_resolve_absolute_links_inside_guest_rootfs(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            units = root / "lib/systemd/system"
+            wants = root / "etc/systemd/system/multi-user.target.wants"
+            units.mkdir(parents=True)
+            wants.mkdir(parents=True)
+            for name in ("nginx.service", "systemd-resolved.service"):
+                (units / name).write_text("[Unit]\n")
+                (wants / name).symlink_to("/lib/systemd/system/" + name)
+            drill.disable_optional_boot_services(root)
+            self.assertFalse(any((wants / name).exists() or (wants / name).is_symlink() for name in ("nginx.service", "systemd-resolved.service")))
+
+    @unittest.skipUnless(os.name == "posix", "Guest systemd links require POSIX")
+    def test_optional_boot_services_reject_root_escape(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            wants = root / "etc/systemd/system/multi-user.target.wants"
+            wants.mkdir(parents=True)
+            (wants / "nginx.service").symlink_to("/etc/passwd")
+            with self.assertRaises(RuntimeError):
+                drill.disable_optional_boot_services(root)
+            self.assertTrue((wants / "nginx.service").is_symlink())
+
     def test_launch_has_no_host_bind_or_network_interface(self):
         command=drill.nspawn(Path("/owned/rootfs"),self.config)
         self.assertIn("--private-network",command)
