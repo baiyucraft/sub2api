@@ -159,6 +159,14 @@ class FullRecoveryDrillTests(unittest.TestCase):
         self.assertEqual(env["RECOVERY_FULL_DRILL_ID"],self.config["drill_id"])
         self.assertEqual(env["RECOVERY_DRILL_AUTHORIZATION"],self.config["authorization_path"])
 
+    def test_guest_run_removes_owned_helper_python_cache_before_authorization(self):
+        with tempfile.TemporaryDirectory() as temp:
+            helper = Path(temp) / "helper"; cache = helper / "__pycache__"
+            cache.mkdir(parents=True)
+            (cache / "module.pyc").write_bytes(b"cache")
+            drill.remove_helper_caches(helper)
+            self.assertFalse(cache.exists())
+
     def checkpoint_files(self,root,source):
         payload={"source":source,"recovery_helper_bundle_sha256":self.config["recovery_helper_bundle_sha256"]}
         (root/"identity").write_bytes(evidence.checkpoint_identity_bytes(payload))

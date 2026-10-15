@@ -280,6 +280,12 @@ class RedisDelay:
         self.stop.set(); self.thread.join(timeout=30)
         need(not self.thread.is_alive() and self.failure is None and self.elapsed>60,"actual Guest Redis delay failed")
 
+def remove_helper_caches(root):
+    for cache in root.rglob("__pycache__"):
+        need(cache.is_dir() and not cache.is_symlink(), "unsafe helper cache")
+        shutil.rmtree(cache)
+
+
 def guest_run():
     os.umask(0o077)
     config_path=Path("/etc/sub2api-full-recovery.json"); proof_path=Path("/etc/sub2api-full-recovery-host.json")
@@ -303,6 +309,10 @@ def guest_run():
     stage("guest_isolation_observation")
     isolated=isolation(d,proof)
     stage("guest_authorization")
+    # Python may create a cache directory while importing the signed helper.
+    # Remove only caches inside this owned bundle before its exact inventory is
+    # verified; no helper source or signed asset is changed.
+    remove_helper_caches(h)
     approval=mod("full_recovery_drill_authorization").verify_authorization(Path(d["authorization_path"]),trust=Path("/opt/sub2api-release-trust/vm-gate-ed25519.pub"),bundle=h,drill_id=d["drill_id"],release_id=d["release_id"],expected_bundle=d["recovery_helper_bundle_sha256"])
     for name in ("artifact_sha256","pre_image_id","approved_identity_sha256","approved_recipient_sha256","guest_manifest_sha256"):
         need(approval[name]==d[name],"approved source differs from config")
