@@ -215,6 +215,31 @@ class FullRecoverySourceTests(unittest.TestCase):
         self.assertNotIn("AGE-SECRET", str(result))
         self.assertNotIn(self.recipient, str(result))
 
+    @unittest.skipUnless(os.name == "posix", "child umask requires the Linux Guest API")
+    def test_decryption_creates_private_plaintext_without_changing_caller_umask(self):
+        artifact, identity, expected = self.decrypt_inputs()
+        fixture = self.archive()
+        output = self.root / "output.tar"
+        real_run = source.run_hidden
+        # Exercise the actual subprocess umask with age's output-creation
+        # semantics; the fixture is synthetic and the child never chmods it.
+        program = "import os,sys; fd=os.open(sys.argv[1],os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o666); f=os.fdopen(fd,'wb'); f.write(open(sys.argv[2],'rb').read()); f.close()"
+
+        def simulated_age(command, **kwargs):
+            if "-y" in command:
+                return subprocess.CompletedProcess(command, 0, (self.recipient + "\n").encode(), b"")
+            return real_run([sys.executable, "-c", program, str(output), str(fixture)], **kwargs)
+
+        original_mask = os.umask(0o022)
+        try:
+            with mock.patch.object(source, "assert_isolated_guest"), mock.patch.object(source, "run_hidden", side_effect=simulated_age):
+                result = source.decrypt_source(artifact, identity, output, expected=expected, host_namespaces={})
+            self.assertEqual(output.stat().st_mode & 0o777, 0o600)
+            self.assertTrue(result["decryption_verified"])
+            self.assertEqual(os.umask(0o022), 0o022)
+        finally:
+            os.umask(original_mask)
+
     def test_identity_or_encrypted_hash_drift_stops_before_decrypt(self):
         for key in ("artifact_sha256", "approved_identity_sha256"):
             artifact, identity, expected = self.decrypt_inputs()

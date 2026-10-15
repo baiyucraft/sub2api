@@ -486,4 +486,6 @@ backup_keys
 
 `full_recovery_drill` 的真实 Guest runtime 前置必须同时满足 Docker `29.1.3`、`containerd-snapshotter`/`overlayfs`、daemon 配置 SHA-256 `b19f3cd112d1066390ec91f16034398a19d767869019862c48d5d8c9fdcfcc10`、Compose 插件 SHA-256 `5633cb21e06a7c88c7ca48a9334d3d0f7f892e9605ae9e9a45f9a095d4ffceb8`，并显式校验 `/usr/share/zoneinfo/UTC`。这些是 provisioning/runtime 前置观察，不能单独证明恢复通过；失败必须保留诊断并保持 `verified` 不变。
 
+Guest 服务固定 `UMask=0077`，Guest 入口在处理私钥/明文前设置进程掩码，`age` 解密子进程也显式采用 `0077`；输出从创建时即为 `0600`，不依赖 systemd 默认掩码，也不以事后修改权限或放宽 `0400/0600` 来源校验补救。权限缺陷修复会改变 helper 字节，必须重新生成提交、闭包、授权和独立 drill；旧失败现场保持不可变。
+
 发布后 candidate 必须来自同一 release 的 fresh postrelease capture，且在同一 Guest 产生实际 `docker load/inspect` receipt；`postrelease_baseline` 还要绑定独立 findings、candidate bundle checksum、engine/rootfs identity 与时间窗口。旧 Redis TTL 等式或任一恢复断言失败时，保留旧 `verified`，不得把健康发布报告成灾备基线完成。
