@@ -153,6 +153,39 @@ def private_write(path,data,mode=0o400):
         stream.write(data); stream.flush(); os.fsync(stream.fileno())
 
 
+def _failure_reason_code(error: BaseException) -> str:
+    """Return a bounded, non-secret category for root-only drill diagnostics."""
+    text = str(error).lower()
+    categories = (
+        ("source_approval", ("source approval", "approved source", "recipient differs", "identity differs", "artifact differs")),
+        ("guest_isolation", ("namespace", "route", "interface", "uid mapping", "isolated guest")),
+        ("source_decryption", ("age decryption", "decrypt", "identity recipient")),
+        ("source_archive", ("archive", "tar member", "manifest", "checksum inventory")),
+        ("input_filesystem", ("private file", "output directory", "regular private", "no such file", "permission")),
+    )
+    for code, needles in categories:
+        if any(needle in text for needle in needles):
+            return code
+    return "unclassified"
+
+
+def _write_failure_marker(out: Path, stage_name: str, error: BaseException) -> None:
+    """Persist only a stable category; never copy exception text to evidence."""
+    marker = {
+        "schema": 1,
+        "status": "blocked",
+        "stage": stage_name,
+        "error_type": type(error).__name__,
+        "reason_code": _failure_reason_code(error),
+    }
+    try:
+        private_write(out / "failure.json", canon(marker), 0o400)
+    except Exception:
+        # Preserve the original failure if the diagnostic marker itself cannot
+        # be created; the controller still reports a blocked drill.
+        pass
+
+
 def collect_candidate(d,proof,approval,out):
     """Optional postrelease work executes inside the already measured Guest.
 
@@ -335,11 +368,15 @@ def guest_run():
     need(not private_root.exists(),"private identity copy already exists")
     private_root.mkdir(parents=True,mode=0o700); os.chmod(private_root.parent,0o700)
     identity=private_root/"identity.age"; private_write(identity,staged_identity.read_bytes(),0o600); staged_identity.unlink()
-    state=Path("/opt/sub2api/backups/release-state")/d["release_id"]; sd(state); point=state/"recovery-point.tar"
-    expected={k:approval[k] for k in ("artifact_sha256","artifact_bytes","approved_identity_sha256","approved_recipient_sha256","recipient_type","release_id","pre_image_id")}
     started=int(time.time())
     stage("guest_decrypt_source")
-    source=source_api.decrypt_source(artifact,identity,point,expected=expected,host_namespaces=proof["host_namespaces"])
+    try:
+        state=Path("/opt/sub2api/backups/release-state")/d["release_id"]; sd(state); point=state/"recovery-point.tar"
+        expected={k:approval[k] for k in ("artifact_sha256","artifact_bytes","approved_identity_sha256","approved_recipient_sha256","recipient_type","release_id","pre_image_id")}
+        source=source_api.decrypt_source(artifact,identity,point,expected=expected,host_namespaces=proof["host_namespaces"])
+    except Exception as error:
+        _write_failure_marker(out, "guest_decrypt_source", error)
+        raise
     private_write(state/"recovery-point.tar.sha256",(sha(point)+"  recovery-point.tar\n").encode(),0o600)
     with artifact.open("rb") as inp,(state/"recovery-point.age").open("xb") as dst:
         shutil.copyfileobj(inp,dst)
@@ -443,7 +480,16 @@ def execute(rootfs: Path, document: dict[str, Any], timeout: int = 7200) -> dict
             raise FullDrillBlocked("owned Guest timed out; evidence preserved")
     need(code==0,"Guest process failed; evidence preserved")
     nomount(rootfs)
-    path=out/"guest-measurements.json"; sf(path,True)
+    path=out/"guest-measurements.json"
+    if not path.is_file():
+        failure=out/"failure.json"
+        if failure.is_file():
+            sf(failure,True)
+            marker=read_json(failure,True)
+            if set(marker)=={"schema","status","stage","error_type","reason_code"} and marker.get("status")=="blocked":
+                raise FullDrillBlocked("Guest failed at %s (%s)" % (marker["stage"], marker["reason_code"]))
+        raise FullDrillBlocked("Guest measurement missing; root-only diagnostics preserved")
+    sf(path,True)
     receipt=read_json(path,True); validate_guest_receipt(receipt,document)
     isolated=receipt["measurements"]["isolation"]
     need(isolated["host_identity_sha256"]==proof["host_identity_sha256"] and isolated["rootfs_identity_sha256"]==proof["rootfs_identity_sha256"] and isolated["host_docker_engine_id_sha256"]==hashlib.sha256(proof["host_docker_engine_id"].encode()).hexdigest(),"independent host isolation binding differs")
