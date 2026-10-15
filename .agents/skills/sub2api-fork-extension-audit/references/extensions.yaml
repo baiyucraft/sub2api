@@ -1758,6 +1758,7 @@
         "已授权发布或恢复演练的新备份加密identity由执行器自行复用或生成唯一age X25519版本，不再询问生成或要求用户提供私钥/路径；工作区外专属持久存储与隔离Guest临时副本分别保管，验证Linux权限或Windows ACL、指纹、加解密自检和新资产真实恢复；新key不解旧密文、不回写旧证据、不替换Gate/DR Ed25519信任根、不静默切换daily recipient，历史恢复缺口如实报告且不豁免独立真实演练/签名/晋升门禁",
         "Gate前真实生产加密来源使用独立capture与Guest source verifier，PG dump/counts/digests/migrations同export snapshot、globals独立catalog read、Redis独立RDB，明确cross_store_writes_frozen=false且不替代正式停写恢复点；隔离执行授权使用sub2api-isolated-recovery-authorization独立domain绑定最终完整helper/collector/guard/verifier/来源identity与两小时有效期，不表示Gate通过。context先验签再完整隔离验证，真实collector receipt完成后独立审阅并用既有Ed25519身份发行schema2完整审阅，原严格verifier不放宽，失败保留诊断且不发行pass",
         "真实恢复Guest服务UMask=0077、入口进程掩码与age解密子进程掩码共同固定私钥/明文创建权限；输出从创建时为0600，不以事后chmod或放宽0400/0600普通单链接来源校验补救，helper修复后以新commit/bundle/authorization/drill重新验证，旧失败证据不可变",
+        "真实Guest离线镜像引用重建使用Docker unit绑定的system containerd Unix socket与moby namespace，通过content get校验捕获OCI index/amd64 manifest/config的SHA链，不把ctr inspect人类文本当JSON，不用当前tag猜测历史镜像，重建后仍核对原Compose引用image ID。Nginx mime.types来自已批准rootfs运行数据并绑定固定字节数/SHA与root0644单链接权限，stage及Guest系统准备均先验；不改生产主配置隐藏缺依赖，runtime前置不证明完整恢复",
         "285 的 VM 临时表语义、生产只读函数原文指纹/trigger 和 verified replay 均绑定 signed Gate；精确审阅仅覆盖五条迁移门禁路径、完整 before/after SHA 与 Git blob/模式，不豁免恢复算法",
         "doctor、生产快照与 Shell preflight 共用签名 runtime-identity.sh；digest 运行镜像仅在唯一 full-SHA 发布标签时归因，快照一致性与标签冲突回归在 VM 实际执行",
         "新增 profile 成套覆盖 Python 与 Shell 验证、签名、生产、恢复、备份和清理入口；当前 profile 正向、历史 profile 不变与未登记 profile 拒绝测试共同通过",

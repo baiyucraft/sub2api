@@ -17,8 +17,11 @@ DRILL = re.compile(r"full-dr-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]
 RELEASE = re.compile(r"[0-9]{3}-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}\Z")
 ROLES = ("app", "postgres", "redis")
 ROOT = Path("/var/lib/sub2api-full-recovery-drills")
+CONTAINERD_SOCKET = "/run/containerd/containerd.sock"
 DAEMON_CONFIG={'features':{'containerd-snapshotter':True},'storage-driver':'overlayfs','iptables':False,'ip6tables':False,'bridge':'none','ip-forward':False,'ip-masq':False}
 DAEMON_BYTES=json.dumps(DAEMON_CONFIG,sort_keys=True,separators=(',',':')).encode()
+NGINX_MIME_BYTES = 3957
+NGINX_MIME_SHA256 = '632f37cafbdce8ebfba27f7d8264da1ea462880c4961c32354455c8ab722f7c3'
 
 
 class GuestPreparationBlocked(RuntimeError):
@@ -116,6 +119,7 @@ def stage(rootfs: Path, manifest_path: Path) -> dict[str, Any]:
     input_dir = rootfs / "opt/sub2api-full-recovery-input"
     require(input_dir.is_dir() and not input_dir.is_symlink(), "Guest input directory")
     require(not any(line.split()[4]==str(rootfs) or line.split()[4].startswith(str(rootfs)+'/') for line in Path('/proc/self/mountinfo').read_text().splitlines()),"Guest rootfs is mounted")
+    verify_nginx_runtime(rootfs)
     plugin=rootfs/'usr/libexec/docker/cli-plugins/docker-compose'
     if not plugin.exists():
         candidates=[Path(p) for p in ('/usr/libexec/docker/cli-plugins/docker-compose','/usr/lib/docker/cli-plugins/docker-compose','/usr/local/lib/docker/cli-plugins/docker-compose','/root/.docker/cli-plugins/docker-compose')]
@@ -171,8 +175,105 @@ def command(argv,raw,env=None):
     return result.stdout
 
 
+def verify_nginx_runtime(root=Path('/')):
+    """Require package runtime data before restoring the source configuration."""
+    mime = root / 'etc/nginx/mime.types'
+    regular(mime, mode=0o644)
+    require(mime.stat().st_size == NGINX_MIME_BYTES and digest(mime) == NGINX_MIME_SHA256,
+            'Guest Nginx MIME data unavailable or differs from approved package')
+
+
+def verify_oci_content(digest_ref, raw, env):
+    """Verify the captured OCI index and its linux/amd64 manifest by content digest."""
+    require(IMAGE.fullmatch(digest_ref), 'invalid OCI content digest')
+    ctr = ['ctr', '--address', CONTAINERD_SOCKET, '--namespace', 'moby', 'content', 'get', digest_ref]
+    blob = command(ctr, raw, env)
+    require(hashlib.sha256(blob).hexdigest() == digest_ref.split(':', 1)[1],
+            'OCI content digest differs')
+    try:
+        index = json.loads(blob)
+    except (ValueError, UnicodeDecodeError) as error:
+        raise GuestPreparationBlocked('OCI index content is not JSON') from error
+    require(isinstance(index, dict) and set(index) == {'schemaVersion', 'mediaType', 'manifests'} and index['schemaVersion'] == 2,
+            'OCI index fields')
+    require(index['mediaType'] in {
+        'application/vnd.oci.image.index.v1+json',
+        'application/vnd.docker.distribution.manifest.list.v2+json',
+    }, 'OCI index media type')
+    manifests = index['manifests']
+    require(isinstance(manifests, list), 'OCI manifest list')
+    candidates = [item for item in manifests if isinstance(item, dict) and item.get('platform', {}).get('os') == 'linux' and item.get('platform', {}).get('architecture') == 'amd64']
+    require(len(candidates) == 1, 'linux amd64 manifest is not unique')
+    selected = candidates[0]
+    manifest_digest = selected.get('digest')
+    require(isinstance(manifest_digest, str) and IMAGE.fullmatch(manifest_digest), 'OCI manifest digest')
+    manifest_blob = command(['ctr', '--address', CONTAINERD_SOCKET, '--namespace', 'moby', 'content', 'get', manifest_digest], raw, env)
+    require(hashlib.sha256(manifest_blob).hexdigest() == manifest_digest.split(':', 1)[1],
+            'OCI manifest content digest differs')
+    try:
+        manifest = json.loads(manifest_blob)
+    except (ValueError, UnicodeDecodeError) as error:
+        raise GuestPreparationBlocked('OCI manifest content is not JSON') from error
+    require(isinstance(manifest, dict) and manifest.get('schemaVersion') == 2 and manifest.get('mediaType') in {
+        'application/vnd.oci.image.manifest.v1+json',
+        'application/vnd.docker.distribution.manifest.v2+json',
+    } and isinstance(manifest.get('config'), dict), 'OCI manifest config missing')
+    config_digest = manifest['config'].get('digest')
+    require(isinstance(config_digest, str) and IMAGE.fullmatch(config_digest), 'OCI config digest')
+    config_blob = command(['ctr', '--address', CONTAINERD_SOCKET, '--namespace', 'moby', 'content', 'get', config_digest], raw, env)
+    require(hashlib.sha256(config_blob).hexdigest() == config_digest.split(':', 1)[1],
+            'OCI config content digest differs')
+    try:
+        config = json.loads(config_blob)
+    except (ValueError, UnicodeDecodeError) as error:
+        raise GuestPreparationBlocked('OCI config content is not JSON') from error
+    require(isinstance(config, dict) and config.get('os') == 'linux' and config.get('architecture') == 'amd64',
+            'OCI config platform differs')
+
+
+def verify_containerd_runtime(raw, env):
+    """Bind ctr to the Docker service's configured system containerd."""
+    socket = Path(CONTAINERD_SOCKET)
+    info = socket.lstat()
+    require(not socket.is_symlink() and stat.S_ISSOCK(info.st_mode) and info.st_uid == 0,
+            'Docker containerd socket is not a root-owned Unix socket')
+    require(stat.S_IMODE(info.st_mode) == 0o660, 'Docker containerd socket mode differs')
+    unit = command(['systemctl', 'show', 'docker.service', '--property=ExecStart', '--value'], raw, env).decode(errors='replace')
+    require(re.search(r'(?:^|\s)--containerd=' + re.escape(CONTAINERD_SOCKET) + r'(?:\s|;|$)', unit),
+            'Docker service containerd socket differs')
+
+
+def restore_image_references(image_lines, expected, raw, env):
+    """Rebuild captured digest references in the owned Docker image store."""
+    require({line.split()[-1] for line in image_lines} == expected,
+            'archived image inventory differs')
+    ctr = ['ctr', '--address', CONTAINERD_SOCKET, '--namespace', 'moby', 'images']
+    for line in image_lines:
+        parts = line.split(); require(len(parts) == 3, 'archive image metadata')
+        if '@sha256:' in parts[1]:
+            require(parts[1].split('@', 1)[1] == parts[2],
+                    'source registry digest differs from OCI descriptor')
+            require(re.fullmatch(r'(?:docker\.io/)?(?:library/)?(?:postgres|redis)@sha256:[0-9a-f]{64}', parts[1]),
+                    'unsupported immutable source image reference')
+            verify_oci_content(parts[2], raw, env)
+            refs = command([*ctr, 'list', '--quiet'], raw, env).decode().splitlines()
+            repository = parts[1].split('@', 1)[0]
+            if not repository.startswith('docker.io/'):
+                repository = 'docker.io/' + ('library/' if '/' not in repository else '') + repository
+            reference = repository + '@' + parts[2]
+            if reference not in refs:
+                matched = next((ref for ref in refs if ref.endswith('@' + parts[2])), None)
+                require(matched, 'exact OCI image reference missing from containerd')
+                command([*ctr, 'tag', matched, reference], raw, env)
+        else:
+            verify_oci_content(parts[2], raw, env)
+        actual = command(['docker', 'image', 'inspect', '--format', '{{.Id}}', parts[1]], raw, env).decode().strip()
+        require(actual == parts[2], 'original Compose image reference unavailable offline')
+
+
 def prepare_system(manifest,approval,helpers,env,raw):
     verify_inputs(manifest)
+    verify_nginx_runtime()
     plugin=Path('/usr/libexec/docker/cli-plugins/docker-compose'); regular(plugin)
     require(digest(plugin)==manifest['compose_plugin_sha256'],"Guest Compose plugin differs")
     config=Path('/etc/docker/daemon.json'); regular(config,mode=0o600)
@@ -275,28 +376,11 @@ def prepare_source(manifest,approval,inventory,source,helpers,env,raw):
         shutil.copytree(item,target,copy_function=shutil.copy2)
     image_lines=(inventory/'metadata/images.txt').read_text().splitlines()
     expected={item['image_id'] for item in manifest['images']}
-    require({line.split()[-1] for line in image_lines}==expected,"archived image inventory differs")
     # Compose may refer to immutable repo digests that docker-save does not
     # preserve as RepoDigests. Require the original references to resolve to
     # their exact captured image IDs before starting anything; never pull.
-    for line in image_lines:
-        parts=line.split(); require(len(parts)==3,"archive image metadata")
-        if '@sha256:' in parts[1]:
-            require(parts[1].split('@',1)[1]==parts[2],'source registry digest differs from OCI descriptor')
-            require(re.fullmatch(r'(?:docker\.io/)?(?:library/)?(?:postgres|redis)@sha256:[0-9a-f]{64}',parts[1]),'unsupported immutable source image reference')
-            refs=command(['ctr','--address','/run/docker/containerd/containerd.sock','--namespace','moby','images','list','--quiet'],raw,env).decode().splitlines()
-            matched=[]
-            for ref in refs:
-                value=command(['ctr','--address','/run/docker/containerd/containerd.sock','--namespace','moby','images','inspect',ref],raw,env)
-                item=json.loads(value)
-                if item.get('target',item.get('Target',{})).get('digest',item.get('target',item.get('Target',{})).get('Digest'))==parts[2]: matched.append(ref)
-            require(matched,'exact OCI image descriptor missing from containerd')
-            repository=parts[1].split('@',1)[0]
-            if not repository.startswith('docker.io/'): repository='docker.io/'+('library/' if '/' not in repository else '')+repository
-            reference=repository+'@'+parts[2]
-            if reference not in refs: command(['ctr','--address','/run/docker/containerd/containerd.sock','--namespace','moby','images','tag',matched[0],reference],raw,env)
-        actual=command(['docker','image','inspect','--format','{{.Id}}',parts[1]],raw,env).decode().strip()
-        require(actual==parts[2],"original Compose image reference unavailable offline")
+    verify_containerd_runtime(raw, env)
+    restore_image_references(image_lines, expected, raw, env)
     shell='set -Eeuo pipefail; source "$1/recovery-compose.sh"; recovery_compose_verify_live "$2/config/app" /opt/sub2api "$3"; cd /opt/sub2api; load_release_compose_files /opt/sub2api; docker compose "${release_compose_args[@]}" up -d --pull never postgres redis; for x in sub2api-postgres sub2api-redis; do for n in {1..90}; do [[ $(docker inspect -f "{{.State.Health.Status}}" "$x") == healthy ]] && break; sleep 2; done; [[ $(docker inspect -f "{{.State.Health.Status}}" "$x") == healthy ]]; done'
     command(['bash','-c',shell,'prepare',str(helpers),str(inventory),manifest['pre_image_id']],raw,env)
     command(['nginx','-t'],raw,env); command(['systemctl','start','nginx'],raw,env)

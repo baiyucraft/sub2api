@@ -488,4 +488,8 @@ backup_keys
 
 Guest 服务固定 `UMask=0077`，Guest 入口在处理私钥/明文前设置进程掩码，`age` 解密子进程也显式采用 `0077`；输出从创建时即为 `0600`，不依赖 systemd 默认掩码，也不以事后修改权限或放宽 `0400/0600` 来源校验补救。权限缺陷修复会改变 helper 字节，必须重新生成提交、闭包、授权和独立 drill；旧失败现场保持不可变。
 
+Guest Docker unit 使用 system containerd 的 `/run/containerd/containerd.sock`，离线镜像引用重建必须先核对 socket 的 Unix 类型、root owner、`0660` 权限及 Docker `ExecStart` 的 `--containerd` 地址，再连接同一 socket 和 `moby` namespace。`ctr images inspect` 是人类可读树形输出，不能当作 JSON；执行器直接 `ctr content get` 读取精确目标 OCI index、linux/amd64 manifest 和 config，逐项校验内容 SHA-256。只从与捕获摘要一致的现有引用重建 digest 引用，再以 `docker image inspect` 精确核验原引用的 image ID。禁止用当前 tag 猜测历史 descriptor、拉取、改写 Compose 或忽略摘要不匹配。当前 Guest 工具版本支持的 CLI 必须现场核验，不能以宿主工具的接口推断 Guest。
+
+Guest provisioning 还须从已批准 rootfs 的 Nginx 运行数据提供 `/etc/nginx/mime.types`，保持 root `0644`、普通单链接文件，并绑定 3957 bytes 与 SHA-256 `632f37cafbdce8ebfba27f7d8264da1ea462880c4961c32354455c8ab722f7c3`；该摘要证明与批准来源同字节，不声称未取得的 dpkg 软件包来源。`stage` 与 Guest 系统准备都在服务写入前核验这一运行依赖。清空旧 Nginx 配置时不能连同运行数据一起遗漏，也不能修改捕获的生产主配置来隐藏缺失。正式 `nginx -t` 和恢复验真仍须执行；前置依赖通过不等于恢复通过。
+
 发布后 candidate 必须来自同一 release 的 fresh postrelease capture，且在同一 Guest 产生实际 `docker load/inspect` receipt；`postrelease_baseline` 还要绑定独立 findings、candidate bundle checksum、engine/rootfs identity 与时间窗口。旧 Redis TTL 等式或任一恢复断言失败时，保留旧 `verified`，不得把健康发布报告成灾备基线完成。
