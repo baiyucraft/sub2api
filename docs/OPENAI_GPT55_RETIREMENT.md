@@ -16,6 +16,9 @@ clients to authenticate to Sub2API:
   filters stale/pinned catalog entries before calculating the client ETag.
 - Explicit administrator mappings to a supported replacement remain valid.
   Aliases mapped *to* GPT-5.5 are excluded from ChatGPT account routing.
+  Remote catalogs are projected to public aliases before retirement filtering,
+  using the same single mapping step as routing. Source metadata and shared
+  upstream caches are preserved, including when source IDs are also alias keys.
 - Unsupported requests return the existing `model_not_found` error with migration
   guidance when the availability diagnosis identifies a retired subscription
   target. Client chat requests are not silently rewritten to a replacement.

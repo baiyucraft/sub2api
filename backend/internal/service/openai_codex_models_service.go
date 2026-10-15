@@ -211,7 +211,7 @@ func (s *OpenAIGatewayService) MergeGroupConfiguredCodexModels(
 		}
 		changed = true
 	}
-	filtered, retired, err := filterRetiredOpenAIModelsBody(body, accounts, true)
+	filtered, retired, err := filterRetiredOpenAIPublicModelsBody(body, accounts, true)
 	if err != nil {
 		return fmt.Errorf("filter retired Codex models: %w", err)
 	}

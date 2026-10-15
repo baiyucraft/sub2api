@@ -47,9 +47,10 @@ func filterRetiredOpenAIModelIDs(accounts []Account, models []string) []string {
 	return filtered
 }
 
-// Apply after account/group mappings, including on cached upstream catalogs,
-// and before the final client ETag is calculated. Preserve unknown fields.
-func filterRetiredOpenAIModelsBody(body []byte, accounts []Account, codex bool) ([]byte, bool, error) {
+// Entries must already use client-visible names, not raw upstream IDs. Resolve
+// each public name exactly as routing does, after projection and before the
+// final client ETag is calculated. Preserve unknown fields.
+func filterRetiredOpenAIPublicModelsBody(body []byte, accounts []Account, codex bool) ([]byte, bool, error) {
 	field, idField := "data", "id"
 	if codex {
 		field, idField = "models", "slug"

@@ -115,6 +115,68 @@ func TestGPT55RetirementAccountProjection(t *testing.T) {
 	}
 }
 
+func TestGPT55RetirementProjectionUsesPublicNames(t *testing.T) {
+	for _, codex := range []bool{false, true} {
+		field, idField := "data", "id"
+		if codex {
+			field, idField = "models", "slug"
+		}
+		for _, tc := range []struct {
+			name        string
+			mapping     map[string]any
+			passthrough bool
+			api         bool
+			want        map[string]string
+		}{
+			{"one-hop", map[string]any{"legacy": "gpt-5.5", "gpt-5.5": "gpt-6.1-sol"}, false, false, map[string]string{"gpt-5.5": "live"}},
+			{"crossed", map[string]any{"gpt-6.1-sol": "gpt-5.5", "gpt-5.5": "gpt-6.1-sol"}, false, false, map[string]string{"gpt-5.5": "live"}},
+			{"wildcard", map[string]any{"legacy*": "gpt-5.5", "gpt-5.5": "gpt-6.1-sol"}, false, false, map[string]string{"gpt-5.5": "live"}},
+			{"passthrough", map[string]any{"gpt-6.1-sol": "gpt-5.5", "gpt-5.5": "gpt-6.1-sol"}, true, false, map[string]string{"gpt-6.1-sol": "live"}},
+			{"api", map[string]any{"legacy": "gpt-5.5", "gpt-5.5": "gpt-6.1-sol"}, false, true, map[string]string{"legacy": "retired", "gpt-5.5": "live"}},
+		} {
+			t.Run(field+"/"+tc.name, func(t *testing.T) {
+				account := &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth,
+					Credentials: map[string]any{"model_mapping": tc.mapping}, Extra: map[string]any{"openai_passthrough": tc.passthrough}}
+				if tc.api {
+					account.Type = AccountTypeAPIKey
+				}
+				group := &Group{Platform: PlatformOpenAI, ModelAllowlist: GroupModelAllowlist{Enabled: true, Models: []string{"legacy", "gpt-5.5", "gpt-6.1-sol"}}}
+				body, err := json.Marshal(map[string]any{field: []map[string]any{
+					{idField: "gpt-5.5", "source": "retired"}, {idField: "gpt-6.1-sol", "source": "live"},
+				}, "unknown_top": true})
+				require.NoError(t, err)
+				original := string(body)
+				got, err := projectAccountModelsBody(body, account, group, codex)
+				require.NoError(t, err)
+				require.Equal(t, original, string(body), "shared upstream cache must remain unchanged")
+				require.True(t, gjson.GetBytes(got, "unknown_top").Bool())
+				entries := gjson.GetBytes(got, field).Array()
+				require.Len(t, entries, len(tc.want), string(got))
+				for _, entry := range entries {
+					id := entry.Get(idField).String()
+					require.Contains(t, tc.want, id)
+					require.Equal(t, tc.want[id], entry.Get("source").String(), "metadata must come from the one-hop upstream target")
+					require.True(t, account.IsModelSupported(id), "catalog and routing must agree for %s", id)
+				}
+				if codex {
+					response := &OpenAIModelsResponse{Body: body, ETag: CodexModelsManifestETag(body)}
+					require.NoError(t, ApplyPinnedCodexModelsMapping(response, account, group))
+					require.JSONEq(t, string(got), string(response.Body))
+					require.Equal(t, codexModelsManifestBodyETag(response.Body), response.ETag)
+					group.ID = 1
+					group.CodexModelsManifestConfig.Enabled = true
+					service := &OpenAIGatewayService{accountRepo: codexModelsVisibilityAccountRepo{byGroup: map[int64][]Account{1: {*account}}}}
+					require.NoError(t, service.MergeGroupConfiguredCodexModels(context.Background(), group, response, CodexModelsManifestETag(body)))
+					require.False(t, response.NotModified, "an upstream ETag must not hide the projected catalog")
+					require.Equal(t, codexModelsManifestBodyETag(response.Body), response.ETag)
+					require.NoError(t, service.MergeGroupConfiguredCodexModels(context.Background(), group, response, response.ETag))
+					require.True(t, response.NotModified, "the final public ETag must support conditional requests")
+				}
+			})
+		}
+	}
+}
+
 func TestGPT55RetirementCompactFallbackKeepsSelectedModel(t *testing.T) {
 	for _, passthrough := range []bool{false, true} {
 		account := &Account{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Concurrency: 1,
