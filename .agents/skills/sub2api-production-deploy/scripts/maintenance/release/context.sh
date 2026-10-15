@@ -39,7 +39,7 @@ if [[ -n ${RECOVERY_ASSETS_DIR:-} ]]; then
     [[ -f $recovery_trust && ! -L $recovery_trust ]] || return 1
     # Authenticate the separate envelope before sourcing either shell guard
     # or Python verifier. No Gate signer or fake evidence is involved.
-    /usr/bin/python3 -I - "$recovery_authorization" "$recovery_trust" "$recovery_assets" <<'PY'
+    /usr/bin/python3 -B -I - "$recovery_authorization" "$recovery_trust" "$recovery_assets" <<'PY'
 import base64, hashlib, json, pathlib, sys
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
@@ -71,7 +71,7 @@ PY
     [[ $? == 0 ]] || return 1
     source "$recovery_assets/recovery-isolation.sh"
     recovery_drill_assert_isolated "$RECOVERY_HELPER_BUNDLE_SHA256" || return 1
-    /usr/bin/python3 -I "$recovery_assets/full_recovery_drill_authorization.py" \
+    /usr/bin/python3 -B -I "$recovery_assets/full_recovery_drill_authorization.py" \
       --authorization "$recovery_authorization" --trust "$recovery_trust" \
       --bundle "$recovery_assets" --drill-id "$RECOVERY_FULL_DRILL_ID" \
       --release-id "$release_id" --expected-bundle "$RECOVERY_HELPER_BUNDLE_SHA256" \
