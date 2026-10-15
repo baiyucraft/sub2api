@@ -170,9 +170,20 @@ class FullRecoveryGuestTests(unittest.TestCase):
 
     def test_guest_docker_runtime_disables_nested_runc_keyring_creation(self):
         self.assertEqual(
-            guest.DAEMON_CONFIG['runtimes']['runc'],
+            guest.DAEMON_CONFIG['runtimes'][guest.OFFLINE_RUNTIME_NAME],
             {'path': 'runc', 'runtimeArgs': ['--no-new-keyring']},
         )
+        self.assertEqual(guest.DAEMON_CONFIG['default-runtime'], guest.OFFLINE_RUNTIME_NAME)
+        guest.validate_daemon_runtime_config()
+
+    def test_reserved_builtin_runc_runtime_is_rejected(self):
+        original = guest.OFFLINE_RUNTIME_NAME
+        try:
+            guest.OFFLINE_RUNTIME_NAME = 'runc'
+            with self.assertRaisesRegex(RuntimeError, 'reserved'):
+                guest.validate_daemon_runtime_config()
+        finally:
+            guest.OFFLINE_RUNTIME_NAME = original
 
 
 if __name__=='__main__': unittest.main()
