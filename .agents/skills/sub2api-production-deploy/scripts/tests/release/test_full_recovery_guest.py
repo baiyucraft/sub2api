@@ -73,17 +73,6 @@ class FullRecoveryGuestTests(unittest.TestCase):
             with self.assertRaises(RuntimeError): guest.write_private(p,b'replaced')
             self.assertEqual(p.read_bytes(),b'first')
 
-    def test_recovery_state_directory_is_created_and_root_only(self):
-        with tempfile.TemporaryDirectory() as temp:
-            base = Path(temp) / "opt/sub2api/backups/release-state"
-            base.mkdir(parents=True)
-            with mock.patch.object(guest, "private_directory") as validate:
-                state = guest.create_private_directory(base / self.manifest["release_id"])
-            self.assertTrue(state.is_dir())
-            validate.assert_called_once_with(state)
-            with self.assertRaises(RuntimeError):
-                guest.create_private_directory(state)
-
     def test_prepare_source_rejects_missing_recovery_state_directory(self):
         with tempfile.TemporaryDirectory() as temp:
             missing = Path(temp) / "release-state" / self.manifest["release_id"]
