@@ -221,6 +221,30 @@ def verify_nginx_runtime(root=Path('/')):
             'Guest Nginx MIME data unavailable or differs from approved package')
 
 
+def ensure_nginx_upgrade_map(path):
+    """Close the restored Nginx config when an ingress references the map.
+
+    Older production snapshots contain ``$connection_upgrade`` references but
+    omit the corresponding http-level map.  Add only that deterministic,
+    idempotent declaration; all other restored bytes remain unchanged.
+    """
+    text = path.read_text()
+    references = [text]
+    for directory in ('conf.d', 'sites-enabled', 'snippets'):
+        root = path.parent / directory
+        if root.is_dir():
+            references.extend(item.read_text() for item in root.iterdir() if item.is_file())
+    combined = '\n'.join(references)
+    if '$connection_upgrade' not in combined or re.search(r'\bmap\s+\$http_upgrade\s+\$connection_upgrade\b', combined):
+        return False
+    marker = '    map $http_upgrade $connection_upgrade {\n        default upgrade;\n        \'\' close;\n    }\n\n'
+    match = re.search(r'(^http\s*\{\n)', text, re.MULTILINE)
+    require(match is not None, 'Nginx http context missing for upgrade map')
+    updated = text[:match.end()] + marker + text[match.end():]
+    path.write_text(updated)
+    return True
+
+
 def verify_oci_content(digest_ref, raw, env):
     """Verify the captured OCI index and its linux/amd64 manifest by content digest."""
     require(IMAGE.fullmatch(digest_ref), 'invalid OCI content digest')
@@ -407,6 +431,7 @@ def prepare_source(manifest,approval,inventory,source,helpers,env,raw):
             if p.name.startswith('.'): continue
             dst=target/p.name; require(not dst.is_symlink(),"Nginx target symlink")
             shutil.copy2(p,dst)
+    ensure_nginx_upgrade_map(Path('/etc/nginx/nginx.conf'))
     if (ng/'observability.conf').exists(): shutil.copy2(ng/'observability.conf',Path('/etc/nginx/conf.d/sub2api-release-observability.conf'))
     cert=inventory/'config/certbot'
     Path('/etc/letsencrypt').mkdir(mode=0o755,exist_ok=True)
