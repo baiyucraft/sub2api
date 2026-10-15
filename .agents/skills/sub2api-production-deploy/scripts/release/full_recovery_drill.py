@@ -277,7 +277,15 @@ class RedisDelay:
                 try: observed(["docker","unpause","sub2api-redis"])
                 except Exception: self.failure="Guest Redis unpause failed; evidence preserved"
     def finish(self):
-        self.stop.set(); self.thread.join(timeout=30)
+        # The restore command can return immediately after recording the
+        # redis_restored interruption, while the observer still needs to see
+        # the newly started container and hold it paused for the real health
+        # delay. Stopping the observer at that boundary creates a race and
+        # reports a false missing-delay failure. Let the bounded observer
+        # finish first; only interrupt it after its own 150 second budget.
+        self.thread.join(timeout=180)
+        if self.thread.is_alive():
+            self.stop.set(); self.thread.join(timeout=30)
         need(not self.thread.is_alive() and self.failure is None and self.elapsed>60,"actual Guest Redis delay failed")
 
 def remove_helper_caches(root):
