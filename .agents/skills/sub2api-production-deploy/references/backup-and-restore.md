@@ -484,7 +484,7 @@ backup_keys
   -> postrelease_baseline build-evidence -> sign-promote
 ```
 
-`full_recovery_drill` 的真实 Guest runtime 前置必须同时满足 Docker `29.1.3`、`containerd-snapshotter`/`overlayfs`、daemon 配置 SHA-256 `b19f3cd112d1066390ec91f16034398a19d767869019862c48d5d8c9fdcfcc10`、Compose 插件 SHA-256 `5633cb21e06a7c88c7ca48a9334d3d0f7f892e9605ae9e9a45f9a095d4ffceb8`，并显式校验 `/usr/share/zoneinfo/UTC`。这些是 provisioning/runtime 前置观察，不能单独证明恢复通过；失败必须保留诊断并保持 `verified` 不变。
+`full_recovery_drill` 的真实 Guest runtime 前置必须同时满足 Docker `29.1.3`、`containerd-snapshotter`/`overlayfs`、daemon 配置 SHA-256 `583872318de5935ba5abd8b1e8b703bcc2d2e2f235661b3804f2334b0bccebbc`、Compose 插件 SHA-256 `5633cb21e06a7c88c7ca48a9334d3d0f7f892e9605ae9e9a45f9a095d4ffceb8`，并显式校验 `/usr/share/zoneinfo/UTC`。containerd snapshotter 下的私有 `runc-no-keyring` 必须声明 `runtimeType=io.containerd.runc.v2` 与 `options.NoNewKeyring=true`；`runtimeArgs=--no-new-keyring` 属于错误层级，不能作为替代。这些是 provisioning/runtime 前置观察，不能单独证明恢复通过；失败必须保留诊断并保持 `verified` 不变。
 
 Guest 服务固定 `UMask=0077`，Guest 入口在处理私钥/明文前设置进程掩码，`age` 解密子进程也显式采用 `0077`；输出从创建时即为 `0600`，不依赖 systemd 默认掩码，也不以事后修改权限或放宽 `0400/0600` 来源校验补救。权限缺陷修复会改变 helper 字节，必须重新生成提交、闭包、授权和独立 drill；旧失败现场保持不可变。
 
