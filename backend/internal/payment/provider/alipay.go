@@ -27,6 +27,8 @@ const (
 	alipayErrTradeNotExist = "ACQ.TRADE_NOT_EXIST"
 	alipayRefundStatusSucc = "REFUND_SUCCESS"
 	alipayRefundRequestSep = "-refund-"
+	// 支付宝提示退款发起后过早查询可能查不到、之后又处理成功；超过该时长仍无记录才判定失败。
+	alipayRefundQueryNotFoundGrace = 10 * time.Minute
 )
 
 var (
@@ -373,7 +375,7 @@ func (a *Alipay) Refund(ctx context.Context, req payment.RefundRequest) (*paymen
 }
 
 // QueryRefund 通过 alipay.trade.fastpay.refund.query 查询退款终态。refund_status 为 REFUND_SUCCESS
-// 表示成功；查不到退款记录表示支付宝未受理或退款失败；有记录但未成功视为仍在处理中。
+// 表示成功；退款发起超过宽限期仍查不到记录表示支付宝未受理或退款失败；其余情况视为仍在处理中。
 func (a *Alipay) QueryRefund(ctx context.Context, req payment.RefundQueryRequest) (*payment.RefundResponse, error) {
 	orderID := strings.TrimSpace(req.OrderID)
 	outRequestNo := strings.TrimSpace(req.RefundID)
@@ -395,15 +397,25 @@ func (a *Alipay) QueryRefund(ctx context.Context, req payment.RefundQueryRequest
 	if result == nil {
 		return nil, fmt.Errorf("alipay query refund: empty response")
 	}
+	// SDK 对带签名的业务失败响应（如 ACQ.SYSTEM_ERROR）不返回 error，字段为空；
+	// 不检查错误码会被误判为"无退款记录"而失败收尾。
+	if result.IsFailure() {
+		return nil, fmt.Errorf("alipay query refund: %w", result.Error)
+	}
 
 	status := payment.ProviderStatusPending
 	switch {
 	case strings.TrimSpace(result.RefundStatus) == alipayRefundStatusSucc:
 		status = payment.ProviderStatusSuccess
-	case strings.TrimSpace(result.OutRequestNo) == "" && strings.TrimSpace(result.RefundAmount) == "":
+	case strings.TrimSpace(result.OutRequestNo) == "" && strings.TrimSpace(result.RefundAmount) == "" &&
+		alipayRefundAbsenceIsFinal(req.RequestedAt, time.Now()):
 		status = payment.ProviderStatusFailed
 	}
 	return &payment.RefundResponse{RefundID: outRequestNo, Status: status}, nil
+}
+
+func alipayRefundAbsenceIsFinal(requestedAt, now time.Time) bool {
+	return !requestedAt.IsZero() && now.Sub(requestedAt) >= alipayRefundQueryNotFoundGrace
 }
 
 // CancelPayment closes a pending trade on Alipay.

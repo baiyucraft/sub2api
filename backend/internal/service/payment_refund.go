@@ -452,10 +452,11 @@ func (s *PaymentService) QueryAndFinalizeRefund(ctx context.Context, oid int64) 
 	}
 	finishProviderCall := servertiming.ObserveDependency(ctx, "payment")
 	resp, err := queryProvider.QueryRefund(ctx, payment.RefundQueryRequest{
-		TradeNo:  o.PaymentTradeNo,
-		OrderID:  o.OutTradeNo,
-		RefundID: pendingDetail.RefundID,
-		Amount:   formatGatewayRefundAmount(o.RefundAmount, o),
+		TradeNo:     o.PaymentTradeNo,
+		OrderID:     o.OutTradeNo,
+		RefundID:    pendingDetail.RefundID,
+		Amount:      formatGatewayRefundAmount(o.RefundAmount, o),
+		RequestedAt: pendingDetail.requestedAt,
 	})
 	finishProviderCall()
 	if err != nil {
@@ -699,6 +700,8 @@ type refundPendingAuditDetail struct {
 	BalanceDeducted     float64 `json:"balanceDeducted"`
 	SubDaysDeducted     int     `json:"subDaysDeducted"`
 	SubscriptionID      int64   `json:"subscriptionID,omitempty"`
+	// requestedAt 取自审计记录的创建时间，不参与序列化。
+	requestedAt time.Time
 }
 
 func (d refundPendingAuditDetail) applyTo(p *RefundPlan) {
@@ -730,6 +733,7 @@ func (s *PaymentService) latestRefundPendingDetail(ctx context.Context, oid int6
 		return refundPendingAuditDetail{}, fmt.Errorf("parse refund pending audit: %w", err)
 	}
 	detail.RefundID = strings.TrimSpace(detail.RefundID)
+	detail.requestedAt = logEntry.CreatedAt
 	return detail, nil
 }
 

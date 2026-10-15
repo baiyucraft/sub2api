@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/payment"
 	"github.com/smartwalle/alipay/v3"
@@ -484,14 +485,19 @@ func TestAlipayQueryRefundMapsStatus(t *testing.T) {
 	t.Cleanup(func() { alipayTradeFastPayRefundQuery = origQuery })
 
 	const outRequestNo = "sub2_7-refund-1760500000000000000"
+	ok := alipay.Error{Code: alipay.CodeSuccess, Msg: "Success"}
+	settled := time.Now().Add(-alipayRefundQueryNotFoundGrace - time.Minute)
 	for _, tc := range []struct {
-		name       string
-		rsp        *alipay.TradeFastPayRefundQueryRsp
-		wantStatus string
+		name        string
+		rsp         *alipay.TradeFastPayRefundQueryRsp
+		requestedAt time.Time
+		wantStatus  string
 	}{
-		{name: "success", rsp: &alipay.TradeFastPayRefundQueryRsp{OutRequestNo: outRequestNo, RefundAmount: "12.50", RefundStatus: alipayRefundStatusSucc}, wantStatus: payment.ProviderStatusSuccess},
-		{name: "record without final status", rsp: &alipay.TradeFastPayRefundQueryRsp{OutRequestNo: outRequestNo, RefundAmount: "12.50"}, wantStatus: payment.ProviderStatusPending},
-		{name: "no refund record", rsp: &alipay.TradeFastPayRefundQueryRsp{}, wantStatus: payment.ProviderStatusFailed},
+		{name: "success", rsp: &alipay.TradeFastPayRefundQueryRsp{Error: ok, OutRequestNo: outRequestNo, RefundAmount: "12.50", RefundStatus: alipayRefundStatusSucc}, requestedAt: settled, wantStatus: payment.ProviderStatusSuccess},
+		{name: "record without final status", rsp: &alipay.TradeFastPayRefundQueryRsp{Error: ok, OutRequestNo: outRequestNo, RefundAmount: "12.50"}, requestedAt: settled, wantStatus: payment.ProviderStatusPending},
+		{name: "no refund record after grace", rsp: &alipay.TradeFastPayRefundQueryRsp{Error: ok}, requestedAt: settled, wantStatus: payment.ProviderStatusFailed},
+		{name: "no refund record within grace", rsp: &alipay.TradeFastPayRefundQueryRsp{Error: ok}, requestedAt: time.Now().Add(-time.Minute), wantStatus: payment.ProviderStatusPending},
+		{name: "no refund record with unknown request time", rsp: &alipay.TradeFastPayRefundQueryRsp{Error: ok}, wantStatus: payment.ProviderStatusPending},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			alipayTradeFastPayRefundQuery = func(_ context.Context, _ *alipay.Client, param alipay.TradeFastPayRefundQuery) (*alipay.TradeFastPayRefundQueryRsp, error) {
@@ -501,7 +507,7 @@ func TestAlipayQueryRefundMapsStatus(t *testing.T) {
 				return tc.rsp, nil
 			}
 			provider := &Alipay{client: &alipay.Client{}}
-			resp, err := provider.QueryRefund(context.Background(), payment.RefundQueryRequest{OrderID: "sub2_7", RefundID: outRequestNo})
+			resp, err := provider.QueryRefund(context.Background(), payment.RefundQueryRequest{OrderID: "sub2_7", RefundID: outRequestNo, RequestedAt: tc.requestedAt})
 			if err != nil {
 				t.Fatalf("QueryRefund() error = %v", err)
 			}
@@ -509,6 +515,34 @@ func TestAlipayQueryRefundMapsStatus(t *testing.T) {
 				t.Fatalf("QueryRefund() = %+v, want status %q", resp, tc.wantStatus)
 			}
 		})
+	}
+}
+
+// SDK 对带签名的业务失败响应返回 err == nil，错误码只在响应体里。
+func TestAlipayQueryRefundBusinessFailureKeepsRefundPending(t *testing.T) {
+	origQuery := alipayTradeFastPayRefundQuery
+	t.Cleanup(func() { alipayTradeFastPayRefundQuery = origQuery })
+
+	for _, rspErr := range []alipay.Error{
+		{Code: "40004", Msg: "Business Failed", SubCode: "ACQ.SYSTEM_ERROR", SubMsg: "系统错误"},
+		{Code: "20000", Msg: "Service Currently Unavailable", SubCode: "isp.unknow-error"},
+		{},
+	} {
+		alipayTradeFastPayRefundQuery = func(context.Context, *alipay.Client, alipay.TradeFastPayRefundQuery) (*alipay.TradeFastPayRefundQueryRsp, error) {
+			return &alipay.TradeFastPayRefundQueryRsp{Error: rspErr}, nil
+		}
+		provider := &Alipay{client: &alipay.Client{}}
+		resp, err := provider.QueryRefund(context.Background(), payment.RefundQueryRequest{
+			OrderID:     "sub2_7",
+			RefundID:    "sub2_7-refund-1",
+			RequestedAt: time.Now().Add(-24 * time.Hour),
+		})
+		if err == nil {
+			t.Fatalf("code %q: QueryRefund() = %+v, want error", rspErr.Code, resp)
+		}
+		if rspErr.SubCode != "" && !strings.Contains(err.Error(), string(rspErr.Code)) {
+			t.Fatalf("code %q: error %q should carry the gateway code", rspErr.Code, err)
+		}
 	}
 }
 
