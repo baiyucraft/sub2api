@@ -4,12 +4,14 @@ package service
 
 import (
 	"context"
+	"errors"
 	"math"
 	"strconv"
 	"testing"
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
+	"github.com/Wei-Shaw/sub2api/ent/paymentauditlog"
 	"github.com/Wei-Shaw/sub2api/internal/payment"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/stretchr/testify/require"
@@ -126,7 +128,9 @@ func TestFinalizeRefundFailedRestoresHeldDeductionOnce(t *testing.T) {
 	wallet := &refundHoldWallet{}
 	svc := &PaymentService{entClient: client, userRepo: wallet.repo(order.UserID)}
 	plan := svc.refundFinalizePlan(order)
-	svc.latestRefundPendingDetail(ctx, order.ID).applyTo(plan)
+	detail, err := svc.latestRefundPendingDetail(ctx, order.ID)
+	require.NoError(t, err)
+	detail.applyTo(plan)
 
 	first, err := svc.finalizeRefundFailed(ctx, plan, context.DeadlineExceeded)
 	require.NoError(t, err)
@@ -156,6 +160,115 @@ func TestQueryAndFinalizeRefundHeldDeductionWithoutBalanceDeduction(t *testing.T
 	require.True(t, result.Success)
 	require.Zero(t, wallet.deductCalls)
 	require.Equal(t, 100.0, wallet.balance)
+}
+
+type successRefundProviderTestDouble struct {
+	refundProviderTestDouble
+	refundCalls int
+}
+
+func (p *successRefundProviderTestDouble) Refund(context.Context, payment.RefundRequest) (*payment.RefundResponse, error) {
+	p.refundCalls++
+	return &payment.RefundResponse{RefundID: "rf_retry", Status: payment.ProviderStatusSuccess}, nil
+}
+
+func countRefundAuditsForTest(t *testing.T, ctx context.Context, client *dbent.Client, orderID int64, action string) int {
+	t.Helper()
+	n, err := client.PaymentAuditLog.Query().
+		Where(paymentauditlog.OrderIDEQ(strconv.FormatInt(orderID, 10)), paymentauditlog.ActionEQ(action)).
+		Count(ctx)
+	require.NoError(t, err)
+	return n
+}
+
+func TestFinalizeRefundFailedRecordsRollbackFailureWhenHeldDeductionCannotBeReturned(t *testing.T) {
+	ctx := context.Background()
+	client := newPaymentConfigServiceTestClient(t)
+	order := createPendingRefundOrderWithDetailForTest(t, ctx, client, "hold-return-fails",
+		`{"refundID":"rf_test","deductionHeld":true,"deductionType":"balance","balanceDeducted":60}`)
+
+	wallet := &refundHoldWallet{balance: 40}
+	repo := wallet.repo(order.UserID)
+	repo.updateBalanceFn = func(context.Context, int64, float64) error {
+		wallet.restoreCalls++
+		return errors.New("db unavailable")
+	}
+	restore := replacePaymentProviderFactoryForTest(t, &pendingRefundProviderTestDouble{queryStatus: payment.ProviderStatusFailed})
+	defer restore()
+	svc := &PaymentService{entClient: client, loadBalancer: &captureLoadBalancer{}, userRepo: repo}
+
+	result, err := svc.QueryAndFinalizeRefund(ctx, order.ID)
+	require.NoError(t, err)
+	require.False(t, result.Success)
+	require.Contains(t, result.Warning, "refund deduction rollback failed")
+	require.Equal(t, 1, wallet.restoreCalls)
+	require.Equal(t, 40.0, wallet.balance)
+
+	reloaded, err := client.PaymentOrder.Get(ctx, order.ID)
+	require.NoError(t, err)
+	require.Equal(t, OrderStatusRefundFailed, reloaded.Status)
+	require.Equal(t, 1, countRefundAuditsForTest(t, ctx, client, order.ID, "REFUND_ROLLBACK_FAILED"))
+	require.Equal(t, 1, countRefundAuditsForTest(t, ctx, client, order.ID, "REFUND_FAILED"))
+
+	// 扣减仍被保留：重试退款必须跳过扣减，否则同一笔退款会扣两次。
+	retryProvider := &successRefundProviderTestDouble{}
+	restoreRetry := replacePaymentProviderFactoryForTest(t, retryProvider)
+	defer restoreRetry()
+	plan, early, err := svc.PrepareRefund(ctx, order.ID, 0, "retry", true, true)
+	require.NoError(t, err)
+	require.Nil(t, early)
+	retried, err := svc.ExecuteRefund(ctx, plan)
+	require.NoError(t, err)
+	require.True(t, retried.Success)
+	require.Zero(t, wallet.deductCalls)
+	require.Equal(t, 40.0, wallet.balance)
+	require.Equal(t, 1, retryProvider.refundCalls)
+}
+
+func TestFinalizeRefundFailedReturnsHeldDeductionAtomically(t *testing.T) {
+	ctx := context.Background()
+	client := newPaymentConfigServiceTestClient(t)
+	order := createPendingRefundOrderWithDetailForTest(t, ctx, client, "hold-return-atomic",
+		`{"refundID":"rf_test","deductionHeld":true,"deductionType":"balance","balanceDeducted":60}`)
+
+	wallet := &refundHoldWallet{}
+	restore := replacePaymentProviderFactoryForTest(t, &pendingRefundProviderTestDouble{queryStatus: payment.ProviderStatusFailed})
+	defer restore()
+	svc := &PaymentService{entClient: client, loadBalancer: &captureLoadBalancer{}, userRepo: wallet.repo(order.UserID)}
+
+	result, err := svc.QueryAndFinalizeRefund(ctx, order.ID)
+	require.NoError(t, err)
+	require.False(t, result.Success)
+	require.NotContains(t, result.Warning, "rollback failed")
+	require.Equal(t, 1, wallet.restoreCalls)
+	require.Equal(t, 60.0, wallet.balance)
+	require.Equal(t, 1, countRefundAuditsForTest(t, ctx, client, order.ID, "REFUND_FAILED"))
+	require.Zero(t, countRefundAuditsForTest(t, ctx, client, order.ID, "REFUND_ROLLBACK_FAILED"))
+}
+
+func TestQueryAndFinalizeRefundRejectsUnreadablePendingAudit(t *testing.T) {
+	ctx := context.Background()
+	client := newPaymentConfigServiceTestClient(t)
+	// 审计无法解析时不能退化为旧逻辑：成功会二次扣减，失败会吞掉保留的扣减。
+	order := createPendingRefundOrderWithDetailForTest(t, ctx, client, "hold-bad-audit", `not-json`)
+
+	for _, queryStatus := range []string{payment.ProviderStatusSuccess, payment.ProviderStatusFailed} {
+		wallet := &refundHoldWallet{balance: 100}
+		restore := replacePaymentProviderFactoryForTest(t, &pendingRefundProviderTestDouble{queryStatus: queryStatus})
+		svc := &PaymentService{entClient: client, loadBalancer: &captureLoadBalancer{}, userRepo: wallet.repo(order.UserID)}
+
+		result, err := svc.QueryAndFinalizeRefund(ctx, order.ID)
+		restore()
+		require.Error(t, err, queryStatus)
+		require.Nil(t, result)
+		require.Zero(t, wallet.deductCalls)
+		require.Zero(t, wallet.restoreCalls)
+		require.Equal(t, 100.0, wallet.balance)
+	}
+
+	reloaded, err := client.PaymentOrder.Get(ctx, order.ID)
+	require.NoError(t, err)
+	require.Equal(t, OrderStatusRefundPending, reloaded.Status)
 }
 
 func createCompletedRefundableOrderForTest(t *testing.T, ctx context.Context, client *dbent.Client, suffix string) *dbent.PaymentOrder {

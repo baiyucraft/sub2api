@@ -446,7 +446,10 @@ func (s *PaymentService) QueryAndFinalizeRefund(ctx context.Context, oid int64) 
 		return nil, infraerrors.BadRequest("REFUND_QUERY_UNSUPPORTED", "this payment provider does not support refund status query; please verify manually")
 	}
 
-	pendingDetail := s.latestRefundPendingDetail(ctx, oid)
+	pendingDetail, err := s.latestRefundPendingDetail(ctx, oid)
+	if err != nil {
+		return nil, err
+	}
 	finishProviderCall := servertiming.ObserveDependency(ctx, "payment")
 	resp, err := queryProvider.QueryRefund(ctx, payment.RefundQueryRequest{
 		TradeNo:  o.PaymentTradeNo,
@@ -573,28 +576,114 @@ func (s *PaymentService) applyRefundFinalDeduction(ctx context.Context, p *Refun
 	return nil
 }
 
+// finalizeRefundFailed 将 REFUND_PENDING 收敛为 REFUND_FAILED，并归还进入 pending 时保留的扣减。
+// 认领状态、归还扣减与审计在同一事务内完成：两者分开提交时，进程在中间退出会留下
+// 已失败但扣减未归还、且没有 REFUND_ROLLBACK_FAILED 标记的订单，重试退款会再扣一次。
 func (s *PaymentService) finalizeRefundFailed(ctx context.Context, p *RefundPlan, gErr error) (*RefundResult, error) {
-	// 先认领 REFUND_PENDING 再归还扣减，避免并发查询重复归还。
-	now := time.Now()
-	claimed, err := s.entClient.PaymentOrder.Update().
+	warning := "gateway refund failed: " + psErrMsg(gErr)
+	returnErr, err := s.finalizeRefundFailedTx(ctx, p, gErr, nil)
+	if err != nil {
+		return nil, err
+	}
+	if returnErr == nil {
+		if p.deductionHeld && p.DeductionType == payment.DeductionTypeBalance && p.BalanceToDeduct > 0 {
+			s.invalidateRefundBalanceCache(ctx, p.Order.UserID)
+		}
+		return &RefundResult{Success: false, Warning: warning}, nil
+	}
+
+	// 归还失败（整个事务已回滚，订单仍为 REFUND_PENDING）：仍收敛为 REFUND_FAILED，
+	// 并同事务写入 REFUND_ROLLBACK_FAILED，使重试退款跳过扣减，避免二次扣减。
+	slog.Error("[CRITICAL] refund failed but held deduction could not be returned", "orderID", p.OrderID, "error", returnErr)
+	if _, err := s.finalizeRefundFailedTx(ctx, p, gErr, returnErr); err != nil {
+		return nil, err
+	}
+	return &RefundResult{Success: false, Warning: warning + "; refund deduction rollback failed"}, nil
+}
+
+// finalizeRefundFailedTx 在单个事务内认领 REFUND_PENDING → REFUND_FAILED。rollbackErr 为 nil 时同事务
+// 归还保留的扣减，归还失败则回滚整个事务并通过 returnErr 返回；rollbackErr 非 nil 时不再归还，
+// 改为同事务记录 REFUND_ROLLBACK_FAILED。
+func (s *PaymentService) finalizeRefundFailedTx(ctx context.Context, p *RefundPlan, gErr, rollbackErr error) (returnErr error, err error) {
+	tx, err := s.entClient.Tx(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin refund failure finalization: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+	txCtx := dbent.NewTxContext(ctx, tx)
+
+	claimed, err := tx.PaymentOrder.Update().
 		Where(paymentorder.IDEQ(p.OrderID), paymentorder.StatusEQ(OrderStatusRefundPending)).
 		SetStatus(OrderStatusRefundFailed).
-		SetFailedAt(now).
+		SetFailedAt(time.Now()).
 		SetFailedReason(psErrMsg(gErr)).
-		Save(ctx)
+		Save(txCtx)
 	if err != nil {
 		return nil, fmt.Errorf("mark refund failed: %w", err)
 	}
 	if claimed == 0 {
 		return nil, infraerrors.Conflict("CONFLICT", "order status changed")
 	}
-	warning := "gateway refund failed: " + psErrMsg(gErr)
-	// 未归还成功时 RollbackRefund 会写 REFUND_ROLLBACK_FAILED，重试退款将跳过重复扣减。
-	if p.deductionHeld && !s.RollbackRefund(ctx, p, gErr) {
-		warning += "; refund deduction rollback failed"
+
+	if p.deductionHeld && rollbackErr == nil {
+		if err := s.returnHeldRefundDeduction(txCtx, p); err != nil {
+			return err, nil
+		}
 	}
-	s.writeAuditLog(ctx, p.OrderID, "REFUND_FAILED", "admin", map[string]any{"detail": psErrMsg(gErr)})
-	return &RefundResult{Success: false, Warning: warning}, nil
+	if rollbackErr != nil {
+		if err := createPaymentAuditLogTx(txCtx, tx.Client(), p.OrderID, "REFUND_ROLLBACK_FAILED", map[string]any{
+			"gatewayError":    psErrMsg(gErr),
+			"rollbackError":   psErrMsg(rollbackErr),
+			"balanceDeducted": p.BalanceToDeduct,
+			"subDaysDeducted": p.SubDaysToDeduct,
+		}); err != nil {
+			return nil, err
+		}
+	}
+	if err := createPaymentAuditLogTx(txCtx, tx.Client(), p.OrderID, "REFUND_FAILED", map[string]any{"detail": psErrMsg(gErr)}); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit refund failure finalization: %w", err)
+	}
+	committed = true
+	return nil, nil
+}
+
+// returnHeldRefundDeduction 归还进入 REFUND_PENDING 时保留的扣减；ctx 携带事务时随事务提交或回滚。
+func (s *PaymentService) returnHeldRefundDeduction(ctx context.Context, p *RefundPlan) error {
+	if p.DeductionType == payment.DeductionTypeBalance && p.BalanceToDeduct > 0 {
+		if err := s.userRepo.UpdateBalance(ctx, p.Order.UserID, p.BalanceToDeduct); err != nil {
+			return fmt.Errorf("return held balance deduction: %w", err)
+		}
+	}
+	if p.DeductionType == payment.DeductionTypeSubscription && p.SubDaysToDeduct > 0 && p.SubscriptionID > 0 {
+		if _, err := s.subscriptionSvc.ExtendSubscription(ctx, p.SubscriptionID, p.SubDaysToDeduct); err != nil {
+			return fmt.Errorf("return held subscription deduction: %w", err)
+		}
+	}
+	return nil
+}
+
+func createPaymentAuditLogTx(ctx context.Context, client *dbent.Client, oid int64, action string, detail map[string]any) error {
+	raw, err := json.Marshal(detail)
+	if err != nil {
+		return fmt.Errorf("marshal %s audit: %w", action, err)
+	}
+	if _, err := client.PaymentAuditLog.Create().
+		SetOrderID(strconv.FormatInt(oid, 10)).
+		SetAction(action).
+		SetDetail(string(raw)).
+		SetOperator("admin").
+		Save(ctx); err != nil {
+		return fmt.Errorf("write %s audit: %w", action, err)
+	}
+	return nil
 }
 
 // refundPendingAuditDetail 记录在 REFUND_PENDING 审计日志中。DeductionHeld 为 true 表示
@@ -623,18 +712,25 @@ func (d refundPendingAuditDetail) applyTo(p *RefundPlan) {
 	p.SubscriptionID = d.SubscriptionID
 }
 
-func (s *PaymentService) latestRefundPendingDetail(ctx context.Context, oid int64) refundPendingAuditDetail {
+// latestRefundPendingDetail 读取最近一次 REFUND_PENDING 审计。没有记录视为旧订单（扣减已在
+// pending 时归还）；读取或解析失败必须返回错误：误判为旧记录会让保留的扣减被重复扣减或不再归还。
+func (s *PaymentService) latestRefundPendingDetail(ctx context.Context, oid int64) (refundPendingAuditDetail, error) {
+	detail := refundPendingAuditDetail{DeductionRollbackOK: true}
 	logEntry, err := s.entClient.PaymentAuditLog.Query().
 		Where(paymentauditlog.OrderIDEQ(strconv.FormatInt(oid, 10)), paymentauditlog.ActionEQ("REFUND_PENDING")).
-		Order(paymentauditlog.ByCreatedAt(sql.OrderDesc())).
+		Order(paymentauditlog.ByCreatedAt(sql.OrderDesc()), paymentauditlog.ByID(sql.OrderDesc())).
 		First(ctx)
-	if err != nil || logEntry == nil {
-		return refundPendingAuditDetail{DeductionRollbackOK: true}
+	if err != nil {
+		if dbent.IsNotFound(err) {
+			return detail, nil
+		}
+		return refundPendingAuditDetail{}, fmt.Errorf("load refund pending audit: %w", err)
 	}
-	detail := refundPendingAuditDetail{DeductionRollbackOK: true}
-	_ = json.Unmarshal([]byte(logEntry.Detail), &detail)
+	if err := json.Unmarshal([]byte(logEntry.Detail), &detail); err != nil {
+		return refundPendingAuditDetail{}, fmt.Errorf("parse refund pending audit: %w", err)
+	}
 	detail.RefundID = strings.TrimSpace(detail.RefundID)
-	return detail
+	return detail, nil
 }
 
 // getRefundProvider creates a provider using the order's original instance config.
