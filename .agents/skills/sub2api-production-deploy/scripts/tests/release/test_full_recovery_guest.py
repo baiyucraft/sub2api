@@ -2,9 +2,11 @@
 from copy import deepcopy
 import hashlib
 import json
+import stat
 from pathlib import Path
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 
@@ -57,7 +59,7 @@ class FullRecoveryGuestTests(unittest.TestCase):
             if argv[:2]==['docker','load']: return b'loaded'
             if argv[:3]==['docker','image','inspect']: return argv[-1].encode()
             raise AssertionError('unexpected mutation')
-        with mock.patch.object(guest,'verify_inputs'),mock.patch.object(guest,'regular'),mock.patch.object(guest,'digest',side_effect=fake_digest),mock.patch.object(Path,'stat') as info,mock.patch.object(guest,'command',side_effect=output) as command:
+        with mock.patch.object(guest,'verify_inputs'),mock.patch.object(guest,'verify_nginx_runtime'),mock.patch.object(guest,'regular'),mock.patch.object(guest,'digest',side_effect=fake_digest),mock.patch.object(Path,'stat') as info,mock.patch.object(guest,'command',side_effect=output) as command:
             info.return_value.st_size=123
             # Missing unit input then stops before live systemd mutation.
             with self.assertRaises(RuntimeError): guest.prepare_system(self.manifest,{},Path('/helpers'),{},Path('/raw'))
@@ -70,6 +72,94 @@ class FullRecoveryGuestTests(unittest.TestCase):
             p=Path(temp)/'receipt'; guest.write_private(p,b'first')
             with self.assertRaises(RuntimeError): guest.write_private(p,b'replaced')
             self.assertEqual(p.read_bytes(),b'first')
+
+    def test_digest_references_use_system_containerd_and_verify_docker_identity(self):
+        image = 'sha256:' + 'b'*64
+        source = 'postgres@' + image
+        reference = 'docker.io/library/' + source
+        ctr = ['ctr','--address','/run/containerd/containerd.sock','--namespace','moby','images']
+        def output(argv,*args):
+            if argv == [*ctr,'list','--quiet']: return ('moby-dangling@'+image+'\n').encode()
+            if argv == [*ctr,'tag','moby-dangling@'+image,reference]: return b''
+            if argv == ['docker','image','inspect','--format','{{.Id}}',source]: return image.encode()
+            raise AssertionError('unexpected command or containerd socket')
+        with mock.patch.object(guest,'verify_oci_content') as content,mock.patch.object(guest,'command',side_effect=output) as command:
+            guest.restore_image_references(['postgres '+source+' '+image],{image},Path('/raw'),{})
+        content.assert_called_once_with(image,Path('/raw'),{})
+        self.assertEqual(command.call_count,3)
+
+    def test_existing_digest_reference_is_observed_without_retagging(self):
+        image = 'sha256:' + 'c'*64
+        source = 'docker.io/library/redis@' + image
+        def output(argv,*args):
+            if argv[-2:] == ['list','--quiet']: return (source+'\n').encode()
+            if argv[:3] == ['docker','image','inspect']: return image.encode()
+            raise AssertionError('existing reference must not be mutated')
+        with mock.patch.object(guest,'verify_oci_content'),mock.patch.object(guest,'command',side_effect=output) as command:
+            guest.restore_image_references(['redis '+source+' '+image],{image},Path('/raw'),{})
+        self.assertEqual(command.call_count,2)
+
+    def test_descriptor_mismatch_blocks_before_tag_or_docker_commands(self):
+        image = 'sha256:' + 'b'*64
+        def output(argv,*args):
+            if argv[-2:] == ['list','--quiet']: return b'wrong-image\n'
+            raise AssertionError('mismatched descriptor must not be used')
+        with mock.patch.object(guest,'verify_oci_content'),mock.patch.object(guest,'command',side_effect=output) as command,self.assertRaisesRegex(RuntimeError,'reference missing'):
+            guest.restore_image_references(['postgres postgres@'+image+' '+image],{image},Path('/raw'),{})
+        self.assertEqual(command.call_count,1)
+
+    def test_retagged_reference_still_requires_exact_docker_identity(self):
+        image = 'sha256:' + 'b'*64
+        def output(argv,*args):
+            if argv[-2:] == ['list','--quiet']: return ('moby-dangling@'+image+'\n').encode()
+            if 'tag' in argv: return b''
+            return ('sha256:'+'c'*64).encode()
+        with mock.patch.object(guest,'verify_oci_content'),mock.patch.object(guest,'command',side_effect=output),self.assertRaisesRegex(RuntimeError,'unavailable offline'):
+            guest.restore_image_references(['postgres postgres@'+image+' '+image],{image},Path('/raw'),{})
+
+    def test_missing_nginx_mime_data_blocks_before_system_mutation(self):
+        with tempfile.TemporaryDirectory() as temp:
+            with self.assertRaises(OSError): guest.verify_nginx_runtime(Path(temp))
+        with mock.patch.object(guest,'verify_inputs'),mock.patch.object(guest,'verify_nginx_runtime',side_effect=RuntimeError('missing MIME data')),mock.patch.object(guest,'command') as command,self.assertRaises(RuntimeError):
+            guest.prepare_system(self.manifest,{},Path('/helpers'),{},Path('/raw'))
+        command.assert_not_called()
+
+    def test_nginx_mime_data_must_be_nonempty_bounded_and_private_package_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); mime = root/'etc/nginx/mime.types'
+            mime.parent.mkdir(parents=True); mime.write_bytes(b'x'*guest.NGINX_MIME_BYTES)
+            with mock.patch.object(guest,'regular') as regular,mock.patch.object(guest,'digest',return_value=guest.NGINX_MIME_SHA256):
+                guest.verify_nginx_runtime(root)
+                regular.assert_called_once_with(mime,mode=0o644)
+                for data in (b'',b'x'*(128*1024+1)):
+                    mime.write_bytes(data)
+                    with self.assertRaises(RuntimeError): guest.verify_nginx_runtime(root)
+
+    def test_oci_content_chain_is_parsed_as_digest_verified_json(self):
+        config = b'{"architecture":"amd64","os":"linux"}'
+        config_id = 'sha256:'+hashlib.sha256(config).hexdigest()
+        manifest = json.dumps({'schemaVersion':2,'mediaType':'application/vnd.oci.image.manifest.v1+json','config':{'digest':config_id}}).encode()
+        manifest_id = 'sha256:'+hashlib.sha256(manifest).hexdigest()
+        index = json.dumps({'schemaVersion':2,'mediaType':'application/vnd.oci.image.index.v1+json','manifests':[{'digest':manifest_id,'platform':{'os':'linux','architecture':'amd64'}}]}).encode()
+        image = 'sha256:'+hashlib.sha256(index).hexdigest()
+        content = {image:index,manifest_id:manifest,config_id:config}
+        def output(argv,*args):
+            self.assertEqual(argv[:7],['ctr','--address','/run/containerd/containerd.sock','--namespace','moby','content','get'])
+            return content[argv[-1]]
+        with mock.patch.object(guest,'command',side_effect=output) as command:
+            guest.verify_oci_content(image,Path('/raw'),{})
+        self.assertEqual(command.call_count,3)
+        for corrupt in (image,manifest_id,config_id):
+            with self.subTest(corrupt=corrupt),mock.patch.object(guest,'command',side_effect=lambda argv,*args: b'wrong content' if argv[-1]==corrupt else content[argv[-1]]),self.assertRaisesRegex(RuntimeError,'digest differs'):
+                guest.verify_oci_content(image,Path('/raw'),{})
+
+    def test_containerd_socket_and_docker_unit_are_bound(self):
+        info = SimpleNamespace(st_mode=stat.S_IFSOCK|0o660,st_uid=0)
+        with mock.patch.object(Path,'lstat',return_value=info),mock.patch.object(Path,'is_symlink',return_value=False),mock.patch.object(guest,'command',return_value=b'ExecStart=/usr/bin/dockerd --containerd=/run/containerd/containerd.sock'):
+            guest.verify_containerd_runtime(Path('/raw'),{})
+        for mode,uid,link,unit in ((stat.S_IFREG|0o660,0,False,b'--containerd=/run/containerd/containerd.sock'),(stat.S_IFSOCK|0o660,1,False,b''),(stat.S_IFSOCK|0o660,0,True,b''),(stat.S_IFSOCK|0o666,0,False,b''),(stat.S_IFSOCK|0o660,0,False,b'--containerd=/run/docker/containerd/containerd.sock')):
+            with self.subTest(mode=mode,uid=uid,link=link),mock.patch.object(Path,'lstat',return_value=SimpleNamespace(st_mode=mode,st_uid=uid)),mock.patch.object(Path,'is_symlink',return_value=link),mock.patch.object(guest,'command',return_value=unit),self.assertRaises(RuntimeError):
+                guest.verify_containerd_runtime(Path('/raw'),{})
 
 
 if __name__=='__main__': unittest.main()
