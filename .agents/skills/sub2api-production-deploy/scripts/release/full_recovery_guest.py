@@ -25,9 +25,12 @@ CONTAINERD_SOCKET = "/run/containerd/containerd.sock"
 # to this isolated runtime instead of weakening the host Docker daemon.
 # Docker reserves the built-in ``runc`` runtime name and rejects a config that
 # tries to redefine it.  Use a private runtime name and make it the default so
-# every nested container still receives the keyring workaround.
+# every nested container still receives the keyring workaround.  With the
+# containerd snapshotter Docker uses the shim-v2 runtime path; ``runtimeArgs``
+# are legacy top-level runc arguments and are passed at the wrong layer.  The
+# shim's typed options map is the supported way to set ``NoNewKeyring``.
 OFFLINE_RUNTIME_NAME='runc-no-keyring'
-DAEMON_CONFIG={'features':{'containerd-snapshotter':True},'storage-driver':'overlayfs','iptables':False,'ip6tables':False,'bridge':'none','ip-forward':False,'ip-masq':False,'default-runtime':OFFLINE_RUNTIME_NAME,'runtimes':{OFFLINE_RUNTIME_NAME:{'path':'runc','runtimeArgs':['--no-new-keyring']}}}
+DAEMON_CONFIG={'features':{'containerd-snapshotter':True},'storage-driver':'overlayfs','iptables':False,'ip6tables':False,'bridge':'none','ip-forward':False,'ip-masq':False,'default-runtime':OFFLINE_RUNTIME_NAME,'runtimes':{OFFLINE_RUNTIME_NAME:{'runtimeType':'io.containerd.runc.v2','options':{'NoNewKeyring':True}}}}
 DAEMON_BYTES=json.dumps(DAEMON_CONFIG,sort_keys=True,separators=(',',':')).encode()
 NGINX_MIME_BYTES = 3957
 NGINX_MIME_SHA256 = '632f37cafbdce8ebfba27f7d8264da1ea462880c4961c32354455c8ab722f7c3'
@@ -142,7 +145,7 @@ def validate_daemon_runtime_config() -> None:
     require(OFFLINE_RUNTIME_NAME != 'runc', 'offline runtime name is reserved')
     runtime = DAEMON_CONFIG.get('runtimes', {}).get(OFFLINE_RUNTIME_NAME)
     require(DAEMON_CONFIG.get('default-runtime') == OFFLINE_RUNTIME_NAME, 'offline runtime is not default')
-    require(runtime == {'path': 'runc', 'runtimeArgs': ['--no-new-keyring']}, 'offline runtime config differs')
+    require(runtime == {'runtimeType': 'io.containerd.runc.v2', 'options': {'NoNewKeyring': True}}, 'offline runtime config differs')
 
 
 def stage(rootfs: Path, manifest_path: Path) -> dict[str, Any]:
