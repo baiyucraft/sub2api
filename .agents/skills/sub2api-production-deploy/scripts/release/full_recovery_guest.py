@@ -23,7 +23,11 @@ CONTAINERD_SOCKET = "/run/containerd/containerd.sock"
 # container; the VM kernel rejects that operation from the private user
 # namespace before the container process starts. Keep the workaround scoped
 # to this isolated runtime instead of weakening the host Docker daemon.
-DAEMON_CONFIG={'features':{'containerd-snapshotter':True},'storage-driver':'overlayfs','iptables':False,'ip6tables':False,'bridge':'none','ip-forward':False,'ip-masq':False,'runtimes':{'runc':{'path':'runc','runtimeArgs':['--no-new-keyring']}}}
+# Docker reserves the built-in ``runc`` runtime name and rejects a config that
+# tries to redefine it.  Use a private runtime name and make it the default so
+# every nested container still receives the keyring workaround.
+OFFLINE_RUNTIME_NAME='runc-no-keyring'
+DAEMON_CONFIG={'features':{'containerd-snapshotter':True},'storage-driver':'overlayfs','iptables':False,'ip6tables':False,'bridge':'none','ip-forward':False,'ip-masq':False,'default-runtime':OFFLINE_RUNTIME_NAME,'runtimes':{OFFLINE_RUNTIME_NAME:{'path':'runc','runtimeArgs':['--no-new-keyring']}}}
 DAEMON_BYTES=json.dumps(DAEMON_CONFIG,sort_keys=True,separators=(',',':')).encode()
 NGINX_MIME_BYTES = 3957
 NGINX_MIME_SHA256 = '632f37cafbdce8ebfba27f7d8264da1ea462880c4961c32354455c8ab722f7c3'
@@ -92,6 +96,7 @@ def path_field(value: Any, prefix: str) -> Path:
 
 
 def validate_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
+    validate_daemon_runtime_config()
     fields = {"schema", "drill_id", "release_id", "pre_image_id", "images", "backup_units", "active_app", "source_snapshot_path", "compose_plugin_sha256", "docker_daemon_config_sha256", "docker_version"}
     require(set(manifest) == fields and type(manifest["schema"]) is int and manifest["schema"] == 1, "manifest fields")
     require(isinstance(manifest['drill_id'],str) and DRILL.fullmatch(manifest["drill_id"]) and isinstance(manifest['release_id'],str) and RELEASE.fullmatch(manifest["release_id"]), "manifest identity")
@@ -125,6 +130,19 @@ def validate_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
     for key in ("instance_id","release_id"):
         require(isinstance(slot[key],str) and (not slot[key] or re.fullmatch(r"[A-Za-z0-9_.-]{1,128}",slot[key])),"active slot identity")
     return manifest
+
+
+def validate_daemon_runtime_config() -> None:
+    """Catch Docker runtime-name mistakes before booting the Guest.
+
+    Docker treats ``runc`` as a reserved built-in runtime.  The manifest
+    checksum binds the bytes, while this semantic check prevents a future
+    helper edit from producing a daemon that can never start.
+    """
+    require(OFFLINE_RUNTIME_NAME != 'runc', 'offline runtime name is reserved')
+    runtime = DAEMON_CONFIG.get('runtimes', {}).get(OFFLINE_RUNTIME_NAME)
+    require(DAEMON_CONFIG.get('default-runtime') == OFFLINE_RUNTIME_NAME, 'offline runtime is not default')
+    require(runtime == {'path': 'runc', 'runtimeArgs': ['--no-new-keyring']}, 'offline runtime config differs')
 
 
 def stage(rootfs: Path, manifest_path: Path) -> dict[str, Any]:
