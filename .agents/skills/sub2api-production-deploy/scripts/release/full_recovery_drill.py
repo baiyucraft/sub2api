@@ -100,7 +100,17 @@ def disable_optional_boot_services(root: Path) -> None:
         ):
             link = parent / name
             if link.is_symlink():
-                target = link.resolve()
+                # Resolve links inside the archived rootfs.  An absolute unit
+                # link such as /lib/systemd/system/nginx.service must be
+                # mapped below ``root``; Path.resolve() would otherwise look
+                # at the host's /lib and incorrectly classify a valid Guest
+                # unit as dangling.
+                raw_target = os.readlink(link)
+                target = (root / raw_target.lstrip("/") if raw_target.startswith("/") else link.parent / raw_target).resolve()
+                try:
+                    target.relative_to(root)
+                except ValueError:
+                    need(False, "optional service target escaped Guest rootfs")
                 need(target.is_file() and target.name == name, "unexpected optional service enablement")
                 link.unlink()
 def plan(root,d):
