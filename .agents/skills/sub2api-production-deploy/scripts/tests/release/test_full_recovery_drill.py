@@ -18,6 +18,22 @@ from release import full_recovery_drill as drill
 from release import recovery_evidence as evidence
 
 
+class Clock:
+ def __init__(self):self.now=0.
+ def monotonic(self):return self.now
+
+class Event:
+ def __init__(self,clock,checkpoint,phase_at,interrupted=False):
+  self.clock=clock;self.checkpoint=checkpoint;self.phase_at=phase_at;self.interrupted=interrupted;self.stopped=False
+ def is_set(self):return self.stopped
+ def set(self):self.stopped=True
+ def wait(self,seconds):
+  if self.stopped:return True
+  self.clock.now+=seconds
+  if self.phase_at is not None and self.clock.now>=self.phase_at and not self.checkpoint.exists():self.checkpoint.write_bytes(b'schema=1\nphase=redis_restored\n')
+  return self.interrupted if seconds>60 else False
+
+
 class FullRecoveryDrillTests(unittest.TestCase):
     def setUp(self):
         self.config={"schema":1,"drill_id":"full-dr-12345678-1234-4234-8234-123456789abc","backend":drill.BACKEND,"fixture_kind":"encrypted-production-baseline","release_id":"270-aaaaaaaaaaaa-1-deadbeef","artifact_sha256":"a"*64,"pre_image_id":"sha256:"+"b"*64,"recovery_helper_bundle_sha256":"c"*64,"approved_identity_sha256":"d"*64,"approved_recipient_sha256":"e"*64,"artifact_path":"/opt/sub2api-full-recovery-input/artifact.tar.age","identity_path":"/opt/sub2api-full-recovery-input/identity.age","authorization_path":"/opt/sub2api-full-recovery-input/authorization.json","redis_health_budget_seconds":180}
@@ -246,27 +262,88 @@ class FullRecoveryDrillTests(unittest.TestCase):
                 lua=command.call_args.args[0][-1]
                 self.assertLess(lua.index("redis.call('INFO','keyspace')"),lua.index("redis.call('SCAN'"))
 
-    def test_redis_delay_pauses_only_actual_new_starting_container(self):
-        old=json.dumps({"StartedAt":"old"}).encode()
-        new=json.dumps({"StartedAt":"new","Running":True,"Health":{"Status":"starting"}}).encode()
-        with mock.patch.object(drill,"observed",side_effect=[old,new,b"paused",b"unpaused"]) as observed,mock.patch.object(drill.time,"monotonic",side_effect=[0,0,0,65]):
-            delay=drill.RedisDelay(); delay.stop=mock.Mock(); delay.stop.is_set.return_value=False; delay.stop.wait.return_value=False
-            delay.watch()
-        self.assertIsNone(delay.failure)
-        self.assertEqual(delay.elapsed,65)
-        self.assertEqual(observed.call_args_list[-2:], [mock.call(["docker","pause","sub2api-redis"]),mock.call(["docker","unpause","sub2api-redis"])])
-        delay.stop.wait.assert_called_once_with(65)
+    def simulate(self,*,phase_at=.1,deadline=1800,health='starting',restart=True,interrupted=False,unpause_failure=False,pause_timeout=False,cancel=False):
+     with tempfile.TemporaryDirectory() as temp:
+      cp=Path(temp).resolve()/'redis_restored.started';clock=Clock();commands=[];states=0
+      def observe(args,**kwargs):
+       nonlocal states
+       commands.append(args)
+       if args[1]=='inspect':
+        states+=1
+        return json.dumps({'StartedAt':'old' if states==1 or not restart else 'new','Running':True,'Health':{'Status':health}}).encode()
+       if args[1]=='pause' and pause_timeout:raise subprocess.TimeoutExpired(args,5)
+       if args[1]=='unpause' and unpause_failure:raise RuntimeError('private diagnostics must not escape')
+       return b''
+      with mock.patch.object(drill,'observed',side_effect=observe),mock.patch.object(drill,'sf'),mock.patch.object(drill.time,'monotonic',side_effect=clock.monotonic):
+       delay=drill.RedisDelay(cp,deadline=deadline)
+       delay.stop=Event(clock,cp,phase_at,interrupted)
+       if cancel:delay.stop.set()
+       delay.watch()
+       delay.thread=mock.Mock();delay.thread.is_alive.return_value=False
+       if delay.failure:
+        with self.assertRaisesRegex(RuntimeError,delay.failure):delay.finish()
+       else:delay.finish()
+      return delay,commands,clock.now
 
-    def test_redis_delay_refuses_already_healthy_or_interrupted_case(self):
-        old=json.dumps({"StartedAt":"old"}).encode()
-        for health,interrupted in (("healthy",False),("starting",True)):
-            new=json.dumps({"StartedAt":"new","Running":True,"Health":{"Status":health}}).encode()
-            with self.subTest(health=health),mock.patch.object(drill,"observed",side_effect=[old,new,b"paused",b"unpaused"]),mock.patch.object(drill.time,"monotonic",side_effect=[0,0,0,65]):
-                delay=drill.RedisDelay(); delay.stop=mock.Mock(); delay.stop.is_set.return_value=False; delay.stop.wait.return_value=interrupted
-                delay.watch()
-                delay.thread=mock.Mock(); delay.thread.is_alive.return_value=False
-                with self.assertRaises(RuntimeError): delay.finish()
-                self.assertIsNotNone(delay.failure)
+    def test_actual_new_starting_container_only(self):
+     delay,commands,_=self.simulate()
+     self.assertIsNone(delay.failure);self.assertEqual(delay.elapsed,65)
+     self.assertEqual(commands[-2:],[['docker','pause','sub2api-redis'],['docker','unpause','sub2api-redis']])
+
+    def test_healthy_before_injection_refused(self):
+     delay,commands,_=self.simulate(health='healthy')
+     self.assertEqual(delay.failure,'redis_delay_missed_starting')
+     self.assertFalse(any(c[1]=='pause' for c in commands))
+
+    def test_interrupted_hold_refused(self):
+     delay,_,_=self.simulate(interrupted=True)
+     self.assertEqual(delay.failure,'redis_delay_interrupted')
+
+    def test_pg_longer_than_old_budget_preserves_full_restart_budget(self):
+     delay,_,elapsed=self.simulate(phase_at=232)
+     self.assertIsNone(delay.failure);self.assertGreater(elapsed,297)
+     self.assertEqual(delay.phase,'redis_delay_complete')
+
+    def test_phase_wait_has_own_bounded_deadline(self):
+     delay,_,elapsed=self.simulate(phase_at=None,deadline=2)
+     self.assertEqual(delay.failure,'redis_delay_phase_timeout');self.assertLess(elapsed,2.2)
+
+    def test_restart_wait_is_bounded_from_phase(self):
+     delay,_,elapsed=self.simulate(phase_at=232,restart=False)
+     self.assertEqual(delay.failure,'redis_delay_restart_timeout')
+     self.assertGreater(elapsed,382);self.assertLess(elapsed,383)
+
+    def test_early_exit_cancels_phase_wait(self):
+     delay,_,elapsed=self.simulate(phase_at=None,cancel=True)
+     self.assertEqual(delay.failure,'redis_delay_cancelled');self.assertEqual(elapsed,0)
+
+    def test_unpause_failure_has_stable_reason_and_stage(self):
+     delay,_,_=self.simulate(unpause_failure=True)
+     self.assertEqual(delay.failure,'redis_delay_unpause_failed')
+     self.assertEqual(delay.phase,'redis_delay_unpause')
+     self.assertNotIn('private',delay.failure)
+
+    def test_pause_timeout_still_attempts_owned_unpause(self):
+     delay,commands,_=self.simulate(pause_timeout=True)
+     self.assertEqual(delay.failure,'redis_delay_observation_failed')
+     self.assertEqual(delay.phase,'redis_delay_pause')
+     self.assertEqual(commands[-1],['docker','unpause','sub2api-redis'])
+
+    def test_runner_budget_truncation_cannot_pass_short_hold(self):
+     delay,_,_=self.simulate(deadline=30)
+     self.assertEqual(delay.failure,'redis_delay_interrupted')
+
+    def test_last_guest_stage_persisted_for_non_decrypt_failures(self):
+        error=RuntimeError('actual Redis natural lazy expiry unavailable')
+        with mock.patch.object(sys,'argv',['full_recovery_drill','guest-run']),mock.patch.object(drill,'guest_run',side_effect=error),mock.patch.object(drill,'CURRENT_GUEST_STAGE','guest_redis_lazy_expiry'),mock.patch.object(drill,'private_write') as write,mock.patch('builtins.print') as output:
+            with self.assertRaises(SystemExit) as stopped:
+                drill.main()
+            self.assertEqual(stopped.exception.code,1)
+        path,raw,mode=write.call_args.args
+        self.assertEqual(path,Path('/opt/sub2api-full-recovery/failure.json'))
+        self.assertEqual(mode,0o400)
+        self.assertEqual(json.loads(raw),{'schema':1,'status':'blocked','stage':'guest_redis_lazy_expiry','error_type':'RuntimeError','reason_code':'redis_lazy_expiry_unavailable'})
+        self.assertNotIn(str(error),str(output.call_args_list))
 
     def test_plain_synthetic_report_does_not_reach_schema2(self):
         with self.assertRaises(RuntimeError):
