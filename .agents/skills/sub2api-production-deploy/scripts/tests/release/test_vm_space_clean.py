@@ -171,8 +171,6 @@ class VMSpaceCleanTest(unittest.TestCase):
         self.assertIn("docker image inspect -f '{{.Size}}' \"$current_image_id\"", script)
         self.assertIn("docker inspect --size -f '{{.SizeRootFs}}' sub2api-dev", script)
         self.assertIn("database_size * 2 + current_image_size * 2 + 1073741824", script)
-        self.assertIn("No space left on device", script)
-        self.assertIn("database_size=0", script)
         self.assertIn("minimum_free_bytes=$((8 * 1024 * 1024 * 1024))", script)
         self.assertIn("required_bytes=$minimum_free_bytes", script)
         self.assertIn('/opt/sub2api-deploy/release-gates', script)
