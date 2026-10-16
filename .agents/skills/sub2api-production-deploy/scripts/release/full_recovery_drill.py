@@ -1,6 +1,6 @@
 """Real encrypted baseline recovery runner; synthetic recovery_drill is unchanged."""
 from __future__ import annotations
-import argparse, base64, hashlib, importlib, json, os, re, shutil, stat, subprocess, sys, threading, time
+import argparse, base64, hashlib, importlib, json, os, re, shutil, stat, subprocess, sys, threading, time, uuid
 from collections import Counter
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -159,6 +159,8 @@ def _failure_reason_code(error: BaseException) -> str:
     text = str(error).lower()
     if re.fullmatch(r"redis_delay_[a-z_]+",text): return text
     categories = (
+        ("redis_boundary_probe_failed", ("redis boundary",)),
+        ("redis_source_observation_failed", ("redis source",)),
         ("redis_lazy_expiry_unavailable", ("redis natural lazy expiry unavailable", "redis lua counts missing")),
         ("redis_lazy_observation_failed", ("redis lazy observation failed",)),
         ("application_restore_failed", ("actual app interruption missing", "formal restore resume failed", "completed restore live re-verification failed")),
@@ -260,6 +262,9 @@ def canonical_rowcounts(raw):
     need(set(values)==set(expected),'actual PostgreSQL counts incomplete')
     return ''.join(f'{name}={values[name]}\n' for name in expected).encode()
 
+REDIS_SCAN_LUA="""local function snapshot() local n=redis.call('DBSIZE'); local info=redis.call('INFO','keyspace'); local exp=0; for db,k,e in string.gmatch(info,'db(%d+):keys=(%d+),expires=(%d+)') do if tonumber(db)~=0 and tonumber(k)>0 then return redis.error_reply('unsupported nonzero Redis DB') end; if tonumber(db)==0 then exp=tonumber(e) end end; return {n,exp} end; local before=snapshot(); if before.err then return before end; local cursor='0'; local rounds=0; repeat local result=redis.call('SCAN',cursor,'COUNT',1000); cursor=result[1]; rounds=rounds+1; if rounds>100000 then return redis.error_reply('bounded scan exhausted') end until cursor=='0'; local after=snapshot(); if after.err then return after end; return {before[1],before[2],after[1],after[2]}"""
+
+
 def redis_lazy_observation(env,raw):
     # A single Lua call excludes an active-expiry cycle between before/after.
     # SCAN invokes Redis's own lazy expiration; it never adds or changes keys.
@@ -269,17 +274,88 @@ def redis_lazy_observation(env,raw):
         if value=='--requirepass': need(i+1<len(args),'Redis password argument'); password=args[i+1]
         elif value.startswith('--requirepass='): password=value.split('=',1)[1]
     need('\n' not in password and '\x00' not in password,'Redis auth input')
-    lua="local before=redis.call('DBSIZE'); local info=redis.call('INFO','keyspace'); local exp=0; for db,k,e in string.gmatch(info,'db(%d+):keys=(%d+),expires=(%d+)') do if tonumber(db)~=0 and tonumber(k)>0 then return redis.error_reply('unsupported nonzero Redis DB') end; if tonumber(db)==0 then exp=tonumber(e) end end; local cursor='0'; local rounds=0; repeat local result=redis.call('SCAN',cursor,'COUNT',1000); cursor=result[1]; rounds=rounds+1; if rounds>100000 then return redis.error_reply('bounded scan exhausted') end until cursor=='0'; local after=redis.call('DBSIZE'); return {before,after,exp}"
+    lua=REDIS_SCAN_LUA
     shell='IFS= read -r REDISCLI_AUTH; export REDISCLI_AUTH; exec redis-cli --no-auth-warning --raw EVAL "$1" 0'
     result=subprocess.run(['docker','exec','-i','sub2api-redis','sh','-c',shell,'redis-lazy',lua],input=(password+'\n').encode(),capture_output=True,env=env,timeout=180,check=False)
     with raw.open('ab') as stream: stream.write(result.stdout+result.stderr)
     need(result.returncode==0,'actual Redis lazy observation failed')
-    lines=result.stdout.decode('ascii').splitlines(); need(len(lines)==3 and all(re.fullmatch(r'[0-9]+',v) for v in lines),'actual Redis Lua counts missing')
-    # INFO and before are sampled before SCAN; after includes actual expiry
-    # deletions. Only TTL keys may disappear, so preserve the persistent floor.
-    before,after,expires=map(int,lines)
-    need(before>after>=0 and before>=expires>=0 and after>=before-expires,'actual Redis natural lazy expiry unavailable')
-    return before,after,expires
+    lines=result.stdout.decode('ascii').splitlines(); need(len(lines)==4 and all(re.fullmatch(r'[0-9]+',v) for v in lines),'actual Redis Lua counts missing')
+    before,before_exp,after,after_exp=map(int,lines)
+    need(before>=after>=after_exp>=0 and before>=before_exp>=after_exp and before-after==before_exp-after_exp,'actual Redis source count reconciliation failed')
+    return before,before_exp,after,after_exp
+
+
+def redis_boundary_probe(env,raw,*,image_id,isolated):
+    """Owned, non-production canary; never inserts into restored Redis.
+
+    Only this network-none/tmpfs Redis disables active expiry. Its immutable
+    image and actual engine must match the independently measured source.
+    """
+    need(isinstance(image_id,str) and IMAGE.fullmatch(image_id),'Redis boundary image')
+    engine=observed(['docker','info','--format','{{.ID}}'],env).strip()
+    need(hashlib.sha256(engine).hexdigest()==isolated['guest_docker_engine_id_sha256'],'Redis boundary engine differs')
+    token=uuid.uuid4().hex; name='sub2api-ttl-boundary-'+token
+    label='sub2api.full-dr-ttl-boundary'; cid=None; created=int(time.time())
+    def command(argv,timeout=30):
+        result=run(argv,env,timeout)
+        with raw.open('ab') as stream: stream.write(result.stdout+result.stderr)
+        need(result.returncode==0,'Redis boundary command failed')
+        return result.stdout.decode('ascii').strip()
+    def cli(*args): return command(['docker','exec',cid,'redis-cli','--raw',*map(str,args)])
+    def owned():
+        item=json.loads(command(['docker','container','inspect',name]))[0]
+        need(item['Config'].get('Labels',{}).get(label)==token and item['Name']=='/'+name,'Redis boundary ownership differs')
+        return item
+    result=None
+    try:
+        command(['docker','run','-d','--pull','never','--name',name,'--label',label+'='+token,'--network','none','--tmpfs','/data:rw,noexec,nosuid,size=32m','--read-only','--memory','128m','--cpus','0.5','--pids-limit','64',image_id,'redis-server','--save','','--appendonly','no','--enable-debug-command','yes'])
+        item=owned(); cid=item['Id']; host=item['HostConfig']
+        need(re.fullmatch(r'[0-9a-f]{64}',cid) and item['Image']==image_id,'Redis boundary actual image differs')
+        # Docker versions may omit HostConfig.Tmpfs mounts from Mounts.
+        # Require the exact host config plus the actual in-container mount.
+        need(host['NetworkMode']=='none' and not host.get('PortBindings') and not host.get('Binds') and host['ReadonlyRootfs'] is True and host.get('Tmpfs')=={'/data':'rw,noexec,nosuid,size=32m'} and all(m['Type']=='tmpfs' and m['Destination']=='/data' for m in item['Mounts']),'Redis boundary isolation differs')
+        mounts=command(['docker','exec',cid,'cat','/proc/mounts']).splitlines()
+        data_mount=[line.split() for line in mounts if len(line.split())>=4 and line.split()[1]=='/data']
+        need(len(data_mount)==1 and data_mount[0][2]=='tmpfs' and {'rw','nosuid','noexec'}.issubset(set(data_mount[0][3].split(','))),'Redis boundary actual tmpfs differs')
+        deadline=time.monotonic()+15
+        while True:
+            try:
+                if cli('PING')=='PONG': break
+            except FullDrillBlocked: pass
+            need(time.monotonic()<deadline,'Redis boundary startup timeout'); time.sleep(.1)
+        need(cli('CONFIG','GET','enable-debug-command').splitlines()==['enable-debug-command','yes'],'Redis boundary debug config differs')
+        need(cli('DEBUG','SET-ACTIVE-EXPIRE',0)=='OK','Redis boundary active expiry disable failed')
+        sentinel='persistent-'+token
+        need(cli('SET','boundary:persistent',sentinel)=='OK','Redis boundary persistent set failed')
+        before_digest=hashlib.sha256(cli('GET','boundary:persistent').encode()).hexdigest()
+        ttl=2000; clock=time.monotonic()
+        need(cli('SET','boundary:ttl','ttl-'+token,'PX',ttl)=='OK','Redis boundary TTL set failed')
+        initial_pttl=int(cli('PTTL','boundary:ttl')); need(0<initial_pttl<=ttl,'Redis boundary initial TTL unavailable')
+        time.sleep(ttl/1000+.2)
+        elapsed=int((time.monotonic()-clock)*1000)
+        counts=cli('EVAL',REDIS_SCAN_LUA,0).splitlines()
+        need(counts==['2','1','1','0'],'Redis boundary lazy deletion differs')
+        final_pttl=int(cli('PTTL','boundary:ttl'))
+        after_digest=hashlib.sha256(cli('GET','boundary:persistent').encode()).hexdigest()
+        need(final_pttl==-2 and before_digest==after_digest==hashlib.sha256(sentinel.encode()).hexdigest(),'Redis boundary sentinel differs')
+        result={'schema':1,'type':'redis-owned-ttl-boundary','production_source':False,
+            **{k:isolated[k] for k in ('drill_id','release_id','guest_docker_engine_id_sha256','rootfs_identity_sha256')},
+            'image_id':item['Image'],'container_id_sha256':hashlib.sha256(cid.encode()).hexdigest(),
+            'network_mode':'none','tmpfs_data':True,'read_only_rootfs':True,'published_ports_absent':True,'volumes_absent':True,
+            'debug_config':'yes','active_expiry_disable_reply':'OK','ttl_ms':ttl,'initial_pttl_ms':initial_pttl,'wait_elapsed_ms':elapsed,'final_pttl_ms':final_pttl,
+            'before_dbsize':2,'before_expiring':1,'after_dbsize':1,'after_expiring':0,
+            'persistent_before_sha256':before_digest,'persistent_after_sha256':after_digest,'created_at':created}
+    finally:
+        # Inspect the random owned name even when `docker run` timed out after
+        # creation. Only a confirmed No-such-container is absence evidence.
+        check=run(['docker','container','inspect',name],env,30)
+        if check.returncode==0:
+            owned(); command(['docker','rm','--force',name])
+            check=run(['docker','container','inspect',name],env,30)
+        need(check.returncode!=0 and ('No such container: '+name).encode() in check.stderr,'Redis boundary cleanup unverified')
+    need(result is not None,'Redis boundary measurements unavailable')
+    result.update(owned_resources_cleaned=True,completed_at=int(time.time()))
+    return result
 
 def fault(code,before,after):
     return {"exit_code":code,"resume_verified":code==79 and before==after,"postgres_oid_before":int(before[0]),"postgres_oid_after":int(after[0]),"redis_run_before_sha256":hashlib.sha256(before[1].encode()).hexdigest(),"redis_run_after_sha256":hashlib.sha256(after[1].encode()).hexdigest()}
@@ -466,7 +542,14 @@ def guest_run():
         raise
     stage("guest_redis_lazy_expiry")
     need(code==79,'actual Redis interruption missing')
-    lazy_before,lazy_after,lazy_expires=redis_lazy_observation(env,raw)
+    lazy_before,lazy_exp_before,lazy_after,lazy_exp_after=redis_lazy_observation(env,raw)
+    source_image=observed(['docker','inspect','-f','{{.Image}}','sub2api-redis'],env).decode().strip()
+    need(source_image==next(item['image_id'] for item in manifest['images'] if item['role']=='redis'),'Redis source manifest image differs')
+    source_observation={'schema':1,'type':'redis-restored-source-atomic-scan','image_id':source_image,
+        **{key:isolated[key] for key in ('drill_id','release_id','guest_docker_engine_id_sha256','rootfs_identity_sha256')},
+        'before_dbsize':lazy_before,'before_expiring':lazy_exp_before,'after_dbsize':lazy_after,'after_expiring':lazy_exp_after,'observed_at':int(time.time())}
+    stage('guest_redis_boundary_probe')
+    boundary_probe=redis_boundary_probe(env,raw,image_id=source_image,isolated=isolated)
     stage("guest_application_interrupt")
     code,_=invoke('restore.sh','app_healthy')
     need(code==79,"actual app interruption missing")
@@ -497,11 +580,10 @@ def guest_run():
     render_after=observed(["bash","-c",shell,"compose",str(h)],env).decode().strip()
     image=observed(["docker","inspect","-f","{{.Image}}","sub2api"]).decode().strip()
     counts={k:int(redis.get("redis_"+k,"-1")) for k in ("backup_dbsize","backup_expiring","restored_dbsize","restored_expiring","restored_keyspace_keys")}
-    counts.update(restored_dbsize=lazy_before,restored_keyspace_keys=lazy_after,restored_expiring=lazy_expires)
+    counts.update(restored_dbsize=lazy_after,restored_keyspace_keys=lazy_after,restored_expiring=lazy_exp_after)
     wait=int(redis.get("redis_restore_health_wait_seconds","-1"))*1000
-    # Never label missing delay or expiry observations as passed. The unchanged
-    # host validator requires these actual, possibly unavailable boundary cases.
-    measured={"isolation":isolated,"compose":{"closure_restored":render_before==render_after,"render_before_sha256":render_before,"render_after_sha256":render_after,"old_image_id":d["pre_image_id"],"restored_image_id":image},"postgres":{"restore_verified":migrations_before==migrations_after and counts_before==counts_after,"dump_sha256":source["archive_inventory"]["postgres_dump_sha256"],"migrations_before_sha256":hashlib.sha256(migrations_before).hexdigest(),"migrations_after_sha256":hashlib.sha256(migrations_after).hexdigest(),"rowcounts_before_sha256":hashlib.sha256(counts_before).hexdigest(),"rowcounts_after_sha256":hashlib.sha256(counts_after).hexdigest()},"redis":{"restore_verified":redis.get("redis_ttl_reconciliation")=="verified","rdb_sha256":source["archive_inventory"]["redis_rdb_sha256"],**counts,"persistent_before":counts["backup_dbsize"]-counts["backup_expiring"],"persistent_after":counts["restored_dbsize"]-counts["restored_expiring"],"health_wait_ms":wait,"health_budget_ms":d["redis_health_budget_seconds"]*1000,"ttl_reconciled":redis.get("redis_ttl_reconciliation")=="verified","lazy_expiry_observed":counts["restored_dbsize"]>counts["restored_keyspace_keys"]>=0},"faults":{"app_healthy_interrupt":app_fault,"cleanup_before_interrupt":cleanup_fault,"stale_ingress":{"recovery_restored_and_applied_observed":stale_observed,"live_health_reverified":replay==0,"applied_removed":not (ingress/"applied").exists()}},"checkpoints":checkpoints}
+    # Source counts stay independent of the deterministic canary boundary.
+    measured={"isolation":isolated,"compose":{"closure_restored":render_before==render_after,"render_before_sha256":render_before,"render_after_sha256":render_after,"old_image_id":d["pre_image_id"],"restored_image_id":image},"postgres":{"restore_verified":migrations_before==migrations_after and counts_before==counts_after,"dump_sha256":source["archive_inventory"]["postgres_dump_sha256"],"migrations_before_sha256":hashlib.sha256(migrations_before).hexdigest(),"migrations_after_sha256":hashlib.sha256(migrations_after).hexdigest(),"rowcounts_before_sha256":hashlib.sha256(counts_before).hexdigest(),"rowcounts_after_sha256":hashlib.sha256(counts_after).hexdigest()},"redis":{"restore_verified":redis.get("redis_ttl_reconciliation")=="verified","rdb_sha256":source["archive_inventory"]["redis_rdb_sha256"],**counts,"persistent_before":counts["backup_dbsize"]-counts["backup_expiring"],"persistent_after":counts["restored_dbsize"]-counts["restored_expiring"],"health_wait_ms":wait,"health_budget_ms":d["redis_health_budget_seconds"]*1000,"ttl_reconciled":redis.get("redis_ttl_reconciliation")=="verified","lazy_expiry_observed":lazy_before>lazy_after,"source_observation":source_observation,"boundary_probe":boundary_probe},"faults":{"app_healthy_interrupt":app_fault,"cleanup_before_interrupt":cleanup_fault,"stale_ingress":{"recovery_restored_and_applied_observed":stale_observed,"live_health_reverified":replay==0,"applied_removed":not (ingress/"applied").exists()}},"checkpoints":checkpoints}
     need(not point.exists() and not Path("/opt/sub2api/releases/.active-release").exists(),"formal cleanup incomplete")
     shutil.rmtree(inventory); identity.unlink()
     measured["cleanup"]={"plaintext_destroyed":not point.exists() and not inventory.exists() and not identity.exists() and not staged_identity.exists(),"active_claim_cleared":not Path("/opt/sub2api/releases/.active-release").exists(),"stale_ingress_removed":not (ingress/"applied").exists()}
@@ -664,12 +746,7 @@ def validate_guest_receipt(receipt,d):
     for n,item in shape(isolated["namespaces"],set(NAMESPACES),"Guest namespaces").items():
         shape(item,{"host","guest","guest_pid1"},"Guest namespace")
         need(all(isinstance(v,str) and re.fullmatch(n+r":\[[1-9][0-9]*\]",v) for v in item.values()) and item["host"]!=item["guest"]==item["guest_pid1"],"Guest namespace differs")
-    redis=shape(measured["redis"],{"restore_verified","rdb_sha256","backup_dbsize","backup_expiring","restored_dbsize","restored_expiring","restored_keyspace_keys","persistent_before","persistent_after","health_wait_ms","health_budget_ms","ttl_reconciled","lazy_expiry_observed"},"Guest Redis")
-    need(redis["rdb_sha256"]==inventory["redis_rdb_sha256"] and all(integer(redis[k]) for k in ("backup_dbsize","backup_expiring","restored_dbsize","restored_expiring","restored_keyspace_keys","persistent_before","persistent_after","health_wait_ms","health_budget_ms")),"actual Redis bytes or counts missing")
-    need(redis["restore_verified"] is True and redis["ttl_reconciled"] is True and redis["lazy_expiry_observed"] is True,"actual Redis boundary case unavailable")
-    need(60000<redis["health_wait_ms"]<=redis["health_budget_ms"]<=180000,"actual delayed Redis case unavailable")
-    need(redis["backup_dbsize"]>=redis["backup_expiring"]>redis["restored_expiring"] and redis["backup_dbsize"]>=redis["restored_dbsize"]>redis["restored_keyspace_keys"]>=0 and redis["restored_dbsize"]>=redis["restored_expiring"] and redis["restored_keyspace_keys"]>=redis["restored_dbsize"]-redis["restored_expiring"] and redis["persistent_after"]>=redis["persistent_before"],"actual Redis TTL counts differ")
-    need(redis["persistent_before"]==redis["backup_dbsize"]-redis["backup_expiring"] and redis["persistent_after"]==redis["restored_dbsize"]-redis["restored_expiring"],"Redis persistent floor differs")
+    api.validate_redis_measurement(measured["redis"],isolation=isolated,rdb_sha256=inventory["redis_rdb_sha256"],created_at=receipt["created_at"],completed_at=receipt["completed_at"],health_budget_max=180000)
     compose=shape(measured["compose"],{"closure_restored","render_before_sha256","render_after_sha256","old_image_id","restored_image_id"},"Guest Compose")
     need(digest(compose["render_before_sha256"]) and compose["render_before_sha256"]==compose["render_after_sha256"] and compose["closure_restored"] is True and compose["old_image_id"]==compose["restored_image_id"]==d["pre_image_id"],"Compose recovery differs")
     pg=shape(measured["postgres"],{"restore_verified","dump_sha256","migrations_before_sha256","migrations_after_sha256","rowcounts_before_sha256","rowcounts_after_sha256"},"Guest PostgreSQL")

@@ -148,6 +148,15 @@ redis_restored_expiring_keys <= redis_backup_expiring_keys
 
 第三条保证备份中的永久键没有丢失；前两条允许备份生成与隔离恢复期间自然过期及惰性清理。该判定不能替代 artifact checksum、`redis-check-rdb`/AOF 完整性、认证来源、Redis 启动、`PING` 和 keyspace 可读性。任一计数缺失、为负数、类型错误、永久键减少或单调不等式不成立时，`redis_ttl_reconciliation` 必须为 `fail`，旧 `verified` 基线保持不变。
 
+### 完整灾备的确定性 TTL 边界
+
+完整灾备不能依赖生产快照中恰好还有待惰性清理的过期键。解密、PostgreSQL 复核、Redis 加载和健康延迟均可能已消耗全部短 TTL；重新捕获快照也不能保证现场自然删除。新版完整灾备测量在原 Redis 字段之外同时增加 `source_observation` 与 `boundary_probe`，两者缺一、字段未知、类型错误或身份不符均拒绝；旧字段集继续使用原严格验证分支，旧签名证据不改写。
+
+- `source_observation` 只观察恢复的真实数据：同一 Lua 中 SCAN 前后分别读取 DBSIZE 与 expires，非零数据库有键时拒绝。`restored_dbsize`、`restored_keyspace_keys` 和 `restored_expiring` 均来自 SCAN 后同刻计数；SCAN 前后总键减少必须等于 TTL 键减少，恢复永久键数必须与备份精确相等。自然删除可以为零，甚至备份和恢复均无 TTL；`lazy_expiry_observed` 如实记录真实 source 是否发生自然删除。
+- `boundary_probe` 使用同一隔离 Guest/Docker Engine 内、与实际恢复 Redis 同一不可变 image 的独占随机容器。容器为 network-none、只读 rootfs、`/data` tmpfs，无宿主绑定、端口和 volume；只有该 canary 允许关闭主动过期。写入一个永久 sentinel 和一个 2000ms TTL sentinel，真实等待至少 2200ms，再用原子 Lua SCAN 观察 `2/1 -> 1/0`，核对 TTL 缺失与永久 sentinel 前后 SHA-256 相同。实际删除容器且 inspect 确认不存在后，才能记录清理成功。
+- 两项测量绑定 drill、release、Guest engine、rootfs 和实际 source image，使用真实时间及计数；canary 明确 `production_source=false`，不得把其计数或成功布尔覆盖真实 source。探针失败、超时或清理不明保持阻断，旧失败现场保持不变。
+- 旧 schema-1 基线签发/晋升的 Redis TTL 差值等式保持原样；新版用真实 source 的同刻计数满足它，不借 canary 放宽等式。完成源码修复仍须新的提交、helper/授权、完整灾备、独立签名和 VM Gate；单独探针成功不能视为完整灾备或生产发布通过。
+
 ## 受限接收与原子晋升
 
 受限上传 receiver 的 transport 命名规则与发布恢复点的语义名称是两层协议，不能混为一个字段：

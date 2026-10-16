@@ -52,6 +52,7 @@ description: 审计 Sub2API fork 相对官方 upstream/main 的扩展合同。�
 - 三层门禁名称和预算固定为 `fast=0-2min`、`specialized=5-15min`、`full=20-60min`；`full` 不阻塞普通发布，仅恢复算法、备份格式、信任链变化或真实恢复事故修复为硬门禁。profile 白名单、版本、自测目录和入口兼容扩展须按同路径旧/新 blob 与模式精确审阅，走真实隔离恢复 `specialized`；未知关键变化先阻断，显式 VM Full 不解除。
 - 触发矩阵必须覆盖 migration、PostgreSQL/Redis、Compose、backup、restore/cleanup/reconcile、ingress、发布状态机和真实恢复事故修复。
 - Redis 恢复使用总键、TTL 键和永久键单调不等式，禁止恢复旧的精确差值等式。
+- 完整灾备的新 Redis 证据在原精确字段集外仅增加 `source_observation` 与 `boundary_probe`，host/Guest 共用严格验证器：真实恢复源用同一原子 Lua 记录 SCAN 前后总键与 TTL 键，最终计数取同刻 after，永久键与备份精确相等；允许真实源无 TTL 或无自然删除，顶层观测如实记录。独占随机 canary 必须标记 `production_source=false`，绑定同 Guest/engine/rootfs/drill/release 与真实 Redis image，以无网络、只读根、tmpfs 和无端口/volume 容器真实等待后证明 `2/1 -> 1/0`、永久 sentinel 摘要不变及实际清理。旧精确字段分支保留原严格语义，postrelease legacy schema 1 的 TTL 差值等式和 checkpoint 身份不变；未知/缺失字段、bool 冒充整数、来源或清理漂移均拒绝。最低回归为 `test_full_recovery_drill.py`、`test_recovery_evidence.py`、`test_postrelease_baseline.py` 与 `test_baseline_candidate_load.py`；独立 canary 通过不代表完整 DR、VM Gate 或生产部署完成。
 - orchestrator、restore、cleanup、reconcile 作为同一 helper bundle 绑定完整 commit 和 SHA-256；禁止新旧 helper 混用。
 - 协调恢复按 PostgreSQL、Redis、Compose、应用、Nginx、backup units、claim 和 state cleanup checkpoint 幂等续跑。
 - `verify-result` 与 `verify-recovery-result` 分离，不得放宽或互相替代。

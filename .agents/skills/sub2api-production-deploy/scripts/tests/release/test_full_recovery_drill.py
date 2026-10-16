@@ -250,9 +250,9 @@ class FullRecoveryDrillTests(unittest.TestCase):
         for bad in (raw+b'users=2\n',raw.replace(b'users=2\n',b''),raw.replace(b'users=2',b'users=-2')):
             with self.assertRaises(RuntimeError): drill.canonical_rowcounts(bad)
 
-    def test_lazy_expiry_uses_actual_atomic_counts_and_refuses_no_expiry(self):
+    def test_lazy_expiry_uses_atomic_pairs_and_accepts_no_natural_expiry(self):
         config=json.dumps([{'Config':{'Entrypoint':['redis-server'],'Cmd':['--requirepass','private']}}]).encode()
-        for output,valid in ((b'20\n18\n5\n',True),(b'42170\n37472\n39123\n',True),(b'20\n18\n19\n',True),(b'18\n18\n5\n',False),(b'20\n0\n19\n',False),(b'20\n18\n21\n',False),(b'ERR unsupported nonzero Redis DB\n',False)):
+        for output,valid in ((b'20\n5\n18\n3\n',True),(b'42170\n39123\n37472\n34425\n',True),(b'18\n5\n18\n5\n',True),(b'18\n0\n18\n0\n',True),(b'20\n19\n0\n0\n',False),(b'20\n21\n18\n19\n',False),(b'20\n5\n18\n4\n',False),(b'ERR unsupported nonzero Redis DB\n',False)):
             with tempfile.TemporaryDirectory() as temp,mock.patch.object(drill,'observed',return_value=config),mock.patch.object(drill.subprocess,'run',return_value=subprocess.CompletedProcess([],0,output,b'')) as command:
                 if valid: self.assertEqual(drill.redis_lazy_observation({},Path(temp)/'raw'),tuple(map(int,output.splitlines())))
                 else:
@@ -261,6 +261,78 @@ class FullRecoveryDrillTests(unittest.TestCase):
                 self.assertEqual(command.call_args.kwargs['input'],b'private\n')
                 lua=command.call_args.args[0][-1]
                 self.assertLess(lua.index("redis.call('INFO','keyspace')"),lua.index("redis.call('SCAN'"))
+                self.assertIn("local after=snapshot()",lua)
+
+    def boundary_probe(self,*,failure=None):
+        token='f'*32;name='sub2api-ttl-boundary-'+token;cid='a'*64;image='sha256:'+'b'*64
+        clock=Clock();commands=[];exists=False
+        isolated={'drill_id':self.config['drill_id'],'release_id':self.config['release_id'],'rootfs_identity_sha256':'c'*64,'guest_docker_engine_id_sha256':hashlib.sha256(b'engine').hexdigest()}
+        item={'Id':cid,'Image':image,'Name':'/'+name,'Config':{'Labels':{'sub2api.full-dr-ttl-boundary':token}},'HostConfig':{'NetworkMode':'none','ReadonlyRootfs':True,'Tmpfs':{'/data':'rw,noexec,nosuid,size=32m'}},'Mounts':[]}
+        def execute(args,env,timeout):
+            nonlocal exists
+            commands.append(args)
+            def reply(value='',code=0,error=''):return subprocess.CompletedProcess(args,code,value.encode(),error.encode())
+            if args[1]=='run':
+                exists=True
+                if failure=='created-timeout':raise subprocess.TimeoutExpired(args,timeout)
+                return reply(cid)
+            if args[1:3]==['container','inspect']:
+                if failure in ('daemon','permission'):return reply(code=1,error='Cannot connect to daemon' if failure=='daemon' else 'permission denied')
+                if not exists:return reply(code=1,error='Error response from daemon: No such container: '+name)
+                observed=deepcopy(item)
+                if failure=='ownership':observed['Config']['Labels']['sub2api.full-dr-ttl-boundary']='foreign'
+                return reply(json.dumps([observed]))
+            if args[1]=='rm':
+                if failure=='cleanup':return reply(code=1,error='daemon refused cleanup')
+                exists=False;return reply(cid)
+            if args[1]=='exec':
+                if args[3:]==['cat','/proc/mounts']:return reply('tmpfs /data tmpfs rw,nosuid,noexec 0 0')
+                op=args[5:]
+                if op==['PING']:return reply('PONG')
+                if op==['CONFIG','GET','enable-debug-command']:return reply('enable-debug-command\nyes')
+                if op[:1] in (['DEBUG'],['SET']):return reply('OK')
+                if op==['GET','boundary:persistent']:return reply('persistent-'+token)
+                if op==['PTTL','boundary:ttl']:return reply('1900' if clock.now==0 else '-2')
+                if op[:1]==['EVAL']:return reply('2\n1\n1\n0')
+            raise AssertionError(args)
+        def sleep(seconds):clock.now+=seconds
+        with tempfile.TemporaryDirectory() as temp,mock.patch.object(drill,'observed',return_value=b'engine'),mock.patch.object(drill,'run',side_effect=execute),mock.patch.object(drill.uuid,'uuid4',return_value=mock.Mock(hex=token)),mock.patch.object(drill.time,'sleep',side_effect=sleep),mock.patch.object(drill.time,'monotonic',side_effect=clock.monotonic),mock.patch.object(drill.time,'time',side_effect=lambda:1000+clock.now):
+            try:return drill.redis_boundary_probe({},Path(temp)/'raw',image_id=image,isolated=isolated),commands,None
+            except (RuntimeError,subprocess.TimeoutExpired) as error:return None,commands,error
+
+    def test_boundary_probe_measures_owned_container_then_confirms_absence(self):
+        result,commands,error=self.boundary_probe()
+        self.assertIsNone(error);self.assertIs(result['production_source'],False)
+        self.assertTrue(result['owned_resources_cleaned']);self.assertEqual(result['wait_elapsed_ms'],2200)
+        self.assertEqual(result['persistent_before_sha256'],result['persistent_after_sha256'])
+        self.assertEqual(commands[-1][1:3],['container','inspect'])
+        run=commands[0]
+        self.assertEqual(run[run.index('--network')+1],'none');self.assertIn('--read-only',run)
+        self.assertIn('--tmpfs',run);self.assertNotIn('--volume',run);self.assertNotIn('--publish',run)
+
+    def test_boundary_probe_run_timeout_still_cleans_created_owned_container(self):
+        result,commands,error=self.boundary_probe(failure='created-timeout')
+        self.assertIsNone(result);self.assertIsInstance(error,subprocess.TimeoutExpired)
+        self.assertTrue(any(args[1]=='rm' for args in commands))
+        self.assertEqual(commands[-1][1:3],['container','inspect'])
+
+    def test_boundary_probe_inspect_errors_are_not_absence(self):
+        for failure in ('daemon','permission'):
+            with self.subTest(failure=failure):
+                result,commands,error=self.boundary_probe(failure=failure)
+                self.assertIsNone(result);self.assertIsInstance(error,RuntimeError)
+                self.assertIn('cleanup unverified',str(error))
+                self.assertFalse(any(args[1]=='rm' for args in commands))
+
+    def test_boundary_probe_ownership_mismatch_never_removes_foreign_container(self):
+        result,commands,error=self.boundary_probe(failure='ownership')
+        self.assertIsNone(result);self.assertIsInstance(error,RuntimeError)
+        self.assertIn('ownership differs',str(error));self.assertFalse(any(args[1]=='rm' for args in commands))
+
+    def test_boundary_probe_cleanup_failure_never_returns_success(self):
+        result,commands,error=self.boundary_probe(failure='cleanup')
+        self.assertIsNone(result);self.assertIsInstance(error,RuntimeError)
+        self.assertTrue(any(args[1]=='rm' for args in commands))
 
     def simulate(self,*,phase_at=.1,deadline=1800,health='starting',restart=True,interrupted=False,unpause_failure=False,pause_timeout=False,cancel=False):
      with tempfile.TemporaryDirectory() as temp:
