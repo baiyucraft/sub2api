@@ -514,7 +514,7 @@ def execute(rootfs: Path, document: dict[str, Any], timeout: int = 7200) -> dict
     need(prepared.get("status") == "planned", "full drill resources unavailable; Guest not launched")
     disable_optional_boot_services(rootfs)
     need(type(timeout) is int and 300<=timeout<=7200,"execution timeout")
-    foreign_before=foreign_resources()
+    foreign_before=foreign_resources(rootfs.parent/"foreign-before.fingerprints.json")
     proof={"schema":1,"backend":BACKEND,"helper_bundle_sha256":document["recovery_helper_bundle_sha256"],"host_namespaces":{n:os.readlink("/proc/1/ns/"+n) for n in NAMESPACES},"host_docker_engine_id":observed(["docker","info","--format","{{.ID}}"]).decode().strip(),"host_identity_sha256":hashlib.sha256(Path("/etc/machine-id").read_bytes()).hexdigest(),"rootfs_identity_sha256":hashlib.sha256(canon({"device":rootfs.stat().st_dev,"inode":rootfs.stat().st_ino,"guest_machine_id":(rootfs/"etc/machine-id").read_text().strip(),"collector":sha(Path(__file__).resolve())})).hexdigest()}
     root_identity=(rootfs.stat().st_dev,rootfs.stat().st_ino)
     for filename,value in (("sub2api-full-recovery.json",document),("sub2api-full-recovery-host.json",proof)):
@@ -561,7 +561,7 @@ def execute(rootfs: Path, document: dict[str, Any], timeout: int = 7200) -> dict
         for state in ("started","done"):
             file=cp/(phase+"."+state); sf(file,True)
             need(sha(file)==item[state+"_sha256"],"independent checkpoint readback differs")
-    foreign_after=foreign_resources(); need(foreign_before==foreign_after,"foreign host resources changed; Guest retained")
+    foreign_after=foreign_resources(rootfs.parent/"foreign-after.fingerprints.json"); need(foreign_before==foreign_after,"foreign host resources changed; Guest retained")
     # Preserve the actual Guest measurements before any owned destruction.
     private_write(rootfs.parent/"guest-measurements.json",canon(receipt))
     helper_log=out/"helpers.raw.log"; sf(helper_log,True)
@@ -578,7 +578,43 @@ def execute(rootfs: Path, document: dict[str, Any], timeout: int = 7200) -> dict
     result=rootfs.parent/"measurements.json"; private_write(result,canon(receipt))
     return {"schema":1,"status":"measured","drill_id":document["drill_id"],"measurements_sha256":sha(result),"owned_guest_destroyed":cleanup["owned_guest_destroyed"],"signed_review":"pending","candidate_load_status":candidate_status}
 
-def foreign_resources():
+def normalize_mounts(mounts):
+    # Docker assembles this set from an internal map; its output order is not
+    # an identity. Preserve every field while rejecting ambiguous destinations.
+    need(isinstance(mounts,list),"invalid foreign container mounts")
+    destinations=set()
+    for mount in mounts:
+        need(isinstance(mount,dict),"invalid foreign container mount")
+        destination=mount.get('Destination')
+        need(isinstance(destination,str) and destination.startswith('/') and '\x00' not in destination and destination not in destinations,"invalid or duplicate foreign mount destination")
+        destinations.add(destination)
+    return sorted(mounts,key=lambda mount:mount['Destination'])
+
+
+def foreign_fingerprints(metadata):
+    # Only fixed field names and hashes are persisted. Full resource documents,
+    # including fields not named below, remain bound by each resource digest.
+    def fingerprint(value): return hashlib.sha256(canon(value)).hexdigest()
+    fields={
+        'containers':('id','image','config_sha256','host_config_sha256','mounts','restart_count','state'),
+        'volumes':('Name','Driver','Mountpoint','CreatedAt','Status','Labels','Scope','Options','UsageData'),
+        'networks':('Name','Id','Created','Scope','Driver','EnableIPv4','EnableIPv6','IPAM','Internal','Attachable','Ingress','ConfigFrom','ConfigOnly','Containers','Options','Labels','Peers','Services'),
+    }
+    result={'schema':1,'type':'sub2api-foreign-resources-fingerprints','metadata_sha256':fingerprint(metadata),'identities':{kind:fingerprint(values) for kind,values in metadata['identities'].items()},'resources':{}}
+    for kind in fields:
+        resources={}
+        for item in metadata[kind]:
+            identity=item['id' if kind=='containers' else 'Name' if kind=='volumes' else 'Id']
+            key=fingerprint(identity)
+            need(key not in resources,"duplicate foreign resource identity")
+            resources[key]={'metadata_sha256':fingerprint(item),'fields':{name:fingerprint(item[name]) for name in fields[kind] if name in item}}
+            if kind=='containers':
+                resources[key]['state_fields']={name:fingerprint(item['state'][name]) for name in ('Status','Running','Paused','Restarting','OOMKilled','Dead','Pid','ExitCode','StartedAt','FinishedAt')}
+        result['resources'][kind]=resources
+    return result
+
+
+def foreign_resources(fingerprint_path=None):
     # Only hashes leave this function. Container environment/config bytes may
     # contain secrets; they are never logged. This covers Docker metadata and
     # process identity, not arbitrary writes to mounted volume contents.
@@ -587,11 +623,14 @@ def foreign_resources():
     for identity in identities['containers']:
         item=json.loads(observed(['docker','inspect','--type','container',identity]))[0]
         state=item['State']
-        metadata['containers'].append({'id':item['Id'],'image':item['Image'],'config_sha256':hashlib.sha256(canon(item['Config'])).hexdigest(),'host_config_sha256':hashlib.sha256(canon(item['HostConfig'])).hexdigest(),'mounts':item['Mounts'],'restart_count':item['RestartCount'],'state':{key:state[key] for key in ('Status','Running','Paused','Restarting','OOMKilled','Dead','Pid','ExitCode','StartedAt','FinishedAt')}})
+        metadata['containers'].append({'id':item['Id'],'image':item['Image'],'config_sha256':hashlib.sha256(canon(item['Config'])).hexdigest(),'host_config_sha256':hashlib.sha256(canon(item['HostConfig'])).hexdigest(),'mounts':normalize_mounts(item['Mounts']),'restart_count':item['RestartCount'],'state':{key:state[key] for key in ('Status','Running','Paused','Restarting','OOMKilled','Dead','Pid','ExitCode','StartedAt','FinishedAt')}})
     for kind,command in (('volumes','volume'),('networks','network')):
         for identity in identities[kind]:
             metadata[kind].append(json.loads(observed(['docker',command,'inspect',identity]))[0])
-    return hashlib.sha256(canon(metadata)).hexdigest()
+    fingerprints=foreign_fingerprints(metadata)
+    if fingerprint_path is not None:
+        private_write(fingerprint_path,canon(fingerprints),0o400)
+    return fingerprints['metadata_sha256']
 
 def validate_root_identity_for_cleanup(rootfs,document):
     need(rootfs==ROOT/document["drill_id"]/"rootfs" and rootfs.resolve()==rootfs,"owned Guest identity changed")

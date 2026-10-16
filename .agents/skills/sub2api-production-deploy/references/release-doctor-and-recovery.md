@@ -98,7 +98,9 @@ Redis 首次恢复必须在应用启动前验证恢复文件 checksum、RDB/AOF 
 
 Guest 软件包额外启用、但可信来源 `nginx-T.txt` 中不存在的 module activation，只能在完成来源交叉核验及全部路径校验后解除其激活链接：条目须为 `modules-enabled/[数字]-mod-[名称].conf` symlink，解析目标必须是同一 Guest 内 `usr/share/nginx/modules-available` 的普通文件。只对该 activation 调用 `unlink`，保留 module 二进制、package 配置及来源配置；普通文件、未知命名、目录/目标越界或其他异常均拒绝，来源中已有的 activation 不按额外模块清理。最终 Nginx 来源 fingerprint 仍须精确一致。
 
-上述最低回归映射为 `test_redis_recovery_replay.py` 和 `test_full_recovery_guest.py`；本地合同测试不证明 Full DR、VM Gate、基线晋升或生产发布完成。helper 字节变化仍需最终提交重新分类，并使用新 bundle、授权与 drill 验证。
+宿主资源一致性检查只把 Docker `inspect` 的无序 `Mounts` 集合按唯一字符串 `Destination` 规范排序，完整条目仍参与摘要；缺失、重复或非法目的地拒绝，具有执行语义的其他数组保持原序。前后固定字段及资源指纹在比较前保存到当前 drill 的 root-only 文件，不保存配置、环境、挂载路径或资源名称原文。真实变化、诊断写入失败均阻断，不能把旧失败改签成功。清理与恢复演练串行，遇到差异先检查同类资源及变化字段，避免盲目重复整轮恢复。
+
+上述最低回归映射为 `test_redis_recovery_replay.py`、`test_full_recovery_guest.py` 和 `test_full_recovery_drill.py`；本地合同测试不证明 Full DR、VM Gate、基线晋升或生产发布完成。helper 字节变化仍需最终提交重新分类，并使用新 bundle、授权与 drill 验证。
 
 Compose 快照使用真实 Docker Compose JSON 解析 `env_file/configs/secrets` 文件闭包；固定清空宿主插值和 Docker endpoint 环境。当前支持同目录 basename 文件，依赖 Python 3 + PyYAML 和 Compose `--no-env-resolution`；其他路径、`include`/`extends`（包括引号或转义键）在写入前拒绝。恢复目录与现场渲染摘要及不可变镜像一致后才允许删除容器或修改数据库。
 
