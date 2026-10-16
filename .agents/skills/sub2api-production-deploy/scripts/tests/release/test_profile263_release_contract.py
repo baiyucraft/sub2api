@@ -38,21 +38,21 @@ class Profile263ReleaseContractTest(unittest.TestCase):
                 self.assertEqual(get_profile(name), contract)
                 with self.assertRaisesRegex(ValueError, "historical"):
                     get_release_profile(name)
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "271")
+        self.assertEqual(CURRENT_RELEASE_PROFILE, "272")
         current = get_profile("263")
         self.assertEqual(current["version"], "0.2.14-baiyu")
         self.assertEqual(current["parent"], "262")
         self.assertEqual(current["new_migrations"], [])
         self.assertEqual(current["gate_schema"], 2)
         self.assertEqual(current["release_policy"], get_profile("262")["release_policy"])
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 272"):
-            get_profile("272")
+        with self.assertRaisesRegex(ValueError, "unknown release profile: 273"):
+            get_profile("273")
         with self.assertRaises(ValueError):
             get_release_profile("272")
 
     def test_registration_and_existing_database_replay(self) -> None:
         registration = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(registration["current_profile"]["id"], "271")
+        self.assertEqual(registration["current_profile"]["id"], "272")
         for field in ("version", "parent", "new_migrations", "gate_schema", "release_policy"):
             self.assertEqual(registration["historical_profiles"]["263"][field], get_profile("263")[field])
             self.assertEqual(registration["historical_profiles"]["262"][field], get_profile("262")[field])
