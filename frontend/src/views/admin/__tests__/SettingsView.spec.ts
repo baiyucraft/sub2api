@@ -802,28 +802,7 @@ describe("admin SettingsView payment visible method controls", () => {
     adminSettingsFetch.mockResolvedValue(undefined);
   });
 
-  it("defaults GPT-6.1 Sol long-context rules off and persists both directions", async () => {
-    const wrapper = mountView();
-    await flushPromises();
-    await openGatewayTab(wrapper);
-    const toggle = wrapper.get('[data-testid="gpt61-sol-new-long-context-enabled"]');
-    expect((toggle.element as HTMLInputElement).checked).toBe(false);
-    await toggle.setValue(true);
-    await wrapper.find("form").trigger("submit.prevent");
-    await flushPromises();
-    expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({
-      openai_gpt61_sol_new_long_context_enabled: true,
-    }));
-    await toggle.setValue(false);
-    await wrapper.find("form").trigger("submit.prevent");
-    await flushPromises();
-    expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({
-      openai_gpt61_sol_new_long_context_enabled: false,
-    }));
-    wrapper.unmount();
-  });
-
-  it("loads enabled GPT-6.1 Sol long-context rules from admin settings", async () => {
+  it("omits the retired GPT-6.1 Sol long-context switch when saving settings", async () => {
     getSettings.mockResolvedValueOnce({
       ...baseSettingsResponse,
       openai_gpt61_sol_new_long_context_enabled: true,
@@ -831,7 +810,11 @@ describe("admin SettingsView payment visible method controls", () => {
     const wrapper = mountView();
     await flushPromises();
     await openGatewayTab(wrapper);
-    expect((wrapper.get('[data-testid="gpt61-sol-new-long-context-enabled"]').element as HTMLInputElement).checked).toBe(true);
+    expect(wrapper.find('[data-testid="gpt61-sol-new-long-context-enabled"]').exists()).toBe(false);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings).toHaveBeenCalledOnce();
+    expect(updateSettings.mock.calls[0][0]).not.toHaveProperty("openai_gpt61_sol_new_long_context_enabled");
     wrapper.unmount();
   });
 
