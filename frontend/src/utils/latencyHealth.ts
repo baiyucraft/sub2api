@@ -70,16 +70,19 @@ export const LATENCY_BAR_TO_CLASSES: Record<LatencySeverity, string> = {
   critical: 'to-red-500',
 }
 
-// 与运维 Token 请求统计一致：使用完整耗时，输出可能包含推理 Token。
+// 使用记录扣除首字等待计算输出 TPS；输出可能包含推理 Token，Ops 汇总口径独立。
 export const formatUsageOutputRate = (row: Pick<UsageLog,
-  'output_tokens' | 'duration_ms' | 'image_count' | 'image_output_tokens' | 'billing_mode' | 'request_type'
+  'output_tokens' | 'duration_ms' | 'first_token_ms' | 'image_count' | 'image_output_tokens' | 'billing_mode' | 'request_type'
 >): string => {
-  const { output_tokens: outputTokens, duration_ms: durationMs } = row
+  const { output_tokens: outputTokens, duration_ms: durationMs, first_token_ms: firstTokenMs } = row
   if (row.image_count > 0 || row.image_output_tokens > 0 || row.billing_mode === 'image'
     || (row.request_type && !['sync', 'stream', 'ws_v2', 'cyber'].includes(row.request_type))
     || !Number.isFinite(outputTokens) || outputTokens <= 0
-    || durationMs == null || !Number.isFinite(durationMs) || durationMs <= 0) {
+    || durationMs == null || !Number.isFinite(durationMs) || durationMs <= 0
+    || firstTokenMs == null || !Number.isFinite(firstTokenMs) || firstTokenMs < 0
+    || durationMs <= firstTokenMs) {
     return '—'
   }
-  return `${(outputTokens * 1000 / durationMs).toFixed(1)} tok/s`
+  const rate = outputTokens * 1000 / (durationMs - firstTokenMs)
+  return Number.isFinite(rate) ? `${rate.toFixed(1)} tok/s` : '—'
 }
