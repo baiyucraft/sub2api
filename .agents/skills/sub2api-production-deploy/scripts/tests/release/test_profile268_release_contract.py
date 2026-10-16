@@ -62,14 +62,14 @@ class Profile268ReleaseContractTest(unittest.TestCase):
 
     def test_profile_registration_and_raw_vs_runner_checksum(self):
         profile = get_profile("268")
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "271")
+        self.assertEqual(CURRENT_RELEASE_PROFILE, "272")
         self.assertEqual((profile["version"], profile["parent"], profile["gate_schema"]), ("0.2.16-baiyu", "267", 2))
         self.assertEqual(profile["new_migrations"], [MIGRATION])
         self.assertEqual(profile["release_policy"], get_profile("267")["release_policy"])
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 272"):
-            get_profile("272")
+        with self.assertRaisesRegex(ValueError, "unknown release profile: 273"):
+            get_profile("273")
         registration = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(registration["current_profile"]["id"], "271")
+        self.assertEqual(registration["current_profile"]["id"], "272")
         self.assertEqual(registration["current_profile"]["status"], "pending")
         for field in ("version", "parent", "gate_schema", "new_migrations", "release_policy"):
             self.assertEqual(registration["historical_profiles"]["268"][field], profile[field])

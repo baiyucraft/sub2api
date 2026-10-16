@@ -26,19 +26,19 @@ class Profile264ReleaseContractTest(unittest.TestCase):
         self.assertEqual(set(PROFILES), set(baseline["PROFILES"]) | {"264", "265", "266", "267", "268", "269", "270", "271"})
         for name, profile in baseline["PROFILES"].items():
             self.assertEqual(get_profile(name), profile, name)
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "271")
+        self.assertEqual(CURRENT_RELEASE_PROFILE, "272")
         profile = get_profile("264")
         self.assertEqual((profile["version"], profile["parent"], profile["gate_schema"]), ("0.2.14-baiyu", "263", 2))
         self.assertEqual(profile["new_migrations"], [MIGRATION])
         self.assertEqual(profile["release_policy"], get_profile("263")["release_policy"])
         with self.assertRaisesRegex(ValueError, "historical"):
             get_release_profile("263")
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 272"):
-            get_profile("272")
+        with self.assertRaisesRegex(ValueError, "unknown release profile: 273"):
+            get_profile("273")
 
     def test_registration_retains_previous_profile_and_raw_migration_hash(self):
         registration = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(registration["current_profile"]["id"], "271")
+        self.assertEqual(registration["current_profile"]["id"], "272")
         for field in ("version", "parent", "gate_schema", "new_migrations", "release_policy"):
             self.assertEqual(registration["historical_profiles"]["264"][field], get_profile("264")[field])
             self.assertEqual(registration["historical_profiles"]["263"][field], get_profile("263")[field])

@@ -46,7 +46,7 @@ class Profile261ReleaseContractTest(unittest.TestCase):
         for name, contract in previous["PROFILES"].items():
             with self.subTest(profile=name):
                 self.assertEqual(get_profile(name), contract)
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "271")
+        self.assertEqual(CURRENT_RELEASE_PROFILE, "272")
         current = get_profile("261")
         self.assertEqual(current["version"], "0.2.13-baiyu")
         self.assertEqual(current["parent"], "260")
@@ -57,8 +57,8 @@ class Profile261ReleaseContractTest(unittest.TestCase):
             get_release_profile("260")
         with self.assertRaisesRegex(ValueError, "historical"):
             get_release_profile("261")
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 272"):
-            get_profile("272")
+        with self.assertRaisesRegex(ValueError, "unknown release profile: 273"):
+            get_profile("273")
         with self.assertRaises(ValueError):
             get_release_profile("272")
 
@@ -67,7 +67,7 @@ class Profile261ReleaseContractTest(unittest.TestCase):
         catalog = {item["filename"]: item for item in discover_migration_catalog(WORKSPACE)}
         self.assertEqual(git_blob(UPSTREAM, "backend/cmd/server/VERSION").decode().strip(), "0.2.13")
         self.assertEqual(registration["version_contract"]["official_release_versions"][UPSTREAM], "0.2.13")
-        self.assertEqual(registration["current_profile"]["id"], "271")
+        self.assertEqual(registration["current_profile"]["id"], "272")
         self.assertEqual(registration["current_profile"]["status"], "pending")
         for field in ("version", "parent", "new_migrations", "gate_schema", "release_policy"):
             self.assertEqual(registration["historical_profiles"]["261"][field], get_profile("261")[field])

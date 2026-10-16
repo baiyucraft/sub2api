@@ -1012,7 +1012,21 @@ PROFILES["271"] = {
     },
 }
 
-CURRENT_RELEASE_PROFILE = "271"
+# Official 0.2.17 adds no database migrations; profile 271 remains immutable.
+PROFILES["272"] = {
+    **{key: PROFILES["271"][key] for key in _PROFILE_V2_RUNTIME_KEYS},
+    "name": "272",
+    "version": "0.2.17-baiyu",
+    "parent": "271",
+    "new_migrations": [],
+    "gate_schema": 2,
+    "release_policy": {
+        "compatibility_image": "production_current",
+        "migration_source": "database_state",
+    },
+}
+
+CURRENT_RELEASE_PROFILE = "272"
 
 
 def get_profile(name: str) -> dict:
