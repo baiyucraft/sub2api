@@ -71,8 +71,17 @@ docker_free_bytes() {
 
 database_size=$(docker exec sub2api-postgres sh -lc \
   'psql -X -A -t -U "${POSTGRES_USER:-postgres}" -d postgres -c "SELECT pg_database_size('\''sub2api_dev'\'')"' \
-  | tr -d '\r')
-[[ $database_size =~ ^[0-9]+$ ]]
+  2>/dev/null | tr -d '\r' || true)
+if [[ ! $database_size =~ ^[0-9]+$ ]]; then
+  # A full Docker filesystem can leave PostgreSQL in recovery before it can
+  # answer pg_database_size. The fixed 8 GiB floor remains the governing
+  # bound; only an explicit ENOSPC log permits this bounded recovery path.
+  if docker logs --tail 80 sub2api-postgres 2>&1 | grep -Fq 'No space left on device'; then
+    database_size=0
+  else
+    exit 1
+  fi
+fi
 current_image_id=$(docker inspect -f '{{.Image}}' sub2api-dev)
 [[ $current_image_id =~ ^sha256:[0-9a-f]{64}$ ]]
 current_image_size=$(docker image inspect -f '{{.Size}}' "$current_image_id" 2>/dev/null || true)
