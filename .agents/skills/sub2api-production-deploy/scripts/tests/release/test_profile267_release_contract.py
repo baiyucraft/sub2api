@@ -52,7 +52,7 @@ class Profile267ReleaseContractTest(unittest.TestCase):
         before = {}
         exec(compile(git_blob(BASELINE, ".agents/skills/sub2api-production-deploy/scripts/release/profiles.py"), "baseline", "exec"), before)
         self.assertEqual(before["CURRENT_RELEASE_PROFILE"], "266")
-        self.assertEqual(set(PROFILES), set(before["PROFILES"]) | {"267", "268", "269", "270", "271"})
+        self.assertEqual(set(PROFILES), set(before["PROFILES"]) | {"267", "268", "269", "270", "271", "272"})
         for name, contract in before["PROFILES"].items():
             self.assertEqual(get_profile(name), contract, name)
             with self.assertRaisesRegex(ValueError, "historical"):
@@ -90,7 +90,7 @@ class Profile267ReleaseContractTest(unittest.TestCase):
         self.assertEqual(registration["current_profile"]["id"], "272")
         self.assertEqual(registration["current_profile"]["status"], "pending")
         self.assertEqual(git_blob(UPSTREAM, "backend/cmd/server/VERSION").decode().strip(), "0.2.16")
-        self.assertEqual((WORKSPACE / "backend/cmd/server/VERSION").read_text().strip(), "0.2.16-baiyu")
+        self.assertEqual((WORKSPACE / "backend/cmd/server/VERSION").read_text().strip(), get_profile(CURRENT_RELEASE_PROFILE)["version"])
         catalog = {item["filename"]: item for item in discover_migration_catalog(WORKSPACE)}
         for name, official, checksum in zip(MIGRATIONS, OFFICIAL, RAW_SHA256):
             raw = (WORKSPACE / "backend/migrations" / name).read_bytes()
@@ -134,7 +134,8 @@ class Profile267ReleaseContractTest(unittest.TestCase):
             unknown = plan_migrations(catalog, {**snapshot, official: "a" * 64})
             self.assertEqual(unknown["unknown"], [{"filename": official, "checksum": "a" * 64}])
         self.assertIsNotNone(RELEASE_ID.fullmatch("267-aaaaaaaaaaaa-1-aaaaaaaa"))
-        self.assertIsNone(RELEASE_ID.fullmatch("272-aaaaaaaaaaaa-1-aaaaaaaa"))
+        self.assertIsNotNone(RELEASE_ID.fullmatch("272-aaaaaaaaaaaa-1-aaaaaaaa"))
+        self.assertIsNone(RELEASE_ID.fullmatch("273-aaaaaaaaaaaa-1-aaaaaaaa"))
 
     def test_manifest_binds_exact_profile_and_preserves_ancestor_evidence(self):
         profile = get_profile("267")

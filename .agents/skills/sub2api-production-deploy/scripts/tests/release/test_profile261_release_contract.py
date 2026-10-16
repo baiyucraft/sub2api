@@ -42,7 +42,7 @@ class Profile261ReleaseContractTest(unittest.TestCase):
         source = git_blob(BASELINE, ".agents/skills/sub2api-production-deploy/scripts/release/profiles.py")
         exec(compile(source, "baseline-profiles", "exec"), previous)
         self.assertEqual(previous["CURRENT_RELEASE_PROFILE"], "260")
-        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"261", "262", "263", "264", "265", "266", "267", "268", "269", "270", "271"})
+        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"261", "262", "263", "264", "265", "266", "267", "268", "269", "270", "271", "272"})
         for name, contract in previous["PROFILES"].items():
             with self.subTest(profile=name):
                 self.assertEqual(get_profile(name), contract)
@@ -59,8 +59,7 @@ class Profile261ReleaseContractTest(unittest.TestCase):
             get_release_profile("261")
         with self.assertRaisesRegex(ValueError, "unknown release profile: 273"):
             get_profile("273")
-        with self.assertRaises(ValueError):
-            get_release_profile("272")
+        self.assertEqual(get_release_profile("272")["name"], "272")
 
     def test_official_raw_bytes_and_catalog_checksums_match(self) -> None:
         registration = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))

@@ -38,7 +38,7 @@ class Profile268ReleaseContractTest(unittest.TestCase):
         baseline = {}
         exec(compile(git_blob(".agents/skills/sub2api-production-deploy/scripts/release/profiles.py"), "baseline", "exec"), baseline)
         self.assertEqual(baseline["CURRENT_RELEASE_PROFILE"], "267")
-        self.assertEqual(set(PROFILES), set(baseline["PROFILES"]) | {"268", "269", "270", "271"})
+        self.assertEqual(set(PROFILES), set(baseline["PROFILES"]) | {"268", "269", "270", "271", "272"})
         for name, profile in baseline["PROFILES"].items():
             self.assertEqual(get_profile(name), profile, name)
             with self.assertRaisesRegex(ValueError, "historical"):
@@ -99,7 +99,8 @@ class Profile268ReleaseContractTest(unittest.TestCase):
         self.assertFalse(bad["existing_checksums_verified"])
         self.assertEqual([entry["filename"] for entry in bad["conflicts"]], [MIGRATION])
         self.assertIsNotNone(RELEASE_ID.fullmatch("268-aaaaaaaaaaaa-1-aaaaaaaa"))
-        self.assertIsNone(RELEASE_ID.fullmatch("272-aaaaaaaaaaaa-1-aaaaaaaa"))
+        self.assertIsNotNone(RELEASE_ID.fullmatch("272-aaaaaaaaaaaa-1-aaaaaaaa"))
+        self.assertIsNone(RELEASE_ID.fullmatch("273-aaaaaaaaaaaa-1-aaaaaaaa"))
 
     def test_manifest_identity_and_ancestor_evidence_remain_required(self):
         profile = get_profile("268")

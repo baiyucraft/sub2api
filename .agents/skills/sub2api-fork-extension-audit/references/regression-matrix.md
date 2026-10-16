@@ -292,3 +292,10 @@ DataTable 高频 ResizeObserver 通知只触发一帧测量
 Vertex 健康探针执行 `upstream_health_probe_client_test.go`：Service Account JSON 与 API Key/Express 成功路径、缺失/无效凭据在发送前归为 `probe_credentials_missing`，非法区域仍归为 `probe_request_invalid`。`openai_gateway_chat_completions_test.go` 的结构化 400 回归同时覆盖 CN adaptive 原生 Responses `supported` 与 `unknown` Chat 转换，保留单次请求和正文形状断言。
 
 `EditAccountModal.spec.ts` 同时验证官方自动重置卡默认值、阈值、保存及运行态保护，和 fork 上游绑定 OAuth/API Key 两种编辑模式、Spark shadow 的隐藏及白名单边界；不可编辑的旧阈值不得阻塞其他设置。`MonitorSettingsPanel.spec.ts` 验证新增 provider 时保留非空 `v1_cache_rate_source_groups` 映射，缺省映射规范化为空对象，原配置不被突变。
+
+
+## 官方 0.2.17 与 profile 272 发布合同
+
+当前发布 profile 为 `272`，版本 `0.2.17-baiyu`，parent `271`，`new_migrations=[]`；历史 271 及更早的 profile、SQL 和 checksum 保持不变，未知 `273` 拒绝。签名自测、停机奖励 postflight、migration 297/298/299 的祖先 manifest 校验、备份及清理入口均须接入 272。祖先 helper 仍逐项核对 schema、profile、parent、空新增迁移列表及 catalog checksum，不能只放宽外层 profile guard。
+
+最低本地回归为 `test_profile272_release_contract.py`（实际 jq 校验设置 `SUB2API_TEST_JQ` 为 jq 可执行路径）、历史 profile 合同、完整 `tests/release`、变更 Shell 的 `bash -n` 和 `git diff --check`。新 profile 同时更新允许身份和下一个未知身份负例；既有版本、迁移和 checksum 断言继续冻结。本地验证不代表 VM Gate、实际数据库升级、恢复或生产部署完成。

@@ -36,7 +36,8 @@ verify_manifest() {
     (if has("manifest") then .manifest else . end) as $m |
     $m.schema == 2 and (($m.profile == "269" and $m.parent_profile == "268" and $m.new_migrations == [$filename]) or
       ($m.profile == "270" and $m.parent_profile == "269" and $m.new_migrations == ["298_group_scheduling_protection_policies.sql"]) or
-      ($m.profile == "271" and $m.parent_profile == "270" and $m.new_migrations == ["299_upstream_cache_guard_revisions.sql"])) and
+      ($m.profile == "271" and $m.parent_profile == "270" and $m.new_migrations == ["299_upstream_cache_guard_revisions.sql"]) or
+      ($m.profile == "272" and $m.parent_profile == "271" and $m.new_migrations == [])) and
     ([$m.migration_catalog[] | select(.filename == $filename)] | length) == 1 and
     ([$m.migration_catalog[] | select(.filename == $filename)][0].checksum == $checksum)
   ' "$document" >/dev/null 2>&1 || fail manifest_contract

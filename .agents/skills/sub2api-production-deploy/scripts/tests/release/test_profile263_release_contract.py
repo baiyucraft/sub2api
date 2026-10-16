@@ -32,7 +32,7 @@ class Profile263ReleaseContractTest(unittest.TestCase):
         previous = {}
         exec(compile(source, "historical-profiles", "exec"), previous)
         self.assertEqual(previous["CURRENT_RELEASE_PROFILE"], "262")
-        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"263", "264", "265", "266", "267", "268", "269", "270", "271"})
+        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"263", "264", "265", "266", "267", "268", "269", "270", "271", "272"})
         for name, contract in previous["PROFILES"].items():
             with self.subTest(profile=name):
                 self.assertEqual(get_profile(name), contract)
@@ -47,8 +47,7 @@ class Profile263ReleaseContractTest(unittest.TestCase):
         self.assertEqual(current["release_policy"], get_profile("262")["release_policy"])
         with self.assertRaisesRegex(ValueError, "unknown release profile: 273"):
             get_profile("273")
-        with self.assertRaises(ValueError):
-            get_release_profile("272")
+        self.assertEqual(get_release_profile("272")["name"], "272")
 
     def test_registration_and_existing_database_replay(self) -> None:
         registration = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
@@ -92,9 +91,10 @@ class Profile263ReleaseContractTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "migration 285 catalog"):
             _validate_v2_pending({"profile": "263", "migration_catalog": []}, evidence)
 
-    def test_cleanup_release_identity_accepts_263_and_rejects_271(self) -> None:
+    def test_cleanup_release_identity_accepts_history_and_272_and_rejects_273(self) -> None:
         self.assertIsNotNone(CLEANUP_RELEASE_ID.fullmatch("263-aaaaaaaaaaaa-1-aaaaaaaa"))
-        self.assertIsNone(CLEANUP_RELEASE_ID.fullmatch("272-aaaaaaaaaaaa-1-aaaaaaaa"))
+        self.assertIsNotNone(CLEANUP_RELEASE_ID.fullmatch("272-aaaaaaaaaaaa-1-aaaaaaaa"))
+        self.assertIsNone(CLEANUP_RELEASE_ID.fullmatch("273-aaaaaaaaaaaa-1-aaaaaaaa"))
 
 
 class Profile263BashContractTest(unittest.TestCase):
@@ -171,14 +171,14 @@ jq() {
             self.assertTrue(groups, relative)
             for group in groups:
                 with self.subTest(file=relative):
-                    cases = tuple((f"{profile}-aaaaaaaaaaaa-1-aaaaaaaa", allowed) for profile, allowed in (("261", True), ("262", True), ("263", True), ("264", True), ("265", True), ("266", True), ("267", True), ("268", True), ("269", True), ("270", True), ("271", True), ("272", False)))
+                    cases = tuple((f"{profile}-aaaaaaaaaaaa-1-aaaaaaaa", allowed) for profile, allowed in (("261", True), ("262", True), ("263", True), ("264", True), ("265", True), ("266", True), ("267", True), ("268", True), ("269", True), ("270", True), ("271", True), ("272", True), ("273", False)))
                     self.assert_guard_cases(f'[[ $release_id =~ ^{group}-[0-9a-f]{{12}}-[0-9]+-[0-9a-f]{{8}}$ ]]', "release_id", cases)
 
     def test_ancestor_assertion_guards_admit_263_through_270_and_reject_271(self) -> None:
         newer_profiles = {
-            "migration-297-assert.sh": {"269", "270", "271"},
-            "migration-298-assert.sh": {"270", "271"},
-            "migration-299-assert.sh": {"271"},
+            "migration-297-assert.sh": {"269", "270", "271", "272"},
+            "migration-298-assert.sh": {"270", "271", "272"},
+            "migration-299-assert.sh": {"271", "272"},
         }
         for path in sorted((DEPLOY_ROOT / "maintenance/release").glob("migration-*-assert.sh")):
             source = path.read_text(encoding="utf-8")
@@ -186,8 +186,8 @@ jq() {
             self.assertTrue(guards, path.name)
             for guard in guards:
                 with self.subTest(file=path.name):
-                    accepted = newer_profiles.get(path.name, {str(value) for value in range(262, 272)})
-                    cases = tuple((str(value), str(value) in accepted) for value in range(262, 273))
+                    accepted = newer_profiles.get(path.name, {str(value) for value in range(262, 273)})
+                    cases = tuple((str(value), str(value) in accepted) for value in range(262, 274))
                     self.assert_guard_cases(guard, "profile", cases)
 
 
