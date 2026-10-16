@@ -114,7 +114,6 @@ type OpenAIModelsResponse struct {
 	upstreamETag                 string
 	upstreamSourceBody           []byte
 	convertedFromOpenAIModelList bool
-	clientDefaults               *codexModelDefaults
 	NotModified                  bool
 }
 
@@ -131,7 +130,6 @@ func (s *OpenAIGatewayService) BuildGroupConfiguredCodexModelsManifest(
 		return nil, false, nil
 	}
 
-	defaults := codexModelDefaults{s.settingService.IsOpenAIGPT61SolNewLongContextEnabled(ctx)}
 	visible, catalog, err := loadCodexGroupCatalogAccounts(ctx, s.accountRepo, group.ID)
 	if err != nil {
 		return nil, false, fmt.Errorf("load group configured Codex models: %w", err)
@@ -148,7 +146,6 @@ func (s *OpenAIGatewayService) BuildGroupConfiguredCodexModelsManifest(
 		group,
 		nil,
 		true,
-		defaults,
 	)
 	if err != nil {
 		return nil, false, fmt.Errorf("initialize group configured Codex models: %w", err)
@@ -158,7 +155,6 @@ func (s *OpenAIGatewayService) BuildGroupConfiguredCodexModelsManifest(
 		nil,
 		group.ModelAllowlist.Models,
 		group.ModelAllowlistEnabled(),
-		defaults,
 	)
 	if err != nil {
 		return nil, false, fmt.Errorf("build group configured Codex models: %w", err)
@@ -191,12 +187,6 @@ func (s *OpenAIGatewayService) MergeGroupConfiguredCodexModels(
 		return nil
 	}
 
-	defaults := codexModelDefaults{}
-	if manifest.clientDefaults != nil {
-		defaults = *manifest.clientDefaults
-	} else {
-		defaults.gpt61SolNewLongContextEnabled = s.settingService.IsOpenAIGPT61SolNewLongContextEnabled(ctx)
-	}
 	var configuredModels []string
 	if !group.CodexModelsManifestConfig.Enabled {
 		var err error
@@ -210,7 +200,6 @@ func (s *OpenAIGatewayService) MergeGroupConfiguredCodexModels(
 		configuredModels,
 		group.ModelAllowlist.Models,
 		group.ModelAllowlistEnabled(),
-		defaults,
 	)
 	if err != nil {
 		return fmt.Errorf("merge group configured Codex models: %w", err)
@@ -355,12 +344,6 @@ const (
 	configuredCodexToolOutputMaxTokens = 10_000
 )
 
-// codexModelDefaults is request-local; upstream metadata is applied afterwards.
-// Removing this temporary policy restores the upstream 500k default everywhere.
-type codexModelDefaults struct {
-	gpt61SolNewLongContextEnabled bool
-}
-
 type configuredCodexReasoningLevel struct {
 	Effort      string `json:"effort"`
 	Description string `json:"description"`
@@ -446,7 +429,7 @@ type codexModelMetadataOverride struct {
 	inputModalitiesConflict bool
 }
 
-func newConfiguredCodexModelDescriptor(modelID string, defaults ...codexModelDefaults) configuredCodexModelDescriptor {
+func newConfiguredCodexModelDescriptor(modelID string) configuredCodexModelDescriptor {
 	modelID = strings.TrimSpace(modelID)
 	noReasoningLevel := "none"
 	descriptor := configuredCodexModelDescriptor{
@@ -563,9 +546,9 @@ func newConfiguredCodexModelDescriptor(modelID string, defaults ...codexModelDef
 		}
 		descriptor.Slug = modelID
 		descriptor.officialMetadata = openai.CodexGPT61SolMetadata
-		if len(defaults) > 0 && defaults[0].gpt61SolNewLongContextEnabled {
-			descriptor.ContextWindow = 500_000
-		}
+		// The October 12, 2026 Codex/Work default increased to 500k after
+		// the bundled official snapshot. Explicit upstream metadata still wins.
+		descriptor.ContextWindow = 500_000
 	}
 	return descriptor
 }
@@ -884,24 +867,20 @@ func (s *GatewayService) BuildCodexModelsManifestForGroup(
 	platformOverride string,
 	modelIDs []string,
 ) ([]byte, error) {
-	defaults := codexModelDefaults{}
-	if s != nil {
-		defaults.gpt61SolNewLongContextEnabled = s.settingService.IsOpenAIGPT61SolNewLongContextEnabled(ctx)
-	}
 	if s == nil || s.accountRepo == nil || group == nil {
-		return buildCodexModelsManifest(modelIDs, nil, nil, nil, nil, defaults)
+		return BuildCodexModelsManifest(modelIDs)
 	}
 	effectivePlatform := strings.TrimSpace(platformOverride)
 	if effectivePlatform == "" {
 		effectivePlatform = group.Platform
 	}
 	if effectivePlatform != PlatformComposite && !isConcreteRequestPlatform(effectivePlatform) {
-		return buildCodexModelsManifest(modelIDs, nil, nil, nil, nil, defaults)
+		return BuildCodexModelsManifest(modelIDs)
 	}
 
 	_, catalog, err := loadCodexGroupCatalogAccounts(ctx, s.accountRepo, group.ID)
 	if err != nil {
-		return buildCodexModelsManifest(modelIDs, nil, nil, nil, nil, defaults)
+		return BuildCodexModelsManifest(modelIDs)
 	}
 	var compositeRoutes []CompositeModelRoute
 	compositeRoutesAvailable := true
@@ -918,7 +897,6 @@ func (s *GatewayService) BuildCodexModelsManifestForGroup(
 		group,
 		compositeRoutes,
 		compositeRoutesAvailable,
-		defaults,
 	)
 }
 
@@ -929,7 +907,6 @@ func buildCodexModelsManifestForAccounts(
 	group *Group,
 	compositeRoutes []CompositeModelRoute,
 	compositeRoutesAvailable bool,
-	defaults ...codexModelDefaults,
 ) ([]byte, error) {
 	imageInputModels := make(map[string]bool, len(modelIDs))
 	searchToolModels := make(map[string]bool, len(modelIDs))
@@ -972,7 +949,7 @@ func buildCodexModelsManifestForAccounts(
 			modelMetadata[modelID] = metadata
 		}
 	}
-	return buildCodexModelsManifest(modelIDs, imageInputModels, searchToolModels, metadataModels, modelMetadata, defaults...)
+	return buildCodexModelsManifest(modelIDs, imageInputModels, searchToolModels, metadataModels, modelMetadata)
 }
 
 func buildCodexModelsManifest(
@@ -981,7 +958,6 @@ func buildCodexModelsManifest(
 	searchToolModels map[string]bool,
 	metadataModels map[string]string,
 	modelMetadata map[string]codexModelMetadataOverride,
-	defaults ...codexModelDefaults,
 ) ([]byte, error) {
 	seen := make(map[string]struct{}, len(modelIDs))
 	models := make([]json.RawMessage, 0, len(modelIDs))
@@ -1001,7 +977,7 @@ func buildCodexModelsManifest(
 			continue
 		}
 		seen[modelID] = struct{}{}
-		descriptor := newConfiguredCodexModelDescriptor(metadataModelID, defaults...)
+		descriptor := newConfiguredCodexModelDescriptor(metadataModelID)
 		descriptor.Slug = modelID
 		descriptor.SupportsSearchTool = searchToolModels[modelID]
 		if metadata, ok := modelMetadata[modelID]; ok {
@@ -1384,7 +1360,6 @@ func mergeConfiguredCodexModelsManifest(
 	configuredModels []string,
 	selectedModels []string,
 	filterBySelection bool,
-	defaults ...codexModelDefaults,
 ) ([]byte, bool, error) {
 	var envelope map[string]json.RawMessage
 	if err := json.Unmarshal(body, &envelope); err != nil {
@@ -1461,7 +1436,7 @@ func mergeConfiguredCodexModelsManifest(
 		if _, exists := seen[modelID]; exists {
 			continue
 		}
-		rawModel, err := json.Marshal(newConfiguredCodexModelDescriptor(modelID, defaults...))
+		rawModel, err := json.Marshal(newConfiguredCodexModelDescriptor(modelID))
 		if err != nil {
 			return nil, false, err
 		}
@@ -2183,7 +2158,7 @@ func convertOpenAIModelListToCodexManifest(body []byte) []byte {
 	return convertOpenAIModelListToCodexManifestForAccount(body, nil)
 }
 
-func convertOpenAIModelListToCodexManifestForAccount(body []byte, account *Account, defaults ...codexModelDefaults) []byte {
+func convertOpenAIModelListToCodexManifestForAccount(body []byte, account *Account) []byte {
 	var envelope map[string]json.RawMessage
 	if err := json.Unmarshal(body, &envelope); err != nil || envelope == nil {
 		return body
@@ -2238,7 +2213,7 @@ func convertOpenAIModelListToCodexManifestForAccount(body []byte, account *Accou
 			searchToolModels[modelID] = true
 		}
 	}
-	converted, err := buildCodexModelsManifest(modelIDs, imageInputModels, searchToolModels, metadataModels, modelMetadata, defaults...)
+	converted, err := buildCodexModelsManifest(modelIDs, imageInputModels, searchToolModels, metadataModels, modelMetadata)
 	if err != nil {
 		return body
 	}
@@ -2308,20 +2283,15 @@ func (s *OpenAIGatewayService) CompleteAPIKeyCodexModelsManifestForClient(manife
 	if manifest == nil || account == nil || !account.IsOpenAIApiKey() || manifest.NotModified || len(manifest.Body) == 0 {
 		return nil
 	}
-	defaults := codexModelDefaults{}
-	if s != nil {
-		defaults.gpt61SolNewLongContextEnabled = s.settingService.IsOpenAIGPT61SolNewLongContextEnabled(context.Background())
-	}
-	manifest.clientDefaults = &defaults
 	body := manifest.Body
 	if len(manifest.upstreamSourceBody) > 0 {
 		body = append([]byte(nil), manifest.upstreamSourceBody...)
 		if manifest.convertedFromOpenAIModelList {
-			body = convertOpenAIModelListToCodexManifestForAccount(body, account, defaults)
+			body = convertOpenAIModelListToCodexManifestForAccount(body, account)
 		}
 	}
 	var err error
-	body, err = applySyncedAPIKeyCodexModelMetadata(body, account, manifest.convertedFromOpenAIModelList, defaults)
+	body, err = applySyncedAPIKeyCodexModelMetadata(body, account, manifest.convertedFromOpenAIModelList)
 	if err != nil {
 		return err
 	}
@@ -2332,7 +2302,6 @@ func (s *OpenAIGatewayService) CompleteAPIKeyCodexModelsManifestForClient(manife
 		body,
 		true,
 		account,
-		defaults,
 	)
 	if err != nil {
 		return err
@@ -2346,7 +2315,7 @@ func (s *OpenAIGatewayService) CompleteAPIKeyCodexModelsManifestForClient(manife
 	return nil
 }
 
-func applySyncedAPIKeyCodexModelMetadata(body []byte, account *Account, overwriteLocalDefaults bool, defaults ...codexModelDefaults) ([]byte, error) {
+func applySyncedAPIKeyCodexModelMetadata(body []byte, account *Account, overwriteLocalDefaults bool) ([]byte, error) {
 	snapshot := account.GetUpstreamModelMetadataSnapshot()
 	if snapshot == nil || len(snapshot.Models) == 0 {
 		return body, nil
@@ -2382,7 +2351,7 @@ func applySyncedAPIKeyCodexModelMetadata(body []byte, account *Account, overwrit
 			metadata.Description = ""
 		}
 
-		descriptor := newConfiguredCodexModelDescriptor(slug, defaults...)
+		descriptor := newConfiguredCodexModelDescriptor(slug)
 		applyUpstreamModelMetadataToCodexDescriptor(
 			&descriptor,
 			codexModelMetadataOverride{UpstreamModelMetadata: metadata},
@@ -2457,7 +2426,7 @@ func applySyncedAPIKeyCodexModelMetadata(body []byte, account *Account, overwrit
 	return updated, nil
 }
 
-func completeAPIKeyCodexModelsManifestMetadata(body []byte, completeAll bool, account *Account, defaults ...codexModelDefaults) ([]byte, error) {
+func completeAPIKeyCodexModelsManifestMetadata(body []byte, completeAll bool, account *Account) ([]byte, error) {
 	var envelope map[string]json.RawMessage
 	if err := json.Unmarshal(body, &envelope); err != nil {
 		return nil, fmt.Errorf("decode JSON object: %w", err)
@@ -2507,7 +2476,7 @@ func completeAPIKeyCodexModelsManifestMetadata(body []byte, completeAll bool, ac
 			continue
 		}
 
-		descriptor := newConfiguredCodexModelDescriptor(slug, defaults...)
+		descriptor := newConfiguredCodexModelDescriptor(slug)
 		descriptor.SupportsSearchTool = shouldForwardOpenAIResponsesViaRawChatCompletions(account)
 		if accountCodexModelSupportsImageInput(account, slug) {
 			descriptor.InputModalities = []string{"text", "image"}

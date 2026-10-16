@@ -16,44 +16,35 @@ import (
 
 func TestGPT61SolLongContextCatalogDefaults(t *testing.T) {
 	account := newCodexModelsAPIKeyTestAccount("https://relay.example/v1")
-	for _, enabled := range []bool{false, true} {
-		t.Run(fmt.Sprintf("enabled=%t", enabled), func(t *testing.T) {
-			defaults := codexModelDefaults{gpt61SolNewLongContextEnabled: enabled}
-			want := 272000
-			if enabled {
-				want = 500000
-			}
-			for _, body := range []string{
-				`{"models":[{"slug":"gpt-6.1-sol"}]}`,
-				`{"models":[{"slug":"gpt-6.1-sol","context_window":null}]}`,
-			} {
-				completed, err := completeAPIKeyCodexModelsManifestMetadata([]byte(body), true, account, defaults)
-				require.NoError(t, err)
-				model := decodeCodexManifestModels(t, completed)[0]
-				require.EqualValues(t, want, model["context_window"])
-				require.EqualValues(t, 872000, model["max_context_window"])
-			}
-			converted := convertOpenAIModelListToCodexManifestForAccount(
-				[]byte(`{"object":"list","data":[{"id":"gpt-6.1-sol"}]}`), account, defaults)
-			require.EqualValues(t, want, decodeCodexManifestModels(t, converted)[0]["context_window"])
-			merged, _, err := mergeConfiguredCodexModelsManifest(
-				[]byte(`{"models":[]}`), []string{"openai/GPT_6.1_SOL-max"}, nil, false, defaults)
-			require.NoError(t, err)
-			require.EqualValues(t, want, decodeCodexManifestModels(t, merged)[0]["context_window"])
-			for _, window := range []int{272000, 300000, 1000000} {
-				body := fmt.Sprintf(`{"models":[{"slug":"gpt-6.1-sol","context_window":%d,"max_context_window":1000000}]}`, window)
-				completed, err := completeAPIKeyCodexModelsManifestMetadata([]byte(body), true, account, defaults)
-				require.NoError(t, err)
-				model := decodeCodexManifestModels(t, completed)[0]
-				require.EqualValues(t, window, model["context_window"])
-				require.EqualValues(t, 1000000, model["max_context_window"])
-				list := fmt.Sprintf(`{"object":"list","data":[{"id":"gpt-6.1-sol","context_window":%d,"max_context_window":1000000}]}`, window)
-				converted = convertOpenAIModelListToCodexManifestForAccount([]byte(list), account, defaults)
-				model = decodeCodexManifestModels(t, converted)[0]
-				require.EqualValues(t, window, model["context_window"])
-				require.EqualValues(t, 1000000, model["max_context_window"])
-			}
-		})
+	for _, body := range []string{
+		`{"models":[{"slug":"gpt-6.1-sol"}]}`,
+		`{"models":[{"slug":"gpt-6.1-sol","context_window":null}]}`,
+	} {
+		completed, err := completeAPIKeyCodexModelsManifestMetadata([]byte(body), true, account)
+		require.NoError(t, err)
+		model := decodeCodexManifestModels(t, completed)[0]
+		require.EqualValues(t, 500000, model["context_window"])
+		require.EqualValues(t, 872000, model["max_context_window"])
+	}
+	converted := convertOpenAIModelListToCodexManifestForAccount(
+		[]byte(`{"object":"list","data":[{"id":"gpt-6.1-sol"}]}`), account)
+	require.EqualValues(t, 500000, decodeCodexManifestModels(t, converted)[0]["context_window"])
+	merged, _, err := mergeConfiguredCodexModelsManifest(
+		[]byte(`{"models":[]}`), []string{"openai/GPT_6.1_SOL-max"}, nil, false)
+	require.NoError(t, err)
+	require.EqualValues(t, 500000, decodeCodexManifestModels(t, merged)[0]["context_window"])
+	for _, window := range []int{272000, 300000, 1000000} {
+		body := fmt.Sprintf(`{"models":[{"slug":"gpt-6.1-sol","context_window":%d,"max_context_window":1000000}]}`, window)
+		completed, err := completeAPIKeyCodexModelsManifestMetadata([]byte(body), true, account)
+		require.NoError(t, err)
+		model := decodeCodexManifestModels(t, completed)[0]
+		require.EqualValues(t, window, model["context_window"])
+		require.EqualValues(t, 1000000, model["max_context_window"])
+		list := fmt.Sprintf(`{"object":"list","data":[{"id":"gpt-6.1-sol","context_window":%d,"max_context_window":1000000}]}`, window)
+		converted = convertOpenAIModelListToCodexManifestForAccount([]byte(list), account)
+		model = decodeCodexManifestModels(t, converted)[0]
+		require.EqualValues(t, window, model["context_window"])
+		require.EqualValues(t, 1000000, model["max_context_window"])
 	}
 }
 
@@ -66,35 +57,24 @@ func TestGPT61SolLongContextGeneratedGroupCatalog(t *testing.T) {
 	group := &Group{ID: 1, Platform: PlatformOpenAI}
 	repo := codexModelsVisibilityAccountRepo{byGroup: map[int64][]Account{1: {account}}}
 	svc := &OpenAIGatewayService{accountRepo: repo}
-	var previousETag string
-	for _, enabled := range []bool{false, true, false} {
-		t.Run(fmt.Sprintf("enabled=%t", enabled), func(t *testing.T) {
-			setGPT61SolLongContextForBillingTest(t, svc, enabled)
-			want := 272000
-			if enabled {
-				want = 500000
-			}
-			manifest, configured, err := svc.BuildGroupConfiguredCodexModelsManifest(context.Background(), group, previousETag)
-			require.NoError(t, err)
-			require.True(t, configured)
-			require.False(t, manifest.NotModified)
-			model := decodeCodexManifestModels(t, manifest.Body)[0]
-			require.Equal(t, "public-sol", model["slug"])
-			require.EqualValues(t, want, model["context_window"])
-			require.EqualValues(t, 872000, model["max_context_window"])
-			previousETag = manifest.ETag
-			same, _, err := svc.BuildGroupConfiguredCodexModelsManifest(context.Background(), group, previousETag)
-			require.NoError(t, err)
-			require.True(t, same.NotModified)
-			gateway := &GatewayService{accountRepo: repo, settingService: svc.settingService}
-			body, err := gateway.BuildCodexModelsManifestForGroup(context.Background(), group, "", []string{"public-sol"})
-			require.NoError(t, err)
-			require.EqualValues(t, want, decodeCodexManifestModels(t, body)[0]["context_window"])
-		})
-	}
+	manifest, configured, err := svc.BuildGroupConfiguredCodexModelsManifest(context.Background(), group, "")
+	require.NoError(t, err)
+	require.True(t, configured)
+	require.False(t, manifest.NotModified)
+	model := decodeCodexManifestModels(t, manifest.Body)[0]
+	require.Equal(t, "public-sol", model["slug"])
+	require.EqualValues(t, 500000, model["context_window"])
+	require.EqualValues(t, 872000, model["max_context_window"])
+	same, _, err := svc.BuildGroupConfiguredCodexModelsManifest(context.Background(), group, manifest.ETag)
+	require.NoError(t, err)
+	require.True(t, same.NotModified)
+	gateway := &GatewayService{accountRepo: repo}
+	body, err := gateway.BuildCodexModelsManifestForGroup(context.Background(), group, "", []string{"public-sol"})
+	require.NoError(t, err)
+	require.EqualValues(t, 500000, decodeCodexManifestModels(t, body)[0]["context_window"])
 }
 
-func TestGPT61SolLongContextCachedCatalogSwitch(t *testing.T) {
+func TestGPT61SolLongContextCachedCatalog(t *testing.T) {
 	for _, source := range []struct {
 		name         string
 		body         string
@@ -118,50 +98,38 @@ func TestGPT61SolLongContextCachedCatalogSwitch(t *testing.T) {
 			group := &Group{ID: 1, Platform: PlatformOpenAI}
 			group.CodexModelsManifestConfig.Enabled = true
 			var previousETag string
-			for i, enabled := range []bool{false, true, false} {
-				setGPT61SolLongContextForBillingTest(t, svc, enabled)
+			for i := 0; i < 3; i++ {
 				manifest, err := svc.FetchCodexModelsManifest(context.Background(), account, "0.150.0", "")
 				require.NoError(t, err)
 				require.NoError(t, svc.CompleteAPIKeyCodexModelsManifestForClient(manifest, account))
 				model := decodeCodexManifestModels(t, manifest.Body)[0]
-				want := 272000
-				if enabled {
-					want = 500000
-				}
+				want := 500000
 				if source.wantExplicit != 0 {
 					want = source.wantExplicit
 				}
 				require.EqualValues(t, want, model["context_window"])
 				require.NoError(t, svc.MergeGroupConfiguredCodexModels(context.Background(), group, manifest, previousETag))
-				if source.wantExplicit == 0 {
-					require.False(t, manifest.NotModified, "switch must return changed content")
-				} else if i > 0 {
-					require.True(t, manifest.NotModified, "explicit upstream windows are policy-independent")
-				}
+				require.Equal(t, i > 0, manifest.NotModified, "unchanged client catalog must return 304")
 				previousETag = manifest.ETag
 			}
-			require.Equal(t, int32(1), calls.Load(), "policy changes must reuse the untouched upstream source cache")
+			require.Equal(t, int32(1), calls.Load(), "repeated requests must reuse the untouched upstream source cache")
 		})
 	}
 }
 
-func TestGPT61SolLongContextCatalogCompletionAndAliasMergeSharePolicy(t *testing.T) {
+func TestGPT61SolLongContextCatalogCompletionAndAliasMerge(t *testing.T) {
 	account := newCodexModelsAPIKeyTestAccount("https://relay.example/v1")
 	account.Credentials["model_mapping"] = map[string]any{"gpt-6.1-sol": "gpt-6.1-sol"}
 	group := &Group{ID: 1, Platform: PlatformOpenAI}
 	svc := &OpenAIGatewayService{accountRepo: codexModelsVisibilityAccountRepo{
 		byGroup: map[int64][]Account{1: {*account}},
 	}}
-	setGPT61SolLongContextForBillingTest(t, svc, false)
 	manifest := &OpenAIModelsResponse{Body: []byte(`{"models":[{"slug":"gpt-5.6-sol"}]}`)}
 	require.NoError(t, svc.CompleteAPIKeyCodexModelsManifestForClient(manifest, account))
-	// A save during the response must not split metadata completion and alias
-	// supplementation across two policies.
-	setGPT61SolLongContextForBillingTest(t, svc, true)
 	require.NoError(t, svc.MergeGroupConfiguredCodexModels(context.Background(), group, manifest, ""))
 	models := decodeCodexManifestModels(t, manifest.Body)
 	require.Len(t, models, 2)
-	require.EqualValues(t, 272000, models[1]["context_window"])
+	require.EqualValues(t, 500000, models[1]["context_window"])
 }
 
 func TestGPT61SolLongContextLiveWindowsOverrideSyncedMetadata(t *testing.T) {
@@ -192,8 +160,7 @@ func TestGPT61SolLongContextLiveWindowsOverrideSyncedMetadata(t *testing.T) {
 				group := &Group{ID: 1, Platform: PlatformOpenAI}
 				group.CodexModelsManifestConfig.Enabled = true
 				var previousETag string
-				for i, enabled := range []bool{false, true, false} {
-					setGPT61SolLongContextForBillingTest(t, svc, enabled)
+				for i := 0; i < 3; i++ {
 					manifest, err := svc.FetchCodexModelsManifest(context.Background(), account, "0.150.0", "")
 					require.NoError(t, err)
 					require.NoError(t, svc.CompleteAPIKeyCodexModelsManifestForClient(manifest, account))
@@ -205,10 +172,10 @@ func TestGPT61SolLongContextLiveWindowsOverrideSyncedMetadata(t *testing.T) {
 					require.EqualValues(t, want, model["context_window"])
 					require.EqualValues(t, wantMax, model["max_context_window"])
 					require.NoError(t, svc.MergeGroupConfiguredCodexModels(context.Background(), group, manifest, previousETag))
-					require.Equal(t, i > 0, manifest.NotModified, "provider/synced windows do not change with local defaults")
+					require.Equal(t, i > 0, manifest.NotModified, "provider/synced windows remain stable across cached requests")
 					previousETag = manifest.ETag
 				}
-				require.EqualValues(t, 1, calls.Load(), "all policies reuse cached provider source")
+				require.EqualValues(t, 1, calls.Load(), "repeated requests reuse cached provider source")
 			})
 		}
 	}
