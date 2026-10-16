@@ -441,18 +441,32 @@ redis_health=$(timeout 5 docker inspect -f '{{.State.Health.Status}}' sub2api-re
 [[ $redis_health == healthy ]] || return 1
 ((SECONDS <= redis_restore_health_deadline)) || return 1
 recovery_checkpoint_store redis.health-wait-seconds "$((SECONDS - redis_restore_health_started))" || return 1
+  redis_recovery_snapshot || return 1
+  recovery_checkpoint_store redis.run-id.sha256 "$redis_run_id_sha256" || return 1
   recovery_checkpoint_store redis.persistent "$redis_backup_persistent" || return 1
+}
+redis_recovery_snapshot() {
+  local snapshot run_id
+redis_password=$(docker inspect sub2api-redis | jq -r '((.[0].Config.Entrypoint // []) + (.[0].Config.Cmd // [])) as $a | ($a | index("--requirepass")) as $i | if $i != null and ($i + 1) < ($a | length) then $a[$i + 1] else ([ $a[] | select(startswith("--requirepass=")) | ltrimstr("--requirepass=") ] | first // "") end') || return 1
+  # One Redis command keeps counts and runtime identity in the same instant,
+  # even after application writers have resumed. No key or value is returned.
+  snapshot=$(printf '%s\n' "$redis_password" | docker exec -i sub2api-redis sh -c 'IFS= read -r REDISCLI_AUTH; export REDISCLI_AUTH; redis-cli --raw --no-auth-warning EVAL "$1" 0' redis-snapshot 'local n=redis.call("DBSIZE"); local info=redis.call("INFO","keyspace"); local keys=0; local expires=0; for k,e in string.gmatch(info,"db%d+:keys=(%d+),expires=(%d+)") do keys=keys+tonumber(k); expires=expires+tonumber(e) end; local id=string.match(redis.call("INFO","server"),"run_id:([0-9a-f]+)"); return {n,expires,keys,id or ""}' | tr -d '\r') || return 1
+  [[ $snapshot =~ ^([0-9]+)$'\n'([0-9]+)$'\n'([0-9]+)$'\n'([0-9a-f]{40})$ ]] || return 1
+  redis_dbsize=${BASH_REMATCH[1]}
+  redis_restored_expiring=${BASH_REMATCH[2]}
+  redis_restored_keyspace_keys=${BASH_REMATCH[3]}
+  run_id=${BASH_REMATCH[4]}
+  redis_run_id_sha256=$(printf '%s' "$run_id" | sha256sum | awk '{print $1}') || return 1
 }
 verify_redis_recovery() {
   [[ $(docker inspect -f '{{.State.Health.Status}}' sub2api-redis) == healthy ]] || return 1
   recovery_checkpoint_assert_file "$RECOVERY_CHECKPOINT_ROOT/redis.persistent" || return 1
-redis_password=$(docker inspect sub2api-redis | jq -r '((.[0].Config.Entrypoint // []) + (.[0].Config.Cmd // [])) as $a | ($a | index("--requirepass")) as $i | if $i != null and ($i + 1) < ($a | length) then $a[$i + 1] else ([ $a[] | select(startswith("--requirepass=")) | ltrimstr("--requirepass=") ] | first // "") end') || return 1
-redis_dbsize=$(printf '%s\n' "$redis_password" | docker exec -i sub2api-redis sh -c 'IFS= read -r REDISCLI_AUTH; export REDISCLI_AUTH; redis-cli --no-auth-warning DBSIZE' | tr -d '\r') || return 1
-redis_keyspace=$(printf '%s\n' "$redis_password" | docker exec -i sub2api-redis sh -c 'IFS= read -r REDISCLI_AUTH; export REDISCLI_AUTH; redis-cli --no-auth-warning INFO keyspace' | tr -d '\r') || return 1
-redis_restored_expiring=$(printf '%s\n' "$redis_keyspace" | sed -n 's/^db[0-9]*:keys=[0-9]*,expires=\([0-9]*\).*/\1/p' | awk '{sum += $1} END {print sum + 0}') || return 1
-redis_restored_keyspace_keys=$(printf '%s\n' "$redis_keyspace" | sed -n 's/^db[0-9]*:keys=\([0-9]*\),expires=.*/\1/p' | awk '{sum += $1} END {print sum + 0}') || return 1
+  recovery_checkpoint_assert_file "$RECOVERY_CHECKPOINT_ROOT/redis.run-id.sha256" || return 1
+  redis_recovery_snapshot || return 1
+  [[ $(<"$RECOVERY_CHECKPOINT_ROOT/redis.run-id.sha256") == "$redis_run_id_sha256" ]] || return 1
 [[ $redis_dbsize =~ ^[0-9]+$ && $redis_backup_dbsize =~ ^[0-9]+$ ]] || return 1
 [[ $redis_backup_expiring =~ ^[0-9]+$ && $redis_restored_expiring =~ ^[0-9]+$ ]] || return 1
+[[ $redis_dbsize -ge $redis_restored_expiring && $redis_restored_keyspace_keys -ge $redis_restored_expiring ]] || return 1
 if ! recovery_checkpoint_completed app_healthy; then [[ $redis_backup_dbsize -ge $redis_dbsize ]] || return 1; fi
 if ! recovery_checkpoint_completed app_healthy; then [[ $redis_backup_expiring -ge $redis_restored_expiring ]] || return 1; fi
 # Redis expires keys lazily. A healthy instance can therefore still count a
@@ -461,7 +475,12 @@ if ! recovery_checkpoint_completed app_healthy; then [[ $redis_backup_expiring -
 # the live check must only ensure that no persistent (non-TTL) keys disappeared.
 redis_backup_persistent=$((redis_backup_dbsize - redis_backup_expiring))
 redis_restored_persistent_floor=$((redis_dbsize - redis_restored_expiring))
-[[ $redis_restored_persistent_floor -ge $redis_backup_persistent ]] || return 1
+# After app_healthy, startup/cache maintenance may legitimately delete keys.
+# Keep the initial restoration floor strict; replay checks the same live Redis
+# process and immutable source/checkpoint instead of rolling back new writes.
+if ! recovery_checkpoint_completed app_healthy; then
+  [[ $redis_restored_persistent_floor -ge $redis_backup_persistent ]] || return 1
+fi
   [[ $(<"$RECOVERY_CHECKPOINT_ROOT/redis.persistent") == "$redis_backup_persistent" ]] || return 1
   recovery_checkpoint_assert_file "$RECOVERY_CHECKPOINT_ROOT/redis.health-wait-seconds" || return 1
   redis_restore_health_wait_seconds=$(<"$RECOVERY_CHECKPOINT_ROOT/redis.health-wait-seconds")
