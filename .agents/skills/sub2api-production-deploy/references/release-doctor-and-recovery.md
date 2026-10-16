@@ -412,6 +412,8 @@ python .agents/skills/sub2api-production-deploy/scripts/release.py cleanup-produ
 
 真实来源使用 `full_recovery_source.py`，真实执行与观测使用 `full_recovery_drill.py`，合成入口语义保持独立。Gate 前 Guest 执行使用 `sub2api-isolated-recovery-authorization` 独立签名 domain：绑定最终提交、完整 helper 闭包、collector/verifier/隔离 guard 字节、真实加密资产与新 key 指纹、drill/release/旧 image 和两小时有效期。独立审阅批准后由既有签名身份签发；它只授权同包 helper 在已证明的离线 Guest 内运行，不包含 Gate pass、candidate 验收或生产准入声明。`context.sh` 先验证独立签名和 guard/verifier 字节，再执行完整 namespace/私有 Docker/网络隔离核验，生产恢复仍使用原 Gate 合同。
 
+Redis 延迟注入的 150 秒启动观察预算从本次 `redis_restored.started` 标记开始，等待该标记使用独立 1800 秒调用预算，不能被此前 PostgreSQL fingerprint 重验消耗。整个 Guest 继续受总执行时限约束；恢复异常/非预期退出先取消观察且保留主错误。Guest 为 Redis、应用与清理的中断/续跑/复验写独立子阶段，并用 root-only `failure.json` 保存稳定原因码，不复制异常原文。修复后必须以新 commit/bundle/授权/drill 重跑，真实观察器探针不能替代完整 DR。
+
 `full_recovery_authorization.py` 的 `authorize-drill` 签发隔离执行授权，`request`/`sign` 只处理实际 collector receipt 与其完成后的独立审阅批准；`sign-full-recovery-review.sh` 使用既有固定 Ed25519 身份。完整证据仍由现有 `recovery_evidence.py` 重算 Git/分类/资产与全部真实恢复字段。实际 Guest 失败保留 root-only 诊断，不生成完整通过证明；单元测试密钥、工具自检、资源安装、来源捕获与签发代码存在均不证明真实恢复或生产发布完成。
 
 Guest manifest 必须绑定实际 Docker 版本、离线 daemon 配置和 Compose 插件字节，provisioning 显式核验 UTC zoneinfo；capture release 命名空间不得冒充真实生产 source commit/profile/version。发布后基线另用 fresh postrelease capture 和同 Guest candidate-load receipt，独立 findings 绑定 exact bundle/engine/rootfs/time，保留旧晋升器 TTL 等式与旧 `verified`。执行顺序与 runtime 前置基准见 [Full DR 与发布后基线调度串](backup-and-restore.md#full-dr-与发布后基线的可重跑调度串)；这些前置观察不证明真实恢复或基线晋升。
