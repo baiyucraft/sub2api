@@ -19,6 +19,7 @@ SCRIPTS = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(SCRIPTS))
 from release import recovery_evidence as evidence
 from release import recovery_bundle
+from release import full_recovery_drill
 from release.recovery_gate import changed_paths_sha256
 
 
@@ -200,6 +201,32 @@ class RecoveryEvidenceTests(unittest.TestCase):
                 payload["measurements"]["redis"].update(mutation)
                 with self.assertRaises(RuntimeError):
                     self.verify(self.signed(payload))
+
+    def test_lazy_scan_counts_preserve_pre_scan_persistent_keys_in_both_validators(self):
+        cases = ((42170,37472,39123,True), (20,18,19,True),
+                 (20,20,5,False), (20,0,19,False), (20,18,21,False))
+        for before, after, expires, valid in cases:
+            with self.subTest(before=before, after=after, expires=expires):
+                payload = deepcopy(self.payload)
+                payload["measurements"]["redis"].update(
+                    backup_dbsize=50000, backup_expiring=49999,
+                    restored_dbsize=before, restored_keyspace_keys=after,
+                    restored_expiring=expires, persistent_before=1,
+                    persistent_after=max(0,before-expires))
+                receipt = {key:deepcopy(payload[key]) for key in
+                           ("drill_id","created_at","completed_at","source","measurements","recovery_helper_bundle_sha256")}
+                receipt.update(schema=1,type="sub2api-full-recovery-measurements")
+                receipt["measurements"].pop("rto")
+                receipt["measurements"]["cleanup"] = {key:True for key in
+                    ("plaintext_destroyed","active_claim_cleared","stale_ingress_removed")}
+                config = {**payload["source"], "drill_id":payload["drill_id"],
+                          "recovery_helper_bundle_sha256":payload["recovery_helper_bundle_sha256"]}
+                if valid:
+                    self.verify(self.signed(payload))
+                    full_recovery_drill.validate_guest_receipt(receipt,config)
+                else:
+                    with self.assertRaises(RuntimeError): self.verify(self.signed(payload))
+                    with self.assertRaises(RuntimeError): full_recovery_drill.validate_guest_receipt(receipt,config)
 
     def test_resume_data_reapply_and_checkpoint_identity_are_rejected(self):
         for fault in ("app_healthy_interrupt", "cleanup_before_interrupt"):
