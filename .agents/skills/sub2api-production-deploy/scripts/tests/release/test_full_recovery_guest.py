@@ -2,6 +2,7 @@
 from copy import deepcopy
 import hashlib
 import json
+import os
 import stat
 from pathlib import Path
 import sys
@@ -141,16 +142,86 @@ class FullRecoveryGuestTests(unittest.TestCase):
                     mime.write_bytes(data)
                     with self.assertRaises(RuntimeError): guest.verify_nginx_runtime(root)
 
-    def test_missing_nginx_upgrade_map_is_added_idempotently(self):
+    def nginx_source_fixture(self, base):
+        snapshot = base/'snapshot'; snapshot.mkdir()
+        for name in ('conf.d', 'sites-enabled', 'snippets'):
+            (snapshot/name).mkdir()
+        files = {'/etc/nginx/nginx.conf': b'http {\n include /etc/nginx/conf.d/*;\n}\n\n',
+                 '/etc/nginx/mime.types': b'types { text/plain txt; }',
+                 '/etc/nginx/conf.d/websocket.conf': b'map $http_upgrade $connection_upgrade { default upgrade; }\n'}
+        (snapshot/'nginx.conf').write_bytes(files['/etc/nginx/nginx.conf'])
+        dump = b''.join(b'# configuration file '+name.encode()+b':\n'+content+b'\n' for name,content in files.items())
+        (snapshot/'nginx-T.txt').write_bytes(dump)
+        return snapshot, files
+
+    def test_nginx_source_includes_restore_exact_bytes_and_are_idempotent(self):
         with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp); path = root / 'nginx.conf'
-            path.write_text('http {\n    include /etc/nginx/sites-enabled/*;\n}\n')
-            self.assertFalse(guest.ensure_nginx_upgrade_map(path))
-            sites = root / 'sites-enabled'; sites.mkdir()
-            (sites / 'sub2api').write_text('proxy_set_header Connection $connection_upgrade;\n')
-            self.assertTrue(guest.ensure_nginx_upgrade_map(path))
-            self.assertIn('map $http_upgrade $connection_upgrade', path.read_text())
-            self.assertFalse(guest.ensure_nginx_upgrade_map(path))
+            base=Path(temp).resolve(); snapshot,files=self.nginx_source_fixture(base); root=base/'guest'; root.mkdir()
+            guest.restore_nginx_include_closure(snapshot,root)
+            for name,content in files.items():
+                self.assertEqual((root/name.lstrip('/')).read_bytes(),content)
+            guest.restore_nginx_include_closure(snapshot,root)
+            self.assertEqual((snapshot/'nginx.conf').read_bytes(),files['/etc/nginx/nginx.conf'])
+
+    def test_nginx_dump_drift_is_rejected_before_writing_any_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base=Path(temp).resolve(); snapshot,_=self.nginx_source_fixture(base); root=base/'guest'; root.mkdir()
+            (snapshot/'nginx.conf').write_bytes(b'drift')
+            with self.assertRaisesRegex(RuntimeError,'differs from captured'):
+                guest.restore_nginx_include_closure(snapshot,root)
+            self.assertEqual(list(root.iterdir()),[])
+
+    def test_nginx_dump_rejects_duplicate_traversal_and_external_paths(self):
+        for name in ('/etc/nginx/nginx.conf','/etc/nginx/../passwd','/etc/passwd'):
+            with self.subTest(name=name),tempfile.TemporaryDirectory() as temp:
+                base=Path(temp).resolve(); snapshot,_=self.nginx_source_fixture(base); root=base/'guest'; root.mkdir()
+                with (snapshot/'nginx-T.txt').open('ab') as out:
+                    out.write(b'# configuration file '+name.encode()+b':\nx\n\n')
+                with self.assertRaises(RuntimeError): guest.restore_nginx_include_closure(snapshot,root)
+                self.assertEqual(list(root.iterdir()),[])
+
+    def test_nginx_include_symlink_is_rejected_before_any_other_write(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base=Path(temp).resolve(); snapshot,_=self.nginx_source_fixture(base); root=base/'guest'
+            target=root/'etc/nginx'; target.mkdir(parents=True); outside=base/'outside'; outside.write_bytes(b'keep')
+            try: (target/'mime.types').symlink_to(outside)
+            except OSError: self.skipTest('symlinks unavailable')
+            with self.assertRaises(RuntimeError): guest.restore_nginx_include_closure(snapshot,root)
+            self.assertFalse((target/'nginx.conf').exists())
+            self.assertEqual(outside.read_bytes(),b'keep')
+
+    def test_nginx_extra_regular_module_is_rejected_before_writes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base=Path(temp).resolve(); snapshot,_=self.nginx_source_fixture(base); root=base/'guest'
+            modules=root/'etc/nginx/modules-enabled'; modules.mkdir(parents=True)
+            extra=modules/'50-mod-extra.conf'; extra.write_bytes(b'keep')
+            with self.assertRaisesRegex(RuntimeError,'Unexpected Guest Nginx module'):
+                guest.restore_nginx_include_closure(snapshot,root)
+            self.assertFalse((root/'etc/nginx/nginx.conf').exists())
+            self.assertEqual(extra.read_bytes(),b'keep')
+
+    def test_nginx_only_extra_package_module_links_are_removed(self):
+        for kind in ('package','outside','dangling','unexpected_name'):
+            with self.subTest(kind=kind),tempfile.TemporaryDirectory() as temp:
+                base=Path(temp).resolve(); snapshot,files=self.nginx_source_fixture(base); root=base/'guest'
+                modules=root/'etc/nginx/modules-enabled'; modules.mkdir(parents=True)
+                package=root/'usr/share/nginx/modules-available'; package.mkdir(parents=True)
+                source=(base if kind=='outside' else package)/'mod-extra.conf'
+                if kind!='dangling': source.write_bytes(b'load_module modules/extra.so;\n')
+                link=modules/('custom.conf' if kind=='unexpected_name' else '50-mod-extra.conf')
+                try: link.symlink_to(os.path.relpath(source,modules))
+                except OSError: self.skipTest('symlinks unavailable')
+                if kind=='package':
+                    guest.restore_nginx_include_closure(snapshot,root)
+                    self.assertFalse(link.is_symlink())
+                    self.assertTrue(source.is_file())
+                    for name,content in files.items():
+                        self.assertEqual((root/name.lstrip('/')).read_bytes(),content)
+                    guest.restore_nginx_include_closure(snapshot,root)
+                else:
+                    with self.assertRaises(RuntimeError): guest.restore_nginx_include_closure(snapshot,root)
+                    self.assertTrue(link.is_symlink())
+                    self.assertFalse((root/'etc/nginx/nginx.conf').exists())
 
     def test_oci_content_chain_is_parsed_as_digest_verified_json(self):
         config = b'{"architecture":"amd64","os":"linux"}'

@@ -221,28 +221,81 @@ def verify_nginx_runtime(root=Path('/')):
             'Guest Nginx MIME data unavailable or differs from approved package')
 
 
-def ensure_nginx_upgrade_map(path):
-    """Close the restored Nginx config when an ingress references the map.
+def restore_nginx_include_closure(snapshot: Path, root: Path = Path('/')) -> None:
+    """Restore exact runtime includes from the authenticated source nginx -T.
 
-    Older production snapshots contain ``$connection_upgrade`` references but
-    omit the corresponding http-level map.  Add only that deterministic,
-    idempotent declaration; all other restored bytes remain unchanged.
+    The recovery archive separately preserves managed files, while nginx -T
+    also contains package data and unmanaged includes. Recreate those bytes in
+    the offline Guest rather than inventing a replacement configuration.
     """
-    text = path.read_text()
-    references = [text]
+    dump = snapshot / 'nginx-T.txt'
+    regular(dump)
+    require(dump.stat().st_size <= 8 * 1024 * 1024, 'Nginx dump size limit')
+    raw = dump.read_bytes()
+    headers = list(re.finditer(rb'^# configuration file ([^\r\n]+):\n', raw, re.MULTILINE))
+    require(headers, 'Nginx source include closure unavailable')
+    records = {}
+    for index, header in enumerate(headers):
+        try:
+            name = header[1].decode('ascii')
+        except UnicodeDecodeError as error:
+            raise GuestPreparationBlocked('Nginx include path encoding') from error
+        path = PurePosixPath(name)
+        require(re.fullmatch(r'/etc/nginx/[A-Za-z0-9_./-]+', name) is not None
+                and '..' not in path.parts and str(path) == name and name not in records,
+                'Nginx include path or duplicate section')
+        content = raw[header.end():headers[index + 1].start() if index + 1 < len(headers) else len(raw)]
+        # nginx -T adds exactly one separator LF after each original file.
+        require(content.endswith(b'\n'), 'Nginx source section separator missing')
+        records[name] = content[:-1]
+    require('/etc/nginx/nginx.conf' in records, 'Nginx source main config missing')
+    captured = {'/etc/nginx/nginx.conf': snapshot / 'nginx.conf'}
     for directory in ('conf.d', 'sites-enabled', 'snippets'):
-        root = path.parent / directory
-        if root.is_dir():
-            references.extend(item.read_text() for item in root.iterdir() if item.is_file())
-    combined = '\n'.join(references)
-    if '$connection_upgrade' not in combined or re.search(r'\bmap\s+\$http_upgrade\s+\$connection_upgrade\b', combined):
-        return False
-    marker = '    map $http_upgrade $connection_upgrade {\n        default upgrade;\n        \'\' close;\n    }\n\n'
-    match = re.search(r'(^http\s*\{\n)', text, re.MULTILINE)
-    require(match is not None, 'Nginx http context missing for upgrade map')
-    updated = text[:match.end()] + marker + text[match.end():]
-    path.write_text(updated)
-    return True
+        for file in (snapshot / directory).iterdir():
+            if not file.name.startswith('.'):
+                captured['/etc/nginx/' + directory + '/' + file.name] = file
+    observability = snapshot / 'observability.conf'
+    if observability.exists():
+        captured['/etc/nginx/conf.d/sub2api-release-observability.conf'] = observability
+    # Cross-check every separately archived managed file before writing anything.
+    for name, file in captured.items():
+        regular(file)
+        require(name in records and records[name] == file.read_bytes(), 'Nginx dump differs from captured config')
+    # Guest packages can enable optional dynamic modules absent on the source.
+    # Disable only their package links; never delete module binaries or source
+    # configuration, and keep the final nginx -T comparison exact.
+    extra_modules = []
+    modules = root / 'etc/nginx/modules-enabled'
+    if modules.exists():
+        require(not modules.is_symlink() and modules.resolve() == modules.absolute(), 'Nginx module directory escaped Guest')
+        for link in modules.iterdir():
+            name = '/etc/nginx/modules-enabled/' + link.name
+            if name in records:
+                continue
+            require(link.is_symlink() and re.fullmatch(r'[0-9]+-mod-[A-Za-z0-9_-]+\.conf', link.name) is not None,
+                    'Unexpected Guest Nginx module entry')
+            raw_target = os.readlink(link)
+            target = root / raw_target.lstrip('/') if raw_target.startswith('/') else link.parent / raw_target
+            package_modules = (root / 'usr/share/nginx/modules-available').resolve()
+            require(package_modules.is_relative_to(root.resolve())
+                    and target.resolve().parent == package_modules and target.resolve().is_file(),
+                    'Nginx module link is not package owned')
+            extra_modules.append(link)
+    targets = []
+    for name, content in records.items():
+        target = root / name.lstrip('/')
+        require(target.absolute().is_relative_to(root.absolute()) and target.resolve() == target.absolute(),
+                'Nginx include target escaped Guest')
+        if target.exists():
+            regular(target)
+        targets.append((target, content, stat.S_IMODE(captured[name].stat().st_mode) if name in captured else 0o644))
+    for target, content, mode in targets:
+        target.parent.mkdir(parents=True, exist_ok=True, mode=0o755)
+        require(target.parent.resolve() == target.parent.absolute(), 'Nginx include parent changed')
+        target.write_bytes(content)
+        target.chmod(mode)
+    for link in extra_modules:
+        link.unlink()
 
 
 def verify_oci_content(digest_ref, raw, env):
@@ -431,7 +484,7 @@ def prepare_source(manifest,approval,inventory,source,helpers,env,raw):
             if p.name.startswith('.'): continue
             dst=target/p.name; require(not dst.is_symlink(),"Nginx target symlink")
             shutil.copy2(p,dst)
-    ensure_nginx_upgrade_map(Path('/etc/nginx/nginx.conf'))
+    restore_nginx_include_closure(ng)
     if (ng/'observability.conf').exists(): shutil.copy2(ng/'observability.conf',Path('/etc/nginx/conf.d/sub2api-release-observability.conf'))
     cert=inventory/'config/certbot'
     Path('/etc/letsencrypt').mkdir(mode=0o755,exist_ok=True)

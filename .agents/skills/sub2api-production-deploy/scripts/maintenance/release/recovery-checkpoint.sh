@@ -57,7 +57,7 @@ recovery_checkpoint_init() {
   done
   while IFS= read -r -d '' entry; do
     case "${entry##*/}" in
-      identity|postgres.fingerprint|postgres.metadata|redis.persistent|redis.health-wait-seconds|backup-units.fingerprint|nginx.fingerprint) ;;
+      identity|postgres.fingerprint|postgres.metadata|redis.persistent|redis.health-wait-seconds|redis.run-id.sha256|backup-units.fingerprint|nginx.fingerprint) ;;
       *.done|*.started)
         phase=${entry##*/}; phase=${phase%.*}
         [[ " ${RECOVERY_CHECKPOINT_PHASES[*]} " == *" $phase "* ]] || return 1 ;;
