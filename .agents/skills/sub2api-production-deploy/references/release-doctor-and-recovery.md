@@ -90,6 +90,16 @@ claim_reconciled
 
 `restore.sh` 完成前五阶段，`recovery-finish.sh` 调用同包的 backup units、cleanup 与 reconcile 完成后三阶段。checkpoint 绑定 release、明文恢复点 checksum、旧镜像与 helper 包，保存于 release 目录，明文清理后仍保留。`.started` 没有 `.done` 的阶段只能在完整现场复验成功后收养，不盲重放数据写入；started 持久化失败不得 apply，done 写失败不得报告完成。先清理明文再释放 claim，防止下一个发布进入仍有恢复明文的现场。
 
+Redis 首次恢复必须在应用启动前验证恢复文件 checksum、RDB/AOF 与认证健康，并完整执行总键、TTL 键上界及永久键下界核验；惰性过期允许总键与 TTL 键不同步下降，不允许用精确差值等式替代这些不等式。单次原子 Lua 同时采集 `DBSIZE`、`INFO keyspace` 与 `INFO server` 的 `run_id`，首次健康恢复时把进程身份摘要保存为 `redis.run-id.sha256`，与 `redis.persistent`、健康等待证据共同纳入 checkpoint 白名单。
+
+完成 `app_healthy` 后，应用启动和业务维护可以合法新增或删除缓存，续跑不再要求恢复瞬间的键数上界和永久键下界。每次 Redis 复验仍须健康、原子观测格式合法、checkpoint 完整且 `run_id` 摘要与首次恢复一致；重启或替换后的健康新实例不能冒充原恢复 Redis。该规则不把同一进程内的业务删除解释为恢复丢数据，也不因复验失败重新灌入 PostgreSQL 或 Redis。checkpoint 目录为 `root:root 0700`，`redis.run-id.sha256` 等证据为 `root:root 0400` 普通单链接文件，统一受 release、恢复点、旧 image 与 helper bundle 身份闭包约束；缺失、漂移、链接或权限不符均阻断。
+
+真实加密恢复 Guest 还须恢复 Nginx 的 include 文件闭包。`restore_nginx_include_closure` 从可信来源 `nginx-T.txt` 的各 `# configuration file` section 提取原始字节，仅移除 Nginx 为该 section 添加的一个分隔 LF；单独归档的主配置、受管 conf/site/snippet 与 observability 配置须先逐字节交叉验证，再写入 Guest。路径仅允许规范的 `/etc/nginx/` 受控根，拒绝重复 section、`..`、越界和 symlink；未单独捕获的 WebSocket map、MIME 等 include 同样按来源原字节重建。runtime 包自带 MIME 只作启动前置，不代替生产来源字节。该步骤仅补齐隔离 Guest 的来源依赖，不改写加密来源或生产 `restore.sh` 的严格 Nginx 恢复/fingerprint 校验。
+
+Guest 软件包额外启用、但可信来源 `nginx-T.txt` 中不存在的 module activation，只能在完成来源交叉核验及全部路径校验后解除其激活链接：条目须为 `modules-enabled/[数字]-mod-[名称].conf` symlink，解析目标必须是同一 Guest 内 `usr/share/nginx/modules-available` 的普通文件。只对该 activation 调用 `unlink`，保留 module 二进制、package 配置及来源配置；普通文件、未知命名、目录/目标越界或其他异常均拒绝，来源中已有的 activation 不按额外模块清理。最终 Nginx 来源 fingerprint 仍须精确一致。
+
+上述最低回归映射为 `test_redis_recovery_replay.py` 和 `test_full_recovery_guest.py`；本地合同测试不证明 Full DR、VM Gate、基线晋升或生产发布完成。helper 字节变化仍需最终提交重新分类，并使用新 bundle、授权与 drill 验证。
+
 Compose 快照使用真实 Docker Compose JSON 解析 `env_file/configs/secrets` 文件闭包；固定清空宿主插值和 Docker endpoint 环境。当前支持同目录 basename 文件，依赖 Python 3 + PyYAML 和 Compose `--no-env-resolution`；其他路径、`include`/`extends`（包括引号或转义键）在写入前拒绝。恢复目录与现场渲染摘要及不可变镜像一致后才允许删除容器或修改数据库。
 
 `recovery_drill.py probe/plan/run` 的 offline/private-user nspawn 隔离演练只接受专用完整合成 fixture，复用正式 restore/finish。该演练验证故障续跑，不是 full DR：没有真实加密资产、批准解密身份、签名完整恢复证据时仍不得解除生产硬门禁。
