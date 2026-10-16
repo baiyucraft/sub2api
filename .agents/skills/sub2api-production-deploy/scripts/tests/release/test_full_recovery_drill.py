@@ -350,4 +350,75 @@ class FullRecoveryDrillTests(unittest.TestCase):
             evidence.validate_measurements({"checkpoints":{}},{})
 
 
+class ForeignResourceTests(unittest.TestCase):
+    def setUp(self):
+        self.container={'Id':'container-secret-name','Image':'image-a','Config':{'Env':['TOKEN=private-token']},'HostConfig':{'SecretOption':'private-host-value'},'Mounts':[{'Destination':'/z','Source':'/private-source','RW':True,'Mode':'rw'},{'Destination':'/a','Source':'private-volume','RW':False,'Mode':'ro'}],'RestartCount':0,'State':{'Status':'running','Running':True,'Paused':False,'Restarting':False,'OOMKilled':False,'Dead':False,'Pid':123,'ExitCode':0,'StartedAt':'earlier','FinishedAt':''}}
+        self.volume={'Name':'private-volume-name','Driver':'local','Options':{'credential':'volume-secret'},'Labels':{}}
+        self.network={'Id':'network-private-name','Name':'private-network','IPAM':{'Config':[{'Subnet':'first'},{'Subnet':'second'}]},'Options':{'secret':'network-secret'}}
+        self.images=['image-a']
+
+    def observed(self, argv):
+        if argv[:3]==['docker','ps','-aq']:return (self.container['Id']+'\n').encode()
+        if argv[:4]==['docker','image','ls','-q']:return ('\n'.join(self.images)+'\n').encode()
+        if argv[:4]==['docker','volume','ls','-q']:return (self.volume['Name']+'\n').encode()
+        if argv[:4]==['docker','network','ls','-q']:return (self.network['Id']+'\n').encode()
+        if argv[:2]==['docker','inspect']:return json.dumps([self.container]).encode()
+        if argv[:3]==['docker','volume','inspect']:return json.dumps([self.volume]).encode()
+        if argv[:3]==['docker','network','inspect']:return json.dumps([self.network]).encode()
+        raise AssertionError(argv)
+
+    def snapshot(self, path=None):
+        with mock.patch.object(drill,'observed',side_effect=self.observed):return drill.foreign_resources(path)
+
+    def test_mount_order_is_not_identity_and_does_not_modify_input(self):
+        before=self.snapshot();self.container['Mounts'].reverse();original=deepcopy(self.container['Mounts'])
+        self.assertEqual(before,self.snapshot())
+        self.assertEqual(self.container['Mounts'],original)
+
+    def test_invalid_mount_shapes_and_duplicate_destinations_fail_closed(self):
+        for mounts in (None,{},[None],[{}],[{'Destination':1}],[{'Destination':''}],[{'Destination':'relative'}],[{'Destination':'/nul\x00'}],[{'Destination':'/a'},{'Destination':'/a','RW':False}]):
+            with self.subTest(mounts=mounts),self.assertRaises(RuntimeError):drill.normalize_mounts(mounts)
+
+    def test_real_mount_and_process_changes_remain_bound(self):
+        before=self.snapshot();original=deepcopy(self.container)
+        changes=(lambda: self.container['Mounts'][0].update(Source='/other'),lambda: self.container['Mounts'][0].update(RW=False),lambda: self.container['Mounts'][0].update(UnknownField='new'),lambda: self.container.update(Image='other-image'),lambda: self.container.update(RestartCount=1),lambda: self.container['State'].update(Pid=124),lambda: self.container['Config'].update(Extra='changed'),lambda: self.container['HostConfig'].update(Extra='changed'))
+        for change in changes:
+            self.container=deepcopy(original);change()
+            self.assertNotEqual(before,self.snapshot())
+
+    def test_other_resource_changes_and_network_list_order_remain_bound(self):
+        before=self.snapshot()
+        self.images.append('extra-image');self.assertNotEqual(before,self.snapshot());self.images.pop()
+        self.volume['Options']['credential']='changed';self.assertNotEqual(before,self.snapshot());self.volume['Options']['credential']='volume-secret'
+        self.network['IPAM']['Config'].reverse();self.assertNotEqual(before,self.snapshot())
+
+    def test_fingerprints_contain_only_fixed_fields_and_hashes(self):
+        with mock.patch.object(drill,'private_write') as write:
+            digest=self.snapshot(Path('/owned/foreign-before.fingerprints.json'))
+        path,raw,mode=write.call_args.args
+        self.assertEqual(path,Path('/owned/foreign-before.fingerprints.json'));self.assertEqual(mode,0o400)
+        value=json.loads(raw);self.assertEqual(value['metadata_sha256'],digest)
+        for forbidden in ('private-token','private-host-value','private-source','private-volume','network-secret','volume-secret','container-secret-name','network-private-name'):
+            self.assertNotIn(forbidden,raw.decode())
+        container=next(iter(value['resources']['containers'].values()))
+        self.assertIn('Pid',container['state_fields']);self.assertIn('mounts',container['fields'])
+        for kind,resources in value['resources'].items():
+            for identity,resource in resources.items():
+                self.assertRegex(identity,r'^[0-9a-f]{64}$');self.assertRegex(resource['metadata_sha256'],r'^[0-9a-f]{64}$')
+
+    def test_fingerprint_write_failure_never_returns_success(self):
+        with mock.patch.object(drill,'private_write',side_effect=FileExistsError('existing evidence')),self.assertRaises(FileExistsError):
+            self.snapshot(Path('/owned/foreign-before.fingerprints.json'))
+
+    @unittest.skipUnless(os.name=='posix' and hasattr(os,'geteuid') and os.geteuid()==0,'root-only output contract requires POSIX root')
+    def test_fingerprint_file_is_private_and_exclusive(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path=Path(temp).resolve()/'foreign-before.fingerprints.json'
+            self.snapshot(path)
+            self.assertEqual(path.stat().st_uid,0);self.assertEqual(path.stat().st_mode&0o777,0o400)
+            original=path.read_bytes()
+            with self.assertRaises(FileExistsError):self.snapshot(path)
+            self.assertEqual(path.read_bytes(),original)
+
+
 if __name__=="__main__": unittest.main()
