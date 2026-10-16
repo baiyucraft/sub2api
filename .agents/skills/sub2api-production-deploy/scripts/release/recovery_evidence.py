@@ -212,6 +212,53 @@ def verify_signature(envelope: dict[str, Any], expected_scope: dict[str, Any]) -
         raise RuntimeError("full recovery evidence rejected: trusted signature verification") from error
 
 
+REDIS_LEGACY_FIELDS = frozenset({"restore_verified", "rdb_sha256", "backup_dbsize", "backup_expiring", "restored_dbsize", "restored_expiring", "restored_keyspace_keys", "persistent_before", "persistent_after", "health_wait_ms", "health_budget_ms", "ttl_reconciled", "lazy_expiry_observed"})
+
+
+def validate_redis_measurement(redis: dict[str, Any], *, isolation: dict[str, Any],
+                               rdb_sha256: str, created_at: int, completed_at: int,
+                               health_budget_max: int = 600000) -> None:
+    """Keep historic signed semantics and validate the explicit new format.
+
+    Source counts describe only restored production data. A separately owned
+    canary proves lazy expiry deterministically without relying on the age of
+    the source's TTL keys. Unknown, partial and mixed formats fail closed.
+    """
+    require(isinstance(redis, dict), "Redis measurement object")
+    fields = set(redis)
+    require(fields in (REDIS_LEGACY_FIELDS, REDIS_LEGACY_FIELDS | {"source_observation", "boundary_probe"}), "Redis measurement fields")
+    require(redis["restore_verified"] is True and redis["ttl_reconciled"] is True and sha(redis["rdb_sha256"]) and redis["rdb_sha256"] == rdb_sha256, "Redis measured restoration")
+    counts = ("backup_dbsize", "backup_expiring", "restored_dbsize", "restored_expiring", "restored_keyspace_keys", "persistent_before", "persistent_after", "health_wait_ms", "health_budget_ms")
+    require(all(integer(redis[key]) for key in counts), "Redis measured integer values")
+    require(60000 < redis["health_wait_ms"] <= redis["health_budget_ms"] <= health_budget_max, "real delayed Redis startup budget")
+    require(redis["persistent_before"] == redis["backup_dbsize"] - redis["backup_expiring"] and redis["persistent_after"] == redis["restored_dbsize"] - redis["restored_expiring"], "Redis persistent count formulas")
+    if fields == REDIS_LEGACY_FIELDS:
+        require(redis["lazy_expiry_observed"] is True, "Redis measured restoration")
+        require(redis["backup_dbsize"] >= redis["restored_dbsize"] > redis["restored_keyspace_keys"] >= 0 and redis["restored_dbsize"] >= redis["restored_expiring"] and redis["restored_keyspace_keys"] >= redis["restored_dbsize"] - redis["restored_expiring"], "Redis lazy expiration count observation")
+        require(redis["backup_dbsize"] >= redis["backup_expiring"] > redis["restored_expiring"] and redis["persistent_after"] >= redis["persistent_before"], "Redis TTL and persistent floor")
+        return
+    binding = {"drill_id", "release_id", "guest_docker_engine_id_sha256", "rootfs_identity_sha256"}
+    source = shape(redis["source_observation"], {"schema", "type", "image_id", "before_dbsize", "before_expiring", "after_dbsize", "after_expiring", "observed_at"} | binding, "Redis source observation")
+    require(type(source["schema"]) is int and source["schema"] == 1 and source["type"] == "redis-restored-source-atomic-scan", "Redis source observation schema")
+    require(all(source[key] == isolation[key] for key in binding) and all(sha(source[key]) for key in ("guest_docker_engine_id_sha256", "rootfs_identity_sha256")), "Redis source Guest binding")
+    require(isinstance(source["image_id"], str) and re.fullmatch(r"sha256:[0-9a-f]{64}", source["image_id"]) is not None, "Redis source image identity")
+    require(integer(source["observed_at"], 1) and created_at <= source["observed_at"] <= completed_at, "Redis source observation timestamp")
+    require(all(integer(source[key]) for key in ("before_dbsize", "before_expiring", "after_dbsize", "after_expiring")), "Redis source integer counts")
+    before, exp_before, after, exp_after = (source[key] for key in ("before_dbsize", "before_expiring", "after_dbsize", "after_expiring"))
+    require(before >= after >= exp_after >= 0 and before >= exp_before >= exp_after and before - after == exp_before - exp_after, "Redis source atomic TTL reconciliation")
+    require(type(redis["lazy_expiry_observed"]) is bool and redis["lazy_expiry_observed"] == (before > after), "Redis source natural expiry observation")
+    require(redis["restored_dbsize"] == redis["restored_keyspace_keys"] == after and redis["restored_expiring"] == exp_after, "Redis source final counts differ")
+    require(redis["backup_dbsize"] >= before and redis["backup_dbsize"] >= redis["backup_expiring"] >= exp_before and redis["persistent_before"] == redis["persistent_after"] == before - exp_before, "Redis source persistent keys or TTL counts differ")
+    probe = shape(redis["boundary_probe"], {"schema", "type", "production_source", "image_id", "container_id_sha256", "network_mode", "tmpfs_data", "read_only_rootfs", "published_ports_absent", "volumes_absent", "debug_config", "active_expiry_disable_reply", "ttl_ms", "initial_pttl_ms", "wait_elapsed_ms", "final_pttl_ms", "before_dbsize", "before_expiring", "after_dbsize", "after_expiring", "persistent_before_sha256", "persistent_after_sha256", "created_at", "completed_at", "owned_resources_cleaned"} | binding, "Redis boundary probe")
+    require(type(probe["schema"]) is int and probe["schema"] == 1 and probe["type"] == "redis-owned-ttl-boundary" and probe["production_source"] is False, "Redis boundary probe schema or provenance")
+    require(all(probe[key] == source[key] for key in binding | {"image_id"}) and sha(probe["container_id_sha256"]), "Redis boundary source image or Guest binding")
+    require(probe["network_mode"] == "none" and all(probe[key] is True for key in ("tmpfs_data", "read_only_rootfs", "published_ports_absent", "volumes_absent", "owned_resources_cleaned")) and probe["debug_config"] == "yes" and probe["active_expiry_disable_reply"] == "OK", "Redis boundary isolation or cleanup")
+    require(all(integer(probe[key]) for key in ("before_dbsize", "before_expiring", "after_dbsize", "after_expiring")) and (probe["before_dbsize"], probe["before_expiring"], probe["after_dbsize"], probe["after_expiring"]) == (2, 1, 1, 0), "Redis boundary measured lazy deletion")
+    require(type(probe["ttl_ms"]) is int and probe["ttl_ms"] == 2000 and integer(probe["initial_pttl_ms"], 1) and probe["initial_pttl_ms"] <= probe["ttl_ms"] and integer(probe["wait_elapsed_ms"], 2200) and probe["wait_elapsed_ms"] <= 30000 and type(probe["final_pttl_ms"]) is int and probe["final_pttl_ms"] == -2, "Redis boundary real TTL wait")
+    require(sha(probe["persistent_before_sha256"]) and probe["persistent_before_sha256"] == probe["persistent_after_sha256"], "Redis boundary persistent sentinel changed")
+    require(integer(probe["created_at"], 1) and integer(probe["completed_at"], 1) and source["observed_at"] <= probe["created_at"] <= probe["completed_at"] <= completed_at and probe["wait_elapsed_ms"] <= (probe["completed_at"] - probe["created_at"]) * 1000 + 2000, "Redis boundary timestamp binding")
+
+
 def validate_measurements(measurements: dict[str, Any], payload: dict[str, Any]) -> None:
     shape(measurements, {"compose", "postgres", "redis", "faults", "checkpoints", "rto", "cleanup", "isolation"}, "measurement")
     isolation = shape(measurements["isolation"], {"backend", "drill_id", "release_id", "recovery_helper_bundle_sha256", "namespaces", "host_identity_sha256", "guest_identity_sha256", "rootfs_identity_sha256", "host_docker_engine_id_sha256", "guest_docker_engine_id_sha256", "docker_root_dir", "docker_socket", "default_routes_absent", "host_facing_interfaces_absent", "uid0_host", "uid0_range", "unified_cgroup2"}, "isolation")
@@ -229,16 +276,8 @@ def validate_measurements(measurements: dict[str, Any], payload: dict[str, Any])
     pg = shape(measurements["postgres"], {"restore_verified", "dump_sha256", "migrations_before_sha256", "migrations_after_sha256", "rowcounts_before_sha256", "rowcounts_after_sha256"}, "PostgreSQL")
     require(pg["restore_verified"] is True and all(sha(value) for key, value in pg.items() if key != "restore_verified"), "PostgreSQL measured restore")
     require(pg["migrations_before_sha256"] == pg["migrations_after_sha256"] and pg["rowcounts_before_sha256"] == pg["rowcounts_after_sha256"], "PostgreSQL restoration identity")
-    redis = shape(measurements["redis"], {"restore_verified", "rdb_sha256", "backup_dbsize", "backup_expiring", "restored_dbsize", "restored_expiring", "restored_keyspace_keys", "persistent_before", "persistent_after", "health_wait_ms", "health_budget_ms", "ttl_reconciled", "lazy_expiry_observed"}, "Redis")
-    require(payload["source"]["archive_inventory"]["postgres_dump_sha256"] == pg["dump_sha256"] and payload["source"]["archive_inventory"]["redis_rdb_sha256"] == redis["rdb_sha256"], "actual archive PG or Redis bytes differ from measured restore")
-    require(redis["restore_verified"] is True and redis["ttl_reconciled"] is True and redis["lazy_expiry_observed"] is True and sha(redis["rdb_sha256"]), "Redis measured restoration")
-    counts = ("backup_dbsize", "backup_expiring", "restored_dbsize", "restored_expiring", "restored_keyspace_keys", "persistent_before", "persistent_after", "health_wait_ms", "health_budget_ms")
-    require(all(integer(redis[key]) for key in counts), "Redis measured integer values")
-    # restored_dbsize/restored_expiring precede SCAN; keyspace_keys follows it.
-    # Expired TTL keys may vanish, but the pre-SCAN persistent floor must remain.
-    require(redis["backup_dbsize"] >= redis["restored_dbsize"] > redis["restored_keyspace_keys"] >= 0 and redis["restored_dbsize"] >= redis["restored_expiring"] and redis["restored_keyspace_keys"] >= redis["restored_dbsize"] - redis["restored_expiring"], "Redis lazy expiration count observation")
-    require(redis["backup_dbsize"] >= redis["backup_expiring"] > redis["restored_expiring"] and redis["persistent_before"] == redis["backup_dbsize"] - redis["backup_expiring"] and redis["persistent_after"] == redis["restored_dbsize"] - redis["restored_expiring"] and redis["persistent_after"] >= redis["persistent_before"], "Redis TTL and persistent floor")
-    require(60000 < redis["health_wait_ms"] <= redis["health_budget_ms"] <= 600000, "real delayed Redis startup budget")
+    require(payload["source"]["archive_inventory"]["postgres_dump_sha256"] == pg["dump_sha256"], "actual archive PG bytes differ from measured restore")
+    validate_redis_measurement(measurements["redis"], isolation=isolation, rdb_sha256=payload["source"]["archive_inventory"]["redis_rdb_sha256"], created_at=payload["created_at"], completed_at=payload["completed_at"])
     faults = shape(measurements["faults"], {"app_healthy_interrupt", "cleanup_before_interrupt", "stale_ingress"}, "fault")
     for name in ("app_healthy_interrupt", "cleanup_before_interrupt"):
         fault = shape(faults[name], {"exit_code", "resume_verified", "postgres_oid_before", "postgres_oid_after", "redis_run_before_sha256", "redis_run_after_sha256"}, name)
