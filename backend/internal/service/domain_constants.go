@@ -705,9 +705,6 @@ const (
 	SettingKeyOpenAITTFTMode = "openai_ttft_mode"
 	OpenAITTFTModeSemantic   = "semantic"
 	OpenAITTFTModeVisible    = "visible"
-	// SettingKeyOpenAIGPT61SolNewLongContextEnabled controls the opt-in GPT-6.1
-	// Sol long-context pricing exemption and 500k default context window.
-	SettingKeyOpenAIGPT61SolNewLongContextEnabled = "openai_gpt61_sol_new_long_context_enabled"
 	// SettingKeyEnableFingerprintUnification 是否统一 OAuth 账号的 X-Stainless-* 指纹头（默认 true）
 	SettingKeyEnableFingerprintUnification = "enable_fingerprint_unification"
 	// SettingKeyEnableMetadataPassthrough 是否透传客户端原始 metadata.user_id（默认 false）
