@@ -228,6 +228,84 @@ class RecoveryEvidenceTests(unittest.TestCase):
                     with self.assertRaises(RuntimeError): self.verify(self.signed(payload))
                     with self.assertRaises(RuntimeError): full_recovery_drill.validate_guest_receipt(receipt,config)
 
+    def deterministic_redis(self, *, ttl=True, natural=False):
+        redis=deepcopy(self.payload['measurements']['redis'])
+        isolation=self.payload['measurements']['isolation']
+        binding={key:isolation[key] for key in ('drill_id','release_id','guest_docker_engine_id_sha256','rootfs_identity_sha256')}
+        before_exp=5 if ttl else 0; drop=2 if natural else 0
+        before=10+before_exp; after=before-drop; after_exp=before_exp-drop
+        redis.update(backup_dbsize=100 if ttl else 10,backup_expiring=90 if ttl else 0,
+            restored_dbsize=after,restored_keyspace_keys=after,restored_expiring=after_exp,
+            persistent_before=10,persistent_after=10,lazy_expiry_observed=natural)
+        redis['source_observation']={'schema':1,'type':'redis-restored-source-atomic-scan',**binding,'image_id':'sha256:'+'a'*64,'before_dbsize':before,'before_expiring':before_exp,'after_dbsize':after,'after_expiring':after_exp,'observed_at':1000010}
+        redis['boundary_probe']={'schema':1,'type':'redis-owned-ttl-boundary','production_source':False,**binding,
+            'image_id':'sha256:'+'a'*64,'container_id_sha256':'b'*64,'network_mode':'none','tmpfs_data':True,'read_only_rootfs':True,'published_ports_absent':True,'volumes_absent':True,'debug_config':'yes','active_expiry_disable_reply':'OK','ttl_ms':2000,'initial_pttl_ms':1900,'wait_elapsed_ms':2300,'final_pttl_ms':-2,'before_dbsize':2,'before_expiring':1,'after_dbsize':1,'after_expiring':0,'persistent_before_sha256':'c'*64,'persistent_after_sha256':'c'*64,'created_at':1000010,'completed_at':1000014,'owned_resources_cleaned':True}
+        return redis
+
+    def check_new_redis(self,redis,*,valid=True):
+        payload=deepcopy(self.payload);payload['measurements']['redis']=redis
+        receipt={key:deepcopy(payload[key]) for key in ('drill_id','created_at','completed_at','source','measurements','recovery_helper_bundle_sha256')}
+        receipt.update(schema=1,type='sub2api-full-recovery-measurements')
+        receipt['measurements'].pop('rto')
+        receipt['measurements']['cleanup']={key:True for key in ('plaintext_destroyed','active_claim_cleared','stale_ingress_removed')}
+        config={**payload['source'],'drill_id':payload['drill_id'],'recovery_helper_bundle_sha256':payload['recovery_helper_bundle_sha256']}
+        validators=(lambda:self.verify(self.signed(payload)),lambda:full_recovery_drill.validate_guest_receipt(receipt,config))
+        for name,validate in zip(('signed-host','guest'),validators):
+            with self.subTest(validator=name):
+                if valid:validate()
+                else:
+                    with self.assertRaises(RuntimeError):validate()
+
+    def test_new_source_natural_expiry_optional_in_both_validators(self):
+        for ttl,natural in ((True,True),(True,False),(False,False)):
+            with self.subTest(ttl=ttl,natural=natural):self.check_new_redis(self.deterministic_redis(ttl=ttl,natural=natural))
+        redis=self.deterministic_redis(ttl=False)
+        for key in ('backup_dbsize','backup_expiring','restored_dbsize','restored_expiring','restored_keyspace_keys','persistent_before','persistent_after'):redis[key]=0
+        for key in ('before_dbsize','before_expiring','after_dbsize','after_expiring'):redis['source_observation'][key]=0
+        self.check_new_redis(redis)
+
+    def test_new_boundary_and_source_provenance_fail_closed(self):
+        cases=[(None,'unexpected',True),(None,'boundary_probe',None),(None,'source_observation',None),
+            (None,'persistent_after',11),(None,'lazy_expiry_observed',True),
+            ('source_observation','before_dbsize',True),('source_observation','before_expiring',4),
+            ('source_observation','after_expiring',4),('source_observation','image_id','sha256:'+'d'*64),
+            ('source_observation','observed_at',999999),('source_observation','unknown',0),
+            ('boundary_probe','schema',True),('boundary_probe','production_source',True),
+            ('boundary_probe','guest_docker_engine_id_sha256','e'*64),('boundary_probe','rootfs_identity_sha256','e'*64),
+            ('boundary_probe','image_id','sha256:'+'d'*64),('boundary_probe','owned_resources_cleaned',False),
+            ('boundary_probe','network_mode','bridge'),('boundary_probe','volumes_absent',False),
+            ('boundary_probe','wait_elapsed_ms',2199),('boundary_probe','initial_pttl_ms',0),
+            ('boundary_probe','final_pttl_ms',True),('boundary_probe','persistent_after_sha256','d'*64),
+            ('boundary_probe','before_dbsize',True),('boundary_probe','after_dbsize',2),
+            ('boundary_probe','completed_at',1000121),('boundary_probe','debug_config','no')]
+        for group,key,value in cases:
+            with self.subTest(group=group,key=key,value=value):
+                redis=self.deterministic_redis();target=redis if group is None else redis[group]
+                if value is None:target.pop(key)
+                else:target[key]=value
+                self.check_new_redis(redis,valid=False)
+
+    def test_new_format_rejects_every_missing_unknown_and_boolean_integer(self):
+        fixture=self.deterministic_redis()
+        for group in (None,'source_observation','boundary_probe'):
+            original=fixture if group is None else fixture[group]
+            for key in (*original,'unknown_field'):
+                with self.subTest(group=group,key=key,mutation='shape'):
+                    redis=deepcopy(fixture);target=redis if group is None else redis[group]
+                    if key in target:target.pop(key)
+                    else:target[key]=0
+                    self.check_new_redis(redis,valid=False)
+            for key,value in original.items():
+                if type(value) is int:
+                    with self.subTest(group=group,key=key,mutation='bool'):
+                        redis=deepcopy(fixture);target=redis if group is None else redis[group];target[key]=True
+                        self.check_new_redis(redis,valid=False)
+            if group is not None:
+                for key in ('drill_id','release_id','guest_docker_engine_id_sha256','rootfs_identity_sha256'):
+                    with self.subTest(group=group,key=key,mutation='binding'):
+                        redis=deepcopy(fixture);redis[group][key]='wrong'
+                        self.check_new_redis(redis,valid=False)
+
     def test_resume_data_reapply_and_checkpoint_identity_are_rejected(self):
         for fault in ("app_healthy_interrupt", "cleanup_before_interrupt"):
             payload = deepcopy(self.payload)
