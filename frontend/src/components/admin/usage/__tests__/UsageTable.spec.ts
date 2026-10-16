@@ -120,20 +120,20 @@ const DataTableStub = {
 }
 
 describe('admin UsageTable output TPS', () => {
-  it('shows only official total-duration TPS even when an older response includes generation throughput', () => {
+  it('calculates TPS after first token instead of trusting a legacy derived field', () => {
     const wrapper = mount(UsageTable, {
       props: {
-        data: [{ request_id: 'two-formulas', first_token_ms: 10000, duration_ms: 20000, output_tokens: 1000, output_tps: 100 }],
+        data: [{ request_id: 'two-formulas', first_token_ms: 10000, duration_ms: 20000, output_tokens: 1000, output_tps: 999 }],
         columns: [{ key: 'latency', label: 'Latency' }],
       },
       global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
     })
-    expect(wrapper.get('[data-testid="output-tps"]').text()).toBe('50.0 tok/s')
+    expect(wrapper.get('[data-testid="output-tps"]').text()).toBe('100.0 tok/s')
     expect(wrapper.text()).toContain('Output TPS')
     expect(wrapper.text()).toContain('First')
     expect(wrapper.text()).toContain('Total')
     expect(wrapper.find('.grid').findAll('span')).toHaveLength(6)
-    expect(wrapper.text()).not.toContain('100.0 t/s')
+    expect(wrapper.text()).not.toContain('999')
     expect(wrapper.text()).not.toContain('usage.latencyTps')
   })
 
@@ -144,7 +144,7 @@ describe('admin UsageTable output TPS', () => {
     output_tokens: 60,
   }
 
-  it('renders official TPS to one decimal in the shared user table', () => {
+  it('renders TPS after first token to one decimal in the shared user table', () => {
     const wrapper = mount(UsageTable, {
       props: {
         data: [row],
@@ -157,27 +157,36 @@ describe('admin UsageTable output TPS', () => {
     })
 
     expect(wrapper.text()).toContain('Output TPS')
-    expect(wrapper.get('[data-testid="output-tps"]').text()).toBe('12.6 tok/s')
+    expect(wrapper.get('[data-testid="output-tps"]').text()).toBe('15.0 tok/s')
     expect(wrapper.find('.grid').findAll('span')).toHaveLength(6)
   })
 
-  it.each([0, 10000, 19000])('includes the %i ms first-token wait in official TPS', (firstTokenMs) => {
+  it.each([[0, '50.0'], [10000, '100.0'], [19000, '1000.0']] as const)(
+    'subtracts the %i ms first-token wait from TPS duration', (firstTokenMs, expected) => {
+      const wrapper = mount(UsageTable, {
+        props: {
+          data: [{ ...row, first_token_ms: firstTokenMs, duration_ms: 20000, output_tokens: 1000 }],
+          loading: false,
+          columns: [{ key: 'latency', label: 'Latency' }],
+        },
+        global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
+      })
+
+      expect(wrapper.get('[data-testid="output-tps"]').text()).toBe(`${expected} tok/s`)
+    }
+  )
+
+  it.each([
+    { duration_ms: null },
+    { first_token_ms: null },
+    { first_token_ms: undefined },
+    { first_token_ms: -1 },
+    { first_token_ms: 4750 },
+    { first_token_ms: 5000 },
+  ])('shows a dash when timing evidence is unavailable or invalid: %j', (timing) => {
     const wrapper = mount(UsageTable, {
       props: {
-        data: [{ ...row, first_token_ms: firstTokenMs, duration_ms: 20000, output_tokens: 1000 }],
-        loading: false,
-        columns: [{ key: 'latency', label: 'Latency' }],
-      },
-      global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
-    })
-
-    expect(wrapper.get('[data-testid="output-tps"]').text()).toBe('50.0 tok/s')
-  })
-
-  it('shows a dash instead of a fabricated zero when TPS is unavailable', () => {
-    const wrapper = mount(UsageTable, {
-      props: {
-        data: [{ ...row, duration_ms: null }],
+        data: [{ ...row, ...timing }],
         loading: false,
         columns: [{ key: 'latency', label: 'Latency' }],
       },
@@ -264,7 +273,7 @@ describe('shared UsageTable cache rate', () => {
 })
 
 describe('admin UsageTable tooltip', () => {
-  it('shows output TPS in the latency cell using total duration', () => {
+  it('shows output TPS in the latency cell after subtracting first-token latency', () => {
     const row = { ...baseImageRow, image_count: 0, billing_mode: 'token', output_tokens: 1000, duration_ms: 20_000, first_token_ms: 10_000 }
     const wrapper = mount(UsageTable, {
       props: {
@@ -274,7 +283,7 @@ describe('admin UsageTable tooltip', () => {
       },
       global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
     })
-    expect(wrapper.findAll('[data-testid="output-tps"]').map(cell => cell.text())).toEqual(['50.0 tok/s', '—', '—'])
+    expect(wrapper.findAll('[data-testid="output-tps"]').map(cell => cell.text())).toEqual(['100.0 tok/s', '—', '—'])
     expect(wrapper.text()).toContain('Output TPS')
   })
 
