@@ -32,7 +32,7 @@ class Profile269ReleaseContractTest(unittest.TestCase):
         baseline = {}
         exec(compile(git_blob(".agents/skills/sub2api-production-deploy/scripts/release/profiles.py"), "baseline", "exec"), baseline)
         self.assertEqual(baseline["CURRENT_RELEASE_PROFILE"], "268")
-        self.assertEqual(set(PROFILES), set(baseline["PROFILES"]) | {"269", "270", "271"})
+        self.assertEqual(set(PROFILES), set(baseline["PROFILES"]) | {"269", "270", "271", "272"})
         for name, contract in baseline["PROFILES"].items():
             self.assertEqual(get_profile(name), contract, name)
             with self.assertRaisesRegex(ValueError, "historical"):
@@ -84,7 +84,8 @@ class Profile269ReleaseContractTest(unittest.TestCase):
         self.assertEqual(plan_migrations(catalog, {**snapshot, MIGRATION: entry["checksum"]})["pending"], [])
         self.assertFalse(plan_migrations(catalog, {**snapshot, MIGRATION: "0" * 64})["existing_checksums_verified"])
         self.assertIsNotNone(RELEASE_ID.fullmatch("269-aaaaaaaaaaaa-1-aaaaaaaa"))
-        self.assertIsNone(RELEASE_ID.fullmatch("272-aaaaaaaaaaaa-1-aaaaaaaa"))
+        self.assertIsNotNone(RELEASE_ID.fullmatch("272-aaaaaaaaaaaa-1-aaaaaaaa"))
+        self.assertIsNone(RELEASE_ID.fullmatch("273-aaaaaaaaaaaa-1-aaaaaaaa"))
 
 
 class Profile269BashContractTest(unittest.TestCase):

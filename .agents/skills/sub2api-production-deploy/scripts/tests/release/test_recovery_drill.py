@@ -52,7 +52,7 @@ class RecoveryDrillTests(unittest.TestCase):
                     drill.validate_config(bad)
 
     def test_arbitrary_arguments_and_production_fixtures_are_rejected(self):
-        for mutation in ({"launch_args": ["--bind=/opt/sub2api"]}, {"fixture_kind": "production"}, {"drill_id": "../production"}, {"release_id": "272-aaaaaaaaaaaa-1-deadbeef"}, {"redis_health_budget_seconds": True}):
+        for mutation in ({"launch_args": ["--bind=/opt/sub2api"]}, {"fixture_kind": "production"}, {"drill_id": "../production"}, {"release_id": "273-aaaaaaaaaaaa-1-deadbeef"}, {"redis_health_budget_seconds": True}):
             with self.subTest(mutation=mutation):
                 with self.assertRaises(drill.DrillBlocked):
                     drill.validate_config({**self.config, **mutation})

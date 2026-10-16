@@ -30,7 +30,7 @@ class Profile266ReleaseContractTest(unittest.TestCase):
         baseline = {}
         exec(compile(source, "historical-profiles", "exec"), baseline)
         self.assertEqual(baseline["CURRENT_RELEASE_PROFILE"], "265")
-        self.assertEqual(set(PROFILES), set(baseline["PROFILES"]) | {"266", "267", "268", "269", "270", "271"})
+        self.assertEqual(set(PROFILES), set(baseline["PROFILES"]) | {"266", "267", "268", "269", "270", "271", "272"})
         for name, contract in baseline["PROFILES"].items():
             self.assertEqual(get_profile(name), contract, name)
             with self.assertRaisesRegex(ValueError, "historical"):
@@ -88,7 +88,8 @@ class Profile266ReleaseContractTest(unittest.TestCase):
         snapshot[MIGRATION] = "0" * 64
         self.assertTrue(plan_migrations(catalog, snapshot)["conflicts"])
         self.assertIsNotNone(RELEASE_ID.fullmatch("266-aaaaaaaaaaaa-1-aaaaaaaa"))
-        self.assertIsNone(RELEASE_ID.fullmatch("272-aaaaaaaaaaaa-1-aaaaaaaa"))
+        self.assertIsNotNone(RELEASE_ID.fullmatch("272-aaaaaaaaaaaa-1-aaaaaaaa"))
+        self.assertIsNone(RELEASE_ID.fullmatch("273-aaaaaaaaaaaa-1-aaaaaaaa"))
 
     def test_manifest_binds_identity_and_retains_ancestor_evidence(self):
         profile = get_profile("266")

@@ -33,7 +33,7 @@ class Profile262ReleaseContractTest(unittest.TestCase):
         previous = {}
         exec(compile(source, "historical-profiles", "exec"), previous)
         self.assertEqual(previous["CURRENT_RELEASE_PROFILE"], "261")
-        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"262", "263", "264", "265", "266", "267", "268", "269", "270", "271"})
+        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"262", "263", "264", "265", "266", "267", "268", "269", "270", "271", "272"})
         for profile, contract in previous["PROFILES"].items():
             with self.subTest(profile=profile):
                 self.assertEqual(get_profile(profile), contract)
