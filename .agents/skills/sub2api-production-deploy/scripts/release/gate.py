@@ -264,7 +264,7 @@ def _validate_v2_pending(manifest: dict[str, Any], evidence: dict[str, Any]) -> 
         (item for item in catalog if isinstance(item, dict) and item.get("filename") == lifecycle_filename),
         None,
     )
-    if manifest.get("profile") in {"260", "261", "262", "263", "264", "265", "266", "267", "268", "269", "270"} and lifecycle_catalog is None:
+    if manifest.get("profile") in {"260", "261", "262", "263", "264", "265", "266", "267", "268", "269", "270", "271"} and lifecycle_catalog is None:
         raise RuntimeError("Gate v2 lacks migration 285 catalog entry")
     if lifecycle_catalog is not None:
         required_fields.add("migration_285")
@@ -272,15 +272,20 @@ def _validate_v2_pending(manifest: dict[str, Any], evidence: dict[str, Any]) -> 
         (item for item in catalog if isinstance(item, dict) and item.get("filename") == "297_upstream_cache_guard_account_scope.sql"),
         None,
     )
-    if manifest.get("profile") in {"269", "270"} and account_scope_catalog is None:
+    if manifest.get("profile") in {"269", "270", "271"} and account_scope_catalog is None:
         raise RuntimeError("Gate v2 lacks migration 297 catalog entry")
     if account_scope_catalog is not None:
         required_fields.add("migration_297")
     protection_catalog = next((item for item in catalog if isinstance(item, dict) and item.get("filename") == "298_group_scheduling_protection_policies.sql"), None)
-    if manifest.get("profile") == "270" and protection_catalog is None:
+    if manifest.get("profile") in {"270", "271"} and protection_catalog is None:
         raise RuntimeError("Gate v2 lacks migration 298 catalog entry")
     if protection_catalog is not None:
         required_fields.add("migration_298")
+    revisions_catalog = next((item for item in catalog if isinstance(item, dict) and item.get("filename") == "299_upstream_cache_guard_revisions.sql"), None)
+    if manifest.get("profile") == "271" and revisions_catalog is None:
+        raise RuntimeError("Gate v2 lacks migration 299 catalog entry")
+    if revisions_catalog is not None:
+        required_fields.add("migration_299")
     if set(migration) != required_fields:
         raise RuntimeError("Gate v2 migration evidence contains unknown fields")
     by_name: dict[str, dict[str, Any]] = {}
@@ -355,6 +360,13 @@ def _validate_v2_pending(manifest: dict[str, Any], evidence: dict[str, Any]) -> 
             raise RuntimeError("Gate v2 lacks migration 298 semantic evidence")
         if semantic["checksum"] != protection_catalog["checksum"] or any(semantic[phase] is not True for phase in phases):
             raise RuntimeError("Gate v2 migration 298 semantic evidence is incomplete or unbound")
+    if revisions_catalog is not None:
+        semantic = migration.get("migration_299")
+        phases = {"preflight", "postflight", "vm_semantics", "verified_replay"}
+        if not isinstance(semantic, dict) or set(semantic) != {"checksum", *phases}:
+            raise RuntimeError("Gate v2 lacks migration 299 semantic evidence")
+        if semantic["checksum"] != revisions_catalog["checksum"] or any(semantic[phase] is not True for phase in phases):
+            raise RuntimeError("Gate v2 migration 299 semantic evidence is incomplete or unbound")
     for field in ("existing_checksums_verified", "isolated_upgrade_verified", "final_schema_verified"):
         if migration.get(field) is not True:
             raise RuntimeError(f"Gate v2 migration evidence lacks {field}")

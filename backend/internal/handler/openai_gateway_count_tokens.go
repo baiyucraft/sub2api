@@ -101,7 +101,9 @@ func (h *OpenAIGatewayHandler) forwardOpenAITokenCountWithPluginFailover(
 			writeError(failoverErr.StatusCode, "api_error", "", "No available accounts for the requested model")
 			return
 		}
-		excludedIDs[account.ID] = struct{}{}
+		if !failoverErr.ProtectionOrdinaryFallback {
+			excludedIDs[account.ID] = struct{}{}
+		}
 		account, err = h.gatewayService.SelectAccountForTokenCountWithExclusions(
 			c.Request.Context(), apiKey.GroupID, sessionHash, routingModel,
 			service.OpenAIEndpointCapabilityChatCompletions, openAICompatibleRequestPlatform(c.Request.Context(), apiKey), excludedIDs,

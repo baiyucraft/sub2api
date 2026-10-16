@@ -408,7 +408,9 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 							h.handleFailoverExhausted(c, failoverErr, streamStarted)
 							return
 						}
-						failedAccountIDs[account.ID] = struct{}{}
+						if !failoverErr.ProtectionOrdinaryFallback {
+							failedAccountIDs[account.ID] = struct{}{}
+						}
 						lastFailoverErr = failoverErr
 						continue
 					}

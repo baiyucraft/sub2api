@@ -416,7 +416,9 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 						return
 					}
 					if failoverErr.PluginAdmissionRejected {
-						failedAccountIDs[account.ID] = struct{}{}
+						if !failoverErr.ProtectionOrdinaryFallback {
+							failedAccountIDs[account.ID] = struct{}{}
+						}
 						lastFailoverErr = failoverErr
 						continue
 					}

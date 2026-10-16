@@ -697,7 +697,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		selection.Account = latest
 		// 等待路径保持既有 eager 绑定（无门时 helper 直接绑定）；调度器已抢槽
 		// 的直达路径无门时由选号内部绑定，这里只在门下补准入后绑定。
-		if selection.IsSchedulingProtectionMigration() {
+		if selection.SchedulingProtectionBindingDeferred() {
 			admissionCtx = h.gatewayService.WithGatewaySchedulingProtectionMigration(admissionCtx, apiKey.GroupID, sessionKey, selection)
 		} else if selection.RequiresStickyAdmissionBinding() || !selection.Acquired {
 			if err := h.gatewayService.BindStickySessionAfterProfitAdmission(admissionCtx, apiKey.GroupID, sessionKey, account.ID); err != nil {

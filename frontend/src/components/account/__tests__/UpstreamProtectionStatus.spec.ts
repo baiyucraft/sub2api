@@ -110,6 +110,30 @@ describe('UpstreamProtectionStatus', () => {
     expect(wrapper.get('[data-test="upstream-protection-details"]').text()).not.toContain('恢复进度')
   })
 
+  it('shows the last usable cache snapshot until the API reports it unavailable', async () => {
+    const value = protection()
+    value.cache!.updated_at = '2026-10-16T01:00:00Z'
+    const wrapper = render(value)
+    await wrapper.get('[data-test="protection-cache-summary"]').trigger('click')
+
+    // A delayed refresh within the tolerance window keeps the server's last
+    // successful metrics. The component does not add another expiry window.
+    await wrapper.setProps({ account: { id: 1, name: '上游账号', upstream_protection: structuredClone(value) } as Account })
+    expect(wrapper.get('[data-test="protection-cache-summary"]').text()).toBe('缓存 82.6% · 2组保护')
+    const metrics = wrapper.get('[data-test="protection-cache-metrics"]').text()
+    expect(metrics).toContain('82.6%')
+    expect(metrics).toContain('42')
+    expect(metrics).not.toContain('已过期')
+
+    const unavailable = structuredClone(value)
+    Object.assign(unavailable.cache!, { state: 'unavailable', reason: 'snapshot_unavailable', rate_percent: null, valid_requests: 0, updated_at: null })
+    unavailable.groups.forEach(item => Object.assign(item.cache, { state: 'unavailable', reason: 'snapshot_unavailable', rate_percent: null, valid_requests: 0, updated_at: null }))
+    await wrapper.setProps({ account: { id: 1, name: '上游账号', upstream_protection: unavailable } as Account })
+    expect(wrapper.get('[data-test="protection-cache-summary"]').text()).toBe('缓存 未知 · 暂不可用')
+    expect(wrapper.get('[data-test="protection-cache-metrics"]').text()).not.toContain('82.6%')
+    expect(wrapper.get('[data-test="protection-cache-metrics"]').text()).toContain('未知')
+  })
+
   it.each(['insufficient', 'expired', 'unavailable', 'disabled'] as const)('does not infer normal from an empty model list (%s)', async state => {
     const value = protection()
     value.ttft_models = []

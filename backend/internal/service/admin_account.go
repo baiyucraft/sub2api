@@ -82,6 +82,25 @@ func (s *adminServiceImpl) ListAccountsScopedWithPreferred(ctx context.Context, 
 }
 
 func (s *adminServiceImpl) ListAccountsScoped(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string, sortBy, sortOrder string, scope AccountListScope) ([]Account, int64, error) {
+	type result struct {
+		Accounts []Account
+		Total    int64
+	}
+	query := struct {
+		Page, PageSize int
+		Filter         AccountQualityCandidatesQuery
+	}{page, pageSize, AccountQualityCandidatesQuery{Platform: platform, Type: accountType, Status: status, Search: search, GroupID: groupID, PrivacyMode: privacyMode, SortBy: sortBy, SortOrder: sortOrder, Scope: scope}}
+	raw, err := accountListSharedRead(ctx, fmt.Sprintf("%p", s), "account_list", query, func(shared context.Context) (result, error) {
+		accounts, total, err := s.listAccountsScopedUnshared(shared, page, pageSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder, scope)
+		return result{accounts, total}, err
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	return cloneAccountListSnapshot(raw.Accounts), raw.Total, nil
+}
+
+func (s *adminServiceImpl) listAccountsScopedUnshared(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string, sortBy, sortOrder string, scope AccountListScope) ([]Account, int64, error) {
 	if !scope.Valid() {
 		return nil, 0, fmt.Errorf("invalid account list scope %q", scope)
 	}

@@ -1066,7 +1066,16 @@ func (s *GatewayService) resolvePlatform(ctx context.Context, groupID *int64, gr
 	return PlatformAnthropic, false, nil
 }
 
-func (s *GatewayService) listSchedulableAccounts(ctx context.Context, groupID *int64, platform string, hasForcePlatform bool) ([]Account, bool, error) {
+func (s *GatewayService) listSchedulableAccounts(ctx context.Context, groupID *int64, platform string, hasForcePlatform bool) (accountsOut []Account, mixedOut bool, errorOut error) {
+	key := protectionCandidateKey(s, groupID, platform, hasForcePlatform)
+	if cached, mixed, ok := readProtectionCandidates(ctx, key); ok {
+		return cached, mixed, nil
+	}
+	defer func() {
+		if errorOut == nil {
+			rememberProtectionCandidates(ctx, key, accountsOut, mixedOut)
+		}
+	}()
 	if s.schedulerSnapshot != nil {
 		accounts, useMixed, err := s.schedulerSnapshot.ListSchedulableAccounts(ctx, groupID, platform, hasForcePlatform)
 		if err == nil {
@@ -1234,10 +1243,67 @@ func (s *GatewayService) isAccountInGroup(account *Account, groupID *int64) bool
 }
 
 func (s *GatewayService) tryAcquireAccountSlot(ctx context.Context, account *Account) (*AcquireResult, error) {
+	if cacheGuardTentativeSelection(ctx) {
+		latest, err := s.refreshGatewayProtectionCandidate(ctx, account)
+		if err != nil {
+			return &AcquireResult{}, err
+		}
+		account = latest
+	}
 	if s.concurrencyService == nil {
 		return &AcquireResult{Acquired: true, ReleaseFunc: func() {}}, nil
 	}
 	return s.concurrencyService.AcquireTargetSlot(ctx, account.SchedulingConcurrencyTarget())
+}
+
+type gatewayProtectionRecheckKey struct{}
+type gatewayProtectionRecheck struct {
+	groupID *int64
+	model   string
+}
+
+func withGatewayProtectionRecheck(ctx context.Context, groupID *int64, model string) context.Context {
+	return context.WithValue(ctx, gatewayProtectionRecheckKey{}, gatewayProtectionRecheck{groupID: cloneAccountValuePointer(groupID), model: model})
+}
+
+// A prepared pool is a preference hint. Capacity and send admission must use
+// current identity and hard gates even if the candidate list was read earlier.
+func (s *GatewayService) refreshGatewayProtectionCandidate(ctx context.Context, selected *Account) (*Account, error) {
+	return s.refreshGatewayProtectionCandidateAt(ctx, selected, false)
+}
+
+func (s *GatewayService) refreshGatewayProtectionCandidateAt(ctx context.Context, selected *Account, terminal bool) (*Account, error) {
+	if selected == nil || (s.schedulerSnapshot == nil && s.accountRepo == nil) {
+		return nil, ErrNoAvailableAccounts
+	}
+	var latest *Account
+	var err error
+	if terminal && s.accountRepo != nil {
+		// The physical send boundary must not depend on outbox/snapshot lag.
+		latest, err = s.accountRepo.GetByID(ctx, selected.ID)
+	} else {
+		latest, err = s.getSchedulableAccount(ctx, selected.ID)
+	}
+	if err != nil {
+		// Optional preference reads cannot replace the ordinary scheduler's
+		// error handling or original request budget.
+		return nil, ErrNoAvailableAccounts
+	}
+	if latest == nil || latest.ID != selected.ID || latest.Platform != selected.Platform || accountUpstreamKeyID(latest) != accountUpstreamKeyID(selected) || derefGroupID(latest.UpstreamConfigID) != derefGroupID(selected.UpstreamConfigID) || !s.isAccountSchedulableForSelection(latest) || !s.isGatewayAccountProfitEligible(ctx, latest) || s.isAccountBlockedBySchedulingThreshold(ctx, latest) {
+		return nil, ErrNoAvailableAccounts
+	}
+	if latest.IsGrok() && len(s.filterGrokFreeQuotaAccountsForGateway(ctx, []Account{*latest})) == 0 {
+		return nil, ErrNoAvailableAccounts
+	}
+	if request, ok := ctx.Value(gatewayProtectionRecheckKey{}).(gatewayProtectionRecheck); ok {
+		if !s.isAccountInGroup(latest, request.groupID) || (request.model != "" && !s.isModelSupportedByAccountWithContext(ctx, latest, request.model)) || !s.isAccountSchedulableForModelSelection(ctx, latest, request.model) {
+			return nil, ErrNoAvailableAccounts
+		}
+	}
+	if !s.isAccountSchedulableForQuota(latest) || !s.isAccountSchedulableForWindowCost(ctx, latest, false) || !s.isAccountSchedulableForRPM(ctx, latest, false) {
+		return nil, ErrNoAvailableAccounts
+	}
+	return latest, nil
 }
 
 type usageLogWindowStatsBatchProvider interface {
@@ -1549,6 +1615,11 @@ func (s *GatewayService) TryAcquireAccountRPM(ctx context.Context, account *Acco
 // sessionID: 会话标识符（使用粘性会话的 hash）
 // 返回 true 表示允许（在限制内或会话已存在），false 表示拒绝（超出限制且是新会话）
 func (s *GatewayService) checkAndRegisterSession(ctx context.Context, account *Account, sessionID string) bool {
+	// A tier can be discarded after finding capacity. Do not reserve Redis
+	// session quota until its caller has accepted the final selection.
+	if cacheGuardTentativeSelection(ctx) {
+		return true
+	}
 	// 只检查 Anthropic OAuth/SetupToken 账号
 	if !account.IsAnthropicOAuthOrSetupToken() {
 		return true
@@ -1571,6 +1642,23 @@ func (s *GatewayService) checkAndRegisterSession(ctx context.Context, account *A
 		return true
 	}
 	return allowed
+}
+
+// commitGatewayProtectionSession synchronously commits only the chosen tier.
+// Redis failures retain the existing fail-open behavior of ordinary scheduling.
+func (s *GatewayService) commitGatewayProtectionSession(ctx context.Context, result *AccountSelectionResult, sessionID string) error {
+	if result == nil || result.Account == nil {
+		return ErrNoAvailableAccounts
+	}
+	ctx = context.WithValue(ctx, cacheGuardTentativeKey{}, false)
+	if s.checkAndRegisterSession(ctx, result.Account, sessionID) {
+		return nil
+	}
+	if result.ReleaseFunc != nil {
+		result.ReleaseFunc()
+		result.ReleaseFunc = nil
+	}
+	return ErrNoAvailableAccounts
 }
 
 // ReleaseAccountSession 立即释放会话槽（不等待空闲超时）
@@ -1646,6 +1734,10 @@ func (s *GatewayService) isAccountBlockedBySchedulingThreshold(ctx context.Conte
 }
 
 func (s *GatewayService) hydrateSelectedAccount(ctx context.Context, account *Account) (*Account, error) {
+	if cacheGuardTentativeSelection(ctx) {
+		// This also covers selection entrypoints without capacity acquisition.
+		return s.refreshGatewayProtectionCandidate(ctx, account)
+	}
 	if account == nil || s.schedulerSnapshot == nil {
 		return account, nil
 	}
@@ -1661,6 +1753,10 @@ func (s *GatewayService) hydrateSelectedAccount(ctx context.Context, account *Ac
 
 func (s *GatewayService) newSelectionResult(ctx context.Context, account *Account, acquired bool, release func(), waitPlan *AccountWaitPlan) (*AccountSelectionResult, error) {
 	hydrated, err := s.hydrateSelectedAccount(ctx, account)
+	if err == nil && cacheGuardTentativeSelection(ctx) && acquired && hydrated.SchedulingConcurrencyTarget() != account.SchedulingConcurrencyTarget() {
+		// The held slot must match the hydrated nomination's capacity identity.
+		err = ErrNoAvailableAccounts
+	}
 	if err != nil {
 		if acquired && release != nil {
 			release()

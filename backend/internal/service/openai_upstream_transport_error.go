@@ -116,7 +116,7 @@ func isClientCanceledTransportError(ctx context.Context, err error) bool {
 // passthrough tags the Ops error event for the OpenAI passthrough forward path.
 func (s *OpenAIGatewayService) handleOpenAIUpstreamTransportError(ctx context.Context, c *gin.Context, account *Account, err error, passthrough bool) error {
 	var scoped *UpstreamFailoverError
-	if errors.As(err, &scoped) && scoped.Reason == "scheduling_protection_scope_changed" {
+	if errors.As(err, &scoped) && (scoped.Reason == "scheduling_protection_scope_changed" || (scoped.PluginAdmissionRejected && scoped.ProtectionOrdinaryFallback)) {
 		return scoped
 	}
 	var admissionErr *PluginAdmissionError

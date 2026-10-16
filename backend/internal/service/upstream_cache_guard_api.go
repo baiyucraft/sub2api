@@ -106,15 +106,31 @@ func UpstreamCacheGuardAccountStatesBatch(accounts []Account) map[int64][]Upstre
 // Reads each current account/key snapshot once per row; group membership only
 // affects where the shared account decision is executed, not what is sampled.
 func UpstreamCacheGuardAccountViewsBatch(accounts []Account) map[int64]UpstreamCacheGuardAccountView {
+	return UpstreamCacheGuardAccountViewsBatchAt(accounts, time.Now().UTC())
+}
+
+func UpstreamCacheGuardAccountViewsBatchAt(accounts []Account, at time.Time) map[int64]UpstreamCacheGuardAccountView {
 	r := currentUpstreamCacheGuardRunner()
 	settings := DefaultUpstreamCacheGuardSettings()
 	if r != nil {
 		settings = r.engine.Settings()
 	}
-	available := r != nil && r.available.Load()
+	// Availability is evaluated per cached account. A runner-wide pending or
+	// refresh error must not blank unrelated account observations.
+	available := r != nil && !r.closed.Load()
 	var readAccount func(int64, int64) (upstreamcacheguard.AccountSnapshot, bool)
 	if available {
-		readAccount = r.engine.CachedSharedAccount
+		candidates := make([]upstreamcacheguard.Candidate, 0, len(accounts))
+		for i := range accounts {
+			if accounts[i].IsUpstreamBound() {
+				candidates = append(candidates, upstreamcacheguard.Candidate{AccountID: accounts[i].ID, UpstreamKeyID: accountUpstreamKeyID(&accounts[i])})
+			}
+		}
+		snapshots := r.engine.CachedSharedAccountsAt(candidates, at)
+		readAccount = func(accountID, keyID int64) (upstreamcacheguard.AccountSnapshot, bool) {
+			snapshot, exists := snapshots[accountID]
+			return snapshot, exists && snapshot.UpstreamKeyID == keyID && snapshot.Available
+		}
 	}
 	if r == nil || !r.engine.AnyPolicyActive() {
 		return map[int64]UpstreamCacheGuardAccountView{}
@@ -170,6 +186,9 @@ func upstreamCacheGuardPolicyAccountViewsBatch(accounts []Account, settings Upst
 		snapshot, fresh := upstreamcacheguard.AccountSnapshot{}, false
 		if available && readAccount != nil {
 			snapshot, fresh = readAccount(account.ID, *account.UpstreamKeyID)
+			// The reader's boolean is the compatibility contract for raw
+			// snapshot usability, including readers predating Available.
+			snapshot.Available = fresh
 		}
 		// The header reports shared observations. Policy-local recovery resets
 		// only affect the per-group details below.
@@ -190,7 +209,7 @@ func upstreamCacheGuardPolicyAccountViewsBatch(accounts []Account, settings Upst
 			}
 			if resolve != nil && accountMatchesCacheGuardGroup(account, states[i].GroupID) && groupSettings.Mode != upstreamcacheguard.Disabled && groupSettings.ContainsGroup(states[i].GroupID) {
 				projected := upstreamcacheguard.ProjectAccountSnapshot(snapshot, groupSettings)
-				groupSummary := upstreamCacheGuardSummary(projected, fresh, groupSettings)
+				groupSummary := upstreamCacheGuardSummary(projected, fresh && projected.Available, groupSettings)
 				applyCacheGuardGroupSummary(&states[i], groupSummary)
 				states[i].TrialParticipant = false
 				for _, id := range projected.TrialGroupIDs {

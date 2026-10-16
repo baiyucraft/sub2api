@@ -209,6 +209,9 @@ func (s *FailoverState) HandleFailoverError(
 		return FailoverExhausted
 	}
 	if failoverErr.PluginAdmissionRejected {
+		if failoverErr.ProtectionOrdinaryFallback {
+			return FailoverContinue
+		}
 		if s.pluginRejectedAccountIDs == nil {
 			s.pluginRejectedAccountIDs = make(map[int64]struct{})
 		}

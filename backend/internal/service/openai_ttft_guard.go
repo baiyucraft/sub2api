@@ -183,6 +183,16 @@ type openAITTFTGuard struct {
 	nextExpiryAt        time.Time
 	groupConfigs        map[int64]OpenAITTFTGuardConfigSnapshot
 	nextEntryGeneration uint64
+	policySnapshot      *GroupSchedulingProtectionPolicySnapshot
+	policiesManaged     bool
+	observationModels   map[openAITTFTGuardAccountKey]map[openAITTFTGuardKey]struct{}
+	observationAccounts map[int64]int
+	projectionKeys      map[openAITTFTGuardKey]map[openAITTFTGuardKey]struct{}
+	expiries            openAITTFTGuardExpiryHeap
+	expiryItems         map[openAITTFTGuardExpiryKey]*openAITTFTGuardExpiryItem
+	activePolicies      int
+	inheritedConfig     OpenAITTFTGuardConfigSnapshot
+	inheritedKnown      bool
 }
 
 type openAITTFTGuardProbeKey struct {
@@ -212,14 +222,18 @@ func newOpenAITTFTGuardWithOptions(maxEntries int, ttl time.Duration, now func()
 		now = time.Now
 	}
 	return &openAITTFTGuard{
-		entries:      make(map[openAITTFTGuardKey]*openAITTFTGuardEntry),
-		observations: make(map[openAITTFTGuardKey]*openAITTFTGuardEntry),
-		accountKeys:  make(map[int64]int64),
-		groupProbes:  make(map[openAITTFTGuardProbeKey]*openAITTFTGuardProbeState),
-		groupConfigs: make(map[int64]OpenAITTFTGuardConfigSnapshot),
-		maxEntries:   maxEntries,
-		ttl:          ttl,
-		now:          now,
+		entries:             make(map[openAITTFTGuardKey]*openAITTFTGuardEntry),
+		observations:        make(map[openAITTFTGuardKey]*openAITTFTGuardEntry),
+		accountKeys:         make(map[int64]int64),
+		groupProbes:         make(map[openAITTFTGuardProbeKey]*openAITTFTGuardProbeState),
+		groupConfigs:        make(map[int64]OpenAITTFTGuardConfigSnapshot),
+		observationModels:   make(map[openAITTFTGuardAccountKey]map[openAITTFTGuardKey]struct{}),
+		observationAccounts: make(map[int64]int),
+		projectionKeys:      make(map[openAITTFTGuardKey]map[openAITTFTGuardKey]struct{}),
+		expiryItems:         make(map[openAITTFTGuardExpiryKey]*openAITTFTGuardExpiryItem),
+		maxEntries:          maxEntries,
+		ttl:                 ttl,
+		now:                 now,
 	}
 }
 
@@ -267,14 +281,8 @@ func (g *openAITTFTGuard) clearGlobal() {
 
 func (g *openAITTFTGuard) recalculateNextExpiryLocked() {
 	g.nextExpiryAt = time.Time{}
-	for _, entry := range g.entries {
-		if entry == nil || entry.lastSampleAt.IsZero() {
-			continue
-		}
-		expiresAt := entry.lastSampleAt.Add(g.ttl)
-		if g.nextExpiryAt.IsZero() || expiresAt.Before(g.nextExpiryAt) {
-			g.nextExpiryAt = expiresAt
-		}
+	if len(g.expiries) > 0 {
+		g.nextExpiryAt = g.expiries[0].at
 	}
 }
 
@@ -298,7 +306,7 @@ func (g *openAITTFTGuard) evictLRULocked() {
 		}
 	}
 	if found {
-		delete(g.entries, oldestKey)
+		g.deleteProjectionLocked(oldestKey)
 	}
 }
 
@@ -421,7 +429,17 @@ func (s *OpenAIGatewayService) resolveOpenAITTFTGuardConfig(ctx context.Context,
 	}
 	if s.groupProtectionPolicyResolver != nil {
 		var policy GroupSchedulingProtectionResolvedPolicy
-		if raw, ok := s.groupProtectionPolicyResolver.(interface {
+		if captured, ok := protectionPolicyForEvaluation(ctx, groupID); ok {
+			policy = captured
+		} else if raw, ok := s.groupProtectionPolicyResolver.(interface {
+			ProtectionPolicy(int64) (GroupSchedulingProtectionResolvedPolicy, bool)
+		}); ok {
+			var known bool
+			policy, known = raw.ProtectionPolicy(groupID)
+			if !known {
+				return OpenAITTFTGuardConfigSnapshot{Source: "unavailable"}, false
+			}
+		} else if raw, ok := s.groupProtectionPolicyResolver.(interface {
 			ProtectionPolicies() map[int64]GroupSchedulingProtectionResolvedPolicy
 		}); ok {
 			// Runtime state tracks the stored policy independently from the hot
@@ -643,7 +661,7 @@ func (s *OpenAIGatewayService) openAIGuardExclusionParts(ctx context.Context, gr
 	if s == nil {
 		return nil, nil
 	}
-	hasGroupTTFTContext := groupID != nil && *groupID > 0 && NormalizeOpenAICompatiblePlatform(platform) == PlatformOpenAI && SchedulingProtectionGroupSelected(s.groupProtectionPolicyResolver, *groupID)
+	hasGroupTTFTContext := !protectionOrdinaryFallback(ctx) && groupID != nil && *groupID > 0 && NormalizeOpenAICompatiblePlatform(platform) == PlatformOpenAI && SchedulingProtectionGroupSelected(s.groupProtectionPolicyResolver, *groupID)
 	cfg := OpenAITTFTGuardConfigSnapshot{Source: "disabled"}
 	policyResolved := false
 	if hasGroupTTFTContext {
@@ -706,7 +724,7 @@ func (s *OpenAIGatewayService) openAIGuardExclusionParts(ctx context.Context, gr
 	var ttftExcluded map[int64]struct{}
 	if len(contractCandidates) > 0 {
 		if runtime, ok := s.forkTTFTRuntime().(legacyTTFTRuntime); ok {
-			ttftExcluded = runtime.guard.exclusions(candidates, callerExcluded, cfg, tickets...)
+			ttftExcluded = runtime.guard.exclusionsAt(candidates, callerExcluded, cfg, protectionEvaluationTime(ctx, runtime.guard.now), tickets...)
 		} else {
 			ttftExcluded = s.forkTTFTRuntime().Exclusions(contractCandidates, callerExcluded, forkscheduling.TTFTConfig{Enabled: cfg.Enabled, Threshold: cfg.Threshold, MinSamples: cfg.MinSamples, Source: cfg.Source, GroupName: cfg.GroupName})
 		}

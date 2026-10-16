@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"hash/fnv"
+	"reflect"
 	"sort"
 	"time"
 
@@ -36,12 +37,20 @@ func cacheGuardTentativeSelection(ctx context.Context) bool {
 // buildCacheGuardPreference produces soft candidate layers. The original
 // scheduler remains responsible for every capability, quota, route and slot
 // condition; callers must always retry its original hard candidate set.
-func buildCacheGuardPreference(ctx context.Context, groupID *int64, sessionHash, model, protocol string, accounts []Account, ttftExcluded map[int64]struct{}) cacheGuardPreference {
+func buildCacheGuardPreference(ctx context.Context, groupID *int64, sessionHash, model, protocol string, accounts []Account, ttftExcluded map[int64]struct{}) (preference cacheGuardPreference) {
 	r := currentUpstreamCacheGuardRunner()
 	p := cacheGuardPreference{}
-	if r == nil || !r.available.Load() || r.closed.Load() {
+	if r == nil || r.closed.Load() || protectionOrdinaryFallback(ctx) {
 		return p
 	}
+	epoch := r.engine.PolicyVersion()
+	defer func() {
+		// Metadata, candidates and a cold session read can straddle a policy
+		// publication. Never return a decision assembled from different epochs.
+		if r.engine.PolicyVersion() != epoch || !protectionPolicyEvaluationCurrent(ctx) {
+			preference = cacheGuardPreference{}
+		}
+	}()
 	guard := forkCacheGuardReader()
 	if guard == nil {
 		return p
@@ -53,6 +62,9 @@ func buildCacheGuardPreference(ctx context.Context, groupID *int64, sessionHash,
 		return p
 	}
 	s := r.engine.ResolvedSettings(*groupID)
+	if policy, ok := protectionPolicyForEvaluation(ctx, *groupID); ok && !reflect.DeepEqual(policy.Cache, s) {
+		return p
+	}
 	if s.Mode != upstreamcacheguard.Protect || !s.ContainsGroup(*groupID) {
 		return p
 	}
@@ -60,7 +72,8 @@ func buildCacheGuardPreference(ctx context.Context, groupID *int64, sessionHash,
 	if !ok {
 		return p
 	}
-	snapshot := guard.CachedSnapshot(*groupID)
+	at := protectionEvaluationTime(ctx, time.Now)
+	snapshot := r.engine.CachedMetadataAt(*groupID, at)
 	if !snapshot.Available {
 		return p
 	}
@@ -68,10 +81,14 @@ func buildCacheGuardPreference(ctx context.Context, groupID *int64, sessionHash,
 	p.ScopeIDs = map[int64]struct{}{}
 	p.CandidateKeyIDs = map[int64]int64{}
 	states := map[int64]upstreamcacheguard.AccountSnapshot{}
-	for _, a := range snapshot.Accounts {
-		states[a.AccountID] = a
-	}
 	eligible := map[int64]Account{}
+	candidates := make([]upstreamcacheguard.Candidate, 0, len(accounts))
+	for _, a := range accounts {
+		candidates = append(candidates, upstreamcacheguard.Candidate{AccountID: a.ID, UpstreamKeyID: accountUpstreamKeyID(&a)})
+	}
+	for _, cached := range r.engine.CachedCandidatesAt(*groupID, candidates, at).Accounts {
+		states[cached.AccountID] = cached
+	}
 	for _, a := range accounts {
 		if !schedulingProtectionAccountSelected(r.protectionPolicyReader(), &a) {
 			continue
@@ -80,9 +97,8 @@ func buildCacheGuardPreference(ctx context.Context, groupID *int64, sessionHash,
 		if a.IsUpstreamBound() && a.IsSchedulable() && a.IsModelSupported(model) {
 			p.ScopeIDs[a.ID] = struct{}{}
 			p.CandidateKeyIDs[a.ID] = accountUpstreamKeyID(&a)
-			eligible[a.ID] = a
-			if cached := states[a.ID]; a.UpstreamKeyID != nil && cached.UpstreamKeyID != 0 && cached.UpstreamKeyID != *a.UpstreamKeyID {
-				delete(states, a.ID)
+			if _, usable := states[a.ID]; usable {
+				eligible[a.ID] = a
 			}
 		}
 	}
@@ -96,8 +112,14 @@ func buildCacheGuardPreference(ctx context.Context, groupID *int64, sessionHash,
 			firstPool = a
 		}
 	}
-	session := guard.CachedSessionRead(req)
+	session, err := r.engine.SessionReadAtWithDatabaseContext(ctx, req, at, cacheGuardDatabaseContext)
+	if err != nil {
+		return cacheGuardPreference{}
+	}
 	if session.Known && session.PreferredAccountID > 0 {
+		if _, usable := eligible[session.PreferredAccountID]; !usable {
+			return cacheGuardPreference{}
+		}
 		if account, exists := eligible[session.PreferredAccountID]; exists {
 			req.Model = canonicalOpenAIAccountSchedulingModel(&account, model)
 			req.Protocol = cacheGuardAccountProtocol(ctx, &account, req.Model, protocol)
@@ -105,12 +127,21 @@ func buildCacheGuardPreference(ctx context.Context, groupID *int64, sessionHash,
 			if account.UpstreamKeyID != nil {
 				req.UpstreamKeyID = *account.UpstreamKeyID
 			}
-			session = guard.CachedSessionRead(req)
+			session, err = r.engine.SessionReadAtWithDatabaseContext(ctx, req, at, cacheGuardDatabaseContext)
+			if err != nil {
+				return cacheGuardPreference{}
+			}
 		}
 	}
 	if session.Known && session.PreferredAccountID > 0 {
 		if _, ok := eligible[session.PreferredAccountID]; ok {
 			source := states[session.PreferredAccountID]
+			if !snapshot.Fresh || !source.Fresh || !session.Fresh {
+				// A stale snapshot may preserve an existing session affinity, but
+				// must not create a new trial or migrate from old observations.
+				p.KeepAccountID = session.PreferredAccountID
+				return p
+			}
 			if !session.PendingLow || req.StartedAt.Before(session.ResidenceUntil) || !cacheGuardAccountProtected(source) {
 				p.KeepAccountID = session.PreferredAccountID
 				return p
@@ -125,7 +156,7 @@ func buildCacheGuardPreference(ctx context.Context, groupID *int64, sessionHash,
 			for id := range eligible {
 				a := states[id]
 				target := eligible[id]
-				if id != session.PreferredAccountID && cacheGuardSamePool(&target, firstPool, groupID) && a.ValidRequests > s.MinValidRequests && a.CachePercent >= source.CachePercent+5 {
+				if a.Fresh && id != session.PreferredAccountID && cacheGuardSamePool(&target, firstPool, groupID) && a.ValidRequests > s.MinValidRequests && a.CachePercent >= source.CachePercent+5 {
 					better = append(better, id)
 				}
 			}
@@ -140,10 +171,28 @@ func buildCacheGuardPreference(ctx context.Context, groupID *int64, sessionHash,
 			return p
 		}
 	}
+	if !snapshot.Fresh {
+		// No known session can safely use stale observations as a new routing
+		// decision. Let the ordinary scheduler choose an account.
+		return cacheGuardPreference{}
+	}
+	// Stale accounts remain valid only for their existing sessions. New
+	// decisions use the independent fresh subset, so one account's failed
+	// refresh neither attracts new sessions nor disables healthy candidates.
+	for id := range eligible {
+		if !states[id].Fresh {
+			delete(eligible, id)
+		}
+	}
+	if len(eligible) == 0 {
+		return cacheGuardPreference{}
+	}
 	// Admission assigns a shared ordinal once per logical natural new session.
 	// A later round, model switch or migration can never acquire a new trial slot.
-	trial, err := guard.PlanTrial(ctx, req)
-	if err != nil {
+	dbCtx, cancel := cacheGuardDatabaseContext(ctx)
+	defer cancel()
+	trial, err := guard.PlanTrial(dbCtx, req)
+	if err != nil || !protectionPolicyEvaluationCurrent(ctx) {
 		return cacheGuardPreference{}
 	}
 	if trial.TrialSlot {

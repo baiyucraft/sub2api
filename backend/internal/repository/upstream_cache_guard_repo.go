@@ -23,11 +23,13 @@ func NewUpstreamCacheGuardRepository(db *sql.DB) upstreamcacheguard.Store {
 }
 
 type upstreamCacheGuardTx struct {
-	tx        *sql.Tx
-	ctx       context.Context
-	groupID   int64
-	accountID int64
-	keyID     int64
+	tx            *sql.Tx
+	ctx           context.Context
+	groupID       int64
+	accountID     int64
+	keyID         int64
+	quotaLocked   bool
+	sessionLocked string
 }
 
 var _ upstreamcacheguard.AccountTx = (*upstreamCacheGuardTx)(nil)
@@ -47,11 +49,6 @@ func (r *upstreamCacheGuardRepository) TransactAccount(ctx context.Context, grou
 	// Account lock precedes the group lock in every account transaction.
 	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(298, ($1 % 2147483647)::integer)`, accountID); err != nil {
 		return err
-	}
-	if groupID > 0 {
-		if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(296, ($1 % 2147483647)::integer)`, groupID); err != nil {
-			return err
-		}
 	}
 	if err = fn(&upstreamCacheGuardTx{tx: tx, ctx: ctx, groupID: groupID, accountID: accountID, keyID: keyID}); err != nil {
 		return err
@@ -87,7 +84,7 @@ func (t *upstreamCacheGuardTx) WriteAccount(accountID, keyID int64, value any) (
 		return 0, err
 	}
 	var version int64
-	err = t.tx.QueryRowContext(t.ctx, `INSERT INTO upstream_cache_guard_accounts(account_id,upstream_key_id,version,state_json,updated_at) VALUES($1,$2,1,$3,CURRENT_TIMESTAMP) ON CONFLICT(account_id,upstream_key_id) DO UPDATE SET version=upstream_cache_guard_accounts.version+1,state_json=EXCLUDED.state_json,updated_at=EXCLUDED.updated_at RETURNING version`, accountID, keyID, string(raw)).Scan(&version)
+	err = t.tx.QueryRowContext(t.ctx, `INSERT INTO upstream_cache_guard_accounts(account_id,upstream_key_id,version,state_json,updated_at) VALUES($1,$2,1,$3,CURRENT_TIMESTAMP) ON CONFLICT(account_id,upstream_key_id) DO UPDATE SET version=upstream_cache_guard_accounts.version + CASE WHEN upstream_cache_guard_accounts.state_json IS DISTINCT FROM EXCLUDED.state_json THEN 1 ELSE 0 END,state_json=EXCLUDED.state_json,updated_at=CASE WHEN upstream_cache_guard_accounts.state_json IS DISTINCT FROM EXCLUDED.state_json THEN EXCLUDED.updated_at ELSE upstream_cache_guard_accounts.updated_at END RETURNING version`, accountID, keyID, string(raw)).Scan(&version)
 	return version, err
 }
 
@@ -149,6 +146,15 @@ func (t *upstreamCacheGuardTx) LegacyAccounts(accountID, keyID int64) ([]upstrea
 }
 
 func (r *upstreamCacheGuardRepository) AccountRows(ctx context.Context) ([]upstreamcacheguard.AccountRuntimeRow, error) {
+	return r.accountRows(ctx, nil)
+}
+func (r *upstreamCacheGuardRepository) AccountRowsFor(ctx context.Context, ids []int64) ([]upstreamcacheguard.AccountRuntimeRow, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	return r.accountRows(ctx, ids)
+}
+func (r *upstreamCacheGuardRepository) accountRows(ctx context.Context, ids []int64) ([]upstreamcacheguard.AccountRuntimeRow, error) {
 	if r == nil || r.db == nil {
 		return nil, upstreamcacheguard.ErrUnavailable
 	}
@@ -157,14 +163,14 @@ func (r *upstreamCacheGuardRepository) AccountRows(ctx context.Context) ([]upstr
 	rows, err := r.db.QueryContext(ctx, `SELECT state.account_id,state.upstream_key_id,state.version,state.state_json,state.updated_at
 		FROM upstream_cache_guard_accounts AS state
 		JOIN accounts AS account ON account.id=state.account_id AND account.upstream_key_id=state.upstream_key_id
-		WHERE account.deleted_at IS NULL
+		WHERE account.deleted_at IS NULL AND ($2::bigint[] IS NULL OR state.account_id=ANY($2))
 		UNION ALL
 		SELECT DISTINCT a.id,a.upstream_key_id,0::bigint,NULL::jsonb,CURRENT_TIMESTAMP
 		FROM upstream_cache_guard_runtime AS legacy
 		JOIN accounts AS a ON a.id::text=legacy.state_json->>'account_id' AND a.upstream_key_id::text=legacy.state_json->>'upstream_key_id'
-		WHERE legacy.state_kind='account' AND a.upstream_key_id>0 AND a.deleted_at IS NULL
+		WHERE legacy.state_kind='account' AND a.upstream_key_id>0 AND a.deleted_at IS NULL AND ($2::bigint[] IS NULL OR a.id=ANY($2))
 		AND NOT EXISTS(SELECT 1 FROM upstream_cache_guard_accounts AS state WHERE state.account_id=a.id AND state.upstream_key_id=a.upstream_key_id)
-		ORDER BY account_id,upstream_key_id LIMIT $1`, upstreamcacheguard.MaxRuntimeRows+1)
+		ORDER BY account_id,upstream_key_id LIMIT $1`, upstreamcacheguard.MaxRuntimeRows+1, pq.Array(ids))
 	if err != nil {
 		return nil, err
 	}
@@ -184,6 +190,15 @@ func (r *upstreamCacheGuardRepository) AccountRows(ctx context.Context) ([]upstr
 }
 
 func (r *upstreamCacheGuardRepository) AccountWindows(ctx context.Context, since, until time.Time) (map[string]upstreamcacheguard.AccountWindow, error) {
+	return r.accountWindows(ctx, nil, since, until)
+}
+func (r *upstreamCacheGuardRepository) AccountWindowsFor(ctx context.Context, ids []int64, since, until time.Time) (map[string]upstreamcacheguard.AccountWindow, error) {
+	if len(ids) == 0 {
+		return map[string]upstreamcacheguard.AccountWindow{}, nil
+	}
+	return r.accountWindows(ctx, ids, since, until)
+}
+func (r *upstreamCacheGuardRepository) accountWindows(ctx context.Context, ids []int64, since, until time.Time) (map[string]upstreamcacheguard.AccountWindow, error) {
 	if r == nil || r.db == nil {
 		return nil, upstreamcacheguard.ErrUnavailable
 	}
@@ -202,7 +217,7 @@ func (r *upstreamCacheGuardRepository) AccountWindows(ctx context.Context, since
 		FROM upstream_cache_guard_accounts AS state
 		JOIN accounts AS account ON account.id=state.account_id AND account.upstream_key_id=state.upstream_key_id AND account.deleted_at IS NULL
 		JOIN upstream_cache_guard_facts AS fact ON fact.account_id=state.account_id AND fact.upstream_key_id=state.upstream_key_id
-		WHERE fact.processed=TRUE AND fact.valid_sample=TRUE AND fact.completed_at >= $1 AND fact.completed_at <= $2
+		WHERE ($4::bigint[] IS NULL OR state.account_id=ANY($4)) AND fact.processed=TRUE AND fact.valid_sample=TRUE AND fact.completed_at >= $1 AND fact.completed_at <= $2
 			AND fact.evidence_json->'raw_usage'->>'Status' = 'known'
 			AND jsonb_typeof(fact.evidence_json->'raw_usage'->'TotalInputTokens') = 'number'
 			AND jsonb_typeof(fact.evidence_json->'raw_usage'->'CacheReadTokens') = 'number'
@@ -216,6 +231,8 @@ func (r *upstreamCacheGuardRepository) AccountWindows(ctx context.Context, since
 		COALESCE(SUM(fact.cache_read_tokens) FILTER (WHERE fact.trial),0)::BIGINT,
 		COUNT(DISTINCT (fact.group_id,fact.session_key)) FILTER (WHERE fact.trial),
 		MAX(fact.completed_at),
+        MIN(fact.completed_at),
+        (SELECT MIN(future.completed_at) FROM upstream_cache_guard_facts future WHERE future.account_id=state.account_id AND future.upstream_key_id=state.upstream_key_id AND future.processed=TRUE AND future.valid_sample=TRUE AND future.completed_at>$2),
 		ARRAY_AGG(DISTINCT fact.group_id) FILTER (WHERE fact.group_id IS NOT NULL),
 		ARRAY_AGG(DISTINCT fact.group_id) FILTER (WHERE fact.trial),
 		COALESCE((SELECT jsonb_object_agg(policy.key, projection_window.metrics)
@@ -243,8 +260,9 @@ func (r *upstreamCacheGuardRepository) AccountWindows(ctx context.Context, since
 	FROM upstream_cache_guard_accounts AS state
 	JOIN accounts AS account ON account.id=state.account_id AND account.upstream_key_id=state.upstream_key_id AND account.deleted_at IS NULL
 	LEFT JOIN eligible AS fact ON fact.account_id=state.account_id AND fact.upstream_key_id=state.upstream_key_id
+	WHERE ($4::bigint[] IS NULL OR state.account_id=ANY($4))
 	GROUP BY state.account_id,state.upstream_key_id,state.version,state.state_json
-	ORDER BY state.account_id,state.upstream_key_id LIMIT $3`, since.UTC(), until.UTC(), upstreamcacheguard.MaxRuntimeRows+1)
+	ORDER BY state.account_id,state.upstream_key_id LIMIT $3`, since.UTC(), until.UTC(), upstreamcacheguard.MaxRuntimeRows+1, pq.Array(ids))
 	if err != nil {
 		return nil, err
 	}
@@ -254,30 +272,36 @@ func (r *upstreamCacheGuardRepository) AccountWindows(ctx context.Context, since
 		var w upstreamcacheguard.AccountWindow
 		var stateJSON []byte
 		var policyJSON []byte
-		var latest sql.NullTime
+		var latest, oldest, future sql.NullTime
 		var groups, trialGroups pq.Int64Array
 		if err = rows.Scan(&w.AccountID, &w.UpstreamKeyID, &w.Version, &stateJSON, &w.ValidRequests,
 			&w.TotalInputTokens, &w.CacheReadTokens, &w.TrialValidRequests,
 			&w.TrialInputTokens, &w.TrialCacheReadTokens, &w.TrialSessions,
-			&latest, &groups, &trialGroups, &policyJSON); err != nil {
+			&latest, &oldest, &future, &groups, &trialGroups, &policyJSON); err != nil {
 			return nil, err
 		}
 		if err = json.Unmarshal(stateJSON, &w.State); err != nil {
-			return nil, fmt.Errorf("cache guard account window state decode: %w", err)
+			w.Err = fmt.Errorf("cache guard account window state decode: %w", err)
 		}
 		if len(policyJSON) > 0 {
 			if err = json.Unmarshal(policyJSON, &w.Policies); err != nil {
-				return nil, fmt.Errorf("cache guard policy window decode: %w", err)
+				w.Err = errors.Join(w.Err, fmt.Errorf("cache guard policy window decode: %w", err))
 			}
 		}
 		if w.State.AccountID != w.AccountID || w.State.UpstreamKeyID != w.UpstreamKeyID {
-			return nil, errors.New("cache guard account window identity mismatch")
+			w.Err = errors.Join(w.Err, errors.New("cache guard account window identity mismatch"))
 		}
 		if w.ValidRequests > upstreamcacheguard.MaxFacts {
-			return nil, errors.New("cache guard account window fact bound exceeded")
+			w.Err = errors.Join(w.Err, errors.New("cache guard account window fact bound exceeded"))
 		}
 		if latest.Valid {
 			w.LastEvidenceAt = latest.Time
+		}
+		if oldest.Valid {
+			w.NextBoundary = oldest.Time.Add(until.Sub(since)).Add(time.Nanosecond)
+		}
+		if future.Valid && (w.NextBoundary.IsZero() || future.Time.Before(w.NextBoundary)) {
+			w.NextBoundary = future.Time
 		}
 		w.GroupIDs, w.TrialGroupIDs = []int64(groups), []int64(trialGroups)
 		out[fmt.Sprintf("%d:%d", w.AccountID, w.UpstreamKeyID)] = w
@@ -302,15 +326,15 @@ func (r *upstreamCacheGuardRepository) Transact(ctx context.Context, groupID int
 	defer tx.Rollback()
 	// The namespace is private to this guard. Collisions for unusually large
 	// group IDs only serialize unrelated groups; they cannot weaken atomicity.
-	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(296, ($1 % 2147483647)::integer)`, groupID); err != nil {
-		return err
-	}
 	if err = fn(&upstreamCacheGuardTx{tx: tx, ctx: ctx, groupID: groupID}); err != nil {
 		return err
 	}
 	return tx.Commit()
 }
 func (t *upstreamCacheGuardTx) Read(kind, key string, out any) (int64, error) {
+	if err := t.lockState(kind, key); err != nil {
+		return 0, err
+	}
 	var raw []byte
 	var version int64
 	err := t.tx.QueryRowContext(t.ctx, `SELECT state_json, version FROM upstream_cache_guard_runtime WHERE group_id=$1 AND state_kind=$2 AND state_key=$3`, t.groupID, kind, key).Scan(&raw, &version)
@@ -326,6 +350,9 @@ func (t *upstreamCacheGuardTx) Read(kind, key string, out any) (int64, error) {
 	return version, nil
 }
 func (t *upstreamCacheGuardTx) Write(kind, key string, value any) (int64, error) {
+	if err := t.lockState(kind, key); err != nil {
+		return 0, err
+	}
 	if kind != upstreamcacheguard.GroupKind && kind != upstreamcacheguard.AccountKind && kind != upstreamcacheguard.SessionKind {
 		return 0, errors.New("invalid cache guard state kind")
 	}
@@ -409,13 +436,48 @@ func (r *upstreamCacheGuardRepository) Rows(ctx context.Context, groupIDs []int6
 	return out, rows.Err()
 }
 func (r *upstreamCacheGuardRepository) Cleanup(ctx context.Context, before time.Time) error {
+	_, err := r.CleanupBatch(ctx, before, 1000)
+	return err
+}
+
+func (r *upstreamCacheGuardRepository) CleanupBatch(ctx context.Context, before time.Time, limit int) (int64, error) {
 	if r == nil || r.db == nil {
-		return upstreamcacheguard.ErrUnavailable
+		return 0, upstreamcacheguard.ErrUnavailable
 	}
 	// processed facts alone expire. Typed session identity and degraded status do
 	// not expire into new sessions or automatic healthy status.
-	_, err := r.db.ExecContext(ctx, `DELETE FROM upstream_cache_guard_facts WHERE (group_id,evidence_id) IN (SELECT group_id,evidence_id FROM upstream_cache_guard_facts WHERE processed=TRUE AND completed_at<$1 ORDER BY completed_at LIMIT 10000)`, before.UTC())
-	return err
+	if limit < 1 || limit > 1000 {
+		return 0, errors.New("invalid cache guard cleanup batch")
+	}
+	result, err := r.db.ExecContext(ctx, `DELETE FROM upstream_cache_guard_facts WHERE (group_id,evidence_id) IN (SELECT group_id,evidence_id FROM upstream_cache_guard_facts WHERE processed=TRUE AND completed_at<$1 ORDER BY completed_at LIMIT $2 FOR UPDATE SKIP LOCKED)`, before.UTC(), limit)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+func (t *upstreamCacheGuardTx) lockState(kind, key string) error {
+	if kind == upstreamcacheguard.SessionKind && t.sessionLocked != key {
+		if t.quotaLocked {
+			return errors.New("cache guard session lock after quota")
+		}
+		if t.sessionLocked != "" {
+			return errors.New("cache guard multiple session locks")
+		}
+		_, err := t.tx.ExecContext(t.ctx, `SELECT pg_advisory_xact_lock(299,hashtext($1::text || ':' || $2::text))`, t.groupID, key)
+		if err != nil {
+			return err
+		}
+		t.sessionLocked = key
+	}
+	if kind == upstreamcacheguard.GroupKind && !t.quotaLocked {
+		_, err := t.tx.ExecContext(t.ctx, `SELECT pg_advisory_xact_lock(296, ($1 % 2147483647)::integer)`, t.groupID)
+		if err != nil {
+			return err
+		}
+		t.quotaLocked = true
+	}
+	return nil
 }
 
 func (r *upstreamCacheGuardRepository) Enqueue(ctx context.Context, e upstreamcacheguard.Evidence) error {
