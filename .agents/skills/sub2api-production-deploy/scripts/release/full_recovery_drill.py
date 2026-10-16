@@ -14,6 +14,7 @@ NAMESPACES=("mnt","pid","net","user","cgroup","uts","ipc")
 ROOT=Path("/var/lib/sub2api-full-recovery-drills")
 FIELDS=frozenset({"schema","drill_id","backend","fixture_kind","release_id","artifact_sha256","pre_image_id","recovery_helper_bundle_sha256","approved_identity_sha256","approved_recipient_sha256","artifact_path","identity_path","authorization_path","guest_manifest_path","guest_manifest_sha256","redis_health_budget_seconds"})
 RECEIPT=frozenset({"schema","type","drill_id","created_at","completed_at","source","measurements","recovery_helper_bundle_sha256"})
+CURRENT_GUEST_STAGE="guest_entry"
 class FullDrillBlocked(RuntimeError): pass
 def need(ok,msg):
     if not ok: raise FullDrillBlocked(msg)
@@ -156,7 +157,13 @@ def private_write(path,data,mode=0o400):
 def _failure_reason_code(error: BaseException) -> str:
     """Return a bounded, non-secret category for root-only drill diagnostics."""
     text = str(error).lower()
+    if re.fullmatch(r"redis_delay_[a-z_]+",text): return text
     categories = (
+        ("redis_lazy_expiry_unavailable", ("redis natural lazy expiry unavailable", "redis lua counts missing")),
+        ("redis_lazy_observation_failed", ("redis lazy observation failed",)),
+        ("application_restore_failed", ("actual app interruption missing", "formal restore resume failed", "completed restore live re-verification failed")),
+        ("recovery_cleanup_failed", ("actual cleanup interruption missing", "formal finish resume failed", "final finish re-verification failed", "formal cleanup incomplete")),
+        ("redis_delay", ("redis_delay_",)),
         ("source_approval", ("source approval", "approved source", "recipient differs", "identity differs", "artifact differs")),
         ("guest_isolation", ("namespace", "route", "interface", "uid mapping", "isolated guest")),
         ("source_decryption", ("age decryption", "decrypt", "identity recipient")),
@@ -275,51 +282,81 @@ def fault(code,before,after):
     return {"exit_code":code,"resume_verified":code==79 and before==after,"postgres_oid_before":int(before[0]),"postgres_oid_after":int(after[0]),"redis_run_before_sha256":hashlib.sha256(before[1].encode()).hexdigest(),"redis_run_after_sha256":hashlib.sha256(after[1].encode()).hexdigest()}
 
 class RedisDelay:
-    """Actually pause the newly started Guest Redis during formal health wait.
+    """Observe a fresh Redis phase before spending its restart budget.
 
-    This never changes RDB bytes, commands, configuration or reported counts.
-    Missing starting state, failed pause/unpause or inadequate delay fails the
-    drill. The caller already proved full offline/private-user isolation.
+    The 1800s phase wait shares restore.sh's bounded invocation lifetime;
+    execute() additionally bounds the entire Guest lifetime. No PG fingerprint
+    work consumes the 150s Redis restart observation budget.
     """
-    def __init__(self):
+    def __init__(self, checkpoint, *, deadline=None, container="sub2api-redis"):
+        self.checkpoint=Path(checkpoint)
+        need(re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}",container),"redis_delay_invalid_container")
+        self.container=container
         self.stop=threading.Event(); self.failure=None; self.elapsed=0.0
-        self.initial=json.loads(observed(["docker","inspect","-f","{{json .State}}","sub2api-redis"]))["StartedAt"]
+        self.phase="redis_delay_wait_phase"
+        self.deadline=time.monotonic()+1800 if deadline is None else deadline
+        need(not self.checkpoint.exists() and not self.checkpoint.is_symlink(),"redis_delay_stale_phase")
+        self.initial=self.state()["StartedAt"]
         self.thread=threading.Thread(target=self.watch,daemon=True)
+
+    def state(self):
+        return json.loads(observed(["docker","inspect","-f","{{json .State}}",self.container],timeout=5))
+
     def start(self): self.thread.start()
+
     def watch(self):
         paused=False
         try:
-            deadline=time.monotonic()+150
-            while time.monotonic()<deadline and not self.stop.is_set():
-                state=json.loads(observed(["docker","inspect","-f","{{json .State}}","sub2api-redis"]))
+            # A single fresh phase marker is written only after live PG replay.
+            while not self.checkpoint.exists():
+                need(not self.checkpoint.is_symlink(),"redis_delay_unsafe_phase")
+                need(time.monotonic()<self.deadline,"redis_delay_phase_timeout")
+                need(not self.stop.wait(.1),"redis_delay_cancelled")
+            sf(self.checkpoint,True)
+            need(self.checkpoint.read_bytes().endswith(b"phase=redis_restored\n"),"redis_delay_phase_identity")
+            self.phase="redis_delay_wait_restart"
+            deadline=min(self.deadline,time.monotonic()+150)
+            while time.monotonic()<deadline:
+                need(not self.stop.is_set(),"redis_delay_cancelled")
+                state=self.state()
                 if state["Running"] and state["StartedAt"]!=self.initial:
-                    need(state.get("Health",{}).get("Status")=="starting","Redis became healthy before delay injection")
-                    observed(["docker","pause","sub2api-redis"]); paused=True
+                    need(state.get("Health",{}).get("Status")=="starting","redis_delay_missed_starting")
+                    self.phase="redis_delay_pause"
+                    # A timed-out CLI may already have paused the daemon's
+                    # container. Always attempt the owned unpause on that path.
+                    paused=True
+                    observed(["docker","pause",self.container],timeout=5)
                     start=time.monotonic()
-                    interrupted=self.stop.wait(65)
-                    observed(["docker","unpause","sub2api-redis"]); paused=False
+                    interrupted=self.stop.wait(min(65,max(0,self.deadline-start)))
+                    self.phase="redis_delay_unpause"
+                    observed(["docker","unpause",self.container],timeout=5); paused=False
                     self.elapsed=time.monotonic()-start
-                    need(not interrupted and self.elapsed>60,"actual Redis delay was interrupted")
+                    need(not interrupted and self.elapsed>60 and time.monotonic()<=self.deadline,"redis_delay_interrupted")
+                    self.phase="redis_delay_complete"
                     return
-                self.stop.wait(.2)
-            raise FullDrillBlocked("new Guest Redis start not observed")
-        except Exception:
-            self.failure="actual Guest Redis delayed-start case failed"
+                self.stop.wait(.1)
+            raise FullDrillBlocked("redis_delay_restart_timeout")
+        except Exception as error:
+            # Only stable bounded codes escape. Do not discard the stage.
+            value=str(error)
+            self.failure=value if re.fullmatch(r"redis_delay_[a-z_]+",value) else "redis_delay_observation_failed"
         finally:
             if paused:
-                try: observed(["docker","unpause","sub2api-redis"])
-                except Exception: self.failure="Guest Redis unpause failed; evidence preserved"
-    def finish(self):
-        # The restore command can return immediately after recording the
-        # redis_restored interruption, while the observer still needs to see
-        # the newly started container and hold it paused for the real health
-        # delay. Stopping the observer at that boundary creates a race and
-        # reports a false missing-delay failure. Let the bounded observer
-        # finish first; only interrupt it after its own 150 second budget.
-        self.thread.join(timeout=180)
+                try: observed(["docker","unpause",self.container],timeout=5)
+                except Exception: self.failure="redis_delay_unpause_failed"
+
+    def finish(self, *, cancel=False):
+        if cancel: self.stop.set()
+        # Restore normally returns after the pause; an early exit cancels the
+        # waiter rather than spending the rest of the PG/phase budget.
+        remaining=max(0,self.deadline-time.monotonic())
+        self.thread.join(timeout=min(180,remaining)+10)
         if self.thread.is_alive():
-            self.stop.set(); self.thread.join(timeout=30)
-        need(not self.thread.is_alive() and self.failure is None and self.elapsed>60,"actual Guest Redis delay failed")
+            self.stop.set(); self.thread.join(timeout=15)
+        need(not self.thread.is_alive(),"redis_delay_thread_timeout")
+        need(self.failure is None,self.failure or "redis_delay_failed")
+        need(self.elapsed>60,"redis_delay_not_measured")
+
 
 def remove_helper_caches(root):
     for cache in root.rglob("__pycache__"):
@@ -336,6 +373,8 @@ def guest_run():
     raw=out/"helpers.raw.log"; private_write(raw,b"",0o600)
     # Keep failure diagnosis structured and root-only without persisting exception text.
     def stage(name):
+        global CURRENT_GUEST_STAGE
+        CURRENT_GUEST_STAGE=name
         need(re.fullmatch(r"[a-z_]+",name) is not None,"invalid Guest stage")
         private_write(out/("stage-"+name),canon({"schema":1,"stage":name}))
 
@@ -404,29 +443,51 @@ def guest_run():
     code,_=invoke("restore.sh","postgres_restored"); need(code==79,"actual pre-app interruption missing")
     migrations_after,counts_after=postgres_observation()
     need(migrations_before==migrations_after and counts_before==counts_after,"actual PostgreSQL restore differs")
-    delay=RedisDelay(); delay.start()
-    try: code,redis=invoke("restore.sh","redis_restored")
-    finally: delay.finish()
+    stage("guest_redis_delayed_start")
+    delay=RedisDelay(cp/"redis_restored.started",deadline=time.monotonic()+1800); delay.start()
+    try:
+        code,redis=invoke("restore.sh","redis_restored")
+    except BaseException:
+        # Preserve the primary restore error even if cancellation also fails.
+        try: delay.finish(cancel=True)
+        except Exception: pass
+        raise
+    if code!=79:
+        try: delay.finish(cancel=True)
+        except Exception: pass
+        need(False,"actual Redis interruption missing")
+    try:
+        delay.finish()
+    except Exception as error:
+        _write_failure_marker(out,delay.phase,error)
+        raise
+    stage("guest_redis_lazy_expiry")
     need(code==79,'actual Redis interruption missing')
     lazy_before,lazy_after,lazy_expires=redis_lazy_observation(env,raw)
+    stage("guest_application_interrupt")
     code,_=invoke('restore.sh','app_healthy')
     need(code==79,"actual app interruption missing")
     runtime_before=mod("recovery_drill").data_runtime_identity()
+    stage("guest_application_resume")
     resumed,restored=invoke("restore.sh")
     runtime_after=mod("recovery_drill").data_runtime_identity()
     need(resumed==0 and restored.get("restored_image_id")==d["pre_image_id"],"formal restore resume failed")
     app_fault=fault(code,runtime_before,runtime_after)
+    stage("guest_application_reverify")
     verified,_=invoke("restore.sh")
     need(verified==0 and mod("recovery_drill").data_runtime_identity()==runtime_after,"completed restore live re-verification failed")
     ingress=state/"nginx-ingress-transaction"
     stale_observed=(state/"nginx-recovery-restored").is_file() and (ingress/"applied").is_file()
     need(stale_observed,"stale ingress fault not observed")
+    stage("guest_cleanup_interrupt")
     code,_=invoke("recovery-finish.sh","backup_units_restored"); need(code==79,"actual cleanup interruption missing")
     cleanup_before=mod("recovery_drill").data_runtime_identity()
+    stage("guest_cleanup_resume")
     resumed,finished=invoke("recovery-finish.sh")
     cleanup_after=mod("recovery_drill").data_runtime_identity()
     need(resumed==0 and finished.get("plaintext_state_removed")=="true","formal finish resume failed")
     cleanup_fault=fault(code,cleanup_before,cleanup_after)
+    stage("guest_cleanup_reverify")
     replay,_=invoke("recovery-finish.sh"); need(replay==0,"final finish re-verification failed")
     checkpoints=checkpoint(cp,source,d["recovery_helper_bundle_sha256"],events)
     shell='source "$1/recovery-compose.sh"; load_release_compose_files /opt/sub2api; _recovery_compose_render_sha256 /opt/sub2api "${release_compose_args[@]}"'
@@ -601,7 +662,8 @@ def main() -> None:
             document = cfg(read_json(args.config))
             result = plan(args.rootfs, document) if args.command == "plan" else execute(args.rootfs, document, args.timeout)
         print(json.dumps(result, sort_keys=True))
-    except (FullDrillBlocked, OSError, RuntimeError, ValueError, TypeError, KeyError, subprocess.SubprocessError):
+    except (FullDrillBlocked, OSError, RuntimeError, ValueError, TypeError, KeyError, subprocess.SubprocessError) as error:
+        if args.command=="guest-run": _write_failure_marker(Path("/opt/sub2api-full-recovery"),CURRENT_GUEST_STAGE,error)
         print(json.dumps({"schema": 1, "status": "blocked", "reason": "full_recovery_drill_failed; root-only diagnostics preserved"}))
         raise SystemExit(1)
 
