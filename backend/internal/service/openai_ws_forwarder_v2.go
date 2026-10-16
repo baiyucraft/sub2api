@@ -588,7 +588,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 
 	finishOutputFailure := func(statusCode int, source []byte, message string) (*OpenAIForwardResult, error) {
 		setOpsUpstreamError(c, statusCode, message, "")
-		failed := buildOpenAIWSHTTPBridgeFailedEvent(responseID, originalModel, source, message)
+		failed := buildOpenAIWSHTTPBridgeFailedEvent(responseID, originalModel, startTime.Unix(), source, message)
 		if !clientDisconnected {
 			if reqStream {
 				flushBufferedStreamEvents("output_failure")
@@ -773,7 +773,7 @@ readLoop:
 				}
 				setOpsUpstreamError(c, http.StatusForbidden, extractOpenAISSEErrorMessage(message), "")
 				if eventType == "error" {
-					message = buildOpenAIWSHTTPBridgeFailedEvent(responseID, originalModel, message, extractOpenAISSEErrorMessage(message))
+					message = buildOpenAIWSHTTPBridgeFailedEvent(responseID, originalModel, startTime.Unix(), message, extractOpenAISSEErrorMessage(message))
 				}
 				if reqStream && !clientDisconnected {
 					flushBufferedStreamEvents("image_permission_denied")
