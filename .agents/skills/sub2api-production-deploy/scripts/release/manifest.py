@@ -335,14 +335,18 @@ def validate_manifest_profile_contract(manifest: dict[str, Any], profile: dict[s
             raise RuntimeError("manifest parent profile does not match")
         if manifest.get("new_migrations") != profile.get("new_migrations"):
             raise RuntimeError("manifest new migrations do not match profile")
-        if profile["name"] in {"269", "270"}:
+        if profile["name"] in {"269", "270", "271"}:
             helper = skill_asset_path("maintenance/release/migration-297-assert.sh")
             if not re.fullmatch(r"[0-9a-f]{64}", str(manifest.get("release_asset_sha256", {}).get(helper, ""))):
                 raise RuntimeError("manifest migration 297 assertion asset is missing")
-        if profile["name"] == "270":
+        if profile["name"] in {"270", "271"}:
             helper = skill_asset_path("maintenance/release/migration-298-assert.sh")
             if not re.fullmatch(r"[0-9a-f]{64}", str(manifest.get("release_asset_sha256", {}).get(helper, ""))):
                 raise RuntimeError("manifest migration 298 assertion asset is missing")
+        if profile["name"] == "271":
+            helper = skill_asset_path("maintenance/release/migration-299-assert.sh")
+            if not re.fullmatch(r"[0-9a-f]{64}", str(manifest.get("release_asset_sha256", {}).get(helper, ""))):
+                raise RuntimeError("manifest migration 299 assertion asset is missing")
         if manifest.get("release_policy") != profile.get("release_policy"):
             raise RuntimeError("manifest release policy does not match profile")
         if any(field in manifest for field in ("migrations", "migration_sha256", "compatibility_version", "compatibility_commit", "compatibility_image_id")):

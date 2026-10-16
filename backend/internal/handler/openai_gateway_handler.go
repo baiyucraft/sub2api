@@ -1014,7 +1014,9 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 						return
 					}
 					if failoverErr.PluginAdmissionRejected {
-						failedAccountIDs[account.ID] = struct{}{}
+						if !failoverErr.ProtectionOrdinaryFallback {
+							failedAccountIDs[account.ID] = struct{}{}
+						}
 						lastFailoverErr = failoverErr
 						continue
 					}
@@ -1665,7 +1667,9 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 						return
 					}
 					if failoverErr.PluginAdmissionRejected {
-						failedAccountIDs[account.ID] = struct{}{}
+						if !failoverErr.ProtectionOrdinaryFallback {
+							failedAccountIDs[account.ID] = struct{}{}
+						}
 						lastFailoverErr = failoverErr
 						continue
 					}
@@ -2785,7 +2789,7 @@ func (h *OpenAIGatewayHandler) finalizeOpenAIAccountAdmission(
 		return nil, openAISlotAcquireFailed
 	}
 	selection.Account = resolved
-	if bindSticky && !selection.IsSchedulingProtectionMigration() {
+	if bindSticky && !selection.SchedulingProtectionBindingDeferred() {
 		if err := h.gatewayService.BindStickySessionAfterProfitAdmission(ctx, groupID, sessionHash, resolved.ID); err != nil {
 			reqLog.Warn("openai.bind_sticky_session_after_profit_admission_failed", zap.Int64("account_id", resolved.ID), zap.Error(err))
 		}
@@ -2802,7 +2806,7 @@ func (h *OpenAIGatewayHandler) finalizeOpenAIAccountAdmission(
 // A protection migration keeps its source binding until every host admission
 // check has passed and the prepared HTTP request or WS frame is about to send.
 func (h *OpenAIGatewayHandler) withSchedulingProtectionSendAdmission(ctx context.Context, groupID *int64, sessionHash string, selection *service.AccountSelectionResult) context.Context {
-	if !selection.IsSchedulingProtectionMigration() {
+	if !selection.SchedulingProtectionBindingDeferred() {
 		return service.WithSchedulingProtectionBeforeSend(ctx, 0, nil)
 	}
 	var frozenGroupID *int64
@@ -2813,6 +2817,9 @@ func (h *OpenAIGatewayHandler) withSchedulingProtectionSendAdmission(ctx context
 	accountID := selection.Account.ID
 	ctx = service.WithSchedulingProtectionGroup(ctx, frozenGroupID)
 	return service.WithSchedulingProtectionBeforeSend(ctx, accountID, func(admitted context.Context) error {
+		if err := h.gatewayService.ValidateSchedulingProtectionSend(admitted, selection.Account); err != nil {
+			return err
+		}
 		return h.gatewayService.BindStickySessionAfterProfitAdmission(admitted, frozenGroupID, sessionHash, accountID)
 	})
 }
@@ -3336,7 +3343,9 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			return false
 		}
 		if failoverErr.PluginAdmissionRejected {
-			failedAccountIDs[account.ID] = struct{}{}
+			if !failoverErr.ProtectionOrdinaryFallback {
+				failedAccountIDs[account.ID] = struct{}{}
+			}
 			lastFailoverErr = failoverErr
 			return ensureUserSlotHeld()
 		}
@@ -3524,7 +3533,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		// captured by the previous failover account before credential lookup.
 		setOpsSelectedAccount(c, account.ID, account.Platform)
 		currentAccountRelease = wrapReleaseOnDone(ctx, accountReleaseFunc)
-		if !selection.IsSchedulingProtectionMigration() {
+		if !selection.SchedulingProtectionBindingDeferred() {
 			if err := h.gatewayService.BindStickySessionAfterProfitAdmission(ctx, apiKey.GroupID, sessionHash, account.ID); err != nil {
 				reqLog.Warn("openai.websocket_bind_sticky_session_after_profit_admission_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 			}

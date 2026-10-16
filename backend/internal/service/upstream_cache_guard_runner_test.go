@@ -12,6 +12,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/upstreamcacheusage"
 	"github.com/Wei-Shaw/sub2api/internal/upstreamcacheguard"
+	"github.com/stretchr/testify/require"
 )
 
 type runnerTestStore struct {
@@ -369,7 +370,7 @@ drain:
 	}
 }
 
-func TestUpstreamCacheGuardOldPendingWithdrawsFreshSnapshot(t *testing.T) {
+func TestUpstreamCacheGuardOldPendingDoesNotWithdrawFreshSnapshot(t *testing.T) {
 	s := newRunnerTestStore()
 	r := testRunner(t, s)
 	r.secret = []byte("local-test-secret")
@@ -385,15 +386,21 @@ func TestUpstreamCacheGuardOldPendingWithdrawsFreshSnapshot(t *testing.T) {
 	if !r.engine.CachedSnapshot(1).Available {
 		t.Fatal("test did not produce a newly loaded snapshot")
 	}
-	if r.available.Load() {
-		t.Fatal("fresh row reload hid a completion backlog older than five seconds")
+	if !r.available.Load() {
+		t.Fatal("fresh row reload was withdrawn by a completion backlog older than five seconds")
 	}
-	// A held lease remains pending, and an unavailable age query stays neutral.
+	if !r.pendingDelayed.Load() || r.pendingUnknown.Load() {
+		t.Fatal("delayed pending was not retained as a diagnostic")
+	}
+	// Query failure changes diagnostics, never account snapshot availability.
 	s.processed["pending"] = true
 	s.freshnessDown = true
 	r.refresh()
-	if r.available.Load() {
-		t.Fatal("failed pending-age query enabled preferences")
+	if !r.available.Load() {
+		t.Fatal("pending-age query failure withdrew preferences")
+	}
+	if !r.pendingUnknown.Load() {
+		t.Fatal("pending-age query failure was not retained as a diagnostic")
 	}
 	s.freshnessDown = false
 	r.refresh()
@@ -404,5 +411,80 @@ func TestUpstreamCacheGuardOldPendingWithdrawsFreshSnapshot(t *testing.T) {
 	r.refresh()
 	if !r.available.Load() {
 		t.Fatal("in-budget pending completion unnecessarily disabled preferences")
+	}
+}
+
+type cacheGuardSelectionDeliveryStore struct {
+	*cacheGuardSelectionStore
+	enqueueDown, completeDown bool
+	pending                   []upstreamcacheguard.Evidence
+}
+
+func (s *cacheGuardSelectionDeliveryStore) Enqueue(_ context.Context, v upstreamcacheguard.Evidence) error {
+	if s.enqueueDown {
+		return errors.New("outbox unavailable")
+	}
+	s.pending = append(s.pending, v)
+	return nil
+}
+
+func (s *cacheGuardSelectionDeliveryStore) ClaimPending(context.Context, string, int, time.Duration) ([]upstreamcacheguard.Evidence, error) {
+	return s.pending, nil
+}
+
+func (s *cacheGuardSelectionDeliveryStore) HasPending(context.Context) (bool, error) {
+	return len(s.pending) > 0, nil
+}
+
+func (s *cacheGuardSelectionDeliveryStore) TransactAccount(context.Context, int64, int64, int64, func(upstreamcacheguard.Tx) error) error {
+	if s.completeDown {
+		return errors.New("completion unavailable")
+	}
+	s.pending = nil
+	return nil
+}
+
+func TestUpstreamCacheGuardDeliveryFailuresStayAccountLocalAndRecover(t *testing.T) {
+	for _, lost := range []bool{false, true} {
+		t.Run(fmt.Sprintf("lost_%v", lost), func(t *testing.T) {
+			_, _, runner, _ := cacheGuardSelectionFixture(t, true, []float64{60, 90}, nil, false, time.Time{}, nil)
+			store := &cacheGuardSelectionDeliveryStore{cacheGuardSelectionStore: runner.store.(*cacheGuardSelectionStore), enqueueDown: true}
+			runner.store = store
+			settings := runner.engine.Settings()
+			runner.engine = upstreamcacheguard.NewEngine(store)
+			require.NoError(t, runner.engine.ApplySettings(settings))
+			require.NoError(t, runner.engine.Refresh(context.Background()))
+			runner.queue = make(chan upstreamcacheguard.Evidence, 1)
+			runner.wake = make(chan struct{}, 1)
+			if lost {
+				runner.queue <- upstreamcacheguard.Evidence{ID: "occupied"}
+			}
+			request := upstreamcacheguard.Request{ID: "delivery-attempt", APIKeyID: 1, LogicalSessionDigest: fmt.Sprintf("%064x", 1), GroupID: 100, AccountID: 1, UpstreamKeyID: 1, Model: "gpt-test", Protocol: "openai", StartedAt: time.Now().UTC()}
+			admission := &UpstreamCacheGuardAdmission{Request: request, Admission: upstreamcacheguard.Admission{RequestID: request.ID, SessionKey: upstreamcacheguard.SessionKey(request), GroupID: 100, AccountID: 1, Mode: upstreamcacheguard.Disabled}}
+			ObserveUpstreamCacheGuardResult(admission, nil, false, time.Now().UTC())
+			failed, usable := runner.engine.CachedAccount(1, 1)
+			require.True(t, usable)
+			require.False(t, failed.Fresh)
+			healthy, usable := runner.engine.CachedAccount(2, 2)
+			require.True(t, usable)
+			require.True(t, healthy.Fresh)
+			require.Equal(t, lost, runner.lost.Load())
+			if lost {
+				return
+			}
+			store.enqueueDown = false
+			require.True(t, runner.retryEnqueue(<-runner.queue))
+			store.completeDown = true
+			runner.processPending()
+			failed, usable = runner.engine.CachedAccount(1, 1)
+			require.True(t, usable)
+			require.False(t, failed.Fresh)
+			store.completeDown = false
+			runner.processPending()
+			require.NoError(t, runner.engine.Refresh(context.Background()))
+			recovered, usable := runner.engine.CachedAccount(1, 1)
+			require.True(t, usable)
+			require.True(t, recovered.Fresh)
+		})
 	}
 }

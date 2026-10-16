@@ -32,7 +32,7 @@ class Profile269ReleaseContractTest(unittest.TestCase):
         baseline = {}
         exec(compile(git_blob(".agents/skills/sub2api-production-deploy/scripts/release/profiles.py"), "baseline", "exec"), baseline)
         self.assertEqual(baseline["CURRENT_RELEASE_PROFILE"], "268")
-        self.assertEqual(set(PROFILES), set(baseline["PROFILES"]) | {"269", "270"})
+        self.assertEqual(set(PROFILES), set(baseline["PROFILES"]) | {"269", "270", "271"})
         for name, contract in baseline["PROFILES"].items():
             self.assertEqual(get_profile(name), contract, name)
             with self.assertRaisesRegex(ValueError, "historical"):
@@ -45,7 +45,7 @@ class Profile269ReleaseContractTest(unittest.TestCase):
         for path in historical:
             self.assertEqual((WORKSPACE / path).read_bytes(), git_blob(path), path)
         current = {path.relative_to(WORKSPACE).as_posix() for path in (WORKSPACE / "backend/migrations").glob("*.sql")}
-        self.assertEqual(current, historical | {f"backend/migrations/{MIGRATION}", "backend/migrations/298_group_scheduling_protection_policies.sql"})
+        self.assertEqual(current, historical | {f"backend/migrations/{MIGRATION}", "backend/migrations/298_group_scheduling_protection_policies.sql", "backend/migrations/299_upstream_cache_guard_revisions.sql"})
         prior = json.loads(git_blob(".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml"))
         registered = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
         for name, checksum in prior["migration_contracts"].items():
@@ -60,14 +60,14 @@ class Profile269ReleaseContractTest(unittest.TestCase):
         profile = get_profile("269")
         with self.assertRaisesRegex(ValueError, "historical"):
             get_release_profile("269")
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "270")
+        self.assertEqual(CURRENT_RELEASE_PROFILE, "271")
         self.assertEqual((profile["version"], profile["parent"], profile["gate_schema"]), ("0.2.16-baiyu", "268", 2))
         self.assertEqual(profile["new_migrations"], [MIGRATION])
         self.assertEqual(profile["release_policy"], get_profile("268")["release_policy"])
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 271"):
-            get_profile("271")
+        with self.assertRaisesRegex(ValueError, "unknown release profile: 272"):
+            get_profile("272")
         registered = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(registered["current_profile"]["id"], "270")
+        self.assertEqual(registered["current_profile"]["id"], "271")
         self.assertEqual(registered["current_profile"]["status"], "pending")
         for field in ("version", "parent", "gate_schema", "new_migrations", "release_policy"):
             self.assertEqual(registered["historical_profiles"]["269"][field], profile[field])
@@ -84,7 +84,7 @@ class Profile269ReleaseContractTest(unittest.TestCase):
         self.assertEqual(plan_migrations(catalog, {**snapshot, MIGRATION: entry["checksum"]})["pending"], [])
         self.assertFalse(plan_migrations(catalog, {**snapshot, MIGRATION: "0" * 64})["existing_checksums_verified"])
         self.assertIsNotNone(RELEASE_ID.fullmatch("269-aaaaaaaaaaaa-1-aaaaaaaa"))
-        self.assertIsNone(RELEASE_ID.fullmatch("271-aaaaaaaaaaaa-1-aaaaaaaa"))
+        self.assertIsNone(RELEASE_ID.fullmatch("272-aaaaaaaaaaaa-1-aaaaaaaa"))
 
 
 class Profile269BashContractTest(unittest.TestCase):

@@ -32,7 +32,7 @@ def collect(*, archive: Path, gate: Path, signature: Path, trust: Path, expected
     checksum in the full recovery review's findings. This helper signs nothing.
     """
     need(re.fullmatch(r"full-dr-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", drill_id) is not None, "drill identity")
-    need(re.fullmatch(r"270-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}", release_id) is not None, "release identity")
+    need(re.fullmatch(r"(?:270|271)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}", release_id) is not None, "release identity")
     need(isinstance(proof, dict) and set(proof) >= {"host_namespaces", "rootfs_identity_sha256", "host_docker_engine_id"}, "host proof missing")
     assert_isolated_guest(proof["host_namespaces"])
     need(re.fullmatch(r"[0-9a-f]{64}", str(proof["rootfs_identity_sha256"])) is not None, "rootfs identity missing")
@@ -52,7 +52,7 @@ def collect(*, archive: Path, gate: Path, signature: Path, trust: Path, expected
     document = json.loads(gate.read_bytes(), object_pairs_hook=unique)
     need(isinstance(document, dict) and isinstance(document.get("manifest"), dict) and isinstance(document.get("evidence"), dict), "Gate fields")
     manifest, evidence = document["manifest"], document["evidence"]
-    need(type(manifest.get("schema")) is int and manifest["schema"] == 2 and manifest.get("release_id") == release_id and manifest.get("profile") == "270", "Gate release identity")
+    need(type(manifest.get("schema")) is int and manifest["schema"] == 2 and manifest.get("release_id") == release_id and manifest.get("profile") == release_id.split("-",1)[0], "Gate release identity")
     expected_image = evidence.get("candidate_image_id")
     need(isinstance(expected_image, str) and re.fullmatch(r"sha256:[0-9a-f]{64}", expected_image) is not None, "candidate image identity")
     archive_digest = _sha_file(archive)

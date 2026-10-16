@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -77,7 +78,8 @@ func TestUpstreamCacheGuardAccountSummaryRespectsPlatformScope(t *testing.T) {
 			reader.groups = map[int64]string{1: PlatformOpenAI, 2: tc.otherPlatform}
 			runner.SetProtectionPolicyResolver(reader)
 			require.NoError(t, runner.engine.Refresh(context.Background()))
-			runner.available.Store(true)
+			// Runner refresh health is independent of usable account snapshots.
+			runner.available.Store(false)
 			previous := installedCacheGuardRunner.Swap(runner)
 			t.Cleanup(func() { installedCacheGuardRunner.Store(previous) })
 			configID, keyID := int64(1), int64(11)
@@ -197,4 +199,107 @@ func TestUpstreamCacheGuardPastFactGroupDoesNotClaimCurrentExecution(t *testing.
 	require.Len(t, view.States, 2)
 	require.Equal(t, "normal", view.States[0].State)
 	require.Equal(t, "disabled", view.States[1].State, "past fact groups cannot execute after membership is removed")
+}
+
+func TestUpstreamCacheGuardAccountViewRetainsUsableSnapshotAndIsolatesUnavailableAccount(t *testing.T) {
+	configID, keyID := int64(1), int64(11)
+	accounts := []Account{
+		{ID: 7, UpstreamConfigID: &configID, UpstreamKeyID: &keyID, GroupIDs: []int64{1}},
+		{ID: 8, UpstreamConfigID: &configID, UpstreamKeyID: &keyID, GroupIDs: []int64{1}},
+	}
+	settings := DefaultUpstreamCacheGuardSettings()
+	settings.Mode = upstreamcacheguard.Protect
+	updatedAt := time.Date(2026, 10, 16, 1, 0, 0, 0, time.UTC)
+	snapshot := upstreamcacheguard.AccountSnapshot{AccountState: upstreamcacheguard.AccountState{
+		AccountID: 7, UpstreamKeyID: keyID, Phase: upstreamcacheguard.Cooling,
+		CachePercent: 74.4, ValidRequests: 43, UpdatedAt: updatedAt, GroupIDs: []int64{1},
+	}}
+	// The engine owns the 5/30-second boundary. Its reader returns true for
+	// usable stale snapshots and false only after the maximum age is exceeded.
+	for _, tc := range []struct {
+		name   string
+		usable bool
+	}{
+		{name: "fresh", usable: true},
+		{name: "stale_within_tolerance", usable: true},
+		{name: "older_than_tolerance", usable: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			views := upstreamCacheGuardPolicyAccountViewsBatch(accounts, settings, true,
+				func(accountID, _ int64) (upstreamcacheguard.AccountSnapshot, bool) {
+					if accountID == 7 {
+						return snapshot, tc.usable
+					}
+					return upstreamcacheguard.AccountSnapshot{}, false
+				}, func(int64) UpstreamCacheGuardSettings { return settings }, nil)
+			view := views[7]
+			require.NotNil(t, view.Summary)
+			require.Len(t, view.States, 1)
+			if tc.usable {
+				require.Equal(t, "protected", view.Summary.State)
+				require.Equal(t, 74.4, *view.Summary.RatePercent)
+				require.Equal(t, 43, view.Summary.ValidRequests)
+				require.Equal(t, updatedAt, *view.Summary.UpdatedAt)
+				require.Equal(t, "protected", view.States[0].State)
+				require.Equal(t, 74.4, *view.States[0].RatePercent)
+			} else {
+				require.Equal(t, "unavailable", view.Summary.State)
+				require.Nil(t, view.Summary.RatePercent)
+				require.Zero(t, view.Summary.ValidRequests)
+				require.Nil(t, view.Summary.UpdatedAt)
+				require.Equal(t, "unavailable", view.States[0].State)
+				require.Nil(t, view.States[0].RatePercent)
+			}
+			require.Equal(t, "unavailable", views[8].Summary.State)
+			require.Nil(t, views[8].Summary.RatePercent)
+		})
+	}
+}
+
+func TestUpstreamCacheGuardPolicyBackfillKeepsCompatibleGroupAndSharedRate(t *testing.T) {
+	configID, keyID := int64(1), int64(11)
+	account := Account{ID: 7, UpstreamConfigID: &configID, UpstreamKeyID: &keyID, GroupIDs: []int64{1, 2}}
+	settings := DefaultUpstreamCacheGuardSettings()
+	settings.Mode = upstreamcacheguard.Protect
+	newPolicy := settings
+	newPolicy.ThresholdPercent = 95
+	observedAt := time.Date(2026, 10, 17, 1, 0, 0, 0, time.UTC)
+	oldState := upstreamcacheguard.AccountState{AccountID: account.ID, UpstreamKeyID: keyID,
+		Phase: upstreamcacheguard.Healthy, CachePercent: 90, ValidRequests: 43,
+		UpdatedAt: observedAt, GroupIDs: []int64{1, 2}}
+	snapshot := upstreamcacheguard.AccountSnapshot{AccountState: oldState, LoadedAt: observedAt}
+	snapshot.Policies = map[string]upstreamcacheguard.PolicyProjection{
+		upstreamcacheguard.PolicySignature(settings): {Settings: settings, State: oldState},
+	}
+	read := func(_, _ int64) (upstreamcacheguard.AccountSnapshot, bool) { return snapshot, true }
+	resolve := func(groupID int64) UpstreamCacheGuardSettings {
+		if groupID == 2 {
+			return newPolicy
+		}
+		return settings
+	}
+	for _, rebuilt := range []bool{false, true} {
+		t.Run(fmt.Sprintf("rebuilt=%t", rebuilt), func(t *testing.T) {
+			if rebuilt {
+				state := oldState
+				state.Phase, state.CachePercent = upstreamcacheguard.Cooling, 60
+				snapshot.Policies[upstreamcacheguard.PolicySignature(newPolicy)] = upstreamcacheguard.PolicyProjection{Settings: newPolicy, State: state}
+			}
+			view := upstreamCacheGuardPolicyAccountViewsBatch([]Account{account}, settings, true, read, resolve, nil)[account.ID]
+			require.NotNil(t, view.Summary.RatePercent)
+			require.Equal(t, 90.0, *view.Summary.RatePercent, "shared observations remain visible during policy backfill")
+			require.Equal(t, observedAt, *view.Summary.UpdatedAt)
+			require.Len(t, view.States, 2)
+			require.Equal(t, "normal", view.States[0].State, "an unchanged group keeps its compatible projection")
+			require.Equal(t, 90.0, *view.States[0].RatePercent)
+			if rebuilt {
+				require.Equal(t, "protected", view.States[1].State)
+				require.Equal(t, 60.0, *view.States[1].RatePercent)
+			} else {
+				require.Equal(t, "unavailable", view.States[1].State, "a missing new policy cannot borrow the raw healthy state")
+				require.Equal(t, "snapshot_unavailable", view.States[1].Reason)
+				require.Nil(t, view.States[1].RatePercent)
+			}
+		})
+	}
 }

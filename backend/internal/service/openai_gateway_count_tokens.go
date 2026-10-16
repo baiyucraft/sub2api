@@ -101,6 +101,9 @@ func (s *OpenAIGatewayService) ForwardResponsesInputTokens(
 	}
 	resp, err := s.doOpenAIUpstream(upstreamReq, proxyURL, account)
 	if err != nil {
+		if scoped := schedulingProtectionRequestLocalError(err); scoped != nil {
+			return scoped
+		}
 		var admissionErr *PluginAdmissionError
 		if errors.As(err, &admissionErr) {
 			return s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
@@ -345,6 +348,9 @@ func (s *OpenAIGatewayService) ForwardCountTokensAsAnthropic(
 	}
 	resp, err := s.doOpenAIUpstream(upstreamReq, proxyURL, account)
 	if err != nil {
+		if scoped := schedulingProtectionRequestLocalError(err); scoped != nil {
+			return scoped
+		}
 		var admissionErr *PluginAdmissionError
 		if errors.As(err, &admissionErr) {
 			return s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)

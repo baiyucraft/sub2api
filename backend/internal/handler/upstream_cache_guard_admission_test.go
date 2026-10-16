@@ -298,3 +298,24 @@ func TestCacheGuardHandlerPreservesBindingOnFinalAdmissionFailure(t *testing.T) 
 		})
 	}
 }
+
+func TestCacheGuardHandlerTerminalRejectsChangedKeyWithoutProfitGate(t *testing.T) {
+	h, ctx, cache := newCacheGuardAdmissionFixture(t, true)
+	group := int64(100)
+	selection, _, err := h.gatewayService.SelectAccountWithScheduler(ctx, &group, "", "conversation", "gpt-test", nil, service.OpenAIUpstreamTransportAny, false)
+	require.NoError(t, err)
+	require.True(t, selection.IsSchedulingProtectionMigration())
+	require.False(t, selection.ProfitGateActive())
+	defer selection.ReleaseFunc()
+	// The nominated snapshot differs from the authoritative current database.
+	key := int64(999)
+	selection.Account.UpstreamKeyID = &key
+	admitted := h.withSchedulingProtectionSendAdmission(service.ContextWithSelectionProfitGate(ctx, selection), &group, "conversation", selection)
+	err = service.BeginUpstreamCacheGuardSend(admitted, selection.Account, "gpt-test", "openai_ws")
+	var retry *service.UpstreamFailoverError
+	require.ErrorAs(t, err, &retry)
+	require.True(t, retry.PluginAdmissionRejected)
+	require.False(t, retry.ShouldReportAccountScheduleFailure())
+	require.Zero(t, cache.writes)
+	require.Equal(t, int64(1), cache.stickyID)
+}

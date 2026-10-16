@@ -1794,3 +1794,41 @@ func buildGeminiUsageProgress(used, limit int64, resetAt time.Time, tokens int64
 func (s *AccountUsageService) GetAccountWindowStats(ctx context.Context, accountID int64, startTime time.Time) (*usagestats.AccountStats, error) {
 	return s.usageLogRepo.GetAccountWindowStats(ctx, accountID, startTime)
 }
+
+// GetAccountWindowStatsByStarts preserves each account's own window boundary.
+// Repositories without the batch capability retain their per-account failure
+// behavior; a failed account is absent rather than reported as a zero cost.
+func (s *AccountUsageService) GetAccountWindowStatsByStarts(ctx context.Context, starts map[int64]time.Time) map[int64]*usagestats.AccountStats {
+	if reader, ok := s.usageLogRepo.(interface {
+		GetAccountWindowStatsByStarts(context.Context, map[int64]time.Time) (map[int64]*usagestats.AccountStats, error)
+	}); ok {
+		stats, err := accountListSharedRead(ctx, fmt.Sprintf("%p", s), "window_stats", starts, func(shared context.Context) (map[int64]*usagestats.AccountStats, error) {
+			return reader.GetAccountWindowStatsByStarts(shared, starts)
+		})
+		if err == nil {
+			return stats
+		}
+		// Retain partial-failure semantics if a transient batch read fails.
+		// The ordinary successful path still issues exactly one SQL query.
+	}
+	if ctx.Err() != nil {
+		return nil
+	}
+	result := make(map[int64]*usagestats.AccountStats, len(starts))
+	var mu sync.Mutex
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(10)
+	for id, start := range starts {
+		g.Go(func() error {
+			stats, err := s.usageLogRepo.GetAccountWindowStats(gctx, id, start)
+			if err == nil && stats != nil {
+				mu.Lock()
+				result[id] = stats
+				mu.Unlock()
+			}
+			return nil
+		})
+	}
+	_ = g.Wait()
+	return result
+}

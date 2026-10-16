@@ -552,6 +552,9 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 		PrepareOpenAIUpstreamCacheGuardSend(upstreamReq.Context(), account, gjson.GetBytes(body, "model").String(), "openai")
 		resp, err = s.doOpenAIUpstream(upstreamReq, proxyURL, account)
 		if err != nil {
+			if scoped := schedulingProtectionRequestLocalError(err); scoped != nil {
+				return nil, scoped
+			}
 			var admissionErr *PluginAdmissionError
 			if turn == 1 || errors.As(err, &admissionErr) {
 				return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, true)

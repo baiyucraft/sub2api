@@ -256,7 +256,9 @@ func (h *OpenAIGatewayHandler) AlphaSearch(c *gin.Context) {
 				h.handleFailoverExhausted(c, failoverErr, false)
 				return
 			}
-			failedAccountIDs[account.ID] = struct{}{}
+			if !failoverErr.ProtectionOrdinaryFallback {
+				failedAccountIDs[account.ID] = struct{}{}
+			}
 			lastFailoverErr = failoverErr
 			continue
 		}

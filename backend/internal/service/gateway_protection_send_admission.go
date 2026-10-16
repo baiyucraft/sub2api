@@ -8,13 +8,19 @@ import (
 // WithGatewaySchedulingProtectionMigration leaves an existing binding intact
 // until local request preparation and all pre-send admission checks have passed.
 func (s *GatewayService) WithGatewaySchedulingProtectionMigration(ctx context.Context, groupID *int64, sessionHash string, selection *AccountSelectionResult) context.Context {
-	if selection == nil || !selection.IsSchedulingProtectionMigration() {
+	if selection == nil || !selection.SchedulingProtectionBindingDeferred() {
 		return WithSchedulingProtectionBeforeSend(ctx, 0, nil)
 	}
 	account := selection.Account
 	ctx = WithSchedulingProtectionGroup(ctx, groupID)
 	return WithSchedulingProtectionBeforeSend(ctx, account.ID, func(sendCtx context.Context) error {
-		latest, vetoed, reason := s.GatewayProfitControlVetoLatest(sendCtx, account)
+		model := schedulingProtectionSendValidationModel(sendCtx)
+		sendCtx = withGatewayProtectionRecheck(sendCtx, groupID, model)
+		latest, err := s.refreshGatewayProtectionCandidateAt(sendCtx, account, true)
+		if err != nil || latest.SchedulingConcurrencyTarget() != account.SchedulingConcurrencyTarget() {
+			return schedulingProtectionScopeChangedError()
+		}
+		latest, vetoed, reason := s.GatewayProfitControlVetoLatest(sendCtx, latest)
 		if vetoed {
 			return fmt.Errorf("scheduling protection profit admission rejected: %s", reason)
 		}

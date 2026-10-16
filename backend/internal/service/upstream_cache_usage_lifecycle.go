@@ -21,6 +21,7 @@ type cacheUsageAttempt struct {
 	sessionHash        string
 	admission          *UpstreamCacheGuardAdmission
 	begun              bool
+	beginError         error
 	finished           bool
 	protectionFinished bool
 	account            *Account
@@ -47,12 +48,12 @@ func BeginUpstreamCacheGuardSend(ctx context.Context, account *Account, model, p
 		return nil
 	}
 	if protocol == "openai_ws" {
+		PrepareOpenAIUpstreamCacheGuardSend(ctx, account, model, protocol)
 		if err := runSchedulingProtectionBeforeSend(ctx, account, model); err != nil {
 			return err
 		}
 	}
-	beginUpstreamCacheGuardSend(ctx, account, model, protocol)
-	return nil
+	return beginUpstreamCacheGuardSend(ctx, account, model, protocol)
 }
 
 // HTTP OpenAI paths prepare metadata before host/plugin admission, then freeze
@@ -73,22 +74,23 @@ func PrepareOpenAIUpstreamCacheGuardSend(ctx context.Context, account *Account, 
 	}
 }
 
-func beginUpstreamCacheGuardSend(ctx context.Context, account *Account, model, protocol string) {
+func beginUpstreamCacheGuardSend(ctx context.Context, account *Account, model, protocol string) error {
 	if !schedulingProtectionSendSelected(ctx, account) {
-		return
+		return nil
 	}
 	a, _ := ctx.Value(cacheUsageAttemptContextKey{}).(*cacheUsageAttempt)
 	if a == nil {
-		return
+		return nil
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.begun {
-		return
+		return a.beginError
 	}
 	a.begun = true
 	a.account, a.model, a.protocol = account, model, protocol
-	a.admission = BeginUpstreamCacheGuardRequest(ctx, a.apiKeyID, a.groupID, a.sessionHash, model, protocol, account)
+	a.admission, a.beginError = beginUpstreamCacheGuardRequest(ctx, a.apiKeyID, a.groupID, a.sessionHash, model, protocol, account)
+	return a.beginError
 }
 
 func FinishUpstreamCacheGuardAttempt(ctx context.Context, evidence *UpstreamCacheUsageEvidence, success bool, completedAt time.Time) {
@@ -145,6 +147,7 @@ func WithUpstreamCacheGuardTurn(ctx context.Context, body []byte, first bool) co
 		return context.WithValue(ctx, cacheUsageAttemptContextKey{}, (*cacheUsageAttempt)(nil))
 	}
 	if !first {
+		ctx = context.WithValue(ctx, cacheGuardProtectedSelectionKey{}, false)
 		ctx = context.WithValue(ctx, cacheGuardSchedulingKey{}, cacheGuardSchedulingIdentity{})
 		ctx = WithUpstreamCacheGuardScheduling(ctx, a.apiKeyID)
 	}

@@ -33,8 +33,12 @@ func TestAccountSnapshotProjectsSameQualityWithoutDerivedGroupProtection(t *test
 		t.Fatal("caller mutated shared group provenance")
 	}
 	e.now = func() time.Time { return testNow.Add(RefreshLifetime + time.Nanosecond) }
+	if _, ok := e.CachedAccount(2, 3); !ok {
+		t.Fatal("bounded stale account snapshot was not retained")
+	}
+	e.now = func() time.Time { return testNow.Add(UsableSnapshotLifetime + time.Nanosecond) }
 	if _, ok := e.CachedAccount(2, 3); ok {
-		t.Fatal("stale account remained available")
+		t.Fatal("expired account snapshot remained available")
 	}
 }
 

@@ -272,7 +272,9 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		}
 		account = latest
 		selection.Account = latest
-		if selection.RequiresStickyAdmissionBinding() {
+		if selection.SchedulingProtectionBindingDeferred() {
+			admissionCtx = h.gatewayService.WithGatewaySchedulingProtectionMigration(admissionCtx, apiKey.GroupID, sessionHash, selection)
+		} else if selection.RequiresStickyAdmissionBinding() {
 			if err := h.gatewayService.BindStickySessionAfterProfitAdmission(admissionCtx, apiKey.GroupID, sessionHash, account.ID); err != nil {
 				reqLog.Warn("gateway.responses.bind_sticky_session_after_profit_admission_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 			}
@@ -296,7 +298,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		if channelMapping.Mapped {
 			forwardBody = h.gatewayService.ReplaceModelInBody(body, channelMapping.MappedModel)
 		}
-		cacheAttemptCtx := c.Request.Context()
+		cacheAttemptCtx := admissionCtx
 		if reqStream && service.UpstreamCacheGuardTextRequest(c.Request.URL.Path, body) {
 			cacheAttemptCtx = service.WithUpstreamCacheGuardAttempt(cacheAttemptCtx, apiKey.ID, apiKey.GroupID, sessionHash, true)
 		}

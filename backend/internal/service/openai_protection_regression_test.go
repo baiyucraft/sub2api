@@ -194,7 +194,11 @@ func TestProtectionRegressionPreSendFailureKeepsRecoveryAndCacheAdmission(t *tes
 			} else {
 				require.Zero(t, bindCount)
 				require.Empty(t, upstream.requests)
-				require.False(t, attempt.begun, "cache cohort must not begin before host and plugin admission")
+				if boundary == "binding" {
+					require.True(t, attempt.begun, "synchronous cache admission precedes the final sticky commit")
+				} else {
+					require.False(t, attempt.begun, "cache cohort must not begin before host and plugin admission")
+				}
 				require.False(t, ticket.sent.Load())
 				require.Equal(t, 1, g.entries[ticket.key].consecutiveRecovered, "a nomination rejected before physical send is not a failed recovery attempt")
 			}

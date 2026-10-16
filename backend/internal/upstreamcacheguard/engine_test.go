@@ -507,6 +507,10 @@ func TestSnapshotExpiryObserveNeutralAndSettingsValidation(t *testing.T) {
 		t.Fatal("fresh unavailable")
 	}
 	e.now = func() time.Time { return testNow.Add(6 * time.Second) }
+	if snapshot := e.CachedSnapshot(1); !snapshot.Available || snapshot.Fresh {
+		t.Fatal("bounded stale snapshot was not retained")
+	}
+	e.now = func() time.Time { return testNow.Add(UsableSnapshotLifetime + time.Nanosecond) }
 	if e.CachedSnapshot(1).Available {
 		t.Fatal("expired snapshot available")
 	}

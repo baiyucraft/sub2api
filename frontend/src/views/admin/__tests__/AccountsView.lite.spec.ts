@@ -320,6 +320,63 @@ describe('admin AccountsView lite account list', () => {
     wrapper.unmount()
   })
 
+  it('preserves row identity for equal snapshots and retains the last successful list on failure', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    const original = wrapper.findComponent(DataTableStub).props('data')[0]
+    listWithEtag.mockResolvedValueOnce({ notModified: false, etag: 'equal', data: {
+      items: [{ ...listRow }], total: 1, page: 1, page_size: 20, pages: 1
+    } })
+    await (wrapper.vm as any).$.setupState.refreshAccountsIncrementally()
+    await flushPromises()
+    expect(wrapper.findComponent(DataTableStub).props('data')[0]).toBe(original)
+
+    const report = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    listWithEtag.mockRejectedValueOnce(new Error('temporary read failure'))
+    await (wrapper.vm as any).$.setupState.refreshAccountsIncrementally()
+    await flushPromises()
+    expect(wrapper.findComponent(DataTableStub).props('data')[0]).toBe(original)
+    expect(wrapper.get('[data-account-name]').attributes('data-account-name')).toBe(listRow.name)
+    expect(report).toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('does not apply a response after the list was disposed', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    let resolve!: (value: unknown) => void
+    listWithEtag.mockImplementationOnce(() => new Promise(done => { resolve = done }))
+    const refresh = (wrapper.vm as any).$.setupState.refreshAccountsIncrementally()
+    await flushPromises()
+    wrapper.unmount()
+    resolve({ notModified: false, etag: 'late', data: {
+      items: [{ ...listRow, name: 'late response' }], total: 1, page: 1, page_size: 20, pages: 1
+    } })
+    await refresh
+    expect(document.querySelector('[data-account-name="late response"]')).toBeNull()
+  })
+
+  it('rejects an old refresh after loading a different page', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    let resolve!: (value: unknown) => void
+    listWithEtag.mockImplementationOnce(() => new Promise(done => { resolve = done }))
+    const state = (wrapper.vm as any).$.setupState
+    const refresh = state.refreshAccountsIncrementally()
+    await flushPromises()
+    listAccounts.mockResolvedValueOnce({ items: [{ ...listRow, id: 43, name: 'second page' }], total: 40, page: 2, page_size: 20, pages: 2 })
+    state.pagination.page = 2
+    await state.load()
+    await flushPromises()
+    resolve({ notModified: false, etag: 'old-page', data: {
+      items: [{ ...listRow, name: 'old first page' }], total: 1, page: 1, page_size: 20, pages: 1
+    } })
+    await refresh
+    await flushPromises()
+    expect(wrapper.get('[data-account-name]').attributes('data-account-name')).toBe('second page')
+    wrapper.unmount()
+  })
+
   it('loads the full account by id before opening edit, test, and stats actions', async () => {
     const wrapper = mountView()
     await flushPromises()

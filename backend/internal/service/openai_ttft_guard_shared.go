@@ -36,12 +36,16 @@ func (g *openAITTFTGuard) reportForKey(groupID, accountID, keyID int64, model st
 	cfg = normalizeOpenAITTFTGuardConfig(cfg)
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	g.syncConfigLocked(groupID, cfg)
-	active := cfg.Enabled
-	for _, c := range g.groupConfigs {
-		active = active || c.Enabled
+	if g.policiesManaged {
+		if current, ok := g.groupConfigs[groupID]; ok {
+			cfg = current
+		} else {
+			cfg.Enabled = false
+		}
+	} else {
+		g.syncConfigLocked(groupID, cfg)
 	}
-	if !active {
+	if g.activePolicies == 0 {
 		return
 	}
 	now := g.now()
@@ -66,10 +70,17 @@ func (g *openAITTFTGuard) reportForKey(groupID, accountID, keyID int64, model st
 					oldest, at = id, e.lastSampleAt
 				}
 			}
-			delete(g.observations, oldest)
+			g.deleteObservationLocked(oldest)
 		}
 		raw = &openAITTFTGuardEntry{}
+		if g.observations[k] != nil {
+			g.deleteObservationLocked(k)
+		}
 		g.observations[k] = raw
+		g.indexObservationLocked(k)
+	}
+	if keyID > 0 {
+		g.accountKeys[accountID] = keyID
 	}
 	raw.successes[raw.nextSample] = success
 	raw.addSample(float64(*ms))
@@ -77,13 +88,14 @@ func (g *openAITTFTGuard) reportForKey(groupID, accountID, keyID int64, model st
 	raw.lastGroupID, raw.lastGroupName = groupID, cfg.GroupName
 	// Each existing projection consumes the observation once. Recovery resets
 	// only that projection's effective window, leaving raw and other policies.
-	for key, e := range g.entries {
-		if key.accountID == k.accountID && key.upstreamKeyID == k.upstreamKeyID && key.model == k.model {
-			applyTTFTProjectionSample(e, float64(*ms), success, now)
-		}
+	g.scheduleExpiryLocked(k, true, raw)
+	for key := range g.projectionKeys[k] {
+		e := g.entries[key]
+		applyTTFTProjectionSample(e, float64(*ms), success, now)
+		g.scheduleExpiryLocked(key, false, e)
 	}
 	if cfg.Enabled {
-		g.projectionLocked(k, groupID, cfg)
+		g.projectionAtLocked(k, groupID, cfg, now)
 	}
 	g.recalculateNextExpiryLocked()
 }
@@ -115,6 +127,10 @@ func applyTTFTProjectionSample(e *openAITTFTGuardEntry, sample float64, success 
 }
 
 func (g *openAITTFTGuard) projectionLocked(rawKey openAITTFTGuardKey, groupID int64, cfg OpenAITTFTGuardConfigSnapshot) *openAITTFTGuardEntry {
+	return g.projectionAtLocked(rawKey, groupID, cfg, g.now())
+}
+
+func (g *openAITTFTGuard) projectionAtLocked(rawKey openAITTFTGuardKey, groupID int64, cfg OpenAITTFTGuardConfigSnapshot, now time.Time) *openAITTFTGuardEntry {
 	scope, ok := openAITTFTGuardScopeFor(groupID, cfg)
 	if !ok || !cfg.Enabled {
 		return nil
@@ -125,7 +141,7 @@ func (g *openAITTFTGuard) projectionLocked(rawKey openAITTFTGuardKey, groupID in
 		return e
 	}
 	raw := g.observations[rawKey]
-	if raw == nil || g.now().Sub(raw.lastSampleAt) >= g.ttl {
+	if raw == nil || now.Sub(raw.lastSampleAt) >= g.ttl {
 		return nil
 	}
 	g.evictLRULocked()
@@ -133,6 +149,8 @@ func (g *openAITTFTGuard) projectionLocked(rawKey openAITTFTGuardKey, groupID in
 	g.nextEntryGeneration++
 	e.generation = g.nextEntryGeneration
 	g.entries[k] = e
+	g.indexProjectionLocked(k)
+	g.scheduleExpiryLocked(k, false, e)
 	return e
 }
 
@@ -168,13 +186,28 @@ func (g *openAITTFTGuard) readProjectionLocked(key openAITTFTGuardKey, groupID i
 	return deriveTTFTProjection(raw, groupID, cfg)
 }
 
+// Once policy snapshots own runtime configuration, a request captured before a
+// policy change may read only the matching projection. It must never publish its
+// older configuration back into the shared runtime or consume a recovery probe.
+func (g *openAITTFTGuard) acceptRequestConfigLocked(groupID int64, cfg OpenAITTFTGuardConfigSnapshot) bool {
+	if !g.policiesManaged {
+		g.syncConfigLocked(groupID, cfg)
+		return true
+	}
+	current, exists := g.groupConfigs[groupID]
+	return exists && sameOpenAITTFTGuardRuntimeConfig(current, normalizeOpenAITTFTGuardConfig(cfg))
+}
+
 func (g *openAITTFTGuard) syncConfigLocked(groupID int64, cfg OpenAITTFTGuardConfigSnapshot) {
-	if groupID <= 0 {
+	if g.policiesManaged || groupID <= 0 {
 		return
 	}
-	if len(g.groupConfigs) >= g.maxEntries {
+	if _, exists := g.groupConfigs[groupID]; !exists && len(g.groupConfigs) >= g.maxEntries {
 		for id := range g.groupConfigs {
 			if id != groupID {
+				if g.groupConfigs[id].Enabled {
+					g.activePolicies--
+				}
 				delete(g.groupConfigs, id)
 				break
 			}
@@ -183,7 +216,14 @@ func (g *openAITTFTGuard) syncConfigLocked(groupID int64, cfg OpenAITTFTGuardCon
 	next := normalizeOpenAITTFTGuardConfig(cfg)
 	previous, exists := g.groupConfigs[groupID]
 	g.groupConfigs[groupID] = next
-	if !exists || previous.Enabled != next.Enabled || previous.Threshold != next.Threshold || previous.MinSamples != next.MinSamples {
+	if exists && previous.Enabled {
+		g.activePolicies--
+	}
+	if next.Enabled {
+		g.activePolicies++
+	}
+	if !exists || previous.Enabled != next.Enabled || previous.Threshold != next.Threshold || previous.MinSamples != next.MinSamples || previous.Source != next.Source {
+		g.inheritedKnown = false
 		g.pruneInactivePoliciesLocked()
 	}
 }
@@ -197,7 +237,7 @@ func (g *openAITTFTGuard) pruneInactivePoliciesLocked() {
 	}
 	for k := range g.entries {
 		if !active[k.scopeID] {
-			delete(g.entries, k)
+			g.deleteProjectionLocked(k)
 		}
 	}
 	for k := range g.groupProbes {
@@ -208,6 +248,13 @@ func (g *openAITTFTGuard) pruneInactivePoliciesLocked() {
 }
 
 func (g *openAITTFTGuard) exclusions(candidates []openAITTFTGuardCandidate, callerExcluded map[int64]struct{}, cfg OpenAITTFTGuardConfigSnapshot, tickets ...map[int64]*openAITTFTTrial) map[int64]struct{} {
+	if g == nil {
+		return nil
+	}
+	return g.exclusionsAt(candidates, callerExcluded, cfg, g.now(), tickets...)
+}
+
+func (g *openAITTFTGuard) exclusionsAt(candidates []openAITTFTGuardCandidate, callerExcluded map[int64]struct{}, cfg OpenAITTFTGuardConfigSnapshot, now time.Time, tickets ...map[int64]*openAITTFTTrial) map[int64]struct{} {
 	if g == nil || len(candidates) == 0 {
 		return nil
 	}
@@ -215,12 +262,14 @@ func (g *openAITTFTGuard) exclusions(candidates []openAITTFTGuardCandidate, call
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	groupID := candidates[0].groupID
-	g.syncConfigLocked(groupID, cfg)
+	if !g.acceptRequestConfigLocked(groupID, cfg) {
+		return nil
+	}
 	scope, ok := openAITTFTGuardScopeFor(groupID, cfg)
 	if !ok || !cfg.Enabled {
 		return nil
 	}
-	g.deleteExpiredLocked(g.now())
+	g.deleteExpiredLocked(now)
 	byModel := map[string][]int64{}
 	seen := map[openAITTFTGuardKey]bool{}
 	for _, c := range candidates {
@@ -232,8 +281,8 @@ func (g *openAITTFTGuard) exclusions(candidates []openAITTFTGuardCandidate, call
 			continue
 		}
 		seen[k] = true
-		if e := g.projectionLocked(k, groupID, cfg); e != nil && e.degraded {
-			e.lastTouchedAt = g.now()
+		if e := g.projectionAtLocked(k, groupID, cfg, now); e != nil && e.degraded {
+			e.lastTouchedAt = now
 			byModel[k.model] = append(byModel[k.model], c.accountID)
 		}
 	}
@@ -296,6 +345,13 @@ func (g *openAITTFTGuard) exclusions(candidates []openAITTFTGuardCandidate, call
 }
 
 func (g *openAITTFTGuard) quality(candidates []openAITTFTGuardCandidate, cfg OpenAITTFTGuardConfigSnapshot) map[int64]forkscheduling.TTFTQuality {
+	if g == nil {
+		return nil
+	}
+	return g.qualityAt(candidates, cfg, g.now())
+}
+
+func (g *openAITTFTGuard) qualityAt(candidates []openAITTFTGuardCandidate, cfg OpenAITTFTGuardConfigSnapshot, now time.Time) map[int64]forkscheduling.TTFTQuality {
 	if g == nil || !cfg.Enabled {
 		return nil
 	}
@@ -304,16 +360,18 @@ func (g *openAITTFTGuard) quality(candidates []openAITTFTGuardCandidate, cfg Ope
 	defer g.mu.Unlock()
 	out := map[int64]forkscheduling.TTFTQuality{}
 	for _, c := range candidates {
-		g.syncConfigLocked(c.groupID, cfg)
+		if !g.acceptRequestConfigLocked(c.groupID, cfg) {
+			continue
+		}
 		k, ok := g.sampleKeyLocked(c.accountID, c.upstreamKeyID, c.model)
 		if !ok {
 			continue
 		}
 		raw := g.observations[k]
-		if raw == nil || g.now().Sub(raw.lastSampleAt) >= g.ttl {
+		if raw == nil || now.Sub(raw.lastSampleAt) >= g.ttl {
 			continue
 		}
-		if e := g.projectionLocked(k, c.groupID, cfg); e != nil {
+		if e := g.projectionAtLocked(k, c.groupID, cfg, now); e != nil {
 			out[c.accountID] = forkscheduling.TTFTQuality{Degraded: e.degraded, EWMAms: e.recentEWMA(), SampleCount: e.sampleCount}
 		}
 	}
@@ -321,43 +379,7 @@ func (g *openAITTFTGuard) quality(candidates []openAITTFTGuardCandidate, cfg Ope
 }
 
 func (g *openAITTFTGuard) degradations(ids []int64) map[int64][]OpenAITTFTGuardDegradation {
-	if g == nil {
-		return nil
-	}
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.deleteExpiredLocked(g.now())
-	wanted := map[int64]bool{}
-	for _, id := range ids {
-		wanted[id] = true
-	}
-	out := map[int64][]OpenAITTFTGuardDegradation{}
-	for groupID, cfg := range g.groupConfigs {
-		if !cfg.Enabled {
-			continue
-		}
-		for key, raw := range g.observations {
-			if !wanted[key.accountID] || (g.accountKeys[key.accountID] > 0 && g.accountKeys[key.accountID] != key.upstreamKeyID) {
-				continue
-			}
-			e := g.readProjectionLocked(key, groupID, cfg)
-			if e == nil || !e.degraded {
-				continue
-			}
-			last := (raw.nextSample - 1 + openAITTFTGuardSampleWindow) % openAITTFTGuardSampleWindow
-			out[key.accountID] = append(out[key.accountID], OpenAITTFTGuardDegradation{UpstreamKeyID: key.upstreamKeyID, GroupID: groupID, GroupName: cfg.GroupName, PolicySource: cfg.Source, Model: key.model, Reason: e.degradedReason, ThresholdMs: cfg.Threshold.Milliseconds(), LastTTFTMs: int64(raw.samples[last]), EWMAms: e.recentEWMA(), SampleCount: e.sampleCount, DegradedAt: e.degradedAt, LastSampleAt: raw.lastSampleAt, ExpiresAt: raw.lastSampleAt.Add(g.ttl), RecoverySamples: e.consecutiveRecovered, RecoverySamplesRequired: openAITTFTGuardRecoverySamples})
-		}
-	}
-	for id := range out {
-		sort.Slice(out[id], func(i, j int) bool {
-			a, b := out[id][i], out[id][j]
-			if a.GroupID != b.GroupID {
-				return a.GroupID < b.GroupID
-			}
-			return a.Model < b.Model
-		})
-	}
-	return out
+	return g.indexedDegradations(ids)
 }
 
 func (g *openAITTFTGuard) isDegraded(groupID, accountID int64, model string) bool {
@@ -378,28 +400,19 @@ func (g *openAITTFTGuard) isDegraded(groupID, accountID int64, model string) boo
 	e := g.projectionLocked(k, groupID, cfg)
 	return e != nil && e.degraded
 }
-func (g *openAITTFTGuard) deleteExpiredLocked(now time.Time) {
-	for k, e := range g.entries {
-		if e == nil || e.lastSampleAt.IsZero() || now.Sub(e.lastSampleAt) >= g.ttl {
-			delete(g.entries, k)
-		}
+func (g *openAITTFTGuard) clearGroupLocked(groupID int64) {
+	// The policy publisher invalidates projections on a real content change.
+	// A legacy invalidation callback may arrive for an unchanged PUT.
+	if g.policiesManaged {
+		return
 	}
-	accounts := map[int64]bool{}
-	for k, e := range g.observations {
-		if e == nil || e.lastSampleAt.IsZero() || now.Sub(e.lastSampleAt) >= 2*g.ttl {
-			delete(g.observations, k)
-		} else {
-			accounts[k.accountID] = true
-		}
+	if g.groupConfigs[groupID].Enabled {
+		g.activePolicies--
 	}
-	for id := range g.accountKeys {
-		if !accounts[id] {
-			delete(g.accountKeys, id)
-		}
-	}
+	delete(g.groupConfigs, groupID)
+	g.inheritedKnown = false
 }
-func (g *openAITTFTGuard) clearGroupLocked(groupID int64) { delete(g.groupConfigs, groupID) }
-func (g *openAITTFTGuard) clearScopeLocked(scopeID int64) { delete(g.groupConfigs, scopeID) }
+func (g *openAITTFTGuard) clearScopeLocked(scopeID int64) { g.clearGroupLocked(scopeID) }
 func (g *openAITTFTGuard) clearForConfig(groupID int64, cfg OpenAITTFTGuardConfigSnapshot) {
 	if g != nil {
 		g.mu.Lock()
@@ -413,6 +426,9 @@ func (g *openAITTFTGuard) clearInheritedConfigMismatch(cfg OpenAITTFTGuardConfig
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if g.policiesManaged || (g.inheritedKnown && sameOpenAITTFTGuardRuntimeConfig(g.inheritedConfig, cfg)) {
+		return
+	}
 	for id, old := range g.groupConfigs {
 		if old.Source == "" || old.Source == GroupTTFTGuardSourceGlobal {
 			next := cfg
@@ -420,5 +436,7 @@ func (g *openAITTFTGuard) clearInheritedConfigMismatch(cfg OpenAITTFTGuardConfig
 			g.groupConfigs[id] = normalizeOpenAITTFTGuardConfig(next)
 		}
 	}
+	g.inheritedConfig, g.inheritedKnown = cfg, true
+	g.recountActivePoliciesLocked()
 	g.pruneInactivePoliciesLocked()
 }

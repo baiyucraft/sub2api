@@ -763,12 +763,12 @@ func TestOpenAIGatewayService_TTFTGuardMappedModelWithinPriorityPool(t *testing.
 	accounts := []Account{
 		{
 			ID: 1, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true,
-			Concurrency: 1, Priority: 2,
+			Concurrency: 1, Priority: 2, GroupIDs: []int64{groupID},
 			Credentials: map[string]any{"model_mapping": map[string]any{"client-model": "upstream-slow"}},
 		},
 		{
 			ID: 2, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true,
-			Concurrency: 1, Priority: 2,
+			Concurrency: 1, Priority: 2, GroupIDs: []int64{groupID},
 			Credentials: map[string]any{"model_mapping": map[string]any{"client-model": "upstream-fast"}},
 		},
 	}
@@ -788,6 +788,7 @@ func TestOpenAIGatewayService_TTFTGuardMappedModelWithinPriorityPool(t *testing.
 	require.NoError(t, err)
 	require.NotNil(t, selection)
 	require.Equal(t, int64(2), selection.Account.ID)
+	require.True(t, selection.cacheGuardProtectedSelection, "must exercise TTFT ordering rather than ordinary fallback")
 	if selection.ReleaseFunc != nil {
 		selection.ReleaseFunc()
 	}
@@ -1040,8 +1041,8 @@ func TestOpenAIGatewayService_TTFTGuardMovablePreviousResponseStillApplies(t *te
 	ctx := context.Background()
 	groupID := int64(100)
 	accounts := []Account{
-		{ID: 41, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 2},
-		{ID: 42, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 2},
+		{ID: 41, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 2, GroupIDs: []int64{groupID}},
+		{ID: 42, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 2, GroupIDs: []int64{groupID}},
 	}
 	svc := &OpenAIGatewayService{
 		accountRepo:        schedulerTestOpenAIAccountRepo{accounts: accounts},

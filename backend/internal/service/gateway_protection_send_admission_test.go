@@ -62,7 +62,8 @@ func TestGatewayProtectionAdmissionRealForwardPreservesSourceUntilSend(t *testin
 				upstream := &gatewayProtectionAdmissionUpstream{cache: cache}
 				svc := &GatewayService{cache: cache, httpUpstream: upstream, cfg: &config.Config{}}
 				keyID := int64(2)
-				account := &Account{ID: 2, Platform: platform, Type: AccountTypeAPIKey, UpstreamKeyID: &keyID, Concurrency: 1, Credentials: map[string]any{"api_key": "test-key"}}
+				account := &Account{ID: 2, Platform: platform, Type: AccountTypeAPIKey, UpstreamKeyID: &keyID, Concurrency: 1, Status: StatusActive, Schedulable: true, AccountGroups: []AccountGroup{{GroupID: 100}}, Credentials: map[string]any{"api_key": "test-key"}}
+				svc.accountRepo = gatewayProtectionRecheckRepo{account: account}
 				if boundary == "credential" {
 					account.Credentials = nil
 				}

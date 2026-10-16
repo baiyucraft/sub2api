@@ -48,10 +48,13 @@ func withAccountRPMPrefetch(ctx context.Context, cache RPMCache, accounts []Acco
 	if cache == nil {
 		return ctx
 	}
+	previous, _ := ctx.Value(accountRPMPrefetchKey).(map[int64]int)
 	ids := make([]int64, 0, len(accounts))
 	for i := range accounts {
 		if accounts[i].RPMLimit > 0 {
-			ids = append(ids, accounts[i].ID)
+			if _, known := previous[accounts[i].ID]; !known {
+				ids = append(ids, accounts[i].ID)
+			}
 		}
 	}
 	if len(ids) == 0 {
@@ -60,6 +63,16 @@ func withAccountRPMPrefetch(ctx context.Context, cache RPMCache, accounts []Acco
 	counts, err := cache.GetRPMBatch(ctx, ids)
 	if err != nil {
 		return ctx // Redis failure is fail-open.
+	}
+	if len(previous) > 0 {
+		merged := make(map[int64]int, len(previous)+len(counts))
+		for id, count := range previous {
+			merged[id] = count
+		}
+		for id, count := range counts {
+			merged[id] = count
+		}
+		counts = merged
 	}
 	return context.WithValue(ctx, accountRPMPrefetchKey, counts)
 }

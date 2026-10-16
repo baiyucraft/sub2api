@@ -55,11 +55,17 @@ func (r legacyTTFTRuntime) Quality(candidates []forkscheduling.CandidateView, cf
 	if r.guard == nil {
 		return nil
 	}
+	return r.QualityAt(candidates, cfg, r.guard.now())
+}
+func (r legacyTTFTRuntime) QualityAt(candidates []forkscheduling.CandidateView, cfg forkscheduling.TTFTConfig, at time.Time) map[int64]forkscheduling.TTFTQuality {
+	if r.guard == nil {
+		return nil
+	}
 	views := make([]openAITTFTGuardCandidate, 0, len(candidates))
 	for _, candidate := range candidates {
 		views = append(views, openAITTFTGuardCandidate{groupID: candidate.GroupID, accountID: candidate.ID, model: candidate.Model, upstreamKeyID: candidate.UpstreamKeyID})
 	}
-	return r.guard.quality(views, openAITTFTGuardConfigFromContract(cfg))
+	return r.guard.qualityAt(views, openAITTFTGuardConfigFromContract(cfg), at)
 }
 
 func (r legacyTTFTRuntime) Report(sample forkscheduling.TTFTSample, cfg forkscheduling.TTFTConfig) {
@@ -352,7 +358,7 @@ func (s *OpenAIGatewayService) ForkSchedulingRuntime() forkscheduling.Runtime {
 
 func forkCacheGuardReader() forkscheduling.CacheGuardReader {
 	r := currentUpstreamCacheGuardRunner()
-	if r == nil || !r.available.Load() || r.closed.Load() {
+	if r == nil || r.closed.Load() {
 		return nil
 	}
 	return r.engine

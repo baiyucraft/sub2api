@@ -19,8 +19,10 @@ import (
 // read snapshot, including actual slot acquisition and sticky cache writes.
 type cacheGuardSelectionStore struct {
 	upstreamcacheguard.Store
-	rows     []upstreamcacheguard.RuntimeRow
-	accounts map[string]upstreamcacheguard.AccountState
+	rows         []upstreamcacheguard.RuntimeRow
+	accounts     map[string]upstreamcacheguard.AccountState
+	failAccounts map[int64]bool
+	trialPlans   int
 }
 
 func cacheGuardSelectionIdentity(id, keyID int64) string { return fmt.Sprintf("%d:%d", id, keyID) }
@@ -140,6 +142,9 @@ func (s *cacheGuardSelectionStore) AccountWindows(_ context.Context, _, _ time.T
 }
 
 func (s *cacheGuardSelectionStore) TransactAccount(_ context.Context, _, accountID, keyID int64, fn func(upstreamcacheguard.Tx) error) error {
+	if s.failAccounts[accountID] {
+		return fmt.Errorf("account %d refresh failed", accountID)
+	}
 	return fn(&cacheGuardSelectionTx{store: s, accountID: accountID, keyID: keyID})
 }
 
@@ -227,6 +232,7 @@ func (s *cacheGuardSelectionStore) Rows(context.Context, []int64) ([]upstreamcac
 	return s.rows, nil
 }
 func (s *cacheGuardSelectionStore) Transact(context.Context, int64, func(upstreamcacheguard.Tx) error) error {
+	s.trialPlans++
 	return nil
 }
 func (s *cacheGuardSelectionStore) row(t *testing.T, kind, key string, value any) {
@@ -391,6 +397,12 @@ type cacheGuardRefreshingAccountRepo struct {
 	schedulerTestOpenAIAccountRepo
 	initial []Account
 	reads   int
+	gets    int
+}
+
+func (r *cacheGuardRefreshingAccountRepo) GetByID(ctx context.Context, id int64) (*Account, error) {
+	r.gets++
+	return r.schedulerTestOpenAIAccountRepo.GetByID(ctx, id)
 }
 
 func (r *cacheGuardRefreshingAccountRepo) ListSchedulableByGroupIDAndPlatform(ctx context.Context, groupID int64, platform string) ([]Account, error) {
@@ -417,7 +429,7 @@ func TestUpstreamCacheGuardMigrationRejectsRefreshedCandidateOutsideTier(t *test
 			selection, _, err := svc.SelectAccountWithScheduler(ctx, &group, "", "conversation", "gpt-test", nil, OpenAIUpstreamTransportAny, false)
 			require.NoError(t, err)
 			require.NotNil(t, selection)
-			require.Greater(t, repo.reads, 1)
+			require.Equal(t, 1, repo.reads, "all protection tiers reuse the initial candidate directory")
 			require.Equal(t, int64(1), selection.Account.ID, "a newly visible account with no cache evidence cannot replace the source")
 			require.False(t, selection.RequiresStickyAdmissionBinding())
 			require.Equal(t, int64(1), cache.sessionBindings[svc.openAISessionCacheKey("conversation")])
@@ -574,5 +586,103 @@ func TestUpstreamCacheGuardAccountProtectionChangesOnlyNewSessionPreference(t *t
 				}
 			})
 		}
+	}
+}
+
+func TestUpstreamCacheGuardAccountRefreshFailureKeepsOnlyExistingAffinity(t *testing.T) {
+	svc, ctx, runner, _ := cacheGuardSelectionFixture(t, true, []float64{60, 90}, map[int64]bool{1: true}, true, time.Time{}, nil)
+	group := int64(100)
+	accounts, err := svc.accountRepo.ListSchedulableByGroupID(ctx, group)
+	require.NoError(t, err)
+	store := runner.store.(*cacheGuardSelectionStore)
+	store.failAccounts = map[int64]bool{1: true}
+	require.Error(t, runner.engine.Refresh(ctx))
+	runner.available.Store(false) // Refresh health is independent of account availability.
+	failed, usable := runner.engine.CachedAccountForGroup(group, 1, 1)
+	require.True(t, usable)
+	require.False(t, failed.Fresh)
+	healthy, usable := runner.engine.CachedAccountForGroup(group, 2, 2)
+	require.True(t, usable)
+	require.True(t, healthy.Fresh)
+
+	before := store.trialPlans
+	p := buildCacheGuardPreference(ctx, &group, "conversation", "gpt-test", "openai", accounts, nil)
+	require.True(t, p.Active)
+	require.Equal(t, int64(1), p.KeepAccountID)
+	require.False(t, p.Migration)
+	require.Empty(t, p.Tiers)
+	require.Equal(t, before, store.trialPlans, "stale affinity must not create a trial plan")
+
+	p = buildCacheGuardPreference(ctx, &group, "new-conversation", "gpt-test", "openai", accounts, nil)
+	require.True(t, p.Active)
+	require.Equal(t, [][]int64{{2}}, p.Tiers, "only independently fresh accounts may receive new preferences")
+	require.Zero(t, p.KeepAccountID)
+
+	// Failure to sample the stale source must not prevent its ordinary request
+	// from being selected and sent, or revoke the healthy account's preference.
+	require.Nil(t, BeginUpstreamCacheGuardRequest(ctx, 1, &group, "conversation", "gpt-test", "openai", &accounts[0]))
+	p = buildCacheGuardPreference(ctx, &group, "another-conversation", "gpt-test", "openai", accounts, nil)
+	require.True(t, p.Active)
+	require.Equal(t, [][]int64{{2}}, p.Tiers)
+}
+
+func TestUpstreamCacheGuardStaleSnapshotSkipsNewTrialsAndKeepsRealSchedulerAffinity(t *testing.T) {
+	svc, ctx, runner, cache := cacheGuardSelectionFixture(t, true, []float64{60, 90}, map[int64]bool{1: true}, true, time.Time{}, nil)
+	svc.SetOpenAITTFTGuardConfigProvider(openAITTFTGuardConfigProviderFunc(func() OpenAITTFTGuardConfigSnapshot { return OpenAITTFTGuardConfigSnapshot{} }))
+	group := int64(100)
+	accounts, err := svc.accountRepo.ListSchedulableByGroupID(ctx, group)
+	require.NoError(t, err)
+	// Exercise the real entry point after the whole snapshot becomes stale;
+	// engine tests cover the exact boundary without wall-clock delays.
+	time.Sleep(upstreamcacheguard.RefreshLifetime + 20*time.Millisecond)
+	runner.available.Store(false)
+	store := runner.store.(*cacheGuardSelectionStore)
+	before := store.trialPlans
+	p := buildCacheGuardPreference(ctx, &group, "new-conversation", "gpt-test", "openai", accounts, nil)
+	require.False(t, p.Active)
+	require.Equal(t, before, store.trialPlans)
+	require.Nil(t, BeginUpstreamCacheGuardRequest(ctx, 1, &group, "new-conversation", "gpt-test", "openai", &accounts[0]))
+	_, _, err, handled := svc.selectWithCacheGuardPreference(ctx, &group, "", "new-conversation", "gpt-test", nil, OpenAIUpstreamTransportAny, "", "", false, PlatformOpenAI, false, false)
+	require.NoError(t, err)
+	require.False(t, handled, "a new session must fall back to ordinary scheduling")
+	selection, _, err, handled := svc.selectWithCacheGuardPreference(ctx, &group, "", "conversation", "gpt-test", nil, OpenAIUpstreamTransportAny, "", "", false, PlatformOpenAI, false, false)
+	require.NoError(t, err)
+	require.True(t, handled, "the OpenAI entry point must retain usable stale affinity")
+	require.NotNil(t, selection)
+	require.Equal(t, int64(1), selection.Account.ID)
+	require.False(t, selection.RequiresStickyAdmissionBinding())
+	require.Equal(t, int64(1), cache.sessionBindings[svc.openAISessionCacheKey("conversation")])
+	require.Equal(t, before, store.trialPlans)
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
+}
+
+func TestUpstreamCacheGuardStaleTargetCannotTriggerMigrationOrTrial(t *testing.T) {
+	for _, allStale := range []bool{false, true} {
+		t.Run(fmt.Sprintf("all_stale_%v", allStale), func(t *testing.T) {
+			svc, ctx, runner, _ := cacheGuardSelectionFixture(t, true, []float64{60, 90}, map[int64]bool{1: true}, true, time.Time{}, nil)
+			store := runner.store.(*cacheGuardSelectionStore)
+			store.failAccounts = map[int64]bool{2: true}
+			if allStale {
+				store.failAccounts[1] = true
+			}
+			require.Error(t, runner.engine.Refresh(ctx))
+			group := int64(100)
+			accounts, err := svc.accountRepo.ListSchedulableByGroupID(ctx, group)
+			require.NoError(t, err)
+			before := store.trialPlans
+			p := buildCacheGuardPreference(ctx, &group, "conversation", "gpt-test", "openai", accounts, nil)
+			require.True(t, p.Active)
+			require.Equal(t, int64(1), p.KeepAccountID)
+			require.False(t, p.Migration)
+			require.Empty(t, p.Tiers)
+			require.Equal(t, before, store.trialPlans)
+			if allStale {
+				p = buildCacheGuardPreference(ctx, &group, "new-conversation", "gpt-test", "openai", accounts, nil)
+				require.False(t, p.Active)
+				require.Equal(t, before, store.trialPlans)
+			}
+		})
 	}
 }

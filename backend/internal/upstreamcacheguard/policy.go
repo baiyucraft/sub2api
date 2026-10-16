@@ -2,6 +2,7 @@ package upstreamcacheguard
 
 import (
 	"fmt"
+	"reflect"
 	"time"
 )
 
@@ -10,6 +11,10 @@ import (
 func PolicySignature(s Settings) string {
 	return digest(fmt.Sprintf("cache-policy-v1:%g:%g:%d", s.ThresholdPercent, s.RecoveryThresholdPercent, s.MinValidRequests))
 }
+
+// PolicyVersion allows one routing evaluation to reject a mixed-generation
+// read if a policy changes between its otherwise immutable snapshot reads.
+func (e *Engine) PolicyVersion() uint64 { return e.policyEpoch.Load() }
 
 func (e *Engine) ApplyPolicySettings(values map[int64]Settings) error {
 	copy := make(map[int64]Settings, len(values))
@@ -26,7 +31,16 @@ func (e *Engine) ApplyPolicySettings(values map[int64]Settings) error {
 		s.GroupIDs = append([]int64(nil), s.GroupIDs...)
 		copy[id] = s
 	}
+	old := e.policies.Load()
+	if old == nil && len(copy) == 0 {
+		return nil
+	}
+	if old != nil && reflect.DeepEqual(*old, copy) {
+		return nil
+	}
 	e.policies.Store(&copy)
+	e.updateActivePolicy()
+	e.policyEpoch.Add(1)
 	return nil
 }
 
@@ -45,17 +59,22 @@ func (e *Engine) ResolvedSettings(groupID int64) Settings {
 }
 
 func (e *Engine) AnyPolicyActive() bool {
+	return e.activePolicy.Load()
+}
+func (e *Engine) updateActivePolicy() {
 	if e.Settings().Mode != Disabled {
-		return true
+		e.activePolicy.Store(true)
+		return
 	}
 	if values := e.policies.Load(); values != nil {
 		for _, s := range *values {
 			if s.Mode != Disabled {
-				return true
+				e.activePolicy.Store(true)
+				return
 			}
 		}
 	}
-	return false
+	e.activePolicy.Store(false)
 }
 
 func (e *Engine) activePolicies() map[string]Settings {
@@ -128,15 +147,33 @@ func (e *Engine) recomputePolicies(a *AccountState, facts []Evidence, now time.T
 	return nil
 }
 
+func projectionSettingsCompatible(a, b Settings) bool {
+	return PolicySignature(a) == PolicySignature(b) && a.WindowMinutes == b.WindowMinutes && a.CooldownMinutes == b.CooldownMinutes && a.TrialPercent == b.TrialPercent
+}
+
+func accountPoliciesCompatible(a AccountState, active map[string]Settings) bool {
+	if a.Policies == nil || len(a.Policies) != len(active) {
+		return false
+	}
+	for signature, settings := range active {
+		p, exists := a.Policies[signature]
+		if !exists || !projectionSettingsCompatible(p.Settings, settings) {
+			return false
+		}
+	}
+	return true
+}
+
 func projectAccountSnapshot(a AccountSnapshot, s Settings) AccountSnapshot {
-	result := cloneAccountSnapshot(a)
-	if p, ok := a.Policies[PolicySignature(s)]; ok {
+	result := a
+	if p, ok := a.Policies[PolicySignature(s)]; ok && projectionSettingsCompatible(p.Settings, s) {
 		result.AccountState = p.State
 		result.GroupIDs = append([]int64(nil), a.GroupIDs...)
 		result.Policies = nil
 		return cloneAccountSnapshot(result)
 	}
 	if a.Policies != nil {
+		result.Available, result.Fresh = false, false
 		result.Phase = Healthy
 		result.CohortID = ""
 		result.TrialValidRequests, result.TrialSessions = 0, 0
@@ -144,7 +181,7 @@ func projectAccountSnapshot(a AccountSnapshot, s Settings) AccountSnapshot {
 		result.FirstTrialAt, result.CooldownUntil = time.Time{}, time.Time{}
 	}
 	result.Policies = nil
-	return result
+	return cloneAccountSnapshot(result)
 }
 
 // ProjectAccountSnapshot reads one strategy without borrowing another
@@ -154,6 +191,7 @@ func ProjectAccountSnapshot(a AccountSnapshot, s Settings) AccountSnapshot {
 }
 
 func (e *Engine) CachedAccountForGroup(groupID, accountID, keyID int64) (AccountSnapshot, bool) {
-	a, fresh := e.CachedSharedAccount(accountID, keyID)
-	return projectAccountSnapshot(a, e.ResolvedSettings(groupID)), fresh
+	a, _ := e.CachedSharedAccount(accountID, keyID)
+	a = projectAccountSnapshot(a, e.ResolvedSettings(groupID))
+	return a, a.Available
 }

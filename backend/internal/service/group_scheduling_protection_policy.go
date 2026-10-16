@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -102,6 +103,45 @@ type GroupSchedulingProtectionResolvedPolicy struct {
 	PrioritySource   string
 }
 
+// GroupSchedulingProtectionPolicySnapshot is immutable after publication. It
+// can be retained for one scheduling evaluation without copying every group.
+// Accessors return owned values, including the only slice in a policy.
+type GroupSchedulingProtectionPolicySnapshot struct {
+	revision uint64
+	policies map[int64]GroupSchedulingProtectionResolvedPolicy
+}
+
+func (s *GroupSchedulingProtectionPolicySnapshot) Revision() uint64 {
+	if s == nil {
+		return 0
+	}
+	return s.revision
+}
+
+func cloneSchedulingProtectionPolicy(p GroupSchedulingProtectionResolvedPolicy) GroupSchedulingProtectionResolvedPolicy {
+	p.Cache.GroupIDs = append([]int64(nil), p.Cache.GroupIDs...)
+	return p
+}
+
+func (s *GroupSchedulingProtectionPolicySnapshot) Policy(groupID int64) (GroupSchedulingProtectionResolvedPolicy, bool) {
+	if s == nil {
+		return GroupSchedulingProtectionResolvedPolicy{}, false
+	}
+	p, ok := s.policies[groupID]
+	return cloneSchedulingProtectionPolicy(p), ok
+}
+
+func (s *GroupSchedulingProtectionPolicySnapshot) Policies() map[int64]GroupSchedulingProtectionResolvedPolicy {
+	if s == nil {
+		return nil
+	}
+	out := make(map[int64]GroupSchedulingProtectionResolvedPolicy, len(s.policies))
+	for id, p := range s.policies {
+		out[id] = cloneSchedulingProtectionPolicy(p)
+	}
+	return out
+}
+
 type GroupSchedulingProtectionPolicyResolver interface {
 	ResolveProtection(context.Context, int64) (GroupSchedulingProtectionResolvedPolicy, error)
 }
@@ -120,6 +160,7 @@ type GroupSchedulingProtectionPolicyService struct {
 	bus        GroupTTFTGuardPolicyInvalidationBus
 	mu         sync.RWMutex
 	snapshot   map[int64]GroupSchedulingProtectionResolvedPolicy
+	published  *GroupSchedulingProtectionPolicySnapshot
 	platforms  []string
 	loadedAt   time.Time
 	refreshing atomic.Bool
@@ -273,11 +314,53 @@ func (s *GroupSchedulingProtectionPolicyService) RefreshProtectionPolicies(ctx c
 		}
 		next[record.TTFT.GroupID] = resolved
 	}
+	platforms := s.settings.SchedulingProtectionPlatformsSnapshot()
 	s.mu.Lock()
-	s.snapshot, s.loadedAt = next, time.Now()
-	s.platforms = s.settings.SchedulingProtectionPlatformsSnapshot()
+	// Refresh success updates health even when policy content is unchanged.
+	// Never mutate a published map: evaluations may still retain its revision.
+	if s.published == nil || !reflect.DeepEqual(s.snapshot, next) || !reflect.DeepEqual(s.platforms, platforms) {
+		revision := uint64(1)
+		if s.published != nil {
+			revision = s.published.revision + 1
+		}
+		s.snapshot = next
+		s.published = &GroupSchedulingProtectionPolicySnapshot{revision: revision, policies: next}
+		s.platforms = platforms
+	}
+	s.loadedAt = time.Now()
 	s.mu.Unlock()
 	return nil
+}
+
+func (s *GroupSchedulingProtectionPolicyService) ProtectionPoliciesSnapshot() *GroupSchedulingProtectionPolicySnapshot {
+	if s == nil {
+		return nil
+	}
+	s.refreshStale()
+	s.mu.RLock()
+	published := s.published
+	s.mu.RUnlock()
+	if published != nil {
+		return published
+	}
+	// Lightweight integrations may supply an already loaded map. Publish an
+	// owned copy once so captured request identity remains stable as in production.
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.published == nil {
+		policies := make(map[int64]GroupSchedulingProtectionResolvedPolicy, len(s.snapshot))
+		for id, policy := range s.snapshot {
+			policies[id] = cloneSchedulingProtectionPolicy(policy)
+		}
+		s.published = &GroupSchedulingProtectionPolicySnapshot{revision: 1, policies: policies}
+	}
+	return s.published
+}
+
+// ProtectionPolicy returns the stored policy. The live platform gate remains
+// separate so pausing a platform never destroys observations or recovery state.
+func (s *GroupSchedulingProtectionPolicyService) ProtectionPolicy(groupID int64) (GroupSchedulingProtectionResolvedPolicy, bool) {
+	return s.ProtectionPoliciesSnapshot().Policy(groupID)
 }
 
 func (s *GroupSchedulingProtectionPolicyService) refreshStale() {
@@ -348,15 +431,7 @@ func (s *GroupSchedulingProtectionPolicyService) effectiveProtectionPolicy(polic
 
 // ProtectionPolicies returns a caller-owned hot snapshot without database I/O.
 func (s *GroupSchedulingProtectionPolicyService) ProtectionPolicies() map[int64]GroupSchedulingProtectionResolvedPolicy {
-	s.refreshStale()
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	out := make(map[int64]GroupSchedulingProtectionResolvedPolicy, len(s.snapshot))
-	for id, policy := range s.snapshot {
-		policy.Cache.GroupIDs = append([]int64{}, policy.Cache.GroupIDs...)
-		out[id] = policy
-	}
-	return out
+	return s.ProtectionPoliciesSnapshot().Policies()
 }
 
 func (s *GroupSchedulingProtectionPolicyService) CacheSettings(groupID int64) (UpstreamCacheGuardSettings, bool) {
@@ -364,7 +439,7 @@ func (s *GroupSchedulingProtectionPolicyService) CacheSettings(groupID int64) (U
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	policy, ok := s.snapshot[groupID]
-	return policy.Cache, ok
+	return cloneSchedulingProtectionPolicy(policy).Cache, ok
 }
 
 func (s *GroupSchedulingProtectionPolicyService) CachePolicyMetadata(groupID int64) (string, string) {
@@ -386,7 +461,7 @@ func (s *GroupSchedulingProtectionPolicyService) ResolveProtection(ctx context.C
 	policy, ok := s.snapshot[groupID]
 	s.mu.RUnlock()
 	if ok {
-		return s.effectiveProtectionPolicy(policy), nil
+		return s.effectiveProtectionPolicy(cloneSchedulingProtectionPolicy(policy)), nil
 	}
 	record, err := s.repo.Get(ctx, groupID)
 	if err != nil {

@@ -2,6 +2,7 @@ package admin
 
 import (
 	"sort"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
@@ -12,6 +13,139 @@ type accountTTFTProtectionReader interface {
 
 type accountProtectionPolicies interface {
 	ProtectionPolicies() map[int64]service.GroupSchedulingProtectionResolvedPolicy
+}
+
+type accountProtectionPagePolicies struct {
+	policies map[int64]service.GroupSchedulingProtectionResolvedPolicy
+	selected map[string]bool
+}
+
+func (p accountProtectionPagePolicies) ProtectionPolicies() map[int64]service.GroupSchedulingProtectionResolvedPolicy {
+	return p.policies
+}
+func (p accountProtectionPagePolicies) PlatformSelected(platform string) bool {
+	return p.selected[platform]
+}
+func (p accountProtectionPagePolicies) ProtectionGroupPlatform(id int64) (string, bool) {
+	policy, ok := p.policies[id]
+	platform := policy.GroupPlatform
+	if platform == "" {
+		platform = service.PlatformOpenAI
+	}
+	return platform, ok
+}
+
+type accountProtectionModelKey struct{ accountID, keyID, groupID int64 }
+type accountProtectionPageTTFT map[accountProtectionModelKey][]service.TTFTProtectionModelView
+
+func (r accountProtectionPageTTFT) OpenAITTFTGuardDegradations([]int64) map[int64][]service.OpenAITTFTGuardDegradation {
+	return nil
+}
+func (r accountProtectionPageTTFT) TTFTProtectionSnapshots(accountID, keyID, groupID int64, _ service.OpenAITTFTGuardConfigSnapshot) []service.TTFTProtectionModelView {
+	// Platform gating mutates projected model views, so give each consumer ownership.
+	return append([]service.TTFTProtectionModelView{}, r[accountProtectionModelKey{accountID, keyID, groupID}]...)
+}
+
+// upstreamProtectionsBatch fixes policy contents once and snapshots only the
+// current page's account/key/model projections in one short runtime read.
+func (h *AccountHandler) upstreamProtectionsBatch(accounts []service.Account, caches map[int64]service.UpstreamCacheGuardAccountView) map[int64]*AccountUpstreamProtection {
+	return h.upstreamProtectionsBatchAt(accounts, caches, time.Now())
+}
+
+func (h *AccountHandler) upstreamProtectionsBatchAt(accounts []service.Account, caches map[int64]service.UpstreamCacheGuardAccountView, evaluatedAt time.Time) map[int64]*AccountUpstreamProtection {
+	if h.isSimpleMode() || len(accounts) == 0 {
+		return nil
+	}
+	bound := false
+	for i := range accounts {
+		if accounts[i].IsUpstreamBound() {
+			bound = true
+			break
+		}
+	}
+	if !bound {
+		return nil
+	}
+	page := *h
+	if h.protectionPolicyReader != nil {
+		var policies map[int64]service.GroupSchedulingProtectionResolvedPolicy
+		if snapshots, ok := h.protectionPolicyReader.(interface {
+			ProtectionPoliciesSnapshot() *service.GroupSchedulingProtectionPolicySnapshot
+		}); ok {
+			policies = snapshots.ProtectionPoliciesSnapshot().Policies()
+		} else {
+			policies = h.protectionPolicyReader.ProtectionPolicies()
+		}
+		selected := make(map[string]bool)
+		platforms, _ := h.protectionPolicyReader.(interface{ PlatformSelected(string) bool })
+		remember := func(platform string) {
+			if _, ok := selected[platform]; !ok {
+				selected[platform] = service.SchedulingProtectionPlatformSelected(platforms, platform)
+			}
+		}
+		remember(service.PlatformOpenAI)
+		for _, policy := range policies {
+			remember(policy.GroupPlatform)
+		}
+		for i := range accounts {
+			remember(accounts[i].Platform)
+		}
+		page.protectionPolicyReader = accountProtectionPagePolicies{policies: policies, selected: selected}
+	}
+	if batch, ok := h.ttftGuardReader.(interface {
+		TTFTProtectionSnapshotsBatch([]service.TTFTProtectionSnapshotRequest) [][]service.TTFTProtectionModelView
+	}); ok {
+		requests := make([]service.TTFTProtectionSnapshotRequest, 0, len(accounts)*2)
+		policies := map[int64]service.GroupSchedulingProtectionResolvedPolicy{}
+		if page.protectionPolicyReader != nil {
+			policies = page.protectionPolicyReader.ProtectionPolicies()
+		}
+		for i := range accounts {
+			account := &accounts[i]
+			if !account.IsUpstreamBound() || account.Platform != service.PlatformOpenAI {
+				continue
+			}
+			requests = append(requests, service.TTFTProtectionSnapshotRequest{AccountID: account.ID, KeyID: *account.UpstreamKeyID})
+			ids := append([]int64{}, account.GroupIDs...)
+			for _, group := range account.Groups {
+				if group != nil {
+					ids = append(ids, group.ID)
+				}
+			}
+			seen := make(map[int64]bool, len(ids))
+			for _, id := range ids {
+				if seen[id] {
+					continue
+				}
+				seen[id] = true
+				policy, exists := policies[id]
+				if !exists {
+					continue
+				}
+				requests = append(requests, service.TTFTProtectionSnapshotRequest{AccountID: account.ID, KeyID: *account.UpstreamKeyID, GroupID: id, Config: service.OpenAITTFTGuardConfigSnapshot{Enabled: policy.TTFT.Enabled, Threshold: policy.TTFT.Threshold, MinSamples: policy.TTFT.MinSamples, Source: policy.TTFT.Source, GroupName: policy.TTFT.GroupName}})
+			}
+		}
+		var models [][]service.TTFTProtectionModelView
+		if fixed, ok := h.ttftGuardReader.(interface {
+			TTFTProtectionSnapshotsBatchAt([]service.TTFTProtectionSnapshotRequest, time.Time) [][]service.TTFTProtectionModelView
+		}); ok {
+			models = fixed.TTFTProtectionSnapshotsBatchAt(requests, evaluatedAt)
+		} else {
+			models = batch.TTFTProtectionSnapshotsBatch(requests)
+		}
+		reader := make(accountProtectionPageTTFT, len(requests))
+		for i, request := range requests {
+			if i < len(models) {
+				reader[accountProtectionModelKey{request.AccountID, request.KeyID, request.GroupID}] = models[i]
+			}
+		}
+		page.ttftGuardReader = reader
+	}
+	result := make(map[int64]*AccountUpstreamProtection, len(accounts))
+	for i := range accounts {
+		result[accounts[i].ID] = page.upstreamProtection(&accounts[i], caches[accounts[i].ID])
+	}
+	return result
 }
 
 type AccountUpstreamProtection struct {
