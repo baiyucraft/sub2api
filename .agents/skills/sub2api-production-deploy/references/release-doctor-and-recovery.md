@@ -369,6 +369,10 @@ RackNerd  -> direct /health、应用日志
 
 ## VM 白名单清理
 
+VM Gate 的磁盘恢复必须先保存当前失败演练的结构化证据到本地 `.tmp`，再检查恢复进程与 runner 均已退出。旧测试 `full-dr-*` Guest rootfs 和未被容器引用的 `vm-only-*` 镜像属于隔离测试资产，可以删除；生产容器、PostgreSQL/Redis 数据、备份、当前/上一镜像、Gate、checksum 和失败证据不属于白名单。删除后重新核对 Docker 可用空间、三节点 health 和目标完整 commit，不能续跑已删除的 rootfs。
+
+`vm-space-clean.sh` 仍须 dry-run -> 单次 apply -> dry-run，固定使用 `max-used-space=1gb` 与 `reserved-space=1gb`，目标至少保留 8 GiB。若 PostgreSQL 因磁盘耗尽处于 recovery，只有日志明确包含 `No space left on device` 时才允许走清理器的最小空间回退；其余数据库错误保持 fail-closed。清理后重新生成 helper bundle、授权、Gate 和 full DR，不得复用旧 helper 字节或旧演练身份。
+
 空间不足时只能清理一次，并在清理前后重新计算空间：
 
 - 允许删除本次 `sub2api-probe-*` 临时资源。
