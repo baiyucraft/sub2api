@@ -269,13 +269,16 @@ def redis_lazy_observation(env,raw):
         if value=='--requirepass': need(i+1<len(args),'Redis password argument'); password=args[i+1]
         elif value.startswith('--requirepass='): password=value.split('=',1)[1]
     need('\n' not in password and '\x00' not in password,'Redis auth input')
-    lua="local before=redis.call('DBSIZE'); local info=redis.call('INFO','keyspace'); local exp=0; for n in string.gmatch(info,'expires=(%d+)') do exp=exp+tonumber(n) end; local cursor='0'; local rounds=0; repeat local result=redis.call('SCAN',cursor,'COUNT',1000); cursor=result[1]; rounds=rounds+1; if rounds>100000 then return redis.error_reply('bounded scan exhausted') end until cursor=='0'; local after=redis.call('DBSIZE'); return {before,after,exp}"
+    lua="local before=redis.call('DBSIZE'); local info=redis.call('INFO','keyspace'); local exp=0; for db,k,e in string.gmatch(info,'db(%d+):keys=(%d+),expires=(%d+)') do if tonumber(db)~=0 and tonumber(k)>0 then return redis.error_reply('unsupported nonzero Redis DB') end; if tonumber(db)==0 then exp=tonumber(e) end end; local cursor='0'; local rounds=0; repeat local result=redis.call('SCAN',cursor,'COUNT',1000); cursor=result[1]; rounds=rounds+1; if rounds>100000 then return redis.error_reply('bounded scan exhausted') end until cursor=='0'; local after=redis.call('DBSIZE'); return {before,after,exp}"
     shell='IFS= read -r REDISCLI_AUTH; export REDISCLI_AUTH; exec redis-cli --no-auth-warning --raw EVAL "$1" 0'
     result=subprocess.run(['docker','exec','-i','sub2api-redis','sh','-c',shell,'redis-lazy',lua],input=(password+'\n').encode(),capture_output=True,env=env,timeout=180,check=False)
     with raw.open('ab') as stream: stream.write(result.stdout+result.stderr)
     need(result.returncode==0,'actual Redis lazy observation failed')
     lines=result.stdout.decode('ascii').splitlines(); need(len(lines)==3 and all(re.fullmatch(r'[0-9]+',v) for v in lines),'actual Redis Lua counts missing')
-    before,after,expires=map(int,lines); need(before>after>=expires>=0,'actual Redis natural lazy expiry unavailable')
+    # INFO and before are sampled before SCAN; after includes actual expiry
+    # deletions. Only TTL keys may disappear, so preserve the persistent floor.
+    before,after,expires=map(int,lines)
+    need(before>after>=0 and before>=expires>=0 and after>=before-expires,'actual Redis natural lazy expiry unavailable')
     return before,after,expires
 
 def fault(code,before,after):
@@ -665,7 +668,7 @@ def validate_guest_receipt(receipt,d):
     need(redis["rdb_sha256"]==inventory["redis_rdb_sha256"] and all(integer(redis[k]) for k in ("backup_dbsize","backup_expiring","restored_dbsize","restored_expiring","restored_keyspace_keys","persistent_before","persistent_after","health_wait_ms","health_budget_ms")),"actual Redis bytes or counts missing")
     need(redis["restore_verified"] is True and redis["ttl_reconciled"] is True and redis["lazy_expiry_observed"] is True,"actual Redis boundary case unavailable")
     need(60000<redis["health_wait_ms"]<=redis["health_budget_ms"]<=180000,"actual delayed Redis case unavailable")
-    need(redis["backup_dbsize"]>=redis["backup_expiring"]>redis["restored_expiring"] and redis["backup_dbsize"]>=redis["restored_dbsize"]>redis["restored_keyspace_keys"]>=redis["restored_expiring"]>=0 and redis["persistent_after"]>=redis["persistent_before"],"actual Redis TTL counts differ")
+    need(redis["backup_dbsize"]>=redis["backup_expiring"]>redis["restored_expiring"] and redis["backup_dbsize"]>=redis["restored_dbsize"]>redis["restored_keyspace_keys"]>=0 and redis["restored_dbsize"]>=redis["restored_expiring"] and redis["restored_keyspace_keys"]>=redis["restored_dbsize"]-redis["restored_expiring"] and redis["persistent_after"]>=redis["persistent_before"],"actual Redis TTL counts differ")
     need(redis["persistent_before"]==redis["backup_dbsize"]-redis["backup_expiring"] and redis["persistent_after"]==redis["restored_dbsize"]-redis["restored_expiring"],"Redis persistent floor differs")
     compose=shape(measured["compose"],{"closure_restored","render_before_sha256","render_after_sha256","old_image_id","restored_image_id"},"Guest Compose")
     need(digest(compose["render_before_sha256"]) and compose["render_before_sha256"]==compose["render_after_sha256"] and compose["closure_restored"] is True and compose["old_image_id"]==compose["restored_image_id"]==d["pre_image_id"],"Compose recovery differs")

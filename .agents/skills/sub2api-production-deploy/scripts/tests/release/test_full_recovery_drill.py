@@ -252,9 +252,9 @@ class FullRecoveryDrillTests(unittest.TestCase):
 
     def test_lazy_expiry_uses_actual_atomic_counts_and_refuses_no_expiry(self):
         config=json.dumps([{'Config':{'Entrypoint':['redis-server'],'Cmd':['--requirepass','private']}}]).encode()
-        for output,valid in ((b'20\n18\n5\n',True),(b'18\n18\n5\n',False),(b'20\n18\n19\n',False)):
+        for output,valid in ((b'20\n18\n5\n',True),(b'42170\n37472\n39123\n',True),(b'20\n18\n19\n',True),(b'18\n18\n5\n',False),(b'20\n0\n19\n',False),(b'20\n18\n21\n',False),(b'ERR unsupported nonzero Redis DB\n',False)):
             with tempfile.TemporaryDirectory() as temp,mock.patch.object(drill,'observed',return_value=config),mock.patch.object(drill.subprocess,'run',return_value=subprocess.CompletedProcess([],0,output,b'')) as command:
-                if valid: self.assertEqual(drill.redis_lazy_observation({},Path(temp)/'raw'),(20,18,5))
+                if valid: self.assertEqual(drill.redis_lazy_observation({},Path(temp)/'raw'),tuple(map(int,output.splitlines())))
                 else:
                     with self.assertRaises(RuntimeError): drill.redis_lazy_observation({},Path(temp)/'raw')
                 self.assertNotIn('private',command.call_args.args[0])

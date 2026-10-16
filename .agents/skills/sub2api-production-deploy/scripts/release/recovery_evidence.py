@@ -234,7 +234,9 @@ def validate_measurements(measurements: dict[str, Any], payload: dict[str, Any])
     require(redis["restore_verified"] is True and redis["ttl_reconciled"] is True and redis["lazy_expiry_observed"] is True and sha(redis["rdb_sha256"]), "Redis measured restoration")
     counts = ("backup_dbsize", "backup_expiring", "restored_dbsize", "restored_expiring", "restored_keyspace_keys", "persistent_before", "persistent_after", "health_wait_ms", "health_budget_ms")
     require(all(integer(redis[key]) for key in counts), "Redis measured integer values")
-    require(redis["backup_dbsize"] >= redis["restored_dbsize"] > redis["restored_keyspace_keys"] >= redis["restored_expiring"], "Redis lazy expiration count observation")
+    # restored_dbsize/restored_expiring precede SCAN; keyspace_keys follows it.
+    # Expired TTL keys may vanish, but the pre-SCAN persistent floor must remain.
+    require(redis["backup_dbsize"] >= redis["restored_dbsize"] > redis["restored_keyspace_keys"] >= 0 and redis["restored_dbsize"] >= redis["restored_expiring"] and redis["restored_keyspace_keys"] >= redis["restored_dbsize"] - redis["restored_expiring"], "Redis lazy expiration count observation")
     require(redis["backup_dbsize"] >= redis["backup_expiring"] > redis["restored_expiring"] and redis["persistent_before"] == redis["backup_dbsize"] - redis["backup_expiring"] and redis["persistent_after"] == redis["restored_dbsize"] - redis["restored_expiring"] and redis["persistent_after"] >= redis["persistent_before"], "Redis TTL and persistent floor")
     require(60000 < redis["health_wait_ms"] <= redis["health_budget_ms"] <= 600000, "real delayed Redis startup budget")
     faults = shape(measurements["faults"], {"app_healthy_interrupt", "cleanup_before_interrupt", "stale_ingress"}, "fault")
