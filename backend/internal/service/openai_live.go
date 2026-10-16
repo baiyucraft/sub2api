@@ -202,7 +202,9 @@ func (s *OpenAIGatewayService) CreateLiveCall(
 				if ctx.Err() != nil || !failoverErr.ShouldRetryNextAccount() {
 					return nil, createErr
 				}
-				excluded[account.ID] = struct{}{}
+				if !failoverErr.ProtectionOrdinaryFallback {
+					excluded[account.ID] = struct{}{}
+				}
 				lastErr = createErr
 				continue
 			}
@@ -319,6 +321,9 @@ func (s *OpenAIGatewayService) createUpstreamLiveCall(
 
 	resp, err := s.doOpenAIUpstream(upstreamReq, resolveAccountProxyURL(account), account)
 	if err != nil {
+		if scoped := schedulingProtectionRequestLocalError(err); scoped != nil {
+			return nil, scoped
+		}
 		var admissionErr *PluginAdmissionError
 		if errors.As(err, &admissionErr) {
 			return nil, s.handleOpenAIUpstreamTransportError(ctx, nil, account, err, false)

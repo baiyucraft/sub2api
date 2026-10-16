@@ -29,6 +29,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/typesafe"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
+	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -858,6 +859,35 @@ func (h *AccountHandler) listAccountsWithQualityFilter(
 		return nil, 0, fmt.Errorf("account quality filtering is not supported")
 	}
 
+	if reader, ok := h.adminService.(interface {
+		AccountQualityCandidateIDs(context.Context, service.AccountQualityCandidatesQuery) ([]int64, error)
+		AccountQualityCandidatePage(context.Context, service.AccountQualityCandidatesQuery, []int64) ([]service.Account, error)
+	}); ok {
+		query := service.AccountQualityCandidatesQuery{Platform: platform, Type: accountType, Status: status, Search: search, GroupID: groupID, PrivacyMode: privacyMode, SortBy: sortBy, SortOrder: sortOrder, Scope: scope}
+		ids, err := reader.AccountQualityCandidateIDs(ctx, query)
+		if err != nil {
+			return nil, 0, err
+		}
+		stats, err := h.accountUsageService.GetAccountQualityStatsBatch(ctx, ids, time.Now().UTC())
+		if err != nil {
+			return nil, 0, err
+		}
+		filtered := make([]int64, 0, len(ids))
+		for _, id := range ids {
+			if qualityFilter.Matches(stats[id]) {
+				filtered = append(filtered, id)
+			}
+		}
+		total := int64(len(filtered))
+		start := (page - 1) * pageSize
+		if start >= len(filtered) {
+			return []service.Account{}, total, nil
+		}
+		end := min(start+pageSize, len(filtered))
+		accounts, err := reader.AccountQualityCandidatePage(ctx, query, filtered[start:end])
+		return accounts, total, err
+	}
+
 	// Quality filtering must happen before the requested page is selected. Read
 	// the already-filtered and sorted account set in bounded batches so the
 	// repository remains the source of truth for all ordinary list predicates.
@@ -1004,6 +1034,11 @@ func (h *AccountHandler) List(c *gin.Context) {
 	}
 
 	listCtx := c.Request.Context()
+	if subject, ok := middleware.GetAuthSubjectFromContext(c); ok {
+		role, _ := middleware.GetUserRoleFromContext(c)
+		listCtx = service.WithAccountListReadAuthorization(listCtx, subject.UserID, role)
+		c.Request = c.Request.WithContext(listCtx)
+	}
 	if preferredQuery == "1" || strings.EqualFold(preferredQuery, "true") {
 		listCtx = service.WithAccountListPreferred(listCtx, true)
 	}
@@ -1110,7 +1145,9 @@ func (h *AccountHandler) List(c *gin.Context) {
 	}
 	upstreamKeyIDs := accountListUpstreamKeyIDs(accounts)
 	upstreamConfidences := h.accountListHealthConfidences(c.Request.Context(), upstreamKeyIDs)
-	upstreamCacheGuardViews := service.UpstreamCacheGuardAccountViewsBatch(accounts)
+	protectionEvaluatedAt := time.Now()
+	upstreamCacheGuardViews := service.UpstreamCacheGuardAccountViewsBatchAt(accounts, protectionEvaluatedAt)
+	upstreamProtections := h.upstreamProtectionsBatchAt(accounts, upstreamCacheGuardViews, protectionEvaluatedAt)
 	if scope == service.AccountListScopeUpstream && h.upstreamHealthReader != nil {
 		if len(upstreamKeyIDs) > 0 {
 			upstreamHealthHistories, err = h.upstreamHealthReader.ListUpstreamHealthHistories(c.Request.Context(), upstreamKeyIDs, service.UpstreamHealthListHistoryLimit)
@@ -1161,32 +1198,21 @@ func (h *AccountHandler) List(c *gin.Context) {
 		}
 	}
 
-	// 始终获取窗口费用（PostgreSQL 聚合查询）
-	if len(windowCostAccountIDs) > 0 {
-		windowCosts = make(map[int64]float64)
-		var mu sync.Mutex
-		g, gctx := errgroup.WithContext(c.Request.Context())
-		g.SetLimit(10) // 限制并发数
-
+	// Use each account's own inclusive window boundary in one aggregate query.
+	if len(windowCostAccountIDs) > 0 && h.accountUsageService != nil {
+		starts := make(map[int64]time.Time, len(windowCostAccountIDs))
 		for i := range accounts {
 			acc := &accounts[i]
-			if !acc.IsAnthropicOAuthOrSetupToken() || acc.GetWindowCostLimit() <= 0 {
-				continue
+			if acc.IsAnthropicOAuthOrSetupToken() && acc.GetWindowCostLimit() > 0 {
+				starts[acc.ID] = acc.GetCurrentWindowStartTime()
 			}
-			accCopy := acc // 闭包捕获
-			g.Go(func() error {
-				// 使用统一的窗口开始时间计算逻辑（考虑窗口过期情况）
-				startTime := accCopy.GetCurrentWindowStartTime()
-				stats, err := h.accountUsageService.GetAccountWindowStats(gctx, accCopy.ID, startTime)
-				if err == nil && stats != nil {
-					mu.Lock()
-					windowCosts[accCopy.ID] = stats.StandardCost // 使用标准费用
-					mu.Unlock()
-				}
-				return nil // 不返回错误，允许部分失败
-			})
 		}
-		_ = g.Wait()
+		windowCosts = make(map[int64]float64, len(starts))
+		for id, stats := range h.accountUsageService.GetAccountWindowStatsByStarts(c.Request.Context(), starts) {
+			if stats != nil {
+				windowCosts[id] = stats.StandardCost
+			}
+		}
 	}
 
 	// Build response with concurrency info
@@ -1215,7 +1241,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 			TTFTGuardDegradations:    accountTTFTGuardDegradations,
 			UpstreamCacheGuardStates: upstreamCacheGuardViews[acc.ID].States,
 			UpstreamCacheGuard:       upstreamCacheGuardViews[acc.ID].Summary,
-			UpstreamProtection:       h.upstreamProtection(acc, upstreamCacheGuardViews[acc.ID]),
+			UpstreamProtection:       upstreamProtections[acc.ID],
 			ProxyConcurrency:         proxyConcurrency[acc.ID],
 		}
 		target := acc.SchedulingConcurrencyTarget()

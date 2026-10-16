@@ -676,6 +676,9 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 	resp, err := s.doOpenAIUpstream(upstreamReq, proxyURL, account)
 	SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(upstreamStart).Milliseconds())
 	if err != nil {
+		if scoped := schedulingProtectionRequestLocalError(err); scoped != nil {
+			return nil, scoped
+		}
 		var admissionErr *PluginAdmissionError
 		if errors.As(err, &admissionErr) {
 			return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)

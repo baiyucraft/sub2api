@@ -998,7 +998,21 @@ PROFILES["270"] = {
     },
 }
 
-CURRENT_RELEASE_PROFILE = "270"
+# Lightweight revisions are additive and leave all historical profiles unchanged.
+PROFILES["271"] = {
+    **{key: PROFILES["270"][key] for key in _PROFILE_V2_RUNTIME_KEYS},
+    "name": "271",
+    "version": "0.2.16-baiyu",
+    "parent": "270",
+    "new_migrations": ["299_upstream_cache_guard_revisions.sql"],
+    "gate_schema": 2,
+    "release_policy": {
+        "compatibility_image": "production_current",
+        "migration_source": "database_state",
+    },
+}
+
+CURRENT_RELEASE_PROFILE = "271"
 
 
 def get_profile(name: str) -> dict:

@@ -4,6 +4,7 @@ import (
 	"context"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/forkscheduling"
 )
@@ -17,7 +18,7 @@ func cacheGuardKeepSession(ctx context.Context) bool {
 
 func (s *OpenAIGatewayService) selectWithCacheGuardPreference(ctx context.Context, groupID *int64, previousResponseID, sessionHash, model string, callerExcluded map[int64]struct{}, transport OpenAIUpstreamTransport, capability OpenAIEndpointCapability, imageCapability OpenAIImagesCapability, compact bool, platform string, previousCanMove, useTokenCost bool) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error, bool) {
 	neutral := OpenAIAccountScheduleDecision{}
-	if s == nil || compact || imageCapability != "" {
+	if s == nil || compact || imageCapability != "" || protectionOrdinaryFallback(ctx) {
 		return nil, neutral, nil, false
 	}
 	if groupID == nil || *groupID <= 0 {
@@ -26,16 +27,20 @@ func (s *OpenAIGatewayService) selectWithCacheGuardPreference(ctx context.Contex
 	if !SchedulingProtectionGroupSelected(s.groupProtectionPolicyResolver, *groupID) {
 		return nil, neutral, nil, false
 	}
+	ctx = withProtectionCandidateReads(ctx)
+	ctx = withProtectionPolicyEvaluation(ctx, s.groupProtectionPolicyResolver)
 	s.syncTTFTProtectionPolicies()
 	cfg, resolved := s.resolveOpenAITTFTGuardConfig(ctx, *groupID)
 	priority := SchedulingPriorityCacheFirst
-	if s.groupProtectionPolicyResolver != nil {
+	if policy, ok := protectionPolicyForEvaluation(ctx, *groupID); ok {
+		priority = policy.Priority
+	} else if s.groupProtectionPolicyResolver != nil {
 		if policy, err := s.groupProtectionPolicyResolver.ResolveProtection(ctx, *groupID); err == nil {
 			priority = policy.Priority
 		}
 	}
 	r := currentUpstreamCacheGuardRunner()
-	cacheActive := r != nil && r.available.Load() && !r.closed.Load() && r.engine.ResolvedSettings(*groupID).Mode == "protect"
+	cacheActive := r != nil && !r.closed.Load() && r.engine.CachedMetadataAt(*groupID, protectionEvaluationTime(ctx, time.Now)).Available && r.engine.ResolvedSettings(*groupID).Mode == "protect"
 	if !cacheActive && (!resolved || !cfg.Enabled) {
 		return nil, neutral, nil, false
 	}
@@ -56,6 +61,8 @@ func (s *OpenAIGatewayService) selectWithCacheGuardPreference(ctx context.Contex
 	if err != nil {
 		return nil, neutral, nil, false
 	}
+	ctx = s.withAccountRPMPrefetch(ctx, accounts)
+	ctx = s.prefetchOpenAISchedulingAdmission(ctx, accounts, model, compact)
 	eligible := make([]Account, 0, len(accounts))
 	selectedAccountAvailable := false
 	for _, a := range accounts {
@@ -79,7 +86,14 @@ func (s *OpenAIGatewayService) selectWithCacheGuardPreference(ctx context.Contex
 				candidates = append(candidates, forkscheduling.CandidateView{ID: a.ID, UpstreamKeyID: accountUpstreamKeyID(a), GroupID: *groupID, Model: canonicalOpenAIAccountSchedulingModel(a, model)})
 			}
 		}
-		qualities = reader.Quality(candidates, forkscheduling.TTFTConfig{Enabled: cfg.Enabled, Threshold: cfg.Threshold, MinSamples: cfg.MinSamples, Source: cfg.Source, GroupName: cfg.GroupName})
+		qualityConfig := forkscheduling.TTFTConfig{Enabled: cfg.Enabled, Threshold: cfg.Threshold, MinSamples: cfg.MinSamples, Source: cfg.Source, GroupName: cfg.GroupName}
+		if timed, ok := reader.(interface {
+			QualityAt([]forkscheduling.CandidateView, forkscheduling.TTFTConfig, time.Time) map[int64]forkscheduling.TTFTQuality
+		}); ok {
+			qualities = timed.QualityAt(candidates, qualityConfig, protectionEvaluationTime(ctx, time.Now))
+		} else {
+			qualities = reader.Quality(candidates, qualityConfig)
+		}
 	}
 	degraded := map[int64]struct{}{}
 	var ttftTrial []int64
@@ -94,7 +108,13 @@ func (s *OpenAIGatewayService) selectWithCacheGuardPreference(ctx context.Contex
 	sort.Slice(ttftTrial, func(i, j int) bool { return ttftTrial[i] < ttftTrial[j] })
 	ctx = s.withCacheGuardOpenAIProtocolResolver(ctx)
 	p := buildCacheGuardPreference(ctx, groupID, sessionHash, model, cacheGuardOpenAIProtocol(transport), eligible, degraded)
+	if protectionOrdinaryFallback(ctx) {
+		return nil, neutral, nil, false
+	}
 	if !p.Active {
+		if !resolved || !cfg.Enabled {
+			return nil, neutral, nil, false
+		}
 		p = cacheGuardPreference{Active: true, ScopeIDs: map[int64]struct{}{}}
 		for i := range eligible {
 			a := &eligible[i]
@@ -128,12 +148,23 @@ func (s *OpenAIGatewayService) selectWithCacheGuardPreference(ctx context.Contex
 		}
 		return 0, false
 	})
+	ctx = withProtectionCandidateScope(ctx, p.candidateScope())
+	tierExclusions := p.tierExclusions(base)
 	selectTier := func(tier []int64, keep bool) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
-		trialCtx := withCacheGuardTentativeSelection(ctx)
+		if !protectionPolicyEvaluationCurrent(ctx) {
+			return nil, neutral, nil
+		}
+		trialCtx := withCacheGuardTentativeSelection(withProtectionCandidateTier(ctx, p.ScopeIDs, tier))
 		if keep {
 			trialCtx = context.WithValue(trialCtx, cacheGuardKeepKey{}, true)
 		}
-		result, decision, err := s.selectAccountWithSchedulerOnce(trialCtx, groupID, previousResponseID, sessionHash, model, p.exclusionsFor(tier, base), callerExcluded, true, transport, capability, imageCapability, compact, platform, previousCanMove, useTokenCost)
+		result, decision, err := s.selectAccountWithSchedulerOnce(trialCtx, groupID, previousResponseID, sessionHash, model, tierExclusions(tier), callerExcluded, true, transport, capability, imageCapability, compact, platform, previousCanMove, useTokenCost)
+		if !protectionPolicyEvaluationCurrent(ctx) {
+			if result != nil && result.ReleaseFunc != nil {
+				result.ReleaseFunc()
+			}
+			return nil, neutral, nil
+		}
 		if p.Migration && err == nil && result != nil && result.Account != nil {
 			allowed := false
 			for _, id := range tier {
@@ -160,6 +191,9 @@ func (s *OpenAIGatewayService) selectWithCacheGuardPreference(ctx context.Contex
 		return result, decision, err
 	}
 	selectOld := func() (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
+		if !protectionPolicyEvaluationCurrent(ctx) {
+			return nil, neutral, nil
+		}
 		if s.checkChannelPricingRestriction(ctx, groupID, model) {
 			return nil, OpenAIAccountScheduleDecision{}, ErrNoAvailableAccounts
 		}
@@ -172,8 +206,17 @@ func (s *OpenAIGatewayService) selectWithCacheGuardPreference(ctx context.Contex
 			scheduler.stats = newOpenAIAccountRuntimeStats()
 		}
 		result, _, err := scheduler.selectBySessionHash(oldCtx, OpenAIAccountScheduleRequest{GroupID: groupID, Platform: platform, SessionHash: sessionHash, StickyAccountID: p.KeepAccountID, PreserveStickyBinding: true, DisableStickyEscape: true, RequestedModel: model, RequiredTransport: transport, RequiredCapability: capability, RequiredImageCapability: imageCapability, ExcludedIDs: base, ExcludedConcurrencyTargets: openAICapacityExcludedTargets(ctx), RequirePrivacySet: s.openAIGroupRequiresPrivacySet(oldCtx, groupID)})
+		if !protectionPolicyEvaluationCurrent(ctx) {
+			if result != nil && result.ReleaseFunc != nil {
+				result.ReleaseFunc()
+			}
+			return nil, neutral, nil
+		}
 		decision := OpenAIAccountScheduleDecision{Layer: openAIAccountScheduleLayerSessionSticky, StickySessionHit: result != nil && result.Account != nil}
 		applyLegacySelectionDecision(&decision, result)
+		if result != nil {
+			result.cacheGuardProtectedSelection = true
+		}
 		return result, decision, err
 	}
 	if p.KeepAccountID > 0 && !p.Migration {
@@ -189,12 +232,13 @@ func (s *OpenAIGatewayService) selectWithCacheGuardPreference(ctx context.Contex
 			return result, decision, err, true
 		}
 		if err == nil && result != nil && result.Account != nil && result.Acquired {
+			result.cacheGuardProtectedSelection = true
 			// The tentative passes never write or clear a sticky binding. Commit
 			// after obtaining real capacity; profit-gated binding stays terminal.
 			if p.Migration && result.Account.ID != p.KeepAccountID {
 				result.cacheGuardMigrationAccountID = result.Account.ID
-			} else if sessionHash != "" {
-				_ = s.bindOpenAIStickySessionDuringSelection(ContextWithSelectionProfitGate(ctx, result), groupID, sessionHash, result.Account.ID)
+			} else if sessionHash != "" && p.KeepAccountID == 0 {
+				result.cacheGuardDeferredBinding = true
 			}
 			var trial *openAITTFTTrial
 			if p.KeepAccountID == 0 {
@@ -216,6 +260,10 @@ func (s *OpenAIGatewayService) selectWithCacheGuardPreference(ctx context.Contex
 	}
 	// Cache and TTFT are soft preferences. Health retains its existing fallback
 	// policy separately; caller exclusions are never removed by these passes.
+	if !protectionPolicyEvaluationCurrent(ctx) {
+		return nil, neutral, nil, false
+	}
+	ctx = withoutProtectionCandidateReads(ctx)
 	result, decision, err := s.selectAccountWithSchedulerOnce(ctx, groupID, previousResponseID, sessionHash, model, base, callerExcluded, true, transport, capability, imageCapability, compact, platform, previousCanMove, useTokenCost)
 	if len(health) > 0 && openAITTFTGuardShouldFailOpen(result, err) {
 		result, decision, err = s.selectAccountWithSchedulerOnce(ctx, groupID, previousResponseID, sessionHash, model, callerExcluded, callerExcluded, false, transport, capability, imageCapability, compact, platform, previousCanMove, useTokenCost)

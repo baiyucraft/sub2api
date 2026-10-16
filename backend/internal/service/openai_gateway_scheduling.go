@@ -1589,8 +1589,17 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 	return nil, ErrNoAvailableAccounts
 }
 
-func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, groupID *int64, platform string) ([]Account, error) {
+func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, groupID *int64, platform string) (accounts []Account, err error) {
 	platform = NormalizeOpenAICompatiblePlatform(platform)
+	key := protectionCandidateKey(s, groupID, platform, false)
+	if cached, _, ok := readProtectionCandidates(ctx, key); ok {
+		return cached, nil
+	}
+	defer func() {
+		if err == nil {
+			rememberProtectionCandidates(ctx, key, accounts, false)
+		}
+	}()
 	if s.schedulerSnapshot != nil {
 		accounts, _, err := s.schedulerSnapshot.ListSchedulableAccounts(ctx, groupID, platform, false)
 		if err != nil {
@@ -1602,8 +1611,6 @@ func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, grou
 		}
 		return accounts, nil
 	}
-	var accounts []Account
-	var err error
 	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
 		accounts, err = s.accountRepo.ListSchedulableByPlatform(ctx, platform)
 	} else if groupID != nil {
@@ -1705,7 +1712,7 @@ func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDBBeforeProfit(ct
 		return nil
 	}
 	platform = NormalizeOpenAICompatiblePlatform(platform)
-	if s.schedulerSnapshot == nil || s.accountRepo == nil {
+	if s.accountRepo == nil || (s.schedulerSnapshot == nil && !cacheGuardTentativeSelection(ctx)) {
 		if s.openAIImageCandidateFailure(ctx, account, OpenAIAccountScheduleRequest{GroupID: groupID, RequestedModel: requestedModel}) != "" {
 			return nil
 		}

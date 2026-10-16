@@ -20,21 +20,21 @@ MIGRATION = "298_group_scheduling_protection_policies.sql"
 
 class Profile270ReleaseContractTest(unittest.TestCase):
     def test_current_registration_preserves_269_and_rejects_unknown_successor(self):
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "270")
-        profile = get_release_profile("270")
+        self.assertEqual(CURRENT_RELEASE_PROFILE, "271")
+        profile = get_profile("270")
         self.assertEqual((profile["version"], profile["parent"], profile["gate_schema"]), ("0.2.16-baiyu", "269", 2))
         self.assertEqual(profile["new_migrations"], [MIGRATION])
         previous = get_profile("269")
         self.assertEqual((previous["version"], previous["parent"], previous["new_migrations"]), ("0.2.16-baiyu", "268", ["297_upstream_cache_guard_account_scope.sql"]))
         with self.assertRaisesRegex(ValueError, "historical"):
             get_release_profile("269")
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 271"):
-            get_profile("271")
+        with self.assertRaisesRegex(ValueError, "unknown release profile: 272"):
+            get_profile("272")
         registered = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(registered["current_profile"]["id"], "270")
+        self.assertEqual(registered["current_profile"]["id"], "271")
         self.assertEqual(registered["current_profile"]["status"], "pending")
         for key in ("version", "parent", "new_migrations", "gate_schema", "release_policy"):
-            self.assertEqual(registered["current_profile"][key], profile[key])
+            self.assertEqual(registered["historical_profiles"]["270"][key], profile[key])
             self.assertEqual(registered["historical_profiles"]["269"][key], previous[key])
         raw = (WORKSPACE / "backend/migrations" / MIGRATION).read_bytes()
         self.assertEqual(registered["migration_contracts"][MIGRATION], hashlib.sha256(raw).hexdigest())
@@ -48,7 +48,7 @@ class Profile270ReleaseContractTest(unittest.TestCase):
         self.assertEqual(plan_migrations(catalog, {**snapshot, MIGRATION: entry["checksum"]})["pending"], [])
         self.assertFalse(plan_migrations(catalog, {**snapshot, MIGRATION: "0" * 64})["existing_checksums_verified"])
         self.assertIsNotNone(RELEASE_ID.fullmatch("270-aaaaaaaaaaaa-1-aaaaaaaa"))
-        self.assertIsNone(RELEASE_ID.fullmatch("271-aaaaaaaaaaaa-1-aaaaaaaa"))
+        self.assertIsNone(RELEASE_ID.fullmatch("272-aaaaaaaaaaaa-1-aaaaaaaa"))
 
 
 class Profile270BashContractTest(unittest.TestCase):
@@ -77,7 +77,7 @@ jq() {
             ("270", "0.2.16-baiyu", "268", "protection270", False),
             ("270", "0.2.16-baiyu", "270", "protection270", False),
             ("270", "0.2.16-baiyu", "269", "account269", False),
-            ("271", "0.2.16-baiyu", "270", "protection270", False),
+            ("272", "0.2.16-baiyu", "271", "protection270", False),
         ):
             with self.subTest(profile=profile, parent=parent, migrations=migrations):
                 result = self.execute(stub + checks, profile, version, parent, migrations)

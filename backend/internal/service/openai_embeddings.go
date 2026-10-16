@@ -94,6 +94,9 @@ func (s *OpenAIGatewayService) ForwardEmbeddings(
 	}
 	resp, err := s.doOpenAIUpstream(upstreamReq, proxyURL, account)
 	if err != nil {
+		if scoped := schedulingProtectionRequestLocalError(err); scoped != nil {
+			return nil, scoped
+		}
 		var admissionErr *PluginAdmissionError
 		if errors.As(err, &admissionErr) {
 			return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)

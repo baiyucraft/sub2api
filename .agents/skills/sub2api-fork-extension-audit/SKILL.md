@@ -144,3 +144,10 @@ python .agents/skills/sub2api-fork-extension-audit/scripts/audit_fork_extensions
 历史 profile 268，parent 267，版本 `0.2.16-baiyu`，仅新增 `296_upstream_cache_guard.sql`。当前连续 pending profile 269，parent 268，同版本仅新增 `297_upstream_cache_guard_account_scope.sql`；全部历史 profile、SQL 和 checksum 不回写。Python/Shell、VM validator、Gate/DR signer、bootstrap 自测、生产 context/prepare、祖先断言、奖励 postflight、备份和清理入口共同支持 269，未知 270 拒绝。新迁移持久化账号与当前 Key 的统一状态、跨组事实索引，不写余额、计费或错误重试配置，不保存原始请求正文、认证头或凭据。
 
 本地最低验证包括 `test_profile269_release_contract.py`、缓存核心与调度/API 回归、前端设置/状态测试、双语键完整性、typecheck/lint/build、完整 release suite、修改 Shell 语法及 `git diff --check`。本地登记不证明 PostgreSQL 实际升级、旧镜像兼容、VM Gate 或生产上线；恢复敏感最终 blob/模式重新精确分类，未分类继续阻断，不增加新的审阅豁免。长期产品合同见 `.wiki/03-模块指南/14-上游缓存保护.md`。
+
+
+## 调度保护性能优化合同
+
+当前连续 pending profile 271，parent 270，版本 `0.2.16-baiyu`，仅新增 `299_upstream_cache_guard_revisions.sql`；历史 270/298 和此前 profile、SQL、checksum 原样保留，未知 272 拒绝。核验 `scheduling-protection-performance` 扩展：不可变策略 revision、按身份轻量版本刷新、兼容旧写入的事实/pending trigger、活跃会话冷加载、精确复用失效边界、100ms 保护预算、账号→会话→配额锁序、最多4个账号完成 worker 及批量管理读取。5s/30s、TTFT15m、试用与恢复口径和发送前硬约束不得因优化改变。
+
+新增最低本地验证包括 profile271/迁移299合同、冻结原算法差分、时间边界/并发/冷加载故障、SQL锁序、singleflight授权与取消、前端刷新竞态，以及同机微基准。微基准须标明只覆盖的热点，不能冒充数据库扫描行数、端到端延迟或完整叠加载荷；实际 PostgreSQL升级/旧镜像兼容/正式Gate仍按 production-deploy 执行，dirty本地实现不作为发布证据。

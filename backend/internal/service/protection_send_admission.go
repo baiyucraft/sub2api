@@ -9,6 +9,7 @@ import (
 )
 
 type schedulingProtectionBeforeSendKey struct{}
+type schedulingProtectionSendModelKey struct{}
 type schedulingProtectionBeforeSend struct {
 	once      sync.Once
 	ctx       context.Context
@@ -51,6 +52,25 @@ func runSchedulingProtectionBeforeSend(ctx context.Context, account *Account, ac
 		}
 		return nil
 	}
+	// Freeze synchronous cache admission before committing a migration binding.
+	// A budget rejection leaves the source sticky binding untouched.
+	if attempt, _ := ctx.Value(cacheUsageAttemptContextKey{}).(*cacheUsageAttempt); attempt != nil {
+		attempt.mu.Lock()
+		preparedAccount, model, protocol := attempt.account, attempt.model, attempt.protocol
+		attempt.mu.Unlock()
+		if preparedAccount != nil && model != "" {
+			if err := beginUpstreamCacheGuardSend(ctx, preparedAccount, model, protocol); err != nil {
+				// A later WS turn is already pinned to its established physical
+				// connection. Fail open there without inventing another migration.
+				if admission == nil || !admission.committed.Load() {
+					return err
+				}
+				attempt.mu.Lock()
+				attempt.beginError = nil
+				attempt.mu.Unlock()
+			}
+		}
+	}
 	if admission != nil {
 		if err := admission.ctx.Err(); err != nil {
 			return err
@@ -64,7 +84,11 @@ func runSchedulingProtectionBeforeSend(ctx context.Context, account *Account, ac
 				admission.err = schedulingProtectionScopeChangedError()
 				return
 			}
-			admission.err = admission.commit(admission.ctx)
+			commitCtx := ctx
+			if len(actualModels) > 0 && actualModels[0] != "" {
+				commitCtx = context.WithValue(ctx, schedulingProtectionSendModelKey{}, actualModels[0])
+			}
+			admission.err = admission.commit(commitCtx)
 			admission.committed.Store(admission.err == nil)
 		})
 		if admission.err != nil {
@@ -77,13 +101,10 @@ func runSchedulingProtectionBeforeSend(ctx context.Context, account *Account, ac
 	}
 	if attempt, _ := ctx.Value(cacheUsageAttemptContextKey{}).(*cacheUsageAttempt); attempt != nil {
 		attempt.mu.Lock()
-		preparedAccount, model, protocol := attempt.account, attempt.model, attempt.protocol
+		model := attempt.model
 		attempt.mu.Unlock()
 		if actualModel == "" {
 			actualModel = model
-		}
-		if preparedAccount != nil && model != "" {
-			beginUpstreamCacheGuardSend(ctx, preparedAccount, model, protocol)
 		}
 	}
 	if actualModel == "" {

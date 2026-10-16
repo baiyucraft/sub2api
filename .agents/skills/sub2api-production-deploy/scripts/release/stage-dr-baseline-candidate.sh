@@ -9,10 +9,11 @@ umask 077
 release_id=${1:?release ID required}
 input=${2:?private staging directory required}
 expected_artifact=${3:?encrypted artifact SHA-256 required}
-[[ $(id -u) == 0 && $release_id =~ ^270-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ && $expected_artifact =~ ^[0-9a-f]{64}$ ]]
+[[ $(id -u) == 0 && $release_id =~ ^(270|271)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ && $expected_artifact =~ ^[0-9a-f]{64}$ ]]
 [[ $input =~ ^/srv/sub2api-backups/dr-baseline-stage\.[A-Za-z0-9]{8}$ ]]
 [[ -d $input && ! -L $input && $(realpath -e "$input") == "$input" && $(stat -c '%U:%G:%a' "$input") == root:root:700 ]]
-root=/srv/sub2api-backups/releases/270
+baseline_profile=${release_id%%-*}
+root="/srv/sub2api-backups/releases/$baseline_profile"
 trust=/opt/sub2api-dr-trust/vm-gate-ed25519.pub
 verifier=/usr/local/libexec/sub2api-verify-dr-evidence
 [[ $(sha256sum "$trust" | awk '{print $1}') == ea0b628532f8d85d0e57921b5b010c7f00ef8b0f9701da2b0d4ea31105553e08 ]]
@@ -32,8 +33,8 @@ gate_schema=$(jq -er '.manifest.schema' "$input/gate.json")
 gate_commit=$(jq -er '.manifest.commit_sha' "$input/gate.json")
 candidate_image=$(jq -er '.evidence.candidate_image_id' "$input/gate.json")
 candidate_sha=$(jq -er '.evidence.candidate_archive_sha256' "$input/gate.json")
-[[ $gate_release == "$release_id" && $gate_profile == 270 && $gate_schema == 2 && $gate_commit =~ ^[0-9a-f]{40}$ ]]
-[[ $release_id == 270-${gate_commit:0:12}-* && $candidate_image =~ ^sha256:[0-9a-f]{64}$ && $candidate_sha =~ ^[0-9a-f]{64}$ ]]
+[[ $gate_release == "$release_id" && $gate_profile == "$baseline_profile" && $gate_schema == 2 && $gate_commit =~ ^[0-9a-f]{40}$ ]]
+[[ $release_id == ${baseline_profile}-${gate_commit:0:12}-* && $candidate_image =~ ^sha256:[0-9a-f]{64}$ && $candidate_sha =~ ^[0-9a-f]{64}$ ]]
 [[ $(sha256sum "$input/candidate.tar.gz" | awk '{print $1}') == "$candidate_sha" ]]
 jq -e --arg release "$release_id" --arg image "$candidate_image" --arg artifact "$expected_artifact" --argjson bytes "$(stat -c '%s' "$input/artifact.tar.age")" '
   .schema==1 and .kind=="encrypted-production-baseline-capture" and .capture_purpose=="postrelease" and
@@ -76,7 +77,7 @@ if [[ -e $target || -L $target ]]; then
   done
 else mv -T -- "$staging" "$target"; sync -f "$root/candidates"; fi
 if [[ -e $root/candidate || -L $root/candidate ]]; then
-  [[ -L $root/candidate && $(readlink "$root/candidate") =~ ^candidates/270-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
+  [[ -L $root/candidate && $(readlink "$root/candidate") =~ ^candidates/${baseline_profile}-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
 fi
 ln -s "candidates/$release_id" "$pointer"
 mv -T -- "$pointer" "$root/candidate"

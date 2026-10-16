@@ -18,16 +18,29 @@ func (s *OpenAIGatewayService) syncTTFTProtectionPolicies() {
 	if s == nil {
 		return
 	}
-	provider, ok := s.groupProtectionPolicyResolver.(interface {
+	var snapshot *GroupSchedulingProtectionPolicySnapshot
+	var policies map[int64]GroupSchedulingProtectionResolvedPolicy
+	if provider, ok := s.groupProtectionPolicyResolver.(interface {
+		ProtectionPoliciesSnapshot() *GroupSchedulingProtectionPolicySnapshot
+	}); ok {
+		snapshot = provider.ProtectionPoliciesSnapshot()
+		if snapshot == nil {
+			return
+		}
+		policies = snapshot.policies
+	} else if provider, ok := s.groupProtectionPolicyResolver.(interface {
 		ProtectionPolicies() map[int64]GroupSchedulingProtectionResolvedPolicy
-	})
-	if !ok {
+	}); ok {
+		policies = provider.ProtectionPolicies()
+	} else {
 		return
 	}
-	policies := provider.ProtectionPolicies()
 	g := s.getOpenAITTFTGuard()
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if snapshot != nil && (g.policySnapshot == snapshot || (g.policySnapshot != nil && snapshot.revision < g.policySnapshot.revision)) {
+		return
+	}
 	ids := make([]int64, 0, len(policies))
 	for id := range policies {
 		ids = append(ids, id)
@@ -47,6 +60,10 @@ func (s *OpenAIGatewayService) syncTTFTProtectionPolicies() {
 		next[id] = OpenAITTFTGuardConfigSnapshot{Enabled: p.TTFT.Enabled, Threshold: p.TTFT.Threshold, MinSamples: p.TTFT.MinSamples, Source: p.TTFT.Source, GroupName: p.TTFT.GroupName}
 	}
 	g.groupConfigs = next
+	g.policiesManaged = true
+	g.policySnapshot = snapshot
+	g.inheritedKnown = false
+	g.recountActivePoliciesLocked()
 	g.pruneInactivePoliciesLocked()
 }
 
@@ -61,47 +78,6 @@ type TTFTProtectionModelView struct {
 	Reason                  string    `json:"reason,omitempty"`
 	RecoverySamples         int       `json:"recovery_samples"`
 	RecoverySamplesRequired int       `json:"recovery_samples_required"`
-}
-
-// Read-only projections do not advance trial cadence or touch observation age.
-func (s *OpenAIGatewayService) TTFTProtectionSnapshots(accountID, keyID, groupID int64, cfg OpenAITTFTGuardConfigSnapshot) []TTFTProtectionModelView {
-	if s == nil {
-		return nil
-	}
-	g := s.getOpenAITTFTGuard()
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	out := []TTFTProtectionModelView{}
-	now := g.now()
-	for k, raw := range g.observations {
-		if k.accountID != accountID || k.upstreamKeyID != keyID {
-			continue
-		}
-		state := "observed"
-		e := raw
-		if now.Sub(raw.lastSampleAt) >= g.ttl {
-			state = "expired"
-		} else if groupID > 0 {
-			state = "normal"
-			if !cfg.Enabled {
-				state = "disabled"
-			} else if p := g.readProjectionLocked(k, groupID, cfg); p != nil {
-				e = p
-				if p.degraded {
-					state = "draining"
-					if p.consecutiveRecovered > 0 {
-						state = "recovering"
-					}
-				} else if p.sampleCount < uint64(cfg.MinSamples) {
-					state = "insufficient"
-				}
-			}
-		}
-		last := (raw.nextSample - 1 + openAITTFTGuardSampleWindow) % openAITTFTGuardSampleWindow
-		out = append(out, TTFTProtectionModelView{Model: k.model, State: state, EWMAms: e.recentEWMA(), LastTTFTMs: int64(raw.samples[last]), SampleCount: e.sampleCount, LastSampleAt: raw.lastSampleAt, ExpiresAt: raw.lastSampleAt.Add(g.ttl), Reason: e.degradedReason, RecoverySamples: e.consecutiveRecovered, RecoverySamplesRequired: openAITTFTGuardRecoverySamples})
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Model < out[j].Model })
-	return out
 }
 
 type openAITTFTTrial struct {
@@ -121,6 +97,9 @@ func (g *openAITTFTGuard) claimTrial(groupID int64, a *Account, model string, cf
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if !g.acceptRequestConfigLocked(groupID, cfg) {
+		return nil
+	}
 	scope, ok := openAITTFTGuardScopeFor(groupID, cfg)
 	if !ok {
 		return nil
@@ -172,6 +151,7 @@ func (t *openAITTFTTrial) finish(success bool, ms *int) {
 		}
 		if e.consecutiveRecovered >= openAITTFTGuardRecoverySamples {
 			e.resetAfterRecovery(float64(*ms), g.now())
+			g.scheduleExpiryLocked(t.key, false, e)
 		}
 	})
 }

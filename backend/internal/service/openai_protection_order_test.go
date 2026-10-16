@@ -68,11 +68,13 @@ func TestJointProtectionSlowSessionMigratesDespiteHigherCacheAfterTwoSuccesses(t
 				require.NoError(t, err)
 				require.Equal(t, int64(1), result.Account.ID)
 				attempt := WithUpstreamCacheGuardAttempt(ContextWithSelectionProfitGate(ctx, result), 1, &group, "conversation", true)
-				// A temporary cache observer outage does not suppress the TTFT
-				// session completion path or manufacture cache evidence.
-				runner.available.Store(false)
+				// An account admission persistence outage does not suppress the
+				// TTFT completion path or manufacture cache evidence. Runner health
+				// alone no longer disables a usable account snapshot.
+				store := runner.store.(*cacheGuardSelectionStore)
+				store.failAccounts = map[int64]bool{result.Account.ID: true}
 				BeginUpstreamCacheGuardSend(attempt, result.Account, "gpt-test", "openai")
-				runner.available.Store(true)
+				store.failAccounts = nil
 				ms := 35000
 				FinishOpenAIUpstreamCacheGuardAttempt(attempt, &OpenAIForwardResult{FirstTokenMs: &ms}, nil)
 				FinishOpenAIUpstreamCacheGuardAttempt(attempt, &OpenAIForwardResult{FirstTokenMs: &ms}, nil)
@@ -186,7 +188,8 @@ func TestJointProtectionMigrationRejectsTargetWhoseKeyChangedAfterObservation(t 
 			result, _, err := svc.SelectAccountWithScheduler(ctx, &group, "", "conversation", "gpt-test", nil, OpenAIUpstreamTransportAny, false)
 			require.NoError(t, err)
 			require.NotNil(t, result)
-			require.Greater(t, repo.reads, 1)
+			require.Equal(t, 1, repo.reads, "protection tiers share one candidate directory")
+			require.Positive(t, repo.gets, "current account identity is still rechecked before capacity is acquired")
 			require.Equal(t, int64(1), result.Account.ID, "a fresh Key without the target's measured evidence cannot justify migration")
 			require.Equal(t, int64(1), cache.sessionBindings[svc.openAISessionCacheKey("conversation")])
 			require.False(t, result.RequiresStickyAdmissionBinding())

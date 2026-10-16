@@ -203,12 +203,16 @@ type GroupState struct {
 type AccountSnapshot struct {
 	AccountState
 	Version           int64              `json:"version"`
+	LoadedAt          time.Time          `json:"loaded_at"`
+	Available         bool               `json:"available"`
+	Fresh             bool               `json:"fresh"`
 	DerivedProtection *DerivedProtection `json:"derived_protection,omitempty"`
 }
 type Snapshot struct {
 	GroupID         int64             `json:"group_id"`
 	Mode            Mode              `json:"mode"`
 	Available       bool              `json:"available"`
+	Fresh           bool              `json:"fresh"`
 	LoadedAt        time.Time         `json:"loaded_at"`
 	Accounts        []AccountSnapshot `json:"accounts"`
 	NaturalNewCount int64             `json:"natural_new_count"`
@@ -217,6 +221,7 @@ type Snapshot struct {
 }
 type SessionRead struct {
 	Known              bool      `json:"known"`
+	Fresh              bool      `json:"fresh"`
 	PreferredAccountID int64     `json:"preferred_account_id"`
 	Protected          bool      `json:"protected"`
 	PendingLow         bool      `json:"pending_low"`
@@ -277,6 +282,10 @@ type AccountStore interface {
 // AccountWindow is a read-only projection of processed facts for one current
 // account/Key identity. Version ties it to the policy reset boundaries used.
 type AccountWindow struct {
+	NextBoundary time.Time
+	// Err isolates a malformed projection to this account/Key. Query-wide
+	// failures are returned by AccountWindows itself.
+	Err                                    error
 	AccountID, UpstreamKeyID, Version      int64
 	State                                  AccountState
 	ValidRequests                          int
@@ -305,6 +314,34 @@ type AccountRuntimeRow struct {
 	AccountID, UpstreamKeyID, Version int64
 	Payload                           []byte
 	UpdatedAt                         time.Time
+}
+
+// IdentityVersion is a lightweight, commit-visible revision. FactVersion also
+// advances for pending and facts-only writes, independently of state writes.
+type IdentityVersion struct {
+	AccountID, UpstreamKeyID, Version, FactVersion int64
+	Legacy                                         bool
+}
+type SessionIdentity struct {
+	GroupID int64
+	Key     string
+	Version int64
+}
+type SessionLoader interface {
+	LoadSession(context.Context, int64, string) (*SessionState, int64, error)
+}
+type IncrementalStore interface {
+	SessionLoader
+	IdentityVersions(context.Context) ([]IdentityVersion, error)
+	ActiveRuntimeRows(context.Context, []SessionIdentity, time.Time) ([]RuntimeRow, error)
+	AccountRowsFor(context.Context, []int64) ([]AccountRuntimeRow, error)
+	AccountWindowsFor(context.Context, []int64, time.Time, time.Time) (map[string]AccountWindow, error)
+}
+type BatchCleanupStore interface {
+	CleanupBatch(context.Context, time.Time, int) (int64, error)
+}
+type FactVersionTx interface {
+	FactVersion(int64, int64) (int64, error)
 }
 
 var ErrUnavailable = errors.New("cache guard persistence unavailable")

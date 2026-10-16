@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"reflect"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -16,28 +17,47 @@ import (
 const WarmLifetime = 15 * time.Minute
 const ResidenceLifetime = 5 * time.Minute
 const RefreshLifetime = 5 * time.Second
+const UsableSnapshotLifetime = 30 * time.Second
 const FactLifetime = 48 * time.Hour
 const MinRecoverySessions = 3
 const RecoveryLifetime = 10 * time.Minute
+const MaxActiveSessions = 65536
 
 type Engine struct {
 	store       Store
 	settings    atomic.Pointer[Settings]
 	policies    atomic.Pointer[map[int64]Settings]
+	refreshMu   sync.Mutex
 	mu          sync.RWMutex
 	groups      map[int64]Snapshot
 	accounts    map[string]AccountSnapshot
 	accountGaps map[string]bool
-	sessions    map[string]SessionState
-	loadedAt    time.Time
-	now         func() time.Time
-	bornAt      time.Time
+	// Failed completions are account-local. Queued attempts clear when their
+	// durable completion succeeds; discarded attempts latch until restart.
+	samplingFailures   map[string]map[string]struct{}
+	sessions           map[string]SessionState
+	sessionAccess      map[string]time.Time
+	sessionVersions    map[string]int64
+	refreshVersions    map[string]IdentityVersion
+	nextBoundaries     map[string]time.Time
+	lastReconciled     time.Time
+	reconcileCursor    int
+	refreshPolicyEpoch uint64
+	accountPolicyEpoch map[string]uint64
+	refreshCursor      int
+	policyEpoch        atomic.Uint64
+	activePolicy       atomic.Bool
+	loadedAt           time.Time
+	now                func() time.Time
+	bornAt             time.Time
 }
 
 func NewEngine(store Store) *Engine {
-	e := &Engine{store: store, groups: map[int64]Snapshot{}, accounts: map[string]AccountSnapshot{}, accountGaps: map[string]bool{}, sessions: map[string]SessionState{}, now: time.Now, bornAt: time.Now().UTC()}
+	e := &Engine{store: store, groups: map[int64]Snapshot{}, accounts: map[string]AccountSnapshot{}, accountGaps: map[string]bool{}, samplingFailures: map[string]map[string]struct{}{}, sessions: map[string]SessionState{}, sessionAccess: map[string]time.Time{}, sessionVersions: map[string]int64{}, refreshVersions: map[string]IdentityVersion{}, nextBoundaries: map[string]time.Time{}, now: time.Now, bornAt: time.Now().UTC()}
 	s := DefaultSettings()
 	e.settings.Store(&s)
+	e.updateActivePolicy()
+	e.policyEpoch.Add(1)
 	return e
 }
 func (e *Engine) ApplySettings(s Settings) error {
@@ -56,15 +76,57 @@ func (e *Engine) ApplySettings(s Settings) error {
 		}
 	}
 	s.GroupIDs = ids
+	if old := e.settings.Load(); old != nil && sameSettings(*old, s) {
+		return nil
+	}
 	e.settings.Store(&s)
+	e.updateActivePolicy()
+	e.policyEpoch.Add(1)
 	return nil
+}
+
+func sameSettings(a, b Settings) bool {
+	if len(a.GroupIDs) == 0 {
+		a.GroupIDs = nil
+	}
+	if len(b.GroupIDs) == 0 {
+		b.GroupIDs = nil
+	}
+	return reflect.DeepEqual(a, b)
 }
 func (e *Engine) Settings() Settings {
 	s := *e.settings.Load()
 	s.GroupIDs = append([]int64{}, s.GroupIDs...)
 	return s
 }
-func (e *Engine) Close()     {}
+func (e *Engine) Close() {}
+
+func (e *Engine) MarkSamplingFailure(r Request, lost bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	id := accountIdentity(r.AccountID, r.UpstreamKeyID)
+	if e.samplingFailures[id] == nil {
+		e.samplingFailures[id] = map[string]struct{}{}
+	}
+	if lost {
+		// A single sentinel bounds discarded attempts to one entry per identity.
+		delete(e.samplingFailures[id], admissionKey(r))
+		e.samplingFailures[id][""] = struct{}{}
+	} else {
+		e.samplingFailures[id][admissionKey(r)] = struct{}{}
+	}
+}
+
+func (e *Engine) ClearSamplingFailure(r Request) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	id := accountIdentity(r.AccountID, r.UpstreamKeyID)
+	delete(e.samplingFailures[id], admissionKey(r))
+	if len(e.samplingFailures[id]) == 0 {
+		delete(e.samplingFailures, id)
+	}
+}
+
 func digest(v string) string { h := sha256.Sum256([]byte(v)); return hex.EncodeToString(h[:]) }
 func SessionKey(r Request) string {
 	return digest(fmt.Sprintf("%d:%d:%s", r.GroupID, r.APIKeyID, r.LogicalSessionDigest))
@@ -153,9 +215,12 @@ func (e *Engine) PlanTrial(ctx context.Context, r Request) (TrialPlan, error) {
 		if _, err := tx.Read(SessionKind, SessionKey(r), &session); err != nil {
 			return err
 		}
+		existing := !session.FirstSeenAt.IsZero()
 		var err error
 		p, err = planInTx(tx, r, &session, s)
-		if err != nil {
+		if err != nil || existing {
+			// Existing identities only reconstruct their immutable natural plan.
+			// Keep the session lock, without advancing its durable revision/age.
 			return err
 		}
 		_, err = tx.Write(SessionKind, SessionKey(r), &session)
@@ -165,6 +230,17 @@ func (e *Engine) PlanTrial(ctx context.Context, r Request) (TrialPlan, error) {
 }
 
 func (e *Engine) Admit(ctx context.Context, r Request) (Admission, error) {
+	return e.admit(ctx, r, false)
+}
+
+// AdmitExisting records a continuation during a refresh outage. Recheck the
+// durable identity inside the transaction; cached affinity cannot create a new
+// session or recovery cohort if another worker has since removed/moved it.
+func (e *Engine) AdmitExisting(ctx context.Context, r Request) (Admission, error) {
+	return e.admit(ctx, r, true)
+}
+
+func (e *Engine) admit(ctx context.Context, r Request, existingOnly bool) (Admission, error) {
 	s := e.ResolvedSettings(r.GroupID)
 	a := Admission{RequestID: r.ID, GroupID: r.GroupID, AccountID: r.AccountID, UpstreamKeyID: r.UpstreamKeyID, StartedAt: r.StartedAt.UTC(), Mode: s.Mode}
 	if !e.AnyPolicyActive() {
@@ -178,6 +254,7 @@ func (e *Engine) Admit(ctx context.Context, r Request) (Admission, error) {
 	}
 	a.SessionKey = SessionKey(r)
 	var saved SessionState
+	var savedVersion int64
 	executing := s.Mode != Disabled && s.ContainsGroup(r.GroupID)
 	// The caller may already have a deadline; this never extends it.
 	ctx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
@@ -186,6 +263,12 @@ func (e *Engine) Admit(ctx context.Context, r Request) (Admission, error) {
 		var session SessionState
 		if _, err := tx.Read(SessionKind, a.SessionKey, &session); err != nil {
 			return err
+		}
+		if existingOnly {
+			route, ok := session.Routes[session.LastRouteKey]
+			if session.FirstSeenAt.IsZero() || session.LastAccountID != r.AccountID || !ok || route.UpstreamKeyID != r.UpstreamKeyID {
+				return ErrUnavailable
+			}
 		}
 		if old, ok := session.Admissions[admissionKey(r)]; ok {
 			if !admissionMatchesKey(old, r) {
@@ -196,7 +279,7 @@ func (e *Engine) Admit(ctx context.Context, r Request) (Admission, error) {
 		}
 		var plan TrialPlan
 		var err error
-		if executing {
+		if executing && !existingOnly {
 			plan, err = planInTx(tx, r, &session, s)
 			if err != nil {
 				return err
@@ -204,17 +287,23 @@ func (e *Engine) Admit(ctx context.Context, r Request) (Admission, error) {
 		} else if session.FirstSeenAt.IsZero() {
 			session.Key, session.FirstSeenAt = a.SessionKey, r.StartedAt.UTC()
 		}
-		account, _, err := e.readAccount(tx, r, s, r.StartedAt)
+		account, version, err := e.readAccount(tx, r, s, r.StartedAt)
 		if err != nil {
 			return err
 		}
 		e.preparePolicies(&account)
-		facts, err := tx.(AccountTx).AccountFacts(r.AccountID, r.UpstreamKeyID, r.StartedAt.Add(-time.Duration(s.WindowMinutes)*time.Minute))
+		reused, err := e.reuseAccountProjection(tx, r, version, &account)
 		if err != nil {
 			return err
 		}
-		if err = e.recomputePolicies(&account, facts, r.StartedAt, false); err != nil {
-			return err
+		if !reused {
+			facts, err := tx.(AccountTx).AccountFacts(r.AccountID, r.UpstreamKeyID, r.StartedAt.Add(-time.Duration(s.WindowMinutes)*time.Minute))
+			if err != nil {
+				return err
+			}
+			if err = e.recomputePolicies(&account, facts, r.StartedAt, false); err != nil {
+				return err
+			}
 		}
 		signature := PolicySignature(s)
 		projection := account.Policies[signature]
@@ -288,7 +377,7 @@ func (e *Engine) Admit(ctx context.Context, r Request) (Admission, error) {
 		}
 		session.Admissions[admissionKey(r)] = a
 		saved = session
-		_, err = tx.Write(SessionKind, a.SessionKey, &session)
+		savedVersion, err = tx.Write(SessionKind, a.SessionKey, &session)
 		return err
 	})
 	if err != nil {
@@ -296,7 +385,7 @@ func (e *Engine) Admit(ctx context.Context, r Request) (Admission, error) {
 	}
 	if saved.Key != "" {
 		e.mu.Lock()
-		e.sessions[sessionCacheKey(r.GroupID, saved.Key)] = saved
+		e.cacheSessionLocked(sessionCacheKey(r.GroupID, saved.Key), saved, savedVersion, e.now().UTC())
 		e.mu.Unlock()
 	}
 	return a, nil
@@ -555,7 +644,19 @@ func (e *Engine) Cleanup(ctx context.Context) error {
 	if e.store == nil {
 		return ErrUnavailable
 	}
-	return e.store.Cleanup(ctx, e.now().UTC().Add(-FactLifetime))
+	before := e.now().UTC().Add(-FactLifetime)
+	if store, ok := e.store.(BatchCleanupStore); ok {
+		for {
+			n, err := store.CleanupBatch(ctx, before, 1000)
+			if err != nil || n < 1000 {
+				return err
+			}
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+		}
+	}
+	return e.store.Cleanup(ctx, before)
 }
 func (e *Engine) CachedSnapshot(groupID int64) Snapshot {
 	s := e.ResolvedSettings(groupID)
@@ -564,11 +665,14 @@ func (e *Engine) CachedSnapshot(groupID int64) Snapshot {
 	defer e.mu.RUnlock()
 	g := e.groups[groupID]
 	g.GroupID, g.Mode, g.LoadedAt = groupID, s.Mode, e.loadedAt
-	g.Available = active && e.freshLocked()
+	g.Available = active && e.usableLocked()
+	g.Fresh = active && e.freshLocked()
 	g.Accounts = nil
 	for id, account := range e.accounts {
-		if !e.accountGaps[id] {
-			g.Accounts = append(g.Accounts, projectAccountSnapshot(account, s))
+		account = e.accountSnapshotLocked(id, account)
+		account = projectAccountSnapshot(account, s)
+		if account.Available {
+			g.Accounts = append(g.Accounts, account)
 		}
 	}
 	sort.Slice(g.Accounts, func(i, j int) bool { return g.Accounts[i].AccountID < g.Accounts[j].AccountID })
@@ -582,24 +686,39 @@ func (e *Engine) Snapshot(_ context.Context, groupID int64) (Snapshot, error) {
 	return s, nil
 }
 func (e *Engine) CachedSessionRead(r Request) SessionRead {
-	if !e.CachedSnapshot(r.GroupID).Available {
+	return e.CachedSessionReadAt(r, e.now().UTC())
+}
+func (e *Engine) CachedSessionReadAt(r Request, at time.Time) SessionRead {
+	snapshot := e.CachedMetadataAt(r.GroupID, at)
+	if !snapshot.Available {
 		return SessionRead{}
 	}
 	s := e.ResolvedSettings(r.GroupID)
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	if e.loadedAt.IsZero() || e.now().Sub(e.loadedAt) > RefreshLifetime || !s.ContainsGroup(r.GroupID) {
+	if e.loadedAt.IsZero() || at.Before(e.loadedAt) || at.Sub(e.loadedAt) > UsableSnapshotLifetime || !s.ContainsGroup(r.GroupID) {
 		return SessionRead{}
 	}
 	x, ok := e.sessions[sessionCacheKey(r.GroupID, SessionKey(r))]
 	if !ok {
 		return SessionRead{}
 	}
-	read := SessionRead{Known: true, PreferredAccountID: x.LastAccountID, ResidenceUntil: x.ResidenceUntil}
+	read := SessionRead{Known: true, Fresh: snapshot.Fresh, PreferredAccountID: x.LastAccountID, ResidenceUntil: x.ResidenceUntil}
 	if r.AccountID == x.LastAccountID && r.UpstreamKeyID > 0 {
 		if route, ok := x.Routes[x.LastRouteKey]; !ok || route.UpstreamKeyID != r.UpstreamKeyID {
 			return SessionRead{}
 		}
+	}
+	if route, ok := x.Routes[x.LastRouteKey]; ok && x.LastAccountID > 0 {
+		id := accountIdentity(x.LastAccountID, route.UpstreamKeyID)
+		account := projectAccountSnapshot(e.accountSnapshotAtLocked(id, e.accounts[id], at), s)
+		if !account.Available {
+			// Retain the known identity so scheduling cannot mistake an expired
+			// existing session for a natural new trial opportunity.
+			read.Fresh = false
+			return read
+		}
+		read.Fresh = read.Fresh && account.Fresh
 	}
 	if x.LastModel != r.Model || x.LastProtocol != r.Protocol ||
 		(r.AccountID > 0 && r.UpstreamKeyID > 0 && x.LastRouteKey != WarmRouteKey(r)) {
@@ -619,11 +738,66 @@ func (e *Engine) CachedSessionRead(r Request) SessionRead {
 	}
 	return read
 }
-func (e *Engine) SessionRead(_ context.Context, r Request) (SessionRead, error) {
-	if !e.CachedSnapshot(r.GroupID).Available {
+func (e *Engine) SessionRead(ctx context.Context, r Request) (SessionRead, error) {
+	return e.SessionReadAt(ctx, r, e.now().UTC())
+}
+func (e *Engine) SessionReadAt(ctx context.Context, r Request, at time.Time) (SessionRead, error) {
+	return e.SessionReadAtWithDatabaseContext(ctx, r, at, nil)
+}
+
+// The factory runs only when a cache miss actually needs a durable read.
+func (e *Engine) SessionReadAtWithDatabaseContext(ctx context.Context, r Request, at time.Time, databaseContext func(context.Context) (context.Context, context.CancelFunc)) (SessionRead, error) {
+	if !e.CachedMetadataAt(r.GroupID, at).Available {
 		return SessionRead{}, ErrUnavailable
 	}
-	return e.CachedSessionRead(r), nil
+	key := sessionCacheKey(r.GroupID, SessionKey(r))
+	e.mu.Lock()
+	_, exists := e.sessions[key]
+	if exists {
+		e.sessionAccess[key] = e.now().UTC()
+	}
+	e.mu.Unlock()
+	if !exists {
+		if loader, ok := e.store.(SessionLoader); ok {
+			if databaseContext != nil {
+				var cancel context.CancelFunc
+				ctx, cancel = databaseContext(ctx)
+				defer cancel()
+			}
+			x, version, err := loader.LoadSession(ctx, r.GroupID, SessionKey(r))
+			if err != nil {
+				return SessionRead{}, err
+			}
+			if x != nil {
+				e.mu.Lock()
+				// A concurrent admission is newer than this cold read.
+				if _, present := e.sessions[key]; !present {
+					e.cacheSessionLocked(key, *x, version, e.now().UTC())
+				}
+				e.mu.Unlock()
+			}
+		}
+	}
+	return e.CachedSessionReadAt(r, at), nil
+}
+
+func (e *Engine) cacheSessionLocked(key string, session SessionState, version int64, at time.Time) {
+	if current, exists := e.sessionVersions[key]; exists && current > version {
+		return
+	}
+	if _, exists := e.sessions[key]; !exists && len(e.sessions) >= MaxActiveSessions {
+		// Capacity eviction changes only residency; durable identity is retained
+		// and must be cold loaded before any new-session decision.
+		for evicted := range e.sessions {
+			delete(e.sessions, evicted)
+			delete(e.sessionVersions, evicted)
+			delete(e.sessionAccess, evicted)
+			break
+		}
+	}
+	e.sessions[key] = session
+	e.sessionVersions[key] = version
+	e.sessionAccess[key] = at
 }
 func CandidatePreference(snapshot Snapshot, session SessionRead, c Candidate) int {
 	if !snapshot.Available || snapshot.Mode != Protect {

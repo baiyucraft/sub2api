@@ -6,7 +6,9 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -16,10 +18,57 @@ import (
 )
 
 type cacheGuardSchedulingKey struct{}
+type cacheGuardProtectedSelectionKey struct{}
 type cacheGuardSchedulingIdentity struct {
 	APIKeyID  int64
 	RequestID string
 	StartedAt time.Time
+	budget    *cacheGuardRequestBudget
+}
+
+// The deadline begins at the first protection database operation. It is shared
+// by selection and admission, without shortening the ordinary request context.
+type cacheGuardRequestBudget struct {
+	mu        sync.Mutex
+	deadline  time.Time
+	exhausted atomic.Bool
+	ordinary  atomic.Bool
+}
+
+func cacheGuardDatabaseContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	identity, ok := ctx.Value(cacheGuardSchedulingKey{}).(cacheGuardSchedulingIdentity)
+	if !ok || identity.budget == nil {
+		return context.WithTimeout(ctx, 100*time.Millisecond)
+	}
+	b := identity.budget
+	b.mu.Lock()
+	if b.deadline.IsZero() {
+		b.deadline = time.Now().Add(100 * time.Millisecond)
+	}
+	deadline := b.deadline
+	b.mu.Unlock()
+	child, cancel := context.WithDeadline(ctx, deadline)
+	return child, func() {
+		if child.Err() == context.DeadlineExceeded {
+			b.ordinary.Store(true)
+		}
+		if child.Err() == context.DeadlineExceeded && b.exhausted.CompareAndSwap(false, true) {
+			slog.Warn("upstream_cache_guard_budget_exhausted", "budget_ms", 100, "fallback", "ordinary_scheduler")
+		}
+		cancel()
+	}
+}
+
+func protectionOrdinaryFallback(ctx context.Context) bool {
+	identity, _ := ctx.Value(cacheGuardSchedulingKey{}).(cacheGuardSchedulingIdentity)
+	return identity.budget != nil && identity.budget.ordinary.Load()
+}
+
+func protectionBudgetFallbackError() *UpstreamFailoverError {
+	failure := schedulingProtectionScopeChangedError()
+	failure.Reason = "scheduling_protection_budget_exhausted"
+	failure.ProtectionOrdinaryFallback = true
+	return failure
 }
 
 // WithUpstreamCacheGuardScheduling is installed only by authenticated streaming
@@ -31,7 +80,7 @@ func WithUpstreamCacheGuardScheduling(ctx context.Context, apiKeyID int64) conte
 	if old, ok := ctx.Value(cacheGuardSchedulingKey{}).(cacheGuardSchedulingIdentity); ok && old.APIKeyID == apiKeyID {
 		return ctx
 	}
-	return context.WithValue(ctx, cacheGuardSchedulingKey{}, cacheGuardSchedulingIdentity{apiKeyID, newCacheGuardID(), time.Now().UTC()})
+	return context.WithValue(ctx, cacheGuardSchedulingKey{}, cacheGuardSchedulingIdentity{APIKeyID: apiKeyID, RequestID: newCacheGuardID(), StartedAt: time.Now().UTC(), budget: &cacheGuardRequestBudget{}})
 }
 
 func newCacheGuardID() string {
@@ -63,8 +112,12 @@ type UpstreamCacheGuardRunner struct {
 	retrying       atomic.Int64
 	lost           atomic.Bool
 	pendingFailure atomic.Bool
+	// Backlog health is diagnostic only; routing reads account snapshots.
+	pendingDelayed atomic.Bool
+	pendingUnknown atomic.Bool
 	policyMu       sync.RWMutex
 	policyResolver GroupSchedulingProtectionPolicyResolver
+	appliedPolicy  *GroupSchedulingProtectionPolicySnapshot
 }
 
 var installedCacheGuardRunner atomic.Pointer[UpstreamCacheGuardRunner]
@@ -97,14 +150,36 @@ func (r *UpstreamCacheGuardRunner) SetProtectionPolicyResolver(resolver GroupSch
 	}
 	r.policyMu.Lock()
 	r.policyResolver = resolver
+	r.appliedPolicy = nil
 	r.policyMu.Unlock()
 	r.applyPolicySnapshot()
 }
 
 func (r *UpstreamCacheGuardRunner) applyPolicySnapshot() {
-	r.policyMu.RLock()
+	// Resolver replacement and publication are serialized so an older refresh
+	// cannot install its policies after a new resolver has been selected.
+	r.policyMu.Lock()
+	defer r.policyMu.Unlock()
 	resolver := r.policyResolver
-	r.policyMu.RUnlock()
+	if provider, ok := resolver.(protectionPolicySnapshotProvider); ok {
+		snapshot := provider.ProtectionPoliciesSnapshot()
+		if snapshot == nil {
+			_ = r.engine.ApplyPolicySettings(nil)
+			r.appliedPolicy = nil
+			return
+		}
+		if snapshot == r.appliedPolicy {
+			return
+		}
+		values := make(map[int64]UpstreamCacheGuardSettings, len(snapshot.policies))
+		for id, policy := range snapshot.policies {
+			values[id] = policy.Cache
+		}
+		if r.engine.ApplyPolicySettings(values) == nil {
+			r.appliedPolicy = snapshot
+		}
+		return
+	}
 	if provider, ok := resolver.(interface {
 		CachePolicies() map[int64]UpstreamCacheGuardSettings
 	}); ok {
@@ -143,19 +218,65 @@ func (r *UpstreamCacheGuardRunner) refresh() {
 		return
 	}
 	err = r.engine.Refresh(ctx)
-	stalePending := true
-	if err == nil {
-		stalePending, err = r.store.HasPendingBefore(ctx, time.Now().UTC().Add(-upstreamcacheguard.RefreshLifetime))
+	delayed, pendingErr := r.store.HasPendingBefore(ctx, time.Now().UTC().Add(-upstreamcacheguard.RefreshLifetime))
+	r.pendingUnknown.Store(pendingErr != nil)
+	if pendingErr == nil {
+		r.pendingDelayed.Store(delayed)
 	}
-	r.available.Store(err == nil && !stalePending && r.retrying.Load() == 0 && !r.lost.Load() && !r.pendingFailure.Load() && !r.closed.Load())
+	// A delayed pending row is an outbox health signal, not a global cache
+	// protection circuit breaker. The engine keeps the last successful snapshot
+	// available for a short bounded window when a refresh is temporarily late.
+	r.available.Store(err == nil && r.retrying.Load() == 0 && !r.lost.Load() && !r.pendingFailure.Load() && !r.closed.Load())
 }
 func (r *UpstreamCacheGuardRunner) run() {
 	defer close(r.done)
-	r.refresh()
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
-	cleanup := time.NewTicker(time.Hour)
-	defer cleanup.Stop()
+	var workers sync.WaitGroup
+	workers.Add(3)
+	go func() {
+		defer workers.Done()
+		r.refresh()
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-r.stop:
+				return
+			case <-ticker.C:
+				r.refresh()
+			}
+		}
+	}()
+	go func() {
+		defer workers.Done()
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-r.stop:
+				return
+			case <-ticker.C:
+				r.processPending()
+			case <-r.wake:
+				r.processPending()
+			}
+		}
+	}()
+	go func() {
+		defer workers.Done()
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-r.stop:
+				return
+			case <-ticker.C:
+				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+				_ = r.engine.Cleanup(ctx)
+				cancel()
+			}
+		}
+	}()
+	defer func() { workers.Wait(); r.engine.Close() }()
 	for {
 		select {
 		case <-r.stop:
@@ -164,25 +285,13 @@ func (r *UpstreamCacheGuardRunner) run() {
 				select {
 				case v := <-r.queue:
 					if !r.retryEnqueue(v) {
-						r.engine.Close()
 						return
 					}
 				default:
-					r.engine.Close()
 					return
 				}
 			}
-			r.engine.Close()
 			return
-		case <-ticker.C:
-			r.processPending()
-			r.refresh()
-		case <-cleanup.C:
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			_ = r.engine.Cleanup(ctx)
-			cancel()
-		case <-r.wake:
-			r.processPending()
 		case v := <-r.queue:
 			if !r.retryEnqueue(v) {
 				select {
@@ -191,6 +300,7 @@ func (r *UpstreamCacheGuardRunner) run() {
 					return
 				default:
 					r.lost.Store(true)
+					r.engine.MarkSamplingFailure(v.Request, true)
 				}
 				select {
 				case <-time.After(time.Second):
@@ -207,6 +317,7 @@ func (r *UpstreamCacheGuardRunner) retryEnqueue(v upstreamcacheguard.Evidence) b
 	if err := r.store.Enqueue(ctx, v); err != nil {
 		r.available.Store(false)
 		r.pendingFailure.Store(true)
+		r.engine.MarkSamplingFailure(v.Request, false)
 		return false
 	}
 	r.retrying.Add(-1)
@@ -228,16 +339,39 @@ func (r *UpstreamCacheGuardRunner) processPending() {
 		r.pendingFailure.Store(true)
 		return
 	}
+	// Claim order is preserved within each account, including across Key changes.
+	// Only this consumer dispatches batches; the next batch waits for all workers.
+	byAccount := make(map[int64][]upstreamcacheguard.Evidence)
 	for _, v := range pending {
-		ctx, cancel = context.WithTimeout(context.Background(), 500*time.Millisecond)
-		err = r.engine.Complete(ctx, v)
-		cancel()
-		if err != nil {
-			r.available.Store(false)
-			r.pendingFailure.Store(true)
-			return
-		}
+		byAccount[v.Request.AccountID] = append(byAccount[v.Request.AccountID], v)
 	}
+	jobs := make(chan []upstreamcacheguard.Evidence)
+	var workers sync.WaitGroup
+	for i := 0; i < min(4, len(byAccount)); i++ {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			for account := range jobs {
+				for _, v := range account {
+					ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+					err := r.engine.Complete(ctx, v)
+					cancel()
+					if err != nil {
+						r.available.Store(false)
+						r.pendingFailure.Store(true)
+						r.engine.MarkSamplingFailure(v.Request, false)
+						break
+					}
+					r.engine.ClearSamplingFailure(v.Request)
+				}
+			}
+		}()
+	}
+	for _, account := range byAccount {
+		jobs <- account
+	}
+	close(jobs)
+	workers.Wait()
 	if len(pending) == 32 {
 		// Coalesced completion notifications cannot strand the rest of a burst
 		// behind one batch per timer tick. Keep draining the durable outbox.
@@ -282,36 +416,86 @@ func (r *UpstreamCacheGuardRunner) logicalRequest(ctx context.Context, groupID *
 }
 
 func BeginUpstreamCacheGuardRequest(ctx context.Context, apiKeyID int64, groupID *int64, sessionHash, model, protocol string, account *Account) *UpstreamCacheGuardAdmission {
+	admission, _ := beginUpstreamCacheGuardRequest(ctx, apiKeyID, groupID, sessionHash, model, protocol, account)
+	return admission
+}
+
+func beginUpstreamCacheGuardRequest(ctx context.Context, apiKeyID int64, groupID *int64, sessionHash, model, protocol string, account *Account) (*UpstreamCacheGuardAdmission, error) {
+	strict, _ := ctx.Value(cacheGuardProtectedSelectionKey{}).(bool)
+	if protectionOrdinaryFallback(ctx) {
+		if strict {
+			return nil, protectionBudgetFallbackError()
+		}
+		return nil, nil
+	}
 	r := currentUpstreamCacheGuardRunner()
-	if r == nil || !r.available.Load() || r.closed.Load() || account == nil || !account.IsUpstreamBound() || account.UpstreamKeyID == nil || groupID == nil || !r.engine.CachedSnapshot(*groupID).Available {
-		return nil
+	if r == nil || r.closed.Load() || account == nil || !account.IsUpstreamBound() || account.UpstreamKeyID == nil || groupID == nil {
+		return nil, nil
+	}
+	at := time.Now().UTC()
+	snapshot := r.engine.CachedMetadataAt(*groupID, at)
+	if !snapshot.Available {
+		return nil, nil
 	}
 	if !r.protectionScopeSelected(*groupID, account) {
-		return nil
+		return nil, nil
 	}
 	identity, authorized := ctx.Value(cacheGuardSchedulingKey{}).(cacheGuardSchedulingIdentity)
 	if !authorized || identity.APIKeyID != apiKeyID {
-		return nil
+		return nil, nil
 	}
-	if _, ok := r.engine.CachedAccount(account.ID, *account.UpstreamKeyID); !ok {
-		return nil
+	accountSnapshot, ok := r.engine.CachedAccountForGroupAt(*groupID, account.ID, *account.UpstreamKeyID, at)
+	if !ok {
+		return nil, nil
 	}
 	req, ok := r.logicalRequest(ctx, groupID, sessionHash, model, protocol)
 	if !ok {
-		return nil
+		return nil, nil
 	}
 	req.AccountID = account.ID
 	req.UpstreamKeyID = *account.UpstreamKeyID
 	req.StartedAt = time.Now().UTC()
-	a, err := r.engine.Admit(ctx, req)
+	// During the bounded stale window only continue an already classified
+	// session. This prevents a refresh outage from creating new trial evidence
+	// or making a migration decision from old observations.
+	stale := !snapshot.Fresh || !accountSnapshot.Fresh
+	if stale {
+		session, err := r.engine.SessionReadAtWithDatabaseContext(ctx, req, at, cacheGuardDatabaseContext)
+		if err != nil {
+			if strict && protectionOrdinaryFallback(ctx) && ctx.Err() == nil {
+				return nil, protectionBudgetFallbackError()
+			}
+			return nil, nil
+		}
+		if !session.Known || session.PreferredAccountID != account.ID {
+			return nil, nil
+		}
+	}
+	dbCtx, cancel := cacheGuardDatabaseContext(ctx)
+	defer cancel()
+	var a upstreamcacheguard.Admission
+	var err error
+	if stale {
+		a, err = r.engine.AdmitExisting(dbCtx, req)
+	} else {
+		a, err = r.engine.Admit(dbCtx, req)
+	}
 	if err != nil {
 		r.available.Store(false)
-		return nil
+		if (dbCtx.Err() == context.DeadlineExceeded || errors.Is(err, context.DeadlineExceeded)) && ctx.Err() == nil {
+			if identity.budget != nil {
+				identity.budget.ordinary.Store(true)
+			}
+			if strict {
+				return nil, protectionBudgetFallbackError()
+			}
+		}
+		return nil, nil
 	}
 	if !a.Sample {
-		return nil
+		return nil, nil
 	}
-	return &UpstreamCacheGuardAdmission{Request: req, Admission: a, AccountPlatform: account.Platform}
+	return &UpstreamCacheGuardAdmission{Request: req, Admission: a, AccountPlatform: account.Platform}, nil
 }
 func ObserveUpstreamCacheGuardResult(admission *UpstreamCacheGuardAdmission, evidence *UpstreamCacheUsageEvidence, success bool, completedAt time.Time) {
 	r := currentUpstreamCacheGuardRunner()
@@ -338,10 +522,12 @@ func ObserveUpstreamCacheGuardResult(admission *UpstreamCacheGuardAdmission, evi
 	}
 	r.available.Store(false)
 	r.pendingFailure.Store(true)
+	r.engine.MarkSamplingFailure(admission.Request, false)
 	r.retrying.Add(1)
 	select {
 	case r.queue <- v:
 	default:
 		r.lost.Store(true)
+		r.engine.MarkSamplingFailure(admission.Request, true)
 	}
 }

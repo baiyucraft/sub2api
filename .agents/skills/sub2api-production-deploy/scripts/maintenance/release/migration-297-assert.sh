@@ -6,7 +6,7 @@ migration_status=${MIGRATION_STATUS:-absent}
 context_file=${ASSERT_CONTEXT_FILE:-/opt/sub2api/releases/.active-release/assets/context.sh}
 [[ -f $context_file && ! -L $context_file ]] || exit 1
 source "$context_file"
-[[ $profile == 269 || $profile == 270 ]] || exit 1
+[[ $profile == 269 || $profile == 270 || $profile == 271 ]] || exit 1
 [[ $phase == preflight || $phase == postflight || $phase == verified_replay || $phase == vm_semantics ]] || exit 1
 [[ $migration_status == absent || $migration_status == verified ]] || exit 1
 [[ $phase == preflight || $migration_status == verified ]] || exit 1
@@ -35,7 +35,8 @@ verify_manifest() {
   jq -e --arg filename "$filename" --arg checksum "$catalog_checksum" '
     (if has("manifest") then .manifest else . end) as $m |
     $m.schema == 2 and (($m.profile == "269" and $m.parent_profile == "268" and $m.new_migrations == [$filename]) or
-      ($m.profile == "270" and $m.parent_profile == "269" and $m.new_migrations == ["298_group_scheduling_protection_policies.sql"])) and
+      ($m.profile == "270" and $m.parent_profile == "269" and $m.new_migrations == ["298_group_scheduling_protection_policies.sql"]) or
+      ($m.profile == "271" and $m.parent_profile == "270" and $m.new_migrations == ["299_upstream_cache_guard_revisions.sql"])) and
     ([$m.migration_catalog[] | select(.filename == $filename)] | length) == 1 and
     ([$m.migration_catalog[] | select(.filename == $filename)][0].checksum == $checksum)
   ' "$document" >/dev/null 2>&1 || fail manifest_contract

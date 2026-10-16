@@ -1,0 +1,1824 @@
+[
+  {
+    "label": "natural",
+    "account": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "model": "",
+      "protocol": "",
+      "phase": "healthy",
+      "valid_requests": 0,
+      "cache_percent": 0,
+      "total_input_tokens": 0,
+      "cache_read_tokens": 0,
+      "updated_at": "0001-01-01T00:00:00Z",
+      "last_evidence_at": "0001-01-01T00:00:00Z",
+      "quality_since": "0001-01-01T00:00:00Z",
+      "degraded_at": "0001-01-01T00:00:00Z",
+      "cooldown_until": "0001-01-01T00:00:00Z",
+      "first_trial_at": "0001-01-01T00:00:00Z",
+      "trial_valid_requests": 0,
+      "trial_sessions": 0,
+      "trial_cache_percent": 0,
+      "group_ids": [
+        1
+      ]
+    },
+    "available": true,
+    "fresh": true,
+    "session": {
+      "known": true,
+      "fresh": true,
+      "preferred_account_id": 2,
+      "protected": true,
+      "pending_low": false,
+      "warm_at_start": true,
+      "trial": false,
+      "residence_until": "0001-01-01T00:00:00Z",
+      "last_successful_at": "2026-10-14T00:00:01Z"
+    },
+    "group": {
+      "natural_new_count": 1,
+      "trial_count": 0
+    },
+    "admission": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "request_id": "natural",
+      "session_key": "ca6af11c4731982567e107bfef2c06222aa7c4b2b1ac43d0e8d9fad611f2c2ff",
+      "group_id": 1,
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "started_at": "2026-10-14T00:00:00Z",
+      "natural_new": true,
+      "warm_at_start": false,
+      "protected_at_start": false,
+      "trial": false,
+      "sample": true,
+      "mode": "protect",
+      "completed": false,
+      "route_key": "01649671dbe7226d944fe304eb86b88b0a2c75b849c478bde4eb43234298bb1c"
+    }
+  },
+  {
+    "label": "warm-first",
+    "account": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "model": "",
+      "protocol": "",
+      "phase": "healthy",
+      "valid_requests": 1,
+      "cache_percent": 90,
+      "total_input_tokens": 100,
+      "cache_read_tokens": 90,
+      "updated_at": "0001-01-01T00:00:00Z",
+      "last_evidence_at": "2026-10-14T00:00:21Z",
+      "quality_since": "0001-01-01T00:00:00Z",
+      "degraded_at": "0001-01-01T00:00:00Z",
+      "cooldown_until": "0001-01-01T00:00:00Z",
+      "first_trial_at": "0001-01-01T00:00:00Z",
+      "trial_valid_requests": 0,
+      "trial_sessions": 0,
+      "trial_cache_percent": 0,
+      "group_ids": [
+        1
+      ]
+    },
+    "available": true,
+    "fresh": true,
+    "session": {
+      "known": true,
+      "fresh": true,
+      "preferred_account_id": 2,
+      "protected": true,
+      "pending_low": false,
+      "warm_at_start": true,
+      "trial": false,
+      "residence_until": "0001-01-01T00:00:00Z",
+      "last_successful_at": "2026-10-14T00:00:21Z"
+    },
+    "group": {
+      "natural_new_count": 1,
+      "trial_count": 0
+    },
+    "admission": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "request_id": "warm-first",
+      "session_key": "ca6af11c4731982567e107bfef2c06222aa7c4b2b1ac43d0e8d9fad611f2c2ff",
+      "group_id": 1,
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "started_at": "2026-10-14T00:00:20Z",
+      "natural_new": false,
+      "warm_at_start": true,
+      "protected_at_start": false,
+      "trial": false,
+      "sample": true,
+      "mode": "protect",
+      "completed": false,
+      "route_key": "01649671dbe7226d944fe304eb86b88b0a2c75b849c478bde4eb43234298bb1c"
+    }
+  },
+  {
+    "label": "warm-second",
+    "account": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "model": "",
+      "protocol": "",
+      "phase": "healthy",
+      "valid_requests": 2,
+      "cache_percent": 90,
+      "total_input_tokens": 200,
+      "cache_read_tokens": 180,
+      "updated_at": "0001-01-01T00:00:00Z",
+      "last_evidence_at": "2026-10-14T00:00:41Z",
+      "quality_since": "0001-01-01T00:00:00Z",
+      "degraded_at": "0001-01-01T00:00:00Z",
+      "cooldown_until": "0001-01-01T00:00:00Z",
+      "first_trial_at": "0001-01-01T00:00:00Z",
+      "trial_valid_requests": 0,
+      "trial_sessions": 0,
+      "trial_cache_percent": 0,
+      "group_ids": [
+        1
+      ]
+    },
+    "available": true,
+    "fresh": true,
+    "session": {
+      "known": true,
+      "fresh": true,
+      "preferred_account_id": 2,
+      "protected": true,
+      "pending_low": false,
+      "warm_at_start": true,
+      "trial": false,
+      "residence_until": "0001-01-01T00:00:00Z",
+      "last_successful_at": "2026-10-14T00:00:41Z"
+    },
+    "group": {
+      "natural_new_count": 1,
+      "trial_count": 0
+    },
+    "admission": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "request_id": "warm-second",
+      "session_key": "ca6af11c4731982567e107bfef2c06222aa7c4b2b1ac43d0e8d9fad611f2c2ff",
+      "group_id": 1,
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "started_at": "2026-10-14T00:00:40Z",
+      "natural_new": false,
+      "warm_at_start": true,
+      "protected_at_start": false,
+      "trial": false,
+      "sample": true,
+      "mode": "protect",
+      "completed": false,
+      "route_key": "01649671dbe7226d944fe304eb86b88b0a2c75b849c478bde4eb43234298bb1c"
+    }
+  },
+  {
+    "label": "low-first",
+    "account": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "model": "",
+      "protocol": "",
+      "phase": "cooling",
+      "valid_requests": 3,
+      "cache_percent": 60,
+      "total_input_tokens": 300,
+      "cache_read_tokens": 180,
+      "updated_at": "0001-01-01T00:00:00Z",
+      "last_evidence_at": "2026-10-14T00:01:01Z",
+      "quality_since": "0001-01-01T00:00:00Z",
+      "degraded_at": "2026-10-14T00:01:01Z",
+      "cooldown_until": "2026-10-14T00:02:01Z",
+      "first_trial_at": "0001-01-01T00:00:00Z",
+      "trial_valid_requests": 0,
+      "trial_sessions": 0,
+      "trial_cache_percent": 0,
+      "group_ids": [
+        1
+      ]
+    },
+    "available": true,
+    "fresh": true,
+    "session": {
+      "known": true,
+      "fresh": true,
+      "preferred_account_id": 2,
+      "protected": true,
+      "pending_low": false,
+      "warm_at_start": true,
+      "trial": false,
+      "residence_until": "0001-01-01T00:00:00Z",
+      "last_successful_at": "2026-10-14T00:01:01Z"
+    },
+    "group": {
+      "natural_new_count": 1,
+      "trial_count": 0
+    },
+    "admission": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "request_id": "low-first",
+      "session_key": "ca6af11c4731982567e107bfef2c06222aa7c4b2b1ac43d0e8d9fad611f2c2ff",
+      "group_id": 1,
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "started_at": "2026-10-14T00:01:00Z",
+      "natural_new": false,
+      "warm_at_start": true,
+      "protected_at_start": false,
+      "trial": false,
+      "sample": true,
+      "mode": "protect",
+      "completed": false,
+      "route_key": "01649671dbe7226d944fe304eb86b88b0a2c75b849c478bde4eb43234298bb1c"
+    }
+  },
+  {
+    "label": "low-second",
+    "account": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "model": "",
+      "protocol": "",
+      "phase": "cooling",
+      "valid_requests": 4,
+      "cache_percent": 45,
+      "total_input_tokens": 400,
+      "cache_read_tokens": 180,
+      "updated_at": "0001-01-01T00:00:00Z",
+      "last_evidence_at": "2026-10-14T00:01:21Z",
+      "quality_since": "0001-01-01T00:00:00Z",
+      "degraded_at": "2026-10-14T00:01:01Z",
+      "cooldown_until": "2026-10-14T00:02:01Z",
+      "first_trial_at": "0001-01-01T00:00:00Z",
+      "trial_valid_requests": 0,
+      "trial_sessions": 0,
+      "trial_cache_percent": 0,
+      "group_ids": [
+        1
+      ]
+    },
+    "available": true,
+    "fresh": true,
+    "session": {
+      "known": true,
+      "fresh": true,
+      "preferred_account_id": 2,
+      "protected": true,
+      "pending_low": false,
+      "warm_at_start": true,
+      "trial": false,
+      "residence_until": "0001-01-01T00:00:00Z",
+      "last_successful_at": "2026-10-14T00:01:21Z"
+    },
+    "group": {
+      "natural_new_count": 1,
+      "trial_count": 0
+    },
+    "admission": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "request_id": "low-second",
+      "session_key": "ca6af11c4731982567e107bfef2c06222aa7c4b2b1ac43d0e8d9fad611f2c2ff",
+      "group_id": 1,
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "started_at": "2026-10-14T00:01:20Z",
+      "natural_new": false,
+      "warm_at_start": true,
+      "protected_at_start": true,
+      "trial": false,
+      "sample": true,
+      "mode": "protect",
+      "completed": false,
+      "route_key": "01649671dbe7226d944fe304eb86b88b0a2c75b849c478bde4eb43234298bb1c"
+    }
+  },
+  {
+    "label": "low-third",
+    "account": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "model": "",
+      "protocol": "",
+      "phase": "cooling",
+      "valid_requests": 5,
+      "cache_percent": 36,
+      "total_input_tokens": 500,
+      "cache_read_tokens": 180,
+      "updated_at": "0001-01-01T00:00:00Z",
+      "last_evidence_at": "2026-10-14T00:01:41Z",
+      "quality_since": "0001-01-01T00:00:00Z",
+      "degraded_at": "2026-10-14T00:01:01Z",
+      "cooldown_until": "2026-10-14T00:02:01Z",
+      "first_trial_at": "0001-01-01T00:00:00Z",
+      "trial_valid_requests": 0,
+      "trial_sessions": 0,
+      "trial_cache_percent": 0,
+      "group_ids": [
+        1
+      ]
+    },
+    "available": true,
+    "fresh": true,
+    "session": {
+      "known": true,
+      "fresh": true,
+      "preferred_account_id": 2,
+      "protected": false,
+      "pending_low": true,
+      "warm_at_start": true,
+      "trial": false,
+      "residence_until": "0001-01-01T00:00:00Z",
+      "last_successful_at": "2026-10-14T00:01:41Z"
+    },
+    "group": {
+      "natural_new_count": 1,
+      "trial_count": 0
+    },
+    "admission": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "request_id": "low-third",
+      "session_key": "ca6af11c4731982567e107bfef2c06222aa7c4b2b1ac43d0e8d9fad611f2c2ff",
+      "group_id": 1,
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "started_at": "2026-10-14T00:01:40Z",
+      "natural_new": false,
+      "warm_at_start": true,
+      "protected_at_start": true,
+      "trial": false,
+      "sample": true,
+      "mode": "protect",
+      "completed": false,
+      "route_key": "01649671dbe7226d944fe304eb86b88b0a2c75b849c478bde4eb43234298bb1c"
+    }
+  },
+  {
+    "label": "low-fourth",
+    "account": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "model": "",
+      "protocol": "",
+      "phase": "cooling",
+      "valid_requests": 6,
+      "cache_percent": 30,
+      "total_input_tokens": 600,
+      "cache_read_tokens": 180,
+      "updated_at": "0001-01-01T00:00:00Z",
+      "last_evidence_at": "2026-10-14T00:02:01Z",
+      "quality_since": "0001-01-01T00:00:00Z",
+      "degraded_at": "2026-10-14T00:01:01Z",
+      "cooldown_until": "2026-10-14T00:02:01Z",
+      "first_trial_at": "0001-01-01T00:00:00Z",
+      "trial_valid_requests": 0,
+      "trial_sessions": 0,
+      "trial_cache_percent": 0,
+      "group_ids": [
+        1
+      ]
+    },
+    "available": true,
+    "fresh": true,
+    "session": {
+      "known": true,
+      "fresh": true,
+      "preferred_account_id": 2,
+      "protected": false,
+      "pending_low": true,
+      "warm_at_start": true,
+      "trial": false,
+      "residence_until": "0001-01-01T00:00:00Z",
+      "last_successful_at": "2026-10-14T00:02:01Z"
+    },
+    "group": {
+      "natural_new_count": 1,
+      "trial_count": 0
+    },
+    "admission": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "request_id": "low-fourth",
+      "session_key": "ca6af11c4731982567e107bfef2c06222aa7c4b2b1ac43d0e8d9fad611f2c2ff",
+      "group_id": 1,
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "started_at": "2026-10-14T00:02:00Z",
+      "natural_new": false,
+      "warm_at_start": true,
+      "protected_at_start": true,
+      "trial": false,
+      "sample": true,
+      "mode": "protect",
+      "completed": false,
+      "route_key": "01649671dbe7226d944fe304eb86b88b0a2c75b849c478bde4eb43234298bb1c"
+    }
+  },
+  {
+    "label": "cooldown-boundary--1",
+    "account": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "model": "",
+      "protocol": "",
+      "phase": "cooling",
+      "valid_requests": 5,
+      "cache_percent": 36,
+      "total_input_tokens": 500,
+      "cache_read_tokens": 180,
+      "updated_at": "0001-01-01T00:00:00Z",
+      "last_evidence_at": "2026-10-14T00:02:01Z",
+      "quality_since": "0001-01-01T00:00:00Z",
+      "degraded_at": "2026-10-14T00:01:01Z",
+      "cooldown_until": "2026-10-14T00:02:01Z",
+      "first_trial_at": "0001-01-01T00:00:00Z",
+      "trial_valid_requests": 0,
+      "trial_sessions": 0,
+      "trial_cache_percent": 0,
+      "group_ids": [
+        1
+      ]
+    },
+    "available": true,
+    "fresh": true,
+    "session": {
+      "known": true,
+      "fresh": true,
+      "preferred_account_id": 2,
+      "protected": false,
+      "pending_low": true,
+      "warm_at_start": false,
+      "trial": false,
+      "residence_until": "0001-01-01T00:00:00Z",
+      "last_successful_at": "2026-10-14T00:02:01Z"
+    },
+    "group": {
+      "natural_new_count": 1,
+      "trial_count": 0
+    }
+  },
+  {
+    "label": "cooldown-boundary-0",
+    "account": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "model": "",
+      "protocol": "",
+      "phase": "cooling",
+      "valid_requests": 6,
+      "cache_percent": 30,
+      "total_input_tokens": 600,
+      "cache_read_tokens": 180,
+      "updated_at": "0001-01-01T00:00:00Z",
+      "last_evidence_at": "2026-10-14T00:02:01Z",
+      "quality_since": "0001-01-01T00:00:00Z",
+      "degraded_at": "2026-10-14T00:01:01Z",
+      "cooldown_until": "2026-10-14T00:02:01Z",
+      "first_trial_at": "0001-01-01T00:00:00Z",
+      "trial_valid_requests": 0,
+      "trial_sessions": 0,
+      "trial_cache_percent": 0,
+      "group_ids": [
+        1
+      ]
+    },
+    "available": true,
+    "fresh": true,
+    "session": {
+      "known": true,
+      "fresh": true,
+      "preferred_account_id": 2,
+      "protected": false,
+      "pending_low": true,
+      "warm_at_start": true,
+      "trial": false,
+      "residence_until": "0001-01-01T00:00:00Z",
+      "last_successful_at": "2026-10-14T00:02:01Z"
+    },
+    "group": {
+      "natural_new_count": 1,
+      "trial_count": 0
+    }
+  },
+  {
+    "label": "cooldown-boundary-1",
+    "account": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "model": "",
+      "protocol": "",
+      "phase": "cooling",
+      "valid_requests": 6,
+      "cache_percent": 30,
+      "total_input_tokens": 600,
+      "cache_read_tokens": 180,
+      "updated_at": "0001-01-01T00:00:00Z",
+      "last_evidence_at": "2026-10-14T00:02:01Z",
+      "quality_since": "0001-01-01T00:00:00Z",
+      "degraded_at": "2026-10-14T00:01:01Z",
+      "cooldown_until": "2026-10-14T00:02:01Z",
+      "first_trial_at": "0001-01-01T00:00:00Z",
+      "trial_valid_requests": 0,
+      "trial_sessions": 0,
+      "trial_cache_percent": 0,
+      "group_ids": [
+        1
+      ]
+    },
+    "available": true,
+    "fresh": true,
+    "session": {
+      "known": true,
+      "fresh": true,
+      "preferred_account_id": 2,
+      "protected": false,
+      "pending_low": true,
+      "warm_at_start": true,
+      "trial": false,
+      "residence_until": "0001-01-01T00:00:00Z",
+      "last_successful_at": "2026-10-14T00:02:01Z"
+    },
+    "group": {
+      "natural_new_count": 1,
+      "trial_count": 0
+    }
+  },
+  {
+    "label": "trial-natural",
+    "account": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "model": "",
+      "protocol": "",
+      "phase": "trial",
+      "valid_requests": 6,
+      "cache_percent": 30,
+      "total_input_tokens": 600,
+      "cache_read_tokens": 180,
+      "updated_at": "0001-01-01T00:00:00Z",
+      "last_evidence_at": "2026-10-14T00:02:01Z",
+      "quality_since": "0001-01-01T00:00:00Z",
+      "degraded_at": "2026-10-14T00:01:01Z",
+      "cooldown_until": "2026-10-14T00:02:01Z",
+      "cohort_id": "0f6c7d6a2b121954d7f64f5e2c5187a6dcdfabfc7f5e1d6c6942bdf9959b621d",
+      "first_trial_at": "2026-10-14T00:02:02Z",
+      "trial_valid_requests": 0,
+      "trial_sessions": 0,
+      "trial_cache_percent": 0,
+      "group_ids": [
+        1
+      ],
+      "trial_group_ids": [
+        1
+      ]
+    },
+    "available": true,
+    "fresh": true,
+    "session": {
+      "known": true,
+      "fresh": true,
+      "preferred_account_id": 2,
+      "protected": true,
+      "pending_low": false,
+      "warm_at_start": true,
+      "trial": true,
+      "cohort_id": "0f6c7d6a2b121954d7f64f5e2c5187a6dcdfabfc7f5e1d6c6942bdf9959b621d",
+      "residence_until": "0001-01-01T00:00:00Z",
+      "last_successful_at": "2026-10-14T00:02:03Z"
+    },
+    "group": {
+      "natural_new_count": 2,
+      "trial_count": 1
+    },
+    "admission": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "request_id": "trial-natural",
+      "session_key": "f347a8d60210cbc9a7478b91ea6a5737a1c13c45dcdc867831f656512d67f29a",
+      "group_id": 1,
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "started_at": "2026-10-14T00:02:02Z",
+      "natural_new": true,
+      "warm_at_start": false,
+      "protected_at_start": true,
+      "trial": true,
+      "sample": true,
+      "cohort_id": "0f6c7d6a2b121954d7f64f5e2c5187a6dcdfabfc7f5e1d6c6942bdf9959b621d",
+      "mode": "protect",
+      "completed": false,
+      "route_key": "01649671dbe7226d944fe304eb86b88b0a2c75b849c478bde4eb43234298bb1c"
+    }
+  },
+  {
+    "label": "trial-warm",
+    "account": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "model": "",
+      "protocol": "",
+      "phase": "trial",
+      "valid_requests": 7,
+      "cache_percent": 38.57142857142858,
+      "total_input_tokens": 700,
+      "cache_read_tokens": 270,
+      "updated_at": "0001-01-01T00:00:00Z",
+      "last_evidence_at": "2026-10-14T00:02:23Z",
+      "quality_since": "0001-01-01T00:00:00Z",
+      "degraded_at": "2026-10-14T00:01:01Z",
+      "cooldown_until": "2026-10-14T00:02:01Z",
+      "cohort_id": "0f6c7d6a2b121954d7f64f5e2c5187a6dcdfabfc7f5e1d6c6942bdf9959b621d",
+      "first_trial_at": "2026-10-14T00:02:02Z",
+      "trial_valid_requests": 1,
+      "trial_sessions": 1,
+      "trial_cache_percent": 90,
+      "group_ids": [
+        1
+      ],
+      "trial_group_ids": [
+        1
+      ]
+    },
+    "available": true,
+    "fresh": true,
+    "session": {
+      "known": true,
+      "fresh": true,
+      "preferred_account_id": 2,
+      "protected": true,
+      "pending_low": false,
+      "warm_at_start": true,
+      "trial": true,
+      "cohort_id": "0f6c7d6a2b121954d7f64f5e2c5187a6dcdfabfc7f5e1d6c6942bdf9959b621d",
+      "residence_until": "0001-01-01T00:00:00Z",
+      "last_successful_at": "2026-10-14T00:02:23Z"
+    },
+    "group": {
+      "natural_new_count": 2,
+      "trial_count": 1
+    },
+    "admission": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "request_id": "trial-warm",
+      "session_key": "f347a8d60210cbc9a7478b91ea6a5737a1c13c45dcdc867831f656512d67f29a",
+      "group_id": 1,
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "started_at": "2026-10-14T00:02:22Z",
+      "natural_new": false,
+      "warm_at_start": true,
+      "protected_at_start": true,
+      "trial": true,
+      "sample": true,
+      "cohort_id": "0f6c7d6a2b121954d7f64f5e2c5187a6dcdfabfc7f5e1d6c6942bdf9959b621d",
+      "mode": "protect",
+      "completed": false,
+      "route_key": "01649671dbe7226d944fe304eb86b88b0a2c75b849c478bde4eb43234298bb1c"
+    }
+  },
+  {
+    "label": "trial-second",
+    "account": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "model": "",
+      "protocol": "",
+      "phase": "trial",
+      "valid_requests": 8,
+      "cache_percent": 45,
+      "total_input_tokens": 800,
+      "cache_read_tokens": 360,
+      "updated_at": "0001-01-01T00:00:00Z",
+      "last_evidence_at": "2026-10-14T00:02:43Z",
+      "quality_since": "0001-01-01T00:00:00Z",
+      "degraded_at": "2026-10-14T00:01:01Z",
+      "cooldown_until": "2026-10-14T00:02:01Z",
+      "cohort_id": "0f6c7d6a2b121954d7f64f5e2c5187a6dcdfabfc7f5e1d6c6942bdf9959b621d",
+      "first_trial_at": "2026-10-14T00:02:02Z",
+      "trial_valid_requests": 2,
+      "trial_sessions": 1,
+      "trial_cache_percent": 90,
+      "group_ids": [
+        1
+      ],
+      "trial_group_ids": [
+        1
+      ]
+    },
+    "available": true,
+    "fresh": true,
+    "session": {
+      "known": true,
+      "fresh": true,
+      "preferred_account_id": 2,
+      "protected": true,
+      "pending_low": false,
+      "warm_at_start": true,
+      "trial": true,
+      "cohort_id": "0f6c7d6a2b121954d7f64f5e2c5187a6dcdfabfc7f5e1d6c6942bdf9959b621d",
+      "residence_until": "0001-01-01T00:00:00Z",
+      "last_successful_at": "2026-10-14T00:02:43Z"
+    },
+    "group": {
+      "natural_new_count": 2,
+      "trial_count": 1
+    },
+    "admission": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "request_id": "trial-second",
+      "session_key": "f347a8d60210cbc9a7478b91ea6a5737a1c13c45dcdc867831f656512d67f29a",
+      "group_id": 1,
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "started_at": "2026-10-14T00:02:42Z",
+      "natural_new": false,
+      "warm_at_start": true,
+      "protected_at_start": true,
+      "trial": true,
+      "sample": true,
+      "cohort_id": "0f6c7d6a2b121954d7f64f5e2c5187a6dcdfabfc7f5e1d6c6942bdf9959b621d",
+      "mode": "protect",
+      "completed": false,
+      "route_key": "01649671dbe7226d944fe304eb86b88b0a2c75b849c478bde4eb43234298bb1c"
+    }
+  },
+  {
+    "label": "trial-session-b",
+    "account": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "model": "",
+      "protocol": "",
+      "phase": "trial",
+      "valid_requests": 8,
+      "cache_percent": 45,
+      "total_input_tokens": 800,
+      "cache_read_tokens": 360,
+      "updated_at": "0001-01-01T00:00:00Z",
+      "last_evidence_at": "2026-10-14T00:02:43Z",
+      "quality_since": "0001-01-01T00:00:00Z",
+      "degraded_at": "2026-10-14T00:01:01Z",
+      "cooldown_until": "2026-10-14T00:02:01Z",
+      "cohort_id": "0f6c7d6a2b121954d7f64f5e2c5187a6dcdfabfc7f5e1d6c6942bdf9959b621d",
+      "first_trial_at": "2026-10-14T00:02:02Z",
+      "trial_valid_requests": 2,
+      "trial_sessions": 1,
+      "trial_cache_percent": 90,
+      "group_ids": [
+        1
+      ],
+      "trial_group_ids": [
+        1
+      ]
+    },
+    "available": true,
+    "fresh": true,
+    "session": {
+      "known": true,
+      "fresh": true,
+      "preferred_account_id": 2,
+      "protected": true,
+      "pending_low": false,
+      "warm_at_start": true,
+      "trial": true,
+      "cohort_id": "0f6c7d6a2b121954d7f64f5e2c5187a6dcdfabfc7f5e1d6c6942bdf9959b621d",
+      "residence_until": "0001-01-01T00:00:00Z",
+      "last_successful_at": "2026-10-14T00:03:03Z"
+    },
+    "group": {
+      "natural_new_count": 3,
+      "trial_count": 2
+    },
+    "admission": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "request_id": "trial-session-b",
+      "session_key": "ad33cd6f2a3f2834e1b8d6f6cebfef0322aa6e1a003d1de8d7930ea39728013e",
+      "group_id": 1,
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "started_at": "2026-10-14T00:03:02Z",
+      "natural_new": true,
+      "warm_at_start": false,
+      "protected_at_start": true,
+      "trial": true,
+      "sample": true,
+      "cohort_id": "0f6c7d6a2b121954d7f64f5e2c5187a6dcdfabfc7f5e1d6c6942bdf9959b621d",
+      "mode": "protect",
+      "completed": false,
+      "route_key": "01649671dbe7226d944fe304eb86b88b0a2c75b849c478bde4eb43234298bb1c"
+    }
+  },
+  {
+    "label": "trial-warm-b",
+    "account": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "model": "",
+      "protocol": "",
+      "phase": "trial",
+      "valid_requests": 9,
+      "cache_percent": 50,
+      "total_input_tokens": 900,
+      "cache_read_tokens": 450,
+      "updated_at": "0001-01-01T00:00:00Z",
+      "last_evidence_at": "2026-10-14T00:03:23Z",
+      "quality_since": "0001-01-01T00:00:00Z",
+      "degraded_at": "2026-10-14T00:01:01Z",
+      "cooldown_until": "2026-10-14T00:02:01Z",
+      "cohort_id": "0f6c7d6a2b121954d7f64f5e2c5187a6dcdfabfc7f5e1d6c6942bdf9959b621d",
+      "first_trial_at": "2026-10-14T00:02:02Z",
+      "trial_valid_requests": 3,
+      "trial_sessions": 2,
+      "trial_cache_percent": 90,
+      "group_ids": [
+        1
+      ],
+      "trial_group_ids": [
+        1
+      ]
+    },
+    "available": true,
+    "fresh": true,
+    "session": {
+      "known": true,
+      "fresh": true,
+      "preferred_account_id": 2,
+      "protected": true,
+      "pending_low": false,
+      "warm_at_start": true,
+      "trial": true,
+      "cohort_id": "0f6c7d6a2b121954d7f64f5e2c5187a6dcdfabfc7f5e1d6c6942bdf9959b621d",
+      "residence_until": "0001-01-01T00:00:00Z",
+      "last_successful_at": "2026-10-14T00:03:23Z"
+    },
+    "group": {
+      "natural_new_count": 3,
+      "trial_count": 2
+    },
+    "admission": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "request_id": "trial-warm-b",
+      "session_key": "ad33cd6f2a3f2834e1b8d6f6cebfef0322aa6e1a003d1de8d7930ea39728013e",
+      "group_id": 1,
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "started_at": "2026-10-14T00:03:22Z",
+      "natural_new": false,
+      "warm_at_start": true,
+      "protected_at_start": true,
+      "trial": true,
+      "sample": true,
+      "cohort_id": "0f6c7d6a2b121954d7f64f5e2c5187a6dcdfabfc7f5e1d6c6942bdf9959b621d",
+      "mode": "protect",
+      "completed": false,
+      "route_key": "01649671dbe7226d944fe304eb86b88b0a2c75b849c478bde4eb43234298bb1c"
+    }
+  },
+  {
+    "label": "trial-session-c",
+    "account": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "model": "",
+      "protocol": "",
+      "phase": "trial",
+      "valid_requests": 9,
+      "cache_percent": 50,
+      "total_input_tokens": 900,
+      "cache_read_tokens": 450,
+      "updated_at": "0001-01-01T00:00:00Z",
+      "last_evidence_at": "2026-10-14T00:03:23Z",
+      "quality_since": "0001-01-01T00:00:00Z",
+      "degraded_at": "2026-10-14T00:01:01Z",
+      "cooldown_until": "2026-10-14T00:02:01Z",
+      "cohort_id": "0f6c7d6a2b121954d7f64f5e2c5187a6dcdfabfc7f5e1d6c6942bdf9959b621d",
+      "first_trial_at": "2026-10-14T00:02:02Z",
+      "trial_valid_requests": 3,
+      "trial_sessions": 2,
+      "trial_cache_percent": 90,
+      "group_ids": [
+        1
+      ],
+      "trial_group_ids": [
+        1
+      ]
+    },
+    "available": true,
+    "fresh": true,
+    "session": {
+      "known": true,
+      "fresh": true,
+      "preferred_account_id": 2,
+      "protected": true,
+      "pending_low": false,
+      "warm_at_start": true,
+      "trial": true,
+      "cohort_id": "0f6c7d6a2b121954d7f64f5e2c5187a6dcdfabfc7f5e1d6c6942bdf9959b621d",
+      "residence_until": "0001-01-01T00:00:00Z",
+      "last_successful_at": "2026-10-14T00:03:43Z"
+    },
+    "group": {
+      "natural_new_count": 4,
+      "trial_count": 3
+    },
+    "admission": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "request_id": "trial-session-c",
+      "session_key": "31a88f1ef2f87779129560577608fe093759f84e714bd6482c96a63d24ba0a54",
+      "group_id": 1,
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "started_at": "2026-10-14T00:03:42Z",
+      "natural_new": true,
+      "warm_at_start": false,
+      "protected_at_start": true,
+      "trial": true,
+      "sample": true,
+      "cohort_id": "0f6c7d6a2b121954d7f64f5e2c5187a6dcdfabfc7f5e1d6c6942bdf9959b621d",
+      "mode": "protect",
+      "completed": false,
+      "route_key": "01649671dbe7226d944fe304eb86b88b0a2c75b849c478bde4eb43234298bb1c"
+    }
+  },
+  {
+    "label": "trial-warm-c",
+    "account": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "model": "",
+      "protocol": "",
+      "phase": "trial",
+      "valid_requests": 10,
+      "cache_percent": 54,
+      "total_input_tokens": 1000,
+      "cache_read_tokens": 540,
+      "updated_at": "0001-01-01T00:00:00Z",
+      "last_evidence_at": "2026-10-14T00:04:03Z",
+      "quality_since": "0001-01-01T00:00:00Z",
+      "degraded_at": "2026-10-14T00:01:01Z",
+      "cooldown_until": "2026-10-14T00:02:01Z",
+      "cohort_id": "0f6c7d6a2b121954d7f64f5e2c5187a6dcdfabfc7f5e1d6c6942bdf9959b621d",
+      "first_trial_at": "2026-10-14T00:02:02Z",
+      "trial_valid_requests": 4,
+      "trial_sessions": 3,
+      "trial_cache_percent": 90,
+      "group_ids": [
+        1
+      ],
+      "trial_group_ids": [
+        1
+      ]
+    },
+    "available": true,
+    "fresh": true,
+    "session": {
+      "known": true,
+      "fresh": true,
+      "preferred_account_id": 2,
+      "protected": true,
+      "pending_low": false,
+      "warm_at_start": true,
+      "trial": true,
+      "cohort_id": "0f6c7d6a2b121954d7f64f5e2c5187a6dcdfabfc7f5e1d6c6942bdf9959b621d",
+      "residence_until": "0001-01-01T00:00:00Z",
+      "last_successful_at": "2026-10-14T00:04:03Z"
+    },
+    "group": {
+      "natural_new_count": 4,
+      "trial_count": 3
+    },
+    "admission": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "request_id": "trial-warm-c",
+      "session_key": "31a88f1ef2f87779129560577608fe093759f84e714bd6482c96a63d24ba0a54",
+      "group_id": 1,
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "started_at": "2026-10-14T00:04:02Z",
+      "natural_new": false,
+      "warm_at_start": true,
+      "protected_at_start": true,
+      "trial": true,
+      "sample": true,
+      "cohort_id": "0f6c7d6a2b121954d7f64f5e2c5187a6dcdfabfc7f5e1d6c6942bdf9959b621d",
+      "mode": "protect",
+      "completed": false,
+      "route_key": "01649671dbe7226d944fe304eb86b88b0a2c75b849c478bde4eb43234298bb1c"
+    }
+  },
+  {
+    "label": "recovery-boundary--1",
+    "account": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "model": "",
+      "protocol": "",
+      "phase": "trial",
+      "valid_requests": 10,
+      "cache_percent": 54,
+      "total_input_tokens": 1000,
+      "cache_read_tokens": 540,
+      "updated_at": "0001-01-01T00:00:00Z",
+      "last_evidence_at": "2026-10-14T00:04:03Z",
+      "quality_since": "0001-01-01T00:00:00Z",
+      "degraded_at": "2026-10-14T00:01:01Z",
+      "cooldown_until": "2026-10-14T00:02:01Z",
+      "cohort_id": "0f6c7d6a2b121954d7f64f5e2c5187a6dcdfabfc7f5e1d6c6942bdf9959b621d",
+      "first_trial_at": "2026-10-14T00:02:02Z",
+      "trial_valid_requests": 4,
+      "trial_sessions": 3,
+      "trial_cache_percent": 90,
+      "group_ids": [
+        1
+      ],
+      "trial_group_ids": [
+        1
+      ]
+    },
+    "available": true,
+    "fresh": true,
+    "session": {
+      "known": true,
+      "fresh": true,
+      "preferred_account_id": 2,
+      "protected": true,
+      "pending_low": false,
+      "warm_at_start": true,
+      "trial": true,
+      "cohort_id": "0f6c7d6a2b121954d7f64f5e2c5187a6dcdfabfc7f5e1d6c6942bdf9959b621d",
+      "residence_until": "0001-01-01T00:00:00Z",
+      "last_successful_at": "2026-10-14T00:04:03Z"
+    },
+    "group": {
+      "natural_new_count": 4,
+      "trial_count": 3
+    }
+  },
+  {
+    "label": "recovery-boundary-0",
+    "account": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "model": "",
+      "protocol": "",
+      "phase": "trial",
+      "valid_requests": 10,
+      "cache_percent": 54,
+      "total_input_tokens": 1000,
+      "cache_read_tokens": 540,
+      "updated_at": "0001-01-01T00:00:00Z",
+      "last_evidence_at": "2026-10-14T00:04:03Z",
+      "quality_since": "0001-01-01T00:00:00Z",
+      "degraded_at": "2026-10-14T00:01:01Z",
+      "cooldown_until": "2026-10-14T00:02:01Z",
+      "cohort_id": "0f6c7d6a2b121954d7f64f5e2c5187a6dcdfabfc7f5e1d6c6942bdf9959b621d",
+      "first_trial_at": "2026-10-14T00:02:02Z",
+      "trial_valid_requests": 4,
+      "trial_sessions": 3,
+      "trial_cache_percent": 90,
+      "group_ids": [
+        1
+      ],
+      "trial_group_ids": [
+        1
+      ]
+    },
+    "available": true,
+    "fresh": true,
+    "session": {
+      "known": true,
+      "fresh": true,
+      "preferred_account_id": 2,
+      "protected": true,
+      "pending_low": false,
+      "warm_at_start": true,
+      "trial": true,
+      "cohort_id": "0f6c7d6a2b121954d7f64f5e2c5187a6dcdfabfc7f5e1d6c6942bdf9959b621d",
+      "residence_until": "0001-01-01T00:00:00Z",
+      "last_successful_at": "2026-10-14T00:04:03Z"
+    },
+    "group": {
+      "natural_new_count": 4,
+      "trial_count": 3
+    }
+  },
+  {
+    "label": "recovery-boundary-1",
+    "account": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "model": "",
+      "protocol": "",
+      "phase": "trial",
+      "valid_requests": 10,
+      "cache_percent": 54,
+      "total_input_tokens": 1000,
+      "cache_read_tokens": 540,
+      "updated_at": "0001-01-01T00:00:00Z",
+      "last_evidence_at": "2026-10-14T00:04:03Z",
+      "quality_since": "0001-01-01T00:00:00Z",
+      "degraded_at": "2026-10-14T00:01:01Z",
+      "cooldown_until": "2026-10-14T00:02:01Z",
+      "cohort_id": "0f6c7d6a2b121954d7f64f5e2c5187a6dcdfabfc7f5e1d6c6942bdf9959b621d",
+      "first_trial_at": "2026-10-14T00:02:02Z",
+      "trial_valid_requests": 4,
+      "trial_sessions": 3,
+      "trial_cache_percent": 90,
+      "group_ids": [
+        1
+      ],
+      "trial_group_ids": [
+        1
+      ]
+    },
+    "available": true,
+    "fresh": true,
+    "session": {
+      "known": true,
+      "fresh": true,
+      "preferred_account_id": 2,
+      "protected": true,
+      "pending_low": false,
+      "warm_at_start": true,
+      "trial": true,
+      "cohort_id": "0f6c7d6a2b121954d7f64f5e2c5187a6dcdfabfc7f5e1d6c6942bdf9959b621d",
+      "residence_until": "0001-01-01T00:00:00Z",
+      "last_successful_at": "2026-10-14T00:04:03Z"
+    },
+    "group": {
+      "natural_new_count": 4,
+      "trial_count": 3
+    }
+  },
+  {
+    "label": "recovery-evidence",
+    "account": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "model": "",
+      "protocol": "",
+      "phase": "healthy",
+      "valid_requests": 0,
+      "cache_percent": 0,
+      "total_input_tokens": 0,
+      "cache_read_tokens": 0,
+      "updated_at": "0001-01-01T00:00:00Z",
+      "last_evidence_at": "2026-10-14T00:12:04Z",
+      "quality_since": "2026-10-14T00:12:04Z",
+      "degraded_at": "2026-10-14T00:01:01Z",
+      "cooldown_until": "0001-01-01T00:00:00Z",
+      "first_trial_at": "0001-01-01T00:00:00Z",
+      "trial_valid_requests": 0,
+      "trial_sessions": 0,
+      "trial_cache_percent": 0,
+      "group_ids": [
+        1
+      ]
+    },
+    "available": true,
+    "fresh": true,
+    "session": {
+      "known": true,
+      "fresh": true,
+      "preferred_account_id": 2,
+      "protected": true,
+      "pending_low": false,
+      "warm_at_start": true,
+      "trial": true,
+      "cohort_id": "0f6c7d6a2b121954d7f64f5e2c5187a6dcdfabfc7f5e1d6c6942bdf9959b621d",
+      "residence_until": "0001-01-01T00:00:00Z",
+      "last_successful_at": "2026-10-14T00:12:04Z"
+    },
+    "group": {
+      "natural_new_count": 4,
+      "trial_count": 3
+    },
+    "admission": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "request_id": "recovery-evidence",
+      "session_key": "f347a8d60210cbc9a7478b91ea6a5737a1c13c45dcdc867831f656512d67f29a",
+      "group_id": 1,
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "started_at": "2026-10-14T00:12:03Z",
+      "natural_new": false,
+      "warm_at_start": true,
+      "protected_at_start": true,
+      "trial": true,
+      "sample": true,
+      "cohort_id": "0f6c7d6a2b121954d7f64f5e2c5187a6dcdfabfc7f5e1d6c6942bdf9959b621d",
+      "mode": "protect",
+      "completed": false,
+      "route_key": "01649671dbe7226d944fe304eb86b88b0a2c75b849c478bde4eb43234298bb1c"
+    }
+  },
+  {
+    "label": "warm-boundary--1",
+    "account": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "model": "",
+      "protocol": "",
+      "phase": "healthy",
+      "valid_requests": 0,
+      "cache_percent": 0,
+      "total_input_tokens": 0,
+      "cache_read_tokens": 0,
+      "updated_at": "0001-01-01T00:00:00Z",
+      "last_evidence_at": "2026-10-14T00:12:04Z",
+      "quality_since": "2026-10-14T00:12:04Z",
+      "degraded_at": "2026-10-14T00:01:01Z",
+      "cooldown_until": "0001-01-01T00:00:00Z",
+      "first_trial_at": "0001-01-01T00:00:00Z",
+      "trial_valid_requests": 0,
+      "trial_sessions": 0,
+      "trial_cache_percent": 0,
+      "group_ids": [
+        1
+      ]
+    },
+    "available": true,
+    "fresh": true,
+    "session": {
+      "known": true,
+      "fresh": true,
+      "preferred_account_id": 2,
+      "protected": true,
+      "pending_low": false,
+      "warm_at_start": true,
+      "trial": true,
+      "cohort_id": "0f6c7d6a2b121954d7f64f5e2c5187a6dcdfabfc7f5e1d6c6942bdf9959b621d",
+      "residence_until": "0001-01-01T00:00:00Z",
+      "last_successful_at": "2026-10-14T00:12:04Z"
+    },
+    "group": {
+      "natural_new_count": 4,
+      "trial_count": 3
+    }
+  },
+  {
+    "label": "warm-boundary-0",
+    "account": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "model": "",
+      "protocol": "",
+      "phase": "healthy",
+      "valid_requests": 0,
+      "cache_percent": 0,
+      "total_input_tokens": 0,
+      "cache_read_tokens": 0,
+      "updated_at": "0001-01-01T00:00:00Z",
+      "last_evidence_at": "2026-10-14T00:12:04Z",
+      "quality_since": "2026-10-14T00:12:04Z",
+      "degraded_at": "2026-10-14T00:01:01Z",
+      "cooldown_until": "0001-01-01T00:00:00Z",
+      "first_trial_at": "0001-01-01T00:00:00Z",
+      "trial_valid_requests": 0,
+      "trial_sessions": 0,
+      "trial_cache_percent": 0,
+      "group_ids": [
+        1
+      ]
+    },
+    "available": true,
+    "fresh": true,
+    "session": {
+      "known": true,
+      "fresh": true,
+      "preferred_account_id": 2,
+      "protected": true,
+      "pending_low": false,
+      "warm_at_start": true,
+      "trial": true,
+      "cohort_id": "0f6c7d6a2b121954d7f64f5e2c5187a6dcdfabfc7f5e1d6c6942bdf9959b621d",
+      "residence_until": "0001-01-01T00:00:00Z",
+      "last_successful_at": "2026-10-14T00:12:04Z"
+    },
+    "group": {
+      "natural_new_count": 4,
+      "trial_count": 3
+    }
+  },
+  {
+    "label": "warm-boundary-1",
+    "account": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "model": "",
+      "protocol": "",
+      "phase": "healthy",
+      "valid_requests": 0,
+      "cache_percent": 0,
+      "total_input_tokens": 0,
+      "cache_read_tokens": 0,
+      "updated_at": "0001-01-01T00:00:00Z",
+      "last_evidence_at": "2026-10-14T00:12:04Z",
+      "quality_since": "2026-10-14T00:12:04Z",
+      "degraded_at": "2026-10-14T00:01:01Z",
+      "cooldown_until": "0001-01-01T00:00:00Z",
+      "first_trial_at": "0001-01-01T00:00:00Z",
+      "trial_valid_requests": 0,
+      "trial_sessions": 0,
+      "trial_cache_percent": 0,
+      "group_ids": [
+        1
+      ]
+    },
+    "available": true,
+    "fresh": true,
+    "session": {
+      "known": true,
+      "fresh": true,
+      "preferred_account_id": 2,
+      "protected": false,
+      "pending_low": false,
+      "warm_at_start": false,
+      "trial": true,
+      "cohort_id": "0f6c7d6a2b121954d7f64f5e2c5187a6dcdfabfc7f5e1d6c6942bdf9959b621d",
+      "residence_until": "0001-01-01T00:00:00Z",
+      "last_successful_at": "2026-10-14T00:12:04Z"
+    },
+    "group": {
+      "natural_new_count": 4,
+      "trial_count": 3
+    }
+  },
+  {
+    "label": "residence-boundary--1",
+    "account": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "model": "",
+      "protocol": "",
+      "phase": "healthy",
+      "valid_requests": 0,
+      "cache_percent": 0,
+      "total_input_tokens": 0,
+      "cache_read_tokens": 0,
+      "updated_at": "0001-01-01T00:00:00Z",
+      "last_evidence_at": "2026-10-14T00:12:04Z",
+      "quality_since": "2026-10-14T00:12:04Z",
+      "degraded_at": "2026-10-14T00:01:01Z",
+      "cooldown_until": "0001-01-01T00:00:00Z",
+      "first_trial_at": "0001-01-01T00:00:00Z",
+      "trial_valid_requests": 0,
+      "trial_sessions": 0,
+      "trial_cache_percent": 0,
+      "group_ids": [
+        1
+      ]
+    },
+    "available": true,
+    "fresh": true,
+    "session": {
+      "known": true,
+      "fresh": true,
+      "preferred_account_id": 2,
+      "protected": true,
+      "pending_low": false,
+      "warm_at_start": true,
+      "trial": true,
+      "cohort_id": "0f6c7d6a2b121954d7f64f5e2c5187a6dcdfabfc7f5e1d6c6942bdf9959b621d",
+      "residence_until": "0001-01-01T00:00:00Z",
+      "last_successful_at": "2026-10-14T00:12:04Z"
+    },
+    "group": {
+      "natural_new_count": 4,
+      "trial_count": 3
+    }
+  },
+  {
+    "label": "residence-boundary-0",
+    "account": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "model": "",
+      "protocol": "",
+      "phase": "healthy",
+      "valid_requests": 0,
+      "cache_percent": 0,
+      "total_input_tokens": 0,
+      "cache_read_tokens": 0,
+      "updated_at": "0001-01-01T00:00:00Z",
+      "last_evidence_at": "2026-10-14T00:12:04Z",
+      "quality_since": "2026-10-14T00:12:04Z",
+      "degraded_at": "2026-10-14T00:01:01Z",
+      "cooldown_until": "0001-01-01T00:00:00Z",
+      "first_trial_at": "0001-01-01T00:00:00Z",
+      "trial_valid_requests": 0,
+      "trial_sessions": 0,
+      "trial_cache_percent": 0,
+      "group_ids": [
+        1
+      ]
+    },
+    "available": true,
+    "fresh": true,
+    "session": {
+      "known": true,
+      "fresh": true,
+      "preferred_account_id": 2,
+      "protected": true,
+      "pending_low": false,
+      "warm_at_start": true,
+      "trial": true,
+      "cohort_id": "0f6c7d6a2b121954d7f64f5e2c5187a6dcdfabfc7f5e1d6c6942bdf9959b621d",
+      "residence_until": "0001-01-01T00:00:00Z",
+      "last_successful_at": "2026-10-14T00:12:04Z"
+    },
+    "group": {
+      "natural_new_count": 4,
+      "trial_count": 3
+    }
+  },
+  {
+    "label": "residence-boundary-1",
+    "account": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "model": "",
+      "protocol": "",
+      "phase": "healthy",
+      "valid_requests": 0,
+      "cache_percent": 0,
+      "total_input_tokens": 0,
+      "cache_read_tokens": 0,
+      "updated_at": "0001-01-01T00:00:00Z",
+      "last_evidence_at": "2026-10-14T00:12:04Z",
+      "quality_since": "2026-10-14T00:12:04Z",
+      "degraded_at": "2026-10-14T00:01:01Z",
+      "cooldown_until": "0001-01-01T00:00:00Z",
+      "first_trial_at": "0001-01-01T00:00:00Z",
+      "trial_valid_requests": 0,
+      "trial_sessions": 0,
+      "trial_cache_percent": 0,
+      "group_ids": [
+        1
+      ]
+    },
+    "available": true,
+    "fresh": true,
+    "session": {
+      "known": true,
+      "fresh": true,
+      "preferred_account_id": 2,
+      "protected": true,
+      "pending_low": false,
+      "warm_at_start": true,
+      "trial": true,
+      "cohort_id": "0f6c7d6a2b121954d7f64f5e2c5187a6dcdfabfc7f5e1d6c6942bdf9959b621d",
+      "residence_until": "0001-01-01T00:00:00Z",
+      "last_successful_at": "2026-10-14T00:12:04Z"
+    },
+    "group": {
+      "natural_new_count": 4,
+      "trial_count": 3
+    }
+  },
+  {
+    "label": "window-boundary--1",
+    "account": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "model": "",
+      "protocol": "",
+      "phase": "healthy",
+      "valid_requests": 0,
+      "cache_percent": 0,
+      "total_input_tokens": 0,
+      "cache_read_tokens": 0,
+      "updated_at": "0001-01-01T00:00:00Z",
+      "last_evidence_at": "2026-10-14T00:12:04Z",
+      "quality_since": "2026-10-14T00:12:04Z",
+      "degraded_at": "2026-10-14T00:01:01Z",
+      "cooldown_until": "0001-01-01T00:00:00Z",
+      "first_trial_at": "0001-01-01T00:00:00Z",
+      "trial_valid_requests": 0,
+      "trial_sessions": 0,
+      "trial_cache_percent": 0,
+      "group_ids": [
+        1
+      ]
+    },
+    "available": true,
+    "fresh": true,
+    "session": {
+      "known": true,
+      "fresh": true,
+      "preferred_account_id": 2,
+      "protected": false,
+      "pending_low": false,
+      "warm_at_start": false,
+      "trial": true,
+      "cohort_id": "0f6c7d6a2b121954d7f64f5e2c5187a6dcdfabfc7f5e1d6c6942bdf9959b621d",
+      "residence_until": "0001-01-01T00:00:00Z",
+      "last_successful_at": "2026-10-14T00:12:04Z"
+    },
+    "group": {
+      "natural_new_count": 4,
+      "trial_count": 3
+    }
+  },
+  {
+    "label": "window-boundary-0",
+    "account": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "model": "",
+      "protocol": "",
+      "phase": "healthy",
+      "valid_requests": 0,
+      "cache_percent": 0,
+      "total_input_tokens": 0,
+      "cache_read_tokens": 0,
+      "updated_at": "0001-01-01T00:00:00Z",
+      "last_evidence_at": "2026-10-14T00:12:04Z",
+      "quality_since": "2026-10-14T00:12:04Z",
+      "degraded_at": "2026-10-14T00:01:01Z",
+      "cooldown_until": "0001-01-01T00:00:00Z",
+      "first_trial_at": "0001-01-01T00:00:00Z",
+      "trial_valid_requests": 0,
+      "trial_sessions": 0,
+      "trial_cache_percent": 0,
+      "group_ids": [
+        1
+      ]
+    },
+    "available": true,
+    "fresh": true,
+    "session": {
+      "known": true,
+      "fresh": true,
+      "preferred_account_id": 2,
+      "protected": false,
+      "pending_low": false,
+      "warm_at_start": false,
+      "trial": true,
+      "cohort_id": "0f6c7d6a2b121954d7f64f5e2c5187a6dcdfabfc7f5e1d6c6942bdf9959b621d",
+      "residence_until": "0001-01-01T00:00:00Z",
+      "last_successful_at": "2026-10-14T00:12:04Z"
+    },
+    "group": {
+      "natural_new_count": 4,
+      "trial_count": 3
+    }
+  },
+  {
+    "label": "window-boundary-1",
+    "account": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "model": "",
+      "protocol": "",
+      "phase": "healthy",
+      "valid_requests": 0,
+      "cache_percent": 0,
+      "total_input_tokens": 0,
+      "cache_read_tokens": 0,
+      "updated_at": "0001-01-01T00:00:00Z",
+      "last_evidence_at": "2026-10-14T00:12:04Z",
+      "quality_since": "2026-10-14T00:12:04Z",
+      "degraded_at": "2026-10-14T00:01:01Z",
+      "cooldown_until": "0001-01-01T00:00:00Z",
+      "first_trial_at": "0001-01-01T00:00:00Z",
+      "trial_valid_requests": 0,
+      "trial_sessions": 0,
+      "trial_cache_percent": 0,
+      "group_ids": [
+        1
+      ]
+    },
+    "available": true,
+    "fresh": true,
+    "session": {
+      "known": true,
+      "fresh": true,
+      "preferred_account_id": 2,
+      "protected": false,
+      "pending_low": false,
+      "warm_at_start": false,
+      "trial": true,
+      "cohort_id": "0f6c7d6a2b121954d7f64f5e2c5187a6dcdfabfc7f5e1d6c6942bdf9959b621d",
+      "residence_until": "0001-01-01T00:00:00Z",
+      "last_successful_at": "2026-10-14T00:12:04Z"
+    },
+    "group": {
+      "natural_new_count": 4,
+      "trial_count": 3
+    }
+  },
+  {
+    "label": "snapshot-age-5000000000",
+    "account": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "model": "",
+      "protocol": "",
+      "phase": "healthy",
+      "valid_requests": 0,
+      "cache_percent": 0,
+      "total_input_tokens": 0,
+      "cache_read_tokens": 0,
+      "updated_at": "0001-01-01T00:00:00Z",
+      "last_evidence_at": "2026-10-14T00:12:04Z",
+      "quality_since": "2026-10-14T00:12:04Z",
+      "degraded_at": "2026-10-14T00:01:01Z",
+      "cooldown_until": "0001-01-01T00:00:00Z",
+      "first_trial_at": "0001-01-01T00:00:00Z",
+      "trial_valid_requests": 0,
+      "trial_sessions": 0,
+      "trial_cache_percent": 0,
+      "group_ids": [
+        1
+      ]
+    },
+    "available": true,
+    "fresh": true,
+    "session": {
+      "known": true,
+      "fresh": true,
+      "preferred_account_id": 2,
+      "protected": false,
+      "pending_low": false,
+      "warm_at_start": false,
+      "trial": true,
+      "cohort_id": "0f6c7d6a2b121954d7f64f5e2c5187a6dcdfabfc7f5e1d6c6942bdf9959b621d",
+      "residence_until": "0001-01-01T00:00:00Z",
+      "last_successful_at": "2026-10-14T00:12:04Z"
+    },
+    "group": {
+      "natural_new_count": 4,
+      "trial_count": 3
+    }
+  },
+  {
+    "label": "snapshot-age-5000000001",
+    "account": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "model": "",
+      "protocol": "",
+      "phase": "healthy",
+      "valid_requests": 0,
+      "cache_percent": 0,
+      "total_input_tokens": 0,
+      "cache_read_tokens": 0,
+      "updated_at": "0001-01-01T00:00:00Z",
+      "last_evidence_at": "2026-10-14T00:12:04Z",
+      "quality_since": "2026-10-14T00:12:04Z",
+      "degraded_at": "2026-10-14T00:01:01Z",
+      "cooldown_until": "0001-01-01T00:00:00Z",
+      "first_trial_at": "0001-01-01T00:00:00Z",
+      "trial_valid_requests": 0,
+      "trial_sessions": 0,
+      "trial_cache_percent": 0,
+      "group_ids": [
+        1
+      ]
+    },
+    "available": true,
+    "fresh": false,
+    "session": {
+      "known": true,
+      "fresh": false,
+      "preferred_account_id": 2,
+      "protected": false,
+      "pending_low": false,
+      "warm_at_start": false,
+      "trial": true,
+      "cohort_id": "0f6c7d6a2b121954d7f64f5e2c5187a6dcdfabfc7f5e1d6c6942bdf9959b621d",
+      "residence_until": "0001-01-01T00:00:00Z",
+      "last_successful_at": "2026-10-14T00:12:04Z"
+    },
+    "group": {
+      "natural_new_count": 4,
+      "trial_count": 3
+    }
+  },
+  {
+    "label": "snapshot-age-30000000000",
+    "account": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "model": "",
+      "protocol": "",
+      "phase": "healthy",
+      "valid_requests": 0,
+      "cache_percent": 0,
+      "total_input_tokens": 0,
+      "cache_read_tokens": 0,
+      "updated_at": "0001-01-01T00:00:00Z",
+      "last_evidence_at": "2026-10-14T00:12:04Z",
+      "quality_since": "2026-10-14T00:12:04Z",
+      "degraded_at": "2026-10-14T00:01:01Z",
+      "cooldown_until": "0001-01-01T00:00:00Z",
+      "first_trial_at": "0001-01-01T00:00:00Z",
+      "trial_valid_requests": 0,
+      "trial_sessions": 0,
+      "trial_cache_percent": 0,
+      "group_ids": [
+        1
+      ]
+    },
+    "available": true,
+    "fresh": false,
+    "session": {
+      "known": true,
+      "fresh": false,
+      "preferred_account_id": 2,
+      "protected": false,
+      "pending_low": false,
+      "warm_at_start": false,
+      "trial": true,
+      "cohort_id": "0f6c7d6a2b121954d7f64f5e2c5187a6dcdfabfc7f5e1d6c6942bdf9959b621d",
+      "residence_until": "0001-01-01T00:00:00Z",
+      "last_successful_at": "2026-10-14T00:12:04Z"
+    },
+    "group": {
+      "natural_new_count": 4,
+      "trial_count": 3
+    }
+  },
+  {
+    "label": "snapshot-age-30000000001",
+    "account": {
+      "policy_signature": "bcf131b8e494b95a395ec6daf4ec0bc38c359108f9c969a17351de1eebff9cda",
+      "account_id": 2,
+      "upstream_key_id": 3,
+      "model": "",
+      "protocol": "",
+      "phase": "healthy",
+      "valid_requests": 0,
+      "cache_percent": 0,
+      "total_input_tokens": 0,
+      "cache_read_tokens": 0,
+      "updated_at": "0001-01-01T00:00:00Z",
+      "last_evidence_at": "2026-10-14T00:12:04Z",
+      "quality_since": "2026-10-14T00:12:04Z",
+      "degraded_at": "2026-10-14T00:01:01Z",
+      "cooldown_until": "0001-01-01T00:00:00Z",
+      "first_trial_at": "0001-01-01T00:00:00Z",
+      "trial_valid_requests": 0,
+      "trial_sessions": 0,
+      "trial_cache_percent": 0,
+      "group_ids": [
+        1
+      ]
+    },
+    "available": false,
+    "fresh": false,
+    "session": {
+      "known": false,
+      "fresh": false,
+      "preferred_account_id": 0,
+      "protected": false,
+      "pending_low": false,
+      "warm_at_start": false,
+      "trial": false,
+      "residence_until": "0001-01-01T00:00:00Z",
+      "last_successful_at": "0001-01-01T00:00:00Z"
+    },
+    "group": {
+      "natural_new_count": 4,
+      "trial_count": 3
+    }
+  }
+]

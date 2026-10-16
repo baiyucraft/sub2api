@@ -297,11 +297,20 @@ func attachSelectionProfitGate(ctx context.Context, sel *AccountSelectionResult)
 // （ProfitControlVetoLatest / GatewayProfitControlVetoLatest）与准入后粘性
 // 绑定，否则这两步会因为看不到调度栈内安装的门而退化为空操作。
 func ContextWithSelectionProfitGate(ctx context.Context, sel *AccountSelectionResult) context.Context {
-	if sel != nil && sel.protection != nil {
-		ctx = context.WithValue(ctx, protectionSelectionKey{}, sel.protection)
+	strict := sel != nil && sel.cacheGuardProtectedSelection
+	if current, _ := ctx.Value(cacheGuardProtectedSelectionKey{}).(bool); current != strict {
+		ctx = context.WithValue(ctx, cacheGuardProtectedSelectionKey{}, strict)
 	}
-	if sel != nil && sel.cacheGuardMigrationAccountID > 0 {
-		ctx = context.WithValue(ctx, cacheGuardMigrationKey{}, sel.cacheGuardMigrationAccountID)
+	var protection *protectionSelection
+	var migration int64
+	if sel != nil {
+		protection, migration = sel.protection, sel.cacheGuardMigrationAccountID
+	}
+	if current, _ := ctx.Value(protectionSelectionKey{}).(*protectionSelection); current != protection {
+		ctx = context.WithValue(ctx, protectionSelectionKey{}, protection)
+	}
+	if current, _ := ctx.Value(cacheGuardMigrationKey{}).(int64); current != migration {
+		ctx = context.WithValue(ctx, cacheGuardMigrationKey{}, migration)
 	}
 	if sel == nil || sel.profitGate == nil {
 		return ctx
