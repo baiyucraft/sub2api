@@ -145,7 +145,8 @@ func TestAccountListETagExpiresCacheTTFTAndReflectsPolicySwitch(t *testing.T) {
 		ttftExpired := read(cacheExpiredTag)
 		require.Equal(t, http.StatusOK, ttftExpired.Code, "TTFT strict TTL must invalidate an old ETag")
 		require.NotEqual(t, cacheExpiredTag, ttftExpired.Header().Get("ETag"))
-		require.Contains(t, ttftExpired.Body.String(), `"model":"gpt-test","state":"expired"`, "management retains expired evidence but must not present it as active")
+		require.Contains(t, ttftExpired.Body.String(), `"model":"gpt-test","state":"insufficient"`, "expired observations mean there are no current samples")
+		require.NotContains(t, ttftExpired.Body.String(), `"state":"expired"`, "TTFT has no separate expired state")
 		oldTag := ttftExpired.Header().Get("ETag")
 		policy = policies[1]
 		policy.Priority = "ttft_first"

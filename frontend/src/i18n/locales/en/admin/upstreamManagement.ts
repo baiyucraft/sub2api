@@ -24,7 +24,7 @@ export default {
       noTTFTSamples: 'No valid TTFT observations yet; this does not establish normal performance.', ttftValues: 'First-token threshold {threshold} · At least {samples} samples',
       noTTFTDegradation: 'No TTFT degradation reported', noData: 'No protection metrics yet', unknown: 'Unknown',
       metrics: 'Account metrics', models: 'Model TTFT', groups: 'Group execution', sharedHint: 'Metrics are shared for this account. Each group applies its own thresholds and preference.',
-      state: { normal: 'Normal', insufficient: 'Insufficient samples', observed: 'Shared observations', degraded: 'Draining protection', draining: 'Draining protection', protected: 'Draining protection', recovering: 'Recovering', observing: 'Observing', expired: 'Expired data', disabled: 'Off', unavailable: 'Unavailable', platform_not_selected: 'Platform outside scope' },
+      state: { normal: 'Normal', insufficient: 'Insufficient samples', observed: 'Shared observations', degraded: 'Draining protection', draining: 'Draining protection', protected: 'Draining protection', recovering: 'Recovering', observing: 'Observing', expired: 'Insufficient samples', disabled: 'Off', unavailable: 'Unavailable', platform_not_selected: 'Platform outside scope' },
       reason: 'Reason', lastSample: 'Last sample', threshold: 'Threshold', samples: 'Samples', lastTTFT: 'Latest TTFT', ewma: 'Smoothed TTFT',
       recovery: 'Recovery {current}/{required}', cache: 'Cache', ttft: 'TTFT', noGroups: 'No group execution state yet',
       elapsed: 'For {time}', startedAt: 'Started', expiresAt: 'State expires', source: 'Policy source',

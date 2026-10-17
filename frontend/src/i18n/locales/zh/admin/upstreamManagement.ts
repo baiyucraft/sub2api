@@ -24,7 +24,7 @@ export default {
       noTTFTSamples: '暂无有效 TTFT 观测，不能据此判定正常。', ttftValues: '首字阈值 {threshold} · 至少 {samples} 个样本',
       noTTFTDegradation: 'TTFT 未见降级', noData: '暂无保护统计', unknown: '未知',
       metrics: '账号统计', models: '模型 TTFT', groups: '分组执行', sharedHint: '同一账号共享统计；各分组使用自己的阈值与优先策略。',
-      state: { normal: '正常', insufficient: '样本不足', observed: '共享观测', degraded: '渐出保护', draining: '渐出保护', protected: '渐出保护', recovering: '恢复中', observing: '观察中', expired: '数据过期', disabled: '已关闭', unavailable: '暂不可用', platform_not_selected: '未纳入平台范围' },
+      state: { normal: '正常', insufficient: '样本不足', observed: '共享观测', degraded: '渐出保护', draining: '渐出保护', protected: '渐出保护', recovering: '恢复中', observing: '观察中', expired: '样本不足', disabled: '已关闭', unavailable: '暂不可用', platform_not_selected: '未纳入平台范围' },
       reason: '原因', lastSample: '最后样本', threshold: '阈值', samples: '样本', lastTTFT: '最近 TTFT', ewma: '平滑 TTFT',
       recovery: '恢复进度 {current}/{required}', cache: '缓存', ttft: 'TTFT', noGroups: '暂无分组执行状态',
       elapsed: '已持续 {time}', startedAt: '开始时间', expiresAt: '状态过期', source: '策略来源',

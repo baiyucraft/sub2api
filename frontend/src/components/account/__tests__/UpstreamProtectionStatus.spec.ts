@@ -2,6 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import UpstreamProtectionStatus from '../UpstreamProtectionStatus.vue'
 import locale from '@/i18n/locales/zh/admin/upstreamManagement'
+import enLocale from '@/i18n/locales/en/admin/upstreamManagement'
 import type { Account, AccountTTFTGuardDegradation, UpstreamProtectionGroupState, UpstreamProtectionSummary, UpstreamTTFTModelObservation } from '@/types'
 
 vi.mock('vue-i18n', async () => ({ ...await vi.importActual<typeof import('vue-i18n')>('vue-i18n'), useI18n: () => ({
@@ -146,6 +147,26 @@ describe('UpstreamProtectionStatus', () => {
     expect(wrapper.get('[data-test="protection-cache-summary"]').text()).toContain('未知')
     await wrapper.get('[data-test="protection-ttft-summary"]').trigger('click')
     expect(wrapper.get('[data-test="upstream-protection-details"]').text()).toContain('暂无有效 TTFT 观测')
+  })
+
+  it.each(['insufficient', 'expired'] as const)('shows insufficient samples across TTFT summaries and details (%s)', async state => {
+    const value = protection()
+    value.ttft_models = [model(state)]
+    value.groups = [group(1, state), group(2, 'normal')]
+    const wrapper = render(value)
+    expect(wrapper.get('[data-test="protection-ttft-summary"]').text()).toBe('TTFT · 样本不足')
+    await wrapper.get('[data-test="protection-ttft-summary"]').trigger('click')
+    expect(wrapper.get('[data-test="protection-ttft-detail"] .state-badge').text()).toBe('样本不足')
+    const details = wrapper.get('[data-protection-group="1"] [data-test="protection-group-ttft"]')
+    expect(details.get('.state-badge').text()).toBe('样本不足')
+    expect(details.get('.rounded-lg .font-medium + span').text()).toBe('样本不足')
+    expect(wrapper.text()).not.toContain('数据过期')
+    expect(wrapper.text()).not.toContain('恢复进度')
+  })
+
+  it('keeps legacy expired TTFT labels compatible in both languages', () => {
+    expect(locale.upstreamManagement.protection.state.expired).toBe('样本不足')
+    expect(enLocale.upstreamManagement.protection.state.expired).toBe('Insufficient samples')
   })
 
   it('keeps keyboard focus in the dialog and returns it to the selected summary after Escape', async () => {

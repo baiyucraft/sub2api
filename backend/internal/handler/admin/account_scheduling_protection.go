@@ -282,7 +282,7 @@ func (h *AccountHandler) upstreamProtection(account *service.Account, cache serv
 		if reader != nil && account.Platform == service.PlatformOpenAI {
 			ttft.Models = reader.TTFTProtectionSnapshots(account.ID, keyID, id, service.OpenAITTFTGuardConfigSnapshot{Enabled: policy.TTFT.Enabled, Threshold: policy.TTFT.Threshold, MinSamples: policy.TTFT.MinSamples, Source: policy.TTFT.Source, GroupName: policy.TTFT.GroupName})
 			if policy.TTFT.Enabled {
-				severity := map[string]int{"normal": 1, "insufficient": 2, "expired": 3, "recovering": 4, "draining": 5, "unavailable": 6}
+				severity := map[string]int{"normal": 1, "insufficient": 2, "recovering": 3, "draining": 4, "unavailable": 5}
 				best := 0
 				for _, model := range ttft.Models {
 					if severity[model.State] > best {
