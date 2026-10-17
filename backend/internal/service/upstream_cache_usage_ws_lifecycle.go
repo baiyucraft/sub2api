@@ -82,7 +82,16 @@ type upstreamCacheGuardWSFrameConn struct {
 }
 
 func (c *upstreamCacheGuardWSFrameConn) ReadFrame(ctx context.Context) (coderws.MessageType, []byte, error) {
-	return c.inner.ReadFrame(ctx)
+	typ, payload, err := c.inner.ReadFrame(ctx)
+	if err == nil && (typ == coderws.MessageText || typ == coderws.MessageBinary) && openAIStreamDataStartsVisibleOutput(string(payload), "") {
+		c.turns.mu.Lock()
+		turnCtx := c.turns.pending[c.turns.started]
+		c.turns.mu.Unlock()
+		if turnCtx != nil {
+			markOpenAITTFTGuardFirstToken(turnCtx)
+		}
+	}
+	return typ, payload, err
 }
 
 func (c *upstreamCacheGuardWSFrameConn) WriteFrame(ctx context.Context, typ coderws.MessageType, payload []byte) error {

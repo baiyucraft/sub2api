@@ -15,9 +15,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The golden is exported by this same test running against the pre-optimization
-// source (HEAD a45e09dc + frozen working-tree patch 18cc09071d05). Both binaries
-// run in a synctest bubble: production time.Now and timers share a fixed clock.
+// The version-two contract intentionally makes quality precede cache benefit
+// in every priority mode. The pre-optimization trace remains in testdata for
+// historical provenance; the current trace runs in a fixed-clock synctest bubble.
 // Account selection has a deterministic seed derived from the same session,
 // model and group. The scenario generator uses a separate fixed random source.
 // SUB2API_JOINT_ORACLE_OUTPUT exports an actual trace for an isolated comparison;
@@ -92,7 +92,7 @@ func (s *jointOracleStore) quota(t *testing.T) int64 {
 	return count
 }
 
-func TestJointProtectionMatchesPreOptimizationGolden(t *testing.T) {
+func TestJointProtectionMatchesQualityFirstV2Golden(t *testing.T) {
 	var output jointOracleOutput
 	synctest.Test(t, func(t *testing.T) {
 		rng := rand.New(rand.NewSource(1017))
@@ -200,7 +200,7 @@ func TestJointProtectionMatchesPreOptimizationGolden(t *testing.T) {
 		require.NoError(t, os.WriteFile(path, append(actual, '\n'), 0600))
 		return
 	}
-	expected, err := os.ReadFile("testdata/protection_joint_preoptimization.json")
+	expected, err := os.ReadFile("testdata/protection_joint_quality_first_v2.json")
 	require.NoError(t, err)
 	require.JSONEq(t, string(expected), string(actual))
 }

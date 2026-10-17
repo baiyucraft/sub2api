@@ -304,7 +304,7 @@ func TestUpstreamCacheGuardRealSchedulersPrioritizeCacheAndFailOpen(t *testing.T
 				capacity  map[int64]bool
 				want      int64
 			}{
-				{"high_cache_slow", []float64{90, 70}, nil, map[int64]int{1: 60000}, nil, 1},
+				{"high_cache_slow", []float64{90, 70}, nil, map[int64]int{1: 60000}, nil, 2},
 				{"five_point_band_ttft_first", []float64{90, 85}, nil, map[int64]int{1: 60000}, nil, 2},
 				{"best_full_use_other_capacity", []float64{95, 75}, nil, nil, map[int64]bool{1: false, 2: true}, 2},
 				{"all_protected_still_available", []float64{20, 25}, map[int64]bool{1: true, 2: true}, map[int64]int{1: 90000, 2: 60000}, nil, 2},

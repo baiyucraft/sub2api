@@ -249,7 +249,7 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 					return
 				}
 				if !failoverErr.PluginAdmissionRejected {
-					h.gatewayService.ReportOpenAIAccountScheduleResultForGroup(apiKey.GroupID, account, openAIAccountScheduleModel(c, account, reqModel, false, result), false, nil, err)
+					h.gatewayService.ReportOpenAIAccountScheduleResultForCompletedAttempt(apiKey.GroupID, account, openAIAccountScheduleModel(c, account, reqModel, false, result), false, nil, err)
 				}
 				if failoverClientGone(c) {
 					reqLog.Info("openai_embeddings.failover_aborted_client_disconnected",
@@ -290,7 +290,7 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 				)
 				continue
 			}
-			h.gatewayService.ReportOpenAIAccountScheduleResultForGroup(apiKey.GroupID, account, openAIAccountScheduleModel(c, account, reqModel, false, result), false, nil, err)
+			h.gatewayService.ReportOpenAIAccountScheduleResultForCompletedAttempt(apiKey.GroupID, account, openAIAccountScheduleModel(c, account, reqModel, false, result), false, nil, err)
 			if c.Writer.Size() == writerSizeBeforeForward {
 				h.errorResponse(c, http.StatusBadGateway, "upstream_error", "Upstream request failed")
 			}
@@ -301,7 +301,7 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 			return
 		}
 
-		h.gatewayService.ReportOpenAIAccountScheduleResultForGroup(apiKey.GroupID, account, openAIAccountScheduleModel(c, account, reqModel, false, result), true, nil)
+		h.gatewayService.ReportOpenAIAccountScheduleResultForCompletedAttempt(apiKey.GroupID, account, openAIAccountScheduleModel(c, account, reqModel, false, result), true, nil)
 		userAgent := c.GetHeader("User-Agent")
 		clientIP := ip.GetClientIP(c)
 		inboundEndpoint := GetInboundEndpoint(c)

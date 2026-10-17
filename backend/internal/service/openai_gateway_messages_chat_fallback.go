@@ -167,6 +167,7 @@ func (s *OpenAIGatewayService) bufferChatCompletionsAsAnthropic(
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	}
+	markOpenAITTFTGuardFirstTokenForRequest(c)
 	c.JSON(http.StatusOK, anthropicResp)
 
 	return &OpenAIForwardResult{

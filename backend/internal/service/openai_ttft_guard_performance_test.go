@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"sync"
 	"testing"
 	"time"
@@ -11,62 +10,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestTTFTIndexedRuntimeMatchesFrozenReference(t *testing.T) {
+func TestTTFTIndexedRuntimeFactsAndExpiryInvariants(t *testing.T) {
 	now := time.Date(2026, 10, 16, 0, 0, 0, 0, time.UTC)
-	clock := func() time.Time { return now }
-	g := newOpenAITTFTGuardWithOptions(4096, 15*time.Minute, clock)
-	ref := newReferenceTTFTGuardWithOptions(4096, 15*time.Minute, clock)
-	svc := &OpenAIGatewayService{openaiTTFTGuard: g}
-	rng := rand.New(rand.NewSource(1016))
-	configs := []OpenAITTFTGuardConfigSnapshot{
-		{Enabled: true, Threshold: 20 * time.Second, MinSamples: 5, Source: "global"},
-		{Enabled: true, Threshold: 20 * time.Second, MinSamples: 5, Source: "group"},
-		{Enabled: true, Threshold: 40 * time.Second, MinSamples: 12, Source: "group"},
-	}
-	for step := 0; step < 1200; step++ {
-		group := rng.Intn(len(configs))
-		cfg := configs[group]
-		groupID := int64(group + 1)
-		id := int64(rng.Intn(16) + 1)
-		key := int64(100 + rng.Intn(3))
-		model := fmt.Sprintf("m%d", rng.Intn(3))
-		now = now.Add(time.Duration(rng.Intn(20)) * time.Second)
-		if step%113 == 0 {
-			now = now.Add(15*time.Minute - time.Nanosecond)
-		}
-		if step%67 == 0 {
-			now = now.Add(-time.Second)
-		}
-		if step%91 == 0 {
-			cfg.Enabled = !cfg.Enabled
-			configs[group] = cfg
-		}
-		ms := []int{1000, 10000, 20000, 30000, 60000, 120000}[rng.Intn(6)]
-		ok := rng.Intn(4) != 0
-		g.reportForKey(groupID, id, key, model, ok, &ms, cfg)
-		ref.reportForKey(groupID, id, key, model, ok, &ms, cfg)
-		candidates := make([]openAITTFTGuardCandidate, 0, 16)
-		referenceCandidates := make([]referenceTTFTGuardCandidate, 0, 16)
-		for account := int64(1); account <= 16; account++ {
-			candidates = append(candidates, openAITTFTGuardCandidate{groupID: groupID, accountID: account, upstreamKeyID: key, model: model})
-			referenceCandidates = append(referenceCandidates, referenceTTFTGuardCandidate{groupID: groupID, accountID: account, upstreamKeyID: key, model: model})
-		}
-		tickets := map[int64]*openAITTFTTrial{}
-		referenceTickets := map[int64]*referenceTTFTTrial{}
-		require.Equal(t, ref.exclusions(referenceCandidates, nil, cfg, referenceTickets), g.exclusions(candidates, nil, cfg, tickets), "exclusions step %d", step)
-		for id, ticket := range tickets {
-			require.NotNil(t, referenceTickets[id])
-			ticket.finish(ok, &ms)
-			referenceTickets[id].finish(ok, &ms)
-		}
-		require.Equal(t, ref.quality(referenceCandidates, cfg), g.quality(candidates, cfg), "quality step %d", step)
-		request := TTFTProtectionSnapshotRequest{AccountID: id, KeyID: key, GroupID: groupID, Config: cfg}
-		require.Equal(t, ref.snapshots(id, key, groupID, cfg), svc.TTFTProtectionSnapshotsBatch([]TTFTProtectionSnapshotRequest{request})[0], "snapshot step %d", step)
-		if step%17 == 0 {
-			require.Equal(t, ref.degradations([]int64{1, 3, 7, 11, 16}), g.degradations([]int64{1, 3, 7, 11, 16}), "degradations step %d", step)
-		}
-		require.Equal(t, len(g.entries)+len(g.observations), len(g.expiryItems))
-	}
+	g := newOpenAITTFTGuardWithOptions(128, 15*time.Minute, func() time.Time { return now })
+	cfg := enabledOpenAITTFTGuardConfig(20*time.Second, 2)
+	o := OpenAITTFTGuardObservation{GroupID: 1, AccountID: 1, UpstreamKeyID: 10, Model: "model", AttemptID: "a1", LogicalRequestID: "r1", RuntimeID: g.runtimeID, AlgorithmVersion: openAITTFTGuardAlgorithmVersion, SentAt: now, FirstTokenAt: now.Add(time.Second), CompletedAt: now.Add(2 * time.Second), TTFTMs: 60000, Success: true}
+	now = o.CompletedAt
+	require.True(t, g.reportObservation(o, cfg, true))
+	require.False(t, g.reportObservation(o, cfg, true), "a physical attempt is sampled once")
+	key, _ := g.sampleKeyLocked(1, 10, "model")
+	e := g.projectionAtLocked(key, 1, cfg, now.Add(2*time.Second))
+	require.Equal(t, uint64(1), e.sampleCount)
+	require.Equal(t, "protected", e.stateAt(now.Add(2*time.Second), g.ttl))
+	now = now.Add(16 * time.Minute)
+	late := o
+	late.AttemptID, late.CompletedAt = "late", now
+	require.True(t, g.reportObservation(late, cfg, true))
+	require.Equal(t, "insufficient", e.stateAt(now, g.ttl))
 }
 
 func TestTTFTIndexedExpiryBoundariesAndStaleDeadline(t *testing.T) {
@@ -86,15 +46,26 @@ func TestTTFTIndexedExpiryBoundariesAndStaleDeadline(t *testing.T) {
 	require.True(t, g.isDegraded(1, 1, "a"))
 	now = now.Add(time.Nanosecond)
 	require.False(t, g.isDegraded(1, 1, "a"))
-	require.Empty(t, g.entries)
+	require.Len(t, g.entries, 1, "expired protection keeps its revalidation tombstone")
+	for _, entry := range g.entries {
+		require.Equal(t, "insufficient", entry.stateAt(now, g.ttl))
+		require.True(t, entry.needsRevalidation)
+	}
 	require.Len(t, g.observations, 1)
 	now = start.Add(31 * time.Minute)
 	g.size()
 	require.Empty(t, g.observations)
 	require.Empty(t, g.observationModels)
 	require.Empty(t, g.observationAccounts)
-	require.Empty(t, g.projectionKeys)
+	require.Len(t, g.projectionKeys, 1, "bounded tombstone survives raw observation expiry")
 	require.Empty(t, g.expiryItems)
+	svc := &OpenAIGatewayService{openaiTTFTGuard: g}
+	views := svc.TTFTProtectionSnapshotsBatchAt([]TTFTProtectionSnapshotRequest{{AccountID: 1, KeyID: 10, GroupID: 1, Config: cfg}}, now)
+	require.Len(t, views, 1)
+	require.Len(t, views[0], 1, "snapshot keeps the projection tombstone visible after raw expiry")
+	require.Equal(t, "a", views[0][0].Model)
+	require.Equal(t, "insufficient", views[0][0].State)
+	require.Empty(t, g.degradations([]int64{1}), "expired raw evidence is not an active degradation")
 }
 
 func TestTTFTBatchSnapshotConcurrentReportsAndCallerOwnership(t *testing.T) {

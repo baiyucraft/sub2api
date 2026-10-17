@@ -640,8 +640,9 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 					return fmt.Errorf("resolve Grok websocket cache identity: %w", err)
 				}
 			}
+			turnCtx := cacheTurns.turnContext(turn, bridgePayloadRaw)
 			result, bridgeErr := s.proxyOpenAIWSHTTPBridgeTurn(
-				cacheTurns.turnContext(turn, bridgePayloadRaw),
+				turnCtx,
 				c,
 				account,
 				token,
@@ -677,7 +678,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 					if !retrySafe {
 						retryPayload = nil
 					}
-					return newOpenAIWSCurrentTurnFailoverError(bridgeErr, retryPayload)
+					return newOpenAIWSCurrentTurnFailoverError(bridgeErr, retryPayload, turnCtx)
 				}
 				return bridgeErr
 			}
@@ -938,7 +939,8 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		payload = prepared.body
 		payloadBytes = len(payload)
 		imageBillingModel, imageSizeTier, imageInputSize = prepared.billing.Model, prepared.billing.SizeTier, prepared.billing.InputSize
-		if _, err := cacheTurns.beginAdmitted(turn, account, payload, gjson.GetBytes(payload, "model").String(), "openai_ws"); err != nil {
+		turnCtx, err := cacheTurns.beginAdmitted(turn, account, payload, gjson.GetBytes(payload, "model").String(), "openai_ws")
+		if err != nil {
 			return nil, err
 		}
 		if err := lease.WriteJSONWithContextTimeout(ctx, json.RawMessage(payload), s.openAIWSWriteTimeout()); err != nil {
@@ -1134,6 +1136,9 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 					lease.MarkBroken()
 					return nil, s.newOpenAIWSRateLimitFailoverError(account, lease.HandshakeHeaders(), upstreamMessage, errMsgRaw)
 				}
+			}
+			if openAIStreamDataStartsVisibleOutput(string(upstreamMessage), eventType) {
+				markOpenAITTFTGuardFirstToken(turnCtx)
 			}
 			isTokenEvent := isOpenAIWSTokenEvent(eventType)
 			if isTokenEvent {

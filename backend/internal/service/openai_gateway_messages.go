@@ -518,12 +518,14 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	// Upstream is always streaming; choose response format based on client preference.
 	var result *OpenAIForwardResult
 	var handleErr error
+	restoreTTFTResponseContext := bindOpenAITTFTResponseContext(c, resp)
 	if clientStream {
 		result, handleErr = s.handleAnthropicStreamingResponse(resp, c, account, originalModel, billingModel, upstreamModel, startTime)
 	} else {
 		// Client wants JSON: buffer the streaming response and assemble a JSON reply.
 		result, handleErr = s.handleAnthropicBufferedStreamingResponse(resp, c, account, originalModel, billingModel, upstreamModel, startTime)
 	}
+	restoreTTFTResponseContext()
 
 	// cyber_policy：标记已设、error 已按 Anthropic 格式发给客户端。丢弃 result、返回哨兵，
 	// 使 handler 落入 tokens=0 免费用量行（对齐 /v1/responses），不计费、不 failover。
@@ -861,6 +863,7 @@ func (s *OpenAIGatewayService) readOpenAICompatBufferedTerminal(
 					payload = string(restoreCodexToolNamesFromContext(c, []byte(payload)))
 					var event apicompat.ResponsesStreamEvent
 					if err := json.Unmarshal([]byte(payload), &event); err == nil {
+						markOpenAITTFTGuardForResponsesEvent(c, payload, event.Type)
 						s.parseSSEUsageBytesWithType([]byte(payload), event.Type, &usage)
 						acc.ProcessEvent(&event)
 						if response := openAICompatTerminalResponse(&event, []byte(payload)); isOpenAICompatResponsesTerminalEvent(event.Type) && response != nil {
@@ -908,6 +911,7 @@ func (s *OpenAIGatewayService) readOpenAICompatBufferedTerminal(
 				)
 				continue
 			}
+			markOpenAITTFTGuardForResponsesEvent(c, payload, event.Type)
 			s.parseSSEUsageBytesWithType([]byte(payload), event.Type, &usage)
 
 			acc.ProcessEvent(&event)
@@ -1033,6 +1037,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 			)
 			return false
 		}
+		markOpenAITTFTGuardForResponsesEvent(c, payload, event.Type)
 		observer.ObserveOpenAI([]byte(payload), event.Type)
 		s.parseSSEUsageBytesWithType([]byte(payload), event.Type, &usage)
 

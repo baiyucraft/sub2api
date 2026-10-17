@@ -17,10 +17,19 @@ type protectionSessionState struct {
 }
 type protectionSelectionKey struct{}
 type protectionSelection struct {
-	service   *OpenAIGatewayService
-	trial     *openAITTFTTrial
-	threshold time.Duration
-	groupID   int64
+	service        *OpenAIGatewayService
+	trial          *openAITTFTTrial
+	threshold      time.Duration
+	groupID        int64
+	selectionPath  string
+	fallbackReason string
+	// newAllocation is committed at the real transport boundary. Selection
+	// itself may be cancelled or retried before any upstream bytes are sent.
+	newAllocation           bool
+	allocationAccountID     int64
+	allocationUpstreamKeyID int64
+	allocationModel         string
+	allocationConfig        OpenAITTFTGuardConfigSnapshot
 }
 
 // Only an explicit logical identity is reliable; request-content hashes never
