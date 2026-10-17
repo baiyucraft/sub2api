@@ -1,4 +1,5 @@
 from __future__ import annotations
+import re
 
 import json
 import os
@@ -20,11 +21,26 @@ from release.production_snapshot import runtime_commit_script
 from release.paths import MAINTENANCE_ROOT
 
 
+def _assert_required_capture(source, producer, assertion, failure):
+    # The standalone assignment must propagate the producer status before its
+    # adjacent check reads the same variable. CAPTURE is a regex backreference.
+    assert "set -Eeuo pipefail\n" in source
+    pattern = (r"(?m)^[ \t]*(?P<capture>[A-Za-z_]\w*)="
+               + re.escape(producer + failure) + r"\n[ \t]*"
+               + re.escape(assertion).replace("CAPTURE", r"(?P=capture)"))
+    assert re.search(pattern, source), (producer, assertion, failure)
+
+
 def integration_script() -> str:
     preflight = (MAINTENANCE_ROOT / "preflight.sh").read_text(encoding="utf-8")
     source = '  source "$active_claim/assets/runtime-identity.sh"\n'
     begin = preflight.index(source)
-    end = preflight.index('  [[ $(jq -er \'.evidence.catalog_sha256\'', begin)
+    catalog_capture = re.search(
+        r"(?m)^[ \t]*[A-Za-z_]\w*=" + re.escape('$(jq -er \'.evidence.catalog_sha256\' "$active_claim/gate.json")') + r"$",
+        preflight[begin:],
+    )
+    assert catalog_capture is not None
+    end = begin + catalog_capture.start()
     fragment = preflight[begin:end].replace(source, runtime_commit_script() + "\n", 1)
     image = "sha256:" + "a" * 64
     commit = "b" * 40
@@ -134,7 +150,7 @@ class ProductionSnapshotTest(unittest.TestCase):
         self.assertIn("docker image inspect -f '{{json .RepoTags}}' \"$image\"", script)
         self.assertIn("^sub2api:baiyu-[0-9][0-9A-Za-z.-]*-[0-9a-f]{40}$", script)
         self.assertIn("| unique", script)
-        self.assertIn("$(jq -r 'length' <<<\"$commits\") == 1", script)
+        _assert_required_capture(script, '$(jq -r \'length\' <<<"$commits")', 'if [[ $CAPTURE == 1 ]]; then', ' || return 1')
         self.assertNotIn("git rev-parse main", script)
 
     def test_snapshot_digest_matches_canonical_persisted_document(self) -> None:

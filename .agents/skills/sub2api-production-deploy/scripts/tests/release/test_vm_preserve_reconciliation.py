@@ -1,4 +1,5 @@
 from __future__ import annotations
+import re
 
 import hashlib
 import json
@@ -14,6 +15,16 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from release import supervisor as s
 from release import vm_lifecycle as vm
+
+
+def _assert_required_capture(source, producer, assertion, failure):
+    # The standalone assignment must propagate the producer status before its
+    # adjacent check reads the same variable. CAPTURE is a regex backreference.
+    assert "set -Eeuo pipefail\n" in source
+    pattern = (r"(?m)^[ \t]*(?P<capture>[A-Za-z_]\w*)="
+               + re.escape(producer + failure) + r"\n[ \t]*"
+               + re.escape(assertion).replace("CAPTURE", r"(?P=capture)"))
+    assert re.search(pattern, source), (producer, assertion, failure)
 
 
 @pytest.fixture
@@ -176,8 +187,8 @@ def test_candidate_build_failure_binds_manifest_and_preserves_failure_evidence(f
     assert json.loads((f.shared / "owner.json").read_text())["lease_status"] == "released"
     check = f.calls[0][1]
     assert expected_manifest in check
-    assert 'test "$(cat "$gate_root/stage")" = candidate_build' in check
-    assert 'test "$(cat "$gate_root/failure-category")" = vm_v2_candidate_build' in check
+    _assert_required_capture(check, '$(cat "$gate_root/stage")', 'test "$CAPTURE" = candidate_build', ' || exit $?')
+    _assert_required_capture(check, '$(cat "$gate_root/failure-category")', 'test "$CAPTURE" = vm_v2_candidate_build', ' || exit $?')
     assert "failure-detail" in check and "failure-line" in check
     assert '(( 10#$failure_status <= 255 ))' in check
     assert check.index("flock -n 8") < check.index("gate_root=/opt")

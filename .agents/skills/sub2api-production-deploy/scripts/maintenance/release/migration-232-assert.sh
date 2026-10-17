@@ -36,7 +36,8 @@ source_predicate="$live_source_predicate"
 # started with migration 232 absent. The live groups rows have already been
 # cleared at that point, so hashing them would only work for a zero-row plan.
 if [[ $migration_status == verified || $phase == postflight ]]; then
-  [[ $(query "SELECT to_regclass('public.groups_video_price_backup_232') IS NOT NULL") == t ]]
+  _required_1=$(query "SELECT to_regclass('public.groups_video_price_backup_232') IS NOT NULL")
+  [[ ${_required_1} == t ]]
   source_relation=groups_video_price_backup_232
   source_predicate=true
 fi

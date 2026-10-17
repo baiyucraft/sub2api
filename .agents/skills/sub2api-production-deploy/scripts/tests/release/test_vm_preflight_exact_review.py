@@ -4,6 +4,8 @@ import sys
 from pathlib import Path
 from unittest import mock
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from release import recovery_gate as gate
 from release.paths import WORKSPACE
@@ -23,10 +25,18 @@ def test_final_vm_preflight_review_is_exact_and_preserves_other_contracts():
         assert old[path] != new[path]
         assert old[path].split(":")[0] == new[path].split(":")[0]
     report = gate.classify(WORKSPACE, BASE, TARGET)
-    assert report["mode"] == "specialized"
+    # The historical quartet keeps its exact review. A separate backfill
+    # runtime change must still require full recovery review under current rules.
+    unreviewed = {
+        path for path in gate._changed_paths(WORKSPACE, BASE, TARGET)
+        if gate._is_recovery_sensitive_path(path) and path not in reviewed
+    }
+    assert unreviewed == {PREFIX + "backfill-activity-reward-costs.sh"}
+    assert report["mode"] == "full"
     assert "reviewed_vm_preflight_recovery_changed" in report["reason_codes"]
-    assert "recovery_change_requires_review" not in report["reason_codes"]
-    gate.assert_release_allowed(report)
+    assert "recovery_change_requires_review" in report["reason_codes"]
+    with pytest.raises(RuntimeError, match="recovery changes require review"):
+        gate.assert_release_allowed(report)
 
 
 def test_drift_of_each_reviewed_path_cannot_inherit_review():

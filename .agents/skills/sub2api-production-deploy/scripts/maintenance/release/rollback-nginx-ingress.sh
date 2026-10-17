@@ -36,13 +36,13 @@ restore_target() {
   local target=${2:?target is required}
   local state=${3:?state is required}
   local tmp
-  validate_target "$label" "$target"
+  validate_target "$label" "$target" || return 1
   case "$state" in
     present)
-      [[ -f $txn/files/$label && ! -L $txn/files/$label ]]
+      [[ -f $txn/files/$label && ! -L $txn/files/$label ]] || return 1
       tmp="$target.restore.$$"
-      cp -p -- "$txn/files/$label" "$tmp"
-      mv -T -- "$tmp" "$target"
+      cp -p -- "$txn/files/$label" "$tmp" || return 1
+      mv -T -- "$tmp" "$target" || return 1
       ;;
     absent) rm -f -- "$target" ;;
     *) return 1 ;;
@@ -53,13 +53,17 @@ verify_restored_target() {
   local label=${1:?label is required}
   local target=${2:?target is required}
   local state=${3:?state is required}
-  validate_target "$label" "$target"
+  validate_target "$label" "$target" || return 1
   case "$state" in
     present)
-      [[ -f $txn/files/$label && ! -L $txn/files/$label ]]
-      [[ -f $target && ! -L $target ]]
-      [[ $(sha256sum "$txn/files/$label" | awk '{print $1}') == "$(sha256sum "$target" | awk '{print $1}')" ]]
-      [[ $(stat -c '%U:%G:%a:%h' "$txn/files/$label") == "$(stat -c '%U:%G:%a:%h' "$target")" ]]
+      [[ -f $txn/files/$label && ! -L $txn/files/$label ]] || return 1
+      [[ -f $target && ! -L $target ]] || return 1
+      _required_2=$(sha256sum "$txn/files/$label" | awk '{print $1}') || return 1
+      _required_1=$(sha256sum "$target" | awk '{print $1}') || return 1
+      [[ ${_required_2} == "${_required_1}" ]] || return 1
+      _required_4=$(stat -c '%U:%G:%a:%h' "$txn/files/$label") || return 1
+      _required_3=$(stat -c '%U:%G:%a:%h' "$target") || return 1
+      [[ ${_required_4} == "${_required_3}" ]] || return 1
       ;;
     absent) [[ ! -e $target && ! -L $target ]] ;;
     *) return 1 ;;
@@ -78,7 +82,8 @@ done < "$txn/targets.tsv"
 while IFS=$'\t' read -r stale archive name; do
   if [[ ! $stale =~ ^/etc/nginx/sites-enabled/[A-Za-z0-9._-]{1,160}\.sub2api-release-backup$ ]] ||
      [[ ! $archive =~ ^/etc/nginx/sub2api-release-backups/[A-Za-z0-9._-]{1,240}$ ]] ||
-     [[ $name != $(basename -- "$stale") ]] ||
+     ! _required_5=$(basename -- "$stale") ||
+     [[ $name != ${_required_5} ]] ||
      [[ ! -f $txn/stale/$name || -L $txn/stale/$name ]]; then
     rollback_failed=true
     rollback_code=1
@@ -87,7 +92,9 @@ while IFS=$'\t' read -r stale archive name; do
   tmp="$stale.restore.$$"
   if ! cp -p -- "$txn/stale/$name" "$tmp" || ! mv -T -- "$tmp" "$stale" || ! rm -f -- "$archive" ||
      ! cmp -s "$txn/stale/$name" "$stale" ||
-     [[ $(stat -c '%U:%G:%a:%h' "$txn/stale/$name") != "$(stat -c '%U:%G:%a:%h' "$stale")" ]] ||
+     ! _required_7=$(stat -c '%U:%G:%a:%h' "$txn/stale/$name") ||
+     ! _required_6=$(stat -c '%U:%G:%a:%h' "$stale") ||
+     [[ ${_required_7} != "${_required_6}" ]] ||
      [[ -e $archive || -L $archive ]]; then
     rollback_failed=true
     rollback_code=1
@@ -105,7 +112,8 @@ if [[ $rollback_failed == true ]]; then
   exit 125
 fi
 rm -f -- "$txn/applied" "$txn/rollback-failure"
-printf 'restored_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$txn/rollback-complete.tmp"
+_required_arg_1=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+printf 'restored_at=%s\n' "${_required_arg_1}" > "$txn/rollback-complete.tmp"
 chmod 400 "$txn/rollback-complete.tmp"
 mv -T -- "$txn/rollback-complete.tmp" "$txn/rollback-complete"
 printf 'nginx_ingress_rollback=restored\n'

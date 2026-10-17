@@ -7,8 +7,14 @@ source_dir=/opt/sub2api-src
 deploy_dir=/opt/sub2api-deploy
 unit_lock=/usr/local/libexec/.sub2api-release-unit.lock
 
-[[ $(id -u) == 0 ]]
-[[ -f $unit_lock && ! -L $unit_lock && $(stat -c '%U:%G:%a:%h' "$unit_lock") == root:root:600:1 ]]
+{
+  required_query_1=$(id -u)
+  [[ ${required_query_1} == 0 ]]
+}
+{
+  required_query_2=$(stat -c '%U:%G:%a:%h' "$unit_lock")
+  [[ -f $unit_lock && ! -L $unit_lock && ${required_query_2} == root:root:600:1 ]]
+}
 exec 8<>"$unit_lock"
 flock -s 8
 [[ -f $manifest && ! -L $manifest ]]
@@ -22,34 +28,70 @@ version=$(jq -er '.version' "$manifest")
 release_id=$(jq -er '.release_id' "$manifest")
 [[ $scope == vm-only && ( $profile == 255 || $profile == 256 || $profile == 257 || $profile == 258 || $profile == 259 || $profile == 260 || $profile == 261 || $profile == 262 || $profile == 263 || $profile == 264 || $profile == 265 || $profile == 266 || $profile == 267 || $profile == 268 || $profile == 269 || $profile == 270 || $profile == 271 || $profile == 272 || $profile == 273 ) && $release_id == "${profile}-${commit:0:12}-"* ]]
 [[ $commit =~ ^[0-9a-f]{40}$ ]]
-[[ $(jq -er '.vm_identity' "$manifest") == sub2api-dev ]]
-[[ $(jq -er '.vm_port' "$manifest") == 8211 ]]
-[[ $(jq -er '.vm_data' "$manifest") == /opt/sub2api-deploy/data-dev ]]
-[[ $(jq -er '.origin' "$manifest") == https://github.com/baiyucraft/sub2api.git ]]
+{
+  required_query_3=$(jq -er '.vm_identity' "$manifest")
+  [[ ${required_query_3} == sub2api-dev ]]
+}
+{
+  required_query_4=$(jq -er '.vm_port' "$manifest")
+  [[ ${required_query_4} == 8211 ]]
+}
+{
+  required_query_5=$(jq -er '.vm_data' "$manifest")
+  [[ ${required_query_5} == /opt/sub2api-deploy/data-dev ]]
+}
+{
+  required_query_6=$(jq -er '.origin' "$manifest")
+  [[ ${required_query_6} == https://github.com/baiyucraft/sub2api.git ]]
+}
 
 [[ -d $source_dir && ! -L $source_dir && -d $deploy_dir && ! -L $deploy_dir ]]
 cd "$source_dir"
-[[ $(git remote get-url origin) == https://github.com/baiyucraft/sub2api.git ]]
+{
+  required_query_7=$(git remote get-url origin)
+  [[ ${required_query_7} == https://github.com/baiyucraft/sub2api.git ]]
+}
 git fetch origin +main:refs/remotes/origin/main >/dev/null 2>&1
-[[ $(git rev-parse origin/main) == "$commit" ]]
+{
+  required_query_8=$(git rev-parse origin/main)
+  [[ ${required_query_8} == "$commit" ]]
+}
 git reset --hard "$commit" >/dev/null
-[[ $(git rev-parse HEAD) == "$commit" ]]
+{
+  required_query_9=$(git rev-parse HEAD)
+  [[ ${required_query_9} == "$commit" ]]
+}
 source_tree_sha256=$(git rev-parse "$commit^{tree}")
-[[ $source_tree_sha256 == "$(jq -er '.source_tree_sha256' "$manifest")" ]]
+{
+  required_query_10=$(jq -er '.source_tree_sha256' "$manifest")
+  [[ $source_tree_sha256 == "${required_query_10}" ]]
+}
 
-[[ $(docker inspect -f '{{.State.Health.Status}}' sub2api-dev) == healthy ]]
-[[ $(docker inspect -f '{{.HostConfig.NetworkMode}}' sub2api-dev) == host ]]
+{
+  required_query_11=$(docker inspect -f '{{.State.Health.Status}}' sub2api-dev)
+  [[ ${required_query_11} == healthy ]]
+}
+{
+  required_query_12=$(docker inspect -f '{{.HostConfig.NetworkMode}}' sub2api-dev)
+  [[ ${required_query_12} == host ]]
+}
 ss -H -ltn | awk '$4 ~ /:8211$/ {found=1} END {exit !found}'
-[[ $(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/app/data"}}{{.Source}}{{end}}{{end}}' sub2api-dev) == /opt/sub2api-deploy/data-dev ]]
+{
+  required_query_13=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/app/data"}}{{.Source}}{{end}}{{end}}' sub2api-dev)
+  [[ ${required_query_13} == /opt/sub2api-deploy/data-dev ]]
+}
 
 tag="sub2api:vm-only-$release_id"
 build_log="${output_dir%/output}/build.log"
 : >"$build_log"
 chmod 600 "$build_log"
-docker build --network=host --progress=plain \
+{
+  required_query_14=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  docker build --network=host --progress=plain \
   --build-arg COMMIT="$commit" --build-arg VERSION="$version" \
-  --build-arg DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-  -t "$tag" . >"$build_log" 2>&1
+  --build-arg DATE="${required_query_14}" \
+  -t "$tag" .
+} >"$build_log" 2>&1
 candidate_image_id=$(docker image inspect -f '{{.Id}}' "$tag")
 [[ $candidate_image_id =~ ^sha256:[0-9a-f]{64}$ ]]
 candidate_version=$(docker run --rm --entrypoint /app/sub2api "$candidate_image_id" --version 2>&1)
@@ -57,7 +99,10 @@ candidate_version=$(docker run --rm --entrypoint /app/sub2api "$candidate_image_
 
 candidate_container="sub2api-vm-only-${release_id//[^a-zA-Z0-9]/-}"
 candidate_port=38121
-if ss -H -ltn | awk '{print $4}' | grep -Eq ":${candidate_port}$"; then
+listener_inventory=$(ss -H -ltn)
+listener_matches=$(printf '%s\n' "$listener_inventory" | awk -v port="$candidate_port" '$4 ~ (":" port "$") {count++} END {print count+0}')
+[[ $listener_matches =~ ^[0-9]+$ ]]
+if (( listener_matches > 0 )); then
   exit 1
 fi
 cleanup_candidate() {
@@ -74,7 +119,7 @@ docker run -d --name "$candidate_container" --network host \
   -v "$deploy_dir/data-dev:/app/data:ro" "$candidate_image_id" >/dev/null
 candidate_health=fail
 for _ in $(seq 1 60); do
-  if [[ $(curl -sS --max-time 3 -o /dev/null -w '%{http_code}' "http://127.0.0.1:${candidate_port}/health" 2>/dev/null || true) == 200 ]]; then
+  if probe_http_status=$(curl -sS --max-time 3 -o /dev/null -w '%{http_code}' "http://127.0.0.1:${candidate_port}/health" 2>/dev/null) && [[ $probe_http_status == 200 ]]; then
     candidate_health=pass
     break
   fi

@@ -18,8 +18,14 @@ upload_reserve_bytes=${UPLOAD_RESERVE_BYTES:-536870912}
 [[ $upload_reserve_bytes =~ ^[0-9]+$ ]]
 [[ -d $backup_root && ! -L $backup_root ]]
 [[ -d $journal_root && ! -L $journal_root ]]
-[[ $(realpath -e -- "$backup_root") == "$backup_root" ]]
-[[ $(realpath -e -- "$journal_root") == "$journal_root" ]]
+{
+  required_query_1=$(realpath -e -- "$backup_root")
+  [[ ${required_query_1} == "$backup_root" ]]
+}
+{
+  required_query_2=$(realpath -e -- "$journal_root")
+  [[ ${required_query_2} == "$journal_root" ]]
+}
 
 promotion_lock="$backup_root/.release-promotion.lock"
 retention_lock="$backup_root/.backup-retention.lock"
@@ -27,7 +33,10 @@ host_cleanup_lock="$backup_root/.backup-host-space-clean.lock"
 log_root="$backup_root/release-logs"
 log_dir="$log_root/maintenance"
 raw_log="$log_dir/backup-host-space-clean.raw.log"
-[[ -f $promotion_lock && ! -L $promotion_lock && $(stat -c '%h' "$promotion_lock") == 1 ]]
+{
+  required_query_3=$(stat -c '%h' "$promotion_lock")
+  [[ -f $promotion_lock && ! -L $promotion_lock && ${required_query_3} == 1 ]]
+}
 [[ ! -e $retention_lock || ! -L $retention_lock ]]
 [[ ! -e $host_cleanup_lock || ! -L $host_cleanup_lock ]]
 [[ -d $log_root && ! -L $log_root ]]
@@ -54,12 +63,18 @@ plan_sha=$(printf '%s' "$plan_document" | sha256sum | awk '{print $1}')
 if [[ $mode == apply ]]; then
   [[ $plan_sha256 =~ ^[0-9a-f]{64}$ && $plan_sha256 == "$plan_sha" ]]
   exec 9>"$host_cleanup_lock"
-  [[ -f $host_cleanup_lock && ! -L $host_cleanup_lock && $(stat -c '%h' "$host_cleanup_lock") == 1 ]]
+  {
+    required_query_4=$(stat -c '%h' "$host_cleanup_lock") || exit $?
+    [[ -f $host_cleanup_lock && ! -L $host_cleanup_lock && ${required_query_4} == 1 ]]
+  }
   flock -n 9
   exec 8>"$promotion_lock"
   flock -n 8
   exec 7>"$retention_lock"
-  [[ -f $retention_lock && ! -L $retention_lock && $(stat -c '%h' "$retention_lock") == 1 ]]
+  {
+    required_query_5=$(stat -c '%h' "$retention_lock") || exit $?
+    [[ -f $retention_lock && ! -L $retention_lock && ${required_query_5} == 1 ]]
+  }
   flock -n 7
 
   if [[ -e $log_dir ]]; then
@@ -67,16 +82,31 @@ if [[ $mode == apply ]]; then
   else
     install -d -o 0 -g 0 -m 700 "$log_dir"
   fi
-  [[ $(stat -c '%u:%g:%a' "$log_dir") == 0:0:700 ]]
-  touch "$raw_log"
-  [[ -f $raw_log && ! -L $raw_log && $(stat -c '%h' "$raw_log") == 1 ]]
-  chmod 600 "$raw_log"
-  [[ $(stat -c '%u:%g:%a' "$raw_log") == 0:0:600 ]]
   {
-    printf '[%s] action=journal-vacuum event=start plan_sha256=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$plan_sha"
+    required_query_6=$(stat -c '%u:%g:%a' "$log_dir") || exit $?
+    [[ ${required_query_6} == 0:0:700 ]]
+  }
+  touch "$raw_log"
+  {
+    required_query_7=$(stat -c '%h' "$raw_log") || exit $?
+    [[ -f $raw_log && ! -L $raw_log && ${required_query_7} == 1 ]]
+  }
+  chmod 600 "$raw_log"
+  {
+    required_query_8=$(stat -c '%u:%g:%a' "$raw_log") || exit $?
+    [[ ${required_query_8} == 0:0:600 ]]
+  }
+  {
+    {
+      required_query_9=$(date -u +%Y-%m-%dT%H:%M:%SZ) || exit $?
+      printf '[%s] action=journal-vacuum event=start plan_sha256=%s\n' "${required_query_9}" "$plan_sha"
+    }
     journalctl --rotate
     journalctl --vacuum-size="$journal_max_bytes"
-    printf '[%s] action=journal-vacuum event=finish plan_sha256=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$plan_sha"
+    {
+      required_query_10=$(date -u +%Y-%m-%dT%H:%M:%SZ) || exit $?
+      printf '[%s] action=journal-vacuum event=finish plan_sha256=%s\n' "${required_query_10}" "$plan_sha"
+    }
   } >>"$raw_log" 2>&1
 
   free_after=$(df -PB1 "$backup_root" | awk 'NR==2 {print $4}')

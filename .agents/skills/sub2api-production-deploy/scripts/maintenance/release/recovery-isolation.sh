@@ -9,15 +9,23 @@ recovery_drill_assert_isolated() {
   [[ -z ${DOCKER_HOST:-} && -z ${DOCKER_CONTEXT:-} && -z ${DOCKER_CONFIG:-} && -z ${DOCKER_TLS_VERIFY:-} && -z ${DOCKER_CERT_PATH:-} ]] || return 1
   local marker=/run/sub2api-recovery-drill-isolated
   local proof=/run/sub2api-recovery-drill-host.json
-  [[ $(id -u) == 0 ]] || return 1
-  [[ -f $marker && ! -L $marker && $(stat -c '%u:%g:%a:%h' "$marker") == 0:0:600:1 ]] || return 1
-  [[ -f $proof && ! -L $proof && $(stat -c '%u:%g:%a:%h' "$proof") == 0:0:600:1 ]] || return 1
-  [[ $(cat -- "$marker") == "$bundle_sha" ]] || return 1
-  [[ $(systemd-detect-virt --container) == systemd-nspawn ]] || return 1
+  _required_1=$(id -u) || return 1
+  [[ ${_required_1} == 0 ]] || return 1
+  _required_2=$(stat -c '%u:%g:%a:%h' "$marker") || return 1
+  [[ -f $marker && ! -L $marker && ${_required_2} == 0:0:600:1 ]] || return 1
+  _required_3=$(stat -c '%u:%g:%a:%h' "$proof") || return 1
+  [[ -f $proof && ! -L $proof && ${_required_3} == 0:0:600:1 ]] || return 1
+  _required_4=$(cat -- "$marker") || return 1
+  [[ ${_required_4} == "$bundle_sha" ]] || return 1
+  _required_5=$(systemd-detect-virt --container) || return 1
+  [[ ${_required_5} == systemd-nspawn ]] || return 1
   [[ -S /run/docker.sock && ! -L /run/docker.sock ]] || return 1
-  [[ $(docker context show) == default ]] || return 1
-  [[ $(docker context inspect default --format '{{.Endpoints.docker.Host}}') == unix:///var/run/docker.sock ]] || return 1
-  [[ $(docker info --format '{{.DockerRootDir}}') == /var/lib/docker ]] || return 1
+  _required_6=$(docker context show) || return 1
+  [[ ${_required_6} == default ]] || return 1
+  _required_7=$(docker context inspect default --format '{{.Endpoints.docker.Host}}') || return 1
+  [[ ${_required_7} == unix:///var/run/docker.sock ]] || return 1
+  _required_8=$(docker info --format '{{.DockerRootDir}}') || return 1
+  [[ ${_required_8} == /var/lib/docker ]] || return 1
   local engine_id
   engine_id=$(docker info --format '{{.ID}}') || return 1
   [[ $engine_id =~ ^[A-Za-z0-9:-]{12,128}$ ]] || return 1

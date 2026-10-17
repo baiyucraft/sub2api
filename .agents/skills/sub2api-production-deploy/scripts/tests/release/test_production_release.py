@@ -1,4 +1,5 @@
 from __future__ import annotations
+import re
 
 import os
 import shlex
@@ -24,6 +25,16 @@ from release.production import emit_progress
 from release.production import gate_consumption_probe_script
 from release.production import quoted_env
 from release import recovery_bundle
+
+
+def _assert_required_capture(source, producer, assertion, failure):
+    # The standalone assignment must propagate the producer status before its
+    # adjacent check reads the same variable. CAPTURE is a regex backreference.
+    assert "set -Eeuo pipefail\n" in source
+    pattern = (r"(?m)^[ \t]*(?P<capture>[A-Za-z_]\w*)="
+               + re.escape(producer + failure) + r"\n[ \t]*"
+               + re.escape(assertion).replace("CAPTURE", r"(?P=capture)"))
+    assert re.search(pattern, source), (producer, assertion, failure)
 
 
 class ProductionRecoveryTest(unittest.TestCase):
@@ -832,7 +843,7 @@ class ProductionRecoveryTest(unittest.TestCase):
         self.assertTrue(release.remote_gate_consumed())
         script = release.run_remote.call_args.args[1]
         self.assertIn(".State.Health.Status", script)
-        self.assertIn("= healthy", script)
+        self.assertIn("probe_equals healthy docker inspect", script)
 
     def test_consumed_probe_failure_is_unknown(self) -> None:
         release = self.release()
@@ -1615,7 +1626,7 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         self.assertIn('candidate_original_exit_code=unknown', switch)
         self.assertIn('candidate_start_failure_line=$((LINENO + 1))', switch)
         self.assertIn('capture_candidate_failure_once "$candidate_start_failure_line"', switch)
-        self.assertIn('[[ $(grep -c \'^candidate_\' "$candidate_failure_file") == 10 ]] || return 1', switch)
+        _assert_required_capture(switch, '$(grep -c \'^candidate_\' "$candidate_failure_file")', '[[ ${CAPTURE} == 10 ]] || return 1', ' || return 1')
         self.assertIn('candidate_original_exit_code=$candidate_start_exit', switch)
         self.assertIn('original_exit_code=%s', switch)
         self.assertLess(
@@ -1661,7 +1672,7 @@ class ReleaseClaimScriptTest(unittest.TestCase):
     def test_candidate_http_probe_has_bounded_retry_and_failure_evidence(self) -> None:
         switch = self.script("switch.sh")
         production = (DEPLOY_ROOT / "release" / "production.py").read_text(encoding="utf-8")
-        self.assertIn("for _ in $(seq 1 30)", switch)
+        self.assertIn('for _ in {1..30}; do', switch)
         self.assertIn('candidate_http_code == 200', switch)
         self.assertIn('candidate-http.code', switch)
         self.assertIn('candidate-curl.exit', switch)
@@ -1829,15 +1840,15 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         self.assertIn('"parent": "254"', profile_block)
         self.assertIn('if [[ "$profile" == 254 ]]; then', validator)
         self.assertIn('[[ "$version" == 0.2.7-baiyu ]]', validator)
-        self.assertIn('[[ $(jq -er \'.parent_profile\' "$manifest") == 253 ]]', validator)
+        _assert_required_capture(validator, '$(jq -er \'.parent_profile\' "$manifest")', '[[ ${CAPTURE} == 253 ]]', ' || exit $?')
         self.assertIn('.new_migrations == ["278_fork_group_ttft_guard_policies.sql", "279_proxy_ip_groups.sql", "280_plugin_runtime_state.sql"]', validator)
         self.assertIn('[[ "$version" == 0.2.8-baiyu ]]', validator)
-        self.assertIn('[[ $(jq -er \'.parent_profile\' "$manifest") == 254 ]]', validator)
+        _assert_required_capture(validator, '$(jq -er \'.parent_profile\' "$manifest")', '[[ ${CAPTURE} == 254 ]]', ' || exit $?')
         self.assertIn('.new_migrations == ["281_content_moderation_engine_meta.sql", "282_channel_reasoning_effort_multipliers.sql", "283_affiliate_ledger_operation_id.sql"]', validator)
         self.assertIn('"version": "0.2.9-baiyu"', profile_block)
         self.assertIn('"parent": "255"', profile_block)
         self.assertIn('[[ "$version" == 0.2.9-baiyu ]]', validator)
-        self.assertIn('[[ $(jq -er \'.parent_profile\' "$manifest") == 255 ]]', validator)
+        _assert_required_capture(validator, '$(jq -er \'.parent_profile\' "$manifest")', '[[ ${CAPTURE} == 255 ]]', ' || exit $?')
         self.assertIn('[[ "$version" == 0.2.9-baiyu ]]', validator)
         self.assertIn("== 256 ]]", validator)
         self.assertIn('.new_migrations == ["284_unified_proxy_bindings.sql"]', validator)
@@ -1845,7 +1856,7 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         self.assertIn('"parent": "257"', profile_block)
         self.assertIn('[[ "$version" == 0.2.10-baiyu ]]', validator)
         self.assertIn('[[ "$version" == 0.2.11-baiyu ]]', validator)
-        self.assertIn('[[ $(jq -er \'.parent_profile\' "$manifest") == 258 ]]', validator)
+        _assert_required_capture(validator, '$(jq -er \'.parent_profile\' "$manifest")', '[[ ${CAPTURE} == 258 ]]', ' || exit $?')
         self.assertIn('.new_migrations == []', validator)
 
     def test_profile_242_switch_uses_gate_v2_without_legacy_state_files(self) -> None:
@@ -1976,11 +1987,11 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         self.assertIn('active_container=$(sed -n \'s/^container=//p\'', preflight)
         self.assertNotIn("docker inspect -f '{{.State.Status}}' sub2api", preflight)
         self.assertIn("systemctl reload nginx >/dev/null 2>&1", expose)
-        self.assertIn("for _ in $(seq 1 30)", expose)
+        self.assertIn('for _ in {1..30}; do', expose)
         self.assertIn("X-Sub2API-Instance \"$candidate_instance_id\"", expose)
         self.assertIn("[[ $public_verified == true ]]", expose)
         self.assertIn("systemctl reload nginx >/dev/null 2>&1", finalize)
-        self.assertIn("for _ in $(seq 1 30)", finalize)
+        self.assertIn('for _ in {1..30}; do', finalize)
         self.assertIn("X-Sub2API-Instance \"$final_instance_id\"", finalize)
         self.assertIn('final_network_mode=$(sub2api_compose_network_mode', finalize)
         self.assertIn('write_release_active_override', finalize)
@@ -1990,7 +2001,7 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         self.assertIn("[[ $final_instance_ready == true ]]", finalize)
         self.assertIn("background_ready=false", finalize)
         self.assertIn("[[ $background_ready == true ]]", finalize)
-        self.assertIn("for _ in $(seq 1 120)", finalize)
+        self.assertIn('for _ in {1..120}; do', finalize)
         self.assertIn("finalize_failure_phase=%s", finalize)
         self.assertIn("finalize_phase=background_activation", finalize)
         self.assertIn("if [[ $public_verified != true ]]", finalize)
@@ -2055,7 +2066,7 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         restore = self.script("restore.sh")
         resume = self.script("resume-old.sh")
 
-        self.assertIn('[[ $candidate_container != sub2api ]]', cleanup)
+        _assert_required_capture(cleanup, "$(docker ps -a --format '{{.Names}}')", 'if [[ $candidate_container != sub2api && $\'\\n\'"$CAPTURE"$\'\\n\' == *$\'\\n\'"$candidate_container"$\'\\n\'* ]]; then', '')
         self.assertIn("release_id=%s", freeze)
         for script in (restore, resume):
             self.assertIn("old_port=$(sed -n 's/^port=//p'", script)
@@ -2154,7 +2165,7 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         self.assertIn('server 127.0.0.1:$active_port;', reconcile)
         self.assertIn('docker compose "${release_compose_args[@]}" up -d --no-deps sub2api', rollback)
         self.assertIn('current_sub2api_image != "$pre_image_id"', rollback)
-        self.assertIn('docker inspect -f \'{{.Image}}\' "$old_container") == "$pre_image_id"', rollback)
+        _assert_required_capture(rollback, '$(docker inspect -f \'{{.Image}}\' "$old_container")', '[[ ${CAPTURE} == "$pre_image_id" ]]', '')
         self.assertIn('exec "$assets_dir/rollback-route.sh"', emergency)
         self.assertNotIn("systemctl stop nginx", emergency)
 
@@ -2295,8 +2306,8 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         self.assertIn('pre_image_id=$(<"$state_dir/pre-image-id")', restore)
         self.assertNotIn("SUB2API_RELEASE_IMAGE=%s", restore)
         self.assertNotIn("age-identity", restore)
-        self.assertIn("if ! docker info", restore)
-        self.assertIn('elif docker inspect "$active_container"', restore)
+        self.assertIn('docker info >/dev/null 2>&1 || failed=1', restore)
+        self.assertIn('if ! container_names=$(docker ps -a --format \'{{.Names}}\' 2>/dev/null); then\n    failed=1\n  else\n    local stopped_container\n    for stopped_container in "$active_container" sub2api; do\n      if [[ $\'\\n\'"$container_names"$\'\\n\' == *$\'\\n\'"$stopped_container"$\'\\n\'* ]]; then\n        app_status=$(docker inspect -f \'{{.State.Status}}\' "$stopped_container" 2>/dev/null) || failed=1\n        [[ -n $app_status && $app_status != running ]] || failed=1', restore)
         self.assertIn("if ! container_names=$(docker ps -a", restore)
         self.assertIn('case "$nginx_status" in', restore)
         self.assertIn("inactive|failed", restore)

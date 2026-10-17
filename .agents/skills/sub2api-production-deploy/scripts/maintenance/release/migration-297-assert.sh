@@ -175,13 +175,14 @@ verify_vm_semantics() {
   local result migration_file=${ASSERT_MIGRATION_FILE:-}
   [[ $db_name =~ ^sub2api_v2_[A-Za-z0-9_]+$ && ${ASSERT_VM_ISOLATED_DB:-} == "$db_name" ]] || fail isolation_boundary
   [[ -f $migration_file && ! -L $migration_file ]] || fail migration_source
-  [[ $(sha256sum "$migration_file" | awk '{print $1}') == a17cdd895a2fd8306eebc4d21c4c93ae22defaa93f9e54e2e7b8208ed2725244 ]] || fail migration_source
+  _required_1=$(sha256sum "$migration_file" | awk '{print $1}') || fail migration_source
+  [[ ${_required_1} == a17cdd895a2fd8306eebc4d21c4c93ae22defaa93f9e54e2e7b8208ed2725244 ]] || fail migration_source
   result=$(query "SELECT current_database() = '$db_name'") || fail isolation_query
   [[ $result == t ]] || fail isolation_boundary
   # Re-execute the immutable migration only on transaction-local temporary tables.
   # The restored public tables and their rows are never written by this fixture.
   result=$({
-    cat <<'SQL'
+    cat <<'SQL' || exit 1
 BEGIN;
 SET LOCAL search_path = pg_temp, public, pg_catalog;
 CREATE TEMP TABLE upstream_cache_guard_facts
@@ -204,7 +205,7 @@ FROM (VALUES
     (9,'{}'::jsonb), (10,'{"request":{"upstream_key_id":42}}'::jsonb)
 ) AS fixture(ordinal,evidence);
 SQL
-    cat "$migration_file"
+    cat "$migration_file" || exit 1
     cat <<'SQL'
 DO $$
 DECLARE statement TEXT; rejected BOOLEAN;

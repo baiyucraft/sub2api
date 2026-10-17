@@ -23,11 +23,23 @@ if [[ $test_mode == true ]]; then
   test_name=${test_parent##*/}
   [[ $test_name =~ ^[A-Za-z0-9]+([.-][A-Za-z0-9]+)*$ ]]
   [[ $test_parent == /opt/sub2api-deploy/release-input/$test_name ]]
-  [[ $(realpath -e -- "$test_parent") == "$test_parent" ]]
-  [[ -d $test_parent && ! -L $test_parent && $(stat -c '%U:%G:%a' "$test_parent") == root:root:700 ]]
+  {
+    required_query_1=$(realpath -e -- "$test_parent") || exit $?
+    [[ ${required_query_1} == "$test_parent" ]]
+  }
+  {
+    required_query_2=$(stat -c '%U:%G:%a' "$test_parent") || exit $?
+    [[ -d $test_parent && ! -L $test_parent && ${required_query_2} == root:root:700 ]]
+  }
   if [[ -e $target_libexec_dir ]]; then
-    [[ $(realpath -e -- "$target_libexec_dir") == "$target_libexec_dir" ]]
-    [[ -d $target_libexec_dir && ! -L $target_libexec_dir && $(stat -c '%U:%G:%a' "$target_libexec_dir") == "root:root:$target_libexec_mode" ]]
+    {
+      required_query_3=$(realpath -e -- "$target_libexec_dir") || exit $?
+      [[ ${required_query_3} == "$target_libexec_dir" ]]
+    }
+    {
+      required_query_4=$(stat -c '%U:%G:%a' "$target_libexec_dir") || exit $?
+      [[ -d $target_libexec_dir && ! -L $target_libexec_dir && ${required_query_4} == "root:root:$target_libexec_mode" ]]
+    }
   fi
 fi
 validator_target="$target_libexec_dir/sub2api-vm-validate"
@@ -35,26 +47,48 @@ gate_signer_target="$target_libexec_dir/sub2api-sign-gate"
 dr_signer_target="$target_libexec_dir/sub2api-sign-dr-evidence"
 private_key="$signer_dir/vm-gate-ed25519.pem"
 public_key="$signer_dir/vm-gate-ed25519.pub"
-[[ $(id -u) == 0 ]]
+{
+  required_query_5=$(id -u)
+  [[ ${required_query_5} == 0 ]]
+}
 [[ -f $validator_source && ! -L $validator_source ]]
 [[ -f $gate_signer_source && ! -L $gate_signer_source ]]
 [[ -f $dr_signer_source && ! -L $dr_signer_source ]]
-[[ $validator_expected_sha256 =~ ^[0-9a-f]{64}$ && $(sha256sum "$validator_source" | awk '{print $1}') == "$validator_expected_sha256" ]]
-[[ $gate_signer_expected_sha256 =~ ^[0-9a-f]{64}$ && $(sha256sum "$gate_signer_source" | awk '{print $1}') == "$gate_signer_expected_sha256" ]]
-[[ $dr_signer_expected_sha256 =~ ^[0-9a-f]{64}$ && $(sha256sum "$dr_signer_source" | awk '{print $1}') == "$dr_signer_expected_sha256" ]]
+{
+  required_query_6=$(sha256sum "$validator_source" | awk '{print $1}')
+  [[ $validator_expected_sha256 =~ ^[0-9a-f]{64}$ && ${required_query_6} == "$validator_expected_sha256" ]]
+}
+{
+  required_query_7=$(sha256sum "$gate_signer_source" | awk '{print $1}')
+  [[ $gate_signer_expected_sha256 =~ ^[0-9a-f]{64}$ && ${required_query_7} == "$gate_signer_expected_sha256" ]]
+}
+{
+  required_query_8=$(sha256sum "$dr_signer_source" | awk '{print $1}')
+  [[ $dr_signer_expected_sha256 =~ ^[0-9a-f]{64}$ && ${required_query_8} == "$dr_signer_expected_sha256" ]]
+}
 install -d -m 700 "$signer_dir"
 install -d -m "$target_libexec_mode" "$target_libexec_dir"
 if [[ ${REQUIRE_EXISTING_SIGNER_KEYS:-false} == true ]]; then
   [[ -f $private_key && ! -L $private_key && -f $public_key && ! -L $public_key ]]
-  [[ $(stat -c '%U:%G:%a' "$private_key") == root:root:600 ]]
-  [[ $(stat -c '%U:%G:%a' "$public_key") == root:root:644 ]]
+  {
+    required_query_9=$(stat -c '%U:%G:%a' "$private_key") || exit $?
+    [[ ${required_query_9} == root:root:600 ]]
+  }
+  {
+    required_query_10=$(stat -c '%U:%G:%a' "$public_key") || exit $?
+    [[ ${required_query_10} == root:root:644 ]]
+  }
 elif [[ ! -e $private_key && ! -e $public_key ]]; then
   umask 077
   openssl genpkey -algorithm ED25519 -out "$private_key"
   openssl pkey -in "$private_key" -pubout -out "$public_key"
 fi
 [[ -f $private_key && ! -L $private_key && -f $public_key && ! -L $public_key ]]
-[[ $(stat -c '%U:%G' "$private_key") == root:root && $(stat -c '%U:%G' "$public_key") == root:root ]]
+{
+  required_query_11=$(stat -c '%U:%G' "$private_key")
+  required_query_12=$(stat -c '%U:%G' "$public_key")
+  [[ ${required_query_11} == root:root && ${required_query_12} == root:root ]]
+}
 chmod 600 "$private_key"
 chmod 644 "$public_key"
 openssl pkey -pubin -in "$public_key" -noout
@@ -97,7 +131,10 @@ install -o root -g root -m 700 "$gate_signer_source" "$activation_dir/sub2api-si
 install -o root -g root -m 700 "$dr_signer_source" "$activation_dir/sub2api-sign-dr-evidence"
 bash -n "$activation_dir/sub2api-vm-validate" "$activation_dir/sub2api-sign-gate" "$activation_dir/sub2api-sign-dr-evidence"
 if [[ -e /opt/sub2api-deploy/dr-evidence ]]; then
-  [[ -d /opt/sub2api-deploy/dr-evidence && ! -L /opt/sub2api-deploy/dr-evidence && $(stat -c '%U:%G:%a' /opt/sub2api-deploy/dr-evidence) == root:root:700 ]]
+  {
+    required_query_13=$(stat -c '%U:%G:%a' /opt/sub2api-deploy/dr-evidence) || exit $?
+    [[ -d /opt/sub2api-deploy/dr-evidence && ! -L /opt/sub2api-deploy/dr-evidence && ${required_query_13} == root:root:700 ]]
+  }
 else
   install -d -o root -g root -m 700 /opt/sub2api-deploy/dr-evidence
 fi
@@ -127,14 +164,23 @@ for selftest_profile in 195 199 202 206 207 208 209 210 212 213 215 232 233 234 
 done
 unit_lock="$target_libexec_dir/.sub2api-release-unit.lock"
 if [[ -e $unit_lock || -L $unit_lock ]]; then
-  [[ -f $unit_lock && ! -L $unit_lock && $(stat -c '%U:%G:%a:%h' "$unit_lock") == root:root:600:1 ]]
+  {
+    required_query_14=$(stat -c '%U:%G:%a:%h' "$unit_lock") || exit $?
+    [[ -f $unit_lock && ! -L $unit_lock && ${required_query_14} == root:root:600:1 ]]
+  }
 else
   (set -o noclobber; umask 077; : > "$unit_lock") || {
-    [[ -f $unit_lock && ! -L $unit_lock && $(stat -c '%U:%G:%a:%h' "$unit_lock") == root:root:600:1 ]]
+    {
+      required_query_15=$(stat -c '%U:%G:%a:%h' "$unit_lock") || exit $?
+      [[ -f $unit_lock && ! -L $unit_lock && ${required_query_15} == root:root:600:1 ]]
+    }
   }
 fi
 exec 9<>"$unit_lock"
-[[ $(stat -Lc '%U:%G:%a:%h' /proc/self/fd/9) == root:root:600:1 ]]
+{
+  required_query_16=$(stat -Lc '%U:%G:%a:%h' /proc/self/fd/9)
+  [[ ${required_query_16} == root:root:600:1 ]]
+}
 flock 9
 for asset in validator gate-signer dr-signer; do
   case $asset in
@@ -143,7 +189,10 @@ for asset in validator gate-signer dr-signer; do
     dr-signer) target=$dr_signer_target ;;
   esac
   if [[ -e $target ]]; then
-    [[ -f $target && ! -L $target && $(stat -c '%U:%G:%a' "$target") == root:root:700 ]]
+    {
+      required_query_17=$(stat -c '%U:%G:%a' "$target") || exit $?
+      [[ -f $target && ! -L $target && ${required_query_17} == root:root:700 ]]
+    }
     install -o root -g root -m 700 "$target" "$activation_dir/previous-$asset"
   fi
 done
@@ -157,12 +206,33 @@ if [[ $test_mode == true && $test_fail_after_validator == true ]]; then
 fi
 mv -T -- "$gate_signer_target.new" "$gate_signer_target"
 mv -T -- "$dr_signer_target.new" "$dr_signer_target"
-[[ $(sha256sum "$validator_target" | awk '{print $1}') == "$validator_expected_sha256" ]]
-[[ $(sha256sum "$gate_signer_target" | awk '{print $1}') == "$gate_signer_expected_sha256" ]]
-[[ $(sha256sum "$dr_signer_target" | awk '{print $1}') == "$dr_signer_expected_sha256" ]]
+{
+  required_query_18=$(sha256sum "$validator_target" | awk '{print $1}')
+  [[ ${required_query_18} == "$validator_expected_sha256" ]]
+}
+{
+  required_query_19=$(sha256sum "$gate_signer_target" | awk '{print $1}')
+  [[ ${required_query_19} == "$gate_signer_expected_sha256" ]]
+}
+{
+  required_query_20=$(sha256sum "$dr_signer_target" | awk '{print $1}')
+  [[ ${required_query_20} == "$dr_signer_expected_sha256" ]]
+}
 activation_complete=true
 printf 'signer_status=ready\n'
-printf 'public_key_sha256=%s\n' "$(sha256sum "$public_key" | awk '{print $1}')"
-printf 'validator_sha256=%s\n' "$(sha256sum "$validator_target" | awk '{print $1}')"
-printf 'gate_signer_sha256=%s\n' "$(sha256sum "$gate_signer_target" | awk '{print $1}')"
-printf 'dr_signer_sha256=%s\n' "$(sha256sum "$dr_signer_target" | awk '{print $1}')"
+{
+  required_query_21=$(sha256sum "$public_key" | awk '{print $1}')
+  printf 'public_key_sha256=%s\n' "${required_query_21}"
+}
+{
+  required_query_22=$(sha256sum "$validator_target" | awk '{print $1}')
+  printf 'validator_sha256=%s\n' "${required_query_22}"
+}
+{
+  required_query_23=$(sha256sum "$gate_signer_target" | awk '{print $1}')
+  printf 'gate_signer_sha256=%s\n' "${required_query_23}"
+}
+{
+  required_query_24=$(sha256sum "$dr_signer_target" | awk '{print $1}')
+  printf 'dr_signer_sha256=%s\n' "${required_query_24}"
+}

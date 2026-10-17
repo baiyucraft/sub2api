@@ -19,8 +19,10 @@ pre_image_ref=$(docker inspect -f '{{.Config.Image}}' "$active_container")
 active_release_id=$(sed -n 's/^release_id=//p' "$active_slot_file")
 [[ -z $active_release_id || $active_release_id =~ ^[A-Za-z0-9_.-]{1,128}$ ]]
 compose_sha=$(sha256sum docker-compose.yml | awk '{print $1}')
-[[ $(docker inspect -f '{{.State.Health.Status}}' "$active_container") == healthy ]]
-[[ $(systemctl is-active nginx) == active ]]
+_required_1=$(docker inspect -f '{{.State.Health.Status}}' "$active_container")
+[[ ${_required_1} == healthy ]]
+_required_2=$(systemctl is-active nginx)
+[[ ${_required_2} == active ]]
 install -m 600 .env "$state_dir/.env"
 state_files=(.env)
 for compose_file in "${release_compose_files[@]}"; do
@@ -48,13 +50,15 @@ outbox_watermark=
 drain_deadline=$((SECONDS + 30))
 while (( SECONDS < drain_deadline )); do
   outbox_highwater=$(timeout 3s docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT COALESCE(MAX(id),0) FROM scheduler_outbox" 2>/dev/null | tr -d '\r') || outbox_highwater=
-  outbox_watermark=$(printf '%s\n' "$redis_password" | timeout 3s docker exec -i sub2api-redis sh -c 'IFS= read -r REDISCLI_AUTH; export REDISCLI_AUTH; redis-cli --no-auth-warning GET sched:v2:outbox:watermark' 2>/dev/null | tr -d '\r') || outbox_watermark=
+  outbox_watermark=$(printf '%s\n' "$redis_password" | timeout 3s docker exec -i sub2api-redis sh -c 'IFS= read -r REDISCLI_AUTH || exit 1; export REDISCLI_AUTH; redis-cli --no-auth-warning GET sched:v2:outbox:watermark' 2>/dev/null | tr -d '\r') || outbox_watermark=
   [[ $outbox_highwater =~ ^[0-9]+$ && $outbox_watermark =~ ^[0-9]+$ && $outbox_watermark -ge $outbox_highwater ]] && break
   sleep 1
 done
 [[ $outbox_highwater =~ ^[0-9]+$ && $outbox_watermark =~ ^[0-9]+$ && $outbox_watermark -ge $outbox_highwater ]]
-[[ $(docker inspect -f '{{.State.Health.Status}}' "$active_container") == healthy ]]
-[[ $(systemctl is-active nginx) == active ]]
+_required_3=$(docker inspect -f '{{.State.Health.Status}}' "$active_container")
+[[ ${_required_3} == healthy ]]
+_required_4=$(systemctl is-active nginx)
+[[ ${_required_4} == active ]]
 printf 'traffic_preserved=true\n'
 printf 'release_state_captured=true\n'
 printf 'outbox_checkpoint=true\n'

@@ -225,7 +225,7 @@ class VMLease:
             try:
                 result = self.ssh.run(
                     "local_vm",
-                    "set -Eeuo pipefail\ntest -d /opt/sub2api-deploy\nprintf 'vm_ssh_ready=true\\nvm_boot_id=%s\\n' \"$(cat /proc/sys/kernel/random/boot_id)\"",
+                "set -Eeuo pipefail\ntest -d /opt/sub2api-deploy\nobserved_boot_id=$(cat /proc/sys/kernel/random/boot_id) || exit $?\nprintf 'vm_ssh_ready=true\\nvm_boot_id=%s\\n' \"$observed_boot_id\"",
                     {"vm_ssh_ready", "vm_boot_id"}, timeout=10,
                 )
                 if result.values.get("vm_ssh_ready") != "true":
@@ -280,20 +280,30 @@ printf 'vm_app_health=%s\\n' "$health"
             # The validator holds this shared lock for its entire remote lifetime.
             # Exclusive acquisition rejects even an orphaned Gate worker.
             result = self.ssh.run("local_vm", """set -Eeuo pipefail
-test "$(id -u)" = 0
-test "$(cat /proc/sys/kernel/random/boot_id)" = BOOT_ID
+required_value=$(id -u)
+test "$required_value" = 0
+required_value=$(cat /proc/sys/kernel/random/boot_id)
+test "$required_value" = BOOT_ID
 lock=/usr/local/libexec/.sub2api-release-unit.lock
 test -f "$lock"
 test ! -L "$lock"
-test "$(stat -c '%U:%G:%a:%h' "$lock")" = root:root:600:1
+required_value=$(stat -c '%U:%G:%a:%h' "$lock")
+test "$required_value" = root:root:600:1
 exec 8<>"$lock"
 flock -xn 8
-test -z "$(docker ps -a --format '{{.Names}}' | grep -E '^sub2api-(v2-|probe-|preview-)' || true)"
-if test "$(docker inspect -f '{{.State.Running}}' sub2api-dev)" = true; then
+names=$(docker ps -a --format '{{.Names}}')
+while IFS= read -r name; do
+  case "$name" in sub2api-v2-*|sub2api-probe-*|sub2api-preview-*) exit 1 ;; esac
+done <<<"$names"
+running=$(docker inspect -f '{{.State.Running}}' sub2api-dev)
+[[ $running == true || $running == false ]]
+if test "$running" = true; then
   docker stop -t 30 sub2api-dev >/dev/null
 fi
-test "$(docker inspect -f '{{.State.Status}}' sub2api-dev)" = exited
-! ss -ltnH '( sport = :8211 )' | grep -q .
+status=$(docker inspect -f '{{.State.Status}}' sub2api-dev)
+test "$status" = exited
+listeners=$(ss -ltnH '( sport = :8211 )')
+test -z "$listeners"
 shutdown -h +1 >/dev/null 2>&1
 printf 'vm_shutdown_scheduled=true\\n'
 """.replace("BOOT_ID", self.state["vm_boot_id"]), {"vm_shutdown_scheduled"}, timeout=60)
@@ -362,25 +372,32 @@ def _preserve_running_probe(probe: VMLease, boot_id: str) -> None:
     if probe.ssh is None:
         probe.ssh = SSHRunner()
     script = '''set -Eeuo pipefail
-test "$(id -u)" = 0
-test "$(cat /proc/sys/kernel/random/boot_id)" = BOOT_ID
+required_capture_1=$(id -u) || exit $?
+test "$required_capture_1" = 0
+required_capture_2=$(cat /proc/sys/kernel/random/boot_id) || exit $?
+test "$required_capture_2" = BOOT_ID
 lock=/usr/local/libexec/.sub2api-release-unit.lock
 test -f "$lock"
 test ! -L "$lock"
-test "$(stat -c '%U:%G:%a:%h' "$lock")" = root:root:600:1
+required_capture_3=$(stat -c '%U:%G:%a:%h' "$lock") || exit $?
+test "$required_capture_3" = root:root:600:1
 exec 8<>"$lock"
-test "$(stat -Lc '%U:%G:%a:%h' /proc/self/fd/8)" = root:root:600:1
+required_capture_4=$(stat -Lc '%U:%G:%a:%h' /proc/self/fd/8) || exit $?
+test "$required_capture_4" = root:root:600:1
 flock -xn 8
 gate_root=/opt/sub2api-deploy/release-gates
 test -d "$gate_root"
 test ! -L "$gate_root"
-test "$(stat -c '%U:%G:%a' "$gate_root")" = root:root:700
+required_capture_5=$(stat -c '%U:%G:%a' "$gate_root") || exit $?
+test "$required_capture_5" = root:root:700
 gate_lock="$gate_root/release.lock"
 test -f "$gate_lock"
 test ! -L "$gate_lock"
-case "$(stat -c '%U:%G:%a:%h' "$gate_lock")" in root:root:600:1|root:root:644:1) ;; *) exit 1 ;; esac
+required_capture_6=$(stat -c '%U:%G:%a:%h' "$gate_lock") || exit $?
+case "$required_capture_6" in root:root:600:1|root:root:644:1) ;; *) exit 1 ;; esac
 exec 9<>"$gate_lock"
-case "$(stat -Lc '%U:%G:%a:%h' /proc/self/fd/9)" in root:root:600:1|root:root:644:1) ;; *) exit 1 ;; esac
+required_capture_7=$(stat -Lc '%U:%G:%a:%h' /proc/self/fd/9) || exit $?
+case "$required_capture_7" in root:root:600:1|root:root:644:1) ;; *) exit 1 ;; esac
 flock -xn 9
 processes=$(ps -eo args=)
 process_count=$(awk '/vm-space-clean.sh|sub2api-vm-validate|run-validator.sh|docker (build|buildx)|buildctl/ && ! /awk/ {n++} END {print n+0}' <<<"$processes")
@@ -392,10 +409,14 @@ done <<<"$names"
 networks=$(docker network ls --format '{{.Name}}')
 network_count=$(awk '/^sub2api-(v2-|probe-|preview-)/ {n++} END {print n+0}' <<<"$networks")
 test "$network_count" = 0
-test "$(docker inspect -f '{{.State.Running}}' sub2api-dev)" = true
-test "$(docker inspect -f '{{.State.Health.Status}}' sub2api-dev)" = healthy
-test "$(curl -sS --max-time 10 -o /dev/null -w '%{http_code}' http://127.0.0.1:8211/health)" = 200
-test "$(cat /proc/sys/kernel/random/boot_id)" = BOOT_ID
+required_capture_8=$(docker inspect -f '{{.State.Running}}' sub2api-dev) || exit $?
+test "$required_capture_8" = true
+required_capture_9=$(docker inspect -f '{{.State.Health.Status}}' sub2api-dev) || exit $?
+test "$required_capture_9" = healthy
+required_capture_10=$(curl -sS --max-time 10 -o /dev/null -w '%{http_code}' http://127.0.0.1:8211/health) || exit $?
+test "$required_capture_10" = 200
+required_capture_11=$(cat /proc/sys/kernel/random/boot_id) || exit $?
+test "$required_capture_11" = BOOT_ID
 printf 'vm_preserve_verified=true\\n'
 '''.replace("BOOT_ID", boot_id)
     try:
@@ -583,8 +604,10 @@ class RetainedVMFinalization(VMLease):
             if self.ssh is None:
                 self.ssh = SSHRunner()
             result = self.ssh.run("local_vm", '''set -Eeuo pipefail
-test "$(id -u)" = 0
-printf 'vm_boot_id=%s\\n' "$(cat /proc/sys/kernel/random/boot_id)"
+required_capture_12=$(id -u) || exit $?
+test "$required_capture_12" = 0
+observed_boot_id=$(cat /proc/sys/kernel/random/boot_id) || exit $?
+printf 'vm_boot_id=%s\\n' "$observed_boot_id"
 ''', {"vm_boot_id"}, timeout=10)
             if result.values != {"vm_boot_id": lifecycle["vm_boot_id"]}:
                 raise VMLifecycleError("vm_finalization_boot_changed")
@@ -679,25 +702,32 @@ printf 'vm_boot_id=%s\\n' "$(cat /proc/sys/kernel/random/boot_id)"
                           vm_power_status="stopping", vm_cleanup_status="running")
         try:
             result = self.ssh.run("local_vm", '''set -Eeuo pipefail
-test "$(id -u)" = 0
-test "$(cat /proc/sys/kernel/random/boot_id)" = BOOT_ID
+required_capture_13=$(id -u) || exit $?
+test "$required_capture_13" = 0
+required_capture_14=$(cat /proc/sys/kernel/random/boot_id) || exit $?
+test "$required_capture_14" = BOOT_ID
 lock=/usr/local/libexec/.sub2api-release-unit.lock
 test -f "$lock"
 test ! -L "$lock"
-test "$(stat -c '%U:%G:%a:%h' "$lock")" = root:root:600:1
+required_capture_15=$(stat -c '%U:%G:%a:%h' "$lock") || exit $?
+test "$required_capture_15" = root:root:600:1
 exec 8<>"$lock"
-test "$(stat -Lc '%U:%G:%a:%h' /proc/self/fd/8)" = root:root:600:1
+required_capture_16=$(stat -Lc '%U:%G:%a:%h' /proc/self/fd/8) || exit $?
+test "$required_capture_16" = root:root:600:1
 flock -xn 8
 gate_root=/opt/sub2api-deploy/release-gates
 test -d "$gate_root"
 test ! -L "$gate_root"
-test "$(stat -c '%U:%G:%a' "$gate_root")" = root:root:700
+required_capture_17=$(stat -c '%U:%G:%a' "$gate_root") || exit $?
+test "$required_capture_17" = root:root:700
 gate_lock="$gate_root/release.lock"
 test -f "$gate_lock"
 test ! -L "$gate_lock"
-case "$(stat -c '%U:%G:%a:%h' "$gate_lock")" in root:root:600:1|root:root:644:1) ;; *) exit 1 ;; esac
+required_capture_18=$(stat -c '%U:%G:%a:%h' "$gate_lock") || exit $?
+case "$required_capture_18" in root:root:600:1|root:root:644:1) ;; *) exit 1 ;; esac
 exec 9<>"$gate_lock"
-case "$(stat -Lc '%U:%G:%a:%h' /proc/self/fd/9)" in root:root:600:1|root:root:644:1) ;; *) exit 1 ;; esac
+required_capture_19=$(stat -Lc '%U:%G:%a:%h' /proc/self/fd/9) || exit $?
+case "$required_capture_19" in root:root:600:1|root:root:644:1) ;; *) exit 1 ;; esac
 flock -xn 9
 processes=$(ps -eo args=)
 process_count=$(awk '/vm-space-clean.sh|sub2api-vm-validate|run-validator.sh|docker (build|buildx)|buildctl/ && ! /awk/ {n++} END {print n+0}' <<<"$processes")
@@ -706,10 +736,12 @@ names=$(docker ps -a --format '{{.Names}}')
 while IFS= read -r name; do
   case "$name" in sub2api-v2-*|sub2api-probe-*|sub2api-preview-*) exit 1 ;; esac
 done <<<"$names"
-if test "$(docker inspect -f '{{.State.Running}}' sub2api-dev)" = true; then
+dev_running=$(docker inspect -f '{{.State.Running}}' sub2api-dev) || exit $?
+if test "$dev_running" = true; then
   docker stop -t 30 sub2api-dev >/dev/null
 fi
-test "$(docker inspect -f '{{.State.Status}}' sub2api-dev)" = exited
+required_capture_20=$(docker inspect -f '{{.State.Status}}' sub2api-dev) || exit $?
+test "$required_capture_20" = exited
 listeners=$(ss -ltnH '( sport = :8211 )')
 test -z "$listeners"
 shutdown -h +1 >/dev/null 2>&1

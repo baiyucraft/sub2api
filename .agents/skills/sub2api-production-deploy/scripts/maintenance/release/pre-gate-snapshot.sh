@@ -6,7 +6,8 @@ expected_image_id=${EXPECTED_IMAGE_ID:?EXPECTED_IMAGE_ID is required}
 deploy_dir=${DEPLOY_DIR:-/opt/sub2api}
 [[ $output_dir =~ ^/opt/sub2api/releases/pre-gate\.[A-Za-z0-9]+$ ]]
 [[ $expected_image_id =~ ^sha256:[0-9a-f]{64}$ ]]
-[[ -d $output_dir && ! -L $output_dir && $(stat -c '%U:%G:%a' "$output_dir") == root:root:700 ]]
+_required_1=$(stat -c '%U:%G:%a' "$output_dir")
+[[ -d $output_dir && ! -L $output_dir && ${_required_1} == root:root:700 ]]
 exec 9>/run/lock/sub2api-production-release.lock
 flock -n 9
 exec 8>/run/lock/sub2api-backup-global.lock
@@ -18,10 +19,14 @@ active_container=$(sed -n 's/^container=//p' "$active_slot")
 active_image=$(sed -n 's/^image_id=//p' "$active_slot")
 [[ $active_container =~ ^[A-Za-z0-9_.-]{1,80}$ ]]
 [[ $active_image == "$expected_image_id" ]]
-[[ $(docker inspect -f '{{.Image}}' "$active_container") == "$expected_image_id" ]]
-[[ $(docker inspect -f '{{.State.Health.Status}}' "$active_container") == healthy ]]
-[[ $(docker inspect -f '{{.State.Health.Status}}' sub2api-postgres) == healthy ]]
-[[ $(docker inspect -f '{{.State.Health.Status}}' sub2api-redis) == healthy ]]
+_required_2=$(docker inspect -f '{{.Image}}' "$active_container")
+[[ ${_required_2} == "$expected_image_id" ]]
+_required_3=$(docker inspect -f '{{.State.Health.Status}}' "$active_container")
+[[ ${_required_3} == healthy ]]
+_required_4=$(docker inspect -f '{{.State.Health.Status}}' sub2api-postgres)
+[[ ${_required_4} == healthy ]]
+_required_5=$(docker inspect -f '{{.State.Health.Status}}' sub2api-redis)
+[[ ${_required_5} == healthy ]]
 
 work="$output_dir/work"
 recovery="$output_dir/production-recovery.tar"
@@ -73,11 +78,15 @@ docker save "$expected_image_id" 2>/dev/null | gzip -1 > "$compatibility"
 [[ -s $compatibility ]]
 chmod 600 "$recovery" "$compatibility"
 
-[[ $(docker inspect -f '{{.Image}}' "$active_container") == "$expected_image_id" ]]
-[[ $(docker inspect -f '{{.State.Health.Status}}' "$active_container") == healthy ]]
+_required_6=$(docker inspect -f '{{.Image}}' "$active_container")
+[[ ${_required_6} == "$expected_image_id" ]]
+_required_7=$(docker inspect -f '{{.State.Health.Status}}' "$active_container")
+[[ ${_required_7} == healthy ]]
 printf 'production_image_id=%s\n' "$expected_image_id"
-printf 'recovery_sha256=%s\n' "$(sha256sum "$recovery" | awk '{print $1}')"
-printf 'compatibility_sha256=%s\n' "$(sha256sum "$compatibility" | awk '{print $1}')"
+_required_arg_1=$(sha256sum "$recovery" | awk '{print $1}')
+printf 'recovery_sha256=%s\n' "${_required_arg_1}"
+_required_arg_2=$(sha256sum "$compatibility" | awk '{print $1}')
+printf 'compatibility_sha256=%s\n' "${_required_arg_2}"
 printf 'restore_points_verified=true\n'
 trap - EXIT
 rm -rf "$work"

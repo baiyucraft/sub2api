@@ -499,7 +499,7 @@ def prepare_source(manifest,approval,inventory,source,helpers,env,raw):
     # their exact captured image IDs before starting anything; never pull.
     verify_containerd_runtime(raw, env)
     restore_image_references(image_lines, expected, raw, env)
-    shell='set -Eeuo pipefail; source "$1/recovery-compose.sh"; recovery_compose_verify_live "$2/config/app" /opt/sub2api "$3"; cd /opt/sub2api; load_release_compose_files /opt/sub2api; docker compose "${release_compose_args[@]}" up -d --pull never postgres redis; for x in sub2api-postgres sub2api-redis; do for n in {1..90}; do [[ $(docker inspect -f "{{.State.Health.Status}}" "$x") == healthy ]] && break; sleep 2; done; [[ $(docker inspect -f "{{.State.Health.Status}}" "$x") == healthy ]]; done'
+    shell='set -Eeuo pipefail; source "$1/recovery-compose.sh"; recovery_compose_verify_live "$2/config/app" /opt/sub2api "$3"; cd /opt/sub2api; load_release_compose_files /opt/sub2api; docker compose "${release_compose_args[@]}" up -d --pull never postgres redis; for x in sub2api-postgres sub2api-redis; do for n in {1..90}; do health=$(docker inspect -f "{{.State.Health.Status}}" "$x") || exit $?; [[ $health == healthy ]] && break; sleep 2; done; health=$(docker inspect -f "{{.State.Health.Status}}" "$x") || exit $?; [[ $health == healthy ]]; done'
     command(['bash','-c',shell,'prepare',str(helpers),str(inventory),manifest['pre_image_id']],raw,env)
     command(['nginx','-t'],raw,env); command(['systemctl','start','nginx'],raw,env)
     # This file records the actual encrypted source measurement, not a Gate.

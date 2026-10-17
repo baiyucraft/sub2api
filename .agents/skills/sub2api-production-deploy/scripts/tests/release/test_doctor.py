@@ -102,7 +102,7 @@ class DoctorTest(unittest.TestCase):
                                     env=environment, text=True, capture_output=True, timeout=10)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertNotIn("LATER_CHECK_REACHED", result.stdout)
-        self.assertIn('  test -f "$asset"\n  test ! -L "$asset"\n  test "$(stat', script)
+        self.assertIn('  test -f "$asset"\n  test ! -L "$asset"\n  required_value=$(stat', script)
         self.assertIn('  test -f "$asset"\n  test ! -L "$asset"\ndone', script)
 
     def test_dmit_check_requires_release_proxy_and_disables_legacy_proxy(self) -> None:

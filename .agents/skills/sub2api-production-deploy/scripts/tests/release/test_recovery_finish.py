@@ -43,7 +43,7 @@ recovery_finish_verify_application() { [[ $(cat "$CP_BASE/health") == healthy ]]
 recovery_finish_backup_fingerprint() { printf 'verified-unit-fixture\n'; }
 systemctl() {
   if [[ $1 == is-enabled ]]; then printf 'enabled\n'
-  elif [[ $2 == sub2api-backup.service ]]; then printf 'inactive\n'
+  elif [[ $2 == sub2api-backup.service ]]; then printf 'inactive\n'; return 3
   else printf 'active\n'; fi
 }
 if [[ $OS == Windows_NT ]]; then

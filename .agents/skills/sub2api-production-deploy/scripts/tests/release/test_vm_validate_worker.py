@@ -105,7 +105,7 @@ class VMValidateWorkerTest(unittest.TestCase):
         worker_script = source.index("_remote_vm_worker_script(", launcher)
         self.assertLess(asset_check, launcher)
         self.assertLess(launcher, worker_script)
-        self.assertIn('{"validator_assets_verified"}', source[asset_check - 120:asset_check + 120])
+        self.assertIn('_validator_assets_script(manifest),\n            {"validator_assets_verified"}', source[:launcher])
         self.assertNotIn("for asset in /usr/local/libexec", source[worker_script:source.index("{\"worker_started", worker_script)])
 
     def test_poll_only_returns_structured_metadata(self) -> None:

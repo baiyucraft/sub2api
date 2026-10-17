@@ -95,6 +95,26 @@ def quoted_env(values: dict[str, str | int]) -> str:
     return " ".join(f"{key}={shlex.quote(str(value))}" for key, value in values.items())
 
 
+def observation_shell_helpers() -> str:
+    """Read failures must not become an affirmative recovery observation."""
+    return r'''
+observed_grep() {
+  local code=0
+  grep "$@" || code=$?
+  case "$code" in 0) return 0;; 1) return 1;; *) exit 125;; esac
+}
+observed_systemctl() {
+  local value code=0
+  value=$(systemctl "$@" 2>/dev/null) || code=$?
+  case "$1:$value:$code" in
+    is-active:active:0|is-active:inactive:3|is-active:failed:3|is-enabled:enabled:0|is-enabled:enabled-runtime:0|is-enabled:static:0|is-enabled:indirect:0|is-enabled:alias:0|is-enabled:masked:1|is-enabled:masked-runtime:1|is-enabled:disabled:1) ;;
+    *) return 1;;
+  esac
+  printf '%s\n' "$value"
+}
+'''
+
+
 def gate_consumption_probe_script(
     release_dir: str,
     release_id: str,
@@ -104,30 +124,48 @@ def gate_consumption_probe_script(
 ) -> str:
     consumed = f"{release_dir}/.consumed"
     recovered = f"{release_dir}/.recovered"
+    compose_probe = '''
+export ACTIVE_CLAIM=$1 RELEASE_DIR=$2
+source "$ACTIVE_CLAIM/assets/context.sh"
+source "$ACTIVE_CLAIM/assets/nginx-ingress-contract.sh"
+assert_final_compose_closure "${DEPLOY_DIR:-/opt/sub2api}" "$3"
+assert_nginx_ingress_policy
+'''
     return f"""active={shlex.quote(active_claim)}
 consumed={shlex.quote(consumed)}
 recovered={shlex.quote(recovered)}
 slot={shlex.quote(active_slot)}
-slot_container=$(sed -n 's/^container=//p' \"$slot\" 2>/dev/null || true)
-slot_image=$(sed -n 's/^image_id=//p' \"$slot\" 2>/dev/null || true)
-slot_release=$(sed -n 's/^release_id=//p' \"$slot\" 2>/dev/null || true)
-slot_port=$(sed -n 's/^port=//p' \"$slot\" 2>/dev/null || true)
-slot_instance=$(sed -n 's/^instance_id=//p' \"$slot\" 2>/dev/null || true)
+probe_equals() {{
+  local expected=$1 observed
+  shift
+  observed=$(\"$@\") || return 1
+  [[ $observed == \"$expected\" ]]
+}}
+read_slot_fields() {{
+  slot_container=$(sed -n 's/^container=//p' \"$slot\") || return 1
+  slot_image=$(sed -n 's/^image_id=//p' \"$slot\") || return 1
+  slot_release=$(sed -n 's/^release_id=//p' \"$slot\") || return 1
+  slot_port=$(sed -n 's/^port=//p' \"$slot\") || return 1
+  slot_instance=$(sed -n 's/^instance_id=//p' \"$slot\") || return 1
+}}
+slot_container= slot_image= slot_release= slot_port= slot_instance=
+slot_readable=false
+if test -f \"$slot\" && test ! -L \"$slot\" && read_slot_fields 2>/dev/null; then slot_readable=true; fi
 expected_instance={shlex.quote(f'{release_id}-active')}
 health_headers=$(mktemp /tmp/sub2api-consumed-probe.XXXXXX)
 trap 'rm -f \"$health_headers\"' EXIT
 managed_upstream=${{NGINX_MANAGED_UPSTREAM:-/etc/nginx/conf.d/sub2api-release-upstream.conf}}
 slot_valid=false
-if test -f \"$slot\" && test ! -L \"$slot\" && test \"$slot_container\" = sub2api && {{ test \"$slot_port\" = 18080 || test \"$slot_port\" = 18081; }} && test \"$slot_instance\" = \"$expected_instance\" && test \"$slot_image\" = {shlex.quote(image_id)} && test \"$slot_release\" = {shlex.quote(release_id)} && test \"$(docker inspect -f '{{{{.Image}}}}' \"$slot_container\" 2>/dev/null)\" = {shlex.quote(image_id)} && test \"$(docker inspect -f '{{{{.State.Health.Status}}}}' \"$slot_container\" 2>/dev/null)\" = healthy && curl -sS -D \"$health_headers\" -o /dev/null \"http://127.0.0.1:$slot_port/health\" && grep -Eiq \"^x-sub2api-instance:[[:space:]]*$expected_instance\\r?$\" \"$health_headers\" && grep -Eiq '^x-sub2api-background-ready:[[:space:]]*true\\r?$' \"$health_headers\" && grep -Fq \"server 127.0.0.1:$slot_port;\" \"$managed_upstream\" && test \"$(systemctl is-active nginx 2>/dev/null)\" = active; then
+if test \"$slot_readable\" = true && test \"$slot_container\" = sub2api && {{ test \"$slot_port\" = 18080 || test \"$slot_port\" = 18081; }} && test \"$slot_instance\" = \"$expected_instance\" && test \"$slot_image\" = {shlex.quote(image_id)} && test \"$slot_release\" = {shlex.quote(release_id)} && probe_equals {shlex.quote(image_id)} docker inspect -f '{{{{.Image}}}}' \"$slot_container\" 2>/dev/null && probe_equals healthy docker inspect -f '{{{{.State.Health.Status}}}}' \"$slot_container\" 2>/dev/null && curl -sS -D \"$health_headers\" -o /dev/null \"http://127.0.0.1:$slot_port/health\" && grep -Eiq \"^x-sub2api-instance:[[:space:]]*$expected_instance\\r?$\" \"$health_headers\" && grep -Eiq '^x-sub2api-background-ready:[[:space:]]*true\\r?$' \"$health_headers\" && grep -Fq \"server 127.0.0.1:$slot_port;\" \"$managed_upstream\" && probe_equals active systemctl is-active nginx 2>/dev/null; then
   slot_valid=true
 fi
 compose_valid=false
-if test -d \"$consumed\" && test ! -L \"$consumed\" && (export ACTIVE_CLAIM=\"$consumed\" RELEASE_DIR={shlex.quote(release_dir)}; source \"$consumed/assets/context.sh\"; source \"$consumed/assets/nginx-ingress-contract.sh\"; assert_final_compose_closure \"${{DEPLOY_DIR:-/opt/sub2api}}\" \"$slot_port\"; assert_nginx_ingress_policy) >/dev/null 2>&1; then
+if test -d \"$consumed\" && test ! -L \"$consumed\" && bash -Eeuo pipefail -c {shlex.quote(compose_probe)} -- \"$consumed\" {shlex.quote(release_dir)} \"$slot_port\" >/dev/null 2>&1; then
   compose_valid=true
 fi
-if test -d \"$consumed\" && test ! -L \"$consumed\" && test -f \"$consumed/marker\" && test ! -L \"$consumed/marker\" && test ! -e \"$recovered\" && test ! -L \"$recovered\" && test ! -e \"$active\" && test ! -L \"$active\" && grep -Fxq {shlex.quote(f'release_id={release_id}')} \"$consumed/marker\" && grep -Fxq {shlex.quote(f'candidate_image_id={image_id}')} \"$consumed/marker\" && test \"$slot_valid\" = true && test \"$compose_valid\" = true && test \"$(systemctl is-enabled sub2api-backup.timer 2>/dev/null)\" = enabled; then
+if test -d \"$consumed\" && test ! -L \"$consumed\" && test -f \"$consumed/marker\" && test ! -L \"$consumed/marker\" && test ! -e \"$recovered\" && test ! -L \"$recovered\" && test ! -e \"$active\" && test ! -L \"$active\" && grep -Fxq {shlex.quote(f'release_id={release_id}')} \"$consumed/marker\" && grep -Fxq {shlex.quote(f'candidate_image_id={image_id}')} \"$consumed/marker\" && test \"$slot_valid\" = true && test \"$compose_valid\" = true && probe_equals enabled systemctl is-enabled sub2api-backup.timer 2>/dev/null; then
   printf 'gate_consumed=true\\n'
-elif test ! -e \"$consumed\" && test ! -L \"$consumed\" && test ! -e \"$recovered\" && test ! -L \"$recovered\" && test -d \"$active\" && test ! -L \"$active\" && test -f \"$active/release_id\" && test ! -L \"$active/release_id\" && test -f \"$active/gate.json\" && test ! -L \"$active/gate.json\" && test -f \"$active/CLAIM_SHA256SUMS\" && test ! -L \"$active/CLAIM_SHA256SUMS\" && grep -Fxq {shlex.quote(f'release_id={release_id}')} \"$active/release_id\" && (cd \"$active\" && sha256sum -c CLAIM_SHA256SUMS >/dev/null 2>&1) && test \"$(jq -er '.manifest.release_id' \"$active/gate.json\" 2>/dev/null)\" = {shlex.quote(release_id)} && test \"$(jq -er '.evidence.candidate_image_id' \"$active/gate.json\" 2>/dev/null)\" = {shlex.quote(image_id)}; then
+elif test ! -e \"$consumed\" && test ! -L \"$consumed\" && test ! -e \"$recovered\" && test ! -L \"$recovered\" && test -d \"$active\" && test ! -L \"$active\" && test -f \"$active/release_id\" && test ! -L \"$active/release_id\" && test -f \"$active/gate.json\" && test ! -L \"$active/gate.json\" && test -f \"$active/CLAIM_SHA256SUMS\" && test ! -L \"$active/CLAIM_SHA256SUMS\" && grep -Fxq {shlex.quote(f'release_id={release_id}')} \"$active/release_id\" && (cd \"$active\" && sha256sum -c CLAIM_SHA256SUMS >/dev/null 2>&1) && probe_equals {shlex.quote(release_id)} jq -er '.manifest.release_id' \"$active/gate.json\" 2>/dev/null && probe_equals {shlex.quote(image_id)} jq -er '.evidence.candidate_image_id' \"$active/gate.json\" 2>/dev/null; then
   printf 'gate_consumed=false\\n'
 else
   printf 'gate_consumed=unknown\\n'
@@ -286,8 +324,9 @@ class ProductionRelease:
         stderr_file = f"{self.release_dir}/restore-backup-units.stderr"
         script = f"""set -Eeuo pipefail
 err_file={shlex.quote(stderr_file)}
-if test -e "$err_file"; then
-  test -f "$err_file" && test ! -L "$err_file"
+if test -e "$err_file" || test -L "$err_file"; then
+  test -f "$err_file"
+  test ! -L "$err_file"
 else
   install -m 600 /dev/null "$err_file"
 fi
@@ -312,17 +351,25 @@ printf 'backup_units_restored=true\\n'
         sequence = self._remote_log_sequence
         return f"""set -Eeuo pipefail
 umask 077
-test -d {shlex.quote(self.release_dir)} && test ! -L {shlex.quote(self.release_dir)}
-if test -e {shlex.quote(log_dir)}; then
-  test -d {shlex.quote(log_dir)} && test ! -L {shlex.quote(log_dir)}
+test -d {shlex.quote(self.release_dir)}
+test ! -L {shlex.quote(self.release_dir)}
+if test -e {shlex.quote(log_dir)} || test -L {shlex.quote(log_dir)}; then
+  test -d {shlex.quote(log_dir)}
+  test ! -L {shlex.quote(log_dir)}
 else
   install -d -m 700 {shlex.quote(log_dir)}
 fi
-test "$(stat -c '%U:%G:%a' {shlex.quote(log_dir)})" = root:root:700
-touch {shlex.quote(log_file)}
-test -f {shlex.quote(log_file)} && test ! -L {shlex.quote(log_file)}
+required_log_metadata=$(stat -c '%U:%G:%a' {shlex.quote(log_dir)})
+test "$required_log_metadata" = root:root:700
+if test -e {shlex.quote(log_file)} || test -L {shlex.quote(log_file)}; then
+  test -f {shlex.quote(log_file)}
+  test ! -L {shlex.quote(log_file)}
+else
+  install -m 600 /dev/null {shlex.quote(log_file)}
+fi
 chmod 600 {shlex.quote(log_file)}
-test "$(stat -c '%U:%G:%a:%h' {shlex.quote(log_file)})" = root:root:600:1
+required_log_metadata=$(stat -c '%U:%G:%a:%h' {shlex.quote(log_file)})
+test "$required_log_metadata" = root:root:600:1
 stdout_tmp=$(mktemp {shlex.quote(log_dir + '/.stdout.XXXXXX')})
 stderr_tmp=$(mktemp {shlex.quote(log_dir + '/.stderr.XXXXXX')})
 cleanup_remote_log_capture() {{ rm -f "$stdout_tmp" "$stderr_tmp"; }}
@@ -351,7 +398,7 @@ exit "$code"
         trust_sha = sha256_file(TRUSTED_KEY)
         trust = self.run_remote(
             "racknerd",
-            f"test -f /opt/sub2api-release-trust/vm-gate-ed25519.pub && test $(sha256sum /opt/sub2api-release-trust/vm-gate-ed25519.pub | awk '{{print $1}}') = {trust_sha} && printf 'trust_key_verified=true\\n'",
+            f"test -f /opt/sub2api-release-trust/vm-gate-ed25519.pub && {{ required_observed=$(sha256sum /opt/sub2api-release-trust/vm-gate-ed25519.pub | awk '{{print $1}}') || exit 125; }} && test \"$required_observed\" = {trust_sha} && printf 'trust_key_verified=true\\n'",
             {"trust_key_verified"},
         )
         stage_dir = self.runner.create_temp_dir("racknerd", "/opt/sub2api/releases", "release-stage")
@@ -390,7 +437,7 @@ exit "$code"
             raise upload_error
         self.run_remote(
             "racknerd",
-            f"test ! -e {shlex.quote(self.release_dir)} && test \"$(sha256sum {shlex.quote(remote_bundle)} | awk '{{print $1}}')\" = {bundle_sha256} && tar --extract --file {shlex.quote(remote_bundle)} --directory {shlex.quote(stage_dir)} --no-same-owner --no-same-permissions && rm -f -- {shlex.quote(remote_bundle)} && (cd {shlex.quote(stage_dir)} && test \"$(find . -type l -print -quit)\" = '' && sha256sum -c ASSET_SHA256SUMS >/dev/null) && chmod 700 {shlex.quote(stage_dir + '/assets')} && find {shlex.quote(stage_dir + '/assets')} -maxdepth 1 -type f -name '*.sh' -exec chmod 700 {{}} + && find {shlex.quote(stage_dir)} -maxdepth 1 -type f -exec chmod 400 {{}} + && mv -T -- {shlex.quote(stage_dir)} {shlex.quote(self.release_dir)} && printf 'release_directory_created=true\\n'",
+            f"test ! -e {shlex.quote(self.release_dir)} && {{ required_observed=$(sha256sum {shlex.quote(remote_bundle)} | awk '{{print $1}}') || exit 125; }} && test \"$required_observed\" = {bundle_sha256} && tar --extract --file {shlex.quote(remote_bundle)} --directory {shlex.quote(stage_dir)} --no-same-owner --no-same-permissions && rm -f -- {shlex.quote(remote_bundle)} && (cd {shlex.quote(stage_dir)} && {{ required_observed=$(find . -type l -print -quit) || exit 125; }} && test \"$required_observed\" = '' && sha256sum -c ASSET_SHA256SUMS >/dev/null) && chmod 700 {shlex.quote(stage_dir + '/assets')} && find {shlex.quote(stage_dir + '/assets')} -maxdepth 1 -type f -name '*.sh' -exec chmod 700 {{}} + && find {shlex.quote(stage_dir)} -maxdepth 1 -type f -exec chmod 400 {{}} + && mv -T -- {shlex.quote(stage_dir)} {shlex.quote(self.release_dir)} && printf 'release_directory_created=true\\n'",
             {"release_directory_created"},
         )
         self._remote_raw_logging_ready = True
@@ -484,7 +531,7 @@ exit "$code"
                 failure = self.run_remote(
                     "racknerd",
                     f"test -f {self.release_dir}/preflight-failure && test ! -L {self.release_dir}/preflight-failure && "
-                    f"test \"$(stat -c '%U:%G:%a:%h' {self.release_dir}/preflight-failure)\" = root:root:600:1 && "
+                    f"{{ required_observed=$(stat -c '%U:%G:%a:%h' {self.release_dir}/preflight-failure) || exit 125; }} && test \"$required_observed\" = root:root:600:1 && "
                     f"phase=$(sed -n 's/^preflight_failure_phase=//p' {self.release_dir}/preflight-failure); "
                     f"line=$(sed -n 's/^preflight_failure_line=//p' {self.release_dir}/preflight-failure); "
                     "case \"$phase\" in identity|active_runtime|backup_contract|migration_contract|capacity|compose_contract|completed) ;; *) exit 1 ;; esac; "
@@ -730,10 +777,10 @@ exit "$code"
                         f"set -Eeuo pipefail; state={shlex.quote(self.state_dir)}; "
                         "test -f \"$state/backup-result\" && test ! -L \"$state/backup-result\" && "
                         "test -f \"$state/backup-result.sha256\" && test ! -L \"$state/backup-result.sha256\" && "
-                        "test \"$(stat -c '%U:%G:%a' \"$state/backup-result\")\" = root:root:400 && "
-                        "test \"$(stat -c '%U:%G:%a' \"$state/backup-result.sha256\")\" = root:root:400 && "
+                        "{ required_observed=$(stat -c '%U:%G:%a' \"$state/backup-result\") || exit 125; } && test \"$required_observed\" = root:root:400 && "
+                        "{ required_observed=$(stat -c '%U:%G:%a' \"$state/backup-result.sha256\") || exit 125; } && test \"$required_observed\" = root:root:400 && "
                         "(cd \"$state\" && sha256sum -c backup-result.sha256 >/dev/null) && "
-                        "test \"$(grep -c '^[a-z_][a-z0-9_]*=' \"$state/backup-result\")\" = 8 && "
+                        "{ required_observed=$(grep -c '^[a-z_][a-z0-9_]*=' \"$state/backup-result\") || exit 125; } && test \"$required_observed\" = 8 && "
                         "cat \"$state/backup-result\"",
                         BACKUP_FIELDS,
                     )
@@ -746,7 +793,7 @@ exit "$code"
                             "racknerd",
                             f"set -Eeuo pipefail; state={shlex.quote(self.state_dir)}; "
                             "if test -f \"$state/backup-failure\" && test ! -L \"$state/backup-failure\" && "
-                            f"test \"$(sed -n 's/^attempt_id=//p' \"$state/backup-failure\")\" = {shlex.quote(attempt_id)}; then "
+                            f"{{ required_observed=$(sed -n 's/^attempt_id=//p' \"$state/backup-failure\") || exit 125; }} && test \"$required_observed\" = {shlex.quote(attempt_id)}; then "
                             "stage=$(sed -n 's/^stage=//p' \"$state/backup-failure\"); "
                             "code=$(sed -n 's/^exit_code=//p' \"$state/backup-failure\"); "
                             "printf 'backup_failure_stage=%s\\nbackup_failure_exit_code=%s\\n' \"$stage\" \"$code\"; "
@@ -885,12 +932,12 @@ exit "$code"
         context_values = self.run_remote(
             "racknerd",
             f"set -Eeuo pipefail; state={shlex.quote(self.state_dir)}; "
-            "test -d \"$state\" && test ! -L \"$state\"; "
+            "test -d \"$state\"; test ! -L \"$state\"; "
             f"tmp=\"$state/.migration-preflight-context.tmp.$$\"; "
             f"printf 'profile=%q\\nrelease_profile=%q\\nstate_dir=%q\\n' "
             f"{shlex.quote(profile_name)} {shlex.quote(profile_name)} \"$state\" >\"$tmp\"; "
             "chmod 600 \"$tmp\"; mv -T -- \"$tmp\" \"$state/migration-preflight-context.sh\"; "
-            "test \"$(stat -c '%U:%G:%a:%h' \"$state/migration-preflight-context.sh\")\" = root:root:600:1; "
+            "{ required_observed=$(stat -c '%U:%G:%a:%h' \"$state/migration-preflight-context.sh\") || exit 125; } && test \"$required_observed\" = root:root:600:1; "
             "printf 'migration_preflight_context=verified\\n'",
             {"migration_preflight_context"},
         )
@@ -925,7 +972,7 @@ exit "$code"
                     "racknerd",
                     f"file={shlex.quote(self.state_dir + '/migration-195-failure')}; "
                     "if test -f \"$file\" && test ! -L \"$file\" && "
-                    "test \"$(stat -c '%U:%G:%a:%h' \"$file\")\" = root:root:600:1; then "
+                    "{ required_observed=$(stat -c '%U:%G:%a:%h' \"$file\") || exit 125; } && test \"$required_observed\" = root:root:600:1; then "
                     "phase=$(sed -n 's/^migration_195_failure_phase=//p' \"$file\"); "
                     "code=$(sed -n 's/^migration_195_failure_code=//p' \"$file\"); "
                     "else phase=preflight; code=context_or_state; fi; "
@@ -983,7 +1030,7 @@ exit "$code"
                     failure = self.run_remote(
                         "racknerd",
                         f"test -f {self.release_dir}/migration-233-failure && test ! -L {self.release_dir}/migration-233-failure && "
-                        f"test \"$(stat -c '%U:%G:%a:%h' {self.release_dir}/migration-233-failure)\" = root:root:600:1 && "
+                        f"{{ required_observed=$(stat -c '%U:%G:%a:%h' {self.release_dir}/migration-233-failure) || exit 125; }} && test \"$required_observed\" = root:root:600:1 && "
                         f"code=$(sed -n 's/^migration_233_failure_code=//p' {self.release_dir}/migration-233-failure); "
                         "case \"$code\" in duplicate_keys|table_or_columns|index|privilege|trigger|context_or_state|permission|unknown) ;; *) exit 1 ;; esac; "
                         "printf 'migration_233_failure_code=%s\\n' \"$code\"",
@@ -1305,8 +1352,8 @@ exit "$code"
                     "candidate_oom_killed=unknown; candidate_restart_count=unknown; candidate_health_log_entries=unknown; "
                     "candidate_log_capture=unknown; candidate_failure_line=unknown; "
                     "if test -f \"$failure_file\" && test ! -L \"$failure_file\"; then "
-                    "test \"$(stat -c '%U:%G:%a:%h' \"$failure_file\")\" = root:root:600:1; "
-                    "test \"$(grep -c '^candidate_' \"$failure_file\")\" = 10; "
+                    "{ required_observed=$(stat -c '%U:%G:%a:%h' \"$failure_file\") || exit 125; } && test \"$required_observed\" = root:root:600:1; "
+                    "{ required_observed=$(grep -c '^candidate_' \"$failure_file\") || exit 125; } && test \"$required_observed\" = 10; "
                     "candidate_failure_kind=$(sed -n 's/^candidate_failure_kind=//p' \"$failure_file\"); "
                     "candidate_state=$(sed -n 's/^candidate_state=//p' \"$failure_file\"); "
                     "candidate_health=$(sed -n 's/^candidate_health=//p' \"$failure_file\"); "
@@ -1329,8 +1376,8 @@ exit "$code"
                     "[[ $candidate_failure_line == unknown || $candidate_failure_line =~ ^[0-9]+$ ]]; fi; "
                     "init_failure_stage=absent; init_failure_substage=absent; init_failure_code=absent; init_failure_line=absent; "
                     "if test -f \"$init_failure_file\" && test ! -L \"$init_failure_file\"; then "
-                    "test \"$(stat -c '%U:%G:%a:%h' \"$init_failure_file\")\" = root:root:600:1; "
-                    "test \"$(grep -c '^switch_failure_' \"$init_failure_file\")\" = 4; "
+                    "{ required_observed=$(stat -c '%U:%G:%a:%h' \"$init_failure_file\") || exit 125; } && test \"$required_observed\" = root:root:600:1; "
+                    "{ required_observed=$(grep -c '^switch_failure_' \"$init_failure_file\") || exit 125; } && test \"$required_observed\" = 4; "
                     "init_failure_stage=$(sed -n 's/^switch_failure_stage=//p' \"$init_failure_file\"); "
                     "init_failure_substage=$(sed -n 's/^switch_failure_substage=//p' \"$init_failure_file\"); "
                     "init_failure_code=$(sed -n 's/^switch_failure_code=//p' \"$init_failure_file\"); "
@@ -1374,8 +1421,8 @@ m195_code=none
 switch_file=\"$state/migration-switch-failure\"
 m195_file=\"$state/migration-195-failure\"
 if test -f \"$switch_file\" && test ! -L \"$switch_file\"; then
-  test \"$(stat -c '%U:%G:%a:%h' \"$switch_file\")\" = root:root:600:1
-  test \"$(grep -c '^switch_failure_' \"$switch_file\")\" = 4
+  {{ required_observed=$(stat -c '%U:%G:%a:%h' \"$switch_file\") || exit 125; }} && test \"$required_observed\" = root:root:600:1
+  {{ required_observed=$(grep -c '^switch_failure_' \"$switch_file\") || exit 125; }} && test \"$required_observed\" = 4
   switch_stage=$(sed -n 's/^switch_failure_stage=//p' \"$switch_file\")
   switch_substage=$(sed -n 's/^switch_failure_substage=//p' \"$switch_file\")
   switch_code=$(sed -n 's/^switch_failure_code=//p' \"$switch_file\")
@@ -1388,8 +1435,8 @@ if test -f \"$switch_file\" && test ! -L \"$switch_file\"; then
   [[ $switch_line =~ ^[0-9]+$ ]]
 fi
 if test -f \"$m195_file\" && test ! -L \"$m195_file\"; then
-  test \"$(stat -c '%U:%G:%a:%h' \"$m195_file\")\" = root:root:600:1
-  test \"$(grep -c '^migration_195_failure_' \"$m195_file\")\" = 2
+  {{ required_observed=$(stat -c '%U:%G:%a:%h' \"$m195_file\") || exit 125; }} && test \"$required_observed\" = root:root:600:1
+  {{ required_observed=$(grep -c '^migration_195_failure_' \"$m195_file\") || exit 125; }} && test \"$required_observed\" = 2
   m195_phase=$(sed -n 's/^migration_195_failure_phase=//p' \"$m195_file\")
   m195_code=$(sed -n 's/^migration_195_failure_code=//p' \"$m195_file\")
   case \"$m195_phase\" in preflight|bind|postflight_db|postflight_runtime) ;; *) exit 1 ;; esac
@@ -1483,10 +1530,10 @@ printf 'switch_failure_substage=%s\\nswitch_failure_code=%s\\nswitch_failure_lin
                     "racknerd",
                     f"set -Eeuo pipefail; state={shlex.quote(self.state_dir)}; "
                     "test -f \"$state/finalize-failure\" && test ! -L \"$state/finalize-failure\" && "
-                    "test \"$(stat -c '%U:%G:%a' \"$state/finalize-failure\")\" = root:root:600 && "
+                    "{ required_observed=$(stat -c '%U:%G:%a' \"$state/finalize-failure\") || exit 125; } && test \"$required_observed\" = root:root:600 && "
                     "phase=$(sed -n 's/^finalize_failure_phase=//p' \"$state/finalize-failure\"); "
                     "line=$(sed -n 's/^finalize_failure_line=//p' \"$state/finalize-failure\"); "
-                    "test \"$(grep -c '^finalize_failure_' \"$state/finalize-failure\")\" = 2 && "
+                    "{ required_observed=$(grep -c '^finalize_failure_' \"$state/finalize-failure\") || exit 125; } && test \"$required_observed\" = 2 && "
                     "case \"$phase\" in preflight|downtime_preflight|downtime_log_gate|old_slot_drain|old_slot_remove|compose_prepare|final_container_start|final_instance_readiness|background_activation|final_route|candidate_drain|final_log_gate) ;; *) exit 1 ;; esac; "
                     "case \"$line\" in ''|*[!0-9]*) exit 1 ;; esac; "
                     "printf 'finalize_failure_phase=%s\\nfinalize_failure_line=%s\\n' \"$phase\" \"$line\"",
@@ -1502,7 +1549,7 @@ printf 'switch_failure_substage=%s\\nswitch_failure_code=%s\\nswitch_failure_lin
         self.stage(completed_stage, final)
         external_final = self.run_remote(
             "backup",
-            f"test $(curl -sS --resolve {self.profile['public_domain']}:443:{self.profile['dmit_public_ip']} --max-time 15 -o /dev/null -w '%{{http_code}}' https://{self.profile['public_domain']}/health) = 200 && printf 'dmit_final_health=pass\\n'",
+            f"{{ required_observed=$(curl -sS --resolve {self.profile['public_domain']}:443:{self.profile['dmit_public_ip']} --max-time 15 -o /dev/null -w '%{{http_code}}' https://{self.profile['public_domain']}/health) || exit 125; }} && test \"$required_observed\" = 200 && printf 'dmit_final_health=pass\\n'",
             {"dmit_final_health"},
         )
         restore_env = quoted_env({"STATE_ROOT": "/opt/sub2api/backups/release-state", "STATE_DIR": self.state_dir})
@@ -1598,7 +1645,7 @@ printf 'switch_failure_substage=%s\\nswitch_failure_code=%s\\nswitch_failure_lin
         except BaseException:
             reconciled = self.run_remote(
                 "racknerd",
-                f"slot=/opt/sub2api/active-app; active_container=$(sed -n 's/^container=//p' \"$slot\" 2>/dev/null || true); test -f {self.release_dir}/.recovered/marker && test -f {self.release_dir}/.recovered/plaintext-cleaned && test ! -e /opt/sub2api/releases/.active-release && test -n \"$active_container\" && test \"$(docker inspect -f '{{{{.State.Health.Status}}}}' \"$active_container\")\" = healthy && test $(systemctl is-enabled sub2api-backup.timer) = enabled && printf 'release_claim_reconciled=true\\n'",
+                f"slot=/opt/sub2api/active-app; active_container=$(sed -n 's/^container=//p' \"$slot\" 2>/dev/null); test -f {self.release_dir}/.recovered/marker && test -f {self.release_dir}/.recovered/plaintext-cleaned && test ! -e /opt/sub2api/releases/.active-release && test -n \"$active_container\" && {{ required_observed=$(docker inspect -f '{{{{.State.Health.Status}}}}' \"$active_container\") || exit 125; }} && test \"$required_observed\" = healthy && {{ required_observed=$(systemctl is-enabled sub2api-backup.timer) || exit 125; }} && test \"$required_observed\" = enabled && printf 'release_claim_reconciled=true\\n'",
                 {"release_claim_reconciled"},
             )
         values.update(reconciled)
@@ -1614,23 +1661,29 @@ printf 'switch_failure_substage=%s\\nswitch_failure_code=%s\\nswitch_failure_lin
             # committed marker.
             pending_digest = hashlib.sha256(canonical_json(pending)).hexdigest()
             marker_lines = "\n".join(
-                f"grep -Fxq {shlex.quote('migration=' + str(item['filename']) + ' checksum=' + str(item['checksum']))} \"$marker\""
+                f"observed_grep -Fxq {shlex.quote('migration=' + str(item['filename']) + ' checksum=' + str(item['checksum']))} \"$marker\""
                 for item in pending
             ) or ":"
             script = f'''set -Eeuo pipefail
+{observation_shell_helpers()}
 marker={shlex.quote(self.state_dir + "/migration-committed")}
 all_verified=true
 for item in {checks}; do filename=${{item%%|*}}; checksum=${{item#*|}}; row=$(docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT checksum FROM schema_migrations WHERE filename='$filename'"); test "$row" = "$checksum" || all_verified=false; done
 marker_verified=false
-if test -f "$marker" && test ! -L "$marker" && test "$(stat -c '%U:%G:%a:%h' "$marker")" = root:root:600:1; then
-  if grep -Fxq {shlex.quote('plan_sha256=' + pending_digest)} "$marker" && \
-     grep -Fxq {shlex.quote('catalog_sha256=' + str(self.manifest['catalog_sha256']))} "$marker" && \
-     grep -Fxq {shlex.quote('production_snapshot_sha256=' + str(self.evidence['production_snapshot_sha256']))} "$marker"; then
+if test -e "$marker" || test -L "$marker"; then
+  test -f "$marker"
+  test ! -L "$marker"
+  marker_metadata=$(stat -c '%U:%G:%a:%h' "$marker")
+  test "$marker_metadata" = root:root:600:1
+  if observed_grep -Fxq {shlex.quote('plan_sha256=' + pending_digest)} "$marker" && \
+     observed_grep -Fxq {shlex.quote('catalog_sha256=' + str(self.manifest['catalog_sha256']))} "$marker" && \
+     observed_grep -Fxq {shlex.quote('production_snapshot_sha256=' + str(self.evidence['production_snapshot_sha256']))} "$marker"; then
     {marker_lines}
     marker_verified=true
   fi
 fi
-  if test "$all_verified" = true && test "$marker_verified" = true; then printf 'migration_committed=true\\n'; elif test ! -e "$marker" && test -z "$(docker ps -aq -f name=^sub2api-migrate-{self.release_id}$)"; then printf 'migration_committed=false\\n'; else printf 'migration_committed=unknown\\n'; fi'''
+  migration_containers=$(docker ps -aq -f name=^sub2api-migrate-{self.release_id}$)
+  if test "$all_verified" = true && test "$marker_verified" = true; then printf 'migration_committed=true\\n'; elif test ! -e "$marker" && test ! -L "$marker" && test -z "$migration_containers"; then printf 'migration_committed=false\\n'; else printf 'migration_committed=unknown\\n'; fi'''
             try:
                 value = self.run_remote("racknerd", script, {"migration_committed"})["migration_committed"]
             except BaseException:
@@ -1692,20 +1745,35 @@ fi
         pending_words = " ".join(shlex.quote(migration) for migration in pending)
         script = f"""
 set -Eeuo pipefail
+{observation_shell_helpers()}
 marker={self.state_dir}/migration-committed
-plan=$(cat {self.state_dir}/migration-195-plan.sha256 2>/dev/null || true)
+plan=
+if test -e {self.state_dir}/migration-195-plan.sha256 || test -L {self.state_dir}/migration-195-plan.sha256; then
+  test -f {self.state_dir}/migration-195-plan.sha256
+  test ! -L {self.state_dir}/migration-195-plan.sha256
+  plan=$(cat {self.state_dir}/migration-195-plan.sha256)
+fi
 gate={self.release_dir}/gate.json
 container=sub2api-migrate-{self.release_id}
 pending_migrations=({pending_words})
 expected_manifest=$(jq -cS '.manifest.migration_sha256' "$gate" | sha256sum | awk '{{print $1}}')
-marker_manifest=$(sed -n 's/^migration_manifest_sha256=//p' "$marker" 2>/dev/null || true)
+marker_manifest=
+if test -e "$marker" || test -L "$marker"; then
+  test -f "$marker"
+  test ! -L "$marker"
+  marker_metadata=$(stat -c '%U:%G:%a:%h' "$marker")
+  test "$marker_metadata" = root:root:600:1
+  marker_manifest=$(sed -n 's/^migration_manifest_sha256=//p' "$marker")
+fi
+migration_inventory=$(jq -r '.manifest.migration_sha256 | to_entries[] | [.key,.value] | @tsv' "$gate")
 all_verified=true
 while IFS=$'\t' read -r migration checksum; do
+  test -n "$migration" || continue
   row=$(docker exec sub2api-postgres psql -X -A -t -F '|' -U sub2api -d sub2api -c "SELECT filename,checksum FROM schema_migrations WHERE filename='$migration'")
-  if test "$row" != "$migration|$checksum" || ! grep -Fxq "migration=$migration checksum=$checksum" "$marker" 2>/dev/null; then
+  if test "$row" != "$migration|$checksum" || ! observed_grep -Fxq "migration=$migration checksum=$checksum" "$marker" 2>/dev/null; then
     all_verified=false
   fi
-done < <(jq -r '.manifest.migration_sha256 | to_entries[] | [.key,.value] | @tsv' "$gate")
+done <<<"$migration_inventory"
 pending_recorded=false
 for migration in "${{pending_migrations[@]}}"; do
   row=$(docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT checksum FROM schema_migrations WHERE filename='$migration'")
@@ -1713,9 +1781,10 @@ for migration in "${{pending_migrations[@]}}"; do
     pending_recorded=true
   fi
 done
-if test -f "$marker" && test ! -L "$marker" && test -n "$plan" && grep -Fxq "plan_sha256=$plan" "$marker" && test "$marker_manifest" = "$expected_manifest" && test "$all_verified" = true; then
+migration_containers=$(docker ps -aq -f name=^${{container}}$)
+if test -f "$marker" && test ! -L "$marker" && test -n "$plan" && observed_grep -Fxq "plan_sha256=$plan" "$marker" && test "$marker_manifest" = "$expected_manifest" && test "$all_verified" = true; then
   printf 'migration_committed=true\n'
-elif test ! -e "$marker" && test ! -L "$marker" && test "$pending_recorded" = false && test -z "$(docker ps -aq -f name=^${{container}}$)"; then
+elif test ! -e "$marker" && test ! -L "$marker" && test "$pending_recorded" = false && test -z "$migration_containers"; then
   printf 'migration_committed=false\n'
 else
   printf 'migration_committed=unknown\n'
@@ -1737,21 +1806,25 @@ fi
         route_switched = f"{self.state_dir}/route-switched"
         script = f"""
 set -Eeuo pipefail
+{observation_shell_helpers()}
 slot=/opt/sub2api/active-app
 managed_upstream={managed_upstream}
-active_container=$(sed -n 's/^container=//p' "$slot" 2>/dev/null || true)
-active_port=$(sed -n 's/^port=//p' "$slot" 2>/dev/null || true)
+active_container=$(sed -n 's/^container=//p' "$slot")
+active_port=$(sed -n 's/^port=//p' "$slot")
+slot_container_count=$(grep -c '^container=' "$slot")
+slot_port_count=$(grep -c '^port=' "$slot")
 slot_valid=false
-if test -f "$slot" && test ! -L "$slot" && test "$(grep -c '^container=' "$slot")" = 1 && test "$(grep -c '^port=' "$slot")" = 1 && test -n "$active_container" && {{ test "$active_port" = 18080 || test "$active_port" = 18081; }}; then
+if test -f "$slot" && test ! -L "$slot" && test "$slot_container_count" = 1 && test "$slot_port_count" = 1 && test -n "$active_container" && {{ test "$active_port" = 18080 || test "$active_port" = 18081; }}; then
   slot_valid=true
 fi
-app_status=$(docker inspect -f '{{{{.State.Status}}}}' "$active_container" 2>/dev/null || true)
-active_image=$(docker inspect -f '{{{{.Image}}}}' "$active_container" 2>/dev/null || true)
-pre_image=$(cat {self.state_dir}/pre-image-id 2>/dev/null || true)
-nginx_status=$(systemctl is-active nginx 2>/dev/null || true)
-upstream_port=$(sed -nE 's/^[[:space:]]*server[[:space:]]+127[.]0[.]0[.]1:(18080|18081);[[:space:]]*$/\1/p' "$managed_upstream" 2>/dev/null || true)
+app_status=$(docker inspect -f '{{{{.State.Status}}}}' "$active_container")
+active_image=$(docker inspect -f '{{{{.Image}}}}' "$active_container")
+pre_image=$(cat {self.state_dir}/pre-image-id)
+nginx_status=$(observed_systemctl is-active nginx)
+upstream_port=$(sed -nE 's/^[[:space:]]*server[[:space:]]+127[.]0[.]0[.]1:(18080|18081);[[:space:]]*$/\\1/p' "$managed_upstream")
+upstream_count=$(printf '%s\n' "$upstream_port" | grep -c .)
 upstream_valid=false
-if test -f "$managed_upstream" && test ! -L "$managed_upstream" && test "$(printf '%s\n' "$upstream_port" | grep -c .)" = 1 && test "$upstream_port" = "$active_port"; then
+if test -f "$managed_upstream" && test ! -L "$managed_upstream" && test "$upstream_count" = 1 && test "$upstream_port" = "$active_port"; then
   upstream_valid=true
 fi
 route_marker_valid=true
@@ -1759,7 +1832,8 @@ if test -e {route_intent} || test -L {route_intent}; then
   route_marker_valid=false
   if test -f {route_intent} && test ! -L {route_intent} && test -f {route_switched} && test ! -L {route_switched}; then
     switched_port=$(sed -n 's/^route_port=//p' {route_switched})
-    if test "$(grep -c '^route_port=' {route_switched})" = 1 && test "$switched_port" = "$active_port"; then
+    switched_count=$(grep -c '^route_port=' {route_switched})
+    if test "$switched_count" = 1 && test "$switched_port" = "$active_port"; then
       route_marker_valid=true
     fi
   fi
@@ -1780,18 +1854,22 @@ fi
             )
         except BaseException:
             return None
-        return values.get("recovery_needed") == "true"
+        return {"true": True, "false": False}.get(values.get("recovery_needed"))
 
     def remote_units_masked(self) -> bool | None:
         try:
             values = self.run_remote(
                 "racknerd",
-                f"if test -f {self.state_dir}/masked.committed && test $(systemctl is-enabled sub2api-backup.service) = masked && test $(systemctl is-enabled sub2api-backup.timer) = masked; then printf 'units_masked=true\\n'; else printf 'units_masked=false\\n'; fi",
+                f"""set -Eeuo pipefail
+{observation_shell_helpers()}
+service_state=$(observed_systemctl is-enabled sub2api-backup.service)
+timer_state=$(observed_systemctl is-enabled sub2api-backup.timer)
+if test -f {self.state_dir}/masked.committed && test ! -L {self.state_dir}/masked.committed && test "$service_state" = masked && test "$timer_state" = masked; then printf 'units_masked=true\\n'; else printf 'units_masked=false\\n'; fi""",
                 {"units_masked"},
             )
         except BaseException:
             return None
-        return values.get("units_masked") == "true"
+        return {"true": True, "false": False}.get(values.get("units_masked"))
 
     def rollback_route(self) -> dict[str, str]:
         claim = "/opt/sub2api/releases/.active-release"

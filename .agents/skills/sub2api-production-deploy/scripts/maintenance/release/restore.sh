@@ -3,7 +3,8 @@ set -Eeuo pipefail
 
 deploy_dir=${DEPLOY_DIR:-/opt/sub2api}
 release_dir=${RELEASE_DIR:?RELEASE_DIR is required}
-bundle_assets_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+bundle_assets_dir=$(dirname -- "${BASH_SOURCE[0]}")
+bundle_assets_dir=$(cd -- "$bundle_assets_dir" && pwd -P)
 RECOVERY_ASSETS_DIR=$bundle_assets_dir
 source "$bundle_assets_dir/context.sh"
 assets_dir=$bundle_assets_dir
@@ -87,17 +88,13 @@ replace_from_snapshot() {
 snapshot_entries() {
   local directory=${1:?directory is required}
   [[ -d $directory && ! -L $directory ]] || return 1
-  mapfile -d '' SNAPSHOT_ENTRIES < <(find "$directory" -mindepth 1 -maxdepth 1 -printf '%f\0') || return 1
-  local scan_pid=$!
-  wait "$scan_pid" || return 1
+  sub2api_capture_nul SNAPSHOT_ENTRIES find "$directory" -mindepth 1 -maxdepth 1 -printf '%f\0' || return 1
 }
 assert_observability_snapshot() {
   local directory=${1:?directory is required}
   local -a entries=()
   [[ -d $directory && ! -L $directory ]] || return 1
-  mapfile -d '' entries < <(find "$directory" -mindepth 1 -maxdepth 1 -name 'observability*' -printf '%f\0') || return 1
-  local scan_pid=$!
-  wait "$scan_pid" || return 1
+  sub2api_capture_nul entries find "$directory" -mindepth 1 -maxdepth 1 -name 'observability*' -printf '%f\0' || return 1
   [[ ${#entries[@]} == 1 ]] || return 1
   case "${entries[0]}" in
     observability.absent|observability.conf) ;;
@@ -118,7 +115,7 @@ assert_single_snapshot() {
 restore_nginx_recovery() {
   local nginx_backup="$recovery/config/nginx"
   local managed_site managed_name source target dump
-  local unexpected_entries scan_pid copied_count
+  local unexpected_entries copied_count
   [[ -d $nginx_backup && ! -L $nginx_backup ]] || return 1
   [[ -d $nginx_backup/sites-enabled && ! -L $nginx_backup/sites-enabled ]] || return 1
   [[ -d $nginx_backup/conf.d && ! -L $nginx_backup/conf.d ]] || return 1
@@ -178,8 +175,9 @@ restore_nginx_recovery() {
     assert_safe_file_target "$NGINX_INGRESS_SNIPPET" 600 || return 1
     rm -f -- "$NGINX_INGRESS_SNIPPET" || return 1
   else
-    source="$nginx_backup/snippets/$(basename -- "$NGINX_INGRESS_SNIPPET")" || return 1
-    assert_single_snapshot "$nginx_backup/snippets" "$(basename -- "$NGINX_INGRESS_SNIPPET")" 600 || return 1
+    managed_name=$(basename -- "$NGINX_INGRESS_SNIPPET") || return 1
+    source="$nginx_backup/snippets/$managed_name"
+    assert_single_snapshot "$nginx_backup/snippets" "$managed_name" 600 || return 1
     replace_from_snapshot "$source" "$NGINX_INGRESS_SNIPPET" 600 || return 1
   fi
 
@@ -199,7 +197,8 @@ restore_nginx_recovery() {
     [[ -d $NGINX_SITE_BACKUP_DIR && ! -L $NGINX_SITE_BACKUP_DIR ]] || return 1
     unexpected_entries=$(find "$NGINX_SITE_BACKUP_DIR" -mindepth 1 -maxdepth 1 ! -type f -print -quit) || return 1
     [[ -z $unexpected_entries ]] || return 1
-    [[ $(stat -c '%U:%G:%a' "$NGINX_SITE_BACKUP_DIR") == root:root:700 ]] || return 1
+    _required_1=$(stat -c '%U:%G:%a' "$NGINX_SITE_BACKUP_DIR") || return 1
+    [[ ${_required_1} == root:root:700 ]] || return 1
     find "$NGINX_SITE_BACKUP_DIR" -mindepth 1 -maxdepth 1 -type f -delete || return 1
     rmdir "$NGINX_SITE_BACKUP_DIR" || return 1
   fi
@@ -215,20 +214,20 @@ restore_nginx_recovery() {
       assert_root_file "$nginx_backup/release-backups/$managed_name" 600 || return 1
     done
     install -d -o root -g root -m 700 "$NGINX_SITE_BACKUP_DIR" || return 1
-    while IFS= read -r -d '' source; do
+    _required_inventory_3=()
+    sub2api_capture_nul _required_inventory_3 find "$nginx_backup/release-backups" -mindepth 1 -maxdepth 1 -type f -print0 || return 1
+    for source in "${_required_inventory_3[@]}"; do
       managed_name=$(basename -- "$source") || return 1
       replace_from_snapshot "$source" "$NGINX_SITE_BACKUP_DIR/$managed_name" 600 || return 1
-    done < <(find "$nginx_backup/release-backups" -mindepth 1 -maxdepth 1 -type f -print0)
-    scan_pid=$!
-    wait "$scan_pid" || return 1
+    done
     copied_count=$(find "$NGINX_SITE_BACKUP_DIR" -mindepth 1 -maxdepth 1 -type f | wc -l) || return 1
     [[ $copied_count == ${#SNAPSHOT_ENTRIES[@]} ]] || return 1
-    while IFS= read -r -d '' source; do
+    _required_inventory_2=()
+    sub2api_capture_nul _required_inventory_2 find "$nginx_backup/release-backups" -mindepth 1 -maxdepth 1 -type f -print0 || return 1
+    for source in "${_required_inventory_2[@]}"; do
       managed_name=$(basename -- "$source") || return 1
       assert_root_file "$NGINX_SITE_BACKUP_DIR/$managed_name" 600 || return 1
-    done < <(find "$nginx_backup/release-backups" -mindepth 1 -maxdepth 1 -type f -print0)
-    scan_pid=$!
-    wait "$scan_pid" || return 1
+    done
   fi
 
   if [[ -e $nginx_backup/logrotate/.absent || -L $nginx_backup/logrotate/.absent ]]; then
@@ -236,8 +235,9 @@ restore_nginx_recovery() {
     assert_safe_file_target "$NGINX_UPSTREAM_LOGROTATE" 644 || return 1
     rm -f -- "$NGINX_UPSTREAM_LOGROTATE" || return 1
   else
-    source="$nginx_backup/logrotate/$(basename -- "$NGINX_UPSTREAM_LOGROTATE")" || return 1
-    assert_single_snapshot "$nginx_backup/logrotate" "$(basename -- "$NGINX_UPSTREAM_LOGROTATE")" 644 || return 1
+    managed_name=$(basename -- "$NGINX_UPSTREAM_LOGROTATE") || return 1
+    source="$nginx_backup/logrotate/$managed_name"
+    assert_single_snapshot "$nginx_backup/logrotate" "$managed_name" 644 || return 1
     replace_from_snapshot "$source" "$NGINX_UPSTREAM_LOGROTATE" 644 || return 1
   fi
 
@@ -261,25 +261,22 @@ fail_closed() {
   docker stop "$active_container" >/dev/null 2>&1 || true
   [[ $active_container == sub2api ]] || docker stop sub2api >/dev/null 2>&1 || true
   cleanup_recovery || failed=1
-  nginx_status=$(systemctl is-active nginx 2>/dev/null)
+  nginx_status=$(sub2api_required_systemctl is-active nginx 2>/dev/null) || failed=1
   case "$nginx_status" in
     inactive|failed) ;;
     *) failed=1 ;;
   esac
-  if ! docker info >/dev/null 2>&1; then
+  docker info >/dev/null 2>&1 || failed=1
+  if ! container_names=$(docker ps -a --format '{{.Names}}' 2>/dev/null); then
     failed=1
-  elif docker inspect "$active_container" >/dev/null 2>&1; then
-    app_status=$(docker inspect -f '{{.State.Status}}' "$active_container" 2>/dev/null) || failed=1
-    [[ -n $app_status && $app_status != running ]] || failed=1
   else
-    if ! container_names=$(docker ps -a --format '{{.Names}}' 2>/dev/null); then
-      failed=1
-    elif grep -Fxq "$active_container" <<<"$container_names"; then
-      failed=1
-    fi
-  fi
-  if docker inspect sub2api >/dev/null 2>&1; then
-    [[ $(docker inspect -f '{{.State.Status}}' sub2api 2>/dev/null) != running ]] || failed=1
+    local stopped_container
+    for stopped_container in "$active_container" sub2api; do
+      if [[ $'\n'"$container_names"$'\n' == *$'\n'"$stopped_container"$'\n'* ]]; then
+        app_status=$(docker inspect -f '{{.State.Status}}' "$stopped_container" 2>/dev/null) || failed=1
+        [[ -n $app_status && $app_status != running ]] || failed=1
+      fi
+    done
   fi
   (( failed == 0 )) || exit 125
   exit "$code"
@@ -368,7 +365,7 @@ apply_postgres_recovery() {
     assert_recovery_container_absent sub2api || return 1
   fi
   local nginx_status metadata_sha
-  nginx_status=$(systemctl is-active nginx 2>/dev/null || true)
+  nginx_status=$(sub2api_required_systemctl is-active nginx) || return 1
   case "$nginx_status" in inactive|failed) ;; *) return 1 ;; esac
   [[ -d $deploy_dir/data && ! -L $deploy_dir/data ]] || return 1
   find "$deploy_dir/data" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} + || return 1
@@ -405,13 +402,16 @@ apply_redis_recovery() {
 local redis_health
 redis_source=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Source}}{{end}}{{end}}' sub2api-redis) || return 1
 [[ $redis_source == /* && $redis_source != / && -d $redis_source && ! -L $redis_source ]] || return 1
-[[ $(realpath -e -- "$redis_source") == "$redis_source" ]] || return 1
+_required_3=$(realpath -e -- "$redis_source") || return 1
+[[ ${_required_3} == "$redis_source" ]] || return 1
 redis_appendonly=$(docker inspect sub2api-redis | jq -r '((.[0].Config.Entrypoint // []) + (.[0].Config.Cmd // [])) as $a | ($a | index("--appendonly")) as $i | if $i != null and ($i + 1) < ($a | length) then $a[$i + 1] else ([ $a[] | select(startswith("--appendonly=")) | ltrimstr("--appendonly=") ] | first // "no") end') || return 1
 docker stop sub2api-redis >/dev/null || return 1
 assert_recovery_container_stopped sub2api-redis || return 1
 find "$redis_source" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} + || return 1
 cp -a "$recovery/redis/." "$redis_source/" || return 1
-(cd "$redis_source" && [[ -f dump.rdb && ! -L dump.rdb ]] && [[ $(find . -mindepth 1 -maxdepth 1 -type f | wc -l) == 1 ]]) || return 1
+local redis_file_count
+redis_file_count=$(find "$redis_source" -mindepth 1 -maxdepth 1 -type f | wc -l) || return 1
+[[ -f $redis_source/dump.rdb && ! -L $redis_source/dump.rdb && $redis_file_count == 1 ]] || return 1
 (cd "$redis_source" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum) > "$recovery/metadata/redis-files-restored.sha256" || return 1
 diff -u "$recovery/metadata/redis-files.sha256" "$recovery/metadata/redis-files-restored.sha256" >/dev/null || return 1
 if [[ ${redis_appendonly,,} == yes ]]; then
@@ -434,7 +434,8 @@ docker start sub2api-redis >/dev/null || return 1
 # for Redis to finish loading before fail-closed recovery stops the stack.
 for _ in {1..180}; do
   ((SECONDS < redis_restore_health_deadline)) || break
-  [[ $(timeout 5 docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' sub2api-redis) == healthy ]] && break
+  _required_4=$(timeout 5 docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' sub2api-redis) || return 1
+  [[ ${_required_4} == healthy ]] && break
   sleep 1 || return 1
 done
 redis_health=$(timeout 5 docker inspect -f '{{.State.Health.Status}}' sub2api-redis) || return 1
@@ -450,7 +451,7 @@ redis_recovery_snapshot() {
 redis_password=$(docker inspect sub2api-redis | jq -r '((.[0].Config.Entrypoint // []) + (.[0].Config.Cmd // [])) as $a | ($a | index("--requirepass")) as $i | if $i != null and ($i + 1) < ($a | length) then $a[$i + 1] else ([ $a[] | select(startswith("--requirepass=")) | ltrimstr("--requirepass=") ] | first // "") end') || return 1
   # One Redis command keeps counts and runtime identity in the same instant,
   # even after application writers have resumed. No key or value is returned.
-  snapshot=$(printf '%s\n' "$redis_password" | docker exec -i sub2api-redis sh -c 'IFS= read -r REDISCLI_AUTH; export REDISCLI_AUTH; redis-cli --raw --no-auth-warning EVAL "$1" 0' redis-snapshot 'local n=redis.call("DBSIZE"); local info=redis.call("INFO","keyspace"); local keys=0; local expires=0; for k,e in string.gmatch(info,"db%d+:keys=(%d+),expires=(%d+)") do keys=keys+tonumber(k); expires=expires+tonumber(e) end; local id=string.match(redis.call("INFO","server"),"run_id:([0-9a-f]+)"); return {n,expires,keys,id or ""}' | tr -d '\r') || return 1
+  snapshot=$(printf '%s\n' "$redis_password" | docker exec -i sub2api-redis sh -c 'IFS= read -r REDISCLI_AUTH || exit 1; export REDISCLI_AUTH; redis-cli --raw --no-auth-warning EVAL "$1" 0' redis-snapshot 'local n=redis.call("DBSIZE"); local info=redis.call("INFO","keyspace"); local keys=0; local expires=0; for k,e in string.gmatch(info,"db%d+:keys=(%d+),expires=(%d+)") do keys=keys+tonumber(k); expires=expires+tonumber(e) end; local id=string.match(redis.call("INFO","server"),"run_id:([0-9a-f]+)"); return {n,expires,keys,id or ""}' | tr -d '\r') || return 1
   [[ $snapshot =~ ^([0-9]+)$'\n'([0-9]+)$'\n'([0-9]+)$'\n'([0-9a-f]{40})$ ]] || return 1
   redis_dbsize=${BASH_REMATCH[1]}
   redis_restored_expiring=${BASH_REMATCH[2]}
@@ -459,7 +460,8 @@ redis_password=$(docker inspect sub2api-redis | jq -r '((.[0].Config.Entrypoint 
   redis_run_id_sha256=$(printf '%s' "$run_id" | sha256sum | awk '{print $1}') || return 1
 }
 verify_redis_recovery() {
-  [[ $(docker inspect -f '{{.State.Health.Status}}' sub2api-redis) == healthy ]] || return 1
+  _required_5=$(docker inspect -f '{{.State.Health.Status}}' sub2api-redis) || return 1
+  [[ ${_required_5} == healthy ]] || return 1
   recovery_checkpoint_assert_file "$RECOVERY_CHECKPOINT_ROOT/redis.persistent" || return 1
   recovery_checkpoint_assert_file "$RECOVERY_CHECKPOINT_ROOT/redis.run-id.sha256" || return 1
   redis_recovery_snapshot || return 1
@@ -473,8 +475,8 @@ if ! recovery_checkpoint_completed app_healthy; then [[ $redis_backup_expiring -
 # logically expired key in DBSIZE briefly after loading the exact verified RDB.
 # The file checksum and redis-check-rdb checks above prove the restored source;
 # the live check must only ensure that no persistent (non-TTL) keys disappeared.
-redis_backup_persistent=$((redis_backup_dbsize - redis_backup_expiring))
-redis_restored_persistent_floor=$((redis_dbsize - redis_restored_expiring))
+redis_backup_persistent=$((redis_backup_dbsize - redis_backup_expiring)) || return 1
+redis_restored_persistent_floor=$((redis_dbsize - redis_restored_expiring)) || return 1
 # After app_healthy, startup/cache maintenance may legitimately delete keys.
 # Keep the initial restoration floor strict; replay checks the same live Redis
 # process and immutable source/checkpoint instead of rolling back new writes.
@@ -483,7 +485,7 @@ if ! recovery_checkpoint_completed app_healthy; then
 fi
   [[ $(<"$RECOVERY_CHECKPOINT_ROOT/redis.persistent") == "$redis_backup_persistent" ]] || return 1
   recovery_checkpoint_assert_file "$RECOVERY_CHECKPOINT_ROOT/redis.health-wait-seconds" || return 1
-  redis_restore_health_wait_seconds=$(<"$RECOVERY_CHECKPOINT_ROOT/redis.health-wait-seconds")
+  redis_restore_health_wait_seconds=$(<"$RECOVERY_CHECKPOINT_ROOT/redis.health-wait-seconds") || return 1
   [[ $redis_restore_health_wait_seconds =~ ^[0-9]+$ ]] || return 1
   printf 'redis_restore_health_wait_seconds=%s\n' "$redis_restore_health_wait_seconds" || return 1
   printf 'redis_backup_dbsize=%s\nredis_backup_expiring=%s\n' "$redis_backup_dbsize" "$redis_backup_expiring" || return 1
@@ -505,31 +507,37 @@ apply_application_recovery() {
 }
 verify_application_recovery() {
   assert_sub2api_runtime_contract sub2api "$pre_image_id" "$restore_network_mode" "$old_port" || return 1
-  [[ $(docker inspect -f '{{.State.Health.Status}}' sub2api) == healthy ]] || return 1
+  _required_6=$(docker inspect -f '{{.State.Health.Status}}' sub2api) || return 1
+  [[ ${_required_6} == healthy ]] || return 1
 }
 verify_nginx_snapshot() {
   nginx -t >/dev/null 2>&1 || return 1
   local current_nginx_fingerprint
   current_nginx_fingerprint=$(nginx -T 2>&1 | sha256sum | awk '{print $1}') || return 1
-  [[ $current_nginx_fingerprint == "$(sha256sum "$recovery/config/nginx/nginx-T.txt" | awk '{print $1}')" ]] || return 1
+  _required_7=$(sha256sum "$recovery/config/nginx/nginx-T.txt" | awk '{print $1}') || return 1
+  [[ $current_nginx_fingerprint == "${_required_7}" ]] || return 1
   local source target managed_name
   local nginx_backup="$recovery/config/nginx"
   assert_root_file /etc/nginx/nginx.conf nginx || return 1
-  target=$(<"$recovery/metadata/nginx-managed-site")
+  target=$(<"$recovery/metadata/nginx-managed-site") || return 1
   [[ $target =~ ^/etc/nginx/sites-enabled/[A-Za-z0-9._-]{1,160}$ ]] || return 1
   assert_root_file "$target" nginx || return 1
-  cmp -s -- "$nginx_backup/sites-enabled/$(basename -- "$target")" "$target" || return 1
-  while IFS= read -r -d '' source; do
+  managed_name=$(basename -- "$target") || return 1
+  cmp -s -- "$nginx_backup/sites-enabled/$managed_name" "$target" || return 1
+  _required_inventory_1=()
+  sub2api_capture_nul _required_inventory_1 find "$nginx_backup/conf.d" -mindepth 1 -maxdepth 1 -type f -print0 || return 1
+  for source in "${_required_inventory_1[@]}"; do
     [[ ${source##*/} == .none ]] && continue
     target="/etc/nginx/conf.d/${source##*/}"
     assert_root_file "$target" 600 || return 1
     cmp -s -- "$source" "$target" || return 1
-  done < <(find "$nginx_backup/conf.d" -mindepth 1 -maxdepth 1 -type f -print0)
+  done
   if [[ -f $nginx_backup/snippets/.absent ]]; then
     [[ ! -e $NGINX_INGRESS_SNIPPET && ! -L $NGINX_INGRESS_SNIPPET ]] || return 1
   else
     assert_root_file "$NGINX_INGRESS_SNIPPET" 600 || return 1
-    cmp -s -- "$nginx_backup/snippets/$(basename -- "$NGINX_INGRESS_SNIPPET")" "$NGINX_INGRESS_SNIPPET" || return 1
+    managed_name=$(basename -- "$NGINX_INGRESS_SNIPPET") || return 1
+    cmp -s -- "$nginx_backup/snippets/$managed_name" "$NGINX_INGRESS_SNIPPET" || return 1
   fi
   if [[ -f $nginx_backup/observability.absent ]]; then
     [[ ! -e $NGINX_OBSERVABILITY_CONF && ! -L $NGINX_OBSERVABILITY_CONF ]] || return 1
@@ -541,15 +549,19 @@ verify_nginx_snapshot() {
     [[ ! -e $NGINX_SITE_BACKUP_DIR && ! -L $NGINX_SITE_BACKUP_DIR ]] || return 1
   else
     [[ -d $NGINX_SITE_BACKUP_DIR && ! -L $NGINX_SITE_BACKUP_DIR ]] || return 1
-    [[ $(stat -c '%U:%G:%a' "$NGINX_SITE_BACKUP_DIR") == root:root:700 ]] || return 1
+    _required_8=$(stat -c '%U:%G:%a' "$NGINX_SITE_BACKUP_DIR") || return 1
+    [[ ${_required_8} == root:root:700 ]] || return 1
     diff -qr -- "$nginx_backup/release-backups" "$NGINX_SITE_BACKUP_DIR" >/dev/null || return 1
-    while IFS= read -r -d '' source; do assert_root_file "$source" 600 || return 1; done < <(find "$NGINX_SITE_BACKUP_DIR" -mindepth 1 -maxdepth 1 -print0)
+    local -a backup_entries=()
+    sub2api_capture_nul backup_entries find "$NGINX_SITE_BACKUP_DIR" -mindepth 1 -maxdepth 1 -print0 || return 1
+    for source in "${backup_entries[@]}"; do assert_root_file "$source" 600 || return 1; done
   fi
   if [[ -f $nginx_backup/logrotate/.absent ]]; then
     [[ ! -e $NGINX_UPSTREAM_LOGROTATE && ! -L $NGINX_UPSTREAM_LOGROTATE ]] || return 1
   else
     assert_root_file "$NGINX_UPSTREAM_LOGROTATE" 644 || return 1
-    cmp -s -- "$nginx_backup/logrotate/$(basename -- "$NGINX_UPSTREAM_LOGROTATE")" "$NGINX_UPSTREAM_LOGROTATE" || return 1
+    managed_name=$(basename -- "$NGINX_UPSTREAM_LOGROTATE") || return 1
+    cmp -s -- "$nginx_backup/logrotate/$managed_name" "$NGINX_UPSTREAM_LOGROTATE" || return 1
   fi
 }
 apply_nginx_recovery() {
@@ -575,11 +587,14 @@ apply_nginx_recovery() {
 verify_nginx_recovery() {
   verify_nginx_snapshot || return 1
   recovery_checkpoint_assert_file "$RECOVERY_CHECKPOINT_ROOT/nginx.fingerprint" || return 1
-  [[ $(sha256sum "$recovery/config/nginx/nginx-T.txt" | awk '{print $1}') == "$(<"$RECOVERY_CHECKPOINT_ROOT/nginx.fingerprint")" ]] || return 1
-  [[ $(systemctl is-active nginx) == active ]] || return 1
+  _required_9=$(sha256sum "$recovery/config/nginx/nginx-T.txt" | awk '{print $1}') || return 1
+  [[ ${_required_9} == "$(<"$RECOVERY_CHECKPOINT_ROOT/nginx.fingerprint")" ]] || return 1
+  _required_10=$(systemctl is-active nginx) || return 1
+  [[ ${_required_10} == active ]] || return 1
   [[ -f $state_dir/nginx-recovery-restored && ! -L $state_dir/nginx-recovery-restored ]] || return 1
   [[ -f $active_slot_file && ! -L $active_slot_file ]] || return 1
-  [[ $(<"$active_slot_file") == "$(printf 'container=sub2api\nport=%s\nimage_id=%s\nrelease_id=%s\ninstance_id=%s' "$old_port" "$pre_image_id" "$old_release_id" "$old_instance_id")" ]] || return 1
+  _required_11=$(printf 'container=sub2api\nport=%s\nimage_id=%s\nrelease_id=%s\ninstance_id=%s' "$old_port" "$pre_image_id" "$old_release_id" "$old_instance_id") || return 1
+  [[ $(<"$active_slot_file") == "${_required_11}" ]] || return 1
   verify_application_recovery || return 1
 }
 docker cp "$recovery/redis/dump.rdb" sub2api-redis:/tmp/sub2api-restore.rdb >/dev/null
@@ -600,6 +615,7 @@ recovery_checkpoint_run nginx_restored verify_nginx_recovery apply_nginx_recover
 cleanup_recovery
 trap - ERR INT TERM EXIT
 printf 'coordinated_restore=verified\n'
-printf 'restored_image_id=%s\n' "$(docker inspect -f '{{.Image}}' sub2api)"
+_required_arg_1=$(docker inspect -f '{{.Image}}' sub2api)
+printf 'restored_image_id=%s\n' "${_required_arg_1}"
 printf 'application_health=pass\n'
 printf 'recovery_helper_bundle_sha256=%s\n' "$RECOVERY_HELPER_BUNDLE_SHA256"
