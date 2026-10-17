@@ -127,6 +127,8 @@ Compose 快照使用真实 Docker Compose JSON 解析 `env_file/configs/secrets`
 
 ## VM 电源与 cleanup 恢复
 
+已知 profile 273 迁移 298 preflight 误判发生在恢复 probe 之后，不能套用 candidate-build 分支。显式 `reconcile-vm-preserve <release_id> --failed-stage migration-preflight` 仅接受冻结的原提交、validator/assertion checksum 和确切失败证据；要求 before/actual plan 一致、无 apply/after/Gate/归档，probe 容器/网络/数据库/临时目录均已清理。双重复验同 boot/owner、原 worker 已退出、旧生产及备份健康且无 release/claim；仅写独立证明及最后释放原租约，保持 VM 运行与原失败证据。其他源字节、阶段、hook 或未知现场拒绝。最低回归为 `test_vm_preflight_preserve.py`、`vm_preserve_migration_preflight_integration.py` 及真实迁移 298 dump/restore 回归。
+
 候选构建已失败且 validator 终止、生产完全未开始时，不运行依赖 Gate 的 `reconcile-inspect`。使用 `reconcile-vm-preserve <release_id> --failed-stage candidate-build` 的正式收口分支，严格绑定原 manifest、固定构建失败字段、同 boot/进程与 owner、无签名 Gate/候选归档、VM 双锁及无在途任务、dev 和旧生产健康、生产 release/claim 不存在。只允许原本运行的 VM；后续恢复/迁移阶段或任一未知拒绝。原 Gate 目录、原始日志及 failed 终态全部保留；释放原租约后用新提交和新 release 重跑完整 Gate，不复用旧失败候选。默认 `reconcile-vm-preserve` 仍只接受 validator 未启动。
 
 电源控制由后台发布 worker 执行；普通 `doctor/status/wait/follow/verify-result` 及插件对应只读入口不触发开关机或所有权接管。独立 `vm-validate` 和 VM-only 验证/展示不自动关闭 VM。post-deploy doctor 在 worker 关机前完成，之后的只读观察不能为了重查 VM 而开机。

@@ -394,6 +394,8 @@ jq -cS '.manifest.migration_sha256' | sha256sum
 
 ## 上游账号表性能迁移（profile 273）
 
+迁移 298 在 PG18 dump/restore 后的两条枚举 CHECK 允许原定义或实测逐元素 cast 定义的精确二选一，其余 schema 不变量不变；真实回归必须同时覆盖 fresh 与连续 restore 及漂移拒绝。已知旧 helper 的迁移 preflight 失败租约只走显式 `reconcile-vm-preserve --failed-stage migration-preflight`：冻结原提交/validator/assertion、失败和计划证据，证明无 apply/后续产物、probe 已清理、同 boot/owner、原 worker 已退出且生产未开始，双重复验后仅保存独立证明并最后释放 owner。旧分支不扩权，不手改状态；新 helper 重新分类并执行实际恢复、签名、新 Gate 与新 release。详细边界见 `release-doctor-and-recovery.md` 与 Wiki 发布合同。
+
 当前 pending profile 为 `273`，版本 `0.2.17-baiyu`、parent `272`，仅新增 `300_upstream_health_history_index.sql`。300 以非唯一可重复创建索引 `(upstream_key_id, observed_at DESC, id DESC)` 有界读取每 Key 最近历史，旧读写协议不变。272 的版本、parent `271` 和 `new_migrations=[]` 及全部旧 SQL/checksum 保持不可变；下一未登记 profile `274` 拒绝。原始文件 checksum 与 Gate 的 strip 后 SQL checksum分别登记。
 
 本地运行 profile273、全部历史 profile、release suite 和变更 Shell 的语法检查；真实 PostgreSQL 的索引定义/幂等/旧 SQL 读写兼容、健康与质量差分另行验证。上述本地/隔离 fixture 验证不代表 signed VM Gate、旧生产镜像兼容或生产发布。新增 helper blob/模式仍按最终候选分类，不新增恢复目录豁免。长期接口与刷新规则见 `.wiki/03-模块指南/15-上游账号表刷新与质量统计.md`。
