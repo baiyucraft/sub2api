@@ -936,6 +936,7 @@
         "backend/internal/service/upstream_cache_guard_runner_test.go",
         "backend/internal/service/upstream_cache_guard_account_store_test.go",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile269_release_contract.py",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_fast_deploy_initialization_review.py",
         "backend/internal/service/upstream_cache_guard_settings_test.go",
         "backend/internal/service/upstream_health_scheduling_cache_guard_test.go",
         "backend/internal/service/upstream_cache_usage_evidence_test.go",
@@ -1665,6 +1666,8 @@
         "cache_first/ttft_first在同一优先池都先TTFT质量再缓存收益，优先池外层约束保留，不加权；软保护不得新增无账号拒绝，硬合法与容量边界仍生效",
         "TTFT试探预算按group_id+canonical model独立；20次真实合法新分配积最多1信用，sticky/查询/重复选号/未取得容量不耗机会，公平轮转protected与insufficient；同runtime账号+Key+model最多1在途，实际发送才消费、未发送取消退还；不得绕过缓存cohort与DB/范围/Key/model/利润准入",
         "TTFT权威限定service owner内存map+mutex，runtime_id和algorithm_version显式，票据绑定策略代次和projection generation；重启unknown、旧票不复活，不新增Redis/SQL同步或跨进程即时一致承诺；缓存继续原PG事实和cohort；本轮源码修订尚未部署",
+        "deploy fast 分支在 schema 判断前初始化可选 pre_gate_input/rack_pre_gate_dir/vm_pre_gate_dir；fast 不准备恢复输入，specialized 仍准备并清理，Gate 失败不进入生产发布",
+        "本次 fast 初始化修复精确绑定生产 BASE 8544cef6f5e87f29929465316467b2765350cd52 到 TARGET a0f7ca7666ddd2e6485536be7a8ef6696344c0ac，仅 release/cli.py，blob/mode 为 100644:1005635c3406dc73d42d95a0f19123d1e151b778 到 100644:ce017a5d663037a38b921e427c628b3945e45634；分类为 reviewed_vm_preflight_recovery_changed/specialized，不升 full，未来 blob、mode、删除、改名、额外敏感路径或基线漂移继续阻断，真实 specialized 恢复和签名 VM Gate 不可省略",
         "统一分组 PUT 在同一事务保存 TTFT、缓存、优先策略与单次 group_changed outbox；旧 TTFT API 保留兼容",
         "迁移 298 将旧非空 group_ids 白名单一次性投影为组 inherit/disabled，不覆盖自定义，不删除旧 settings.group_ids，保留旧镜像回滚语义",
         "新账号 DTO upstream_protection 同时给共享证据和各组策略投影，full/detail/lite 与 ETag 保持一致；simple mode 隐藏",
@@ -1720,9 +1723,11 @@
         "backend/internal/service/gateway_input_tokens.go",
         "backend/internal/service/gateway_input_tokens_test.go",
         "backend/internal/handler/gateway_systemone.go",
-        "backend/internal/handler/gateway_systemone_fork_test.go"
+        "backend/internal/handler/gateway_systemone_fork_test.go",
+        "backend/internal/handler/gateway_handler.go",
+        "backend/internal/handler/gateway_models_test.go"
       ],
-      "symbols": ["RegisteredPlatformCatalog", "registeredPlatformProbeCapabilities", "PlatformTypeSafe", "SchedulingConcurrencyTarget", "TryAcquireAccountRPM", "handleGatewayFailoverError", "SystemOne"],
+      "symbols": ["RegisteredPlatformCatalog", "registeredPlatformProbeCapabilities", "PlatformTypeSafe", "compositeAvailableModels", "defaultModelIDsForPlatform", "defaultCodexModelIDsForPlatform", "SchedulingConcurrencyTarget", "TryAcquireAccountRPM", "handleGatewayFailoverError", "SystemOne"],
       "api_routes": ["/v1/systemone"],
       "settings_keys": [],
       "migration_files": [],
@@ -1748,6 +1753,8 @@
         "账号 RPM 使用既有原子准入，拒绝后释放账号槽位并换号；本地 RPM 拒绝不消耗上游 429 capacity failover 预算",
         "System One 的 state、questions、instructions、criteria 和任意业务数据键值参与输入长度估算；不计模型及协议类型标签，其他协议提取规则不变",
         "仅实际 upstream-bound 429 接既有独立 capacity failover 设置和预算，关闭时保留原 429；官方业务输入错误不触发换号或改写账号健康",
+        "Composite 模型目录仅为当前组内可调度平台补充默认列表；Kimi/Zhipu/DeepSeek/MiniMax 使用各自 registry 目录且普通与 Codex 目录一致，其他多协议聚合平台仍需账号映射，不得跨平台注入默认模型",
+        "gateway_models_test.go 覆盖四个 CN 平台的普通/Codex 默认目录隔离、Composite 组范围和未知平台 fail-closed",
         "测试文件存在和静态 catalog 审计不等于网关行为、真实 PostgreSQL 升级、VM Gate 或生产发布已通过"
       ]
     },
