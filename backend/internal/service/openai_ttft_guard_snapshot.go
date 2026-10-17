@@ -115,7 +115,8 @@ func (s *OpenAIGatewayService) TTFTProtectionSnapshotsBatchAt(requests []TTFTPro
 			state := "observed"
 			e := read.raw
 			if now.Sub(read.raw.lastSampleAt) >= ttl {
-				state = "expired"
+				// Historical evidence remains visible, but no samples are current.
+				state = "insufficient"
 			} else if r.GroupID > 0 {
 				state = "normal"
 				if !r.Config.Enabled {
