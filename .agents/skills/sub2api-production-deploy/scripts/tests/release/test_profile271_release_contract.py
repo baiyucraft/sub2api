@@ -20,7 +20,7 @@ MIGRATION = "299_upstream_cache_guard_revisions.sql"
 
 class Profile271ReleaseContractTest(unittest.TestCase):
     def test_historical_registration_preserves_271_and_current_272(self):
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "272")
+        self.assertEqual(CURRENT_RELEASE_PROFILE, "273")
         profile = get_profile("271")
         self.assertEqual((profile["version"], profile["parent"], profile["gate_schema"]), ("0.2.16-baiyu", "270", 2))
         self.assertEqual(profile["new_migrations"], [MIGRATION])
@@ -28,11 +28,11 @@ class Profile271ReleaseContractTest(unittest.TestCase):
         self.assertEqual((previous["version"], previous["parent"], previous["new_migrations"]), ("0.2.16-baiyu", "269", ["298_group_scheduling_protection_policies.sql"]))
         with self.assertRaisesRegex(ValueError, "historical"):
             get_release_profile("270")
-        current = get_release_profile("272")
+        current = get_profile("272")
         self.assertEqual((current["version"], current["parent"], current["gate_schema"]), ("0.2.17-baiyu", "271", 2))
         self.assertEqual(current["new_migrations"], [])
         registered = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(registered["current_profile"]["id"], "272")
+        self.assertEqual(registered["current_profile"]["id"], "273")
         self.assertEqual(registered["current_profile"]["status"], "pending")
         for key in ("version", "parent", "new_migrations", "gate_schema", "release_policy"):
             self.assertEqual(registered["historical_profiles"]["271"][key], profile[key])
@@ -58,7 +58,7 @@ class Profile271BashContractTest(unittest.TestCase):
 
     def test_baseline_staging_binds_profile_and_gate(self):
         source = (ROOT / "release/stage-dr-baseline-candidate.sh").read_text(encoding="utf-8")
-        self.assertIn("^(271|272)-", source)
+        self.assertIn("^(271|272|273)-", source)
         self.assertIn('baseline_profile=${release_id%%-*}', source)
         self.assertIn('root="/srv/sub2api-backups/releases/$baseline_profile"', source)
         self.assertIn('$gate_profile == "$baseline_profile"', source)

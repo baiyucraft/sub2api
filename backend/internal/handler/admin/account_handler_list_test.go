@@ -32,9 +32,11 @@ type accountListUpstreamHealthReader struct {
 type accountListQualityUsageRepo struct {
 	service.UsageLogRepository
 	samples map[int64]service.AccountQualitySamples
+	calls   int
 }
 
 func (r *accountListQualityUsageRepo) GetAccountQualityStatsBatch(_ context.Context, _ []int64, _, _, _ time.Time) (map[int64]service.AccountQualitySamples, error) {
+	r.calls++
 	return r.samples, nil
 }
 
@@ -627,7 +629,7 @@ func TestAccountHandlerListQualityFilterRunsBeforePagination(t *testing.T) {
 	router.GET("/api/v1/admin/upstream-management/accounts", handler.ListUpstreamManagement)
 
 	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/admin/upstream-management/accounts?scope=upstream&quality_filter=1h-A&page=1&page_size=1", nil))
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/admin/upstream-management/accounts?scope=upstream&quality_filter=1h-A&page=1&page_size=1&include_quality=1", nil))
 	require.Equal(t, http.StatusOK, rec.Code)
 	var payload struct {
 		Data struct {
@@ -640,6 +642,15 @@ func TestAccountHandlerListQualityFilterRunsBeforePagination(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
 	require.Equal(t, int64(1), payload.Data.Total)
 	require.Equal(t, []int64{801}, []int64{payload.Data.Items[0].ID})
+	require.Equal(t, 1, usageRepo.calls, "page response must reuse the exact statistics that selected its rows")
+	var combined struct {
+		Data struct {
+			Stats map[int64]service.AccountQualityStats `json:"quality_stats"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &combined))
+	require.Len(t, combined.Data.Stats, 1)
+	require.Contains(t, combined.Data.Stats, int64(801))
 }
 
 func TestAccountHandlerListRejectsInvalidQualityFilter(t *testing.T) {

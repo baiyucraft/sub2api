@@ -1817,7 +1817,7 @@ func (s *AccountUsageService) GetAccountWindowStatsByStarts(ctx context.Context,
 	result := make(map[int64]*usagestats.AccountStats, len(starts))
 	var mu sync.Mutex
 	g, gctx := errgroup.WithContext(ctx)
-	g.SetLimit(10)
+	g.SetLimit(4)
 	for id, start := range starts {
 		g.Go(func() error {
 			stats, err := s.usageLogRepo.GetAccountWindowStats(gctx, id, start)

@@ -67,13 +67,10 @@ func TestAccountQualityStatsHandlerETagLimitsAndNormalization(t *testing.T) {
 	repo := &qualityHandlerUsageRepoStub{}
 	router := newAccountQualityStatsTestRouter(repo)
 
-	previousCache := accountQualityStatsBatchCache
-	accountQualityStatsBatchCache = newBoundedSnapshotCache(30*time.Second, qualityStatsCacheEntries)
-	t.Cleanup(func() { accountQualityStatsBatchCache = previousCache })
-
 	recorder := performQualityRequest(router, "/quality", `{"account_ids":[2,1,2,0,-1]}`, "")
 	require.Equal(t, http.StatusOK, recorder.Code)
-	require.Equal(t, "miss", recorder.Header().Get("X-Snapshot-Cache"))
+	require.Empty(t, recorder.Header().Get("X-Snapshot-Cache"))
+	require.NotEmpty(t, recorder.Header().Get("X-Account-Evaluated-At"))
 	etag := recorder.Header().Get("ETag")
 	require.NotEmpty(t, etag)
 	require.Equal(t, "If-None-Match", recorder.Header().Get("Vary"))
@@ -101,13 +98,13 @@ func TestAccountQualityStatsHandlerETagLimitsAndNormalization(t *testing.T) {
 
 	notModified := performQualityRequest(router, "/quality", `{"account_ids":[1,2]}`, etag)
 	require.Equal(t, http.StatusNotModified, notModified.Code)
-	require.Equal(t, "hit", notModified.Header().Get("X-Snapshot-Cache"))
-	require.Equal(t, int32(1), repo.accountCalls.Load())
+	require.Empty(t, notModified.Header().Get("X-Snapshot-Cache"))
+	require.Equal(t, int32(2), repo.accountCalls.Load())
 
 	empty := performQualityRequest(router, "/quality", `{"account_ids":[0,-1]}`, "")
 	require.Equal(t, http.StatusOK, empty.Code)
 	require.Contains(t, empty.Body.String(), `"stats":{}`)
-	require.Equal(t, int32(1), repo.accountCalls.Load())
+	require.Equal(t, int32(2), repo.accountCalls.Load())
 
 	badJSON := performQualityRequest(router, "/quality", `{"account_ids":`, "")
 	require.Equal(t, http.StatusBadRequest, badJSON.Code)
@@ -120,12 +117,12 @@ func TestAccountQualityStatsHandlerETagLimitsAndNormalization(t *testing.T) {
 	require.NoError(t, err)
 	tooMany := performQualityRequest(router, "/quality", string(body), "")
 	require.Equal(t, http.StatusBadRequest, tooMany.Code)
-	require.Equal(t, int32(1), repo.accountCalls.Load())
+	require.Equal(t, int32(2), repo.accountCalls.Load())
 
 	oversizedBody := `{"account_ids":[3],"padding":"` + strings.Repeat("x", int(qualityStatsRequestBodyLimit)) + `"}`
 	oversized := performQualityRequest(router, "/quality", oversizedBody, "")
 	require.Equal(t, http.StatusRequestEntityTooLarge, oversized.Code)
-	require.Equal(t, int32(1), repo.accountCalls.Load())
+	require.Equal(t, int32(2), repo.accountCalls.Load())
 }
 
 func TestGroupQualityStatsHandlerUsesIndependentCache(t *testing.T) {

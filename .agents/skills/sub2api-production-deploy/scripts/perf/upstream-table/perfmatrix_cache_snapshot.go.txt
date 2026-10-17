@@ -1,0 +1,21 @@
+package service
+
+import "github.com/Wei-Shaw/sub2api/internal/upstreamcacheguard"
+
+// Exclusive benchmark instrumentation. This file is never copied to the business tree.
+func PerfMatrixCacheSnapshot(accountID, keyID int64) upstreamcacheguard.AccountSnapshot {
+	r := currentUpstreamCacheGuardRunner()
+	if r == nil {
+		return upstreamcacheguard.AccountSnapshot{}
+	}
+	snapshot, _ := r.engine.CachedSharedAccount(accountID, keyID)
+	return snapshot
+}
+
+func PerfMatrixCacheStats() map[string]int64 {
+	r := currentUpstreamCacheGuardRunner()
+	if r == nil {
+		return map[string]int64{}
+	}
+	return r.engine.PerfMatrixCacheStats()
+}

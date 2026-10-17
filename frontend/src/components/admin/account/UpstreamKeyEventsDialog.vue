@@ -39,16 +39,16 @@
           <span>{{ trendError }}</span>
           <button type="button" class="font-medium underline underline-offset-2" @click="loadTrend">{{ t('common.retry') }}</button>
         </div>
-        <UpstreamHealthTrendChart :trend="trend" :metric="metric" :loading="trendLoading" />
+        <UpstreamHealthTrendChart :trend="trend" :metric="metric" :loading="trendLoading && !trend" />
       </section>
 
       <section class="grid gap-5 xl:grid-cols-2">
         <div>
           <h3 class="mb-3 text-sm font-semibold text-gray-800 dark:text-gray-100">{{ t('admin.upstreamManagement.health.recentObservations') }}</h3>
-          <div v-if="detailsLoading" class="rounded-lg border border-gray-200 py-8 text-center text-sm text-gray-500 dark:border-dark-700 dark:text-dark-400">
+          <div v-if="detailsLoading && !history.length" class="rounded-lg border border-gray-200 py-8 text-center text-sm text-gray-500 dark:border-dark-700 dark:text-dark-400">
             {{ t('admin.upstreamManagement.events.loading') }}
           </div>
-          <div v-else-if="detailsError" class="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-300">{{ detailsError }}</div>
+          <div v-else-if="detailsError && !history.length" class="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-300">{{ detailsError }}</div>
           <div v-else-if="recentHistory.length" class="space-y-2">
             <article
               v-for="(item, index) in recentHistory"
@@ -76,7 +76,7 @@
 
         <div>
           <h3 class="mb-3 text-sm font-semibold text-gray-800 dark:text-gray-100">{{ t('admin.upstreamManagement.events.stateChanges') }}</h3>
-          <div v-if="detailsLoading" class="rounded-lg border border-gray-200 py-8 text-center text-sm text-gray-500 dark:border-dark-700 dark:text-dark-400">
+          <div v-if="detailsLoading && !events.length" class="rounded-lg border border-gray-200 py-8 text-center text-sm text-gray-500 dark:border-dark-700 dark:text-dark-400">
             {{ t('admin.upstreamManagement.events.loading') }}
           </div>
           <div v-else-if="events.length === 0" class="rounded-lg border border-dashed border-gray-200 py-6 text-center text-sm text-gray-500 dark:border-dark-700 dark:text-dark-400">{{ t('admin.upstreamManagement.events.empty') }}</div>
@@ -94,7 +94,8 @@
       </section>
     </div>
     <template #footer>
-      <div class="flex items-center justify-end">
+      <div class="flex items-center justify-end gap-2">
+        <button class="btn btn-secondary" data-test="health-refresh" :disabled="manualRefreshing" @click="refresh">{{ t('common.refresh') }}</button>
         <button class="btn btn-secondary" @click="$emit('close')">{{ t('common.close') }}</button>
       </div>
     </template>
@@ -102,7 +103,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import UpstreamHealthTrendChart from './UpstreamHealthTrendChart.vue'
@@ -114,6 +115,7 @@ import upstreamManagementAPI, {
 } from '@/api/admin/upstreamManagement'
 import type { UpstreamHealthObservation } from '@/types'
 import { extractApiErrorMessage } from '@/utils/apiError'
+import { replaceEqualDeep } from '@/utils/replaceEqualDeep'
 
 type HealthMetric = 'health' | 'ttft'
 
@@ -131,59 +133,142 @@ const range = ref<UpstreamHealthTrendRange>('6h')
 const metric = ref<HealthMetric>('health')
 const ranges: UpstreamHealthTrendRange[] = ['6h', '24h', '7d', '30d']
 const metrics: HealthMetric[] = ['health', 'ttft']
-let trendRequestID = 0
+let generation = 0
+let activeKey: number | null = null
+let activeRange: UpstreamHealthTrendRange = '6h'
+type Flight = { controller: AbortController; promise: Promise<void> }
+let detailsFlight: Flight | null = null
+let trendFlight: Flight | null = null
+let manualFlight: Promise<void> | null = null
+const manualRefreshing = ref(false)
 
 const title = computed(() => props.keyLabel ? `${t('admin.upstreamManagement.events.title')} · ${props.keyLabel}` : t('admin.upstreamManagement.events.title'))
 const recentHistory = computed(() => [...history.value].slice(-8).reverse())
 
-async function loadDetails() {
-  if (!props.show || !props.keyId) return
+function releaseDetails(controller: AbortController) {
+  if (detailsFlight?.controller === controller) detailsFlight = null
+}
+
+function releaseTrend(controller: AbortController) {
+  if (trendFlight?.controller === controller) trendFlight = null
+}
+
+function loadDetails(): Promise<void> {
+  if (!props.show || !props.keyId) return Promise.resolve()
+  if (detailsFlight) return detailsFlight.promise
+  const key = props.keyId
+  const expectedGeneration = generation
+  const controller = new AbortController()
   detailsLoading.value = true
   detailsError.value = ''
-  try {
-    const result = await upstreamManagementAPI.getKeyEvents(props.keyId)
-    events.value = result.items
-    history.value = result.health_history || []
-  } catch (loadError) {
-    events.value = []
-    history.value = []
-    detailsError.value = extractApiErrorMessage(loadError, t('admin.upstreamManagement.events.loadFailed'))
-  } finally {
-    detailsLoading.value = false
-  }
+  const current = () => props.show && props.keyId === key && expectedGeneration === generation && !controller.signal.aborted
+  const promise = (async () => {
+    try {
+      const result = await upstreamManagementAPI.getKeyEvents(key, { signal: controller.signal })
+      if (!current()) return
+      events.value = replaceEqualDeep(events.value, result.items)
+      history.value = replaceEqualDeep(history.value, result.health_history || [])
+    } catch (loadError) {
+      if (current()) detailsError.value = extractApiErrorMessage(loadError, t('admin.upstreamManagement.events.loadFailed'))
+    } finally {
+      if (current()) detailsLoading.value = false
+      releaseDetails(controller)
+    }
+  })()
+  detailsFlight = { controller, promise }
+  return promise
 }
 
-async function loadTrend() {
-  if (!props.show || !props.keyId) return
-  const requestID = ++trendRequestID
+function loadTrend(): Promise<void> {
+  if (!props.show || !props.keyId) return Promise.resolve()
+  if (trendFlight) return trendFlight.promise
+  const key = props.keyId
+  const selectedRange = range.value
+  const expectedGeneration = generation
+  const controller = new AbortController()
   trendLoading.value = true
   trendError.value = ''
-  try {
-    const result = await upstreamManagementAPI.getKeyHealthTrend(props.keyId, range.value)
-    if (requestID === trendRequestID) trend.value = result
-  } catch (loadError) {
-    if (requestID !== trendRequestID) return
-    trend.value = null
-    trendError.value = extractApiErrorMessage(loadError, t('admin.upstreamManagement.events.trendLoadFailed'))
-  } finally {
-    if (requestID === trendRequestID) trendLoading.value = false
-  }
+  const current = () => props.show && props.keyId === key && range.value === selectedRange && expectedGeneration === generation && !controller.signal.aborted
+  const promise = (async () => {
+    try {
+      const result = await upstreamManagementAPI.getKeyHealthTrend(key, selectedRange, { signal: controller.signal })
+      if (current()) trend.value = replaceEqualDeep(trend.value, result)
+    } catch (loadError) {
+      if (current()) trendError.value = extractApiErrorMessage(loadError, t('admin.upstreamManagement.events.trendLoadFailed'))
+    } finally {
+      if (current()) trendLoading.value = false
+      releaseTrend(controller)
+    }
+  })()
+  trendFlight = { controller, promise }
+  return promise
 }
 
-watch(() => [props.show, props.keyId], ([visible]) => {
-  if (!visible) return
-  metric.value = 'health'
-  if (range.value !== '6h') {
-    range.value = '6h'
-    void loadDetails()
+function cancelRequests() {
+  generation += 1
+  detailsFlight?.controller.abort()
+  trendFlight?.controller.abort()
+  detailsFlight = null
+  trendFlight = null
+  detailsLoading.value = false
+  trendLoading.value = false
+  manualFlight = null
+  manualRefreshing.value = false
+}
+
+function refresh(): Promise<void> {
+  if (manualFlight) return manualFlight
+  const expectedGeneration = generation
+  manualRefreshing.value = true
+  const promise = (async () => {
+    await Promise.all([detailsFlight?.promise, trendFlight?.promise])
+    if (expectedGeneration !== generation || !props.show) return
+    await Promise.all([loadDetails(), loadTrend()])
+  })().finally(() => {
+    if (manualFlight === promise) {
+      manualFlight = null
+      manualRefreshing.value = false
+    }
+  })
+  manualFlight = promise
+  return promise
+}
+
+watch(() => [props.show, props.keyId, range.value] as const, ([visible, key, selectedRange]) => {
+  if (!visible || !key) {
+    cancelRequests()
+    activeKey = null
     return
   }
-  void Promise.all([loadDetails(), loadTrend()])
+  if (activeKey !== key) {
+    cancelRequests()
+    activeKey = key
+    events.value = []
+    history.value = []
+    trend.value = null
+    detailsError.value = ''
+    trendError.value = ''
+    metric.value = 'health'
+    activeRange = '6h'
+    if (selectedRange !== '6h') {
+      range.value = '6h'
+      void loadDetails()
+      return
+    }
+    void Promise.all([loadDetails(), loadTrend()])
+  } else if (activeRange !== selectedRange) {
+    trendFlight?.controller.abort()
+    trendFlight = null
+    activeRange = selectedRange
+    trend.value = null
+    void loadTrend()
+  } else if (!trend.value && !trendFlight) {
+    void loadTrend()
+  }
 }, { immediate: true })
 
-watch(range, () => {
-  if (props.show) void loadTrend()
-})
+onBeforeUnmount(cancelRequests)
+defineExpose({ refresh })
 
 const segmentClass = (active: boolean) => [
   'rounded-md px-3 py-1.5 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500/40',

@@ -1,0 +1,73 @@
+async (page) => {
+  const fixture=page.__upstreamFixture;
+  if(!fixture) throw new Error('fixture missing');
+  const result={startedAt:new Date().toISOString(),build:'local production dist',api:'mock fixture',checks:{}};
+  const refresh=page.locator('main button.btn-secondary').first();
+  await page.evaluate(()=>{window.__initialRows=Array.from(document.querySelectorAll('tbody tr'));});
+  const unchangedResponse=page.waitForResponse(r=>r.url().includes('/upstream-management/accounts'));
+  await refresh.click(); await unchangedResponse;
+  await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+  result.checks.unchangedRowsReused=await page.evaluate(()=>window.__initialRows.every((row,i)=>row===document.querySelectorAll('tbody tr')[i]));
+  fixture.accounts[0].name='fixture-account-001-changed'; fixture.version++;
+  const changedResponse=page.waitForResponse(r=>r.url().includes('/upstream-management/accounts'));
+  await refresh.click();await changedResponse;
+  await page.getByText('fixture-account-001-changed',{exact:true}).waitFor();
+  result.checks.singleRowChange=true;
+  fixture.mode='quality-fail';
+  const qualityResponse=page.waitForResponse(r=>r.url().includes('/upstream-management/accounts'));
+  await refresh.click();await qualityResponse;
+  result.checks.qualityRetainedOnFailure=await page.locator('[data-quality-activity="active"]').count()===20;
+  fixture.mode='unchanged';fixture.delay=600;
+  const slowResponse=page.waitForResponse(r=>r.url().includes('/upstream-management/accounts'));
+  await refresh.click();
+  await page.getByRole('button',{name:'跳转到第 2 页',exact:true}).click();
+  await slowResponse.catch(()=>{});
+  await page.getByText('fixture-account-021',{exact:true}).waitFor();
+  await new Promise(resolve=>setTimeout(resolve,900));
+  result.checks.oldPageCannotOverwrite=await page.getByText('fixture-account-021',{exact:true}).count()===1 && await page.getByText('fixture-account-001-changed',{exact:true}).count()===0;
+  fixture.delay=0;
+  await page.getByRole('button',{name:'打开 Key 健康历史详情',exact:true}).first().click();
+  await page.getByRole('dialog').waitFor();
+  const before=fixture.requests.filter(r=>r.path.endsWith('/upstream-management/accounts')).length;
+  await new Promise(resolve=>setTimeout(resolve,5500));
+  result.checks.modalPausesRefresh=fixture.requests.filter(r=>r.path.endsWith('/upstream-management/accounts')).length===before;
+  await page.locator('[data-test="health-range-7d"]').click();
+  await page.getByRole('button',{name:'Close modal'}).click();
+  await page.getByRole('dialog').waitFor({state:'hidden'});
+  await new Promise(resolve=>setTimeout(resolve,500));
+  result.checks.modalCloseRefresh=fixture.requests.filter(r=>r.path.endsWith('/upstream-management/accounts')).length>before;
+  await page.setViewportSize({width:390,height:844});
+  await page.waitForTimeout(350);
+  await page.screenshot({path:'.tmp/upstream-table-browser-mobile.png',fullPage:false});
+  result.checks.mobileContentVisibility=await page.locator('.mobile-content-visibility').count()>0;
+  result.mobileCards=await page.locator('.mobile-content-visibility').count();
+  await page.setViewportSize({width:1440,height:1000});
+  await page.getByRole('button',{name:'跳转到第 1 页',exact:true}).click();
+  await page.getByText('fixture-account-001-changed',{exact:true}).waitFor();
+  await page.screenshot({path:'.tmp/upstream-table-browser-desktop.png',fullPage:false});
+  for(const kind of ['page','sort','pageSize','filter']) {
+    fixture.mode='fail';fixture.expectFailures=true;
+    const failed=page.waitForResponse(r=>r.url().includes('/upstream-management/accounts')&&r.status()===503);
+    if(kind==='page') await page.getByRole('button',{name:'跳转到第 2 页',exact:true}).click();
+    else if(kind==='sort') await page.getByRole('columnheader',{name:'优先级',exact:true}).click();
+    else if(kind==='pageSize') {await page.getByRole('button',{name:'Select option',exact:true}).click();await page.getByRole('option',{name:'100',exact:true}).click();}
+    else await page.locator('main input[type="text"]').first().fill('fixture-account');
+    await failed;await page.waitForTimeout(350);
+    result.checks[kind+'FailureClearsOldRows']=await page.locator('tbody tr[data-row-id]').count()===0;
+    result.checks[kind+'FailureNoUnhandled']=fixture.pageErrors.length===0;
+    fixture.mode='unchanged';
+    const recovered=page.waitForResponse(r=>r.url().includes('/upstream-management/accounts')&&r.status()===200);
+    if(kind==='page') await recovered;
+    else {await refresh.click();await recovered;}
+    await page.locator('tbody tr[data-row-id]').first().waitFor();
+    result.checks[kind+'FailureRecovers']=await page.locator('tbody tr[data-row-id]').count()>0;
+    await page.waitForTimeout(150);fixture.expectFailures=false;
+  }
+  result.expectedFailureConsoleErrors=fixture.expectedFailureErrors;
+  result.pageErrors=fixture.pageErrors;
+  result.listRequests=fixture.requests.filter(r=>r.path.endsWith('/upstream-management/accounts')).length;
+  result.independentQualityRequests=fixture.requests.filter(r=>r.path.includes('quality-stats')).length;
+  result.errors=fixture.errors;
+  result.finishedAt=new Date().toISOString();
+  return result;
+}

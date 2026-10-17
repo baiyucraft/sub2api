@@ -529,7 +529,7 @@ func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, ac
 	return item
 }
 
-func (h *AccountHandler) loadProxyConcurrency(ctx context.Context, accounts []service.Account) map[int64][]ProxyConcurrencyInfo {
+func (h *AccountHandler) loadProxyConcurrency(ctx context.Context, accounts []service.Account, evaluatedAt ...time.Time) map[int64][]ProxyConcurrencyInfo {
 	result := make(map[int64][]ProxyConcurrencyInfo)
 	proxyIDs := make([]int64, 0)
 	seen := make(map[int64]struct{})
@@ -560,7 +560,24 @@ func (h *AccountHandler) loadProxyConcurrency(ctx context.Context, accounts []se
 	for _, proxy := range proxies {
 		proxyByID[proxy.ID] = proxy
 	}
-	now := time.Now()
+	var proxyLoads map[service.AccountProxyConcurrencyTarget]int
+	if h.concurrencyService != nil {
+		targets := make([]service.AccountProxyConcurrencyTarget, 0)
+		for i := range accounts {
+			if group := accounts[i].ProxyIPGroup; group != nil {
+				for _, proxyID := range group.ProxyIDs {
+					targets = append(targets, service.AccountProxyConcurrencyTarget{AccountID: accounts[i].ID, ProxyID: proxyID})
+				}
+			}
+		}
+		proxyLoads, _ = h.concurrencyService.GetAccountProxyConcurrencyTargetsBatch(ctx, targets)
+	}
+	var now time.Time
+	if len(evaluatedAt) > 0 {
+		now = evaluatedAt[0]
+	} else {
+		now = time.Now()
+	}
 	for i := range accounts {
 		account := &accounts[i]
 		group := account.ProxyIPGroup
@@ -578,12 +595,7 @@ func (h *AccountHandler) loadProxyConcurrency(ctx context.Context, accounts []se
 				}
 				available = proxy.IsActive() && !proxy.IsExpired(now)
 			}
-			current := 0
-			if h.concurrencyService != nil {
-				if value, getErr := h.concurrencyService.GetAccountProxyConcurrency(ctx, account.ID, proxyID); getErr == nil {
-					current = value
-				}
-			}
+			current := proxyLoads[service.AccountProxyConcurrencyTarget{AccountID: account.ID, ProxyID: proxyID}]
 			rows = append(rows, ProxyConcurrencyInfo{
 				ProxyID: proxyID, ProxyName: name, CurrentConcurrency: current,
 				Limit: group.PerIPConcurrency, Available: available,
@@ -854,9 +866,10 @@ func (h *AccountHandler) listAccountsWithQualityFilter(
 	privacyMode, sortBy, sortOrder string,
 	scope service.AccountListScope,
 	qualityFilter service.AccountQualityFilter,
-) ([]service.Account, int64, error) {
+	evaluatedAt time.Time,
+) ([]service.Account, int64, map[int64]service.AccountQualityStats, error) {
 	if h.accountUsageService == nil {
-		return nil, 0, fmt.Errorf("account quality filtering is not supported")
+		return nil, 0, nil, fmt.Errorf("account quality filtering is not supported")
 	}
 
 	if reader, ok := h.adminService.(interface {
@@ -866,11 +879,11 @@ func (h *AccountHandler) listAccountsWithQualityFilter(
 		query := service.AccountQualityCandidatesQuery{Platform: platform, Type: accountType, Status: status, Search: search, GroupID: groupID, PrivacyMode: privacyMode, SortBy: sortBy, SortOrder: sortOrder, Scope: scope}
 		ids, err := reader.AccountQualityCandidateIDs(ctx, query)
 		if err != nil {
-			return nil, 0, err
+			return nil, 0, nil, err
 		}
-		stats, err := h.accountUsageService.GetAccountQualityStatsBatch(ctx, ids, time.Now().UTC())
+		stats, err := h.accountUsageService.GetAccountQualityStatsBatch(ctx, ids, evaluatedAt)
 		if err != nil {
-			return nil, 0, err
+			return nil, 0, nil, err
 		}
 		filtered := make([]int64, 0, len(ids))
 		for _, id := range ids {
@@ -881,11 +894,11 @@ func (h *AccountHandler) listAccountsWithQualityFilter(
 		total := int64(len(filtered))
 		start := (page - 1) * pageSize
 		if start >= len(filtered) {
-			return []service.Account{}, total, nil
+			return []service.Account{}, total, map[int64]service.AccountQualityStats{}, nil
 		}
 		end := min(start+pageSize, len(filtered))
 		accounts, err := reader.AccountQualityCandidatePage(ctx, query, filtered[start:end])
-		return accounts, total, err
+		return accounts, total, pageAccountQualityStats(accounts, stats), err
 	}
 
 	// Quality filtering must happen before the requested page is selected. Read
@@ -896,7 +909,7 @@ func (h *AccountHandler) listAccountsWithQualityFilter(
 	for candidatePage := 1; ; candidatePage++ {
 		items, total, err := h.listAccountsScoped(ctx, candidatePage, batchSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder, scope)
 		if err != nil {
-			return nil, 0, err
+			return nil, 0, nil, err
 		}
 		candidates = append(candidates, items...)
 		if len(items) == 0 || len(candidates) >= int(total) {
@@ -908,9 +921,9 @@ func (h *AccountHandler) listAccountsWithQualityFilter(
 	for i := range candidates {
 		accountIDs = append(accountIDs, candidates[i].ID)
 	}
-	qualityStats, err := h.accountUsageService.GetAccountQualityStatsBatch(ctx, accountIDs, time.Now().UTC())
+	qualityStats, err := h.accountUsageService.GetAccountQualityStatsBatch(ctx, accountIDs, evaluatedAt)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, nil, err
 	}
 
 	filtered := make([]service.Account, 0, len(candidates))
@@ -923,13 +936,22 @@ func (h *AccountHandler) listAccountsWithQualityFilter(
 	total := len(filtered)
 	start := (page - 1) * pageSize
 	if start >= total {
-		return []service.Account{}, int64(total), nil
+		return []service.Account{}, int64(total), map[int64]service.AccountQualityStats{}, nil
 	}
 	end := start + pageSize
 	if end > total {
 		end = total
 	}
-	return filtered[start:end], int64(total), nil
+	return filtered[start:end], int64(total), pageAccountQualityStats(filtered[start:end], qualityStats), nil
+}
+
+// Return only page IDs so filtering does not disclose statistics for other pages.
+func pageAccountQualityStats(accounts []service.Account, stats map[int64]service.AccountQualityStats) map[int64]service.AccountQualityStats {
+	page := make(map[int64]service.AccountQualityStats, len(accounts))
+	for i := range accounts {
+		page[accounts[i].ID] = stats[accounts[i].ID]
+	}
+	return page
 }
 
 func accountListUpstreamKeyIDs(accounts []service.Account) []int64 {
@@ -949,9 +971,20 @@ func accountListUpstreamKeyIDs(accounts []service.Account) []int64 {
 	return keyIDs
 }
 
-func (h *AccountHandler) accountListHealthConfidences(ctx context.Context, keyIDs []int64) map[int64]service.UpstreamHealthConfidenceSummary {
+func (h *AccountHandler) accountListHealthConfidences(ctx context.Context, keyIDs []int64, evaluatedAt ...time.Time) map[int64]service.UpstreamHealthConfidenceSummary {
 	if len(keyIDs) == 0 {
 		return nil
+	}
+	if len(evaluatedAt) > 0 {
+		if reader, ok := h.upstreamHealthReader.(interface {
+			GetUpstreamHealthConfidencesAt(context.Context, []int64, time.Time) (map[int64]service.UpstreamHealthConfidenceSummary, error)
+		}); ok {
+			results, err := reader.GetUpstreamHealthConfidencesAt(ctx, keyIDs, evaluatedAt[0])
+			if err != nil {
+				slog.Warn("failed to load upstream confidence summaries", "reason", "confidence_read_unavailable")
+			}
+			return results
+		}
 	}
 	if reader, ok := h.upstreamHealthReader.(service.UpstreamHealthConfidencesReader); ok {
 		results, err := reader.GetUpstreamHealthConfidences(ctx, keyIDs)
@@ -978,6 +1011,8 @@ func (h *AccountHandler) accountListHealthConfidences(ctx context.Context, keyID
 // List handles listing all accounts with pagination
 // GET /api/v1/admin/accounts
 func (h *AccountHandler) List(c *gin.Context) {
+	evaluatedAt := time.Now()
+	c.Header("X-Account-Evaluated-At", evaluatedAt.UTC().Format(time.RFC3339Nano))
 	page, pageSize := response.ParsePagination(c)
 	platform := c.Query("platform")
 	accountType := c.Query("type")
@@ -1003,6 +1038,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 		search = search[:100]
 	}
 	lite := parseBoolQueryWithDefault(c.Query("lite"), false)
+	includeQuality := parseBoolQueryWithDefault(c.Query("include_quality"), false)
 	// 调度分需要跨候选池批量打分并读取负载，默认列表不计算；只有前端列可见时才显式开启。
 	includeSchedulerScore := parseBoolQueryWithDefault(c.Query("include_scheduler_score"), false)
 	scope := service.AccountListScope(strings.TrimSpace(c.Query("scope")))
@@ -1069,13 +1105,19 @@ func (h *AccountHandler) List(c *gin.Context) {
 	var accounts []service.Account
 	var total int64
 	var err error
+	var qualityStats map[int64]service.AccountQualityStats
+	qualityStatus := "ok"
 	if qualityFilter != "" {
-		accounts, total, err = h.listAccountsWithQualityFilter(listCtx, page, pageSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder, scope, qualityFilter)
+		accounts, total, qualityStats, err = h.listAccountsWithQualityFilter(listCtx, page, pageSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder, scope, qualityFilter, evaluatedAt)
 	} else {
 		accounts, total, err = h.listAccountsScoped(listCtx, page, pageSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder, scope)
 	}
 	if err != nil {
-		response.ErrorFrom(c, err)
+		if qualityFilter != "" {
+			response.ErrorFrom(c, infraerrors.ServiceUnavailable("ACCOUNT_QUALITY_FILTER_UNAVAILABLE", "Account quality filtering is temporarily unavailable"))
+		} else {
+			response.ErrorFrom(c, err)
+		}
 		return
 	}
 	if len(accounts) > 0 {
@@ -1109,7 +1151,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 	var windowCosts map[int64]float64
 	var activeSessions map[int64]int
 	var rpmCounts map[int64]int
-	proxyConcurrency := h.loadProxyConcurrency(c.Request.Context(), accounts)
+	var proxyConcurrency map[int64][]ProxyConcurrencyInfo
 	// 双重门控：用户要看该列，且当前页确实有 OpenAI 账号，才进入昂贵的候选池打分路径。
 	var schedulerScores map[int64]*AccountSchedulerScore
 	var schedulerGroupScores map[int64][]AccountSchedulerGroupScore
@@ -1126,37 +1168,11 @@ func (h *AccountHandler) List(c *gin.Context) {
 		schedulerScores, schedulerGroupScores = h.buildOpenAIAccountSchedulerScores(c.Request.Context(), accounts, schedulerFilterPool)
 	}
 
-	// 始终获取调度并发数；上游账号按 upstream_config_id 共享同一目标。
-	if h.concurrencyService != nil {
-		loadReq := make([]service.AccountWithConcurrency, 0, len(accounts))
-		for i := range accounts {
-			loadReq = append(loadReq, service.AccountConcurrencyLoadDescriptor(&accounts[i]))
-		}
-		if loads, loadErr := h.concurrencyService.GetAccountsLoadBatch(c.Request.Context(), loadReq); loadErr == nil {
-			for accountID, load := range loads {
-				if load != nil {
-					concurrencyCounts[accountID] = load.CurrentConcurrency
-				}
-			}
-		}
-	}
-	if h.ttftGuardReader != nil && len(ttftGuardAccountIDs) > 0 {
-		ttftGuardDegradations = h.ttftGuardReader.OpenAITTFTGuardDegradations(ttftGuardAccountIDs)
-	}
 	upstreamKeyIDs := accountListUpstreamKeyIDs(accounts)
-	upstreamConfidences := h.accountListHealthConfidences(c.Request.Context(), upstreamKeyIDs)
-	protectionEvaluatedAt := time.Now()
+	protectionEvaluatedAt := evaluatedAt
 	upstreamCacheGuardViews := service.UpstreamCacheGuardAccountViewsBatchAt(accounts, protectionEvaluatedAt)
 	upstreamProtections := h.upstreamProtectionsBatchAt(accounts, upstreamCacheGuardViews, protectionEvaluatedAt)
-	if scope == service.AccountListScopeUpstream && h.upstreamHealthReader != nil {
-		if len(upstreamKeyIDs) > 0 {
-			upstreamHealthHistories, err = h.upstreamHealthReader.ListUpstreamHealthHistories(c.Request.Context(), upstreamKeyIDs, service.UpstreamHealthListHistoryLimit)
-			if err != nil {
-				slog.Warn("failed to load upstream health histories", "error", err)
-				upstreamHealthHistories = nil
-			}
-		}
-	}
+	var upstreamConfidences map[int64]service.UpstreamHealthConfidenceSummary
 
 	// 识别需要查询窗口费用、会话数和 RPM 的账号（Anthropic OAuth/SetupToken 且启用了相应功能）
 	windowCostAccountIDs := make([]int64, 0)
@@ -1182,38 +1198,96 @@ func (h *AccountHandler) List(c *gin.Context) {
 		}
 	}
 
-	// 始终获取 RPM 计数（Redis GET，极低开销）
+	// Independent page-wide reads overlap, with a strict per-request fanout cap.
+	// Tasks write disjoint results; response assembly starts only after Wait.
+	reads := new(errgroup.Group)
+	reads.SetLimit(4)
+	reads.Go(func() error { proxyConcurrency = h.loadProxyConcurrency(listCtx, accounts, evaluatedAt); return nil })
+	if h.concurrencyService != nil {
+		reads.Go(func() error {
+			loadReq := make([]service.AccountWithConcurrency, 0, len(accounts))
+			for i := range accounts {
+				loadReq = append(loadReq, service.AccountConcurrencyLoadDescriptor(&accounts[i]))
+			}
+			if loads, loadErr := h.concurrencyService.GetAccountsLoadBatch(listCtx, loadReq); loadErr == nil {
+				for id, load := range loads {
+					if load != nil {
+						concurrencyCounts[id] = load.CurrentConcurrency
+					}
+				}
+			}
+			return nil
+		})
+	}
+	if h.ttftGuardReader != nil && len(ttftGuardAccountIDs) > 0 {
+		reads.Go(func() error {
+			ttftGuardDegradations = h.ttftGuardReader.OpenAITTFTGuardDegradations(ttftGuardAccountIDs)
+			return nil
+		})
+	}
+	reads.Go(func() error {
+		upstreamConfidences = h.accountListHealthConfidences(listCtx, upstreamKeyIDs, evaluatedAt)
+		return nil
+	})
+	if scope == service.AccountListScopeUpstream && h.upstreamHealthReader != nil && len(upstreamKeyIDs) > 0 {
+		reads.Go(func() error {
+			histories, readErr := h.upstreamHealthReader.ListUpstreamHealthHistories(listCtx, upstreamKeyIDs, service.UpstreamHealthListHistoryLimit)
+			if readErr != nil {
+				slog.Warn("failed to load upstream health histories", "reason", "health_history_read_unavailable")
+			} else {
+				upstreamHealthHistories = histories
+			}
+			return nil
+		})
+	}
 	if len(rpmAccountIDs) > 0 && h.rpmCache != nil {
-		rpmCounts, _ = h.rpmCache.GetRPMBatch(c.Request.Context(), rpmAccountIDs)
-		if rpmCounts == nil {
-			rpmCounts = make(map[int64]int)
-		}
+		reads.Go(func() error { rpmCounts, _ = h.rpmCache.GetRPMBatch(listCtx, rpmAccountIDs); return nil })
 	}
-
-	// 始终获取活跃会话数（Redis ZCARD，低开销）
 	if len(sessionLimitAccountIDs) > 0 && h.sessionLimitCache != nil {
-		activeSessions, _ = h.sessionLimitCache.GetActiveSessionCountBatch(c.Request.Context(), sessionLimitAccountIDs, sessionIdleTimeouts)
-		if activeSessions == nil {
-			activeSessions = make(map[int64]int)
-		}
+		reads.Go(func() error {
+			activeSessions, _ = h.sessionLimitCache.GetActiveSessionCountBatch(listCtx, sessionLimitAccountIDs, sessionIdleTimeouts)
+			return nil
+		})
 	}
-
-	// Use each account's own inclusive window boundary in one aggregate query.
 	if len(windowCostAccountIDs) > 0 && h.accountUsageService != nil {
 		starts := make(map[int64]time.Time, len(windowCostAccountIDs))
 		for i := range accounts {
 			acc := &accounts[i]
 			if acc.IsAnthropicOAuthOrSetupToken() && acc.GetWindowCostLimit() > 0 {
-				starts[acc.ID] = acc.GetCurrentWindowStartTime()
+				if acc.SessionWindowStart != nil && acc.SessionWindowEnd != nil && evaluatedAt.Before(*acc.SessionWindowEnd) {
+					starts[acc.ID] = *acc.SessionWindowStart
+				} else {
+					starts[acc.ID] = time.Date(evaluatedAt.Year(), evaluatedAt.Month(), evaluatedAt.Day(), evaluatedAt.Hour(), 0, 0, 0, evaluatedAt.Location())
+				}
 			}
 		}
-		windowCosts = make(map[int64]float64, len(starts))
-		for id, stats := range h.accountUsageService.GetAccountWindowStatsByStarts(c.Request.Context(), starts) {
-			if stats != nil {
-				windowCosts[id] = stats.StandardCost
+		reads.Go(func() error {
+			windowCosts = make(map[int64]float64, len(starts))
+			for id, stats := range h.accountUsageService.GetAccountWindowStatsByStarts(listCtx, starts) {
+				if stats != nil {
+					windowCosts[id] = stats.StandardCost
+				}
 			}
-		}
+			return nil
+		})
 	}
+	if includeQuality && qualityStats == nil {
+		reads.Go(func() error {
+			if h.accountUsageService == nil {
+				qualityStatus = "unavailable"
+				return nil
+			}
+			var readErr error
+			qualityStats, readErr = h.accountUsageService.GetAccountQualityStatsBatch(listCtx, accountIDs, evaluatedAt)
+			if readErr != nil {
+				qualityStats = nil
+				qualityStatus = "unavailable"
+			}
+			return nil
+		})
+	}
+	_ = reads.Wait()
+	upstreamHealthSnapshots := service.GlobalUpstreamHealthRegistry().Snapshots(upstreamKeyIDs)
 
 	// Build response with concurrency info
 	result := make([]AccountWithConcurrency, len(accounts))
@@ -1254,7 +1328,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 			item.AvailableActions = upstreamAccountAvailableActions(acc)
 		}
 		if acc.UpstreamKeyID != nil {
-			health := service.GlobalUpstreamHealthRegistry().Snapshot(*acc.UpstreamKeyID)
+			health := upstreamHealthSnapshots[*acc.UpstreamKeyID]
 			if confidence, ok := upstreamConfidences[*acc.UpstreamKeyID]; ok {
 				health = service.MergeUpstreamHealthConfidence(health, confidence)
 			}
@@ -1313,7 +1387,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 				ProxyConcurrency:                item.ProxyConcurrency,
 			}
 		}
-		etag := buildAccountsListETag(compact, total, page, pageSize, platform, accountType, status, search, true, scope, c.Query("upstream_config_id"), c.Query("upstream_key_id"), preferredQuery, qualityFilterQuery)
+		etag := buildAccountsListETag(compact, total, page, pageSize, platform, accountType, status, search, true, scope, c.Query("upstream_config_id"), c.Query("upstream_key_id"), preferredQuery, qualityFilterQuery, accountListQualityETag(includeQuality, qualityStats, qualityStatus))
 		if etag != "" {
 			c.Header("ETag", etag)
 			c.Header("Vary", "If-None-Match")
@@ -1322,11 +1396,11 @@ func (h *AccountHandler) List(c *gin.Context) {
 				return
 			}
 		}
-		response.Paginated(c, compact, total, page, pageSize)
+		writeAccountListPage(c, compact, total, page, pageSize, includeQuality, qualityStats, qualityStatus)
 		return
 	}
 
-	etag := buildAccountsListETag(result, total, page, pageSize, platform, accountType, status, search, false, scope, c.Query("upstream_config_id"), c.Query("upstream_key_id"), preferredQuery, qualityFilterQuery)
+	etag := buildAccountsListETag(result, total, page, pageSize, platform, accountType, status, search, false, scope, c.Query("upstream_config_id"), c.Query("upstream_key_id"), preferredQuery, qualityFilterQuery, accountListQualityETag(includeQuality, qualityStats, qualityStatus))
 	if etag != "" {
 		c.Header("ETag", etag)
 		c.Header("Vary", "If-None-Match")
@@ -1336,7 +1410,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 		}
 	}
 
-	response.Paginated(c, result, total, page, pageSize)
+	writeAccountListPage(c, result, total, page, pageSize, includeQuality, qualityStats, qualityStatus)
 }
 
 func buildAccountsListETag[T any](
@@ -1381,6 +1455,7 @@ func buildAccountsListETag[T any](
 		Preferred        string                   `json:"preferred"`
 		QualityFilter    string                   `json:"quality_filter"`
 		Items            []T                      `json:"items"`
+		Quality          any                      `json:"quality,omitempty"`
 	}{
 		Total:            total,
 		Page:             page,
@@ -1396,6 +1471,7 @@ func buildAccountsListETag[T any](
 		Preferred:        preferred,
 		QualityFilter:    qualityFilter,
 		Items:            items,
+		Quality:          accountListETagExtension(scopesAndFilters),
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {
@@ -3268,32 +3344,33 @@ func (h *AccountHandler) GetBatchQualityStats(c *gin.Context) {
 		return
 	}
 
-	cacheKey := buildAccountQualityStatsBatchCacheKey(accountIDs)
-	cached, hit, err := accountQualityStatsBatchCache.GetOrLoad(cacheKey, func() (any, error) {
-		stats, loadErr := h.accountUsageService.GetAccountQualityStatsBatch(c.Request.Context(), accountIDs, time.Now().UTC())
-		if loadErr != nil {
-			return nil, loadErr
-		}
-		return gin.H{"stats": stats}, nil
-	})
+	evaluatedAt := time.Now().UTC()
+	c.Header("X-Account-Evaluated-At", evaluatedAt.Format(time.RFC3339Nano))
+	readCtx := c.Request.Context()
+	if subject, ok := middleware.GetAuthSubjectFromContext(c); ok {
+		role, _ := middleware.GetUserRoleFromContext(c)
+		readCtx = service.WithAccountListReadAuthorization(readCtx, subject.UserID, role)
+	}
+	stats, err := h.accountUsageService.GetAccountQualityStatsBatch(readCtx, accountIDs, evaluatedAt)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
-	if cached.ETag != "" {
-		c.Header("ETag", cached.ETag)
-		c.Header("Vary", "If-None-Match")
+	payload := gin.H{"stats": stats}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		response.InternalError(c, "Failed to encode account quality statistics")
+		return
 	}
-	if hit {
-		c.Header("X-Snapshot-Cache", "hit")
-	} else {
-		c.Header("X-Snapshot-Cache", "miss")
-	}
-	if cached.ETag != "" && ifNoneMatchMatched(c.GetHeader("If-None-Match"), cached.ETag) {
+	sum := sha256.Sum256(raw)
+	etag := "\"" + hex.EncodeToString(sum[:]) + "\""
+	c.Header("ETag", etag)
+	c.Header("Vary", "If-None-Match")
+	if ifNoneMatchMatched(c.GetHeader("If-None-Match"), etag) {
 		c.Status(http.StatusNotModified)
 		return
 	}
-	response.Success(c, cached.Payload)
+	response.Success(c, payload)
 }
 
 // GetBatchUsage 批量获取多个账号的 current usage。

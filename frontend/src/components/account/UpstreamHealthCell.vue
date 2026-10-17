@@ -35,7 +35,7 @@
         {{ health.last_traffic_status || '-' }} ·
         {{ health.last_evidence_at ? formatDateTime(health.last_evidence_at) : '-' }}
       </div>
-      <div>{{ t('admin.upstreamManagement.health.schedulable') }}: {{ account.schedulable ? t('common.yes') : t('common.no') }}</div>
+      <div>{{ t('admin.upstreamManagement.health.schedulable') }}: {{ schedulable ? t('common.yes') : t('common.no') }}</div>
       <div>{{ t('admin.upstreamManagement.health.failures') }}: {{ health.consecutive_failures }}</div>
       <div>
         {{ t('admin.upstreamManagement.health.recovery') }}:
@@ -194,15 +194,21 @@ import type { Account } from '@/types'
 import { formatDateTime } from '@/utils/format'
 import UpstreamHealthHistory from './UpstreamHealthHistory.vue'
 
-const props = defineProps<{
-  account: Account
-}>()
+const props = withDefaults(defineProps<{
+  /** Retained for existing consumers; the upstream table supplies narrow props. */
+  account?: Account
+  snapshot?: Account['upstream_health']
+  platform?: string
+  schedulable?: boolean
+}>(), { schedulable: undefined })
 const emit = defineEmits<{ (event: 'showHistory'): void }>()
 
 const { t, te } = useI18n()
 
-const health = computed(() => props.account.upstream_health)
-const distribution = computed(() => props.account.platform?.toLowerCase() === 'openai'
+const health = computed(() => props.snapshot ?? props.account?.upstream_health)
+const platform = computed(() => props.platform ?? props.account?.platform)
+const schedulable = computed(() => props.schedulable ?? props.account?.schedulable)
+const distribution = computed(() => platform.value?.toLowerCase() === 'openai'
   ? health.value?.confidence_distribution : undefined)
 const distributionCurrentPolicy = computed(() => distribution.value?.sampling_policy_version === 2)
 const distributionLabel = computed(() => {
@@ -296,13 +302,13 @@ const healthReasonLabel = computed(() => {
 })
 
 const showConfidence = computed(() =>
-  props.account.platform?.toLowerCase() === 'openai' &&
-  props.account.upstream_health?.confidence_prompt_version === 'openai-juice-multiprobe-v2' &&
-  ((props.account.upstream_health?.confidence_valid_completed_24h || props.account.upstream_health?.confidence_sample_count_24h || 0) > 0 ||
-    (props.account.upstream_health?.confidence_valid_completed_7d || props.account.upstream_health?.confidence_sample_count_7d || 0) > 0 ||
-    (props.account.upstream_health?.confidence_coverage_hard_anomaly_24h || 0) > 0 ||
-    (props.account.upstream_health?.confidence_output_rewrite_24h || 0) > 0 ||
-    Boolean(props.account.upstream_health?.confidence_evidence))
+  platform.value?.toLowerCase() === 'openai' &&
+  health.value?.confidence_prompt_version === 'openai-juice-multiprobe-v2' &&
+  ((health.value?.confidence_valid_completed_24h || health.value?.confidence_sample_count_24h || 0) > 0 ||
+    (health.value?.confidence_valid_completed_7d || health.value?.confidence_sample_count_7d || 0) > 0 ||
+    (health.value?.confidence_coverage_hard_anomaly_24h || 0) > 0 ||
+    (health.value?.confidence_output_rewrite_24h || 0) > 0 ||
+    Boolean(health.value?.confidence_evidence))
 )
 const evidence = computed(() => health.value?.confidence_evidence as Record<string, unknown> | undefined)
 const hardAnomaly = computed(() => (health.value?.confidence_coverage_hard_anomaly_24h || 0) > 0 || (health.value?.confidence_output_rewrite_24h || 0) > 0)

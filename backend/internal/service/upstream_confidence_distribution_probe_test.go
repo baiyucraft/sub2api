@@ -164,7 +164,6 @@ func TestDistributionConfidenceUnavailableClearsCachedVerdicts(t *testing.T) {
 		{name: "invalid endpoint", reason: "probe_base_url_invalid", mutate: func(a *Account) { a.Credentials["base_url"] = "not-a-url-sensitive-secret" }},
 		{name: "unsupported model", reason: "probe_model_unsupported", mutate: func(a *Account) { a.Credentials["model_mapping"] = map[string]any{"different": "model"} }},
 		{name: "missing resolver", reason: "request_configuration_unavailable", noResolver: true},
-		{name: "legacy read failed", reason: "confidence_read_unavailable", readerErr: errors.New("synthetic-sensitive-db-error")},
 		{name: "distribution read failed", reason: "confidence_read_unavailable", distributionErr: errors.New("synthetic-sensitive-db-error"), wantDistributionReads: 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

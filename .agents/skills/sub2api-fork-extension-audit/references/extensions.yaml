@@ -134,21 +134,23 @@
     "268": {"version":"0.2.16-baiyu","parent":"267","gate_schema":2,"new_migrations":["296_upstream_cache_guard.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
     "269": {"version":"0.2.16-baiyu","parent":"268","gate_schema":2,"new_migrations":["297_upstream_cache_guard_account_scope.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
     "270": {"version":"0.2.16-baiyu","parent":"269","gate_schema":2,"new_migrations":["298_group_scheduling_protection_policies.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
-    "271": {"version":"0.2.16-baiyu","parent":"270","gate_schema":2,"new_migrations":["299_upstream_cache_guard_revisions.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}}
+    "271": {"version":"0.2.16-baiyu","parent":"270","gate_schema":2,"new_migrations":["299_upstream_cache_guard_revisions.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
+    "272": {"version":"0.2.17-baiyu","parent":"271","gate_schema":2,"new_migrations":[],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}}
   },
   "current_profile": {
-    "id": "272",
+    "id": "273",
     "status": "pending",
     "version": "0.2.17-baiyu",
-    "parent": "271",
+    "parent": "272",
     "gate_schema": 2,
-    "new_migrations": [],
+    "new_migrations": ["300_upstream_health_history_index.sql"],
     "release_policy": {
       "compatibility_image": "production_current",
       "migration_source": "database_state"
     }
   },
   "migration_contracts": {
+    "300_upstream_health_history_index.sql": "83215f619d9b5c0eb462f7c2c04db97bc3e067952e2e39baaca8f2cbf9636696",
     "299_upstream_cache_guard_revisions.sql": "203ff042c1129f24549c696d6fdcb0dc27b0fedcff8f7e61413520b4bf9cc856",
     "297_upstream_cache_guard_account_scope.sql": "a17cdd895a2fd8306eebc4d21c4c93ae22defaa93f9e54e2e7b8208ed2725244",
     "296_upstream_cache_guard.sql": "2b898a8b429766799819f7ee83052adfc269bbb58f493ea44ebbc023f1576b5d",
@@ -264,6 +266,10 @@
     "official_238_purge_unlimited_user_platform_quotas": "275_purge_unlimited_user_platform_quotas.sql"
   },
   "migration_assertions": {
+    "backend/migrations/300_upstream_health_history_index.sql": [
+      "CREATE INDEX IF NOT EXISTS idx_upstream_health_observations_key_recent",
+      "ON upstream_health_observations (upstream_key_id, observed_at DESC, id DESC)"
+    ],
     "backend/migrations/299_upstream_cache_guard_revisions.sql": ["CREATE TABLE IF NOT EXISTS upstream_cache_guard_fact_versions", "CREATE TRIGGER upstream_cache_guard_fact_revision", "has_pending_admissions", "idx_cache_guard_runtime_active_sessions", "idx_cache_guard_runtime_pending_sessions", "idx_cache_guard_processed_account_time"],
     "backend/migrations/297_upstream_cache_guard_account_scope.sql": ["ADD COLUMN upstream_key_id BIGINT NOT NULL DEFAULT 0", "idx_upstream_cache_guard_account_history", "CREATE TABLE upstream_cache_guard_accounts", "PRIMARY KEY (account_id, upstream_key_id)"],
     "backend/migrations/296_upstream_cache_guard.sql": ["CREATE TABLE IF NOT EXISTS upstream_cache_guard_facts", "PRIMARY KEY (group_id, evidence_id)", "WHERE valid_sample = TRUE", "CREATE TABLE IF NOT EXISTS upstream_cache_guard_runtime", "PRIMARY KEY (group_id, state_kind, state_key)", "state_kind IN ('group', 'account', 'session')"],
@@ -463,6 +469,121 @@
   },
   "registered_support_paths": [".agents/skills/sub2api-production-deploy/**", ".agents/skills/sub2api-fork-extension-audit/**", "backend/**", "frontend/**", "deploy/**", "Dockerfile", "Makefile", "DEV_GUIDE.md", "README*.md", "docs/**", ".docs/codex-key-traffic-audit-2026-09-19-ttft.md", ".docs/codex-key-traffic-audit-2026-09-19-ttft.summary.json", ".docs/codex-key-traffic-audit-2026-09-19.md", ".docs/codex-key-traffic-audit-2026-09-19.summary.json", "skills/sub2api-admin/SKILL.md", "skills/sub2api-admin/references/admin-cli.md", "openspec/**", "重磅推出活动.md", ".gitignore", ".gitattributes", ".dockerignore"],
   "extensions": [
+    {
+      "id": "upstream-account-table-refresh-performance",
+      "title": "上游账号表健康质量批量计算与刷新稳定性",
+      "description": "每Key有界健康历史与精确confidence分流，列表内联质量和筛选结果复用，进行中读取共享与独立取消，前端统一请求身份和递归结构共享。",
+      "ownership": "fork",
+      "risk_level": "high",
+      "paths": [
+        ".agents/skills/sub2api-production-deploy/scripts/perf/upstream-table/pg_cpu_sample.py",
+        ".agents/skills/sub2api-production-deploy/scripts/perf/upstream-table/remote_job.py",
+        ".agents/skills/sub2api-production-deploy/scripts/perf/upstream-table/prepare.py",
+        ".agents/skills/sub2api-production-deploy/scripts/perf/upstream-table/run.py",
+        ".agents/skills/sub2api-production-deploy/scripts/perf/upstream-table/validate.py",
+        ".agents/skills/sub2api-production-deploy/scripts/perf/upstream-table/compare.py",
+        ".agents/skills/sub2api-production-deploy/scripts/perf/upstream-table/race.py",
+        ".agents/skills/sub2api-production-deploy/scripts/perf/upstream-table/test_tools.py",
+        ".agents/skills/sub2api-production-deploy/scripts/perf/upstream-table/README.md",
+        ".agents/skills/sub2api-production-deploy/scripts/perf/upstream-table/browser/README.md",
+        ".agents/skills/sub2api-production-deploy/scripts/perf/upstream-table/browser/run.ps1",
+        ".agents/skills/sub2api-production-deploy/scripts/perf/upstream-table/browser/serve.cjs",
+        ".agents/skills/sub2api-production-deploy/scripts/perf/upstream-table/browser/fixture.js",
+        ".agents/skills/sub2api-production-deploy/scripts/perf/upstream-table/browser/automatic-mode.js",
+        ".agents/skills/sub2api-production-deploy/scripts/perf/upstream-table/browser/runtime-info.js",
+        ".agents/skills/sub2api-production-deploy/scripts/perf/upstream-table/browser/smoke.js",
+        ".agents/skills/sub2api-production-deploy/scripts/perf/upstream-table/browser/refresh-cpu.js",
+        ".agents/skills/sub2api-production-deploy/scripts/perf/upstream-table/browser/native-scroll.js",
+        ".agents/skills/sub2api-production-deploy/scripts/perf/upstream-table/browser/stability-start.js",
+        ".agents/skills/sub2api-production-deploy/scripts/perf/upstream-table/browser/short-stability-start.js",
+        ".agents/skills/sub2api-production-deploy/scripts/perf/upstream-table/browser/stability-read.js",
+        ".agents/skills/sub2api-production-deploy/scripts/perf/upstream-table/matrix_test.go.txt",
+        ".agents/skills/sub2api-production-deploy/scripts/perf/upstream-table/perfmatrix_cache_stats.go.txt",
+        ".agents/skills/sub2api-production-deploy/scripts/perf/upstream-table/perfmatrix_cache_snapshot.go.txt",
+        ".agents/skills/sub2api-production-deploy/scripts/perf/upstream-table/baseline_quality_cache.go.txt",
+        "backend/internal/handler/admin/account_handler.go",
+        "backend/internal/handler/admin/account_quality_stats_cache.go",
+        "backend/internal/service/account_quality.go",
+        "backend/internal/service/account_usage_service.go",
+        "backend/internal/service/concurrency_service.go",
+        "backend/internal/service/upstream_config.go",
+        "backend/internal/repository/concurrency_cache.go",
+        "backend/internal/service/upstream_health_confidence_batch.go",
+        "backend/internal/repository/upstream_health_confidence_sql.go",
+        "backend/internal/repository/upstream_health_observation_repo.go",
+        "backend/internal/repository/upstream_config_repo.go",
+        "backend/internal/repository/usage_log_repo_stats.go",
+        "frontend/src/api/admin/upstreamManagement.ts",
+        "frontend/src/views/admin/AccountsView.vue",
+        "frontend/src/components/account/AccountQualityCell.vue",
+        "frontend/src/components/account/UpstreamHealthCell.vue",
+        "frontend/src/components/admin/account/UpstreamKeyEventsDialog.vue",
+        "frontend/src/components/common/DataTable.vue",
+        "frontend/src/utils/replaceEqualDeep.ts",
+        "frontend/src/utils/format.ts",
+        "frontend/src/composables/useMinuteClock.ts",
+        "frontend/src/i18n/locales/zh/admin/accounts.ts",
+        "frontend/src/i18n/locales/en/admin/accounts.ts",
+        "frontend/src/i18n/locales/zh/admin/upstreamManagement.ts",
+        "frontend/src/i18n/locales/en/admin/upstreamManagement.ts",
+        "backend/migrations/300_upstream_health_history_index.sql"
+      ],
+      "symbols": [
+        "include_quality",
+        "quality_stats_status",
+        "X-Account-Evaluated-At",
+        "GetAccountQualityStatsBatch",
+        "ListUpstreamHealthHistories",
+        "replaceEqualDeep",
+        "useMinuteClock"
+      ],
+      "api_routes": [
+        "/admin/upstream-management/accounts",
+        "/admin/accounts",
+        "/admin/accounts/quality-stats/batch"
+      ],
+      "settings_keys": [],
+      "migration_files": [
+        "300_upstream_health_history_index.sql"
+      ],
+      "required_tests": [
+        ".agents/skills/sub2api-production-deploy/scripts/perf/upstream-table/test_tools.py",
+        ".agents/skills/sub2api-production-deploy/scripts/perf/upstream-table/browser/smoke.js",
+        ".agents/skills/sub2api-production-deploy/scripts/perf/upstream-table/browser/short-stability-start.js",
+        "backend/internal/handler/admin/account_list_quality_response_test.go",
+        "backend/internal/service/account_quality_shared_read_test.go",
+        "backend/internal/repository/upstream_health_history_batch_test.go",
+        "backend/internal/repository/upstream_health_confidence_counts_test.go",
+        "backend/internal/repository/upstream_health_postgres_equivalence_test.go",
+        "backend/internal/repository/upstream_table_migration300_pg_test.go",
+        "backend/internal/repository/upstream_table_proxy_redis_test.go",
+        "backend/internal/repository/usage_log_repo_quality_single_pass_pg_test.go",
+        "backend/internal/service/upstream_health_confidence_batch_test.go",
+        "backend/internal/service/concurrency_service_test.go",
+        "frontend/src/views/admin/__tests__/AccountsView.upstreamManagement.spec.ts",
+        "frontend/src/components/admin/account/__tests__/UpstreamKeyEventsDialog.spec.ts",
+        "frontend/src/components/common/__tests__/DataTable.spec.ts",
+        "frontend/src/utils/__tests__/replaceEqualDeep.spec.ts",
+        "frontend/src/utils/__tests__/formatNumberCache.spec.ts",
+        "frontend/src/composables/__tests__/useMinuteClock.spec.ts",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile273_release_contract.py"
+      ],
+      "invariants": [
+        "健康历史每Key最新24条，observed_at/id平局与展示顺序不变；软删除Key不复活；仅无持久历史有效Key读旧extra",
+        "legacy与distribution先按身份分流，独立模式不受无关legacy故障影响；精确JSON分类/24h和7d计数/最新有分数证据及CAS保留，所有窗口evidence含未知嵌套数字保留Go float64解码失败语义，管理读取不推进探测或恢复",
+        "质量v5与窗口/成功条件/NULL duration/错误去重不变；筛选和展示复用同一评估时间结果；隐藏且无筛选跳过计算",
+        "include_quality为可选兼容字段，普通质量失败200+unavailable，质量筛选失败503不得伪造分页；完整业务响应后才比较ETag",
+        "账号质量无固定TTL完成缓存；只共享权限/完整条件/账号集/精确窗口相同的在途读取，独立取消且最后等待者退出才取消底层",
+        "质量跟随整表5/10/15/30秒；手动重算；上下文代次与取消阻止旧响应；同上下文失败保留同账号同Key质量并按所选周期重试，换页或筛选立即清空旧行/总数且失败不得借旧数据显示选择导出；详情暂停底表且关闭仅补一轮",
+        "JSON完整递归结构共享及窄props保留无变化引用；移动content-visibility只优化布局绘制，不计为DOM下降",
+        "数值格式化仅缓存最多64个Intl.NumberFormat对象，键覆盖locale与完整options，不缓存数值结果；日期隐式时区行为不改变且不缓存",
+        "独立批量读取每请求最多4项并发，Redis全页batch；展示失败不改健康或调度事实；缓存5/30秒及TTFT15分钟合同不变",
+        "profile273 parent272同版本0.2.17-baiyu仅新增300非唯一索引，历史profile/SQL/checksum不可变，未知274拒绝；本地测试不代替签名Gate及生产发布",
+        "真实性能使用同机同频同负载至少3次对照，P99至少1000样本，原始trace放.tmp；未完成或未达明确报告，不降低刷新/准确性换指标",
+        "本次交付以代码正确、判断等价、刷新稳定、最终构建及浏览器功能为要求；50ms/32ms/25%等原性能目标未完整达成，保留为参考且不阻挡交付，不声称完整矩阵或浏览器性能全部达标",
+        "浏览器工具仅本地生产构建与合成API，最终采用功能smoke与真实2分钟短检查；运行时记录准确浏览器版本，可选标准/4倍降速分开，30分钟长测未执行保持未测，不借旧构建或短检查冒充最终30分钟验证"
+      ]
+    },
     {
       "id": "scheduling-protection-performance",
       "title": "调度保护与管理自动刷新性能合同",
@@ -1618,7 +1739,7 @@
     {
       "id": "migration-profile-contract",
       "title": "Migration、profile、版本与历史证据",
-      "description": "维护fork migration、官方重编号、历史profile233–271与pending profile272、版本、checksum及兼容身份。",
+      "description": "维护fork migration、官方重编号、历史profile233–272与pending profile273、版本、checksum及兼容身份。",
       "ownership": "fork",
       "risk_level": "critical",
       "paths": [
@@ -1661,6 +1782,7 @@
       "api_routes": [],
       "settings_keys": [],
       "migration_files": [
+        "300_upstream_health_history_index.sql",
         "292_group_i18n.sql",
         "293_gemini_cached_contents.sql",
         "294_gemini_cached_contents_channel_usage.sql",
@@ -1720,6 +1842,8 @@
         "298_group_scheduling_protection_policies.sql"
       ],
       "required_tests": [
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile273_release_contract.py",
+        "backend/internal/repository/upstream_table_migration300_pg_test.go",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile267_release_contract.py",
         "backend/migrations/profile_267_migrations_test.go",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile266_release_contract.py",

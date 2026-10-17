@@ -166,6 +166,8 @@ const mountView = (scope: 'all' | 'ordinary' | 'upstream' = 'upstream') => mount
               <slot name="cell-rate_multiplier" :row="row" :value="row.rate_multiplier" />
               <slot name="cell-usage" :row="row" />
               <slot name="cell-status" :row="row" />
+              <slot name="cell-quality_stats" :row="row" />
+              <slot name="cell-upstream_health" :row="row" />
               <slot name="cell-actions" :row="row" />
             </div></template>
           </div>
@@ -273,6 +275,8 @@ describe('admin AccountsView upstream management mode', () => {
         updated_at: '2026-08-10T00:00:00Z'
       }],
       total: 1,
+      quality_stats: {},
+      quality_stats_status: 'ok',
       page: 1,
       page_size: 20,
       pages: 1
@@ -606,33 +610,158 @@ describe('admin AccountsView upstream management mode', () => {
     wrapper.unmount()
   })
 
-  it('refreshes list, today stats and quality stats on separate due intervals', async () => {
+  it('refreshes upstream quality with every list evaluation while today totals retain their interval', async () => {
     vi.useFakeTimers()
     localStorage.setItem('upstream-account-auto-refresh', JSON.stringify({ enabled: true, interval_seconds: 5 }))
 
     const wrapper = mountView('upstream')
     await flushPromises()
     expect(getBatchTodayStats).toHaveBeenCalledTimes(1)
-    expect(getBatchQualityStats).toHaveBeenCalledTimes(1)
+    expect(getBatchQualityStats).not.toHaveBeenCalled()
+    expect(upstreamList).toHaveBeenCalledWith(expect.objectContaining({ include_quality: '1' }), expect.anything())
 
     await vi.advanceTimersByTimeAsync(5_000)
     await flushPromises()
     expect(upstreamListWithEtag).toHaveBeenCalledTimes(1)
     expect(getBatchTodayStats).toHaveBeenCalledTimes(1)
-    expect(getBatchQualityStats).toHaveBeenCalledTimes(1)
+    expect(getBatchQualityStats).not.toHaveBeenCalled()
+    expect(upstreamListWithEtag).toHaveBeenLastCalledWith(expect.objectContaining({ include_quality: '1' }), expect.anything())
 
     await vi.advanceTimersByTimeAsync(25_000)
     await flushPromises()
     expect(getBatchTodayStats).toHaveBeenCalledTimes(2)
-    expect(getBatchQualityStats).toHaveBeenCalledTimes(1)
+    expect(getBatchQualityStats).not.toHaveBeenCalled()
 
     await vi.advanceTimersByTimeAsync(30_000)
     await flushPromises()
     expect(getBatchTodayStats).toHaveBeenCalledTimes(3)
-    expect(getBatchQualityStats).toHaveBeenCalledTimes(2)
+    expect(getBatchQualityStats).not.toHaveBeenCalled()
 
     wrapper.unmount()
     vi.useRealTimers()
+  })
+
+  it('shares unchanged inline quality branches and keeps same-query values on unavailable responses', async () => {
+    const initial = await upstreamList()
+    initial.quality_stats = { '71': { recent_1h: { quality_score: 80 }, recent_24h: { quality_score: 70 }, activity: { state: 'active', successful_request_count: 10 }, score_version: 5 } }
+    upstreamList.mockClear().mockResolvedValue(initial)
+    const wrapper = mountView()
+    await flushPromises()
+    const state = (wrapper.vm as any).$.setupState
+    const first = state.qualityStatsByAccountId['71']
+    const health = wrapper.findComponent({ name: 'UpstreamHealthCell' }).props('snapshot')
+    upstreamListWithEtag.mockResolvedValueOnce({ notModified: false, etag: 'quality-change', data: {
+      ...initial,
+      items: [{ ...initial.items[0], priority: 99 }],
+      quality_stats: { '71': { ...initial.quality_stats['71'], recent_1h: { quality_score: 81 } } }
+    } })
+    await state.handleManualRefresh()
+    await flushPromises()
+    expect(state.qualityStatsByAccountId['71'].recent_1h.quality_score).toBe(81)
+    expect(state.qualityStatsByAccountId['71'].recent_24h).toBe(first.recent_24h)
+    expect(wrapper.findComponent({ name: 'UpstreamHealthCell' }).props('snapshot')).toBe(health)
+    const successful = state.qualityStatsByAccountId
+    upstreamListWithEtag.mockResolvedValueOnce({ notModified: false, etag: 'quality-unavailable', data: { ...initial, quality_stats_status: 'unavailable', quality_stats: {} } })
+    await state.handleManualRefresh()
+    expect(state.qualityStatsByAccountId).toBe(successful)
+    expect(state.qualityStatsError).toBe('admin.accounts.quality.loadFailed')
+    expect(getBatchQualityStats).not.toHaveBeenCalled()
+    state.params.search = 'new query'
+    upstreamList.mockResolvedValueOnce({ ...initial, quality_stats_status: 'unavailable', quality_stats: {} })
+    await state.load()
+    expect(state.qualityStatsByAccountId).toEqual({})
+    wrapper.unmount()
+  })
+
+  it('evaluates one new upstream snapshot after a manual click joins an older request', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    const state = (wrapper.vm as any).$.setupState
+    const pending = deferred()
+    upstreamListWithEtag.mockReturnValueOnce(pending.promise)
+    const automatic = state.refreshAccountsIncrementally()
+    const manual = state.handleManualRefresh()
+    const duplicate = state.handleManualRefresh()
+    await flushPromises()
+    expect(upstreamListWithEtag).toHaveBeenCalledTimes(1)
+    pending.resolve({ notModified: true, etag: 'old', data: null })
+    await Promise.all([automatic, manual, duplicate])
+    expect(upstreamListWithEtag).toHaveBeenCalledTimes(2)
+    expect(upstreamListWithEtag).toHaveBeenLastCalledWith(expect.objectContaining({ include_quality: '1' }), expect.anything())
+    wrapper.unmount()
+  })
+
+  it('pauses the bottom table while health details are open and reconciles once on close', async () => {
+    vi.useFakeTimers()
+    vi.spyOn(document, 'hidden', 'get').mockReturnValue(false)
+    localStorage.setItem('upstream-account-auto-refresh', JSON.stringify({ enabled: true, interval_seconds: 5 }))
+    const wrapper = mountView()
+    await flushPromises()
+    wrapper.findComponent({ name: 'UpstreamHealthCell' }).vm.$emit('show-history')
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(15_000)
+    expect(upstreamListWithEtag).not.toHaveBeenCalled()
+    wrapper.findComponent({ name: 'UpstreamKeyEventsDialog' }).vm.$emit('close')
+    await flushPromises()
+    expect(upstreamListWithEtag).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(4_000)
+    expect(upstreamListWithEtag).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+
+  it('removes include_quality when hidden and never starts an independent upstream quality request', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    ;(wrapper.vm as any).$.setupState.toggleColumn('quality_stats')
+    await flushPromises()
+    expect(upstreamList).toHaveBeenLastCalledWith(expect.objectContaining({ include_quality: '0' }), expect.anything())
+    expect(getBatchQualityStats).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('expires the paused display exactly at its timestamp without another list request', async () => {
+    vi.useFakeTimers()
+    vi.spyOn(document, 'hidden', 'get').mockReturnValue(false)
+    const initial = await upstreamList()
+    initial.items[0].group_ids = [7]
+    initial.items[0].rate_limit_reset_at = new Date(Date.now() + 1000).toISOString()
+    upstreamList.mockClear().mockResolvedValue(initial)
+    const wrapper = mountView()
+    await flushPromises()
+    const state = (wrapper.vm as any).$.setupState
+    expect(state.getAccountQualityActivityOverride(state.accounts[0])).toBe('paused')
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(state.getAccountQualityActivityOverride(state.accounts[0])).toBeNull()
+    expect(upstreamListWithEtag).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it.each([1000, 5000])('does not postpone a %i ms quality boundary after a slow response with server clock skew', async boundaryMs => {
+    vi.useFakeTimers()
+    vi.spyOn(document, 'hidden', 'get').mockReturnValue(false)
+    const requestStart = Date.now()
+    const serverStart = requestStart + 60_000
+    const initial = await upstreamList()
+    initial.items[0].group_ids = [7]
+    initial.items[0].rate_limit_reset_at = new Date(serverStart + boundaryMs).toISOString()
+    initial.evaluatedAt = new Date(serverStart).toISOString()
+    initial.evaluationRequestedAt = requestStart
+    const pending = deferred<typeof initial>()
+    upstreamList.mockClear().mockReturnValueOnce(pending.promise)
+    const wrapper = mountView()
+    await vi.advanceTimersByTimeAsync(2000)
+    pending.resolve(initial)
+    await flushPromises()
+    const state = (wrapper.vm as any).$.setupState
+    if (boundaryMs > 2000) {
+      expect(state.getAccountQualityActivityOverride(state.accounts[0])).toBe('paused')
+      await vi.advanceTimersByTimeAsync(boundaryMs - 2001)
+      expect(state.getAccountQualityActivityOverride(state.accounts[0])).toBe('paused')
+      await vi.advanceTimersByTimeAsync(1)
+    }
+    expect(state.getAccountQualityActivityOverride(state.accounts[0])).toBeNull()
+    expect(upstreamListWithEtag).not.toHaveBeenCalled()
+    wrapper.unmount()
   })
 
   it('submits visible usage accounts as one parent-owned batch', async () => {
@@ -794,7 +923,7 @@ describe('admin AccountsView upstream management mode', () => {
     wrapper.unmount()
   })
 
-  it('still fetches a post-save snapshot when a manual click joins the older automatic request while waiting', async () => {
+  it('reuses the post-save evaluation started by a manual click after the older automatic request', async () => {
     const wrapper = mountView()
     await flushPromises()
     await wrapper.get('[data-test="upstream-management-settings"]').trigger('click')
@@ -810,14 +939,14 @@ describe('admin AccountsView upstream management mode', () => {
     await wrapper.get('[data-test="refresh"]').trigger('click')
     oldList.resolve({ notModified: true, etag: 'before-save', data: null })
     await flushPromises()
-    expect(upstreamListWithEtag).toHaveBeenCalledOnce()
+    expect(upstreamListWithEtag).toHaveBeenCalledTimes(2)
     expect(wrapper.get('[data-test="refresh"]').attributes('disabled')).toBeDefined()
 
     oldToday.resolve({ stats: {} })
     await automatic
     await flushPromises()
     expect(upstreamListWithEtag).toHaveBeenCalledTimes(2)
-    expect(upstreamListWithEtag.mock.calls[1][1]).toEqual(expect.objectContaining({ etag: null }))
+    expect(upstreamListWithEtag.mock.calls[1][1]).toEqual(expect.objectContaining({ etag: 'before-save' }))
     expect(wrapper.get('[data-test="refresh"]').attributes('disabled')).toBeUndefined()
     wrapper.unmount()
   })
@@ -1059,6 +1188,41 @@ describe('admin AccountsView upstream management mode', () => {
     wrapper.unmount()
   })
 
+  it.each(['page', 'filter'] as const)('clears obsolete rows when a new %s context fails and retries that context', async (change) => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const initial = await upstreamList()
+    initial.pages = 2
+    initial.total = 21
+    upstreamList.mockClear().mockResolvedValue(initial)
+    const wrapper = mountView()
+    await flushPromises()
+    const state = (wrapper.vm as any).$.setupState
+    const table = wrapper.findComponent({ name: 'DataTable' })
+    expect((table.props('data') as any[]).map(row => row.id)).toEqual([71])
+    let reject!: (error: Error) => void
+    upstreamList.mockReturnValueOnce(new Promise((_, rejectRequest) => { reject = rejectRequest }))
+    if (change === 'page') state.pagination.page = 2
+    else state.params.search = 'next-query'
+    const loading = state.load().catch(() => {})
+    await flushPromises()
+    expect(table.props('data')).toEqual([])
+    reject(new Error('new context unavailable'))
+    await loading
+    await flushPromises()
+    expect(table.props('data')).toEqual([])
+    expect(state.accounts).toEqual([])
+    state.selectPage()
+    expect(state.selIds).toEqual([])
+    expect(state.pagination.total).toBe(0)
+
+    upstreamList.mockResolvedValueOnce({ ...initial, items: [{ ...initial.items[0], id: 72, name: 'new-context-row' }] })
+    await state.handleManualRefresh()
+    await flushPromises()
+    expect((table.props('data') as any[]).map(row => row.id)).toEqual([72])
+    expect(upstreamList).toHaveBeenLastCalledWith(expect.objectContaining(change === 'page' ? { page: 2 } : { search: 'next-query' }), expect.anything())
+    wrapper.unmount()
+  })
+
   it('keeps automatic refresh failures quiet and suppresses automatic requests while manual statistics are pending', async () => {
     vi.useFakeTimers()
     vi.spyOn(document, 'hidden', 'get').mockReturnValue(false)
@@ -1080,6 +1244,71 @@ describe('admin AccountsView upstream management mode', () => {
     expect(upstreamListWithEtag).toHaveBeenCalledTimes(2)
     today.resolve({ stats: {} })
     await flushPromises()
+    wrapper.unmount()
+  })
+
+  it.each(['initial', 'page', 'filter'] as const)('automatically retries a failed %s context without duplicate loads or changing its page', async (change) => {
+    vi.useFakeTimers()
+    vi.spyOn(document, 'hidden', 'get').mockReturnValue(false)
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    localStorage.setItem('upstream-account-auto-refresh', JSON.stringify({ enabled: true, interval_seconds: 5 }))
+    const initial = await upstreamList()
+    upstreamList.mockClear().mockResolvedValue(initial)
+    if (change === 'initial') upstreamList.mockRejectedValueOnce(new Error('initial unavailable'))
+    const wrapper = mountView()
+    await flushPromises()
+    const state = (wrapper.vm as any).$.setupState
+    if (change !== 'initial') {
+      if (change === 'page') state.pagination.page = 2
+      else state.params.search = 'retry-query'
+      upstreamList.mockRejectedValueOnce(new Error('context unavailable'))
+      await state.load().catch(() => {})
+    }
+    showError.mockClear()
+    const calls = upstreamList.mock.calls.length
+    const pending = deferred()
+    upstreamList.mockReturnValueOnce(pending.promise)
+    await vi.advanceTimersByTimeAsync(5000)
+    await flushPromises()
+    expect(upstreamList).toHaveBeenCalledTimes(calls + 1)
+    expect(upstreamList).toHaveBeenLastCalledWith(expect.objectContaining(change === 'page' ? { page: 2 } : change === 'filter' ? { search: 'retry-query' } : { page: 1 }), expect.anything())
+    await vi.advanceTimersByTimeAsync(10000)
+    expect(upstreamList).toHaveBeenCalledTimes(calls + 1)
+    pending.resolve({ ...initial, items: [{ ...initial.items[0], id: 73, name: 'automatic-recovery-row' }] })
+    await flushPromises()
+    expect(state.accounts[0].id).toBe(73)
+    expect(state.pagination.page).toBe(change === 'page' ? 2 : 1)
+    expect(showError).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it.each(['page', 'pageSize', 'filter', 'sort'] as const)('handles a failed public %s request without an unhandled rejection', async (change) => {
+    vi.useFakeTimers()
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const initial = await upstreamList()
+    initial.pages = 2
+    initial.total = 21
+    upstreamList.mockClear().mockResolvedValue(initial)
+    const wrapper = mountView()
+    await flushPromises()
+    const state = (wrapper.vm as any).$.setupState
+    upstreamList.mockRejectedValueOnce(new Error('public request unavailable'))
+    if (change === 'page') state.handlePageChange(2)
+    else if (change === 'pageSize') state.handlePageSizeChange(100)
+    else if (change === 'sort') state.handleSort('priority', 'desc')
+    else {
+      await wrapper.get('[data-test="quality-filter-1h-a"]').trigger('click')
+      await vi.advanceTimersByTimeAsync(300)
+    }
+    await flushPromises()
+    expect(showError).toHaveBeenCalledTimes(1)
+    expect(showError).toHaveBeenCalledWith('admin.accounts.failedToLoad')
+    expect(wrapper.findComponent({ name: 'DataTable' }).props('data')).toEqual([])
+    expect(state.loading).toBe(false)
+    if (change === 'page') expect(state.pagination.page).toBe(2)
+    if (change === 'pageSize') expect(localStorage.getItem('table-page-size')).toBe('100')
+    if (change === 'sort') expect(state.params.sort_by).toBe('priority')
+    if (change === 'filter') expect(state.params.quality_filter).toBe('1h-A')
     wrapper.unmount()
   })
 

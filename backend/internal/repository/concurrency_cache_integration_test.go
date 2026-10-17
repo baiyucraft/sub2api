@@ -76,6 +76,32 @@ func (s *ConcurrencyCacheSuite) TestAccountProxyConcurrencyBatch_ReturnsCurrentM
 	require.Equal(s.T(), map[int64]int{11: 1, 12: 1}, loads)
 }
 
+func (s *ConcurrencyCacheSuite) TestAccountProxyConcurrencyTargetsBatch_IsolatesAccountsAndExpiresBothLeaseKinds() {
+	a := service.AccountProxyConcurrencyTarget{AccountID: 7001, ProxyID: 11}
+	b := service.AccountProxyConcurrencyTarget{AccountID: 7002, ProxyID: 11}
+	now, err := s.rdb.Time(s.ctx).Result()
+	require.NoError(s.T(), err)
+	for target, count := range map[service.AccountProxyConcurrencyTarget]int{a: 2, b: 4} {
+		key := accountProxySlotKey(target.AccountID, target.ProxyID)
+		for i := 0; i < count; i++ {
+			require.NoError(s.T(), s.rdb.ZAdd(s.ctx, key, redis.Z{Score: float64(now.Unix()), Member: fmt.Sprintf("regular-%d", i)}).Err())
+		}
+		require.NoError(s.T(), s.rdb.ZAdd(s.ctx, key, redis.Z{Score: float64(now.Unix() - int64(s.rawCache.slotTTLSeconds)), Member: "expired-regular"}).Err())
+		live := liveAccountProxySlotKey(target.AccountID, target.ProxyID)
+		require.NoError(s.T(), s.rdb.ZAdd(s.ctx, live,
+			redis.Z{Score: float64(now.Unix()), Member: "live"},
+			redis.Z{Score: float64(now.Unix() - liveLeaseTTLSeconds), Member: "expired-live"}).Err())
+	}
+	loads, err := s.rawCache.GetAccountProxyConcurrencyTargetsBatch(s.ctx, []service.AccountProxyConcurrencyTarget{a, b, a, {AccountID: 0, ProxyID: 11}})
+	require.NoError(s.T(), err)
+	require.Equal(s.T(), map[service.AccountProxyConcurrencyTarget]int{a: 3, b: 5}, loads)
+	for _, target := range []service.AccountProxyConcurrencyTarget{a, b} {
+		pointCount, err := s.rawCache.GetAccountProxyConcurrency(s.ctx, target.AccountID, target.ProxyID)
+		require.NoError(s.T(), err)
+		require.Equal(s.T(), loads[target], pointCount)
+	}
+}
+
 func (s *ConcurrencyCacheSuite) TestUpstreamTarget_SharedLimitLoadAndIsolation() {
 	cache, ok := s.cache.(service.ConcurrencyTargetCache)
 	require.True(s.T(), ok)

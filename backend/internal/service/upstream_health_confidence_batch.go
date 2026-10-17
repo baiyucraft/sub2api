@@ -29,48 +29,53 @@ type upstreamConfidenceIdentityBatchResolver interface {
 	ResolveConfidenceDistributionIdentities(context.Context, []*Account) map[int64]ConfidenceDistributionIdentityResult
 }
 
+// Optional fixed-clock reader keeps one list response on a single evaluation
+// instant while retaining compatibility with existing repositories.
+type upstreamHealthConfidencesAtReader interface {
+	GetUpstreamHealthConfidencesAt(context.Context, []int64, time.Time) (map[int64]UpstreamHealthConfidenceSummary, error)
+}
+
+func (s *UpstreamConfigService) readLegacyHealthConfidencesAt(ctx context.Context, keyIDs []int64, now time.Time) (map[int64]UpstreamHealthConfidenceSummary, error) {
+	if len(keyIDs) == 0 {
+		return map[int64]UpstreamHealthConfidenceSummary{}, nil
+	}
+	if batch, ok := s.repo.(upstreamHealthConfidencesAtReader); ok {
+		return batch.GetUpstreamHealthConfidencesAt(ctx, keyIDs, now)
+	}
+	if batch, ok := s.repo.(UpstreamHealthConfidencesReader); ok {
+		return batch.GetUpstreamHealthConfidences(ctx, keyIDs)
+	}
+	out := make(map[int64]UpstreamHealthConfidenceSummary, len(keyIDs))
+	if reader, ok := s.repo.(UpstreamHealthConfidenceReader); ok {
+		for _, id := range keyIDs {
+			value, err := reader.GetUpstreamHealthConfidence(ctx, id)
+			if err != nil {
+				return nil, err
+			}
+			out[id] = value
+		}
+	}
+	return out, nil
+}
+
 // GetUpstreamHealthConfidences takes one request-local settings snapshot and
 // batches storage reads. No cross-request cache or truncated history is used.
 func (s *UpstreamConfigService) GetUpstreamHealthConfidences(ctx context.Context, keyIDs []int64) (map[int64]UpstreamHealthConfidenceSummary, error) {
+	return s.GetUpstreamHealthConfidencesAt(ctx, keyIDs, time.Now().UTC())
+}
+
+func (s *UpstreamConfigService) GetUpstreamHealthConfidencesAt(ctx context.Context, keyIDs []int64, now time.Time) (map[int64]UpstreamHealthConfidenceSummary, error) {
+	now = now.UTC()
 	keyIDs = confidenceSummaryKeyIDs(keyIDs)
 	out := make(map[int64]UpstreamHealthConfidenceSummary, len(keyIDs))
 	if len(keyIDs) == 0 {
 		return out, nil
 	}
-	reader, ok := s.repo.(UpstreamHealthConfidenceReader)
-	if !ok {
-		return out, nil
-	}
-	readErrors := map[int64]error{}
-	if batch, ok := s.repo.(UpstreamHealthConfidencesReader); ok {
-		var err error
-		out, err = batch.GetUpstreamHealthConfidences(ctx, keyIDs)
-		if out == nil {
-			out = make(map[int64]UpstreamHealthConfidenceSummary, len(keyIDs))
-		}
-		if err != nil {
-			for _, id := range keyIDs {
-				readErrors[id] = err
-			}
-		}
-	} else {
-		for _, id := range keyIDs {
-			var err error
-			out[id], err = reader.GetUpstreamHealthConfidence(ctx, id)
-			if err != nil {
-				readErrors[id] = err
-			}
-		}
-	}
 	if !s.confidenceProbeIndependent(ctx) {
-		for _, id := range keyIDs {
-			if err := readErrors[id]; err != nil {
-				return nil, err
-			}
-		}
-		return out, nil
+		return s.readLegacyHealthConfidencesAt(ctx, keyIDs, now)
 	}
 
+	readErrors := map[int64]error{}
 	lister, bound := s.accountRepo.(upstreamAccountBindingLister)
 	accountsByKey := map[int64][]Account{}
 	if batch, ok := s.accountRepo.(upstreamAccountBindingsBatchLister); ok && bound {
@@ -104,6 +109,7 @@ func (s *UpstreamConfigService) GetUpstreamHealthConfidences(ctx context.Context
 	eligible := make([]*Account, 0, len(keyIDs))
 	eligibleKeys := map[int64]int64{}
 	protocols := map[int64]string{}
+	legacyIDs := make([]int64, 0, len(keyIDs))
 	for _, id := range keyIDs {
 		if readErrors[id] != nil {
 			out[id] = unavailableConfidenceDistributionSummary("responses", "confidence_read_unavailable")
@@ -120,6 +126,7 @@ func (s *UpstreamConfigService) GetUpstreamHealthConfidences(ctx context.Context
 		}
 		account := &accounts[0]
 		if account.Platform != PlatformOpenAI || account.Type != AccountTypeAPIKey {
+			legacyIDs = append(legacyIDs, id)
 			continue
 		}
 		protocols[id] = distributionAccountProtocol(account)
@@ -129,6 +136,14 @@ func (s *UpstreamConfigService) GetUpstreamHealthConfidences(ctx context.Context
 		}
 		eligible = append(eligible, account)
 		eligibleKeys[account.ID] = id
+	}
+	legacy, legacyErr := s.readLegacyHealthConfidencesAt(ctx, legacyIDs, now)
+	for _, id := range legacyIDs {
+		if legacyErr != nil {
+			out[id] = unavailableConfidenceDistributionSummary("responses", "confidence_read_unavailable")
+		} else {
+			out[id] = legacy[id]
+		}
 	}
 	resolved := map[int64]ConfidenceDistributionIdentityResult{}
 	if batch, ok := s.accountProber.(upstreamConfidenceIdentityBatchResolver); ok {
@@ -162,7 +177,6 @@ func (s *UpstreamConfigService) GetUpstreamHealthConfidences(ctx context.Context
 	}
 	reads := map[int64]ConfidenceDistributionReadResult{}
 	if len(identities) > 0 {
-		now := time.Now().UTC()
 		if batch, ok := s.repo.(upstreamConfidenceDistributionBatchReader); ok {
 			var err error
 			reads, err = batch.LoadConfidenceDistributionsForSeries(ctx, identities, now)
