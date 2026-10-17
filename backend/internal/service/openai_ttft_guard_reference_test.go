@@ -743,7 +743,7 @@ func (g *referenceTTFTGuard) snapshots(accountID, keyID, groupID int64, cfg Open
 		state := "observed"
 		e := raw
 		if now.Sub(raw.lastSampleAt) >= g.ttl {
-			state = "expired"
+			state = "insufficient"
 		} else if groupID > 0 {
 			state = "normal"
 			if !cfg.Enabled {
