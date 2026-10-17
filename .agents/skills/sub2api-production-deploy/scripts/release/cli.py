@@ -507,6 +507,8 @@ def deploy(args: argparse.Namespace, acquire_lock: bool = True) -> None:
             logger.emit(stage="bootstrap_production", script="release.cli", event="stage_finished", message="Production bootstrap verified", exit_code=0)
         production_doctor = doctor.run(("racknerd",), require_ingress_policy=False)
         profile_for_deploy = get_profile(args.profile)
+        pre_gate_input = None
+        rack_pre_gate_dir = vm_pre_gate_dir = None
         if profile_for_deploy.get("gate_schema") == 2:
             production_snapshot = decode_snapshot(production_doctor["production_snapshot_b64"])
             current_manifest = json.loads((RUN_ROOT / identifier / "manifest.json").read_text(encoding="utf-8"))
@@ -526,8 +528,6 @@ def deploy(args: argparse.Namespace, acquire_lock: bool = True) -> None:
         else:
             production_snapshot = None
             recovery_gate = None
-            pre_gate_input = None
-            rack_pre_gate_dir = vm_pre_gate_dir = None
         if logger:
             logger.emit(stage="doctor", script="release.cli", event="stage_finished", message="Production doctor verified", exit_code=0)
         try:
