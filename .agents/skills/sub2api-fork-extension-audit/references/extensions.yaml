@@ -1512,6 +1512,7 @@
         "backend/internal/repository/group_scheduling_protection_pg_test.go",
         "backend/internal/handler/admin/account_scheduling_protection_test.go",
         "frontend/src/components/admin/group/__tests__/GroupUpstreamProtectionPolicyModal.spec.ts",
+        "frontend/src/views/admin/__tests__/GroupsView.ttftGuard.spec.ts",
         "frontend/src/components/account/__tests__/UpstreamProtectionStatus.spec.ts",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile270_release_contract.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_migration_298.py",
@@ -1520,6 +1521,7 @@
       ],
       "invariants": [
         "全局 scheduling_protection_platforms 默认仅 openai；仅选中具体平台的分组提供配置并执行保护，实际账号平台也须选中；composite 不支持；自定义不能绕过范围，空选全部停用，旧客户端省略保留，取消选择保留历史事实与组配置，状态明确 platform_not_selected",
+        "分组调度保护入口刷新期间保留上次成功范围及按钮DOM位置，成功后统一更新；打开弹窗仍须最新范围校验，最新读取失败或接口缺失时隐藏入口并关闭弹窗，过期响应不得覆盖新范围",
         "只采样真实业务可见首 Token；原始证据按 account_id + 当前 UpstreamKey + canonical model 共享，跨组相同阈值复用恢复投影，换 Key 不继承旧证据",
         "组 TTFT/cache 各自 inherit/enabled/disabled；缓存自定义 enabled 独立 protect，只有阈值、恢复阈值、最小有效请求数自定义，时间和试用配额全局继承",
         "TTFT 保护渐出自然新会话；已有可靠会话连续两次超该组阈值才迁移，保留 previous_response 和同账号重试约束",

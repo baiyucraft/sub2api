@@ -45,6 +45,65 @@ beforeEach(() => {
 })
 
 describe('GroupsView scheduling protection entry', () => {
+  it.each(['click', 'focus', 'visibilitychange', SCHEDULING_PROTECTION_SETTINGS_UPDATED])(
+    'keeps action buttons in place while refreshing protection scope on %s',
+    async (event) => {
+      const wrapper = render()
+      try {
+        await flushPromises()
+        const selector = '[data-group="7"] [data-testid="group-upstream-protection"]'
+        const button = wrapper.get(selector).element
+        const actions = [...button.parentElement!.children]
+        let resolveSettings!: (settings: { scheduling_protection_platforms: string[] }) => void
+        getSettings.mockImplementationOnce(() => new Promise(resolve => { resolveSettings = resolve }))
+
+        if (event === 'click') await wrapper.get(selector).trigger('click')
+        else if (event === 'visibilitychange') document.dispatchEvent(new Event(event))
+        else window.dispatchEvent(new Event(event))
+        await flushPromises()
+
+        expect(getSettings).toHaveBeenCalledTimes(2)
+        expect(wrapper.get(selector).element).toBe(button)
+        actions.forEach((action, index) => expect(button.parentElement!.children[index]).toBe(action))
+        expect(wrapper.get(selector).text()).toContain('priorities.cache_first')
+        expect(wrapper.find('[data-test="policy-modal"]').exists()).toBe(false)
+
+        resolveSettings({ scheduling_protection_platforms: ['openai'] })
+        await flushPromises()
+        expect(wrapper.get(selector).element).toBe(button)
+        expect(wrapper.find('[data-test="policy-modal"]').exists()).toBe(event === 'click')
+        expect(showError).not.toHaveBeenCalled()
+      } finally {
+        wrapper.unmount()
+      }
+    }
+  )
+
+  it('ignores an old refresh failure after a newer platform scope has loaded', async () => {
+    const wrapper = render()
+    try {
+      await flushPromises()
+      let rejectSettings!: (error: Error) => void
+      getSettings.mockImplementationOnce(() => new Promise((_, reject) => { rejectSettings = reject }))
+      window.dispatchEvent(new Event('focus'))
+      await flushPromises()
+
+      getSettings.mockResolvedValue({ scheduling_protection_platforms: ['anthropic'] })
+      window.dispatchEvent(new Event(SCHEDULING_PROTECTION_SETTINGS_UPDATED))
+      await flushPromises()
+      const selector = '[data-group="8"] [data-testid="group-upstream-protection"]'
+      const button = wrapper.get(selector).element
+
+      rejectSettings(new Error('old settings request failed'))
+      await flushPromises()
+      expect(wrapper.get(selector).element).toBe(button)
+      expect(wrapper.find('[data-group="7"] [data-testid="group-upstream-protection"]').exists()).toBe(false)
+      expect(showError).not.toHaveBeenCalled()
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
   it('offers the unified action only to the backend-selected platform groups', async () => {
     getSettings.mockResolvedValue({ scheduling_protection_platforms: ['openai', 'anthropic', 'antigravity'] })
     const wrapper = render()
