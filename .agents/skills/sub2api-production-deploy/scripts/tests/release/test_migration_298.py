@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -189,6 +190,28 @@ bash "$1" "$2"
                 self.assertEqual(queries.count("BEGIN READ ONLY;"), 5)
                 self.assertEqual(queries.count("SET LOCAL search_path = public, pg_catalog;"), 5)
                 self.assertNotRegex(queries, r"(?:^|;)\s*(?:CREATE|ALTER|INSERT|UPDATE|DELETE|DROP)\b")
+
+    def test_restore_alternatives_are_exact_and_name_scoped(self):
+        result, queries = self.run_helper("verified_replay", "verified")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        alternatives = queries.split("restored_expected(name,definition) AS (VALUES", 1)[1].split(",\n    actual AS", 1)[0]
+        rows = re.findall(r"\('([^']+)',\s*'((?:''|[^'])*)'\)", alternatives)
+        expected = []
+        for column, values in (("cache_mode", ("inherit", "enabled", "disabled")),
+                               ("priority", ("inherit", "cache_first", "ttft_first"))):
+            array = ", ".join(f"('{value}'::character varying)::text" for value in values)
+            expected.append((f"fork_group_scheduling_protection_policies_{column}_check",
+                             f"CHECK ((({column})::text = ANY (ARRAY[{array}])))"))
+        self.assertEqual([(name, definition.replace("''", "'")) for name, definition in rows], expected)
+        self.assertIn("(a.definition=e.definition OR a.definition=r.definition)", queries)
+        self.assertIn("LEFT JOIN restored_expected r ON r.name=e.name", queries)
+        # The alternatives must not replace exact definitions with generalized
+        # SQL normalization, or weaken the remaining catalog attributes.
+        self.assertNotIn("regexp_replace", queries)
+        for required in ("a.contype::text=e.kind AND a.keys=e.keys", "a.convalidated",
+                         "AND NOT a.condeferrable AND NOT a.condeferred",
+                         "AND a.conislocal AND a.coninhcount=0"):
+            self.assertIn(required, queries)
 
 
 if __name__ == "__main__":

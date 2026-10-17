@@ -468,13 +468,14 @@ def reconcile_vm_preserve(args: argparse.Namespace, *, audit_fixture=None, audit
     """Release an explicitly audited failure lease without changing VM power.
 
     The default excludes started validators. The candidate-build mode accepts
-    only their terminal pre-restore failure evidence, never a completed Gate,
-    any production claim, or a VM started by the failed release.
+    only their terminal pre-restore failure evidence. The separately audited
+    migration-preflight incident requires an exited, cleaned isolated probe.
+    Neither accepts a completed Gate, a production claim or a VM it started.
     """
     from . import vm_lifecycle as lifecycle
 
     failed_stage = getattr(args, "failed_stage", "pre-validator")
-    if failed_stage not in {"pre-validator", "candidate-build"}:
+    if failed_stage not in {"pre-validator", "candidate-build", "migration-preflight"}:
         raise RuntimeError("vm_preserve_invalid_failed_stage")
     if (
         type(audit_only) is not bool
@@ -502,7 +503,7 @@ def reconcile_vm_preserve(args: argparse.Namespace, *, audit_fixture=None, audit
                 run_dir / "manifest.json", run_dir / "runner.json", run_dir / "state.json",
                 run_dir / "vm-lifecycle.json", shared / "owner.json",
             )
-        } if failed_stage == "candidate-build" else {}
+        } if failed_stage != "pre-validator" else {}
         commit = manifest.get("commit_sha")
         if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}", commit):
             raise RuntimeError("vm_preserve_identity_mismatch")
@@ -551,6 +552,10 @@ test ! -L "$raw_root/vm-validate.raw.log"
         if failed_stage == "candidate-build":
             gate_checks = ""
             raw_checks = _candidate_build_preserve_checks(identifier, manifest_sha256)
+        elif failed_stage == "migration-preflight":
+            from .vm_preflight_preserve import migration_preflight_checks
+            gate_checks = ""
+            raw_checks = migration_preflight_checks(identifier, manifest_sha256, manifest)
         vm_script = f'''set -Eeuo pipefail
 {gate_checks}raw_root=/opt/sub2api-deploy/release-logs/{identifier}
 if [[ -e "$raw_root" || -L "$raw_root" ]]; then
@@ -602,7 +607,7 @@ printf 'production_not_started=verified\\n'
             for path in (run_dir / "gate", run_dir / "release-state.json"):
                 if path.exists() or path.is_symlink():
                     raise RuntimeError("vm_preserve_production_state_present")
-            if failed_stage == "candidate-build" and (
+            if failed_stage != "pre-validator" and (
                 hashlib.sha256((run_dir / "manifest.json").read_bytes()).hexdigest() != manifest_sha256
                 or any(path.read_bytes() != original for path, original in local_evidence_bytes.items())
                 or _read_json(run_dir / "manifest.json", required=True) != manifest
@@ -623,15 +628,19 @@ printf 'production_not_started=verified\\n'
             print(canonical_json(evidence).decode("ascii"))
             return evidence
         evidence = {"schema": 1, "release_id": identifier, "commit": commit, "status": "preserved", "production_not_started": True, "reconciled_at": int(time.time())}
-        if failed_stage == "candidate-build":
-            evidence.update({"failed_stage": "candidate-build", "manifest_sha256": manifest_sha256})
+        if failed_stage != "pre-validator":
+            # Recheck immutable local and remote facts before committing the
+            # lease release; original failure records remain unchanged.
+            if failed_stage == "migration-preflight":
+                preflight()
+            evidence.update({"failed_stage": failed_stage, "manifest_sha256": manifest_sha256})
         _write_json(run_dir / "vm-preserve-result.json", evidence)
         # Shared ownership is the last commit marker. A failed earlier write
         # leaves the retained owner in place and can be inspected again.
         updated = {**lease, "lease_status": "released", "vm_power_status": "running", "vm_cleanup_status": "preserved", "updated_at": int(time.time())}
         atomic_write(run_dir / "vm-lifecycle.json", canonical_json(updated) + b"\n")
         atomic_write(shared / "owner.json", canonical_json(updated) + b"\n")
-        message = "Failed candidate-build lease reconciled; originally running VM preserved" if failed_stage == "candidate-build" else "Failed pre-validator lease reconciled; originally running VM preserved"
+        message = f"Failed {failed_stage} lease reconciled; originally running VM preserved"
         _event_logger(run_dir).emit(stage="vm_preserve", script="release.supervisor", event="failed_lease_reconciled", message=message, exit_code=0)
     print(canonical_json(evidence).decode("ascii"))
     return evidence

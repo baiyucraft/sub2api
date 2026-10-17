@@ -2,6 +2,8 @@
 
 生产发布必须由独立 runner 持续执行，调用端只负责启动、观察和验真。宿主工具的超时、断开 stdout 或会话关闭都不能终止 runner。
 
+迁移前置检查失败不属于构建失败。`reconcile-vm-preserve --failed-stage migration-preflight` 仅收口已独审冻结的 profile 273/迁移 298 preflight 事故：精确源身份、失败与迁移计划、无 apply/后续产物、probe 清理、同 boot/owner 和生产尚未开始均证明后，双重复验再释放本地租约。原 failed 记录不改，不恢复数据、不关闭 VM、不复用失败 release；未知阶段或源字节继续阻断。详细条件见 [release-doctor-and-recovery.md](release-doctor-and-recovery.md#vm-电源与-cleanup-恢复)。
+
 ## 已消费发布的后置完成
 
 生产已 `production_verified` 且 claim 已 consumed、原 worker 仅后置检查失败退出时，使用正式 `finalize-consumed <release_id>` 入口。它属于独立 `ops-control-assets` 收口，不重发应用、不重新消费 claim、不恢复数据；原 runner 非零退出及原 manifest、Gate、production result、VM 生命周期事故记录保持原样。

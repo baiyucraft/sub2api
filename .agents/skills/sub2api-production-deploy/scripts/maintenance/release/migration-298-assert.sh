@@ -58,6 +58,8 @@ else
   [[ $result == t ]] || fail column_contract
   # Match installed public-schema semantics, not only constraint counts. PG18
   # adds contype=n rows; attnotnull above verifies those column requirements.
+  # pg_dump/pg_restore reparses the two enum arrays into per-element text casts.
+  # Accept only those exact definitions for those names; never normalize SQL.
   result=$(query "WITH expected(name,kind,keys,definition) AS (VALUES
     ('fork_group_scheduling_protection_policies_pkey','p',ARRAY['group_id']::text[],'PRIMARY KEY (group_id)'),
     ('fork_group_scheduling_protection_policies_group_id_fkey','f',ARRAY['group_id']::text[],
@@ -72,6 +74,11 @@ else
       'CHECK (((min_valid_requests >= 1) AND (min_valid_requests <= 100000)))'),
     ('fork_group_scheduling_protection_policies_priority_check','c',ARRAY['priority']::text[],
       'CHECK (((priority)::text = ANY ((ARRAY[''inherit''::character varying, ''cache_first''::character varying, ''ttft_first''::character varying])::text[])))')),
+    restored_expected(name,definition) AS (VALUES
+    ('fork_group_scheduling_protection_policies_cache_mode_check',
+      'CHECK (((cache_mode)::text = ANY (ARRAY[(''inherit''::character varying)::text, (''enabled''::character varying)::text, (''disabled''::character varying)::text])))'),
+    ('fork_group_scheduling_protection_policies_priority_check',
+      'CHECK (((priority)::text = ANY (ARRAY[(''inherit''::character varying)::text, (''cache_first''::character varying)::text, (''ttft_first''::character varying)::text])))')),
     actual AS (SELECT c.*, pg_get_constraintdef(c.oid) definition,
       (SELECT array_agg(a.attname::text ORDER BY x.ordinality)
         FROM unnest(c.conkey) WITH ORDINALITY x(attnum,ordinality)
@@ -80,7 +87,8 @@ else
         FROM unnest(c.confkey) WITH ORDINALITY x(attnum,ordinality)
         JOIN pg_attribute a ON a.attrelid=c.confrelid AND a.attnum=x.attnum) foreign_keys
       FROM pg_constraint c WHERE c.conrelid='public.fork_group_scheduling_protection_policies'::regclass)
-    SELECT COUNT(*)=7 AND bool_and(COALESCE(a.contype::text=e.kind AND a.keys=e.keys AND a.definition=e.definition
+    SELECT COUNT(*)=7 AND bool_and(COALESCE(a.contype::text=e.kind AND a.keys=e.keys
+      AND (a.definition=e.definition OR a.definition=r.definition)
       AND a.convalidated AND COALESCE(to_jsonb(a)->>'conenforced','true')='true'
       AND NOT a.condeferrable AND NOT a.condeferred
       AND a.conislocal AND a.coninhcount=0
@@ -88,7 +96,8 @@ else
         AND a.confdeltype='c' AND a.confupdtype='a' AND a.confmatchtype='s')),FALSE))
       AND (SELECT COUNT(*)=7 FROM actual WHERE contype<>'n')
       AND (SELECT COUNT(*)=0 FROM actual WHERE contype NOT IN ('p','f','c','n') OR NOT convalidated)
-    FROM expected e LEFT JOIN actual a ON a.conname=e.name") || fail constraint_query
+    FROM expected e LEFT JOIN actual a ON a.conname=e.name
+    LEFT JOIN restored_expected r ON r.name=e.name") || fail constraint_query
   [[ $result == t ]] || fail constraint_contract
   # Standalone unique indexes do not appear in pg_constraint, but can reject
   # valid default policy rows. The original PK is the sole unique index.
