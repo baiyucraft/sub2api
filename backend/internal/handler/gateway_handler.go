@@ -1343,9 +1343,10 @@ func (h *GatewayHandler) compositeAvailableModels(ctx context.Context, groupID *
 		}
 		platformModels := h.gatewayService.GetAvailableModels(ctx, groupID, platform)
 		if len(platformModels) == 0 && (platform != service.PlatformOpenAI || platformModels == nil) {
-			// CN 供应商没有静态默认模型列表（defaultModelIDsForPlatform 的
-			// default 分支是 Claude 列表），composite 下只暴露账号映射键。
-			if _, ok := schedulablePlatforms[platform]; ok && !service.IsMultiProtocolAPIKeyProvider(platform) {
+			// CN providers have their own registry catalogs. Other multi-protocol
+			// aggregators still require account mappings in composite groups.
+			if _, ok := schedulablePlatforms[platform]; ok &&
+				(!service.IsMultiProtocolAPIKeyProvider(platform) || service.IsCNProvider(platform)) {
 				platformModels = defaultModelIDsForPlatform(platform)
 			}
 		}

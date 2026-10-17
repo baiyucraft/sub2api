@@ -186,9 +186,10 @@ class Profile269RecoveryReviewTest(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertEqual(getattr(gate, name), baseline[name])
         old_scoped = baseline["_REVIEWED_SCOPED_TRANCHES"]
+        frozen_scoped = (*old_scoped, *REVIEWS)
         self.assertEqual(
-            gate._REVIEWED_SCOPED_TRANCHES,
-            (*old_scoped, *REVIEWS),
+            gate._REVIEWED_SCOPED_TRANCHES[:len(frozen_scoped)],
+            frozen_scoped,
         )
 
     def test_exact_registration_remains_specialized_in_cli(self):

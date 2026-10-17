@@ -130,6 +130,9 @@ _PROFILE269_FINALIZATION_REVIEW_PATHS = frozenset({
     _SCRIPTS_PREFIX + "release/" + name
     for name in ("cli.py", "doctor.py", "finalization.py", "vm_lifecycle.py")
 })
+# Only initialize the optional pre-Gate input handles before schema dispatch.
+# The reviewed implementation does not change restore, cleanup or trust logic.
+_FAST_DEPLOY_INITIALIZATION_REVIEW_PATHS = frozenset({_SCRIPTS_PREFIX + "release/cli.py"})
 _REVIEWED_SCOPED_TRANCHES = (
     (
         "aeb410bccc524164bdafbd3db865d4f5f588aced",
@@ -220,6 +223,12 @@ _REVIEWED_SCOPED_TRANCHES = (
         "f14ca8f65e3526370bf24a2fa0bca3ec490448ab",
         "reviewed_consumed_finalization_changed",
         _PROFILE269_FINALIZATION_REVIEW_PATHS,
+    ),
+    (
+        "8544cef6f5e87f29929465316467b2765350cd52",
+        "a0f7ca7666ddd2e6485536be7a8ef6696344c0ac",
+        "reviewed_vm_preflight_recovery_changed",
+        _FAST_DEPLOY_INITIALIZATION_REVIEW_PATHS,
     ),
 )
 _RELEASE_STATE_MACHINE_FILES = frozenset(

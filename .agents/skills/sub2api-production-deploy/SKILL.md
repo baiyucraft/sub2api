@@ -395,6 +395,8 @@ jq -cS '.manifest.migration_sha256' | sha256sum
 
 ## 上游账号表性能迁移（profile 273）
 
+普通发布 fast 分支的可选恢复输入初始化修复，已独立审阅固定生产 BASE `8544cef6f5e87f29929465316467b2765350cd52` → `a0f7ca7666ddd2e6485536be7a8ef6696344c0ac`，仅 `release/cli.py` 的同路径 blob/mode：`100644:1005635c3406dc73d42d95a0f19123d1e151b778` → `100644:ce017a5d663037a38b921e427c628b3945e45634`。登记为 `reviewed_vm_preflight_recovery_changed`，仍强制 specialized 当前 helper 的真实隔离恢复与正式 VM Gate；仅把三项可选输入初始化移至 schema 判断前，不改变恢复、清理或信任合同。未来字节/模式、删除、移出、额外敏感路径或基线对象漂移继续阻断；历史登记、profile 和证据不回写。回归入口为 `test_fast_deploy_initialization_review.py` 与 `test_cli.py`，本地通过不证明发布完成。
+
 迁移 298 在 PG18 dump/restore 后的两条枚举 CHECK 允许原定义或实测逐元素 cast 定义的精确二选一，其余 schema 不变量不变；真实回归必须同时覆盖 fresh 与连续 restore 及漂移拒绝。已知旧 helper 的迁移 preflight 失败租约只走显式 `reconcile-vm-preserve --failed-stage migration-preflight`：冻结原提交/validator/assertion、失败和计划证据，证明无 apply/后续产物、probe 已清理、同 boot/owner、原 worker 已退出且生产未开始，双重复验后仅保存独立证明并最后释放 owner。旧分支不扩权，不手改状态；新 helper 重新分类并执行实际恢复、签名、新 Gate 与新 release。详细边界见 `release-doctor-and-recovery.md` 与 Wiki 发布合同。
 
 当前 pending profile 为 `273`，版本 `0.2.17-baiyu`、parent `272`，仅新增 `300_upstream_health_history_index.sql`。300 以非唯一可重复创建索引 `(upstream_key_id, observed_at DESC, id DESC)` 有界读取每 Key 最近历史，旧读写协议不变。272 的版本、parent `271` 和 `new_migrations=[]` 及全部旧 SQL/checksum 保持不可变；下一未登记 profile `274` 拒绝。原始文件 checksum 与 Gate 的 strip 后 SQL checksum分别登记。

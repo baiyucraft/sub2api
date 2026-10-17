@@ -571,6 +571,7 @@ func TestGatewayModels_CNGroupsUseTheirOwnRegistryCatalog(t *testing.T) {
 		{service.PlatformKimi, "kimi-k2.5"},
 		{service.PlatformZhipu, "glm-5.2"},
 		{service.PlatformDeepseek, "deepseek-v4-pro"},
+		{service.PlatformMiniMax, "MiniMax-M3"},
 	} {
 		groupID := int64(200)
 		h := newGatewayModelsHandlerForTest(&gatewayModelsAccountRepoStub{
@@ -985,7 +986,7 @@ func TestGatewayModels_CompositeUnmappedAccountsFallbackToLinkedPlatformsOnly(t 
 }
 
 // Composite 下无映射的可调度 CN 账号使用各自注册表目录，不得挂到 Claude 平台。
-func TestGatewayModels_CompositeUnmappedCNAccountsContributeNoDefaults(t *testing.T) {
+func TestGatewayModels_CompositeUnmappedCNAccountsUseRegistryDefaults(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	groupID := int64(35)
@@ -1022,7 +1023,53 @@ func TestGatewayModels_CompositeUnmappedCNAccountsContributeNoDefaults(t *testin
 	require.Contains(t, ids, "kimi-k2.5")
 	require.Contains(t, ids, "glm-5.2")
 	require.Contains(t, ids, "deepseek-v4-pro")
+	require.Contains(t, ids, "MiniMax-M3")
 	require.NotContains(t, ids, "claude-sonnet-4-6")
+}
+
+func TestGatewayModels_CompositeRegistryDefaultsStayWithinLinkedPlatform(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, platform := range []string{
+		service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek, service.PlatformMiniMax,
+	} {
+		t.Run(platform, func(t *testing.T) {
+			groupID := int64(35)
+			h := newGatewayModelsHandlerForTest(&gatewayModelsAccountRepoStub{
+				byGroup: map[int64][]service.Account{groupID: {{ID: 1, Platform: platform}}},
+			})
+			for _, catalog := range []struct {
+				name string
+				show func(*gin.Context)
+			}{
+				{"models", h.Models},
+				{"codex", h.CodexModels},
+			} {
+				t.Run(catalog.name, func(t *testing.T) {
+					rec := httptest.NewRecorder()
+					c, _ := gin.CreateTestContext(rec)
+					c.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+					c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
+						Group: &service.Group{ID: groupID, Platform: service.PlatformComposite},
+					})
+					catalog.show(c)
+					require.Equal(t, http.StatusOK, rec.Code)
+					var ids []string
+					if catalog.name == "codex" {
+						var got codexModelsResponseForTest
+						require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+						for _, model := range got.Models {
+							ids = append(ids, model.Slug)
+						}
+					} else {
+						var got gatewayModelsResponseForTest
+						require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+						ids = modelIDsForTest(got.Data)
+					}
+					require.ElementsMatch(t, defaultModelIDsForPlatform(platform), ids)
+				})
+			}
+		})
+	}
 }
 
 func TestDefaultModelIDsForPlatform_UsesRegistryAndFailsClosed(t *testing.T) {
