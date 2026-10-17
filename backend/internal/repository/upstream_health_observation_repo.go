@@ -119,19 +119,16 @@ func (r *upstreamConfigRepository) listPersistedUpstreamHealthHistories(ctx cont
 	driver, ok := r.client.Driver().(*entsql.Driver)
 	if ok && driver.Dialect() == dialect.Postgres {
 		rows, err := driver.DB().QueryContext(ctx, `
-SELECT id, upstream_config_id, upstream_key_id, account_id, platform, model, protocol,
-       source, state, result, reason, http_status, ttft_ms, duration_ms,
-       input_tokens, output_tokens, output_tps, confidence_score, confidence_prompt_version,
-       requested_effort, reasoning_tokens, confidence_checks, confidence_status, confidence_evidence, observed_at
-FROM (
-    SELECT o.*, ROW_NUMBER() OVER (
-        PARTITION BY upstream_key_id ORDER BY observed_at DESC, id DESC
-    ) AS row_num
-    FROM upstream_health_observations o
-    WHERE upstream_key_id = ANY($1)
-) ranked
-WHERE row_num <= $2
-ORDER BY upstream_key_id ASC, observed_at ASC, id ASC`, pq.Array(keyIDs), limit)
+SELECT recent.id, recent.upstream_config_id, recent.upstream_key_id, recent.account_id, recent.platform, recent.model, recent.protocol, recent.source, recent.state, recent.result, recent.reason, recent.http_status, recent.ttft_ms, recent.duration_ms, recent.input_tokens, recent.output_tokens, recent.output_tps, recent.confidence_score, recent.confidence_prompt_version, recent.requested_effort, recent.reasoning_tokens, recent.confidence_checks, recent.confidence_status, recent.confidence_evidence, recent.observed_at
+FROM unnest($1::bigint[]) AS requested(key_id)
+JOIN upstream_keys AS active_key ON active_key.id=requested.key_id AND active_key.deleted_at IS NULL
+CROSS JOIN LATERAL (
+    SELECT o.* FROM upstream_health_observations o
+    WHERE o.upstream_key_id = requested.key_id
+    ORDER BY o.observed_at DESC, o.id DESC
+    LIMIT $2
+) recent
+ORDER BY recent.upstream_key_id ASC, recent.observed_at ASC, recent.id ASC`, pq.Array(keyIDs), limit)
 		if err != nil {
 			return nil, err
 		}
@@ -147,8 +144,15 @@ ORDER BY upstream_key_id ASC, observed_at ASC, id ASC`, pq.Array(keyIDs), limit)
 	}
 
 	// SQLite-backed repository tests and non-Postgres tooling use a small,
-	// portable fallback. Production always takes the window-query path above.
+	// portable fallback. Production always takes the bounded LATERAL path above.
 	for _, keyID := range keyIDs {
+		exists, err := r.client.UpstreamKey.Query().Where(dbupstreamkey.IDEQ(keyID)).Exist(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if !exists {
+			continue
+		}
 		rows, err := r.client.UpstreamHealthObservation.Query().
 			Where(dbupstreamhealthobservation.UpstreamKeyIDEQ(keyID)).
 			Order(dbent.Desc(dbupstreamhealthobservation.FieldObservedAt), dbent.Desc(dbupstreamhealthobservation.FieldID)).
@@ -248,28 +252,24 @@ func upstreamHealthObservationEntityToService(row *dbent.UpstreamHealthObservati
 }
 
 func (r *upstreamConfigRepository) GetUpstreamHealthConfidence(ctx context.Context, keyID int64) (service.UpstreamHealthConfidenceSummary, error) {
-	var summary service.UpstreamHealthConfidenceSummary
-	now := time.Now().UTC()
-	rows, err := r.client.UpstreamHealthObservation.Query().Where(
-		dbupstreamhealthobservation.UpstreamKeyIDEQ(keyID),
-		dbupstreamhealthobservation.PlatformEQ(service.PlatformOpenAI),
-		dbupstreamhealthobservation.SourceEQ("probe"),
-		dbupstreamhealthobservation.ConfidencePromptVersionEQ(service.UpstreamConfidencePromptVersion),
-		dbupstreamhealthobservation.ObservedAtGTE(now.Add(-7*24*time.Hour)),
-	).Order(dbent.Desc(dbupstreamhealthobservation.FieldObservedAt), dbent.Desc(dbupstreamhealthobservation.FieldID)).All(ctx)
-	if err != nil {
-		return summary, err
-	}
-	return aggregateUpstreamHealthConfidence(now, rows), nil
+	values, err := r.GetUpstreamHealthConfidencesAt(ctx, []int64{keyID}, time.Now().UTC())
+	return values[keyID], err
 }
 
 func (r *upstreamConfigRepository) GetUpstreamHealthConfidences(ctx context.Context, keyIDs []int64) (map[int64]service.UpstreamHealthConfidenceSummary, error) {
+	return r.GetUpstreamHealthConfidencesAt(ctx, keyIDs, time.Now().UTC())
+}
+
+func (r *upstreamConfigRepository) GetUpstreamHealthConfidencesAt(ctx context.Context, keyIDs []int64, now time.Time) (map[int64]service.UpstreamHealthConfidenceSummary, error) {
 	keyIDs = uniquePositiveInt64sForConfidence(keyIDs)
 	out := make(map[int64]service.UpstreamHealthConfidenceSummary, len(keyIDs))
 	if len(keyIDs) == 0 {
 		return out, nil
 	}
-	now := time.Now().UTC()
+	now = now.UTC()
+	if driver, ok := r.client.Driver().(*entsql.Driver); ok && driver.Dialect() == dialect.Postgres {
+		return readUpstreamHealthConfidencesSQL(ctx, driver.DB(), keyIDs, now)
+	}
 	byKey := make(map[int64][]*dbent.UpstreamHealthObservation, len(keyIDs))
 	for start := 0; start < len(keyIDs); start += postgresParameterBatchSize {
 		end := min(start+postgresParameterBatchSize, len(keyIDs))

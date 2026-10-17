@@ -873,18 +873,25 @@ func (r *upstreamConfigRepository) ListKeyHealthHistories(ctx context.Context, k
 	if err != nil {
 		return nil, err
 	}
+	missing := make([]int64, 0, len(keyIDs))
+	for _, id := range keyIDs {
+		if len(persisted[id]) > 0 {
+			out[id] = persisted[id]
+		} else {
+			missing = append(missing, id)
+		}
+	}
+	if len(missing) == 0 {
+		return out, nil
+	}
 	rows, err := r.client.UpstreamKey.Query().
-		Where(dbupstreamkey.IDIn(keyIDs...)).
+		Where(dbupstreamkey.IDIn(missing...)).
 		Select(dbupstreamkey.FieldID, dbupstreamkey.FieldExtra).
 		All(ctx)
 	if err != nil {
 		return nil, err
 	}
 	for _, row := range rows {
-		if len(persisted[row.ID]) > 0 {
-			out[row.ID] = persisted[row.ID]
-			continue
-		}
 		history := service.UpstreamHealthHistoryFromExtra(row.Extra, limit)
 		if len(history) > 0 {
 			out[row.ID] = history

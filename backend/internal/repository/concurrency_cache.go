@@ -711,50 +711,71 @@ func (c *concurrencyCache) GetAccountProxyConcurrency(ctx context.Context, accou
 }
 
 func (c *concurrencyCache) GetAccountProxyConcurrencyBatch(ctx context.Context, accountID int64, proxyIDs []int64) (map[int64]int, error) {
-	if len(proxyIDs) == 0 {
-		return map[int64]int{}, nil
+	targets := make([]service.AccountProxyConcurrencyTarget, 0, len(proxyIDs))
+	for _, proxyID := range proxyIDs {
+		targets = append(targets, service.AccountProxyConcurrencyTarget{AccountID: accountID, ProxyID: proxyID})
 	}
+	loads, err := c.GetAccountProxyConcurrencyTargetsBatch(ctx, targets)
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[int64]int, len(loads))
+	for target, count := range loads {
+		result[target.ProxyID] = count
+	}
+	return result, nil
+}
 
+func (c *concurrencyCache) GetAccountProxyConcurrencyTargetsBatch(ctx context.Context, targets []service.AccountProxyConcurrencyTarget) (map[service.AccountProxyConcurrencyTarget]int, error) {
+	result := make(map[service.AccountProxyConcurrencyTarget]int, len(targets))
+	unique := make([]service.AccountProxyConcurrencyTarget, 0, len(targets))
+	for _, target := range targets {
+		if target.AccountID <= 0 || target.ProxyID <= 0 {
+			continue
+		}
+		if _, exists := result[target]; exists {
+			continue
+		}
+		result[target] = 0
+		unique = append(unique, target)
+	}
+	if len(unique) == 0 {
+		return result, nil
+	}
+	// Use Redis server time and exactly the existing regular/live key prefixes
+	// and inclusive lease expiration boundaries.
 	now, err := c.rdb.Time(ctx).Result()
 	if err != nil {
 		return nil, fmt.Errorf("redis TIME: %w", err)
 	}
-	regularCutoff := now.Unix() - int64(c.slotTTLSeconds)
-	liveCutoff := now.Unix() - liveLeaseTTLSeconds
-
-	type proxyCmd struct {
-		proxyID int64
-		regular *redis.IntCmd
-		live    *redis.IntCmd
+	regularCutoff := strconv.FormatInt(now.Unix()-int64(c.slotTTLSeconds), 10)
+	liveCutoff := strconv.FormatInt(now.Unix()-liveLeaseTTLSeconds, 10)
+	type targetCommands struct {
+		target                    service.AccountProxyConcurrencyTarget
+		removeRegular, removeLive *redis.IntCmd
+		regular, live             *redis.IntCmd
 	}
-	seen := make(map[int64]struct{}, len(proxyIDs))
-	cmds := make([]proxyCmd, 0, len(proxyIDs))
+	commands := make([]targetCommands, 0, len(unique))
 	pipe := c.rdb.Pipeline()
-	for _, proxyID := range proxyIDs {
-		if proxyID <= 0 {
+	for _, target := range unique {
+		regular := accountProxySlotKey(target.AccountID, target.ProxyID)
+		live := liveAccountProxySlotKey(target.AccountID, target.ProxyID)
+		removeRegular := pipe.ZRemRangeByScore(ctx, regular, "-inf", regularCutoff)
+		removeLive := pipe.ZRemRangeByScore(ctx, live, "-inf", liveCutoff)
+		commands = append(commands, targetCommands{target, removeRegular, removeLive, pipe.ZCard(ctx, regular), pipe.ZCard(ctx, live)})
+	}
+	_, pipelineErr := pipe.Exec(ctx)
+	// A per-key failure must not discard successful targets from the same page.
+	// The former point reads used zero only for the target whose cleanup/count
+	// failed. Keep that behavior while still returning the underlying failure.
+	for _, command := range commands {
+		if command.removeRegular.Err() != nil || command.removeLive.Err() != nil || command.regular.Err() != nil || command.live.Err() != nil {
 			continue
 		}
-		if _, exists := seen[proxyID]; exists {
-			continue
-		}
-		seen[proxyID] = struct{}{}
-		regularKey := accountProxySlotKey(accountID, proxyID)
-		liveKey := liveAccountProxySlotKey(accountID, proxyID)
-		pipe.ZRemRangeByScore(ctx, regularKey, "-inf", strconv.FormatInt(regularCutoff, 10))
-		pipe.ZRemRangeByScore(ctx, liveKey, "-inf", strconv.FormatInt(liveCutoff, 10))
-		cmds = append(cmds, proxyCmd{
-			proxyID: proxyID,
-			regular: pipe.ZCard(ctx, regularKey),
-			live:    pipe.ZCard(ctx, liveKey),
-		})
+		result[command.target] = int(command.regular.Val() + command.live.Val())
 	}
-	if _, err := pipe.Exec(ctx); err != nil && !errors.Is(err, redis.Nil) {
-		return nil, fmt.Errorf("pipeline exec: %w", err)
-	}
-
-	result := make(map[int64]int, len(cmds))
-	for _, cmd := range cmds {
-		result[cmd.proxyID] = int(cmd.regular.Val() + cmd.live.Val())
+	if pipelineErr != nil && !errors.Is(pipelineErr, redis.Nil) {
+		return result, fmt.Errorf("pipeline exec: %w", pipelineErr)
 	}
 	return result, nil
 }

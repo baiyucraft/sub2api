@@ -50,6 +50,7 @@
         :key="resolveRowKey(row, index)"
         class="rounded-lg border border-gray-200 bg-white p-4 dark:border-dark-700 dark:bg-dark-900"
         :class="{
+          'mobile-content-visibility': mobileContentVisibility,
           'cursor-pointer': clickableRows,
           'border-primary-300 bg-primary-50/40 dark:border-primary-700 dark:bg-primary-900/10': selectable && isRowSelected(row, index)
         }"
@@ -478,6 +479,8 @@ interface Props {
    * estimated-vs-actual row heights when rows have variable height.
    */
   virtualizeThreshold?: number
+  /** Opt in for long mobile cards; desktop virtualization remains unchanged. */
+  mobileContentVisibility?: boolean
   /** Enable controlled row selection. Stable row keys are strongly recommended. */
   selectable?: boolean
   /** Selected row keys. Keys outside the current data page are preserved. */
@@ -493,6 +496,7 @@ const props = withDefaults(defineProps<Props>(), {
   expandableActions: true,
   defaultSortOrder: 'asc',
   serverSideSort: false,
+  mobileContentVisibility: false,
   selectable: false,
   selectedKeys: () => []
 })
@@ -963,6 +967,12 @@ defineExpose({
 </script>
 
 <style scoped>
+@supports (content-visibility: auto) {
+  .mobile-content-visibility {
+    content-visibility: auto;
+    contain-intrinsic-block-size: auto 1024px;
+  }
+}
 /* 表格横向滚动 */
 .table-wrapper {
   --select-col-width: 52px; /* 勾选列宽度：px-6 (24px*2) + checkbox (16px) */

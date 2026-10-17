@@ -1,5 +1,5 @@
 import { apiClient } from '../client'
-import type { Account, AccountQualityFilter, PaginatedResponse, UpstreamConfidenceDistribution, UpstreamHealthObservation } from '@/types'
+import type { Account, AccountQualityFilter, AccountQualityStats, PaginatedResponse, UpstreamConfidenceDistribution, UpstreamHealthObservation } from '@/types'
 import { SCHEDULING_PROTECTION_SETTINGS_UPDATED } from '@/utils/schedulingProtection'
 
 export interface TTFTGuardSettings {
@@ -161,39 +161,53 @@ export interface UpstreamAccountListParams extends Record<string, unknown> {
   search?: string
   lite?: string
   include_scheduler_score?: string
+  include_quality?: string
   sort_by?: string
   sort_order?: 'asc' | 'desc'
   scope?: 'upstream'
 }
 
-export async function listAccounts(params: UpstreamAccountListParams = {}, options?: { signal?: AbortSignal }): Promise<PaginatedResponse<Account>> {
-  const { data } = await apiClient.get<PaginatedResponse<Account>>('/admin/upstream-management/accounts', { params, signal: options?.signal })
-  return data
+export interface UpstreamAccountPage extends PaginatedResponse<Account> {
+  quality_stats?: Record<string, AccountQualityStats>
+  quality_stats_status?: 'ok' | 'unavailable'
+  /** Transport metadata, excluded from the server's response ETag. */
+  evaluatedAt?: string
+  evaluationRequestedAt?: number
+}
+
+export async function listAccounts(params: UpstreamAccountListParams = {}, options?: { signal?: AbortSignal }): Promise<UpstreamAccountPage> {
+  const evaluationRequestedAt = Date.now()
+  const response = await apiClient.get<UpstreamAccountPage>('/admin/upstream-management/accounts', { params, signal: options?.signal })
+  return { ...response.data, evaluatedAt: response.headers?.['x-account-evaluated-at'], evaluationRequestedAt }
 }
 
 export interface UpstreamAccountListWithEtagResult {
   notModified: boolean
   etag: string | null
-  data: PaginatedResponse<Account> | null
+  data: UpstreamAccountPage | null
+  evaluatedAt?: string
+  evaluationRequestedAt?: number
 }
 
 export async function listAccountsWithEtag(
   params: UpstreamAccountListParams = {},
   options?: { signal?: AbortSignal; etag?: string | null }
 ): Promise<UpstreamAccountListWithEtagResult> {
+  const evaluationRequestedAt = Date.now()
   const headers: Record<string, string> = {}
   if (options?.etag) headers['If-None-Match'] = options.etag
 
-  const response = await apiClient.get<PaginatedResponse<Account>>('/admin/upstream-management/accounts', {
+  const response = await apiClient.get<UpstreamAccountPage>('/admin/upstream-management/accounts', {
     params,
     headers,
     signal: options?.signal,
     validateStatus: status => (status >= 200 && status < 300) || status === 304
   })
   const etag = typeof response.headers?.etag === 'string' ? response.headers.etag : null
+  const evaluatedAt = response.headers?.['x-account-evaluated-at'] as string | undefined
   return response.status === 304
-    ? { notModified: true, etag, data: null }
-    : { notModified: false, etag, data: response.data }
+    ? { notModified: true, etag, data: null, evaluatedAt, evaluationRequestedAt }
+    : { notModified: false, etag, data: response.data, evaluatedAt, evaluationRequestedAt }
 }
 
 export async function getTTFTGuard(): Promise<TTFTGuardSettings> {
@@ -252,14 +266,14 @@ export async function probeKey(id: number): Promise<UpstreamHealthSnapshot> {
   return data
 }
 
-export async function getKeyEvents(id: number): Promise<{ items: UpstreamKeyEvent[]; total: number; health_history: UpstreamHealthObservation[] }> {
-  const { data } = await apiClient.get<{ items: UpstreamKeyEvent[]; total: number; health_history: UpstreamHealthObservation[] }>(`/admin/upstream-management/keys/${id}/events`)
+export async function getKeyEvents(id: number, options?: { signal?: AbortSignal }): Promise<{ items: UpstreamKeyEvent[]; total: number; health_history: UpstreamHealthObservation[] }> {
+  const { data } = await apiClient.get<{ items: UpstreamKeyEvent[]; total: number; health_history: UpstreamHealthObservation[] }>(`/admin/upstream-management/keys/${id}/events`, { signal: options?.signal })
   return data
 }
 
-export async function getKeyHealthTrend(id: number, range: UpstreamHealthTrendRange): Promise<UpstreamHealthTrend> {
+export async function getKeyHealthTrend(id: number, range: UpstreamHealthTrendRange, options?: { signal?: AbortSignal }): Promise<UpstreamHealthTrend> {
   const { data } = await apiClient.get<UpstreamHealthTrend>(`/admin/upstream-management/keys/${id}/health-trend`, {
-    params: { range }
+    params: { range }, signal: options?.signal
   })
   return data
 }

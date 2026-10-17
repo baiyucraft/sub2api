@@ -20,14 +20,12 @@ func TestUpstreamHealthConfidencesBatchReadsFullWindowOnce(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 	repo := &upstreamConfigRepository{client: dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, db)))}
 	now := time.Now().UTC()
-	columns := []string{"id", "upstream_key_id", "confidence_score", "confidence_checks", "confidence_status", "confidence_prompt_version", "observed_at"}
-	rows := sqlmock.NewRows(columns)
-	for i := 30; i > 0; i-- {
-		rows.AddRow(i, 1, i, `{"valid_completed":2,"current_success":1}`, "mixed", service.UpstreamConfidencePromptVersion, now.Add(-time.Duration(30-i)*time.Minute))
-	}
-	rows.AddRow(100, 2, 90, `{"valid_completed":1,"current_success":1}`, "current_success", service.UpstreamConfidencePromptVersion, now.Add(-48*time.Hour))
-	mock.ExpectQuery(`SELECT .* FROM "upstream_health_observations" WHERE .*upstream_key_id.* IN .*platform.*source.*confidence_prompt_version.*observed_at.* ORDER BY .*observed_at.* DESC.*id.* DESC$`).
-		WithArgs(int64(1), int64(2), int64(3), service.PlatformOpenAI, "probe", service.UpstreamConfidencePromptVersion, sqlmock.AnyArg()).WillReturnRows(rows)
+	rows := sqlmock.NewRows([]string{"key_id", "counts24", "counts7", "facts_valid", "observed_at", "checks", "evidence", "version", "effort", "tokens", "score"}).
+		AddRow(1, `[60,30,0,0,0,30,0,0]`, `[60,30,0,0,0,30,0,0]`, true, now, `{"valid_completed":2,"current_success":1}`, nil, service.UpstreamConfidencePromptVersion, nil, nil, 30).
+		AddRow(2, `[0,0,0,0,0,0,0,0]`, `[1,1,0,0,0,1,0,0]`, true, now.Add(-48*time.Hour), `{"valid_completed":1,"current_success":1}`, nil, service.UpstreamConfidencePromptVersion, nil, nil, 90).
+		AddRow(3, nil, nil, true, nil, nil, nil, nil, nil, nil, nil)
+	mock.ExpectQuery(`WITH facts AS MATERIALIZED .*LEFT JOIN LATERAL.*ORDER BY requested.key_id`).
+		WithArgs("{1,2,3}", service.PlatformOpenAI, service.UpstreamConfidencePromptVersion, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).WillReturnRows(rows)
 	got, err := repo.GetUpstreamHealthConfidences(context.Background(), []int64{2, 1, 1, 3, 0, -1})
 	require.NoError(t, err)
 	require.Len(t, got, 3)
@@ -43,6 +41,21 @@ func TestUpstreamHealthConfidencesBatchReadsFullWindowOnce(t *testing.T) {
 	got, err = repo.GetUpstreamHealthConfidences(context.Background(), nil)
 	require.NoError(t, err)
 	require.Empty(t, got)
+}
+
+func TestUpstreamHealthConfidencesRejectsMalformedHistoricalJSON(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	repo := &upstreamConfigRepository{client: dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, db)))}
+	rows := sqlmock.NewRows([]string{"key_id", "counts24", "counts7", "facts_valid", "observed_at", "checks", "evidence", "version", "effort", "tokens", "score"}).
+		AddRow(1, nil, nil, false, nil, nil, nil, nil, nil, nil, nil)
+	mock.ExpectQuery(`WITH facts AS MATERIALIZED .*LEFT JOIN LATERAL.*ORDER BY requested.key_id`).
+		WithArgs("{1}", service.PlatformOpenAI, service.UpstreamConfidencePromptVersion, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).WillReturnRows(rows)
+	got, err := repo.GetUpstreamHealthConfidences(context.Background(), []int64{1})
+	require.ErrorContains(t, err, "invalid confidence observation JSON")
+	require.Nil(t, got, "invalid older facts must not silently produce a healthy summary")
+	require.NoError(t, mock.ExpectationsWereMet())
 }
 
 func TestUpstreamAccountBindingsBatchPreservesDuplicateBindingsAndHydratesOnce(t *testing.T) {
@@ -183,5 +196,15 @@ func TestConfidenceDistributionBatchPolicyResetMatchesSingleReadWithoutMutation(
 		require.NoError(t, err)
 		require.Equal(t, int64(1), revision, "policy reset listing never acquires a new series")
 		require.Equal(t, 0, state.SamplingPolicyVersion)
+	}
+}
+
+func TestConfidenceCountBoundaryPreservesGoNanosecondComparison(t *testing.T) {
+	base := time.Date(2026, 10, 17, 12, 0, 0, 123456000, time.UTC)
+	for _, offset := range []time.Duration{-900, -100, 0, 100, 900, 1000} {
+		cutoff := base.Add(offset)
+		for _, fact := range []time.Time{base.Add(-time.Microsecond), base, base.Add(time.Microsecond)} {
+			require.Equal(t, !fact.Before(cutoff), !fact.Before(confidenceCountBoundary(cutoff)), "offset %s fact %s", offset, fact)
+		}
 	}
 }

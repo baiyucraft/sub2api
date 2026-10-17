@@ -9,7 +9,7 @@ umask 077
 release_id=${1:?release ID required}
 input=${2:?private staging directory required}
 expected_artifact=${3:?encrypted artifact SHA-256 required}
-[[ $(id -u) == 0 && $release_id =~ ^(271|272)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ && $expected_artifact =~ ^[0-9a-f]{64}$ ]]
+[[ $(id -u) == 0 && $release_id =~ ^(271|272|273)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ && $expected_artifact =~ ^[0-9a-f]{64}$ ]]
 [[ $input =~ ^/srv/sub2api-backups/dr-baseline-stage\.[A-Za-z0-9]{8}$ ]]
 [[ -d $input && ! -L $input && $(realpath -e "$input") == "$input" && $(stat -c '%U:%G:%a' "$input") == root:root:700 ]]
 baseline_profile=${release_id%%-*}

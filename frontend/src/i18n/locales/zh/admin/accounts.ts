@@ -128,6 +128,8 @@ export default {
       notesPlaceholder: '请输入备注',
       notesHint: '备注可选',
       // Filter options
+      moreFilters: '更多筛选',
+      moreFiltersActive: '更多筛选（已启用 {count} 项）',
       allPlatforms: '全部平台',
       allTypes: '全部类型',
       allStatus: '全部状态',

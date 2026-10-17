@@ -1,0 +1,1 @@
+async (page) => {const session=await page.context().newCDPSession(page);try{return {browser:await session.send('Browser.getVersion'),url:page.url(),fixture:!!page.__upstreamFixture};}finally{await session.detach();}}

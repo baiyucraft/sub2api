@@ -82,6 +82,17 @@ type AccountProxyConcurrencyBatchCache interface {
 	GetAccountProxyConcurrencyBatch(ctx context.Context, accountID int64, proxyIDs []int64) (map[int64]int, error)
 }
 
+// AccountProxyConcurrencyTarget preserves both identities: proxy slots belong
+// to an account even when multiple accounts use the same proxy.
+type AccountProxyConcurrencyTarget struct {
+	AccountID int64
+	ProxyID   int64
+}
+
+type AccountProxyConcurrencyTargetsBatchCache interface {
+	GetAccountProxyConcurrencyTargetsBatch(context.Context, []AccountProxyConcurrencyTarget) (map[AccountProxyConcurrencyTarget]int, error)
+}
+
 type APIKeyConcurrencyCache interface {
 	TrackAPIKeySlot(ctx context.Context, apiKeyID int64, requestID string) error
 	ReleaseAPIKeySlot(ctx context.Context, apiKeyID int64, requestID string) error
@@ -449,6 +460,48 @@ func (s *ConcurrencyService) GetAccountProxyConcurrencyBatch(ctx context.Context
 		result[proxyID] = count
 	}
 	return result, nil
+}
+
+// GetAccountProxyConcurrencyTargetsBatch reads a complete administrative page
+// in one Redis pipeline. Older caches retain their partial per-target behavior
+// without introducing parallel point-read fanout on a failed shared backend.
+func (s *ConcurrencyService) GetAccountProxyConcurrencyTargetsBatch(ctx context.Context, targets []AccountProxyConcurrencyTarget) (map[AccountProxyConcurrencyTarget]int, error) {
+	result := make(map[AccountProxyConcurrencyTarget]int, len(targets))
+	unique := make([]AccountProxyConcurrencyTarget, 0, len(targets))
+	for _, target := range targets {
+		if target.AccountID <= 0 || target.ProxyID <= 0 {
+			continue
+		}
+		if _, exists := result[target]; exists {
+			continue
+		}
+		result[target] = 0
+		unique = append(unique, target)
+	}
+	if len(unique) == 0 {
+		return result, nil
+	}
+	if s == nil || s.cache == nil {
+		return nil, errors.New("account proxy concurrency cache unavailable")
+	}
+	if batch, ok := s.cache.(AccountProxyConcurrencyTargetsBatchCache); ok {
+		return batch.GetAccountProxyConcurrencyTargetsBatch(ctx, unique)
+	}
+	var firstErr error
+	for _, target := range unique {
+		if ctx.Err() != nil {
+			return result, ctx.Err()
+		}
+		count, err := s.GetAccountProxyConcurrency(ctx, target.AccountID, target.ProxyID)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		result[target] = count
+	}
+	return result, firstErr
 }
 
 // AcquireTargetSlot reserves a slot from either an account-local pool or a

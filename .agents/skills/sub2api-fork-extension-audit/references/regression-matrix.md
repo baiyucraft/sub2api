@@ -296,6 +296,22 @@ Vertex 健康探针执行 `upstream_health_probe_client_test.go`：Service Accou
 
 ## 官方 0.2.17 与 profile 272 发布合同
 
-当前发布 profile 为 `272`，版本 `0.2.17-baiyu`，parent `271`，`new_migrations=[]`；历史 271 及更早的 profile、SQL 和 checksum 保持不变，未知 `273` 拒绝。签名自测、停机奖励 postflight、migration 297/298/299 的祖先 manifest 校验、备份及清理入口均须接入 272。祖先 helper 仍逐项核对 schema、profile、parent、空新增迁移列表及 catalog checksum，不能只放宽外层 profile guard。
+历史登记profile `272` 的版本 `0.2.17-baiyu`、parent `271`、`new_migrations=[]` 保持不变；登记时未知273拒绝，现行273/274边界见下节。签名自测、停机奖励 postflight、migration 297/298/299 的祖先 manifest 校验、备份及清理入口均须接入 272。祖先 helper 仍逐项核对 schema、profile、parent、空新增迁移列表及 catalog checksum，不能只放宽外层 profile guard。
 
 最低本地回归为 `test_profile272_release_contract.py`（实际 jq 校验设置 `SUB2API_TEST_JQ` 为 jq 可执行路径）、历史 profile 合同、完整 `tests/release`、变更 Shell 的 `bash -n` 和 `git diff --check`。新 profile 同时更新允许身份和下一个未知身份负例；既有版本、迁移和 checksum 断言继续冻结。本地验证不代表 VM Gate、实际数据库升级、恢复或生产部署完成。
+
+
+## 上游账号表刷新性能与 profile 273
+
+本节接续历史272登记；当前pending273为 `0.2.17-baiyu`、parent272，仅新增300健康历史非唯一索引，未登记274拒绝。历史profile、SQL原始字节/checksum及Gate身份不回写。`test_profile273_release_contract.py` 与全部历史profile/release测试验证执行入口闭包；变更Shell运行 `bash -n`。静态测试不能替代真实PostgreSQL升级、旧生产镜像兼容、签名Gate或生产发布。
+
+- 健康：运行 `upstream_health_history_batch_test.go`、`upstream_health_confidence_batch_test.go`、`upstream_health_postgres_equivalence_test.go`。真实PG覆盖每Key最新24条、有界读取、同时间戳ID、软删/不存在Key、只对无持久历史回退extra；legacy精确聚合与原Go差分，保留JSON分类、24h/7d边界、最新非nil score及异常JSON失败；按精确JSON文本形状去重验证，不能让JSONB的1与1.0等价掩盖Go整数解码拒绝；计数边界ceil到PG微秒，latest/lastscore沿用旧SQL下界，固定时钟边界±100/900ns对照，并覆盖全部形状唯一的退化查询开销；distribution隔离无关legacy故障并保留CAS/恢复节奏。
+- 质量及列表：运行 `account_list_quality_response_test.go`、`account_quality_candidates_test.go`、`quality_stats_handler_test.go`、`account_quality_shared_read_test.go`、`usage_log_repo_quality_single_pass_pg_test.go`。校验v5统计/评分/分页等价、NULL duration、重复错误、原始事实更正/删除、同请求筛选与展示复用、可选内联字段/full/lite兼容；普通失败200+unavailable、筛选失败503、完整计算后200/304及失败恢复。并行限制4、精确窗口/授权身份共享及独立取消/最后等待者取消均测试。
+- Redis：`concurrency_service_test.go`、`concurrency_cache_integration_test.go` 和 `upstream_table_proxy_redis_test.go` 覆盖全页一个批次、去重与账号归属、部分失败、取消；不放宽请求调度硬约束。缓存5/30秒、TTFT15分钟回归独立执行。
+- 迁移：`upstream_table_migration300_pg_test.go` 实跑索引定义、重复执行、历史SQL读写兼容；catalog分别核对原始文件SHA与strip后SQL checksum。仅新增索引，不修改旧表语义或数据。
+- 前端：`AccountsView.upstreamManagement.spec.ts`、`UpstreamKeyEventsDialog.spec.ts`、`DataTable.spec.ts`、`replaceEqualDeep.spec.ts`、`useMinuteClock.spec.ts`、`formatNumberCache.spec.ts`，覆盖5/10/15/30秒、手动最多补一轮、同上下文失败保留与所选周期重试、换页/筛选立即清空旧行及总数且新请求失败不借旧数据显示选择导出、公开交互入口拒绝收尾、切页筛选换Key/卸载取消、旧响应隔离、详情暂停与关闭补一轮、无变化引用/单行变化、分钟时钟清理、虚拟滚动与移动content-visibility渐进回退。数值格式器缓存按locale与完整options区分，最多64个对象、不缓存数值结果，日期隐式时区不缓存。完成typecheck、lint、生产构建和最终浏览器功能/2分钟短稳定性；可选标准/4倍CPU性能测量分开记录，不冒充最终30分钟验证。
+- 性能：如执行对照，冻结8afa2ffe47800773f781279e945bf95d6c2e1067，同机同DB/Redis、同事实与同负载各至少3次；质量重算采用同频率，披露基线测试适配。100/1000/10000账号、20/100分页、1/5/20管理员、质量筛选及后续页、依赖退化和网关并发均独立报告。P99不足1000样本不验收。保留SQL/扫描行/CPU/分配/锁/积压与浏览器trace到.tmp；实际达标、未达、未跑及fixture/真实联调范围明确分开。不得用延长有效期、降低刷新频率或省略判断换性能；本次不再追加长矩阵。
+
+稳定接口和刷新合同见 `.wiki/03-模块指南/15-上游账号表刷新与质量统计.md`；原始压测记录不复制进长期Wiki。
+
+本次最终交付以代码正确、判断等价、刷新稳定、最终构建及浏览器功能为要求；50ms/32ms/25%等原性能目标未完整达成，仅保留参考，不再阻挡交付或追加长矩阵。正式浏览器工具位于 `scripts/perf/upstream-table/browser/`（相对production-deploy skill），`smoke.js` 为功能入口，精确浏览器版本留证；CPU、原生滚动及30分钟工具为可选测量。未测、未达和旧构建证据的限制保持，不宣称完整矩阵或浏览器性能全部通过。

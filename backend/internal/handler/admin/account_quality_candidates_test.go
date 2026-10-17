@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
@@ -38,9 +39,11 @@ func TestAccountQualityLeanCandidatesFilterBeforeLoadingPage(t *testing.T) {
 	h := &AccountHandler{adminService: admin, accountUsageService: usage}
 	filter, ok := service.ParseAccountQualityFilter("1h-A")
 	require.True(t, ok)
-	rows, total, err := h.listAccountsWithQualityFilter(context.Background(), 2, 1, "openai", "apikey", "active", "needle", 0, "", "name", "desc", service.AccountListScopeUpstream, filter)
+	rows, total, stats, err := h.listAccountsWithQualityFilter(context.Background(), 2, 1, "openai", "apikey", "active", "needle", 0, "", "name", "desc", service.AccountListScopeUpstream, filter, time.Now())
 	require.NoError(t, err)
 	require.Equal(t, int64(2), total)
+	require.Len(t, stats, 1)
+	require.Contains(t, stats, int64(1))
 	require.Equal(t, []int64{1}, admin.loadedIDs)
 	require.Equal(t, int64(1), rows[0].ID)
 	require.Equal(t, "needle", admin.query.Search)

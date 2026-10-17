@@ -37,7 +37,7 @@ func TestUsageLogRepositoryGetAccountQualityStatsBatch(t *testing.T) {
 		int64(0), int64(0), int64(4), int64(1), end.Add(-2*time.Hour), nil,
 	)
 
-	mock.ExpectQuery(`(?s)WITH successful AS MATERIALIZED.*ul\.cache_creation_tokens.*total_cost > 0.*ul\.stream = TRUE.*quality AS.*COUNT\(\*\) FILTER \(WHERE created_at >= \$3\).*SUM\(input_tokens \+ cache_creation_tokens \+ cache_read_tokens\) FILTER \(WHERE created_at >= \$3\).*SUM\(input_tokens \+ cache_creation_tokens \+ cache_read_tokens\).*WHERE duration_ms IS NOT NULL.*ops_error_logs.*oe\.stream = TRUE.*oe\.is_count_tokens = FALSE`).
+	mock.ExpectQuery(`(?s)WITH successful AS.*COUNT\(\*\) FILTER \(WHERE ul\.duration_ms IS NOT NULL AND ul\.created_at >= \$3\).*SUM\(ul\.input_tokens \+ ul\.cache_creation_tokens \+ ul\.cache_read_tokens\).*total_cost > 0.*ul\.stream = TRUE.*COUNT\(DISTINCT COALESCE\(NULLIF\(oe\.request_id.*oe\.stream = TRUE.*oe\.is_count_tokens = FALSE.*FULL OUTER JOIN errors`).
 		WithArgs(pq.Array(accountIDs), start, realtimeStart, end).
 		WillReturnRows(rows)
 
@@ -80,7 +80,7 @@ func TestUsageLogRepositoryGetGroupQualityStatsBatch(t *testing.T) {
 		int64(5), int64(0), int64(84), int64(6), end.Add(-time.Minute), nil,
 	)
 
-	mock.ExpectQuery(`(?s)WITH successful AS MATERIALIZED.*ul\.group_id.*ul\.cache_creation_tokens.*quality AS.*SUM\(input_tokens \+ cache_creation_tokens \+ cache_read_tokens\).*GROUP BY group_id.*ops_error_logs`).
+	mock.ExpectQuery(`(?s)WITH successful AS.*COUNT\(\*\) FILTER \(WHERE ul\.duration_ms IS NOT NULL AND ul\.created_at >= \$3\).*SUM\(ul\.input_tokens \+ ul\.cache_creation_tokens \+ ul\.cache_read_tokens\).*total_cost > 0.*ul\.stream = TRUE.*COUNT\(DISTINCT COALESCE\(NULLIF\(oe\.request_id.*oe\.stream = TRUE.*oe\.is_count_tokens = FALSE.*FULL OUTER JOIN errors`).
 		WithArgs(pq.Array(groupIDs), start, realtimeStart, end).
 		WillReturnRows(rows)
 

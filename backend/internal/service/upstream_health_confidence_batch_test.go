@@ -43,6 +43,9 @@ func (r *confidenceBatchAccountRepo) ListByUpstreamKeyIDs(_ context.Context, ids
 type confidenceBatchSummaryRepo struct {
 	*distributionWindowTestRepo
 	legacy                     UpstreamHealthConfidenceSummary
+	legacyErr                  error
+	evaluatedAt                time.Time
+	distributionAt             time.Time
 	results                    map[int64]ConfidenceDistributionReadResult
 	batchCalls, singleCalls    int
 	distributionBatchCalls     int
@@ -53,7 +56,7 @@ type confidenceBatchSummaryRepo struct {
 
 func (r *confidenceBatchSummaryRepo) GetUpstreamHealthConfidence(context.Context, int64) (UpstreamHealthConfidenceSummary, error) {
 	r.singleCalls++
-	return r.legacy, nil
+	return r.legacy, r.legacyErr
 }
 
 func (r *confidenceBatchSummaryRepo) GetUpstreamHealthConfidences(_ context.Context, ids []int64) (map[int64]UpstreamHealthConfidenceSummary, error) {
@@ -63,7 +66,41 @@ func (r *confidenceBatchSummaryRepo) GetUpstreamHealthConfidences(_ context.Cont
 	for _, id := range ids {
 		out[id] = r.legacy
 	}
-	return out, nil
+	return out, r.legacyErr
+}
+
+func (r *confidenceBatchSummaryRepo) GetUpstreamHealthConfidencesAt(ctx context.Context, ids []int64, now time.Time) (map[int64]UpstreamHealthConfidenceSummary, error) {
+	r.evaluatedAt = now
+	return r.GetUpstreamHealthConfidences(ctx, ids)
+}
+
+func TestUpstreamHealthConfidencesIndependentReadIgnoresLegacyFailureAndUsesFixedClock(t *testing.T) {
+	settingsRepo := &upstreamManagementSettingRepoStub{values: map[string]string{SettingKeyUpstreamConfidenceProbe: `{"enabled":true}`}}
+	account := distributionIdentityTestAccount()
+	account.ID, account.UpstreamKeyID = 101, int64Ptr(1)
+	legacyAccount := *account
+	legacyAccount.ID, legacyAccount.UpstreamKeyID, legacyAccount.Platform = 102, int64Ptr(2), PlatformAnthropic
+	accounts := &confidenceBatchAccountRepo{healthProbeAccountRepo: &healthProbeAccountRepo{}, accounts: map[int64][]Account{1: {*account}, 2: {legacyAccount}}}
+	repo := &confidenceBatchSummaryRepo{distributionWindowTestRepo: &distributionWindowTestRepo{healthProbeLockRepo: &healthProbeLockRepo{}},
+		legacyErr: errors.New("legacy read failed"), results: map[int64]ConfidenceDistributionReadResult{1: {Distribution: &UpstreamConfidenceDistribution{Status: "match", Attempted: 128}}}}
+	svc := NewUpstreamConfigService(repo, nil, accounts)
+	svc.SetHealthProbeDependencies(distributionIdentityTestService(), NewSettingService(settingsRepo, nil))
+	now := time.Date(2026, 10, 17, 12, 0, 0, 123000, time.FixedZone("request", 3600))
+	got, err := svc.GetUpstreamHealthConfidencesAt(context.Background(), []int64{1, 2}, now)
+	require.NoError(t, err)
+	require.Equal(t, "match", got[1].Status)
+	require.Equal(t, "confidence_read_unavailable", got[2].Distribution.Reasons[0])
+	require.Equal(t, []int64{2}, repo.lastIDs)
+	require.Equal(t, now.UTC(), repo.evaluatedAt)
+	require.Equal(t, now.UTC(), repo.distributionAt)
+	repo.batchCalls = 0
+	_, err = svc.GetUpstreamHealthConfidencesAt(context.Background(), []int64{1}, now)
+	require.NoError(t, err)
+	require.Zero(t, repo.batchCalls, "an all-distribution page performs no legacy read")
+	single, err := svc.GetUpstreamHealthConfidence(context.Background(), 1)
+	require.NoError(t, err)
+	require.Equal(t, "match", single.Status, "single-key display also ignores irrelevant legacy errors")
+	require.Zero(t, repo.batchCalls)
 }
 
 func (r *confidenceBatchSummaryRepo) LoadConfidenceDistributionForSeries(_ context.Context, id int64, _ ConfidenceDistributionIdentity, _ time.Time) (*UpstreamConfidenceDistribution, error) {
@@ -72,8 +109,9 @@ func (r *confidenceBatchSummaryRepo) LoadConfidenceDistributionForSeries(_ conte
 	return result.Distribution, result.Err
 }
 
-func (r *confidenceBatchSummaryRepo) LoadConfidenceDistributionsForSeries(_ context.Context, identities map[int64]ConfidenceDistributionIdentity, _ time.Time) (map[int64]ConfidenceDistributionReadResult, error) {
+func (r *confidenceBatchSummaryRepo) LoadConfidenceDistributionsForSeries(_ context.Context, identities map[int64]ConfidenceDistributionIdentity, now time.Time) (map[int64]ConfidenceDistributionReadResult, error) {
 	r.distributionBatchCalls++
+	r.distributionAt = now
 	r.lastDistributionIdentities = identities
 	return r.results, nil
 }
@@ -118,7 +156,7 @@ func TestUpstreamHealthConfidencesBatchEquivalentAndReadsConfigurationOnce(t *te
 	got, err := svc.GetUpstreamHealthConfidences(context.Background(), ids)
 	require.NoError(t, err)
 	require.Len(t, got, 8)
-	require.Equal(t, []int64{1, 2, 3, 4, 5, 6, 7, 8}, repo.lastIDs)
+	require.Equal(t, []int64{5}, repo.lastIDs, "distribution keys never read legacy evidence")
 	require.Equal(t, 1, repo.batchCalls)
 	require.Zero(t, repo.singleCalls)
 	require.Equal(t, 1, accountsRepo.batchCalls)

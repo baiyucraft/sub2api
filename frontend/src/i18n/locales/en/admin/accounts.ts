@@ -128,6 +128,8 @@ export default {
       notes: 'Notes',
       notesPlaceholder: 'Enter notes',
       notesHint: 'Notes are optional',
+      moreFilters: 'More filters',
+      moreFiltersActive: 'More filters ({count} active)',
       allPlatforms: 'All Platforms',
       allTypes: 'All Types',
       allStatus: 'All Status',

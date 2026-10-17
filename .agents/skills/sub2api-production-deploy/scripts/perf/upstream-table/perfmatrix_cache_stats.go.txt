@@ -1,0 +1,36 @@
+package upstreamcacheguard
+
+import "time"
+
+// Exclusive fixture instrumentation; never installed in the business tree.
+// Count scalar metadata only, without sorting/projecting/cloning accounts.
+func (e *Engine) PerfMatrixCacheStats() map[string]int64 {
+	now := time.Now().UTC()
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	stats := map[string]int64{"loaded": int64(len(e.accounts)), "available": 0, "fresh": 0, "gaps": 0, "max_refresh_lag_ms": 0}
+	for id, account := range e.accounts {
+		gap := e.accountGaps[id] || len(e.samplingFailures[id]) > 0
+		if gap {
+			stats["gaps"]++
+		}
+		loaded := account.LoadedAt
+		if loaded.IsZero() && !gap {
+			loaded = e.loadedAt
+		}
+		if loaded.IsZero() || now.Before(loaded) {
+			continue
+		}
+		age := now.Sub(loaded)
+		if age <= UsableSnapshotLifetime {
+			stats["available"]++
+		}
+		if !gap && age <= RefreshLifetime {
+			stats["fresh"]++
+		}
+		if age.Milliseconds() > stats["max_refresh_lag_ms"] {
+			stats["max_refresh_lag_ms"] = age.Milliseconds()
+		}
+	}
+	return stats
+}
