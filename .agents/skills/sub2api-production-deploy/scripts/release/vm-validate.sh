@@ -26,22 +26,44 @@ docker_build_with_registry_bypass() {
   NO_PROXY="$registry_no_proxy" no_proxy="$registry_no_proxy" docker build "$@"
 }
 
+# A successful inventory distinguishes an absent tag from a failed daemon query.
+# jq -e uses the same nonzero channel for false and query failures. Required
+# control predicates render a boolean with -r, validate it, and only then
+# return the intentional false status. Called directly, never in a pipeline.
+required_jq_predicate() {
+  local predicate_value
+  predicate_value=$(jq -r "$@") || exit $?
+  case $predicate_value in
+    true) return 0 ;;
+    false) return 1 ;;
+    *) exit 1 ;;
+  esac
+}
+
+image_id_for_tag() {
+  local image_tag=$1 inventory image_id
+  inventory=$(docker image ls --no-trunc --format '{{.Repository}}:{{.Tag}} {{.ID}}') || return $?
+  image_id=$(printf '%s\n' "$inventory" | awk -v tag="$image_tag" '$1 == tag {print $2}') || return $?
+  [[ -z $image_id || $image_id =~ ^sha256:[0-9a-f]{64}$ ]] || return 1
+  printf '%s' "$image_id"
+}
+
 wait_for_redis_ready() {
   local container=$1 max_seconds=${2:-180} diagnostics_path=${3:-}
   local state loading ping
   for _ in $(seq 1 "$max_seconds"); do
-    state=$(docker inspect -f '{{.State.Status}}' "$container" 2>/dev/null || true)
+    state=$(docker inspect -f '{{.State.Status}}' "$container" 2>/dev/null) || return $?
     if [[ "$state" != running ]]; then
       [[ -z "$diagnostics_path" ]] || write_redis_probe_diagnostics "$container" "$diagnostics_path" container_not_running "$max_seconds"
       return 1
     fi
-    ping=$(docker exec "$container" redis-cli PING 2>/dev/null | tr -d '\r' || true)
+    ping=$(docker exec "$container" redis-cli PING 2>/dev/null | tr -d '\r') || ping=
     [[ "$ping" == PONG ]] && return 0
     if [[ "$ping" == NOAUTH* || "$ping" == ERR* ]]; then
       [[ -z "$diagnostics_path" ]] || write_redis_probe_diagnostics "$container" "$diagnostics_path" redis_command_rejected "$max_seconds"
       return 1
     fi
-    loading=$(docker exec "$container" redis-cli INFO persistence 2>/dev/null | sed -n 's/^loading:\([01]\)\r*$/\1/p' || true)
+    loading=$(docker exec "$container" redis-cli INFO persistence 2>/dev/null | sed -n 's/^loading:\([01]\)\r*$/\1/p') || loading=
     if [[ -n "$loading" && "$loading" != 0 && "$loading" != 1 ]]; then
       [[ -z "$diagnostics_path" ]] || write_redis_probe_diagnostics "$container" "$diagnostics_path" redis_loading_state_invalid "$max_seconds"
       return 1
@@ -108,11 +130,20 @@ source_dir=/opt/sub2api-src
 deploy_dir=/opt/sub2api-deploy
 data_dir="$deploy_dir/data-dev"
 state_root="$deploy_dir/release-gates"
-[[ $(id -u) == 0 ]]
+{
+  required_query_1=$(id -u)
+  [[ ${required_query_1} == 0 ]]
+}
 unit_lock=/usr/local/libexec/.sub2api-release-unit.lock
-[[ -f $unit_lock && ! -L $unit_lock && $(stat -c '%U:%G:%a:%h' "$unit_lock") == root:root:600:1 ]]
+{
+  required_query_2=$(stat -c '%U:%G:%a:%h' "$unit_lock")
+  [[ -f $unit_lock && ! -L $unit_lock && ${required_query_2} == root:root:600:1 ]]
+}
 exec 8<>"$unit_lock"
-[[ $(stat -Lc '%U:%G:%a:%h' /proc/self/fd/8) == root:root:600:1 ]]
+{
+  required_query_3=$(stat -Lc '%U:%G:%a:%h' /proc/self/fd/8)
+  [[ ${required_query_3} == root:root:600:1 ]]
+}
 flock -s 8
 [[ -f $manifest && ! -L $manifest ]]
 commit=$(jq -er '.commit_sha' "$manifest")
@@ -126,91 +157,169 @@ manifest_schema=$(jq -er '.schema' "$manifest")
 if [[ "$manifest_schema" == 2 ]]; then
   [[ "$profile" == 254 || "$profile" == 255 || "$profile" == 256 || "$profile" == 257 || "$profile" == 258 || "$profile" == 259 || "$profile" == 260 || "$profile" == 261 || "$profile" == 262 || "$profile" == 263 || "$profile" == 264 || "$profile" == 265 || "$profile" == 266 || "$profile" == 267 || "$profile" == 268 || "$profile" == 269 || "$profile" == 270 || "$profile" == 271 || "$profile" == 272 || "$profile" == 273 ]]
   [[ "$release_id" =~ ^(254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
-  [[ $(jq -er '.release_asset_layout' "$manifest") == skill-v1 ]]
-  [[ $(jq -er '.vm_identity' "$manifest") == sub2api-dev ]]
-  [[ $(jq -er '.origin' "$manifest") == https://github.com/baiyucraft/sub2api.git ]]
-  [[ $(jq -er '.migration_catalog | type' "$manifest") == array ]]
-  [[ $(jq -er '.catalog_sha256' "$manifest") =~ ^[0-9a-f]{64}$ ]]
-  [[ $(jq -er '.checksum_policy_sha256' "$manifest") =~ ^[0-9a-f]{64}$ ]]
+  {
+    required_query_4=$(jq -er '.release_asset_layout' "$manifest") || exit $?
+    [[ ${required_query_4} == skill-v1 ]]
+  }
+  {
+    required_query_5=$(jq -er '.vm_identity' "$manifest") || exit $?
+    [[ ${required_query_5} == sub2api-dev ]]
+  }
+  {
+    required_query_6=$(jq -er '.origin' "$manifest") || exit $?
+    [[ ${required_query_6} == https://github.com/baiyucraft/sub2api.git ]]
+  }
+  {
+    required_query_7=$(jq -er '.migration_catalog | type' "$manifest") || exit $?
+    [[ ${required_query_7} == array ]]
+  }
+  {
+    required_query_8=$(jq -er '.catalog_sha256' "$manifest") || exit $?
+    [[ ${required_query_8} =~ ^[0-9a-f]{64}$ ]]
+  }
+  {
+    required_query_9=$(jq -er '.checksum_policy_sha256' "$manifest") || exit $?
+    [[ ${required_query_9} =~ ^[0-9a-f]{64}$ ]]
+  }
   if [[ "$profile" == 254 ]]; then
     [[ "$version" == 0.2.7-baiyu ]]
-    [[ $(jq -er '.parent_profile' "$manifest") == 253 ]]
+    {
+      required_query_10=$(jq -er '.parent_profile' "$manifest") || exit $?
+      [[ ${required_query_10} == 253 ]]
+    }
     jq -e '.new_migrations == ["278_fork_group_ttft_guard_policies.sql", "279_proxy_ip_groups.sql", "280_plugin_runtime_state.sql"]' "$manifest" >/dev/null
   elif [[ "$profile" == 255 ]]; then
     [[ "$version" == 0.2.8-baiyu ]]
-    [[ $(jq -er '.parent_profile' "$manifest") == 254 ]]
+    {
+      required_query_11=$(jq -er '.parent_profile' "$manifest") || exit $?
+      [[ ${required_query_11} == 254 ]]
+    }
     jq -e '.new_migrations == ["281_content_moderation_engine_meta.sql", "282_channel_reasoning_effort_multipliers.sql", "283_affiliate_ledger_operation_id.sql"]' "$manifest" >/dev/null
   elif [[ "$profile" == 256 ]]; then
     [[ "$version" == 0.2.9-baiyu ]]
-    [[ $(jq -er '.parent_profile' "$manifest") == 255 ]]
+    {
+      required_query_12=$(jq -er '.parent_profile' "$manifest") || exit $?
+      [[ ${required_query_12} == 255 ]]
+    }
     jq -e '.new_migrations == []' "$manifest" >/dev/null
   elif [[ "$profile" == 257 ]]; then
     [[ "$version" == 0.2.9-baiyu ]]
-    [[ $(jq -er '.parent_profile' "$manifest") == 256 ]]
+    {
+      required_query_13=$(jq -er '.parent_profile' "$manifest") || exit $?
+      [[ ${required_query_13} == 256 ]]
+    }
     jq -e '.new_migrations == ["284_unified_proxy_bindings.sql"]' "$manifest" >/dev/null
   elif [[ "$profile" == 258 ]]; then
     [[ "$version" == 0.2.10-baiyu ]]
-    [[ $(jq -er '.parent_profile' "$manifest") == 257 ]]
+    {
+      required_query_14=$(jq -er '.parent_profile' "$manifest") || exit $?
+      [[ ${required_query_14} == 257 ]]
+    }
     jq -e '.new_migrations == []' "$manifest" >/dev/null
   elif [[ "$profile" == 259 ]]; then
     [[ "$version" == 0.2.11-baiyu ]]
-    [[ $(jq -er '.parent_profile' "$manifest") == 258 ]]
+    {
+      required_query_15=$(jq -er '.parent_profile' "$manifest") || exit $?
+      [[ ${required_query_15} == 258 ]]
+    }
     jq -e '.new_migrations == []' "$manifest" >/dev/null
   elif [[ "$profile" == 260 ]]; then
     [[ "$version" == 0.2.11-baiyu ]]
-    [[ $(jq -er '.parent_profile' "$manifest") == 259 ]]
+    {
+      required_query_16=$(jq -er '.parent_profile' "$manifest") || exit $?
+      [[ ${required_query_16} == 259 ]]
+    }
     jq -e '.new_migrations == ["285_upstream_null_rate_lifecycle.sql"]' "$manifest" >/dev/null
   elif [[ "$profile" == 261 ]]; then
     [[ "$version" == 0.2.13-baiyu ]]
-    [[ $(jq -er '.parent_profile' "$manifest") == 260 ]]
+    {
+      required_query_17=$(jq -er '.parent_profile' "$manifest") || exit $?
+      [[ ${required_query_17} == 260 ]]
+    }
     jq -e '.new_migrations == ["286_add_payment_order_bonus_amount.sql", "287_add_typesafe_platform.sql"]' "$manifest" >/dev/null
   elif [[ "$profile" == 262 ]]; then
     [[ "$version" == 0.2.13-baiyu ]]
-    [[ $(jq -er '.parent_profile' "$manifest") == 261 ]]
+    {
+      required_query_18=$(jq -er '.parent_profile' "$manifest") || exit $?
+      [[ ${required_query_18} == 261 ]]
+    }
     jq -e '.new_migrations == ["288_upstream_confidence_distribution.sql"]' "$manifest" >/dev/null
   elif [[ "$profile" == 263 ]]; then
     [[ "$version" == 0.2.14-baiyu ]]
-    [[ $(jq -er '.parent_profile' "$manifest") == 262 ]]
+    {
+      required_query_19=$(jq -er '.parent_profile' "$manifest") || exit $?
+      [[ ${required_query_19} == 262 ]]
+    }
     jq -e '.new_migrations == []' "$manifest" >/dev/null
   elif [[ "$profile" == 264 ]]; then
     [[ "$version" == 0.2.14-baiyu ]]
-    [[ $(jq -er '.parent_profile' "$manifest") == 263 ]]
+    {
+      required_query_20=$(jq -er '.parent_profile' "$manifest") || exit $?
+      [[ ${required_query_20} == 263 ]]
+    }
     jq -e '.new_migrations == ["289_activity_reward_costs.sql"]' "$manifest" >/dev/null
   elif [[ "$profile" == 265 ]]; then
     [[ "$version" == 0.2.15-baiyu ]]
-    [[ $(jq -er '.parent_profile' "$manifest") == 264 ]]
+    {
+      required_query_21=$(jq -er '.parent_profile' "$manifest") || exit $?
+      [[ ${required_query_21} == 264 ]]
+    }
     jq -e '.new_migrations == ["290_drop_platform_check_constraints.sql"]' "$manifest" >/dev/null
   elif [[ "$profile" == 266 ]]; then
     [[ "$version" == 0.2.15-baiyu ]]
-    [[ $(jq -er '.parent_profile' "$manifest") == 265 ]]
+    {
+      required_query_22=$(jq -er '.parent_profile' "$manifest") || exit $?
+      [[ ${required_query_22} == 265 ]]
+    }
     jq -e '.new_migrations == ["291_user_invoice_annotations.sql"]' "$manifest" >/dev/null
   elif [[ "$profile" == 267 ]]; then
     [[ "$version" == 0.2.16-baiyu ]]
-    [[ $(jq -er '.parent_profile' "$manifest") == 266 ]]
+    {
+      required_query_23=$(jq -er '.parent_profile' "$manifest") || exit $?
+      [[ ${required_query_23} == 266 ]]
+    }
     jq -e '.new_migrations == ["292_group_i18n.sql", "293_gemini_cached_contents.sql", "294_gemini_cached_contents_channel_usage.sql", "295_gemini_cached_contents_mutation_lease.sql"]' "$manifest" >/dev/null
   elif [[ "$profile" == 268 ]]; then
     [[ "$version" == 0.2.16-baiyu ]]
-    [[ $(jq -er '.parent_profile' "$manifest") == 267 ]]
+    {
+      required_query_24=$(jq -er '.parent_profile' "$manifest") || exit $?
+      [[ ${required_query_24} == 267 ]]
+    }
     jq -e '.new_migrations == ["296_upstream_cache_guard.sql"]' "$manifest" >/dev/null
   elif [[ "$profile" == 269 ]]; then
     [[ "$version" == 0.2.16-baiyu ]]
-    [[ $(jq -er '.parent_profile' "$manifest") == 268 ]]
+    {
+      required_query_25=$(jq -er '.parent_profile' "$manifest") || exit $?
+      [[ ${required_query_25} == 268 ]]
+    }
     jq -e '.new_migrations == ["297_upstream_cache_guard_account_scope.sql"]' "$manifest" >/dev/null
   elif [[ "$profile" == 270 ]]; then
     [[ "$version" == 0.2.16-baiyu ]]
-    [[ $(jq -er '.parent_profile' "$manifest") == 269 ]]
+    {
+      required_query_26=$(jq -er '.parent_profile' "$manifest") || exit $?
+      [[ ${required_query_26} == 269 ]]
+    }
     jq -e '.new_migrations == ["298_group_scheduling_protection_policies.sql"]' "$manifest" >/dev/null
   elif [[ "$profile" == 271 ]]; then
     [[ "$version" == 0.2.16-baiyu ]]
-    [[ $(jq -er '.parent_profile' "$manifest") == 270 ]]
+    {
+      required_query_27=$(jq -er '.parent_profile' "$manifest") || exit $?
+      [[ ${required_query_27} == 270 ]]
+    }
     jq -e '.new_migrations == ["299_upstream_cache_guard_revisions.sql"]' "$manifest" >/dev/null
   elif [[ "$profile" == 272 ]]; then
     [[ "$version" == 0.2.17-baiyu ]]
-    [[ $(jq -er '.parent_profile' "$manifest") == 271 ]]
+    {
+      required_query_28=$(jq -er '.parent_profile' "$manifest") || exit $?
+      [[ ${required_query_28} == 271 ]]
+    }
     jq -e '.new_migrations == []' "$manifest" >/dev/null
   elif [[ "$profile" == 273 ]]; then
     [[ "$version" == 0.2.17-baiyu ]]
-    [[ $(jq -er '.parent_profile' "$manifest") == 272 ]]
+    {
+      required_query_29=$(jq -er '.parent_profile' "$manifest") || exit $?
+      [[ ${required_query_29} == 272 ]]
+    }
     jq -e '.new_migrations == ["300_upstream_health_history_index.sql"]' "$manifest" >/dev/null
   else
     exit 1
@@ -232,18 +341,37 @@ if [[ "$manifest_schema" == 2 ]]; then
     [[ "$compatibility_path" =~ ^/opt/sub2api-deploy/release-input/pre-gate\.[A-Za-z0-9]+/production-current-image\.tar\.gz$ ]]
     [[ "$recovery_sha" =~ ^[0-9a-f]{64}$ && "$compatibility_sha" =~ ^[0-9a-f]{64}$ ]]
     [[ -f "$recovery_path" && ! -L "$recovery_path" && -f "$compatibility_path" && ! -L "$compatibility_path" ]]
-    [[ $(sha256sum "$recovery_path" | awk '{print $1}') == "$recovery_sha" ]]
-    [[ $(sha256sum "$compatibility_path" | awk '{print $1}') == "$compatibility_sha" ]]
+    {
+      required_query_30=$(sha256sum "$recovery_path" | awk '{print $1}') || exit $?
+      [[ ${required_query_30} == "$recovery_sha" ]]
+    }
+    {
+      required_query_31=$(sha256sum "$compatibility_path" | awk '{print $1}') || exit $?
+      [[ ${required_query_31} == "$compatibility_sha" ]]
+    }
   fi
   # The production snapshot digest is a cross-language contract.  Keep the
   # VM validator on jq's canonical sorted-key representation so it matches
   # production_snapshot.snapshot_sha256() and remains stable after persistence.
   snapshot_digest=$(jq -cS '{current_image_id, production_current_commit_sha, schema_migrations}' "$production_snapshot" | tr -d '\n' | sha256sum | awk '{print $1}')
-  [[ "$snapshot_digest" == "$(jq -er '.production_snapshot_sha256' "$manifest")" ]]
+  {
+    required_query_32=$(jq -er '.production_snapshot_sha256' "$manifest")
+    [[ "$snapshot_digest" == "${required_query_32}" ]]
+  }
   jq -e 'type == "object" and (.current_image_id|type)=="string" and (.production_current_commit_sha|type)=="string" and (.schema_migrations|type)=="array"' "$production_snapshot" >/dev/null
-  [[ $(jq -er '.current_image_id' "$production_snapshot") == "$(jq -er '.production_current_image_id' "$manifest")" ]]
-  [[ $(jq -er '.migration_catalog | map(.filename) == (map(.filename) | sort)' "$manifest") == true ]]
-  [[ $(jq -er '.migration_catalog | map(select((.filename|type)!="string" or (.checksum|type)!="string")) | length' "$manifest") == 0 ]]
+  {
+    required_query_33=$(jq -er '.current_image_id' "$production_snapshot")
+    required_query_34=$(jq -er '.production_current_image_id' "$manifest")
+    [[ ${required_query_33} == "${required_query_34}" ]]
+  }
+  {
+    required_query_35=$(jq -er '.migration_catalog | map(.filename) == (map(.filename) | sort)' "$manifest")
+    [[ ${required_query_35} == true ]]
+  }
+  {
+    required_query_36=$(jq -er '.migration_catalog | map(select((.filename|type)!="string" or (.checksum|type)!="string")) | length' "$manifest")
+    [[ ${required_query_36} == 0 ]]
+  }
   state_dir="$state_root/$release_id"
   [[ "$output_dir" == "$state_dir/output" ]]
   [[ ! -e "$state_dir" && ! -L "$state_dir" ]]
@@ -268,7 +396,7 @@ if [[ "$manifest_schema" == 2 ]]; then
   }
   protect_old_image() {
     [[ "$old_image_tag_created" == false ]]
-    existing_old_image_id=$(docker image inspect -f '{{.Id}}' "$old_image_tag" 2>/dev/null || true)
+    existing_old_image_id=$(image_id_for_tag "$old_image_tag") || return $?
     if [[ -n "$existing_old_image_id" ]]; then
       # A detached/restarted validator may leave the release tag behind. Reuse
       # it only when it still protects the exact production image; a mismatch
@@ -279,16 +407,26 @@ if [[ "$manifest_schema" == 2 ]]; then
     fi
     docker tag "$old_image_id" "$old_image_tag" >/dev/null
     old_image_tag_created=true
-    [[ $(docker image inspect -f '{{.Id}}' "$old_image_tag") == "$old_image_id" ]]
+    {
+      required_query_37=$(docker image inspect -f '{{.Id}}' "$old_image_tag") || return $?
+      [[ ${required_query_37} == "$old_image_id" ]]
+    }
   }
   assert_old_image_protected() {
     [[ "$old_image_tag_created" == true ]]
-    [[ $(docker image inspect -f '{{.Id}}' "$old_image_tag") == "$old_image_id" ]]
+    {
+      required_query_38=$(docker image inspect -f '{{.Id}}' "$old_image_tag") || return $?
+      [[ ${required_query_38} == "$old_image_id" ]]
+    }
   }
   cleanup_old_image_tag() {
+    local remaining_old_tags remaining_tag
     [[ "$old_image_tag_created" == true ]] || return 0
-    docker image rm "$old_image_tag" >/dev/null 2>&1 || true
-    ! docker image inspect "$old_image_tag" >/dev/null 2>&1
+    docker image rm "$old_image_tag" >/dev/null 2>&1 || return 1
+    remaining_old_tags=$(docker image ls --format '{{.Repository}}:{{.Tag}}') || return 1
+    while IFS= read -r remaining_tag; do
+      [[ $remaining_tag != "$old_image_tag" ]] || return 1
+    done <<<"$remaining_old_tags"
     old_image_tag_created=false
   }
   on_v2_failure() {
@@ -311,21 +449,34 @@ if [[ "$manifest_schema" == 2 ]]; then
   # synchronization without changing the remote branch.
   git fetch --no-tags --depth=1 origin \
     +main:refs/remotes/origin/main >/dev/null 2>&1
-  [[ $(git rev-parse origin/main) == "$commit" ]]
+  {
+    required_query_39=$(git rev-parse origin/main)
+    [[ ${required_query_39} == "$commit" ]]
+  }
   git reset --hard "$commit" >/dev/null
-  [[ $(git rev-parse HEAD) == "$commit" ]]
+  {
+    required_query_40=$(git rev-parse HEAD)
+    [[ ${required_query_40} == "$commit" ]]
+  }
   # The manifest catalog is derived from Git blobs. Rehydrate migrations from
   # the same commit so a stale CRLF working tree cannot change embedded checksums.
   git clean -fdx -- backend/migrations >/dev/null
   git archive --format=tar "$commit" -- backend/migrations | tar -xf - -C "$source_dir"
+  jq -r '.release_asset_sha256 | to_entries[] | [.key,.value] | @tsv' "$manifest" > "$state_dir/release-assets-inventory.tsv"
   while IFS=$'\t' read -r relative expected; do
     [[ -f "$source_dir/$relative" && ! -L "$source_dir/$relative" ]]
-    [[ $(sha256sum "$source_dir/$relative" | awk '{print $1}') == "$expected" ]]
-  done < <(jq -r '.release_asset_sha256 | to_entries[] | [.key,.value] | @tsv' "$manifest")
+    {
+      required_query_41=$(sha256sum "$source_dir/$relative" | awk '{print $1}') || exit $?
+      [[ ${required_query_41} == "$expected" ]]
+    }
+  done < "$state_dir/release-assets-inventory.tsv"
   if [[ "$recovery_gate_mode" != fast ]]; then
     loaded_old_image=$(gzip -dc "$compatibility_path" | docker load | sed -n 's/^Loaded image ID: //p' | tail -n1)
     [[ -z "$loaded_old_image" || "$loaded_old_image" == "$old_image_id" ]]
-    [[ $(docker image inspect -f '{{.Id}}' "$old_image_id") == "$old_image_id" ]]
+    {
+      required_query_42=$(docker image inspect -f '{{.Id}}' "$old_image_id") || exit $?
+      [[ ${required_query_42} == "$old_image_id" ]]
+    }
     protect_old_image
     assert_old_image_protected
     rm -f -- "$compatibility_path"
@@ -334,13 +485,16 @@ if [[ "$manifest_schema" == 2 ]]; then
   : > "$build_log"
   chmod 600 "$build_log"
   mark_v2_stage candidate_build
-  docker_build_with_registry_bypass --network=host --progress=plain \
+  {
+    required_query_43=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    docker_build_with_registry_bypass --network=host --progress=plain \
     --build-arg NODE_IMAGE=docker.m.daocloud.io/library/node:24-alpine \
     --build-arg GOLANG_IMAGE=docker.m.daocloud.io/library/golang:1.27.2-alpine \
     --build-arg ALPINE_IMAGE=docker.m.daocloud.io/library/alpine:3.21 \
     --build-arg POSTGRES_IMAGE=docker.m.daocloud.io/library/postgres:18-alpine \
     --build-arg COMMIT="$commit" --build-arg VERSION="$version" \
-    --build-arg DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" -t "$tag" . >"$build_log" 2>&1
+    --build-arg DATE="${required_query_43}" -t "$tag" .
+  } >"$build_log" 2>&1
   candidate_image_id=$(docker image inspect -f '{{.Id}}' "$tag")
   candidate_image_size=$(docker image inspect -f '{{.Size}}' "$tag")
   [[ "$candidate_image_id" =~ ^sha256:[0-9a-f]{64}$ && "$candidate_image_size" =~ ^[0-9]+$ ]]
@@ -378,7 +532,10 @@ if [[ "$manifest_schema" == 2 ]]; then
     post_build_space_verified="$state_dir/post-build-space-verified"
     "$space_cleaner" dry-run "$commit" > "$post_build_space_verified"
     chmod 400 "$post_build_space_verified"
-    [[ $(sed -n 's/^space_status=//p' "$post_build_space_verified") == sufficient ]]
+    {
+      required_query_44=$(sed -n 's/^space_status=//p' "$post_build_space_verified") || exit $?
+      [[ ${required_query_44} == sufficient ]]
+    }
   fi
   probe_suffix=${release_id//[^a-zA-Z0-9]/}
   probe_db="sub2api_v2_${probe_suffix:0:24}"
@@ -405,7 +562,10 @@ if [[ "$manifest_schema" == 2 ]]; then
     tar -C "$recovery_dir" -xf "$recovery_path"
     (cd "$recovery_dir" && sha256sum -c SHA256SUMS >/dev/null)
     [[ -s "$recovery_dir/database/sub2api.dump" && -s "$recovery_dir/redis/dump.rdb" ]]
-    [[ $(sed -n 's/^current_image_id=//p' "$recovery_dir/manifest") == "$old_image_id" ]]
+    {
+      required_query_45=$(sed -n 's/^current_image_id=//p' "$recovery_dir/manifest") || exit $?
+      [[ ${required_query_45} == "$old_image_id" ]]
+    }
     rm -f -- "$recovery_path"
   fi
   database_owner=$(docker exec sub2api-postgres sh -lc 'psql -X -A -t -U "${POSTGRES_USER:-postgres}" -d postgres -c "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname='"'"'sub2api_dev'"'"'"' | tr -d '\r')
@@ -482,7 +642,10 @@ SQL
   # untouched and expose a read-only copy with no write bits to the container.
   plan_snapshot="$state_dir/production-snapshot.json"
   install -o 0 -g 0 -m 444 "$production_snapshot" "$plan_snapshot"
-  [[ -f "$plan_snapshot" && ! -L "$plan_snapshot" && $(stat -c '%u:%g:%a:%h' "$plan_snapshot") == 0:0:444:1 ]]
+  {
+    required_query_46=$(stat -c '%u:%g:%a:%h' "$plan_snapshot")
+    [[ -f "$plan_snapshot" && ! -L "$plan_snapshot" && ${required_query_46} == 0:0:444:1 ]]
+  }
   mark_v2_stage migration_plan_before
   set +e
   plan_before=$(docker run --rm -v "$plan_snapshot:/input/production-snapshot.json:ro" "$candidate_image_id" /app/sub2api --migration-plan-snapshot-json /input/production-snapshot.json 2>"$state_dir/plan-before.log")
@@ -493,8 +656,16 @@ SQL
   chmod 400 "$state_dir/plan-before.json" "$state_dir/plan-before.exit"
   [[ "$plan_before_exit" == 0 && -n "$plan_before" ]]
   printf '%s' "$plan_before" | jq -e 'type == "object" and (.pending|type)=="array" and (.conflicts|length)==0 and (.unknown|length)==0 and .existing_checksums_verified==true' >/dev/null
-  [[ $(printf '%s' "$plan_before" | jq -r '.catalog_sha256') == $(jq -r '.catalog_sha256' "$manifest") ]]
-  [[ $(printf '%s' "$plan_before" | jq -r '.checksum_policy_sha256') == $(jq -r '.checksum_policy_sha256' "$manifest") ]]
+  {
+    required_query_47=$(printf '%s' "$plan_before" | jq -r '.catalog_sha256')
+    required_query_48=$(jq -r '.catalog_sha256' "$manifest")
+    [[ ${required_query_47} == ${required_query_48} ]]
+  }
+  {
+    required_query_49=$(printf '%s' "$plan_before" | jq -r '.checksum_policy_sha256')
+    required_query_50=$(jq -r '.checksum_policy_sha256' "$manifest")
+    [[ ${required_query_49} == ${required_query_50} ]]
+  }
   set +e
   actual_plan=$(docker run --rm --network="$probe_network" -v "$probe_dir:/app/data" "$candidate_image_id" /app/sub2api --migration-plan-json 2>"$state_dir/plan-actual.log")
   actual_plan_exit=$?
@@ -509,7 +680,10 @@ SQL
   actual_plan_pending=$(printf '%s' "$actual_plan" | jq -c '.pending | map({filename,checksum})')
   [[ "$plan_before_pending" == "$actual_plan_pending" ]]
   if [[ "$recovery_gate_mode" == fast ]]; then
-    [[ $(printf '%s' "$plan_before" | jq -r '.pending | length') == 0 ]]
+    {
+      required_query_51=$(printf '%s' "$plan_before" | jq -r '.pending | length') || exit $?
+      [[ ${required_query_51} == 0 ]]
+    }
   fi
   migration_assertion_dir="$source_dir/.agents/skills/sub2api-production-deploy/scripts/maintenance/release"
   hook_context="$state_dir/migration-hook-context.sh"
@@ -523,7 +697,7 @@ SQL
   printf '{}\n' > "$hook_results_file"
   chmod 600 "$hook_results_file"
   is_pending_v2() {
-    printf '%s' "$plan_before" | jq -e --arg filename "$1" '.pending | any(.filename == $filename)' >/dev/null
+    required_jq_predicate --arg filename "$1" '.pending | any(.filename == $filename)' <<<"$plan_before"
   }
   record_hook_v2() {
     local filename=$1 phase=$2 temporary="$hook_results_file.tmp"
@@ -587,7 +761,7 @@ SQL
   done
   lifecycle_filename=285_upstream_null_rate_lifecycle.sql
   lifecycle_in_catalog=false
-  if jq -e --arg filename "$lifecycle_filename" '.migration_catalog | any(.filename == $filename)' "$manifest" >/dev/null; then
+  if required_jq_predicate --arg filename "$lifecycle_filename" '.migration_catalog | any(.filename == $filename)' "$manifest" >/dev/null; then
     lifecycle_in_catalog=true
     if ! is_pending_v2 "$lifecycle_filename"; then
       printf '%s' "$plan_before" | jq -e --arg filename "$lifecycle_filename" '.existing | any(.filename == $filename and .status == "existing")' >/dev/null
@@ -596,7 +770,7 @@ SQL
   fi
   account_scope_filename=297_upstream_cache_guard_account_scope.sql
   account_scope_in_catalog=false
-  if jq -e --arg filename "$account_scope_filename" '.migration_catalog | any(.filename == $filename)' "$manifest" >/dev/null; then
+  if required_jq_predicate --arg filename "$account_scope_filename" '.migration_catalog | any(.filename == $filename)' "$manifest" >/dev/null; then
     account_scope_in_catalog=true
     if ! is_pending_v2 "$account_scope_filename"; then
       printf '%s' "$plan_before" | jq -e --arg filename "$account_scope_filename" '.existing | any(.filename == $filename and .status == "existing")' >/dev/null
@@ -605,7 +779,7 @@ SQL
   fi
   protection_filename=298_group_scheduling_protection_policies.sql
   protection_in_catalog=false
-  if jq -e --arg filename "$protection_filename" '.migration_catalog | any(.filename == $filename)' "$manifest" >/dev/null; then
+  if required_jq_predicate --arg filename "$protection_filename" '.migration_catalog | any(.filename == $filename)' "$manifest" >/dev/null; then
     protection_in_catalog=true
     if ! is_pending_v2 "$protection_filename"; then
       printf '%s' "$plan_before" | jq -e --arg filename "$protection_filename" '.existing | any(.filename == $filename and .status == "existing")' >/dev/null
@@ -614,7 +788,7 @@ SQL
   fi
   revisions_filename=299_upstream_cache_guard_revisions.sql
   revisions_in_catalog=false
-  if jq -e --arg filename "$revisions_filename" '.migration_catalog | any(.filename == $filename)' "$manifest" >/dev/null; then
+  if required_jq_predicate --arg filename "$revisions_filename" '.migration_catalog | any(.filename == $filename)' "$manifest" >/dev/null; then
     revisions_in_catalog=true
     if ! is_pending_v2 "$revisions_filename"; then
       printf '%s' "$plan_before" | jq -e --arg filename "$revisions_filename" '.existing | any(.filename == $filename and .status == "existing")' >/dev/null
@@ -623,11 +797,14 @@ SQL
   fi
   plan_apply="$state_dir/migration-plan-apply.json"
   install -o 0 -g 0 -m 444 "$state_dir/plan-before.json" "$plan_apply"
-  [[ -f "$plan_apply" && ! -L "$plan_apply" && $(stat -c '%u:%g:%a:%h' "$plan_apply") == 0:0:444:1 ]]
+  {
+    required_query_52=$(stat -c '%u:%g:%a:%h' "$plan_apply")
+    [[ -f "$plan_apply" && ! -L "$plan_apply" && ${required_query_52} == 0:0:444:1 ]]
+  }
   mark_v2_stage migration_apply
   docker run --rm --network="$probe_network" -v "$probe_dir:/app/data" -v "$plan_apply:/input/migration-plan.json:ro" "$candidate_image_id" /app/sub2api --migration-apply-plan-json /input/migration-plan.json >"$state_dir/migrate-candidate.log" 2>&1
   mark_v2_stage migration_plan_after
-  plan_after=$(docker run --rm --network="$probe_network" -v "$probe_dir:/app/data" "$candidate_image_id" /app/sub2api --migration-plan-json 2>"$state_dir/plan-after.log" || true)
+  plan_after=$(docker run --rm --network="$probe_network" -v "$probe_dir:/app/data" "$candidate_image_id" /app/sub2api --migration-plan-json 2>"$state_dir/plan-after.log")
   printf '%s' "$plan_after" | jq -e '((.pending|length) == 0) and (.existing_checksums_verified == true)' >/dev/null
   printf '%s' "$plan_after" > "$state_dir/plan-after.json"
   for filename in \
@@ -695,11 +872,20 @@ SQL
     docker image inspect "$old_image_id" >/dev/null
     docker run -d --name "$old_probe_app" --network="$probe_network" -e SERVER_HOST=0.0.0.0 -e SERVER_PORT=8080 -e UPSTREAM_SYNC_AUTO_ENABLED=false -v "$probe_dir:/app/data" --health-cmd 'wget -q -T 5 -O /dev/null http://127.0.0.1:8080/health || exit 1' --health-interval 5s --health-timeout 5s --health-start-period 5s --health-retries 12 "$old_image_id" >/dev/null
     for _ in $(seq 1 90); do
-      [[ $(docker inspect -f '{{.State.Health.Status}}' "$old_probe_app") == healthy ]] && break
+      {
+        required_query_53=$(docker inspect -f '{{.State.Health.Status}}' "$old_probe_app") || exit $?
+        [[ ${required_query_53} == healthy ]]
+      } && break
       sleep 2
     done
-    [[ $(docker inspect -f '{{.Image}}' "$old_probe_app") == "$old_image_id" ]]
-    [[ $(docker inspect -f '{{.State.Health.Status}}' "$old_probe_app") == healthy ]]
+    {
+      required_query_54=$(docker inspect -f '{{.Image}}' "$old_probe_app") || exit $?
+      [[ ${required_query_54} == "$old_image_id" ]]
+    }
+    {
+      required_query_55=$(docker inspect -f '{{.State.Health.Status}}' "$old_probe_app") || exit $?
+      [[ ${required_query_55} == healthy ]]
+    }
     docker rm -f "$old_probe_app" >/dev/null
   fi
   mark_v2_stage candidate_health
@@ -711,25 +897,46 @@ SQL
     dashboard_key="${dashboard_prefix}dashboard:stats:v1"
     docker exec "$probe_redis" redis-cli SET "$sentinel" preserve >/dev/null
     docker exec "$probe_redis" redis-cli SET "$dashboard_key" stale >/dev/null
-    [[ $(docker exec "$probe_redis" redis-cli GET "$dashboard_key") == stale ]]
+    {
+      required_query_56=$(docker exec "$probe_redis" redis-cli GET "$dashboard_key") || exit $?
+      [[ ${required_query_56} == stale ]]
+    }
     for cache_attempt in 1 2; do
       cache_result=$(docker run --rm --network="$probe_network" -e DASHBOARD_CACHE_KEY_PREFIX="$dashboard_prefix" -v "$probe_dir:/app/data" "$candidate_image_id" /app/sub2api --clear-dashboard-cache 2>"$state_dir/dashboard-cache-refresh-$cache_attempt.log")
       jq -e 'keys==["dashboard_cache_cleared"] and .dashboard_cache_cleared==true' <<<"$cache_result" >/dev/null
-      [[ $(docker exec "$probe_redis" redis-cli EXISTS "$dashboard_key") == 0 ]]
-      [[ $(docker exec "$probe_redis" redis-cli GET "$sentinel") == preserve ]]
+      {
+        required_query_57=$(docker exec "$probe_redis" redis-cli EXISTS "$dashboard_key") || exit $?
+        [[ ${required_query_57} == 0 ]]
+      }
+      {
+        required_query_58=$(docker exec "$probe_redis" redis-cli GET "$sentinel") || exit $?
+        [[ ${required_query_58} == preserve ]]
+      }
     done
     docker exec "$probe_redis" redis-cli DEL "$sentinel" >/dev/null
   fi
   docker run -d --name "$probe_app" --network="$probe_network" -e SERVER_HOST=0.0.0.0 -e SERVER_PORT=8080 -e UPSTREAM_SYNC_AUTO_ENABLED=false -p 127.0.0.1::8080 -v "$probe_dir:/app/data" --health-cmd 'wget -q -T 5 -O /dev/null http://127.0.0.1:8080/health || exit 1' --health-interval 5s --health-timeout 5s --health-start-period 5s --health-retries 12 "$candidate_image_id" >/dev/null
   for _ in $(seq 1 90); do
-    [[ $(docker inspect -f '{{.State.Health.Status}}' "$probe_app") == healthy ]] && break
+    {
+      required_query_59=$(docker inspect -f '{{.State.Health.Status}}' "$probe_app") || exit $?
+      [[ ${required_query_59} == healthy ]]
+    } && break
     sleep 2
   done
-  [[ $(docker inspect -f '{{.Image}}' "$probe_app") == "$candidate_image_id" ]]
-  [[ $(docker inspect -f '{{.State.Health.Status}}' "$probe_app") == healthy ]]
+  {
+    required_query_60=$(docker inspect -f '{{.Image}}' "$probe_app")
+    [[ ${required_query_60} == "$candidate_image_id" ]]
+  }
+  {
+    required_query_61=$(docker inspect -f '{{.State.Health.Status}}' "$probe_app")
+    [[ ${required_query_61} == healthy ]]
+  }
   probe_port=$(docker port "$probe_app" 8080/tcp | sed -n 's/^127\.0\.0\.1://p')
   [[ "$probe_port" =~ ^[1-9][0-9]{0,4}$ ]]
-  [[ $(curl -sS --max-time 15 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$probe_port/health") == 200 ]]
+  {
+    required_query_62=$(curl -sS --max-time 15 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$probe_port/health")
+    [[ ${required_query_62} == 200 ]]
+  }
   # Current Gate v2 profiles are health-only: do not read API keys or issue application
   # availability requests. Candidate container health and the /health route
   # are the only runtime availability checks in this Gate.
@@ -753,7 +960,10 @@ SQL
   candidate_size=$(stat -c '%s' "$candidate_archive")
   [[ "$candidate_size" =~ ^[1-9][0-9]*$ ]]
   pending_json=$(printf '%s' "$plan_before" | jq --slurpfile hooks "$hook_results_file" '[.pending[] | . as $item | ($hooks[0][.filename] // null) as $result | if $result == null then {filename,checksum} else {filename,checksum,preflight:true,postflight:true,hook_results:$result,rollback_policy:"coordinated_restore"} end]')
-  jq -n --slurpfile m "$manifest" --slurpfile hooks "$hook_results_file" --arg image "$candidate_image_id" --arg archive "$candidate_archive_sha" --arg old_image_id "$old_image_id" --arg snapshot_sha "$(jq -r '.production_snapshot_sha256' "$manifest")" --argjson size "$candidate_size" --argjson pending "$pending_json" --argjson plan_before "$(cat "$state_dir/plan-before.json")" --argjson vm_restore_verified "$vm_restore_verified" --argjson restore_points_verified "$restore_points_verified" \
+  {
+    required_query_63=$(jq -r '.production_snapshot_sha256' "$manifest")
+    required_query_64=$(cat "$state_dir/plan-before.json")
+    jq -n --slurpfile m "$manifest" --slurpfile hooks "$hook_results_file" --arg image "$candidate_image_id" --arg archive "$candidate_archive_sha" --arg old_image_id "$old_image_id" --arg snapshot_sha "${required_query_63}" --argjson size "$candidate_size" --argjson pending "$pending_json" --argjson plan_before "${required_query_64}" --argjson vm_restore_verified "$vm_restore_verified" --argjson restore_points_verified "$restore_points_verified" \
     '{gate_version:2,profile_id:($m[0].profile|tonumber),manifest:$m[0],evidence:{candidate_image_id:$image,candidate_archive_sha256:$archive,candidate_size:$size,integration_verified:true,vm_restore_verified:$vm_restore_verified,vm_database_boundary:true,vm_redis_boundary:true,data_dev_boundary:true,production_current_image_id:$old_image_id,production_snapshot_sha256:$snapshot_sha,catalog_sha256:$m[0].catalog_sha256,checksum_policy_sha256:$m[0].checksum_policy_sha256,checksum_policy_version:"sub2api-migration-checksum-policy-v1",migration_evidence:{database_high_watermark:($plan_before.database_high_watermark // null),pending:$pending,existing_checksums_verified:true,isolated_upgrade_verified:true,final_schema_verified:true},release_policy:{canary_verified:"not_checked",restore_points_verified:$restore_points_verified}}}
     | ($m[0].migration_catalog | map(select(.filename == "285_upstream_null_rate_lifecycle.sql")) | first) as $lifecycle
     | if $lifecycle == null then . else .evidence.migration_evidence.migration_285 =
@@ -766,7 +976,8 @@ SQL
         ($hooks[0][$protection.filename] + {checksum:$protection.checksum}) end
     | ($m[0].migration_catalog | map(select(.filename == "299_upstream_cache_guard_revisions.sql")) | first) as $revisions
     | if $revisions == null then . else .evidence.migration_evidence.migration_299 =
-        ($hooks[0][$revisions.filename] + {checksum:$revisions.checksum}) end' > "$output_dir/gate.json"
+        ($hooks[0][$revisions.filename] + {checksum:$revisions.checksum}) end'
+  } > "$output_dir/gate.json"
   chmod 400 "$output_dir/gate.json"
   install -m 400 "$candidate_archive" "$output_dir/candidate.tar.gz"
   /usr/local/libexec/sub2api-sign-gate "$output_dir/gate.json" "$output_dir/gate.sig"
@@ -782,8 +993,14 @@ fi
 [[ $release_id =~ ^(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
 [[ $profile == 182 || $profile == 187 || $profile == 191 || $profile == 192 || $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 || $profile == 240 || $profile == 241 || $profile == 242 || $profile == 243 || $profile == 244 || $profile == 245 || $profile == 246 || $profile == 247 || $profile == 248 || $profile == 249 || $profile == 250 || $profile == 251 || $profile == 252 || $profile == 253 || $profile == 254 || $profile == 255 || $profile == 256 || $profile == 257 || $profile == 258 || $profile == 259 || $profile == 260 || $profile == 261 || $profile == 262 || $profile == 263 || $profile == 264 || $profile == 265 || $profile == 266 || $profile == 267 || $profile == 268 || $profile == 269 || $profile == 270 || $profile == 271 || $profile == 272 || $profile == 273 ]]
 [[ $release_id == "$profile-${commit:0:12}-"* ]]
-[[ $(jq -er '.schema' "$manifest") == 1 ]]
-[[ $(jq -er '.version' "$manifest") == "$version" ]]
+{
+  required_query_65=$(jq -er '.schema' "$manifest")
+  [[ ${required_query_65} == 1 ]]
+}
+{
+  required_query_66=$(jq -er '.version' "$manifest")
+  [[ ${required_query_66} == "$version" ]]
+}
 layout_field=$(jq -er 'if has("release_asset_layout") then .release_asset_layout else "__missing__" end' "$manifest")
 case "$layout_field" in
   __missing__)
@@ -800,56 +1017,108 @@ case "$layout_field" in
     exit 1
     ;;
 esac
-[[ $(jq -er '.migrations | length' "$manifest") == $(jq -er '.migration_sha256 | length' "$manifest") ]]
+{
+  required_query_67=$(jq -er '.migrations | length' "$manifest")
+  required_query_68=$(jq -er '.migration_sha256 | length' "$manifest")
+  [[ ${required_query_67} == ${required_query_68} ]]
+}
 jq -e '.migrations as $m | (.migration_sha256 | keys) == ($m | sort)' "$manifest" >/dev/null
 if [[ $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
   if [[ $profile == 232 ]]; then
     [[ $version == 0.1.173-baiyu ]]
-    [[ $(jq -er '.migrations | length' "$manifest") == 49 ]]
+    {
+      required_query_69=$(jq -er '.migrations | length' "$manifest") || exit $?
+      [[ ${required_query_69} == 49 ]]
+    }
     expected_tail='216_channel_monitor_v2.sql|217_channel_monitor_mode.sql|218_channel_monitor_v2_ignored_error_categories.sql|219_channel_monitor_v2_seed_popular_models.sql|220_channel_monitor_v2_health_thresholds.sql|221_channel_monitor_v2_fixed_rollups.sql|222_channel_monitor_v2_rollup_permissions.sql|223_channel_monitor_v2_refresh_5m.sql|224_channel_monitor_v2_full_table_permissions.sql|225_channel_monitor_v2_default_ignore_and_cache.sql|226_channel_monitor_hide_throughput.sql|227_channel_monitor_v2_reset_factory_cache_thresholds.sql|228_channel_monitor_v2_privacy_defaults.sql|229_group_video_model_prices.sql|230_group_audio_voice_pricing.sql|231_group_search_price_per_1k.sql|232_clear_non_grok_video_generation_config.sql'
-    [[ $(jq -er '.migrations[-17:] | join("|")' "$manifest") == "$expected_tail" ]]
+    {
+      required_query_70=$(jq -er '.migrations[-17:] | join("|")' "$manifest") || exit $?
+      [[ ${required_query_70} == "$expected_tail" ]]
+    }
   elif [[ $profile == 233 || $profile == 234 ]]; then
     if [[ $profile == 233 ]]; then
       [[ $version == 0.1.173-baiyu ]]
     else
       [[ $version == 0.1.175-baiyu ]]
     fi
-    [[ $(jq -er '.migrations | length' "$manifest") == 50 ]]
+    {
+      required_query_71=$(jq -er '.migrations | length' "$manifest") || exit $?
+      [[ ${required_query_71} == 50 ]]
+    }
     expected_tail='216_channel_monitor_v2.sql|217_channel_monitor_mode.sql|218_channel_monitor_v2_ignored_error_categories.sql|219_channel_monitor_v2_seed_popular_models.sql|220_channel_monitor_v2_health_thresholds.sql|221_channel_monitor_v2_fixed_rollups.sql|222_channel_monitor_v2_rollup_permissions.sql|223_channel_monitor_v2_refresh_5m.sql|224_channel_monitor_v2_full_table_permissions.sql|225_channel_monitor_v2_default_ignore_and_cache.sql|226_channel_monitor_hide_throughput.sql|227_channel_monitor_v2_reset_factory_cache_thresholds.sql|228_channel_monitor_v2_privacy_defaults.sql|229_group_video_model_prices.sql|230_group_audio_voice_pricing.sql|231_group_search_price_per_1k.sql|232_clear_non_grok_video_generation_config.sql|233_upstream_management.sql'
-    [[ $(jq -er '.migrations[-18:] | join("|")' "$manifest") == "$expected_tail" ]]
+    {
+      required_query_72=$(jq -er '.migrations[-18:] | join("|")' "$manifest") || exit $?
+      [[ ${required_query_72} == "$expected_tail" ]]
+    }
   elif [[ $profile == 235 || $profile == 236 ]]; then
     if [[ $profile == 235 ]]; then
       [[ $version == 0.1.176-baiyu ]]
     else
       [[ $version == 0.176-baiyu ]]
     fi
-    [[ $(jq -er '.migrations | length' "$manifest") == 51 ]]
+    {
+      required_query_73=$(jq -er '.migrations | length' "$manifest") || exit $?
+      [[ ${required_query_73} == 51 ]]
+    }
     expected_tail='216_channel_monitor_v2.sql|217_channel_monitor_mode.sql|218_channel_monitor_v2_ignored_error_categories.sql|219_channel_monitor_v2_seed_popular_models.sql|220_channel_monitor_v2_health_thresholds.sql|221_channel_monitor_v2_fixed_rollups.sql|222_channel_monitor_v2_rollup_permissions.sql|223_channel_monitor_v2_refresh_5m.sql|224_channel_monitor_v2_full_table_permissions.sql|225_channel_monitor_v2_default_ignore_and_cache.sql|226_channel_monitor_hide_throughput.sql|227_channel_monitor_v2_reset_factory_cache_thresholds.sql|228_channel_monitor_v2_privacy_defaults.sql|229_group_video_model_prices.sql|230_group_audio_voice_pricing.sql|231_group_search_price_per_1k.sql|232_clear_non_grok_video_generation_config.sql|233_upstream_management.sql|234_group_model_pricing.sql'
-    [[ $(jq -er '.migrations[-19:] | join("|")' "$manifest") == "$expected_tail" ]]
+    {
+      required_query_74=$(jq -er '.migrations[-19:] | join("|")' "$manifest") || exit $?
+      [[ ${required_query_74} == "$expected_tail" ]]
+    }
 elif [[ $profile == 237 || $profile == 238 || $profile == 239 || $profile == 240 || $profile == 241 ]]; then
     [[ $version == 0.1.177-baiyu ]]
     if [[ $profile == 237 ]]; then
-      [[ $(jq -er '.migrations | length' "$manifest") == 53 ]]
+      {
+        required_query_75=$(jq -er '.migrations | length' "$manifest") || exit $?
+        [[ ${required_query_75} == 53 ]]
+      }
       expected_tail='233_upstream_management.sql|234_group_model_pricing.sql|235_group_usage_daily_rollups.sql|236_group_usage_rollup_timezone.sql'
-      [[ $(jq -er '.migrations[-4:] | join("|")' "$manifest") == "$expected_tail" ]]
+      {
+        required_query_76=$(jq -er '.migrations[-4:] | join("|")' "$manifest") || exit $?
+        [[ ${required_query_76} == "$expected_tail" ]]
+      }
     elif [[ $profile == 238 ]]; then
-      [[ $(jq -er '.migrations | length' "$manifest") == 54 ]]
+      {
+        required_query_77=$(jq -er '.migrations | length' "$manifest") || exit $?
+        [[ ${required_query_77} == 54 ]]
+      }
       expected_tail='234_group_model_pricing.sql|235_group_usage_daily_rollups.sql|236_group_usage_rollup_timezone.sql|237_image_cost_routing.sql'
-      [[ $(jq -er '.migrations[-4:] | join("|")' "$manifest") == "$expected_tail" ]]
+      {
+        required_query_78=$(jq -er '.migrations[-4:] | join("|")' "$manifest") || exit $?
+        [[ ${required_query_78} == "$expected_tail" ]]
+      }
     elif [[ $profile == 239 ]]; then
-      [[ $(jq -er '.migrations | length' "$manifest") == 56 ]]
+      {
+        required_query_79=$(jq -er '.migrations | length' "$manifest") || exit $?
+        [[ ${required_query_79} == 56 ]]
+      }
       expected_tail='235_group_usage_daily_rollups.sql|236_group_usage_rollup_timezone.sql|237_image_cost_routing.sql|238_upstream_account_lifecycle.sql|239_reconcile_non_grok_video_pricing.sql'
-      [[ $(jq -er '.migrations[-5:] | join("|")' "$manifest") == "$expected_tail" ]]
+      {
+        required_query_80=$(jq -er '.migrations[-5:] | join("|")' "$manifest") || exit $?
+        [[ ${required_query_80} == "$expected_tail" ]]
+      }
     elif [[ $profile == 240 ]]; then
-      [[ $(jq -er '.migrations | length' "$manifest") == 58 ]]
+      {
+        required_query_81=$(jq -er '.migrations | length' "$manifest") || exit $?
+        [[ ${required_query_81} == 58 ]]
+      }
       expected_tail='237_image_cost_routing.sql|238_upstream_account_lifecycle.sql|239_reconcile_non_grok_video_pricing.sql|240_upstream_observation_preference.sql|241_precise_upstream_effective_rate.sql'
-      [[ $(jq -er '.migrations[-5:] | join("|")' "$manifest") == "$expected_tail" ]]
+      {
+        required_query_82=$(jq -er '.migrations[-5:] | join("|")' "$manifest") || exit $?
+        [[ ${required_query_82} == "$expected_tail" ]]
+      }
     else
       [[ $profile == 241 ]]
       [[ $version == 0.1.178-baiyu ]]
-      [[ $(jq -er '.migrations | length' "$manifest") == 62 ]]
+      {
+        required_query_83=$(jq -er '.migrations | length' "$manifest") || exit $?
+        [[ ${required_query_83} == 62 ]]
+      }
       expected_tail='239_reconcile_non_grok_video_pricing.sql|240_upstream_observation_preference.sql|241_precise_upstream_effective_rate.sql|242_user_platform_quotas_add_cn_providers.sql|243_backfill_codex_fingerprint_seed.sql|244_channel_model_time_pricing.sql|245_channel_monitor_quota_mode.sql'
-      [[ $(jq -er '.migrations[-7:] | join("|")' "$manifest") == "$expected_tail" ]]
+      {
+        required_query_84=$(jq -er '.migrations[-7:] | join("|")' "$manifest") || exit $?
+        [[ ${required_query_84} == "$expected_tail" ]]
+      }
     fi
   fi
 fi
@@ -870,13 +1139,34 @@ if [[ $profile == 238 ]]; then
   # original profile for the new migration-specific checks below.
   profile=237
 fi
-[[ $(jq -er '.vm_identity' "$manifest") == sub2api-dev ]]
-[[ $(jq -er '.origin' "$manifest") == https://github.com/baiyucraft/sub2api.git ]]
-[[ $(jq -er '.vm_validator_sha256' "$manifest") == "$(sha256sum "$0" | awk '{print $1}')" ]]
-[[ $(jq -er '.vm_gate_signer_sha256' "$manifest") == "$(sha256sum /usr/local/libexec/sub2api-sign-gate | awk '{print $1}')" ]]
-[[ $(jq -er '.vm_dr_signer_sha256' "$manifest") == "$(sha256sum /usr/local/libexec/sub2api-sign-dr-evidence | awk '{print $1}')" ]]
+{
+  required_query_85=$(jq -er '.vm_identity' "$manifest")
+  [[ ${required_query_85} == sub2api-dev ]]
+}
+{
+  required_query_86=$(jq -er '.origin' "$manifest")
+  [[ ${required_query_86} == https://github.com/baiyucraft/sub2api.git ]]
+}
+{
+  required_query_87=$(jq -er '.vm_validator_sha256' "$manifest")
+  required_query_88=$(sha256sum "$0" | awk '{print $1}')
+  [[ ${required_query_87} == "${required_query_88}" ]]
+}
+{
+  required_query_89=$(jq -er '.vm_gate_signer_sha256' "$manifest")
+  required_query_90=$(sha256sum /usr/local/libexec/sub2api-sign-gate | awk '{print $1}')
+  [[ ${required_query_89} == "${required_query_90}" ]]
+}
+{
+  required_query_91=$(jq -er '.vm_dr_signer_sha256' "$manifest")
+  required_query_92=$(sha256sum /usr/local/libexec/sub2api-sign-dr-evidence | awk '{print $1}')
+  [[ ${required_query_91} == "${required_query_92}" ]]
+}
 for release_asset in "$0" /usr/local/libexec/sub2api-sign-gate /usr/local/libexec/sub2api-sign-dr-evidence; do
-  [[ -f $release_asset && ! -L $release_asset && $(stat -c '%U:%G:%a' "$release_asset") == root:root:700 ]]
+  {
+    required_query_93=$(stat -c '%U:%G:%a' "$release_asset")
+    [[ -f $release_asset && ! -L $release_asset && ${required_query_93} == root:root:700 ]]
+  }
 done
 state_dir="$state_root/$release_id"
 [[ $output_dir == "$state_dir/output" ]]
@@ -898,16 +1188,28 @@ mark_stage preflight
 
 cd "$source_dir"
 [[ -f .sub2api-deploy-worktree ]]
-[[ $(git remote get-url origin) == https://github.com/baiyucraft/sub2api.git ]]
-[[ -z $(git status --porcelain --untracked-files=all | grep -v '^?? .sub2api-deploy-worktree$' || true) ]]
+{
+  required_query_94=$(git remote get-url origin)
+  [[ ${required_query_94} == https://github.com/baiyucraft/sub2api.git ]]
+}
+worktree_status=$(git status --porcelain --untracked-files=all)
+filtered_status=$(printf '%s\n' "$worktree_status" | awk '$0 != "?? .sub2api-deploy-worktree" && length($0)')
+[[ -z $filtered_status ]]
 git fetch origin +main:refs/remotes/origin/main >/dev/null 2>&1
-[[ $(git rev-parse origin/main) == "$commit" ]]
+{
+  required_query_95=$(git rev-parse origin/main)
+  [[ ${required_query_95} == "$commit" ]]
+}
 git reset --hard "$commit" >/dev/null
+jq -r '.release_asset_sha256 | to_entries[] | [.key,.value] | @tsv' "$manifest" > "$state_dir/release-assets-inventory.tsv"
 while IFS=$'\t' read -r relative expected; do
   [[ $relative =~ $release_asset_pattern ]]
   [[ -f $source_dir/$relative && ! -L $source_dir/$relative ]]
-  [[ $(sha256sum "$source_dir/$relative" | awk '{print $1}') == "$expected" ]]
-done < <(jq -r '.release_asset_sha256 | to_entries[] | [.key,.value] | @tsv' "$manifest")
+  {
+    required_query_96=$(sha256sum "$source_dir/$relative" | awk '{print $1}') || exit $?
+    [[ ${required_query_96} == "$expected" ]]
+  }
+done < "$state_dir/release-assets-inventory.tsv"
 bash "$source_dir/.agents/skills/sub2api-production-deploy/scripts/tests/release/compose-contract-integration.sh" >/dev/null
 if [[ $release_asset_layout == skill-v1 ]]; then
   source "$migration_assertion_dir/compose-contract.sh"
@@ -915,7 +1217,10 @@ fi
 [[ -d $data_dir && ! -L $data_dir ]]
 old_image_id=$(docker inspect -f '{{.Image}}' sub2api-dev)
 old_image_ref=$(docker inspect -f '{{.Config.Image}}' sub2api-dev)
-[[ $(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' sub2api-dev) == healthy ]]
+{
+  required_query_97=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' sub2api-dev)
+  [[ ${required_query_97} == healthy ]]
+}
 compat_image_id=$old_image_id
 if [[ $profile == 215 ]]; then
   compat_merge_commit=$(git rev-list --first-parent --merges -n 1 "$commit")
@@ -947,24 +1252,30 @@ server_port=$(extract_config server port)
 [[ $db_host =~ ^(127\.0\.0\.1|localhost)$ ]]
 [[ $redis_host =~ ^(127\.0\.0\.1|localhost)$ ]]
 [[ $server_port =~ ^[0-9]+$ ]]
-[[ $(ss -ltn | awk '$4 ~ /:5432$/ {n++} END{print n+0}') -ge 1 ]]
-[[ $(ss -ltn | awk '$4 ~ /:6379$/ {n++} END{print n+0}') -ge 1 ]]
+{
+  required_query_98=$(ss -ltn | awk '$4 ~ /:5432$/ {n++} END{print n+0}')
+  [[ ${required_query_98} -ge 1 ]]
+}
+{
+  required_query_99=$(ss -ltn | awk '$4 ~ /:6379$/ {n++} END{print n+0}')
+  [[ ${required_query_99} -ge 1 ]]
+}
 
 free_before=$(df -PB1 /var/lib/docker 2>/dev/null | awk 'NR==2{print $4}' || df -PB1 / | awk 'NR==2{print $4}')
 database_size=$(docker exec sub2api-postgres sh -lc \
   'psql -X -A -t -U "${POSTGRES_USER:-postgres}" -d postgres -c "SELECT pg_database_size('"'"'sub2api_dev'"'"')"' \
   | tr -d '\r')
-current_image_size=$(docker image inspect -f '{{.Size}}' "$old_image_id" 2>/dev/null || true)
+current_image_size=$(docker image inspect -f '{{.Size}}' "$old_image_id" 2>/dev/null) || current_image_size=
 if [[ ! $current_image_size =~ ^[0-9]+$ ]]; then
-  current_image_size=$(docker inspect --size -f '{{.SizeRootFs}}' sub2api-dev 2>/dev/null || true)
+  current_image_size=$(docker inspect --size -f '{{.SizeRootFs}}' sub2api-dev 2>/dev/null)
 fi
 [[ $current_image_size =~ ^[0-9]+$ && $current_image_size -gt 0 ]]
 required_before=$((database_size * 2 + current_image_size * 2 + 1073741824))
 [[ $free_before -gt $required_before ]]
-preexisting_tag_image=$(docker image inspect -f '{{.Id}}' "$tag" 2>/dev/null || true)
+preexisting_tag_image=$(image_id_for_tag "$tag")
 cleanup_candidate_tag() {
   local current_tag_image
-  current_tag_image=$(docker image inspect -f '{{.Id}}' "$tag" 2>/dev/null || true)
+  current_tag_image=$(image_id_for_tag "$tag") || return $?
   if [[ -n $current_tag_image && $current_tag_image != "$preexisting_tag_image" ]]; then
     docker image rm "$tag" >/dev/null 2>&1 || true
     docker image rm "$current_tag_image" >/dev/null 2>&1 || true
@@ -984,13 +1295,16 @@ on_build_failure() {
 trap on_build_failure ERR INT TERM
 export DOCKER_BUILDKIT=1
 mark_stage candidate_build
-docker_build_with_registry_bypass --network=host --progress=plain \
+{
+  required_query_100=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  docker_build_with_registry_bypass --network=host --progress=plain \
   --build-arg NODE_IMAGE=docker.m.daocloud.io/library/node:24-alpine \
   --build-arg GOLANG_IMAGE=docker.m.daocloud.io/library/golang:1.27.2-alpine \
   --build-arg ALPINE_IMAGE=docker.m.daocloud.io/library/alpine:3.21 \
   --build-arg POSTGRES_IMAGE=docker.m.daocloud.io/library/postgres:18-alpine \
   --build-arg COMMIT="$commit" --build-arg VERSION="$version" \
-  --build-arg DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" -t "$tag" . >/dev/null 2>&1
+  --build-arg DATE="${required_query_100}" -t "$tag" .
+} >/dev/null 2>&1
 candidate_image_id=$(docker image inspect -f '{{.Id}}' "$tag")
 candidate_size=$(docker image inspect -f '{{.Size}}' "$tag")
 [[ $candidate_image_id =~ ^sha256:[0-9a-f]{64}$ ]]
@@ -1104,7 +1418,7 @@ on_failure() {
     fi
     marker_source=
     if docker inspect "$probe_app" >/dev/null 2>&1; then
-      marker_source=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/app/data"}}{{.Source}}{{end}}{{end}}' "$probe_app" 2>/dev/null || true)
+      marker_source=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/app/data"}}{{.Source}}{{end}}{{end}}' "$probe_app" 2>/dev/null)
     fi
     if [[ -n $marker_source && -f $marker_source/.sub2api-active-instance && ! -L $marker_source/.sub2api-active-instance ]]; then
       cp -- "$marker_source/.sub2api-active-instance" "$state_dir/candidate-activation-marker"
@@ -1342,8 +1656,14 @@ if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 |
   docker exec sub2api-postgres sh -lc "dropdb -U \"\${POSTGRES_USER:-postgres}\" $probe_db" >/dev/null 2>&1
   create_probe_database
   docker exec -i sub2api-postgres sh -lc "pg_restore --exit-on-error -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db" < "$state_dir/probe.dump" >/dev/null 2>&1
-  [[ $(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT to_regclass('public.accounts') IS NOT NULL AND to_regclass('public.upstream_keys') IS NOT NULL\"") == t ]]
-  [[ $(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT md5(row_to_json(k)::text) FROM upstream_keys k WHERE id=$fixture_key_id\"") == "$fixture_key_hash" ]]
+  {
+    required_query_101=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT to_regclass('public.accounts') IS NOT NULL AND to_regclass('public.upstream_keys') IS NOT NULL\"") || exit $?
+    [[ ${required_query_101} == t ]]
+  }
+  {
+    required_query_102=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT md5(row_to_json(k)::text) FROM upstream_keys k WHERE id=$fixture_key_id\"") || exit $?
+    [[ ${required_query_102} == "$fixture_key_hash" ]]
+  }
   restore_completed=true
   probe_migration_195_recorded=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT COUNT(*) FROM schema_migrations WHERE filename='195_upstream_scheduling_monitor_rates.sql'\"" | tr -d '\r')
   [[ $probe_migration_195_recorded =~ ^[01]$ ]]
@@ -1529,13 +1849,22 @@ if [[ $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 |
     -v "$probe_dir:/app/data" "$compat_image_id" >/dev/null 2>&1
   mark_stage old_image_compatibility_health
   for _ in $(seq 1 90); do
-    [[ $(docker inspect -f '{{.State.Health.Status}}' "$old_probe_app") == healthy ]] && break
+    {
+      required_query_103=$(docker inspect -f '{{.State.Health.Status}}' "$old_probe_app") || exit $?
+      [[ ${required_query_103} == healthy ]]
+    } && break
     sleep 2
   done
   mark_stage old_image_compatibility_image
-  [[ $(docker inspect -f '{{.Image}}' "$old_probe_app") == "$compat_image_id" ]]
+  {
+    required_query_104=$(docker inspect -f '{{.Image}}' "$old_probe_app") || exit $?
+    [[ ${required_query_104} == "$compat_image_id" ]]
+  }
   mark_stage old_image_compatibility_health
-  [[ $(docker inspect -f '{{.State.Health.Status}}' "$old_probe_app") == healthy ]]
+  {
+    required_query_105=$(docker inspect -f '{{.State.Health.Status}}' "$old_probe_app") || exit $?
+    [[ ${required_query_105} == healthy ]]
+  }
   mark_stage old_image_compatibility_network
   old_probe_port=$(docker port "$old_probe_app" "$server_port/tcp" | sed -n 's/^127\.0\.0\.1://p')
   [[ $old_probe_port =~ ^[1-9][0-9]{0,4}$ && $old_probe_port -le 65535 ]]
@@ -1615,17 +1944,29 @@ docker run -d --name "$probe_app" --network "$probe_network" \
   --health-interval 5s --health-timeout 5s --health-start-period 5s --health-retries 6 \
   -v "$probe_dir:/app/data" "$candidate_image_id" >/dev/null 2>&1
 for _ in $(seq 1 90); do
-  [[ $(docker inspect -f '{{.State.Health.Status}}' "$probe_app") == healthy ]] && break
+  {
+    required_query_106=$(docker inspect -f '{{.State.Health.Status}}' "$probe_app") || exit $?
+    [[ ${required_query_106} == healthy ]]
+  } && break
   sleep 2
 done
-[[ $(docker inspect -f '{{.Image}}' "$probe_app") == "$candidate_image_id" ]]
-[[ $(docker inspect -f '{{.State.Health.Status}}' "$probe_app") == healthy ]]
+{
+  required_query_107=$(docker inspect -f '{{.Image}}' "$probe_app")
+  [[ ${required_query_107} == "$candidate_image_id" ]]
+}
+{
+  required_query_108=$(docker inspect -f '{{.State.Health.Status}}' "$probe_app")
+  [[ ${required_query_108} == healthy ]]
+}
 if [[ $release_asset_layout == skill-v1 ]]; then
   mark_stage candidate_background_activation
   probe_app_port=$(docker port "$probe_app" "$server_port/tcp" | sed -n 's/^127\.0\.0\.1://p')
   [[ $probe_app_port =~ ^[1-9][0-9]{0,4}$ && $probe_app_port -le 65535 ]]
   activation_headers="$state_dir/activation-health.headers"
-  [[ $(curl -sS -D "$activation_headers" -o /dev/null -w '%{http_code}' "http://127.0.0.1:$probe_app_port/health") == 200 ]]
+  {
+    required_query_109=$(curl -sS -D "$activation_headers" -o /dev/null -w '%{http_code}' "http://127.0.0.1:$probe_app_port/health") || exit $?
+    [[ ${required_query_109} == 200 ]]
+  }
   assert_http_header_equals "$activation_headers" X-Sub2API-Instance "$activation_instance"
   assert_http_header_equals "$activation_headers" X-Sub2API-Background-Ready false
   if ! write_release_activation_marker "$probe_app" "$activation_instance"; then
@@ -1640,7 +1981,8 @@ if [[ $release_asset_layout == skill-v1 ]]; then
   activation_ready=false
   for _ in $(seq 1 120); do
     : > "$activation_headers"
-    if [[ $(curl -sS -D "$activation_headers" -o /dev/null -w '%{http_code}' "http://127.0.0.1:$probe_app_port/health" 2>/dev/null || true) == 200 ]] &&
+    if activation_http_status=$(curl -sS -D "$activation_headers" -o /dev/null -w '%{http_code}' "http://127.0.0.1:$probe_app_port/health" 2>/dev/null) &&
+       [[ $activation_http_status == 200 ]] &&
        assert_http_header_equals "$activation_headers" X-Sub2API-Instance "$activation_instance" &&
        assert_http_header_equals "$activation_headers" X-Sub2API-Background-Ready true; then
       activation_ready=true
@@ -1690,13 +2032,20 @@ fi
 
 mark_stage migration_assertions
 mark_stage migration_assertion_checksums
+jq -r '.migration_sha256 | to_entries[] | [.key,.value] | @tsv' "$manifest" > "$state_dir/migration-checksum-inventory.tsv"
 while IFS=$'\t' read -r migration migration_checksum; do
   recorded_checksum=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT checksum FROM schema_migrations WHERE filename='$migration'\"")
   [[ $recorded_checksum == "$migration_checksum" ]]
-done < <(jq -r '.migration_sha256 | to_entries[] | [.key,.value] | @tsv' "$manifest")
+done < "$state_dir/migration-checksum-inventory.tsv"
 mark_stage migration_assertion_account_rates
-[[ $(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT COUNT(*) FROM accounts a JOIN upstream_keys k ON k.id=a.upstream_key_id WHERE a.upstream_key_id IS NOT NULL AND (a.rate_multiplier IS DISTINCT FROM k.rate_multiplier OR a.priority IS DISTINCT FROM ROUND(k.rate_multiplier*100)::int)\"") == 0 ]]
-[[ $(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT COUNT(*) FROM accounts WHERE extra ?| ARRAY['upstream_rate_multiplier','upstream_source_rate_multiplier','upstream_recharge_rate','upstream_effective_cost_multiplier','sub2api_upstream_rate_multiplier']\"") == 0 ]]
+{
+  required_query_110=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT COUNT(*) FROM accounts a JOIN upstream_keys k ON k.id=a.upstream_key_id WHERE a.upstream_key_id IS NOT NULL AND (a.rate_multiplier IS DISTINCT FROM k.rate_multiplier OR a.priority IS DISTINCT FROM ROUND(k.rate_multiplier*100)::int)\"")
+  [[ ${required_query_110} == 0 ]]
+}
+{
+  required_query_111=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT COUNT(*) FROM accounts WHERE extra ?| ARRAY['upstream_rate_multiplier','upstream_source_rate_multiplier','upstream_recharge_rate','upstream_effective_cost_multiplier','sub2api_upstream_rate_multiplier']\"")
+  [[ ${required_query_111} == 0 ]]
+}
 if [[ $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
   mark_stage migration_assertion_prompt_audit
   prompt_audit_state=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -F '|' -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"WITH config AS (SELECT COALESCE(NULLIF((SELECT value FROM settings WHERE key='prompt_audit_config'), ''), '{}')::jsonb AS value) SELECT NOT COALESCE((value->>'enabled')::boolean, false) AND NOT COALESCE((value->>'blocking_enabled')::boolean, false) AND NOT COALESCE((value->>'store_pass_events')::boolean, false) AND jsonb_typeof(COALESCE(value->'endpoints', '[]'::jsonb)) = 'array' AND jsonb_array_length(COALESCE(value->'endpoints', '[]'::jsonb)) = 0, (SELECT COUNT(*) FROM prompt_audit_jobs), (SELECT COUNT(*) FROM prompt_audit_events) FROM config\"")
@@ -1915,8 +2264,14 @@ fi
 
 mark_stage isolated_cleanup
 cleanup_probe
-[[ $(docker inspect -f '{{.Image}}' sub2api-dev) == "$old_image_id" ]]
-[[ $(docker inspect -f '{{.State.Health.Status}}' sub2api-dev) == healthy ]]
+{
+  required_query_112=$(docker inspect -f '{{.Image}}' sub2api-dev)
+  [[ ${required_query_112} == "$old_image_id" ]]
+}
+{
+  required_query_113=$(docker inspect -f '{{.State.Health.Status}}' sub2api-dev)
+  [[ ${required_query_113} == healthy ]]
+}
 integration_verified=true
 vm_restore_verified=true
 

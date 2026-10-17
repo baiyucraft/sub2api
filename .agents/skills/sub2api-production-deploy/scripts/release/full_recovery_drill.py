@@ -275,7 +275,7 @@ def redis_lazy_observation(env,raw):
         elif value.startswith('--requirepass='): password=value.split('=',1)[1]
     need('\n' not in password and '\x00' not in password,'Redis auth input')
     lua=REDIS_SCAN_LUA
-    shell='IFS= read -r REDISCLI_AUTH; export REDISCLI_AUTH; exec redis-cli --no-auth-warning --raw EVAL "$1" 0'
+    shell='IFS= read -r REDISCLI_AUTH || exit $?; export REDISCLI_AUTH; exec redis-cli --no-auth-warning --raw EVAL "$1" 0'
     result=subprocess.run(['docker','exec','-i','sub2api-redis','sh','-c',shell,'redis-lazy',lua],input=(password+'\n').encode(),capture_output=True,env=env,timeout=180,check=False)
     with raw.open('ab') as stream: stream.write(result.stdout+result.stderr)
     need(result.returncode==0,'actual Redis lazy observation failed')
@@ -463,7 +463,7 @@ def guest_run():
     private_write(Path("/run/sub2api-recovery-drill-host.json"),canon(guard),0o600)
     private_write(Path("/run/sub2api-recovery-drill-isolated"),(d["recovery_helper_bundle_sha256"]+"\n").encode(),0o600)
     stage("guest_isolation_guard")
-    code,_,_=vals(["bash","-c",'source "$1/recovery-isolation.sh"; recovery_drill_assert_isolated "$2"',"guard",str(h),d["recovery_helper_bundle_sha256"]],env,raw)
+    code,_,_=vals(["bash","-c",'set -Eeuo pipefail; source "$1/recovery-isolation.sh"; recovery_drill_assert_isolated "$2"',"guard",str(h),d["recovery_helper_bundle_sha256"]],env,raw)
     need(code==0,"formal isolation guard rejected Guest")
     stage("guest_isolation_observation")
     isolated=isolation(d,proof)
@@ -576,7 +576,7 @@ def guest_run():
     stage("guest_cleanup_reverify")
     replay,_=invoke("recovery-finish.sh"); need(replay==0,"final finish re-verification failed")
     checkpoints=checkpoint(cp,source,d["recovery_helper_bundle_sha256"],events)
-    shell='source "$1/recovery-compose.sh"; load_release_compose_files /opt/sub2api; _recovery_compose_render_sha256 /opt/sub2api "${release_compose_args[@]}"'
+    shell='set -Eeuo pipefail; source "$1/recovery-compose.sh"; load_release_compose_files /opt/sub2api; _recovery_compose_render_sha256 /opt/sub2api "${release_compose_args[@]}"'
     render_after=observed(["bash","-c",shell,"compose",str(h)],env).decode().strip()
     image=observed(["docker","inspect","-f","{{.Image}}","sub2api"]).decode().strip()
     counts={k:int(redis.get("redis_"+k,"-1")) for k in ("backup_dbsize","backup_expiring","restored_dbsize","restored_expiring","restored_keyspace_keys")}

@@ -420,25 +420,32 @@ def _candidate_build_preserve_checks(identifier: str, manifest_sha256: str) -> s
     return f'''gate_root=/opt/sub2api-deploy/release-gates/{identifier}
 test -d "$gate_root"
 test ! -L "$gate_root"
-test "$(realpath -e -- "$gate_root")" = "$gate_root"
-test "$(stat -c '%U:%G:%a' "$gate_root")" = root:root:700
+required_capture_1=$(realpath -e -- "$gate_root") || exit $?
+test "$required_capture_1" = "$gate_root"
+required_capture_2=$(stat -c '%U:%G:%a' "$gate_root") || exit $?
+test "$required_capture_2" = root:root:700
 test -d "$gate_root/output"
 test ! -L "$gate_root/output"
-test "$(stat -c '%U:%G:%a' "$gate_root/output")" = root:root:700
+required_capture_3=$(stat -c '%U:%G:%a' "$gate_root/output") || exit $?
+test "$required_capture_3" = root:root:700
 check_file() {{
   local path=$1 mode=$2
   test -f "$path"
   test ! -L "$path"
-  test "$(stat -c '%U:%G:%a:%h' "$path")" = "root:root:$mode:1"
+  required_capture_4=$(stat -c '%U:%G:%a:%h' "$path") || exit $?
+  test "$required_capture_4" = "root:root:$mode:1"
 }}
 check_file "$gate_root/manifest.json" 400
-test "$(sha256sum "$gate_root/manifest.json" | awk '{{print $1}}')" = {shlex.quote(manifest_sha256)}
+required_capture_5=$(sha256sum "$gate_root/manifest.json" | awk '{{print $1}}') || exit $?
+test "$required_capture_5" = {shlex.quote(manifest_sha256)}
 check_file "$gate_root/stage" 600
 check_file "$gate_root/failure-category" 400
 check_file "$gate_root/failure-line" 400
 check_file "$gate_root/failure-detail" 400
-test "$(cat "$gate_root/stage")" = candidate_build
-test "$(cat "$gate_root/failure-category")" = vm_v2_candidate_build
+required_capture_6=$(cat "$gate_root/stage") || exit $?
+test "$required_capture_6" = candidate_build
+required_capture_7=$(cat "$gate_root/failure-category") || exit $?
+test "$required_capture_7" = vm_v2_candidate_build
 failure_line=$(cat "$gate_root/failure-line")
 [[ $failure_line =~ ^[1-9][0-9]*$ ]]
 failure_detail=$(cat "$gate_root/failure-detail")
@@ -451,15 +458,20 @@ for absent in "$gate_root/output/gate.json" "$gate_root/output/gate.sig" "$gate_
 done
 test -d "$gate_root/logs"
 test ! -L "$gate_root/logs"
-test "$(stat -c '%U:%G:%a' "$gate_root/logs")" = root:root:700
+required_capture_8=$(stat -c '%U:%G:%a' "$gate_root/logs") || exit $?
+test "$required_capture_8" = root:root:700
 check_file "$gate_root/logs/vm-validate.raw.log" 600
 check_file "$gate_root/validator.stderr" 600
 test -d "$raw_root"
 test ! -L "$raw_root"
-test "$(realpath -e -- "$raw_root")" = "$raw_root"
-test "$(stat -c '%U:%G:%a' "$raw_root")" = root:root:700
+required_capture_9=$(realpath -e -- "$raw_root") || exit $?
+test "$required_capture_9" = "$raw_root"
+required_capture_10=$(stat -c '%U:%G:%a' "$raw_root") || exit $?
+test "$required_capture_10" = root:root:700
 check_file "$raw_root/vm-validate.raw.log" 600
-test "$(sha256sum "$raw_root/vm-validate.raw.log" | awk '{{print $1}}')" = "$(sha256sum "$gate_root/logs/vm-validate.raw.log" | awk '{{print $1}}')"
+required_capture_11=$(sha256sum "$raw_root/vm-validate.raw.log" | awk '{{print $1}}') || exit $?
+required_capture_12=$(sha256sum "$gate_root/logs/vm-validate.raw.log" | awk '{{print $1}}') || exit $?
+test "$required_capture_11" = "$required_capture_12"
 unset -f check_file
 '''
 
@@ -559,22 +571,30 @@ test ! -L "$raw_root/vm-validate.raw.log"
         vm_script = f'''set -Eeuo pipefail
 {gate_checks}raw_root=/opt/sub2api-deploy/release-logs/{identifier}
 if [[ -e "$raw_root" || -L "$raw_root" ]]; then
-  test -d "$raw_root" && test ! -L "$raw_root"
-  test "$(stat -c '%U:%G:%a' "$raw_root")" = root:root:700
+  test -d "$raw_root"
+  test ! -L "$raw_root"
+  required_value=$(stat -c '%U:%G:%a' "$raw_root")
+  test "$required_value" = root:root:700
 fi
 unit_lock=/usr/local/libexec/.sub2api-release-unit.lock
-test -f "$unit_lock" && test ! -L "$unit_lock"
-test "$(stat -c '%U:%G:%a:%h' "$unit_lock")" = root:root:600:1
+test -f "$unit_lock"
+test ! -L "$unit_lock"
+required_value=$(stat -c '%U:%G:%a:%h' "$unit_lock")
+test "$required_value" = root:root:600:1
 exec 8<>"$unit_lock"
-test "$(stat -Lc '%U:%G:%a:%h' /proc/self/fd/8)" = root:root:600:1
+required_value=$(stat -Lc '%U:%G:%a:%h' /proc/self/fd/8)
+test "$required_value" = root:root:600:1
 flock -n 8
 test -f /opt/sub2api-deploy/release-gates/release.lock
 test ! -L /opt/sub2api-deploy/release-gates/release.lock
 exec 9<>/opt/sub2api-deploy/release-gates/release.lock
 flock -n 9
-{raw_checks}test "$(cat /proc/sys/kernel/random/boot_id)" = {shlex.quote(lease['vm_boot_id'])}
-test "$(ps -eo args= | awk '/vm-space-clean.sh|sub2api-vm-validate|run-validator.sh|docker (build|buildx)|buildctl|release-input\\/[^ ]+\\/bootstrap|[.]sub2api-release-unit[.][^ ]*\\/sub2api-sign-(gate|dr-evidence)/ && ! /awk/ {{n++}} END {{print n+0}}')" = 0
-test "$(docker inspect -f '{{{{.State.Health.Status}}}}' sub2api-dev)" = healthy
+{raw_checks}required_value=$(cat /proc/sys/kernel/random/boot_id)
+test "$required_value" = {shlex.quote(lease['vm_boot_id'])}
+required_value=$(ps -eo args= | awk '/vm-space-clean.sh|sub2api-vm-validate|run-validator.sh|docker (build|buildx)|buildctl|release-input\\/[^ ]+\\/bootstrap|[.]sub2api-release-unit[.][^ ]*\\/sub2api-sign-(gate|dr-evidence)/ && ! /awk/ {{n++}} END {{print n+0}}')
+test "$required_value" = 0
+required_value=$(docker inspect -f '{{{{.State.Health.Status}}}}' sub2api-dev)
+test "$required_value" = healthy
 printf 'vm_preserve_preflight=verified\\n'
 '''
         production_script = f'''set -Eeuo pipefail
@@ -984,8 +1004,10 @@ done
 grep -Fxq {shlex.quote(f'release_id={identifier}')} "$recovered/release_id"
 grep -Fxq {shlex.quote(f'release_id={identifier}')} "$recovered/marker"
 (cd "$recovered" && sha256sum -c CLAIM_SHA256SUMS >/dev/null)
-test "$(jq -er '.manifest.release_id' "$recovered/gate.json")" = {shlex.quote(identifier)}
-test "$(jq -er '.evidence.candidate_image_id' "$recovered/gate.json")" = {shlex.quote(candidate)}
+required_capture_13=$(jq -er '.manifest.release_id' "$recovered/gate.json") || exit $?
+test "$required_capture_13" = {shlex.quote(identifier)}
+required_capture_14=$(jq -er '.evidence.candidate_image_id' "$recovered/gate.json") || exit $?
+test "$required_capture_14" = {shlex.quote(candidate)}
 test ! -e /opt/sub2api/releases/.active-release
 test ! -L /opt/sub2api/releases/.active-release
 if docker inspect {shlex.quote(candidate_name)} >/dev/null 2>&1; then exit 1; fi
@@ -995,13 +1017,17 @@ active_container=$(sed -n 's/^container=//p' /opt/sub2api/active-app)
 active_slot_image_id=$(sed -n 's/^image_id=//p' /opt/sub2api/active-app)
 test -n "$active_container"
 test -n "$active_slot_image_id"
-test "$(docker inspect -f '{{{{.State.Health.Status}}}}' "$active_container")" = healthy
+required_capture_15=$(docker inspect -f '{{{{.State.Health.Status}}}}' "$active_container") || exit $?
+test "$required_capture_15" = healthy
 running_image_id=$(docker inspect -f '{{{{.Image}}}}' "$active_container")
 test "$active_slot_image_id" = "$running_image_id"
 test "$running_image_id" != {shlex.quote(candidate)}
-test "$(systemctl is-active nginx)" = active
-test "$(systemctl is-enabled sub2api-backup.timer)" = enabled
-test "$(systemctl is-active sub2api-backup.timer)" = active
+required_capture_16=$(systemctl is-active nginx) || exit $?
+test "$required_capture_16" = active
+required_capture_17=$(systemctl is-enabled sub2api-backup.timer) || exit $?
+test "$required_capture_17" = enabled
+required_capture_18=$(systemctl is-active sub2api-backup.timer) || exit $?
+test "$required_capture_18" = active
 printf 'recovery_marker_verified=true\nrelease_claim_reconciled=true\nactive_slot_verified=true\napplication_health=pass\nnginx_active=true\nbackup_timer_enabled=true\nbackup_timer_active=true\ncandidate_absent=true\nrunning_image_id=%s\n' "$running_image_id"
 """
     remote = SSHRunner().run(
@@ -1057,6 +1083,8 @@ def verify_recovery_result(args: argparse.Namespace) -> None:
 
 
 def _inspect_reconciliation(identifier: str) -> dict[str, Any]:
+    from .production import observation_shell_helpers
+
     run_dir = _run_dir(identifier)
     manifest = _read_json(run_dir / "manifest.json", required=True) or {}
     runner_document = _read_json(run_dir / "runner.json")
@@ -1068,6 +1096,7 @@ def _inspect_reconciliation(identifier: str) -> dict[str, Any]:
     release_dir = f"/opt/sub2api/releases/{identifier}"
     state_dir = f"/opt/sub2api/backups/release-state/{identifier}"
     script = rf"""set -Eeuo pipefail
+{observation_shell_helpers()}
 active=/opt/sub2api/releases/.active-release
 claim=absent
 if test -L "$active"; then claim=unsafe
@@ -1092,7 +1121,8 @@ elif test -d "$ingress_txn" && test ! -L "$ingress_txn"; then
   test "$transaction_entries" = "$expected_entries" || file_entries_ok=false
   test -d "$ingress_txn/files" && test ! -L "$ingress_txn/files" || file_entries_ok=false
   test -d "$ingress_txn/stale" && test ! -L "$ingress_txn/stale" || file_entries_ok=false
-  test -z "$(find "$ingress_txn/files" "$ingress_txn/stale" -mindepth 1 ! -type f -print -quit 2>/dev/null)" || file_entries_ok=false
+  invalid_file_entries=$(find "$ingress_txn/files" "$ingress_txn/stale" -mindepth 1 ! -type f -print -quit 2>/dev/null) || exit $?
+  test -z "$invalid_file_entries" || file_entries_ok=false
   for file in identity targets.tsv stale.tsv SHA256SUMS SHA256SUMS.files; do
     test -f "$ingress_txn/$file" && test ! -L "$ingress_txn/$file" || file_entries_ok=false
   done
@@ -1124,20 +1154,35 @@ elif test -e "$ingress_txn"; then ingress_transaction=unsafe
 fi
 plaintext_cleaned=false; test -f /opt/sub2api/releases/.active-release/plaintext-cleaned && test ! -L /opt/sub2api/releases/.active-release/plaintext-cleaned && plaintext_cleaned=true
 route_started=false; if test -e {state_dir}/route-switch-intent || test -e {state_dir}/route-switched; then route_started=true; fi
-migration_started=false; if test -e {state_dir}/migration-committed || find {release_dir} {state_dir} -maxdepth 2 -type f -name '*migration*committed*' -print -quit 2>/dev/null | grep -q .; then migration_started=true; fi
+migration_roots=({release_dir})
+if test "$state_present" = true; then migration_roots+=({state_dir}); fi
+migration_markers=$(find "${{migration_roots[@]}}" -maxdepth 2 -type f -name '*migration*committed*' -print -quit 2>/dev/null) || exit $?
+migration_started=false
+if test -e {state_dir}/migration-committed || test -n "$migration_markers"; then migration_started=true; fi
 candidate_container=sub2api-candidate-{identifier}
-candidate_exists=false; docker inspect "$candidate_container" >/dev/null 2>&1 && candidate_exists=true
-candidate_health=absent; test "$candidate_exists" = true && candidate_health=$(docker inspect -f '{{{{if .State.Health}}}}{{{{.State.Health.Status}}}}{{{{else}}}}none{{{{end}}}}' "$candidate_container" 2>/dev/null || printf unknown)
+container_names=$(docker ps -a --format '{{{{.Names}}}}') || exit $?
+candidate_exists=false
+if grep -Fxq -- "$candidate_container" <<<"$container_names"; then candidate_exists=true; else grep_code=$?; test "$grep_code" = 1 || exit "$grep_code"; fi
+candidate_health=absent
+if test "$candidate_exists" = true; then
+  candidate_health=$(docker inspect -f '{{{{if .State.Health}}}}{{{{.State.Health.Status}}}}{{{{else}}}}none{{{{end}}}}' "$candidate_container" 2>/dev/null) || exit $?
+fi
 slot=/opt/sub2api/active-app
-active_container=$(sed -n 's/^container=//p' "$slot" 2>/dev/null || true)
+active_container=$(sed -n 's/^container=//p' "$slot" 2>/dev/null) || exit $?
 app_health=unknown
 running_image_id=unknown
-if test -n "$active_container" && docker inspect "$active_container" >/dev/null 2>&1; then
-  app_health=$(docker inspect -f '{{{{.State.Health.Status}}}}' "$active_container" 2>/dev/null || printf unknown)
-  running_image_id=$(docker inspect -f '{{{{.Image}}}}' "$active_container" 2>/dev/null || printf unknown)
+if test -n "$active_container"; then
+  if grep -Fxq -- "$active_container" <<<"$container_names"; then
+    app_health=$(docker inspect -f '{{{{.State.Health.Status}}}}' "$active_container" 2>/dev/null) || exit $?
+    running_image_id=$(docker inspect -f '{{{{.Image}}}}' "$active_container" 2>/dev/null) || exit $?
+  else
+    grep_code=$?; test "$grep_code" = 1 || exit "$grep_code"
+  fi
 fi
-nginx_active=false; test "$(systemctl is-active nginx 2>/dev/null || true)" = active && nginx_active=true
-backup_timer_enabled=false; test "$(systemctl is-enabled sub2api-backup.timer 2>/dev/null || true)" = enabled && backup_timer_enabled=true
+nginx_state=$(observed_systemctl is-active nginx) || exit $?
+nginx_active=false; if test "$nginx_state" = active; then nginx_active=true; fi
+backup_timer_state=$(observed_systemctl is-enabled sub2api-backup.timer) || exit $?
+backup_timer_enabled=false; if test "$backup_timer_state" = enabled; then backup_timer_enabled=true; fi
 printf 'active_claim=%s\nconsumed=%s\nrecovered=%s\nstate_present=%s\ningress_transaction=%s\nplaintext_cleaned=%s\nroute_started=%s\nmigration_started=%s\ncandidate_exists=%s\ncandidate_health=%s\napp_health=%s\nnginx_active=%s\nbackup_timer_enabled=%s\nrunning_image_id=%s\n' "$claim" "$consumed" "$recovered" "$state_present" "$ingress_transaction" "$plaintext_cleaned" "$route_started" "$migration_started" "$candidate_exists" "$candidate_health" "$app_health" "$nginx_active" "$backup_timer_enabled" "$running_image_id"
 """
     remote = SSHRunner().run("racknerd", script, {"active_claim", "consumed", "recovered", "state_present", "ingress_transaction", "plaintext_cleaned", "route_started", "migration_started", "candidate_exists", "candidate_health", "app_health", "nginx_active", "backup_timer_enabled", "running_image_id"}).values
@@ -1244,8 +1289,10 @@ test -f {release_dir}/.recovered/plaintext-cleaned
 test ! -e /opt/sub2api/releases/.active-release
 active_container=$(sed -n 's/^container=//p' /opt/sub2api/active-app)
 test -n "$active_container"
-test "$(docker inspect -f '{{{{.State.Health.Status}}}}' "$active_container")" = healthy
-test "$(systemctl is-enabled sub2api-backup.timer)" = enabled
+required_capture_19=$(docker inspect -f '{{{{.State.Health.Status}}}}' "$active_container") || exit $?
+test "$required_capture_19" = healthy
+required_capture_20=$(systemctl is-enabled sub2api-backup.timer) || exit $?
+test "$required_capture_20" = enabled
 printf 'release_claim_reconciled=true\nplaintext_state_removed=true\n'
 """
         values = SSHRunner().run("racknerd", script, {"release_claim_reconciled", "plaintext_state_removed"}, timeout=600).values

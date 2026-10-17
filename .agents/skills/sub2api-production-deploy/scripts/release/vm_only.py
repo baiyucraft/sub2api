@@ -85,7 +85,7 @@ def vm_only_validate(args: argparse.Namespace, *, runner: SSHRunner | None = Non
         download_dir = f"{remote_root}/download"
         ssh.run(
             "local_vm",
-            f"install -d -m 700 {shlex.quote(download_dir)} && for name in gate.json gate.sig candidate.tar.gz SHA256SUMS; do ln {shlex.quote(remote_output)}/$name {shlex.quote(download_dir)}/$name; done && printf 'download_ready=true\\n'",
+            f"set -Eeuo pipefail; install -d -m 700 {shlex.quote(download_dir)}; for name in gate.json gate.sig candidate.tar.gz SHA256SUMS; do ln {shlex.quote(remote_output)}/$name {shlex.quote(download_dir)}/$name; done; printf 'download_ready=true\\n'",
             {"download_ready"},
         )
         for name in ("gate.json", "gate.sig", "candidate.tar.gz", "SHA256SUMS"):

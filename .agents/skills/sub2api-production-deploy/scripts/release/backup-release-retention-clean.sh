@@ -23,10 +23,14 @@ failed_retention_days=${FAILED_RELEASE_RETENTION_DAYS:-7}
 [[ $failed_retention_days =~ ^[0-9]+$ && $failed_retention_days -ge 1 ]]
 [[ -d $backup_root && ! -L $backup_root ]]
 [[ -d $release_root && ! -L $release_root ]]
-[[ $(realpath -e -- "$backup_root") == "$backup_root" ]]
-[[ $(realpath -e -- "$release_root") == "$release_root" ]]
+observed=$(realpath -e -- "$backup_root")
+[[ $observed == "$backup_root" ]]
+observed=$(realpath -e -- "$release_root")
+[[ $observed == "$release_root" ]]
 promotion_lock="$backup_root/.release-promotion.lock"
-[[ -f $promotion_lock && ! -L $promotion_lock && $(stat -c '%h' "$promotion_lock") == 1 ]]
+[[ -f $promotion_lock && ! -L $promotion_lock ]]
+observed=$(stat -c '%h' "$promotion_lock")
+[[ $observed == 1 ]]
 
 work=$(mktemp -d /tmp/sub2api-backup-release-retention.XXXXXX)
 cleanup() { rm -f -- "$work"/* 2>/dev/null || true; rmdir -- "$work" 2>/dev/null || true; }
@@ -43,29 +47,35 @@ cutoff=$(( now_epoch - retention_days * 86400 ))
 failed_cutoff=$(( now_epoch - failed_retention_days * 86400 ))
 
 verify_bundle() {
-  local bundle=$1 release_id=$2 entry_count manifest_release transport sha expected_bundle_checksum
-  [[ -d $bundle && ! -L $bundle ]]
-  [[ $(realpath -e -- "$bundle") == "$bundle" ]]
-  [[ $(stat -c '%d' "$bundle") == "$release_device" ]]
-  entry_count=$(find "$bundle" -mindepth 1 -maxdepth 1 -print | wc -l | tr -d '[:space:]')
-  [[ $entry_count == 4 ]]
+  local bundle=$1 release_id=$2 entry_count manifest_release transport sha expected_bundle_checksum name observed
+  [[ -d $bundle && ! -L $bundle ]] || return 1
+  observed=$(realpath -e -- "$bundle") || return 1
+  [[ $observed == "$bundle" ]] || return 1
+  observed=$(stat -c '%d' "$bundle") || return 1
+  [[ $observed == "$release_device" ]] || return 1
+  entry_count=$(find "$bundle" -mindepth 1 -maxdepth 1 -print | wc -l | tr -d '[:space:]') || return 1
+  [[ $entry_count == 4 ]] || return 1
   for name in artifact.tar.age artifact.tar.age.sha256 manifest bundle.sha256; do
-    [[ -f "$bundle/$name" && ! -L "$bundle/$name" && $(stat -c '%h' "$bundle/$name") == 1 ]]
+    [[ -f "$bundle/$name" && ! -L "$bundle/$name" ]] || return 1
+    observed=$(stat -c '%h' "$bundle/$name") || return 1
+    [[ $observed == 1 ]] || return 1
   done
-  manifest_release=$(sed -n 's/^release_id=//p' "$bundle/manifest")
-  transport=$(sed -n 's/^transport_artifact=//p' "$bundle/manifest")
-  sha=$(sed -n 's/^sha256=//p' "$bundle/manifest")
-  [[ $manifest_release == "$release_id" ]]
-  [[ $transport =~ ^sub2api-[0-9]{8}T[0-9]{6}Z\.tar\.age$ ]]
-  [[ $sha =~ ^[0-9a-f]{64}$ ]]
-  [[ $(grep -c '^release_id=' "$bundle/manifest") == 1 ]]
-  [[ $(grep -c '^transport_artifact=' "$bundle/manifest") == 1 ]]
-  [[ $(grep -c '^sha256=' "$bundle/manifest") == 1 ]]
-  [[ $(<"$bundle/artifact.tar.age.sha256") == "$sha  artifact.tar.age" ]]
-  [[ $(sha256sum "$bundle/artifact.tar.age" | awk '{print $1}') == "$sha" ]]
-  expected_bundle_checksum=$(cd "$bundle" && sha256sum artifact.tar.age artifact.tar.age.sha256 manifest)
-  [[ $(<"$bundle/bundle.sha256") == "$expected_bundle_checksum" ]]
-  (cd "$bundle" && sha256sum -c bundle.sha256 >/dev/null)
+  manifest_release=$(sed -n 's/^release_id=//p' "$bundle/manifest") || return 1
+  transport=$(sed -n 's/^transport_artifact=//p' "$bundle/manifest") || return 1
+  sha=$(sed -n 's/^sha256=//p' "$bundle/manifest") || return 1
+  [[ $manifest_release == "$release_id" ]] || return 1
+  [[ $transport =~ ^sub2api-[0-9]{8}T[0-9]{6}Z\.tar\.age$ ]] || return 1
+  [[ $sha =~ ^[0-9a-f]{64}$ ]] || return 1
+  for name in release_id transport_artifact sha256; do
+    observed=$(grep -c "^$name=" "$bundle/manifest") || return 1
+    [[ $observed == 1 ]] || return 1
+  done
+  [[ $(<"$bundle/artifact.tar.age.sha256") == "$sha  artifact.tar.age" ]] || return 1
+  observed=$(sha256sum "$bundle/artifact.tar.age" | awk '{print $1}') || return 1
+  [[ $observed == "$sha" ]] || return 1
+  expected_bundle_checksum=$(cd "$bundle" && sha256sum artifact.tar.age artifact.tar.age.sha256 manifest) || return 1
+  [[ $(<"$bundle/bundle.sha256") == "$expected_bundle_checksum" ]] || return 1
+  (cd "$bundle" && sha256sum -c bundle.sha256 >/dev/null) || return 1
 }
 
 release_is_explicitly_failed() {
@@ -75,7 +85,8 @@ release_is_explicitly_failed() {
   ! grep -Eq 'production_verified|verify-result=verified|status=pass' "$log_file"
 }
 
-mapfile -t release_dirs < <(find "$release_root" -mindepth 2 -maxdepth 2 -type d ! -name '.*' -print | LC_ALL=C sort)
+find "$release_root" -mindepth 2 -maxdepth 2 -type d ! -name '.*' -print | LC_ALL=C sort > "$work/release-dirs"
+mapfile -t release_dirs < "$work/release-dirs"
 for bundle in "${release_dirs[@]}"; do
   profile_dir=${bundle%/*}; profile=${profile_dir##*/}; release_id=${bundle##*/}
   case "$release_id" in
@@ -83,8 +94,10 @@ for bundle in "${release_dirs[@]}"; do
   esac
   [[ $profile =~ ^[0-9]+$ ]]
   [[ $release_id =~ ^[0-9]+-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
-  [[ $(realpath -e -- "$bundle") == "$release_root/$profile/$release_id" ]]
-  [[ $(stat -c '%d' "$bundle") == "$release_device" ]]
+  observed=$(realpath -e -- "$bundle")
+  [[ $observed == "$release_root/$profile/$release_id" ]]
+  observed=$(stat -c '%d' "$bundle")
+  [[ $observed == "$release_device" ]]
   IFS=- read -r _ _ release_epoch _ <<< "$release_id"
   [[ $release_epoch =~ ^[0-9]+$ ]]
   printf '%s\t%s\t%s\t%s\n' "$profile" "$release_epoch" "$release_id" "$bundle" >> "$all"
@@ -98,29 +111,44 @@ else
   LC_ALL=C sort -t $'\t' -k1,1 -k2,2nr -k3,3 "$all" \
     | awk -F '\t' -v keep="$keep_recent_per_profile" 'count[$1]++ < keep {print $4}' > "$recent"
 fi
+find "$release_root" -mindepth 1 -maxdepth 2 -type l \( -name candidate -o -name verified -o -name current -o -name previous -o -name recovery -o -name baseline \) -print0 > "$work/protected-links"
 while IFS= read -r -d '' link; do
-  target=$(realpath -e -- "$link" 2>/dev/null || true)
-  [[ -n $target && $target == "$release_root/"* && -d $target && ! -L $target ]] || continue
+  target=$(realpath -e -- "$link" 2>/dev/null)
+  [[ -n $target && $target == "$release_root/"* && -d $target && ! -L $target ]]
   printf '%s\n' "$target" >> "$protected"
-done < <(find "$release_root" -mindepth 1 -maxdepth 2 -type l \( -name candidate -o -name verified -o -name current -o -name previous -o -name recovery -o -name baseline \) -print0)
+done < "$work/protected-links"
 LC_ALL=C sort -u "$protected" -o "$protected"
 
+LC_ALL=C sort -nr -k1,1 -k2,2 "$all" > "$work/sorted-all"
 while IFS=$'\t' read -r profile release_epoch release_id bundle; do
   [[ -n $bundle ]] || continue
-  grep -Fxq "$bundle" "$recent" && continue
-  grep -Fxq "$bundle" "$protected" && continue
+  protected_match=0
+  grep -Fxq "$bundle" "$recent" || protected_match=$?
+  case $protected_match in
+    0) continue ;;
+    1) ;;
+    *) exit "$protected_match" ;;
+  esac
+  protected_match=0
+  grep -Fxq "$bundle" "$protected" || protected_match=$?
+  case $protected_match in
+    0) continue ;;
+    1) ;;
+    *) exit "$protected_match" ;;
+  esac
   bundle_mtime=$(stat -c '%Y' "$bundle")
   if [[ $keep_latest_profile_only != true && $bundle_mtime -ge $cutoff ]]; then
     (( bundle_mtime < failed_cutoff )) || continue
     release_is_explicitly_failed "$profile" "$release_id" || continue
   fi
-  find "$bundle" -mindepth 1 -maxdepth 1 \( -name '.active' -o -name '.prepared' -o -name '.consumed' -o -name '.recovered' -o -name '.reconciliation' -o -name 'recovery-point.*' -o -name 'production-result.json' \) -print -quit | grep -q . && continue
+  protection_markers=$(find "$bundle" -mindepth 1 -maxdepth 1 \( -name '.active' -o -name '.prepared' -o -name '.consumed' -o -name '.recovered' -o -name '.reconciliation' -o -name 'recovery-point.*' -o -name 'production-result.json' \) -print -quit)
+  [[ -z $protection_markers ]] || continue
   verify_bundle "$bundle" "$release_id" || continue
   bundle_bytes=$(find "$bundle" -mindepth 1 -maxdepth 1 -type f -printf '%s\n' | awk '{s += $1} END {printf "%.0f\n", s+0}')
   bundle_digest=$(cd "$bundle" && sha256sum artifact.tar.age artifact.tar.age.sha256 manifest bundle.sha256 | sha256sum | awk '{print $1}')
-  printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$release_id" "$bundle" "$(stat -c '%Y' "$bundle")" "$bundle_bytes" "$bundle_digest" "$release_epoch" >> "$plan"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$release_id" "$bundle" "$bundle_mtime" "$bundle_bytes" "$bundle_digest" "$release_epoch" >> "$plan"
   printf '%s\n' "$release_id" >> "$candidate_ids"
-done < <(LC_ALL=C sort -nr -k1,1 -k2,2 "$all")
+done < "$work/sorted-all"
 
 plan_sha=$(sha256sum "$plan" | awk '{print $1}')
 candidate_count=$(wc -l < "$plan" | tr -d '[:space:]')
@@ -145,7 +173,8 @@ done
 retention_lock="$backup_root/.backup-release-retention.lock"
 [[ ! -e $retention_lock || ! -L $retention_lock ]]
 exec 9>"$retention_lock"
-[[ $(stat -c '%h' "$retention_lock") == 1 ]]
+observed=$(stat -c '%h' "$retention_lock")
+[[ $observed == 1 ]]
 flock -n 9
 exec 8<"$promotion_lock"
 flock -n 8
@@ -155,14 +184,20 @@ deleted_bytes=0
 while IFS=$'\t' read -r release_id bundle bundle_mtime bundle_bytes bundle_digest release_epoch; do
   [[ ${approved[$release_id]+x} == x ]] || continue
   [[ -d "$bundle" && ! -L "$bundle" ]]
-  [[ $(stat -c '%Y' "$bundle") == "$bundle_mtime" ]]
-  [[ $(find "$bundle" -mindepth 1 -maxdepth 1 -type f -printf '%s\n' | awk '{s += $1} END {printf "%.0f\n", s+0}') == "$bundle_bytes" ]]
-  [[ $(cd "$bundle" && sha256sum artifact.tar.age artifact.tar.age.sha256 manifest bundle.sha256 | sha256sum | awk '{print $1}') == "$bundle_digest" ]]
+  observed=$(stat -c '%Y' "$bundle")
+  [[ $observed == "$bundle_mtime" ]]
+  observed=$(find "$bundle" -mindepth 1 -maxdepth 1 -type f -printf '%s\n' | awk '{s += $1} END {printf "%.0f\n", s+0}')
+  [[ $observed == "$bundle_bytes" ]]
+  observed=$(cd "$bundle" && sha256sum artifact.tar.age artifact.tar.age.sha256 manifest bundle.sha256 | sha256sum | awk '{print $1}')
+  [[ $observed == "$bundle_digest" ]]
   verify_bundle "$bundle" "$release_id"
+  find "$bundle" -mindepth 1 -maxdepth 1 -type f -print | LC_ALL=C sort > "$work/delete-files"
   while IFS= read -r file; do
-    [[ -f "$file" && ! -L "$file" && $(stat -c '%h' "$file") == 1 ]]
+    [[ -f "$file" && ! -L "$file" ]]
+    observed=$(stat -c '%h' "$file")
+    [[ $observed == 1 ]]
     rm -- "$file"
-  done < <(find "$bundle" -mindepth 1 -maxdepth 1 -type f -print | LC_ALL=C sort)
+  done < "$work/delete-files"
   rmdir -- "$bundle"
   deleted=$((deleted + 1))
   deleted_bytes=$((deleted_bytes + bundle_bytes))

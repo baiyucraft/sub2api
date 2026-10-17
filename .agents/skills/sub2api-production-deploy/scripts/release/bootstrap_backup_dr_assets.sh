@@ -18,7 +18,11 @@ if [[ $test_mode == true || $test_fail_after_verifier == true || -n $test_root ]
   test_name=${test_root##*/}
   [[ $test_name =~ ^dr-(assets|promotion)-test\.[A-Za-z0-9]{8}$ ]]
   [[ $test_root == /srv/sub2api-backups/$test_name ]]
-  [[ -d $test_root && ! -L $test_root && $(realpath -e -- "$test_root") == "$test_root" && $(stat -c '%U:%G:%a' "$test_root") == root:root:700 ]]
+  {
+    required_query_1=$(realpath -e -- "$test_root") || exit $?
+    required_query_2=$(stat -c '%U:%G:%a' "$test_root") || exit $?
+    [[ -d $test_root && ! -L $test_root && ${required_query_1} == "$test_root" && ${required_query_2} == root:root:700 ]]
+  }
   target_libexec_dir="$test_root/libexec"
   trust_dir="$test_root/trust"
 else
@@ -28,28 +32,55 @@ fi
 target_verifier="$target_libexec_dir/sub2api-verify-dr-evidence"
 target_promoter="$target_libexec_dir/sub2api-promote-dr-baseline"
 target_trust="$trust_dir/vm-gate-ed25519.pub"
-[[ $(id -u) == 0 ]]
+{
+  required_query_3=$(id -u)
+  [[ ${required_query_3} == 0 ]]
+}
 for value in "$verifier_expected_sha256" "$promoter_expected_sha256" "$trust_expected_sha256"; do [[ $value =~ ^[0-9a-f]{64}$ ]]; done
 for source in "$verifier_source" "$promoter_source" "$trust_source" "$signed_test_source" "$signed_test_signature"; do
   [[ -f $source && ! -L $source ]]
 done
-[[ $(sha256sum "$verifier_source" | awk '{print $1}') == "$verifier_expected_sha256" ]]
-[[ $(sha256sum "$promoter_source" | awk '{print $1}') == "$promoter_expected_sha256" ]]
-[[ $(sha256sum "$trust_source" | awk '{print $1}') == "$trust_expected_sha256" ]]
+{
+  required_query_4=$(sha256sum "$verifier_source" | awk '{print $1}')
+  [[ ${required_query_4} == "$verifier_expected_sha256" ]]
+}
+{
+  required_query_5=$(sha256sum "$promoter_source" | awk '{print $1}')
+  [[ ${required_query_5} == "$promoter_expected_sha256" ]]
+}
+{
+  required_query_6=$(sha256sum "$trust_source" | awk '{print $1}')
+  [[ ${required_query_6} == "$trust_expected_sha256" ]]
+}
 bash -n "$promoter_source"
 promoter_constant() {
   local key=$1
   awk -F= -v key="$key" '$1 == key {sub(/^[^=]*=/, ""); print; found++} END {exit found == 1 ? 0 : 1}' "$promoter_source"
 }
-[[ $(promoter_constant verifier_sha256) == "$verifier_expected_sha256" ]]
-[[ $(promoter_constant trust_sha256) == "$trust_expected_sha256" ]]
+{
+  required_query_7=$(promoter_constant verifier_sha256)
+  [[ ${required_query_7} == "$verifier_expected_sha256" ]]
+}
+{
+  required_query_8=$(promoter_constant trust_sha256)
+  [[ ${required_query_8} == "$trust_expected_sha256" ]]
+}
 
 if [[ -e $target_libexec_dir || -L $target_libexec_dir ]]; then
-  [[ -d $target_libexec_dir && ! -L $target_libexec_dir && $(realpath -e -- "$target_libexec_dir") == "$target_libexec_dir" ]]
+  {
+    required_query_9=$(realpath -e -- "$target_libexec_dir") || exit $?
+    [[ -d $target_libexec_dir && ! -L $target_libexec_dir && ${required_query_9} == "$target_libexec_dir" ]]
+  }
   if [[ $test_mode == true ]]; then
-    [[ $(stat -c '%U:%G:%a' "$target_libexec_dir") == root:root:700 ]]
+    {
+      required_query_10=$(stat -c '%U:%G:%a' "$target_libexec_dir") || exit $?
+      [[ ${required_query_10} == root:root:700 ]]
+    }
   else
-    [[ $(stat -c '%U:%G:%a' "$target_libexec_dir") == root:root:755 ]]
+    {
+      required_query_11=$(stat -c '%U:%G:%a' "$target_libexec_dir") || exit $?
+      [[ ${required_query_11} == root:root:755 ]]
+    }
   fi
 else
   if [[ $test_mode == true ]]; then
@@ -102,18 +133,30 @@ if [[ $test_mode == true ]]; then
   install -d -o root -g root -m 700 "$releases_root"
 else
   releases_root=/srv/sub2api-backups/releases
-  [[ -d $releases_root && ! -L $releases_root && $(realpath -e -- "$releases_root") == "$releases_root" && $(stat -c '%U:%G:%a' "$releases_root") == root:root:700 ]]
+  {
+    required_query_12=$(realpath -e -- "$releases_root") || exit $?
+    required_query_13=$(stat -c '%U:%G:%a' "$releases_root") || exit $?
+    [[ -d $releases_root && ! -L $releases_root && ${required_query_12} == "$releases_root" && ${required_query_13} == root:root:700 ]]
+  }
 fi
 for profile in 195 199 202 206 207 208 209 210 212 213 215 232 233 234 235 236 237 238 239 240 241 242 243 244 245 246 247 248 249 250 251 252 253 254 255 256 257 258 259 260 261 262 263 264 265 266 267 268 269 270 271 272 273; do
   promotion_root="$releases_root/$profile"
   if [[ -e $promotion_root || -L $promotion_root ]]; then
-    [[ -d $promotion_root && ! -L $promotion_root && $(realpath -e -- "$promotion_root") == "$promotion_root" && $(stat -c '%U:%G:%a' "$promotion_root") == root:root:700 ]]
+    {
+      required_query_14=$(realpath -e -- "$promotion_root") || exit $?
+      required_query_15=$(stat -c '%U:%G:%a' "$promotion_root") || exit $?
+      [[ -d $promotion_root && ! -L $promotion_root && ${required_query_14} == "$promotion_root" && ${required_query_15} == root:root:700 ]]
+    }
   else
     install -d -o root -g root -m 700 "$promotion_root"
   fi
   for directory in "$promotion_root/promotion-input" "$promotion_root/verified-bundles"; do
     if [[ -e $directory || -L $directory ]]; then
-      [[ -d $directory && ! -L $directory && $(realpath -e -- "$directory") == "$directory" && $(stat -c '%U:%G:%a' "$directory") == root:root:700 ]]
+      {
+        required_query_16=$(realpath -e -- "$directory") || exit $?
+        required_query_17=$(stat -c '%U:%G:%a' "$directory") || exit $?
+        [[ -d $directory && ! -L $directory && ${required_query_16} == "$directory" && ${required_query_17} == root:root:700 ]]
+      }
     else
       install -d -o root -g root -m 700 "$directory"
     fi
@@ -122,23 +165,42 @@ done
 
 asset_lock="$target_libexec_dir/.sub2api-dr-assets.lock"
 if [[ -e $asset_lock || -L $asset_lock ]]; then
-  [[ -f $asset_lock && ! -L $asset_lock && $(stat -c '%U:%G:%a:%h' "$asset_lock") == root:root:600:1 ]]
+  {
+    required_query_18=$(stat -c '%U:%G:%a:%h' "$asset_lock") || exit $?
+    [[ -f $asset_lock && ! -L $asset_lock && ${required_query_18} == root:root:600:1 ]]
+  }
 else
   (set -o noclobber; umask 077; : > "$asset_lock") || {
-    [[ -f $asset_lock && ! -L $asset_lock && $(stat -c '%U:%G:%a:%h' "$asset_lock") == root:root:600:1 ]]
+    {
+      required_query_19=$(stat -c '%U:%G:%a:%h' "$asset_lock") || exit $?
+      [[ -f $asset_lock && ! -L $asset_lock && ${required_query_19} == root:root:600:1 ]]
+    }
   }
 fi
 exec 9<>"$asset_lock"
-[[ $(stat -Lc '%U:%G:%a:%h' /proc/self/fd/9) == root:root:600:1 ]]
+{
+  required_query_20=$(stat -Lc '%U:%G:%a:%h' /proc/self/fd/9)
+  [[ ${required_query_20} == root:root:600:1 ]]
+}
 flock 9
 if [[ -e $trust_dir ]]; then
-  [[ -d $trust_dir && ! -L $trust_dir && $(realpath -e -- "$trust_dir") == "$trust_dir" && $(stat -c '%U:%G:%a' "$trust_dir") == root:root:755 ]]
+  {
+    required_query_21=$(realpath -e -- "$trust_dir") || exit $?
+    required_query_22=$(stat -c '%U:%G:%a' "$trust_dir") || exit $?
+    [[ -d $trust_dir && ! -L $trust_dir && ${required_query_21} == "$trust_dir" && ${required_query_22} == root:root:755 ]]
+  }
 else
   install -d -o root -g root -m 755 "$trust_dir"
 fi
 if [[ -e $target_trust ]]; then
-  [[ -f $target_trust && ! -L $target_trust && $(stat -c '%U:%G:%a' "$target_trust") == root:root:644 ]]
-  [[ $(sha256sum "$target_trust" | awk '{print $1}') == "$trust_expected_sha256" ]]
+  {
+    required_query_23=$(stat -c '%U:%G:%a' "$target_trust") || exit $?
+    [[ -f $target_trust && ! -L $target_trust && ${required_query_23} == root:root:644 ]]
+  }
+  {
+    required_query_24=$(sha256sum "$target_trust" | awk '{print $1}') || exit $?
+    [[ ${required_query_24} == "$trust_expected_sha256" ]]
+  }
 else
   install -o root -g root -m 644 "$activation_dir/trust.pub" "$target_trust.new"
   mv -T -- "$target_trust.new" "$target_trust"
@@ -148,7 +210,10 @@ fi
 for asset in verifier promoter; do
   case $asset in verifier) target=$target_verifier ;; promoter) target=$target_promoter ;; esac
   if [[ -e $target ]]; then
-    [[ -f $target && ! -L $target && $(stat -c '%U:%G:%a' "$target") == root:root:700 ]]
+    {
+      required_query_25=$(stat -c '%U:%G:%a' "$target") || exit $?
+      [[ -f $target && ! -L $target && ${required_query_25} == root:root:700 ]]
+    }
     install -o root -g root -m 700 "$target" "$activation_dir/previous-$asset"
   fi
 done
@@ -158,11 +223,26 @@ activation_started=true
 mv -T -- "$target_verifier.new" "$target_verifier"
 if [[ $test_mode == true && $test_fail_after_verifier == true ]]; then false; fi
 mv -T -- "$target_promoter.new" "$target_promoter"
-[[ $(sha256sum "$target_verifier" | awk '{print $1}') == "$verifier_expected_sha256" ]]
-[[ $(sha256sum "$target_promoter" | awk '{print $1}') == "$promoter_expected_sha256" ]]
+{
+  required_query_26=$(sha256sum "$target_verifier" | awk '{print $1}')
+  [[ ${required_query_26} == "$verifier_expected_sha256" ]]
+}
+{
+  required_query_27=$(sha256sum "$target_promoter" | awk '{print $1}')
+  [[ ${required_query_27} == "$promoter_expected_sha256" ]]
+}
 "$target_verifier" "$target_trust" "$activation_dir/valid.json" "$activation_dir/valid.sig" >/dev/null
 activation_complete=true
 printf 'backup_dr_assets_status=ready\n'
-printf 'verifier_sha256=%s\n' "$(sha256sum "$target_verifier" | awk '{print $1}')"
-printf 'promoter_sha256=%s\n' "$(sha256sum "$target_promoter" | awk '{print $1}')"
-printf 'trust_sha256=%s\n' "$(sha256sum "$target_trust" | awk '{print $1}')"
+{
+  required_query_28=$(sha256sum "$target_verifier" | awk '{print $1}')
+  printf 'verifier_sha256=%s\n' "${required_query_28}"
+}
+{
+  required_query_29=$(sha256sum "$target_promoter" | awk '{print $1}')
+  printf 'promoter_sha256=%s\n' "${required_query_29}"
+}
+{
+  required_query_30=$(sha256sum "$target_trust" | awk '{print $1}')
+  printf 'trust_sha256=%s\n' "${required_query_30}"
+}

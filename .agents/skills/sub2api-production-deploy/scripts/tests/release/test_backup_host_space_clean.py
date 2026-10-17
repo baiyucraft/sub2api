@@ -1,4 +1,15 @@
+import re
 from pathlib import Path
+
+
+def _assert_required_capture(source, producer, assertion, failure):
+    # The standalone assignment must propagate the producer status before its
+    # adjacent check reads the same variable. CAPTURE is a regex backreference.
+    assert "set -Eeuo pipefail\n" in source
+    pattern = (r"(?m)^[ \t]*(?P<capture>[A-Za-z_]\w*)="
+               + re.escape(producer + failure) + r"\n[ \t]*"
+               + re.escape(assertion).replace("CAPTURE", r"(?P=capture)"))
+    assert re.search(pattern, source), (producer, assertion, failure)
 
 
 SCRIPT = Path(__file__).parents[2] / "release" / "backup-host-space-clean.sh"
@@ -17,7 +28,7 @@ def test_backup_host_space_clean_has_bounded_journal_contract() -> None:
     assert 'journalctl --vacuum-size="$journal_max_bytes"' in text
     assert 'raw_log="$log_dir/backup-host-space-clean.raw.log"' in text
     assert '} >>"$raw_log" 2>&1' in text
-    assert '[[ $(stat -c \'%u:%g:%a\' "$raw_log") == 0:0:600 ]]' in text
+    _assert_required_capture(text, '$(stat -c \'%u:%g:%a\' "$raw_log")', '[[ ${CAPTURE} == 0:0:600 ]]', ' || exit $?')
     assert "(( free_after >= required_free_bytes ))" in text
     assert "rm -rf" not in text
     assert "find \"$backup_root\"" not in text

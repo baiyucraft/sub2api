@@ -61,8 +61,8 @@ fail() {
 
 redis_watermark() {
   local redis_password
-  redis_password=$(docker inspect "$redis_container" | jq -r '((.[0].Config.Entrypoint // []) + (.[0].Config.Cmd // [])) as $a | ($a | index("--requirepass")) as $i | if $i != null and ($i + 1) < ($a | length) then $a[$i + 1] else ([ $a[] | select(startswith("--requirepass=")) | ltrimstr("--requirepass=") ] | first // "") end')
-  printf '%s\n' "$redis_password" | docker exec -i "$redis_container" sh -c 'IFS= read -r REDISCLI_AUTH; export REDISCLI_AUTH; redis-cli --no-auth-warning GET sched:v2:outbox:watermark' | tr -d '\r'
+  redis_password=$(docker inspect "$redis_container" | jq -r '((.[0].Config.Entrypoint // []) + (.[0].Config.Cmd // [])) as $a | ($a | index("--requirepass")) as $i | if $i != null and ($i + 1) < ($a | length) then $a[$i + 1] else ([ $a[] | select(startswith("--requirepass=")) | ltrimstr("--requirepass=") ] | first // "") end') || return 1
+  printf '%s\n' "$redis_password" | docker exec -i "$redis_container" sh -c 'IFS= read -r REDISCLI_AUTH || exit 1; export REDISCLI_AUTH; redis-cli --no-auth-warning GET sched:v2:outbox:watermark' | tr -d '\r'
 }
 
 if [[ $phase == preflight ]]; then
@@ -302,7 +302,7 @@ if [[ $outbox_event_id == 0 ]]; then
   outbox_watermark=$(redis_watermark)
   [[ $(<"$state_dir/migration-195-affected.count") == 0 || ( $outbox_highwater =~ ^[1-9][0-9]*$ && $outbox_watermark =~ ^[0-9]+$ && $outbox_watermark -gt 0 && $outbox_watermark -ge $outbox_highwater ) ]]
 else
-  for _ in $(seq 1 30); do
+  for _ in {1..30}; do
     outbox_watermark=$(redis_watermark)
     [[ $outbox_watermark =~ ^[0-9]+$ && $outbox_watermark -ge $outbox_event_id ]] && break
     sleep 1

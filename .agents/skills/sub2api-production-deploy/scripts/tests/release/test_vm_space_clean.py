@@ -14,6 +14,16 @@ from release.manifest import release_unit_relative_paths
 from release.paths import LAYOUT_DEPLOY_V1, LAYOUT_SKILL_V1
 
 
+def _assert_required_capture(source, producer, assertion, failure):
+    # The standalone assignment must propagate the producer status before its
+    # adjacent check reads the same variable. CAPTURE is a regex backreference.
+    assert "set -Eeuo pipefail\n" in source
+    pattern = (r"(?m)^[ \t]*(?P<capture>[A-Za-z_]\w*)="
+               + re.escape(producer + failure) + r"\n[ \t]*"
+               + re.escape(assertion).replace("CAPTURE", r"(?P=capture)"))
+    assert re.search(pattern, source), (producer, assertion, failure)
+
+
 class Result:
     def __init__(self, values: dict[str, str]):
         self.values = values
@@ -184,7 +194,7 @@ class VMSpaceCleanTest(unittest.TestCase):
     def test_validator_installs_build_failure_cleanup_before_build(self) -> None:
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
         self.assertIn("git fetch origin +main:refs/remotes/origin/main", validator)
-        self.assertIn('[[ $(git rev-parse origin/main) == "$commit" ]]', validator)
+        _assert_required_capture(validator, '$(git rev-parse origin/main)', '[[ ${CAPTURE} == "$commit" ]]', '')
         self.assertIn("mark_stage migration_assertion_profile_195_postflight_db", validator)
         self.assertIn("mark_stage migration_assertion_profile_195_low_watermark", validator)
         self.assertIn("mark_stage migration_assertion_profile_195_verified_replay", validator)
@@ -233,11 +243,14 @@ class VMSpaceCleanTest(unittest.TestCase):
     def test_gate_v2_protects_old_image_until_gate_cleanup(self) -> None:
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
         self.assertIn('old_image_tag="sub2api:vm-old-$release_id"', validator)
-        self.assertIn("existing_old_image_id=$(docker image inspect -f '{{.Id}}' \"$old_image_tag\" 2>/dev/null || true)", validator)
+        self.assertIn('existing_old_image_id=$(image_id_for_tag "$old_image_tag") || return $?', validator)
+        self.assertIn("inventory=$(docker image ls --no-trunc --format '{{.Repository}}:{{.Tag}} {{.ID}}') || return $?", validator)
+        self.assertIn('image_id=$(printf \'%s\\n\' "$inventory" | awk -v tag="$image_tag" \'$1 == tag {print $2}\') || return $?', validator)
+        self.assertIn('[[ -z $image_id || $image_id =~ ^sha256:[0-9a-f]{64}$ ]] || return 1', validator)
         self.assertIn('[[ "$existing_old_image_id" == "$old_image_id" ]]', validator)
         self.assertIn('old_image_tag_created=true\n      return 0', validator)
         self.assertIn('docker tag "$old_image_id" "$old_image_tag"', validator)
-        self.assertIn('[[ $(docker image inspect -f \'{{.Id}}\' "$old_image_tag") == "$old_image_id" ]]', validator)
+        _assert_required_capture(validator, '$(docker image inspect -f \'{{.Id}}\' "$old_image_tag")', '[[ ${CAPTURE} == "$old_image_id" ]]', ' || return $?')
         self.assertIn('cleanup_old_image_tag || true', validator)
         self.assertIn('cleanup_old_image_tag', validator[validator.index('mark_v2_stage old_image_tag_cleanup'):])
         self.assertLess(validator.index('protect_old_image'), validator.index('rm -f -- "$compatibility_path"'))

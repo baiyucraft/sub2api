@@ -175,17 +175,25 @@ def _retained_recovery_script(manifest: dict[str, Any], backup: dict[str, Any]) 
 test ! -L "$state"
 if test -e "$state"; then
   test -d "$state"
-  test "$(realpath "$state")" = {shlex.quote('/opt/sub2api/backups/release-state/' + identifier)}
-  test "$(stat -c '%U:%G:%a' "$state")" = root:root:700
-  test -z "$(find "$state" -mindepth 1 -maxdepth 1 ! -type f -print -quit)"
+  required_capture_1=$(realpath "$state") || exit $?
+  test "$required_capture_1" = {shlex.quote('/opt/sub2api/backups/release-state/' + identifier)}
+  required_capture_2=$(stat -c '%U:%G:%a' "$state") || exit $?
+  test "$required_capture_2" = root:root:700
+  required_capture_3=$(find "$state" -mindepth 1 -maxdepth 1 ! -type f -print -quit) || exit $?
+  test -z "$required_capture_3"
   expected_entries={shlex.quote(entries)}
   if test -e "$state/backup-failure"; then
     test ! -L "$state/backup-failure"
-    test "$(stat -c '%U:%G:%a:%h' "$state/backup-failure")" = root:root:400:1
-    test "$(wc -l < "$state/backup-failure")" = 3
-    test "$(grep -c '^attempt_id=' "$state/backup-failure")" = 1
-    test "$(grep -c '^stage=' "$state/backup-failure")" = 1
-    test "$(grep -c '^exit_code=' "$state/backup-failure")" = 1
+    required_capture_4=$(stat -c '%U:%G:%a:%h' "$state/backup-failure") || exit $?
+    test "$required_capture_4" = root:root:400:1
+    required_capture_5=$(wc -l < "$state/backup-failure") || exit $?
+    test "$required_capture_5" = 3
+    required_capture_6=$(grep -c '^attempt_id=' "$state/backup-failure") || exit $?
+    test "$required_capture_6" = 1
+    required_capture_7=$(grep -c '^stage=' "$state/backup-failure") || exit $?
+    test "$required_capture_7" = 1
+    required_capture_8=$(grep -c '^exit_code=' "$state/backup-failure") || exit $?
+    test "$required_capture_8" = 1
     grep -Eq {shlex.quote('^attempt_id=' + re.escape(identifier) + '-[123]$')} "$state/backup-failure"
     grep -Eq '^stage=(initializing|preflight|database|redis|config|metadata|archive|encrypt|upload|local_restore_point|commit_result)$' "$state/backup-failure"
     failure_code=$(sed -n 's/^exit_code=//p' "$state/backup-failure")
@@ -193,19 +201,28 @@ if test -e "$state"; then
     (( 10#$failure_code <= 255 ))
     expected_entries=$(printf '%s\\nbackup-failure\\n' "$expected_entries" | LC_ALL=C sort)
   fi
-  test "$(find "$state" -mindepth 1 -maxdepth 1 -printf '%f\\n' | LC_ALL=C sort)" = "$expected_entries"
+  required_capture_9=$(find "$state" -mindepth 1 -maxdepth 1 -printf '%f\\n' | LC_ALL=C sort) || exit $?
+  test "$required_capture_9" = "$expected_entries"
   for file in recovery-point.age recovery-point.age.sha256; do
-    test "$(stat -c '%U:%G:%a:%h' "$state/$file")" = root:root:600:1
+    required_capture_10=$(stat -c '%U:%G:%a:%h' "$state/$file") || exit $?
+    test "$required_capture_10" = root:root:600:1
   done
   for file in backup-result backup-result.sha256; do
-    test "$(stat -c '%U:%G:%a:%h' "$state/$file")" = root:root:400:1
+    required_capture_11=$(stat -c '%U:%G:%a:%h' "$state/$file") || exit $?
+    test "$required_capture_11" = root:root:400:1
   done
-  case "$(stat -c '%U:%G:%a:%h' "$state/pre-image-id")" in root:root:600:1|root:root:644:1) ;; *) exit 1 ;; esac
-  test "$(cat "$state/pre-image-id")" = {shlex.quote(pre_image)}
-  test "$(cat "$state/backup-result")" = {shlex.quote(result_text)}
-  test "$(cat "$state/backup-result.sha256")" = {shlex.quote(result_sha + '  backup-result')}
-  test "$(cat "$state/recovery-point.age.sha256")" = {shlex.quote(digest + '  recovery-point.age')}
-  test "$(stat -c '%s' "$state/recovery-point.age")" = {shlex.quote(size)}
+  required_capture_12=$(stat -c '%U:%G:%a:%h' "$state/pre-image-id") || exit $?
+  case "$required_capture_12" in root:root:600:1|root:root:644:1) ;; *) exit 1 ;; esac
+  required_capture_13=$(cat "$state/pre-image-id") || exit $?
+  test "$required_capture_13" = {shlex.quote(pre_image)}
+  required_capture_14=$(cat "$state/backup-result") || exit $?
+  test "$required_capture_14" = {shlex.quote(result_text)}
+  required_capture_15=$(cat "$state/backup-result.sha256") || exit $?
+  test "$required_capture_15" = {shlex.quote(result_sha + '  backup-result')}
+  required_capture_16=$(cat "$state/recovery-point.age.sha256") || exit $?
+  test "$required_capture_16" = {shlex.quote(digest + '  recovery-point.age')}
+  required_capture_17=$(stat -c '%s' "$state/recovery-point.age") || exit $?
+  test "$required_capture_17" = {shlex.quote(size)}
   (cd "$state"; sha256sum --strict -c backup-result.sha256 >/dev/null; sha256sum --strict -c recovery-point.age.sha256 >/dev/null)
 fi
 """
@@ -217,10 +234,14 @@ def _health_header_script(identifier: str) -> str:
 chmod 600 "$health_headers"
 trap 'rm -f -- "$health_headers"' EXIT
 assert_health_headers() {{
-  test "$(grep -Eic '^x-sub2api-instance:' "$health_headers")" = 1
-  test "$(grep -Eic '^x-sub2api-instance:[[:space:]]*{instance_pattern}[[:space:]]*$' "$health_headers")" = 1
-  test "$(grep -Eic '^x-sub2api-background-ready:' "$health_headers")" = 1
-  test "$(grep -Eic '^x-sub2api-background-ready:[[:space:]]*true[[:space:]]*$' "$health_headers")" = 1
+  required_capture_18=$(grep -Eic '^x-sub2api-instance:' "$health_headers") || exit $?
+  test "$required_capture_18" = 1
+  required_capture_19=$(grep -Eic '^x-sub2api-instance:[[:space:]]*{instance_pattern}[[:space:]]*$' "$health_headers") || exit $?
+  test "$required_capture_19" = 1
+  required_capture_20=$(grep -Eic '^x-sub2api-background-ready:' "$health_headers") || exit $?
+  test "$required_capture_20" = 1
+  required_capture_21=$(grep -Eic '^x-sub2api-background-ready:[[:space:]]*true[[:space:]]*$' "$health_headers") || exit $?
+  test "$required_capture_21" = 1
 }}
 """
 
@@ -249,14 +270,17 @@ def _remote_consumed(ssh: SSHRunner, manifest: dict[str, Any], candidate: str, o
     # Recheck the remote immutable claim, rather than treating a directory or a
     # previous production JSON field as proof of consumption.
     script = f"""set -Eeuo pipefail
-test "$(id -u)" = 0
+required_capture_22=$(id -u) || exit $?
+test "$required_capture_22" = 0
 exec 8>/run/lock/sub2api-production-release.lock
 flock -xn 8
 claim={shlex.quote(consumed)}
 test -d "$claim"
 test ! -L "$claim"
-test "$(realpath "$claim")" = {shlex.quote(consumed)}
-test "$(stat -c '%U:%G:%a' "$claim")" = root:root:700
+required_capture_23=$(realpath "$claim") || exit $?
+test "$required_capture_23" = {shlex.quote(consumed)}
+required_capture_24=$(stat -c '%U:%G:%a' "$claim") || exit $?
+test "$required_capture_24" = root:root:700
 test ! -e /opt/sub2api/releases/.active-release
 test ! -L /opt/sub2api/releases/.active-release
 test ! -e {shlex.quote(consumed.rsplit('/', 1)[0] + '/.recovered')}
@@ -265,45 +289,68 @@ test ! -L {shlex.quote(consumed.rsplit('/', 1)[0] + '/.recovered')}
 for file in marker release_id gate.json gate.sig candidate.tar.gz CLAIM_SHA256SUMS plaintext-cleaned; do
   test -f "$claim/$file"
   test ! -L "$claim/$file"
-  test "$(stat -c '%U:%G:%a:%h' "$claim/$file")" = root:root:400:1
+  required_capture_25=$(stat -c '%U:%G:%a:%h' "$claim/$file") || exit $?
+  test "$required_capture_25" = root:root:400:1
 done
 test -d "$claim/assets"
 test ! -L "$claim/assets"
-test "$(stat -c '%U:%G:%a' "$claim/assets")" = root:root:700
-test -z "$(find "$claim/assets" -mindepth 1 ! -type f -print -quit)"
-test "$(cat "$claim/CLAIM_SHA256SUMS")" = {shlex.quote(expected_checksums)}
-test "$(cd "$claim" && find gate.json gate.sig candidate.tar.gz assets -type f -print | LC_ALL=C sort)" = {shlex.quote(expected_files)}
-for file in "$claim/assets"/*; do test "$(stat -c '%U:%G:%a:%h' "$file")" = root:root:500:1; done
+required_capture_26=$(stat -c '%U:%G:%a' "$claim/assets") || exit $?
+test "$required_capture_26" = root:root:700
+required_capture_27=$(find "$claim/assets" -mindepth 1 ! -type f -print -quit) || exit $?
+test -z "$required_capture_27"
+required_capture_28=$(cat "$claim/CLAIM_SHA256SUMS") || exit $?
+test "$required_capture_28" = {shlex.quote(expected_checksums)}
+claim_files=$(cd "$claim" && find gate.json gate.sig candidate.tar.gz assets -type f -print | LC_ALL=C sort) || exit $?
+test "$claim_files" = {shlex.quote(expected_files)}
+for file in "$claim/assets"/*; do
+  required_capture_29=$(stat -c '%U:%G:%a:%h' "$file") || exit $?
+  test "$required_capture_29" = root:root:500:1
+done
 grep -Fxq {shlex.quote('release_id=' + identifier)} "$claim/marker"
 grep -Fxq {shlex.quote('candidate_image_id=' + candidate)} "$claim/marker"
 grep -Fxq {shlex.quote('release_id=' + identifier)} "$claim/release_id"
 (cd "$claim" && sha256sum --strict -c CLAIM_SHA256SUMS >/dev/null)
-test "$(sha256sum "$claim/gate.json" | awk '{{print $1}}')" = {shlex.quote(originals['gate/gate.json'])}
-test "$(sha256sum "$claim/gate.sig" | awk '{{print $1}}')" = {shlex.quote(originals['gate/gate.sig'])}
+required_capture_30=$(sha256sum "$claim/gate.json" | awk '{{print $1}}') || exit $?
+test "$required_capture_30" = {shlex.quote(originals['gate/gate.json'])}
+required_capture_31=$(sha256sum "$claim/gate.sig" | awk '{{print $1}}') || exit $?
+test "$required_capture_31" = {shlex.quote(originals['gate/gate.sig'])}
 openssl pkeyutl -verify -pubin -inkey /opt/sub2api-release-trust/vm-gate-ed25519.pub -rawin -in "$claim/gate.json" -sigfile "$claim/gate.sig" >/dev/null 2>&1
 slot=/opt/sub2api/active-app
 test -f "$slot"
 test ! -L "$slot"
-for field in container port image_id release_id instance_id; do test "$(grep -c "^$field=" "$slot")" = 1; done
+for field in container port image_id release_id instance_id; do
+  required_capture_32=$(grep -c "^$field=" "$slot") || exit $?
+  test "$required_capture_32" = 1
+done
 container=$(sed -n 's/^container=//p' "$slot")
 port=$(sed -n 's/^port=//p' "$slot")
 [[ $container =~ ^[A-Za-z0-9_.-]{{1,80}}$ ]]
 test "$container" = sub2api
 [[ $port == 18080 || $port == 18081 ]]
-test "$(sed -n 's/^release_id=//p' "$slot")" = {shlex.quote(identifier)}
-test "$(sed -n 's/^instance_id=//p' "$slot")" = {shlex.quote(identifier + '-active')}
-test "$(sed -n 's/^image_id=//p' "$slot")" = {shlex.quote(candidate)}
-test "$(docker inspect -f '{{{{.Image}}}}' "$container")" = {shlex.quote(candidate)}
-test "$(docker inspect -f '{{{{.State.Health.Status}}}}' "$container")" = healthy
+required_capture_33=$(sed -n 's/^release_id=//p' "$slot") || exit $?
+test "$required_capture_33" = {shlex.quote(identifier)}
+required_capture_34=$(sed -n 's/^instance_id=//p' "$slot") || exit $?
+test "$required_capture_34" = {shlex.quote(identifier + '-active')}
+required_capture_35=$(sed -n 's/^image_id=//p' "$slot") || exit $?
+test "$required_capture_35" = {shlex.quote(candidate)}
+required_capture_36=$(docker inspect -f '{{{{.Image}}}}' "$container") || exit $?
+test "$required_capture_36" = {shlex.quote(candidate)}
+required_capture_37=$(docker inspect -f '{{{{.State.Health.Status}}}}' "$container") || exit $?
+test "$required_capture_37" = healthy
 {_health_header_script(identifier)}
-test "$(curl -sS --max-time 15 -D "$health_headers" -o /dev/null -w '%{{http_code}}' http://127.0.0.1:$port/health)" = 200
+required_capture_38=$(curl -sS --max-time 15 -D "$health_headers" -o /dev/null -w '%{{http_code}}' http://127.0.0.1:$port/health) || exit $?
+test "$required_capture_38" = 200
 assert_health_headers
-test "$(curl -sS --resolve {profile['public_domain']}:443:{profile['rack_public_ip']} --max-time 15 -D "$health_headers" -o /dev/null -w '%{{http_code}}' https://{profile['public_domain']}/health)" = 200
+required_capture_39=$(curl -sS --resolve {profile['public_domain']}:443:{profile['rack_public_ip']} --max-time 15 -D "$health_headers" -o /dev/null -w '%{{http_code}}' https://{profile['public_domain']}/health) || exit $?
+test "$required_capture_39" = 200
 assert_health_headers
 grep -Fq "server 127.0.0.1:$port;" /etc/nginx/conf.d/sub2api-release-upstream.conf
-test "$(systemctl is-active nginx)" = active
-test "$(systemctl is-enabled sub2api-backup.timer)" = enabled
-test "$(systemctl is-active sub2api-backup.timer)" = active
+required_capture_40=$(systemctl is-active nginx) || exit $?
+test "$required_capture_40" = active
+required_capture_41=$(systemctl is-enabled sub2api-backup.timer) || exit $?
+test "$required_capture_41" = enabled
+required_capture_42=$(systemctl is-active sub2api-backup.timer) || exit $?
+test "$required_capture_42" = active
 if backup_service_state=$(systemctl is-active sub2api-backup.service 2>/dev/null); then
   backup_service_code=0
 else
@@ -319,7 +366,8 @@ printf 'consumed_marker_verified=true\\nactive_claim=absent\\napplication_health
         raise RuntimeError("consumed release remote evidence is incomplete")
     dmit_script = f"""set -Eeuo pipefail
 {_health_header_script(identifier)}
-test "$(curl -sS --resolve {profile['public_domain']}:443:{profile['dmit_public_ip']} --max-time 15 -D "$health_headers" -o /dev/null -w '%{{http_code}}' https://{profile['public_domain']}/health)" = 200
+required_capture_43=$(curl -sS --resolve {profile['public_domain']}:443:{profile['dmit_public_ip']} --max-time 15 -D "$health_headers" -o /dev/null -w '%{{http_code}}' https://{profile['public_domain']}/health) || exit $?
+test "$required_capture_43" = 200
 assert_health_headers
 printf 'dmit_route_health=pass\\n'
 """
@@ -366,12 +414,15 @@ def _cleanup_vm_tasks(ssh: SSHRunner, manifest: dict[str, Any], original_sha: st
     # Refuse any remaining process/runtime instead of destroying ambiguous work;
     # only leftover plaintext directories from this exact release may be removed.
     script = f"""set -Eeuo pipefail
-test "$(id -u)" = 0
-test "$(cat /proc/sys/kernel/random/boot_id)" = {shlex.quote(boot_id)}
+required_value=$(id -u)
+test "$required_value" = 0
+required_value=$(cat /proc/sys/kernel/random/boot_id)
+test "$required_value" = {shlex.quote(boot_id)}
 unit_lock=/usr/local/libexec/.sub2api-release-unit.lock
 test -f "$unit_lock"
 test ! -L "$unit_lock"
-test "$(stat -c '%U:%G:%a:%h' "$unit_lock")" = root:root:600:1
+required_value=$(stat -c '%U:%G:%a:%h' "$unit_lock")
+test "$required_value" = root:root:600:1
 exec 8<>"$unit_lock"
 flock -xn 8
 root=/opt/sub2api-deploy/release-gates
@@ -380,32 +431,42 @@ test -d "$root"
 test ! -L "$root"
 test -d "$state"
 test ! -L "$state"
-test "$(realpath "$state")" = "$root/{identifier}"
-test "$(stat -c '%U:%G:%a' "$state")" = root:root:700
+required_value=$(realpath "$state")
+test "$required_value" = "$root/{identifier}"
+required_value=$(stat -c '%U:%G:%a' "$state")
+test "$required_value" = root:root:700
 test -f "$state/manifest.json"
 test ! -L "$state/manifest.json"
-test "$(sha256sum "$state/manifest.json" | awk '{{print $1}}')" = {shlex.quote(original_sha)}
+required_value=$(sha256sum "$state/manifest.json" | awk '{{print $1}}')
+test "$required_value" = {shlex.quote(original_sha)}
 if test -e "$root/release.lock"; then
   test -f "$root/release.lock"
   test ! -L "$root/release.lock"
   exec 9<>"$root/release.lock"; flock -xn 9
 fi
 names=$(docker ps -a --format '{{{{.Names}}}}')
-! grep -Eq '^sub2api-(v2-|probe-|preview-)' <<<"$names"
+while IFS= read -r name; do
+  case "$name" in sub2api-v2-*|sub2api-probe-*|sub2api-preview-*) exit 1 ;; esac
+done <<<"$names"
 networks=$(docker network ls --format '{{{{.Name}}}}')
-! grep -Eq '^sub2api-(v2-|probe-)' <<<"$networks"
+while IFS= read -r name; do
+  case "$name" in sub2api-v2-*|sub2api-probe-*) exit 1 ;; esac
+done <<<"$networks"
 pg_user=$(docker inspect sub2api-postgres | jq -er '.[0].Config.Env[] | select(startswith("POSTGRES_USER=")) | ltrimstr("POSTGRES_USER=")')
 [[ $pg_user =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]
 databases=$(docker exec sub2api-postgres psql -X -A -t -U "$pg_user" -d postgres -c "SELECT datname FROM pg_database")
-! grep -Fxq {shlex.quote('sub2api_v2_' + suffix[:24])} <<<"$databases"
-! grep -Fxq {shlex.quote('sub2api_probe_' + suffix[:24])} <<<"$databases"
+while IFS= read -r name; do
+  case "$name" in {shlex.quote('sub2api_v2_' + suffix[:24])}|{shlex.quote('sub2api_probe_' + suffix[:24])}) exit 1 ;; esac
+done <<<"$databases"
 for name in probe-data production-recovery probe-redis-data; do
   target="$state/$name"
   test ! -L "$target"
   if test -e "$target"; then
     test -d "$target"
-    test "$(realpath "$target")" = "$state/$name"
-    test "$(stat -c '%U:%G:%a' "$target")" = root:root:700
+    required_value=$(realpath "$target")
+    test "$required_value" = "$state/$name"
+    required_value=$(stat -c '%U:%G:%a' "$target")
+    test "$required_value" = root:root:700
     rm -rf -- "$target"
   fi
   test ! -e "$target"

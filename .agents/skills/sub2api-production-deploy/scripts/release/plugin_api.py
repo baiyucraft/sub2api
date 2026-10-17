@@ -359,12 +359,16 @@ class PluginAPIClient:
                 r"""set -Eeuo pipefail
 slot=/opt/sub2api/active-app
 upstream=/etc/nginx/conf.d/sub2api-release-upstream.conf
-test -f "$slot" && test ! -L "$slot"
-test -f "$upstream" && test ! -L "$upstream"
-test "$(grep -c '^port=' "$slot")" = 1
+test -f "$slot"
+test ! -L "$slot"
+test -f "$upstream"
+test ! -L "$upstream"
+required_value=$(grep -c '^port=' "$slot")
+test "$required_value" = 1
 active_port=$(sed -n 's/^port=//p' "$slot")
 case "$active_port" in 18080|18081) ;; *) exit 1 ;; esac
-test "$(sed -nE 's/^[[:space:]]*server[[:space:]]+127[.]0[.]0[.]1:(18080|18081);[[:space:]]*$/\1/p' "$upstream" | wc -l)" = 1
+required_value=$(sed -nE 's/^[[:space:]]*server[[:space:]]+127[.]0[.]0[.]1:(18080|18081);[[:space:]]*$/\1/p' "$upstream" | wc -l)
+test "$required_value" = 1
 upstream_port=$(sed -nE 's/^[[:space:]]*server[[:space:]]+127[.]0[.]0[.]1:(18080|18081);[[:space:]]*$/\1/p' "$upstream")
 test "$upstream_port" = "$active_port"
 printf 'active_port=%s\n' "$active_port"

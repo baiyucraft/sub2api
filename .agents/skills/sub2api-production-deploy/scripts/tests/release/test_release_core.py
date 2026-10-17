@@ -36,6 +36,16 @@ from release.profiles import get_profile, get_release_profile
 from release.state import RunLock, RunState
 
 
+def _assert_required_capture(source, producer, assertion, failure):
+    # The standalone assignment must propagate the producer status before its
+    # adjacent check reads the same variable. CAPTURE is a regex backreference.
+    assert "set -Eeuo pipefail\n" in source
+    pattern = (r"(?m)^[ \t]*(?P<capture>[A-Za-z_]\w*)="
+               + re.escape(producer + failure) + r"\n[ \t]*"
+               + re.escape(assertion).replace("CAPTURE", r"(?P=capture)"))
+    assert re.search(pattern, source), (producer, assertion, failure)
+
+
 class ReleaseCoreTest(unittest.TestCase):
     def test_production_snapshot_digest_binds_current_commit(self) -> None:
         snapshot = {
@@ -853,7 +863,7 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn('evidence.get("migration_233_preflight_verified")', gate)
         self.assertIn('evidence.get("migration_233_postflight_verified")', gate)
         self.assertIn('[[ $version == 0.1.173-baiyu ]]', validator)
-        self.assertIn("[[ $(jq -er '.migrations | length' \"$manifest\") == 50 ]]", validator)
+        _assert_required_capture(validator, '$(jq -er \'.migrations | length\' "$manifest")', '[[ ${CAPTURE} == 50 ]]', ' || exit $?')
         self.assertIn("migration_233_status=$(profile_212_migration_status 233_upstream_management.sql)", validator)
         self.assertIn("233_upstream_management.sql) migration_233_status=verified", preflight)
         self.assertIn('MIGRATION_STATUS="$migration_233_status" "$assets_dir/migration-233-assert.sh" postflight', switch)
@@ -898,7 +908,7 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn('evidence.get("migration_234_preflight_verified")', gate)
         self.assertIn('evidence.get("migration_234_schema_verified")', gate)
         self.assertIn('[[ $version == 0.1.176-baiyu ]]', validator)
-        self.assertIn("[[ $(jq -er '.migrations | length' \"$manifest\") == 51 ]]", validator)
+        _assert_required_capture(validator, '$(jq -er \'.migrations | length\' "$manifest")', '[[ ${CAPTURE} == 51 ]]', ' || exit $?')
         self.assertIn("234_group_model_pricing.sql) migration_234_status=verified", preflight)
         self.assertIn('migration-234-assert.sh" postflight', switch)
         assertion = (DEPLOY_ROOT / "maintenance" / "release" / "migration-234-assert.sh").read_text(encoding="utf-8")

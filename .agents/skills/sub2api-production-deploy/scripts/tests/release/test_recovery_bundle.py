@@ -246,7 +246,7 @@ def test_staging_uploads_bound_authorization_snapshot_and_verifies_signature_bef
     assert hashlib.sha256(original_signature).hexdigest() in script
     assert script.index('openssl pkeyutl -verify') < script.index('install -d -m 700 -o root -g root "$parent"')
     assert script.index('openssl pkeyutl -verify') < script.index('tar --no-same-permissions')
-    assert script.index('test -f "$trust" && test ! -L "$trust"') < script.index('openssl pkeyutl -verify')
+    assert script.index('test -f "$trust"\ntest ! -L "$trust"') < script.index('openssl pkeyutl -verify')
     assert '0:0:644:1' in script
     assert '--gate "$temp/gate.json"' in script
     assert "0:0:400:1" in script

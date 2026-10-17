@@ -21,7 +21,11 @@ if [[ $test_mode == true || -n $test_root ]]; then
   test_name=${test_root##*/}
   [[ $test_name =~ ^dr-promotion-test\.[A-Za-z0-9]{8}$ ]]
   [[ $test_root == /srv/sub2api-backups/$test_name ]]
-  [[ -d $test_root && ! -L $test_root && $(realpath -e -- "$test_root") == "$test_root" && $(stat -c '%U:%G:%a' "$test_root") == root:root:700 ]]
+  {
+    required_query_1=$(realpath -e -- "$test_root") || exit $?
+    required_query_2=$(stat -c '%U:%G:%a' "$test_root") || exit $?
+    [[ -d $test_root && ! -L $test_root && ${required_query_1} == "$test_root" && ${required_query_2} == root:root:700 ]]
+  }
   root="$test_root/releases/$profile"
   trust_key="$test_root/trust/vm-gate-ed25519.pub"
   verifier="$test_root/libexec/sub2api-verify-dr-evidence"
@@ -41,57 +45,108 @@ verified_root="$root/verified-bundles"
 verified_link="$root/verified"
 trust_sha256=ea0b628532f8d85d0e57921b5b010c7f00ef8b0f9701da2b0d4ea31105553e08
 verifier_sha256=f43b10ae4e9d52b970a9395487a3cf31ae2ccb0d869b5d0a5ee134fd0ca81d89
-[[ $(id -u) == 0 ]]
+{
+  required_query_3=$(id -u)
+  [[ ${required_query_3} == 0 ]]
+}
 
 validate_directory() {
   local path=$1 mode=$2
-  [[ -d $path && ! -L $path && $(realpath -e -- "$path") == "$path" && $(stat -c '%U:%G:%a' "$path") == "root:root:$mode" ]]
+  {
+    required_query_4=$(realpath -e -- "$path") || return $?
+    required_query_5=$(stat -c '%U:%G:%a' "$path") || return $?
+    [[ -d $path && ! -L $path && ${required_query_4} == "$path" && ${required_query_5} == "root:root:$mode" ]]
+  }
 }
 prepare_lock() {
   local path=$1
   if [[ -e $path || -L $path ]]; then
-    [[ -f $path && ! -L $path && $(stat -c '%U:%G:%a:%h' "$path") == root:root:600:1 ]]
+    {
+      required_query_6=$(stat -c '%U:%G:%a:%h' "$path") || return $?
+      [[ -f $path && ! -L $path && ${required_query_6} == root:root:600:1 ]]
+    }
   else
     (set -o noclobber; umask 077; : > "$path") || {
-      [[ -f $path && ! -L $path && $(stat -c '%U:%G:%a:%h' "$path") == root:root:600:1 ]]
+      {
+        required_query_7=$(stat -c '%U:%G:%a:%h' "$path") || return $?
+        [[ -f $path && ! -L $path && ${required_query_7} == root:root:600:1 ]]
+      }
     }
   fi
 }
 validate_directory "${asset_lock%/*}" "$asset_lock_dir_mode"
 prepare_lock "$asset_lock"
 exec 8<>"$asset_lock"
-[[ $(stat -Lc '%U:%G:%a:%h' /proc/self/fd/8) == root:root:600:1 ]]
+{
+  required_query_8=$(stat -Lc '%U:%G:%a:%h' /proc/self/fd/8)
+  [[ ${required_query_8} == root:root:600:1 ]]
+}
 flock -s 8
 validate_directory "$root" 700
 promotion_lock="$root/.promotion.lock"
 prepare_lock "$promotion_lock"
 exec 9<>"$promotion_lock"
-[[ $(stat -Lc '%U:%G:%a:%h' /proc/self/fd/9) == root:root:600:1 ]]
+{
+  required_query_9=$(stat -Lc '%U:%G:%a:%h' /proc/self/fd/9)
+  [[ ${required_query_9} == root:root:600:1 ]]
+}
 flock 9
 for path in "$candidate_root" "$input_root" "$verified_root"; do
   validate_directory "$path" 700
 done
-[[ -f $trust_key && ! -L $trust_key && $(stat -c '%U:%G:%a:%h' "$trust_key") == root:root:644:1 ]]
-[[ -d ${trust_key%/*} && ! -L ${trust_key%/*} && $(realpath -e -- "${trust_key%/*}") == "${trust_key%/*}" && $(stat -c '%U:%G:%a' "${trust_key%/*}") == root:root:755 ]]
-[[ $(sha256sum "$trust_key" | awk '{print $1}') == "$trust_sha256" ]]
-[[ -f $verifier && ! -L $verifier && $(stat -c '%U:%G:%a:%h' "$verifier") == root:root:700:1 ]]
-[[ $(sha256sum "$verifier" | awk '{print $1}') == "$verifier_sha256" ]]
+{
+  required_query_10=$(stat -c '%U:%G:%a:%h' "$trust_key")
+  [[ -f $trust_key && ! -L $trust_key && ${required_query_10} == root:root:644:1 ]]
+}
+{
+  required_query_11=$(realpath -e -- "${trust_key%/*}")
+  required_query_12=$(stat -c '%U:%G:%a' "${trust_key%/*}")
+  [[ -d ${trust_key%/*} && ! -L ${trust_key%/*} && ${required_query_11} == "${trust_key%/*}" && ${required_query_12} == root:root:755 ]]
+}
+{
+  required_query_13=$(sha256sum "$trust_key" | awk '{print $1}')
+  [[ ${required_query_13} == "$trust_sha256" ]]
+}
+{
+  required_query_14=$(stat -c '%U:%G:%a:%h' "$verifier")
+  [[ -f $verifier && ! -L $verifier && ${required_query_14} == root:root:700:1 ]]
+}
+{
+  required_query_15=$(sha256sum "$verifier" | awk '{print $1}')
+  [[ ${required_query_15} == "$verifier_sha256" ]]
+}
 
 input_name=${input_dir##*/}
 [[ $input_name =~ ^$release_id--$drill_id\.[A-Za-z0-9]{8}$ ]]
 [[ $input_dir == "$input_root/$input_name" ]]
-[[ -d $input_dir && ! -L $input_dir && $(realpath -e -- "$input_dir") == "$input_dir" && $(stat -c '%U:%G:%a' "$input_dir") == root:root:700 ]]
+{
+  required_query_16=$(realpath -e -- "$input_dir")
+  required_query_17=$(stat -c '%U:%G:%a' "$input_dir")
+  [[ -d $input_dir && ! -L $input_dir && ${required_query_16} == "$input_dir" && ${required_query_17} == root:root:700 ]]
+}
 evidence="$input_dir/evidence.json"
 signature="$input_dir/evidence.sig"
 for path in "$evidence" "$signature"; do
-  [[ -f $path && ! -L $path && $(stat -c '%U:%G:%a:%h' "$path") == root:root:400:1 ]]
+  {
+    required_query_18=$(stat -c '%U:%G:%a:%h' "$path")
+    [[ -f $path && ! -L $path && ${required_query_18} == root:root:400:1 ]]
+  }
 done
 
-[[ -L $candidate_link && $(readlink "$candidate_link") == "candidates/$release_id" ]]
+{
+  required_query_19=$(readlink "$candidate_link")
+  [[ -L $candidate_link && ${required_query_19} == "candidates/$release_id" ]]
+}
 candidate_dir="$candidate_root/$release_id"
-[[ $(realpath -e -- "$candidate_link") == "$candidate_dir" ]]
+{
+  required_query_20=$(realpath -e -- "$candidate_link")
+  [[ ${required_query_20} == "$candidate_dir" ]]
+}
 [[ -d $candidate_dir && ! -L $candidate_dir ]]
-[[ $(realpath -e -- "$candidate_dir") == "$candidate_dir" ]]
+{
+  required_query_21=$(realpath -e -- "$candidate_dir")
+  [[ ${required_query_21} == "$candidate_dir" ]]
+}
 candidate_dir_mode=$(stat -c '%U:%G:%a' "$candidate_dir")
 if [[ $candidate_dir_mode != root:root:700 ]]; then
   false
@@ -99,7 +154,10 @@ fi
 assert_file_set() {
   local directory=$1 expected_count=$2 file entry
   shift 2
-  [[ $(find "$directory" -mindepth 1 -maxdepth 1 -printf '%y\n' | wc -l) == "$expected_count" ]]
+  {
+    required_query_22=$(find "$directory" -mindepth 1 -maxdepth 1 -printf '%y\n' | wc -l) || return $?
+    [[ ${required_query_22} == "$expected_count" ]]
+  }
   for file in "$@"; do
     entry=$(find "$directory" -mindepth 1 -maxdepth 1 -name "$file" -printf '%y %f\n')
     [[ $entry == "f $file" ]]
@@ -108,13 +166,34 @@ assert_file_set() {
 candidate_files=(SHA256SUMS artifact.tar.age bundle.sha256 candidate.tar.gz gate.json gate.sig manifest)
 assert_file_set "$candidate_dir" 7 "${candidate_files[@]}"
 candidate_file_contract() {
-  [[ $(stat -c '%U:%G:%a:%h' "$candidate_dir/SHA256SUMS") == root:root:600:1 ]]
-  [[ $(stat -c '%U:%G:%a:%h' "$candidate_dir/artifact.tar.age") == root:root:600:1 ]]
-  [[ $(stat -c '%U:%G:%a:%h' "$candidate_dir/bundle.sha256") == root:root:644:1 ]]
-  [[ $(stat -c '%U:%G:%a:%h' "$candidate_dir/candidate.tar.gz") == root:root:600:1 ]]
-  [[ $(stat -c '%U:%G:%a:%h' "$candidate_dir/gate.json") == root:root:600:1 ]]
-  [[ $(stat -c '%U:%G:%a:%h' "$candidate_dir/gate.sig") == root:root:600:1 ]]
-  [[ $(stat -c '%U:%G:%a:%h' "$candidate_dir/manifest") == root:root:644:1 ]]
+  {
+    required_query_23=$(stat -c '%U:%G:%a:%h' "$candidate_dir/SHA256SUMS") || return $?
+    [[ ${required_query_23} == root:root:600:1 ]]
+  }
+  {
+    required_query_24=$(stat -c '%U:%G:%a:%h' "$candidate_dir/artifact.tar.age") || return $?
+    [[ ${required_query_24} == root:root:600:1 ]]
+  }
+  {
+    required_query_25=$(stat -c '%U:%G:%a:%h' "$candidate_dir/bundle.sha256") || return $?
+    [[ ${required_query_25} == root:root:644:1 ]]
+  }
+  {
+    required_query_26=$(stat -c '%U:%G:%a:%h' "$candidate_dir/candidate.tar.gz") || return $?
+    [[ ${required_query_26} == root:root:600:1 ]]
+  }
+  {
+    required_query_27=$(stat -c '%U:%G:%a:%h' "$candidate_dir/gate.json") || return $?
+    [[ ${required_query_27} == root:root:600:1 ]]
+  }
+  {
+    required_query_28=$(stat -c '%U:%G:%a:%h' "$candidate_dir/gate.sig") || return $?
+    [[ ${required_query_28} == root:root:600:1 ]]
+  }
+  {
+    required_query_29=$(stat -c '%U:%G:%a:%h' "$candidate_dir/manifest") || return $?
+    [[ ${required_query_29} == root:root:644:1 ]]
+  }
 }
 candidate_file_contract
 
@@ -123,10 +202,19 @@ candidate_fingerprint() {
 }
 initial_candidate_fingerprint=$(candidate_fingerprint)
 assert_candidate_unchanged() {
-  [[ -L $candidate_link && $(readlink "$candidate_link") == "candidates/$release_id" ]]
-  [[ $(realpath -e -- "$candidate_link") == "$candidate_dir" ]]
+  {
+    required_query_30=$(readlink "$candidate_link") || return $?
+    [[ -L $candidate_link && ${required_query_30} == "candidates/$release_id" ]]
+  }
+  {
+    required_query_31=$(realpath -e -- "$candidate_link") || return $?
+    [[ ${required_query_31} == "$candidate_dir" ]]
+  }
   candidate_file_contract
-  [[ $(candidate_fingerprint) == "$initial_candidate_fingerprint" ]]
+  {
+    required_query_32=$(candidate_fingerprint) || return $?
+    [[ ${required_query_32} == "$initial_candidate_fingerprint" ]]
+  }
 }
 
 target_name="$release_id--$drill_id"
@@ -152,15 +240,27 @@ if [[ $manifest_keys != $'artifact_name\nartifact_sha256\ncandidate_archive_sha2
   false
 fi
 manifest_value() { awk -F= -v key="$1" '$1 == key {sub(/^[^=]*=/, ""); print; found++} END {exit found == 1 ? 0 : 1}' "$manifest"; }
-[[ $(manifest_value release_id) == "$release_id" ]]
-[[ $(manifest_value state) == restore_pending ]]
+{
+  required_query_33=$(manifest_value release_id)
+  [[ ${required_query_33} == "$release_id" ]]
+}
+{
+  required_query_34=$(manifest_value state)
+  [[ ${required_query_34} == restore_pending ]]
+}
 artifact_name=$(manifest_value artifact_name)
 [[ $artifact_name =~ ^sub2api-[0-9]{8}T[0-9]{6}Z\.tar\.age$ ]]
 artifact_sha=$(sha256sum "$staging/artifact.tar.age" | awk '{print $1}')
 archive_sha=$(sha256sum "$staging/candidate.tar.gz" | awk '{print $1}')
 bundle_sha=$(sha256sum "$staging/bundle.sha256" | awk '{print $1}')
-[[ $artifact_sha == "$(manifest_value artifact_sha256)" ]]
-[[ $archive_sha == "$(manifest_value candidate_archive_sha256)" ]]
+{
+  required_query_35=$(manifest_value artifact_sha256)
+  [[ $artifact_sha == "${required_query_35}" ]]
+}
+{
+  required_query_36=$(manifest_value candidate_archive_sha256)
+  [[ $archive_sha == "${required_query_36}" ]]
+}
 checksum_entry() {
   local document=$1 line=$2 expected_name=$3
   awk -v line="$line" -v expected="$expected_name" '
@@ -170,21 +270,36 @@ checksum_entry() {
   ' "$document"
 }
 bundle_files=(artifact.tar.age candidate.tar.gz gate.json gate.sig manifest SHA256SUMS)
-[[ $(wc -l < "$staging/bundle.sha256") == ${#bundle_files[@]} ]]
+{
+  required_query_37=$(wc -l < "$staging/bundle.sha256")
+  [[ ${required_query_37} == ${#bundle_files[@]} ]]
+}
 line=1
 for file in "${bundle_files[@]}"; do
   recorded_sha=$(checksum_entry "$staging/bundle.sha256" "$line" "$file")
   [[ ${#recorded_sha} == 64 && $recorded_sha =~ ^[0-9a-f]{64}$ ]]
-  [[ $recorded_sha == "$(sha256sum "$staging/$file" | awk '{print $1}')" ]]
+  {
+    required_query_38=$(sha256sum "$staging/$file" | awk '{print $1}')
+    [[ $recorded_sha == "${required_query_38}" ]]
+  }
   ((line += 1))
 done
-[[ $(wc -l < "$staging/SHA256SUMS") == 3 ]]
+{
+  required_query_39=$(wc -l < "$staging/SHA256SUMS")
+  [[ ${required_query_39} == 3 ]]
+}
 gate_output_path="/opt/sub2api-deploy/release-gates/$release_id/output"
 gate_recorded_sha=$(checksum_entry "$staging/SHA256SUMS" 1 "$gate_output_path/gate.json")
 signature_recorded_sha=$(checksum_entry "$staging/SHA256SUMS" 2 "$gate_output_path/gate.sig")
 archive_recorded_sha=$(checksum_entry "$staging/SHA256SUMS" 3 "$gate_output_path/candidate.tar.gz")
-[[ $gate_recorded_sha == "$(sha256sum "$staging/gate.json" | awk '{print $1}')" && ${#gate_recorded_sha} == 64 && $gate_recorded_sha =~ ^[0-9a-f]+$ ]]
-[[ $signature_recorded_sha == "$(sha256sum "$staging/gate.sig" | awk '{print $1}')" && ${#signature_recorded_sha} == 64 && $signature_recorded_sha =~ ^[0-9a-f]+$ ]]
+{
+  required_query_40=$(sha256sum "$staging/gate.json" | awk '{print $1}')
+  [[ $gate_recorded_sha == "${required_query_40}" && ${#gate_recorded_sha} == 64 && $gate_recorded_sha =~ ^[0-9a-f]+$ ]]
+}
+{
+  required_query_41=$(sha256sum "$staging/gate.sig" | awk '{print $1}')
+  [[ $signature_recorded_sha == "${required_query_41}" && ${#signature_recorded_sha} == 64 && $signature_recorded_sha =~ ^[0-9a-f]+$ ]]
+}
 [[ $archive_recorded_sha == "$archive_sha" && ${#archive_recorded_sha} == 64 && $archive_recorded_sha =~ ^[0-9a-f]+$ ]]
 "$verifier" "$trust_key" "$staging/gate.json" "$staging/gate.sig" >/dev/null
 
@@ -201,7 +316,10 @@ else
   gate_migration=$(jq -cS '.manifest.migration_sha256' "$staging/gate.json" | sha256sum | awk '{print $1}')
 fi
 [[ $gate_release == "$release_id" && $gate_profile == "$profile" && $gate_archive == "$archive_sha" ]]
-[[ $gate_image == "$(manifest_value candidate_image_id)" ]]
+{
+  required_query_42=$(manifest_value candidate_image_id)
+  [[ $gate_image == "${required_query_42}" ]]
+}
 
 "$verifier" "$trust_key" "$staging/evidence.json" "$staging/evidence.sig" >/dev/null
 jq -e --arg release_id "$release_id" --arg drill_id "$drill_id" --arg drill_prefix "dr-$profile-" --arg artifact_sha "$artifact_sha" --arg bundle_sha "$bundle_sha" --arg archive_sha "$archive_sha" --arg image_id "$gate_image" --arg migration_sha "$gate_migration" '
@@ -228,18 +346,31 @@ for file in "$staging"/*; do sync -f "$file"; done
 sync -f "$staging"
 assert_candidate_unchanged
 if [[ -e $target || -L $target ]]; then
-  [[ -d $target && ! -L $target && $(stat -c '%U:%G:%a' "$target") == root:root:700 ]]
+  {
+    required_query_43=$(stat -c '%U:%G:%a' "$target") || exit $?
+    [[ -d $target && ! -L $target && ${required_query_43} == root:root:700 ]]
+  }
   verified_files=(SHA256SUMS VERIFIED_SHA256SUMS artifact.tar.age bundle.sha256 candidate.tar.gz evidence.json evidence.sig gate.json gate.sig manifest)
   assert_file_set "$target" 10 "${verified_files[@]}"
   verified_checksum_files=(SHA256SUMS artifact.tar.age bundle.sha256 candidate.tar.gz evidence.json evidence.sig gate.json gate.sig manifest)
-  [[ $(wc -l < "$target/VERIFIED_SHA256SUMS") == ${#verified_checksum_files[@]} ]]
+  {
+    required_query_44=$(wc -l < "$target/VERIFIED_SHA256SUMS") || exit $?
+    [[ ${required_query_44} == ${#verified_checksum_files[@]} ]]
+  }
   line=1
   for file in "${verified_checksum_files[@]}"; do
-    [[ $(checksum_entry "$target/VERIFIED_SHA256SUMS" "$line" "$file") == "$(sha256sum "$target/$file" | awk '{print $1}')" ]]
+    {
+      required_query_45=$(checksum_entry "$target/VERIFIED_SHA256SUMS" "$line" "$file") || exit $?
+      required_query_46=$(sha256sum "$target/$file" | awk '{print $1}') || exit $?
+      [[ ${required_query_45} == "${required_query_46}" ]]
+    }
     ((line += 1))
   done
   for file in SHA256SUMS VERIFIED_SHA256SUMS artifact.tar.age bundle.sha256 candidate.tar.gz evidence.json evidence.sig gate.json gate.sig manifest; do
-    [[ $(stat -c '%U:%G:%a:%h' "$target/$file") == root:root:400:1 ]]
+    {
+      required_query_47=$(stat -c '%U:%G:%a:%h' "$target/$file") || exit $?
+      [[ ${required_query_47} == root:root:400:1 ]]
+    }
     cmp -s "$staging/$file" "$target/$file"
   done
   rm -rf -- "$staging"
@@ -253,23 +384,44 @@ if [[ -L $verified_link ]]; then
   old_target=$(readlink "$verified_link")
   [[ $old_target =~ ^verified-bundles/$profile-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}--dr-$profile-[0-9]{8}T[0-9]{6}Z$ ]]
   old_target_path="$root/$old_target"
-  [[ -d $old_target_path && ! -L $old_target_path && $(realpath -e -- "$old_target_path") == "$old_target_path" && $(stat -c '%U:%G:%a' "$old_target_path") == root:root:700 ]]
+  {
+    required_query_48=$(realpath -e -- "$old_target_path") || exit $?
+    required_query_49=$(stat -c '%U:%G:%a' "$old_target_path") || exit $?
+    [[ -d $old_target_path && ! -L $old_target_path && ${required_query_48} == "$old_target_path" && ${required_query_49} == root:root:700 ]]
+  }
   old_verified_files=(SHA256SUMS VERIFIED_SHA256SUMS artifact.tar.age bundle.sha256 candidate.tar.gz evidence.json evidence.sig gate.json gate.sig manifest)
   assert_file_set "$old_target_path" 10 "${old_verified_files[@]}"
   old_verified_checksum_files=(SHA256SUMS artifact.tar.age bundle.sha256 candidate.tar.gz evidence.json evidence.sig gate.json gate.sig manifest)
-  [[ $(wc -l < "$old_target_path/VERIFIED_SHA256SUMS") == ${#old_verified_checksum_files[@]} ]]
+  {
+    required_query_50=$(wc -l < "$old_target_path/VERIFIED_SHA256SUMS") || exit $?
+    [[ ${required_query_50} == ${#old_verified_checksum_files[@]} ]]
+  }
   line=1
   for file in "${old_verified_checksum_files[@]}"; do
-    [[ $(checksum_entry "$old_target_path/VERIFIED_SHA256SUMS" "$line" "$file") == "$(sha256sum "$old_target_path/$file" | awk '{print $1}')" ]]
-    [[ $(stat -c '%U:%G:%a:%h' "$old_target_path/$file") == root:root:400:1 ]]
+    {
+      required_query_51=$(checksum_entry "$old_target_path/VERIFIED_SHA256SUMS" "$line" "$file") || exit $?
+      required_query_52=$(sha256sum "$old_target_path/$file" | awk '{print $1}') || exit $?
+      [[ ${required_query_51} == "${required_query_52}" ]]
+    }
+    {
+      required_query_53=$(stat -c '%U:%G:%a:%h' "$old_target_path/$file") || exit $?
+      [[ ${required_query_53} == root:root:400:1 ]]
+    }
     ((line += 1))
   done
-  [[ $(stat -c '%U:%G:%a:%h' "$old_target_path/VERIFIED_SHA256SUMS") == root:root:400:1 ]]
+  {
+    required_query_54=$(stat -c '%U:%G:%a:%h' "$old_target_path/VERIFIED_SHA256SUMS") || exit $?
+    [[ ${required_query_54} == root:root:400:1 ]]
+  }
 fi
 ln -s "verified-bundles/$target_name" "$link_tmp"
 mv -T -- "$link_tmp" "$verified_link"
 sync -f "$root"
-[[ $(readlink "$verified_link") == "verified-bundles/$target_name" && $(realpath -e -- "$verified_link") == "$target" ]]
+{
+  required_query_55=$(readlink "$verified_link")
+  required_query_56=$(realpath -e -- "$verified_link")
+  [[ ${required_query_55} == "verified-bundles/$target_name" && ${required_query_56} == "$target" ]]
+}
 evidence_sha=$(sha256sum "$target/evidence.json" | awk '{print $1}')
 signature_sha=$(sha256sum "$target/evidence.sig" | awk '{print $1}')
 verified_sha=$(sha256sum "$target/VERIFIED_SHA256SUMS" | awk '{print $1}')

@@ -99,11 +99,11 @@ class FinalizationShellTest(unittest.TestCase):
         (state / "backup-result.sha256").write_bytes(f"{hashlib.sha256(result).hexdigest()}  backup-result\n".encode())
         return state
 
-    def execute(self, *, image=None, bad_mode=False, lock_busy=False, service_state="inactive", bad_headers_route="", wrong_instance=False, missing_ready=False):
+    def execute(self, *, image=None, bad_mode=False, lock_busy=False, service_state="inactive", bad_headers_route="", wrong_instance=False, missing_ready=False, failed_command=""):
         # A function stub cannot accidentally invoke docker/systemctl/SSH.  The
         # actual read-only file inventory and sha256sum checks remain real.
         stubs = r'''
-id() { test "$*" = '-u' && printf '0\n'; }
+id() { test "$*" = '-u' && printf '0\n'; [[ $FIXTURE_FAILED_COMMAND != id ]] || return 17; }
 stat() {
   case "$2" in
     '%U:%G:%a') printf 'root:root:700\n' ;;
@@ -115,12 +115,14 @@ stat() {
     '%s') /usr/bin/stat "$@" ;;
     *) return 90 ;;
   esac
+  [[ $FIXTURE_FAILED_COMMAND != stat ]] || return 17
 }
 flock() { test "$LOCK_BUSY" = false; }
 openssl() { test "$1" = pkeyutl && test "$2" = -verify; }
 docker() {
   test "$1" = inspect && test "$2" = -f && test "$4" = sub2api || return 90
   case "$3" in '{{.Image}}') printf '%s\n' "$FIXTURE_IMAGE" ;; '{{.State.Health.Status}}') printf 'healthy\n' ;; *) return 90 ;; esac
+  [[ $FIXTURE_FAILED_COMMAND != docker ]] || return 17
 }
 curl() {
   local headers='' url='' route
@@ -138,6 +140,7 @@ curl() {
   fi
   printf '\r\n' >> "$headers"
   printf '200'
+  [[ $FIXTURE_FAILED_COMMAND != curl ]] || return 17
 }
 systemctl() {
   case "$*" in
@@ -148,10 +151,15 @@ systemctl() {
       case "$FIXTURE_SERVICE_STATE" in inactive) return 3 ;; active) return 0 ;; *) return 4 ;; esac ;;
     *) return 90 ;;
   esac
+  [[ $FIXTURE_FAILED_COMMAND != systemctl ]] || return 17
 }
 '''
+        # Preserve the actual successful stdout while failing the producer.
+        # This exercises the full generated proof rather than a mirrored guard.
+        for command in ("realpath", "find", "wc", "grep", "cat", "sha256sum", "sed"):
+            stubs += f'\n{command}() {{ command {command} "$@"; local rc=$?; [[ $FIXTURE_FAILED_COMMAND != {command} ]] || return 17; return "$rc"; }}\n'
         env = dict(os.environ, FIXTURE_IMAGE=image or self.candidate, BAD_MODE=str(bad_mode).lower(), LOCK_BUSY=str(lock_busy).lower(), FIXTURE_SERVICE_STATE=service_state,
-                   FIXTURE_INSTANCE=self.identifier + "-active", FIXTURE_BAD_ROUTE=bad_headers_route, FIXTURE_WRONG_INSTANCE=str(wrong_instance).lower(), FIXTURE_MISSING_READY=str(missing_ready).lower())
+                   FIXTURE_INSTANCE=self.identifier + "-active", FIXTURE_BAD_ROUTE=bad_headers_route, FIXTURE_WRONG_INSTANCE=str(wrong_instance).lower(), FIXTURE_MISSING_READY=str(missing_ready).lower(), FIXTURE_FAILED_COMMAND=failed_command)
         env.pop("BASH_ENV", None)
         env.pop("ENV", None)
         stdout = ""
@@ -168,6 +176,14 @@ systemctl() {
         self.assertEqual(result.returncode, 0, result.stderr)
         values = dict(line.split("=", 1) for line in result.stdout.splitlines())
         self.assertEqual(values, {**finalization.REMOTE_REQUIRED, "running_image_id": self.candidate})
+
+    def test_successful_stdout_cannot_hide_required_producer_failure(self):
+        self.retained_state()
+        for command in ("id", "stat", "realpath", "find", "grep", "cat", "sha256sum", "sed", "docker", "curl", "systemctl"):
+            with self.subTest(command=command):
+                result = self.execute(failed_command=command)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertNotIn("consumed_marker_verified=true", result.stdout)
 
     def test_altered_candidate_gate_signature_or_claim_inventory_is_rejected(self):
         for name in ("candidate.tar.gz", "gate.json", "gate.sig", "assets/context.sh", "CLAIM_SHA256SUMS"):

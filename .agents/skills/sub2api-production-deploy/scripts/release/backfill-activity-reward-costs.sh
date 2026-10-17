@@ -20,11 +20,11 @@ command -v psql >/dev/null || { printf 'activity_reward_cost_status=blocked\nfai
 if ! output=$(
   {
     if [[ $mode == apply ]]; then
-      printf "BEGIN;\nSET LOCAL lock_timeout = '30s';\nSET LOCAL statement_timeout = '5min';\nSELECT public.backfill_activity_reward_costs() AS inserted_rows \\gset\n"
+      printf "BEGIN;\nSET LOCAL lock_timeout = '30s';\nSET LOCAL statement_timeout = '5min';\nSELECT public.backfill_activity_reward_costs() AS inserted_rows \\gset\n" || exit $?
     else
-      printf "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;\nSET LOCAL statement_timeout = '5min';\n\\set inserted_rows 0\n"
+      printf "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;\nSET LOCAL statement_timeout = '5min';\n\\set inserted_rows 0\n" || exit $?
     fi
-    cat <<'SQL'
+    cat <<'SQL' || exit $?
 WITH rewards AS (
   SELECT id, user_id, activity_type, amount, created_at,
          (created_at AT TIME ZONE 'Asia/Shanghai')::date AS cost_date

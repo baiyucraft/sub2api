@@ -37,7 +37,8 @@ source /opt/sub2api/releases/.active-release/assets/context.sh
 python3 -c 'import yaml' >/dev/null 2>&1
 docker compose config --help | grep -Fq -- '--no-env-resolution'
 [[ ! -e $release_dir/.consumed ]]
-[[ $(docker image inspect -f '{{.Id}}' "$candidate_image_id") == "$candidate_image_id" ]]
+_required_1=$(docker image inspect -f '{{.Id}}' "$candidate_image_id")
+[[ ${_required_1} == "$candidate_image_id" ]]
 cd "$deploy_dir"
 preflight_phase=active_runtime
 [[ -f docker-compose.yml && -f .env ]]
@@ -49,14 +50,21 @@ active_image=$(sed -n 's/^image_id=//p' "$active_slot_file")
 [[ $active_container =~ ^[A-Za-z0-9_.-]{1,100}$ ]]
 [[ $active_port == 18080 || $active_port == 18081 ]]
 [[ $active_image =~ ^sha256:[0-9a-f]{64}$ ]]
-[[ $(docker inspect -f '{{.State.Status}}' "$active_container") == running ]]
-[[ $(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$active_container") == healthy ]]
-[[ $(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' sub2api-postgres) == healthy ]]
-[[ $(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' sub2api-redis) == healthy ]]
-[[ $(systemctl is-active nginx) == active ]]
+_required_2=$(docker inspect -f '{{.State.Status}}' "$active_container")
+[[ ${_required_2} == running ]]
+_required_3=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$active_container")
+[[ ${_required_3} == healthy ]]
+_required_4=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' sub2api-postgres)
+[[ ${_required_4} == healthy ]]
+_required_5=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' sub2api-redis)
+[[ ${_required_5} == healthy ]]
+_required_6=$(systemctl is-active nginx)
+[[ ${_required_6} == active ]]
 preflight_phase=backup_contract
-[[ $(systemctl is-active sub2api-backup.service 2>/dev/null || true) != active ]]
-[[ $(systemctl is-enabled sub2api-backup.timer 2>/dev/null || true) == enabled ]]
+_required_7=$(sub2api_required_systemctl is-active sub2api-backup.service 2>/dev/null)
+[[ ${_required_7} != active ]]
+_required_8=$(sub2api_required_systemctl is-enabled sub2api-backup.timer 2>/dev/null)
+[[ ${_required_8} == enabled ]]
 backup_exec=$(systemctl show sub2api-backup.service -p ExecStart --value)
 backup_path=$(sed -n 's/.*path=\([^ ;}]*\).*/\1/p' <<<"$backup_exec" | head -n1)
 [[ -f $backup_path && ! -L $backup_path ]]
@@ -64,18 +72,28 @@ grep -Fq '/run/lock/sub2api-backup-global.lock' "$backup_path"
 preflight_phase=migration_contract
 manifest_schema=$(jq -er '.manifest.schema' "$active_claim/gate.json")
 if [[ $manifest_schema == 2 ]]; then
-  [[ $(jq -er '.gate_version' "$active_claim/gate.json") == 2 ]]
-  [[ $(jq -er '.profile_id' "$active_claim/gate.json") == "$(jq -er '.manifest.profile' "$active_claim/gate.json")" ]]
-  [[ "$active_image" == "$(jq -er '.evidence.production_current_image_id' "$active_claim/gate.json")" ]]
+  _required_9=$(jq -er '.gate_version' "$active_claim/gate.json")
+  [[ ${_required_9} == 2 ]]
+  _required_11=$(jq -er '.profile_id' "$active_claim/gate.json")
+  _required_10=$(jq -er '.manifest.profile' "$active_claim/gate.json")
+  [[ ${_required_11} == "${_required_10}" ]]
+  _required_12=$(jq -er '.evidence.production_current_image_id' "$active_claim/gate.json")
+  [[ "$active_image" == "${_required_12}" ]]
   snapshot_rows=$(docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT COALESCE(json_agg(json_build_object('filename',filename,'checksum',checksum) ORDER BY filename),'[]'::json) FROM schema_migrations" | tr -d '\r\n')
   printf '%s' "$snapshot_rows" | jq -e 'type == "array"' >/dev/null
   image_ref=$(docker inspect -f '{{.Config.Image}}' "$active_container")
   source "$active_claim/assets/runtime-identity.sh"
   resolve_production_commit "$active_image" "$image_ref"
-  current_snapshot_sha=$(printf '%s' "$(jq -cSn --arg image "$active_image" --arg commit "$production_current_commit_sha" --argjson rows "$snapshot_rows" '{current_image_id:$image,production_current_commit_sha:$commit,schema_migrations:$rows}')" | sha256sum | awk '{print $1}')
-  [[ "$current_snapshot_sha" == "$(jq -er '.evidence.production_snapshot_sha256' "$active_claim/gate.json")" ]]
-  [[ $(jq -er '.evidence.catalog_sha256' "$active_claim/gate.json") == "$(jq -er '.manifest.catalog_sha256' "$active_claim/gate.json")" ]]
-  [[ $(jq -er '.evidence.checksum_policy_sha256' "$active_claim/gate.json") == "$(jq -er '.manifest.checksum_policy_sha256' "$active_claim/gate.json")" ]]
+  snapshot_document=$(jq -cSn --arg image "$active_image" --arg commit "$production_current_commit_sha" --argjson rows "$snapshot_rows" '{current_image_id:$image,production_current_commit_sha:$commit,schema_migrations:$rows}')
+  current_snapshot_sha=$(printf '%s' "$snapshot_document" | sha256sum | awk '{print $1}')
+  _required_13=$(jq -er '.evidence.production_snapshot_sha256' "$active_claim/gate.json")
+  [[ "$current_snapshot_sha" == "${_required_13}" ]]
+  _required_15=$(jq -er '.evidence.catalog_sha256' "$active_claim/gate.json")
+  _required_14=$(jq -er '.manifest.catalog_sha256' "$active_claim/gate.json")
+  [[ ${_required_15} == "${_required_14}" ]]
+  _required_17=$(jq -er '.evidence.checksum_policy_sha256' "$active_claim/gate.json")
+  _required_16=$(jq -er '.manifest.checksum_policy_sha256' "$active_claim/gate.json")
+  [[ ${_required_17} == "${_required_16}" ]]
   preflight_phase=capacity
   free_bytes=$(df -PB1 /var/lib/docker 2>/dev/null | awk 'NR==2{print $4}' || df -PB1 / | awk 'NR==2{print $4}')
   (( free_bytes >= minimum_free_bytes ))
@@ -85,7 +103,8 @@ if [[ $manifest_schema == 2 ]]; then
   [[ -n $rendered_image ]]
   pre_image_id=$(docker inspect -f '{{.Image}}' "$active_container")
   [[ $active_image == "$pre_image_id" ]]
-  [[ $(docker image inspect -f '{{.Id}}' "$rendered_image") == "$pre_image_id" ]]
+  _required_18=$(docker image inspect -f '{{.Id}}' "$rendered_image")
+  [[ ${_required_18} == "$pre_image_id" ]]
   jq -e '.services.sub2api.volumes | any(.target == "/app/data" and (.type == "bind" or .type == "volume"))' <<<"$compose_json" >/dev/null
   compose_network_mode=$(sub2api_compose_network_mode "$compose_json" "$active_port")
   assert_sub2api_healthcheck_contract "$compose_json" "$compose_network_mode" "$active_port" active_compat
@@ -179,7 +198,9 @@ migration_242_status=not_applicable
 migration_243_status=not_applicable
 migration_244_status=not_applicable
 migration_245_status=not_applicable
+_required_inventory_1=$(jq -r '.manifest.migration_sha256 | to_entries[] | [.key,.value] | @tsv' "$active_claim/gate.json")
 while IFS=$'\t' read -r migration migration_checksum; do
+  [[ -n $migration ]] || continue
   case "$migration" in
     196_ops_ingress_reject_aggregates.sql) migration_196_status=verified ;;
     197_auth_cache_invalidation_outbox.sql) migration_197_status=verified ;;
@@ -293,7 +314,7 @@ while IFS=$'\t' read -r migration migration_checksum; do
   else
     [[ $migration_state == "$migration|$migration_checksum" ]]
   fi
-done < <(jq -r '.manifest.migration_sha256 | to_entries[] | [.key,.value] | @tsv' "$active_claim/gate.json")
+done <<<"$_required_inventory_1"
 preflight_phase=capacity
 free_bytes=$(df -PB1 /var/lib/docker 2>/dev/null | awk 'NR==2{print $4}' || df -PB1 / | awk 'NR==2{print $4}')
 (( free_bytes >= minimum_free_bytes ))
@@ -303,7 +324,8 @@ rendered_image=$(jq -r '.services.sub2api.image // empty' <<<"$compose_json")
 [[ -n $rendered_image ]]
 pre_image_id=$(docker inspect -f '{{.Image}}' "$active_container")
 [[ $active_image == "$pre_image_id" ]]
-[[ $(docker image inspect -f '{{.Id}}' "$rendered_image") == "$pre_image_id" ]]
+_required_19=$(docker image inspect -f '{{.Id}}' "$rendered_image")
+[[ ${_required_19} == "$pre_image_id" ]]
 jq -e '.services.sub2api.volumes | any(.target == "/app/data" and (.type == "bind" or .type == "volume"))' <<<"$compose_json" >/dev/null
 compose_network_mode=$(sub2api_compose_network_mode "$compose_json" "$active_port")
 assert_sub2api_healthcheck_contract "$compose_json" "$compose_network_mode" "$active_port" active_compat

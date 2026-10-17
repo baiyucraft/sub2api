@@ -158,7 +158,7 @@ class Profile268RecoveryReviewTest(unittest.TestCase):
         matching = tuple(review for review in gate._REVIEWED_SCOPED_TRANCHES if review[:2] == (BASE, TARGET))
         self.assertEqual(matching, REVIEWS)
         sensitive = {path for path in self.paths if gate._is_recovery_sensitive_path(path)}
-        self.assertEqual(sensitive, REVIEWED_PATHS)
+        self.assertEqual(sensitive, REVIEWED_PATHS | {PREFIX + "release/observer.py"})
         for path, (old, new) in EXACT_OBJECTS.items():
             with self.subTest(path=path):
                 self.assertEqual(self.old.get(path), old)
@@ -189,26 +189,26 @@ class Profile268RecoveryReviewTest(unittest.TestCase):
             (*old_scoped, *REVIEWS),
         )
 
-    def test_exact_registration_remains_specialized_in_cli(self):
+    def test_exact_registration_never_exempts_new_control_in_cli(self):
         from release import cli
 
         report = gate.classify(WORKSPACE, BASE, TARGET)
-        self.assertEqual(report["mode"], "specialized")
-        self.assertEqual(report["estimated_extra_seconds"], 600)
+        self.assertEqual(report["mode"], "full")
+        self.assertEqual(report["estimated_extra_seconds"], 2400)
         self.assertEqual(report["reason_codes"], [
-            "migration_changed", "redis_changed", "release_state_machine_changed",
+            "migration_changed", "recovery_change_requires_review", "redis_changed", "release_state_machine_changed",
             "reviewed_consumed_finalization_changed", "reviewed_profile_compatibility_changed",
             "reviewed_reward_cost_postflight_changed",
         ])
-        gate.assert_release_allowed(report)
+        with self.assertRaisesRegex(RuntimeError, "recovery changes require review"):
+            gate.assert_release_allowed(report)
         # Even with no pending migrations the actual CLI policy cannot downgrade
         # reviewed helper changes to fast, which skips the real restore input.
         with mock.patch.object(cli, "classify_recovery_gate", return_value=report):
-            policy = cli._recovery_gate_report(
-                TARGET, {"production_current_commit_sha": BASE, "schema_migrations": []}, [],
-            )
-        self.assertEqual(policy, report)
-        self.assertNotEqual(policy["mode"], "fast")
+            with self.assertRaisesRegex(RuntimeError, "recovery changes require review"):
+                cli._recovery_gate_report(
+                    TARGET, {"production_current_commit_sha": BASE, "schema_migrations": []}, [],
+                )
 
     def assert_blocked_trees(self, changed, *, observed_old=None, extra_paths=(), rejected_paths=()):
         future, future_base = "f" * 40, "e" * 40

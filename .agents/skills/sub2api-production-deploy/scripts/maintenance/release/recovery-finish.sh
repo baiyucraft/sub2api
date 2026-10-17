@@ -2,7 +2,8 @@
 set -Eeuo pipefail
 
 release_dir=${RELEASE_DIR:?RELEASE_DIR is required}
-bundle_assets_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+bundle_assets_dir=$(dirname -- "${BASH_SOURCE[0]}")
+bundle_assets_dir=$(cd -- "$bundle_assets_dir" && pwd -P)
 export RECOVERY_ASSETS_DIR=$bundle_assets_dir
 if [[ -d $release_dir/.recovered && ! -L $release_dir/.recovered ]]; then
   export ACTIVE_CLAIM="$release_dir/.recovered"
@@ -36,7 +37,8 @@ recovery_checkpoint_init "$checkpoint_root" "$release_id" "$point_sha" "$pre_ima
 recovery_checkpoint_completed nginx_restored
 if [[ -e $state_dir/recovery-point.tar || -L $state_dir/recovery-point.tar ]]; then
   [[ -f $state_dir/recovery-point.tar && ! -L $state_dir/recovery-point.tar ]]
-  [[ $(sha256sum "$state_dir/recovery-point.tar" | awk '{print $1}') == "$point_sha" ]]
+  _required_1=$(sha256sum "$state_dir/recovery-point.tar" | awk '{print $1}')
+  [[ ${_required_1} == "$point_sha" ]]
 fi
 
 log_directory="$release_dir/logs"
@@ -45,7 +47,8 @@ recovery_checkpoint_assert_directory "$log_directory"
 raw_log=${SUB2API_RELEASE_RAW_LOG:-$log_directory/production.raw.log}
 [[ $raw_log == "$log_directory/production.raw.log" ]]
 if [[ ! -e $raw_log && ! -L $raw_log ]]; then install -o root -g root -m 600 /dev/null "$raw_log"; fi
-[[ -f $raw_log && ! -L $raw_log && $(stat -c '%u:%g:%a:%h' "$raw_log") == 0:0:600:1 ]]
+_required_2=$(stat -c '%u:%g:%a:%h' "$raw_log")
+[[ -f $raw_log && ! -L $raw_log && ${_required_2} == 0:0:600:1 ]]
 exec 2>>"$raw_log"
 exec 9>/run/lock/sub2api-backup-global.lock
 flock -n 9
@@ -60,15 +63,19 @@ recovery_finish_run_helper() {
 
 recovery_finish_verify_application() {
   [[ -f $active_slot_file && ! -L $active_slot_file ]] || return 1
-  [[ $(stat -c '%u:%g:%a:%h' "$active_slot_file") == 0:0:600:1 ]] || return 1
+  _required_3=$(stat -c '%u:%g:%a:%h' "$active_slot_file") || return 1
+  [[ ${_required_3} == 0:0:600:1 ]] || return 1
   local container port image
-  container=$(sed -n 's/^container=//p' "$active_slot_file")
-  port=$(sed -n 's/^port=//p' "$active_slot_file")
-  image=$(sed -n 's/^image_id=//p' "$active_slot_file")
+  container=$(sed -n 's/^container=//p' "$active_slot_file") || return 1
+  port=$(sed -n 's/^port=//p' "$active_slot_file") || return 1
+  image=$(sed -n 's/^image_id=//p' "$active_slot_file") || return 1
   [[ $container == sub2api && ($port == 18080 || $port == 18081) && $image == "$pre_image_id" ]] || return 1
-  [[ $(docker inspect -f '{{.Image}}' "$container") == "$pre_image_id" ]] || return 1
-  [[ $(docker inspect -f '{{.State.Health.Status}}' "$container") == healthy ]] || return 1
-  [[ $(systemctl is-active nginx 2>/dev/null) == active ]] || return 1
+  _required_4=$(docker inspect -f '{{.Image}}' "$container") || return 1
+  [[ ${_required_4} == "$pre_image_id" ]] || return 1
+  _required_5=$(docker inspect -f '{{.State.Health.Status}}' "$container") || return 1
+  [[ ${_required_5} == healthy ]] || return 1
+  _required_6=$(systemctl is-active nginx 2>/dev/null) || return 1
+  [[ ${_required_6} == active ]] || return 1
   nginx -t >/dev/null 2>&1 || return 1
   recovery_checkpoint_assert_file "$checkpoint_root/nginx.fingerprint" || return 1
   local current_nginx_fingerprint
@@ -85,13 +92,14 @@ recovery_finish_backup_fingerprint() (
   for unit in sub2api-backup.service sub2api-backup.timer; do
     path="/etc/systemd/system/$unit"
     [[ -f $path && ! -L $path ]] || return 1
-    [[ $(stat -c '%u:%g:%a:%h' "$path") == 0:0:644:1 ]] || return 1
+    _required_7=$(stat -c '%u:%g:%a:%h' "$path") || return 1
+    [[ ${_required_7} == 0:0:644:1 ]] || return 1
     digest=$(sha256sum "$path" | awk '{print $1}') || return 1
-    enabled=$(systemctl is-enabled "$unit" 2>/dev/null || true)
-    active=$(systemctl is-active "$unit" 2>/dev/null || true)
+    enabled=$(sub2api_required_systemctl is-enabled "$unit") || return 1
+    active=$(sub2api_required_systemctl is-active "$unit") || return 1
     [[ $enabled =~ ^(enabled|disabled|static|indirect|generated|alias)$ ]] || return 1
     [[ $active =~ ^(active|inactive|failed)$ ]] || return 1
-    printf '%s|%s|%s|%s\n' "$unit" "$digest" "$enabled" "$active"
+    printf '%s|%s|%s|%s\n' "$unit" "$digest" "$enabled" "$active" || return 1
   done
 )
 
@@ -103,9 +111,12 @@ recovery_finish_apply_backup_units() {
 }
 recovery_finish_verify_backup_units() {
   recovery_finish_verify_application || return 1
-  [[ $(systemctl is-active sub2api-backup.service 2>/dev/null || true) != active ]] || return 1
-  [[ $(systemctl is-enabled sub2api-backup.timer 2>/dev/null || true) == enabled ]] || return 1
-  [[ $(systemctl is-active sub2api-backup.timer 2>/dev/null || true) == active ]] || return 1
+  _required_8=$(sub2api_required_systemctl is-active sub2api-backup.service 2>/dev/null) || return 1
+  [[ ${_required_8} != active ]] || return 1
+  _required_9=$(sub2api_required_systemctl is-enabled sub2api-backup.timer 2>/dev/null) || return 1
+  [[ ${_required_9} == enabled ]] || return 1
+  _required_10=$(sub2api_required_systemctl is-active sub2api-backup.timer 2>/dev/null) || return 1
+  [[ ${_required_10} == active ]] || return 1
   if [[ ! -e $checkpoint_root/backup-units.fingerprint && ! -L $checkpoint_root/backup-units.fingerprint ]]; then
     # A process can die after the unit helper's atomic commit but before the
     # checkpoint write. Its committed branch verifies without restoring again.
@@ -131,14 +142,18 @@ recovery_finish_verify_state_cleanup() {
   if [[ -e $state_dir || -L $state_dir ]]; then
     recovery_checkpoint_assert_directory "$state_dir" || return 1
     local file
-    while IFS= read -r -d '' file; do
+    _required_inventory_1=()
+    sub2api_capture_nul _required_inventory_1 find "$state_dir" -mindepth 1 -maxdepth 1 -print0 || return 1
+    for file in "${_required_inventory_1[@]}"; do
       case "${file##*/}" in
         recovery-point.age|recovery-point.age.sha256|pre-image-id|backup-result|backup-result.sha256|backup-failure) ;;
         *) return 1 ;;
       esac
       [[ -f $file && ! -L $file ]] || return 1
-      case "$(stat -c '%u:%g:%a:%h' "$file")" in 0:0:400:1|0:0:600:1) ;; *) return 1 ;; esac
-    done < <(find "$state_dir" -mindepth 1 -maxdepth 1 -print0)
+      local file_metadata
+      file_metadata=$(stat -c '%u:%g:%a:%h' "$file") || return 1
+      case "$file_metadata" in 0:0:400:1|0:0:600:1) ;; *) return 1 ;; esac
+    done
     [[ -f $state_dir/recovery-point.age && -f $state_dir/recovery-point.age.sha256 ]] || return 1
     (cd -- "$state_dir" && sha256sum -c recovery-point.age.sha256 >/dev/null) || return 1
     [[ $(<"$state_dir/pre-image-id") == "$pre_image_id" ]] || return 1

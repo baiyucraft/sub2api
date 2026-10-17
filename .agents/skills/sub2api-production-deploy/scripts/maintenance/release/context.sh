@@ -3,30 +3,33 @@ set -Eeuo pipefail
 # Release profile allowlist: (182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273)
 
 release_dir=${RELEASE_DIR:?RELEASE_DIR is required}
-[[ $release_dir =~ ^/opt/sub2api/releases/((182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8})$ ]]
+[[ $release_dir =~ ^/opt/sub2api/releases/((182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8})$ ]] || return 1
 release_id=${BASH_REMATCH[1]}
-[[ -d $release_dir && ! -L $release_dir ]]
-[[ -f $release_dir/.prepared && ! -L $release_dir/.prepared ]]
+[[ -d $release_dir && ! -L $release_dir ]] || return 1
+[[ -f $release_dir/.prepared && ! -L $release_dir/.prepared ]] || return 1
 active_claim=${ACTIVE_CLAIM:-/opt/sub2api/releases/.active-release}
 [[ $active_claim == /opt/sub2api/releases/.active-release || $active_claim == "$release_dir/.consumed" ||
    ($active_claim == "$release_dir/.recovered" && -n ${RECOVERY_ASSETS_DIR:-}) ]] || return 1
-[[ -d $active_claim && ! -L $active_claim ]]
-grep -Fxq "release_id=$release_id" "$active_claim/release_id"
+[[ -d $active_claim && ! -L $active_claim ]] || return 1
+grep -Fxq "release_id=$release_id" "$active_claim/release_id" || return 1
 unset recovery_drill_context_verified
 if [[ -n ${RECOVERY_DRILL_AUTHORIZATION:-} ]]; then
   [[ -n ${RECOVERY_ASSETS_DIR:-} && ${RECOVERY_DRILL_MODE:-} == 1 ]] || return 1
   [[ ! -e $active_claim/gate.json && ! -L $active_claim/gate.json ]] || return 1
-  [[ -f $active_claim/drill-metadata.json && ! -L $active_claim/drill-metadata.json && $(stat -c '%u:%g:%a:%h' "$active_claim/drill-metadata.json") == 0:0:400:1 ]] || return 1
+  _required_1001=$(stat -c '%u:%g:%a:%h' "$active_claim/drill-metadata.json") || return 1
+  [[ -f $active_claim/drill-metadata.json && ! -L $active_claim/drill-metadata.json && ${_required_1001} == 0:0:400:1 ]] || return 1
 else
-  [[ -f $active_claim/gate.json && ! -L $active_claim/gate.json ]]
+  [[ -f $active_claim/gate.json && ! -L $active_claim/gate.json ]] || return 1
 fi
-(cd "$active_claim" && sha256sum -c CLAIM_SHA256SUMS >/dev/null)
+(cd "$active_claim" && sha256sum -c CLAIM_SHA256SUMS >/dev/null) || return 1
 assets_dir="$active_claim/assets"
 if [[ -n ${RECOVERY_ASSETS_DIR:-} ]]; then
   [[ -n ${RECOVERY_HELPER_BUNDLE_SHA256:-} && $RECOVERY_HELPER_BUNDLE_SHA256 =~ ^[0-9a-f]{64}$ ]] || return 1
   recovery_assets=$RECOVERY_ASSETS_DIR
-  [[ -d $recovery_assets && ! -L $recovery_assets && $(realpath -e -- "$recovery_assets") == "$recovery_assets" ]] || return 1
-  [[ $(stat -c '%u:%g:%a' "$recovery_assets") == 0:0:700 ]] || return 1
+  _required_1002=$(realpath -e -- "$recovery_assets") || return 1
+  [[ -d $recovery_assets && ! -L $recovery_assets && ${_required_1002} == "$recovery_assets" ]] || return 1
+  _required_1003=$(stat -c '%u:%g:%a' "$recovery_assets") || return 1
+  [[ ${_required_1003} == 0:0:700 ]] || return 1
   recovery_authorization=${RECOVERY_HELPER_GATE:-$active_claim/gate.json}
   recovery_signature=${RECOVERY_HELPER_SIGNATURE:-$active_claim/gate.sig}
   if [[ -n ${RECOVERY_DRILL_AUTHORIZATION:-} ]]; then
@@ -34,7 +37,8 @@ if [[ -n ${RECOVERY_ASSETS_DIR:-} ]]; then
     # inside a proven offline private-user Guest. It asserts no VM Gate pass.
     [[ ${RECOVERY_DRILL_MODE:-} == 1 && ${RECOVERY_FULL_DRILL_ID:-} =~ ^full-dr-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]] || return 1
     recovery_authorization=$RECOVERY_DRILL_AUTHORIZATION
-    [[ -f $recovery_authorization && ! -L $recovery_authorization && $(stat -c '%u:%g:%a:%h' "$recovery_authorization") == 0:0:400:1 ]] || return 1
+    _required_1004=$(stat -c '%u:%g:%a:%h' "$recovery_authorization") || return 1
+    [[ -f $recovery_authorization && ! -L $recovery_authorization && ${_required_1004} == 0:0:400:1 ]] || return 1
     recovery_trust=/opt/sub2api-release-trust/vm-gate-ed25519.pub
     [[ -f $recovery_trust && ! -L $recovery_trust ]] || return 1
     # Authenticate the separate envelope before sourcing either shell guard
@@ -69,7 +73,7 @@ for name, field in (('recovery-isolation.sh', 'isolation_guard_sha256'), ('full_
     assert hashlib.sha256(file.read_bytes()).hexdigest() == payload[field]
 PY
     [[ $? == 0 ]] || return 1
-    source "$recovery_assets/recovery-isolation.sh"
+    source "$recovery_assets/recovery-isolation.sh" || return 1
     recovery_drill_assert_isolated "$RECOVERY_HELPER_BUNDLE_SHA256" || return 1
     /usr/bin/python3 -B -I "$recovery_assets/full_recovery_drill_authorization.py" \
       --authorization "$recovery_authorization" --trust "$recovery_trust" \
@@ -79,16 +83,19 @@ PY
     recovery_drill_context_verified=1
   else
   for recovery_file in "$recovery_authorization" "$recovery_signature"; do
-    [[ -f $recovery_file && ! -L $recovery_file && $(stat -c '%u:%g:%a:%h' "$recovery_file") == 0:0:400:1 ]] || return 1
+    _required_1005=$(stat -c '%u:%g:%a:%h' "$recovery_file") || return 1
+    [[ -f $recovery_file && ! -L $recovery_file && ${_required_1005} == 0:0:400:1 ]] || return 1
   done
   recovery_trust=/opt/sub2api-release-trust/vm-gate-ed25519.pub
   [[ -f $recovery_trust && ! -L $recovery_trust ]] || return 1
   openssl pkeyutl -verify -pubin -inkey "$recovery_trust" -rawin \
     -in "$recovery_authorization" -sigfile "$recovery_signature" >/dev/null 2>&1 || return 1
-  [[ $(jq -er '.manifest.recovery_helper_bundle_sha256' "$recovery_authorization") == "$RECOVERY_HELPER_BUNDLE_SHA256" ]] || return 1
+  _required_1006=$(jq -er '.manifest.recovery_helper_bundle_sha256' "$recovery_authorization") || return 1
+  [[ ${_required_1006} == "$RECOVERY_HELPER_BUNDLE_SHA256" ]] || return 1
   recovery_verifier_sha=$(jq -er '.manifest.release_asset_sha256[".agents/skills/sub2api-production-deploy/scripts/release/recovery_bundle.py"]' "$recovery_authorization") || return 1
   [[ $recovery_verifier_sha =~ ^[0-9a-f]{64}$ && -f $recovery_assets/recovery_bundle.py && ! -L $recovery_assets/recovery_bundle.py ]] || return 1
-  [[ $(sha256sum "$recovery_assets/recovery_bundle.py" | awk '{print $1}') == "$recovery_verifier_sha" ]] || return 1
+  _required_1007=$(sha256sum "$recovery_assets/recovery_bundle.py" | awk '{print $1}') || return 1
+  [[ ${_required_1007} == "$recovery_verifier_sha" ]] || return 1
   python3 "$recovery_assets/recovery_bundle.py" --verify "$recovery_assets" \
     --expected "$RECOVERY_HELPER_BUNDLE_SHA256" --gate "$recovery_authorization" >/dev/null || return 1
   fi
@@ -99,43 +106,48 @@ PY
   fi
   assets_dir=$recovery_assets
 fi
-source "$assets_dir/compose-contract.sh"
+source "$assets_dir/compose-contract.sh" || return 1
 if [[ -n ${RECOVERY_DRILL_AUTHORIZATION:-} ]]; then
   [[ ${recovery_drill_context_verified:-} == 1 ]] || return 1
   # These are explicitly authorized offline source metadata, never a Gate or
   # a candidate archive. The formal restore path only uses the old image.
-  candidate_image_id=$(jq -er '.candidate_image_id' "$active_claim/drill-metadata.json")
-  candidate_archive_sha=$(jq -er '.archive_sha256' "$active_claim/drill-metadata.json")
-  commit=$(jq -er '.commit_sha' "$active_claim/drill-metadata.json")
-  profile=$(jq -er '.profile' "$active_claim/drill-metadata.json")
-  version=$(jq -er '.version' "$active_claim/drill-metadata.json")
+  candidate_image_id=$(jq -er '.candidate_image_id' "$active_claim/drill-metadata.json") || return 1
+  candidate_archive_sha=$(jq -er '.archive_sha256' "$active_claim/drill-metadata.json") || return 1
+  commit=$(jq -er '.commit_sha' "$active_claim/drill-metadata.json") || return 1
+  profile=$(jq -er '.profile' "$active_claim/drill-metadata.json") || return 1
+  version=$(jq -er '.version' "$active_claim/drill-metadata.json") || return 1
   [[ -z ${DEPLOYMENT_MODE:-} || $DEPLOYMENT_MODE == downtime ]] || return 1
   deployment_mode=downtime
   manifest_schema=2
   migrations=()
 else
-candidate_image_id=$(jq -er '.evidence.candidate_image_id' "$active_claim/gate.json")
-candidate_archive_sha=$(jq -er '.evidence.candidate_archive_sha256' "$active_claim/gate.json")
-commit=$(jq -er '.manifest.commit_sha' "$active_claim/gate.json")
-profile=$(jq -er '.manifest.profile' "$active_claim/gate.json")
-version=$(jq -er '.manifest.version' "$active_claim/gate.json")
-deployment_mode=${DEPLOYMENT_MODE:-$(jq -er '.manifest.deployment_mode' "$active_claim/gate.json")}
-[[ $deployment_mode == blue-green || $deployment_mode == downtime ]]
-manifest_schema=$(jq -er '.manifest.schema' "$active_claim/gate.json")
+candidate_image_id=$(jq -er '.evidence.candidate_image_id' "$active_claim/gate.json") || return 1
+candidate_archive_sha=$(jq -er '.evidence.candidate_archive_sha256' "$active_claim/gate.json") || return 1
+commit=$(jq -er '.manifest.commit_sha' "$active_claim/gate.json") || return 1
+profile=$(jq -er '.manifest.profile' "$active_claim/gate.json") || return 1
+version=$(jq -er '.manifest.version' "$active_claim/gate.json") || return 1
+deployment_mode=${DEPLOYMENT_MODE:-$(jq -er '.manifest.deployment_mode' "$active_claim/gate.json")} || return 1
+[[ $deployment_mode == blue-green || $deployment_mode == downtime ]] || return 1
+manifest_schema=$(jq -er '.manifest.schema' "$active_claim/gate.json") || return 1
 if [[ $manifest_schema == 2 ]]; then
-  mapfile -t migrations < <(jq -er '.evidence.migration_evidence.pending[]?.filename' "$active_claim/gate.json")
+  migration_inventory=$(jq -r '.evidence.migration_evidence.pending[]?.filename' "$active_claim/gate.json") || return 1
+  migrations=()
+  if [[ -n $migration_inventory ]]; then mapfile -t migrations <<<"$migration_inventory" || return 1; fi
 else
-  mapfile -t migrations < <(jq -er '.manifest.migrations[]' "$active_claim/gate.json")
+  migration_inventory=$(jq -r '.manifest.migrations[]' "$active_claim/gate.json") || return 1
+  migrations=()
+  if [[ -n $migration_inventory ]]; then mapfile -t migrations <<<"$migration_inventory" || return 1; fi
 fi
 fi
 candidate_tag="sub2api:baiyu-$version-$commit"
-[[ $candidate_image_id =~ ^sha256:[0-9a-f]{64}$ ]]
-[[ $candidate_archive_sha =~ ^[0-9a-f]{64}$ ]]
-[[ $commit =~ ^[0-9a-f]{40}$ ]]
-if [[ $manifest_schema != 2 ]]; then [[ ${#migrations[@]} -gt 0 ]]; fi
-grep -Fxq "release_id=$release_id" "$release_dir/.prepared"
-grep -Fxq "candidate_image_id=$candidate_image_id" "$release_dir/.prepared"
-[[ $(docker image inspect -f '{{.Id}}' "$candidate_image_id") == "$candidate_image_id" ]]
+[[ $candidate_image_id =~ ^sha256:[0-9a-f]{64}$ ]] || return 1
+[[ $candidate_archive_sha =~ ^[0-9a-f]{64}$ ]] || return 1
+[[ $commit =~ ^[0-9a-f]{40}$ ]] || return 1
+if [[ $manifest_schema != 2 ]]; then [[ ${#migrations[@]} -gt 0 ]] || return 1; fi
+grep -Fxq "release_id=$release_id" "$release_dir/.prepared" || return 1
+grep -Fxq "candidate_image_id=$candidate_image_id" "$release_dir/.prepared" || return 1
+_required_1008=$(docker image inspect -f '{{.Id}}' "$candidate_image_id") || return 1
+[[ ${_required_1008} == "$candidate_image_id" ]] || return 1
 state_dir="/opt/sub2api/backups/release-state/$release_id"
 
 # Production is allowed to have two application slots during a graceful
@@ -147,18 +159,20 @@ active_container=sub2api
 active_port=18080
 active_instance_id=
 if [[ -f $active_slot_file && ! -L $active_slot_file ]]; then
-  [[ $(grep -c '^container=' "$active_slot_file") == 1 ]]
-  [[ $(grep -c '^port=' "$active_slot_file") == 1 ]]
+  _required_1009=$(grep -c '^container=' "$active_slot_file") || return 1
+  [[ ${_required_1009} == 1 ]] || return 1
+  _required_1010=$(grep -c '^port=' "$active_slot_file") || return 1
+  [[ ${_required_1010} == 1 ]] || return 1
   parsed_container=
   parsed_port=
   while IFS='=' read -r key value; do
     case "$key" in
-      container) [[ $value =~ ^[a-zA-Z0-9_.-]{1,80}$ ]]; parsed_container=$value ;;
-      port) [[ $value == 18080 || $value == 18081 ]]; parsed_port=$value ;;
-      instance_id) [[ -z $value || $value =~ ^[a-zA-Z0-9_.-]{1,128}$ ]]; active_instance_id=$value ;;
+      container) [[ $value =~ ^[a-zA-Z0-9_.-]{1,80}$ ]] || return 1; parsed_container=$value ;;
+      port) [[ $value == 18080 || $value == 18081 ]] || return 1; parsed_port=$value ;;
+      instance_id) [[ -z $value || $value =~ ^[a-zA-Z0-9_.-]{1,128}$ ]] || return 1; active_instance_id=$value ;;
     esac
   done < "$active_slot_file"
-  [[ -n $parsed_container && -n $parsed_port ]]
+  [[ -n $parsed_container && -n $parsed_port ]] || return 1
   active_container=$parsed_container
   active_port=$parsed_port
 elif [[ -e $active_slot_file || -L $active_slot_file ]]; then
@@ -184,17 +198,27 @@ else
     done < "$state_dir/candidate-app"
   fi
 fi
-[[ $candidate_container =~ ^[a-zA-Z0-9_.-]{1,100}$ ]]
-[[ $candidate_instance_id =~ ^[a-zA-Z0-9_.-]{1,128}$ ]]
-[[ $final_instance_id =~ ^[a-zA-Z0-9_.-]{1,128}$ ]]
+[[ $candidate_container =~ ^[a-zA-Z0-9_.-]{1,100}$ ]] || return 1
+[[ $candidate_instance_id =~ ^[a-zA-Z0-9_.-]{1,128}$ ]] || return 1
+[[ $final_instance_id =~ ^[a-zA-Z0-9_.-]{1,128}$ ]] || return 1
 
 application_connection_count() {
   local container=${1:?container is required}
   docker exec "$container" sh -lc 'awk "NR>1 && \$2 ~ /:1F90\$/ && \$4 == \"01\" {count++} END {print count+0}" /proc/net/tcp /proc/net/tcp6' 2>/dev/null || printf 'unknown'
 }
 
+critical_startup_log_count() {
+  local container=${1:?container is required}
+  local since=${2:?log interval is required}
+  local startup_logs
+  startup_logs=$(docker logs --since "$since" "$container" 2>&1) || return 1
+  awk 'tolower($0) ~ /panic|fatal|migration.*(failed|error)|database.*(failed|error)|redis.*(failed|error)/ {count++} END {print count+0}' <<<"$startup_logs"
+}
+
 nginx_draining_worker_count() {
-  ps -eo args= | grep -Ec '^nginx: worker process is shutting down$' || true
+  local processes
+  processes=$(ps -eo args=) || return 1
+  awk '$0 == "nginx: worker process is shutting down" {count++} END {print count+0}' <<<"$processes"
 }
 
 wait_for_application_drain() {
@@ -204,8 +228,8 @@ wait_for_application_drain() {
   local connections=unknown
   local draining_workers=unknown
   while docker inspect "$container" >/dev/null 2>&1; do
-    connections=$(application_connection_count "$container")
-    draining_workers=$(nginx_draining_worker_count)
+    connections=$(application_connection_count "$container") || { printf 'unknown\n'; return 0; }
+    draining_workers=$(nginx_draining_worker_count) || { printf 'unknown\n'; return 0; }
     if [[ $connections == 0 && $draining_workers == 0 ]]; then
       printf '0\n'
       return 0
@@ -253,7 +277,7 @@ assert_http_header_equals() {
     END { if (count != 1) exit 1; print value }
   ') || return 1
   [[ -n $actual && $actual != *$'\n'* ]] || return 1
-  [[ $actual == "$expected" ]]
+  [[ $actual == "$expected" ]] || return 1
 }
 
 release_compose_value_with_active_override() {
@@ -322,9 +346,9 @@ SELECT
     AND jsonb_array_length(COALESCE(value->'endpoints', '[]'::jsonb)) = 0,
   (SELECT COUNT(*) FROM prompt_audit_jobs),
   (SELECT COUNT(*) FROM prompt_audit_events)
-FROM config")
-  [[ $row == 't|0|0' ]]
-  printf 'prompt_audit_disabled=true\n'
-  printf 'prompt_audit_jobs=0\n'
+FROM config") || return 1
+  [[ $row == 't|0|0' ]] || return 1
+  printf 'prompt_audit_disabled=true\n' || return 1
+  printf 'prompt_audit_jobs=0\n' || return 1
   printf 'prompt_audit_events=0\n'
 }

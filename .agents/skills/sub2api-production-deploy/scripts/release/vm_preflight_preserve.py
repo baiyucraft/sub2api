@@ -25,12 +25,20 @@ def migration_preflight_checks(identifier: str, manifest_sha256: str, manifest: 
     probe_db = "sub2api_v2_" + suffix[:24]
     probe_suffix = suffix[:12]
     return f'''# Both descriptors are already locked by the supervisor.
-case "$(stat -c '%U:%G:%a:%h' /opt/sub2api-deploy/release-gates/release.lock)" in root:root:600:1|root:root:644:1) ;; *) exit 1 ;; esac
-case "$(stat -Lc '%U:%G:%a:%h' /proc/self/fd/9)" in root:root:600:1|root:root:644:1) ;; *) exit 1 ;; esac
-test "$(stat -c '%d:%i' /opt/sub2api-deploy/release-gates/release.lock)" = "$(stat -Lc '%d:%i' /proc/self/fd/9)"
-test "$(stat -c '%U:%G:%a:%h' /usr/local/libexec/.sub2api-release-unit.lock)" = root:root:600:1
-test "$(stat -Lc '%U:%G:%a:%h' /proc/self/fd/8)" = root:root:600:1
-test "$(stat -c '%d:%i' /usr/local/libexec/.sub2api-release-unit.lock)" = "$(stat -Lc '%d:%i' /proc/self/fd/8)"
+required_capture_1=$(stat -c '%U:%G:%a:%h' /opt/sub2api-deploy/release-gates/release.lock) || exit $?
+case "$required_capture_1" in root:root:600:1|root:root:644:1) ;; *) exit 1 ;; esac
+required_capture_2=$(stat -Lc '%U:%G:%a:%h' /proc/self/fd/9) || exit $?
+case "$required_capture_2" in root:root:600:1|root:root:644:1) ;; *) exit 1 ;; esac
+required_capture_3=$(stat -c '%d:%i' /opt/sub2api-deploy/release-gates/release.lock) || exit $?
+required_capture_4=$(stat -Lc '%d:%i' /proc/self/fd/9) || exit $?
+test "$required_capture_3" = "$required_capture_4"
+required_capture_5=$(stat -c '%U:%G:%a:%h' /usr/local/libexec/.sub2api-release-unit.lock) || exit $?
+test "$required_capture_5" = root:root:600:1
+required_capture_6=$(stat -Lc '%U:%G:%a:%h' /proc/self/fd/8) || exit $?
+test "$required_capture_6" = root:root:600:1
+required_capture_7=$(stat -c '%d:%i' /usr/local/libexec/.sub2api-release-unit.lock) || exit $?
+required_capture_8=$(stat -Lc '%d:%i' /proc/self/fd/8) || exit $?
+test "$required_capture_7" = "$required_capture_8"
 process_count=$(python3 -B - <<'PROCESSES'
 import os,re
 from pathlib import Path
@@ -63,39 +71,56 @@ test "$process_count" = 0
 gate_root=/opt/sub2api-deploy/release-gates/{identifier}
 test -d "$gate_root"
 test ! -L "$gate_root"
-test "$(realpath -e -- "$gate_root")" = "$gate_root"
-test "$(stat -c '%U:%G:%a' "$gate_root")" = root:root:700
+required_capture_9=$(realpath -e -- "$gate_root") || exit $?
+test "$required_capture_9" = "$gate_root"
+required_capture_10=$(stat -c '%U:%G:%a' "$gate_root") || exit $?
+test "$required_capture_10" = root:root:700
 test -d "$gate_root/output"
 test ! -L "$gate_root/output"
-test "$(stat -c '%U:%G:%a' "$gate_root/output")" = root:root:700
+required_capture_11=$(stat -c '%U:%G:%a' "$gate_root/output") || exit $?
+test "$required_capture_11" = root:root:700
 check_file() {{
   test -f "$1"
   test ! -L "$1"
-  test "$(stat -c '%U:%G:%a:%h' "$1")" = "root:root:$2:1"
+  required_capture_12=$(stat -c '%U:%G:%a:%h' "$1") || exit $?
+  test "$required_capture_12" = "root:root:$2:1"
 }}
 check_file "$gate_root/manifest.json" 400
-test "$(sha256sum "$gate_root/manifest.json" | awk '{{print $1}}')" = {shlex.quote(manifest_sha256)}
+required_capture_13=$(sha256sum "$gate_root/manifest.json" | awk '{{print $1}}') || exit $?
+test "$required_capture_13" = {shlex.quote(manifest_sha256)}
 check_file "$gate_root/stage" 600
 for name in failure-category failure-line failure-detail migration-hook-filename migration-hook-phase migration-hook-status; do
   check_file "$gate_root/$name" 400
 done
-test "$(cat "$gate_root/stage")" = migration_plan_before
-test "$(cat "$gate_root/failure-category")" = vm_v2_migration_plan_before
-test "$(cat "$gate_root/failure-line")" = 612
-test "$(cat "$gate_root/failure-detail")" = 'status=1 stage=migration_plan_before'
-test "$(cat "$gate_root/migration-hook-filename")" = 298_group_scheduling_protection_policies.sql
-test "$(cat "$gate_root/migration-hook-phase")" = preflight
-test "$(cat "$gate_root/migration-hook-status")" = verified
+required_capture_14=$(cat "$gate_root/stage") || exit $?
+test "$required_capture_14" = migration_plan_before
+required_capture_15=$(cat "$gate_root/failure-category") || exit $?
+test "$required_capture_15" = vm_v2_migration_plan_before
+required_capture_16=$(cat "$gate_root/failure-line") || exit $?
+test "$required_capture_16" = 612
+required_capture_17=$(cat "$gate_root/failure-detail") || exit $?
+test "$required_capture_17" = 'status=1 stage=migration_plan_before'
+required_capture_18=$(cat "$gate_root/migration-hook-filename") || exit $?
+test "$required_capture_18" = 298_group_scheduling_protection_policies.sql
+required_capture_19=$(cat "$gate_root/migration-hook-phase") || exit $?
+test "$required_capture_19" = preflight
+required_capture_20=$(cat "$gate_root/migration-hook-status") || exit $?
+test "$required_capture_20" = verified
 check_file "$gate_root/migration-hook.stdout" 400
 check_file "$gate_root/migration-hook.stderr" 400
-test "$(cat "$gate_root/migration-hook.stdout")" = migration_298_failure_code=constraint_contract
+required_capture_21=$(cat "$gate_root/migration-hook.stdout") || exit $?
+test "$required_capture_21" = migration_298_failure_code=constraint_contract
 test ! -s "$gate_root/migration-hook.stderr"
 for name in plan-before.json plan-before.exit plan-actual.json plan-actual.exit; do
   check_file "$gate_root/$name" 400
 done
-test "$(cat "$gate_root/plan-before.exit")" = 0
-test "$(cat "$gate_root/plan-actual.exit")" = 0
-test "$(jq -cS . "$gate_root/plan-before.json")" = "$(jq -cS . "$gate_root/plan-actual.json")"
+required_capture_22=$(cat "$gate_root/plan-before.exit") || exit $?
+test "$required_capture_22" = 0
+required_capture_23=$(cat "$gate_root/plan-actual.exit") || exit $?
+test "$required_capture_23" = 0
+required_capture_24=$(jq -cS . "$gate_root/plan-before.json") || exit $?
+required_capture_25=$(jq -cS . "$gate_root/plan-actual.json") || exit $?
+test "$required_capture_24" = "$required_capture_25"
 jq -e --slurpfile m "$gate_root/manifest.json" '
   type == "object" and .existing_checksums_verified == true and
   .conflicts == [] and .unknown == [] and
@@ -113,15 +138,20 @@ for absent in output/gate.json output/gate.sig output/candidate.tar.gz output/SH
 done
 test -d "$gate_root/logs"
 test ! -L "$gate_root/logs"
-test "$(stat -c '%U:%G:%a' "$gate_root/logs")" = root:root:700
+required_capture_26=$(stat -c '%U:%G:%a' "$gate_root/logs") || exit $?
+test "$required_capture_26" = root:root:700
 check_file "$gate_root/logs/vm-validate.raw.log" 600
 check_file "$gate_root/validator.stderr" 600
 test -d "$raw_root"
 test ! -L "$raw_root"
-test "$(realpath -e -- "$raw_root")" = "$raw_root"
-test "$(stat -c '%U:%G:%a' "$raw_root")" = root:root:700
+required_capture_27=$(realpath -e -- "$raw_root") || exit $?
+test "$required_capture_27" = "$raw_root"
+required_capture_28=$(stat -c '%U:%G:%a' "$raw_root") || exit $?
+test "$required_capture_28" = root:root:700
 check_file "$raw_root/vm-validate.raw.log" 600
-test "$(sha256sum "$raw_root/vm-validate.raw.log" | awk '{{print $1}}')" = "$(sha256sum "$gate_root/logs/vm-validate.raw.log" | awk '{{print $1}}')"
+required_capture_29=$(sha256sum "$raw_root/vm-validate.raw.log" | awk '{{print $1}}') || exit $?
+required_capture_30=$(sha256sum "$gate_root/logs/vm-validate.raw.log" | awk '{{print $1}}') || exit $?
+test "$required_capture_29" = "$required_capture_30"
 names=$(docker ps -a --format '{{{{.Names}}}}')
 for name in sub2api-v2-app-{probe_suffix} sub2api-v2-old-{probe_suffix} sub2api-v2-redis-{probe_suffix}; do
   if grep -Fxq -- "$name" <<<"$names"; then exit 1; fi

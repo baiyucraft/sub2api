@@ -106,7 +106,7 @@ def cleanup_production_recovery_points(
             expected_checksum = sha256_file(PRODUCTION_RECOVERY_RETENTION_CLEANER)
             runner.run(
                 "racknerd",
-                f"test $(sha256sum {shlex.quote(remote_cleaner)} | awk '{{print $1}}') = {shlex.quote(expected_checksum)} && printf 'cleaner_verified=true\\n'",
+                f"set -Eeuo pipefail; cleaner_sha=$(sha256sum {shlex.quote(remote_cleaner)} | awk '{{print $1}}') && test \"$cleaner_sha\" = {shlex.quote(expected_checksum)} && printf 'cleaner_verified=true\\n'",
                 {"cleaner_verified"},
             )
             command = " ".join(

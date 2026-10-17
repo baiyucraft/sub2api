@@ -291,7 +291,7 @@ def guest_run() -> dict[str, Any]:
     write_private(Path("/run/sub2api-recovery-drill-host.json"), Path("/etc/sub2api-recovery-drill-host.json").read_bytes())
     output = Path("/opt/sub2api-recovery-drill")
     raw = output / "helpers.raw.log"
-    guard = 'source "$1/recovery-isolation.sh"; recovery_drill_assert_isolated "$2"'
+    guard = 'set -Eeuo pipefail; source "$1/recovery-isolation.sh"; recovery_drill_assert_isolated "$2"'
     code, _ = command_values(["bash", "-c", guard, "isolation", str(helpers), config["recovery_helper_bundle_sha256"]], env, raw)
     require(code == 0, "live Guest isolation proof rejected")
     state = Path("/opt/sub2api/backups/release-state") / config["release_id"]

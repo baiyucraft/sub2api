@@ -138,16 +138,23 @@ def sign_and_promote(*, release_id: str, drill_id: str, evidence_sha256: str, ru
     signing = f"""set -Eeuo pipefail
 evidence={quote(evidence)}
 signature={quote(signature)}
-test -f "$evidence" && test ! -L "$evidence"
-test "$(stat -c '%U:%G:%a:%h' "$evidence")" = root:root:400:1
-test "$(sha256sum "$evidence" | awk '{{print $1}}')" = {evidence_sha256}
+test -f "$evidence"
+test ! -L "$evidence"
+required_value=$(stat -c '%U:%G:%a:%h' "$evidence")
+test "$required_value" = root:root:400:1
+required_value=$(sha256sum "$evidence" | awk '{{print $1}}')
+test "$required_value" = {evidence_sha256}
 if test ! -e "$signature" && test ! -L "$signature"; then
  /usr/local/libexec/sub2api-sign-dr-evidence "$evidence" "$signature" >/dev/null
 fi
-test -f "$signature" && test ! -L "$signature"
-test "$(stat -c '%U:%G:%a:%h' "$signature")" = root:root:400:1
+test -f "$signature"
+test ! -L "$signature"
+required_value=$(stat -c '%U:%G:%a:%h' "$signature")
+test "$required_value" = root:root:400:1
 openssl pkeyutl -verify -pubin -inkey /opt/sub2api-release-signer/vm-gate-ed25519.pub -rawin -in "$evidence" -sigfile "$signature" >/dev/null 2>&1
-printf 'evidence_sha256=%s\\nsignature_sha256=%s\\n' "$(sha256sum "$evidence" | awk '{{print $1}}')" "$(sha256sum "$signature" | awk '{{print $1}}')"
+observed_evidence_sha256=$(sha256sum "$evidence" | awk '{{print $1}}')
+observed_signature_sha256=$(sha256sum "$signature" | awk '{{print $1}}')
+printf 'evidence_sha256=%s\\nsignature_sha256=%s\\n' "$observed_evidence_sha256" "$observed_signature_sha256"
 """
     signed = client.run("local_vm", signing, {"evidence_sha256", "signature_sha256"}, timeout=120).values
     need(signed["evidence_sha256"] == evidence_sha256 and SHA.fullmatch(signed["signature_sha256"]) is not None, "signed evidence identity differs")
@@ -163,7 +170,13 @@ printf 'evidence_sha256=%s\\nsignature_sha256=%s\\n' "$(sha256sum "$evidence" | 
     promoter_temp = client.create_temp_dir("backup", "/srv/sub2api-backups", "baseline-promote")
     promoter_remote = promoter_temp + "/promote-dr-baseline.sh"
     client.upload_file("backup", promoter_local, promoter_remote, 0o700)
-    script = f"set -Eeuo pipefail; test $(sha256sum {quote(target_temp + '/evidence.json')} | awk '{{print $1}}') = {evidence_sha256}; test $(sha256sum {quote(target_temp + '/evidence.sig')} | awk '{{print $1}}') = {signed['signature_sha256']}; {quote(promoter_remote)} {quote(release_id)} {quote(drill_id)} {quote(target_temp)}"
+    script = f"""set -Eeuo pipefail
+observed_evidence_sha256=$(sha256sum {quote(target_temp + '/evidence.json')} | awk '{{print $1}}')
+test "$observed_evidence_sha256" = {evidence_sha256}
+observed_signature_sha256=$(sha256sum {quote(target_temp + '/evidence.sig')} | awk '{{print $1}}')
+test "$observed_signature_sha256" = {signed['signature_sha256']}
+{quote(promoter_remote)} {quote(release_id)} {quote(drill_id)} {quote(target_temp)}
+"""
     result = client.run("backup", script, {"promotion_status", "verified_target", "evidence_sha256", "signature_sha256", "verified_bundle_sha256"}, timeout=1800).values
     need(result.get("promotion_status") == "verified" and result.get("evidence_sha256") == evidence_sha256 and result.get("signature_sha256") == signed["signature_sha256"], "atomic baseline promotion not verified")
     return result

@@ -101,7 +101,8 @@ class SignerAssetTest(unittest.TestCase):
         self.assertIn("$completed >= (now - 86400)", script)
         self.assertIn("flock -s 8", script)
         self.assertIn("[[ ! -e $signature && ! -L $signature ]]", script)
-        self.assertIn("[[ $(realpath -e -- \"$evidence\") == \"$evidence\" ]]", script)
+        self.assertIn('required_query_6=$(realpath -e -- "$evidence")', script)
+        self.assertIn('[[ ${required_query_6} == "$evidence" ]]', script)
         self.assertNotIn("release-gates", script)
 
     def test_signer_helpers_share_a_non_symlink_lock_contract(self) -> None:

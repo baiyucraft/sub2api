@@ -40,7 +40,8 @@ git -C "$source_dir" cat-file -e "$target_commit^{commit}" 2>/dev/null
 compat_commit=
 if [[ -n $explicit_compat_commit ]]; then
   compat_tag="sub2api:baiyu-$compat_version-$explicit_compat_commit"
-  [[ $(docker image inspect -f '{{.Id}}' "$compat_tag") == "$explicit_compat_image_id" ]]
+  compat_image_id=$(docker image inspect -f '{{.Id}}' "$compat_tag")
+  [[ $compat_image_id == "$explicit_compat_image_id" ]]
   compat_commit=$explicit_compat_commit
 fi
 if [[ -z $explicit_compat_commit ]]; then
@@ -60,7 +61,10 @@ is_protected_commit() {
 }
 
 assert_no_active_build() {
-  [[ $(ps -eo args= | awk '/docker (build|buildx)|buildctl/ && ! /awk/ {count++} END {print count+0}') == 0 ]]
+  local processes count
+  processes=$(ps -eo comm=,args=) || return 1
+  count=$(awk '$1 != "awk" && /docker (build|buildx)|buildctl/ {count++} END {print count+0}' <<<"$processes") || return 1
+  [[ $count == 0 ]]
 }
 
 assert_no_active_build
@@ -89,7 +93,7 @@ build_cache_max_used_space=1gb
 build_cache_reserved_space=1gb
 
 list_container_candidates() {
-  docker ps -a --filter status=exited --format '{{.ID}}\t{{.Names}}' \
+  docker ps -a --no-trunc --filter status=exited --format '{{.ID}}\t{{.Names}}' \
     | awk -F '\t' '$2 ~ /^sub2api-dev-pre/ {print $1}' \
     | LC_ALL=C sort -u
 }
@@ -107,21 +111,28 @@ container_candidate_logical_bytes() {
 
 write_referenced_images() {
   local container_ids
-  container_ids=$(docker ps -aq --no-trunc)
+  container_ids=$(docker ps -aq --no-trunc) || return 1
   if [[ -n $container_ids ]]; then
-    docker inspect -f '{{.Image}}' $container_ids | LC_ALL=C sort -u
+    docker inspect -f '{{.Image}}' $container_ids | LC_ALL=C sort -u || return 1
   fi
 }
 
 list_image_candidates() {
-  local image_id image_size tag valid has_tag
-  write_referenced_images > "$work_dir/referenced-images"
-  docker image ls --no-trunc --format '{{.ID}}' | LC_ALL=C sort -u > "$work_dir/image-ids"
-  : > "$work_dir/image-candidates"
+  local image_id image_size tag valid has_tag tag_text protected_match
+  write_referenced_images > "$work_dir/referenced-images" || return 1
+  docker image ls --no-trunc --format '{{.ID}}' | LC_ALL=C sort -u > "$work_dir/image-ids" || return 1
+  : > "$work_dir/image-candidates" || return 1
   while IFS= read -r image_id; do
     [[ $image_id =~ ^sha256:[0-9a-f]{64}$ ]] || continue
-    grep -Fxq "$image_id" "$work_dir/referenced-images" && continue
-    mapfile -t tags < <(docker image inspect -f '{{range .RepoTags}}{{println .}}{{end}}' "$image_id" 2>/dev/null)
+    protected_match=0
+    grep -Fxq "$image_id" "$work_dir/referenced-images" || protected_match=$?
+    case $protected_match in
+      0) continue ;;
+      1) ;;
+      *) return "$protected_match" ;;
+    esac
+    tag_text=$(docker image inspect -f '{{range .RepoTags}}{{println .}}{{end}}' "$image_id" 2>/dev/null) || return 1
+    mapfile -t tags <<<"$tag_text" || return 1
     valid=true
     has_tag=false
     for tag in "${tags[@]}"; do
@@ -133,33 +144,38 @@ list_image_candidates() {
       fi
     done
     [[ $valid == true && $has_tag == true ]] || continue
-    image_size=$(docker image inspect -f '{{.Size}}' "$image_id" 2>/dev/null || true)
+    image_size=$(docker image inspect -f '{{.Size}}' "$image_id" 2>/dev/null) || return 1
     [[ $image_size =~ ^[0-9]+$ ]] || continue
-    printf '%s\t%s\n' "$image_id" "$image_size" >> "$work_dir/image-candidates"
+    printf '%s\t%s\n' "$image_id" "$image_size" >> "$work_dir/image-candidates" || return 1
   done < "$work_dir/image-ids"
   cut -f1 "$work_dir/image-candidates"
 }
 
 remove_container_candidates() {
-  local container_id name status removed=0
+  local container_id name status remaining_ids removed=0 remaining_match
   while IFS= read -r container_id; do
     [[ -n $container_id ]] || continue
-    name=$(docker inspect -f '{{.Name}}' "$container_id" 2>/dev/null || true)
-    status=$(docker inspect -f '{{.State.Status}}' "$container_id" 2>/dev/null || true)
+    name=$(docker inspect -f '{{.Name}}' "$container_id" 2>/dev/null) || return 1
+    status=$(docker inspect -f '{{.State.Status}}' "$container_id" 2>/dev/null) || return 1
     [[ $name =~ ^/sub2api-dev-pre && $status == exited ]] || continue
-    docker rm "$container_id" >/dev/null 2>&1
+    docker rm "$container_id" >/dev/null 2>&1 || return 1
+    remaining_ids=$(docker ps -aq --no-trunc) || return 1
+    remaining_match=0
+    grep -Fxq -- "$container_id" <<<"$remaining_ids" || remaining_match=$?
+    [[ $remaining_match == 1 ]] || return 1
     removed=$((removed + 1))
   done < "$work_dir/container-candidates"
   printf '%s\n' "$removed"
 }
 
 remove_image_candidates() {
-  local image_id removed=0 tag valid has_tag
-  list_image_candidates > "$work_dir/apply-image-ids"
+  local image_id removed=0 tag valid has_tag tag_text remaining_ids protected_match remaining_match
+  list_image_candidates > "$work_dir/apply-image-ids" || return 1
   while IFS= read -r image_id; do
     [[ -n $image_id ]] || continue
-    assert_no_active_build
-    mapfile -t tags < <(docker image inspect -f '{{range .RepoTags}}{{println .}}{{end}}' "$image_id" 2>/dev/null)
+    assert_no_active_build || return 1
+    tag_text=$(docker image inspect -f '{{range .RepoTags}}{{println .}}{{end}}' "$image_id" 2>/dev/null) || return 1
+    mapfile -t tags <<<"$tag_text" || return 1
     valid=true
     has_tag=false
     for tag in "${tags[@]}"; do
@@ -171,12 +187,20 @@ remove_image_candidates() {
       fi
     done
     [[ $valid == true && $has_tag == true ]] || continue
-    write_referenced_images > "$work_dir/referenced-images-now"
-    grep -Fxq "$image_id" "$work_dir/referenced-images-now" && continue
-    docker image rm "${tags[@]}" >/dev/null 2>&1
-    if ! docker image inspect "$image_id" >/dev/null 2>&1; then
-      removed=$((removed + 1))
-    fi
+    write_referenced_images > "$work_dir/referenced-images-now" || return 1
+    protected_match=0
+    grep -Fxq "$image_id" "$work_dir/referenced-images-now" || protected_match=$?
+    case $protected_match in
+      0) continue ;;
+      1) ;;
+      *) return "$protected_match" ;;
+    esac
+    docker image rm "${tags[@]}" >/dev/null 2>&1 || return 1
+    remaining_ids=$(docker image ls -a --no-trunc --format '{{.ID}}') || return 1
+    remaining_match=0
+    grep -Fxq -- "$image_id" <<<"$remaining_ids" || remaining_match=$?
+    [[ $remaining_match == 1 ]] || return 1
+    removed=$((removed + 1))
   done < "$work_dir/apply-image-ids"
   printf '%s\n' "$removed"
 }

@@ -355,7 +355,7 @@ def test_boot_id_change_rejects_shutdown_before_stopping_app(h):
             h.boot_id = OTHER_BOOT_ID
             lease.complete()
     script = h.ssh.run.call_args.args[1]
-    check = f'test "$(cat /proc/sys/kernel/random/boot_id)" = {BOOT_ID}'
+    check = f'required_value=$(cat /proc/sys/kernel/random/boot_id)\ntest "$required_value" = {BOOT_ID}'
     assert check in script
     assert script.index(check) < script.index("docker stop") < script.index("shutdown -h +1")
     assert OTHER_BOOT_ID not in script
@@ -390,13 +390,13 @@ def test_lost_reply_with_vm_still_running_times_out_and_retains_owner(h):
 
 
 @pytest.mark.parametrize("required_check", [
-    'test "$(id -u)" = 0',
+    'required_value=$(id -u)\ntest "$required_value" = 0',
     'test -f "$lock"\ntest ! -L "$lock"',
-    'test "$(stat -c \'%U:%G:%a:%h\' "$lock")" = root:root:600:1',
+    'required_value=$(stat -c \'%U:%G:%a:%h\' "$lock")\ntest "$required_value" = root:root:600:1',
     "flock -xn 8",
-    "^sub2api-(v2-|probe-|preview-)",
-    'test "$(docker inspect -f \'{{.State.Status}}\' sub2api-dev)" = exited',
-    "! ss -ltnH '( sport = :8211 )' | grep -q .",
+    'case "$name" in sub2api-v2-*|sub2api-probe-*|sub2api-preview-*) exit 1 ;; esac',
+    'status=$(docker inspect -f \'{{.State.Status}}\' sub2api-dev)\ntest "$status" = exited',
+    'listeners=$(ss -ltnH \'( sport = :8211 )\')\ntest -z "$listeners"',
 ])
 def test_shutdown_preflight_rejection_never_forces_power_off(h, required_check):
     with pytest.raises(vm.VMLifecycleError, match="vm_lifecycle_shutdown_preflight_failed"):
@@ -950,9 +950,9 @@ def test_retained_finalization_remote_shutdown_requires_owned_gate_lock(h, retai
         lease.complete(evidence_sha256="b" * 64)
     script = next(call.args[1] for call in h.ssh.run.call_args_list if call.args[2] == {"vm_shutdown_scheduled"})
     for check in (
-        'test "$(stat -c \'%U:%G:%a\' "$gate_root")" = root:root:700',
-        'case "$(stat -c \'%U:%G:%a:%h\' "$gate_lock")" in root:root:600:1|root:root:644:1)',
-        'case "$(stat -Lc \'%U:%G:%a:%h\' /proc/self/fd/9)" in root:root:600:1|root:root:644:1)',
+        '=$(stat -c \'%U:%G:%a\' "$gate_root") || exit $?',
+        '=$(stat -c \'%U:%G:%a:%h\' "$gate_lock") || exit $?',
+        '=$(stat -Lc \'%U:%G:%a:%h\' /proc/self/fd/9) || exit $?',
         "flock -xn 9", "run-validator.sh",
     ):
         assert check in script

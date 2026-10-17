@@ -10,8 +10,14 @@ if [[ ${RELEASE_LOCK_HELD:-false} != true ]]; then
 fi
 [[ -d $state_dir && ! -L $state_dir ]]
 (cd "$state_dir" && sha256sum -c SHA256SUMS >/dev/null)
-[[ $(systemctl is-active nginx) == active ]]
-[[ $(systemctl is-active sub2api-backup.service 2>/dev/null || true) != active ]]
+nginx_state=$(systemctl is-active nginx)
+[[ $nginx_state == active ]]
+backup_service_code=0
+backup_service_state=$(systemctl is-active sub2api-backup.service 2>/dev/null) || backup_service_code=$?
+case "$backup_service_state:$backup_service_code" in
+  inactive:3|failed:3) ;;
+  *) exit 1 ;;
+esac
 [[ -f $state_dir/backup-result && ! -L $state_dir/backup-result ]]
 [[ -f $state_dir/backup-result.sha256 && ! -L $state_dir/backup-result.sha256 ]]
 (cd "$state_dir" && sha256sum -c backup-result.sha256 >/dev/null)
@@ -56,12 +62,14 @@ printf 'site\t%s\tpresent\n' "$site" >> "$txn/targets.tsv"
 
 if [[ -e $NGINX_SITE_BACKUP_DIR || -L $NGINX_SITE_BACKUP_DIR ]]; then
   [[ -d $NGINX_SITE_BACKUP_DIR && ! -L $NGINX_SITE_BACKUP_DIR ]]
-  [[ $(stat -c '%U:%G:%a' "$NGINX_SITE_BACKUP_DIR") == root:root:700 ]]
+  backup_directory_metadata=$(stat -c '%U:%G:%a' "$NGINX_SITE_BACKUP_DIR")
+  [[ $backup_directory_metadata == root:root:700 ]]
 else
   install -d -o root -g root -m 700 "$NGINX_SITE_BACKUP_DIR"
 fi
 : > "$txn/stale.tsv"
 stale_count=0
+find /etc/nginx/sites-enabled -maxdepth 1 -type f -name '*.sub2api-release-backup' -print0 > "$txn/stale-inventory.tmp"
 while IFS= read -r -d '' stale; do
   [[ $stale =~ ^/etc/nginx/sites-enabled/[A-Za-z0-9._-]{1,160}\.sub2api-release-backup$ ]]
   name=$(basename -- "$stale")
@@ -70,7 +78,8 @@ while IFS= read -r -d '' stale; do
   cp -p -- "$stale" "$txn/stale/$name"
   printf '%s\t%s\t%s\n' "$stale" "$archive" "$name" >> "$txn/stale.tsv"
   stale_count=$((stale_count + 1))
-done < <(find /etc/nginx/sites-enabled -maxdepth 1 -type f -name '*.sub2api-release-backup' -print0)
+done < "$txn/stale-inventory.tmp"
+rm -- "$txn/stale-inventory.tmp"
 [[ $stale_count -le 4 ]]
 printf 'release_id=%s\n' "$release_id" > "$txn/identity"
 (cd "$txn" && find files stale -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum > SHA256SUMS.files)
@@ -142,10 +151,15 @@ while IFS=$'\t' read -r stale archive name; do
 done < "$txn/stale.tsv"
 
 nginx_check=$(nginx -t 2>&1)
-! grep -Eqi 'conflicting server name' <<<"$nginx_check"
+if grep -Eqi 'conflicting server name' <<<"$nginx_check"; then
+  false # Trigger the transaction ERR trap before any reload or success marker.
+else
+  test "$?" = 1
+fi
 systemctl reload nginx
 assert_nginx_ingress_policy
-printf 'applied_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$txn/applied.tmp"
+applied_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+printf 'applied_at=%s\n' "$applied_at" > "$txn/applied.tmp"
 chmod 400 "$txn/applied.tmp"
 mv -T -- "$txn/applied.tmp" "$txn/applied"
 mutation_started=false

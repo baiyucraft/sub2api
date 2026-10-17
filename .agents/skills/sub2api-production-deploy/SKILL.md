@@ -43,6 +43,7 @@ description: 面向 Sub2API fork 的构建、开发门禁、应用与独立插�
 - 生产 release 的完整远端 stdout/stderr 与最终容器启动日志只允许写入该 release 目录下 root-only 原始日志（目录 `0700`、文件 `0600`）；不得上传、复制到本地 `.tmp`、直接回显到控制台或最终报告。故障诊断先读取结构化阶段、退出码和固定分类，原始日志仅在生产机上做受控脱敏检索。
 - profile 级迁移状态不能代替单个迁移状态。生产 preflight 必须同时返回整体状态和每个关键迁移的 `absent`/`verified`/`unknown` 状态；混合状态按已提交迁移跳过、缺失迁移按顺序执行，任何 checksum 或语义不一致立即停止。
 - 任何备份、checksum、image ID、迁移、磁盘、健康、认证或空间断言失败，立即停止并报告。
+- 修复 Shell 失败漏阻断时须检查完整同族及正式调用上下文：必需断言不能依赖独立 `!`、非末项 `&&`、条件函数或替换子进程的 `errexit`；采集先核验退出码再验内容，查询失败不当空集。用无害故障注入证明失败后无删除/关机/成功标记，统一补丁与独审固定后再重建 DR/Gate，禁止逐处修补后反复重跑。
 - 生产 deploy 的生命周期必须长于调用工具生命周期；调用端只负责启动和观察，不能拥有或终止 release runner。标准机器入口为 `deploy-start`、`status`、`wait`、`verify-result`，不得把裸前台 `deploy` 作为日常入口。
 - 人工发布默认使用单控制台中文入口 `deploy-follow`；它只启动一次隐藏 runner，并在同一控制台持续观察阶段变化。需要重新连接时使用 `follow <release_id>`，禁止反复新开 PowerShell 执行 `status` 或重新执行 `deploy`。
 - Windows runner 和其 Python、OpenSSL、Git Bash、Go 子进程必须通过 `scripts/release/process.py` 启动；禁止在发布运行代码中直接裸调用 `subprocess.run/Popen/check_output`，避免短生命周期控制台闪现。

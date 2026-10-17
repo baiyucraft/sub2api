@@ -5,18 +5,31 @@ evidence=${1:?evidence path is required}
 signature=${2:?signature path is required}
 private_key=/opt/sub2api-release-signer/vm-gate-ed25519.pem
 evidence_root=/opt/sub2api-deploy/dr-evidence
-[[ $(id -u) == 0 ]]
+{
+  required_query_1=$(id -u)
+  [[ ${required_query_1} == 0 ]]
+}
 unit_lock=${SUB2API_UNIT_LOCK_PATH:-/usr/local/libexec/.sub2api-release-unit.lock}
 if [[ ${SUB2API_HELPER_TEST_MODE:-false} == true ]]; then
   lock_parent=${unit_lock%/*}
   [[ $lock_parent =~ ^/opt/sub2api-deploy/release-input/[A-Za-z0-9]+([.-][A-Za-z0-9]+)*/libexec$ ]]
-  [[ -d $lock_parent && ! -L $lock_parent && $(realpath -e -- "$lock_parent") == "$lock_parent" && $(stat -c '%U:%G:%a' "$lock_parent") == root:root:700 ]]
+  {
+    required_query_2=$(realpath -e -- "$lock_parent") || exit $?
+    required_query_3=$(stat -c '%U:%G:%a' "$lock_parent") || exit $?
+    [[ -d $lock_parent && ! -L $lock_parent && ${required_query_2} == "$lock_parent" && ${required_query_3} == root:root:700 ]]
+  }
 else
   [[ $unit_lock == /usr/local/libexec/.sub2api-release-unit.lock ]]
 fi
-[[ -f $unit_lock && ! -L $unit_lock && $(stat -c '%U:%G:%a:%h' "$unit_lock") == root:root:600:1 ]]
+{
+  required_query_4=$(stat -c '%U:%G:%a:%h' "$unit_lock")
+  [[ -f $unit_lock && ! -L $unit_lock && ${required_query_4} == root:root:600:1 ]]
+}
 exec 8<>"$unit_lock"
-[[ $(stat -Lc '%U:%G:%a:%h' /proc/self/fd/8) == root:root:600:1 ]]
+{
+  required_query_5=$(stat -Lc '%U:%G:%a:%h' /proc/self/fd/8)
+  [[ ${required_query_5} == root:root:600:1 ]]
+}
 flock -s 8
 [[ $evidence =~ ^$evidence_root/((195|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8})/(dr-(195|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273)-[0-9]{8}T[0-9]{6}Z)/evidence\.json$ ]]
 path_release_id=${BASH_REMATCH[1]}
@@ -25,14 +38,32 @@ path_drill_id=${BASH_REMATCH[3]}
 [[ ${BASH_REMATCH[4]} == "$path_profile" ]]
 expected_signature=${evidence%/evidence.json}/evidence.sig
 [[ $signature == "$expected_signature" ]]
-[[ $(realpath -e -- "$evidence") == "$evidence" ]]
-[[ -d $evidence_root && ! -L $evidence_root && $(stat -c '%U:%G:%a' "$evidence_root") == root:root:700 ]]
+{
+  required_query_6=$(realpath -e -- "$evidence")
+  [[ ${required_query_6} == "$evidence" ]]
+}
+{
+  required_query_7=$(stat -c '%U:%G:%a' "$evidence_root")
+  [[ -d $evidence_root && ! -L $evidence_root && ${required_query_7} == root:root:700 ]]
+}
 release_dir="$evidence_root/$path_release_id"
 drill_dir="$release_dir/$path_drill_id"
-[[ -d $release_dir && ! -L $release_dir && $(stat -c '%U:%G:%a' "$release_dir") == root:root:700 ]]
-[[ -d $drill_dir && ! -L $drill_dir && $(stat -c '%U:%G:%a' "$drill_dir") == root:root:700 ]]
-[[ -f $evidence && ! -L $evidence && $(stat -c '%U:%G:%a' "$evidence") == root:root:400 ]]
-[[ -f $private_key && ! -L $private_key && $(stat -c '%U:%G:%a' "$private_key") == root:root:600 ]]
+{
+  required_query_8=$(stat -c '%U:%G:%a' "$release_dir")
+  [[ -d $release_dir && ! -L $release_dir && ${required_query_8} == root:root:700 ]]
+}
+{
+  required_query_9=$(stat -c '%U:%G:%a' "$drill_dir")
+  [[ -d $drill_dir && ! -L $drill_dir && ${required_query_9} == root:root:700 ]]
+}
+{
+  required_query_10=$(stat -c '%U:%G:%a' "$evidence")
+  [[ -f $evidence && ! -L $evidence && ${required_query_10} == root:root:400 ]]
+}
+{
+  required_query_11=$(stat -c '%U:%G:%a' "$private_key")
+  [[ -f $private_key && ! -L $private_key && ${required_query_11} == root:root:600 ]]
+}
 [[ ! -e $signature && ! -L $signature ]]
 
 jq -e \

@@ -16,8 +16,10 @@ if [[ $review_schema == 2 ]]; then
   # exact dedicated recipient. Bind release backup encryption to the same
   # public key without changing the daily recipient or copying any identity.
   [[ $recipient_file == "$release_dir/backup-recipient.txt" ]]
-  [[ -f $recipient_file && ! -L $recipient_file && $(realpath -e -- "$recipient_file") == "$recipient_file" ]]
-  [[ $(stat -c '%U:%G:%a:%h' "$recipient_file") == root:root:400:1 ]]
+  _required_1=$(realpath -e -- "$recipient_file")
+  [[ -f $recipient_file && ! -L $recipient_file && ${_required_1} == "$recipient_file" ]]
+  _required_2=$(stat -c '%U:%G:%a:%h' "$recipient_file")
+  [[ ${_required_2} == root:root:400:1 ]]
   approved_recipient=$(jq -er '.manifest.recovery_gate.full_recovery_evidence.payload.source | select(.recipient_type == "age1") | .approved_recipient_sha256' "$release_dir/gate.json")
   [[ $approved_recipient =~ ^[0-9a-f]{64}$ ]]
   observed_recipient=$(python3 - "$recipient_file" <<'PY'
@@ -69,17 +71,26 @@ backup_stage=preflight
 (cd "$state_dir" && sha256sum -c SHA256SUMS >/dev/null)
 cd "$deploy_dir"
 load_release_compose_files "$deploy_dir"
-[[ $(docker inspect -f '{{.State.Health.Status}}' "$active_container") == healthy ]]
-[[ $(systemctl is-active nginx) == active ]]
-[[ $(systemctl is-active sub2api-backup.service 2>/dev/null || true) != active ]]
-[[ $(systemctl is-active sub2api-backup.timer 2>/dev/null || true) != active ]]
-[[ $(systemctl is-enabled sub2api-backup.service 2>/dev/null || true) == masked ]]
-[[ $(systemctl is-enabled sub2api-backup.timer 2>/dev/null || true) == masked ]]
-[[ $(docker image inspect -f '{{.Id}}' "$candidate_image_id") == "$candidate_image_id" ]]
-[[ $(docker inspect -f '{{.Image}}' "$active_container") == "$(<"$state_dir/pre-image-id")" ]]
+_required_3=$(docker inspect -f '{{.State.Health.Status}}' "$active_container")
+[[ ${_required_3} == healthy ]]
+_required_4=$(systemctl is-active nginx)
+[[ ${_required_4} == active ]]
+_required_5=$(sub2api_required_systemctl is-active sub2api-backup.service 2>/dev/null)
+[[ ${_required_5} != active ]]
+_required_6=$(sub2api_required_systemctl is-active sub2api-backup.timer 2>/dev/null)
+[[ ${_required_6} != active ]]
+_required_7=$(sub2api_required_systemctl is-enabled sub2api-backup.service 2>/dev/null)
+[[ ${_required_7} == masked ]]
+_required_8=$(sub2api_required_systemctl is-enabled sub2api-backup.timer 2>/dev/null)
+[[ ${_required_8} == masked ]]
+_required_9=$(docker image inspect -f '{{.Id}}' "$candidate_image_id")
+[[ ${_required_9} == "$candidate_image_id" ]]
+_required_10=$(docker inspect -f '{{.Image}}' "$active_container")
+[[ ${_required_10} == "$(<"$state_dir/pre-image-id")" ]]
 compose_image=$(_recovery_compose_config "$deploy_dir" "${release_compose_args[@]}" | jq -r '.services.sub2api.image // empty')
 [[ -n $compose_image ]]
-[[ $(docker image inspect -f '{{.Id}}' "$compose_image") == "$(<"$state_dir/pre-image-id")" ]]
+_required_11=$(docker image inspect -f '{{.Id}}' "$compose_image")
+[[ ${_required_11} == "$(<"$state_dir/pre-image-id")" ]]
 if [[ ${RELEASE_LOCK_HELD:-false} != true ]]; then
   exec 9>/run/lock/sub2api-backup-global.lock
   flock -n 9
@@ -109,7 +120,8 @@ printf 'keys=%s\nexpires=%s\nalready_expired=%s\n' "$redis_rdb_keys" "$redis_rdb
 docker cp sub2api-redis:/tmp/sub2api-release.rdb "$work/redis/dump.rdb" >/dev/null
 docker exec sub2api-redis rm -f /tmp/sub2api-release.rdb
 [[ -s $work/redis/dump.rdb ]]
-[[ $(docker inspect -f '{{.State.Health.Status}}' sub2api-redis) == healthy ]]
+_required_12=$(docker inspect -f '{{.State.Health.Status}}' sub2api-redis)
+[[ ${_required_12} == healthy ]]
 backup_stage=config
 recovery_compose_snapshot "$deploy_dir" "$work/config/app" >/dev/null
 cp -a "$deploy_dir/data" "$work/config/app/data"
@@ -121,13 +133,17 @@ install -d -m 700 "$work/config/nginx/sites-enabled" "$work/config/nginx/conf.d"
 [[ -d /etc/nginx/conf.d && ! -L /etc/nginx/conf.d ]]
 [[ -d /etc/nginx/snippets && ! -L /etc/nginx/snippets ]]
 cp -p /etc/nginx/nginx.conf "$work/config/nginx/nginx.conf"
-[[ $(stat -c '%U:%G:%a:%h' /etc/nginx/nginx.conf) == root:root:600:1 ||
-   $(stat -c '%U:%G:%a:%h' /etc/nginx/nginx.conf) == root:root:640:1 ||
-   $(stat -c '%U:%G:%a:%h' /etc/nginx/nginx.conf) == root:root:644:1 ]]
+_required_15=$(stat -c '%U:%G:%a:%h' /etc/nginx/nginx.conf)
+_required_14=$(stat -c '%U:%G:%a:%h' /etc/nginx/nginx.conf)
+_required_13=$(stat -c '%U:%G:%a:%h' /etc/nginx/nginx.conf)
+[[ ${_required_15} == root:root:600:1 ||
+   ${_required_14} == root:root:640:1 ||
+   ${_required_13} == root:root:644:1 ]]
 managed_site=$(find_managed_nginx_site)
 managed_site_stat=$(stat -c '%U:%G:%a:%h' "$managed_site")
 case "$managed_site_stat" in root:root:600:1|root:root:640:1|root:root:644:1) ;; *) exit 1 ;; esac
-cp -p "$managed_site" "$work/config/nginx/sites-enabled/$(basename -- "$managed_site")"
+_required_arg_1=$(basename -- "$managed_site")
+cp -p "$managed_site" "$work/config/nginx/sites-enabled/${_required_arg_1}"
 printf '%s\n' "$managed_site" > "$work/metadata/nginx-managed-site"
 chmod 600 "$work/metadata/nginx-managed-site"
 shopt -s nullglob
@@ -138,40 +154,50 @@ else
   for release_conf in "${release_confs[@]}"; do
     [[ $release_conf =~ ^/etc/nginx/conf.d/sub2api-release-[A-Za-z0-9._-]{1,160}\.conf$ ]]
     [[ -f $release_conf && ! -L $release_conf ]]
-    [[ $(stat -c '%U:%G:%a:%h' "$release_conf") == root:root:600:1 ]]
+    _required_16=$(stat -c '%U:%G:%a:%h' "$release_conf")
+    [[ ${_required_16} == root:root:600:1 ]]
     cp -p "$release_conf" "$work/config/nginx/conf.d/"
   done
 fi
 if [[ -e $NGINX_INGRESS_SNIPPET || -L $NGINX_INGRESS_SNIPPET ]]; then
   [[ -f $NGINX_INGRESS_SNIPPET && ! -L $NGINX_INGRESS_SNIPPET ]]
-  [[ $(stat -c '%U:%G:%a:%h' "$NGINX_INGRESS_SNIPPET") == root:root:600:1 ]]
-  cp -p -- "$NGINX_INGRESS_SNIPPET" "$work/config/nginx/snippets/$(basename -- "$NGINX_INGRESS_SNIPPET")"
+  _required_17=$(stat -c '%U:%G:%a:%h' "$NGINX_INGRESS_SNIPPET")
+  [[ ${_required_17} == root:root:600:1 ]]
+  _required_arg_2=$(basename -- "$NGINX_INGRESS_SNIPPET")
+  cp -p -- "$NGINX_INGRESS_SNIPPET" "$work/config/nginx/snippets/${_required_arg_2}"
 else
   : > "$work/config/nginx/snippets/.absent"
 fi
 if [[ -e $NGINX_OBSERVABILITY_CONF || -L $NGINX_OBSERVABILITY_CONF ]]; then
   [[ -f $NGINX_OBSERVABILITY_CONF && ! -L $NGINX_OBSERVABILITY_CONF ]]
-  [[ $(stat -c '%U:%G:%a:%h' "$NGINX_OBSERVABILITY_CONF") == root:root:600:1 ]]
+  _required_18=$(stat -c '%U:%G:%a:%h' "$NGINX_OBSERVABILITY_CONF")
+  [[ ${_required_18} == root:root:600:1 ]]
   cp -p -- "$NGINX_OBSERVABILITY_CONF" "$work/config/nginx/observability.conf"
 else
   : > "$work/config/nginx/observability.absent"
 fi
 if [[ -e $NGINX_SITE_BACKUP_DIR || -L $NGINX_SITE_BACKUP_DIR ]]; then
   [[ -d $NGINX_SITE_BACKUP_DIR && ! -L $NGINX_SITE_BACKUP_DIR ]]
-  [[ $(stat -c '%U:%G:%a' "$NGINX_SITE_BACKUP_DIR") == root:root:700 ]]
-  [[ -z $(find "$NGINX_SITE_BACKUP_DIR" -mindepth 1 -maxdepth 1 ! -type f -print -quit) ]]
-  while IFS= read -r -d '' backup_file; do
+  _required_19=$(stat -c '%U:%G:%a' "$NGINX_SITE_BACKUP_DIR")
+  [[ ${_required_19} == root:root:700 ]]
+  _required_20=$(find "$NGINX_SITE_BACKUP_DIR" -mindepth 1 -maxdepth 1 ! -type f -print -quit)
+  [[ -z ${_required_20} ]]
+  _required_inventory_1=()
+  sub2api_capture_nul _required_inventory_1 find "$NGINX_SITE_BACKUP_DIR" -mindepth 1 -maxdepth 1 -type f -print0
+  for backup_file in "${_required_inventory_1[@]}"; do
     name=$(basename -- "$backup_file")
     [[ $name =~ ^[A-Za-z0-9._-]{1,240}$ ]]
-    [[ $(stat -c '%U:%G:%a:%h' "$backup_file") == root:root:600:1 ]]
+    _required_21=$(stat -c '%U:%G:%a:%h' "$backup_file")
+    [[ ${_required_21} == root:root:600:1 ]]
     cp -p -- "$backup_file" "$work/config/nginx/release-backups/$name"
-  done < <(find "$NGINX_SITE_BACKUP_DIR" -mindepth 1 -maxdepth 1 -type f -print0)
+  done
 else
   : > "$work/config/nginx/release-backups/.absent"
 fi
 if [[ -e $NGINX_UPSTREAM_LOGROTATE || -L $NGINX_UPSTREAM_LOGROTATE ]]; then
   [[ -f $NGINX_UPSTREAM_LOGROTATE && ! -L $NGINX_UPSTREAM_LOGROTATE ]]
-  [[ $(stat -c '%U:%G:%a:%h' "$NGINX_UPSTREAM_LOGROTATE") == root:root:644:1 ]]
+  _required_22=$(stat -c '%U:%G:%a:%h' "$NGINX_UPSTREAM_LOGROTATE")
+  [[ ${_required_22} == root:root:644:1 ]]
   # The managed release policy uses rotate 14; preserve the source file byte-for-byte.
   cp -p "$NGINX_UPSTREAM_LOGROTATE" "$work/config/nginx/logrotate/"
 else
@@ -199,7 +225,8 @@ artifact_sha=$(sha256sum "$encrypted" | awk '{print $1}')
 backup_stage=upload
 remote_result=$(ssh -i "$upload_key" -o BatchMode=yes -o StrictHostKeyChecking=yes "$upload_target" "upload daily $transport $artifact_sha" < "$encrypted")
 grep -Fq "OK $transport $artifact_sha" <<<"$remote_result"
-[[ $(docker inspect -f '{{.State.Health.Status}}' "$active_container") == healthy ]]
+_required_23=$(docker inspect -f '{{.State.Health.Status}}' "$active_container")
+[[ ${_required_23} == healthy ]]
 backup_stage=local_restore_point
 cp -a "$encrypted" "$state_dir/recovery-point.age"
 printf '%s  recovery-point.age\n' "$artifact_sha" > "$state_dir/recovery-point.age.sha256"
@@ -210,8 +237,10 @@ printf '%s  recovery-point.tar\n' "$plain_sha" > "$state_dir/recovery-point.tar.
 tar -tf "$state_dir/recovery-point.tar" >/dev/null
 backup_stage=commit_result
 result_tmp="$result_file.tmp"
+_required_arg_4=$(basename "$encrypted")
+_required_arg_3=$(stat -c %s "$encrypted")
 printf 'artifact=%s\ntransport_artifact=%s\nartifact_size=%s\nartifact_sha256=%s\ntraffic_preserved=true\nredis_backup_mode=rdb\nno_restart_path_proven=true\nlocal_restore_point_ready=true\n' \
-  "$(basename "$encrypted")" "$transport" "$(stat -c %s "$encrypted")" "$artifact_sha" > "$result_tmp"
+  "${_required_arg_4}" "$transport" "${_required_arg_3}" "$artifact_sha" > "$result_tmp"
 chmod 400 "$result_tmp"
 mv -f "$result_tmp" "$result_file"
 (cd "$state_dir" && sha256sum backup-result > backup-result.sha256.tmp)

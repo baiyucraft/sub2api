@@ -115,7 +115,8 @@ if [[ $phase == vm_semantics ]]; then
   migration_file=${ASSERT_MIGRATION_FILE:-}
   [[ $db_name =~ ^sub2api_v2_[A-Za-z0-9_]+$ && ${ASSERT_VM_ISOLATED_DB:-} == "$db_name" ]] || fail isolation_boundary
   [[ -f $migration_file && ! -L $migration_file ]] || fail migration_source
-  [[ $(sha256sum "$migration_file" | awk '{print $1}') == 97ccd6842138d835393d61e719e84b4b17bd169e95d92053416e62411989b568 ]] || fail migration_source
+  _required_1=$(sha256sum "$migration_file" | awk '{print $1}') || fail migration_source
+  [[ ${_required_1} == 97ccd6842138d835393d61e719e84b4b17bd169e95d92053416e62411989b568 ]] || fail migration_source
   result=$(query "SELECT current_database() = '$db_name'") || fail isolation_query
   [[ $result == t ]] || fail isolation_boundary
   result=$({

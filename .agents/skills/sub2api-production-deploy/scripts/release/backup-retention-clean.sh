@@ -15,13 +15,19 @@ minimum_keep_daily=${MINIMUM_KEEP_DAILY:-2}
 [[ $minimum_keep_daily =~ ^[0-9]+$ && $minimum_keep_daily -ge 1 ]]
 [[ $minimum_free_bytes =~ ^[0-9]+$ ]]
 [[ -d $backup_root && ! -L $backup_root ]]
-[[ $(realpath -e -- "$backup_root") == "$backup_root" ]]
+{
+  required_query_1=$(realpath -e -- "$backup_root")
+  [[ ${required_query_1} == "$backup_root" ]]
+}
 daily="$backup_root/daily"
 [[ -d $daily && ! -L $daily ]]
 daily_owner=$(stat -c '%U:%G' "$daily")
 [[ $daily_owner =~ ^[A-Za-z_][A-Za-z0-9_-]*:[A-Za-z_][A-Za-z0-9_-]*$ ]]
 promotion_lock="$backup_root/.release-promotion.lock"
-[[ -f $promotion_lock && ! -L $promotion_lock && $(stat -c '%h' "$promotion_lock") == 1 ]]
+{
+  required_query_2=$(stat -c '%h' "$promotion_lock")
+  [[ -f $promotion_lock && ! -L $promotion_lock && ${required_query_2} == 1 ]]
+}
 
 now_epoch=$(date -u +%s)
 cutoff_epoch=$((now_epoch - retention_days * 86400))
@@ -37,11 +43,23 @@ plan="$work/plan"
 
 for artifact in "$daily"/*.tar.age; do
   [[ -e $artifact ]] || continue
-  [[ -f $artifact && ! -L $artifact && $(stat -c '%h' "$artifact") == 1 ]]
+  {
+    required_query_3=$(stat -c '%h' "$artifact")
+    [[ -f $artifact && ! -L $artifact && ${required_query_3} == 1 ]]
+  }
   checksum="$artifact.sha256"
-  [[ -f $checksum && ! -L $checksum && $(stat -c '%h' "$checksum") == 1 ]]
-  [[ $(stat -c '%U:%G' "$artifact") == "$daily_owner" ]]
-  [[ $(stat -c '%U:%G' "$checksum") == "$daily_owner" ]]
+  {
+    required_query_4=$(stat -c '%h' "$checksum")
+    [[ -f $checksum && ! -L $checksum && ${required_query_4} == 1 ]]
+  }
+  {
+    required_query_5=$(stat -c '%U:%G' "$artifact")
+    [[ ${required_query_5} == "$daily_owner" ]]
+  }
+  {
+    required_query_6=$(stat -c '%U:%G' "$checksum")
+    [[ ${required_query_6} == "$daily_owner" ]]
+  }
   name=${artifact##*/}
   [[ $name =~ ^sub2api-[0-9]{8}T[0-9]{6}Z\.tar\.age$ ]]
   stamp=${name#sub2api-}
@@ -50,9 +68,17 @@ for artifact in "$daily"/*.tar.age; do
   artifact_epoch=$(date -u -d "$date_input" +%s)
   [[ $artifact_epoch =~ ^[0-9]+$ ]]
   expected=$(sha256sum "$artifact" | awk '{print $1}')
-  [[ $(cat "$checksum") == "$expected  $name" || $(cat "$checksum") == "$expected *$name" ]]
-  printf '%s\t%s\t%s\t%s\t%s\n' \
-    "$artifact_epoch" "$(stat -c '%Y' "$artifact")" "$name" "$(stat -c '%s' "$artifact")" "$expected" >> "$entries"
+  {
+    required_query_7=$(cat "$checksum")
+    required_query_8=$(cat "$checksum")
+    [[ ${required_query_7} == "$expected  $name" || ${required_query_8} == "$expected *$name" ]]
+  }
+  {
+    required_query_9=$(stat -c '%Y' "$artifact")
+    required_query_10=$(stat -c '%s' "$artifact")
+    printf '%s\t%s\t%s\t%s\t%s\n' \
+    "$artifact_epoch" "${required_query_9}" "$name" "${required_query_10}" "$expected"
+  } >> "$entries"
 done
 
 LC_ALL=C sort -nr "$entries" > "$work/sorted"
@@ -63,7 +89,12 @@ while IFS=$'\t' read -r artifact_epoch mtime name bytes digest; do
     artifact="$daily/$name"
     checksum="$artifact.sha256"
     printf '%s\t%s\t%s\t%s\n' "$artifact" "$bytes" "$mtime" "$digest" >> "$plan"
-    printf '%s\t%s\t%s\t%s\n' "$checksum" "$(stat -c '%s' "$checksum")" "$(stat -c '%Y' "$checksum")" "$(sha256sum "$checksum" | awk '{print $1}')" >> "$plan"
+    {
+      required_query_11=$(stat -c '%s' "$checksum") || exit $?
+      required_query_12=$(stat -c '%Y' "$checksum") || exit $?
+      required_query_13=$(sha256sum "$checksum" | awk '{print $1}') || exit $?
+      printf '%s\t%s\t%s\t%s\n' "$checksum" "${required_query_11}" "${required_query_12}" "${required_query_13}"
+    } >> "$plan"
   fi
 done < "$work/sorted"
 
@@ -77,12 +108,24 @@ if [[ $mode == apply ]]; then
   lock_file="$backup_root/.backup-retention.lock"
   [[ ! -e $lock_file || ! -L $lock_file ]]
   exec 9>"$lock_file"
-  [[ $(stat -c '%h' "$lock_file") == 1 ]]
+  {
+    required_query_14=$(stat -c '%h' "$lock_file") || exit $?
+    [[ ${required_query_14} == 1 ]]
+  }
   flock -n 9
   while IFS=$'\t' read -r path bytes mtime digest; do
-    [[ -f $path && ! -L $path && $(stat -c '%h' "$path") == 1 ]]
-    [[ $(stat -c '%s' "$path") == "$bytes" ]]
-    [[ $(sha256sum "$path" | awk '{print $1}') == "$digest" ]]
+    {
+      required_query_15=$(stat -c '%h' "$path") || exit $?
+      [[ -f $path && ! -L $path && ${required_query_15} == 1 ]]
+    }
+    {
+      required_query_16=$(stat -c '%s' "$path") || exit $?
+      [[ ${required_query_16} == "$bytes" ]]
+    }
+    {
+      required_query_17=$(sha256sum "$path" | awk '{print $1}') || exit $?
+      [[ ${required_query_17} == "$digest" ]]
+    }
     rm -- "$path"
   done < "$plan"
   free_after=$(df -PB1 "$backup_root" | awk 'NR==2 {print $4}')

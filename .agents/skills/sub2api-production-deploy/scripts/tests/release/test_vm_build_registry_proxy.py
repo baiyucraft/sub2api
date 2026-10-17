@@ -30,15 +30,22 @@ def bash_path() -> str:
     pytest.skip("real Bash is unavailable")
 
 
-def build_source() -> tuple[str, list[str]]:
+def build_source() -> tuple[str, list[tuple[str, str]]]:
     source = VALIDATOR.read_text(encoding="utf-8")
     helper = re.search(r"(?ms)^docker_build_with_registry_bypass\(\) \{\n.*?^\}", source)
     assert helper is not None
-    commands = re.findall(
-        r'(?m)^\s*(docker_build_with_registry_bypass --network=host --progress=plain \\\n'
-        r'(?:[ \t]+.*\\\n)*[ \t]+--build-arg DATE=.*? -t "\$tag" \.) [^\n]*',
+    # Match the complete build group and bind DATE to its adjacent required
+    # capture without depending on the generated variable's numeric suffix.
+    build_groups = list(re.finditer(
+        r'(?m)^[ \t]*\{\n'
+        r'[ \t]*(?P<capture>(?P<date_variable>[A-Za-z_]\w*)=\$\(date -u \+%Y-%m-%dT%H:%M:%SZ\))\n'
+        r'[ \t]*(?P<command>docker_build_with_registry_bypass --network=host --progress=plain \\\n'
+        r'(?:[ \t]+.*\\\n)*[ \t]+--build-arg DATE="\$\{(?P=date_variable)\}" -t "\$tag" \.)\n'
+        r'[ \t]*\} (?:>"\$build_log"|>/dev/null) 2>&1$',
         source,
-    )
+    ))
+    assert "set -Eeuo pipefail\n" in source
+    commands = [(match['capture'], match['command']) for match in build_groups]
     assert len(commands) == 2, "both Gate v2 and legacy builds must use the scoped helper"
     assert "docker build --network=host" not in source
     return helper.group(0), commands
@@ -64,6 +71,7 @@ def build_source() -> tuple[str, list[str]]:
 @pytest.mark.parametrize("exit_code", [0, 37], ids=["success", "failure"])
 def test_real_bash_build_bypass_preserves_parent_and_all_proxies(entry, upper, lower, exit_code):
     helper, commands = build_source()
+    date_capture, build_command = commands[entry]
     setup = ["unset NO_PROXY no_proxy " + " ".join(PROXY_NAMES)]
     for name, value in (("NO_PROXY", upper), ("no_proxy", lower)):
         if value is not None:
@@ -89,11 +97,15 @@ docker() {
     exit "$status"
   ' fixture-docker "$fixture_exit_code" "$@"
 }
+date() {
+  [[ $# == 2 && $1 == -u && $2 == +%Y-%m-%dT%H:%M:%SZ ]] || return 97
+  printf '%s' fixture-date
+}
 commit=fixture-commit
 version=fixture-version
 tag=fixture-tag
 emit_environment
-''' + f"fixture_exit_code={exit_code}\nif {commands[entry]}; then result=0; else result=$?; fi\n" + r'''
+''' + f"fixture_exit_code={exit_code}\n{date_capture}\nif {build_command}; then result=0; else result=$?; fi\n" + r'''
 emit_environment
 printf '%s\0' "$result"
 '''
@@ -115,6 +127,8 @@ printf '%s\0' "$result"
     for image in ("node:24-alpine", "golang:1.27.2-alpine", "alpine:3.21", "postgres:18-alpine"):
         assert any(argument.endswith(f"=docker.m.daocloud.io/library/{image}") for argument in arguments)
     assert arguments[-3:] == ["-t", "fixture-tag", "."]
+    assert arguments.count("DATE=fixture-date") == 1
+    assert arguments[arguments.index("DATE=fixture-date") - 1] == "--build-arg"
     assert fields[17 + argument_count:25 + argument_count] == parent
     assert fields[-1] == str(exit_code)
 

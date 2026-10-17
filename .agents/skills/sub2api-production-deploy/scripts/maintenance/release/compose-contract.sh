@@ -5,6 +5,34 @@
 # host published port is never confused with the port used inside a bridge
 # container.
 
+# systemctl uses nonzero exit statuses for legitimate inactive/masked states.
+# Preserve only documented value/status pairs; transport or query errors must
+# never be accepted merely because they printed a familiar state first.
+sub2api_required_systemctl() {
+  local value code=0
+  value=$(systemctl "$@" 2>/dev/null) || code=$?
+  case "$1:$value:$code" in
+    is-active:active:0|is-active:inactive:3|is-active:failed:3|is-enabled:enabled:0|is-enabled:enabled-runtime:0|is-enabled:static:0|is-enabled:indirect:0|is-enabled:generated:0|is-enabled:alias:0|is-enabled:masked:1|is-enabled:masked-runtime:1|is-enabled:disabled:1) ;;
+    *) return 1 ;;
+  esac
+  printf '%s\n' "$value"
+}
+
+# Keep NUL-delimited inventories without hiding a producer's exit status in
+# process substitution. Publish the array only after the producer/read pass.
+sub2api_capture_nul() {
+  local __sub2api_nul_name=${1:?array name is required} __sub2api_nul_file
+  shift
+  [[ $__sub2api_nul_name =~ ^[A-Za-z_][A-Za-z0-9_]*$ && $__sub2api_nul_name != __sub2api_nul_* ]] || return 1
+  local -n __sub2api_nul_target=$__sub2api_nul_name
+  local -a __sub2api_nul_values=()
+  __sub2api_nul_file=$(mktemp) || return 1
+  if ! "$@" > "$__sub2api_nul_file"; then rm -f -- "$__sub2api_nul_file"; return 1; fi
+  if ! mapfile -d '' -t __sub2api_nul_values < "$__sub2api_nul_file"; then rm -f -- "$__sub2api_nul_file"; return 1; fi
+  rm -f -- "$__sub2api_nul_file" || return 1
+  __sub2api_nul_target=("${__sub2api_nul_values[@]}")
+}
+
 # Resolve the exact Compose closure declared by the deployment .env.  Release
 # scripts must not silently fall back to docker-compose.yml because production
 # commonly adds docker-compose.local.yml for the real /app/data bind mount.
@@ -33,7 +61,7 @@ load_release_compose_files() {
     seen+="$item:"
     release_compose_args+=(-f "$root/$item")
   done
-  [[ $seen == *':docker-compose.yml:'* ]]
+  [[ $seen == *':docker-compose.yml:'* ]] || return 1
 }
 
 # The runtime image starts as root only long enough to repair /app/data and
@@ -57,8 +85,8 @@ write_release_activation_marker() {
   local activation_host_dir runtime_uid runtime_gid marker_tmp marker_path
   if ! activation_host_dir=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/app/data"}}{{.Source}}{{end}}{{end}}' "$container"); then RELEASE_ACTIVATION_MARKER_FAILURE_REASON=data_mount_inspect; return 1; fi
   if ! [[ -n $activation_host_dir && -d $activation_host_dir && ! -L $activation_host_dir ]]; then RELEASE_ACTIVATION_MARKER_FAILURE_REASON=data_mount_invalid; return 1; fi
-  if ! runtime_uid=$(docker exec "$container" sh -c 'set -- $(grep "^Uid:" /proc/1/status); printf "%s\n" "$5"'); then RELEASE_ACTIVATION_MARKER_FAILURE_REASON=runtime_uid_read; return 1; fi
-  if ! runtime_gid=$(docker exec "$container" sh -c 'set -- $(grep "^Gid:" /proc/1/status); printf "%s\n" "$5"'); then RELEASE_ACTIVATION_MARKER_FAILURE_REASON=runtime_gid_read; return 1; fi
+  if ! runtime_uid=$(docker exec "$container" sh -c 'row=$(grep "^Uid:" /proc/1/status) || exit 1; set -- $row; printf "%s\n" "$5"'); then RELEASE_ACTIVATION_MARKER_FAILURE_REASON=runtime_uid_read; return 1; fi
+  if ! runtime_gid=$(docker exec "$container" sh -c 'row=$(grep "^Gid:" /proc/1/status) || exit 1; set -- $row; printf "%s\n" "$5"'); then RELEASE_ACTIVATION_MARKER_FAILURE_REASON=runtime_gid_read; return 1; fi
   if ! [[ $runtime_uid =~ ^[0-9]+$ && $runtime_gid =~ ^[0-9]+$ ]]; then RELEASE_ACTIVATION_MARKER_FAILURE_REASON=runtime_identity_invalid; return 1; fi
 
   marker_path="$activation_host_dir/.sub2api-active-instance"
@@ -66,14 +94,15 @@ write_release_activation_marker() {
   if ! printf '%s\n' "$instance_id" > "$marker_tmp" ||
      ! chown "$runtime_uid:$runtime_gid" "$marker_tmp" ||
      ! chmod 600 "$marker_tmp" ||
-     [[ $(stat -c '%u:%g:%a:%h' "$marker_tmp") != "$runtime_uid:$runtime_gid:600:1" ]] ||
+     ! _required_1=$(stat -c '%u:%g:%a:%h' "$marker_tmp") ||
+     [[ ${_required_1} != "$runtime_uid:$runtime_gid:600:1" ]] ||
      ! mv -T -- "$marker_tmp" "$marker_path"; then
     rm -f -- "$marker_tmp"
     RELEASE_ACTIVATION_MARKER_FAILURE_REASON=marker_publish
     return 1
   fi
   if ! [[ ! -L $marker_path ]]; then RELEASE_ACTIVATION_MARKER_FAILURE_REASON=marker_symlink; return 1; fi
-  if ! [[ $(stat -c '%u:%g:%a:%h' "$marker_path") == "$runtime_uid:$runtime_gid:600:1" ]]; then RELEASE_ACTIVATION_MARKER_FAILURE_REASON=marker_metadata; return 1; fi
+  if ! _required_1=$(stat -c '%u:%g:%a:%h' "$marker_path") || ! [[ $_required_1 == "$runtime_uid:$runtime_gid:600:1" ]]; then RELEASE_ACTIVATION_MARKER_FAILURE_REASON=marker_metadata; return 1; fi
   if ! [[ $(<"$marker_path") == "$instance_id" ]]; then RELEASE_ACTIVATION_MARKER_FAILURE_REASON=marker_content; return 1; fi
 }
 
@@ -85,7 +114,8 @@ run_release_logged_command() {
   if [[ -n ${SUB2API_RELEASE_RAW_LOG:-} ]]; then
     [[ $SUB2API_RELEASE_RAW_LOG == /opt/sub2api/releases/*/logs/production.raw.log ]] || return 1
     [[ -f $SUB2API_RELEASE_RAW_LOG && ! -L $SUB2API_RELEASE_RAW_LOG ]] || return 1
-    [[ $(stat -c '%U:%G:%a:%h' "$SUB2API_RELEASE_RAW_LOG") == root:root:600:1 ]] || return 1
+    _required_2=$(stat -c '%U:%G:%a:%h' "$SUB2API_RELEASE_RAW_LOG") || return 1
+    [[ ${_required_2} == root:root:600:1 ]] || return 1
     "$@" >> "$SUB2API_RELEASE_RAW_LOG" 2>&1
   else
     "$@" >/dev/null 2>&1
@@ -114,7 +144,7 @@ assert_http_header_equals() {
     END { if (count != 1) exit 1; print value }
   ') || return 1
   [[ -n $actual && $actual != *$'\n'* ]] || return 1
-  [[ $actual == "$expected" ]]
+  [[ $actual == "$expected" ]] || return 1
 }
 
 sub2api_compose_network_mode() {
@@ -281,21 +311,21 @@ write_release_active_override() {
   local health_url
   health_url=$(sub2api_healthcheck_url "$network_mode" "$host_port") || return 1
   {
-    printf 'services:\n  sub2api:\n    image: %s\n    container_name: sub2api\n' "$image"
+    printf 'services:\n  sub2api:\n    image: %s\n    container_name: sub2api\n' "$image" || return 1
     if [[ $network_mode == host || -n $instance_id ]]; then
-      printf '    environment:\n'
+      printf '    environment:\n' || return 1
       if [[ $network_mode == host ]]; then
-        printf '      SERVER_HOST: 127.0.0.1\n      SERVER_PORT: "%s"\n' "$host_port"
+        printf '      SERVER_HOST: 127.0.0.1\n      SERVER_PORT: "%s"\n' "$host_port" || return 1
       fi
       if [[ -n $instance_id ]]; then
-        printf '      SUB2API_INSTANCE_ID: %s\n' "$instance_id"
-        printf '      SUB2API_BACKGROUND_ACTIVATION_FILE: /app/data/.sub2api-active-instance\n'
+        printf '      SUB2API_INSTANCE_ID: %s\n' "$instance_id" || return 1
+        printf '      SUB2API_BACKGROUND_ACTIVATION_FILE: /app/data/.sub2api-active-instance\n' || return 1
       fi
     fi
-    printf '    healthcheck:\n'
-    printf '      test: ["CMD", "wget", "-q", "-T", "5", "-O", "/dev/null", "%s"]\n' "$health_url"
-    printf '    volumes:\n'
-    printf '      - type: volume\n        source: sub2api_observer\n        target: /app/.tmp/maibon-probe-observation\n'
-    printf 'volumes:\n  sub2api_observer:\n    driver: local\n'
+    printf '    healthcheck:\n' || return 1
+    printf '      test: ["CMD", "wget", "-q", "-T", "5", "-O", "/dev/null", "%s"]\n' "$health_url" || return 1
+    printf '    volumes:\n' || return 1
+    printf '      - type: volume\n        source: sub2api_observer\n        target: /app/.tmp/maibon-probe-observation\n' || return 1
+    printf 'volumes:\n  sub2api_observer:\n    driver: local\n' || return 1
   } > "$output"
 }

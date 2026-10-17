@@ -59,7 +59,8 @@ if [[ $phase == preflight ]]; then
     [[ $backup_exists == t && $constraint_exists == 1 ]]
     affected=$(query "SELECT COUNT(*) FROM groups_video_price_backup_239")
     plan_sha256=$(canonical_backup_hash)
-    [[ $(query "SELECT COUNT(*) FROM groups WHERE $live_predicate") == 0 ]]
+    _required_1=$(query "SELECT COUNT(*) FROM groups WHERE $live_predicate")
+    [[ ${_required_1} == 0 ]]
   fi
   protected_sha256=$(protected_hash)
   [[ $affected =~ ^[0-9]+$ && $plan_sha256 =~ ^[0-9a-f]{64}$ && $protected_sha256 =~ ^[0-9a-f]{64}$ ]]

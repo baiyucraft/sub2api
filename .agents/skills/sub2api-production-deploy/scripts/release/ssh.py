@@ -194,17 +194,23 @@ if [[ -e {shlex.quote(log_root)} ]]; then
 else
   install -d -o 0 -g 0 -m 700 {shlex.quote(log_root)}
 fi
-[[ $(stat -c '%u:%g:%a' {shlex.quote(log_root)}) == 0:0:700 ]]
+log_root_metadata=$(stat -c '%u:%g:%a' {shlex.quote(log_root)}) || exit $?
+[[ $log_root_metadata == 0:0:700 ]]
 if [[ -e {shlex.quote(log_dir)} ]]; then
   [[ -d {shlex.quote(log_dir)} && ! -L {shlex.quote(log_dir)} ]]
 else
   install -d -o 0 -g 0 -m 700 {shlex.quote(log_dir)}
 fi
-[[ $(stat -c '%u:%g:%a' {shlex.quote(log_dir)}) == 0:0:700 ]]
+log_dir_metadata=$(stat -c '%u:%g:%a' {shlex.quote(log_dir)}) || exit $?
+[[ $log_dir_metadata == 0:0:700 ]]
+if [[ -e {shlex.quote(log_file)} || -L {shlex.quote(log_file)} ]]; then
+  [[ -f {shlex.quote(log_file)} && ! -L {shlex.quote(log_file)} ]]
+fi
 touch {shlex.quote(log_file)}
 [[ -f {shlex.quote(log_file)} && ! -L {shlex.quote(log_file)} ]]
 chmod 600 {shlex.quote(log_file)}
-[[ $(stat -c '%u:%g:%a:%h' {shlex.quote(log_file)}) == 0:0:600:1 ]]
+log_file_metadata=$(stat -c '%u:%g:%a:%h' {shlex.quote(log_file)}) || exit $?
+[[ $log_file_metadata == 0:0:600:1 ]]
 stdout_tmp=$(mktemp {shlex.quote(log_dir + '/.stdout.XXXXXXXX')})
 stderr_tmp=$(mktemp {shlex.quote(log_dir + '/.stderr.XXXXXXXX')})
 cleanup_remote_raw_log() {{ rm -f -- "$stdout_tmp" "$stderr_tmp"; }}
@@ -685,12 +691,14 @@ done
 rm -f -- "$assembled"
 cat -- "${{parts[@]}}" > "$assembled"
 chmod {mode:o} "$assembled"
-[[ $(stat -c '%s' "$assembled") == {expected_size} ]]
+assembled_bytes=$(stat -c '%s' "$assembled") || exit $?
+[[ $assembled_bytes == {expected_size} ]]
 if [[ -e "$final" && ! -f "$final" ]]; then exit 92; fi
 mv -f -- "$assembled" "$final"
 for part in "${{parts[@]}}"; do rm -f -- "$part"; done
 for part in "${{parts[@]}}"; do [[ ! -e "$part" ]]; done
-printf 'assembled_size=%s\\n' "$(stat -c '%s' "$final")"
+final_bytes=$(stat -c '%s' "$final") || exit $?
+printf 'assembled_size=%s\\n' "$final_bytes"
 '''
         try:
             assembled = self.run(name, script, {"assembled_size"}, timeout=max(120, expected_size // (1024 * 1024) * 10)).values
@@ -1062,7 +1070,7 @@ printf 'assembled_size=%s\\n' "$(stat -c '%s' "$final")"
         script = (
             f"test -d {shlex.quote(base)} && test ! -L {shlex.quote(base)} && "
             f"dir=$(mktemp -d {shlex.quote(base + '/' + prefix + '.XXXXXXXX')}) && chmod 700 \"$dir\" && "
-            "test $(stat -c '%u:%a' \"$dir\") = $(id -u):700 && printf 'temp_dir=%s\\n' \"$dir\""
+            "dir_metadata=$(stat -c '%u:%a' \"$dir\") && dir_uid=$(id -u) && test \"$dir_metadata\" = \"$dir_uid:700\" && printf 'temp_dir=%s\\n' \"$dir\""
         )
         path = self.run(name, script, {"temp_dir"}).values["temp_dir"]
         if posixpath.dirname(path) != base or not posixpath.basename(path).startswith(prefix + "."):

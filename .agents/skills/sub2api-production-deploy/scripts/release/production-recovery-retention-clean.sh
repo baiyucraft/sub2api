@@ -32,7 +32,10 @@ minimum_keep=3
 if [[ $mode == apply ]]; then
   cutoff_epoch=$requested_cutoff_epoch
 else
-  cutoff_epoch=$(( $(date +%s) - retention_days * 86400 ))
+  {
+    required_query_1=$(date +%s) || exit $?
+    cutoff_epoch=$(( ${required_query_1} - retention_days * 86400 ))
+  }
 fi
 work_dir=$(mktemp -d /tmp/sub2api-recovery-retention.XXXXXXXX)
 cleanup() { rm -rf -- "$work_dir"; }
@@ -51,7 +54,10 @@ plan=$work_dir/plan
 
 assert_idle() {
   [[ ! -e $active_claim && ! -L $active_claim ]]
-  [[ $(ps -eo args= | awk '/docker (build|buildx)|buildctl|release\.py (deploy|deploy-start)|release\.supervisor/ && ! /awk/ {count++} END {print count+0}') == 0 ]]
+  {
+    required_query_2=$(ps -eo args= | awk '/docker (build|buildx)|buildctl|release\.py (deploy|deploy-start)|release\.supervisor/ && ! /awk/ {count++} END {print count+0}') || return $?
+    [[ ${required_query_2} == 0 ]]
+  }
 }
 
 read_terminal_state() {
@@ -72,11 +78,12 @@ read_terminal_state() {
 write_records() {
   local state_dir release_id terminal recovery_file recovery_sha pre_image bytes mtime links
   [[ -d $state_root && ! -L $state_root ]]
+  find "$state_root" -mindepth 1 -maxdepth 1 -type d ! -name '.*' -print0 | LC_ALL=C sort -z > "$work_dir/state-inventory"
   while IFS= read -r -d '' state_dir; do
     release_id=${state_dir##*/}
     [[ $release_id =~ $release_id_pattern ]] || continue
     [[ -d $state_dir && ! -L $state_dir ]] || continue
-    terminal=$(read_terminal_state "$release_id" || true)
+    terminal=$(read_terminal_state "$release_id") || terminal=unknown
     recovery_file=$state_dir/recovery-point.age
     recovery_sha=$state_dir/recovery-point.age.sha256
     pre_image=$state_dir/pre-image-id
@@ -88,10 +95,14 @@ write_records() {
       printf '%s\tunknown\n' "$release_id" >> "$records"
       continue
     fi
-    if [[ $(find "$state_dir" -mindepth 1 -maxdepth 1 ! -type f -o -type l | wc -l | tr -d ' ') != 0 ||
-          $(find "$state_dir" -mindepth 1 -maxdepth 1 -type f ! -name 'backup-result' ! -name 'backup-result.sha256' ! -name 'pre-image-id' ! -name 'recovery-point.age' ! -name 'recovery-point.age.sha256' | wc -l | tr -d ' ') != 0 ||
+    if {
+         required_query_3=$(find "$state_dir" -mindepth 1 -maxdepth 1 ! -type f -o -type l | wc -l | tr -d ' ') || return $?
+         required_query_4=$(find "$state_dir" -mindepth 1 -maxdepth 1 -type f ! -name 'backup-result' ! -name 'backup-result.sha256' ! -name 'pre-image-id' ! -name 'recovery-point.age' ! -name 'recovery-point.age.sha256' | wc -l | tr -d ' ') || return $?
+         [[ ${required_query_3} != 0 ||
+          ${required_query_4} != 0 ||
           ! -f "$state_dir/backup-result" || -L "$state_dir/backup-result" ||
-          ! -f "$state_dir/backup-result.sha256" || -L "$state_dir/backup-result.sha256" ]]; then
+          ! -f "$state_dir/backup-result.sha256" || -L "$state_dir/backup-result.sha256" ]]
+       }; then
       printf '%s\tunknown\n' "$release_id" >> "$records"
       continue
     fi
@@ -108,36 +119,45 @@ write_records() {
     fi
     printf '%s\t%s\t%s\t%s\t%s\n' "$release_id" "$terminal" "$mtime" "$bytes" "$links" >> "$valid_records"
     printf '%s\tvalid\n' "$release_id" >> "$records"
-  done < <(find "$state_root" -mindepth 1 -maxdepth 1 -type d ! -name '.*' -print0 | LC_ALL=C sort -z)
+  done < "$work_dir/state-inventory"
 }
 
 build_protected_set() {
   local release_id marker consumed_at
-  # Keep the latest two successfully consumed release points as current/previous
-  # protection even when the active-release claim is absent after a recovery.
+  # Complete the inventory before selecting current/previous protection; a
+  # failed producer must never look like an empty set of protected releases.
+  : > "$work_dir/consumed-records"
+  for marker in "$release_root"/*/.consumed/marker; do
+    [[ -f $marker && ! -L $marker ]] || continue
+    release_id=${marker#"$release_root/"}; release_id=${release_id%%/*}
+    consumed_at=$(sed -n 's/^consumed_at=//p' "$marker")
+    [[ $consumed_at =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || continue
+    printf '%s\t%s\n' "$consumed_at" "$release_id" >> "$work_dir/consumed-records"
+  done
+  LC_ALL=C sort -r "$work_dir/consumed-records" > "$work_dir/consumed-sorted"
+  head -n 2 "$work_dir/consumed-sorted" > "$work_dir/consumed-protected"
   while IFS=$'\t' read -r consumed_at release_id; do
     [[ -n $release_id ]] || continue
     printf '%s\tcurrent_or_previous\n' "$release_id" >> "$protected_records"
-  done < <(
-    for marker in "$release_root"/*/.consumed/marker; do
-      [[ -f $marker && ! -L $marker ]] || continue
-      release_id=${marker#"$release_root/"}; release_id=${release_id%%/*}
-      consumed_at=$(sed -n 's/^consumed_at=//p' "$marker")
-      [[ $consumed_at =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || continue
-      printf '%s\t%s\n' "$consumed_at" "$release_id"
-    done | LC_ALL=C sort -r | head -n 2
-  )
+  done < "$work_dir/consumed-protected"
 }
 
 build_candidates() {
-  local release_id terminal mtime bytes links rank=0
+  local release_id terminal mtime bytes links rank=0 protected_status
   LC_ALL=C sort -t $'\t' -k3,3nr -k1,1r "$valid_records" > "$work_dir/sorted-records"
   while IFS=$'\t' read -r release_id terminal mtime bytes links; do
     [[ -n $release_id ]] || continue
     rank=$((rank + 1))
-    if (( mtime >= cutoff_epoch )) || (( rank <= minimum_keep )) || grep -Fq "$release_id" "$protected_records"; then
+    if (( mtime >= cutoff_epoch )) || (( rank <= minimum_keep )); then
       continue
     fi
+    protected_status=0
+    grep -Fq "$release_id" "$protected_records" || protected_status=$?
+    case $protected_status in
+      0) continue ;;
+      1) ;; # No matching protection entry is the only accepted negative.
+      *) return "$protected_status" ;;
+    esac
     printf '%s\t%s\t%s\t%s\t%s\n' "$release_id" "$terminal" "$mtime" "$bytes" "$links" >> "$candidates"
   done < "$work_dir/sorted-records"
 }
@@ -147,8 +167,14 @@ assert_candidate_unchanged() {
   state_dir=$state_root/$release_id
   recovery_file=$state_dir/recovery-point.age
   [[ -d $state_dir && ! -L $state_dir && -f $recovery_file && ! -L $recovery_file ]]
-  [[ $(stat -c '%Y:%s:%h' "$recovery_file") == "$mtime:$bytes:$links" ]]
-  [[ $(read_terminal_state "$release_id") == "$terminal" ]]
+  {
+    required_query_5=$(stat -c '%Y:%s:%h' "$recovery_file") || return $?
+    [[ ${required_query_5} == "$mtime:$bytes:$links" ]]
+  }
+  {
+    required_query_6=$(read_terminal_state "$release_id") || return $?
+    [[ ${required_query_6} == "$terminal" ]]
+  }
   [[ ! -e $state_dir/.reconciliation && ! -L $state_dir/.reconciliation ]]
   (cd "$state_dir" && sha256sum -c recovery-point.age.sha256 >/dev/null)
 }
@@ -191,7 +217,10 @@ root_free_after_bytes=$(df -PB1 / | awk 'NR==2 {print $4}')
 [[ $root_free_before_bytes =~ ^[0-9]+$ && $root_free_after_bytes =~ ^[0-9]+$ ]]
 root_free_delta_bytes=$((root_free_after_bytes - root_free_before_bytes))
 printf 'cleanup_mode=%s\n' "$mode"
-printf 'cleanup_status=%s\n' "$(if [[ $mode == dry-run ]]; then printf ready; else printf completed; fi)"
+{
+  required_query_7=$(if [[ $mode == dry-run ]]; then printf ready; else printf completed; fi)
+  printf 'cleanup_status=%s\n' "${required_query_7}"
+}
 printf 'plan_sha256=%s\n' "$plan_sha256"
 printf 'retention_days=%s\n' "$retention_days"
 printf 'minimum_keep=%s\n' "$minimum_keep"
@@ -200,10 +229,16 @@ printf 'valid_count=%s\n' "$valid_count"
 printf 'protected_count=%s\n' "$protected_count"
 printf 'candidate_count=%s\n' "$candidate_count"
 printf 'candidate_bytes=%s\n' "$candidate_bytes"
-printf 'candidate_ids=%s\n' "$(cut -f1 "$candidates" | paste -sd, -)"
+{
+  required_query_8=$(cut -f1 "$candidates" | paste -sd, -)
+  printf 'candidate_ids=%s\n' "${required_query_8}"
+}
 printf 'deleted_count=%s\n' "$deleted_count"
 printf 'deleted_bytes=%s\n' "$deleted_bytes"
-printf 'candidate_count_after=%s\n' "$(if [[ $mode == dry-run ]]; then printf '%s' "$candidate_count"; else printf '0'; fi)"
+{
+  required_query_9=$(if [[ $mode == dry-run ]]; then printf '%s' "$candidate_count"; else printf '0'; fi)
+  printf 'candidate_count_after=%s\n' "${required_query_9}"
+}
 printf 'root_free_before_bytes=%s\n' "$root_free_before_bytes"
 printf 'root_free_after_bytes=%s\n' "$root_free_after_bytes"
 printf 'root_free_delta_bytes=%s\n' "$root_free_delta_bytes"

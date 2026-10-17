@@ -20,10 +20,10 @@ route_to_port() {
   local tmp="$managed_upstream.rollback.$$"
   local previous="$managed_upstream.previous.$$"
   local restore="$managed_upstream.restore.$$"
-  install -m 600 "$managed_upstream" "$previous"
-  printf 'upstream sub2api_release_backend {\n    server 127.0.0.1:%s;\n    keepalive 128;\n}\n' "$port" > "$tmp"
-  chmod 600 "$tmp"
-  mv -T -- "$tmp" "$managed_upstream"
+  install -m 600 "$managed_upstream" "$previous" || return 1
+  printf 'upstream sub2api_release_backend {\n    server 127.0.0.1:%s;\n    keepalive 128;\n}\n' "$port" > "$tmp" || return 1
+  chmod 600 "$tmp" || return 1
+  mv -T -- "$tmp" "$managed_upstream" || return 1
   if ! nginx -t >/dev/null 2>&1 || ! systemctl reload nginx >/dev/null 2>&1; then
     install -m 600 "$previous" "$restore"
     mv -T -- "$restore" "$managed_upstream"
@@ -35,8 +35,10 @@ route_to_port() {
 }
 wait_healthy() {
   local container=${1:?container is required}
-  for _ in $(seq 1 90); do
-    [[ $(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$container" 2>/dev/null || true) == healthy ]] && return 0
+  for _ in {1..90}; do
+    if _required_1=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$container" 2>/dev/null) && [[ ${_required_1} == healthy ]]; then
+      return 0
+    fi
     sleep 2
   done
   return 1
@@ -47,16 +49,25 @@ wait_healthy() {
 # instance before freeing the port for the saved old Compose definition.  The
 # container name alone is insufficient because both generations use sub2api.
 pre_image_id=$(<"$state_dir/pre-image-id")
-current_sub2api_image=$(docker inspect -f '{{.Image}}' sub2api 2>/dev/null || true)
+container_names=$(docker ps -a --format '{{.Names}}')
+current_sub2api_image=
+if [[ $'\n'"$container_names"$'\n' == *$'\nsub2api\n'* ]]; then
+  current_sub2api_image=$(docker inspect -f '{{.Image}}' sub2api)
+fi
 if [[ -n $current_sub2api_image && $current_sub2api_image != "$pre_image_id" ]]; then
-  [[ $(docker inspect -f '{{.State.Health.Status}}' "$candidate_container" 2>/dev/null || true) == healthy ]]
+  _required_2=$(docker inspect -f '{{.State.Health.Status}}' "$candidate_container")
+  [[ ${_required_2} == healthy ]]
   route_to_port "$candidate_port"
   final_connections=$(wait_for_application_drain sub2api "$drain_timeout")
   [[ $final_connections == 0 ]]
   docker stop -t 30 sub2api >/dev/null
   docker rm sub2api >/dev/null
 fi
-old_container_image=$(docker inspect -f '{{.Image}}' "$old_container" 2>/dev/null || true)
+container_names=$(docker ps -a --format '{{.Names}}')
+old_container_image=
+if [[ $'\n'"$container_names"$'\n' == *$'\n'"$old_container"$'\n'* ]]; then
+  old_container_image=$(docker inspect -f '{{.Image}}' "$old_container")
+fi
 if [[ $old_container_image != "$pre_image_id" ]]; then
   [[ -z $old_container_image ]] || { docker stop -t 30 "$old_container" >/dev/null 2>&1 || true; docker rm "$old_container" >/dev/null; }
   deploy_dir=${DEPLOY_DIR:-/opt/sub2api}
@@ -74,18 +85,20 @@ if [[ $old_container_image != "$pre_image_id" ]]; then
   run_release_logged_command docker compose "${release_compose_args[@]}" up -d --no-deps sub2api
   old_container=sub2api
 fi
-if [[ $(docker inspect -f '{{.State.Status}}' "$old_container" 2>/dev/null || true) != running ]]; then
+old_container_status=$(docker inspect -f '{{.State.Status}}' "$old_container")
+if [[ $old_container_status != running ]]; then
   docker start "$old_container" >/dev/null
 fi
 wait_healthy "$old_container"
-[[ $(docker inspect -f '{{.Image}}' "$old_container") == "$pre_image_id" ]]
+_required_3=$(docker inspect -f '{{.Image}}' "$old_container")
+[[ ${_required_3} == "$pre_image_id" ]]
 if [[ -n $old_instance_id ]]; then
   write_release_activation_marker "$old_container" "$old_instance_id"
   readiness_headers=$(mktemp /tmp/sub2api-route-rollback-readiness.XXXXXX)
   rollback_background_ready=false
-  for _ in $(seq 1 120); do
+  for _ in {1..120}; do
     : > "$readiness_headers"
-    if [[ $(curl -sS -D "$readiness_headers" -o /dev/null -w '%{http_code}' "http://127.0.0.1:${old_port}/health" 2>/dev/null || true) == 200 ]] &&
+    if rollback_http_code=$(curl -sS -D "$readiness_headers" -o /dev/null -w '%{http_code}' "http://127.0.0.1:${old_port}/health" 2>/dev/null) && [[ $rollback_http_code == 200 ]] &&
        assert_http_header_equals "$readiness_headers" X-Sub2API-Instance "$old_instance_id" &&
        assert_http_header_equals "$readiness_headers" X-Sub2API-Background-Ready true; then
       rollback_background_ready=true
@@ -99,7 +112,8 @@ fi
 route_to_port "$old_port"
 headers=$(mktemp /tmp/sub2api-route-rollback.XXXXXX)
 trap 'rm -f "$headers"' EXIT
-[[ $(curl -sS --resolve "$domain:443:$direct_ip" -D "$headers" -o /dev/null -w '%{http_code}' -H 'Connection: close' "https://$domain/health") == 200 ]]
+_required_4=$(curl -sS --resolve "$domain:443:$direct_ip" -D "$headers" -o /dev/null -w '%{http_code}' -H 'Connection: close' "https://$domain/health")
+[[ ${_required_4} == 200 ]]
 if [[ -n $old_instance_id ]]; then
   assert_http_header_equals "$headers" X-Sub2API-Instance "$old_instance_id"
   assert_http_header_equals "$headers" X-Sub2API-Background-Ready true
@@ -110,7 +124,8 @@ chmod 600 "$slot_tmp"
 mv -T -- "$slot_tmp" "$active_slot_file"
 rm -f "$state_dir/route-switch-intent" "$state_dir/route-switched"
 candidate_preserved=false
-if docker inspect "$candidate_container" >/dev/null 2>&1; then
+container_names=$(docker ps -a --format '{{.Names}}')
+if [[ $'\n'"$container_names"$'\n' == *$'\n'"$candidate_container"$'\n'* ]]; then
   candidate_preserved=true
 fi
 printf 'route_rollback=true\n'

@@ -115,9 +115,11 @@ python3 -c 'import yaml' >/dev/null 2>&1
 unit_lock=/usr/local/libexec/.sub2api-release-unit.lock
 test -f "$unit_lock"
 test ! -L "$unit_lock"
-test "$(stat -c '%U:%G:%a:%h' "$unit_lock")" = root:root:600:1
+required_value=$(stat -c '%U:%G:%a:%h' "$unit_lock")
+test "$required_value" = root:root:600:1
 exec 8<>"$unit_lock"
-test "$(stat -Lc '%U:%G:%a:%h' /proc/self/fd/8)" = root:root:600:1
+required_value=$(stat -Lc '%U:%G:%a:%h' /proc/self/fd/8)
+test "$required_value" = root:root:600:1
 flock -s 8
 test -d {profile['vm_source']}
 test -d {profile['vm_deploy']}
@@ -125,26 +127,34 @@ test -d {profile['vm_data']}
 test ! -L {profile['vm_source']}
 test ! -L {profile['vm_deploy']}
 test ! -L {profile['vm_data']}
-test "$(stat -c '%U:%G:%a' /opt/sub2api-release-signer/vm-gate-ed25519.pem)" = root:root:600
-test "$(stat -c '%U:%G:%a' /opt/sub2api-release-signer/vm-gate-ed25519.pub)" = root:root:644
+required_value=$(stat -c '%U:%G:%a' /opt/sub2api-release-signer/vm-gate-ed25519.pem)
+test "$required_value" = root:root:600
+required_value=$(stat -c '%U:%G:%a' /opt/sub2api-release-signer/vm-gate-ed25519.pub)
+test "$required_value" = root:root:644
 for asset in /usr/local/libexec/sub2api-vm-validate /usr/local/libexec/sub2api-sign-gate /usr/local/libexec/sub2api-sign-dr-evidence; do
   test -f "$asset"
   test ! -L "$asset"
-  test "$(stat -c '%U:%G:%a' "$asset")" = root:root:700
+  required_value=$(stat -c '%U:%G:%a' "$asset")
+  test "$required_value" = root:root:700
 done
 for asset in /opt/sub2api-release-signer/vm-gate-ed25519.pem /opt/sub2api-release-signer/vm-gate-ed25519.pub; do
   test -f "$asset"
   test ! -L "$asset"
 done
-test "$(sha256sum /opt/sub2api-release-signer/vm-gate-ed25519.pub | awk '{{print $1}}')" = {trust_sha}
-test "$(sha256sum /usr/local/libexec/sub2api-vm-validate | awk '{{print $1}}')" = {validator_sha}
-test "$(sha256sum /usr/local/libexec/sub2api-sign-gate | awk '{{print $1}}')" = {gate_signer_sha}
-test "$(sha256sum /usr/local/libexec/sub2api-sign-dr-evidence | awk '{{print $1}}')" = {dr_signer_sha}
+required_value=$(sha256sum /opt/sub2api-release-signer/vm-gate-ed25519.pub | awk '{{print $1}}')
+test "$required_value" = {trust_sha}
+required_value=$(sha256sum /usr/local/libexec/sub2api-vm-validate | awk '{{print $1}}')
+test "$required_value" = {validator_sha}
+required_value=$(sha256sum /usr/local/libexec/sub2api-sign-gate | awk '{{print $1}}')
+test "$required_value" = {gate_signer_sha}
+required_value=$(sha256sum /usr/local/libexec/sub2api-sign-dr-evidence | awk '{{print $1}}')
+test "$required_value" = {dr_signer_sha}
 derived_public=$(mktemp)
 trap 'rm -f -- "$derived_public"' EXIT
 openssl pkey -in /opt/sub2api-release-signer/vm-gate-ed25519.pem -pubout -out "$derived_public"
 cmp -s "$derived_public" /opt/sub2api-release-signer/vm-gate-ed25519.pub
-test "$(docker inspect -f '{{{{.State.Health.Status}}}}' sub2api-dev)" = healthy
+required_value=$(docker inspect -f '{{{{.State.Health.Status}}}}' sub2api-dev)
+test "$required_value" = healthy
 free_bytes=$(df -PB1 /var/lib/docker 2>/dev/null | awk 'NR==2{{print $4}}' || df -PB1 / | awk 'NR==2{{print $4}}')
 vm_pg_user=$(docker inspect sub2api-postgres | jq -r '.[0].Config.Env[]? | select(startswith("POSTGRES_USER=")) | ltrimstr("POSTGRES_USER=")' | head -n1)
 if [[ ! $vm_pg_user =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then vm_pg_user=sub2api; fi
@@ -174,33 +184,54 @@ if [[ -z $migration_row ]]; then production_migration_status=absent; else [[ $mi
 set -Eeuo pipefail
 for command in docker jq age flock nginx curl ssh python3; do command -v "$command" >/dev/null; done
 python3 -c 'import yaml' >/dev/null 2>&1
-test -d /opt/sub2api/releases && test ! -L /opt/sub2api/releases
-test -d /opt/sub2api/backups/release-state && test ! -L /opt/sub2api/backups/release-state
+test -d /opt/sub2api/releases
+test ! -L /opt/sub2api/releases
+test -d /opt/sub2api/backups/release-state
+test ! -L /opt/sub2api/backups/release-state
 test -f /opt/sub2api-release-trust/vm-gate-ed25519.pub
-test "$(sha256sum /opt/sub2api-release-trust/vm-gate-ed25519.pub | awk '{{print $1}}')" = {trust_sha}
-test ! -e /opt/sub2api/releases/.active-release && test ! -L /opt/sub2api/releases/.active-release
+required_value=$(sha256sum /opt/sub2api-release-trust/vm-gate-ed25519.pub | awk '{{print $1}}')
+test "$required_value" = {trust_sha}
+test ! -e /opt/sub2api/releases/.active-release
+test ! -L /opt/sub2api/releases/.active-release
 active_slot=/opt/sub2api/active-app
-test -f "$active_slot" && test ! -L "$active_slot"
-test "$(grep -c '^container=' "$active_slot")" = 1 && test "$(grep -c '^port=' "$active_slot")" = 1 && test "$(grep -c '^image_id=' "$active_slot")" = 1
+test -f "$active_slot"
+test ! -L "$active_slot"
+required_value=$(grep -c '^container=' "$active_slot")
+test "$required_value" = 1
+required_value=$(grep -c '^port=' "$active_slot")
+test "$required_value" = 1
+required_value=$(grep -c '^image_id=' "$active_slot")
+test "$required_value" = 1
 active_container=$(sed -n 's/^container=//p' "$active_slot")
 active_port=$(sed -n 's/^port=//p' "$active_slot")
 active_image=$(sed -n 's/^image_id=//p' "$active_slot")
 [[ $active_container =~ ^[A-Za-z0-9_.-]{{1,80}}$ ]]
 [[ $active_port == 18080 || $active_port == 18081 ]]
 [[ $active_image =~ ^sha256:[0-9a-f]{{64}}$ ]]
-for container in "$active_container" sub2api-postgres sub2api-redis; do test "$(docker inspect -f '{{{{.State.Health.Status}}}}' "$container")" = healthy; done
-test "$(docker inspect -f '{{{{.Image}}}}' "$active_container")" = "$active_image"
+for container in "$active_container" sub2api-postgres sub2api-redis; do
+  required_value=$(docker inspect -f '{{{{.State.Health.Status}}}}' "$container")
+  test "$required_value" = healthy
+done
+required_value=$(docker inspect -f '{{{{.Image}}}}' "$active_container")
+test "$required_value" = "$active_image"
 active_image_ref=$(docker inspect -f '{{{{.Config.Image}}}}' "$active_container")
 {runtime_commit_script()}
 resolve_production_commit "$active_image" "$active_image_ref"
 grep -Fq "server 127.0.0.1:$active_port;" /etc/nginx/conf.d/sub2api-release-upstream.conf
 require_ingress_policy={str(require_ingress_policy).lower()}
 assert_ingress_policy() {{
-  local candidate site dump field previous current
+  local candidate site dump field previous current inventory observed grep_code
   local -a sites=()
-  while IFS= read -r -d '' candidate; do
-    if grep -Eq '^[[:space:]]*proxy_pass[[:space:]]+http://sub2api_release_backend;[[:space:]]*$' "$candidate"; then sites+=("$candidate"); fi
-  done < <(find /etc/nginx/sites-enabled -maxdepth 1 -type f ! -name '*.sub2api-release-backup' -print0)
+  inventory=$(find /etc/nginx/sites-enabled -maxdepth 1 -type f ! -name '*.sub2api-release-backup' -print) || return 1
+  while IFS= read -r candidate; do
+    [[ -n $candidate ]] || continue
+    if grep -Eq '^[[:space:]]*proxy_pass[[:space:]]+http://sub2api_release_backend;[[:space:]]*$' "$candidate"; then
+      sites+=("$candidate")
+    else
+      grep_code=$?
+      [[ $grep_code == 1 ]] || return 1
+    fi
+  done <<<"$inventory"
   [[ ${{#sites[@]}} == 1 ]] || return 1
   site=${{sites[0]}}
   [[ $site =~ ^/etc/nginx/sites-enabled/[A-Za-z0-9._-]{{1,160}}$ ]] || return 1
@@ -213,22 +244,30 @@ assert_ingress_policy() {{
     {{ current = normalized($0); if (current != "" && current !~ /^#/) previous = current }}
     END {{ if (count < 1) exit 1 }}
   ' "$site" || return 1
-  [[ -z $(find /etc/nginx/sites-enabled -maxdepth 1 -name '*.sub2api-release-backup' -print -quit) ]] || return 1
+  observed=$(find /etc/nginx/sites-enabled -maxdepth 1 -name '*.sub2api-release-backup' -print -quit) || return 1
+  [[ -z $observed ]] || return 1
   [[ -f /etc/nginx/snippets/sub2api-release-ingress.conf && ! -L /etc/nginx/snippets/sub2api-release-ingress.conf ]] || return 1
-  [[ $(stat -c '%U:%G:%a:%h' /etc/nginx/snippets/sub2api-release-ingress.conf) == root:root:600:1 ]] || return 1
-  [[ $(grep -Fxc 'proxy_request_buffering on;' /etc/nginx/snippets/sub2api-release-ingress.conf) == 1 ]] || return 1
-  [[ $(grep -Fxc 'proxy_buffering off;' /etc/nginx/snippets/sub2api-release-ingress.conf) == 1 ]] || return 1
-  [[ $(grep -Fxc 'access_log /var/log/nginx/sub2api-upstream-access.log sub2api_upstream;' /etc/nginx/snippets/sub2api-release-ingress.conf) == 1 ]] || return 1
+  observed=$(stat -c '%U:%G:%a:%h' /etc/nginx/snippets/sub2api-release-ingress.conf) || return 1
+  [[ $observed == root:root:600:1 ]] || return 1
+  observed=$(grep -Fxc 'proxy_request_buffering on;' /etc/nginx/snippets/sub2api-release-ingress.conf) || return 1
+  [[ $observed == 1 ]] || return 1
+  observed=$(grep -Fxc 'proxy_buffering off;' /etc/nginx/snippets/sub2api-release-ingress.conf) || return 1
+  [[ $observed == 1 ]] || return 1
+  observed=$(grep -Fxc 'access_log /var/log/nginx/sub2api-upstream-access.log sub2api_upstream;' /etc/nginx/snippets/sub2api-release-ingress.conf) || return 1
+  [[ $observed == 1 ]] || return 1
   [[ -f /etc/nginx/conf.d/sub2api-release-observability.conf && ! -L /etc/nginx/conf.d/sub2api-release-observability.conf ]] || return 1
-  [[ $(stat -c '%U:%G:%a:%h' /etc/nginx/conf.d/sub2api-release-observability.conf) == root:root:600:1 ]] || return 1
+  observed=$(stat -c '%U:%G:%a:%h' /etc/nginx/conf.d/sub2api-release-observability.conf) || return 1
+  [[ $observed == root:root:600:1 ]] || return 1
   grep -Eq '^[[:space:]]*log_format[[:space:]]+sub2api_upstream([[:space:]]|$)' /etc/nginx/conf.d/sub2api-release-observability.conf || return 1
   for field in request_time upstream_status upstream_connect_time upstream_header_time upstream_response_time; do grep -Fq "\$$field" /etc/nginx/conf.d/sub2api-release-observability.conf || return 1; done
   [[ -f /etc/logrotate.d/sub2api-upstream-access && ! -L /etc/logrotate.d/sub2api-upstream-access ]] || return 1
-  [[ $(stat -c '%U:%G:%a:%h' /etc/logrotate.d/sub2api-upstream-access) == root:root:644:1 ]] || return 1
+  observed=$(stat -c '%U:%G:%a:%h' /etc/logrotate.d/sub2api-upstream-access) || return 1
+  [[ $observed == root:root:644:1 ]] || return 1
   [[ -d /etc/nginx/sub2api-release-backups && ! -L /etc/nginx/sub2api-release-backups ]] || return 1
-  [[ $(stat -c '%U:%G:%a' /etc/nginx/sub2api-release-backups) == root:root:700 ]] || return 1
+  observed=$(stat -c '%U:%G:%a' /etc/nginx/sub2api-release-backups) || return 1
+  [[ $observed == root:root:700 ]] || return 1
   dump=$(nginx -T 2>&1) || return 1
-  ! grep -Eqi 'conflicting server name' <<<"$dump" || return 1
+  if grep -Eqi 'conflicting server name' <<<"$dump"; then return 1; else grep_code=$?; [[ $grep_code == 1 ]] || return 1; fi
   grep -Fq "# configuration file $site:" <<<"$dump" || return 1
   grep -Fq '# configuration file /etc/nginx/snippets/sub2api-release-ingress.conf:' <<<"$dump" || return 1
   grep -Fq '# configuration file /etc/nginx/conf.d/sub2api-release-observability.conf:' <<<"$dump" || return 1
@@ -238,13 +277,19 @@ nginx_ingress_policy=needs_update
 if assert_ingress_policy; then nginx_ingress_policy=ready; fi
 if [[ $require_ingress_policy == true ]]; then [[ $nginx_ingress_policy == ready ]]; fi
 nginx -t >/dev/null 2>&1
-test "$(systemctl is-active nginx)" = active
-test "$(systemctl is-active sub2api-backup.service 2>/dev/null || true)" != active
-test "$(systemctl is-enabled sub2api-backup.timer)" = enabled
-test "$(systemctl is-active sub2api-backup.timer)" = active
+required_value=$(systemctl is-active nginx)
+test "$required_value" = active
+backup_service_code=0
+backup_service_state=$(systemctl is-active sub2api-backup.service 2>/dev/null) || backup_service_code=$?
+case "$backup_service_state:$backup_service_code" in inactive:3|failed:3) ;; *) exit 1 ;; esac
+required_value=$(systemctl is-enabled sub2api-backup.timer)
+test "$required_value" = enabled
+required_value=$(systemctl is-active sub2api-backup.timer)
+test "$required_value" = active
 backup_exec=$(systemctl show sub2api-backup.service -p ExecStart --value)
 backup_path=$(awk 'match($0,/path=[^ ;}}]+/) {{ print substr($0,RSTART+5,RLENGTH-5); exit }}' <<<"$backup_exec")
-test -f "$backup_path" && test ! -L "$backup_path"
+test -f "$backup_path"
+test ! -L "$backup_path"
 grep -Fq '/run/lock/sub2api-backup-global.lock' "$backup_path"
 redis_password=$(docker inspect sub2api-redis | jq -er '((.[0].Config.Entrypoint // []) + (.[0].Config.Cmd // [])) as $a | ($a | index("--requirepass")) as $i | if $i != null and ($i + 1) < ($a | length) then $a[$i + 1] else ([ $a[] | select(startswith("--requirepass=")) | ltrimstr("--requirepass=") ] | first) end')
 test -n "$redis_password"
@@ -254,8 +299,10 @@ production_current_image_id="$active_image"
 {snapshot_query}
 production_migration_status=verified
 {migration_checks}
-test -r /etc/nginx/nginx.conf && test -r /etc/letsencrypt/live/{profile['public_domain']}/fullchain.pem
-test -f /root/.ssh/sub2api_backup_upload && test ! -L /root/.ssh/sub2api_backup_upload
+test -r /etc/nginx/nginx.conf
+test -r /etc/letsencrypt/live/{profile['public_domain']}/fullchain.pem
+test -f /root/.ssh/sub2api_backup_upload
+test ! -L /root/.ssh/sub2api_backup_upload
 if ssh -i /root/.ssh/sub2api_backup_upload -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=15 -o LogLevel=ERROR sub2api-backup@47.85.205.94 doctor-probe </dev/null >/dev/null 2>&1; then
   backup_ssh_code=0
 else
@@ -276,16 +323,24 @@ printf 'racknerd_ready=true\nracknerd_free_bytes=%s\nbackup_protocol_ready=true\
         script = """
 set -Eeuo pipefail
 command -v haproxy >/dev/null
-test "$(systemctl is-active haproxy)" = active
+required_value=$(systemctl is-active haproxy)
+test "$required_value" = active
 haproxy -c -f /etc/haproxy/haproxy.cfg >/dev/null
 ss -H -ltn sport = :443 | grep -q .
 grep -Eq 'send-proxy-v2|send-proxy' /etc/haproxy/haproxy.cfg
-test "$(systemctl is-active sub2api-tinyproxy.service)" = active
-test "$(systemctl is-enabled sub2api-tinyproxy.service)" = enabled
-test "$(systemctl is-active tinyproxy.service || true)" = inactive
-test "$(systemctl is-enabled tinyproxy.service || true)" = disabled
+required_value=$(systemctl is-active sub2api-tinyproxy.service)
+test "$required_value" = active
+required_value=$(systemctl is-enabled sub2api-tinyproxy.service)
+test "$required_value" = enabled
+tinyproxy_code=0
+tinyproxy_state=$(systemctl is-active tinyproxy.service) || tinyproxy_code=$?
+test "$tinyproxy_state:$tinyproxy_code" = inactive:3
+tinyproxy_code=0
+tinyproxy_state=$(systemctl is-enabled tinyproxy.service) || tinyproxy_code=$?
+test "$tinyproxy_state:$tinyproxy_code" = disabled:1
 ss -H -ltn sport = :1080 | grep -q .
-test -z "$(ss -H -ltn sport = :8888)"
+required_value=$(ss -H -ltn sport = :8888)
+test -z "$required_value"
 proxy_pid=$(systemctl show -p MainPID --value sub2api-tinyproxy.service)
 test "$proxy_pid" -gt 1
 proxy_config=''
@@ -294,7 +349,9 @@ while IFS= read -r arg; do
   if [ "$want_proxy_config" = true ]; then proxy_config=$arg; want_proxy_config=false; continue; fi
   case "$arg" in -c) want_proxy_config=true;; -c*) proxy_config=${arg#-c};; esac
 done < <(tr '\\0' '\\n' < "/proc/$proxy_pid/cmdline")
-test -n "$proxy_config" && test -f "$proxy_config" && test ! -L "$proxy_config"
+test -n "$proxy_config"
+test -f "$proxy_config"
+test ! -L "$proxy_config"
 grep -Eq '^[[:space:]]*Listen[[:space:]]+10\.77\.0\.1([[:space:]]|$)' "$proxy_config"
 grep -Eq '^[[:space:]]*Allow[[:space:]]+10\.77\.0\.1([[:space:]]|$)' "$proxy_config"
 grep -Eq '^[[:space:]]*Allow[[:space:]]+10\.77\.0\.2([[:space:]]|$)' "$proxy_config"
@@ -311,10 +368,13 @@ printf 'dmit_ready=true\nproxy_v2_ready=true\nrelease_proxy_ready=true\nlegacy_p
         profile = self.profile
         script = f"""
 set -Eeuo pipefail
-test -d /srv/sub2api-backups && test ! -L /srv/sub2api-backups && test -w /srv/sub2api-backups
+test -d /srv/sub2api-backups
+test ! -L /srv/sub2api-backups
+test -w /srv/sub2api-backups
 free_bytes=$(df -PB1 /srv/sub2api-backups | awk 'NR==2{{print $4}}')
 test "$free_bytes" -ge {profile['minimum_backup_free_bytes']}
-test "$(curl -sS --resolve {profile['public_domain']}:443:{profile['dmit_public_ip']} --max-time 15 -o /dev/null -w '%{{http_code}}' https://{profile['public_domain']}/health)" = 200
+required_value=$(curl -sS --resolve {profile['public_domain']}:443:{profile['dmit_public_ip']} --max-time 15 -o /dev/null -w '%{{http_code}}' https://{profile['public_domain']}/health)
+test "$required_value" = 200
 public_ip=$(curl -fsS --max-time 15 https://api.ipify.org)
 [[ $public_ip =~ ^[0-9a-fA-F:.]+$ ]]
 printf 'backup_ready=true\nbackup_free_bytes=%s\ndmit_external_health=pass\nbackup_public_ip=%s\n' "$free_bytes" "$public_ip"

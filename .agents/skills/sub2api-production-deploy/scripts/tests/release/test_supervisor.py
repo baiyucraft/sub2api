@@ -502,7 +502,9 @@ class SupervisorTest(unittest.TestCase):
 
         probe = ssh.run.call_args.args[1]
         self.assertIn('app_health=unknown', probe)
-        self.assertIn('if test -n "$active_container" && docker inspect "$active_container"', probe)
+        self.assertIn('if test -n "$active_container";', probe)
+        self.assertIn('grep -Fxq -- "$active_container" <<<"$container_names"', probe)
+        self.assertIn('container_names=$(docker ps -a', probe)
         self.assertEqual(value["decision"], "coordinated_restore_required")
 
     def test_crashed_worker_reconciliation_classifies_ingress_transaction_states(self) -> None:
