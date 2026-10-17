@@ -16,6 +16,27 @@ from .ssh import SSHRunner
 
 TRUSTED_KEY = TRUSTED_VM_PUBLIC_KEY
 SPACE_CLEANER = RELEASE_PACKAGE_ROOT / "vm-space-clean.sh"
+
+
+def _validator_assets_script(manifest: dict) -> str:
+    """Each installed asset must independently satisfy metadata and bytes."""
+    return f'''set -Eeuo pipefail
+for asset in /usr/local/libexec/sub2api-vm-validate /usr/local/libexec/sub2api-sign-gate /usr/local/libexec/sub2api-sign-dr-evidence; do
+  test -f "$asset"
+  test ! -L "$asset"
+  required_value=$(stat -c '%U:%G:%a' "$asset")
+  test "$required_value" = root:root:700
+done
+required_value=$(sha256sum /usr/local/libexec/sub2api-vm-validate | awk '{{print $1}}')
+test "$required_value" = {shlex.quote(manifest['vm_validator_sha256'])}
+required_value=$(sha256sum /usr/local/libexec/sub2api-sign-gate | awk '{{print $1}}')
+test "$required_value" = {shlex.quote(manifest['vm_gate_signer_sha256'])}
+required_value=$(sha256sum /usr/local/libexec/sub2api-sign-dr-evidence | awk '{{print $1}}')
+test "$required_value" = {shlex.quote(manifest['vm_dr_signer_sha256'])}
+printf 'validator_assets_verified=true\\n'
+'''
+
+
 SPACE_FIELDS = {
     "cleanup_mode",
     "space_status",
@@ -102,16 +123,22 @@ space_cleaner={quoted["remote_space_cleaner"]}
 prebuild_cleanup_applied={str(prebuild_cleanup_applied).lower()}
 release_id={quoted["release_id"]}
 install -d -o 0 -g 0 -m 700 "$worker_dir"
-[[ -d "$worker_dir" && ! -L "$worker_dir" && $(stat -c '%u:%g:%a' "$worker_dir") == 0:0:700 ]]
+[[ -d "$worker_dir" && ! -L "$worker_dir" ]]
+worker_metadata=$(stat -c '%u:%g:%a' "$worker_dir") || exit $?
+[[ $worker_metadata == 0:0:700 ]]
 command -v nohup >/dev/null
 command -v setsid >/dev/null
 if [[ -e "$raw_root" ]]; then
-  [[ -d "$raw_root" && ! -L "$raw_root" && $(stat -c '%u:%g:%a' "$raw_root") == 0:0:700 ]]
+  [[ -d "$raw_root" && ! -L "$raw_root" ]]
+  raw_root_metadata=$(stat -c '%u:%g:%a' "$raw_root") || exit $?
+  [[ $raw_root_metadata == 0:0:700 ]]
 else
   install -d -o 0 -g 0 -m 700 "$raw_root"
 fi
 if [[ -e "$raw_log" ]]; then
-  [[ -f "$raw_log" && ! -L "$raw_log" && $(stat -c '%u:%g:%a:%h' "$raw_log") == 0:0:600:1 ]]
+  [[ -f "$raw_log" && ! -L "$raw_log" ]]
+  raw_log_metadata=$(stat -c '%u:%g:%a:%h' "$raw_log") || exit $?
+  [[ $raw_log_metadata == 0:0:600:1 ]]
 else
   : >"$raw_log"
   chown 0:0 "$raw_log"
@@ -152,7 +179,11 @@ gate_root=${{output%/output}}
 if [[ -d "$gate_root" && ! -L "$gate_root" ]]; then
   gate_logs="$gate_root/logs"
   if [[ -e "$gate_logs" ]]; then
-    [[ -d "$gate_logs" && ! -L "$gate_logs" && $(stat -c '%u:%g:%a' "$gate_logs") == 0:0:700 ]] || exit_code=98
+    if [[ -d "$gate_logs" && ! -L "$gate_logs" ]] && gate_logs_metadata=$(stat -c '%u:%g:%a' "$gate_logs") && [[ $gate_logs_metadata == 0:0:700 ]]; then
+      :
+    else
+      exit_code=98
+    fi
   else
     install -d -o 0 -g 0 -m 700 "$gate_logs" || exit_code=98
   fi
@@ -167,7 +198,8 @@ state_write status exited
 exit "$exit_code"
 RUNNER
 chmod 700 "$wrapper"
-[[ $(stat -c '%u:%g:%a:%h' "$wrapper") == 0:0:700:1 ]]
+wrapper_metadata=$(stat -c '%u:%g:%a:%h' "$wrapper") || exit $?
+[[ $wrapper_metadata == 0:0:700:1 ]]
 launch_state_tmp="$worker_dir/status.tmp"
 printf 'launching\n' >"$launch_state_tmp"
 chmod 600 "$launch_state_tmp"
@@ -194,14 +226,18 @@ output={shlex.quote(remote_output)}
 raw_log={shlex.quote(raw_log)}
 state_contract=ok
 read_state() {{
-  local target=$1 path=$2 default=$3 state_value
-  if [[ ! -e "$path" ]]; then printf -v "$target" '%s' "$default"; return; fi
-  if [[ ! -f "$path" || -L "$path" || $(stat -c '%u:%g:%a:%h' "$path") != 0:0:600:1 ]]; then
+  local target=$1 path=$2 default=$3 state_value state_metadata
+  if [[ ! -e "$path" && ! -L "$path" ]]; then printf -v "$target" '%s' "$default"; return; fi
+  if [[ ! -f "$path" || -L "$path" ]] || ! state_metadata=$(stat -c '%u:%g:%a:%h' "$path") || [[ $state_metadata != 0:0:600:1 ]]; then
     state_contract=invalid
     printf -v "$target" '%s' invalid
     return
   fi
-  state_value=$(tr -d '\r\n' <"$path")
+  if ! state_value=$(tr -d '\r\n' <"$path"); then
+    state_contract=invalid
+    printf -v "$target" '%s' invalid
+    return
+  fi
   printf -v "$target" '%s' "$state_value"
 }}
 read_optional() {{
@@ -231,9 +267,12 @@ printf 'gate_output_ready=%s\n' "$(test -f "$output/gate.json" && test ! -L "$ou
 printf 'gate_signature_ready=%s\n' "$(test -f "$output/gate.sig" && test ! -L "$output/gate.sig" && echo yes || echo no)"
 printf 'candidate_archive_ready=%s\n' "$(test -f "$output/candidate.tar.gz" && test ! -L "$output/candidate.tar.gz" && echo yes || echo no)"
 raw_root=${{raw_log%/*}}
-if [[ -d "$raw_root" && ! -L "$raw_root" && $(stat -c '%u:%g:%a' "$raw_root") == 0:0:700 && -f "$raw_log" && ! -L "$raw_log" && $(stat -c '%u:%g:%a:%h' "$raw_log") == 0:0:600:1 ]]; then
+if [[ -d "$raw_root" && ! -L "$raw_root" && -f "$raw_log" && ! -L "$raw_log" ]] &&
+   raw_root_metadata=$(stat -c '%u:%g:%a' "$raw_root") && [[ $raw_root_metadata == 0:0:700 ]] &&
+   raw_log_metadata=$(stat -c '%u:%g:%a:%h' "$raw_log") && [[ $raw_log_metadata == 0:0:600:1 ]] &&
+   raw_log_bytes=$(stat -c '%s' "$raw_log"); then
   printf 'raw_log_status=ok\n'
-  printf 'raw_log_bytes=%s\n' "$(stat -c '%s' "$raw_log")"
+  printf 'raw_log_bytes=%s\n' "$raw_log_bytes"
 else
   printf 'raw_log_status=invalid\n'
   printf 'raw_log_bytes=0\n'
@@ -373,7 +412,7 @@ def main() -> None:
     install_vm_validator(runner)
     runner.run(
         "local_vm",
-        "install -d -m 700 /opt/sub2api-deploy/release-input && test $(stat -c '%u:%a' /opt/sub2api-deploy/release-input) = $(id -u):700 && printf 'input_root_ready=true\\n'",
+        "install -d -m 700 /opt/sub2api-deploy/release-input && input_metadata=$(stat -c '%u:%a' /opt/sub2api-deploy/release-input) && input_uid=$(id -u) && test \"$input_metadata\" = \"$input_uid:700\" && printf 'input_root_ready=true\\n'",
         {"input_root_ready"},
     )
     remote_root = runner.create_temp_dir("local_vm", "/opt/sub2api-deploy/release-input", "validation")
@@ -405,7 +444,7 @@ def main() -> None:
         cleaner_checksum = space_cleaner_checksum(manifest)
         runner.run(
             "local_vm",
-            f"test $(sha256sum {shlex.quote(remote_cleaner)} | awk '{{print $1}}') = {shlex.quote(cleaner_checksum)} && printf 'space_cleaner_verified=true\\n'",
+            f"set -Eeuo pipefail; cleaner_sha=$(sha256sum {shlex.quote(remote_cleaner)} | awk '{{print $1}}') && test \"$cleaner_sha\" = {shlex.quote(cleaner_checksum)} && printf 'space_cleaner_verified=true\\n'",
             {"space_cleaner_verified"},
         )
         space_report = ensure_vm_space(runner, remote_cleaner, manifest)
@@ -415,7 +454,7 @@ def main() -> None:
         cleanup_remote_root = False
         runner.run(
             "local_vm",
-            f"for asset in /usr/local/libexec/sub2api-vm-validate /usr/local/libexec/sub2api-sign-gate /usr/local/libexec/sub2api-sign-dr-evidence; do test -f $asset && test ! -L $asset && test $(stat -c '%U:%G:%a' $asset) = root:root:700; done && test $(sha256sum /usr/local/libexec/sub2api-vm-validate | awk '{{print $1}}') = {manifest['vm_validator_sha256']} && test $(sha256sum /usr/local/libexec/sub2api-sign-gate | awk '{{print $1}}') = {manifest['vm_gate_signer_sha256']} && test $(sha256sum /usr/local/libexec/sub2api-sign-dr-evidence | awk '{{print $1}}') = {manifest['vm_dr_signer_sha256']} && printf 'validator_assets_verified=true\\n'",
+            _validator_assets_script(manifest),
             {"validator_assets_verified"},
             timeout=120,
         )

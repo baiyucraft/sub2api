@@ -265,6 +265,21 @@ _RECOVERY_RUNTIME_FILES = frozenset(
         "recovery-compose-drill.sh",
     }
 )
+# Exact execution and evidence roles. Asset materialization alone is not a
+# reason for escalation; these modules can start work, select its transport,
+# change its ownership, or change the evidence retained for verification.
+_RECOVERY_CONTROL_FILES = frozenset({
+    _SCRIPTS_PREFIX + suffix for suffix in (
+        "release.py", "release/__init__.py", "release/ssh.py", "release/process.py",
+        "release/vm_only.py", "release/vm-only-switch.sh",
+        "release/plugin_api.py", "release/plugin_cli.py", "release/plugin_credentials.py",
+        "release/plugin_package.py", "release/plugin_state.py", "release/plugin_supervisor.py",
+        "release/observer.py", "release/plugin_observer.py",
+        "release/backfill-activity-reward-costs.sh", "release/backup-host-space-clean.sh",
+        "logging/release_logging/events.py", "logging/release_logging/redact.py",
+        "logging/release_logging/retention.py",
+    )
+})
 
 
 def _is_recovery_sensitive_path(path: str) -> bool:
@@ -274,6 +289,7 @@ def _is_recovery_sensitive_path(path: str) -> bool:
         or path.startswith((_SCRIPTS_PREFIX + "release/trust/", _SCRIPTS_PREFIX + "release/drverify/"))
         or path in {_SCRIPTS_PREFIX + "release/" + name for name in _RECOVERY_RUNTIME_FILES}
         or path in _RELEASE_STATE_MACHINE_FILES - {_SCRIPTS_PREFIX + "release/recovery_gate.py"}
+        or path in _RECOVERY_CONTROL_FILES
     )
 
 

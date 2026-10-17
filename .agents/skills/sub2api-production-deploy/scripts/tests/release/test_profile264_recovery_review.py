@@ -17,14 +17,17 @@ class Profile264RecoveryReviewTest(unittest.TestCase):
     def test_review_covers_only_the_actual_35_compatibility_paths(self):
         paths = recovery_gate._changed_paths(WORKSPACE, BASE, TARGET)
         sensitive = {p for p in paths if recovery_gate._is_recovery_sensitive_path(p)}
-        self.assertEqual(len(sensitive), 35)
-        self.assertEqual(sensitive, recovery_gate._PROFILE264_COMPATIBILITY_PATHS)
+        new_control = {PREFIX + 'release/backfill-activity-reward-costs.sh'}
+        self.assertEqual(len(recovery_gate._PROFILE264_COMPATIBILITY_PATHS), 35)
+        self.assertEqual(sensitive, recovery_gate._PROFILE264_COMPATIBILITY_PATHS | new_control)
+        self.assertTrue(new_control.isdisjoint(recovery_gate._reviewed_compatibility_paths(WORKSPACE, BASE, TARGET)))
         report = recovery_gate.classify(WORKSPACE, BASE, TARGET)
-        self.assertEqual(report['mode'], 'specialized')
+        self.assertEqual(report['mode'], 'full')
         self.assertIn('migration_changed', report['reason_codes'])
         self.assertIn('reviewed_profile_compatibility_changed', report['reason_codes'])
-        self.assertNotIn('recovery_change_requires_review', report['reason_codes'])
-        recovery_gate.assert_release_allowed(report)
+        self.assertIn('recovery_change_requires_review', report['reason_codes'])
+        with self.assertRaisesRegex(RuntimeError, 'recovery changes require review'):
+            recovery_gate.assert_release_allowed(report)
 
     def test_every_reviewed_path_rejects_blob_mode_deletion_move_and_base_drift(self):
         old = recovery_gate._tree_blobs(WORKSPACE, BASE)
@@ -91,12 +94,13 @@ class Profile264RecoveryReviewTest(unittest.TestCase):
 class RewardCostPostflightReviewTest(unittest.TestCase):
     target = 'bc57b804fe4467d96b530c8874dd7152d28386a0'
 
-    def test_exact_independent_review_still_requires_specialized_restore(self):
+    def test_exact_independent_review_does_not_exempt_newly_registered_controls(self):
         report = recovery_gate.classify(WORKSPACE, BASE, self.target)
-        self.assertEqual(report['mode'], 'specialized')
+        self.assertEqual(report['mode'], 'full')
         self.assertIn('reviewed_reward_cost_postflight_changed', report['reason_codes'])
-        self.assertNotIn('recovery_change_requires_review', report['reason_codes'])
-        recovery_gate.assert_release_allowed(report)
+        self.assertIn('recovery_change_requires_review', report['reason_codes'])
+        with self.assertRaisesRegex(RuntimeError, 'recovery changes require review'):
+            recovery_gate.assert_release_allowed(report)
         old = recovery_gate._tree_blobs(WORKSPACE, BASE)
         new = recovery_gate._tree_blobs(WORKSPACE, self.target)
         helper = PREFIX + 'maintenance/release/activity-reward-cost-postflight.sh'

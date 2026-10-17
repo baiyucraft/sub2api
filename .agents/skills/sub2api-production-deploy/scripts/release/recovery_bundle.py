@@ -292,59 +292,86 @@ def stage_recovery_bundle(ssh, manifest: dict[str, Any], release_dir: str, local
     destination = release_dir + '/recovery-helpers/' + checksum
     verifier_sha = document['files'][PREFIX + 'release/recovery_bundle.py']
     script = f'''set -Eeuo pipefail
-test "$(id -u)" = 0
+required_value=$(id -u)
+test "$required_value" = 0
 exec 8>/run/lock/sub2api-production-release.lock
 flock -xn 8
 release={shlex.quote(release_dir)}
 parent="$release/recovery-helpers"
 dest={shlex.quote(destination)}
 temp={shlex.quote(temp)}
-test -d "$release" && test ! -L "$release"
-test "$(realpath -e "$release")" = "$release"
-test "$(stat -c '%u:%g:%a' "$release")" = 0:0:700
-test "$(stat -c '%u:%g:%a' "$temp")" = 0:0:700
-test "$(realpath -e "$temp")" = "$temp"
-test "$(sha256sum "$temp/bundle.tar" | awk '{{print $1}}')" = {shlex.quote(archive_sha)}
-test "$(sha256sum "$temp/gate.json" | awk '{{print $1}}')" = {shlex.quote(hashlib.sha256(authorization['gate.json']).hexdigest())}
-test "$(sha256sum "$temp/gate.sig" | awk '{{print $1}}')" = {shlex.quote(hashlib.sha256(authorization['gate.sig']).hexdigest())}
+test -d "$release"
+test ! -L "$release"
+required_value=$(realpath -e "$release")
+test "$required_value" = "$release"
+required_value=$(stat -c '%u:%g:%a' "$release")
+test "$required_value" = 0:0:700
+required_value=$(stat -c '%u:%g:%a' "$temp")
+test "$required_value" = 0:0:700
+required_value=$(realpath -e "$temp")
+test "$required_value" = "$temp"
+required_value=$(sha256sum "$temp/bundle.tar" | awk '{{print $1}}')
+test "$required_value" = {shlex.quote(archive_sha)}
+required_value=$(sha256sum "$temp/gate.json" | awk '{{print $1}}')
+test "$required_value" = {shlex.quote(hashlib.sha256(authorization['gate.json']).hexdigest())}
+required_value=$(sha256sum "$temp/gate.sig" | awk '{{print $1}}')
+test "$required_value" = {shlex.quote(hashlib.sha256(authorization['gate.sig']).hexdigest())}
 for name in bundle.tar gate.json gate.sig; do
-  test -f "$temp/$name" && test ! -L "$temp/$name"
-  test "$(stat -c '%u:%g:%a:%h' "$temp/$name")" = 0:0:400:1
+  test -f "$temp/$name"
+  test ! -L "$temp/$name"
+  required_value=$(stat -c '%u:%g:%a:%h' "$temp/$name")
+  test "$required_value" = 0:0:400:1
 done
 trust_dir=/opt/sub2api-release-trust
 trust="$trust_dir/vm-gate-ed25519.pub"
-test -d "$trust_dir" && test ! -L "$trust_dir"
-test "$(realpath -e "$trust_dir")" = "$trust_dir"
-test "$(stat -c '%u:%g:%a' "$trust_dir")" = 0:0:755
-test -f "$trust" && test ! -L "$trust"
-test "$(stat -c '%u:%g:%a:%h' "$trust")" = 0:0:644:1
+test -d "$trust_dir"
+test ! -L "$trust_dir"
+required_value=$(realpath -e "$trust_dir")
+test "$required_value" = "$trust_dir"
+required_value=$(stat -c '%u:%g:%a' "$trust_dir")
+test "$required_value" = 0:0:755
+test -f "$trust"
+test ! -L "$trust"
+required_value=$(stat -c '%u:%g:%a:%h' "$trust")
+test "$required_value" = 0:0:644:1
 openssl pkeyutl -verify -pubin -inkey "$trust" -rawin -in "$temp/gate.json" -sigfile "$temp/gate.sig" >/dev/null 2>&1
 if test ! -e "$parent" && test ! -L "$parent"; then install -d -m 700 -o root -g root "$parent"; fi
-test -d "$parent" && test ! -L "$parent"
-test "$(realpath -e "$parent")" = "$parent"
-test "$(stat -c '%u:%g:%a' "$parent")" = 0:0:700
+test -d "$parent"
+test ! -L "$parent"
+required_value=$(realpath -e "$parent")
+test "$required_value" = "$parent"
+required_value=$(stat -c '%u:%g:%a' "$parent")
+test "$required_value" = 0:0:700
 if test ! -e "$dest" && test ! -L "$dest"; then
   install -d -m 700 -o root -g root "$temp/extracted"
   tar --no-same-permissions -xf "$temp/bundle.tar" -C "$temp/extracted"
   find "$temp/extracted" -type d -exec chmod 700 {{}} +
   find "$temp/extracted" -type f -exec chmod 400 {{}} +
   find "$temp/extracted" -maxdepth 1 -name '*.sh' -type f -exec chmod 500 {{}} +
-  test "$(sha256sum "$temp/extracted/recovery_bundle.py" | awk '{{print $1}}')" = {shlex.quote(verifier_sha)}
+  required_value=$(sha256sum "$temp/extracted/recovery_bundle.py" | awk '{{print $1}}')
+  test "$required_value" = {shlex.quote(verifier_sha)}
   python3 "$temp/extracted/recovery_bundle.py" --verify "$temp/extracted" --expected {shlex.quote(checksum)} --gate "$temp/gate.json" >/dev/null
   mv -T -- "$temp/extracted" "$dest"
 fi
-test -d "$dest" && test ! -L "$dest"
-test "$(sha256sum "$dest/recovery_bundle.py" | awk '{{print $1}}')" = {shlex.quote(verifier_sha)}
+test -d "$dest"
+test ! -L "$dest"
+required_value=$(sha256sum "$dest/recovery_bundle.py" | awk '{{print $1}}')
+test "$required_value" = {shlex.quote(verifier_sha)}
 python3 "$dest/recovery_bundle.py" --verify "$dest" --expected {shlex.quote(checksum)} --gate "$temp/gate.json" >/dev/null
 auth="$parent/{checksum}.authorization"
 if test ! -e "$auth" && test ! -L "$auth"; then install -d -m 700 -o root -g root "$auth"; fi
-test -d "$auth" && test ! -L "$auth"
-test "$(realpath -e "$auth")" = "$auth"
-test "$(stat -c '%u:%g:%a' "$auth")" = 0:0:700
+test -d "$auth"
+test ! -L "$auth"
+required_value=$(realpath -e "$auth")
+test "$required_value" = "$auth"
+required_value=$(stat -c '%u:%g:%a' "$auth")
+test "$required_value" = 0:0:700
 for name in gate.json gate.sig; do
   if test -e "$auth/$name" || test -L "$auth/$name"; then
-    test -f "$auth/$name" && test ! -L "$auth/$name"
-    test "$(stat -c '%u:%g:%a:%h' "$auth/$name")" = 0:0:400:1
+    test -f "$auth/$name"
+    test ! -L "$auth/$name"
+    required_value=$(stat -c '%u:%g:%a:%h' "$auth/$name")
+    test "$required_value" = 0:0:400:1
     cmp -s "$auth/$name" "$temp/$name"
   else
     install -m 400 -o root -g root "$temp/$name" "$auth/$name"
@@ -404,30 +431,39 @@ export RECOVERY_HELPER_SIGNATURE={shlex.quote(assets + '.authorization/gate.sig'
 export RELEASE_LOCK_HELD=true
 exec 8>/run/lock/sub2api-production-release.lock
 flock -xn 8
-test -d "$RELEASE_DIR" && test ! -L "$RELEASE_DIR"
+test -d "$RELEASE_DIR"
+test ! -L "$RELEASE_DIR"
 logdir="$RELEASE_DIR/logs"
 if test ! -e "$logdir" && test ! -L "$logdir"; then install -d -m 700 -o root -g root "$logdir"; fi
-test -d "$logdir" && test ! -L "$logdir"
-test "$(realpath -e "$logdir")" = "$logdir"
-test "$(stat -c '%u:%g:%a' "$logdir")" = 0:0:700
+test -d "$logdir"
+test ! -L "$logdir"
+required_value=$(realpath -e "$logdir")
+test "$required_value" = "$logdir"
+required_value=$(stat -c '%u:%g:%a' "$logdir")
+test "$required_value" = 0:0:700
 export SUB2API_RELEASE_RAW_LOG="$logdir/production.raw.log"
 if test ! -e "$SUB2API_RELEASE_RAW_LOG" && test ! -L "$SUB2API_RELEASE_RAW_LOG"; then install -m 600 -o root -g root /dev/null "$SUB2API_RELEASE_RAW_LOG"; fi
-test -f "$SUB2API_RELEASE_RAW_LOG" && test ! -L "$SUB2API_RELEASE_RAW_LOG"
-test "$(stat -c '%u:%g:%a:%h' "$SUB2API_RELEASE_RAW_LOG")" = 0:0:600:1
+test -f "$SUB2API_RELEASE_RAW_LOG"
+test ! -L "$SUB2API_RELEASE_RAW_LOG"
+required_value=$(stat -c '%u:%g:%a:%h' "$SUB2API_RELEASE_RAW_LOG")
+test "$required_value" = 0:0:600:1
 state=/opt/sub2api/backups/release-state/{identifier}
 # After cleanup has consumed the plaintext point, only finish can continue.
 # It validates the surviving checkpoint identity and every final live invariant.
 if test -f "$state/recovery-point.tar" && test ! -L "$state/recovery-point.tar"; then
   bash "$RECOVERY_ASSETS_DIR/restore.sh" >>"$SUB2API_RELEASE_RAW_LOG" 2>&1
 else
-  test ! -e "$state/recovery-point.tar" && test ! -L "$state/recovery-point.tar"
+  test ! -e "$state/recovery-point.tar"
+  test ! -L "$state/recovery-point.tar"
   test -f "$RELEASE_DIR/recovery-checkpoints/nginx_restored.done"
   test ! -L "$RELEASE_DIR/recovery-checkpoints/nginx_restored.done"
 fi
 bash "$RECOVERY_ASSETS_DIR/recovery-finish.sh" >>"$SUB2API_RELEASE_RAW_LOG" 2>&1
 identity="$RELEASE_DIR/recovery-checkpoints/identity"
-test -f "$identity" && test ! -L "$identity"
-test "$(stat -c '%u:%g:%a:%h' "$identity")" = 0:0:400:1
+test -f "$identity"
+test ! -L "$identity"
+required_value=$(stat -c '%u:%g:%a:%h' "$identity")
+test "$required_value" = 0:0:400:1
 image=$(sed -n 's/^pre_image_id=//p' "$identity")
 printf 'coordinated_restore=verified\\nrestored_image_id=%s\\napplication_health=pass\\n' "$image"
 printf 'backup_units_restored=true\\nplaintext_state_removed=true\\nrelease_claim_reconciled=true\\n'

@@ -83,6 +83,61 @@ class RecoveryGateTest(unittest.TestCase):
         self.assertEqual(report["reason_codes"], ["ordinary_change"])
         self.assertEqual(report["estimated_extra_seconds"], 0)
 
+    def test_execution_and_evidence_roles_require_review_individually(self) -> None:
+        paths = [SCRIPTS_PREFIX + suffix for suffix in (
+            "release.py", "release/__init__.py", "release/ssh.py", "release/process.py",
+            "release/vm_only.py", "release/vm-only-switch.sh", "release/plugin_api.py",
+            "release/plugin_cli.py", "release/plugin_credentials.py", "release/plugin_package.py",
+            "release/plugin_state.py", "release/plugin_supervisor.py", "release/observer.py",
+            "release/plugin_observer.py", "release/backfill-activity-reward-costs.sh",
+            "release/backup-host-space-clean.sh", "logging/release_logging/events.py",
+            "logging/release_logging/redact.py", "logging/release_logging/retention.py",
+        )]
+        target = self.commit_change("README.md")
+        for path in paths:
+            with self.subTest(path=path), mock.patch.object(recovery_gate, "_changed_paths", return_value=[path]):
+                report = classify(self.root, self.base, target)
+                self.assertEqual(report["mode"], "full")
+                self.assertEqual(report["reason_codes"], ["recovery_change_requires_review", "release_state_machine_changed"])
+                for actual in (report, require_full(report)):
+                    with self.assertRaisesRegex(RuntimeError, "recovery changes require review"):
+                        recovery_gate.assert_release_allowed(actual)
+
+    def test_control_role_real_git_add_edit_mode_rename_delete(self) -> None:
+        relative = SCRIPTS_PREFIX + "release/plugin_api.py"
+        before = self.base
+        for operation in ("add", "edit", "mode", "rename", "delete"):
+            with self.subTest(operation=operation):
+                if operation == "add":
+                    self.write(relative, "first\n")
+                elif operation == "edit":
+                    self.write(relative, "second\n")
+                elif operation == "mode":
+                    self.git("update-index", "--chmod=+x", relative)
+                elif operation == "rename":
+                    self.git("mv", relative, SCRIPTS_PREFIX + "release/plugin_state.py")
+                    relative = SCRIPTS_PREFIX + "release/plugin_state.py"
+                else:
+                    (self.root / relative).unlink()
+                if operation != "mode":
+                    self.git("add", "-A")
+                self.git("commit", "-m", operation)
+                after = self.git("rev-parse", "HEAD")
+                report = classify(self.root, before, after)
+                self.assertEqual(report["mode"], "full")
+                self.assertIn("recovery_change_requires_review", report["reason_codes"])
+                before = after
+
+    def test_control_registration_has_no_directory_or_self_policy_expansion(self) -> None:
+        target = self.commit_change("README.md")
+        for suffix in ("release/README.md", "logging/release_logging/query.py", "windows/run-bash.ps1", "release/unknown.py"):
+            with self.subTest(path=suffix), mock.patch.object(recovery_gate, "_changed_paths", return_value=[SCRIPTS_PREFIX + suffix]):
+                self.assertEqual(classify(self.root, self.base, target)["mode"], "fast")
+        with mock.patch.object(recovery_gate, "_changed_paths", return_value=[SCRIPTS_PREFIX + "release/recovery_gate.py"]):
+            report = classify(self.root, self.base, target)
+            self.assertEqual(report["mode"], "specialized")
+            self.assertEqual(report["reason_codes"], ["release_state_machine_changed"])
+
     def test_new_full_recovery_collectors_and_publishers_require_fresh_full_review(self) -> None:
         base = self.base
         for name in ("backup_keys.py", "baseline.py", "postrelease_baseline.py", "baseline_candidate_load.py", "full_recovery_authorization.py", "full_recovery_drill_authorization.py", "full_recovery_drill.py", "full_recovery_guest.py", "full_recovery_source.py", "sign-full-recovery-review.sh", "stage-dr-baseline-candidate.sh", "recovery-compose-drill.sh"):
@@ -483,9 +538,13 @@ class RecoveryGateTest(unittest.TestCase):
         paths = recovery_gate._changed_paths(WORKSPACE, PROFILE263_BASE, PROFILE263_TARGET)
         sensitive = {path for path in paths if recovery_gate._is_recovery_sensitive_path(path)}
         self.assertEqual(len(PROFILE263_PROFILE_PATHS), 35)
-        self.assertEqual(sensitive, PROFILE263_PROFILE_PATHS | PROFILE263_VM_PATHS)
+        newly_registered = {SCRIPTS_PREFIX + "release/" + name for name in (
+            "plugin_supervisor.py", "plugin_observer.py", "observer.py")}
+        historical_review = PROFILE263_PROFILE_PATHS | PROFILE263_VM_PATHS
+        self.assertEqual(sensitive, historical_review | newly_registered)
         reviewed = recovery_gate._reviewed_compatibility_paths(WORKSPACE, PROFILE263_BASE, PROFILE263_TARGET)
-        self.assertEqual(set(reviewed), sensitive)
+        self.assertEqual(set(reviewed), historical_review)
+        self.assertTrue(newly_registered.isdisjoint(reviewed))
         for path in PROFILE263_PROFILE_PATHS:
             self.assertEqual(reviewed[path], "reviewed_profile_compatibility_changed", path)
         for path in PROFILE263_VM_PATHS:
@@ -515,12 +574,13 @@ class RecoveryGateTest(unittest.TestCase):
             self.assertEqual(old[path], new.get(path), path)
             self.assertNotIn(path, reviewed)
         report = classify(WORKSPACE, PROFILE263_BASE, PROFILE263_TARGET)
-        self.assertEqual(report["mode"], "specialized")
+        self.assertEqual(report["mode"], "full")
         self.assertEqual(report["reason_codes"], [
-            "compose_changed", "release_state_machine_changed",
+            "compose_changed", "recovery_change_requires_review", "release_state_machine_changed",
             "reviewed_profile_compatibility_changed", "reviewed_vm_lifecycle_changed",
         ])
-        recovery_gate.assert_release_allowed(report)
+        with self.assertRaisesRegex(RuntimeError, "recovery changes require review"):
+            recovery_gate.assert_release_allowed(report)
 
     def test_vm_lifecycle_single_file_change_requires_independent_review(self) -> None:
         relative = SCRIPTS_PREFIX + "release/vm_lifecycle.py"

@@ -36,26 +36,33 @@ chmod 600 "$resume_override_tmp"
 mv -T -- "$resume_override_tmp" "$deploy_dir/docker-compose.release-active.yml"
 env_tmp="$deploy_dir/.env.resume.$$"
 awk '!/^(COMPOSE_FILE|SUB2API_RELEASE_IMAGE|BIND_HOST|SERVER_PORT)=/' "$deploy_dir/.env" > "$env_tmp"
-printf 'COMPOSE_FILE=%s\n' "$(release_compose_value_with_active_override)" >> "$env_tmp"
+_required_arg_1=$(release_compose_value_with_active_override)
+printf 'COMPOSE_FILE=%s\n' "${_required_arg_1}" >> "$env_tmp"
 printf 'SUB2API_RELEASE_IMAGE=%s\nBIND_HOST=127.0.0.1\nSERVER_PORT=%s\n' "$(<"$state_dir/pre-image-id")" "$old_port" >> "$env_tmp"
 chmod --reference="$deploy_dir/.env" "$env_tmp"
 mv -T -- "$env_tmp" "$deploy_dir/.env"
 load_release_compose_files "$deploy_dir"
 compose_image=$(docker compose "${release_compose_args[@]}" config --format json | jq -r '.services.sub2api.image // empty')
 [[ -n $compose_image ]]
-[[ $(docker image inspect -f '{{.Id}}' "$compose_image") == "$(<"$state_dir/pre-image-id")" ]]
-[[ $(assert_sub2api_compose_closure "$deploy_dir" "$old_port" "$(<"$state_dir/pre-image-id")" "$old_instance_id") == "$resume_network_mode" ]]
+_required_1=$(docker image inspect -f '{{.Id}}' "$compose_image")
+[[ ${_required_1} == "$(<"$state_dir/pre-image-id")" ]]
+_required_2=$(assert_sub2api_compose_closure "$deploy_dir" "$old_port" "$(<"$state_dir/pre-image-id")" "$old_instance_id")
+[[ ${_required_2} == "$resume_network_mode" ]]
 docker compose "${release_compose_args[@]}" up -d --no-deps --force-recreate sub2api >/dev/null 2>&1
-for _ in $(seq 1 90); do
-  [[ $(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' sub2api) == healthy ]] && break
+for _ in {1..90}; do
+  _required_3=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' sub2api)
+  [[ ${_required_3} == healthy ]] && break
   sleep 2
 done
 assert_sub2api_runtime_contract sub2api "$(<"$state_dir/pre-image-id")" "$resume_network_mode" "$old_port"
-[[ $(docker inspect -f '{{.State.Health.Status}}' sub2api) == healthy ]]
+_required_4=$(docker inspect -f '{{.State.Health.Status}}' sub2api)
+[[ ${_required_4} == healthy ]]
 systemctl start nginx
 slot_tmp="$active_slot_file.tmp.$$"
-printf 'container=sub2api\nport=%s\nimage_id=%s\nrelease_id=%s\ninstance_id=%s\n' "$old_port" "$(docker inspect -f '{{.Image}}' sub2api)" "$old_release_id" "$old_instance_id" > "$slot_tmp"
+_required_arg_2=$(docker inspect -f '{{.Image}}' sub2api)
+printf 'container=sub2api\nport=%s\nimage_id=%s\nrelease_id=%s\ninstance_id=%s\n' "$old_port" "${_required_arg_2}" "$old_release_id" "$old_instance_id" > "$slot_tmp"
 chmod 600 "$slot_tmp"
 mv -T -- "$slot_tmp" "$active_slot_file"
 printf 'old_application_resumed=true\n'
-printf 'running_image_id=%s\n' "$(docker inspect -f '{{.Image}}' sub2api)"
+_required_arg_3=$(docker inspect -f '{{.Image}}' sub2api)
+printf 'running_image_id=%s\n' "${_required_arg_3}"

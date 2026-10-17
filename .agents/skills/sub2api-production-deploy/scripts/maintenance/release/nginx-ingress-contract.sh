@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+_ingress_helper_dir=$(dirname -- "${BASH_SOURCE[0]}") || return 1
+source "$_ingress_helper_dir/compose-contract.sh" || return 1
+unset _ingress_helper_dir
+
 NGINX_INGRESS_SNIPPET=${NGINX_INGRESS_SNIPPET:-/etc/nginx/snippets/sub2api-release-ingress.conf}
 NGINX_OBSERVABILITY_CONF=${NGINX_OBSERVABILITY_CONF:-/etc/nginx/conf.d/sub2api-release-observability.conf}
 NGINX_UPSTREAM_LOGROTATE=${NGINX_UPSTREAM_LOGROTATE:-/etc/logrotate.d/sub2api-upstream-access}
@@ -9,13 +13,18 @@ NGINX_MANAGED_PROXY_PATTERN='^[[:space:]]*proxy_pass[[:space:]]+http://sub2api_r
 NGINX_MANAGED_INCLUDE_PATTERN='^[[:space:]]*include[[:space:]]+/etc/nginx/snippets/sub2api-release-ingress\.conf;[[:space:]]*$'
 
 find_managed_nginx_site() {
-  local candidate
+  local candidate grep_code
   local -a sites=()
-  while IFS= read -r -d '' candidate; do
+  _required_inventory_1=()
+  sub2api_capture_nul _required_inventory_1 find /etc/nginx/sites-enabled -maxdepth 1 -type f ! -name '*.sub2api-release-backup' -print0 || return 1
+  for candidate in "${_required_inventory_1[@]}"; do
     if grep -Eq "$NGINX_MANAGED_PROXY_PATTERN" "$candidate"; then
       sites+=("$candidate")
+    else
+      grep_code=$?
+      [[ $grep_code == 1 ]] || return 1
     fi
-  done < <(find /etc/nginx/sites-enabled -maxdepth 1 -type f ! -name '*.sub2api-release-backup' -print0)
+  done
   [[ ${#sites[@]} == 1 ]] || return 1
   [[ ${sites[0]} =~ ^/etc/nginx/sites-enabled/[A-Za-z0-9._-]{1,160}$ ]] || return 1
   [[ -f ${sites[0]} && ! -L ${sites[0]} ]] || return 1
@@ -45,42 +54,43 @@ assert_managed_proxy_includes() {
 assert_ingress_transaction_layout() {
   local txn=${1:?transaction directory is required}
   local markers actual expected
-  [[ -d $txn && ! -L $txn ]]
-  [[ -d $txn/files && ! -L $txn/files ]]
-  [[ -d $txn/stale && ! -L $txn/stale ]]
+  [[ -d $txn && ! -L $txn ]] || return 1
+  [[ -d $txn/files && ! -L $txn/files ]] || return 1
+  [[ -d $txn/stale && ! -L $txn/stale ]] || return 1
   for file in identity targets.tsv stale.tsv SHA256SUMS SHA256SUMS.files; do
-    [[ -f $txn/$file && ! -L $txn/$file ]]
+    [[ -f $txn/$file && ! -L $txn/$file ]] || return 1
   done
   for marker in applied rollback-complete rollback-failure; do
     if [[ -e $txn/$marker || -L $txn/$marker ]]; then
-      [[ -f $txn/$marker && ! -L $txn/$marker ]]
+      [[ -f $txn/$marker && ! -L $txn/$marker ]] || return 1
     fi
   done
   markers=$(find "$txn" -mindepth 1 -maxdepth 1 \
     \( -name applied -o -name rollback-complete -o -name rollback-failure \) \
-    -printf '%f\n' | LC_ALL=C sort)
+    -printf '%f\n' | LC_ALL=C sort) || return 1
   case "$markers" in
     ''|applied|rollback-complete|rollback-failure|$'applied\nrollback-failure') ;;
     *) return 1 ;;
   esac
-  actual=$(find "$txn" -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort)
-  expected=$(printf '%s\n' SHA256SUMS SHA256SUMS.files files identity stale stale.tsv targets.tsv "$markers" | sed '/^$/d' | LC_ALL=C sort)
-  [[ $actual == "$expected" ]]
-  [[ -z $(find "$txn/files" "$txn/stale" -mindepth 1 ! -type f -print -quit) ]]
+  actual=$(find "$txn" -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort) || return 1
+  expected=$(printf '%s\n' SHA256SUMS SHA256SUMS.files files identity stale stale.tsv targets.tsv "$markers" | sed '/^$/d' | LC_ALL=C sort) || return 1
+  [[ $actual == "$expected" ]] || return 1
+  _required_1=$(find "$txn/files" "$txn/stale" -mindepth 1 ! -type f -print -quit) || return 1
+  [[ -z ${_required_1} ]] || return 1
 }
 
 assert_ingress_transaction_files() {
   local txn=${1:?transaction directory is required}
   local expected actual
-  expected=$(cd "$txn" && find files stale -type f -print | LC_ALL=C sort)
-  actual=$(awk 'NF == 2 && length($1) == 64 { print $2 }' "$txn/SHA256SUMS.files" | LC_ALL=C sort)
-  [[ $actual == "$expected" ]]
+  expected=$(cd "$txn" && find files stale -type f -print | LC_ALL=C sort) || return 1
+  actual=$(awk 'NF == 2 && length($1) == 64 { print $2 }' "$txn/SHA256SUMS.files" | LC_ALL=C sort) || return 1
+  [[ $actual == "$expected" ]] || return 1
 }
 
 rewrite_managed_nginx_site() {
   local site=${1:?site is required}
   local output=${2:?output is required}
-  [[ -f $site && ! -L $site ]]
+  [[ -f $site && ! -L $site ]] || return 1
   awk '
     {
       lines[NR] = $0
@@ -124,26 +134,35 @@ assert_nginx_ingress_policy() {
   local site dump
   site=$(find_managed_nginx_site) || return 1
   assert_managed_proxy_includes "$site" || return 1
-  [[ -z $(find /etc/nginx/sites-enabled -maxdepth 1 -name '*.sub2api-release-backup' -print -quit) ]] || return 1
+  _required_2=$(find /etc/nginx/sites-enabled -maxdepth 1 -name '*.sub2api-release-backup' -print -quit) || return 1
+  [[ -z ${_required_2} ]] || return 1
   [[ -f $NGINX_INGRESS_SNIPPET && ! -L $NGINX_INGRESS_SNIPPET ]] || return 1
-  [[ $(stat -c '%U:%G:%a:%h' "$NGINX_INGRESS_SNIPPET") == root:root:600:1 ]] || return 1
-  [[ $(grep -Fxc 'proxy_request_buffering on;' "$NGINX_INGRESS_SNIPPET") == 1 ]] || return 1
-  [[ $(grep -Fxc 'proxy_buffering off;' "$NGINX_INGRESS_SNIPPET") == 1 ]] || return 1
-  [[ $(grep -Fxc 'access_log /var/log/nginx/sub2api-upstream-access.log sub2api_upstream;' "$NGINX_INGRESS_SNIPPET") == 1 ]] || return 1
+  _required_3=$(stat -c '%U:%G:%a:%h' "$NGINX_INGRESS_SNIPPET") || return 1
+  [[ ${_required_3} == root:root:600:1 ]] || return 1
+  _required_4=$(grep -Fxc 'proxy_request_buffering on;' "$NGINX_INGRESS_SNIPPET") || return 1
+  [[ ${_required_4} == 1 ]] || return 1
+  _required_5=$(grep -Fxc 'proxy_buffering off;' "$NGINX_INGRESS_SNIPPET") || return 1
+  [[ ${_required_5} == 1 ]] || return 1
+  _required_6=$(grep -Fxc 'access_log /var/log/nginx/sub2api-upstream-access.log sub2api_upstream;' "$NGINX_INGRESS_SNIPPET") || return 1
+  [[ ${_required_6} == 1 ]] || return 1
   [[ -f $NGINX_OBSERVABILITY_CONF && ! -L $NGINX_OBSERVABILITY_CONF ]] || return 1
-  [[ $(stat -c '%U:%G:%a:%h' "$NGINX_OBSERVABILITY_CONF") == root:root:600:1 ]] || return 1
+  _required_7=$(stat -c '%U:%G:%a:%h' "$NGINX_OBSERVABILITY_CONF") || return 1
+  [[ ${_required_7} == root:root:600:1 ]] || return 1
   grep -Eq '^[[:space:]]*log_format[[:space:]]+sub2api_upstream([[:space:]]|$)' "$NGINX_OBSERVABILITY_CONF" || return 1
   local field
   for field in request_time upstream_status upstream_connect_time upstream_header_time upstream_response_time; do
     grep -Fq "\$$field" "$NGINX_OBSERVABILITY_CONF" || return 1
   done
   [[ -f $NGINX_UPSTREAM_LOGROTATE && ! -L $NGINX_UPSTREAM_LOGROTATE ]] || return 1
-  [[ $(stat -c '%U:%G:%a:%h' "$NGINX_UPSTREAM_LOGROTATE") == root:root:644:1 ]] || return 1
+  _required_8=$(stat -c '%U:%G:%a:%h' "$NGINX_UPSTREAM_LOGROTATE") || return 1
+  [[ ${_required_8} == root:root:644:1 ]] || return 1
   grep -Fxq '/var/log/nginx/sub2api-upstream-access.log {' "$NGINX_UPSTREAM_LOGROTATE" || return 1
   [[ -d $NGINX_SITE_BACKUP_DIR && ! -L $NGINX_SITE_BACKUP_DIR ]] || return 1
-  [[ $(stat -c '%U:%G:%a' "$NGINX_SITE_BACKUP_DIR") == root:root:700 ]] || return 1
+  _required_9=$(stat -c '%U:%G:%a' "$NGINX_SITE_BACKUP_DIR") || return 1
+  [[ ${_required_9} == root:root:700 ]] || return 1
   dump=$(nginx -T 2>&1) || return 1
-  ! grep -Eqi 'conflicting server name' <<<"$dump" || return 1
+  local grep_code
+  if grep -Eqi 'conflicting server name' <<<"$dump"; then return 1; else grep_code=$?; [[ $grep_code == 1 ]] || return 1; fi
   grep -Fq "# configuration file $site:" <<<"$dump" || return 1
   grep -Fq "# configuration file $NGINX_INGRESS_SNIPPET:" <<<"$dump" || return 1
   grep -Fq "# configuration file $NGINX_OBSERVABILITY_CONF:" <<<"$dump" || return 1

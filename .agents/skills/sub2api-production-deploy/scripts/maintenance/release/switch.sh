@@ -30,14 +30,17 @@ if [[ $profile == 238 || $profile == 239 || $profile == 240 || $profile == 241 ]
 fi
 cd "$deploy_dir"
 load_release_compose_files "$deploy_dir"
-[[ $(docker inspect -f '{{.State.Health.Status}}' "$active_container") == healthy ]]
-[[ $(systemctl is-active nginx) == active ]]
-[[ $(docker image inspect -f '{{.Id}}' "$candidate_image_id") == "$candidate_image_id" ]]
+_required_1=$(docker inspect -f '{{.State.Health.Status}}' "$active_container")
+[[ ${_required_1} == healthy ]]
+_required_2=$(systemctl is-active nginx)
+[[ ${_required_2} == active ]]
+_required_3=$(docker image inspect -f '{{.Id}}' "$candidate_image_id")
+[[ ${_required_3} == "$candidate_image_id" ]]
 [[ -d $state_dir && ! -L $state_dir ]]
 switch_stage_file="$state_dir/switch-stage"
 mark_switch_stage() {
   local value=${1:?switch stage is required}
-  [[ $value =~ ^(initialized|downtime_stopped|migration_started|migration_completed|schema_verified|migration_committed|downtime_compose_prepared|candidate_started|candidate_healthy|candidate_network_verified|candidate_port_verified|candidate_probe_started|candidate_http_verified|candidate_headers_verified|background_activated|active_health_verified|prompt_audit_verified|runtime_verified)$ ]]
+  [[ $value =~ ^(initialized|downtime_stopped|migration_started|migration_completed|schema_verified|migration_committed|downtime_compose_prepared|candidate_started|candidate_healthy|candidate_network_verified|candidate_port_verified|candidate_probe_started|candidate_http_verified|candidate_headers_verified|background_activated|active_health_verified|prompt_audit_verified|runtime_verified)$ ]] || return 1
   printf '%s\n' "$value" > "$switch_stage_file.tmp.$$"
   chmod 600 "$switch_stage_file.tmp.$$"
   mv -T -- "$switch_stage_file.tmp.$$" "$switch_stage_file"
@@ -48,7 +51,7 @@ migration_failure_code=none
 migration_failure_file="$state_dir/migration-switch-failure"
 mark_migration_substage() {
   local value=${1:?migration substage is required}
-  [[ $value =~ ^(migration_record_verification|schema_contract_assertion|schema_stage_marker|migration_container_identity|migration_container_exit|migration_marker_prepare|migration_marker_manifest|migration_marker_publish|migration_195_postflight)$ ]]
+  [[ $value =~ ^(migration_record_verification|schema_contract_assertion|schema_stage_marker|migration_container_identity|migration_container_exit|migration_marker_prepare|migration_marker_manifest|migration_marker_publish|migration_195_postflight)$ ]] || return 1
   migration_substage=$value
   local tmp="$state_dir/migration-switch-substage.tmp.$$"
   printf '%s\n' "$value" > "$tmp"
@@ -59,7 +62,7 @@ mark_migration_substage() {
 mark_migration_failure_context() {
   local substage=${1:?migration substage is required}
   local failure_code=${2:?migration failure code is required}
-  [[ $failure_code =~ ^(migration_record_checksum|schema_assertion|schema_stage_marker|migration_container|migration_marker|migration_195_postflight)$ ]]
+  [[ $failure_code =~ ^(migration_record_checksum|schema_assertion|schema_stage_marker|migration_container|migration_marker|migration_195_postflight)$ ]] || return 1
   migration_failure_code=$failure_code
   mark_migration_substage "$substage"
 }
@@ -156,24 +159,33 @@ export BIND_HOST=127.0.0.1
 export SERVER_PORT="$candidate_port"
 candidate_compose_args=("${release_compose_args[@]}" -f "$candidate_override")
 compose_image=$(docker compose "${candidate_compose_args[@]}" config --format json | jq -r '.services.sub2api.image // empty')
-[[ $(docker image inspect -f '{{.Id}}' "$compose_image") == "$candidate_image_id" ]]
+_required_4=$(docker image inspect -f '{{.Id}}' "$compose_image")
+[[ ${_required_4} == "$candidate_image_id" ]]
 candidate_compose_json=$(docker compose "${candidate_compose_args[@]}" config --format json)
-[[ $(sub2api_compose_network_mode "$candidate_compose_json" "$candidate_port") == "$candidate_network_mode" ]]
+_required_5=$(sub2api_compose_network_mode "$candidate_compose_json" "$candidate_port")
+[[ ${_required_5} == "$candidate_network_mode" ]]
 assert_sub2api_healthcheck_contract "$candidate_compose_json" "$candidate_network_mode" "$candidate_port"
 jq -e '.services.sub2api.environment.UPSTREAM_SYNC_AUTO_ENABLED == "true"' <<<"$candidate_compose_json" >/dev/null
 manifest_schema=$(jq -er '.manifest.schema' "$active_claim/gate.json")
 if [[ $manifest_schema == 2 ]]; then
-  mapfile -t migrations < <(jq -er '.evidence.migration_evidence.pending[]?.filename' "$active_claim/gate.json")
+  migration_inventory=$(jq -r '.evidence.migration_evidence.pending[]?.filename' "$active_claim/gate.json")
+  migrations=()
+  if [[ -n $migration_inventory ]]; then mapfile -t migrations <<<"$migration_inventory"; fi
 else
-  mapfile -t migrations < <(jq -er '.manifest.migrations[]' "$active_claim/gate.json")
+  migration_inventory=$(jq -r '.manifest.migrations[]' "$active_claim/gate.json")
+  migrations=()
+  if [[ -n $migration_inventory ]]; then mapfile -t migrations <<<"$migration_inventory"; fi
 fi
 migration_container="sub2api-migrate-$release_id"
-[[ -z $(docker ps -aq -f "name=^${migration_container}$") ]]
+_required_6=$(docker ps -aq -f "name=^${migration_container}$")
+[[ -z ${_required_6} ]]
 if [[ $deployment_mode == downtime ]]; then
   docker stop -t 60 "$active_container" >/dev/null
   systemctl stop nginx
-  [[ $(docker inspect -f '{{.State.Status}}' "$active_container") != running ]]
-  [[ $(systemctl is-active nginx 2>/dev/null || true) != active ]]
+  _required_7=$(docker inspect -f '{{.State.Status}}' "$active_container")
+  [[ ${_required_7} != running ]]
+  _required_8=$(sub2api_required_systemctl is-active nginx 2>/dev/null)
+  [[ ${_required_8} != active ]]
   mark_switch_stage downtime_stopped
 fi
 mark_switch_stage migration_started
@@ -226,18 +238,21 @@ if [[ $manifest_schema == 2 ]]; then
     # read/planner inconsistency from real production drift after preflight.
     snapshot_rows=$(docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT COALESCE(json_agg(json_build_object('filename',filename,'checksum',checksum) ORDER BY filename),'[]'::json) FROM schema_migrations" | tr -d '\r\n')
     current_image=$(docker inspect -f '{{.Image}}' "$active_container")
-    current_snapshot=$(printf '%s' "$(jq -cSn --arg image "$current_image" --argjson rows "$snapshot_rows" '{current_image_id:$image,schema_migrations:$rows}')" | sha256sum | awk '{print $1}')
+    snapshot_document=$(jq -cSn --arg image "$current_image" --argjson rows "$snapshot_rows" '{current_image_id:$image,schema_migrations:$rows}')
+  current_snapshot=$(printf '%s' "$snapshot_document" | sha256sum | awk '{print $1}')
     [[ $current_snapshot == "$expected_snapshot" ]]
 
     mismatch_tmp="$state_dir/migration-plan-mismatch.tmp.$$"
+    _required_arg_2=$(jq -r 'length' <<<"$expected_pending")
+    _required_arg_1=$(printf '%s' "$expected_pending" | sha256sum | awk '{print $1}')
     printf 'attempt=%s\nplanner_exit=%s\nplan_valid=%s\nactual_pending_count=%s\nexpected_pending_count=%s\nactual_pending_sha256=%s\nexpected_pending_sha256=%s\ncatalog_matches=%s\npolicy_matches=%s\n' \
       "$plan_attempt" \
       "$planner_exit" \
       "$plan_valid" \
       "$actual_pending_count" \
-      "$(jq -r 'length' <<<"$expected_pending")" \
+      "${_required_arg_2}" \
       "$actual_pending_sha256" \
-      "$(printf '%s' "$expected_pending" | sha256sum | awk '{print $1}')" \
+      "${_required_arg_1}" \
       "$([[ $actual_catalog == "$expected_catalog" ]] && echo true || echo false)" \
       "$([[ $actual_policy == "$expected_policy" ]] && echo true || echo false)" > "$mismatch_tmp"
     chmod 600 "$mismatch_tmp"
@@ -254,21 +269,29 @@ mark_switch_stage migration_completed
 trap 'record_migration_failure "$LINENO" "$?"' ERR
 mark_migration_failure_context migration_record_verification migration_record_checksum
 if [[ $manifest_schema == 2 ]]; then
+  _required_inventory_4=$(jq -r '.evidence.migration_evidence.pending[] | [.filename,.checksum] | @tsv' "$active_claim/gate.json")
   while IFS=$'\t' read -r migration migration_checksum; do
+    [[ -n $migration ]] || continue
     recorded=$(docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT checksum FROM schema_migrations WHERE filename='$migration'")
     [[ $recorded == "$migration_checksum" ]]
-  done < <(jq -r '.evidence.migration_evidence.pending[] | [.filename,.checksum] | @tsv' "$active_claim/gate.json")
+  done <<<"$_required_inventory_4"
   final_plan="$state_dir/migration-plan-final.json"
   docker compose "${candidate_compose_args[@]}" run --rm --no-deps sub2api /app/sub2api --migration-plan-json > "$final_plan"
   jq -e '(.pending|length)==0 and (.conflicts|length)==0 and (.unknown|length)==0 and .existing_checksums_verified==true' "$final_plan" >/dev/null
-  [[ $(jq -er '.catalog_sha256' "$final_plan") == $(jq -er '.manifest.catalog_sha256' "$active_claim/gate.json") ]]
-  [[ $(jq -er '.checksum_policy_sha256' "$final_plan") == $(jq -er '.manifest.checksum_policy_sha256' "$active_claim/gate.json") ]]
+  _required_10=$(jq -er '.catalog_sha256' "$final_plan")
+  _required_9=$(jq -er '.manifest.catalog_sha256' "$active_claim/gate.json")
+  [[ ${_required_10} == ${_required_9} ]]
+  _required_12=$(jq -er '.checksum_policy_sha256' "$final_plan")
+  _required_11=$(jq -er '.manifest.checksum_policy_sha256' "$active_claim/gate.json")
+  [[ ${_required_12} == ${_required_11} ]]
   chmod 600 "$final_plan"
 else
+  _required_inventory_3=$(jq -r '.manifest.migration_sha256 | to_entries[] | [.key,.value] | @tsv' "$active_claim/gate.json")
   while IFS=$'\t' read -r migration migration_checksum; do
+    [[ -n $migration ]] || continue
     recorded=$(docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT checksum FROM schema_migrations WHERE filename='$migration'")
     [[ $recorded == "$migration_checksum" ]]
-  done < <(jq -r '.manifest.migration_sha256 | to_entries[] | [.key,.value] | @tsv' "$active_claim/gate.json")
+  done <<<"$_required_inventory_3"
 fi
 mark_migration_failure_context schema_contract_assertion schema_assertion
   if [[ $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 || $release_profile == 240 || $release_profile == 241 ]]; then
@@ -411,19 +434,26 @@ fi
 mark_switch_stage schema_verified
 trap - ERR
 mark_migration_failure_context migration_container_identity migration_container
-[[ $(docker inspect -f '{{.Image}}' "$migration_container") == "$candidate_image_id" ]]
+_required_13=$(docker inspect -f '{{.Image}}' "$migration_container")
+[[ ${_required_13} == "$candidate_image_id" ]]
 mark_migration_failure_context migration_container_exit migration_container
-[[ $(docker inspect -f '{{.State.ExitCode}}' "$migration_container") == 0 ]]
+_required_14=$(docker inspect -f '{{.State.ExitCode}}' "$migration_container")
+[[ ${_required_14} == 0 ]]
 if [[ $manifest_schema == 2 ]]; then
   mark_migration_failure_context migration_marker_prepare migration_marker
   marker_tmp="$state_dir/.migration-committed.tmp.$$"
+  _required_arg_5=$(jq -cS '.evidence.migration_evidence.pending' "$active_claim/gate.json" | tr -d '\n' | sha256sum | awk '{print $1}')
+  _required_arg_4=$(jq -er '.manifest.catalog_sha256' "$active_claim/gate.json")
+  _required_arg_3=$(jq -er '.evidence.production_snapshot_sha256' "$active_claim/gate.json")
   printf 'plan_sha256=%s\ncatalog_sha256=%s\nproduction_snapshot_sha256=%s\n' \
-    "$(jq -cS '.evidence.migration_evidence.pending' "$active_claim/gate.json" | tr -d '\n' | sha256sum | awk '{print $1}')" \
-    "$(jq -er '.manifest.catalog_sha256' "$active_claim/gate.json")" \
-    "$(jq -er '.evidence.production_snapshot_sha256' "$active_claim/gate.json")" > "$marker_tmp"
+    "${_required_arg_5}" \
+    "${_required_arg_4}" \
+    "${_required_arg_3}" > "$marker_tmp"
+  _required_inventory_2=$(jq -r '.evidence.migration_evidence.pending[] | [.filename,.checksum] | @tsv' "$active_claim/gate.json")
   while IFS=$'\t' read -r migration migration_checksum; do
+    [[ -n $migration ]] || continue
     printf 'migration=%s checksum=%s\n' "$migration" "$migration_checksum" >> "$marker_tmp"
-  done < <(jq -r '.evidence.migration_evidence.pending[] | [.filename,.checksum] | @tsv' "$active_claim/gate.json")
+  done <<<"$_required_inventory_2"
   chmod 600 "$marker_tmp"
   mark_migration_failure_context migration_marker_publish migration_marker
   [[ ! -e $state_dir/migration-committed && ! -L $state_dir/migration-committed ]]
@@ -435,9 +465,11 @@ elif [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199
   marker_tmp="$state_dir/.migration-committed.tmp.$$"
   mark_migration_failure_context migration_marker_manifest migration_marker
   printf 'plan_sha256=%s\nmigration_manifest_sha256=%s\n' "$(<"$state_dir/migration-195-plan.sha256")" "$migration_manifest_sha256" > "$marker_tmp"
+  _required_inventory_1=$(jq -r '.manifest.migration_sha256 | to_entries[] | [.key,.value] | @tsv' "$active_claim/gate.json")
   while IFS=$'\t' read -r migration migration_checksum; do
+    [[ -n $migration ]] || continue
     printf 'migration=%s checksum=%s\n' "$migration" "$migration_checksum" >> "$marker_tmp"
-  done < <(jq -r '.manifest.migration_sha256 | to_entries[] | [.key,.value] | @tsv' "$active_claim/gate.json")
+  done <<<"$_required_inventory_1"
   chmod 600 "$marker_tmp"
   mark_migration_failure_context migration_marker_publish migration_marker
   [[ ! -e $state_dir/migration-committed && ! -L $state_dir/migration-committed ]]
@@ -462,14 +494,16 @@ if [[ $deployment_mode == downtime ]]; then
   mv -T -- "$active_override_tmp" "$deploy_dir/docker-compose.release-active.yml"
   env_tmp="$deploy_dir/.env.active.$$"
   awk '!/^(COMPOSE_FILE|SUB2API_RELEASE_IMAGE|BIND_HOST|SERVER_PORT)=/' "$deploy_dir/.env" > "$env_tmp"
-  printf 'COMPOSE_FILE=%s\n' "$(release_compose_value_with_active_override)" >> "$env_tmp"
+  _required_arg_6=$(release_compose_value_with_active_override)
+  printf 'COMPOSE_FILE=%s\n' "${_required_arg_6}" >> "$env_tmp"
   printf 'SUB2API_RELEASE_IMAGE=%s\nBIND_HOST=127.0.0.1\nSERVER_PORT=%s\n' "$candidate_image_id" "$candidate_port" >> "$env_tmp"
   chmod --reference="$deploy_dir/.env" "$env_tmp"
   mv -T -- "$env_tmp" "$deploy_dir/.env"
   load_release_compose_files "$deploy_dir"
   candidate_compose_args=("${release_compose_args[@]}")
   candidate_compose_json=$(docker compose "${candidate_compose_args[@]}" config --format json)
-  [[ $(assert_sub2api_compose_closure "$deploy_dir" "$candidate_port" "$candidate_image_id" "$candidate_instance_id") == "$candidate_network_mode" ]]
+  _required_15=$(assert_sub2api_compose_closure "$deploy_dir" "$candidate_port" "$candidate_image_id" "$candidate_instance_id")
+  [[ ${_required_15} == "$candidate_network_mode" ]]
   mark_switch_stage downtime_compose_prepared
   candidate_start_failure_line=$((LINENO + 1))
   run_release_logged_command docker compose "${candidate_compose_args[@]}" up -d --no-deps --force-recreate sub2api || {
@@ -477,7 +511,8 @@ if [[ $deployment_mode == downtime ]]; then
     candidate_original_exit_code=$candidate_start_exit
   }
 else
-  [[ -z $(docker ps -aq -f "name=^${candidate_container}$") ]]
+  _required_16=$(docker ps -aq -f "name=^${candidate_container}$")
+  [[ -z ${_required_16} ]]
   candidate_run_args=(run -d --name "$candidate_container" --no-deps)
   [[ $candidate_network_mode == host ]] || candidate_run_args+=(--service-ports)
   candidate_start_failure_line=$((LINENO + 1))
@@ -543,12 +578,15 @@ capture_candidate_failure() {
   if [[ -n ${SUB2API_RELEASE_RAW_LOG:-} ]]; then
     candidate_log_capture=unavailable
     [[ $SUB2API_RELEASE_RAW_LOG == "$release_dir/logs/production.raw.log" && -f $SUB2API_RELEASE_RAW_LOG && ! -L $SUB2API_RELEASE_RAW_LOG ]] || return 1
-    [[ $(stat -c '%U:%G:%a:%h' "$SUB2API_RELEASE_RAW_LOG") == root:root:600:1 ]] || return 1
+    _required_17=$(stat -c '%U:%G:%a:%h' "$SUB2API_RELEASE_RAW_LOG") || return 1
+    [[ ${_required_17} == root:root:600:1 ]] || return 1
     {
-      printf '\n[%s] stage=candidate_failure stream=container\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" || return 1
+      _required_arg_7=$(date -u +%Y-%m-%dT%H:%M:%SZ) || return 1
+      printf '\n[%s] stage=candidate_failure stream=container\n' "${_required_arg_7}" || return 1
       printf 'candidate_state=%s candidate_health=%s candidate_exit_code=%s candidate_original_exit_code=%s candidate_oom_killed=%s candidate_restart_count=%s candidate_health_log_entries=%s candidate_failure_kind=%s failure_line=%s\n' \
         "$candidate_state" "$candidate_health" "$candidate_exit_code" "$candidate_original_exit_code" "$candidate_oom_killed" "$candidate_restart_count" "$candidate_health_log_entries" "$candidate_failure_kind" "$failure_line" || return 1
-      printf '[%s] stage=candidate_failure stream=healthcheck\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" || return 1
+      _required_arg_8=$(date -u +%Y-%m-%dT%H:%M:%SZ) || return 1
+      printf '[%s] stage=candidate_failure stream=healthcheck\n' "${_required_arg_8}" || return 1
       docker inspect -f '{{range .State.Health.Log}}{{printf "start=%s end=%s exit_code=%d output=%q\n" .Start .End .ExitCode .Output}}{{end}}' "$candidate_container" 2>&1 || true
       docker logs --since 15m "$candidate_container" 2>&1 || true
     } >> "$SUB2API_RELEASE_RAW_LOG" || return 1
@@ -559,15 +597,18 @@ capture_candidate_failure() {
   if ! printf 'candidate_failure_kind=%s\ncandidate_state=%s\ncandidate_health=%s\ncandidate_exit_code=%s\ncandidate_original_exit_code=%s\ncandidate_oom_killed=%s\ncandidate_restart_count=%s\ncandidate_health_log_entries=%s\ncandidate_log_capture=%s\ncandidate_failure_line=%s\n' \
     "$candidate_failure_kind" "$candidate_state" "$candidate_health" "$candidate_exit_code" "$candidate_original_exit_code" "$candidate_oom_killed" "$candidate_restart_count" "$candidate_health_log_entries" "$candidate_log_capture" "$failure_line" > "$failure_tmp" ||
      ! chmod 600 "$failure_tmp" ||
-     [[ $(stat -c '%U:%G:%a:%h' "$failure_tmp") != root:root:600:1 ]] ||
+     ! _required_18=$(stat -c '%U:%G:%a:%h' "$failure_tmp") ||
+     [[ ${_required_18} != root:root:600:1 ]] ||
      [[ -e $candidate_failure_file || -L $candidate_failure_file ]] ||
      ! mv -T -- "$failure_tmp" "$candidate_failure_file"; then
     rm -f -- "$failure_tmp"
     return 1
   fi
   [[ -f $candidate_failure_file && ! -L $candidate_failure_file ]] || return 1
-  [[ $(stat -c '%U:%G:%a:%h' "$candidate_failure_file") == root:root:600:1 ]] || return 1
-  [[ $(grep -c '^candidate_' "$candidate_failure_file") == 10 ]] || return 1
+  _required_19=$(stat -c '%U:%G:%a:%h' "$candidate_failure_file") || return 1
+  [[ ${_required_19} == root:root:600:1 ]] || return 1
+  _required_20=$(grep -c '^candidate_' "$candidate_failure_file") || return 1
+  [[ ${_required_20} == 10 ]] || return 1
   grep -Fxq "candidate_failure_line=$failure_line" "$candidate_failure_file" || return 1
   grep -Fxq "candidate_original_exit_code=$candidate_original_exit_code" "$candidate_failure_file" || return 1
 }
@@ -583,13 +624,16 @@ capture_candidate_failure_once() {
   trap - ERR
   [[ $failure_line =~ ^[0-9]+$ ]] || return 1
   if [[ -f $candidate_failure_capture_marker && ! -L $candidate_failure_capture_marker ]]; then
-    [[ $(stat -c '%U:%G:%a:%h' "$candidate_failure_capture_marker") == root:root:600:1 ]] || return 1
+    _required_21=$(stat -c '%U:%G:%a:%h' "$candidate_failure_capture_marker") || return 1
+    [[ ${_required_21} == root:root:600:1 ]] || return 1
     grep -Fxq 'candidate_failure_capture_started=true' "$candidate_failure_capture_marker" || return 1
     grep -Fxq "candidate_failure_line=$failure_line" "$candidate_failure_capture_marker" || return 1
     candidate_failure_capture_started=true
     if [[ -f $candidate_failure_file && ! -L $candidate_failure_file ]]; then
-      [[ $(stat -c '%U:%G:%a:%h' "$candidate_failure_file") == root:root:600:1 ]] || return 1
-      [[ $(grep -c '^candidate_' "$candidate_failure_file") == 10 ]] || return 1
+      _required_22=$(stat -c '%U:%G:%a:%h' "$candidate_failure_file") || return 1
+      [[ ${_required_22} == root:root:600:1 ]] || return 1
+      _required_23=$(grep -c '^candidate_' "$candidate_failure_file") || return 1
+      [[ ${_required_23} == 10 ]] || return 1
       grep -Fxq "candidate_failure_line=$failure_line" "$candidate_failure_file" || return 1
       candidate_failure_committed=true
       return 0
@@ -628,8 +672,9 @@ capture_candidate_failure_on_exit() {
     fi
     if [[ $capture_status -ne 0 ]]; then
       if [[ -n ${SUB2API_RELEASE_RAW_LOG:-} && $SUB2API_RELEASE_RAW_LOG == "$release_dir/logs/production.raw.log" && -f $SUB2API_RELEASE_RAW_LOG && ! -L $SUB2API_RELEASE_RAW_LOG ]]; then
+        _required_arg_9=$(date -u +%Y-%m-%dT%H:%M:%SZ) || return 1
         printf '\n[%s] stage=candidate_failure_capture status=failed failure_line=%s original_exit_code=%s\n' \
-          "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$candidate_unhandled_failure_line" "$candidate_original_exit_code" >> "$SUB2API_RELEASE_RAW_LOG"
+          "${_required_arg_9}" "$candidate_unhandled_failure_line" "$candidate_original_exit_code" >> "$SUB2API_RELEASE_RAW_LOG"
       fi
       exit_code=98
     fi
@@ -648,9 +693,9 @@ if ! assert_sub2api_runtime_contract "$candidate_container" "$candidate_image_id
   exit 1
 fi
 candidate_ready=false
-for _ in $(seq 1 90); do
-  candidate_state_now=$(docker inspect -f '{{.State.Status}}' "$candidate_container" 2>/dev/null || true)
-  candidate_health_now=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$candidate_container" 2>/dev/null || true)
+for _ in {1..90}; do
+  candidate_state_now=$(docker inspect -f '{{.State.Status}}' "$candidate_container" 2>/dev/null)
+  candidate_health_now=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$candidate_container" 2>/dev/null)
   if [[ $candidate_health_now == healthy ]]; then
     candidate_ready=true
     break
@@ -663,8 +708,8 @@ if [[ $candidate_ready != true ]]; then
   capture_candidate_failure_once "$LINENO"
   exit 1
 fi
-candidate_runtime_image=$(docker inspect -f '{{.Image}}' "$candidate_container" 2>/dev/null || true)
-candidate_runtime_health=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$candidate_container" 2>/dev/null || true)
+candidate_runtime_image=$(docker inspect -f '{{.Image}}' "$candidate_container" 2>/dev/null)
+candidate_runtime_health=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$candidate_container" 2>/dev/null)
 if [[ $candidate_runtime_image != "$candidate_image_id" || $candidate_runtime_health != healthy ]]; then
   capture_candidate_failure_once "$LINENO"
   exit 1
@@ -679,7 +724,7 @@ candidate_headers=$(mktemp /tmp/sub2api-candidate-health.XXXXXX)
 mark_switch_stage candidate_probe_started
 candidate_http_code=000
 candidate_curl_exit=0
-for _ in $(seq 1 30); do
+for _ in {1..30}; do
   if candidate_http_code=$(curl -sS -D "$candidate_headers" -o /dev/null -w '%{http_code}' "http://127.0.0.1:${candidate_port}/health"); then
     candidate_curl_exit=0
   else
@@ -697,16 +742,17 @@ assert_http_header_equals "$candidate_headers" X-Sub2API-Instance "$candidate_in
 assert_http_header_equals "$candidate_headers" X-Sub2API-Background-Ready false
 mark_switch_stage candidate_headers_verified
 if [[ $deployment_mode == blue-green ]]; then
-  [[ $(docker inspect -f '{{.State.Health.Status}}' "$active_container") == healthy ]]
+  _required_24=$(docker inspect -f '{{.State.Health.Status}}' "$active_container")
+  [[ ${_required_24} == healthy ]]
 else
   if ! write_release_activation_marker "$candidate_container" "$candidate_instance_id"; then
     capture_candidate_failure_once "$LINENO" activation_marker_write_failed
     exit 1
   fi
   background_ready=false
-  for _ in $(seq 1 120); do
+  for _ in {1..120}; do
     : > "$candidate_headers"
-    if [[ $(curl -sS -D "$candidate_headers" -o /dev/null -w '%{http_code}' "http://127.0.0.1:${candidate_port}/health" 2>/dev/null || true) == 200 ]] &&
+    if background_http_code=$(curl -sS -D "$candidate_headers" -o /dev/null -w '%{http_code}' "http://127.0.0.1:${candidate_port}/health" 2>/dev/null) && [[ $background_http_code == 200 ]] &&
        assert_http_header_equals "$candidate_headers" X-Sub2API-Instance "$candidate_instance_id" &&
        assert_http_header_equals "$candidate_headers" X-Sub2API-Background-Ready true; then
       background_ready=true

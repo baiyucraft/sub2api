@@ -67,7 +67,7 @@ write_preflight_plan() {
     while IFS='|' read -r cache_key before_count; do
       [[ $cache_key =~ ^[0-9a-f]{64}$ && $before_count =~ ^[0-9]+$ ]] || fail preflight_state
     done < "$key_counts_file"
-    target_key_count=$(wc -l < "$key_counts_file")
+    target_key_count=$(wc -l < "$key_counts_file") || return 1
   else
     target_key_count=0
   fi
@@ -82,7 +82,7 @@ write_preflight_plan() {
   } > "$temporary"
   chmod 600 "$temporary"
   mv -T -- "$temporary" "$plan_file"
-  plan_sha=$({ cat "$plan_file"; printf '%s\n' '--key-counts--'; cat "$key_counts_file"; } | sha256sum | awk '{print $1}')
+  plan_sha=$({ cat "$plan_file" || exit 1; printf '%s\n' '--key-counts--' || exit 1; cat "$key_counts_file"; } | sha256sum | awk '{print $1}') || return 1
   [[ $plan_sha =~ ^[0-9a-f]{64}$ ]] || fail preflight_state
   temporary="$plan_sha_file.tmp.$$"
   printf '%s\n' "$plan_sha" > "$temporary"
@@ -99,8 +99,8 @@ verify_postflight() {
   local expected_sha actual_sha target_user_count active_user_count soft_deleted_digest target_key_count
   local current_active current_disabled current_soft outbox_state sql_file first cache_key before_count
   [[ -f $plan_file && ! -L $plan_file && -f $key_counts_file && ! -L $key_counts_file && -f $plan_sha_file && ! -L $plan_sha_file ]] || fail plan_missing
-  expected_sha=$(tr -d '[:space:]' < "$plan_sha_file")
-  actual_sha=$({ cat "$plan_file"; printf '%s\n' '--key-counts--'; cat "$key_counts_file"; } | sha256sum | awk '{print $1}')
+  expected_sha=$(tr -d '[:space:]' < "$plan_sha_file") || return 1
+  actual_sha=$({ cat "$plan_file" || exit 1; printf '%s\n' '--key-counts--' || exit 1; cat "$key_counts_file"; } | sha256sum | awk '{print $1}') || return 1
   [[ $expected_sha =~ ^[0-9a-f]{64}$ && $actual_sha == "$expected_sha" ]] || fail plan_checksum
 
   source "$plan_file"
@@ -114,7 +114,8 @@ verify_postflight() {
   verify_trigger_contract
 
   if [[ $target_key_count -gt 0 ]]; then
-    [[ $(wc -l < "$key_counts_file" | tr -d '[:space:]') == "$target_key_count" ]] || fail plan_state
+    _required_1=$(wc -l < "$key_counts_file" | tr -d '[:space:]') || fail plan_state
+    [[ ${_required_1} == "$target_key_count" ]] || fail plan_state
     sql_file="$state_dir/migration-254-outbox-check.sql"
     : > "$sql_file.tmp.$$"
     printf 'WITH expected(cache_key,before_count) AS (VALUES\n' >> "$sql_file.tmp.$$"

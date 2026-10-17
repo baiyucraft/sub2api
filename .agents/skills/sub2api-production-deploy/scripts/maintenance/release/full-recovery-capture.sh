@@ -15,24 +15,33 @@ age_bin=${AGE_BIN:-age}
 expected_image=${EXPECTED_PRE_IMAGE_ID:?EXPECTED_PRE_IMAGE_ID is required}
 active_container=${ACTIVE_CONTAINER:?ACTIVE_CONTAINER is required}
 capture_purpose=${CAPTURE_PURPOSE:-pre_gate}
-assets_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+assets_dir=$(dirname -- "${BASH_SOURCE[0]}")
+assets_dir=$(cd -- "$assets_dir" && pwd -P)
 umask 077
-[[ $(id -u) == 0 ]]
+_required_1=$(id -u)
+[[ ${_required_1} == 0 ]]
 [[ $expected_image =~ ^sha256:[0-9a-f]{64}$ ]]
 [[ $active_container =~ ^[A-Za-z0-9_.-]{1,80}$ ]]
 [[ $capture_purpose == pre_gate || $capture_purpose == postrelease ]]
 [[ $release_id =~ ^(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
-[[ -d $deploy_dir && ! -L $deploy_dir && $(realpath -e -- "$deploy_dir") == "$deploy_dir" ]]
-[[ -f $recipient_file && ! -L $recipient_file && $(stat -c '%u:%g:%a:%h' "$recipient_file") == 0:0:600:1 ]]
+_required_2=$(realpath -e -- "$deploy_dir")
+[[ -d $deploy_dir && ! -L $deploy_dir && ${_required_2} == "$deploy_dir" ]]
+_required_3=$(stat -c '%u:%g:%a:%h' "$recipient_file")
+[[ -f $recipient_file && ! -L $recipient_file && ${_required_3} == 0:0:600:1 ]]
 recipient=$(tr -d '\r\n' < "$recipient_file")
 [[ $recipient =~ ^age1[0-9a-z]{10,120}$ ]]
 command -v "$age_bin" >/dev/null
-[[ -d $output_dir && ! -L $output_dir && $(realpath -e -- "$output_dir") == "$output_dir" ]]
-[[ $(stat -c '%u:%g:%a' "$output_dir") == 0:0:700 ]]
+_required_4=$(realpath -e -- "$output_dir")
+[[ -d $output_dir && ! -L $output_dir && ${_required_4} == "$output_dir" ]]
+_required_5=$(stat -c '%u:%g:%a' "$output_dir")
+[[ ${_required_5} == 0:0:700 ]]
 [[ $work_root == /var/lib/sub2api/recovery-capture && ! -L $work_root ]]
-[[ -d /var/lib/sub2api && ! -L /var/lib/sub2api && $(realpath -e /var/lib/sub2api) == /var/lib/sub2api ]]
+_required_6=$(realpath -e /var/lib/sub2api)
+[[ -d /var/lib/sub2api && ! -L /var/lib/sub2api && ${_required_6} == /var/lib/sub2api ]]
 if [[ ! -e $work_root ]]; then mkdir -m 700 "$work_root"; fi
-[[ -d $work_root && $(realpath -e -- "$work_root") == "$work_root" && $(stat -c '%u:%g:%a' "$work_root") == 0:0:700 ]]
+_required_8=$(realpath -e -- "$work_root")
+_required_7=$(stat -c '%u:%g:%a' "$work_root")
+[[ -d $work_root && ${_required_8} == "$work_root" && ${_required_7} == 0:0:700 ]]
 exec 9>/run/lock/sub2api-backup-global.lock
 flock -n 9
 
@@ -76,15 +85,22 @@ trap cleanup EXIT
 source "$assets_dir/recovery-compose.sh"
 source "$assets_dir/nginx-ingress-contract.sh"
 [[ -f $deploy_dir/active-app && ! -L $deploy_dir/active-app ]]
-[[ $(stat -c '%u:%g:%a:%h' "$deploy_dir/active-app") == 0:0:600:1 ]]
-[[ $(sed -n 's/^container=//p' "$deploy_dir/active-app") == "$active_container" ]]
-[[ $(systemctl is-active nginx) == active ]]
-[[ $(systemctl is-active sub2api-backup.service 2>/dev/null || true) != active ]]
+_required_9=$(stat -c '%u:%g:%a:%h' "$deploy_dir/active-app")
+[[ ${_required_9} == 0:0:600:1 ]]
+_required_10=$(sed -n 's/^container=//p' "$deploy_dir/active-app")
+[[ ${_required_10} == "$active_container" ]]
+_required_11=$(systemctl is-active nginx)
+[[ ${_required_11} == active ]]
+_required_12=$(sub2api_required_systemctl is-active sub2api-backup.service 2>/dev/null)
+[[ ${_required_12} != active ]]
 
 
-[[ $(docker inspect -f '{{.State.Health.Status}}' "$active_container") == healthy ]]
-[[ $(docker inspect -f '{{.State.Health.Status}}' sub2api-postgres) == healthy ]]
-[[ $(docker inspect -f '{{.State.Health.Status}}' sub2api-redis) == healthy ]]
+_required_13=$(docker inspect -f '{{.State.Health.Status}}' "$active_container")
+[[ ${_required_13} == healthy ]]
+_required_14=$(docker inspect -f '{{.State.Health.Status}}' sub2api-postgres)
+[[ ${_required_14} == healthy ]]
+_required_15=$(docker inspect -f '{{.State.Health.Status}}' sub2api-redis)
+[[ ${_required_15} == healthy ]]
 pre_image_id=$(docker inspect -f '{{.Image}}' "$active_container")
 [[ $pre_image_id == "$expected_image" ]]
 compose_root="$work/config/app"
@@ -123,7 +139,7 @@ redis_password=$(docker inspect sub2api-redis | jq -er '((.[0].Config.Entrypoint
 [[ -n $redis_password ]]
 docker exec sub2api-redis test ! -e "$redis_path"
 redis_owned=true
-printf '%s\n' "$redis_password" | docker exec -i sub2api-redis sh -c 'IFS= read -r REDISCLI_AUTH; export REDISCLI_AUTH; exec redis-cli --no-auth-warning --rdb "$1"' sh "$redis_path" >/dev/null
+printf '%s\n' "$redis_password" | docker exec -i sub2api-redis sh -c 'IFS= read -r REDISCLI_AUTH || exit 1; export REDISCLI_AUTH; exec redis-cli --no-auth-warning --rdb "$1"' sh "$redis_path" >/dev/null
 rdb_check=$(docker exec sub2api-redis redis-check-rdb "$redis_path")
 redis_keys=$(sed -n 's/^\[info\] \([0-9][0-9]*\) keys read$/\1/p' <<<"$rdb_check")
 redis_expires=$(sed -n 's/^\[info\] \([0-9][0-9]*\) expires$/\1/p' <<<"$rdb_check")
@@ -154,13 +170,17 @@ install -d -m 700 "$work/config/nginx/sites-enabled" "$work/config/nginx/conf.d"
 [[ -d /etc/nginx/conf.d && ! -L /etc/nginx/conf.d ]]
 [[ -d /etc/nginx/snippets && ! -L /etc/nginx/snippets ]]
 cp -p /etc/nginx/nginx.conf "$work/config/nginx/nginx.conf"
-[[ $(stat -c '%U:%G:%a:%h' /etc/nginx/nginx.conf) == root:root:600:1 ||
-   $(stat -c '%U:%G:%a:%h' /etc/nginx/nginx.conf) == root:root:640:1 ||
-   $(stat -c '%U:%G:%a:%h' /etc/nginx/nginx.conf) == root:root:644:1 ]]
+_required_18=$(stat -c '%U:%G:%a:%h' /etc/nginx/nginx.conf)
+_required_17=$(stat -c '%U:%G:%a:%h' /etc/nginx/nginx.conf)
+_required_16=$(stat -c '%U:%G:%a:%h' /etc/nginx/nginx.conf)
+[[ ${_required_18} == root:root:600:1 ||
+   ${_required_17} == root:root:640:1 ||
+   ${_required_16} == root:root:644:1 ]]
 managed_site=$(find_managed_nginx_site)
 managed_site_stat=$(stat -c '%U:%G:%a:%h' "$managed_site")
 case "$managed_site_stat" in root:root:600:1|root:root:640:1|root:root:644:1) ;; *) exit 1 ;; esac
-cp -p "$managed_site" "$work/config/nginx/sites-enabled/$(basename -- "$managed_site")"
+_required_arg_1=$(basename -- "$managed_site")
+cp -p "$managed_site" "$work/config/nginx/sites-enabled/${_required_arg_1}"
 printf '%s\n' "$managed_site" > "$work/metadata/nginx-managed-site"
 chmod 600 "$work/metadata/nginx-managed-site"
 shopt -s nullglob
@@ -171,40 +191,50 @@ else
   for release_conf in "${release_confs[@]}"; do
     [[ $release_conf =~ ^/etc/nginx/conf.d/sub2api-release-[A-Za-z0-9._-]{1,160}\.conf$ ]]
     [[ -f $release_conf && ! -L $release_conf ]]
-    [[ $(stat -c '%U:%G:%a:%h' "$release_conf") == root:root:600:1 ]]
+    _required_19=$(stat -c '%U:%G:%a:%h' "$release_conf")
+    [[ ${_required_19} == root:root:600:1 ]]
     cp -p "$release_conf" "$work/config/nginx/conf.d/"
   done
 fi
 if [[ -e $NGINX_INGRESS_SNIPPET || -L $NGINX_INGRESS_SNIPPET ]]; then
   [[ -f $NGINX_INGRESS_SNIPPET && ! -L $NGINX_INGRESS_SNIPPET ]]
-  [[ $(stat -c '%U:%G:%a:%h' "$NGINX_INGRESS_SNIPPET") == root:root:600:1 ]]
-  cp -p -- "$NGINX_INGRESS_SNIPPET" "$work/config/nginx/snippets/$(basename -- "$NGINX_INGRESS_SNIPPET")"
+  _required_20=$(stat -c '%U:%G:%a:%h' "$NGINX_INGRESS_SNIPPET")
+  [[ ${_required_20} == root:root:600:1 ]]
+  _required_arg_2=$(basename -- "$NGINX_INGRESS_SNIPPET")
+  cp -p -- "$NGINX_INGRESS_SNIPPET" "$work/config/nginx/snippets/${_required_arg_2}"
 else
   : > "$work/config/nginx/snippets/.absent"
 fi
 if [[ -e $NGINX_OBSERVABILITY_CONF || -L $NGINX_OBSERVABILITY_CONF ]]; then
   [[ -f $NGINX_OBSERVABILITY_CONF && ! -L $NGINX_OBSERVABILITY_CONF ]]
-  [[ $(stat -c '%U:%G:%a:%h' "$NGINX_OBSERVABILITY_CONF") == root:root:600:1 ]]
+  _required_21=$(stat -c '%U:%G:%a:%h' "$NGINX_OBSERVABILITY_CONF")
+  [[ ${_required_21} == root:root:600:1 ]]
   cp -p -- "$NGINX_OBSERVABILITY_CONF" "$work/config/nginx/observability.conf"
 else
   : > "$work/config/nginx/observability.absent"
 fi
 if [[ -e $NGINX_SITE_BACKUP_DIR || -L $NGINX_SITE_BACKUP_DIR ]]; then
   [[ -d $NGINX_SITE_BACKUP_DIR && ! -L $NGINX_SITE_BACKUP_DIR ]]
-  [[ $(stat -c '%U:%G:%a' "$NGINX_SITE_BACKUP_DIR") == root:root:700 ]]
-  [[ -z $(find "$NGINX_SITE_BACKUP_DIR" -mindepth 1 -maxdepth 1 ! -type f -print -quit) ]]
-  while IFS= read -r -d '' backup_file; do
+  _required_22=$(stat -c '%U:%G:%a' "$NGINX_SITE_BACKUP_DIR")
+  [[ ${_required_22} == root:root:700 ]]
+  _required_23=$(find "$NGINX_SITE_BACKUP_DIR" -mindepth 1 -maxdepth 1 ! -type f -print -quit)
+  [[ -z ${_required_23} ]]
+  _required_inventory_1=()
+  sub2api_capture_nul _required_inventory_1 find "$NGINX_SITE_BACKUP_DIR" -mindepth 1 -maxdepth 1 -type f -print0
+  for backup_file in "${_required_inventory_1[@]}"; do
     name=$(basename -- "$backup_file")
     [[ $name =~ ^[A-Za-z0-9._-]{1,240}$ ]]
-    [[ $(stat -c '%U:%G:%a:%h' "$backup_file") == root:root:600:1 ]]
+    _required_24=$(stat -c '%U:%G:%a:%h' "$backup_file")
+    [[ ${_required_24} == root:root:600:1 ]]
     cp -p -- "$backup_file" "$work/config/nginx/release-backups/$name"
-  done < <(find "$NGINX_SITE_BACKUP_DIR" -mindepth 1 -maxdepth 1 -type f -print0)
+  done
 else
   : > "$work/config/nginx/release-backups/.absent"
 fi
 if [[ -e $NGINX_UPSTREAM_LOGROTATE || -L $NGINX_UPSTREAM_LOGROTATE ]]; then
   [[ -f $NGINX_UPSTREAM_LOGROTATE && ! -L $NGINX_UPSTREAM_LOGROTATE ]]
-  [[ $(stat -c '%U:%G:%a:%h' "$NGINX_UPSTREAM_LOGROTATE") == root:root:644:1 ]]
+  _required_25=$(stat -c '%U:%G:%a:%h' "$NGINX_UPSTREAM_LOGROTATE")
+  [[ ${_required_25} == root:root:644:1 ]]
   # The managed release policy uses rotate 14; preserve the source file byte-for-byte.
   cp -p "$NGINX_UPSTREAM_LOGROTATE" "$work/config/nginx/logrotate/"
 else
@@ -222,14 +252,22 @@ printf 'release_id=%s\ncandidate_image_id=%s\npre_switch_image_id=%s\ncompose_re
 # State the actual capture purpose/image separately; postrelease never claims
 # that its current candidate was the application's earlier production image.
 printf 'capture_purpose=%s\ncaptured_image_id=%s\n' "$capture_purpose" "$pre_image_id" >> "$work/metadata/manifest.txt"
-printf 'pg_dump_sha256=%s\nredis_rdb_sha256=%s\n' "$(sha256sum "$work/database/sub2api.dump" | awk '{print $1}')" "$(sha256sum "$work/redis/dump.rdb" | awk '{print $1}')" > "$work/metadata/store-digests.txt"
-[[ $(docker inspect -f '{{.Image}}' "$active_container") == "$expected_image" ]]
-[[ $(docker inspect -f '{{.State.Health.Status}}' "$active_container") == healthy ]]
-[[ $(systemctl is-active nginx) == active ]]
+_required_arg_4=$(sha256sum "$work/database/sub2api.dump" | awk '{print $1}')
+_required_arg_3=$(sha256sum "$work/redis/dump.rdb" | awk '{print $1}')
+printf 'pg_dump_sha256=%s\nredis_rdb_sha256=%s\n' "${_required_arg_4}" "${_required_arg_3}" > "$work/metadata/store-digests.txt"
+_required_26=$(docker inspect -f '{{.Image}}' "$active_container")
+[[ ${_required_26} == "$expected_image" ]]
+_required_27=$(docker inspect -f '{{.State.Health.Status}}' "$active_container")
+[[ ${_required_27} == healthy ]]
+_required_28=$(systemctl is-active nginx)
+[[ ${_required_28} == active ]]
 capture_stage=archive_preflight
-[[ -z $(find "$work" -mindepth 1 ! -type f ! -type d -print -quit) ]]
-[[ -z $(find "$work" -type f -links +1 -print -quit) ]]
-[[ -z $(find "$work" -perm /7022 -print -quit) ]]
+_required_29=$(find "$work" -mindepth 1 ! -type f ! -type d -print -quit)
+[[ -z ${_required_29} ]]
+_required_30=$(find "$work" -type f -links +1 -print -quit)
+[[ -z ${_required_30} ]]
+_required_31=$(find "$work" -perm /7022 -print -quit)
+[[ -z ${_required_31} ]]
 (cd "$work" && find . -type f ! -name SHA256SUMS -print0 | LC_ALL=C sort -z | xargs -0 sha256sum > SHA256SUMS)
 capture_stage=archive
 tar -C "$work" -cf "$plain" .
@@ -240,7 +278,9 @@ chmod 600 "$artifact"
 artifact_sha=$(sha256sum "$artifact" | awk '{print $1}')
 artifact_size=$(stat -c '%s' "$artifact")
 capture_stage=receipt
-python3 - "$receipt" "$release_id" "$pre_image_id" "$plain_sha" "$artifact_sha" "$artifact_size" "$stamp" "$(<"$compose_root/.recovery-compose-render.sha256")" "$(sha256sum "$work/database/sub2api.dump" | awk '{print $1}')" "$(sha256sum "$work/redis/dump.rdb" | awk '{print $1}')" "$capture_purpose" <<'PY'
+_required_arg_6=$(sha256sum "$work/database/sub2api.dump" | awk '{print $1}')
+_required_arg_5=$(sha256sum "$work/redis/dump.rdb" | awk '{print $1}')
+python3 - "$receipt" "$release_id" "$pre_image_id" "$plain_sha" "$artifact_sha" "$artifact_size" "$stamp" "$(<"$compose_root/.recovery-compose-render.sha256")" "${_required_arg_6}" "${_required_arg_5}" "$capture_purpose" <<'PY'
 import json, os, sys
 path, release, image, plain, artifact, size, stamp, compose, pg, redis, purpose = sys.argv[1:]
 doc = {"schema": 1, "kind": "encrypted-production-baseline-capture", "release_id": release, "pre_switch_image_id": image, "recovery_point_sha256": plain, "artifact_sha256": artifact, "artifact_bytes": int(size), "captured_at": stamp, "compose_render_sha256": compose, "postgres_dump_sha256": pg, "redis_rdb_sha256": redis, "postgres_consistency": "single_export_snapshot", "postgres_globals_consistency": "independent_catalog_read", "redis_consistency": "single_rdb_snapshot", "cross_store_writes_frozen": False}

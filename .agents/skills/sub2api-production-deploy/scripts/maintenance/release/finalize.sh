@@ -44,20 +44,28 @@ if [[ $deployment_mode == downtime ]]; then
   [[ $candidate_port == "$active_port" ]]
   final_network_mode=$(assert_sub2api_compose_closure "$deploy_dir" "$candidate_port" "$candidate_image_id" "$candidate_instance_id")
   assert_sub2api_runtime_contract sub2api "$candidate_image_id" "$final_network_mode" "$candidate_port"
-  [[ $(docker inspect -f '{{.State.Health.Status}}' sub2api) == healthy ]]
-  [[ $(systemctl is-active nginx) == active ]]
+  _required_1001=$(docker inspect -f '{{.State.Health.Status}}' sub2api)
+  [[ ${_required_1001} == healthy ]]
+  _required_1002=$(systemctl is-active nginx)
+  [[ ${_required_1002} == active ]]
   grep -Fq "server 127.0.0.1:$candidate_port;" "$managed_upstream"
-  [[ $(sed -n 's/^container=//p' "$active_slot_file") == sub2api ]]
-  [[ $(sed -n 's/^port=//p' "$active_slot_file") == "$candidate_port" ]]
-  [[ $(sed -n 's/^image_id=//p' "$active_slot_file") == "$candidate_image_id" ]]
-  [[ $(sed -n 's/^release_id=//p' "$active_slot_file") == "$release_id" ]]
-  [[ $(sed -n 's/^instance_id=//p' "$active_slot_file") == "$candidate_instance_id" ]]
+  _required_1003=$(sed -n 's/^container=//p' "$active_slot_file")
+  [[ ${_required_1003} == sub2api ]]
+  _required_1004=$(sed -n 's/^port=//p' "$active_slot_file")
+  [[ ${_required_1004} == "$candidate_port" ]]
+  _required_1005=$(sed -n 's/^image_id=//p' "$active_slot_file")
+  [[ ${_required_1005} == "$candidate_image_id" ]]
+  _required_1006=$(sed -n 's/^release_id=//p' "$active_slot_file")
+  [[ ${_required_1006} == "$release_id" ]]
+  _required_1007=$(sed -n 's/^instance_id=//p' "$active_slot_file")
+  [[ ${_required_1007} == "$candidate_instance_id" ]]
   final_headers=$(mktemp /tmp/sub2api-final-health.XXXXXX)
-  [[ $(curl -sS -D "$final_headers" -o /dev/null -w '%{http_code}' "http://127.0.0.1:${candidate_port}/health") == 200 ]]
+  _required_1008=$(curl -sS -D "$final_headers" -o /dev/null -w '%{http_code}' "http://127.0.0.1:${candidate_port}/health")
+  [[ ${_required_1008} == 200 ]]
   assert_http_header_equals "$final_headers" X-Sub2API-Instance "$candidate_instance_id"
   assert_http_header_equals "$final_headers" X-Sub2API-Background-Ready true
   finalize_phase=downtime_log_gate
-  critical=$(docker logs --since 5m sub2api 2>&1 | grep -Eic 'panic|fatal|migration.*(failed|error)|database.*(failed|error)|redis.*(failed|error)' || true)
+  critical=$(critical_startup_log_count sub2api 5m)
   [[ $critical == 0 ]]
   assert_prompt_audit_disabled
   old_container=$(sed -n 's/^container=//p' "$state_dir/pre-active-app")
@@ -72,9 +80,12 @@ if [[ $deployment_mode == downtime ]]; then
   printf 'candidate_drain_connections=not_applicable\n'
   exit 0
 fi
-[[ $(docker inspect -f '{{.Image}}' "$candidate_container") == "$candidate_image_id" ]]
-[[ $(docker inspect -f '{{.State.Health.Status}}' "$candidate_container") == healthy ]]
-[[ $(systemctl is-active nginx) == active ]]
+_required_1009=$(docker inspect -f '{{.Image}}' "$candidate_container")
+[[ ${_required_1009} == "$candidate_image_id" ]]
+_required_1010=$(docker inspect -f '{{.State.Health.Status}}' "$candidate_container")
+[[ ${_required_1010} == healthy ]]
+_required_1011=$(systemctl is-active nginx)
+[[ ${_required_1011} == active ]]
 grep -Fq "server 127.0.0.1:$candidate_port;" "$managed_upstream"
 [[ -f $state_dir/pre-active-app && ! -L $state_dir/pre-active-app ]]
 old_container=$(sed -n 's/^container=//p' "$state_dir/pre-active-app")
@@ -112,30 +123,35 @@ chmod 600 "$active_override_tmp"
 mv -T -- "$active_override_tmp" "$deploy_dir/docker-compose.release-active.yml"
 env_tmp="$deploy_dir/.env.active.$$"
 awk '!/^(COMPOSE_FILE|SUB2API_RELEASE_IMAGE|BIND_HOST|SERVER_PORT)=/' "$deploy_dir/.env" > "$env_tmp"
-printf 'COMPOSE_FILE=%s\n' "$(release_compose_value_with_active_override)" >> "$env_tmp"
+active_compose_value=$(release_compose_value_with_active_override)
+printf 'COMPOSE_FILE=%s\n' "$active_compose_value" >> "$env_tmp"
 printf 'SUB2API_RELEASE_IMAGE=%s\nBIND_HOST=127.0.0.1\nSERVER_PORT=%s\n' "$candidate_image_id" "$old_port" >> "$env_tmp"
 chmod --reference="$deploy_dir/.env" "$env_tmp"
 mv -T -- "$env_tmp" "$deploy_dir/.env"
 load_release_compose_files "$deploy_dir"
 compose_json=$(docker compose "${release_compose_args[@]}" config --format json)
 compose_image=$(jq -r '.services.sub2api.image // empty' <<<"$compose_json")
-[[ $(docker image inspect -f '{{.Id}}' "$compose_image") == "$candidate_image_id" ]]
-[[ $(assert_sub2api_compose_closure "$deploy_dir" "$old_port" "$candidate_image_id" "$final_instance_id") == "$final_network_mode" ]]
+_required_1012=$(docker image inspect -f '{{.Id}}' "$compose_image")
+[[ ${_required_1012} == "$candidate_image_id" ]]
+_required_1013=$(assert_sub2api_compose_closure "$deploy_dir" "$old_port" "$candidate_image_id" "$final_instance_id")
+[[ ${_required_1013} == "$final_network_mode" ]]
 finalize_phase=final_container_start
 run_release_logged_command docker compose "${release_compose_args[@]}" up -d --no-deps --force-recreate sub2api
-for _ in $(seq 1 90); do
-  [[ $(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' sub2api) == healthy ]] && break
+for _ in {1..90}; do
+  _required_1014=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' sub2api)
+  [[ ${_required_1014} == healthy ]] && break
   sleep 2
 done
 assert_sub2api_runtime_contract sub2api "$candidate_image_id" "$final_network_mode" "$old_port"
-[[ $(docker inspect -f '{{.State.Health.Status}}' sub2api) == healthy ]]
+_required_1015=$(docker inspect -f '{{.State.Health.Status}}' sub2api)
+[[ ${_required_1015} == healthy ]]
 final_headers=$(mktemp /tmp/sub2api-final-health.XXXXXX)
 rollback_upstream=$(mktemp /tmp/sub2api-final-upstream.XXXXXX)
 finalize_phase=final_instance_readiness
 final_instance_ready=false
-for _ in $(seq 1 30); do
+for _ in {1..30}; do
   : > "$final_headers"
-  if [[ $(curl -sS -D "$final_headers" -o /dev/null -w '%{http_code}' "http://127.0.0.1:${old_port}/health" 2>/dev/null || true) == 200 ]] &&
+  if required_http_code=$(curl -sS -D "$final_headers" -o /dev/null -w '%{http_code}' "http://127.0.0.1:${old_port}/health" 2>/dev/null) && [[ $required_http_code == 200 ]] &&
      assert_http_header_equals "$final_headers" X-Sub2API-Instance "$final_instance_id" &&
      (assert_http_header_equals "$final_headers" X-Sub2API-Background-Ready false ||
       assert_http_header_equals "$final_headers" X-Sub2API-Background-Ready true); then
@@ -151,9 +167,9 @@ done
 finalize_phase=background_activation
 write_release_activation_marker sub2api "$final_instance_id"
 background_ready=false
-for _ in $(seq 1 120); do
+for _ in {1..120}; do
   : > "$final_headers"
-  if [[ $(curl -sS -D "$final_headers" -o /dev/null -w '%{http_code}' "http://127.0.0.1:${old_port}/health" 2>/dev/null || true) == 200 ]] &&
+  if required_http_code=$(curl -sS -D "$final_headers" -o /dev/null -w '%{http_code}' "http://127.0.0.1:${old_port}/health" 2>/dev/null) && [[ $required_http_code == 200 ]] &&
      assert_http_header_equals "$final_headers" X-Sub2API-Instance "$final_instance_id" &&
      assert_http_header_equals "$final_headers" X-Sub2API-Background-Ready true; then
     background_ready=true
@@ -175,9 +191,9 @@ nginx -t >/dev/null 2>&1
 systemctl reload nginx >/dev/null 2>&1
 public_headers=$(mktemp /tmp/sub2api-final-public.XXXXXX)
 public_verified=false
-for _ in $(seq 1 30); do
+for _ in {1..30}; do
   : > "$public_headers"
-  if [[ $(curl -sS --resolve "$domain:443:$direct_ip" -D "$public_headers" -o /dev/null -w '%{http_code}' -H 'Connection: close' "https://$domain/health" 2>/dev/null || true) == 200 ]] && assert_http_header_equals "$public_headers" X-Sub2API-Instance "$final_instance_id"; then
+  if required_http_code=$(curl -sS --resolve "$domain:443:$direct_ip" -D "$public_headers" -o /dev/null -w '%{http_code}' -H 'Connection: close' "https://$domain/health" 2>/dev/null) && [[ $required_http_code == 200 ]] && assert_http_header_equals "$public_headers" X-Sub2API-Instance "$final_instance_id"; then
     public_verified=true
     break
   fi
@@ -212,7 +228,7 @@ if [[ $candidate_drain_status != drained ]]; then
   exit 1
 fi
 finalize_phase=final_log_gate
-critical=$(docker logs --since 5m sub2api 2>&1 | grep -Eic 'panic|fatal|migration.*(failed|error)|database.*(failed|error)|redis.*(failed|error)' || true)
+critical=$(critical_startup_log_count sub2api 5m)
 [[ $critical == 0 ]]
 assert_prompt_audit_disabled
 finalize_phase=completed

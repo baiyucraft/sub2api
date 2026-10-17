@@ -6,12 +6,16 @@ source /opt/sub2api/releases/.active-release/assets/context.sh
 domain=${PUBLIC_DOMAIN:?PUBLIC_DOMAIN is required}
 direct_ip=${DIRECT_IP:?DIRECT_IP is required}
 managed_upstream=/etc/nginx/conf.d/sub2api-release-upstream.conf
-[[ $(docker inspect -f '{{.Image}}' "$candidate_container") == "$candidate_image_id" ]]
-[[ $(docker inspect -f '{{.State.Health.Status}}' "$candidate_container") == healthy ]]
+_required_1=$(docker inspect -f '{{.Image}}' "$candidate_container")
+[[ ${_required_1} == "$candidate_image_id" ]]
+_required_2=$(docker inspect -f '{{.State.Health.Status}}' "$candidate_container")
+[[ ${_required_2} == healthy ]]
 if [[ $deployment_mode == blue-green ]]; then
-  [[ $(systemctl is-active nginx) == active ]]
+  _required_3=$(systemctl is-active nginx)
+  [[ ${_required_3} == active ]]
 else
-  [[ $(systemctl is-active nginx 2>/dev/null || true) != active ]]
+  _required_4=$(sub2api_required_systemctl is-active nginx 2>/dev/null)
+  [[ ${_required_4} != active ]]
 fi
 health_headers=$(mktemp /tmp/sub2api-candidate-expose.XXXXXX)
 previous_upstream=$(mktemp /tmp/sub2api-expose-previous.XXXXXX)
@@ -34,7 +38,8 @@ cleanup() {
   exit "$code"
 }
 trap cleanup EXIT
-[[ $(curl -sS -D "$health_headers" -o /dev/null -w '%{http_code}' "http://127.0.0.1:${candidate_port}/health") == 200 ]]
+_required_5=$(curl -sS -D "$health_headers" -o /dev/null -w '%{http_code}' "http://127.0.0.1:${candidate_port}/health")
+[[ ${_required_5} == 200 ]]
 assert_http_header_equals "$health_headers" X-Sub2API-Instance "$candidate_instance_id"
 if [[ $deployment_mode == blue-green ]]; then
   assert_http_header_equals "$health_headers" X-Sub2API-Background-Ready false
@@ -45,20 +50,26 @@ fi
 if [[ $deployment_mode == downtime ]]; then
   [[ $candidate_container == sub2api ]]
   [[ $candidate_port == "$active_port" ]]
-  [[ $(sed -n 's/^container=//p' "$active_slot_file") == sub2api ]]
-  [[ $(sed -n 's/^port=//p' "$active_slot_file") == "$candidate_port" ]]
-  [[ $(sed -n 's/^image_id=//p' "$active_slot_file") == "$candidate_image_id" ]]
-  [[ $(sed -n 's/^release_id=//p' "$active_slot_file") == "$release_id" ]]
-  [[ $(sed -n 's/^instance_id=//p' "$active_slot_file") == "$candidate_instance_id" ]]
+  _required_6=$(sed -n 's/^container=//p' "$active_slot_file")
+  [[ ${_required_6} == sub2api ]]
+  _required_7=$(sed -n 's/^port=//p' "$active_slot_file")
+  [[ ${_required_7} == "$candidate_port" ]]
+  _required_8=$(sed -n 's/^image_id=//p' "$active_slot_file")
+  [[ ${_required_8} == "$candidate_image_id" ]]
+  _required_9=$(sed -n 's/^release_id=//p' "$active_slot_file")
+  [[ ${_required_9} == "$release_id" ]]
+  _required_10=$(sed -n 's/^instance_id=//p' "$active_slot_file")
+  [[ ${_required_10} == "$candidate_instance_id" ]]
   grep -Fq "server 127.0.0.1:$candidate_port;" "$managed_upstream"
   switched=true
   systemctl start nginx >/dev/null 2>&1
-  [[ $(systemctl is-active nginx) == active ]]
+  _required_11=$(systemctl is-active nginx)
+  [[ ${_required_11} == active ]]
   public_headers=$(mktemp /tmp/sub2api-public-expose.XXXXXX)
   public_verified=false
-  for _ in $(seq 1 30); do
+  for _ in {1..30}; do
     : > "$public_headers"
-    if [[ $(curl -sS --resolve "$domain:443:$direct_ip" -D "$public_headers" -o /dev/null -w '%{http_code}' -H 'Connection: close' "https://$domain/health" 2>/dev/null || true) == 200 ]] &&
+    if public_http_code=$(curl -sS --resolve "$domain:443:$direct_ip" -D "$public_headers" -o /dev/null -w '%{http_code}' -H 'Connection: close' "https://$domain/health" 2>/dev/null) && [[ $public_http_code == 200 ]] &&
        assert_http_header_equals "$public_headers" X-Sub2API-Instance "$candidate_instance_id"; then
       public_verified=true
       break
@@ -88,13 +99,14 @@ if [[ $deployment_mode == blue-green ]]; then
 else
   systemctl start nginx >/dev/null 2>&1
 fi
-[[ $(systemctl is-active nginx) == active ]]
+_required_12=$(systemctl is-active nginx)
+[[ ${_required_12} == active ]]
 grep -Fq "server 127.0.0.1:$candidate_port;" "$managed_upstream"
 public_headers=$(mktemp /tmp/sub2api-public-expose.XXXXXX)
 public_verified=false
-for _ in $(seq 1 30); do
+for _ in {1..30}; do
   : > "$public_headers"
-  if [[ $(curl -sS --resolve "$domain:443:$direct_ip" -D "$public_headers" -o /dev/null -w '%{http_code}' -H 'Connection: close' "https://$domain/health" 2>/dev/null || true) == 200 ]] && assert_http_header_equals "$public_headers" X-Sub2API-Instance "$candidate_instance_id"; then
+  if public_http_code=$(curl -sS --resolve "$domain:443:$direct_ip" -D "$public_headers" -o /dev/null -w '%{http_code}' -H 'Connection: close' "https://$domain/health" 2>/dev/null) && [[ $public_http_code == 200 ]] && assert_http_header_equals "$public_headers" X-Sub2API-Instance "$candidate_instance_id"; then
     public_verified=true
     break
   fi

@@ -235,8 +235,8 @@ def prepare_pre_gate_inputs(runner, identifier: str, image_id: str) -> tuple[Pat
         )
         verified = runner.run(
             "local_vm",
-            f"set -Eeuo pipefail; test \"$(sha256sum {shlex.quote(vm_recovery)} | awk '{{print $1}}')\" = {shlex.quote(values['recovery_sha256'])}; "
-            f"test \"$(sha256sum {shlex.quote(vm_image)} | awk '{{print $1}}')\" = {shlex.quote(values['compatibility_sha256'])}; "
+            f"set -Eeuo pipefail; recovery_sha=$(sha256sum {shlex.quote(vm_recovery)} | awk '{{print $1}}') || exit $?; test \"$recovery_sha\" = {shlex.quote(values['recovery_sha256'])}; "
+            f"compatibility_sha=$(sha256sum {shlex.quote(vm_image)} | awk '{{print $1}}') || exit $?; test \"$compatibility_sha\" = {shlex.quote(values['compatibility_sha256'])}; "
             "printf 'pre_gate_inputs_verified=true\\n'",
             {"pre_gate_inputs_verified"},
             timeout=600,
