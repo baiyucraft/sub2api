@@ -33,6 +33,7 @@
 import { computed, defineComponent, h, type PropType } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { AccountQualityStats, AccountQualityWindow } from '@/types'
+import { useMinuteClock } from '@/composables/useMinuteClock'
 
 type ActivityStateOverride = 'unassigned' | 'paused'
 
@@ -51,6 +52,7 @@ const props = withDefaults(defineProps<{
 })
 
 const { t } = useI18n()
+const now = useMinuteClock()
 
 const formatLatency = (value: number | null): string => {
   if (value == null || !Number.isFinite(value)) return '-'
@@ -84,7 +86,7 @@ const lastSuccessLabel = computed(() => {
   if (!raw) return t('admin.accounts.quality.activity.over24h')
   const timestamp = new Date(raw).getTime()
   if (!Number.isFinite(timestamp)) return t('admin.accounts.quality.activity.over24h')
-  const elapsedMs = Math.max(0, Date.now() - timestamp)
+  const elapsedMs = Math.max(0, now.value - timestamp)
   if (elapsedMs < 60_000) return t('admin.accounts.quality.activity.lastSuccessNow')
   if (elapsedMs < 60 * 60_000) {
     return t('admin.accounts.quality.activity.lastSuccessMinutes', {

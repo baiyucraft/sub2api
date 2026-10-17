@@ -1,0 +1,852 @@
+package perfmatrix
+
+import (
+	"bytes"
+	"context"
+	"database/sql"
+	"database/sql/driver"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
+	"path/filepath"
+	"runtime"
+	"runtime/pprof"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"syscall"
+	"testing"
+	"time"
+
+	"entgo.io/ent/dialect"
+	entsql "entgo.io/ent/dialect/sql"
+	dbent "github.com/Wei-Shaw/sub2api/ent"
+	_ "github.com/Wei-Shaw/sub2api/ent/runtime"
+	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/forkscheduling"
+	"github.com/Wei-Shaw/sub2api/internal/handler"
+	adminhandler "github.com/Wei-Shaw/sub2api/internal/handler/admin"
+	pkglogger "github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/upstreamcacheusage"
+	"github.com/Wei-Shaw/sub2api/internal/repository"
+	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
+	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/Wei-Shaw/sub2api/internal/upstreamcacheguard"
+	"github.com/gin-gonic/gin"
+	"github.com/lib/pq"
+	"github.com/redis/go-redis/v9"
+)
+
+type counters struct {
+	queries, rows                                        atomic.Int64
+	adminQueries, adminRows, gatewayQueries, gatewayRows atomic.Int64
+}
+type routeCounterKey struct{}
+
+func (c *counters) query(ctx context.Context) string {
+	c.queries.Add(1)
+	route, _ := ctx.Value(routeCounterKey{}).(string)
+	if route == "admin" {
+		c.adminQueries.Add(1)
+	} else if route == "gateway" {
+		c.gatewayQueries.Add(1)
+	}
+	return route
+}
+
+type budgetLogCounter struct{ count atomic.Int64 }
+
+func (c *budgetLogCounter) Write(p []byte) (int, error) {
+	if strings.Contains(string(p), "upstream_cache_guard_budget_exhausted") {
+		c.count.Add(1)
+	}
+	return len(p), nil
+}
+
+type connector struct {
+	driver.Connector
+	c *counters
+}
+
+func (c connector) Connect(ctx context.Context) (driver.Conn, error) {
+	v, e := c.Connector.Connect(ctx)
+	if e != nil {
+		return nil, e
+	}
+	return conn{v, c.c}, nil
+}
+
+type conn struct {
+	driver.Conn
+	c *counters
+}
+
+func (c conn) IsValid() bool {
+	if v, ok := c.Conn.(driver.Validator); ok {
+		return v.IsValid()
+	}
+	return true
+}
+func (c conn) ResetSession(ctx context.Context) error {
+	if v, ok := c.Conn.(driver.SessionResetter); ok {
+		return v.ResetSession(ctx)
+	}
+	return nil
+}
+func (c conn) BeginTx(ctx context.Context, o driver.TxOptions) (driver.Tx, error) {
+	c.c.query(ctx)
+	return c.Conn.(driver.ConnBeginTx).BeginTx(ctx, o)
+}
+func (c conn) ExecContext(ctx context.Context, q string, a []driver.NamedValue) (driver.Result, error) {
+	c.c.query(ctx)
+	return c.Conn.(driver.ExecerContext).ExecContext(ctx, q, a)
+}
+func (c conn) QueryContext(ctx context.Context, q string, a []driver.NamedValue) (driver.Rows, error) {
+	route := c.c.query(ctx)
+	r, e := c.Conn.(driver.QueryerContext).QueryContext(ctx, q, a)
+	if e != nil {
+		return nil, e
+	}
+	return rows{r, c.c, route}, nil
+}
+
+type rows struct {
+	driver.Rows
+	c     *counters
+	route string
+}
+
+func (r rows) Next(dest []driver.Value) error {
+	e := r.Rows.Next(dest)
+	if e == nil {
+		r.c.rows.Add(1)
+		if r.route == "admin" {
+			r.c.adminRows.Add(1)
+		} else if r.route == "gateway" {
+			r.c.gatewayRows.Add(1)
+		}
+	}
+	return e
+}
+
+func envInt(k string, fallback int) int {
+	n, e := strconv.Atoi(os.Getenv(k))
+	if e != nil {
+		return fallback
+	}
+	return n
+}
+func must(t *testing.T, e error) {
+	t.Helper()
+	if e != nil {
+		t.Fatal(e)
+	}
+}
+func execSQL(t *testing.T, db *sql.DB, q string, args ...any) {
+	t.Helper()
+	_, e := db.Exec(q, args...)
+	must(t, e)
+}
+
+const matrixSyntheticSSE = `data: {"id":"matrix","object":"chat.completion.chunk","model":"gpt-test","choices":[{"index":0,"delta":{"role":"assistant","content":"ok"},"finish_reason":null}]}
+
+data: {"id":"matrix","object":"chat.completion.chunk","model":"gpt-test","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":100,"completion_tokens":1,"total_tokens":101,"prompt_tokens_details":{"cached_tokens":90}}}
+
+data: [DONE]
+
+`
+
+// A committed HTTP 200 is not sufficient evidence of a completed stream.
+// Validate the fixed synthetic upstream's client-visible termination and usage;
+// errors contain only classifications, never response payloads.
+func validateMatrixSSECompletion(body []byte) error {
+	done, finished := false, false
+	usageCount := 0
+	for _, raw := range bytes.Split(body, []byte("\n")) {
+		line := bytes.TrimSpace(raw)
+		if bytes.Equal(line, []byte("event: error")) {
+			return fmt.Errorf("stream error event")
+		}
+		if !bytes.HasPrefix(line, []byte("data:")) {
+			continue // Empty lines and the handler's optional comment heartbeats.
+		}
+		if done {
+			return fmt.Errorf("stream data after completion")
+		}
+		data := bytes.TrimSpace(bytes.TrimPrefix(line, []byte("data:")))
+		if bytes.Equal(data, []byte("[DONE]")) {
+			done = true
+			continue
+		}
+		var chunk struct {
+			Error   json.RawMessage `json:"error"`
+			Choices []struct {
+				FinishReason *string `json:"finish_reason"`
+			} `json:"choices"`
+			Usage *struct {
+				PromptTokens        *int `json:"prompt_tokens"`
+				CompletionTokens    *int `json:"completion_tokens"`
+				TotalTokens         *int `json:"total_tokens"`
+				PromptTokensDetails *struct {
+					CachedTokens *int `json:"cached_tokens"`
+				} `json:"prompt_tokens_details"`
+			} `json:"usage"`
+		}
+		if err := json.Unmarshal(data, &chunk); err != nil {
+			return fmt.Errorf("invalid stream chunk")
+		}
+		if len(chunk.Error) > 0 && !bytes.Equal(bytes.TrimSpace(chunk.Error), []byte("null")) {
+			return fmt.Errorf("stream error payload")
+		}
+		for _, choice := range chunk.Choices {
+			if choice.FinishReason != nil && *choice.FinishReason == "stop" {
+				finished = true
+			}
+		}
+		if usage := chunk.Usage; usage != nil {
+			usageCount++
+			if usage.PromptTokens == nil || *usage.PromptTokens != 100 ||
+				usage.CompletionTokens == nil || *usage.CompletionTokens != 1 ||
+				usage.TotalTokens == nil || *usage.TotalTokens != 101 ||
+				usage.PromptTokensDetails == nil || usage.PromptTokensDetails.CachedTokens == nil ||
+				*usage.PromptTokensDetails.CachedTokens != 90 {
+				return fmt.Errorf("unexpected synthetic stream usage")
+			}
+		}
+	}
+	if !done || !finished || usageCount != 1 {
+		return fmt.Errorf("incomplete synthetic stream")
+	}
+	return nil
+}
+
+func readMatrixResponseBody(reader io.Reader, discard bool) ([]byte, error) {
+	if discard {
+		_, err := io.Copy(io.Discard, reader)
+		return nil, err
+	}
+	return io.ReadAll(reader)
+}
+
+type matrixReadError struct{}
+
+func (matrixReadError) Read([]byte) (int, error) { return 0, io.ErrUnexpectedEOF }
+
+func TestMatrixResponseValidation(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		body  string
+		valid bool
+	}{
+		{"complete", matrixSyntheticSSE, true},
+		{"comment heartbeats and CRLF", ":\r\n\r\n" + strings.ReplaceAll(matrixSyntheticSSE, "\n", "\r\n"), true},
+		{"missing done", strings.ReplaceAll(matrixSyntheticSSE, "data: [DONE]", ""), false},
+		{"missing finish", strings.ReplaceAll(matrixSyntheticSSE, `"finish_reason":"stop"`, `"finish_reason":null`), false},
+		{"missing usage", "data: {\"choices\":[{\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n", false},
+		{"wrong input", strings.ReplaceAll(matrixSyntheticSSE, `"prompt_tokens":100`, `"prompt_tokens":99`), false},
+		{"wrong output", strings.ReplaceAll(matrixSyntheticSSE, `"completion_tokens":1`, `"completion_tokens":2`), false},
+		{"wrong total", strings.ReplaceAll(matrixSyntheticSSE, `"total_tokens":101`, `"total_tokens":102`), false},
+		{"wrong cache", strings.ReplaceAll(matrixSyntheticSSE, `"cached_tokens":90`, `"cached_tokens":0`), false},
+		{"missing cache", strings.ReplaceAll(matrixSyntheticSSE, `"cached_tokens":90`, `"cached_tokens":null`), false},
+		{"malformed chunk", "data: {\n\ndata: [DONE]\n\n", false},
+		{"error payload", "data: {\"error\":{\"type\":\"upstream_error\"}}\n\n" + matrixSyntheticSSE, false},
+		{"error event", "event: error\n" + matrixSyntheticSSE, false},
+		{"data after done", matrixSyntheticSSE + "data: {}\n\n", false},
+		{"duplicate done", matrixSyntheticSSE + "data: [DONE]\n\n", false},
+		{"duplicate usage", strings.ReplaceAll(matrixSyntheticSSE, "data: [DONE]", matrixSyntheticSSE), false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := validateMatrixSSECompletion([]byte(test.body)); (err == nil) != test.valid {
+				t.Fatalf("stream validation accepted=%v want=%v", err == nil, test.valid)
+			}
+		})
+	}
+	for _, discard := range []bool{false, true} {
+		reader := io.MultiReader(strings.NewReader(matrixSyntheticSSE), matrixReadError{})
+		if _, err := readMatrixResponseBody(reader, discard); err == nil {
+			t.Fatalf("body read error ignored: discard=%v", discard)
+		}
+		if _, err := readMatrixResponseBody(strings.NewReader(matrixSyntheticSSE), discard); err != nil {
+			t.Fatalf("valid body read failed: discard=%v", discard)
+		}
+	}
+}
+
+// This isolated fixture uses the real account/usage repositories, real Redis
+// capacity/session/RPM caches, actual public HTTP handlers and actual HTTP
+// transport to an in-process synthetic upstream. Authentication is fixed at
+// the middleware boundary. Billing is in the documented simple mode.
+func TestUpstreamTableHTTPMatrix(t *testing.T) {
+	if os.Getenv("MATRIX_ISOLATED") != "1" {
+		t.Skip("exclusive synthetic database required")
+	}
+	must(t, timezone.Init("UTC"))
+	gin.SetMode(gin.TestMode)
+	n, historical, page := envInt("MATRIX_ACCOUNTS", 100), envInt("MATRIX_HISTORY", 100000), envInt("MATRIX_PAGE", 20)
+	seconds := envInt("MATRIX_SECONDS", 15)
+	must(t, pkglogger.Init(pkglogger.InitOptions{Level: "warn", Output: pkglogger.OutputOptions{ToStdout: true}}))
+	budgetLogs := &budgetLogCounter{}
+	slog.SetDefault(slog.New(slog.NewTextHandler(io.MultiWriter(os.Stderr, budgetLogs), nil)))
+	scenario := os.Getenv("MATRIX_SCENARIO")
+	if scenario == "" {
+		scenario = "normal"
+	}
+	var counts counters
+	pc, e := pq.NewConnector(os.Getenv("MATRIX_DSN"))
+	must(t, e)
+	db := sql.OpenDB(connector{pc, &counts})
+	defer db.Close()
+	db.SetMaxOpenConns(40)
+	must(t, db.Ping())
+	execSQL(t, db, `DROP SCHEMA public CASCADE; CREATE SCHEMA public`)
+	must(t, repository.ApplyMigrations(context.Background(), db))
+	opts, e := redis.ParseURL(os.Getenv("MATRIX_REDIS"))
+	must(t, e)
+	rdb := redis.NewClient(opts)
+	defer rdb.Close()
+	must(t, rdb.Ping(context.Background()).Err())
+	// The runner receives only its dedicated database. The caller creates and
+	// removes the owned DB/Redis container; no existing stack data is reused.
+	for _, table := range []string{"upstream_cache_guard_facts", "upstream_cache_guard_runtime", "upstream_cache_guard_accounts", "usage_logs", "account_groups", "accounts", "upstream_keys", "upstream_configs", "api_keys", "users", "groups", "settings"} {
+		execSQL(t, db, "TRUNCATE "+table+" CASCADE")
+	}
+	var upstreamRequests atomic.Int64
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamRequests.Add(1)
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, matrixSyntheticSSE)
+	}))
+	defer upstream.Close()
+	execSQL(t, db, `INSERT INTO groups(id,name,platform) VALUES(1,'matrix','openai')`)
+	execSQL(t, db, `INSERT INTO users(id,email,password_hash,balance,concurrency) VALUES(1,'matrix@example.invalid','synthetic',10000,1000)`)
+	execSQL(t, db, `INSERT INTO api_keys(id,user_id,key,name,group_id) VALUES(1,1,'synthetic','matrix',1)`)
+	execSQL(t, db, `INSERT INTO upstream_configs(id,name,provider,site_url,api_url,auth_mode,extra) SELECT g,'matrix-'||g,'sub2api',$2,$2,'api_key','{"scheduler_concurrency_override":100}'::jsonb FROM generate_series(1,$1)g`, n, upstream.URL)
+	execSQL(t, db, `INSERT INTO upstream_keys(id,upstream_config_id,name,key,key_hash,platform,rate_multiplier) SELECT g,g,'matrix-'||g,'synthetic-'||g,md5(g::text),'openai',1 FROM generate_series(1,$1)g`, n)
+	execSQL(t, db, `INSERT INTO accounts(id,name,platform,type,credentials,extra,upstream_config_id,upstream_key_id,priority,concurrency) SELECT g,lpad(g::text,6,'0'),'openai','apikey','{}'::jsonb,'{"openai_responses_supported":false}'::jsonb,g,g,0,100 FROM generate_series(1,$1)g`, n)
+	execSQL(t, db, `INSERT INTO account_groups(account_id,group_id,priority) SELECT g,1,0 FROM generate_series(1,$1)g`, n)
+	now := time.Now().UTC()
+	state := upstreamcacheguard.AccountState{Phase: upstreamcacheguard.Healthy, GroupIDs: []int64{1}, UpdatedAt: now, LastEvidenceAt: now, ValidRequests: 2, CachePercent: 90}
+	stateJSON, _ := json.Marshal(state)
+	execSQL(t, db, `INSERT INTO upstream_cache_guard_accounts(account_id,upstream_key_id,version,state_json) SELECT g,g,1,$2::jsonb||jsonb_build_object('account_id',g,'upstream_key_id',g) FROM generate_series(1,$1)g`, n, string(stateJSON))
+	fact := upstreamcacheguard.Evidence{ID: "seed", Request: upstreamcacheguard.Request{ID: "seed", GroupID: 1, APIKeyID: 1, Model: "gpt-test", Protocol: "openai", StartedAt: now}, Admission: upstreamcacheguard.Admission{Sample: true, WarmAtStart: true}, Success: true, CompletedAt: now, RawUsage: upstreamcacheguard.RawUsage{Status: upstreamcacheusage.Known, TotalInputTokens: 100, CacheReadTokens: 90}}
+	factJSON, _ := json.Marshal(fact)
+	execSQL(t, db, `INSERT INTO upstream_cache_guard_facts(group_id,evidence_id,account_id,upstream_key_id,completed_at,valid_sample,processed,evidence_json) SELECT 1,'seed-'||g||'-'||i,g,g,$3,true,true,jsonb_set($2::jsonb,'{request}',($2::jsonb->'request')||jsonb_build_object('account_id',g,'upstream_key_id',g)) FROM generate_series(1,$1)g CROSS JOIN generate_series(1,2)i`, n, string(factJSON), now)
+	execSQL(t, db, `INSERT INTO upstream_cache_guard_runtime(group_id,state_kind,state_key,version,state_json,updated_at) SELECT 1,'session',md5(g::text),1,jsonb_build_object('key',md5(g::text),'first_seen_at',to_char(now()-interval '3 hours','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),'last_started_at',to_char(now()-interval '2 hours','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),'last_completed_at',to_char(now()-interval '2 hours','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),'natural_request_id','historical-'||g,'natural_trial_ordinal',g,'last_account_id',1,'routes','{}'::jsonb,'admissions','{}'::jsonb),now()-interval '2 hours' FROM generate_series(1,$1)g`, historical)
+	execSQL(t, db, `INSERT INTO upstream_cache_guard_facts(group_id,evidence_id,account_id,upstream_key_id,completed_at,valid_sample,processed,evidence_json) SELECT 1,'cleanup-'||g,1,1,now()-interval '49 hours',false,true,$1::jsonb FROM generate_series(1,1200)g`, string(factJSON))
+
+	// High-density immutable display facts; real repositories compute every refresh.
+	execSQL(t, db, `INSERT INTO upstream_health_observations(upstream_config_id,upstream_key_id,account_id,platform,source,state,result,reason,observed_at,confidence_prompt_version,confidence_checks,confidence_evidence)
+ SELECT k,k,k,'openai','probe','healthy','success','matrix', $2::timestamptz-((i%604800)::text||' seconds')::interval,$3,
+ '{"attempted":1,"valid_completed":1,"current_success":1}'::jsonb,'{"kind":"juice"}'::jsonb
+ FROM generate_series(1,$1)k CROSS JOIN generate_series(1,200)i`, n, now, service.UpstreamConfidencePromptVersion)
+	execSQL(t, db, `INSERT INTO usage_logs(user_id,api_key_id,account_id,request_id,model,stream,duration_ms,first_token_ms,input_tokens,cache_read_tokens,created_at)
+ SELECT 1,1,k,'quality-'||k||'-'||i,'gpt-test',true,CASE WHEN i%17=0 THEN NULL ELSE 1000+i END,100+i,100,90,
+ $2::timestamptz-((i*73%86400)::text||' seconds')::interval
+ FROM generate_series(1,$1)k CROSS JOIN generate_series(1,100)i`, n, now)
+	execSQL(t, db, `INSERT INTO ops_error_logs(account_id,user_id,api_key_id,request_id,model,stream,is_count_tokens,error_phase,error_type,error_message,created_at)
+ SELECT k,1,1,'error-'||k||'-'||(i/2),'gpt-test',true,false,'upstream','upstream_error','synthetic',
+ $2::timestamptz-((i*359%86400)::text||' seconds')::interval
+ FROM generate_series(1,$1)k CROSS JOIN generate_series(1,10)i`, n, now)
+
+	execSQL(t, db, `ANALYZE`)
+	client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, db)))
+	cfg := &config.Config{RunMode: config.RunModeSimple}
+	cfg.JWT.Secret = "exclusive-synthetic-matrix-secret"
+	cfg.Security.URLAllowlist.AllowInsecureHTTP = true
+	cfg.Security.URLAllowlist.AllowPrivateHosts = true
+	cfg.Gateway.Scheduling.LoadBatchEnabled = true
+	settings := service.NewSettingService(repository.NewSettingRepository(client), cfg)
+	cacheSettings := service.DefaultUpstreamCacheGuardSettings()
+	cacheSettings.Mode = upstreamcacheguard.Protect
+	cacheSettings.MinValidRequests = 1
+	must(t, settings.SetUpstreamCacheGuardSettings(context.Background(), cacheSettings))
+	must(t, settings.SetSchedulingProtectionPlatforms(context.Background(), []string{service.PlatformOpenAI}))
+	must(t, settings.SetOpenAITTFTGuardSettings(context.Background(), &service.OpenAITTFTGuardSettings{Enabled: true, DegradationTTFTSeconds: 20, MinSamples: 2}))
+	ttftPolicy := service.NewGroupTTFTGuardPolicyService(repository.NewGroupTTFTGuardPolicyRepository(db), settings, nil)
+	policies := service.NewGroupSchedulingProtectionPolicyService(repository.NewGroupSchedulingProtectionPolicyRepository(db), settings, ttftPolicy, nil)
+	accountRepo := repository.NewAccountRepository(client, db, nil)
+	usageRepo := repository.NewUsageLogRepository(client, db)
+	snapshot := service.NewSchedulerSnapshotService(repository.NewSchedulerCache(rdb), repository.NewSchedulerOutboxRepository(db), accountRepo, repository.NewGroupRepository(client, db), cfg)
+	snapshot.Start()
+	defer snapshot.Stop()
+	readyCtx, readyCancel := context.WithTimeout(context.Background(), 120*time.Second)
+	must(t, snapshot.WaitInitialReady(readyCtx))
+	readyCancel()
+	conc := service.NewConcurrencyService(repository.NewConcurrencyCache(rdb, 5, 30))
+	gatewayCache := repository.NewGatewayCache(rdb)
+	billing := service.NewBillingCacheService(repository.NewBillingCache(rdb), nil, nil, nil, nil, nil, cfg, nil)
+	defer billing.Stop()
+	gateway := service.NewOpenAIGatewayService(accountRepo, usageRepo, nil, nil, nil, nil, gatewayCache, cfg, snapshot, conc, service.NewBillingService(cfg, nil), nil, billing, repository.NewHTTPUpstream(cfg), &service.DeferredService{}, nil, nil, nil, nil, nil, settings, nil)
+	defer gateway.CloseOpenAIWSPool()
+	gateway.SetOpenAITTFTGuardConfigProvider(settings)
+	gateway.SetGroupSchedulingProtectionPolicyResolver(policies)
+	gateway.SetGroupTTFTGuardPolicyResolver(ttftPolicy)
+	gateway.SetRPMCache(repository.NewRPMCache(rdb))
+	ttft := gateway.ForkSchedulingRuntime().TTFT
+	ttftCfg := forkscheduling.TTFTConfig{Enabled: true, Threshold: 20 * time.Second, MinSamples: 2, Source: "global", GroupName: "matrix"}
+	ms := 100
+	for i := 0; i < 4096; i++ {
+		id := int64(i%n + 1)
+		ttft.Report(forkscheduling.TTFTSample{GroupID: 1, AccountID: id, UpstreamKeyID: id, Model: fmt.Sprintf("gpt-model-%d", i/n), Success: true, FirstTokenMs: &ms}, ttftCfg)
+	}
+	outdir := os.Getenv("MATRIX_OUT")
+	var initializationCPU *os.File
+	if outdir != "" {
+		must(t, os.MkdirAll(outdir, 0700))
+		var initializationError error
+		initializationCPU, initializationError = os.Create(filepath.Join(outdir, "initialization-cpu.pprof"))
+		must(t, initializationError)
+		must(t, pprof.StartCPUProfile(initializationCPU))
+	}
+	runner := service.ProvideUpstreamCacheGuardRunner(repository.NewUpstreamCacheGuardRepository(db), settings, cfg, policies)
+	defer runner.Close()
+	usage := service.NewAccountUsageService(accountRepo, usageRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	adminService := service.NewAdminService(nil, nil, repository.NewAdminGroupRepository(client, db), repository.NewAdminAccountRepository(client, db, nil), repository.NewUpstreamConfigRepository(client), nil, nil, nil, nil, nil, nil, nil, nil, nil, client, settings, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	health := service.NewUpstreamConfigService(repository.NewUpstreamConfigRepository(client), nil, accountRepo)
+	health.SetHealthProbeDependencies(nil, settings)
+	admin := adminhandler.NewAccountHandler(adminService, nil, nil, nil, nil, nil, nil, usage, nil, conc, nil, repository.NewSessionLimitCache(rdb, 30), repository.NewRPMCache(rdb), nil)
+	admin.SetSchedulingProtectionPolicyService(policies)
+	admin.SetOpenAITTFTGuardDegradationReader(gateway)
+	usageWorkers := service.NewUsageRecordWorkerPoolWithOptions(service.UsageRecordWorkerPoolOptions{WorkerCount: 4, QueueSize: 1024, TaskTimeout: 5 * time.Second, OverflowPolicy: config.UsageRecordOverflowPolicySync})
+	defer usageWorkers.Stop()
+	gatewayHandler := handler.NewOpenAIGatewayHandler(gateway, conc, billing, &service.APIKeyService{}, usageWorkers, nil, nil, nil, cfg)
+	groupID := int64(1)
+	apiKey := &service.APIKey{ID: 1, GroupID: &groupID, Group: &service.Group{ID: 1, Name: "matrix", Platform: service.PlatformOpenAI, Status: service.StatusActive}, User: &service.User{ID: 1, Status: service.StatusActive, Concurrency: 1000}}
+	router := gin.New()
+	router.Use(gin.Recovery(), func(c *gin.Context) {
+		route := "gateway"
+		if strings.HasPrefix(c.Request.URL.Path, "/admin/") {
+			route = "admin"
+		}
+		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), routeCounterKey{}, route))
+		c.Set(string(middleware.ContextKeyAPIKey), apiKey)
+		c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 1, Concurrency: 1000})
+		c.Set(string(middleware.ContextKeyUserRole), "admin")
+	})
+	admin.SetUpstreamHealthHistoryReader(health)
+	router.GET("/admin/upstream/accounts", admin.List)
+	router.POST("/admin/accounts/quality-stats/batch", admin.GetBatchQualityStats)
+	router.POST("/v1/chat/completions", gatewayHandler.ChatCompletions)
+	app := httptest.NewServer(router)
+	defer app.Close()
+	httpClient := &http.Client{Timeout: 30 * time.Second}
+	// Let the actual runner's initial refresh finish, including any documented
+	// baseline capacity fallback; warmup never advances the measured counters.
+	readinessStart := time.Now()
+	seededAccounts, err := accountRepo.GetByIDs(context.Background(), []int64{1})
+	must(t, err)
+	initialView := service.GetUpstreamCacheGuardAccountView(seededAccounts[0])
+	initialActive := false
+	initialAllReady := false
+	readinessTimeline := []map[string]int64{}
+	var lastReadinessSample time.Time
+	for time.Since(readinessStart) < time.Duration(envInt("MATRIX_READINESS_SECONDS", 20))*time.Second {
+		initialView = service.GetUpstreamCacheGuardAccountView(seededAccounts[0])
+		initialActive = initialView.Summary != nil && initialView.Summary.RatePercent != nil && service.PerfMatrixCacheSnapshot(1, 1).Fresh
+		if lastReadinessSample.IsZero() || time.Since(lastReadinessSample) >= time.Second {
+			stats := service.PerfMatrixCacheStats()
+			stats["elapsed_ms"] = time.Since(readinessStart).Milliseconds()
+			readinessTimeline = append(readinessTimeline, stats)
+			encodedProgress, _ := json.Marshal(stats)
+			fmt.Printf("MATRIX_READINESS_POPULATION=%s\n", encodedProgress)
+			initialAllReady = stats["fresh"] == int64(n)
+			lastReadinessSample = time.Now()
+		}
+		if initialActive && initialAllReady {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	readinessSeconds := time.Since(readinessStart).Seconds()
+	if initializationCPU != nil {
+		pprof.StopCPUProfile()
+		initializationCPU.Close()
+	}
+	if !initialActive && historical <= 1000 {
+		t.Fatalf("cache protection inactive after readiness: %+v", initialView.Summary)
+	}
+	fmt.Printf("MATRIX_INITIAL_CACHE=%+v active=%v ready_seconds=%.3f\n", initialView.Summary, initialActive, readinessSeconds)
+	var seq atomic.Int64
+	var measuring atomic.Bool
+	var listTimesMu sync.Mutex
+	listTimes := []time.Duration{}
+	request := func(admin bool) (time.Duration, int, string) {
+		start := time.Now()
+		var req *http.Request
+		if admin {
+			params := url.Values{"scope": {"upstream"}, "lite": {"1"}, "page": {strconv.Itoa(envInt("MATRIX_PAGE_NUMBER", 1))}, "page_size": {strconv.Itoa(page)}}
+			if os.Getenv("MATRIX_VERSION") == "optimized" {
+				params.Set("include_quality", "1")
+			}
+			if filter := os.Getenv("MATRIX_QUALITY_FILTER"); filter != "" {
+				params.Set("quality_filter", filter)
+			}
+			req, _ = http.NewRequest("GET", app.URL+"/admin/upstream/accounts?"+params.Encode(), nil)
+		} else {
+			id := seq.Add(1) % 32
+			body := fmt.Sprintf(`{"model":"gpt-test","messages":[{"role":"user","content":"hello"}],"stream":true,"prompt_cache_key":"matrix-session-%d","stream_options":{"include_usage":true}}`, id)
+			req, _ = http.NewRequest("POST", app.URL+"/v1/chat/completions", bytes.NewBufferString(body))
+			req.Header.Set("Content-Type", "application/json")
+		}
+		resp, err := httpClient.Do(req)
+		if err != nil {
+			return time.Since(start), 0, err.Error()
+		}
+		b, readErr := readMatrixResponseBody(resp.Body, false)
+		resp.Body.Close()
+		if readErr != nil {
+			return time.Since(start), 0, "response body read failed"
+		}
+		if !admin && resp.StatusCode == http.StatusOK {
+			if err := validateMatrixSSECompletion(b); err != nil {
+				return time.Since(start), 0, err.Error()
+			}
+		}
+		if admin && measuring.Load() {
+			listTimesMu.Lock()
+			listTimes = append(listTimes, time.Since(start))
+			listTimesMu.Unlock()
+		}
+		if admin && resp.StatusCode == 200 {
+			var payload struct {
+				Data struct {
+					Items []struct {
+						ID int64 `json:"id"`
+					} `json:"items"`
+					QualityStatus string `json:"quality_stats_status"`
+				} `json:"data"`
+			}
+			if err := json.Unmarshal(b, &payload); err != nil {
+				return time.Since(start), 0, "invalid list JSON"
+			}
+			if os.Getenv("MATRIX_VERSION") == "optimized" && payload.Data.QualityStatus != "ok" {
+				return time.Since(start), 0, "quality unavailable"
+			}
+			if os.Getenv("MATRIX_VERSION") == "baseline" {
+				ids := make([]int64, 0, len(payload.Data.Items))
+				for _, item := range payload.Data.Items {
+					ids = append(ids, item.ID)
+				}
+				body, _ := json.Marshal(map[string]any{"account_ids": ids})
+				qreq, _ := http.NewRequest("POST", app.URL+"/admin/accounts/quality-stats/batch", bytes.NewReader(body))
+				qreq.Header.Set("Content-Type", "application/json")
+				qresp, qerr := httpClient.Do(qreq)
+				if qerr != nil {
+					return time.Since(start), 0, qerr.Error()
+				}
+				_, readErr := readMatrixResponseBody(qresp.Body, true)
+				qresp.Body.Close()
+				if readErr != nil {
+					return time.Since(start), 0, "quality body read failed"
+				}
+				if qresp.StatusCode != 200 {
+					return time.Since(start), qresp.StatusCode, "quality failed"
+				}
+			}
+		}
+		return time.Since(start), resp.StatusCode, string(b)
+	}
+	for _, adminRead := range []bool{true, false} {
+		_, status, body := request(adminRead)
+		if status != 200 {
+			t.Fatalf("warmup admin=%v status=%d body=%s", adminRead, status, body)
+		}
+	}
+	if scenario == "slow" {
+		execSQL(t, db, `CREATE OR REPLACE FUNCTION matrix_slow_runtime() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(0.04); RETURN NEW; END $$; CREATE TRIGGER matrix_slow_runtime BEFORE INSERT OR UPDATE ON upstream_cache_guard_runtime FOR EACH ROW EXECUTE FUNCTION matrix_slow_runtime()`)
+	}
+	if scenario == "full" {
+		pipe := rdb.Pipeline()
+		for id := int64(1); id <= int64(n); id++ {
+			members := make([]redis.Z, 100)
+			for i := range members {
+				members[i] = redis.Z{Score: float64(time.Now().Add(time.Hour).Unix()), Member: fmt.Sprintf("matrix-owned-full-%d", i)}
+			}
+			pipe.ZAdd(context.Background(), fmt.Sprintf("concurrency:upstream:%d", id), members...)
+		}
+		_, err := pipe.Exec(context.Background())
+		must(t, err)
+		acquired, err := conc.AcquireTargetSlot(context.Background(), seededAccounts[0].SchedulingConcurrencyTarget())
+		must(t, err)
+		if acquired.Acquired {
+			acquired.ReleaseFunc()
+			t.Fatal("full scenario failed to exhaust actual target capacity")
+		}
+	}
+	var completedBefore int
+	must(t, db.QueryRow(`SELECT count(*) FROM upstream_cache_guard_facts WHERE processed=true AND evidence_id NOT LIKE 'cleanup-%'`).Scan(&completedBefore))
+	upstreamBefore := upstreamRequests.Load()
+	budgetBefore := budgetLogs.count.Load()
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	// PostgreSQL table access statistics are database-wide for this exclusive
+	// fixture; these count tuple visits rather than result rows or exact plan scans.
+	pgStats := func() [2]int64 {
+		var stats [2]int64
+		must(t, db.QueryRow(`SELECT coalesce(sum(seq_tup_read),0)::bigint,coalesce(sum(idx_tup_fetch),0)::bigint FROM pg_stat_all_tables WHERE schemaname='public'`).Scan(&stats[0], &stats[1]))
+		return stats
+	}
+	pgBefore := pgStats()
+	pgIO := func() [4]int64 {
+		var value [4]int64
+		must(t, db.QueryRow(`SELECT temp_files,temp_bytes,deadlocks,blks_read FROM pg_stat_database WHERE datname=current_database()`).Scan(&value[0], &value[1], &value[2], &value[3]))
+		return value
+	}
+	pgIOBefore := pgIO()
+	sqlBefore, rowsBefore := counts.queries.Load(), counts.rows.Load()
+	adminSQLBefore, adminRowsBefore := counts.adminQueries.Load(), counts.adminRows.Load()
+	gatewaySQLBefore, gatewayRowsBefore := counts.gatewayQueries.Load(), counts.gatewayRows.Load()
+	runtime.SetMutexProfileFraction(10)
+	runtime.SetBlockProfileRate(1000000)
+	if outdir != "" {
+		must(t, os.MkdirAll(outdir, 0700))
+		f, err := os.Create(filepath.Join(outdir, "cpu.pprof"))
+		must(t, err)
+		must(t, pprof.StartCPUProfile(f))
+		defer f.Close()
+		defer pprof.StopCPUProfile()
+	}
+	start := time.Now()
+	var cpuBefore, cpuAfter syscall.Rusage
+	must(t, syscall.Getrusage(syscall.RUSAGE_SELF, &cpuBefore))
+	if outdir != "" {
+		must(t, os.WriteFile(filepath.Join(outdir, "measurement.start"), []byte(start.UTC().Format(time.RFC3339Nano)), 0600))
+	}
+	deadline := start.Add(time.Duration(seconds) * time.Second)
+	measuring.Store(true)
+	var wg sync.WaitGroup
+	var lock sync.Mutex
+	gatewayTimes, adminTimes := []time.Duration{}, []time.Duration{}
+	gatewayErrors, adminErrors := 0, 0
+	refreshSamples, refreshUnavailable, refreshStale := 0, 0, 0
+	refreshPopulationTimeline := []map[string]int64{}
+	var maxRefreshLagMS int64
+	var pgLockWaitSamples, pgLockWaitMaximum, pgWaitReadErrors int64
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for time.Now().Before(deadline) {
+			var waiting int64
+			waitCtx, cancelWait := context.WithTimeout(context.Background(), time.Second)
+			waitErr := db.QueryRowContext(waitCtx, `SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid() AND wait_event_type='Lock'`).Scan(&waiting)
+			cancelWait()
+			snapshot := service.PerfMatrixCacheSnapshot(1, 1)
+			population := service.PerfMatrixCacheStats()
+			population["elapsed_ms"] = time.Since(start).Milliseconds()
+			lock.Lock()
+			if waitErr != nil {
+				pgWaitReadErrors++
+			} else {
+				pgLockWaitSamples += waiting
+				if waiting > pgLockWaitMaximum {
+					pgLockWaitMaximum = waiting
+				}
+			}
+			refreshPopulationTimeline = append(refreshPopulationTimeline, population)
+			refreshSamples++
+			if !snapshot.Available {
+				refreshUnavailable++
+			} else if !snapshot.Fresh {
+				refreshStale++
+			}
+			if !snapshot.LoadedAt.IsZero() {
+				lag := time.Since(snapshot.LoadedAt).Milliseconds()
+				if lag > maxRefreshLagMS {
+					maxRefreshLagMS = lag
+				}
+			}
+			lock.Unlock()
+			pause := time.Until(deadline)
+			if pause > time.Second {
+				pause = time.Second
+			}
+			if pause > 0 {
+				time.Sleep(pause)
+			}
+		}
+	}()
+	gatewayStatuses := map[int]int{}
+	fullExpectedRejections, fullUnexpectedResponses, fullInvalidJSON := 0, 0, 0
+	fullSignatures := map[string]int{}
+	fullMismatches := []map[string]any{}
+	for worker := 0; worker < envInt("MATRIX_GATEWAY_WORKERS", 8); worker++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for time.Now().Before(deadline) {
+				elapsed, status, body := request(false)
+				lock.Lock()
+				gatewayTimes = append(gatewayTimes, elapsed)
+				gatewayStatuses[status]++
+				if scenario == "full" {
+					var payload struct {
+						Error *struct {
+							Type    string `json:"type"`
+							Code    string `json:"code"`
+							Message string `json:"message"`
+						} `json:"error"`
+					}
+					parseErr := json.Unmarshal([]byte(body), &payload)
+					typeName, code, message := "", "", ""
+					if payload.Error != nil {
+						typeName, code, message = payload.Error.Type, payload.Error.Code, payload.Error.Message
+					}
+					expected := parseErr == nil && status == http.StatusTooManyRequests && typeName == "rate_limit_error" && code == "gateway_queue_full" && message == "Too many pending requests, please retry later"
+					if expected {
+						fullExpectedRejections++
+					} else {
+						fullUnexpectedResponses++
+						if parseErr != nil {
+							fullInvalidJSON++
+						}
+						if len(fullMismatches) < 5 {
+							fullMismatches = append(fullMismatches, map[string]any{"status": status, "type": typeName, "code": code, "invalid_json": parseErr != nil})
+						}
+					}
+					signature := fmt.Sprintf("%d/%s/%s", status, typeName, code)
+					if len(fullSignatures) < 16 || fullSignatures[signature] > 0 {
+						fullSignatures[signature]++
+					} else {
+						fullSignatures["other"]++
+					}
+				}
+				if status != 200 {
+					gatewayErrors++
+				}
+				lock.Unlock()
+			}
+		}()
+	}
+	for worker := 0; worker < envInt("MATRIX_ADMINS", 20); worker++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			next := start
+			for time.Now().Before(deadline) {
+				if delay := time.Until(next); delay > 0 {
+					time.Sleep(delay)
+				}
+				if !time.Now().Before(deadline) {
+					return
+				}
+				elapsed, status, _ := request(true)
+				lock.Lock()
+				adminTimes = append(adminTimes, elapsed)
+				if status != 200 {
+					adminErrors++
+				}
+				lock.Unlock()
+				next = next.Add(5 * time.Second)
+				// One request per administrator at a time; missed slots never
+				// accumulate a burst of catch-up refreshes.
+				for !next.After(time.Now()) {
+					next = next.Add(5 * time.Second)
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	must(t, syscall.Getrusage(syscall.RUSAGE_SELF, &cpuAfter))
+	if outdir != "" {
+		must(t, os.WriteFile(filepath.Join(outdir, "measurement.end"), []byte(time.Now().UTC().Format(time.RFC3339Nano)), 0600))
+	}
+	runtime.ReadMemStats(&after)
+	measurementSeconds := time.Since(start).Seconds()
+	measuredCalls, measuredRows := counts.queries.Load()-sqlBefore, counts.rows.Load()-rowsBefore
+	time.Sleep(1100 * time.Millisecond)
+	pgAfter := pgStats()
+	pgIOAfter := pgIO()
+	percentiles := func(values []time.Duration) map[string]any {
+		sort.Slice(values, func(i, j int) bool { return values[i] < values[j] })
+		out := map[string]any{"samples": len(values)}
+		out["p99_eligible"] = len(values) >= 1000
+		for _, p := range []int{50, 95, 99} {
+			if len(values) > 0 && (p != 99 || len(values) >= 1000) {
+				out[fmt.Sprintf("p%d_ms", p)] = float64(values[(len(values)-1)*p/100]) / float64(time.Millisecond)
+			}
+		}
+		return out
+	}
+	var pending int
+	var oldest sql.NullTime
+	must(t, db.QueryRow(`SELECT count(*),min(completed_at) FROM upstream_cache_guard_facts WHERE processed=false`).Scan(&pending, &oldest))
+	var completed int
+	must(t, db.QueryRow(`SELECT count(*) FROM upstream_cache_guard_facts WHERE processed=true`).Scan(&completed))
+	var cleanupRemaining int
+	must(t, db.QueryRow(`SELECT count(*) FROM upstream_cache_guard_facts WHERE evidence_id LIKE 'cleanup-%'`).Scan(&cleanupRemaining))
+	accounts, e := accountRepo.GetByIDs(context.Background(), []int64{1})
+	must(t, e)
+	view := service.GetUpstreamCacheGuardAccountView(accounts[0])
+	finalSnapshot := service.PerfMatrixCacheSnapshot(1, 1)
+	result := map[string]any{"accounts": n, "history": historical, "page": page, "scenario": scenario, "wall_seconds": measurementSeconds, "gateway": percentiles(gatewayTimes), "admin": percentiles(adminTimes), "gateway_errors": gatewayErrors, "admin_errors": adminErrors, "sql_driver_calls": measuredCalls, "sql_returned_rows": measuredRows, "allocated_bytes": after.TotalAlloc - before.TotalAlloc, "allocations": after.Mallocs - before.Mallocs, "heap_alloc_bytes": after.HeapAlloc, "pending_completion": pending, "completed_facts": completed, "account1_cache": view.Summary, "gc_count": after.NumGC - before.NumGC,
+		"measurement_process_cpu_seconds": float64(cpuAfter.Utime.Sec-cpuBefore.Utime.Sec+cpuAfter.Stime.Sec-cpuBefore.Stime.Sec) + float64(cpuAfter.Utime.Usec-cpuBefore.Utime.Usec+cpuAfter.Stime.Usec-cpuBefore.Stime.Usec)/1e6,
+		"pg_temp_files":                   pgIOAfter[0] - pgIOBefore[0], "pg_temp_bytes": pgIOAfter[1] - pgIOBefore[1], "pg_deadlocks": pgIOAfter[2] - pgIOBefore[2], "pg_blocks_read": pgIOAfter[3] - pgIOBefore[3],
+		"pg_lock_wait_connection_samples": pgLockWaitSamples, "pg_max_waiting_connections": pgLockWaitMaximum, "pg_wait_read_errors": pgWaitReadErrors,
+		"list_http": percentiles(listTimes), "admin_refresh_period_seconds": 5, "admin_workers": envInt("MATRIX_ADMINS", 20),
+		"admin_sql_driver_calls": counts.adminQueries.Load() - adminSQLBefore, "admin_sql_returned_rows": counts.adminRows.Load() - adminRowsBefore,
+		"gateway_sql_driver_calls": counts.gatewayQueries.Load() - gatewaySQLBefore, "gateway_sql_returned_rows": counts.gatewayRows.Load() - gatewayRowsBefore,
+		"initial_cache_active": initialActive, "initial_cache": initialView.Summary, "readiness_seconds": readinessSeconds,
+		"initial_all_accounts_fresh": initialAllReady, "readiness_population_timeline": readinessTimeline, "refresh_population_timeline": refreshPopulationTimeline, "final_population": service.PerfMatrixCacheStats(),
+		"refresh_health_samples": refreshSamples, "refresh_unavailable_samples": refreshUnavailable, "refresh_stale_samples": refreshStale, "max_observed_account1_refresh_lag_ms": maxRefreshLagMS, "final_snapshot_available": finalSnapshot.Available, "final_snapshot_fresh": finalSnapshot.Fresh,
+		"gateway_statuses": gatewayStatuses, "upstream_requests": upstreamRequests.Load() - upstreamBefore,
+		"full_expected_rejections": fullExpectedRejections, "full_unexpected_responses": fullUnexpectedResponses, "full_invalid_json": fullInvalidJSON, "full_response_signatures": fullSignatures, "full_first_mismatches": fullMismatches,
+		"generated_completed_facts": completed - completedBefore - cleanupRemaining,
+		"budget_fallback_logs":      budgetLogs.count.Load() - budgetBefore,
+		"cleanup_seeded":            1200, "cleanup_remaining": cleanupRemaining, "pg_seq_tuple_visits": pgAfter[0] - pgBefore[0], "pg_index_tuple_fetches": pgAfter[1] - pgBefore[1]}
+	if !finalSnapshot.LoadedAt.IsZero() {
+		result["final_account1_refresh_lag_ms"] = time.Since(finalSnapshot.LoadedAt).Milliseconds()
+	}
+	if view.Summary != nil && view.Summary.UpdatedAt != nil {
+		result["account1_business_evidence_age_ms"] = time.Since(*view.Summary.UpdatedAt).Milliseconds()
+	}
+	var pgIdentityUpdated sql.NullTime
+	must(t, db.QueryRow(`SELECT max(updated_at) FROM upstream_cache_guard_accounts WHERE account_id=1`).Scan(&pgIdentityUpdated))
+	if pgIdentityUpdated.Valid {
+		result["account1_persisted_state_age_ms"] = time.Since(pgIdentityUpdated.Time).Milliseconds()
+	}
+	if oldest.Valid {
+		result["oldest_pending_age_ms"] = time.Since(oldest.Time).Milliseconds()
+	}
+	if outdir != "" {
+		// Keep samples so pooled P99 eligibility is based on actual observations.
+		durationsMS := func(values []time.Duration) []float64 {
+			out := make([]float64, len(values))
+			for i, v := range values {
+				out[i] = float64(v) / float64(time.Millisecond)
+			}
+			return out
+		}
+		raw, err := json.Marshal(map[string][]float64{"admin_ms": durationsMS(adminTimes), "list_ms": durationsMS(listTimes), "gateway_ms": durationsMS(gatewayTimes)})
+		must(t, err)
+		must(t, os.WriteFile(filepath.Join(outdir, "latency_samples.json"), raw, 0600))
+		for _, name := range []string{"mutex", "block", "allocs"} {
+			f, err := os.Create(filepath.Join(outdir, name+".pprof"))
+			must(t, err)
+			must(t, pprof.Lookup(name).WriteTo(f, 0))
+			f.Close()
+		}
+	}
+	encoded, _ := json.Marshal(result)
+	fmt.Printf("MATRIX_RESULT=%s\n", encoded)
+	if scenario == "full" && upstreamRequests.Load() != upstreamBefore {
+		t.Error("full target sent real upstream request")
+	}
+	if scenario == "full" && (len(gatewayTimes) == 0 || fullExpectedRejections != len(gatewayTimes) || fullUnexpectedResponses != 0) {
+		t.Errorf("full capacity rejection mismatch expected=%d total=%d unexpected=%d invalid_json=%d", fullExpectedRejections, len(gatewayTimes), fullUnexpectedResponses, fullInvalidJSON)
+	}
+	if initialActive && scenario == "normal" && upstreamRequests.Load() > upstreamBefore && completed-completedBefore-cleanupRemaining == 0 {
+		t.Error("active protection produced no completed facts")
+	}
+	if adminErrors > 0 || (scenario != "full" && gatewayErrors > 0) || fullUnexpectedResponses > 0 {
+		t.Errorf("HTTP failures gateway=%d admin=%d", gatewayErrors, adminErrors)
+	}
+}

@@ -253,6 +253,7 @@
           :estimate-row-height="156"
           :overscan="5"
           :virtualize-threshold="scope === 'upstream' ? 20 : 50"
+          :mobile-content-visibility="scope === 'upstream'"
         >
           <template #header-select>
             <input
@@ -363,7 +364,7 @@
             </div>
           </template>
           <template #cell-upstream_health="{ row }">
-            <UpstreamHealthCell :account="row" @show-history="openUpstreamKeyEvents(row)" />
+            <UpstreamHealthCell :snapshot="row.upstream_health" :platform="row.platform" :schedulable="row.schedulable" @show-history="openUpstreamKeyEvents(row)" />
           </template>
           <template #cell-schedulable="{ row }">
             <div class="flex min-w-[132px] flex-col items-start gap-1">
@@ -400,8 +401,8 @@
               :stats="qualityStatsByAccountId[String(row.id)] ?? null"
               :activity-state-override="getAccountQualityActivityOverride(row)"
               :muted="isAccountQualityBaselineMuted(row)"
-              :loading="qualityStatsLoading"
-              :error="qualityStatsError"
+              :loading="!qualityStatsByAccountId[String(row.id)] && qualityStatsLoading"
+              :error="qualityStatsByAccountId[String(row.id)] ? null : qualityStatsError"
             />
           </template>
           <template #cell-groups="{ row }">
@@ -682,6 +683,7 @@
     <TLSFingerprintProfilesModal :show="showTLSFingerprintProfiles" @close="showTLSFingerprintProfiles = false" />
     <TotpStepUpDialog :controller="accountExportStepUp" />
     <UpstreamKeyEventsDialog
+      ref="upstreamKeyEventsDialogRef"
       :show="showUpstreamKeyEvents"
       :key-id="upstreamKeyEventsAccount?.upstream_key_id ?? null"
       :key-label="upstreamKeyEventsAccount?.name"
@@ -711,14 +713,15 @@
 
 <script setup lang="ts">
 import { computed, defineAsyncComponent, onMounted, onUnmounted, reactive, ref, toRaw, watch } from 'vue'
-import { useIntervalFn } from '@vueuse/core'
+import { useDebounceFn, useIntervalFn } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 import { adminAPI } from '@/api/admin'
-import upstreamManagementAPI from '@/api/admin/upstreamManagement'
+import upstreamManagementAPI, { type UpstreamAccountPage } from '@/api/admin/upstreamManagement'
 import { useTableLoader } from '@/composables/useTableLoader'
+import { setPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { useSwipeSelect, type SwipeSelectVirtualContext } from '@/composables/useSwipeSelect'
 import { useTableSelection } from '@/composables/useTableSelection'
 import { useStepUp, isStepUpBlocked, isStepUpCancelled, stepUpBlockReason } from '@/composables/useStepUp'
@@ -758,6 +761,7 @@ import { formatDateTime, formatRelativeTime } from '@/utils/format'
 import { proxyExpiryBadgeClass, proxyExpiryLabelKey } from '@/utils/proxyExpiry'
 import { filterRealProxies } from '@/utils/proxy'
 import { extractApiErrorMessage, extractApiErrorMetadata, extractI18nErrorMessage } from '@/utils/apiError'
+import { replaceEqualDeep } from '@/utils/replaceEqualDeep'
 import { sanitizeUrl } from '@/utils/url'
 import { getFloatingPanelPosition } from '@/utils/floatingPanel'
 import { formatMultiplier } from '@/utils/formatters'
@@ -1088,6 +1092,7 @@ const autoRefreshDeadline = ref(0)
 const autoRefreshETag = ref<string | null>(null)
 const autoRefreshFetching = ref(false)
 let autoRefreshRequestGeneration = 0
+let lastSuccessfulAccountEvaluationGeneration = -1
 let accountListDisposed = false
 const loadedAccountListContext = ref('')
 const manualRefreshing = ref(false)
@@ -1109,7 +1114,16 @@ const qualityStatsReqSeq = ref(0)
 const qualityStatsSnapshotKey = ref('')
 const qualityStatsETag = ref<string | null>(null)
 const qualityStatsLastRefreshedAt = ref(0)
+const qualityStatsLastAttemptAt = ref(0)
+let inlineQualityContext = ''
+let inlineQualityKeys = new Map<string, number | null | undefined>()
+const qualityEvaluationNow = ref(Date.now())
+let qualityBoundaryTimer: ReturnType<typeof setTimeout> | null = null
+let qualityClockOffsetMs = 0
+const upstreamKeyEventsDialogRef = ref<{ refresh: () => Promise<void> } | null>(null)
 let qualityStatsAbortController: AbortController | null = null
+let qualityFlight: { key: string; forced: boolean; sequence: number; promise: Promise<void> } | null = null
+let qualityForcedFollowup: { key: string; promise: Promise<void> } | null = null
 const pendingTodayStatsRefresh = ref(false)
 const TODAY_STATS_REFRESH_INTERVAL_MS = 30_000
 const QUALITY_STATS_REFRESH_INTERVAL_MS = 60_000
@@ -1117,7 +1131,7 @@ const QUALITY_STATS_REFRESH_INTERVAL_MS = 60_000
 const hasFutureAccountTimestamp = (value: string | null | undefined): boolean => {
   if (!value) return false
   const timestamp = new Date(value).getTime()
-  return Number.isFinite(timestamp) && timestamp > Date.now()
+  return Number.isFinite(timestamp) && timestamp > qualityEvaluationNow.value
 }
 
 const getAccountQualityActivityOverride = (account: Account): 'paused' | 'unassigned' | null => {
@@ -1133,6 +1147,28 @@ const getAccountQualityActivityOverride = (account: Account): 'paused' | 'unassi
   }
   const groupCount = account.group_ids?.length ?? account.groups?.length ?? 0
   return groupCount === 0 ? 'unassigned' : null
+}
+
+const scheduleQualityBoundary = () => {
+  if (qualityBoundaryTimer) clearTimeout(qualityBoundaryTimer)
+  qualityBoundaryTimer = null
+  const now = Date.now() + qualityClockOffsetMs
+  if (!document.hidden) qualityEvaluationNow.value = now
+  const next = accounts.value.flatMap(account => [account.temp_unschedulable_until, account.rate_limit_reset_at, account.overload_until])
+    .map(value => value ? Date.parse(value) : NaN)
+    .filter(value => Number.isFinite(value) && value > now)
+    .reduce((earliest, value) => Math.min(earliest, value), Infinity)
+  if (Number.isFinite(next)) qualityBoundaryTimer = setTimeout(scheduleQualityBoundary, Math.min(2_147_483_647, Math.max(1, next - now)))
+}
+
+const updateQualityEvaluationTime = (evaluatedAt?: string, evaluationRequestedAt?: number) => {
+  const parsed = evaluatedAt ? Date.parse(evaluatedAt) : NaN
+  // The server evaluates at request start. Response latency must advance the
+  // estimated server clock rather than postpone status expiration.
+  qualityClockOffsetMs = Number.isFinite(parsed) && typeof evaluationRequestedAt === 'number' && Number.isFinite(evaluationRequestedAt)
+    ? parsed - evaluationRequestedAt
+    : 0
+  scheduleQualityBoundary()
 }
 
 const isAccountQualityBaselineMuted = (account: Account): boolean => {
@@ -1429,13 +1465,41 @@ const cancelAccountQualityRequest = () => {
   if (qualityStatsAbortController) {
     qualityStatsAbortController.abort()
     qualityStatsLastRefreshedAt.value = 0
+    // An aborted attempt must not throttle the next page's first evaluation.
+    qualityStatsLastAttemptAt.value = 0
   }
   qualityStatsAbortController = null
+  qualityFlight = null
+  qualityForcedFollowup = null
   qualityStatsReqSeq.value += 1
   qualityStatsLoading.value = false
 }
 
-const refreshAccountQualityBatch = async (options?: { force?: boolean }) => {
+const refreshAccountQualityBatch = async (options?: { force?: boolean }): Promise<void> => {
+  // The upstream list evaluates and includes quality in the same request/snapshot.
+  if (props.scope === 'upstream') return
+  const key = `${accountListContextKey.value}:${accounts.value.map(account => account.id).sort((a, b) => a - b).join(',')}`
+  if (qualityFlight?.key === key) {
+    const flight = qualityFlight
+    if (!options?.force || flight.forced) return flight.promise
+    if (qualityForcedFollowup?.key === key) return qualityForcedFollowup.promise
+    const promise = flight.promise.then(async () => {
+      if (accountListDisposed || qualityStatsReqSeq.value !== flight.sequence || props.scope === 'upstream') return
+      return refreshAccountQualityBatch({ force: true })
+    }).finally(() => {
+      if (qualityForcedFollowup?.promise === promise) qualityForcedFollowup = null
+    })
+    qualityForcedFollowup = { key, promise }
+    return promise
+  }
+  const promise = fetchAccountQualityBatch(options).finally(() => {
+    if (qualityFlight?.promise === promise) qualityFlight = null
+  })
+  qualityFlight = { key, forced: options?.force === true, sequence: qualityStatsReqSeq.value, promise }
+  return promise
+}
+
+const fetchAccountQualityBatch = async (options?: { force?: boolean }) => {
   if (hiddenColumns.has('quality_stats')) {
     cancelAccountQualityRequest()
     qualityStatsError.value = null
@@ -1449,6 +1513,7 @@ const refreshAccountQualityBatch = async (options?: { force?: boolean }) => {
     qualityStatsSnapshotKey.value = ''
     qualityStatsETag.value = null
     qualityStatsLastRefreshedAt.value = 0
+    qualityStatsLastAttemptAt.value = 0
     qualityStatsByAccountId.value = {}
     qualityStatsError.value = null
     return
@@ -1458,7 +1523,8 @@ const refreshAccountQualityBatch = async (options?: { force?: boolean }) => {
   if (
     options?.force !== true
     && sameSnapshot
-    && Date.now() - qualityStatsLastRefreshedAt.value < QUALITY_STATS_REFRESH_INTERVAL_MS
+    && (Date.now() - qualityStatsLastRefreshedAt.value < QUALITY_STATS_REFRESH_INTERVAL_MS
+      || Date.now() - qualityStatsLastAttemptAt.value < 5000)
   ) {
     return
   }
@@ -1474,7 +1540,7 @@ const refreshAccountQualityBatch = async (options?: { force?: boolean }) => {
   }
   qualityStatsLoading.value = true
   qualityStatsError.value = null
-  qualityStatsLastRefreshedAt.value = Date.now()
+  qualityStatsLastAttemptAt.value = Date.now()
 
   try {
     const result = await adminAPI.accounts.getBatchQualityStats(accountIDs, {
@@ -1483,7 +1549,8 @@ const refreshAccountQualityBatch = async (options?: { force?: boolean }) => {
     })
     if (controller.signal.aborted || reqSeq !== qualityStatsReqSeq.value) return
     if (result.etag) qualityStatsETag.value = result.etag
-    if (!result.notModified) qualityStatsByAccountId.value = result.data?.stats ?? {}
+    if (!result.notModified) qualityStatsByAccountId.value = replaceEqualDeep(qualityStatsByAccountId.value, result.data?.stats ?? {})
+    qualityStatsLastRefreshedAt.value = Date.now()
   } catch (error: any) {
     if (controller.signal.aborted || reqSeq !== qualityStatsReqSeq.value || error?.code === 'ERR_CANCELED') return
     qualityStatsError.value = t('admin.accounts.quality.loadFailed')
@@ -1679,6 +1746,12 @@ const toggleColumn = (key: string) => {
     })
   }
   if (key === 'quality_stats') {
+    if (props.scope === 'upstream') {
+      syncAccountListDerivedParams()
+      invalidateAccountRefresh()
+      void handleManualRefresh()
+      return
+    }
     if (wasHidden) {
       refreshAccountQualityBatch({ force: true }).catch((error) => {
         console.error('Failed to load account quality stats after showing column:', error)
@@ -1698,11 +1771,42 @@ const toggleColumn = (key: string) => {
 }
 
 const isColumnVisible = (key: string) => !hiddenColumns.has(key)
+
+const applyInlineQuality = (page: UpstreamAccountPage, context: string) => {
+  if (inlineQualityContext !== context) {
+    inlineQualityContext = context
+    qualityStatsByAccountId.value = {}
+    qualityStatsLastRefreshedAt.value = 0
+    inlineQualityKeys.clear()
+  }
+  qualityStatsLoading.value = false
+  if (hiddenColumns.has('quality_stats')) {
+    qualityStatsError.value = null
+    return
+  }
+  qualityStatsLastAttemptAt.value = Date.now()
+  if (page.quality_stats_status === 'ok' && page.quality_stats) {
+    qualityStatsByAccountId.value = replaceEqualDeep(qualityStatsByAccountId.value, page.quality_stats)
+    inlineQualityKeys = new Map(page.items.map(account => [String(account.id), account.upstream_key_id]))
+    qualityStatsLastRefreshedAt.value = Date.now()
+    qualityStatsError.value = null
+  } else {
+    const currentKeys = new Map(page.items.map(account => [String(account.id), account.upstream_key_id]))
+    const retained = Object.fromEntries(Object.entries(qualityStatsByAccountId.value).filter(([id]) =>
+      currentKeys.has(id) && inlineQualityKeys.has(id) && currentKeys.get(id) === inlineQualityKeys.get(id)
+    ))
+    qualityStatsByAccountId.value = replaceEqualDeep(qualityStatsByAccountId.value, retained)
+    // Keep only this query's successful data; never borrow from a previous page/filter.
+    qualityStatsError.value = t('admin.accounts.quality.loadFailed')
+  }
+}
 const shouldIncludeSchedulerScore = () => isColumnVisible('scheduler_score')
 const syncAccountListDerivedParams = () => {
   // Keep every load path, including auto-refresh and sorting, aligned with the current column visibility.
   const requestParams = params as any
   requestParams.include_scheduler_score = shouldIncludeSchedulerScore() ? '1' : '0'
+  if (props.scope === 'upstream') requestParams.include_quality = isColumnVisible('quality_stats') ? '1' : '0'
+  else delete requestParams.include_quality
 }
 
 const upstreamVisibleFilters = (filters: Record<string, unknown>) => {
@@ -1752,6 +1856,9 @@ const fetchAccountTablePage = async (page: number, pageSize: number, filters: Re
     throw new DOMException('Obsolete account list request', 'AbortError')
   }
   loadedAccountListContext.value = context
+  lastSuccessfulAccountEvaluationGeneration = generation
+  updateQualityEvaluationTime((result as UpstreamAccountPage).evaluatedAt, (result as UpstreamAccountPage).evaluationRequestedAt)
+  if (props.scope === 'upstream') applyInlineQuality(result as UpstreamAccountPage, context)
   return result
 }
 
@@ -1761,10 +1868,7 @@ const {
   params,
   pagination,
   load: baseLoad,
-  reload: baseReload,
-  debouncedReload: baseDebouncedReload,
-  handlePageChange: baseHandlePageChange,
-  handlePageSizeChange: baseHandlePageSizeChange
+  reload: baseReload
 } = useTableLoader<AccountListItem, any>({
   fetchFn: fetchAccountTablePage,
   initialParams: {
@@ -1787,7 +1891,16 @@ const {
 })
 
 const accountListContextKey = computed(() => buildAccountListContext(pagination.page, pagination.page_size, params))
-watch(accountListContextKey, invalidateAccountRefresh, { flush: 'sync' })
+watch(accountListContextKey, (context) => {
+  invalidateAccountRefresh()
+  if (props.scope === 'upstream' && loadedAccountListContext.value !== context) {
+    // Rows and counts belong to the successful query. A new page/filter must
+    // never expose that query's rows to rendering, selection or export on failure.
+    accounts.value = []
+    pagination.total = 0
+    pagination.pages = 0
+  }
+}, { flush: 'sync' })
 
 const {
   selectedSet,
@@ -1814,6 +1927,7 @@ const isAccountBillingProbeEligible = (account: Account) =>
   account.upstream_key_id == null
 
 watch(accounts, (rows) => {
+  scheduleQualityBoundary()
   rows.forEach((account) => {
     upstreamBillingEligibility.set(account.id, isAccountBillingProbeEligible(account))
     accountSelectionMetadata.set(account.id, { platform: account.platform, type: account.type })
@@ -1943,7 +2057,15 @@ const load = async (options: AccountLoadOptions = {}) => {
   await Promise.all(refreshTasks)
 }
 
-const reload = async () => {
+const observeAccountListLoad = (task: Promise<void>) => {
+  const context = accountListContextKey.value
+  const generation = autoRefreshRequestGeneration
+  return task.catch(error => reportAccountListError(error, context, generation))
+}
+
+const requestAccountListLoad = (options: AccountLoadOptions = {}) => observeAccountListLoad(load(options))
+
+const reload = () => observeAccountListLoad((async () => {
   cancelAccountQualityRequest()
   markUpstreamBillingSortRefresh()
   syncAccountListDerivedParams()
@@ -1958,7 +2080,7 @@ const reload = async () => {
     refreshTodayStatsBatch({ force: true }),
     refreshAccountQualityBatch({ force: true })
   ])
-}
+})())
 
 const buildUpstreamBillingRateFilters = () => {
   const rawParams = toRaw(params) as Record<string, unknown>
@@ -2079,6 +2201,7 @@ const refreshUpstreamBillingSortedList = async (force = false) => {
 
 useIntervalFn(() => { void refreshUpstreamBillingRates() }, 5 * 60_000, { immediate: false })
 
+const debouncedAccountReload = useDebounceFn(reload, 300)
 const debouncedReload = () => {
   cancelAccountQualityRequest()
   clearSelection()
@@ -2086,7 +2209,7 @@ const debouncedReload = () => {
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = true
-  baseDebouncedReload()
+  void debouncedAccountReload()
 }
 
 const handlePageChange = (page: number) => {
@@ -2095,7 +2218,8 @@ const handlePageChange = (page: number) => {
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = true
-  baseHandlePageChange(page)
+  pagination.page = Math.max(1, Math.min(page, pagination.pages || 1))
+  void requestAccountListLoad()
 }
 
 const handlePageSizeChange = (size: number) => {
@@ -2105,7 +2229,10 @@ const handlePageSizeChange = (size: number) => {
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = true
-  baseHandlePageSizeChange(size)
+  pagination.page_size = size
+  pagination.page = 1
+  setPersistedPageSize(size)
+  void requestAccountListLoad()
 }
 
 const handleSort = (key: string, order: AccountSortOrder) => {
@@ -2122,7 +2249,7 @@ const handleSort = (key: string, order: AccountSortOrder) => {
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = true
-  load()
+  void requestAccountListLoad()
 }
 
 watch(loading, (isLoading, wasLoading) => {
@@ -2169,6 +2296,7 @@ const isAnyModalOpen = computed(() => {
     showReAuth.value ||
     showTest.value ||
     showStats.value ||
+    showUpstreamKeyEvents.value ||
     showSchedulePanel.value ||
     showErrorPassthrough.value ||
     showTLSFingerprintProfiles.value
@@ -2183,10 +2311,6 @@ const enterAutoRefreshSilentWindow = () => {
 const inAutoRefreshSilentWindow = () => {
   return Date.now() < autoRefreshSilentUntil
 }
-
-// Compare the complete lite snapshot: cache protection, mappings, rates and scores
-// can change independently of account.updated_at. Equal rows keep their component identity.
-const shouldReplaceAutoRefreshRow = (current: Account, next: Account) => JSON.stringify(current) !== JSON.stringify(next)
 
 const syncAccountRefs = (nextAccount: Account) => {
   // List refreshes must not replace detail snapshots or reset unsaved editor state.
@@ -2206,10 +2330,11 @@ const mergeAccountsIncrementally = (nextRows: Account[]) => {
       changed = true
       return nextRow
     }
-    if (shouldReplaceAutoRefreshRow(currentRow, nextRow)) {
+    const sharedRow = replaceEqualDeep(currentRow, nextRow)
+    if (toRaw(sharedRow) !== toRaw(currentRow)) {
       changed = true
-      syncAccountRefs(nextRow)
-      return nextRow
+      syncAccountRefs(sharedRow)
+      return sharedRow
     }
     return currentRow
   })
@@ -2229,7 +2354,19 @@ const mergeAccountsIncrementally = (nextRows: Account[]) => {
 const refreshAccountsIncrementally = async (options: { force?: boolean } = {}) => {
   syncAccountListDerivedParams()
   const context = accountListContextKey.value
-  if (loading.value || loadedAccountListContext.value !== context || accountListDisposed) return
+  if (loading.value || accountListDisposed) return
+  if (loadedAccountListContext.value !== context) {
+    // Initial/page/filter failures have no successful snapshot to refresh with
+    // ETag. Retry the current page on the selected cycle, without resetting it.
+    try {
+      await load({ forceUsage: options.force })
+    } catch {
+      if (options.force && !accountListDisposed && context === accountListContextKey.value) {
+        appStore.showError(t('admin.accounts.failedToLoad'))
+      }
+    }
+    return
+  }
   if (!accountRefreshFlight || accountRefreshFlight.context !== context) {
     const generation = ++autoRefreshRequestGeneration
     const controller = new AbortController()
@@ -2252,9 +2389,19 @@ const refreshAccountsIncrementally = async (options: { force?: boolean } = {}) =
           pagination.total = result.data.total || 0
           pagination.pages = result.data.pages || 0
           mergeAccountsIncrementally(result.data.items || [])
+          if (refreshScope === 'upstream') applyInlineQuality(result.data as UpstreamAccountPage, context)
           hasPendingListSync.value = false
         }
         upstreamBillingNow.value = Date.now()
+        lastSuccessfulAccountEvaluationGeneration = generation
+        updateQualityEvaluationTime(
+          'evaluatedAt' in result && typeof result.evaluatedAt === 'string' ? result.evaluatedAt : undefined,
+          'evaluationRequestedAt' in result && typeof result.evaluationRequestedAt === 'number' ? result.evaluationRequestedAt : undefined
+        )
+        if (refreshScope === 'upstream' && !hiddenColumns.has('quality_stats') && result.notModified) {
+          qualityStatsLastAttemptAt.value = Date.now()
+          if (!qualityStatsError.value) qualityStatsLastRefreshedAt.value = Date.now()
+        }
         return true
       } catch (error: any) {
         if (!controller.signal.aborted && generation === autoRefreshRequestGeneration && error?.code !== 'ERR_CANCELED') {
@@ -2283,12 +2430,18 @@ const refreshAccountsIncrementally = async (options: { force?: boolean } = {}) =
 }
 
 const handleManualRefresh = () => {
+  if (showUpstreamKeyEvents.value) return upstreamKeyEventsDialogRef.value?.refresh()
   if (manualRefreshPromise) return manualRefreshPromise
   manualRefreshing.value = true
   const context = accountListContextKey.value
-  const refreshTask = !loading.value && loadedAccountListContext.value === context
-    ? refreshAccountsIncrementally({ force: true })
-    : load({ forceUsage: true })
+  const refreshTask = (async () => {
+    // A click needs a snapshot evaluated after that click, not an older flight.
+    const olderFlight = accountRefreshFlight
+    if (olderFlight && props.scope === 'upstream') await olderFlight.promise
+    if (accountListDisposed || context !== accountListContextKey.value) return
+    if (!loading.value && loadedAccountListContext.value === context) await refreshAccountsIncrementally({ force: true })
+    else await load({ forceUsage: true })
+  })()
   const generation = autoRefreshRequestGeneration
   manualRefreshPromise = Promise.all([
     refreshTask,
@@ -2304,6 +2457,7 @@ const handleManualRefresh = () => {
 
 const handleUpstreamManagementSettingsSaved = async () => {
   const context = accountListContextKey.value
+  const savedAtGeneration = autoRefreshRequestGeneration
   // A request started before the save cannot satisfy the post-save refresh.
   // Keep ordinary refresh deduplication, then fetch a new snapshot for this save.
   while (manualRefreshPromise || accountRefreshFlight) {
@@ -2311,6 +2465,7 @@ const handleUpstreamManagementSettingsSaved = async () => {
     if (accountListDisposed || context !== accountListContextKey.value) return
   }
   if (accountListDisposed || context !== accountListContextKey.value) return
+  if (lastSuccessfulAccountEvaluationGeneration > savedAtGeneration) return
   invalidateAccountRefresh()
   await handleManualRefresh()
 }
@@ -2384,6 +2539,8 @@ const handleToggleUpstreamObservation = async (account: Account) => {
 }
 
 const openUpstreamKeyEvents = (account: Account) => {
+  // Do not let a request started before opening replace the table behind the dialog.
+  invalidateAccountRefresh()
   upstreamKeyEventsAccount.value = account
   showUpstreamKeyEvents.value = true
 }
@@ -2391,6 +2548,8 @@ const openUpstreamKeyEvents = (account: Account) => {
 const closeUpstreamKeyEvents = () => {
   showUpstreamKeyEvents.value = false
   upstreamKeyEventsAccount.value = null
+  autoRefreshDeadline.value = Date.now() + autoRefreshIntervalSeconds.value * 1000
+  if (!accountListDisposed) void refreshAccountsIncrementally({ force: true })
 }
 
 const handleRateTrend = (account: Account) => {
@@ -2513,7 +2672,7 @@ const openTLSFingerprintProfiles = () => {
 
 const syncPendingListChanges = async () => {
   hasPendingListSync.value = false
-  await load()
+  await requestAccountListLoad()
   queueVisibleBatchedUsage({ force: true })
 }
 
@@ -3559,6 +3718,7 @@ onMounted(async () => {
     }
   }
 
+  syncAccountListDerivedParams()
   const initialContext = accountListContextKey.value
   const initialLoad = load()
   const initialGeneration = autoRefreshRequestGeneration
@@ -3581,6 +3741,7 @@ onMounted(async () => {
   window.addEventListener('scroll', handleScroll, true)
   window.addEventListener('resize', handleViewportResize)
   document.addEventListener('click', handleClickOutside)
+  document.addEventListener('visibilitychange', scheduleQualityBoundary)
 
   if (autoRefreshEnabled.value) {
     autoRefreshDeadline.value = Date.now() + autoRefreshIntervalSeconds.value * 1000
@@ -3597,6 +3758,7 @@ onUnmounted(() => {
   inFlightUsageBatch.clear()
   forcedUsageBatchFollowups.clear()
   cancelAccountQualityRequest()
+  if (qualityBoundaryTimer) clearTimeout(qualityBoundaryTimer)
   upstreamBillingRateAbortController?.abort()
   if (usageBatchFlushTimer !== null) {
     clearTimeout(usageBatchFlushTimer)
@@ -3606,6 +3768,7 @@ onUnmounted(() => {
   window.removeEventListener('scroll', handleScroll, true)
   window.removeEventListener('resize', handleViewportResize)
   document.removeEventListener('click', handleClickOutside)
+  document.removeEventListener('visibilitychange', scheduleQualityBoundary)
   if (desktopViewportMediaQuery && desktopViewportListener) {
     if (typeof desktopViewportMediaQuery.removeEventListener === 'function') {
       desktopViewportMediaQuery.removeEventListener('change', desktopViewportListener)

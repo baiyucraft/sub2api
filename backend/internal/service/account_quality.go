@@ -279,16 +279,20 @@ func (s *AccountUsageService) GetAccountQualityStatsBatch(ctx context.Context, a
 		return nil, fmt.Errorf("account quality statistics are not supported by the usage repository")
 	}
 
-	queryCtx, cancel := context.WithTimeout(ctx, accountQualityQueryTimeout)
-	defer cancel()
 	endTime := now.UTC()
-	samples, err := reader.GetAccountQualityStatsBatch(
-		queryCtx,
-		uniqueIDs,
-		endTime.Add(-AccountQualityWindowHours*time.Hour),
-		endTime.Add(-AccountQualityRealtimeWindowHours*time.Hour),
-		endTime,
-	)
+	// Share only overlapping reads of this exact window and authorization scope.
+	// The completed result is never cached: a newly committed fact or a moving
+	// time boundary must remain visible on the next administrative refresh.
+	samples, err := accountListSharedRead(ctx, fmt.Sprintf("%p", s), "account-quality", struct {
+		IDs []int64
+		End time.Time
+	}{uniqueIDs, endTime}, func(shared context.Context) (map[int64]AccountQualitySamples, error) {
+		queryCtx, cancel := context.WithTimeout(shared, accountQualityQueryTimeout)
+		defer cancel()
+		return reader.GetAccountQualityStatsBatch(queryCtx, uniqueIDs,
+			endTime.Add(-AccountQualityWindowHours*time.Hour),
+			endTime.Add(-AccountQualityRealtimeWindowHours*time.Hour), endTime)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("get account quality stats failed: %w", err)
 	}

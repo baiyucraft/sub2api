@@ -47,6 +47,16 @@ describe('DataTable', () => {
     localStorage.clear()
   })
 
+  it('opts only requested mobile cards into content visibility', async () => {
+    stubMobileMatchMedia()
+    const wrapper = mount(DataTable, { props: { columns: [{ key: 'name', label: 'Name' }], data: [{ id: 1, name: 'Account' }] } })
+    expect(wrapper.find('.mobile-content-visibility').exists()).toBe(false)
+    await wrapper.setProps({ mobileContentVisibility: true })
+    expect(wrapper.find('.mobile-content-visibility').text()).toContain('Account')
+    expect(wrapper.find('table').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('renders paired sort arrows and highlights the active direction', async () => {
     const wrapper = mount(DataTable, {
       props: {

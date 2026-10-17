@@ -90,6 +90,31 @@ type accountProxyBatchConcurrencyCacheForTest struct {
 	batchCalls int
 }
 
+type accountProxyTargetsCacheForTest struct {
+	accountProxyConcurrencyCacheForTest
+	loads   map[AccountProxyConcurrencyTarget]int
+	targets []AccountProxyConcurrencyTarget
+	calls   int
+}
+
+func (c *accountProxyTargetsCacheForTest) GetAccountProxyConcurrencyTargetsBatch(_ context.Context, targets []AccountProxyConcurrencyTarget) (map[AccountProxyConcurrencyTarget]int, error) {
+	c.calls++
+	c.targets = append([]AccountProxyConcurrencyTarget(nil), targets...)
+	return c.loads, nil
+}
+
+type accountProxyTargetsFallbackForTest struct {
+	accountProxyConcurrencyCacheForTest
+	read  func(context.Context, AccountProxyConcurrencyTarget) (int, error)
+	reads []AccountProxyConcurrencyTarget
+}
+
+func (c *accountProxyTargetsFallbackForTest) GetAccountProxyConcurrency(ctx context.Context, accountID, proxyID int64) (int, error) {
+	target := AccountProxyConcurrencyTarget{AccountID: accountID, ProxyID: proxyID}
+	c.reads = append(c.reads, target)
+	return c.read(ctx, target)
+}
+
 func (c *accountProxyBatchConcurrencyCacheForTest) GetAccountProxyConcurrencyBatch(_ context.Context, _ int64, _ []int64) (map[int64]int, error) {
 	c.batchCalls++
 	if c.batchErr != nil {
@@ -657,6 +682,52 @@ func TestGetAccountProxyConcurrencyBatchUsesOptionalBatchCache(t *testing.T) {
 	require.Equal(t, map[int64]int{11: 3, 12: 0}, result)
 	require.Equal(t, 1, cache.batchCalls)
 	require.Empty(t, cache.proxyLoadCalls)
+}
+
+func TestGetAccountProxyConcurrencyTargetsBatchUsesOnePageRead(t *testing.T) {
+	a := AccountProxyConcurrencyTarget{AccountID: 7, ProxyID: 11}
+	b := AccountProxyConcurrencyTarget{AccountID: 8, ProxyID: 11}
+	cache := &accountProxyTargetsCacheForTest{loads: map[AccountProxyConcurrencyTarget]int{a: 2, b: 5}}
+	svc := NewConcurrencyService(cache)
+	result, err := svc.GetAccountProxyConcurrencyTargetsBatch(context.Background(), []AccountProxyConcurrencyTarget{a, b, a, {AccountID: 0, ProxyID: 11}, {AccountID: 7, ProxyID: -1}})
+	require.NoError(t, err)
+	require.Equal(t, cache.loads, result)
+	require.Equal(t, []AccountProxyConcurrencyTarget{a, b}, cache.targets)
+	require.Equal(t, 1, cache.calls)
+	require.Empty(t, cache.proxyLoadCalls)
+}
+
+func TestGetAccountProxyConcurrencyTargetsBatchFallbackPreservesPartialResults(t *testing.T) {
+	a := AccountProxyConcurrencyTarget{AccountID: 7, ProxyID: 11}
+	b := AccountProxyConcurrencyTarget{AccountID: 8, ProxyID: 11}
+	c := AccountProxyConcurrencyTarget{AccountID: 9, ProxyID: 11}
+	readErr := errors.New("redis unavailable")
+	cache := &accountProxyTargetsFallbackForTest{read: func(_ context.Context, target AccountProxyConcurrencyTarget) (int, error) {
+		if target == b {
+			return 0, readErr
+		}
+		return int(target.AccountID), nil
+	}}
+	svc := NewConcurrencyService(cache)
+	result, err := svc.GetAccountProxyConcurrencyTargetsBatch(context.Background(), []AccountProxyConcurrencyTarget{a, b, c, a})
+	require.ErrorIs(t, err, readErr)
+	require.Equal(t, map[AccountProxyConcurrencyTarget]int{a: 7, b: 0, c: 9}, result)
+	require.Equal(t, []AccountProxyConcurrencyTarget{a, b, c}, cache.reads)
+}
+
+func TestGetAccountProxyConcurrencyTargetsBatchFallbackStopsOnCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	a := AccountProxyConcurrencyTarget{AccountID: 7, ProxyID: 11}
+	b := AccountProxyConcurrencyTarget{AccountID: 8, ProxyID: 11}
+	cache := &accountProxyTargetsFallbackForTest{read: func(context.Context, AccountProxyConcurrencyTarget) (int, error) {
+		cancel()
+		return 3, nil
+	}}
+	result, err := NewConcurrencyService(cache).GetAccountProxyConcurrencyTargetsBatch(ctx, []AccountProxyConcurrencyTarget{a, b})
+	require.ErrorIs(t, err, context.Canceled)
+	require.Equal(t, 3, result[a])
+	require.Equal(t, []AccountProxyConcurrencyTarget{a}, cache.reads)
 }
 
 func TestIncrementAccountWaitCount_FailOpen(t *testing.T) {

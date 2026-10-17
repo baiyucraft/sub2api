@@ -30,84 +30,52 @@ func (r *usageLogRepository) getQualityStatsBatch(ctx context.Context, ids []int
 	}
 
 	query := fmt.Sprintf(`
-		WITH successful AS MATERIALIZED (
-			SELECT
-				ul.%[1]s,
-					ul.created_at,
-					ul.duration_ms,
-					ul.first_token_ms,
-					ul.input_tokens,
-					ul.cache_creation_tokens,
-					ul.cache_read_tokens
+		WITH successful AS (
+			SELECT ul.%[1]s,
+				COUNT(*) FILTER (WHERE ul.duration_ms IS NOT NULL AND ul.created_at >= $3) AS realtime_count,
+				COUNT(ul.first_token_ms) FILTER (WHERE ul.duration_ms IS NOT NULL AND ul.created_at >= $3) AS realtime_first_count,
+				AVG(ul.first_token_ms) FILTER (WHERE ul.duration_ms IS NOT NULL AND ul.created_at >= $3) AS realtime_first_avg,
+				AVG(ul.duration_ms) FILTER (WHERE ul.duration_ms IS NOT NULL AND ul.created_at >= $3) AS realtime_duration_avg,
+				COALESCE(SUM(ul.cache_read_tokens) FILTER (WHERE ul.duration_ms IS NOT NULL AND ul.created_at >= $3), 0) AS realtime_cache_read_tokens,
+				COALESCE(SUM(ul.input_tokens + ul.cache_creation_tokens + ul.cache_read_tokens) FILTER (WHERE ul.duration_ms IS NOT NULL AND ul.created_at >= $3), 0) AS realtime_cache_input_tokens,
+				COUNT(*) FILTER (WHERE ul.duration_ms IS NOT NULL) AS recent_count,
+				COUNT(ul.first_token_ms) FILTER (WHERE ul.duration_ms IS NOT NULL) AS recent_first_count,
+				AVG(ul.first_token_ms) FILTER (WHERE ul.duration_ms IS NOT NULL) AS recent_first_avg,
+				AVG(ul.duration_ms) AS recent_duration_avg,
+				COALESCE(SUM(ul.cache_read_tokens) FILTER (WHERE ul.duration_ms IS NOT NULL), 0) AS recent_cache_read_tokens,
+				COALESCE(SUM(ul.input_tokens + ul.cache_creation_tokens + ul.cache_read_tokens) FILTER (WHERE ul.duration_ms IS NOT NULL), 0) AS recent_cache_input_tokens,
+				COUNT(*) FILTER (WHERE ul.created_at >= $3) AS successful_requests_1h,
+				COUNT(*) AS successful_requests_24h,
+				MAX(ul.created_at) AS last_success_at
 			FROM usage_logs ul
 			WHERE ul.%[1]s = ANY($1)
-				AND ul.created_at >= $2
-				AND ul.created_at < $4
+				AND ul.created_at >= $2 AND ul.created_at < $4
 				AND `+usageLogSuccessFilterUL+`
 				AND ul.stream = TRUE
-		), quality AS (
-			SELECT
-				%[1]s,
-				COUNT(*) FILTER (WHERE created_at >= $3) AS realtime_count,
-				COUNT(first_token_ms) FILTER (WHERE created_at >= $3) AS realtime_first_count,
-					AVG(first_token_ms) FILTER (WHERE created_at >= $3) AS realtime_first_avg,
-					AVG(duration_ms) FILTER (WHERE created_at >= $3) AS realtime_duration_avg,
-					COALESCE(SUM(cache_read_tokens) FILTER (WHERE created_at >= $3), 0) AS realtime_cache_read_tokens,
-					COALESCE(SUM(input_tokens + cache_creation_tokens + cache_read_tokens) FILTER (WHERE created_at >= $3), 0) AS realtime_cache_input_tokens,
-					COUNT(*) AS recent_count,
-					COUNT(first_token_ms) AS recent_first_count,
-					AVG(first_token_ms) AS recent_first_avg,
-					AVG(duration_ms) AS recent_duration_avg,
-					COALESCE(SUM(cache_read_tokens), 0) AS recent_cache_read_tokens,
-					COALESCE(SUM(input_tokens + cache_creation_tokens + cache_read_tokens), 0) AS recent_cache_input_tokens
-			FROM successful
-			WHERE duration_ms IS NOT NULL
-			GROUP BY %[1]s
-		), activity AS (
-			SELECT
-				%[1]s,
-				COUNT(*) FILTER (WHERE created_at >= $3) AS successful_requests_1h,
-				COUNT(*) AS successful_requests_24h,
-				MAX(created_at) AS last_success_at
-			FROM successful
-			GROUP BY %[1]s
+			GROUP BY ul.%[1]s
 		), errors AS (
-			SELECT
-				oe.%[1]s,
+			SELECT oe.%[1]s,
 				COUNT(DISTINCT COALESCE(NULLIF(oe.request_id, ''), oe.id::text)) FILTER (WHERE oe.created_at >= $3) AS failed_requests_1h,
 				COUNT(DISTINCT COALESCE(NULLIF(oe.request_id, ''), oe.id::text)) AS failed_requests_24h,
 				MAX(oe.created_at) AS last_error_at
 			FROM ops_error_logs oe
 			WHERE oe.%[1]s = ANY($1)
-				AND oe.created_at >= $2
-				AND oe.created_at < $4
-				AND oe.stream = TRUE
-				AND oe.is_count_tokens = FALSE
+				AND oe.created_at >= $2 AND oe.created_at < $4
+				AND oe.stream = TRUE AND oe.is_count_tokens = FALSE
 			GROUP BY oe.%[1]s
 		)
-		SELECT
-			COALESCE(a.%[1]s, e.%[1]s),
-			COALESCE(q.realtime_count, 0),
-			COALESCE(q.realtime_first_count, 0),
-				q.realtime_first_avg,
-				q.realtime_duration_avg,
-				COALESCE(q.realtime_cache_read_tokens, 0),
-				COALESCE(q.realtime_cache_input_tokens, 0),
-				COALESCE(q.recent_count, 0),
-				COALESCE(q.recent_first_count, 0),
-				q.recent_first_avg,
-				q.recent_duration_avg,
-				COALESCE(q.recent_cache_read_tokens, 0),
-				COALESCE(q.recent_cache_input_tokens, 0),
-			COALESCE(a.successful_requests_1h, 0),
-			COALESCE(e.failed_requests_1h, 0),
-			COALESCE(a.successful_requests_24h, 0),
-			COALESCE(e.failed_requests_24h, 0),
-			a.last_success_at,
-			e.last_error_at
-		FROM activity a
+		SELECT COALESCE(a.%[1]s, e.%[1]s),
+			COALESCE(a.realtime_count, 0), COALESCE(a.realtime_first_count, 0),
+			a.realtime_first_avg, a.realtime_duration_avg,
+			COALESCE(a.realtime_cache_read_tokens, 0), COALESCE(a.realtime_cache_input_tokens, 0),
+			COALESCE(a.recent_count, 0), COALESCE(a.recent_first_count, 0),
+			a.recent_first_avg, a.recent_duration_avg,
+			COALESCE(a.recent_cache_read_tokens, 0), COALESCE(a.recent_cache_input_tokens, 0),
+			COALESCE(a.successful_requests_1h, 0), COALESCE(e.failed_requests_1h, 0),
+			COALESCE(a.successful_requests_24h, 0), COALESCE(e.failed_requests_24h, 0),
+			a.last_success_at, e.last_error_at
+		FROM successful a
 		FULL OUTER JOIN errors e ON e.%[1]s = a.%[1]s
-		LEFT JOIN quality q ON q.%[1]s = COALESCE(a.%[1]s, e.%[1]s)
 	`, scope)
 	rows, err := r.sql.QueryContext(ctx, query, pq.Array(ids), startTime, realtimeStartTime, endTime)
 	if err != nil {

@@ -5,6 +5,17 @@
 
 import { i18n, getLocale } from '@/i18n'
 
+const numberFormatters = new Map<string, Intl.NumberFormat>()
+const numberFormatter = (locale: string, options: Intl.NumberFormatOptions): Intl.NumberFormat => {
+  const key = JSON.stringify([locale, options])
+  const cached = numberFormatters.get(key)
+  if (cached) return cached
+  const formatter = new Intl.NumberFormat(locale, options)
+  if (numberFormatters.size >= 64) numberFormatters.delete(numberFormatters.keys().next().value!)
+  numberFormatters.set(key, formatter)
+  return formatter
+}
+
 /**
  * 格式化相对时间
  * @param date 日期字符串或 Date 对象
@@ -44,7 +55,7 @@ export function formatNumber(num: number | null | undefined): string {
 
   // Use Intl.NumberFormat for compact notation if supported and needed
   // Note: Compact notation in 'zh' uses '万/亿', which is appropriate for Chinese
-  const formatter = new Intl.NumberFormat(locale, {
+  const formatter = numberFormatter(locale, {
     notation: absNum >= 10000 ? 'compact' : 'standard',
     maximumFractionDigits: 1
   })
@@ -66,7 +77,7 @@ export function formatCurrency(amount: number | null | undefined, currency: stri
   // For very small amounts, show more decimals
   const fractionDigits = amount > 0 && amount < 0.01 ? 6 : 2
 
-  return new Intl.NumberFormat(locale, {
+  return numberFormatter(locale, {
     style: 'currency',
     currency: currency,
     minimumFractionDigits: fractionDigits,

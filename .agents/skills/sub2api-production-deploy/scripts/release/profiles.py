@@ -1026,7 +1026,21 @@ PROFILES["272"] = {
     },
 }
 
-CURRENT_RELEASE_PROFILE = "272"
+# Latest-health history index is additive; profile 272 remains immutable.
+PROFILES["273"] = {
+    **{key: PROFILES["272"][key] for key in _PROFILE_V2_RUNTIME_KEYS},
+    "name": "273",
+    "version": "0.2.17-baiyu",
+    "parent": "272",
+    "new_migrations": ["300_upstream_health_history_index.sql"],
+    "gate_schema": 2,
+    "release_policy": {
+        "compatibility_image": "production_current",
+        "migration_source": "database_state",
+    },
+}
+
+CURRENT_RELEASE_PROFILE = "273"
 
 
 def get_profile(name: str) -> dict:
