@@ -5966,8 +5966,12 @@ const loadUpstreamProtectionPolicies = async () => {
   const loader = adminAPI.groups.listUpstreamProtectionPolicies;
   const settingsLoader = adminAPI.upstreamManagement?.getSettings;
   const request = ++protectionScopeGeneration;
-  upstreamProtectionPlatforms.value = [];
-  if (typeof loader !== "function" || typeof settingsLoader !== "function") return false;
+  if (typeof loader !== "function" || typeof settingsLoader !== "function") {
+    upstreamProtectionPlatforms.value = [];
+    showUpstreamProtectionPolicyModal.value = false;
+    return false;
+  }
+  // Keep the last successful scope visible while refreshing to avoid shifting row actions.
   try {
     const [settings, policies] = await Promise.all([settingsLoader(), loader()]);
     if (request !== protectionScopeGeneration) return false;
@@ -5982,6 +5986,7 @@ const loadUpstreamProtectionPolicies = async () => {
     return true;
   } catch (error) {
     if (request !== protectionScopeGeneration) return false;
+    upstreamProtectionPlatforms.value = [];
     showUpstreamProtectionPolicyModal.value = false;
     console.error("Error loading group upstream protection policies:", error);
     return false;
