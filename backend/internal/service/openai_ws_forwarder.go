@@ -97,8 +97,11 @@ type openAIWSIngressTurnError struct {
 }
 
 type openAIWSCurrentTurnFailoverError struct {
-	cause        error
-	retryPayload []byte
+	cause                   error
+	retryPayload            []byte
+	protectionIdentity      cacheGuardSchedulingIdentity
+	protectionSession       string
+	protectionSessionHeader bool
 }
 
 func (e *openAIWSCurrentTurnFailoverError) Error() string {
@@ -115,11 +118,30 @@ func (e *openAIWSCurrentTurnFailoverError) Unwrap() error {
 	return e.cause
 }
 
-func newOpenAIWSCurrentTurnFailoverError(cause error, retryPayload []byte) error {
-	return &openAIWSCurrentTurnFailoverError{
+func newOpenAIWSCurrentTurnFailoverError(cause error, retryPayload []byte, turnContexts ...context.Context) error {
+	failure := &openAIWSCurrentTurnFailoverError{
 		cause:        cause,
 		retryPayload: append([]byte(nil), retryPayload...),
 	}
+	if len(turnContexts) > 0 && turnContexts[0] != nil {
+		failure.protectionIdentity, _ = turnContexts[0].Value(cacheGuardSchedulingKey{}).(cacheGuardSchedulingIdentity)
+		failure.protectionSession, _ = turnContexts[0].Value(cacheGuardLogicalSessionKey{}).(string)
+		failure.protectionSessionHeader, _ = turnContexts[0].Value(cacheGuardLogicalSessionHeaderKey{}).(bool)
+	}
+	return failure
+}
+
+// ContextWithOpenAIWSCurrentTurnRetryIdentity preserves the failed turn's
+// logical request across bridge/account replacement. It never imports an old
+// attempt or invents a reliable conversation from the routing session hash.
+func ContextWithOpenAIWSCurrentTurnRetryIdentity(ctx context.Context, err error, apiKeyID int64) context.Context {
+	var retryErr *openAIWSCurrentTurnFailoverError
+	if ctx == nil || !errors.As(err, &retryErr) || retryErr == nil || retryErr.protectionIdentity.APIKeyID != apiKeyID || apiKeyID <= 0 || retryErr.protectionIdentity.RequestID == "" {
+		return ctx
+	}
+	ctx = context.WithValue(ctx, cacheGuardSchedulingKey{}, retryErr.protectionIdentity)
+	ctx = context.WithValue(ctx, cacheGuardLogicalSessionKey{}, retryErr.protectionSession)
+	return context.WithValue(ctx, cacheGuardLogicalSessionHeaderKey{}, retryErr.protectionSessionHeader)
 }
 
 // OpenAIWSCurrentTurnRetryPayload returns an isolated copy of the payload that

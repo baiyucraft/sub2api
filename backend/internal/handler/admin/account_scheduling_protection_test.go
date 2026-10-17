@@ -50,14 +50,52 @@ func TestAccountUpstreamProtectionProjectsSharedEvidenceAndGroupPolicies(t *test
 	require.Len(t, view.Groups, 3)
 	require.Equal(t, int64(1), view.Groups[0].GroupID)
 	require.Equal(t, "draining", view.Groups[0].TTFT.State)
+	require.Equal(t, "protected", view.Groups[0].TTFT.DisplayState)
+	require.Equal(t, "protected", view.Groups[0].Cache.DisplayState)
+	require.Equal(t, "protected", view.Groups[0].DisplayState)
+	require.Equal(t, "protected", view.DisplayState)
 	require.Equal(t, int64(2000), view.Groups[0].TTFT.ThresholdMs)
+	require.Equal(t, int64(1200), view.Groups[0].TTFT.RecoveryThresholdMs)
 	require.Equal(t, "ttft_first", view.Groups[0].Priority)
 	require.Equal(t, "custom", view.Groups[0].Cache.Source)
 	require.Equal(t, float64(70), view.Groups[0].Cache.ThresholdPercent)
 	require.Equal(t, "disabled", view.Groups[1].TTFT.State)
+	require.Equal(t, "insufficient", view.Groups[1].TTFT.DisplayState)
 	require.Equal(t, "disabled", view.Groups[1].Cache.State)
 	require.Equal(t, "unavailable", view.Groups[2].TTFT.State)
+	require.Equal(t, "insufficient", view.Groups[2].TTFT.DisplayState)
 	require.Equal(t, "unavailable", view.Groups[2].Cache.State)
+}
+
+func TestProtectionDisplayStateCompatibility(t *testing.T) {
+	for _, state := range []string{"draining", "degraded", "recovering", "protected"} {
+		require.Equal(t, "protected", protectionDisplayState(state), state)
+	}
+	for _, state := range []string{"normal", "healthy"} {
+		require.Equal(t, "normal", protectionDisplayState(state), state)
+	}
+	for _, state := range []string{"", "unknown", "observed", "insufficient", "expired", "disabled", "unavailable", "platform_not_selected"} {
+		require.Equal(t, "insufficient", protectionDisplayState(state), state)
+	}
+	require.Equal(t, "insufficient", protectionAggregateDisplayState())
+	require.Equal(t, "insufficient", protectionAggregateDisplayState("normal", "unknown"))
+	require.Equal(t, "protected", protectionAggregateDisplayState("normal", "unavailable", "protected"))
+	require.Equal(t, "normal", protectionAggregateDisplayState("normal", "healthy"))
+}
+
+func TestAccountUpstreamProtectionRecognizesThreeStateTTFTModels(t *testing.T) {
+	upstreamID, keyID := int64(12), int64(45)
+	account := &service.Account{ID: 9, Platform: service.PlatformOpenAI, UpstreamConfigID: &upstreamID, UpstreamKeyID: &keyID, GroupIDs: []int64{1}}
+	for _, state := range []string{"insufficient", "normal", "protected"} {
+		t.Run(state, func(t *testing.T) {
+			reader := &accountProtectionTTFTStub{states: map[int64][]service.TTFTProtectionModelView{1: {{Model: "gpt-test", State: state}}}}
+			h := &AccountHandler{ttftGuardReader: reader, protectionPolicyReader: accountProtectionPolicyStub{1: {TTFT: service.GroupTTFTGuardResolvedPolicy{Enabled: true, Threshold: 75 * time.Second}, Cache: service.UpstreamCacheGuardSettings{Mode: "disabled"}}}}
+			view := h.upstreamProtection(account, service.UpstreamCacheGuardAccountView{})
+			require.Equal(t, state, view.Groups[0].TTFT.State)
+			require.Equal(t, state, view.Groups[0].TTFT.DisplayState)
+			require.Equal(t, int64(45000), view.Groups[0].TTFT.RecoveryThresholdMs)
+		})
+	}
 }
 
 func TestAccountUpstreamProtectionInsufficientUnavailableAndSimpleMode(t *testing.T) {

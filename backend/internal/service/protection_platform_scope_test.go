@@ -179,14 +179,17 @@ func TestProtectionPlatformScopeHotChangeAtSendAndFinish(t *testing.T) {
 			require.False(t, ticket.sent.Load())
 			reader.selected[PlatformOpenAI] = true
 			require.NoError(t, runSchedulingProtectionBeforeSend(ctx, account, "gpt-test"))
+			require.False(t, ticket.sent.Load(), "scope admission is not an upstream send")
+			require.NoError(t, MarkSchedulingProtectionTrialSent(ctx, account, "gpt-test"))
 			require.True(t, ticket.sent.Load())
 			reader.selected[PlatformOpenAI] = false
 			require.NoError(t, runSchedulingProtectionBeforeSend(ctx, account, "gpt-test"), "an already committed session can continue as ordinary traffic after scope pause")
 			FinishOpenAIUpstreamCacheGuardAttempt(ctx, &OpenAIForwardResult{FirstTokenMs: &fast}, nil)
-			require.Equal(t, 1, g.entries[ticket.key].consecutiveRecovered)
+			require.Empty(t, g.trialLeases, "a paused scope still releases a finished physical trial")
+			require.Zero(t, g.entries[ticket.key].consecutiveRecovered, "trial finish alone has no terminal observation")
 			reader.selected[PlatformOpenAI] = true
 			FinishOpenAIUpstreamCacheGuardAttempt(ctx, &OpenAIForwardResult{FirstTokenMs: &fast}, nil)
-			require.Equal(t, 1, g.entries[ticket.key].consecutiveRecovered, "late duplicate completion after reselect cannot revive a paused trial")
+			require.Zero(t, g.entries[ticket.key].consecutiveRecovered, "late duplicate completion after reselect cannot revive a paused trial")
 		})
 	}
 }

@@ -206,6 +206,7 @@ type TTFTDegradationReader interface {
 // TTFTQuality is real sample evidence, independent of recovery probe admission.
 // An absent account in Quality's result means that latency is unknown.
 type TTFTQuality struct {
+	State       string
 	Degraded    bool
 	EWMAms      float64
 	SampleCount uint64

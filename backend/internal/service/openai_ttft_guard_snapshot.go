@@ -15,29 +15,26 @@ type TTFTProtectionSnapshotRequest struct {
 type ttftProtectionRead struct {
 	key           openAITTFTGuardKey
 	raw           ttftProtectionEntryCopy
+	hasRaw        bool
 	projection    ttftProtectionEntryCopy
 	hasProjection bool
 }
 
-// Ticket deduplication history and mutable LRU bookkeeping are never needed
-// by administration; copying those 64-cycle arrays would dominate page memory.
-type ttftProtectionEntryCopy struct {
-	samples                  [openAITTFTGuardSampleWindow]float64
-	successes                [openAITTFTGuardSampleWindow]bool
-	sampleLen, nextSample    int
-	sampleCount              uint64
-	lastSampleAt, degradedAt time.Time
-	degraded                 bool
-	degradedReason           string
-	consecutiveRecovered     int
-}
+// Snapshot copies own their bounded fact slices. Evaluation after unlocking
+// cannot mutate live recovery state, sample age, trial credit or LRU metadata.
+type ttftProtectionEntryCopy struct{ openAITTFTGuardEntry }
 
 func copyTTFTProtectionEntry(e *openAITTFTGuardEntry) ttftProtectionEntryCopy {
-	return ttftProtectionEntryCopy{samples: e.samples, successes: e.successes, sampleLen: e.sampleLen, nextSample: e.nextSample, sampleCount: e.sampleCount, lastSampleAt: e.lastSampleAt, degradedAt: e.degradedAt, degraded: e.degraded, degradedReason: e.degradedReason, consecutiveRecovered: e.consecutiveRecovered}
+	c := *e
+	c.facts = append([]openAITTFTGuardFact(nil), e.facts...)
+	c.completedAttempts = nil
+	return ttftProtectionEntryCopy{c}
 }
 
 func (e *ttftProtectionEntryCopy) materialize() openAITTFTGuardEntry {
-	return openAITTFTGuardEntry{samples: e.samples, successes: e.successes, sampleLen: e.sampleLen, nextSample: e.nextSample, sampleCount: e.sampleCount, lastSampleAt: e.lastSampleAt, degradedAt: e.degradedAt, degraded: e.degraded, degradedReason: e.degradedReason, consecutiveRecovered: e.consecutiveRecovered}
+	c := e.openAITTFTGuardEntry
+	c.facts = append([]openAITTFTGuardFact(nil), e.facts...)
+	return c
 }
 
 func (e *ttftProtectionEntryCopy) recentEWMA() float64 {
@@ -48,22 +45,44 @@ func (e *ttftProtectionEntryCopy) recentEWMA() float64 {
 // Only bounded value copies happen under the runtime lock. Policy replay,
 // EWMA computation, presentation and sorting run after the lock is released.
 func (g *openAITTFTGuard) copyProtectionReadsLocked(r TTFTProtectionSnapshotRequest) []ttftProtectionRead {
-	models := g.observationModels[openAITTFTGuardAccountKey{r.AccountID, r.KeyID}]
-	reads := make([]ttftProtectionRead, 0, len(models))
+	identity := openAITTFTGuardAccountKey{r.AccountID, r.KeyID}
+	models := g.observationModels[identity]
 	scope, _ := openAITTFTGuardScopeFor(r.GroupID, r.Config)
+	keys := make(map[openAITTFTGuardKey]struct{}, len(models))
 	for key := range models {
-		raw := g.observations[key]
-		if raw == nil {
-			continue
+		keys[key] = struct{}{}
+	}
+	// Raw observations expire independently from projections. Keep an active
+	// projection tombstone visible until recovery or bounded LRU eviction.
+	if r.GroupID > 0 && r.Config.Enabled {
+		for rawKey := range g.projectionModels[identity] {
+			projectionKey := rawKey
+			projectionKey.scopeID = scope
+			if g.entries[projectionKey] != nil {
+				keys[rawKey] = struct{}{}
+			}
 		}
-		read := ttftProtectionRead{key: key, raw: copyTTFTProtectionEntry(raw)}
+	}
+	reads := make([]ttftProtectionRead, 0, len(keys))
+	for key := range keys {
+		raw := g.observations[key]
+		read := ttftProtectionRead{key: key}
+		if raw != nil {
+			read.raw = copyTTFTProtectionEntry(raw)
+			read.raw.setPolicyGeneration(g.policyGenerationLocked())
+			read.hasRaw = true
+		}
 		if r.GroupID > 0 && r.Config.Enabled {
 			pk := key
 			pk.scopeID = scope
 			if p := g.entries[pk]; p != nil {
 				read.projection = copyTTFTProtectionEntry(p)
+				read.projection.setPolicyGeneration(g.policyGenerationLocked())
 				read.hasProjection = true
 			}
+		}
+		if raw == nil && !read.hasProjection {
+			continue
 		}
 		reads = append(reads, read)
 	}
@@ -112,29 +131,35 @@ func (s *OpenAIGatewayService) TTFTProtectionSnapshotsBatchAt(requests []TTFTPro
 	for i, r := range requests {
 		out[i] = make([]TTFTProtectionModelView, 0, len(reads[i]))
 		for _, read := range reads[i] {
-			state := "observed"
-			e := read.raw
-			if now.Sub(read.raw.lastSampleAt) >= ttl {
-				// Historical evidence remains visible, but no samples are current.
-				state = "insufficient"
-			} else if r.GroupID > 0 {
-				state = "normal"
-				if !r.Config.Enabled {
+			e := read.raw.materialize()
+			state := "insufficient"
+			if r.GroupID > 0 && r.Config.Enabled {
+				if p, ok := read.entry(r.GroupID, r.Config); ok {
+					e = p.materialize()
+					state = e.stateAt(now, ttl)
+				}
+			} else {
+				e.pruneFactsAt(now, ttl)
+				e.rebuildSamples(now, ttl)
+				if r.GroupID <= 0 && e.sampleCount > 0 {
+					state = "observed"
+				}
+				if r.GroupID > 0 {
 					state = "disabled"
-				} else if p, ok := read.entry(r.GroupID, r.Config); ok {
-					e = p
-					if p.degraded {
-						state = "draining"
-						if p.consecutiveRecovered > 0 {
-							state = "recovering"
-						}
-					} else if p.sampleCount < uint64(r.Config.MinSamples) {
-						state = "insufficient"
-					}
 				}
 			}
-			last := (read.raw.nextSample - 1 + openAITTFTGuardSampleWindow) % openAITTFTGuardSampleWindow
-			out[i] = append(out[i], TTFTProtectionModelView{Model: read.key.model, State: state, EWMAms: e.recentEWMA(), LastTTFTMs: int64(read.raw.samples[last]), SampleCount: e.sampleCount, LastSampleAt: read.raw.lastSampleAt, ExpiresAt: read.raw.lastSampleAt.Add(ttl), Reason: e.degradedReason, RecoverySamples: e.consecutiveRecovered, RecoverySamplesRequired: openAITTFTGuardRecoverySamples})
+			lastTTFT := int64(0)
+			if e.sampleLen > 0 {
+				lastTTFT = int64(e.samples[(e.nextSample-1+openAITTFTGuardSampleWindow)%openAITTFTGuardSampleWindow])
+			}
+			expiresAt := time.Time{}
+			if !e.lastSampleAt.IsZero() {
+				expiresAt = e.lastSampleAt.Add(ttl)
+			}
+			view := TTFTProtectionModelView{Model: read.key.model, State: state, EWMAms: e.recentEWMA(), LastTTFTMs: lastTTFT, SampleCount: e.sampleCount, LastSampleAt: e.lastSampleAt, ExpiresAt: expiresAt, Reason: e.degradedReason, RecoverySamples: e.consecutiveRecovered, RecoverySamplesRequired: openAITTFTGuardRecoverySamples}
+			fillTTFTProtectionEvidence(&view, &e)
+			view.Executions = s.ttftExecutionViews(r.AccountID, r.KeyID, r.GroupID, read.key.model, now)
+			out[i] = append(out[i], view)
 		}
 		sort.Slice(out[i], func(a, b int) bool { return out[i][a].Model < out[i][b].Model })
 	}
@@ -177,11 +202,17 @@ func (g *openAITTFTGuard) indexedDegradations(ids []int64) map[int64][]OpenAITTF
 	for _, request := range requests {
 		r := request.request
 		for _, read := range request.reads {
+			if !read.hasRaw {
+				// A projection tombstone can outlive its raw observation while
+				// waiting for revalidation. It is visible in snapshots, but it
+				// cannot be reported as an active degradation without raw evidence.
+				continue
+			}
 			if now.Sub(read.raw.lastSampleAt) >= ttl {
 				continue
 			}
 			e, ok := read.entry(r.GroupID, r.Config)
-			if !ok || !e.degraded {
+			if !ok || e.stateAt(now, ttl) != "protected" {
 				continue
 			}
 			last := (read.raw.nextSample - 1 + openAITTFTGuardSampleWindow) % openAITTFTGuardSampleWindow

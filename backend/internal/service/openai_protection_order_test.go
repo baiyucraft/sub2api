@@ -35,10 +35,7 @@ func TestJointProtectionPriorityExamplesAndCapacity(t *testing.T) {
 				result, _, err := svc.SelectAccountWithScheduler(ctx, &group, "", "conversation", "gpt-test", nil, OpenAIUpstreamTransportAny, false)
 				require.NoError(t, err)
 				require.NotNil(t, result)
-				want := int64(1)
-				if priority == SchedulingPriorityTTFTFirst {
-					want = 2
-				}
+				want := int64(2)
 				require.Equal(t, want, result.Account.ID)
 				if result.ReleaseFunc != nil {
 					result.ReleaseFunc()
@@ -113,6 +110,21 @@ func TestJointProtectionUnknownIsNeutralAndPoolsRemainOuter(t *testing.T) {
 	require.Equal(t, 0, jointTTFTClass(3, q, 5))
 }
 
+func TestJointProtectionPriorityOrdersOnlyWithinQualityState(t *testing.T) {
+	accounts := []Account{{ID: 1, Priority: 1}, {ID: 2, Priority: 1}, {ID: 3, Priority: 1}}
+	quality := map[int64]forkscheduling.TTFTQuality{
+		1: {State: "normal", SampleCount: 5, EWMAms: 5000},
+		2: {State: "normal", SampleCount: 5, EWMAms: 1000},
+		3: {State: "protected", Degraded: true, SampleCount: 5, EWMAms: 100},
+	}
+	cacheTiers := [][]int64{{1}, {2}, {3}}
+
+	require.Equal(t, [][]int64{{1}, {2}, {3}}, jointTTFTOrder(cacheTiers, accounts, nil, quality, 5, SchedulingPriorityCacheFirst))
+	require.Equal(t, [][]int64{{2}, {1}, {3}}, jointTTFTOrder(cacheTiers, accounts, nil, quality, 5, SchedulingPriorityTTFTFirst))
+	quality[2] = quality[1]
+	require.Equal(t, [][]int64{{1}, {2}, {3}}, jointTTFTOrder(cacheTiers, accounts, nil, quality, 5, SchedulingPriorityTTFTFirst), "equal EWMA keeps the cache preference as tie breaker")
+}
+
 func TestJointProtectionUnreliableSessionCannotAccumulateSlowStreak(t *testing.T) {
 	svc, ctx, _, _ := cacheGuardSelectionFixture(t, false, []float64{95}, nil, false, time.Time{}, nil)
 	a, _ := svc.accountRepo.GetByID(ctx, 1)
@@ -151,23 +163,12 @@ func TestJointProtectionMigrationCombinesTriggersBeforePriorityFallback(t *testi
 					preference.Tiers = append(preference.Tiers, []int64{2})
 				}
 				result := svc.jointSessionPreference(ctx, preference, 100, "gpt-test", "openai", accounts, quality, cfg, priority)
-				want := [][]int64{{3}, {2}, {4}}
-				if priority == SchedulingPriorityTTFTFirst {
-					want = [][]int64{{2}, {4}, {3}}
-				}
-				if intersection {
-					want = [][]int64{{2}, {3}, {4}}
-					if priority == SchedulingPriorityTTFTFirst {
-						want = [][]int64{{2}, {4}, {3}}
-					}
-				}
+				want := [][]int64{{2}, {4}, {3}}
 				require.True(t, result.Migration)
 				require.Equal(t, want, result.Tiers)
 				quality[3] = forkscheduling.TTFTQuality{Degraded: true, SampleCount: 5, EWMAms: 35000}
 				result = svc.jointSessionPreference(ctx, preference, 100, "gpt-test", "openai", accounts, quality, cfg, priority)
-				if priority == SchedulingPriorityTTFTFirst {
-					require.NotContains(t, result.Tiers, []int64{3}, "cache migration must not move to a known slow account")
-				}
+				require.NotContains(t, result.Tiers, []int64{3}, "cache migration must not move to a known slow account in either mode")
 			})
 		}
 	}

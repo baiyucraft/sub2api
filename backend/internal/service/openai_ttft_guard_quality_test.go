@@ -21,8 +21,9 @@ func TestLegacyTTFTQualityProbeDoesNotBecomeHealthyOrAdvanceCadence(t *testing.T
 		runtime.Exclusions(views, nil, cfg)
 	}
 	scope, _ := openAITTFTGuardScopeFor(100, openAITTFTGuardConfigFromContract(cfg))
-	probeKey := openAITTFTGuardProbeKey{scopeID: scope, model: "gpt-a"}
-	before := *g.groupProbes[probeKey]
+	if len(g.groupProbes) != 0 {
+		t.Fatal("exclusions must not mint trial opportunities")
+	}
 	touch := g.entries[openAITTFTGuardKey{scopeID: scope, accountID: 1, model: "gpt-a"}].lastTouchedAt
 	now = now.Add(time.Minute)
 	for i := 0; i < 40; i++ {
@@ -33,7 +34,7 @@ func TestLegacyTTFTQualityProbeDoesNotBecomeHealthyOrAdvanceCadence(t *testing.T
 			}
 		}
 	}
-	if *g.groupProbes[probeKey] != before {
+	if len(g.groupProbes) != 0 {
 		t.Fatal("quality advanced recovery cadence")
 	}
 	if !g.entries[openAITTFTGuardKey{scopeID: scope, accountID: 1, model: "gpt-a"}].lastTouchedAt.Equal(touch) {
@@ -81,8 +82,8 @@ func TestLegacyTTFTQualityUnknownHealthyTTLAndConfigIsolation(t *testing.T) {
 	}
 	changed := cfg
 	changed.Threshold = 30 * time.Second
-	if q := runtime.Quality(views, changed); len(q) != 1 || q[1].SampleCount != 1 || q[1].Degraded {
-		t.Fatalf("changed policy did not reuse shared normal observations: %+v", q)
+	if q := runtime.Quality(views, changed); len(q) != 1 || q[1].SampleCount != 0 || q[1].State != "insufficient" || q[1].Degraded {
+		t.Fatalf("changed policy reused prior generation evidence: %+v", q)
 	}
 	disabled := cfg
 	disabled.Enabled = false

@@ -3051,6 +3051,16 @@ func (s *OpenAIGatewayService) ReportOpenAIAccountScheduleResultForGroup(groupID
 }
 
 func (s *OpenAIGatewayService) reportOpenAIAccountScheduleResult(groupID *int64, accountRef any, model string, success bool, firstTokenMs *int, observedErr ...error) bool {
+	return s.reportOpenAIAccountScheduleResultWithObservation(groupID, accountRef, model, success, firstTokenMs, true, observedErr...)
+}
+
+// Real gateway attempts already published their timed, deduplicated TTFT fact.
+// Keep health and scheduler metrics without adding a second completion-timed sample.
+func (s *OpenAIGatewayService) ReportOpenAIAccountScheduleResultForCompletedAttempt(groupID *int64, accountRef any, model string, success bool, firstTokenMs *int, observedErr ...error) bool {
+	return s.reportOpenAIAccountScheduleResultWithObservation(groupID, accountRef, model, success, firstTokenMs, false, observedErr...)
+}
+
+func (s *OpenAIGatewayService) reportOpenAIAccountScheduleResultWithObservation(groupID *int64, accountRef any, model string, success bool, firstTokenMs *int, observeTTFT bool, observedErr ...error) bool {
 	var account *Account
 	var accountID int64
 	switch value := accountRef.(type) {
@@ -3075,7 +3085,7 @@ func (s *OpenAIGatewayService) reportOpenAIAccountScheduleResult(groupID *int64,
 			healthTripped = s.rateLimitService.ObserveOpenAIAPIKeyHealthFailure(context.Background(), account, observedErr[0])
 		}
 	}
-	if groupID != nil && *groupID > 0 && ((account != nil && account.Platform == PlatformOpenAI && schedulingProtectionAccountSelected(s.groupProtectionPolicyResolver, account)) || (account == nil && s != nil && schedulingProtectionPlatformSelected(s.groupProtectionPolicyResolver, PlatformOpenAI) && s.isOpenAITTFTGuardEligibleAccount(accountID))) {
+	if observeTTFT && groupID != nil && *groupID > 0 && ((account != nil && account.Platform == PlatformOpenAI && schedulingProtectionAccountSelected(s.groupProtectionPolicyResolver, account)) || (account == nil && s != nil && schedulingProtectionPlatformSelected(s.groupProtectionPolicyResolver, PlatformOpenAI) && s.isOpenAITTFTGuardEligibleAccount(accountID))) {
 		s.reportOpenAITTFTGuard(*groupID, accountID, model, success, firstTokenMs, accountUpstreamKeyID(account))
 	}
 	if success {

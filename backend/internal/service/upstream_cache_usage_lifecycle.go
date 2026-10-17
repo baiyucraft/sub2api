@@ -52,6 +52,10 @@ func BeginUpstreamCacheGuardSend(ctx context.Context, account *Account, model, p
 		if err := runSchedulingProtectionBeforeSend(ctx, account, model); err != nil {
 			return err
 		}
+		if err := MarkSchedulingProtectionTrialSent(ctx, account, model); err != nil {
+			return err
+		}
+		markOpenAITTFTGuardSend(ctx, account, model, protocol)
 	}
 	return beginUpstreamCacheGuardSend(ctx, account, model, protocol)
 }
@@ -62,6 +66,14 @@ func BeginUpstreamCacheGuardSend(ctx context.Context, account *Account, model, p
 func PrepareOpenAIUpstreamCacheGuardSend(ctx context.Context, account *Account, model, protocol string) {
 	if ctx == nil {
 		return
+	}
+	if fact, _ := ctx.Value(openAITTFTAttemptKey{}).(*openAITTFTAttempt); fact != nil {
+		fact.mu.Lock()
+		fact.preparedModel, fact.preparedProtocol = model, protocol
+		if fact.sentAt.IsZero() {
+			fact.account, fact.model, fact.protocol = account, model, protocol
+		}
+		fact.mu.Unlock()
 	}
 	a, _ := ctx.Value(cacheUsageAttemptContextKey{}).(*cacheUsageAttempt)
 	if a == nil {
@@ -142,11 +154,42 @@ func UpstreamCacheGuardTextRequest(path string, body []byte) bool {
 // WithUpstreamCacheGuardTurn derives an independent logical request from the
 // authenticated connection metadata. Same-turn transport retries retain it.
 func WithUpstreamCacheGuardTurn(ctx context.Context, body []byte, first bool) context.Context {
+	if !first {
+		ctx = context.WithValue(ctx, cacheGuardProtectedSelectionKey{}, false)
+	}
 	a, _ := ctx.Value(cacheUsageAttemptContextKey{}).(*cacheUsageAttempt)
+	ttft, _ := ctx.Value(openAITTFTAttemptKey{}).(*openAITTFTAttempt)
+	if ttft != nil {
+		if !first {
+			ctx = context.WithValue(ctx, cacheGuardSchedulingKey{}, cacheGuardSchedulingIdentity{})
+			ctx = WithUpstreamCacheGuardScheduling(ctx, ttft.apiKeyID)
+		}
+		if fixed, _ := ctx.Value(cacheGuardLogicalSessionHeaderKey{}).(bool); !fixed {
+			if session := UpstreamCacheGuardLogicalSession(nil, body); session != "" {
+				ctx = context.WithValue(ctx, cacheGuardLogicalSessionKey{}, session)
+			}
+		}
+		if UpstreamCacheGuardTextRequest("/v1/responses", body) {
+			ctx = WithOpenAITTFTGuardAttempt(ctx, ttft.service, ttft.apiKeyID, &ttft.groupID)
+		} else {
+			ctx = context.WithValue(ctx, openAITTFTAttemptKey{}, (*openAITTFTAttempt)(nil))
+		}
+		if !first {
+			if selection, _ := ctx.Value(protectionSelectionKey{}).(*protectionSelection); selection != nil {
+				next := *selection
+				next.trial = nil
+				// A later WS turn is an existing logical binding. It must not
+				// inherit the first turn's "new allocation" funding marker.
+				next.newAllocation = false
+				next.selectionPath = "session_binding"
+				ctx = context.WithValue(ctx, protectionSelectionKey{}, &next)
+			}
+		}
+	}
 	if a == nil || !UpstreamCacheGuardTextRequest("/v1/responses", body) {
 		return context.WithValue(ctx, cacheUsageAttemptContextKey{}, (*cacheUsageAttempt)(nil))
 	}
-	if !first {
+	if !first && ttft == nil {
 		ctx = context.WithValue(ctx, cacheGuardProtectedSelectionKey{}, false)
 		ctx = context.WithValue(ctx, cacheGuardSchedulingKey{}, cacheGuardSchedulingIdentity{})
 		ctx = WithUpstreamCacheGuardScheduling(ctx, a.apiKeyID)
@@ -174,17 +217,20 @@ func FinishOpenAIUpstreamCacheGuardAttempt(ctx context.Context, result *OpenAIFo
 			success = false
 		}
 	}
+	if evidence != nil && evidence.StreamIncomplete {
+		success = false
+	}
+	finishOpenAITTFTGuardAttempt(ctx, result, success && ctx.Err() == nil)
 	if selection, _ := ctx.Value(protectionSelectionKey{}).(*protectionSelection); selection != nil {
 		var ms *int
 		if result != nil {
 			ms = result.FirstTokenMs
 		}
-		if selection.trial != nil && selection.trial.sent.Load() {
-			if schedulingProtectionSendSelected(ctx, &Account{ID: selection.trial.key.accountID, Platform: PlatformOpenAI}) {
-				selection.trial.finish(success && ctx.Err() == nil, ms)
-			} else {
-				selection.trial.once.Do(func() {})
-			}
+		if selection.trial != nil {
+			// Completion only releases this runtime lease. Scope changes and
+			// unsent attempts must also release it; recovery is independently
+			// validated by the identified observation lifecycle above.
+			selection.trial.finish(success && ctx.Err() == nil, ms)
 		}
 		a, _ := ctx.Value(cacheUsageAttemptContextKey{}).(*cacheUsageAttempt)
 		if a != nil {

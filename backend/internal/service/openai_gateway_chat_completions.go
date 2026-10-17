@@ -926,6 +926,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 			)
 			return false
 		}
+		markOpenAITTFTGuardForResponsesEvent(c, payload, event.Type)
 		observer.ObserveOpenAI([]byte(payload), event.Type)
 		refusalDetector.ObservePayload([]byte(payload))
 		s.parseSSEUsageBytesWithType([]byte(payload), event.Type, &usage)

@@ -278,6 +278,7 @@ type OpenAIForwardResult struct {
 	ResponseHeaders       http.Header
 	Duration              time.Duration
 	FirstTokenMs          *int
+	FirstTokenAt          time.Time // Actual first-visible-output event; independent of completion time.
 	ClientDisconnect      bool
 	ImageCount            int
 	ImageSize             string
@@ -493,6 +494,7 @@ type OpenAIGatewayService struct {
 	groupTTFTGuardPolicyResolver    GroupTTFTGuardPolicyResolver
 	groupProtectionPolicyResolver   GroupSchedulingProtectionPolicyResolver
 	protectionSessions              sync.Map
+	ttftExecutions                  ttftExecutionStore
 	openaiTTFTGuardUpstreamOnly     bool
 	openaiTTFTGuardEligibleAccounts sync.Map // accountID -> struct{}; populated from scheduler candidates
 	openaiWSPassthroughDialer       openAIWSClientDialer

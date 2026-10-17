@@ -298,6 +298,7 @@ func (s *OpenAIGatewayService) handleNativeAnthropicBufferedResponse(
 		contentType = "application/json"
 	}
 	body = reverseToolNamesIfPresent(c, body)
+	markOpenAITTFTGuardFirstTokenForRequest(c)
 	c.Data(resp.StatusCode, contentType, body)
 
 	return &OpenAIForwardResult{
@@ -482,6 +483,7 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 			line := ev.line
 			if data, ok := extractAnthropicSSEDataLine(line); ok {
 				trimmed := strings.TrimSpace(data)
+				markOpenAITTFTGuardForAnthropicPayload(c, trimmed)
 				observer.ObserveAnthropic([]byte(trimmed))
 				if anthropicStreamEventIsTerminal("", trimmed) {
 					sawTerminalEvent = true

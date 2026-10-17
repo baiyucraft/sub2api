@@ -40,7 +40,7 @@ func TestOpenAIRequestHandlersReportScheduleResultsWithAPIKeyGroup(t *testing.T)
 				switch selector.Sel.Name {
 				case "ReportOpenAIAccountScheduleResult":
 					t.Errorf("legacy unscoped schedule reporting call remains at %s", fileSet.Position(call.Pos()).String())
-				case "ReportOpenAIAccountScheduleResultForGroup":
+				case "ReportOpenAIAccountScheduleResultForGroup", "ReportOpenAIAccountScheduleResultForCompletedAttempt":
 					scopedCalls++
 					if len(call.Args) == 0 || !isAPIKeyGroupID(call.Args[0]) {
 						t.Errorf("scoped schedule reporting must pass apiKey.GroupID first at %s", fileSet.Position(call.Pos()).String())
@@ -73,7 +73,7 @@ func TestGrokMediaKeepsUnscopedOpenAIScheduleReporting(t *testing.T) {
 		switch selector.Sel.Name {
 		case "ReportOpenAIAccountScheduleResult":
 			legacyCalls++
-		case "ReportOpenAIAccountScheduleResultForGroup":
+		case "ReportOpenAIAccountScheduleResultForGroup", "ReportOpenAIAccountScheduleResultForCompletedAttempt":
 			t.Errorf("Grok media must not report into group-scoped OpenAI TTFT state at %s", fileSet.Position(call.Pos()).String())
 		}
 		return true

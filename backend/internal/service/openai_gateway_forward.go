@@ -1267,7 +1267,6 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			return s.handleErrorResponse(ctx, resp, c, account, body, resolveOpenAIErrorSchedulingModel(billingModel, upstreamModel))
 		}
 		defer func() { _ = resp.Body.Close() }()
-
 		if mapping, ok := openAIResponsesClientToolMapping(c); ok && isEventStreamResponse(resp.Header) {
 			maxLineSize := defaultMaxLineSize
 			if s.cfg != nil && s.cfg.Gateway.MaxLineSize > 0 {
@@ -1288,7 +1287,9 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		searchCount := 0
 		var imageOutputSizes []string
 		if reqStream {
+			restoreTTFTResponseContext := bindOpenAITTFTResponseContext(c, resp)
 			streamResult, err := s.handleStreamingResponseWithReasoning(ctx, resp, c, account, startTime, originalModel, upstreamModel, reasoningEffortValue)
+			restoreTTFTResponseContext()
 			if err != nil {
 				if signal, ok := asOpenAICompactFallbackSignal(err); ok {
 					if retryBody, fallbackModel, retry := s.prepareOpenAICompactFallbackRetry(
@@ -1335,7 +1336,9 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			imageOutputSizes = streamResult.imageOutputSizes
 			searchCount = streamResult.searchCount
 		} else {
+			restoreTTFTResponseContext := bindOpenAITTFTResponseContext(c, resp)
 			nonStreamResult, err := s.handleNonStreamingResponse(ctx, resp, c, account, originalModel, upstreamModel)
+			restoreTTFTResponseContext()
 			if err != nil {
 				if signal, ok := asOpenAICompactFallbackSignal(err); ok {
 					if retryBody, fallbackModel, retry := s.prepareOpenAICompactFallbackRetry(

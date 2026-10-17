@@ -113,8 +113,11 @@ func runSchedulingProtectionBeforeSend(ctx context.Context, account *Account, ac
 	}
 	if selection, _ := ctx.Value(protectionSelectionKey{}).(*protectionSelection); selection != nil && selection.trial != nil && account != nil {
 		ticket := selection.trial
-		if ticket.key.accountID == account.ID && ticket.key.upstreamKeyID == accountUpstreamKeyID(account) && actualModel != "" && ticket.key.model == normalizeOpenAIAccountModelTransientModel(actualModel) {
-			ticket.sent.Store(true)
+		if actualModel == "" {
+			actualModel = selection.allocationModel
+		}
+		if ticket.key.accountID != account.ID || ticket.key.upstreamKeyID != accountUpstreamKeyID(account) || actualModel == "" || ticket.key.model != normalizeOpenAIAccountModelTransientModel(actualModel) || !ticket.validate() {
+			return schedulingProtectionScopeChangedError()
 		}
 	}
 	return nil

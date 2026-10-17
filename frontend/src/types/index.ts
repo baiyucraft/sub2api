@@ -1489,18 +1489,58 @@ export interface UpstreamCacheGuardProtectionSource {
   updated_at: string | null
 }
 
-export type UpstreamProtectionState = UpstreamCacheGuardState['state'] | 'degraded' | 'draining' | 'observed'
+export type UpstreamProtectionState = UpstreamCacheGuardState['state'] | 'degraded' | 'draining' | 'observed' | 'healthy' | 'unknown'
+export type UpstreamProtectionDisplayState = 'insufficient' | 'protected' | 'normal'
 export type UpstreamProtectionSource = 'global' | 'group' | 'disabled' | 'unavailable'
+
+export interface UpstreamTTFTExecution {
+  protocol: string
+  runtime_id: string
+  selection_path: string
+  fallback_reason?: string
+  send_attempted: boolean
+  completed?: boolean
+  succeeded: boolean
+  trial: boolean
+  recovery_counted?: boolean
+  recovery_reason?: string
+  observed_at: string
+  window_started_at: string
+  sent_count: number
+  completed_count: number
+  success_count: number
+  trial_count: number
+}
 
 /** Shared observations for the current upstream Key and actual routed model. */
 export interface UpstreamTTFTModelObservation {
   model: string
   state: UpstreamProtectionState
+  display_state?: UpstreamProtectionDisplayState
   ewma_ms: number | null
   last_ttft_ms: number | null
   sample_count: number
   last_sample_at: string | null
   expires_at: string | null
+  runtime_id?: string
+  algorithm_version?: string
+  policy_generation?: number
+  trigger_ttft_ms?: number
+  trigger_threshold_ms?: number
+  triggered_at?: string | null
+  bad_evidence_expires_at?: string | null
+  recovery_session_count?: number
+  recovery_sessions_required?: number
+  recovery_ordinary_samples?: number
+  recovery_trial_samples?: number
+  reason?: string
+  recovery_samples?: number
+  recovery_samples_required?: number
+  recovery_reason?: string
+  last_recovery_block_reason?: string
+  last_recovery_block_at?: string | null
+  revalidation_epoch?: number
+  executions?: UpstreamTTFTExecution[]
 }
 
 export interface UpstreamTTFTModelPolicyState extends UpstreamTTFTModelObservation {
@@ -1513,16 +1553,20 @@ export interface UpstreamProtectionGroupState {
   group_id: number
   platform_selected?: boolean
   group_name: string
+  display_state?: UpstreamProtectionDisplayState
   priority: 'cache_first' | 'ttft_first'
   priority_source: 'global' | 'group' | 'unavailable'
   ttft: {
     state: UpstreamProtectionState
+    display_state?: UpstreamProtectionDisplayState
     threshold_ms: number
+    recovery_threshold_ms?: number
     min_samples: number
     source: UpstreamProtectionSource
     models: UpstreamTTFTModelPolicyState[]
   }
   cache: UpstreamCacheGuardState & {
+    display_state?: UpstreamProtectionDisplayState
     threshold_percent: number
     recovery_threshold_percent: number
     min_valid_requests: number
@@ -1532,6 +1576,7 @@ export interface UpstreamProtectionGroupState {
 
 export interface UpstreamProtectionSummary {
   platform_selected?: boolean
+  display_state?: UpstreamProtectionDisplayState
   cache?: UpstreamCacheGuardSummary | null
   ttft_models: UpstreamTTFTModelObservation[]
   groups: UpstreamProtectionGroupState[]

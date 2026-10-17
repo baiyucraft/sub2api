@@ -36,7 +36,10 @@ func jointTTFTClass(id int64, quality map[int64]forkscheduling.TTFTQuality, min 
 	if ok && q.Degraded {
 		return 2
 	}
-	if !ok || q.SampleCount < uint64(min) {
+	if ok && q.State == "normal" {
+		return 0
+	}
+	if !ok || q.State == "insufficient" || q.SampleCount < uint64(min) {
 		return 1
 	}
 	return 0
@@ -78,30 +81,68 @@ func jointRecoveryTiers(tiers [][]int64, accounts []Account, groupID *int64, nom
 
 func jointTTFTOrder(tiers [][]int64, accounts []Account, groupID *int64, quality map[int64]forkscheduling.TTFTQuality, min int, priority string) [][]int64 {
 	var out [][]int64
-	if priority != SchedulingPriorityTTFTFirst {
-		for _, tier := range tiers {
-			for class := 0; class < 3; class++ {
-				var ids []int64
-				for _, id := range tier {
-					if jointTTFTClass(id, quality, min) == class {
-						ids = append(ids, id)
-					}
-				}
-				if len(ids) > 0 {
-					out = append(out, ids)
-				}
-			}
-		}
-		return out
-	}
-	// Keep preferred/priority pools outside either soft policy. Within each pool
-	// preserve cache ordering independently for normal, unknown and slow states.
+	// Keep preferred/priority pools outside either soft policy. Quality state is
+	// always the first ordering key; cache/TTFT preference is applied only among
+	// candidates in the same state.
 	for _, pool := range jointTTFTOnlyTiers(accounts, groupID) {
 		members := map[int64]bool{}
 		for _, id := range pool {
 			members[id] = true
 		}
 		for class := 0; class < 3; class++ {
+			// cache_first retains the cache guard's tier order. For ttft_first,
+			// flatten the same-quality candidates and order by measured EWMA;
+			// cache tier and source position remain deterministic tie breakers.
+			type candidate struct {
+				id       int64
+				ewma     float64
+				known    bool
+				tier     int
+				position int
+			}
+			var candidates []candidate
+			for tierIndex, tier := range tiers {
+				for position, id := range tier {
+					if members[id] && jointTTFTClass(id, quality, min) == class {
+						q, known := quality[id]
+						candidates = append(candidates, candidate{id: id, ewma: q.EWMAms, known: known && q.EWMAms > 0, tier: tierIndex, position: position})
+					}
+				}
+			}
+			if len(candidates) == 0 {
+				continue
+			}
+			if priority == SchedulingPriorityTTFTFirst {
+				sort.SliceStable(candidates, func(i, j int) bool {
+					a, b := candidates[i], candidates[j]
+					if a.known != b.known {
+						return a.known
+					}
+					if a.known && a.ewma != b.ewma {
+						return a.ewma < b.ewma
+					}
+					if a.tier != b.tier {
+						return a.tier < b.tier
+					}
+					if a.position != b.position {
+						return a.position < b.position
+					}
+					return a.id < b.id
+				})
+				for start := 0; start < len(candidates); {
+					end := start + 1
+					for end < len(candidates) && candidates[end].known == candidates[start].known && candidates[end].tier == candidates[start].tier && (!candidates[start].known || candidates[end].ewma == candidates[start].ewma) {
+						end++
+					}
+					ids := make([]int64, 0, end-start)
+					for _, candidate := range candidates[start:end] {
+						ids = append(ids, candidate.id)
+					}
+					out = append(out, ids)
+					start = end
+				}
+				continue
+			}
 			for _, tier := range tiers {
 				var ids []int64
 				for _, id := range tier {
@@ -152,7 +193,7 @@ func (s *OpenAIGatewayService) jointSessionPreference(ctx context.Context, p cac
 	if p.Migration {
 		for _, tier := range p.Tiers {
 			for _, id := range tier {
-				if priority != SchedulingPriorityTTFTFirst || !quality[id].Degraded {
+				if !quality[id].Degraded {
 					cacheTargets[id] = true
 				}
 			}
@@ -165,7 +206,7 @@ func (s *OpenAIGatewayService) jointSessionPreference(ctx context.Context, p cac
 		for i := range accounts {
 			a := &accounts[i]
 			q, ok := quality[a.ID]
-			if schedulingProtectionAccountSelected(s.groupProtectionPolicyResolver, a) && a.ID != source.ID && canonicalOpenAIAccountSchedulingModel(a, model) == sourceModel && cacheGuardSamePool(a, first, &groupID) && ok && !q.Degraded && q.SampleCount >= uint64(cfg.MinSamples) && q.EWMAms > 0 && q.EWMAms < float64(cfg.Threshold.Milliseconds()) {
+			if schedulingProtectionAccountSelected(s.groupProtectionPolicyResolver, a) && a.ID != source.ID && canonicalOpenAIAccountSchedulingModel(a, model) == sourceModel && cacheGuardSamePool(a, first, &groupID) && ok && jointTTFTClass(a.ID, quality, cfg.MinSamples) == 0 && q.EWMAms > 0 && q.EWMAms < float64(cfg.Threshold.Milliseconds()) {
 				fast = append(fast, a.ID)
 			}
 		}
@@ -209,5 +250,6 @@ func (s *OpenAIGatewayService) jointSessionPreference(ctx context.Context, p cac
 		add(fastOnly)
 	}
 	p.Migration = len(p.Tiers) > 0
+	p.Tiers = jointTTFTOrder(p.Tiers, accounts, &groupID, quality, cfg.MinSamples, priority)
 	return p
 }

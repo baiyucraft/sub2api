@@ -375,6 +375,9 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 					elapsed := int(time.Since(startTime).Milliseconds())
 					firstTokenMs = &elapsed
 				}
+				if openAIChatCompletionsChunkStartsVisibleOutput(payload) {
+					markOpenAITTFTGuardFirstTokenForRequest(c)
+				}
 			}
 		}
 		line = applyOllamaCloudRawChatCompletionsSSELine(account, line)
@@ -566,6 +569,7 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 		c.Writer.Header().Set("Content-Type", "application/json")
 	}
 	c.Writer.WriteHeader(http.StatusOK)
+	markOpenAITTFTGuardFirstTokenForRequest(c)
 	_, _ = c.Writer.Write(respBody)
 
 	return &OpenAIForwardResult{

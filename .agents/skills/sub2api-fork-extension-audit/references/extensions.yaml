@@ -1552,7 +1552,7 @@
     {
       "id": "ttft-guard",
       "title": "OpenAI 分组级 TTFT Guard",
-      "description": "TTFT 原始业务观测按 account_id + 当前 UpstreamKey + canonical model 共享；各组阈值和恢复投影独立，渐出让新会话，持续慢旧会话迁移。统一入口配置缓存、TTFT 与两种明确分层优先策略。",
+      "description": "TTFT 业务观测按 account_id + 当前 UpstreamKey + canonical model 共享，三态与窗口坏证据独立；普通/试探真实完成按至少三次成功快请求和两次可靠会话恢复。预算group独立，同池质量先于缓存，进程内runtime权威。",
       "ownership": "fork",
       "risk_level": "critical",
       "paths": [
@@ -1563,6 +1563,11 @@
         "backend/internal/repository/group_ttft_guard_policy_invalidation_bus.go",
         "backend/internal/service/group_ttft_guard_policy.go",
         "backend/internal/service/openai_ttft_guard*.go",
+        "backend/internal/service/openai_ttft_attempt.go",
+        "backend/internal/service/openai_ttft_execution.go",
+        "backend/internal/service/upstream_cache_usage_lifecycle.go",
+        "backend/internal/service/upstream_cache_guard_runner.go",
+        "backend/internal/service/upstream_cache_guard_openai.go",
         "backend/internal/service/openai_account_scheduler.go",
         "backend/internal/handler/admin/group_handler.go",
         "backend/internal/server/routes/admin.go",
@@ -1594,6 +1599,11 @@
         "fork_group_ttft_guard_policies",
         "OpenAITTFTGuard",
         "reportOpenAITTFTGuard",
+        "OpenAITTFTGuardObservation",
+        "ReportOpenAITTFTGuardObservation",
+        "MarkSchedulingProtectionTrialSent",
+        "reserveTrialOpportunity",
+        "recordAllocationOpportunity",
         "ttft_guard_degradations"
       ],
       "api_routes": [
@@ -1640,7 +1650,10 @@
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile270_release_contract.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_migration_298.py",
         "backend/internal/service/gateway_protection_send_admission_test.go",
-        "backend/internal/service/openai_protection_regression_test.go"
+        "backend/internal/service/openai_protection_regression_test.go",
+        "backend/internal/service/openai_protection_trial_test.go",
+        "backend/internal/service/openai_protection_order_test.go",
+        "backend/internal/service/protection_joint_oracle_test.go"
       ],
       "invariants": [
         "全局 scheduling_protection_platforms 默认仅 openai；仅选中具体平台的分组提供配置并执行保护，实际账号平台也须选中；composite 不支持；自定义不能绕过范围，空选全部停用，旧客户端省略保留，取消选择保留历史事实与组配置，状态明确 platform_not_selected",
@@ -1648,8 +1661,10 @@
         "只采样真实业务可见首 Token；原始证据按 account_id + 当前 UpstreamKey + canonical model 共享，跨组相同阈值复用恢复投影，换 Key 不继承旧证据",
         "组 TTFT/cache 各自 inherit/enabled/disabled；缓存自定义 enabled 独立 protect，只有阈值、恢复阈值、最小有效请求数自定义，时间和试用配额全局继承",
         "TTFT 保护渐出自然新会话；已有可靠会话连续两次超该组阈值才迁移，保留 previous_response 和同账号重试约束",
-        "TTFT 保留 1/20 恢复选择机会，连续三次成功且 TTFT <= 0.6 阈值恢复；15分钟失效样本与未达门槛统一返回insufficient并显示样本不足，前端旧expired同义兼容；历史观测不计当前有效样本，读取不续期，不可用独立显示，不能误报正常",
-        "cache_first/ttft_first 是明确分层排序，不是加权总分；任何软保护不得新增无账号拒绝，硬合法与容量边界仍生效",
+        "TTFT三态normal/protected/insufficient；按自身首Token/完成时间重建15分钟有效窗口，坏证据截止固定，快流量不续坏证据，过期无新证据待验证不自动健康；普通与试探终态均可恢复，连续至少3成功快attempt且TTFT<=0.6阈值、至少2可靠会话；已恢复normal不被冷启动min_samples=20降级；attempt及逻辑请求幂等，失败/取消/不完整/旧runtime或代次不恢复",
+        "cache_first/ttft_first在同一优先池都先TTFT质量再缓存收益，优先池外层约束保留，不加权；软保护不得新增无账号拒绝，硬合法与容量边界仍生效",
+        "TTFT试探预算按group_id+canonical model独立；20次真实合法新分配积最多1信用，sticky/查询/重复选号/未取得容量不耗机会，公平轮转protected与insufficient；同runtime账号+Key+model最多1在途，实际发送才消费、未发送取消退还；不得绕过缓存cohort与DB/范围/Key/model/利润准入",
+        "TTFT权威限定service owner内存map+mutex，runtime_id和algorithm_version显式，票据绑定策略代次和projection generation；重启unknown、旧票不复活，不新增Redis/SQL同步或跨进程即时一致承诺；缓存继续原PG事实和cohort；本轮源码修订尚未部署",
         "统一分组 PUT 在同一事务保存 TTFT、缓存、优先策略与单次 group_changed outbox；旧 TTFT API 保留兼容",
         "迁移 298 将旧非空 group_ids 白名单一次性投影为组 inherit/disabled，不覆盖自定义，不删除旧 settings.group_ids，保留旧镜像回滚语义",
         "新账号 DTO upstream_protection 同时给共享证据和各组策略投影，full/detail/lite 与 ETag 保持一致；simple mode 隐藏",

@@ -49,11 +49,15 @@ func (g *openAITTFTGuard) scheduleExpiryLocked(key openAITTFTGuardKey, observati
 	if observation {
 		age *= 2
 	}
+	at := e.lastSampleAt
+	if e.lastFactAt.After(at) {
+		at = e.lastFactAt
+	}
 	if item := g.expiryItems[k]; item != nil {
-		item.at, item.sampleAt, item.generation = e.lastSampleAt.Add(age), e.lastSampleAt, e.generation
+		item.at, item.sampleAt, item.generation = at.Add(age), at, e.generation
 		heap.Fix(&g.expiries, item.index)
 	} else {
-		item := &openAITTFTGuardExpiryItem{key: k, at: e.lastSampleAt.Add(age), sampleAt: e.lastSampleAt, generation: e.generation}
+		item := &openAITTFTGuardExpiryItem{key: k, at: at.Add(age), sampleAt: at, generation: e.generation}
 		g.expiryItems[k] = item
 		heap.Push(&g.expiries, item)
 	}
@@ -89,6 +93,13 @@ func (g *openAITTFTGuard) indexProjectionLocked(k openAITTFTGuardKey) {
 		g.projectionKeys[raw] = keys
 	}
 	keys[k] = struct{}{}
+	identity := openAITTFTGuardAccountKey{raw.accountID, raw.upstreamKeyID}
+	models := g.projectionModels[identity]
+	if models == nil {
+		models = map[openAITTFTGuardKey]struct{}{}
+		g.projectionModels[identity] = models
+	}
+	models[raw] = struct{}{}
 }
 
 func (g *openAITTFTGuard) deleteProjectionLocked(k openAITTFTGuardKey) {
@@ -99,6 +110,11 @@ func (g *openAITTFTGuard) deleteProjectionLocked(k openAITTFTGuardKey) {
 	delete(g.projectionKeys[raw], k)
 	if len(g.projectionKeys[raw]) == 0 {
 		delete(g.projectionKeys, raw)
+		identity := openAITTFTGuardAccountKey{raw.accountID, raw.upstreamKeyID}
+		delete(g.projectionModels[identity], raw)
+		if len(g.projectionModels[identity]) == 0 {
+			delete(g.projectionModels, identity)
+		}
 	}
 }
 
@@ -113,7 +129,19 @@ func (g *openAITTFTGuard) deleteObservationLocked(k openAITTFTGuardKey) {
 	g.observationAccounts[k.accountID]--
 	if g.observationAccounts[k.accountID] == 0 {
 		delete(g.observationAccounts, k.accountID)
-		delete(g.accountKeys, k.accountID)
+	}
+}
+
+// deleteObservationAndProjectionsLocked removes a physical observation that
+// was evicted for bounded-capacity reasons. Capacity eviction discards the
+// entire identity window, including any derived policy projections. Expiry
+// uses deleteObservationLocked directly so a projection that still requires
+// revalidation can remain as a bounded tombstone until its own expiry or
+// successful recovery.
+func (g *openAITTFTGuard) deleteObservationAndProjectionsLocked(k openAITTFTGuardKey) {
+	g.deleteObservationLocked(k)
+	for projectionKey := range g.projectionKeys[k] {
+		g.deleteProjectionLocked(projectionKey)
 	}
 }
 
@@ -125,13 +153,26 @@ func (g *openAITTFTGuard) deleteExpiredLocked(now time.Time) {
 		if item.key.observation {
 			e = g.observations[item.key.key]
 		}
-		if e == nil || !e.lastSampleAt.Equal(item.sampleAt) || e.generation != item.generation {
+		if e == nil {
+			continue
+		}
+		at := e.lastSampleAt
+		if e.lastFactAt.After(at) {
+			at = e.lastFactAt
+		}
+		if !at.Equal(item.sampleAt) || e.generation != item.generation {
 			continue
 		}
 		if item.key.observation {
 			g.deleteObservationLocked(item.key.key)
 		} else {
-			g.deleteProjectionLocked(item.key.key)
+			// An expired bad event ends protection, not the requirement to
+			// revalidate. Keep its bounded projection until actual recovery or
+			// ordinary LRU eviction; fresh traffic must not reset this epoch.
+			e.stateAt(now, g.ttl)
+			if !e.needsRevalidation {
+				g.deleteProjectionLocked(item.key.key)
+			}
 		}
 	}
 	g.recalculateNextExpiryLocked()

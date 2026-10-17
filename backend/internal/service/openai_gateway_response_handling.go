@@ -684,6 +684,9 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			}
 			startsClientOutput := forceFlushFailedEvent || openAIStreamDataStartsClientOutput(data, eventType)
 			startsVisibleOutput := openAIStreamDataStartsVisibleOutput(data, eventType)
+			if startsVisibleOutput {
+				markOpenAITTFTGuardFirstTokenForRequest(c)
+			}
 			startsTTFTOutput := openAIStreamDataStartsTTFT(data, eventType, forceFlushFailedEvent, ttftMode)
 			if stageFirstOutput {
 				eventStartsClientOutput = eventStartsClientOutput || startsClientOutput
@@ -1722,6 +1725,7 @@ func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, r
 	}
 
 	if !writeOpenAICompactSSEBridge(c, resp.StatusCode, body) {
+		markOpenAITTFTGuardFirstTokenForRequest(c)
 		c.Data(resp.StatusCode, contentType, body)
 	}
 
@@ -1829,6 +1833,7 @@ func (s *OpenAIGatewayService) handleSSEToJSON(resp *http.Response, c *gin.Conte
 		}
 	}
 	if !writeOpenAICompactSSEBridge(c, resp.StatusCode, body) {
+		markOpenAITTFTGuardFirstTokenForRequest(c)
 		c.Data(resp.StatusCode, contentType, body)
 	}
 

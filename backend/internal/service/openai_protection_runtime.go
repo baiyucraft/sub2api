@@ -2,9 +2,6 @@ package service
 
 import (
 	"sort"
-	"sync"
-	"sync/atomic"
-	"time"
 )
 
 func accountUpstreamKeyID(a *Account) int64 {
@@ -67,91 +64,8 @@ func (s *OpenAIGatewayService) syncTTFTProtectionPolicies() {
 	g.pruneInactivePoliciesLocked()
 }
 
-type TTFTProtectionModelView struct {
-	Model                   string    `json:"model"`
-	State                   string    `json:"state"`
-	EWMAms                  float64   `json:"ewma_ms"`
-	LastTTFTMs              int64     `json:"last_ttft_ms"`
-	SampleCount             uint64    `json:"sample_count"`
-	LastSampleAt            time.Time `json:"last_sample_at"`
-	ExpiresAt               time.Time `json:"expires_at"`
-	Reason                  string    `json:"reason,omitempty"`
-	RecoverySamples         int       `json:"recovery_samples"`
-	RecoverySamplesRequired int       `json:"recovery_samples_required"`
-}
-
-type openAITTFTTrial struct {
-	guard         *openAITTFTGuard
-	key           openAITTFTGuardKey
-	degradedAt    time.Time
-	cycle         uint64
-	generation    uint64
-	recoveryEpoch uint64
-	once          sync.Once
-	sent          atomic.Bool
-}
-
+// claimTrial cannot mint a ticket from a diagnostic/selection read. Tickets
+// are reserved only by reserveTrialOpportunity after real allocations funded it.
 func (g *openAITTFTGuard) claimTrial(groupID int64, a *Account, model string, cfg OpenAITTFTGuardConfigSnapshot) *openAITTFTTrial {
-	if g == nil || a == nil {
-		return nil
-	}
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	if !g.acceptRequestConfigLocked(groupID, cfg) {
-		return nil
-	}
-	scope, ok := openAITTFTGuardScopeFor(groupID, cfg)
-	if !ok {
-		return nil
-	}
-	k, ok := g.sampleKeyLocked(a.ID, accountUpstreamKeyID(a), model)
-	if !ok {
-		return nil
-	}
-	k.scopeID = scope
-	e := g.entries[k]
-	p := g.groupProbes[openAITTFTGuardProbeKey{scopeID: scope, model: k.model}]
-	if e == nil || !e.degraded || p == nil || p.nominated != a.ID {
-		return nil
-	}
-	p.nominated = 0
-	e.trialCycle = p.cycle
-	return &openAITTFTTrial{guard: g, key: k, degradedAt: e.degradedAt, cycle: p.cycle, generation: e.generation, recoveryEpoch: e.recoveryEpoch}
-}
-
-func (t *openAITTFTTrial) finish(success bool, ms *int) {
-	if t == nil {
-		return
-	}
-	t.once.Do(func() {
-		g := t.guard
-		g.mu.Lock()
-		defer g.mu.Unlock()
-		e := g.entries[t.key]
-		if e == nil || !e.degraded || !e.degradedAt.Equal(t.degradedAt) || e.generation != t.generation || e.recoveryEpoch != t.recoveryEpoch {
-			return
-		}
-		if e.highestCompletedCycle > t.cycle && e.highestCompletedCycle-t.cycle >= uint64(len(e.completedTrialCycles)) {
-			return
-		}
-		for _, cycle := range e.completedTrialCycles {
-			if cycle == t.cycle {
-				return
-			}
-		}
-		e.completedTrialCycles[e.completedTrialCount%len(e.completedTrialCycles)] = t.cycle
-		e.completedTrialCount++
-		if t.cycle > e.highestCompletedCycle {
-			e.highestCompletedCycle = t.cycle
-		}
-		if success && ms != nil && *ms > 0 && float64(*ms) <= .6*float64(e.config.Threshold.Milliseconds()) {
-			e.consecutiveRecovered++
-		} else {
-			e.consecutiveRecovered = 0
-		}
-		if e.consecutiveRecovered >= openAITTFTGuardRecoverySamples {
-			e.resetAfterRecovery(float64(*ms), g.now())
-			g.scheduleExpiryLocked(t.key, false, e)
-		}
-	})
+	return nil
 }

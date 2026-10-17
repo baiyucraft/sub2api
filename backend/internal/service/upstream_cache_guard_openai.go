@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"sort"
 	"strings"
 	"time"
 
@@ -52,10 +51,12 @@ func (s *OpenAIGatewayService) selectWithCacheGuardPreference(ctx context.Contex
 	if openAIFixedRetryAccountID(ctx) > 0 || hardResponseBound {
 		result, decision, err := s.selectAccountWithSchedulerOnce(ctx, groupID, previousResponseID, sessionHash, model, callerExcluded, callerExcluded, false, transport, capability, imageCapability, compact, platform, previousCanMove, useTokenCost)
 		s.attachProtectionSelection(result, *groupID, model, cfg)
+		if result != nil && result.protection != nil {
+			result.protection.selectionPath = "session_binding"
+		}
 		return result, decision, err, true
 	}
-	tickets := map[int64]*openAITTFTTrial{}
-	health, ttft := s.openAIGuardExclusionParts(ctx, groupID, platform, model, transport, capability, imageCapability, compact, callerExcluded, tickets)
+	health, _ := s.openAIGuardExclusionParts(ctx, groupID, platform, model, transport, capability, imageCapability, compact, callerExcluded)
 	base := mergeOpenAIExcludedAccountIDs(callerExcluded, health)
 	accounts, err := s.listSchedulableAccounts(ctx, groupID, NormalizeOpenAICompatiblePlatform(platform))
 	if err != nil {
@@ -96,16 +97,11 @@ func (s *OpenAIGatewayService) selectWithCacheGuardPreference(ctx context.Contex
 		}
 	}
 	degraded := map[int64]struct{}{}
-	var ttftTrial []int64
 	for id, q := range qualities {
 		if q.Degraded {
 			degraded[id] = struct{}{}
-			if _, excluded := ttft[id]; !excluded {
-				ttftTrial = append(ttftTrial, id)
-			}
 		}
 	}
-	sort.Slice(ttftTrial, func(i, j int) bool { return ttftTrial[i] < ttftTrial[j] })
 	ctx = s.withCacheGuardOpenAIProtocolResolver(ctx)
 	p := buildCacheGuardPreference(ctx, groupID, sessionHash, model, cacheGuardOpenAIProtocol(transport), eligible, degraded)
 	if protectionOrdinaryFallback(ctx) {
@@ -137,17 +133,68 @@ func (s *OpenAIGatewayService) selectWithCacheGuardPreference(ctx context.Contex
 	if !p.Migration {
 		p.Tiers = jointTTFTOrder(p.Tiers, eligible, groupID, qualities, cfg.MinSamples, priority)
 	}
-	// Each guard has already computed its opportunity exactly once. Conflicting
-	// nominations are ordered by the effective priority; no ticket guarantees use.
-	if p.KeepAccountID == 0 && len(ttftTrial) > 0 {
-		p.Tiers = jointRecoveryTiers(p.Tiers, eligible, groupID, ttftTrial, priority == SchedulingPriorityTTFTFirst || !cacheActive)
-	}
-	p.Tiers = cacheGuardLatencyTiers(p.Tiers, func(id int64) (float64, bool) {
-		if quality, known := qualities[id]; known && quality.SampleCount > 0 {
-			return quality.EWMAms, true
+	var trial *openAITTFTTrial
+	trialSelected := false
+	if p.KeepAccountID == 0 && cfg.Enabled {
+		var trialCandidates []Account
+		for i := range eligible {
+			a := &eligible[i]
+			if _, scoped := p.ScopeIDs[a.ID]; scoped && schedulingProtectionAccountSelected(s.groupProtectionPolicyResolver, a) && s.ttftGuardEligibleAccount(a) {
+				trialCandidates = append(trialCandidates, *a)
+			}
 		}
-		return 0, false
-	})
+		trial = s.getOpenAITTFTGuard().reserveTrialOpportunity(ctx, *groupID, trialCandidates, model, cfg, qualities)
+		if trial != nil {
+			// A trial is a bounded sampling exception within its own priority
+			// pool. Cache cohorts still perform their ordinary send admission.
+			p.Tiers = jointRecoveryTiers(p.Tiers, eligible, groupID, []int64{trial.key.accountID}, true)
+		}
+	}
+	defer func() {
+		if trial != nil && !trialSelected {
+			trial.finish(false, nil)
+		}
+	}()
+	attachAllocation := func(result *AccountSelectionResult) {
+		var selectedTrial *openAITTFTTrial
+		newAllocation := result != nil && result.Account != nil && result.Acquired && !p.Migration && p.KeepAccountID == 0 && schedulingProtectionAccountSelected(s.groupProtectionPolicyResolver, result.Account) && s.ttftGuardEligibleAccount(result.Account)
+		if newAllocation {
+			if trial != nil && result.Account.ID == trial.key.accountID && accountUpstreamKeyID(result.Account) == trial.key.upstreamKeyID && canonicalOpenAIAccountSchedulingModel(result.Account, model) == trial.key.model {
+				selectedTrial, trialSelected = trial, true
+				release := result.ReleaseFunc
+				result.ReleaseFunc = func() {
+					trial.finish(false, nil)
+					if release != nil {
+						release()
+					}
+				}
+			}
+		}
+		s.attachProtectionSelection(result, *groupID, model, cfg, selectedTrial)
+		if newAllocation && result != nil && result.protection != nil {
+			result.protection.newAllocation = true
+			result.protection.allocationAccountID = result.Account.ID
+			result.protection.allocationUpstreamKeyID = accountUpstreamKeyID(result.Account)
+			result.protection.allocationModel = normalizeOpenAIAccountModelTransientModel(canonicalOpenAIAccountSchedulingModel(result.Account, model))
+			result.protection.allocationConfig = cfg
+		}
+		if result != nil && result.protection != nil {
+			result.protection.selectionPath = "normal"
+			if selectedTrial != nil {
+				result.protection.selectionPath = "trial"
+			}
+		}
+	}
+	// cache_first uses latency only to refine a cache band. ttft_first has
+	// already compared latency across cache bands within each quality state.
+	if priority == SchedulingPriorityCacheFirst {
+		p.Tiers = cacheGuardLatencyTiers(p.Tiers, func(id int64) (float64, bool) {
+			if quality, known := qualities[id]; known && quality.SampleCount > 0 {
+				return quality.EWMAms, true
+			}
+			return 0, false
+		})
+	}
 	ctx = withProtectionCandidateScope(ctx, p.candidateScope())
 	tierExclusions := p.tierExclusions(base)
 	selectTier := func(tier []int64, keep bool) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
@@ -223,6 +270,9 @@ func (s *OpenAIGatewayService) selectWithCacheGuardPreference(ctx context.Contex
 		result, decision, err := selectOld()
 		if !openAITTFTGuardShouldFailOpen(result, err) {
 			s.attachProtectionSelection(result, *groupID, model, cfg)
+			if result != nil && result.protection != nil {
+				result.protection.selectionPath = "session_binding"
+			}
 			return result, decision, err, true
 		}
 	}
@@ -240,11 +290,7 @@ func (s *OpenAIGatewayService) selectWithCacheGuardPreference(ctx context.Contex
 			} else if sessionHash != "" && p.KeepAccountID == 0 {
 				result.cacheGuardDeferredBinding = true
 			}
-			var trial *openAITTFTTrial
-			if p.KeepAccountID == 0 {
-				trial = tickets[result.Account.ID]
-			}
-			s.attachProtectionSelection(result, *groupID, model, cfg, trial)
+			attachAllocation(result)
 			return result, decision, nil, true
 		}
 		if result != nil && result.ReleaseFunc != nil {
@@ -255,6 +301,9 @@ func (s *OpenAIGatewayService) selectWithCacheGuardPreference(ctx context.Contex
 		result, decision, err := selectOld()
 		if !openAITTFTGuardShouldFailOpen(result, err) {
 			s.attachProtectionSelection(result, *groupID, model, cfg)
+			if result != nil && result.protection != nil {
+				result.protection.selectionPath = "session_binding"
+			}
 			return result, decision, err, true
 		}
 	}
@@ -268,6 +317,10 @@ func (s *OpenAIGatewayService) selectWithCacheGuardPreference(ctx context.Contex
 	if len(health) > 0 && openAITTFTGuardShouldFailOpen(result, err) {
 		result, decision, err = s.selectAccountWithSchedulerOnce(ctx, groupID, previousResponseID, sessionHash, model, callerExcluded, callerExcluded, false, transport, capability, imageCapability, compact, platform, previousCanMove, useTokenCost)
 	}
-	s.attachProtectionSelection(result, *groupID, model, cfg)
+	attachAllocation(result)
+	if result != nil && result.protection != nil {
+		result.protection.selectionPath = "capacity_fallback"
+		result.protection.fallbackReason = "preferred_capacity_unavailable"
+	}
 	return result, decision, err, true
 }
