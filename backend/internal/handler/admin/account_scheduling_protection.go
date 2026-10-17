@@ -150,6 +150,7 @@ func (h *AccountHandler) upstreamProtectionsBatchAt(accounts []service.Account, 
 
 type AccountUpstreamProtection struct {
 	PlatformSelected bool                               `json:"platform_selected"`
+	DisplayState     string                             `json:"display_state"`
 	Cache            *service.UpstreamCacheGuardSummary `json:"cache"`
 	TTFTModels       []service.TTFTProtectionModelView  `json:"ttft_models"`
 	Groups           []AccountUpstreamProtectionGroup   `json:"groups"`
@@ -161,21 +162,55 @@ type AccountUpstreamProtectionGroup struct {
 	GroupName        string                         `json:"group_name"`
 	Priority         string                         `json:"priority"`
 	PrioritySource   string                         `json:"priority_source"`
+	DisplayState     string                         `json:"display_state"`
 	TTFT             AccountUpstreamTTFTProjection  `json:"ttft"`
 	Cache            AccountUpstreamCacheProjection `json:"cache"`
 }
 
 type AccountUpstreamTTFTProjection struct {
-	State       string                            `json:"state"`
-	ThresholdMs int64                             `json:"threshold_ms"`
-	MinSamples  int                               `json:"min_samples"`
-	Source      string                            `json:"source"`
-	Models      []service.TTFTProtectionModelView `json:"models"`
+	State               string                            `json:"state"`
+	DisplayState        string                            `json:"display_state"`
+	ThresholdMs         int64                             `json:"threshold_ms"`
+	RecoveryThresholdMs int64                             `json:"recovery_threshold_ms"`
+	MinSamples          int                               `json:"min_samples"`
+	Source              string                            `json:"source"`
+	Models              []service.TTFTProtectionModelView `json:"models"`
 }
 
 type AccountUpstreamCacheProjection struct {
 	service.UpstreamCacheGuardState
-	Source string `json:"source"`
+	DisplayState string `json:"display_state"`
+	Source       string `json:"source"`
+}
+
+// protectionDisplayState is the stable three-state contract consumed by the
+// admin UI. Legacy execution states remain available in State/Reason for
+// diagnostics and backwards compatibility.
+func protectionDisplayState(state string) string {
+	switch state {
+	case "degraded", "draining", "protected", "recovering":
+		return "protected"
+	case "normal", "healthy":
+		return "normal"
+	default:
+		return "insufficient"
+	}
+}
+
+func protectionAggregateDisplayState(states ...string) string {
+	hasInsufficient := len(states) == 0
+	for _, state := range states {
+		switch protectionDisplayState(state) {
+		case "protected":
+			return "protected"
+		case "insufficient":
+			hasInsufficient = true
+		}
+	}
+	if hasInsufficient {
+		return "insufficient"
+	}
+	return "normal"
 }
 
 func (h *AccountHandler) SetSchedulingProtectionPolicyService(policies *service.GroupSchedulingProtectionPolicyService) {
@@ -218,7 +253,7 @@ func (h *AccountHandler) upstreamProtection(account *service.Account, cache serv
 	}
 	platforms, _ := h.protectionPolicyReader.(interface{ PlatformSelected(string) bool })
 	selected := service.SchedulingProtectionPlatformSelected(platforms, account.Platform)
-	view := &AccountUpstreamProtection{PlatformSelected: selected, Cache: cache.Summary, TTFTModels: []service.TTFTProtectionModelView{}, Groups: []AccountUpstreamProtectionGroup{}}
+	view := &AccountUpstreamProtection{PlatformSelected: selected, DisplayState: "insufficient", Cache: cache.Summary, TTFTModels: []service.TTFTProtectionModelView{}, Groups: []AccountUpstreamProtectionGroup{}}
 	if !selected && view.Cache != nil {
 		summary := *view.Cache
 		summary.State, summary.Reason = "platform_not_selected", "platform_not_selected"
@@ -260,7 +295,7 @@ func (h *AccountHandler) upstreamProtection(account *service.Account, cache serv
 			if !selected {
 				state, reason = "platform_not_selected", "platform_not_selected"
 			}
-			view.Groups = append(view.Groups, AccountUpstreamProtectionGroup{PlatformSelected: selected, GroupID: id, Priority: "cache_first", PrioritySource: "unavailable", TTFT: AccountUpstreamTTFTProjection{State: state, Source: "unavailable", Models: []service.TTFTProtectionModelView{}}, Cache: AccountUpstreamCacheProjection{UpstreamCacheGuardState: service.UpstreamCacheGuardState{GroupID: id, State: state, Reason: reason}, Source: "unavailable"}})
+			view.Groups = append(view.Groups, AccountUpstreamProtectionGroup{PlatformSelected: selected, DisplayState: "insufficient", GroupID: id, Priority: "cache_first", PrioritySource: "unavailable", TTFT: AccountUpstreamTTFTProjection{State: state, DisplayState: "insufficient", Source: "unavailable", Models: []service.TTFTProtectionModelView{}}, Cache: AccountUpstreamCacheProjection{UpstreamCacheGuardState: service.UpstreamCacheGuardState{GroupID: id, State: state, Reason: reason}, DisplayState: "insufficient", Source: "unavailable"}})
 			continue
 		}
 		state, cacheKnown := cacheGroups[id]
@@ -272,7 +307,7 @@ func (h *AccountHandler) upstreamProtection(account *service.Account, cache serv
 		}
 		state.ThresholdPercent, state.RecoveryThresholdPercent, state.MinValidRequests = policy.Cache.ThresholdPercent, policy.Cache.RecoveryThresholdPercent, policy.Cache.MinValidRequests
 		state.PolicyMode, state.PolicySource, state.SchedulingPriority = policy.CacheMode, policy.CacheSource, policy.Priority
-		ttft := AccountUpstreamTTFTProjection{State: "disabled", ThresholdMs: policy.TTFT.Threshold.Milliseconds(), MinSamples: policy.TTFT.MinSamples, Source: policy.TTFT.Source, Models: []service.TTFTProtectionModelView{}}
+		ttft := AccountUpstreamTTFTProjection{State: "disabled", ThresholdMs: policy.TTFT.Threshold.Milliseconds(), RecoveryThresholdMs: (policy.TTFT.Threshold * 6 / 10).Milliseconds(), MinSamples: policy.TTFT.MinSamples, Source: policy.TTFT.Source, Models: []service.TTFTProtectionModelView{}}
 		if policy.TTFT.Enabled && account.Platform == service.PlatformOpenAI {
 			ttft.State = "unavailable"
 			if reader != nil {
@@ -282,7 +317,7 @@ func (h *AccountHandler) upstreamProtection(account *service.Account, cache serv
 		if reader != nil && account.Platform == service.PlatformOpenAI {
 			ttft.Models = reader.TTFTProtectionSnapshots(account.ID, keyID, id, service.OpenAITTFTGuardConfigSnapshot{Enabled: policy.TTFT.Enabled, Threshold: policy.TTFT.Threshold, MinSamples: policy.TTFT.MinSamples, Source: policy.TTFT.Source, GroupName: policy.TTFT.GroupName})
 			if policy.TTFT.Enabled {
-				severity := map[string]int{"normal": 1, "insufficient": 2, "recovering": 3, "draining": 4, "unavailable": 5}
+				severity := map[string]int{"normal": 1, "healthy": 1, "observed": 2, "unknown": 2, "insufficient": 2, "expired": 2, "unavailable": 2, "recovering": 3, "degraded": 4, "draining": 4, "protected": 4}
 				best := 0
 				for _, model := range ttft.Models {
 					if severity[model.State] > best {
@@ -300,7 +335,15 @@ func (h *AccountHandler) upstreamProtection(account *service.Account, cache serv
 				ttft.Models[i].State, ttft.Models[i].RecoverySamples = "platform_not_selected", 0
 			}
 		}
-		view.Groups = append(view.Groups, AccountUpstreamProtectionGroup{PlatformSelected: groupSelected, GroupID: id, GroupName: policy.TTFT.GroupName, Priority: policy.Priority, PrioritySource: policy.PrioritySource, TTFT: ttft, Cache: AccountUpstreamCacheProjection{UpstreamCacheGuardState: state, Source: policy.CacheSource}})
+		ttft.DisplayState = protectionDisplayState(ttft.State)
+		view.Groups = append(view.Groups, AccountUpstreamProtectionGroup{PlatformSelected: groupSelected, DisplayState: protectionAggregateDisplayState(ttft.State, state.State), GroupID: id, GroupName: policy.TTFT.GroupName, Priority: policy.Priority, PrioritySource: policy.PrioritySource, TTFT: ttft, Cache: AccountUpstreamCacheProjection{UpstreamCacheGuardState: state, DisplayState: protectionDisplayState(state.State), Source: policy.CacheSource}})
 	}
+	states := make([]string, 0, len(view.Groups))
+	for _, group := range view.Groups {
+		if group.PlatformSelected {
+			states = append(states, group.DisplayState)
+		}
+	}
+	view.DisplayState = protectionAggregateDisplayState(states...)
 	return view
 }

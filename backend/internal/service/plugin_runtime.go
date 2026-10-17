@@ -336,6 +336,14 @@ func (r *pluginRuntime) roundTrip(ctx context.Context, request *http.Request, pr
 		}
 		return nil, err
 	}
+	if err := MarkSchedulingProtectionTrialSent(ctx, account, metadata.Model); err != nil {
+		cancel()
+		if guarded {
+			r.requests.complete(requestID)
+		}
+		return nil, err
+	}
+	markOpenAITTFTGuardSend(ctx, account, metadata.Model, "openai")
 	if err := stream.Send(&pluginv1.ForwardRequest{Frame: &pluginv1.ForwardRequest_Start{Start: &pluginv1.ForwardRequestStart{
 		RequestId:          requestID,
 		Method:             request.Method,

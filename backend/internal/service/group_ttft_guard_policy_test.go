@@ -295,7 +295,7 @@ func TestGroupTTFTGuardPolicyInvalidatePreventsStaleReadFromRefillingCache(t *te
 	repo.mu.Unlock()
 }
 
-func TestGroupTTFTGuardPolicyGlobalRefreshInvalidatesOnlyInheritedRuntime(t *testing.T) {
+func TestGroupTTFTGuardPolicyGlobalRefreshStartsFreshGenerationForAllRuntime(t *testing.T) {
 	global := &groupTTFTGuardGlobalStub{
 		settings: OpenAITTFTGuardSettings{Enabled: true, DegradationTTFTSeconds: 20, MinSamples: 5},
 		refreshSnapshot: OpenAITTFTGuardConfigSnapshot{
@@ -317,12 +317,18 @@ func TestGroupTTFTGuardPolicyGlobalRefreshInvalidatesOnlyInheritedRuntime(t *tes
 	svc.refreshGlobalSettingsAndInvalidateInherited(context.Background())
 
 	guard := gateway.getOpenAITTFTGuard()
-	require.True(t, guard.isDegraded(14, 1, "gpt-test"), "shared 90s evidence still meets the updated 30s critical threshold")
-	require.True(t, gateway.getOpenAITTFTGuard().isDegraded(15, 2, "gpt-test"))
+	// A policy refresh starts a new runtime generation. Shared observations stay
+	// bounded for history, but old evidence cannot trigger either projection.
+	require.False(t, guard.isDegraded(14, 1, "gpt-test"))
+	require.False(t, gateway.getOpenAITTFTGuard().isDegraded(15, 2, "gpt-test"))
 	require.Equal(t, 30*time.Second, guard.groupConfigs[14].Threshold)
 	require.Equal(t, 6, guard.groupConfigs[14].MinSamples)
 	require.Equal(t, 20*time.Second, guard.groupConfigs[15].Threshold)
 	require.Len(t, guard.observations, 2, "global refresh must retain shared facts and independent custom policy state")
+	// Fresh evidence is required before the changed inherited policy can protect
+	// again; a new 90s observation satisfies the current 30s critical trigger.
+	guard.report(14, 1, "gpt-test", true, &critical, guard.groupConfigs[14])
+	require.True(t, guard.isDegraded(14, 1, "gpt-test"))
 }
 
 func TestGroupTTFTGuardPolicyGlobalRefreshFailurePreservesRuntime(t *testing.T) {

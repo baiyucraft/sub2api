@@ -215,7 +215,7 @@ func (h *OpenAIGatewayHandler) AlphaSearch(c *gin.Context) {
 		service.SetOpsLatencyMs(c, service.OpsResponseLatencyMsKey, time.Since(forwardStart).Milliseconds())
 
 		if err == nil {
-			h.gatewayService.ReportOpenAIAccountScheduleResultForGroup(apiKey.GroupID, account, openAIAccountScheduleModel(c, account, requestedModel, false, result), true, nil)
+			h.gatewayService.ReportOpenAIAccountScheduleResultForCompletedAttempt(apiKey.GroupID, account, openAIAccountScheduleModel(c, account, requestedModel, false, result), true, nil)
 			if result != nil {
 				h.recordAlphaSearchUsage(c, apiKey, account, subscription, channelMapping, requestedModel, body, result, subject.UserID)
 			}
@@ -224,7 +224,7 @@ func (h *OpenAIGatewayHandler) AlphaSearch(c *gin.Context) {
 
 		var failoverErr *service.UpstreamFailoverError
 		if !errors.As(err, &failoverErr) {
-			h.gatewayService.ReportOpenAIAccountScheduleResultForGroup(apiKey.GroupID, account, openAIAccountScheduleModel(c, account, requestedModel, false, result), false, nil, err)
+			h.gatewayService.ReportOpenAIAccountScheduleResultForCompletedAttempt(apiKey.GroupID, account, openAIAccountScheduleModel(c, account, requestedModel, false, result), false, nil, err)
 			if failoverClientGone(c) {
 				reqLog.Info("openai_alpha_search.forward_aborted_client_disconnected", zap.Int64("account_id", account.ID), zap.Error(err))
 				return
@@ -238,7 +238,7 @@ func (h *OpenAIGatewayHandler) AlphaSearch(c *gin.Context) {
 		bindUpstreamFailoverAccount(c, account, failoverErr)
 
 		if !failoverErr.PluginAdmissionRejected {
-			h.gatewayService.ReportOpenAIAccountScheduleResultForGroup(apiKey.GroupID, account, openAIAccountScheduleModel(c, account, requestedModel, false, result), false, nil, err)
+			h.gatewayService.ReportOpenAIAccountScheduleResultForCompletedAttempt(apiKey.GroupID, account, openAIAccountScheduleModel(c, account, requestedModel, false, result), false, nil, err)
 		}
 		if c.Writer.Size() != writerSizeBeforeForward {
 			h.handleFailoverExhausted(c, failoverErr, true)

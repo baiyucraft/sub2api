@@ -226,6 +226,7 @@ func (s *OpenAIGatewayService) handleResponsesBufferedFromNativeAnthropic(
 		if err := json.Unmarshal([]byte(payload), &event); err != nil {
 			continue
 		}
+		markOpenAITTFTGuardForAnthropicEvent(c, &event)
 
 		if event.Type == "message_start" && event.Message != nil {
 			finalResp = event.Message
@@ -477,6 +478,7 @@ func (s *OpenAIGatewayService) handleResponsesStreamingFromNativeAnthropic(
 		if err := json.Unmarshal([]byte(payload), &event); err != nil {
 			continue
 		}
+		markOpenAITTFTGuardForAnthropicEvent(c, &event)
 		cacheTerminalComplete = cacheTerminalComplete || anthropicStreamEventIsTerminal("", payload)
 
 		processAnthropicEvent(&event)

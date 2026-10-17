@@ -629,6 +629,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 		return nil, fmt.Errorf("upstream http bridge error: status=%d message=%s", resp.StatusCode, upstreamMsg)
 	}
 	defer func() { _ = resp.Body.Close() }()
+	ttftResponseCtx := openAITTFTResponseContext(resp, ctx)
 	stopCancelBody := context.AfterFunc(ctx, func() { _ = resp.Body.Close() })
 	defer stopCancelBody()
 	if account.Platform == PlatformGrok {
@@ -788,6 +789,9 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 				firstEventType = eventType
 			}
 			lastEventType = eventType
+		}
+		if openAIStreamDataStartsVisibleOutput(string(upstreamMessage), eventType) {
+			markOpenAITTFTGuardFirstToken(ttftResponseCtx)
 		}
 		if isOpenAIWSTokenEvent(eventType) {
 			tokenEventCount++

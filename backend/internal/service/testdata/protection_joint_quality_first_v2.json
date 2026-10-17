@@ -1,0 +1,4670 @@
+{
+  "selections": [
+    {
+      "name": "advanced=false/cache_first/scenario=0/all_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          1
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2,
+        3,
+        1,
+        1
+      ],
+      "account": 1,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 1,
+      "quota": 1
+    },
+    {
+      "name": "advanced=false/cache_first/scenario=0/available",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          1
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2
+      ],
+      "account": 2,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 2,
+      "quota": 1
+    },
+    {
+      "name": "advanced=false/cache_first/scenario=0/best_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          1
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2,
+        3
+      ],
+      "account": 3,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 3,
+      "quota": 1
+    },
+    {
+      "name": "advanced=false/cache_first/scenario=1/all_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        2,
+        3,
+        1
+      ],
+      "account": 1,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/cache_first/scenario=1/available",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        2
+      ],
+      "account": 2,
+      "acquired": true,
+      "migration": true,
+      "sticky_before": 1,
+      "sticky_after": 2,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/cache_first/scenario=1/best_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        2,
+        3
+      ],
+      "account": 3,
+      "acquired": true,
+      "migration": true,
+      "sticky_before": 1,
+      "sticky_after": 3,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/cache_first/scenario=10/all_full",
+      "cache_tiers": [
+        [
+          2
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/cache_first/scenario=10/available",
+      "cache_tiers": [
+        [
+          2
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/cache_first/scenario=10/best_full",
+      "cache_tiers": [
+        [
+          2
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/cache_first/scenario=11/all_full",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/cache_first/scenario=11/available",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/cache_first/scenario=11/best_full",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/cache_first/scenario=2/all_full",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/cache_first/scenario=2/available",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/cache_first/scenario=2/best_full",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/cache_first/scenario=3/all_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          1
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2,
+        3,
+        1,
+        1
+      ],
+      "account": 1,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 1,
+      "quota": 1
+    },
+    {
+      "name": "advanced=false/cache_first/scenario=3/available",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          1
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2
+      ],
+      "account": 2,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 2,
+      "quota": 1
+    },
+    {
+      "name": "advanced=false/cache_first/scenario=3/best_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          1
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2,
+        3
+      ],
+      "account": 3,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 3,
+      "quota": 1
+    },
+    {
+      "name": "advanced=false/cache_first/scenario=4/all_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        3,
+        1
+      ],
+      "account": 1,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/cache_first/scenario=4/available",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        3
+      ],
+      "account": 3,
+      "acquired": true,
+      "migration": true,
+      "sticky_before": 1,
+      "sticky_after": 3,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/cache_first/scenario=4/best_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        3
+      ],
+      "account": 3,
+      "acquired": true,
+      "migration": true,
+      "sticky_before": 1,
+      "sticky_after": 3,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/cache_first/scenario=5/all_full",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/cache_first/scenario=5/available",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/cache_first/scenario=5/best_full",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/cache_first/scenario=6/all_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          1
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2,
+        1,
+        3,
+        1
+      ],
+      "account": 1,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 1,
+      "quota": 1
+    },
+    {
+      "name": "advanced=false/cache_first/scenario=6/available",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          1
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2
+      ],
+      "account": 2,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 2,
+      "quota": 1
+    },
+    {
+      "name": "advanced=false/cache_first/scenario=6/best_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          1
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2,
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 1,
+      "quota": 1
+    },
+    {
+      "name": "advanced=false/cache_first/scenario=7/all_full",
+      "cache_tiers": [
+        [
+          2
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/cache_first/scenario=7/available",
+      "cache_tiers": [
+        [
+          2
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/cache_first/scenario=7/best_full",
+      "cache_tiers": [
+        [
+          2
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/cache_first/scenario=8/all_full",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/cache_first/scenario=8/available",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/cache_first/scenario=8/best_full",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/cache_first/scenario=9/all_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          1
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2,
+        1,
+        3,
+        1
+      ],
+      "account": 1,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 1,
+      "quota": 1
+    },
+    {
+      "name": "advanced=false/cache_first/scenario=9/available",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          1
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2
+      ],
+      "account": 2,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 2,
+      "quota": 1
+    },
+    {
+      "name": "advanced=false/cache_first/scenario=9/best_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          1
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2,
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 1,
+      "quota": 1
+    },
+    {
+      "name": "advanced=false/ttft_first/scenario=0/all_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          1
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2,
+        3,
+        1,
+        1
+      ],
+      "account": 1,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 1,
+      "quota": 1
+    },
+    {
+      "name": "advanced=false/ttft_first/scenario=0/available",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          1
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2
+      ],
+      "account": 2,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 2,
+      "quota": 1
+    },
+    {
+      "name": "advanced=false/ttft_first/scenario=0/best_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          1
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2,
+        3
+      ],
+      "account": 3,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 3,
+      "quota": 1
+    },
+    {
+      "name": "advanced=false/ttft_first/scenario=1/all_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        2,
+        3,
+        1
+      ],
+      "account": 1,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/ttft_first/scenario=1/available",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        2
+      ],
+      "account": 2,
+      "acquired": true,
+      "migration": true,
+      "sticky_before": 1,
+      "sticky_after": 2,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/ttft_first/scenario=1/best_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        2,
+        3
+      ],
+      "account": 3,
+      "acquired": true,
+      "migration": true,
+      "sticky_before": 1,
+      "sticky_after": 3,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/ttft_first/scenario=10/all_full",
+      "cache_tiers": [
+        [
+          2
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/ttft_first/scenario=10/available",
+      "cache_tiers": [
+        [
+          2
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/ttft_first/scenario=10/best_full",
+      "cache_tiers": [
+        [
+          2
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/ttft_first/scenario=11/all_full",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/ttft_first/scenario=11/available",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/ttft_first/scenario=11/best_full",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/ttft_first/scenario=2/all_full",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/ttft_first/scenario=2/available",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/ttft_first/scenario=2/best_full",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/ttft_first/scenario=3/all_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          1
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2,
+        3,
+        1,
+        1
+      ],
+      "account": 1,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 1,
+      "quota": 1
+    },
+    {
+      "name": "advanced=false/ttft_first/scenario=3/available",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          1
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2
+      ],
+      "account": 2,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 2,
+      "quota": 1
+    },
+    {
+      "name": "advanced=false/ttft_first/scenario=3/best_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          1
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2,
+        3
+      ],
+      "account": 3,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 3,
+      "quota": 1
+    },
+    {
+      "name": "advanced=false/ttft_first/scenario=4/all_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        3,
+        1
+      ],
+      "account": 1,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/ttft_first/scenario=4/available",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        3
+      ],
+      "account": 3,
+      "acquired": true,
+      "migration": true,
+      "sticky_before": 1,
+      "sticky_after": 3,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/ttft_first/scenario=4/best_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        3
+      ],
+      "account": 3,
+      "acquired": true,
+      "migration": true,
+      "sticky_before": 1,
+      "sticky_after": 3,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/ttft_first/scenario=5/all_full",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/ttft_first/scenario=5/available",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/ttft_first/scenario=5/best_full",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/ttft_first/scenario=6/all_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          1
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2,
+        1,
+        3,
+        1
+      ],
+      "account": 1,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 1,
+      "quota": 1
+    },
+    {
+      "name": "advanced=false/ttft_first/scenario=6/available",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          1
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2
+      ],
+      "account": 2,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 2,
+      "quota": 1
+    },
+    {
+      "name": "advanced=false/ttft_first/scenario=6/best_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          1
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2,
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 1,
+      "quota": 1
+    },
+    {
+      "name": "advanced=false/ttft_first/scenario=7/all_full",
+      "cache_tiers": [
+        [
+          2
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/ttft_first/scenario=7/available",
+      "cache_tiers": [
+        [
+          2
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/ttft_first/scenario=7/best_full",
+      "cache_tiers": [
+        [
+          2
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/ttft_first/scenario=8/all_full",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/ttft_first/scenario=8/available",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/ttft_first/scenario=8/best_full",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=false/ttft_first/scenario=9/all_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          1
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2,
+        1,
+        3,
+        1
+      ],
+      "account": 1,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 1,
+      "quota": 1
+    },
+    {
+      "name": "advanced=false/ttft_first/scenario=9/available",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          1
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2
+      ],
+      "account": 2,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 2,
+      "quota": 1
+    },
+    {
+      "name": "advanced=false/ttft_first/scenario=9/best_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          1
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2,
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 1,
+      "quota": 1
+    },
+    {
+      "name": "advanced=true/cache_first/scenario=0/all_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          1
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2,
+        2,
+        3,
+        3,
+        1,
+        1,
+        3,
+        1,
+        2,
+        3,
+        1,
+        2
+      ],
+      "account": 3,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 0,
+      "quota": 1
+    },
+    {
+      "name": "advanced=true/cache_first/scenario=0/available",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          1
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2
+      ],
+      "account": 2,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 2,
+      "quota": 1
+    },
+    {
+      "name": "advanced=true/cache_first/scenario=0/best_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          1
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2,
+        2,
+        3
+      ],
+      "account": 3,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 3,
+      "quota": 1
+    },
+    {
+      "name": "advanced=true/cache_first/scenario=1/all_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        2,
+        2,
+        3,
+        3,
+        1
+      ],
+      "account": 1,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/cache_first/scenario=1/available",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        2
+      ],
+      "account": 2,
+      "acquired": true,
+      "migration": true,
+      "sticky_before": 1,
+      "sticky_after": 2,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/cache_first/scenario=1/best_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        2,
+        2,
+        3
+      ],
+      "account": 3,
+      "acquired": true,
+      "migration": true,
+      "sticky_before": 1,
+      "sticky_after": 3,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/cache_first/scenario=10/all_full",
+      "cache_tiers": [
+        [
+          2
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/cache_first/scenario=10/available",
+      "cache_tiers": [
+        [
+          2
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/cache_first/scenario=10/best_full",
+      "cache_tiers": [
+        [
+          2
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/cache_first/scenario=11/all_full",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/cache_first/scenario=11/available",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/cache_first/scenario=11/best_full",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/cache_first/scenario=2/all_full",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/cache_first/scenario=2/available",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/cache_first/scenario=2/best_full",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/cache_first/scenario=3/all_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          1
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2,
+        2,
+        3,
+        3,
+        1,
+        1,
+        3,
+        1,
+        2,
+        3,
+        1,
+        2
+      ],
+      "account": 3,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 0,
+      "quota": 1
+    },
+    {
+      "name": "advanced=true/cache_first/scenario=3/available",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          1
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2
+      ],
+      "account": 2,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 2,
+      "quota": 1
+    },
+    {
+      "name": "advanced=true/cache_first/scenario=3/best_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          1
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2,
+        2,
+        3
+      ],
+      "account": 3,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 3,
+      "quota": 1
+    },
+    {
+      "name": "advanced=true/cache_first/scenario=4/all_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        3,
+        3,
+        1
+      ],
+      "account": 1,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/cache_first/scenario=4/available",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        3
+      ],
+      "account": 3,
+      "acquired": true,
+      "migration": true,
+      "sticky_before": 1,
+      "sticky_after": 3,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/cache_first/scenario=4/best_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        3
+      ],
+      "account": 3,
+      "acquired": true,
+      "migration": true,
+      "sticky_before": 1,
+      "sticky_after": 3,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/cache_first/scenario=5/all_full",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/cache_first/scenario=5/available",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/cache_first/scenario=5/best_full",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/cache_first/scenario=6/all_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          1
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2,
+        2,
+        1,
+        1,
+        3,
+        3,
+        2,
+        1,
+        3,
+        2,
+        1,
+        3
+      ],
+      "account": 2,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 0,
+      "quota": 1
+    },
+    {
+      "name": "advanced=true/cache_first/scenario=6/available",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          1
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2
+      ],
+      "account": 2,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 2,
+      "quota": 1
+    },
+    {
+      "name": "advanced=true/cache_first/scenario=6/best_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          1
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2,
+        2,
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 1,
+      "quota": 1
+    },
+    {
+      "name": "advanced=true/cache_first/scenario=7/all_full",
+      "cache_tiers": [
+        [
+          2
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/cache_first/scenario=7/available",
+      "cache_tiers": [
+        [
+          2
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/cache_first/scenario=7/best_full",
+      "cache_tiers": [
+        [
+          2
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/cache_first/scenario=8/all_full",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/cache_first/scenario=8/available",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/cache_first/scenario=8/best_full",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/cache_first/scenario=9/all_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          1
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2,
+        2,
+        1,
+        1,
+        3,
+        3,
+        2,
+        1,
+        3,
+        2,
+        1,
+        3
+      ],
+      "account": 2,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 0,
+      "quota": 1
+    },
+    {
+      "name": "advanced=true/cache_first/scenario=9/available",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          1
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2
+      ],
+      "account": 2,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 2,
+      "quota": 1
+    },
+    {
+      "name": "advanced=true/cache_first/scenario=9/best_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          1
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2,
+        2,
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 1,
+      "quota": 1
+    },
+    {
+      "name": "advanced=true/ttft_first/scenario=0/all_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          1
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2,
+        2,
+        3,
+        3,
+        1,
+        1,
+        3,
+        1,
+        2,
+        3,
+        1,
+        2
+      ],
+      "account": 3,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 0,
+      "quota": 1
+    },
+    {
+      "name": "advanced=true/ttft_first/scenario=0/available",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          1
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2
+      ],
+      "account": 2,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 2,
+      "quota": 1
+    },
+    {
+      "name": "advanced=true/ttft_first/scenario=0/best_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          1
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2,
+        2,
+        3
+      ],
+      "account": 3,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 3,
+      "quota": 1
+    },
+    {
+      "name": "advanced=true/ttft_first/scenario=1/all_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        2,
+        2,
+        3,
+        3,
+        1
+      ],
+      "account": 1,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/ttft_first/scenario=1/available",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        2
+      ],
+      "account": 2,
+      "acquired": true,
+      "migration": true,
+      "sticky_before": 1,
+      "sticky_after": 2,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/ttft_first/scenario=1/best_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        2,
+        2,
+        3
+      ],
+      "account": 3,
+      "acquired": true,
+      "migration": true,
+      "sticky_before": 1,
+      "sticky_after": 3,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/ttft_first/scenario=10/all_full",
+      "cache_tiers": [
+        [
+          2
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/ttft_first/scenario=10/available",
+      "cache_tiers": [
+        [
+          2
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/ttft_first/scenario=10/best_full",
+      "cache_tiers": [
+        [
+          2
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/ttft_first/scenario=11/all_full",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/ttft_first/scenario=11/available",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/ttft_first/scenario=11/best_full",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/ttft_first/scenario=2/all_full",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/ttft_first/scenario=2/available",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/ttft_first/scenario=2/best_full",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/ttft_first/scenario=3/all_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          1
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2,
+        2,
+        3,
+        3,
+        1,
+        1,
+        3,
+        1,
+        2,
+        3,
+        1,
+        2
+      ],
+      "account": 3,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 0,
+      "quota": 1
+    },
+    {
+      "name": "advanced=true/ttft_first/scenario=3/available",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          1
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2
+      ],
+      "account": 2,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 2,
+      "quota": 1
+    },
+    {
+      "name": "advanced=true/ttft_first/scenario=3/best_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ],
+        [
+          1
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2,
+        2,
+        3
+      ],
+      "account": 3,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 3,
+      "quota": 1
+    },
+    {
+      "name": "advanced=true/ttft_first/scenario=4/all_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        3,
+        3,
+        1
+      ],
+      "account": 1,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/ttft_first/scenario=4/available",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        3
+      ],
+      "account": 3,
+      "acquired": true,
+      "migration": true,
+      "sticky_before": 1,
+      "sticky_after": 3,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/ttft_first/scenario=4/best_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        3
+      ],
+      "account": 3,
+      "acquired": true,
+      "migration": true,
+      "sticky_before": 1,
+      "sticky_after": 3,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/ttft_first/scenario=5/all_full",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/ttft_first/scenario=5/available",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/ttft_first/scenario=5/best_full",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/ttft_first/scenario=6/all_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          1
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2,
+        2,
+        1,
+        1,
+        3,
+        3,
+        2,
+        1,
+        3,
+        2,
+        1,
+        3
+      ],
+      "account": 2,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 0,
+      "quota": 1
+    },
+    {
+      "name": "advanced=true/ttft_first/scenario=6/available",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          1
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2
+      ],
+      "account": 2,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 2,
+      "quota": 1
+    },
+    {
+      "name": "advanced=true/ttft_first/scenario=6/best_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          1
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2,
+        2,
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 1,
+      "quota": 1
+    },
+    {
+      "name": "advanced=true/ttft_first/scenario=7/all_full",
+      "cache_tiers": [
+        [
+          2
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/ttft_first/scenario=7/available",
+      "cache_tiers": [
+        [
+          2
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/ttft_first/scenario=7/best_full",
+      "cache_tiers": [
+        [
+          2
+        ]
+      ],
+      "keep": 1,
+      "migration_plan": true,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/ttft_first/scenario=8/all_full",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/ttft_first/scenario=8/available",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/ttft_first/scenario=8/best_full",
+      "cache_tiers": null,
+      "keep": 1,
+      "migration_plan": false,
+      "attempt_order": [
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 1,
+      "sticky_after": 1,
+      "quota": 0
+    },
+    {
+      "name": "advanced=true/ttft_first/scenario=9/all_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          1
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2,
+        2,
+        1,
+        1,
+        3,
+        3,
+        2,
+        1,
+        3,
+        2,
+        1,
+        3
+      ],
+      "account": 2,
+      "acquired": false,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 0,
+      "quota": 1
+    },
+    {
+      "name": "advanced=true/ttft_first/scenario=9/available",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          1
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2
+      ],
+      "account": 2,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 2,
+      "quota": 1
+    },
+    {
+      "name": "advanced=true/ttft_first/scenario=9/best_full",
+      "cache_tiers": [
+        [
+          2
+        ],
+        [
+          1
+        ],
+        [
+          3
+        ]
+      ],
+      "keep": 0,
+      "migration_plan": false,
+      "attempt_order": [
+        2,
+        2,
+        1
+      ],
+      "account": 1,
+      "acquired": true,
+      "migration": false,
+      "sticky_before": 0,
+      "sticky_after": 1,
+      "quota": 1
+    }
+  ],
+  "trial_plans": [
+    {
+      "request_id": "request-1",
+      "session_key": "97c35a036520ce5189f0b17918af98c05df6d96a9b307ea17e0915c5db7933ca",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-1-next",
+      "session_key": "97c35a036520ce5189f0b17918af98c05df6d96a9b307ea17e0915c5db7933ca",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-2",
+      "session_key": "25e8982949d070e1ba6979dde10d44a669e85d74c0101f712940e64953bbfb56",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-2-next",
+      "session_key": "25e8982949d070e1ba6979dde10d44a669e85d74c0101f712940e64953bbfb56",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-3",
+      "session_key": "559b2c1ade75dec6abd59afe8d69bf0e32807dac7349a0c4811a3085e6fb6248",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-3-next",
+      "session_key": "559b2c1ade75dec6abd59afe8d69bf0e32807dac7349a0c4811a3085e6fb6248",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-4",
+      "session_key": "74451d1511cfa8778ae2978dc4992b51841b1dcf0118e943877429eaf98cbb35",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-4-next",
+      "session_key": "74451d1511cfa8778ae2978dc4992b51841b1dcf0118e943877429eaf98cbb35",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-5",
+      "session_key": "c2672e850c514f9966fe7880c82bfe759b64bae18a01fcb31623572590dc7874",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-5-next",
+      "session_key": "c2672e850c514f9966fe7880c82bfe759b64bae18a01fcb31623572590dc7874",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-6",
+      "session_key": "34339f0a9db90e5f2ceb6f7297cff35e599ca73ee375778fdf56c8331088c68d",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-6-next",
+      "session_key": "34339f0a9db90e5f2ceb6f7297cff35e599ca73ee375778fdf56c8331088c68d",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-7",
+      "session_key": "f82e22d6f004deab9750f5063e553feb7f826f0ed3a42c3f8b62ce14ffd96f92",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-7-next",
+      "session_key": "f82e22d6f004deab9750f5063e553feb7f826f0ed3a42c3f8b62ce14ffd96f92",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-8",
+      "session_key": "f1ed1a71680a039657f3c082ff3aa55a6e0f61165ef93ee6a3273ec4903597da",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-8-next",
+      "session_key": "f1ed1a71680a039657f3c082ff3aa55a6e0f61165ef93ee6a3273ec4903597da",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-9",
+      "session_key": "95a32cdecf41509d72f1515d973104e5e5e16c567bf2051ada673481b8b67c89",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-9-next",
+      "session_key": "95a32cdecf41509d72f1515d973104e5e5e16c567bf2051ada673481b8b67c89",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-10",
+      "session_key": "12ee27c7379525405f0036244066b4350c44a09dfc9754a711d34d9fc733972d",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": true,
+      "trial_ordinal": 1
+    },
+    {
+      "request_id": "request-10-next",
+      "session_key": "12ee27c7379525405f0036244066b4350c44a09dfc9754a711d34d9fc733972d",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 1
+    },
+    {
+      "request_id": "request-11",
+      "session_key": "5138e29f07ba40ffddd0ff7f372a56364bb80401951ce3035a00627c21440fcd",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-11-next",
+      "session_key": "5138e29f07ba40ffddd0ff7f372a56364bb80401951ce3035a00627c21440fcd",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-12",
+      "session_key": "60bdda199c2d96d97ca56312b7e54a6e08fce8e4308d20e540b5a7caca07a0eb",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-12-next",
+      "session_key": "60bdda199c2d96d97ca56312b7e54a6e08fce8e4308d20e540b5a7caca07a0eb",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-13",
+      "session_key": "f461040901e5d0e9c51f0b26e4560bf4192434603fcbfca487df510c2428b510",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-13-next",
+      "session_key": "f461040901e5d0e9c51f0b26e4560bf4192434603fcbfca487df510c2428b510",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-14",
+      "session_key": "23d112c1525ae037e5d7104c39d6e461e0758c13675807baede998b8df4a8ea4",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-14-next",
+      "session_key": "23d112c1525ae037e5d7104c39d6e461e0758c13675807baede998b8df4a8ea4",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-15",
+      "session_key": "66921b74c7a22056eff27730146a7cd7cb6e3c7261642759aff21996a400966e",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-15-next",
+      "session_key": "66921b74c7a22056eff27730146a7cd7cb6e3c7261642759aff21996a400966e",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-16",
+      "session_key": "67d72ebb2de086799b661dddc9c3be841176722306c9c60aa8d5c502bbba2a66",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-16-next",
+      "session_key": "67d72ebb2de086799b661dddc9c3be841176722306c9c60aa8d5c502bbba2a66",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-17",
+      "session_key": "c3cfe3aa55e2581833a4200bf34ce42d5073de633ec82a7138d24ddf8cb6a509",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-17-next",
+      "session_key": "c3cfe3aa55e2581833a4200bf34ce42d5073de633ec82a7138d24ddf8cb6a509",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-18",
+      "session_key": "fc999ded9174dfe2b341fe43a9a8ea72740faab34232d18c5c9b52e57dcc54a4",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-18-next",
+      "session_key": "fc999ded9174dfe2b341fe43a9a8ea72740faab34232d18c5c9b52e57dcc54a4",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-19",
+      "session_key": "35c7ca5f28406c110bc8a16503d25bea1e54d63b14b27f108708eb44da9fd323",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-19-next",
+      "session_key": "35c7ca5f28406c110bc8a16503d25bea1e54d63b14b27f108708eb44da9fd323",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-20",
+      "session_key": "d243864f19db7c0499c576d61f189dd598589cb667cff12cac93b3510aa7a995",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": true,
+      "trial_ordinal": 2
+    },
+    {
+      "request_id": "request-20-next",
+      "session_key": "d243864f19db7c0499c576d61f189dd598589cb667cff12cac93b3510aa7a995",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 2
+    },
+    {
+      "request_id": "request-21",
+      "session_key": "ddf677b2f8278d7c26e36c1b8c73822e259a7e5c81004004324fa57ced67a978",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-21-next",
+      "session_key": "ddf677b2f8278d7c26e36c1b8c73822e259a7e5c81004004324fa57ced67a978",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-22",
+      "session_key": "4c434a0a71c82de2e2262cd5aeab00c8bf368d66ffeb57a8b584436c48c0aa60",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-22-next",
+      "session_key": "4c434a0a71c82de2e2262cd5aeab00c8bf368d66ffeb57a8b584436c48c0aa60",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-23",
+      "session_key": "4558d62a150b4ede41ff03598fc72a30c11f8709fa7d5d2ed3d1a273b637ea2a",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-23-next",
+      "session_key": "4558d62a150b4ede41ff03598fc72a30c11f8709fa7d5d2ed3d1a273b637ea2a",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-24",
+      "session_key": "057175178626a33616216a57d46b6e173d9b5e9eb14c1da17935c53f1ed301ed",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-24-next",
+      "session_key": "057175178626a33616216a57d46b6e173d9b5e9eb14c1da17935c53f1ed301ed",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-25",
+      "session_key": "d3ac11165068120bdb7cfa31c8d6a7133b13e0e30078ff588ec72c82af39a9d4",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-25-next",
+      "session_key": "d3ac11165068120bdb7cfa31c8d6a7133b13e0e30078ff588ec72c82af39a9d4",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-26",
+      "session_key": "c28c1ce146da15a58e6807f9facba6460fcdd62d75e576e22e67464a9c117af6",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-26-next",
+      "session_key": "c28c1ce146da15a58e6807f9facba6460fcdd62d75e576e22e67464a9c117af6",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-27",
+      "session_key": "3689a5ec0861cb9c3de75b7781d7df4905ac730040133a8e7dc16dcee7c922aa",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-27-next",
+      "session_key": "3689a5ec0861cb9c3de75b7781d7df4905ac730040133a8e7dc16dcee7c922aa",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-28",
+      "session_key": "8c0aa39dae520f718dcc7e9b8c3df16985a8648c6731d28526e6f144f4b74e91",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-28-next",
+      "session_key": "8c0aa39dae520f718dcc7e9b8c3df16985a8648c6731d28526e6f144f4b74e91",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-29",
+      "session_key": "4121a7fd332e96be6867cff89f75a6d0f19f3edb7e43fe94bc6963450680c1e7",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-29-next",
+      "session_key": "4121a7fd332e96be6867cff89f75a6d0f19f3edb7e43fe94bc6963450680c1e7",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-30",
+      "session_key": "391576a22c75d1002abec291baf928979cd00393707b41e162a2119879bca4e3",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": true,
+      "trial_ordinal": 3
+    },
+    {
+      "request_id": "request-30-next",
+      "session_key": "391576a22c75d1002abec291baf928979cd00393707b41e162a2119879bca4e3",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 3
+    },
+    {
+      "request_id": "request-31",
+      "session_key": "475a353ce450bc77ee19abcc50f8ca28e22aab07ef6eaecdc8daaeb83f436413",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-31-next",
+      "session_key": "475a353ce450bc77ee19abcc50f8ca28e22aab07ef6eaecdc8daaeb83f436413",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-32",
+      "session_key": "553a73619178e4ab5ea9b410a1fdbc701fb21b4b07f4c0ea95cd33652e7c97b4",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-32-next",
+      "session_key": "553a73619178e4ab5ea9b410a1fdbc701fb21b4b07f4c0ea95cd33652e7c97b4",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-33",
+      "session_key": "7e92a88999e23bdf80ae99e5cd5e0cd35c1991815b991f2aa84a92523a9ee2ef",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-33-next",
+      "session_key": "7e92a88999e23bdf80ae99e5cd5e0cd35c1991815b991f2aa84a92523a9ee2ef",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-34",
+      "session_key": "120a10a83f66b92b38baae8f93f06854da24261c83b310b1f39a2e5fbe3bf2e6",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-34-next",
+      "session_key": "120a10a83f66b92b38baae8f93f06854da24261c83b310b1f39a2e5fbe3bf2e6",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-35",
+      "session_key": "fd45b99bf194f5f27b49f657b1989bdf7765315240d0f42e64b20915a671ca52",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-35-next",
+      "session_key": "fd45b99bf194f5f27b49f657b1989bdf7765315240d0f42e64b20915a671ca52",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-36",
+      "session_key": "1395ae1f2b6d46e4c5d8d72bb06fc8fc09486abd17d52d20bc10c77490913d9a",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-36-next",
+      "session_key": "1395ae1f2b6d46e4c5d8d72bb06fc8fc09486abd17d52d20bc10c77490913d9a",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-37",
+      "session_key": "03674692c74ae84011d704c4dbffe040ee22d02f0272d0b8bee886281c4907dd",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-37-next",
+      "session_key": "03674692c74ae84011d704c4dbffe040ee22d02f0272d0b8bee886281c4907dd",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-38",
+      "session_key": "0e169937b68b53ab25a53bc88a24cb320f93a22b81fe11e797c60dcf75695963",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-38-next",
+      "session_key": "0e169937b68b53ab25a53bc88a24cb320f93a22b81fe11e797c60dcf75695963",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-39",
+      "session_key": "21c3f09b6c04fdd5ac244de1064e7199bc6473761d1e4fa6a28c11c31e7e00a6",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-39-next",
+      "session_key": "21c3f09b6c04fdd5ac244de1064e7199bc6473761d1e4fa6a28c11c31e7e00a6",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-40",
+      "session_key": "0a6b5f4412d0af8151688e65c2ca16486b47d01ffec0eb9b0f79152d97d16cf9",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": true,
+      "trial_ordinal": 4
+    },
+    {
+      "request_id": "request-40-next",
+      "session_key": "0a6b5f4412d0af8151688e65c2ca16486b47d01ffec0eb9b0f79152d97d16cf9",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 4
+    },
+    {
+      "request_id": "request-41",
+      "session_key": "d16955bf395e083ff9454ae8227ff178df4ab8e922dbb598046145c199390c54",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-41-next",
+      "session_key": "d16955bf395e083ff9454ae8227ff178df4ab8e922dbb598046145c199390c54",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-42",
+      "session_key": "1fdc4908d4d0b776b4f8f6e8002c0b45dd436bc3d6752440639a739fd91d0b35",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-42-next",
+      "session_key": "1fdc4908d4d0b776b4f8f6e8002c0b45dd436bc3d6752440639a739fd91d0b35",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-43",
+      "session_key": "cfd1b25933dad46ccd37a5393e2d45db1f29a6ab5b507a891bbb222bbcec9ee7",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-43-next",
+      "session_key": "cfd1b25933dad46ccd37a5393e2d45db1f29a6ab5b507a891bbb222bbcec9ee7",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-44",
+      "session_key": "e7ab1252454c7a2c637be27548ad36f33c3adae0917602f32915ad7aec7bb6d8",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-44-next",
+      "session_key": "e7ab1252454c7a2c637be27548ad36f33c3adae0917602f32915ad7aec7bb6d8",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-45",
+      "session_key": "4ca6ba8522325d8afec212cc665204553aa7664faa685a7e4a67e27ee53cf9d9",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-45-next",
+      "session_key": "4ca6ba8522325d8afec212cc665204553aa7664faa685a7e4a67e27ee53cf9d9",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-46",
+      "session_key": "f40269d4d2bb903648a211309a0b5d0b86d78545211f6fd200114d30b0276e33",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-46-next",
+      "session_key": "f40269d4d2bb903648a211309a0b5d0b86d78545211f6fd200114d30b0276e33",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-47",
+      "session_key": "b66bdfcf942c3db38269772e0893586e42a1f1efb2c07e6320acf3b2b89dcd27",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-47-next",
+      "session_key": "b66bdfcf942c3db38269772e0893586e42a1f1efb2c07e6320acf3b2b89dcd27",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-48",
+      "session_key": "037c37d73865ee36988af6923342f66fa83854e676380302e7c58bc38166e60c",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-48-next",
+      "session_key": "037c37d73865ee36988af6923342f66fa83854e676380302e7c58bc38166e60c",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-49",
+      "session_key": "cd3de9c49e6b401cdf2fb03b2d582a92e6ac6f680bd2b722d166a59693d0cf94",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-49-next",
+      "session_key": "cd3de9c49e6b401cdf2fb03b2d582a92e6ac6f680bd2b722d166a59693d0cf94",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-50",
+      "session_key": "86cdcc3bdce4a8b08e4d4e1f738c96060b8fc9fcae64e41a8bb68d6595e80b9f",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": true,
+      "trial_ordinal": 5
+    },
+    {
+      "request_id": "request-50-next",
+      "session_key": "86cdcc3bdce4a8b08e4d4e1f738c96060b8fc9fcae64e41a8bb68d6595e80b9f",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 5
+    },
+    {
+      "request_id": "request-51",
+      "session_key": "fad943591478bd1f36afedf79b4793644bc9d7bf88c217c941a6860e2d61fe06",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-51-next",
+      "session_key": "fad943591478bd1f36afedf79b4793644bc9d7bf88c217c941a6860e2d61fe06",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-52",
+      "session_key": "99437a78d8e9694200d1d142e62a74e3bcfcab0f3f2d9e8bc10c823f12cf1f5f",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-52-next",
+      "session_key": "99437a78d8e9694200d1d142e62a74e3bcfcab0f3f2d9e8bc10c823f12cf1f5f",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-53",
+      "session_key": "e9da5074ca6c9ce8eece11de83498ca18a96e9bc5369050240fd9904136fbc96",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-53-next",
+      "session_key": "e9da5074ca6c9ce8eece11de83498ca18a96e9bc5369050240fd9904136fbc96",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-54",
+      "session_key": "786d8740c3a531462e7bb3970b2f3d3c9feaa117438cf882ec0c123cef3c5d6c",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-54-next",
+      "session_key": "786d8740c3a531462e7bb3970b2f3d3c9feaa117438cf882ec0c123cef3c5d6c",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-55",
+      "session_key": "f9749dda5bcc8299dc990947c54989d974f94151d06b2b763ae32ddded2a5455",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-55-next",
+      "session_key": "f9749dda5bcc8299dc990947c54989d974f94151d06b2b763ae32ddded2a5455",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-56",
+      "session_key": "680ee34f5d13890c1529964230f797e32e729cc1803105930378e058f81f1095",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-56-next",
+      "session_key": "680ee34f5d13890c1529964230f797e32e729cc1803105930378e058f81f1095",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-57",
+      "session_key": "7432eb9baf50665c8609b42580792df0ff94bb07754f18cf42bce0022894dc41",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-57-next",
+      "session_key": "7432eb9baf50665c8609b42580792df0ff94bb07754f18cf42bce0022894dc41",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-58",
+      "session_key": "6465878450e694cb3c32470693032d2e6f34bb13a0578115ef3a453143c97e94",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-58-next",
+      "session_key": "6465878450e694cb3c32470693032d2e6f34bb13a0578115ef3a453143c97e94",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-59",
+      "session_key": "36a6af44e76efade891321cea5c912b5c592b0f135ad770d9157cb0534ebf103",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-59-next",
+      "session_key": "36a6af44e76efade891321cea5c912b5c592b0f135ad770d9157cb0534ebf103",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-60",
+      "session_key": "3d3eae8b21ff442f32e64900f331a172728f54da2565743d404830e003c70a5a",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": true,
+      "trial_ordinal": 6
+    },
+    {
+      "request_id": "request-60-next",
+      "session_key": "3d3eae8b21ff442f32e64900f331a172728f54da2565743d404830e003c70a5a",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 6
+    },
+    {
+      "request_id": "request-61",
+      "session_key": "bc36b77d9a700f15e9f46ee70a9432627c67875a3218e3999a97cdbb174ba4d0",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-61-next",
+      "session_key": "bc36b77d9a700f15e9f46ee70a9432627c67875a3218e3999a97cdbb174ba4d0",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-62",
+      "session_key": "90f789c48ee139151cb0ea3196dbcfddb4a345d226681a605ca8e069bbad7a3b",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-62-next",
+      "session_key": "90f789c48ee139151cb0ea3196dbcfddb4a345d226681a605ca8e069bbad7a3b",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-63",
+      "session_key": "44d89996e322c731536fd3051dc1ee4fcae26a48b53e0352b6cf292c2d83bcbe",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-63-next",
+      "session_key": "44d89996e322c731536fd3051dc1ee4fcae26a48b53e0352b6cf292c2d83bcbe",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-64",
+      "session_key": "9d615fb958c0627ee404c7a9bbd7ea8e0413edef85fec46fcc6ebf9ffbbfb779",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-64-next",
+      "session_key": "9d615fb958c0627ee404c7a9bbd7ea8e0413edef85fec46fcc6ebf9ffbbfb779",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-65",
+      "session_key": "7cfddde7bde26ae14aa9dbf3af2cfe95f184a39e9b1a945f3e9e31ce28065f33",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-65-next",
+      "session_key": "7cfddde7bde26ae14aa9dbf3af2cfe95f184a39e9b1a945f3e9e31ce28065f33",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-66",
+      "session_key": "8edd208622e4686009f7d791744e4cb8aed4d6d800b6b2c96f02dcec2063b1fb",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-66-next",
+      "session_key": "8edd208622e4686009f7d791744e4cb8aed4d6d800b6b2c96f02dcec2063b1fb",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-67",
+      "session_key": "468b2916451be4f31a0a6c1772322205f8942a03336333f78495b439c1d2ef91",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-67-next",
+      "session_key": "468b2916451be4f31a0a6c1772322205f8942a03336333f78495b439c1d2ef91",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-68",
+      "session_key": "9123e475dfa0cc36c390bacf300b811b8f1e254d2b7d52bf630bc9b5a58d0835",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-68-next",
+      "session_key": "9123e475dfa0cc36c390bacf300b811b8f1e254d2b7d52bf630bc9b5a58d0835",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-69",
+      "session_key": "8760326ee62437026220616a33c77ecce838d40c2a1718596bd77e66d2136e81",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-69-next",
+      "session_key": "8760326ee62437026220616a33c77ecce838d40c2a1718596bd77e66d2136e81",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-70",
+      "session_key": "288087a839e208cb9076c430f326d6e50a8e07c1c3f421ce34d38cf1a94ee659",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": true,
+      "trial_ordinal": 7
+    },
+    {
+      "request_id": "request-70-next",
+      "session_key": "288087a839e208cb9076c430f326d6e50a8e07c1c3f421ce34d38cf1a94ee659",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 7
+    },
+    {
+      "request_id": "request-71",
+      "session_key": "615cbb06237b4c714ee3b8b98efe3d32c78e8a32fe7f4c03ad585cfdc8103446",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-71-next",
+      "session_key": "615cbb06237b4c714ee3b8b98efe3d32c78e8a32fe7f4c03ad585cfdc8103446",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-72",
+      "session_key": "b2abc648179f298815b44eeca3f94b94a302f6fa7c13b002ebee7d9582a14c7a",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-72-next",
+      "session_key": "b2abc648179f298815b44eeca3f94b94a302f6fa7c13b002ebee7d9582a14c7a",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-73",
+      "session_key": "646dd169fd090bc16a5b5c6e0105e222809ecf170ac42f9c9278f7da2db93db7",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-73-next",
+      "session_key": "646dd169fd090bc16a5b5c6e0105e222809ecf170ac42f9c9278f7da2db93db7",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-74",
+      "session_key": "f51d64c7c7eb778ac67c7dd075bdb2c38e35373d96d8fccd3529f1b23b5b6e49",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-74-next",
+      "session_key": "f51d64c7c7eb778ac67c7dd075bdb2c38e35373d96d8fccd3529f1b23b5b6e49",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-75",
+      "session_key": "80243c0274e9cb552e9556df09fd254bfd5327f0020d8630fe3a22aab20a8746",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-75-next",
+      "session_key": "80243c0274e9cb552e9556df09fd254bfd5327f0020d8630fe3a22aab20a8746",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-76",
+      "session_key": "434b4e5a45c160c5251155b9134d4a24e12bb7a36ea9b19ea7a029491906cf7a",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-76-next",
+      "session_key": "434b4e5a45c160c5251155b9134d4a24e12bb7a36ea9b19ea7a029491906cf7a",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-77",
+      "session_key": "936d3edc16e615dab1ec1dcb8b6cd52d986ef159f5cf3671237597ed32c1b87e",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-77-next",
+      "session_key": "936d3edc16e615dab1ec1dcb8b6cd52d986ef159f5cf3671237597ed32c1b87e",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-78",
+      "session_key": "d63d46c3f808d9e243cdc46bf65aab4762e78c3184c02c73385b2959081adccd",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-78-next",
+      "session_key": "d63d46c3f808d9e243cdc46bf65aab4762e78c3184c02c73385b2959081adccd",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-79",
+      "session_key": "b971b0b48c5f4e2c1de401e676bd0f2f55a22257398d70e812ee51de1df4d8be",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-79-next",
+      "session_key": "b971b0b48c5f4e2c1de401e676bd0f2f55a22257398d70e812ee51de1df4d8be",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-80",
+      "session_key": "064860ebfbce9c67737856ced26e193824e9010fbaaf6198c9bb6cd9e5003abc",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": true,
+      "trial_ordinal": 8
+    },
+    {
+      "request_id": "request-80-next",
+      "session_key": "064860ebfbce9c67737856ced26e193824e9010fbaaf6198c9bb6cd9e5003abc",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 8
+    },
+    {
+      "request_id": "request-81",
+      "session_key": "1dc235fb3a2337bdb7f3bd1105a664d0dae890512f65949216abf0d8b4514327",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-81-next",
+      "session_key": "1dc235fb3a2337bdb7f3bd1105a664d0dae890512f65949216abf0d8b4514327",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-82",
+      "session_key": "5b6c22804a988dab2cf8f4d19711a77470f12226889cdcb742c1f290bb78110a",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-82-next",
+      "session_key": "5b6c22804a988dab2cf8f4d19711a77470f12226889cdcb742c1f290bb78110a",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-83",
+      "session_key": "5a1264922f753756a7d408de9a3d13e6d8957badd6d42d21ba8c10bc66c3b058",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-83-next",
+      "session_key": "5a1264922f753756a7d408de9a3d13e6d8957badd6d42d21ba8c10bc66c3b058",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-84",
+      "session_key": "7f3f7f6cb6644dea4f2ada7538d181874eb9c1d005f90f7cd62e0366fcc9293d",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-84-next",
+      "session_key": "7f3f7f6cb6644dea4f2ada7538d181874eb9c1d005f90f7cd62e0366fcc9293d",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-85",
+      "session_key": "e7fef91f63eb90910a98183cc2b05cf1377edb0b58844062d797556143165e10",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-85-next",
+      "session_key": "e7fef91f63eb90910a98183cc2b05cf1377edb0b58844062d797556143165e10",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-86",
+      "session_key": "d428c6ff92686d2832dc20a56dc2da6f13a8271f1f4dbee2605d9936057ac7ba",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-86-next",
+      "session_key": "d428c6ff92686d2832dc20a56dc2da6f13a8271f1f4dbee2605d9936057ac7ba",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-87",
+      "session_key": "7a1050763d7fee8421e2860df986ba29ceb67a8e3a612bca0409d84082c532cd",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-87-next",
+      "session_key": "7a1050763d7fee8421e2860df986ba29ceb67a8e3a612bca0409d84082c532cd",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-88",
+      "session_key": "cb9c38b2cc23799d77b837e91d59cbc5dacd75b19e3164d9e464e146f27b552e",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-88-next",
+      "session_key": "cb9c38b2cc23799d77b837e91d59cbc5dacd75b19e3164d9e464e146f27b552e",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-89",
+      "session_key": "04f5b9146350e7e63261dfa3485a391d34da70ce25cc2178f156d628cf95f9d9",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-89-next",
+      "session_key": "04f5b9146350e7e63261dfa3485a391d34da70ce25cc2178f156d628cf95f9d9",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-90",
+      "session_key": "d026de7ed47dd3bbcc1faee4a6470014e89219518ddcd6ef678b6018d3ebb310",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": true,
+      "trial_ordinal": 9
+    },
+    {
+      "request_id": "request-90-next",
+      "session_key": "d026de7ed47dd3bbcc1faee4a6470014e89219518ddcd6ef678b6018d3ebb310",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 9
+    },
+    {
+      "request_id": "request-91",
+      "session_key": "ef98bed4567970b18c11b2008b113082b9c6e5b5e1d4ffeb51ed8d1dddb1dfdf",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-91-next",
+      "session_key": "ef98bed4567970b18c11b2008b113082b9c6e5b5e1d4ffeb51ed8d1dddb1dfdf",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-92",
+      "session_key": "40c5b5d2ed7045840db81eb54515cf93208b3538c7888b7b9d516f27652b2add",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-92-next",
+      "session_key": "40c5b5d2ed7045840db81eb54515cf93208b3538c7888b7b9d516f27652b2add",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-93",
+      "session_key": "10ceaab5a1315475e85cf9275652ce4d0b970a07c798d514a1bd2a4b90e8d675",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-93-next",
+      "session_key": "10ceaab5a1315475e85cf9275652ce4d0b970a07c798d514a1bd2a4b90e8d675",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-94",
+      "session_key": "a0a0fb53c2a30c8859b0d59c42e2c73e08c7eefabdaa759cd4a404a97da10227",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-94-next",
+      "session_key": "a0a0fb53c2a30c8859b0d59c42e2c73e08c7eefabdaa759cd4a404a97da10227",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-95",
+      "session_key": "c40a875a64f62f0c50c04a133ab4094ba30fcdb86f026fa85d8663f8a534b1ec",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-95-next",
+      "session_key": "c40a875a64f62f0c50c04a133ab4094ba30fcdb86f026fa85d8663f8a534b1ec",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-96",
+      "session_key": "a2e5c28e1a269db936afb6af93a9dcd2a620a1a97be4f7d7a43f350e2d2adba3",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-96-next",
+      "session_key": "a2e5c28e1a269db936afb6af93a9dcd2a620a1a97be4f7d7a43f350e2d2adba3",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-97",
+      "session_key": "92ba17e3ee546cbee2160f775a6089700870694e3e25b1fdd9efde1d5e61c8c3",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-97-next",
+      "session_key": "92ba17e3ee546cbee2160f775a6089700870694e3e25b1fdd9efde1d5e61c8c3",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-98",
+      "session_key": "d9503598c63c78fd517371f899587087f5263f469636b02463e8f01bbf36ad6a",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-98-next",
+      "session_key": "d9503598c63c78fd517371f899587087f5263f469636b02463e8f01bbf36ad6a",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-99",
+      "session_key": "6ee247087ebe2f2658189df6ee27c4ac5ef76df0c6a1a277e622cd25b7f564b3",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-99-next",
+      "session_key": "6ee247087ebe2f2658189df6ee27c4ac5ef76df0c6a1a277e622cd25b7f564b3",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 0
+    },
+    {
+      "request_id": "request-100",
+      "session_key": "005e7355dba4314003f2bc7bcf2e4edb7703a1c6d7976c57c21bd31737e00256",
+      "group_id": 100,
+      "natural_new": true,
+      "trial_slot": true,
+      "trial_ordinal": 10
+    },
+    {
+      "request_id": "request-100-next",
+      "session_key": "005e7355dba4314003f2bc7bcf2e4edb7703a1c6d7976c57c21bd31737e00256",
+      "group_id": 100,
+      "natural_new": false,
+      "trial_slot": false,
+      "trial_ordinal": 10
+    }
+  ]
+}

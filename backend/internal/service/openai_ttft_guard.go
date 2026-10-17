@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"math"
 	"strings"
@@ -15,6 +16,7 @@ const (
 	defaultOpenAITTFTGuardThreshold  = 20 * time.Second
 	defaultOpenAITTFTGuardMinSamples = 5
 	openAITTFTGuardSampleWindow      = 10
+	openAITTFTGuardFactWindow        = 20
 	openAITTFTGuardRecoverySamples   = 3
 	openAITTFTGuardProbeEvery        = 20
 	openAITTFTGuardEntryTTL          = 15 * time.Minute
@@ -95,27 +97,46 @@ type openAITTFTGuardKey struct {
 }
 
 type openAITTFTGuardEntry struct {
-	lastGroupID           int64
-	lastGroupName         string
-	samples               [openAITTFTGuardSampleWindow]float64
-	successes             [openAITTFTGuardSampleWindow]bool
-	sampleLen             int
-	nextSample            int
-	sampleCount           uint64
-	consecutiveElevated   int
-	consecutiveRecovered  int
-	degraded              bool
-	degradedReason        string
-	degradedAt            time.Time
-	lastSampleAt          time.Time
-	lastTouchedAt         time.Time
-	config                OpenAITTFTGuardConfigSnapshot
-	trialCycle            uint64
-	generation            uint64
-	recoveryEpoch         uint64
-	completedTrialCycles  [64]uint64
-	completedTrialCount   int
-	highestCompletedCycle uint64
+	facts                   []openAITTFTGuardFact
+	lastFactAt              time.Time
+	nextFactSequence        uint64
+	factCapacity            int
+	completedAttempts       []string
+	needsRevalidation       bool
+	badExpiresAt            time.Time
+	latestBadBarrier        time.Time
+	recoveredThrough        time.Time
+	recoverySessions        int
+	recoveryOrdinarySamples int
+	recoveryTrialSamples    int
+	recoveryReason          string
+	lastRecoveryBlockReason string
+	lastRecoveryBlockAt     time.Time
+	triggerTTFTMs           int
+	triggerThresholdMs      int64
+	runtimeID               string
+	policyGeneration        uint64
+	lastGroupID             int64
+	lastGroupName           string
+	samples                 [openAITTFTGuardSampleWindow]float64
+	successes               [openAITTFTGuardSampleWindow]bool
+	sampleLen               int
+	nextSample              int
+	sampleCount             uint64
+	consecutiveElevated     int
+	consecutiveRecovered    int
+	degraded                bool
+	degradedReason          string
+	degradedAt              time.Time
+	lastSampleAt            time.Time
+	lastTouchedAt           time.Time
+	config                  OpenAITTFTGuardConfigSnapshot
+	trialCycle              uint64
+	generation              uint64
+	recoveryEpoch           uint64
+	completedTrialCycles    [64]uint64
+	completedTrialCount     int
+	highestCompletedCycle   uint64
 }
 
 func (e *openAITTFTGuardEntry) addSample(sample float64) {
@@ -172,31 +193,42 @@ type openAITTFTGuardCandidate struct {
 }
 
 type openAITTFTGuard struct {
-	mu                  sync.Mutex
-	entries             map[openAITTFTGuardKey]*openAITTFTGuardEntry
-	observations        map[openAITTFTGuardKey]*openAITTFTGuardEntry
-	accountKeys         map[int64]int64
-	maxEntries          int
-	ttl                 time.Duration
-	now                 func() time.Time
-	groupProbes         map[openAITTFTGuardProbeKey]*openAITTFTGuardProbeState
-	nextExpiryAt        time.Time
-	groupConfigs        map[int64]OpenAITTFTGuardConfigSnapshot
-	nextEntryGeneration uint64
-	policySnapshot      *GroupSchedulingProtectionPolicySnapshot
-	policiesManaged     bool
-	observationModels   map[openAITTFTGuardAccountKey]map[openAITTFTGuardKey]struct{}
-	observationAccounts map[int64]int
-	projectionKeys      map[openAITTFTGuardKey]map[openAITTFTGuardKey]struct{}
-	expiries            openAITTFTGuardExpiryHeap
-	expiryItems         map[openAITTFTGuardExpiryKey]*openAITTFTGuardExpiryItem
-	activePolicies      int
-	inheritedConfig     OpenAITTFTGuardConfigSnapshot
-	inheritedKnown      bool
+	runtimeID             string
+	mu                    sync.Mutex
+	entries               map[openAITTFTGuardKey]*openAITTFTGuardEntry
+	observations          map[openAITTFTGuardKey]*openAITTFTGuardEntry
+	accountKeys           map[int64]int64
+	accountKeySentAt      map[int64]time.Time
+	maxEntries            int
+	ttl                   time.Duration
+	now                   func() time.Time
+	groupProbes           map[openAITTFTGuardProbeKey]*openAITTFTGuardProbeState
+	trialLeases           map[openAITTFTGuardKey]*openAITTFTTrial
+	trialBudgets          map[openAITTFTGuardBudgetKey]*openAITTFTTrialState
+	nextExpiryAt          time.Time
+	groupConfigs          map[int64]OpenAITTFTGuardConfigSnapshot
+	localPolicyGeneration uint64
+	nextEntryGeneration   uint64
+	policySnapshot        *GroupSchedulingProtectionPolicySnapshot
+	policiesManaged       bool
+	observationModels     map[openAITTFTGuardAccountKey]map[openAITTFTGuardKey]struct{}
+	observationAccounts   map[int64]int
+	projectionKeys        map[openAITTFTGuardKey]map[openAITTFTGuardKey]struct{}
+	projectionModels      map[openAITTFTGuardAccountKey]map[openAITTFTGuardKey]struct{}
+	expiries              openAITTFTGuardExpiryHeap
+	expiryItems           map[openAITTFTGuardExpiryKey]*openAITTFTGuardExpiryItem
+	activePolicies        int
+	inheritedConfig       OpenAITTFTGuardConfigSnapshot
+	inheritedKnown        bool
 }
 
 type openAITTFTGuardProbeKey struct {
 	scopeID int64
+	model   string
+}
+
+type openAITTFTGuardBudgetKey struct {
+	groupID int64
 	model   string
 }
 
@@ -222,14 +254,18 @@ func newOpenAITTFTGuardWithOptions(maxEntries int, ttl time.Duration, now func()
 		now = time.Now
 	}
 	return &openAITTFTGuard{
+		runtimeID:           rand.Text(),
 		entries:             make(map[openAITTFTGuardKey]*openAITTFTGuardEntry),
 		observations:        make(map[openAITTFTGuardKey]*openAITTFTGuardEntry),
 		accountKeys:         make(map[int64]int64),
+		accountKeySentAt:    make(map[int64]time.Time),
 		groupProbes:         make(map[openAITTFTGuardProbeKey]*openAITTFTGuardProbeState),
+		trialBudgets:        make(map[openAITTFTGuardBudgetKey]*openAITTFTTrialState),
 		groupConfigs:        make(map[int64]OpenAITTFTGuardConfigSnapshot),
 		observationModels:   make(map[openAITTFTGuardAccountKey]map[openAITTFTGuardKey]struct{}),
 		observationAccounts: make(map[int64]int),
 		projectionKeys:      make(map[openAITTFTGuardKey]map[openAITTFTGuardKey]struct{}),
+		projectionModels:    make(map[openAITTFTGuardAccountKey]map[openAITTFTGuardKey]struct{}),
 		expiryItems:         make(map[openAITTFTGuardExpiryKey]*openAITTFTGuardExpiryItem),
 		maxEntries:          maxEntries,
 		ttl:                 ttl,
@@ -292,6 +328,7 @@ func (g *openAITTFTGuard) evictLRULocked() {
 	}
 	var oldestKey openAITTFTGuardKey
 	var oldestTime time.Time
+	var oldestGeneration uint64
 	found := false
 	for key, entry := range g.entries {
 		if entry == nil {
@@ -299,9 +336,17 @@ func (g *openAITTFTGuard) evictLRULocked() {
 			found = true
 			break
 		}
-		if !found || entry.lastTouchedAt.Before(oldestTime) {
+		// Administrative projection reads do not create scheduling evidence.
+		// Evict by the latest physical fact rather than read/materialization
+		// time, which may be unset for newly derived projections.
+		at := entry.lastSampleAt
+		if entry.lastFactAt.After(at) {
+			at = entry.lastFactAt
+		}
+		if !found || at.Before(oldestTime) || (at.Equal(oldestTime) && entry.generation < oldestGeneration) {
 			oldestKey = key
-			oldestTime = entry.lastTouchedAt
+			oldestTime = at
+			oldestGeneration = entry.generation
 			found = true
 		}
 	}

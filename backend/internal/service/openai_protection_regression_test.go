@@ -29,12 +29,15 @@ func protectionRegressionGuard(t *testing.T) (*openAITTFTGuard, OpenAITTFTGuardC
 
 func protectionRegressionTrial(t *testing.T, g *openAITTFTGuard, cfg OpenAITTFTGuardConfigSnapshot, candidates []openAITTFTGuardCandidate) *openAITTFTTrial {
 	t.Helper()
-	tickets := map[int64]*openAITTFTTrial{}
+	require.NotEmpty(t, candidates)
+	c := candidates[0]
 	for i := 0; i < openAITTFTGuardProbeEvery; i++ {
-		g.exclusions(candidates, nil, cfg, tickets)
+		g.recordAllocationOpportunity(freshTTFTOpportunityContext(), c.groupID, c.model, cfg)
 	}
-	require.NotNil(t, tickets[1])
-	return tickets[1]
+	key := c.upstreamKeyID
+	ticket := g.reserveTrialOpportunity(freshTTFTOpportunityContext(), c.groupID, []Account{{ID: c.accountID, UpstreamKeyID: &key}}, c.model, cfg, nil)
+	require.NotNil(t, ticket)
+	return ticket
 }
 
 func TestProtectionRegressionCacheGroupOverridesReachScheduler(t *testing.T) {
@@ -79,31 +82,28 @@ func TestProtectionRegressionCacheGroupOverridesReachScheduler(t *testing.T) {
 func TestProtectionRegressionLaterUnsentNominationKeepsAdmittedTicket(t *testing.T) {
 	g, cfg, candidates := protectionRegressionGuard(t)
 	first := protectionRegressionTrial(t, g, cfg, candidates)
-	unsubmitted := protectionRegressionTrial(t, g, cfg, candidates)
-	require.Greater(t, unsubmitted.cycle, first.cycle)
+	key := int64(11)
+	require.Nil(t, g.reserveTrialOpportunity(freshTTFTOpportunityContext(), 100, []Account{{ID: 1, UpstreamKeyID: &key}}, "gpt-test", cfg, nil), "one identity cannot receive a concurrent nomination")
 	fast := 3000
 	first.finish(true, &fast)
-	require.Equal(t, 1, g.entries[first.key].consecutiveRecovered, "a later nomination must not cancel an already sent recovery attempt")
 	first.finish(true, &fast)
-	require.Equal(t, 1, g.entries[first.key].consecutiveRecovered)
-	protectionRegressionTrial(t, g, cfg, candidates).finish(true, &fast)
-	require.Equal(t, 2, g.entries[first.key].consecutiveRecovered)
-	protectionRegressionTrial(t, g, cfg, candidates).finish(true, &fast)
-	require.False(t, g.entries[first.key].degraded, "three real completed attempts should recover despite an intervening unused nomination")
+	require.Zero(t, g.entries[first.key].consecutiveRecovered, "ticket completion alone is not identified recovery evidence")
+	require.Empty(t, g.trialLeases)
+	next := protectionRegressionTrial(t, g, cfg, candidates)
+	require.Greater(t, next.cycle, first.cycle)
+	next.finish(false, nil)
 }
 
 func TestProtectionRegressionConcurrentTicketsCompleteOncePerCycle(t *testing.T) {
 	g, cfg, candidates := protectionRegressionGuard(t)
 	first := protectionRegressionTrial(t, g, cfg, candidates)
 	key := int64(11)
-	sameCycle := g.claimTrial(100, &Account{ID: 1, UpstreamKeyID: &key}, "gpt-test", cfg)
-	require.NotNil(t, sameCycle)
-	second := protectionRegressionTrial(t, g, cfg, candidates)
-	fast := 3000
-	second.finish(true, &fast)
-	first.finish(true, &fast)
-	sameCycle.finish(true, &fast)
-	require.Equal(t, 2, g.entries[first.key].consecutiveRecovered, "out-of-order real completions count once and duplicate nominations cannot manufacture the third recovery")
+	require.Nil(t, g.claimTrial(100, &Account{ID: 1, UpstreamKeyID: &key}, "gpt-test", cfg), "diagnostic claims cannot mint duplicate leases")
+	require.True(t, first.markSent())
+	first.finish(true, nil)
+	first.finish(true, nil)
+	require.Empty(t, g.trialLeases)
+	require.Zero(t, g.entries[first.key].consecutiveRecovered)
 	require.True(t, g.entries[first.key].degraded)
 }
 
@@ -117,7 +117,7 @@ func TestProtectionRegressionTrialCompletesWithoutCacheHolder(t *testing.T) {
 	fast := 3000
 	FinishOpenAIUpstreamCacheGuardAttempt(ctx, &OpenAIForwardResult{FirstTokenMs: &fast}, nil)
 	FinishOpenAIUpstreamCacheGuardAttempt(ctx, &OpenAIForwardResult{FirstTokenMs: &fast}, nil)
-	require.Equal(t, 1, g.entries[ticket.key].consecutiveRecovered)
+	require.Zero(t, g.entries[ticket.key].consecutiveRecovered)
 }
 
 func TestProtectionRegressionUnfinishedWSTurnResetsRecovery(t *testing.T) {
@@ -125,7 +125,7 @@ func TestProtectionRegressionUnfinishedWSTurnResetsRecovery(t *testing.T) {
 	fast := 3000
 	first := protectionRegressionTrial(t, g, cfg, candidates)
 	first.finish(true, &fast)
-	require.Equal(t, 1, g.entries[first.key].consecutiveRecovered)
+	require.Zero(t, g.entries[first.key].consecutiveRecovered)
 	ticket := protectionRegressionTrial(t, g, cfg, candidates)
 	ctx := context.WithValue(context.Background(), protectionSelectionKey{}, &protectionSelection{trial: ticket})
 	turns := newUpstreamCacheGuardWSTurns(ctx)
@@ -200,7 +200,7 @@ func TestProtectionRegressionPreSendFailureKeepsRecoveryAndCacheAdmission(t *tes
 					require.False(t, attempt.begun, "cache cohort must not begin before host and plugin admission")
 				}
 				require.False(t, ticket.sent.Load())
-				require.Equal(t, 1, g.entries[ticket.key].consecutiveRecovered, "a nomination rejected before physical send is not a failed recovery attempt")
+				require.Zero(t, g.entries[ticket.key].consecutiveRecovered, "an unsent ticket is not recovery evidence")
 			}
 		})
 	}
@@ -290,16 +290,20 @@ func TestProtectionRegressionTrialSendRequiresFinalIdentity(t *testing.T) {
 			err := runSchedulingProtectionBeforeSend(ctx, &Account{ID: 1, Platform: PlatformOpenAI, UpstreamKeyID: &key})
 			if boundary == "cancelled" {
 				require.ErrorIs(t, err, context.Canceled)
-			} else {
+			} else if boundary == "metadata_matches" {
 				require.NoError(t, err)
+				require.False(t, ticket.sent.Load(), "admission alone is not transport send")
+				require.NoError(t, MarkSchedulingProtectionTrialSent(ctx, &Account{ID: 1, Platform: PlatformOpenAI, UpstreamKeyID: &key}, model))
+			} else {
+				require.Error(t, err)
 			}
 			FinishOpenAIUpstreamCacheGuardAttempt(ctx, &OpenAIForwardResult{FirstTokenMs: &fast}, nil)
 			if boundary == "metadata_matches" {
 				require.True(t, ticket.sent.Load())
-				require.Equal(t, 2, g.entries[ticket.key].consecutiveRecovered, "HTTP plugin metadata carries final model even without a cache holder")
+				require.Zero(t, g.entries[ticket.key].consecutiveRecovered, "send alone without terminal identified facts never creates recovery")
 			} else {
 				require.False(t, ticket.sent.Load())
-				require.Equal(t, 1, g.entries[ticket.key].consecutiveRecovered, "a changed final route or cancelled unsent attempt is not evidence for the nominated model")
+				require.Zero(t, g.entries[ticket.key].consecutiveRecovered, "a changed final route or cancelled unsent attempt is not evidence for the nominated model")
 			}
 		})
 	}
@@ -324,10 +328,7 @@ func TestProtectionRegressionTTFTTrialRespectsPriorityPools(t *testing.T) {
 					svc.ReportOpenAIAccountScheduleResultForGroup(&group, &repo.accounts[0], "gpt-test", true, &fast)
 				}
 				svc.ReportOpenAIAccountScheduleResultForGroup(&group, &repo.accounts[1], "gpt-test", true, &slow)
-				candidate := []openAITTFTGuardCandidate{{accountID: 2, upstreamKeyID: 2, groupID: group, model: "gpt-test"}}
-				for i := 0; i < openAITTFTGuardProbeEvery-1; i++ {
-					svc.getOpenAITTFTGuard().exclusions(candidate, nil, cfg)
-				}
+				fundTTFTTrial(svc.getOpenAITTFTGuard(), group, cfg)
 				result, _, err := svc.SelectAccountWithScheduler(ctx, &group, "", "natural-new-session", "gpt-test", nil, OpenAIUpstreamTransportAny, false)
 				require.NoError(t, err)
 				require.NotNil(t, result)

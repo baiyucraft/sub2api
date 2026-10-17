@@ -333,6 +333,9 @@ func (s *OpenAIGatewayService) scanCCStream(
 			ms := int(time.Since(startTime).Milliseconds())
 			st.FirstTokenMs = &ms
 		}
+		if openAIChatCompletionsChunkStartsVisibleOutput(payload) {
+			markOpenAITTFTGuardFirstTokenForRequest(c)
+		}
 		for _, choice := range chunk.Choices {
 			if choice.FinishReason != nil && strings.TrimSpace(*choice.FinishReason) != "" {
 				st.SawFinishReason = true

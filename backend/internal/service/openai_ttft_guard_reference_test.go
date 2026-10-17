@@ -1,3 +1,5 @@
+// Legacy pre-v2 runtime, retained exclusively as a performance baseline.
+// It is not a correctness oracle for facts, recovery, public states, or budgets.
 package service
 
 // Frozen pre-optimization runtime from .tmp/protection-perf-baseline. This

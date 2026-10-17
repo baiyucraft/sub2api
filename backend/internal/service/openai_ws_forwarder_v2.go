@@ -717,6 +717,9 @@ readLoop:
 			responseID = eventResponseID
 		}
 
+		if openAIStreamDataStartsVisibleOutput(string(message), eventType) {
+			markOpenAITTFTGuardFirstToken(ctx)
+		}
 		isTokenEvent := isOpenAIWSTokenEvent(eventType)
 		if isTokenEvent {
 			tokenEventCount++

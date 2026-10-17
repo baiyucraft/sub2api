@@ -29,10 +29,12 @@ type cacheGuardSchedulingIdentity struct {
 // The deadline begins at the first protection database operation. It is shared
 // by selection and admission, without shortening the ordinary request context.
 type cacheGuardRequestBudget struct {
-	mu        sync.Mutex
-	deadline  time.Time
-	exhausted atomic.Bool
-	ordinary  atomic.Bool
+	ttftOpportunity    atomic.Bool
+	ttftTrialAttempted atomic.Bool
+	mu                 sync.Mutex
+	deadline           time.Time
+	exhausted          atomic.Bool
+	ordinary           atomic.Bool
 }
 
 func cacheGuardDatabaseContext(ctx context.Context) (context.Context, context.CancelFunc) {

@@ -40,6 +40,7 @@ func WithUpstreamCacheGuardRequestSession(ctx context.Context, apiKeyID int64, c
 	if ctx == nil {
 		return nil
 	}
+	ctx = WithUpstreamCacheGuardScheduling(ctx, apiKeyID)
 	ctx = WithUpstreamCacheGuardLogicalSession(ctx, apiKeyID, UpstreamCacheGuardLogicalSession(c, body))
 	ctx = context.WithValue(ctx, cacheGuardLogicalSessionHeaderKey{}, ExtractClientSessionID(c) != "")
 	return withCacheGuardInboundProtocol(ctx, c, body)
