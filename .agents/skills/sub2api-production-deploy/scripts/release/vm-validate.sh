@@ -655,7 +655,7 @@ SQL
   printf '%s\n' "$plan_before_exit" > "$state_dir/plan-before.exit"
   chmod 400 "$state_dir/plan-before.json" "$state_dir/plan-before.exit"
   [[ "$plan_before_exit" == 0 && -n "$plan_before" ]]
-  printf '%s' "$plan_before" | jq -e 'type == "object" and (.pending|type)=="array" and (.conflicts|length)==0 and (.unknown|length)==0 and .existing_checksums_verified==true' >/dev/null
+  printf '%s' "$plan_before" | jq -e 'type == "object" and (.pending|type)=="array" and (.conflicts|type)=="array" and (.conflicts|length)==0 and (.unknown|type)=="array" and (.unknown|length)==0 and .existing_checksums_verified==true' >/dev/null
   {
     required_query_47=$(printf '%s' "$plan_before" | jq -r '.catalog_sha256')
     required_query_48=$(jq -r '.catalog_sha256' "$manifest")
@@ -675,15 +675,51 @@ SQL
   [[ "$actual_plan_exit" == 0 ]]
   printf '%s' "$actual_plan" > "$state_dir/plan-actual.json"
   chmod 400 "$state_dir/plan-actual.json"
-  printf '%s' "$actual_plan" | jq -e 'type == "object" and (.pending|type)=="array" and (.conflicts|length)==0 and (.unknown|length)==0 and .existing_checksums_verified==true' >/dev/null
+  printf '%s' "$actual_plan" | jq -e 'type == "object" and (.pending|type)=="array" and (.conflicts|type)=="array" and (.conflicts|length)==0 and (.unknown|type)=="array" and (.unknown|length)==0 and .existing_checksums_verified==true' >/dev/null
   plan_before_pending=$(printf '%s' "$plan_before" | jq -c '.pending | map({filename,checksum})')
   actual_plan_pending=$(printf '%s' "$actual_plan" | jq -c '.pending | map({filename,checksum})')
-  [[ "$plan_before_pending" == "$actual_plan_pending" ]]
+  # A fast probe clones the independent VM development database, not the
+  # production snapshot. Keep production admission evidence separate from the
+  # isolated database plan used by hooks and migration application.
+  observed_catalog_sha256=$(printf '%s' "$actual_plan" | jq -er '.catalog_sha256') || exit $?
+  expected_catalog_sha256=$(jq -er '.catalog_sha256' "$manifest") || exit $?
+  [[ $observed_catalog_sha256 =~ ^[0-9a-f]{64}$ && $observed_catalog_sha256 == "$expected_catalog_sha256" ]]
+  observed_checksum_policy_sha256=$(printf '%s' "$actual_plan" | jq -er '.checksum_policy_sha256') || exit $?
+  expected_checksum_policy_sha256=$(jq -er '.checksum_policy_sha256' "$manifest") || exit $?
+  [[ $observed_checksum_policy_sha256 =~ ^[0-9a-f]{64}$ && $observed_checksum_policy_sha256 == "$expected_checksum_policy_sha256" ]]
+  probe_plan=$actual_plan
   if [[ "$recovery_gate_mode" == fast ]]; then
     {
       required_query_51=$(printf '%s' "$plan_before" | jq -r '.pending | length') || exit $?
       [[ ${required_query_51} == 0 ]]
     }
+    # Prepare only the disposable development fixture. This does not prove
+    # production migration preflight or production backup recovery: production
+    # has no pending migration, while this independent clone can be older.
+    mark_v2_stage fast_fixture_bootstrap
+    install -o 0 -g 0 -m 444 "$state_dir/plan-actual.json" "$state_dir/fixture-bootstrap-before.json"
+    set +e
+    docker run --rm --network="$probe_network" -v "$probe_dir:/app/data" -v "$state_dir/fixture-bootstrap-before.json:/input/migration-plan.json:ro" "$candidate_image_id" /app/sub2api --migration-apply-plan-json /input/migration-plan.json >"$state_dir/fixture-bootstrap.log" 2>&1
+    fixture_bootstrap_exit=$?
+    set -e
+    printf '%s\n' "$fixture_bootstrap_exit" > "$state_dir/fixture-bootstrap.exit"
+    chmod 400 "$state_dir/fixture-bootstrap.exit"
+    [[ $fixture_bootstrap_exit == 0 ]]
+    set +e
+    probe_plan=$(docker run --rm --network="$probe_network" -v "$probe_dir:/app/data" "$candidate_image_id" /app/sub2api --migration-plan-json 2>"$state_dir/fixture-bootstrap-after.log")
+    fixture_plan_exit=$?
+    set -e
+    printf '%s\n' "$fixture_plan_exit" > "$state_dir/fixture-bootstrap-after.exit"
+    printf '%s' "$probe_plan" > "$state_dir/fixture-bootstrap-after.json"
+    chmod 400 "$state_dir/fixture-bootstrap-after.exit" "$state_dir/fixture-bootstrap-after.json"
+    [[ $fixture_plan_exit == 0 ]]
+    printf '%s' "$probe_plan" | jq -e 'type == "object" and (.pending|type)=="array" and (.pending|length)==0 and (.conflicts|type)=="array" and (.conflicts|length)==0 and (.unknown|type)=="array" and (.unknown|length)==0 and .existing_checksums_verified==true' >/dev/null
+    observed_catalog_sha256=$(printf '%s' "$probe_plan" | jq -er '.catalog_sha256') || exit $?
+    observed_checksum_policy_sha256=$(printf '%s' "$probe_plan" | jq -er '.checksum_policy_sha256') || exit $?
+    [[ $observed_catalog_sha256 =~ ^[0-9a-f]{64}$ && $observed_catalog_sha256 == "$expected_catalog_sha256" ]]
+    [[ $observed_checksum_policy_sha256 =~ ^[0-9a-f]{64}$ && $observed_checksum_policy_sha256 == "$expected_checksum_policy_sha256" ]]
+  else
+    [[ "$plan_before_pending" == "$actual_plan_pending" ]]
   fi
   migration_assertion_dir="$source_dir/.agents/skills/sub2api-production-deploy/scripts/maintenance/release"
   hook_context="$state_dir/migration-hook-context.sh"
@@ -697,7 +733,7 @@ SQL
   printf '{}\n' > "$hook_results_file"
   chmod 600 "$hook_results_file"
   is_pending_v2() {
-    required_jq_predicate --arg filename "$1" '.pending | any(.filename == $filename)' <<<"$plan_before"
+    required_jq_predicate --arg filename "$1" '.pending | any(.filename == $filename)' <<<"$probe_plan"
   }
   record_hook_v2() {
     local filename=$1 phase=$2 temporary="$hook_results_file.tmp"
@@ -764,7 +800,7 @@ SQL
   if required_jq_predicate --arg filename "$lifecycle_filename" '.migration_catalog | any(.filename == $filename)' "$manifest" >/dev/null; then
     lifecycle_in_catalog=true
     if ! is_pending_v2 "$lifecycle_filename"; then
-      printf '%s' "$plan_before" | jq -e --arg filename "$lifecycle_filename" '.existing | any(.filename == $filename and .status == "existing")' >/dev/null
+      printf '%s' "$probe_plan" | jq -e --arg filename "$lifecycle_filename" '.existing | any(.filename == $filename and .status == "existing")' >/dev/null
       run_hook_v2 "$lifecycle_filename" migration-285-assert.sh preflight verified
     fi
   fi
@@ -773,7 +809,7 @@ SQL
   if required_jq_predicate --arg filename "$account_scope_filename" '.migration_catalog | any(.filename == $filename)' "$manifest" >/dev/null; then
     account_scope_in_catalog=true
     if ! is_pending_v2 "$account_scope_filename"; then
-      printf '%s' "$plan_before" | jq -e --arg filename "$account_scope_filename" '.existing | any(.filename == $filename and .status == "existing")' >/dev/null
+      printf '%s' "$probe_plan" | jq -e --arg filename "$account_scope_filename" '.existing | any(.filename == $filename and .status == "existing")' >/dev/null
       run_hook_v2 "$account_scope_filename" migration-297-assert.sh preflight verified
     fi
   fi
@@ -782,7 +818,7 @@ SQL
   if required_jq_predicate --arg filename "$protection_filename" '.migration_catalog | any(.filename == $filename)' "$manifest" >/dev/null; then
     protection_in_catalog=true
     if ! is_pending_v2 "$protection_filename"; then
-      printf '%s' "$plan_before" | jq -e --arg filename "$protection_filename" '.existing | any(.filename == $filename and .status == "existing")' >/dev/null
+      printf '%s' "$probe_plan" | jq -e --arg filename "$protection_filename" '.existing | any(.filename == $filename and .status == "existing")' >/dev/null
       run_hook_v2 "$protection_filename" migration-298-assert.sh preflight verified
     fi
   fi
@@ -791,12 +827,16 @@ SQL
   if required_jq_predicate --arg filename "$revisions_filename" '.migration_catalog | any(.filename == $filename)' "$manifest" >/dev/null; then
     revisions_in_catalog=true
     if ! is_pending_v2 "$revisions_filename"; then
-      printf '%s' "$plan_before" | jq -e --arg filename "$revisions_filename" '.existing | any(.filename == $filename and .status == "existing")' >/dev/null
+      printf '%s' "$probe_plan" | jq -e --arg filename "$revisions_filename" '.existing | any(.filename == $filename and .status == "existing")' >/dev/null
       run_hook_v2 "$revisions_filename" migration-299-assert.sh preflight verified
     fi
   fi
   plan_apply="$state_dir/migration-plan-apply.json"
-  install -o 0 -g 0 -m 444 "$state_dir/plan-before.json" "$plan_apply"
+  if [[ "$recovery_gate_mode" == fast ]]; then
+    install -o 0 -g 0 -m 444 "$state_dir/fixture-bootstrap-after.json" "$plan_apply"
+  else
+    install -o 0 -g 0 -m 444 "$state_dir/plan-actual.json" "$plan_apply"
+  fi
   {
     required_query_52=$(stat -c '%u:%g:%a:%h' "$plan_apply")
     [[ -f "$plan_apply" && ! -L "$plan_apply" && ${required_query_52} == 0:0:444:1 ]]
@@ -805,7 +845,13 @@ SQL
   docker run --rm --network="$probe_network" -v "$probe_dir:/app/data" -v "$plan_apply:/input/migration-plan.json:ro" "$candidate_image_id" /app/sub2api --migration-apply-plan-json /input/migration-plan.json >"$state_dir/migrate-candidate.log" 2>&1
   mark_v2_stage migration_plan_after
   plan_after=$(docker run --rm --network="$probe_network" -v "$probe_dir:/app/data" "$candidate_image_id" /app/sub2api --migration-plan-json 2>"$state_dir/plan-after.log")
-  printf '%s' "$plan_after" | jq -e '((.pending|length) == 0) and (.existing_checksums_verified == true)' >/dev/null
+  printf '%s' "$plan_after" | jq -e 'type == "object" and (.pending|type)=="array" and (.pending|length)==0 and (.conflicts|type)=="array" and (.conflicts|length)==0 and (.unknown|type)=="array" and (.unknown|length)==0 and .existing_checksums_verified==true' >/dev/null
+  observed_catalog_sha256=$(printf '%s' "$plan_after" | jq -er '.catalog_sha256') || exit $?
+  expected_catalog_sha256=$(jq -er '.catalog_sha256' "$manifest") || exit $?
+  [[ $observed_catalog_sha256 =~ ^[0-9a-f]{64}$ && $observed_catalog_sha256 == "$expected_catalog_sha256" ]]
+  observed_checksum_policy_sha256=$(printf '%s' "$plan_after" | jq -er '.checksum_policy_sha256') || exit $?
+  expected_checksum_policy_sha256=$(jq -er '.checksum_policy_sha256' "$manifest") || exit $?
+  [[ $observed_checksum_policy_sha256 =~ ^[0-9a-f]{64}$ && $observed_checksum_policy_sha256 == "$expected_checksum_policy_sha256" ]]
   printf '%s' "$plan_after" > "$state_dir/plan-after.json"
   for filename in \
     242_user_platform_quotas_add_cn_providers.sql \

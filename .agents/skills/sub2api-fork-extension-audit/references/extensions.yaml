@@ -2028,6 +2028,10 @@
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_production_release.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_supervisor.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_vm_preflight_preserve.py",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_vm_failed_preserve.py",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/vm_failed_preserve_integration.py",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_vm_plan_sources.py",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/vm_plan_sources_integration.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/vm_preserve_migration_preflight_integration.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_finalization.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_finalization_shell.py",
@@ -2072,6 +2076,7 @@
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/recovery-compose-integration.sh"
       ],
       "invariants": [
+        "Gate生产plan-before与隔离probe的plan-actual分离：fast生产必须零pending且VM先执行独立完整计划fixture bootstrap再运行verified语义hooks，不虚称生产迁移前置验证；specialized/full仍核对两源pending一致；hooks/apply只用probe计划，对外Gate只用生产snapshot计划",
         "Shell必需断言覆盖独立否定/非末项AND/条件函数/命令与进程替换上下文，采集非零不以输出或空集覆盖；清理与停机前独立读回，Nginx冲突进入事务回滚，逐步失败fixture从正式入口执行；同族补丁和交叉独审固定后重建helper/DR/Gate，不反复部署试错",
         "恢复分类精确登记release入口、SSH/process、VM切换、插件控制、可启动observer及events/redact/retention证据职责；新增编辑模式删除移出均full且未审阻断，不新增目录或历史豁免；recovery_gate自身既有specialized策略不变",
         "完整恢复source/guest/collector/authorization/candidate-load/postrelease bridge及其签发和staging入口属于恢复敏感资产；单文件内容、模式、删除或移出目录仍触发full，不新增目录或历史审阅豁免。正式bundle纳入full runner所需source/guest/authorization/baseline_candidate_load/process原路径闭包与必要flat入口；baseline.py草稿不成为正式helper",

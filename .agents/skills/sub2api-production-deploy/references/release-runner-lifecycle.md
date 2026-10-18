@@ -4,6 +4,8 @@
 
 迁移前置检查失败不属于构建失败。`reconcile-vm-preserve --failed-stage migration-preflight` 仅收口已独审冻结的 profile 273/迁移 298 preflight 事故：精确源身份、失败与迁移计划、无 apply/后续产物、probe 清理、同 boot/owner 和生产尚未开始均证明后，双重复验再释放本地租约。原 failed 记录不改，不恢复数据、不关闭 VM、不复用失败 release；未知阶段或源字节继续阻断。详细条件见 [release-doctor-and-recovery.md](release-doctor-and-recovery.md#vm-电源与-cleanup-恢复)。
 
+另一个精确冻结的 `273-1396fc89fe73-1792295582-80609bce` 第 681 行计划比较事故由独立 `reconcile-vm-failed-preserve` 收口：仅此事故允许本 release 启动的 retained VM 显式保留运行，原四文件及远端 Gate 事故证据不改。当前已提交推送 helper、原 worker 退出、同 boot/owner、双远端锁、probe 已清理及生产尚未开始均重复证明后，先写独立 checks/result，最后释放 shared owner。`verify-vm-failed-preserve` 只读重验；原 `reconcile-vm-preserve` 不扩宽。下一次发布使用新 commit、new release ID、新 candidate 和新签名 Gate；修改 validator/helper 后旧 manifest/Gate 资产 checksum 不再代表新字节，不得复用失败发布或覆写其事故目录。
+
 ## 已消费发布的后置完成
 
 生产已 `production_verified` 且 claim 已 consumed、原 worker 仅后置检查失败退出时，使用正式 `finalize-consumed <release_id>` 入口。它属于独立 `ops-control-assets` 收口，不重发应用、不重新消费 claim、不恢复数据；原 runner 非零退出及原 manifest、Gate、production result、VM 生命周期事故记录保持原样。
