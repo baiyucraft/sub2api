@@ -25,6 +25,7 @@ from .paths import LAYOUT_DEPLOY_V1, RELEASE_PACKAGE_ROOT
 from .profiles import CURRENT_RELEASE_PROFILE, get_profile
 from .process import run_hidden
 from .migration_planner import CHECKSUM_POLICY_VERSION, HOOK_REGISTRY, catalog_sha256, checksum_policy_sha256
+from .vm_build import validate_build_dependency_binding
 
 
 def gate_payload(manifest: dict[str, Any], evidence: dict[str, Any]) -> bytes:
@@ -58,6 +59,7 @@ def _verify_gate_signature(bundle_dir: Path, public_key: Path) -> dict[str, Any]
 def verify_gate_v1(bundle_dir: Path, public_key: Path, expected_profile: str, allow_expired: bool = False, allow_historical_runner: bool = False, *, verified_document: dict[str, Any] | None = None) -> dict[str, Any]:
     document = verified_document if verified_document is not None else _verify_gate_signature(bundle_dir, public_key)
     manifest = document["manifest"]
+    validate_build_dependency_binding(manifest, required="build_dependency_contract" in manifest)
     evidence = document["evidence"]
     if isinstance(manifest.get("recovery_gate"), dict) and manifest["recovery_gate"].get("schema") == 2:
         raise RuntimeError("reviewed recovery evidence requires Gate v2")
@@ -397,6 +399,7 @@ def verify_gate_v2(bundle_dir: Path, public_key: Path, expected_profile: str, al
     if set(document) != {"gate_version", "profile_id", "manifest", "evidence"}:
         raise RuntimeError("Gate v2 document shape is invalid")
     manifest = document["manifest"]
+    validate_build_dependency_binding(manifest, required="build_dependency_contract" in manifest)
     evidence = document["evidence"]
     if not isinstance(manifest, dict) or not isinstance(evidence, dict) or manifest.get("schema") != 2:
         raise RuntimeError("Gate v2 schema is missing")
@@ -536,16 +539,18 @@ def verify_vm_only_gate(
     evidence = document["evidence"]
     if not isinstance(manifest, dict) or not isinstance(evidence, dict):
         raise RuntimeError("VM-only Gate document is invalid")
+    validate_build_dependency_binding(manifest, required="build_dependency_contract" in manifest)
     if document.get("gate_version") != 2 or document.get("profile_id") != int(expected_profile):
         raise RuntimeError("VM-only Gate identity is invalid")
     profile = get_profile(expected_profile)
     if expected_profile != CURRENT_RELEASE_PROFILE or profile.get("gate_schema") != 2:
         raise RuntimeError("VM-only Gate only accepts the current Gate v2 profile")
+    optional_build_fields = {name for name in ("build_dependency_contract", "build_dependencies", "build_dependencies_sha256") if name in manifest}
     if set(manifest) != {
         "schema", "vm_only_schema", "scope", "release_id", "created_at", "expires_at", "commit_sha", "origin",
         "profile", "version", "vm_identity", "vm_port", "vm_data", "source_tree_sha256",
         "vm_only_validator_sha256", "vm_only_switch_sha256",
-    }:
+    } | optional_build_fields:
         raise RuntimeError("VM-only manifest contains unknown or missing fields")
     if manifest.get("schema") != 2 or manifest.get("vm_only_schema") != 1 or manifest.get("scope") != "vm-only":
         raise RuntimeError("VM-only manifest scope is invalid")

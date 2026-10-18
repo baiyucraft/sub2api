@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import sys
@@ -10,18 +11,17 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from release import cli
+from test_vm_build_proof import DOCKERFILE_BYTES, proof_case, verified_case
 
 
-REPORT = {
-    "build_dependency_status": "verified", "build_failure_code": "none",
-    "build_dependency_count": "4", "build_dependency_verified_count": "4",
-}
+REPORT = verified_case(proof_case()[1]).report
 
 
 class BuildDependencyOrderingTest(unittest.TestCase):
     def _run(self, command, dependency_error=None):
-        identifier = "274-aaaaaaaaaaaa-1-deadbeef"
-        manifest = {"release_id": identifier, "migration_catalog": []}
+        manifest, proof = proof_case()
+        manifest["migration_catalog"] = []
+        identifier = manifest["release_id"]
         order = []
         doctor = mock.Mock()
         doctor.run.side_effect = [{}, {}, {
@@ -33,7 +33,10 @@ class BuildDependencyOrderingTest(unittest.TestCase):
             order.append("dependencies")
             if dependency_error:
                 raise dependency_error
-            return REPORT
+            return verified_case(proof)
+        def bind_snapshot(manifest, snapshot, *args):
+            order.append("snapshot_binding")
+            return manifest, snapshot
         def prepare(*args):
             order.append("recovery_package")
             return descriptor, "/rack/pre-gate", "/vm/pre-gate"
@@ -57,6 +60,10 @@ class BuildDependencyOrderingTest(unittest.TestCase):
                 mock.patch.object(cli, "decode_snapshot", return_value={"schema_migrations": []}),
                 mock.patch.object(cli, "_recovery_gate_report", return_value={"mode": "specialized"}),
                 mock.patch.object(cli, "ensure_vm_build_dependencies", side_effect=check),
+                mock.patch.object(cli, "_bind_preflight_snapshot", side_effect=bind_snapshot),
+                mock.patch("release.vm_build.git_blob_sha256", side_effect=lambda commit, path:
+                           hashlib.sha256(DOCKERFILE_BYTES).hexdigest() if path == "Dockerfile"
+                           else proof["helper_sha256"]),
                 mock.patch.object(cli, "prepare_pre_gate_inputs", side_effect=prepare) as package,
                 mock.patch.object(cli, "create_vm_gate", side_effect=gate) as build,
                 mock.patch.object(cli, "release") as production,
@@ -83,11 +90,14 @@ class BuildDependencyOrderingTest(unittest.TestCase):
                     self.assertEqual(state["stage"], "vm_validate")
                     self.assertEqual(report["build_failure_code"], "build_preflight_unproven")
                     self.assertNotIn("secret", json.dumps(report))
-                    self.assertEqual(order, ["dependencies"])
+                    self.assertEqual(order, ["snapshot_binding", "dependencies"])
                 else:
                     self.assertIsNone(error)
-                    self.assertEqual(order, ["dependencies", "recovery_package", "gate"])
-                    self.assertEqual(report["build_dependency_verified_count"], "4")
+                    self.assertEqual(order, ["snapshot_binding", "dependencies", "recovery_package", "gate"])
+                    self.assertEqual(report["build_dependency_verified_count"], "5")
+                    bound = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+                    self.assertEqual(bound["build_dependencies"], proof)
+                    self.assertEqual(bound["build_dependencies_sha256"], report["build_dependency_proof_sha256"])
                     self.assertEqual(state["status"], "running")
                     self.assertEqual(production.call_count, 1 if command == "deploy" else 0)
 

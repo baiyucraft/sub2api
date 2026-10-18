@@ -282,6 +282,10 @@ def migration_checksums(profile: dict[str, Any], commit: str | None = None) -> d
 
 
 def validate_manifest_profile_contract(manifest: dict[str, Any], profile: dict[str, Any]) -> None:
+    # Historical manifests remain readable; any present proof must be complete.
+    from .vm_build import validate_build_dependency_binding
+
+    validate_build_dependency_binding(manifest)
     schema = manifest.get("schema")
     if schema not in {1, 2}:
         raise RuntimeError("manifest schema does not match")
@@ -392,6 +396,7 @@ def create_manifest(commit: str, profile: dict[str, Any], release_id: str, deplo
     release_units = release_unit_relative_paths(layout)
     schema = int(profile.get("gate_schema", 1))
     manifest = {
+        "build_dependency_contract": "buildkit-dependencies-v1",
         "schema": schema,
         "release_asset_layout": layout,
         "deployment_mode": deployment_mode,
@@ -471,6 +476,7 @@ def create_vm_only_manifest(
     return {
         "schema": 2,
         "vm_only_schema": 1,
+        "build_dependency_contract": "buildkit-dependencies-v1",
         "scope": "vm-only",
         "release_id": release_id,
         "created_at": int(time.time()),
