@@ -2434,6 +2434,52 @@
       ]
     },
     {
+      "id": "windows-release-state-snapshots",
+      "title": "Windows 发布状态快照与安全替换",
+      "description": "应用、插件和 VM 控制文件统一共享删除读取，覆盖 JSON、哈希及原字节快照，配套带备份的安全替换。",
+      "ownership": "fork-operations",
+      "risk_level": "critical",
+      "paths": [
+        ".agents/skills/sub2api-production-deploy/scripts/release/atomic.py",
+        ".agents/skills/sub2api-production-deploy/scripts/release/worker_errors.py",
+        ".agents/skills/sub2api-production-deploy/scripts/release/terminal_receipt.py",
+        ".agents/skills/sub2api-production-deploy/scripts/release/state.py",
+        ".agents/skills/sub2api-production-deploy/scripts/release/supervisor.py",
+        ".agents/skills/sub2api-production-deploy/scripts/release/plugin_state.py",
+        ".agents/skills/sub2api-production-deploy/scripts/release/plugin_supervisor.py",
+        ".agents/skills/sub2api-production-deploy/scripts/release/vm_lifecycle.py",
+        ".agents/skills/sub2api-production-deploy/scripts/release/vm_failed_preserve.py",
+        ".agents/skills/sub2api-production-deploy/scripts/release/finalization.py",
+        ".agents/skills/sub2api-production-deploy/scripts/release/cli.py",
+        ".agents/skills/sub2api-production-deploy/scripts/release/manifest.py",
+        ".agents/skills/sub2api-production-deploy/scripts/release/vm_validate.py",
+        ".agents/skills/sub2api-production-deploy/scripts/release/production_cleanup.py"
+      ],
+      "symbols": ["atomic_write", "read_replaceable_bytes", "read_replaceable_text", "hash_replaceable_file"],
+      "api_routes": [],
+      "settings_keys": [],
+      "migration_files": [],
+      "required_tests": [
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_windows_atomic.py",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_replaceable_state_readers.py",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_terminal_receipt.py",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_windows_state_recovery_review.py",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_supervisor.py",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_plugin_supervisor.py",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_vm_lifecycle.py",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_finalization.py"
+      ],
+      "invariants": [
+        "Windows 共享读取和安全替换配套；旧句柄读完整旧快照，新句柄读完整新快照；JSON、哈希与原字节快照均覆盖",
+        "读取绑定同一打开句柄的长度并拒绝增长；显式大小上限保留；大文件哈希分块，不全量载入候选镜像",
+        "既有目标替换保留独占旧备份，核对提交结果后清理；首次创建不覆盖竞争目标；POSIX 模式、fsync 和替换算法不变",
+        "权限错误和不确定中间态失败封闭，保留可用源、目标与备份，区分提交前和提交后清理失败，不自动恢复或重跑 release",
+        "新runner成功见证绑定release ID与同次runner原字节hash；status、wait、verify-result一致拒绝缺失、损坏和漂移，历史schema不回填",
+        "路径、链接、schema、owner、writer 锁、代际和签名校验不放宽；真实多进程验证不能用 mock 冒充",
+        "恢复敏感最终 blob/mode 独立精确审阅，新发布绑定干净完整 SHA、新候选和新 Gate，不复用旧失败 release"
+      ]
+    },
+    {
       "id": "codex-model-live-window-precedence",
       "title": "Codex 模型目录实时窗口来源优先",
       "description": "模型目录转换及同步元数据补全保留上游明确返回的窗口；GPT-6.1 Sol 临时联合开关已移除，500k 默认窗口和订阅豁免归官方维护。",

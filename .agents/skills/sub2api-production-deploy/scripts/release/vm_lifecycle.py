@@ -17,7 +17,7 @@ from pathlib import Path
 import yaml
 import paramiko
 
-from .atomic import atomic_write, canonical_json
+from .atomic import atomic_write, canonical_json, read_replaceable_bytes
 from .process import run_hidden
 from .ssh import SSH_CONFIG, SSHRunner
 from .state import RunLock
@@ -82,24 +82,29 @@ def _shared_dir(settings: VMSettings) -> Path:
     return root / "sub2api-release" / "vm-lifecycle" / settings.identity
 
 
-def _read_state(path: Path, *, finalization: bool = False) -> dict:
+def _state_snapshot(path: Path, *, finalization: bool = False) -> tuple[dict, bytes]:
     if path.is_symlink() or path.parent.is_symlink():
         raise VMLifecycleError("vm_lifecycle_state_unsafe")
     if not path.exists():
-        return {}
+        return {}, b""
     try:
         if not path.is_file() or path.stat().st_size > 16384:
             raise ValueError
-        value = json.loads(path.read_text(encoding="utf-8"))
+        raw = read_replaceable_bytes(path, max_bytes=16384)
+        value = json.loads(raw.decode("utf-8"))
         if not isinstance(value, dict):
             raise ValueError
         if finalization:
             finalization_mode(value)
         elif type(value.get("schema")) is not int or value["schema"] != 1:
             raise ValueError
-        return value
+        return value, raw
     except (OSError, ValueError) as error:
         raise VMLifecycleError("vm_lifecycle_state_invalid") from None
+
+
+def _read_state(path: Path, *, finalization: bool = False) -> dict:
+    return _state_snapshot(path, finalization=finalization)[0]
 
 
 def lifecycle_view(run_dir: Path) -> dict:
@@ -430,8 +435,10 @@ printf 'vm_preserve_verified=true\\n'
 
 
 def _file_sha256(path: Path) -> str:
-    _read_state(path)
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    _, raw = _state_snapshot(path)
+    if not raw:
+        raise VMLifecycleError("vm_lifecycle_state_invalid")
+    return hashlib.sha256(raw).hexdigest()
 
 
 def _finalization_owner(original: dict, record: dict) -> dict:
@@ -540,8 +547,7 @@ class RetainedVMFinalization(VMLease):
     def _assert_unchanged(self) -> None:
         self._assert_original_worker_dead()
         for path, content in self.original_bytes.items():
-            _read_state(path)
-            if path.read_bytes() != content:
+            if _state_snapshot(path)[1] != content:
                 raise VMLifecycleError("vm_finalization_original_evidence_changed")
         if _read_state(self.shared / "owner.json") != self.original_owner:
             raise VMLifecycleError("vm_finalization_owner_changed")
@@ -611,13 +617,20 @@ printf 'vm_boot_id=%s\\n' "$observed_boot_id"
 ''', {"vm_boot_id"}, timeout=10)
             if result.values != {"vm_boot_id": lifecycle["vm_boot_id"]}:
                 raise VMLifecycleError("vm_finalization_boot_changed")
-            for path in (self.run_dir / "vm-lifecycle.json", self.run_dir / "runner.json"):
-                self.original_bytes[path] = path.read_bytes()
+            for path, expected in (
+                (self.run_dir / "vm-lifecycle.json", self.original_lifecycle),
+                (self.run_dir / "runner.json", self.runner),
+            ):
+                value, raw = _state_snapshot(path)
+                if value != expected:
+                    raise VMLifecycleError("vm_finalization_original_evidence_changed")
+                self.original_bytes[path] = raw
             snapshot = self.run_dir / "vm-finalization-owner.json"
-            owner_bytes = (self.shared / "owner.json").read_bytes()
+            owner, owner_bytes = _state_snapshot(self.shared / "owner.json")
+            if owner != self.original_owner:
+                raise VMLifecycleError("vm_finalization_owner_changed")
             if snapshot.exists() or snapshot.is_symlink():
-                _read_state(snapshot)
-                if snapshot.read_bytes() != owner_bytes:
+                if _state_snapshot(snapshot)[1] != owner_bytes:
                     raise VMLifecycleError("vm_finalization_owner_snapshot_changed")
             else:
                 atomic_write(snapshot, owner_bytes)
@@ -626,8 +639,8 @@ printf 'vm_boot_id=%s\\n' "$observed_boot_id"
                 "schema": 2 if self.preserve_running_vm else 1, "release_id": self.release_id, "source_commit": self.commit,
                 "vm_identity": self.settings.identity, "vm_boot_id": lifecycle["vm_boot_id"],
                 "original_owner_sha256": hashlib.sha256(owner_bytes).hexdigest(),
-                "original_lifecycle_sha256": _file_sha256(self.run_dir / "vm-lifecycle.json"),
-                "original_runner_sha256": _file_sha256(self.run_dir / "runner.json"),
+                "original_lifecycle_sha256": hashlib.sha256(self.original_bytes[self.run_dir / "vm-lifecycle.json"]).hexdigest(),
+                "original_runner_sha256": hashlib.sha256(self.original_bytes[self.run_dir / "runner.json"]).hexdigest(),
                 "vm_started_by_release": not self.preserve_running_vm, "vm_power_status": "running",
                 "vm_cleanup_status": "pending", "status": "ready", "shutdown_requested": False,
                 "boot_verified": True,

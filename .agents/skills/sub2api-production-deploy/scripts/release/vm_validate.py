@@ -13,7 +13,7 @@ from .profiles import get_profile
 from .bootstrap import install_vm_validator
 from .paths import LAYOUT_SKILL_V1, RELEASE_PACKAGE_ROOT, TRUSTED_VM_PUBLIC_KEY
 from .ssh import SSHRunner
-from .atomic import atomic_write, canonical_json
+from .atomic import atomic_write, canonical_json, read_replaceable_bytes, read_replaceable_text
 from .vm_build import (
     BUILD_FAILURE_CODES, BUILD_FAILURE_PHASES, BUILD_FAILURE_ROLES, BUILD_FAILURE_METHODS,
     VMCandidateBuildError, bind_build_dependencies,
@@ -504,12 +504,15 @@ def main() -> None:
     production_snapshot_path = manifest_path.with_name("production-snapshot.json")
     pre_gate_descriptor_path = manifest_path.with_name("pre-gate-input.json")
     output = Path(args.output)
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest = json.loads(read_replaceable_text(manifest_path))
     validate_manifest_profile_contract(manifest, get_profile(str(manifest.get("profile", ""))))
     space_cleaner_checksum(manifest)
     runner = SSHRunner()
     install_vm_validator(runner)
     manifest = _ensure_build_dependencies(runner, manifest, manifest_path)
+    manifest_raw = read_replaceable_bytes(manifest_path)
+    if json.loads(manifest_raw.decode("utf-8")) != manifest:
+        raise RuntimeError("validated VM manifest changed before upload")
     runner.run(
         "local_vm",
         "install -d -m 700 /opt/sub2api-deploy/release-input && input_metadata=$(stat -c '%u:%a' /opt/sub2api-deploy/release-input) && input_uid=$(id -u) && test \"$input_metadata\" = \"$input_uid:700\" && printf 'input_root_ready=true\\n'",
@@ -521,7 +524,7 @@ def main() -> None:
     remote_pre_gate_descriptor = f"{remote_root}/pre-gate-input.json"
     remote_cleaner = f"{remote_root}/vm-space-clean.sh"
     remote_output = f"/opt/sub2api-deploy/release-gates/{manifest['release_id']}/output"
-    runner.upload("local_vm", manifest_path.read_bytes(), remote_manifest, 0o400)
+    runner.upload("local_vm", manifest_raw, remote_manifest, 0o400)
     if manifest.get("schema") == 2:
         if not production_snapshot_path.is_file() or production_snapshot_path.is_symlink():
             raise RuntimeError("Gate v2 immutable production snapshot is missing")

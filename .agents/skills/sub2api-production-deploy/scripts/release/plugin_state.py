@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .atomic import atomic_write, canonical_json
+from .atomic import atomic_write, canonical_json, read_replaceable_text
 
 
 PLUGIN_TERMINAL_STATES = {"verified", "failed", "recovered", "blocked_reconciliation"}
@@ -76,7 +76,7 @@ class PluginRunState:
 
     @classmethod
     def load(cls, path: Path) -> "PluginRunState":
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw = json.loads(read_replaceable_text(path))
         if (
             not isinstance(raw, dict)
             or raw.get("schema") != 1

@@ -7,6 +7,7 @@ import subprocess
 from dataclasses import dataclass
 
 from .manifest import sha256_file, validate_image_id
+from .atomic import read_replaceable_text
 from .paths import RELEASE_PACKAGE_ROOT, RUN_ROOT, TRUSTED_VM_PUBLIC_KEY, WORKSPACE
 from .ssh import SSHRunner
 from .state import RunLock
@@ -177,7 +178,7 @@ def load_cleanup_identity(release_id: str, run_root: Path = RUN_ROOT) -> Cleanup
         stderr=subprocess.DEVNULL,
     )
     gate = json.loads(gate_path.read_text(encoding="utf-8"))
-    result = json.loads(result_path.read_text(encoding="utf-8"))
+    result = json.loads(read_replaceable_text(result_path))
     if gate.get("manifest", {}).get("release_id") != release_id:
         raise RuntimeError("signed Gate release identity does not match")
     current_image_id = validate_image_id(gate.get("evidence", {}).get("candidate_image_id", ""))

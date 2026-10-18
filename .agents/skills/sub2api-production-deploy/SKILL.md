@@ -434,3 +434,13 @@ jq -cS '.manifest.migration_sha256' | sha256sum
 经独立审阅，本批固定生产 BASE `5deebb2929c2a694145cc2726e895f01c43d28c1` → 实现 TARGET `89e105dc1618e05018a26a8053f5a8b710db8e98`，仅冻结 `release/cli.py`、`gate.py`、`manifest.py`、`supervisor.py`、`vm-build-common.sh`、`vm-only-validate.sh`、`vm-validate.sh`、`vm_build.py`、`vm_only.py`、`vm_validate.py` 十条同路径 Git blob 与模式。权威组为 `_BUILDKIT_DEPENDENCY_REVIEW_PATHS`，理由 `reviewed_buildkit_dependency_proof_changed`；其中两个新 helper 的生产旧状态必须不存在。原 `_PROCESS_BUILD_PREFLIGHT_REVIEW_PATHS` 及全部历史 TARGET 不回写，其他未变化的路径继续匹配各自历史审阅。
 
 本批覆盖五角色 digest 锁、一次真实物化、proof 下载/绑定及签名验证、三入口消费、早期生产快照绑定与严格 proof 失败收口；不修改生产数据恢复算法、备份格式或信任根。最终候选仍须 `specialized` 真实隔离恢复、新签名 VM Gate 及生产验真。`test_buildkit_dependency_recovery_review.py` 固定十项 literal 对象与历史登记，逐项拒绝 blob、mode、删除、移动、BASE 漂移和额外敏感路径。登记不自动学习未来候选，不以目录或祖先关系豁免；本地测试与真实依赖 solve 均不能替代应用构建或生产发布。
+
+### Windows 状态文件快照
+
+应用、插件和 VM 生命周期的可变状态读取、哈希及原字节快照统一使用 `release.atomic` 的共享删除读取。Windows 读取句柄显式允许 READ/WRITE/DELETE sharing，读取和大小检查绑定同一普通文件句柄；显式大小上限继续保留，无显式上限时以该句柄打开时的文件长度限制本次读取，增长超限失败。归档哈希保持分块读取，不能把候选镜像全量读入内存。
+
+Windows 既有目标采用 `ReplaceFileW` 安全替换并保留独占备份，首次创建采用不覆盖目标的原子移动；POSIX 保持原有 fsync、模式及替换合同。成功后先核对新目标和旧备份，再清理本次临时资产。原生调用失败或清理不确定时保留可用的新文件、目标和备份，明确区分写入是否已经提交，禁止吞权限错误、删除目标后重写、自动恢复或重新发布。共享读取不赋予额外权限，也不代替既有 writer 锁、owner 和代际校验。
+
+本地验收必须覆盖真实 Windows 多进程持有旧快照、并发状态观察、备份清理、首次创建竞争、普通不共享删除读者拒绝、错误状态保全及句柄释放；模拟错误不能冒称实际诱发的系统故障。相关字节变化仍须独立精确分类、干净最终 SHA 的回归、新候选及签名 Gate，原失败 release 不复用。
+
+新 runner 的成功终态还须有独占发布的完成见证，绑定 release ID 与 terminal runner 原字节 SHA-256。见证只在状态提交和所有必需收尾成功后发布；缺失、损坏或不匹配时，status、wait 和 verify-result 均拒绝成功。已发布 verified JSON 后发生校验或清理错误也不能绕过该约束。历史 runner 按原 schema 验证，不回填旧证据。
