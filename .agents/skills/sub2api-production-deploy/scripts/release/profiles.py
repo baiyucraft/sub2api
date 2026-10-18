@@ -1040,7 +1040,21 @@ PROFILES["273"] = {
     },
 }
 
-CURRENT_RELEASE_PROFILE = "273"
+# Split admission storage requires stopped old writers and coordinated restoration.
+PROFILES["274"] = {
+    **{key: PROFILES["273"][key] for key in _PROFILE_V2_RUNTIME_KEYS},
+    "name": "274",
+    "version": "0.2.17-baiyu",
+    "parent": "273",
+    "new_migrations": ["301_upstream_cache_guard_admissions.sql"],
+    "gate_schema": 2,
+    "release_policy": {
+        "compatibility_image": "production_current",
+        "migration_source": "database_state",
+    },
+}
+
+CURRENT_RELEASE_PROFILE = "274"
 
 
 def get_profile(name: str) -> dict:

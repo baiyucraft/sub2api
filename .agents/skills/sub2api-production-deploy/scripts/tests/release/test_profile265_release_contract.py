@@ -36,28 +36,28 @@ class Profile265ReleaseContractTest(unittest.TestCase):
         baseline = {}
         exec(compile(git_blob(BASELINE, ".agents/skills/sub2api-production-deploy/scripts/release/profiles.py"), "baseline", "exec"), baseline)
         self.assertEqual(baseline["CURRENT_RELEASE_PROFILE"], "264")
-        self.assertEqual(set(PROFILES), set(baseline["PROFILES"]) | {"265", "266", "267", "268", "269", "270", "271", "272", "273"})
+        self.assertEqual(set(PROFILES), set(baseline["PROFILES"]) | {"265", "266", "267", "268", "269", "270", "271", "272", "273", "274"})
         for name, profile in baseline["PROFILES"].items():
             self.assertEqual(get_profile(name), profile, name)
             with self.assertRaisesRegex(ValueError, "historical"):
                 get_release_profile(name)
         for path in sorted((WORKSPACE / "backend/migrations").glob("*.sql")):
-            if path.name not in (MIGRATION, "291_user_invoice_annotations.sql", *get_profile("267")["new_migrations"], *get_profile("268")["new_migrations"], *get_profile("269")["new_migrations"], *get_profile("270")["new_migrations"], *get_profile("271")["new_migrations"], *get_profile("273")["new_migrations"]):
+            if path.name not in (MIGRATION, "291_user_invoice_annotations.sql", *get_profile("267")["new_migrations"], *get_profile("268")["new_migrations"], *get_profile("269")["new_migrations"], *get_profile("270")["new_migrations"], *get_profile("271")["new_migrations"], *get_profile("273")["new_migrations"], *get_profile("274")["new_migrations"]):
                 self.assertEqual(path.read_bytes(), git_blob(BASELINE, f"backend/migrations/{path.name}"), path.name)
         current = get_profile("265")
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "273")
+        self.assertEqual(CURRENT_RELEASE_PROFILE, "274")
         self.assertEqual((current["version"], current["parent"], current["gate_schema"]), ("0.2.15-baiyu", "264", 2))
         self.assertEqual(current["new_migrations"], [MIGRATION])
         self.assertEqual(current["release_policy"], get_profile("264")["release_policy"])
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 274"):
-            get_profile("274")
+        with self.assertRaisesRegex(ValueError, "unknown release profile: 275"):
+            get_profile("275")
 
     def test_official_raw_bytes_registration_and_checksum_contracts(self):
         registration = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
         for field in ("version", "parent", "gate_schema", "new_migrations", "release_policy"):
             self.assertEqual(registration["historical_profiles"]["265"][field], get_profile("265")[field])
             self.assertEqual(registration["historical_profiles"]["264"][field], get_profile("264")[field])
-        self.assertEqual(registration["current_profile"]["id"], "273")
+        self.assertEqual(registration["current_profile"]["id"], "274")
         self.assertEqual(registration["current_profile"]["status"], "pending")
         self.assertEqual(registration["version_contract"]["official_release_versions"][UPSTREAM], "0.2.15")
         self.assertEqual(git_blob(UPSTREAM, "backend/cmd/server/VERSION").decode().strip(), "0.2.15")
@@ -83,7 +83,7 @@ class Profile265ReleaseContractTest(unittest.TestCase):
         self.assertTrue(plan_migrations(catalog, snapshot)["conflicts"])
         self.assertIsNotNone(RELEASE_ID.fullmatch("265-aaaaaaaaaaaa-1-aaaaaaaa"))
         self.assertIsNotNone(RELEASE_ID.fullmatch("272-aaaaaaaaaaaa-1-aaaaaaaa"))
-        self.assertIsNone(RELEASE_ID.fullmatch("274-aaaaaaaaaaaa-1-aaaaaaaa"))
+        self.assertIsNone(RELEASE_ID.fullmatch("275-aaaaaaaaaaaa-1-aaaaaaaa"))
 
     def test_manifest_binds_new_profile_exactly_and_requires_ancestor_evidence(self):
         profile = get_profile("265")
@@ -146,12 +146,12 @@ jq() {
         for relative in ("maintenance/release/switch.sh", "maintenance/release/activity-reward-cost-postflight.sh"):
             source = (DEPLOY_ROOT / relative).read_text(encoding="utf-8")
             guard = next(re.search(r"\[\[.*?\]\]", line)[0] for line in source.splitlines() if "$release_profile == 264" in line)
-            for profile, mode, allowed in (("264", "downtime", True), ("265", "downtime", True), ("265", "blue-green", False), ("266", "downtime", True), ("267", "downtime", True), ("268", "downtime", True), ("269", "downtime", True), ("270", "downtime", True), ("271", "downtime", True), ("272", "downtime", True), ("272", "blue-green", False), ("273", "downtime", True), ("273", "blue-green", False), ("274", "downtime", False)):
+            for profile, mode, allowed in (("264", "downtime", True), ("265", "downtime", True), ("265", "blue-green", False), ("266", "downtime", True), ("267", "downtime", True), ("268", "downtime", True), ("269", "downtime", True), ("270", "downtime", True), ("271", "downtime", True), ("272", "downtime", True), ("272", "blue-green", False), ("273", "downtime", True), ("273", "blue-green", False), ("274", "downtime", True), ("275", "downtime", False)):
                 result = self.execute('release_profile=$1; deployment_mode=$2\n' + guard, profile, mode)
                 self.assertEqual(result.returncode == 0, allowed, (relative, result.stderr))
         source = (DEPLOY_ROOT / "release/vm-validate.sh").read_text(encoding="utf-8")
         guard = next(re.search(r"\[\[.*?\]\]", line)[0] for line in source.splitlines() if line.startswith('  if [[ "$profile" == 264'))
-        self.assert_guard_cases(guard, "profile", (("264", True), ("265", True), ("271", True), ("272", True), ("273", True), ("274", False)))
+        self.assert_guard_cases(guard, "profile", (("264", True), ("265", True), ("271", True), ("272", True), ("273", True), ("274", True), ("275", False)))
 
 
 if __name__ == "__main__":

@@ -208,7 +208,9 @@ type SessionState struct {
 	TrialProtocol       string                  `json:"trial_protocol"`
 	CohortID            string                  `json:"cohort_id,omitempty"`
 	Routes              map[string]SessionRoute `json:"routes"`
-	Admissions          map[string]Admission    `json:"admissions"`
+	// Admissions is retained for legacy stores and migration input only. Split
+	// stores keep the immutable per-request records outside the session body.
+	Admissions map[string]Admission `json:"admissions,omitempty"`
 }
 type GroupState struct {
 	NaturalNewCount int64 `json:"natural_new_count"`
@@ -268,7 +270,8 @@ type RuntimeRow struct {
 	UpdatedAt time.Time
 }
 
-// Tx operates under a database transaction and an exclusive per-group lock.
+// Tx operates under a database transaction. Stores acquire account, session,
+// and (only when needed) group quota locks in that order.
 type Tx interface {
 	Read(kind, key string, out any) (int64, error)
 	Write(kind, key string, value any) (int64, error)
@@ -356,6 +359,34 @@ type BatchCleanupStore interface {
 }
 type FactVersionTx interface {
 	FactVersion(int64, int64) (int64, error)
+}
+
+// AdmissionTx stores per-request classifications independently of the small
+// session identity. All operations run under the same session transaction lock
+// as Tx.Read/Write, preserving atomic admission and completion semantics.
+type AdmissionTx interface {
+	ReadAdmission(sessionKey, key string) (Admission, bool, error)
+	WriteAdmission(sessionKey, key string, value Admission) error
+	PendingAdmissions(sessionKey string, accountID int64, routeKey string) ([]Admission, error)
+	RetainedAdmissionCount(sessionKey string, since time.Time) (int, error)
+}
+
+// AdmissionFailure contains only opaque identifiers for a transient completion
+// failure. A refresh checks just these records for durable acknowledgments.
+type AdmissionFailure struct {
+	AccountID, UpstreamKeyID int64
+	Key                      string
+}
+
+type AdmissionHealth struct {
+	// Pending contains only unfinished records that predate this runner or are
+	// older than five minutes. Completed history never needs to be materialized.
+	Pending      []Admission
+	Acknowledged []AdmissionFailure
+}
+
+type AdmissionStore interface {
+	AdmissionHealth(ctx context.Context, bornAt, now time.Time, failures []AdmissionFailure) (AdmissionHealth, error)
 }
 
 var ErrUnavailable = errors.New("cache guard persistence unavailable")
