@@ -133,6 +133,10 @@ _PROFILE269_FINALIZATION_REVIEW_PATHS = frozenset({
 # Only initialize the optional pre-Gate input handles before schema dispatch.
 # The reviewed implementation does not change restore, cleanup or trust logic.
 _FAST_DEPLOY_INITIALIZATION_REVIEW_PATHS = frozenset({_SCRIPTS_PREFIX + "release/cli.py"})
+_VM_PLAN_SOURCES_REVIEW_PATHS = frozenset({
+    _SCRIPTS_PREFIX + "release/" + name
+    for name in ("cli.py", "vm-validate.sh", "vm_failed_preserve.py")
+})
 _REVIEWED_SCOPED_TRANCHES = (
     (
         "aeb410bccc524164bdafbd3db865d4f5f588aced",
@@ -229,6 +233,12 @@ _REVIEWED_SCOPED_TRANCHES = (
         "a0f7ca7666ddd2e6485536be7a8ef6696344c0ac",
         "reviewed_vm_preflight_recovery_changed",
         _FAST_DEPLOY_INITIALIZATION_REVIEW_PATHS,
+    ),
+    (
+        "7d4ecf44f99e17dc0fa7b83585862c357695ceff",
+        "8cbb42d9f358875854a6b0d87a44cdb8b84b6ea4",
+        "reviewed_vm_preflight_recovery_changed",
+        _VM_PLAN_SOURCES_REVIEW_PATHS,
     ),
 )
 _RELEASE_STATE_MACHINE_FILES = frozenset(
