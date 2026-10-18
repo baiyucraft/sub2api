@@ -611,22 +611,36 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn("drverify/[^/]+", validator)
 
     def test_vm_validator_build_uses_go_version_required_by_backend(self) -> None:
+        helper = (DEPLOY_ROOT / "release" / "vm-build-common.sh").read_text(encoding="utf-8")
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
-        self.assertEqual(validator.count("GOLANG_IMAGE=docker.m.daocloud.io/library/golang:1.27.2-alpine"), 2)
-        self.assertNotIn("GOLANG_IMAGE=docker.m.daocloud.io/library/golang:1.27.0-alpine", validator)
-        self.assertNotIn("GOLANG_IMAGE=docker.m.daocloud.io/library/golang:1.26.6-alpine", validator)
+        vm_only = (DEPLOY_ROOT / "release" / "vm-only-validate.sh").read_text(encoding="utf-8")
+        self.assertEqual(helper.count("docker.m.daocloud.io/library/golang:1.27.2-alpine"), 1)
+        self.assertIn('--build-arg "GOLANG_IMAGE=${VM_BUILD_IMAGES[1]}"', helper)
+        self.assertIn('vm_build_docker build --network=host --progress=plain "${VM_BUILD_IMAGE_ARGS[@]}" "$@"', helper)
+        helper_relative = ".agents/skills/sub2api-production-deploy/scripts/release/vm-build-common.sh"
+        self.assertIn(f"local helper_relative={helper_relative}", validator)
+        self.assertIn('source "$helper"', validator)
+        self.assertEqual(len(re.findall(r"(?m)^[ \t]*load_vm_build_helper$", validator)), 2)
+        self.assertIn(f"build_helper_relative={helper_relative}", vm_only)
+        self.assertIn('source "$build_helper"', vm_only)
+        for entrypoint, build_count in ((validator, 2), (vm_only, 1)):
+            self.assertEqual(len(re.findall(r'(?m)^[ \t]*vm_build_candidate "\$build_log" \\$', entrypoint)), build_count)
+            self.assertNotIn("GOLANG_IMAGE=", entrypoint)
+        for source in (helper, validator, vm_only):
+            self.assertNotIn("docker.m.daocloud.io/library/golang:1.27.0-alpine", source)
+            self.assertNotIn("docker.m.daocloud.io/library/golang:1.26.6-alpine", source)
 
     def test_vm_builder_pins_cannot_drift_from_go_module_and_dockerfile(self) -> None:
         module = (WORKSPACE / "backend" / "go.mod").read_text(encoding="utf-8")
         dockerfile = (WORKSPACE / "Dockerfile").read_text(encoding="utf-8")
-        validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
+        helper = (DEPLOY_ROOT / "release" / "vm-build-common.sh").read_text(encoding="utf-8")
         required_version = re.findall(r"^go ([0-9]+\.[0-9]+\.[0-9]+)$", module, re.MULTILINE)
         self.assertEqual(len(required_version), 1, "backend Go version must be explicit")
         version = required_version[0]
         docker_default = re.findall(r"^ARG GOLANG_IMAGE=(\S+)$", dockerfile, re.MULTILINE)
         self.assertEqual(docker_default, [f"golang:{version}-alpine"])
-        vm_pins = re.findall(r"--build-arg GOLANG_IMAGE=(\S+)", validator)
-        self.assertEqual(vm_pins, [f"docker.m.daocloud.io/library/golang:{version}-alpine"] * 2)
+        vm_pins = re.findall(r"(?m)^[ \t]*(docker\.m\.daocloud\.io/library/golang:\S+)[ \t]*$", helper)
+        self.assertEqual(vm_pins, [f"docker.m.daocloud.io/library/golang:{version}-alpine"])
 
     def test_profile_192_extends_profile_191_with_group_duplicate_migration(self) -> None:
         profile_191 = get_profile("191")
