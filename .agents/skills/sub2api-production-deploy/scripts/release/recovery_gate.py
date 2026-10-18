@@ -175,6 +175,15 @@ _PROFILE274_POSTFLIGHT_PATHS = frozenset({
     _SCRIPTS_PREFIX + "maintenance/release/" + name
     for name in ("activity-reward-cost-postflight.sh", "switch.sh")
 })
+# Independently reviewed process liveness and build-preflight control changes.
+# Match the exact production/implementation blobs and modes, never ancestry.
+_PROCESS_BUILD_PREFLIGHT_REVIEW_PATHS = frozenset({
+    _SCRIPTS_PREFIX + "release/" + name for name in (
+        "cli.py", "finalization.py", "observer.py", "plugin_supervisor.py",
+        "process.py", "supervisor.py", "vm-build-common.sh", "vm-only-validate.sh",
+        "vm-validate.sh", "vm_build.py", "vm_validate.py",
+    )
+})
 _REVIEWED_SCOPED_TRANCHES = (
     (
         "aeb410bccc524164bdafbd3db865d4f5f588aced",
@@ -295,6 +304,12 @@ _REVIEWED_SCOPED_TRANCHES = (
         "aca670e896ffa0e0e54204f1e6c33c205d5160f5",
         "reviewed_reward_cost_postflight_changed",
         _PROFILE274_POSTFLIGHT_PATHS,
+    ),
+    (
+        "5deebb2929c2a694145cc2726e895f01c43d28c1",
+        "1a6271af98027b67e63dfb24915aaf11ab395974",
+        "reviewed_process_build_preflight_changed",
+        _PROCESS_BUILD_PREFLIGHT_REVIEW_PATHS,
     ),
 )
 _RELEASE_STATE_MACHINE_FILES = frozenset(
