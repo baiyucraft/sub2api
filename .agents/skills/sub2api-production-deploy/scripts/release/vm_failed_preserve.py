@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 
 from . import supervisor, vm_lifecycle
-from .atomic import atomic_write, canonical_json
+from .atomic import atomic_write, canonical_json, hash_replaceable_file
 from .doctor import ReleaseDoctor
 from .finalization import _helper_identity, _process_identity
 from .ssh import SSHRunner
@@ -199,7 +199,7 @@ def _hash_originals(run_dir: Path) -> dict[str, str]:
         path = run_dir / name
         if path.is_symlink() or not path.is_file() or path.stat().st_nlink != 1:
             raise RuntimeError("vm_failed_preserve_unsafe_original")
-        result[name] = hashlib.sha256(path.read_bytes()).hexdigest()
+        result[name] = hash_replaceable_file(path)
     if result != ORIGINAL_SHA256:
         raise RuntimeError("vm_failed_preserve_original_changed")
     return result
@@ -224,7 +224,9 @@ def reconcile(args: argparse.Namespace) -> dict:
         state = supervisor._read_json(run_dir / "state.json", required=True) or {}
         lease = vm_lifecycle._read_state(run_dir / "vm-lifecycle.json")
         owner = vm_lifecycle._read_state(shared / "owner.json")
-        owner_bytes = (shared / "owner.json").read_bytes()
+        owner_snapshot, owner_bytes = vm_lifecycle._state_snapshot(shared / "owner.json")
+        if owner_snapshot != owner:
+            raise RuntimeError("vm_failed_preserve_local_evidence_changed")
         if (manifest.get("schema") != 2 or manifest.get("release_id") != identifier
                 or manifest.get("commit_sha") != INCIDENT_COMMIT or manifest.get("profile") != "273"
                 or manifest.get("vm_validator_sha256") != INCIDENT_VALIDATOR
@@ -255,8 +257,8 @@ def reconcile(args: argparse.Namespace) -> dict:
         local = ReleaseDoctor("273", helper["commit_sha"]).run(("local",))
         if local.get("local_ready") != "true" or local.get("host_keys_ready") != "true":
             raise RuntimeError("vm_failed_preserve_helper_unproven")
-        checks = supervisor._read_json(run_dir / CHECKS_NAME)
-        result = supervisor._read_json(run_dir / RESULT_NAME)
+        checks, checks_raw = supervisor._json_snapshot(run_dir / CHECKS_NAME)
+        result, result_raw = supervisor._json_snapshot(run_dir / RESULT_NAME)
         binding = {"schema": 1, "scope": "failed-gate-vm-preserve", "release_id": identifier,
                    "application_commit": INCIDENT_COMMIT, "helper": helper,
                    "original_sha256": originals, "remote_sha256": REMOTE_SHA256,
@@ -266,7 +268,7 @@ def reconcile(args: argparse.Namespace) -> dict:
         if checks is not None and checks != binding:
             raise RuntimeError("vm_failed_preserve_checks_changed")
         checks_sha = hashlib.sha256(canonical_json(binding) + b"\n").hexdigest()
-        if checks is not None and hashlib.sha256((run_dir / CHECKS_NAME).read_bytes()).hexdigest() != checks_sha:
+        if checks is not None and hashlib.sha256(checks_raw).hexdigest() != checks_sha:
             raise RuntimeError("vm_failed_preserve_checks_changed")
         if result is not None:
             expected = {"schema": 1, "scope": binding["scope"], "release_id": identifier, "status": "verified",
@@ -275,7 +277,7 @@ def reconcile(args: argparse.Namespace) -> dict:
                         "original_runner_status": "failed", "original_runner_exit": 1,
                         "reconciled_at": result.get("reconciled_at")}
             if (result != expected or type(result.get("reconciled_at")) is not int or checks is None
-                    or (run_dir / RESULT_NAME).read_bytes() != canonical_json(result) + b"\n"):
+                    or result_raw != canonical_json(result) + b"\n"):
                 raise RuntimeError("vm_failed_preserve_result_changed")
         released = {**lease, "lease_status": "released", "vm_power_status": "running", "vm_cleanup_status": "preserved"}
         if result is not None:
@@ -304,7 +306,7 @@ def reconcile(args: argparse.Namespace) -> dict:
             if production.get("racknerd_ready") != "true" or production.get("production_current_image_id") != manifest["production_current_image_id"]:
                 raise RuntimeError("vm_failed_preserve_production_changed")
             if (_hash_originals(run_dir) != originals or vm_lifecycle._read_state(shared / "owner.json") != owner
-                    or (shared / "owner.json").read_bytes() != owner_bytes
+                    or vm_lifecycle._state_snapshot(shared / "owner.json")[1] != owner_bytes
                     or _process_identity(runner["pid"]) == runner["process_token"] or not vm._running()):
                 raise RuntimeError("vm_failed_preserve_local_evidence_changed")
             # The helper/checkout must remain the reviewed committed version.
@@ -326,8 +328,11 @@ def reconcile(args: argparse.Namespace) -> dict:
                           "original_runner_status": "failed", "original_runner_exit": 1, "reconciled_at": int(time.time())}
                 atomic_write(run_dir / RESULT_NAME, canonical_json(result) + b"\n")
             # Verify durable independent records before the final owner commit.
-            if ((run_dir / CHECKS_NAME).read_bytes() != canonical_json(binding) + b"\n"
-                    or (run_dir / RESULT_NAME).read_bytes() != canonical_json(result) + b"\n"):
+            written_checks, written_checks_raw = supervisor._json_snapshot(run_dir / CHECKS_NAME, required=True)
+            written_result, written_result_raw = supervisor._json_snapshot(run_dir / RESULT_NAME, required=True)
+            if (written_checks != binding or written_result != result
+                    or written_checks_raw != canonical_json(binding) + b"\n"
+                    or written_result_raw != canonical_json(result) + b"\n"):
                 raise RuntimeError("vm_failed_preserve_written_evidence_changed")
             preflight()
             released["updated_at"] = result["reconciled_at"]

@@ -2,6 +2,16 @@
 
 生产发布必须由独立 runner 持续执行，调用端只负责启动、观察和验真。宿主工具的超时、断开 stdout 或会话关闭都不能终止 runner。
 
+## Windows 状态读取与原子发布
+
+`runner.json`、应用和插件 state、可变 manifest、production result、VM lifecycle/owner 及其正式哈希、字节快照使用同一共享删除读取合同。读取旧句柄可以继续得到旧的完整文件，新打开的句柄得到新的完整文件；不得混合两个路径读取结果或用部分 JSON 更新状态。路径、链接、大小、schema、owner 和代际检查继续执行。
+
+Windows 共享读取必须与原生安全替换配套；单独调整轮询间隔或只增加共享删除标志不能证明替换可用。已有文件替换须保留独占旧备份并核对提交结果，首次创建不得覆盖竞争出现的文件。正常观察不能阻塞自身发布写入；外部不兼容句柄、ACL 或只读拒绝仍应报错。
+
+失败可能发生在提交前、提交后校验或清理阶段，报告必须明确区分。Windows 替换错误可能留下中间文件状态，不能沿用无条件删除临时文件的清理方式，也不能把非零退出解释为“目标未变化”。保留可用的临时文件、原目标和备份，禁止通用重试、强制权限修复或重新启动 release。后续检查从实际文件和结构化状态重建事实。
+
+新 runner 使用独占发布的成功见证绑定 release ID 和 terminal runner 原字节 SHA-256；完成状态提交、必需日志和资源收尾后才可发布。status、wait 和 verify-result 必须一致校验，缺失、损坏或字节不匹配不能判成功。这样即使 verified JSON 已替换而备份校验或清理失败，也不会被观察端误认为完成。历史 schema 保持原合同，不回填旧文件。
+
 迁移前置检查失败不属于构建失败。`reconcile-vm-preserve --failed-stage migration-preflight` 仅收口已独审冻结的 profile 273/迁移 298 preflight 事故：精确源身份、失败与迁移计划、无 apply/后续产物、probe 清理、同 boot/owner 和生产尚未开始均证明后，双重复验再释放本地租约。原 failed 记录不改，不恢复数据、不关闭 VM、不复用失败 release；未知阶段或源字节继续阻断。详细条件见 [release-doctor-and-recovery.md](release-doctor-and-recovery.md#vm-电源与-cleanup-恢复)。
 
 另一个精确冻结的 `273-1396fc89fe73-1792295582-80609bce` 第 681 行计划比较事故由独立 `reconcile-vm-failed-preserve` 收口：仅此事故允许本 release 启动的 retained VM 显式保留运行，原四文件及远端 Gate 事故证据不改。当前已提交推送 helper、原 worker 退出、同 boot/owner、双远端锁、probe 已清理及生产尚未开始均重复证明后，先写独立 checks/result，最后释放 shared owner。`verify-vm-failed-preserve` 只读重验；原 `reconcile-vm-preserve` 不扩宽。下一次发布使用新 commit、new release ID、新 candidate 和新签名 Gate；修改 validator/helper 后旧 manifest/Gate 资产 checksum 不再代表新字节，不得复用失败发布或覆写其事故目录。

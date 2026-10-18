@@ -228,6 +228,18 @@ def test_replay_rejects_independent_record_byte_drift(case, target):
         p.reconcile(case.args)
 
 
+@pytest.mark.parametrize("target", [p.CHECKS_NAME, p.RESULT_NAME])
+def test_replay_record_json_and_raw_are_one_native_shared_snapshot(case, monkeypatch, target):
+    from test_replaceable_state_readers import replace_after_open
+
+    p.reconcile(case.args)
+    path = case.run / target
+    original = path.read_bytes()
+    with replace_after_open(monkeypatch, path, original) as replaced:
+        assert p.reconcile(case.args)["lease_status"] == "released"
+    assert replaced and path.read_bytes() == original
+
+
 @pytest.mark.parametrize("command,verify", [
     ("reconcile-vm-failed-preserve", False), ("verify-vm-failed-preserve", True),
 ])

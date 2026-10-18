@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .atomic import atomic_write, canonical_json
+from .atomic import atomic_write, canonical_json, read_replaceable_text
 
 
 TERMINAL_STATES = {"verified", "failed", "recovered", "blocked_reconciliation"}
@@ -26,7 +26,7 @@ class RunState:
 
     @classmethod
     def load(cls, path: Path) -> "RunState":
-        return cls(path, json.loads(path.read_text(encoding="utf-8")))
+        return cls(path, json.loads(read_replaceable_text(path)))
 
     def transition(self, stage: str, status: str, evidence: dict[str, Any] | None = None) -> None:
         if self.value["status"] in TERMINAL_STATES and status == "running":

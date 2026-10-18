@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .atomic import atomic_write, canonical_json
+from .atomic import atomic_write, canonical_json, read_replaceable_text
 from .process import check_output_hidden
 from .migration_planner import (
     catalog_sha256,
@@ -527,7 +527,7 @@ def bind_production_snapshot(
 
 def write_manifest_once(path: Path, manifest: dict[str, Any]) -> None:
     if path.exists():
-        existing = json.loads(path.read_text(encoding="utf-8"))
+        existing = json.loads(read_replaceable_text(path))
         if canonical_json(existing) != canonical_json(manifest):
             raise RuntimeError("immutable manifest already exists with different content")
         return

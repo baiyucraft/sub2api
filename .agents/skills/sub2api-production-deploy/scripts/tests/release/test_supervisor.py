@@ -238,7 +238,7 @@ class SupervisorTest(unittest.TestCase):
         identifier = "198-aaaaaaaaaaaa-1-deadbeef"
         run_dir = self.minimum_release(identifier)
         self.write(identifier, "runner.json", {
-            "status": "starting", "pid": os.getpid(), "process_token": "token", "exit_code": None,
+            "release_id": identifier, "status": "starting", "pid": os.getpid(), "process_token": "token", "exit_code": None,
         })
         args = argparse.Namespace(release_id=identifier, profile="198", commit="a" * 40, deployment_mode="blue-green")
         lease = mock.MagicMock()

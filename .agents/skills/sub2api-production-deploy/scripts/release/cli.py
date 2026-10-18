@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from .bootstrap import bootstrap_trust, install_vm_validator
-from .atomic import atomic_write, canonical_json
+from .atomic import atomic_write, canonical_json, read_replaceable_text
 from .doctor import NODES, ReleaseDoctor
 from .gate import verify_gate
 from .manifest import bind_production_snapshot, create_manifest, sha256_file, write_manifest_once
@@ -323,7 +323,7 @@ def create_vm_gate(profile_name: str, commit: str, deployment_mode: str, identif
     else:
         run_dir.mkdir(parents=True, mode=0o700)
     if manifest_path.exists():
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest = json.loads(read_replaceable_text(manifest_path))
         if manifest.get("release_id") != identifier or manifest.get("commit_sha") != commit or manifest.get("profile") != profile_name:
             raise RuntimeError("release manifest identity does not match worker")
     else:
@@ -430,7 +430,8 @@ def vm_validate(args: argparse.Namespace) -> None:
             production_doctor = doctor.run(("racknerd",), require_ingress_policy=False)
             production_snapshot = decode_snapshot(production_doctor["production_snapshot_b64"])
             production_image_id = str(production_doctor.get("production_current_image_id", ""))
-            current_manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+            manifest_path = run_dir / "manifest.json"
+            current_manifest = json.loads(read_replaceable_text(manifest_path))
             recovery_gate = _recovery_gate_report(
                 args.commit,
                 production_snapshot,
@@ -502,7 +503,7 @@ def release(args: argparse.Namespace, acquire_lock: bool = True) -> None:
             run_hidden(command, cwd=SCRIPTS_ROOT, check=True, env=child_env)
         except BaseException as error:
             result_path = gate_dir / "production-result.json"
-            result = json.loads(result_path.read_text(encoding="utf-8")) if result_path.exists() else {}
+            result = json.loads(read_replaceable_text(result_path)) if result_path.exists() else {}
             failure_status = result.get("status") if result.get("status") in {"failed", "recovered", "blocked_reconciliation"} else "blocked_reconciliation"
             state.transition("production_release", failure_status)
             logger.emit(
@@ -553,7 +554,8 @@ def deploy(args: argparse.Namespace, acquire_lock: bool = True) -> None:
         rack_pre_gate_dir = vm_pre_gate_dir = None
         if profile_for_deploy.get("gate_schema") == 2:
             production_snapshot = decode_snapshot(production_doctor["production_snapshot_b64"])
-            current_manifest = json.loads((RUN_ROOT / identifier / "manifest.json").read_text(encoding="utf-8"))
+            manifest_path = RUN_ROOT / identifier / "manifest.json"
+            current_manifest = json.loads(read_replaceable_text(manifest_path))
             recovery_gate = _recovery_gate_report(
                 args.commit,
                 production_snapshot,
@@ -664,8 +666,8 @@ def _retention_read_json(path: Path) -> dict:
     try:
         if path.is_symlink() or not path.is_file() or path.stat().st_size > 2 * 1024 * 1024:
             return {}
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError):
+        value = json.loads(read_replaceable_text(path, max_bytes=2 * 1024 * 1024))
+    except (OSError, UnicodeError, ValueError):
         return {}
     return value if isinstance(value, dict) else {}
 

@@ -11,7 +11,7 @@ from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
-from .atomic import atomic_write, canonical_json
+from .atomic import atomic_write, canonical_json, read_replaceable_bytes
 from .paths import ENTRYPOINT, PLUGIN_RUN_ROOT, RUN_ROOT, SCRIPTS_ROOT
 from .plugin_api import PluginAPIClient, PluginApplyResult
 from .plugin_credentials import load_plugin_admin_credentials
@@ -29,6 +29,8 @@ from .process import popen_detached_worker, process_identity
 from .ssh import SSHRunner
 from .state import RunLock
 from .vm_lifecycle import VMLease, lifecycle_view, vm_guard
+from .worker_errors import preserve_secondary
+from .terminal_receipt import publish_terminal_receipt, require_terminal_receipt, terminal_receipt_status
 
 
 PLUGIN_RELEASE_ID = re.compile(r"^[a-z0-9][a-z0-9.-]{0,127}$")
@@ -49,6 +51,7 @@ PLUGIN_STATUS_FIELDS = (
     "vm_started_by_release",
     "vm_cleanup_status",
     "updated_at",
+    "runner_terminal_receipt",
 )
 
 
@@ -66,17 +69,22 @@ def _write_json(path: Path, value: dict[str, Any]) -> None:
     atomic_write(path, canonical_json(value) + b"\n", 0o600)
 
 
-def _read_json(path: Path, required: bool = False) -> dict[str, Any] | None:
+def _json_snapshot(path: Path, required: bool = False) -> tuple[dict[str, Any] | None, bytes]:
     if not path.exists():
         if required:
             raise RuntimeError(f"missing plugin release file: {path.name}")
-        return None
+        return None, b""
     if path.is_symlink() or not path.is_file() or path.stat().st_size > 2 * 1024 * 1024:
         raise RuntimeError(f"invalid plugin release file: {path.name}")
-    value = json.loads(path.read_text(encoding="utf-8"))
+    raw = read_replaceable_bytes(path, max_bytes=2 * 1024 * 1024)
+    value = json.loads(raw.decode("utf-8"))
     if not isinstance(value, dict):
         raise RuntimeError(f"invalid plugin release document: {path.name}")
-    return value
+    return value, raw
+
+
+def _read_json(path: Path, required: bool = False) -> dict[str, Any] | None:
+    return _json_snapshot(path, required=required)[0]
 
 
 def _process_token(pid: int) -> str | None:
@@ -150,6 +158,7 @@ def start(args: argparse.Namespace, *, announce: bool = True) -> str:
             "updated_at": now,
             "stdout": "logs/runner.stdout.log",
             "stderr": "logs/runner.stderr.log",
+            "terminal_receipt_schema": 1,
         },
     )
     command = [sys.executable, str(ENTRYPOINT), "_plugin-deploy-worker", "--release-id", identifier, "--commit", commit]
@@ -195,8 +204,9 @@ def worker(args: argparse.Namespace) -> None:
     os.environ["SUB2API_EVENT_LOG"] = str(run_dir / "logs" / "events.jsonl")
     exit_code = 1
     status = "failed"
+    primary_error = None
     try:
-        _update_runner(run_dir, status="waiting_for_lock")
+        _update_runner(run_dir, status="waiting_for_lock", terminal_receipt_schema=1)
         with RunLock(RUN_ROOT / ".release.lock"):
             _update_runner(run_dir, status="running")
             artifacts = run_dir / "artifacts"
@@ -226,12 +236,24 @@ def worker(args: argparse.Namespace) -> None:
         exit_code = 0
         status = "verified"
     except BaseException as error:
-        current = PluginRunState.load(run_dir / "state.json")
-        if current.value.get("status") not in PLUGIN_TERMINAL_STATES:
-            current.fail(str(current.value.get("stage") or "worker"), evidence={"error_type": type(error).__name__})
+        primary_error = error
+        try:
+            current = PluginRunState.load(run_dir / "state.json")
+            if current.value.get("status") not in PLUGIN_TERMINAL_STATES:
+                current.fail(str(current.value.get("stage") or "worker"), evidence={"error_type": type(error).__name__})
+        except BaseException as secondary:
+            preserve_secondary(error, secondary, "commit_plugin_failure_state")
         raise
     finally:
-        _update_runner(run_dir, status=status, exit_code=exit_code, finished_at=int(time.time()))
+        try:
+            terminal_runner = _update_runner(run_dir, status=status, exit_code=exit_code, finished_at=int(time.time()))
+            sys.stdout.flush()
+            sys.stderr.flush()
+            publish_terminal_receipt(run_dir, terminal_runner, canonical_json(terminal_runner) + b"\n")
+        except BaseException as secondary:
+            if primary_error is None:
+                raise
+            preserve_secondary(primary_error, secondary, "terminal_runner_commit")
 
 
 def _identity(run_dir: Path, arch: str = "amd64") -> PackageIdentity:
@@ -267,6 +289,7 @@ def authorize(
     api: PluginAPIClient | None = None,
 ) -> None:
     run_dir = _run_dir(args.release_id)
+    terminal_runner = None
     if not acquire_lock and lease is None:
         raise RuntimeError("plugin authorization without a release lock requires the worker VM lease")
     if acquire_lock and lease is not None:
@@ -285,20 +308,32 @@ def authorize(
         if lease is not None:
             _authorize_stage(run_dir, state, identity, client, lease)
             return
+        terminal_commit_attempted = False
         try:
             _authorize_stage(run_dir, state, identity, client, None)
             if state.value.get("status") == "verified":
                 _verified_result(run_dir)
-                _update_runner(run_dir, status="verified", exit_code=0, finished_at=int(time.time()))
-                print(f"plugin_release_id={args.release_id} status=verified")
+                terminal_commit_attempted = True
+                terminal_runner = _update_runner(run_dir, status="verified", exit_code=0, finished_at=int(time.time()))
             else:
                 _update_runner(run_dir, status="awaiting_authorization", exit_code=0)
         except BaseException as error:
-            current = PluginRunState.load(run_dir / "state.json")
-            if current.value.get("status") not in PLUGIN_TERMINAL_STATES:
-                current.fail(str(current.value["stage"]), evidence={"error_type": type(error).__name__})
-            _update_runner(run_dir, status="failed", exit_code=1, finished_at=int(time.time()))
+            try:
+                current = PluginRunState.load(run_dir / "state.json")
+                if current.value.get("status") not in PLUGIN_TERMINAL_STATES:
+                    current.fail(str(current.value["stage"]), evidence={"error_type": type(error).__name__})
+            except BaseException as secondary:
+                preserve_secondary(error, secondary, "commit_plugin_failure_state")
+            if not terminal_commit_attempted:
+                try:
+                    _update_runner(run_dir, status="failed", exit_code=1, finished_at=int(time.time()))
+                except BaseException as secondary:
+                    preserve_secondary(error, secondary, "terminal_runner_commit")
             raise
+    if terminal_runner is not None:
+        print(f"plugin_release_id={args.release_id} status=verified", flush=True)
+        sys.stderr.flush()
+        publish_terminal_receipt(run_dir, terminal_runner, canonical_json(terminal_runner) + b"\n")
 
 
 def _authorize_stage(
@@ -397,7 +432,8 @@ def _authorize_stage(
 def status_view(identifier: str) -> dict[str, Any]:
     run_dir = _run_dir(identifier)
     manifest = _read_json(run_dir / "manifest.json", required=True) or {}
-    runner = _read_json(run_dir / "runner.json") or {}
+    runner, runner_raw = _json_snapshot(run_dir / "runner.json")
+    runner = runner or {}
     state = _read_json(run_dir / "state.json") or {}
     package = _read_json(run_dir / "package.json") or {}
     production = _read_json(run_dir / "production-result.json") or {}
@@ -420,7 +456,15 @@ def status_view(identifier: str) -> dict[str, Any]:
         "instances_verified": production.get("instances_verified"),
         "updated_at": updated,
         **lifecycle_view(run_dir),
+        "runner_terminal_receipt": terminal_receipt_status(run_dir, runner, runner_raw),
     }
+    if view["runner_terminal_receipt"] not in {"legacy_schema_1", "not_required", "verified"}:
+        pending = (
+            view["runner_terminal_receipt"] == "terminal_receipt_missing"
+            and type(runner.get("pid")) is int and isinstance(runner.get("process_token"), str)
+            and _process_token(runner["pid"]) == runner["process_token"]
+        )
+        view.update(runner_status="running" if pending else "blocked_reconciliation", runner_alive=pending, runner_exit=None if pending else 1)
     return {field: view.get(field) for field in PLUGIN_STATUS_FIELDS}
 
 
@@ -449,7 +493,7 @@ def terminal_exit(view: dict[str, Any]) -> int | None:
         return 2
     if view.get("runner_status") in {"starting", "waiting_for_lock", "running"}:
         return None
-    if view.get("runner_status") == "failed" or view.get("runner_exit") not in {None, 0}:
+    if view.get("runner_status") in {"failed", "blocked_reconciliation"} or view.get("runner_exit") not in {None, 0}:
         return 2
     return 0
 
@@ -480,7 +524,13 @@ def _verified_result(run_dir: Path) -> dict[str, Any]:
 
 
 def verify_result(args: argparse.Namespace) -> None:
-    print(canonical_json(_verified_result(_run_dir(args.release_id))).decode("ascii"))
+    run_dir = _run_dir(args.release_id)
+    runner, runner_raw = _json_snapshot(run_dir / "runner.json", required=True)
+    runner = runner or {}
+    require_terminal_receipt(run_dir, runner, runner_raw)
+    if "terminal_receipt_schema" in runner and (runner.get("status") != "verified" or runner.get("exit_code") != 0):
+        raise RuntimeError("plugin runner is not successfully terminal")
+    print(canonical_json(_verified_result(run_dir)).decode("ascii"))
 
 
 def rollback_start(args: argparse.Namespace) -> None:
