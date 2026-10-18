@@ -178,6 +178,13 @@ func TestUpstreamCacheGuardAccountSummaryUnknownZeroAndUnavailable(t *testing.T)
 	require.Equal(t, "protected", view.Summary.State)
 	require.NotNil(t, view.Summary.RatePercent)
 	require.Zero(t, *view.Summary.RatePercent)
+	view = upstreamCacheGuardAccountViewsBatch([]Account{account}, settings, true,
+		func(_, _ int64) (upstreamcacheguard.AccountSnapshot, bool) {
+			return upstreamcacheguard.AccountSnapshot{AccountState: upstreamcacheguard.AccountState{Phase: upstreamcacheguard.Unknown, UpdatedAt: time.Now().UTC()}}, true
+		})[account.ID]
+	require.Equal(t, "unavailable", view.Summary.State)
+	require.Equal(t, "evidence_expired", view.Summary.Reason)
+	require.Nil(t, view.Summary.RatePercent)
 	view = upstreamCacheGuardAccountViewsBatch([]Account{account}, settings, false, read)[account.ID]
 	require.Equal(t, "unavailable", view.Summary.State)
 	require.Equal(t, "snapshot_unavailable", view.Summary.Reason)

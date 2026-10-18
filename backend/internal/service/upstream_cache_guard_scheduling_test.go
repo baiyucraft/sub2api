@@ -686,3 +686,53 @@ func TestUpstreamCacheGuardStaleTargetCannotTriggerMigrationOrTrial(t *testing.T
 		})
 	}
 }
+
+func markCacheGuardSelectionUnknown(t *testing.T, ctx context.Context, runner *UpstreamCacheGuardRunner, id int64) {
+	t.Helper()
+	store := runner.store.(*cacheGuardSelectionStore)
+	identity := cacheGuardSelectionIdentity(id, id)
+	a, exists := store.accounts[identity]
+	require.True(t, exists)
+	anchor := time.Now().UTC()
+	a.Phase, a.LastDegradedEvidenceAt = upstreamcacheguard.Unknown, &anchor
+	for signature, projection := range a.Policies {
+		projection.State.Phase = upstreamcacheguard.Unknown
+		projection.State.LastDegradedEvidenceAt = &anchor
+		a.Policies[signature] = projection
+	}
+	store.accounts[identity] = a
+	require.NoError(t, runner.engine.Refresh(ctx))
+	snapshot, usable := runner.engine.CachedAccountForGroup(100, id, id)
+	require.True(t, usable)
+	require.True(t, snapshot.Fresh)
+	require.Equal(t, upstreamcacheguard.Unknown, snapshot.Phase)
+	require.Greater(t, snapshot.ValidRequests, runner.engine.Settings().MinValidRequests,
+		"fixture retains old window samples so only the Unknown phase excludes its rate")
+}
+
+func TestUpstreamCacheGuardUnknownEvidenceUsesUnknownCandidatePool(t *testing.T) {
+	svc, ctx, runner, _ := cacheGuardSelectionFixture(t, true, []float64{90, 89}, nil, false, time.Time{}, nil)
+	markCacheGuardSelectionUnknown(t, ctx, runner, 1)
+	group := int64(100)
+	accounts, err := svc.accountRepo.ListSchedulableByGroupID(ctx, group)
+	require.NoError(t, err)
+	p := buildCacheGuardPreference(ctx, &group, "new-conversation", "gpt-test", "openai", accounts, nil)
+	require.True(t, p.Active)
+	require.Len(t, p.Tiers, 2, "expired 90%% must not share the healthy 89%% rate band")
+	require.ElementsMatch(t, [][]int64{{1}, {2}}, p.Tiers,
+		"Unknown keeps its ordinary unknown-pool opportunity, regardless of its old sample count")
+	require.False(t, p.Migration)
+}
+
+func TestUpstreamCacheGuardUnknownTargetCannotTriggerMigration(t *testing.T) {
+	svc, ctx, runner, _ := cacheGuardSelectionFixture(t, true, []float64{60, 90}, map[int64]bool{1: true}, true, time.Time{}, nil)
+	markCacheGuardSelectionUnknown(t, ctx, runner, 2)
+	group := int64(100)
+	accounts, err := svc.accountRepo.ListSchedulableByGroupID(ctx, group)
+	require.NoError(t, err)
+	p := buildCacheGuardPreference(ctx, &group, "conversation", "gpt-test", "openai", accounts, nil)
+	require.True(t, p.Active)
+	require.Equal(t, int64(1), p.KeepAccountID)
+	require.False(t, p.Migration, "expired target evidence cannot justify migrating an existing session")
+	require.Empty(t, p.Tiers)
+}

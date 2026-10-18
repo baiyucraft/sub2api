@@ -226,6 +226,11 @@ func upstreamCacheGuardPolicyAccountViewsBatch(accounts []Account, settings Upst
 		if resolve != nil {
 			if selected := mostSevereUpstreamCacheGuardState(states); selected != nil {
 				summary.State, summary.Reason = selected.State, selected.Reason
+				if selected.Reason == "evidence_expired" {
+					// The shared raw window can outlive a policy's evidence. Do
+					// not present its old rate as a currently usable decision.
+					summary.RatePercent, summary.ValidRequests = nil, 0
+				}
 			}
 			// Recovery cohorts can differ across strategies; their progress is
 			// intentionally shown only in the corresponding group detail.
@@ -282,6 +287,11 @@ func upstreamCacheGuardSummary(a upstreamcacheguard.AccountSnapshot, fresh bool,
 	item := UpstreamCacheGuardSummary{State: "insufficient", Reason: "insufficient_samples", WindowMinutes: settings.WindowMinutes}
 	if !fresh {
 		item.State, item.Reason = "unavailable", "snapshot_unavailable"
+		return item
+	}
+	if a.Phase == upstreamcacheguard.Unknown {
+		item.UpdatedAt = cacheGuardTime(a.UpdatedAt)
+		item.State, item.Reason = "unavailable", "evidence_expired"
 		return item
 	}
 	item.ValidRequests = a.ValidRequests

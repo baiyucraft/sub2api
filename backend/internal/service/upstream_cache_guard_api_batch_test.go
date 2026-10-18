@@ -102,3 +102,32 @@ func TestUpstreamCacheGuardPolicyViewsResolvePerGroupWithGlobalDisabled(t *testi
 	require.Equal(t, 2, states[1].MinValidRequests)
 	require.Equal(t, "ttft_first", states[1].SchedulingPriority)
 }
+
+func TestUpstreamCacheGuardPolicyViewsExpiredEvidenceClearsSharedRate(t *testing.T) {
+	settings := DefaultUpstreamCacheGuardSettings()
+	settings.Mode = upstreamcacheguard.Protect
+	configID, keyID := int64(1), int64(2)
+	account := Account{ID: 3, UpstreamConfigID: &configID, UpstreamKeyID: &keyID, GroupIDs: []int64{10, 20}}
+	snapshot := upstreamcacheguard.AccountSnapshot{AccountState: upstreamcacheguard.AccountState{
+		AccountID: 3, UpstreamKeyID: keyID, Phase: upstreamcacheguard.Healthy, ValidRequests: 21, CachePercent: 50,
+		Policies: map[string]upstreamcacheguard.PolicyProjection{
+			upstreamcacheguard.PolicySignature(settings): {Settings: settings, State: upstreamcacheguard.AccountState{
+				AccountID: 3, UpstreamKeyID: keyID, Phase: upstreamcacheguard.Unknown, ValidRequests: 21, CachePercent: 50,
+			}},
+		},
+	}}
+	views := upstreamCacheGuardPolicyAccountViewsBatch([]Account{account}, settings, true,
+		func(_, _ int64) (upstreamcacheguard.AccountSnapshot, bool) { return snapshot, true },
+		func(int64) UpstreamCacheGuardSettings { return settings }, nil)
+	view := views[account.ID]
+	require.Equal(t, "unavailable", view.Summary.State)
+	require.Equal(t, "evidence_expired", view.Summary.Reason)
+	require.Nil(t, view.Summary.RatePercent)
+	require.Zero(t, view.Summary.ValidRequests)
+	require.Len(t, view.States, 2)
+	for _, state := range view.States {
+		require.Equal(t, "unavailable", state.State)
+		require.Equal(t, "evidence_expired", state.Reason)
+		require.Nil(t, state.RatePercent)
+	}
+}

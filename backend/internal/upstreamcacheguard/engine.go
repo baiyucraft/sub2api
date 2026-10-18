@@ -67,6 +67,7 @@ func (e *Engine) ApplySettings(s Settings) error {
 	if s.Priority == "" {
 		s.Priority = "cache_first"
 	}
+	s.ProtectionEvidenceExpiryMinutes = protectionEvidenceExpiryMinutes(s)
 	s.GroupIDs = append([]int64(nil), s.GroupIDs...)
 	sort.Slice(s.GroupIDs, func(i, j int) bool { return s.GroupIDs[i] < s.GroupIDs[j] })
 	ids := s.GroupIDs[:0]
@@ -320,10 +321,10 @@ func (e *Engine) admit(ctx context.Context, r Request, existingOnly bool) (Admis
 			session.Admissions = map[string]Admission{}
 		}
 		a.WarmAtStart = routeWarm(session.Routes[WarmRouteKey(r)], r.StartedAt)
-		a.ProtectedAtStart = executing && selected.Phase != "" && selected.Phase != Healthy
+		a.ProtectedAtStart = executing && selected.Phase != "" && selected.Phase != Healthy && selected.Phase != Unknown
 		if executing && plan.NaturalNew && session.NaturalAccountID == 0 {
 			session.NaturalAccountID = r.AccountID
-			if plan.TrialSlot && selected.Phase != Healthy && selected.Phase != "" && !r.StartedAt.Before(selected.CooldownUntil) {
+			if plan.TrialSlot && selected.Phase != Healthy && selected.Phase != Unknown && selected.Phase != "" && !r.StartedAt.Before(selected.CooldownUntil) {
 				if selected.CohortID == "" {
 					selected.CohortID = digest(fmt.Sprintf("%s:%s:%d:%s", AccountKey(r), signature, r.StartedAt.UnixNano(), session.Key))
 					selected.FirstTrialAt = r.StartedAt.UTC()
@@ -539,6 +540,46 @@ func (e *Engine) Complete(ctx context.Context, v Evidence) error {
 	})
 }
 
+func protectionEvidenceAnchor(a *AccountState) time.Time {
+	anchor := a.LastEvidenceAt
+	if a.LastDegradedEvidenceAt != nil && !a.LastDegradedEvidenceAt.IsZero() {
+		if a.LastDegradedEvidenceAt.After(anchor) {
+			anchor = *a.LastDegradedEvidenceAt
+		}
+	}
+	if a.DegradedAt.After(anchor) {
+		anchor = a.DegradedAt
+	}
+	return anchor
+}
+
+// expireProtectionState turns an old protected decision into an explicitly
+// unknown decision. Unknown is deliberately schedulable as a normal account:
+// the cache guard has no current evidence and must not keep protecting forever.
+func expireProtectionState(a *AccountState, s Settings, now time.Time) bool {
+	if a == nil || (a.Phase != Degraded && a.Phase != Cooling && a.Phase != Trial) {
+		return false
+	}
+	anchor := protectionEvidenceAnchor(a)
+	if anchor.IsZero() || !now.After(anchor.Add(time.Duration(protectionEvidenceExpiryMinutes(s))*time.Minute)) {
+		return false
+	}
+	a.Phase = Unknown
+	a.CohortID = ""
+	a.FirstTrialAt = time.Time{}
+	a.CooldownUntil = time.Time{}
+	a.DegradedAt = time.Time{}
+	a.TrialValidRequests = 0
+	a.TrialSessions = 0
+	a.TrialCachePercent = 0
+	a.TrialGroupIDs = nil
+	// Freeze the latest valid evidence as the revalidation boundary. Old facts
+	// cannot recreate protection, even if they arrived after initial degradation.
+	boundary := anchor
+	a.LastDegradedEvidenceAt = &boundary
+	return true
+}
+
 // RecomputeAccount is deliberately a bounded replay of immutable raw facts;
 // retries and late arrival cannot double count or reverse the evidence clock.
 func RecomputeAccount(a *AccountState, facts []Evidence, s Settings, now time.Time, fresh bool) error {
@@ -594,16 +635,41 @@ func RecomputeAccount(a *AccountState, facts []Evidence, s Settings, now time.Ti
 	if newest.After(a.LastEvidenceAt) {
 		a.LastEvidenceAt = newest
 	}
+	// Expiration is evaluated even on a non-fresh replay so a stale durable
+	// phase cannot be resurrected merely because the refresh had no new facts.
+	expireProtectionState(a, s, now)
 	if !fresh {
 		return nil
 	}
 	if a.Phase == Healthy && valid > s.MinValidRequests && a.CachePercent < s.ThresholdPercent {
 		a.Phase = Cooling
 		a.DegradedAt = now
+		if !newest.IsZero() {
+			x := newest
+			a.LastDegradedEvidenceAt = &x
+		}
 		a.CooldownUntil = now.Add(time.Duration(s.CooldownMinutes) * time.Minute)
 		a.CohortID = ""
 		a.TrialGroupIDs = nil
 		a.FirstTrialAt = time.Time{}
+		return nil
+	}
+	if a.Phase == Unknown && valid > s.MinValidRequests && (a.LastDegradedEvidenceAt == nil || newest.After(*a.LastDegradedEvidenceAt)) {
+		// A new, sufficiently sized window is enough to leave unknown. Only a
+		// below-threshold window enters protection again.
+		if a.CachePercent < s.ThresholdPercent {
+			a.Phase = Cooling
+			a.DegradedAt = now
+			if !newest.IsZero() {
+				x := newest
+				a.LastDegradedEvidenceAt = &x
+			}
+			a.CooldownUntil = now.Add(time.Duration(s.CooldownMinutes) * time.Minute)
+		} else {
+			a.Phase = Healthy
+			a.LastDegradedEvidenceAt = nil
+			a.QualitySince = now
+		}
 		return nil
 	}
 	// No-data and wall-clock passage alone never restore an account.
@@ -616,6 +682,7 @@ func RecomputeAccount(a *AccountState, facts []Evidence, s Settings, now time.Ti
 		a.TrialGroupIDs = nil
 		a.FirstTrialAt = time.Time{}
 		a.CooldownUntil = time.Time{}
+		a.LastDegradedEvidenceAt = nil
 		a.QualitySince = now
 		a.ValidRequests = 0
 		a.TotalInputTokens = 0
@@ -625,6 +692,10 @@ func RecomputeAccount(a *AccountState, facts []Evidence, s Settings, now time.Ti
 	}
 	if a.TrialCachePercent < s.ThresholdPercent {
 		a.Phase = Cooling
+		if !newest.IsZero() {
+			x := newest
+			a.LastDegradedEvidenceAt = &x
+		}
 		a.CooldownUntil = now.Add(time.Duration(s.CooldownMinutes) * time.Minute)
 		a.CohortID = ""
 		a.TrialGroupIDs = nil
@@ -704,6 +775,7 @@ func (e *Engine) CachedSessionReadAt(r Request, at time.Time) SessionRead {
 		return SessionRead{}
 	}
 	read := SessionRead{Known: true, Fresh: snapshot.Fresh, PreferredAccountID: x.LastAccountID, ResidenceUntil: x.ResidenceUntil}
+	accountUnknown := false
 	if r.AccountID == x.LastAccountID && r.UpstreamKeyID > 0 {
 		if route, ok := x.Routes[x.LastRouteKey]; !ok || route.UpstreamKeyID != r.UpstreamKeyID {
 			return SessionRead{}
@@ -719,6 +791,7 @@ func (e *Engine) CachedSessionReadAt(r Request, at time.Time) SessionRead {
 			return read
 		}
 		read.Fresh = read.Fresh && account.Fresh
+		accountUnknown = account.Phase == Unknown
 	}
 	if x.LastModel != r.Model || x.LastProtocol != r.Protocol ||
 		(r.AccountID > 0 && r.UpstreamKeyID > 0 && x.LastRouteKey != WarmRouteKey(r)) {
@@ -733,6 +806,12 @@ func (e *Engine) CachedSessionReadAt(r Request, at time.Time) SessionRead {
 	}
 	read.Trial = x.CohortID != "" && x.TrialAccountID == x.LastAccountID && x.TrialModel == r.Model && x.TrialProtocol == r.Protocol && (x.PolicySignature == PolicySignature(s) || (x.PolicySignature == "" && PolicySignature(s) == PolicySignature(e.Settings())))
 	read.CohortID = x.CohortID
+	if accountUnknown {
+		// Keep physical warmness and durable identity, but never expose an old
+		// recovery cohort or migration preference after account evidence expires.
+		read.Trial, read.Protected, read.PendingLow = false, false, false
+		read.CohortID = ""
+	}
 	if s.Mode != Protect {
 		read.Protected = false
 	}
@@ -807,7 +886,7 @@ func CandidatePreference(snapshot Snapshot, session SessionRead, c Candidate) in
 		return 2
 	}
 	for _, a := range snapshot.Accounts {
-		if a.AccountID == c.AccountID && a.Phase != Healthy {
+		if a.AccountID == c.AccountID && (a.Phase == Degraded || a.Phase == Cooling || a.Phase == Trial) {
 			return -1
 		}
 	}
