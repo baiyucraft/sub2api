@@ -442,3 +442,10 @@ sub2api:baiyu-<base-version>-<full-commit-sha>
 有界只读 proof 绑定 release、完整 commit、Dockerfile/helper SHA、五角色 index/manifest digest 与 config/layer 描述、四份物化文件 SHA，以及 builder、daemon/context/endpoint 的非秘密身份摘要。proof 以 canonical JSON 加 LF 形成 SHA，严格校验后一次绑定 manifest 并纳入 Gate 签名。Gate v2、历史 Gate v1 的新执行和 VM-only 均消费同一合同；发送候选前只复核 proof、源码和实际 builder/platform 身份，不重复 solve，也不重新解析 tag。正式候选通过 `buildx build --load` 使用同五个 pinned ref；调用方只能提供 COMMIT/VERSION/DATE/tag，不能通过后置参数覆盖依赖、平台、builder、Dockerfile 或 exporter。历史签名证据保持原字节，不补字段。
 
 依赖和候选均不自动重试、不切换镜像源、不修改正式 daemon/global 代理。诊断仅返回固定原因码、阶段、角色、已知 HEAD/GET 或 unknown，以及 `retry_count=0`；成功的 5/5 必须同时有一次 solve 的完整 proof。raw metadata、stderr、身份端点和构建日志仅留远端私有目录（0700，日志0600），本地只接收有界白名单 proof。依赖失败与 `candidate_build` 分开记录，未取得正式收口资格时继续阻断；原本运行 VM 的 proof 阶段失败使用精确 `reconcile-vm-preserve --failed-stage build-dependencies`，复核原 worker 退出、同 owner/boot、无候选/签名/生产副作用后保留 VM 并释放租约，不扩宽旧 candidate 合同。
+
+
+### BuildKit 依赖证明的精确审阅
+
+经独立审阅，本批固定生产 BASE `5deebb2929c2a694145cc2726e895f01c43d28c1` → 实现 TARGET `89e105dc1618e05018a26a8053f5a8b710db8e98`，仅冻结 `release/cli.py`、`gate.py`、`manifest.py`、`supervisor.py`、`vm-build-common.sh`、`vm-only-validate.sh`、`vm-validate.sh`、`vm_build.py`、`vm_only.py`、`vm_validate.py` 十条同路径 Git blob 与模式。权威组为 `_BUILDKIT_DEPENDENCY_REVIEW_PATHS`，理由 `reviewed_buildkit_dependency_proof_changed`；其中两个新 helper 的生产旧状态必须不存在。原 `_PROCESS_BUILD_PREFLIGHT_REVIEW_PATHS` 及全部历史 TARGET 不回写，其他未变化的路径继续匹配各自历史审阅。
+
+本批覆盖五角色 digest 锁、一次真实物化、proof 下载/绑定及签名验证、三入口消费、早期生产快照绑定与严格 proof 失败收口；不修改生产数据恢复算法、备份格式或信任根。最终候选仍须 `specialized` 真实隔离恢复、新签名 VM Gate 及生产验真。`test_buildkit_dependency_recovery_review.py` 固定十项 literal 对象与历史登记，逐项拒绝 blob、mode、删除、移动、BASE 漂移和额外敏感路径。登记不自动学习未来候选，不以目录或祖先关系豁免；本地测试与真实依赖 solve 均不能替代应用构建或生产发布。
