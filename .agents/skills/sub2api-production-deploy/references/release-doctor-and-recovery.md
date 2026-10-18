@@ -127,6 +127,12 @@ Compose 快照使用真实 Docker Compose JSON 解析 `env_file/configs/secrets`
 
 ## VM 电源与 cleanup 恢复
 
+Profile 273 的 `273-1396fc89fe73-1792295582-80609bce` 是另一独立事故：本 release 从停止状态启动 VM，validator 在 `migration_plan_before` 第 681 行比较计划时失败；snapshot 计划无 pending，恢复的旧开发库计划有 285–300 共 16 项 pending，两次计划命令均成功，尚未创建迁移 hook 或 apply。原有 `reconcile-vm-preserve` 的“原本运行 VM”合同及旧 612/298 事故冻结保持不变，不能套用。
+
+该事故仅使用 `reconcile-vm-failed-preserve <release_id>`。入口精确冻结应用提交、validator 和原本地四文件、远端 manifest/失败字段/两个计划/日志的原始 SHA-256；执行 helper 必须匹配当前干净、已提交推送的源码与完整资产。持全局发布锁和跨 checkout VM 身份锁，重复核验同 boot/owner、原 worker 已退出、VM 单元与 Gate 双锁可取得、无在途任务及残留 probe 容器/网络/数据库/明文目录、无后续 Gate/apply、生产 release/active claim 不存在且旧生产镜像及备份/入口健康。所有远程操作只读，不恢复数据、不清资源、不关机。
+
+独立 `vm-failed-preserve-checks.json` 绑定原事故 checksum、helper 身份和只读核验范围；`vm-failed-preserve-result.json` 保存独立收口结果。先持久写入并核对两份证据，再复验现场，最后才以 shared owner 的 `released/running/preserved` 提交租约释放。原 manifest、runner、state、vm-lifecycle 和远端事故材料字节不改，原 failed/exit1 事实保留；后续新 release 正常重新记录 VM 初始已运行。`verify-vm-failed-preserve <release_id>` 只读核验两份证据、原事故及当前现场；未提交、owner 已被后续 release 使用、helper/证据/boot 漂移或未知来源均拒绝。中断重放必须重新通过同样核验，不重复写已经提交的结果。最低回归为 `test_vm_failed_preserve.py` 与独立 Linux fixture `vm_failed_preserve_integration.py`；fixture 通过不代表真实租约已经释放。
+
 已知 profile 273 迁移 298 preflight 误判发生在恢复 probe 之后，不能套用 candidate-build 分支。显式 `reconcile-vm-preserve <release_id> --failed-stage migration-preflight` 仅接受冻结的原提交、validator/assertion checksum 和确切失败证据；要求 before/actual plan 一致、无 apply/after/Gate/归档，probe 容器/网络/数据库/临时目录均已清理。双重复验同 boot/owner、原 worker 已退出、旧生产及备份健康且无 release/claim；仅写独立证明及最后释放原租约，保持 VM 运行与原失败证据。其他源字节、阶段、hook 或未知现场拒绝。最低回归为 `test_vm_preflight_preserve.py`、`vm_preserve_migration_preflight_integration.py` 及真实迁移 298 dump/restore 回归。
 
 候选构建已失败且 validator 终止、生产完全未开始时，不运行依赖 Gate 的 `reconcile-inspect`。使用 `reconcile-vm-preserve <release_id> --failed-stage candidate-build` 的正式收口分支，严格绑定原 manifest、固定构建失败字段、同 boot/进程与 owner、无签名 Gate/候选归档、VM 双锁及无在途任务、dev 和旧生产健康、生产 release/claim 不存在。只允许原本运行的 VM；后续恢复/迁移阶段或任一未知拒绝。原 Gate 目录、原始日志及 failed 终态全部保留；释放原租约后用新提交和新 release 重跑完整 Gate，不复用旧失败候选。默认 `reconcile-vm-preserve` 仍只接受 validator 未启动。
