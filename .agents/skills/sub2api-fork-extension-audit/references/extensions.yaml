@@ -2031,6 +2031,7 @@
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_vm_failed_preserve.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/vm_failed_preserve_integration.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_vm_plan_sources.py",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_vm_plan_sources_review.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/vm_plan_sources_integration.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/vm_preserve_migration_preflight_integration.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_finalization.py",
