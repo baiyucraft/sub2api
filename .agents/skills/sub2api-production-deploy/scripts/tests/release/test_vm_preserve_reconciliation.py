@@ -448,24 +448,28 @@ def test_candidate_fixture_creates_and_cleans_only_inside_real_vm_locks():
     assert integration.fixture_shell("placeholder")[1] == 97
 
 
-def test_manifest_drift_between_digest_and_raw_snapshot_is_rejected(fixture, monkeypatch):
+def test_manifest_drift_after_initial_snapshot_is_rejected_before_audit(fixture, monkeypatch):
     f = fixture
     f.args.failed_stage = "candidate-build"
     manifest_path = f.run_dir / "manifest.json"
-    original_read = Path.read_bytes
-    reads = 0
-    def read_bytes(path):
-        nonlocal reads
-        if path == manifest_path:
-            reads += 1
-            if reads == 2:
-                path.write_bytes(original_read(path) + b"\n")
-        return original_read(path)
-    monkeypatch.setattr(Path, "read_bytes", read_bytes)
+    original_manifest = manifest_path.read_bytes()
+    original_owner = (f.shared / "owner.json").read_bytes()
+    original_snapshot = s._json_snapshot
+    injected = False
+    def snapshot_then_drift(path, *args, **kwargs):
+        nonlocal injected
+        snapshot = original_snapshot(path, *args, **kwargs)
+        if path == manifest_path and not injected:
+            injected = True
+            path.write_bytes(snapshot[1] + b"\n")
+        return snapshot
+    monkeypatch.setattr(s, "_json_snapshot", snapshot_then_drift)
     forbid_audit_writes(monkeypatch)
     with pytest.raises(RuntimeError, match="local_evidence_changed"):
         s.reconcile_vm_preserve(f.args, audit_fixture=lambda *_: pytest.fail("unproven initial snapshot"), audit_only=True)
-    assert json.loads((f.shared / "owner.json").read_text())["lease_status"] == "retained"
+    assert injected
+    assert manifest_path.read_bytes() == original_manifest + b"\n"
+    assert (f.shared / "owner.json").read_bytes() == original_owner
 
 
 @pytest.mark.parametrize("artifact", ["output/gate.json", "output/gate.sig", "output/candidate.tar.gz", "output/SHA256SUMS",
