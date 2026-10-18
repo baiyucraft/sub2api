@@ -615,8 +615,9 @@ class ReleaseCoreTest(unittest.TestCase):
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
         vm_only = (DEPLOY_ROOT / "release" / "vm-only-validate.sh").read_text(encoding="utf-8")
         self.assertEqual(helper.count("docker.m.daocloud.io/library/golang:1.27.2-alpine"), 1)
-        self.assertIn('--build-arg "GOLANG_IMAGE=${VM_BUILD_IMAGES[1]}"', helper)
-        self.assertIn('vm_build_docker build --network=host --progress=plain "${VM_BUILD_IMAGE_ARGS[@]}" "$@"', helper)
+        self.assertIn('--build-arg "GOLANG_IMAGE=$(jq -r .roles.golang.pinned_ref "$proof")"', helper)
+        self.assertIn('vm_build_docker buildx build --builder "$VM_BUILD_BUILDER" --platform "$VM_BUILD_PLATFORM" --load', helper)
+        self.assertIn('--network=host --progress=plain "${VM_BUILD_IMAGE_ARGS[@]}" "${candidate_args[@]}"', helper)
         helper_relative = ".agents/skills/sub2api-production-deploy/scripts/release/vm-build-common.sh"
         self.assertIn(f"local helper_relative={helper_relative}", validator)
         self.assertIn('source "$helper"', validator)
