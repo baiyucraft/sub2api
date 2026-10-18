@@ -121,7 +121,7 @@ class VMValidateWorkerTest(unittest.TestCase):
         self.assertNotIn('cat "$raw_log"', script)
         self.assertEqual(VM_WORKER_FIELDS, {
             "worker_status", "worker_pid", "worker_token_match", "worker_exit_code",
-            "gate_stage", "gate_failure_category", "gate_output_ready",
+            "gate_stage", "gate_failure_category", "gate_build_failure_code", "gate_output_ready",
             "gate_signature_ready", "candidate_archive_ready", "raw_log_status",
             "raw_log_bytes",
         })

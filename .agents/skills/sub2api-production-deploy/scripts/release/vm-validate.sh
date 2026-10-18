@@ -10,20 +10,14 @@ done
 docker info >/dev/null 2>&1
 git --version >/dev/null 2>&1
 
-docker_build_with_registry_bypass() {
-  # BuildKit's client-side token fetch needs both registry and auth host bypasses.
-  # Merge both existing exception lists, scoped only to this build command.
-  local registry_no_proxy="${NO_PROXY:-}" registry_host
-  if [[ -n ${no_proxy:-} ]]; then
-    registry_no_proxy="${registry_no_proxy:+$registry_no_proxy,}${no_proxy}"
-  fi
-  for registry_host in docker.m.daocloud.io m.daocloud.io; do
-    case ",$registry_no_proxy," in
-      *,$registry_host,*) ;;
-      *) registry_no_proxy="${registry_no_proxy:+$registry_no_proxy,}$registry_host" ;;
-    esac
-  done
-  NO_PROXY="$registry_no_proxy" no_proxy="$registry_no_proxy" docker build "$@"
+load_vm_build_helper() {
+  local helper_relative=.agents/skills/sub2api-production-deploy/scripts/release/vm-build-common.sh
+  local helper="$source_dir/$helper_relative" expected actual
+  expected=$(jq -er --arg key "$helper_relative" '.release_asset_sha256[$key]' "$manifest") || return 1
+  [[ $expected =~ ^[0-9a-f]{64}$ && -f $helper && ! -L $helper ]] || return 1
+  actual=$(sha256sum "$helper" | awk '{print $1}') || return 1
+  [[ $actual == "$expected" ]] || return 1
+  source "$helper"
 }
 
 # A successful inventory distinguishes an absent tag from a failed daemon query.
@@ -441,6 +435,12 @@ if [[ "$manifest_schema" == 2 ]]; then
     printf 'vm_v2_%s\n' "$v2_stage" > "$state_dir/failure-category"
     printf '%s\n' "$failed_line" > "$state_dir/failure-line"
     printf 'status=%s stage=%s\n' "$code" "$v2_stage" > "$state_dir/failure-detail"
+    if [[ $v2_stage == candidate_build ]]; then
+      build_failure_code=${VM_BUILD_FAILURE_CODE:-build_unknown}
+      [[ $build_failure_code != none ]] || build_failure_code=build_unknown
+      printf '%s\n' "$build_failure_code" > "$state_dir/build-failure-code"
+      chmod 400 "$state_dir/build-failure-code"
+    fi
     chmod 400 "$state_dir/failure-category" "$state_dir/failure-line" "$state_dir/failure-detail"
     cleanup_old_image_tag || true
     docker image rm "${candidate_image_id:-}" >/dev/null 2>&1 || true
@@ -486,20 +486,15 @@ if [[ "$manifest_schema" == 2 ]]; then
     assert_old_image_protected
     rm -f -- "$compatibility_path"
   fi
-  build_log="$state_dir/build.log"
-  : > "$build_log"
-  chmod 600 "$build_log"
   mark_v2_stage candidate_build
-  {
-    required_query_43=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    docker_build_with_registry_bypass --network=host --progress=plain \
-    --build-arg NODE_IMAGE=docker.m.daocloud.io/library/node:24-alpine \
-    --build-arg GOLANG_IMAGE=docker.m.daocloud.io/library/golang:1.27.2-alpine \
-    --build-arg ALPINE_IMAGE=docker.m.daocloud.io/library/alpine:3.21 \
-    --build-arg POSTGRES_IMAGE=docker.m.daocloud.io/library/postgres:18-alpine \
+  load_vm_build_helper
+  install -d -m 700 "$state_dir/build-dependencies"
+  vm_build_preflight "$state_dir/build-dependencies"
+  build_log="$state_dir/build.log"
+  required_query_43=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  vm_build_candidate "$build_log" \
     --build-arg COMMIT="$commit" --build-arg VERSION="$version" \
     --build-arg DATE="${required_query_43}" -t "$tag" .
-  } >"$build_log" 2>&1
   candidate_image_id=$(docker image inspect -f '{{.Id}}' "$tag")
   candidate_image_size=$(docker image inspect -f '{{.Size}}' "$tag")
   [[ "$candidate_image_id" =~ ^sha256:[0-9a-f]{64}$ && "$candidate_image_size" =~ ^[0-9]+$ ]]
@@ -1362,6 +1357,10 @@ on_build_failure() {
   code=$?
   trap - ERR INT TERM
   printf '%s\n' candidate_build > "$state_dir/failure-category"
+  build_failure_code=${VM_BUILD_FAILURE_CODE:-build_unknown}
+  [[ $build_failure_code != none ]] || build_failure_code=build_unknown
+  printf '%s\n' "$build_failure_code" > "$state_dir/build-failure-code"
+  chmod 400 "$state_dir/build-failure-code"
   rm -f "$state_dir/candidate.tar.gz"
   cleanup_candidate_tag
   exit "$code"
@@ -1369,16 +1368,14 @@ on_build_failure() {
 trap on_build_failure ERR INT TERM
 export DOCKER_BUILDKIT=1
 mark_stage candidate_build
-{
-  required_query_100=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-  docker_build_with_registry_bypass --network=host --progress=plain \
-  --build-arg NODE_IMAGE=docker.m.daocloud.io/library/node:24-alpine \
-  --build-arg GOLANG_IMAGE=docker.m.daocloud.io/library/golang:1.27.2-alpine \
-  --build-arg ALPINE_IMAGE=docker.m.daocloud.io/library/alpine:3.21 \
-  --build-arg POSTGRES_IMAGE=docker.m.daocloud.io/library/postgres:18-alpine \
+load_vm_build_helper
+install -d -m 700 "$state_dir/build-dependencies"
+vm_build_preflight "$state_dir/build-dependencies"
+build_log="$state_dir/build.log"
+required_query_100=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+vm_build_candidate "$build_log" \
   --build-arg COMMIT="$commit" --build-arg VERSION="$version" \
   --build-arg DATE="${required_query_100}" -t "$tag" .
-} >/dev/null 2>&1
 candidate_image_id=$(docker image inspect -f '{{.Id}}' "$tag")
 candidate_size=$(docker image inspect -f '{{.Size}}' "$tag")
 [[ $candidate_image_id =~ ^sha256:[0-9a-f]{64}$ ]]

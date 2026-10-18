@@ -13,6 +13,8 @@ sys.path.insert(0, str(DEPLOY_ROOT))
 from release.process import run_hidden
 
 VALIDATOR = DEPLOY_ROOT / "release" / "vm-validate.sh"
+VM_ONLY_VALIDATOR = DEPLOY_ROOT / "release" / "vm-only-validate.sh"
+BUILD_HELPER = DEPLOY_ROOT / "release" / "vm-build-common.sh"
 MIRROR = "docker.m.daocloud.io"
 AUTH = "m.daocloud.io"
 PROXY_NAMES = ("HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy")
@@ -32,26 +34,26 @@ def bash_path() -> str:
 
 def build_source() -> tuple[str, list[tuple[str, str]]]:
     source = VALIDATOR.read_text(encoding="utf-8")
-    helper = re.search(r"(?ms)^docker_build_with_registry_bypass\(\) \{\n.*?^\}", source)
-    assert helper is not None
     # Match the complete build group and bind DATE to its adjacent required
     # capture without depending on the generated variable's numeric suffix.
-    build_groups = list(re.finditer(
-        r'(?m)^[ \t]*\{\n'
+    build_pattern = (
+        r'(?m)^'
         r'[ \t]*(?P<capture>(?P<date_variable>[A-Za-z_]\w*)=\$\(date -u \+%Y-%m-%dT%H:%M:%SZ\))\n'
-        r'[ \t]*(?P<command>docker_build_with_registry_bypass --network=host --progress=plain \\\n'
-        r'(?:[ \t]+.*\\\n)*[ \t]+--build-arg DATE="\$\{(?P=date_variable)\}" -t "\$tag" \.)\n'
-        r'[ \t]*\} (?:>"\$build_log"|>/dev/null) 2>&1$',
-        source,
-    ))
+        r'[ \t]*(?P<command>vm_build_candidate "\$build_log" \\\n'
+        r'(?:[ \t]+.*\\\n)*[ \t]+(?:--build-arg DATE="\$\{(?P=date_variable)\}" -t "\$tag" \.'
+        r'|--build-arg DATE="\$\{(?P=date_variable)\}" \\\n[ \t]+-t "\$tag" \.))'
+    )
+    vm_only_source = VM_ONLY_VALIDATOR.read_text(encoding="utf-8")
+    build_groups = [*re.finditer(build_pattern, source), *re.finditer(build_pattern, vm_only_source)]
     assert "set -Eeuo pipefail\n" in source
     commands = [(match['capture'], match['command']) for match in build_groups]
-    assert len(commands) == 2, "both Gate v2 and legacy builds must use the scoped helper"
+    assert len(commands) == 3, "Gate v2, legacy and VM-only must use the same versioned helper"
     assert "docker build --network=host" not in source
-    return helper.group(0), commands
+    assert "docker build --network=host" not in vm_only_source
+    return BUILD_HELPER.read_text(encoding="utf-8"), commands
 
 
-@pytest.mark.parametrize("entry", [0, 1], ids=["v2", "legacy"])
+@pytest.mark.parametrize("entry", [0, 1, 2], ids=["v2", "legacy", "vm-only"])
 @pytest.mark.parametrize(
     "upper,lower",
     [
@@ -104,8 +106,18 @@ date() {
 commit=fixture-commit
 version=fixture-version
 tag=fixture-tag
+scratch=$(mktemp -d)
+chmod 700 "$scratch"
+trap 'rm -rf -- "$scratch"' EXIT
+build_log="$scratch/build.log"
+# Windows ACLs do not implement POSIX directory modes. Linux executions keep
+# the actual production metadata check; these cases exercise proxy scope.
+if [[ $OSTYPE == msys* ]]; then
+  vm_build_private_directory() { [[ -d $1 && ! -L $1 ]]; }
+fi
 emit_environment
 ''' + f"fixture_exit_code={exit_code}\n{date_capture}\nif {build_command}; then result=0; else result=$?; fi\n" + r'''
+cat "$build_log"
 emit_environment
 printf '%s\0' "$result"
 '''
@@ -134,5 +146,6 @@ printf '%s\0' "$result"
 
 
 def test_real_bash_validator_syntax():
-    result = run_hidden([bash_path(), "--noprofile", "--norc", "-n"], input=VALIDATOR.read_text(encoding="utf-8"), capture_output=True, text=True, timeout=15)
-    assert result.returncode == 0, result.stderr
+    for path in (VALIDATOR, VM_ONLY_VALIDATOR, BUILD_HELPER):
+        result = run_hidden([bash_path(), "--noprofile", "--norc", "-n"], input=path.read_text(encoding="utf-8"), capture_output=True, text=True, timeout=15)
+        assert result.returncode == 0, result.stderr

@@ -23,6 +23,12 @@ class DeployCommandTest(unittest.TestCase):
         patch = mock.patch("release.vm_lifecycle.load_settings", return_value=None)
         patch.start()
         self.addCleanup(patch.stop)
+        dependencies = mock.patch.object(cli, "ensure_vm_build_dependencies", return_value={
+            "build_dependency_status": "verified", "build_failure_code": "none",
+            "build_dependency_count": "4", "build_dependency_verified_count": "4",
+        })
+        dependencies.start()
+        self.addCleanup(dependencies.stop)
 
     def test_direct_gate_consumption_rejects_blocked_signed_classification_before_state_write(self) -> None:
         for reason in ("production_commit_unproven", "recovery_change_requires_review"):
