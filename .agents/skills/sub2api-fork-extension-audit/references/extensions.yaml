@@ -2061,6 +2061,7 @@
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/vm_failed_preserve_integration.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_vm_plan_sources.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_vm_plan_sources_review.py",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile274_recovery_review.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/vm_plan_sources_integration.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/vm_preserve_migration_preflight_integration.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_finalization.py",
@@ -2108,7 +2109,7 @@
       "invariants": [
         "Gate生产plan-before与隔离probe的plan-actual分离：fast生产必须零pending且VM先执行独立完整计划fixture bootstrap再运行verified语义hooks，不虚称生产迁移前置验证；specialized/full仍核对两源pending一致；hooks/apply只用probe计划，对外Gate只用生产snapshot计划",
         "Shell必需断言覆盖独立否定/非末项AND/条件函数/命令与进程替换上下文，采集非零不以输出或空集覆盖；清理与停机前独立读回，Nginx冲突进入事务回滚，逐步失败fixture从正式入口执行；同族补丁和交叉独审固定后重建helper/DR/Gate，不反复部署试错",
-        "恢复分类精确登记release入口、SSH/process、VM切换、插件控制、可启动observer及events/redact/retention证据职责；新增编辑模式删除移出均full且未审阻断，不新增目录或历史豁免；recovery_gate自身既有specialized策略不变",
+        "profile274独立精确审阅绑定生产5deebb2929c2a694145cc2726e895f01c43d28c1到aca670e896ffa0e0e54204f1e6c33c205d5160f5的41兼容+5迁移Gate+2停机postflight路径及blob/mode；未来漂移仍阻断，301必须downtime与协调恢复，仍执行specialized真实隔离恢复。恢复分类精确登记release入口、SSH/process、VM切换、插件控制、可启动observer及events/redact/retention证据职责；新增编辑模式删除移出均full且未审阻断，不新增目录或历史豁免；recovery_gate自身既有specialized策略不变",
         "完整恢复source/guest/collector/authorization/candidate-load/postrelease bridge及其签发和staging入口属于恢复敏感资产；单文件内容、模式、删除或移出目录仍触发full，不新增目录或历史审阅豁免。正式bundle纳入full runner所需source/guest/authorization/baseline_candidate_load/process原路径闭包与必要flat入口；baseline.py草稿不成为正式helper",
         "真实Redis延迟观察的150秒启动预算从新redis_restored.started开始，独立1800秒阶段等待与Guest总时限共同约束，PG fingerprint重验不侵占Redis预算；异常或非预期退出取消观察且保留主错误。Redis/应用/清理中断、续跑和复验分别保存子阶段与root-only稳定失败分类，不以观察器探针冒充完整DR；修复后使用新commit/bundle/授权/drill",
         "完整DR Redis新精确字段集仅增加source_observation与boundary_probe，host/Guest共用严格验证器，未知/缺失字段和bool-as-int拒绝；真实源同Lua原子采SCAN前后DBSIZE/expires，最终计数取同刻after，总键减少等于TTL减少、永久键与备份精确相等，允许零TTL/零键/无自然删除并如实记录lazy_expiry_observed。独占随机canary明确production_source=false，绑定同Guest/engine/rootfs/drill/release和实际Redis image，network none/read-only/tmpfs且无bind/port/volume，仅canary关闭主动过期，真实等待后测2/1到1/0与永久摘要不变，实际inspect确认自有容器不存在才cleaned；旧字段集原严格分支、checkpoint schema1和postrelease legacy TTL差值等式保持，独立探针不证明完整DR或生产",
