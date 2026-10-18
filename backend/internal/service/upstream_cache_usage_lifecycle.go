@@ -133,22 +133,55 @@ func FinishUpstreamCacheGuardAttempt(ctx context.Context, evidence *UpstreamCach
 }
 
 func UpstreamCacheGuardTextRequest(path string, body []byte) bool {
+	eligible, _ := upstreamCacheGuardTextRequestReason(path, body)
+	return eligible
+}
+
+// upstreamCacheGuardTextRequestReason classifies request-level exclusions.
+// A declared image_generation tool is not, by itself, an image request: the
+// caller may set tool_choice=none or the model may answer with text. Actual
+// image output is rejected from the evidence in Finish* below. Explicitly
+// selecting the image tool remains excluded because it is an image-only turn.
+func upstreamCacheGuardTextRequestReason(path string, body []byte) (bool, cacheGuardEligibilityReason) {
 	path = strings.ToLower(path)
 	if strings.Contains(path, "compact") || strings.Contains(path, "/images") || strings.Contains(path, "/audio") || strings.Contains(path, "/video") || strings.Contains(path, "web_search") || strings.Contains(path, "count_tokens") {
-		return false
+		return false, cacheGuardEligibilityPath
 	}
 	root := gjson.ParseBytes(body)
 	model := strings.ToLower(root.Get("model").String())
 	if strings.Contains(model, "image") || strings.Contains(model, "video") || strings.Contains(model, "tts") || strings.Contains(model, "transcribe") || strings.Contains(model, "audio") {
-		return false
+		return false, cacheGuardEligibilityModel
 	}
-	for _, tool := range root.Get("tools").Array() {
-		typ := strings.ToLower(tool.Get("type").String())
-		if typ == "image_generation" {
-			return false
-		}
+	choice := root.Get("tool_choice")
+	if choice.IsObject() && strings.EqualFold(choice.Get("type").String(), "image_generation") {
+		return false, cacheGuardEligibilityExplicitImageTool
 	}
-	return true
+	return true, cacheGuardEligibilityNone
+}
+
+// cacheGuardEligibilityReason is deliberately small and stable: it is used
+// only for aggregate diagnostics and never contains request content.
+type cacheGuardEligibilityReason uint8
+
+const (
+	cacheGuardEligibilityNone cacheGuardEligibilityReason = iota
+	cacheGuardEligibilityPath
+	cacheGuardEligibilityModel
+	cacheGuardEligibilityExplicitImageTool
+	cacheGuardEligibilityReasonCount
+)
+
+func (r cacheGuardEligibilityReason) String() string {
+	switch r {
+	case cacheGuardEligibilityPath:
+		return "non_text_path"
+	case cacheGuardEligibilityModel:
+		return "non_text_model"
+	case cacheGuardEligibilityExplicitImageTool:
+		return "explicit_image_tool_choice"
+	default:
+		return "none"
+	}
 }
 
 // WithUpstreamCacheGuardTurn derives an independent logical request from the

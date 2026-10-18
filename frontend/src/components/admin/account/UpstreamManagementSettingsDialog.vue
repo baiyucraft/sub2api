@@ -84,6 +84,7 @@
         </div>
         <p class="mt-3 text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('admin.upstreamManagement.cacheGuard.sampleHint', { count: draft.cache_guard.min_valid_requests }) }}</p>
         <p class="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('admin.upstreamManagement.cacheGuard.recoveryHint') }}</p>
+        <p class="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('admin.upstreamManagement.cacheGuard.evidenceExpiryHint') }}</p>
         <p class="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('admin.upstreamManagement.cacheGuard.sessionHint') }}</p>
         <p v-if="!cacheGuardValid" role="alert" class="mt-2 text-sm text-red-600 dark:text-red-400">{{ t('admin.upstreamManagement.cacheGuard.invalid') }}</p>
       </section>
@@ -259,7 +260,7 @@ type SettingsDraft = UpstreamManagementSettings & { cache_guard: UpstreamCacheGu
 const defaults: SettingsDraft = {
   scheduling_priority: 'cache_first',
   scheduling_protection_platforms: ['openai'],
-  cache_guard: { mode: 'disabled', group_ids: [], threshold_percent: 75, window_minutes: 60, min_valid_requests: 20, recovery_threshold_percent: 80, cooldown_minutes: 10, trial_percent: 10 },
+  cache_guard: { mode: 'disabled', group_ids: [], threshold_percent: 75, window_minutes: 60, min_valid_requests: 20, recovery_threshold_percent: 80, cooldown_minutes: 10, trial_percent: 10, protection_evidence_expiry_minutes: 15 },
   ttft_guard: { enabled: false, degradation_ttft_seconds: 20, min_samples: 5 },
   probe_guard: {
     enabled: true,
@@ -280,7 +281,8 @@ const cacheNumericFields: { key: Exclude<keyof UpstreamCacheGuardSettings, 'mode
   { key: 'min_valid_requests', min: 1, max: 100000 },
   { key: 'recovery_threshold_percent', min: 0, max: 100, step: 0.1 },
   { key: 'cooldown_minutes', min: 1, max: 1440 },
-  { key: 'trial_percent', min: 1, max: 100 }
+  { key: 'trial_percent', min: 1, max: 100 },
+  { key: 'protection_evidence_expiry_minutes', min: 1, max: 1440 }
 ]
 const cacheGuardValid = computed(() => {
   const guard = draft.cache_guard

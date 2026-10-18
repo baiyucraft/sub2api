@@ -7,9 +7,17 @@ import (
 )
 
 // PolicySignature deliberately excludes groups and routing priority. Equal
-// quality rules share one durable phase and one recovery cohort.
+// quality rules share one durable phase and one recovery cohort. Evidence
+// expiry is included because it changes when a protected phase becomes
+// unknown and therefore changes the durable decision boundary.
 func PolicySignature(s Settings) string {
-	return digest(fmt.Sprintf("cache-policy-v1:%g:%g:%d", s.ThresholdPercent, s.RecoveryThresholdPercent, s.MinValidRequests))
+	expiry := protectionEvidenceExpiryMinutes(s)
+	// Preserve the released signature for the default expiry so upgrading does
+	// not reset durable cohorts, frozen admissions or existing route affinity.
+	if expiry == 15 {
+		return digest(fmt.Sprintf("cache-policy-v1:%g:%g:%d", s.ThresholdPercent, s.RecoveryThresholdPercent, s.MinValidRequests))
+	}
+	return digest(fmt.Sprintf("cache-policy-v2:%g:%g:%d:%d", s.ThresholdPercent, s.RecoveryThresholdPercent, s.MinValidRequests, expiry))
 }
 
 // PolicyVersion allows one routing evaluation to reject a mixed-generation
@@ -28,6 +36,7 @@ func (e *Engine) ApplyPolicySettings(values map[int64]Settings) error {
 		if s.Priority == "" {
 			s.Priority = "cache_first"
 		}
+		s.ProtectionEvidenceExpiryMinutes = protectionEvidenceExpiryMinutes(s)
 		s.GroupIDs = append([]int64(nil), s.GroupIDs...)
 		copy[id] = s
 	}
@@ -148,7 +157,7 @@ func (e *Engine) recomputePolicies(a *AccountState, facts []Evidence, now time.T
 }
 
 func projectionSettingsCompatible(a, b Settings) bool {
-	return PolicySignature(a) == PolicySignature(b) && a.WindowMinutes == b.WindowMinutes && a.CooldownMinutes == b.CooldownMinutes && a.TrialPercent == b.TrialPercent
+	return PolicySignature(a) == PolicySignature(b) && a.WindowMinutes == b.WindowMinutes && a.CooldownMinutes == b.CooldownMinutes && a.TrialPercent == b.TrialPercent && protectionEvidenceExpiryMinutes(a) == protectionEvidenceExpiryMinutes(b)
 }
 
 func accountPoliciesCompatible(a AccountState, active map[string]Settings) bool {

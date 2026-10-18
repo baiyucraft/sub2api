@@ -65,7 +65,7 @@ func (e *Engine) readAccount(tx Tx, r Request, s Settings, now time.Time) (Accou
 		if old.LastEvidenceAt.After(a.LastEvidenceAt) {
 			a.LastEvidenceAt = old.LastEvidenceAt
 		}
-		if old.Phase != Healthy && old.Phase != "" {
+		if old.Phase == Degraded || old.Phase == Cooling || old.Phase == Trial {
 			a.Phase = Cooling
 			if old.CooldownUntil.After(a.CooldownUntil) {
 				a.CooldownUntil = old.CooldownUntil
@@ -324,7 +324,7 @@ func (e *Engine) refreshAccounts(ctx context.Context) error {
 		active := e.activePolicies()
 		for sig, settings := range active {
 			projection, exists := existing.Policies[sig]
-			missing = missing || !exists || projection.Settings.WindowMinutes != settings.WindowMinutes || projection.Settings.CooldownMinutes != settings.CooldownMinutes || projection.Settings.TrialPercent != settings.TrialPercent
+			missing = missing || !exists || !projectionSettingsCompatible(projection.Settings, settings)
 		}
 		if row.Version != 0 && !missing && len(active) == len(existing.Policies) {
 			eligibleIDs = append(eligibleIDs, row.AccountID)
@@ -609,6 +609,28 @@ func (e *Engine) accountSnapshotLocked(id string, a AccountSnapshot) AccountSnap
 	return e.accountSnapshotAtLocked(id, a, e.now().UTC())
 }
 func (e *Engine) accountSnapshotAtLocked(id string, a AccountSnapshot, now time.Time) AccountSnapshot {
+	// Expiry is derived at read time as well as during durable recomputation so
+	// an old protected phase cannot remain schedulable between refresh ticks.
+	// Published projections are immutable. Most reads need no copy at all;
+	// copy only the map shell when an expired projection must be replaced.
+	var expired map[string]PolicyProjection
+	for sig, projection := range a.Policies {
+		if expireProtectionState(&projection.State, projection.Settings, now) {
+			if expired == nil {
+				expired = make(map[string]PolicyProjection, len(a.Policies))
+				for key, value := range a.Policies {
+					expired[key] = value
+				}
+			}
+			expired[sig] = projection
+		}
+	}
+	if expired != nil {
+		a.Policies = expired
+	}
+	if len(a.Policies) == 0 {
+		expireProtectionState(&a.AccountState, e.Settings(), now)
+	}
 	gap := e.accountGaps[id] || len(e.samplingFailures[id]) > 0
 	loadedAt := a.LoadedAt
 	if loadedAt.IsZero() && !gap {
@@ -625,6 +647,10 @@ func (e *Engine) accountSnapshotAtLocked(id string, a AccountSnapshot, now time.
 }
 
 func cloneAccountSnapshot(a AccountSnapshot) AccountSnapshot {
+	if a.LastDegradedEvidenceAt != nil {
+		anchor := *a.LastDegradedEvidenceAt
+		a.LastDegradedEvidenceAt = &anchor
+	}
 	a.GroupIDs = append([]int64(nil), a.GroupIDs...)
 	a.TrialGroupIDs = append([]int64(nil), a.TrialGroupIDs...)
 	if a.Policies != nil {
