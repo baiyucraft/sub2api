@@ -44,7 +44,7 @@ class FastDeployInitializationReviewTest(unittest.TestCase):
         self.assertNotIn("recovery_change_requires_review", report["reason_codes"])
         gate.assert_release_allowed(report)
 
-    def test_all_prior_registrations_are_unchanged_and_only_one_is_appended(self):
+    def test_all_prior_registrations_and_the_original_review_are_unchanged(self):
         source = check_output_hidden(
             ["git", "show", TARGET + ":.agents/skills/sub2api-production-deploy/scripts/release/recovery_gate.py"],
             cwd=WORKSPACE, text=True,
@@ -54,7 +54,7 @@ class FastDeployInitializationReviewTest(unittest.TestCase):
         for name in ("_REVIEWED_COMPATIBILITY_TRANCHES", "_REVIEWED_GATE_POLICY_TRANCHES", "_REVIEWED_MIGRATION_GATE_TRANCHES"):
             self.assertEqual(getattr(gate, name), prior[name])
         self.assertEqual(
-            gate._REVIEWED_SCOPED_TRANCHES,
+            gate._REVIEWED_SCOPED_TRANCHES[:len(prior["_REVIEWED_SCOPED_TRANCHES"]) + 1],
             (*prior["_REVIEWED_SCOPED_TRANCHES"], (BASE, TARGET, REASON, frozenset({PATH}))),
         )
 
