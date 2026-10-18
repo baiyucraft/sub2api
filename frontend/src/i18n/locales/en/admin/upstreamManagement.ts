@@ -80,10 +80,12 @@ export default {
       recovery_threshold_percent: 'Recovery threshold (%)',
       cooldown_minutes: 'Cooldown (minutes)',
       trial_percent: 'Recovery share of new sessions (%)',
+      protection_evidence_expiry_minutes: 'Protection evidence expiry (minutes)',
+      evidenceExpiryHint: 'When no valid continuation samples arrive for longer than this lifetime, cache protection stops and ordinary scheduling resumes until new samples allow revalidation. This does not count as verified recovery.',
       sampleHint: 'Decisions require strictly more than {count} valid requests. Cache rate is cached input tokens / all input tokens.',
       recoveryHint: 'After cooldown, new sessions enter a recovery trial for their effective policy. Identical policies share progress. Trial samples are separate from ordinary traffic and require at least 3 sessions and 10 minutes of observation.',
       sessionHint: 'Two consecutive low-rate continuations allow migration to an account with capacity and at least 5 percentage points higher cache rate. Stay for at least 5 minutes after migration. When all rates are low, choose among callable accounts.',
-      invalid: 'Use a 5–1440 minute window, a recovery threshold above protection and at most 100%, 1–100000 valid requests, a 1–1440 minute cooldown, and a 1–100% trial share.',
+      invalid: 'Use a 5–1440 minute window, a recovery threshold above protection and at most 100%, 1–100000 valid requests, 1–1440 minute cooldown and evidence expiry, and a 1–100% trial share.',
       rate: 'Valid continuation cache rate',
       accountSummary: 'Combined account statistics',
       windowMinutes: 'Window: {count} minutes',
@@ -116,7 +118,7 @@ export default {
       sourcePhases: { healthy: 'Healthy', degraded: 'Low-cache protection', cooling: 'Cooling down', trial: 'Recovery trial' },
       metricHint: 'Valid samples for the current account and Key are shared across groups and weighted by input tokens. Cold starts and invalid samples are excluded. Unknown is not 0%. Each group applies its own effective thresholds and recovery criteria.',
       states: { disabled: 'Off', observing: 'Observing', insufficient: 'Insufficient samples', normal: 'Normal', protected: 'Protected', recovering: 'Recovery trial', expired: 'Expired data', unavailable: 'Temporarily unavailable' },
-      reasons: { disabled: 'Protection is off', collecting_samples: 'Collecting valid samples', insufficient_samples: 'Insufficient valid continuation samples', low_cache_rate: 'Below protection threshold', below_threshold: 'Below protection threshold', cooldown: 'Waiting for cooldown', waiting_recovery_samples: 'Waiting for recovery samples and observation time', waiting_recovery_validation: 'Waiting for independent recovery validation', recovery_verified: 'Recovery verified', healthy: 'Normal window cache performance', unavailable: 'State temporarily unavailable', snapshot_unavailable: 'Shared state temporarily unavailable', linked_group_protection: 'The same upstream account is protected by another group' }
+      reasons: { disabled: 'Protection is off', collecting_samples: 'Collecting valid samples', insufficient_samples: 'Insufficient valid continuation samples', low_cache_rate: 'Below protection threshold', below_threshold: 'Below protection threshold', cooldown: 'Waiting for cooldown', waiting_recovery_samples: 'Waiting for recovery samples and observation time', waiting_recovery_validation: 'Waiting for independent recovery validation', recovery_verified: 'Recovery verified', healthy: 'Normal window cache performance', unavailable: 'State temporarily unavailable', snapshot_unavailable: 'Shared state temporarily unavailable', evidence_expired: 'Protection evidence expired; waiting for new valid samples', linked_group_protection: 'The same upstream account is protected by another group' }
     },
     retryStatusCodes: {
       title: 'Same-account retry status codes',

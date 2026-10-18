@@ -156,7 +156,7 @@ func buildCacheGuardPreference(ctx context.Context, groupID *int64, sessionHash,
 			for id := range eligible {
 				a := states[id]
 				target := eligible[id]
-				if a.Fresh && id != session.PreferredAccountID && cacheGuardSamePool(&target, firstPool, groupID) && a.ValidRequests > s.MinValidRequests && a.CachePercent >= source.CachePercent+5 {
+				if a.Fresh && a.Phase != upstreamcacheguard.Unknown && id != session.PreferredAccountID && cacheGuardSamePool(&target, firstPool, groupID) && a.ValidRequests > s.MinValidRequests && a.CachePercent >= source.CachePercent+5 {
 					better = append(better, id)
 				}
 			}
@@ -237,7 +237,7 @@ func buildCacheGuardPreference(ctx context.Context, groupID *int64, sessionHash,
 			a := states[id]
 			if cacheGuardAccountProtected(a) {
 				protected = append(protected, id)
-			} else if a.ValidRequests > s.MinValidRequests {
+			} else if a.Phase != upstreamcacheguard.Unknown && a.ValidRequests > s.MinValidRequests {
 				known = append(known, id)
 			} else {
 				unknown = append(unknown, id)
@@ -263,12 +263,12 @@ func buildCacheGuardPreference(ctx context.Context, groupID *int64, sessionHash,
 }
 
 func cacheGuardAccountProtected(account upstreamcacheguard.AccountSnapshot) bool {
-	return account.Phase != "" && account.Phase != upstreamcacheguard.Healthy
+	return account.Phase == upstreamcacheguard.Degraded || account.Phase == upstreamcacheguard.Cooling || account.Phase == upstreamcacheguard.Trial
 }
 
 func cacheGuardRecoveryReady(account upstreamcacheguard.AccountSnapshot, at time.Time) bool {
 	// All executing groups share the account cohort and cooldown.
-	if account.Phase != "" && account.Phase != upstreamcacheguard.Healthy {
+	if cacheGuardAccountProtected(account) {
 		return !at.Before(account.CooldownUntil)
 	}
 	return false

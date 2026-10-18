@@ -28,6 +28,17 @@ func TestUpstreamCacheGuardSettingsDefaultsAndOldClientPreservation(t *testing.T
 	require.NoError(t, service.SetManagementSettings(context.Background(), management))
 	require.Equal(t, before, repo.values[SettingKeyUpstreamCacheGuard])
 }
+
+func TestUpstreamCacheGuardSettingsOldJSONDefaultsEvidenceExpiry(t *testing.T) {
+	repo := &upstreamManagementSettingRepoStub{values: map[string]string{
+		SettingKeyUpstreamCacheGuard: `{"mode":"observe","group_ids":[],"threshold_percent":75,"window_minutes":60,"min_valid_requests":20,"recovery_threshold_percent":80,"cooldown_minutes":10,"trial_percent":10}`,
+	}}
+	settings := NewSettingService(repo, nil)
+	got, err := settings.GetUpstreamCacheGuardSettings(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, 15, got.ProtectionEvidenceExpiryMinutes)
+	require.Equal(t, upstreamcacheguard.Observe, got.Mode)
+}
 func TestUpstreamCacheGuardInvalidSettingsRejectBeforeAnyWrite(t *testing.T) {
 	repo := &upstreamManagementSettingRepoStub{values: map[string]string{}}
 	settings := NewSettingService(repo, nil)

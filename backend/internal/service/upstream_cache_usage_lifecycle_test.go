@@ -176,7 +176,13 @@ func TestCacheGuardEligibilityExcludesNonTextAndKeepsTextWithSearchTool(t *testi
 		{"/v1/audio/transcriptions", `{"model":"audio-test"}`, false},
 		{"/v1/messages/count_tokens", `{"model":"claude-test"}`, false},
 		{"/v1/web_search", `{"model":"gpt-test"}`, false},
-		{"/v1/responses", `{"model":"gpt-test","tools":[{"type":"image_generation"}]}`, false},
+		// Merely advertising the native image tool does not make a text turn
+		// ineligible. Clients often send their complete tool catalog even when
+		// tool_choice is none or auto.
+		{"/v1/responses", `{"model":"gpt-test","tools":[{"type":"image_generation"}]}`, true},
+		{"/v1/responses", `{"model":"gpt-test","tools":[{"type":"image_generation"}],"tool_choice":"none"}`, true},
+		{"/v1/responses", `{"model":"gpt-test","tools":[{"type":"image_generation"}],"tool_choice":"auto"}`, true},
+		{"/v1/responses", `{"model":"gpt-test","tools":[{"type":"image_generation"}],"tool_choice":{"type":"image_generation"}}`, false},
 	} {
 		if got := UpstreamCacheGuardTextRequest(tc.path, []byte(tc.body)); got != tc.eligible {
 			t.Fatalf("eligibility %s %s = %v", tc.path, tc.body, got)

@@ -26,6 +26,59 @@ type cacheGuardSchedulingIdentity struct {
 	budget    *cacheGuardRequestBudget
 }
 
+// cacheGuardSkipReason is an aggregate diagnostic label for the fail-open
+// exits before an admission is created. Keep these labels free of request
+// content, credentials and session identifiers so they are safe to emit in
+// ordinary service logs.
+type cacheGuardSkipReason uint8
+
+const (
+	cacheGuardSkipRunnerUnavailable cacheGuardSkipReason = iota
+	cacheGuardSkipAccountUnavailable
+	cacheGuardSkipSnapshotUnavailable
+	cacheGuardSkipScopeNotSelected
+	cacheGuardSkipIdentityUnauthorized
+	cacheGuardSkipAccountSnapshotUnavailable
+	cacheGuardSkipLogicalRequestInvalid
+	cacheGuardSkipStaleSessionUnavailable
+	cacheGuardSkipStaleSessionUnbound
+	cacheGuardSkipAdmissionError
+	cacheGuardSkipAdmissionNotSample
+	cacheGuardSkipOrdinaryFallback
+	cacheGuardSkipReasonCount
+)
+
+func (r cacheGuardSkipReason) String() string {
+	switch r {
+	case cacheGuardSkipRunnerUnavailable:
+		return "runner_unavailable"
+	case cacheGuardSkipAccountUnavailable:
+		return "account_unavailable"
+	case cacheGuardSkipSnapshotUnavailable:
+		return "snapshot_unavailable"
+	case cacheGuardSkipScopeNotSelected:
+		return "scope_not_selected"
+	case cacheGuardSkipIdentityUnauthorized:
+		return "identity_unauthorized"
+	case cacheGuardSkipAccountSnapshotUnavailable:
+		return "account_snapshot_unavailable"
+	case cacheGuardSkipLogicalRequestInvalid:
+		return "logical_request_invalid"
+	case cacheGuardSkipStaleSessionUnavailable:
+		return "stale_session_unavailable"
+	case cacheGuardSkipStaleSessionUnbound:
+		return "stale_session_unbound"
+	case cacheGuardSkipAdmissionError:
+		return "admission_error"
+	case cacheGuardSkipAdmissionNotSample:
+		return "admission_not_sample"
+	case cacheGuardSkipOrdinaryFallback:
+		return "ordinary_fallback"
+	default:
+		return "unknown"
+	}
+}
+
 // The deadline begins at the first protection database operation. It is shared
 // by selection and admission, without shortening the ordinary request context.
 type cacheGuardRequestBudget struct {
@@ -120,6 +173,21 @@ type UpstreamCacheGuardRunner struct {
 	policyMu       sync.RWMutex
 	policyResolver GroupSchedulingProtectionPolicyResolver
 	appliedPolicy  *GroupSchedulingProtectionPolicySnapshot
+	skipCounts     [cacheGuardSkipReasonCount]atomic.Uint64
+}
+
+func (r *UpstreamCacheGuardRunner) recordAdmissionSkip(reason cacheGuardSkipReason, groupID, accountID int64) {
+	if r == nil || reason >= cacheGuardSkipReasonCount {
+		return
+	}
+	count := r.skipCounts[reason].Add(1)
+	// Keep the hot path effectively silent while retaining a low-cost, useful
+	// counter log. The first occurrence and every thousandth occurrence are
+	// enough to identify a systematic gate without logging request metadata.
+	if count != 1 && count%1000 != 0 {
+		return
+	}
+	slog.Info("upstream_cache_guard_admission_skipped", "reason", reason.String(), "count", count, "group_id", groupID, "account_id", accountID)
 }
 
 var installedCacheGuardRunner atomic.Pointer[UpstreamCacheGuardRunner]
@@ -425,33 +493,60 @@ func BeginUpstreamCacheGuardRequest(ctx context.Context, apiKeyID int64, groupID
 func beginUpstreamCacheGuardRequest(ctx context.Context, apiKeyID int64, groupID *int64, sessionHash, model, protocol string, account *Account) (*UpstreamCacheGuardAdmission, error) {
 	strict, _ := ctx.Value(cacheGuardProtectedSelectionKey{}).(bool)
 	if protectionOrdinaryFallback(ctx) {
+		if r := currentUpstreamCacheGuardRunner(); r != nil {
+			var gid, aid int64
+			if groupID != nil {
+				gid = *groupID
+			}
+			if account != nil {
+				aid = account.ID
+			}
+			r.recordAdmissionSkip(cacheGuardSkipOrdinaryFallback, gid, aid)
+		}
 		if strict {
 			return nil, protectionBudgetFallbackError()
 		}
 		return nil, nil
 	}
 	r := currentUpstreamCacheGuardRunner()
-	if r == nil || r.closed.Load() || account == nil || !account.IsUpstreamBound() || account.UpstreamKeyID == nil || groupID == nil {
+	if r == nil {
+		return nil, nil
+	}
+	if r.closed.Load() {
+		r.recordAdmissionSkip(cacheGuardSkipRunnerUnavailable, 0, 0)
+		return nil, nil
+	}
+	if account == nil || !account.IsUpstreamBound() || account.UpstreamKeyID == nil || groupID == nil {
+		var aid int64
+		if account != nil {
+			aid = account.ID
+		}
+		r.recordAdmissionSkip(cacheGuardSkipAccountUnavailable, 0, aid)
 		return nil, nil
 	}
 	at := time.Now().UTC()
 	snapshot := r.engine.CachedMetadataAt(*groupID, at)
 	if !snapshot.Available {
+		r.recordAdmissionSkip(cacheGuardSkipSnapshotUnavailable, *groupID, account.ID)
 		return nil, nil
 	}
 	if !r.protectionScopeSelected(*groupID, account) {
+		r.recordAdmissionSkip(cacheGuardSkipScopeNotSelected, *groupID, account.ID)
 		return nil, nil
 	}
 	identity, authorized := ctx.Value(cacheGuardSchedulingKey{}).(cacheGuardSchedulingIdentity)
 	if !authorized || identity.APIKeyID != apiKeyID {
+		r.recordAdmissionSkip(cacheGuardSkipIdentityUnauthorized, *groupID, account.ID)
 		return nil, nil
 	}
 	accountSnapshot, ok := r.engine.CachedAccountForGroupAt(*groupID, account.ID, *account.UpstreamKeyID, at)
 	if !ok {
+		r.recordAdmissionSkip(cacheGuardSkipAccountSnapshotUnavailable, *groupID, account.ID)
 		return nil, nil
 	}
 	req, ok := r.logicalRequest(ctx, groupID, sessionHash, model, protocol)
 	if !ok {
+		r.recordAdmissionSkip(cacheGuardSkipLogicalRequestInvalid, *groupID, account.ID)
 		return nil, nil
 	}
 	req.AccountID = account.ID
@@ -464,12 +559,14 @@ func beginUpstreamCacheGuardRequest(ctx context.Context, apiKeyID int64, groupID
 	if stale {
 		session, err := r.engine.SessionReadAtWithDatabaseContext(ctx, req, at, cacheGuardDatabaseContext)
 		if err != nil {
+			r.recordAdmissionSkip(cacheGuardSkipStaleSessionUnavailable, *groupID, account.ID)
 			if strict && protectionOrdinaryFallback(ctx) && ctx.Err() == nil {
 				return nil, protectionBudgetFallbackError()
 			}
 			return nil, nil
 		}
 		if !session.Known || session.PreferredAccountID != account.ID {
+			r.recordAdmissionSkip(cacheGuardSkipStaleSessionUnbound, *groupID, account.ID)
 			return nil, nil
 		}
 	}
@@ -483,6 +580,7 @@ func beginUpstreamCacheGuardRequest(ctx context.Context, apiKeyID int64, groupID
 		a, err = r.engine.Admit(dbCtx, req)
 	}
 	if err != nil {
+		r.recordAdmissionSkip(cacheGuardSkipAdmissionError, *groupID, account.ID)
 		r.available.Store(false)
 		if (dbCtx.Err() == context.DeadlineExceeded || errors.Is(err, context.DeadlineExceeded)) && ctx.Err() == nil {
 			if identity.budget != nil {
@@ -495,6 +593,7 @@ func beginUpstreamCacheGuardRequest(ctx context.Context, apiKeyID int64, groupID
 		return nil, nil
 	}
 	if !a.Sample {
+		r.recordAdmissionSkip(cacheGuardSkipAdmissionNotSample, *groupID, account.ID)
 		return nil, nil
 	}
 	return &UpstreamCacheGuardAdmission{Request: req, Admission: a, AccountPlatform: account.Platform}, nil

@@ -36,6 +36,9 @@ func (s *SettingService) GetUpstreamCacheGuardSettings(ctx context.Context) (Ups
 	if settings.Priority == "" {
 		settings.Priority = "cache_first"
 	}
+	if settings.ProtectionEvidenceExpiryMinutes == 0 {
+		settings.ProtectionEvidenceExpiryMinutes = defaults.ProtectionEvidenceExpiryMinutes
+	}
 	if settings.Validate() != nil {
 		return defaults, nil
 	}
@@ -53,6 +56,9 @@ func validateUpstreamCacheGuardSettings(settings *UpstreamCacheGuardSettings) er
 }
 
 func (s *SettingService) SetUpstreamCacheGuardSettings(ctx context.Context, settings UpstreamCacheGuardSettings) error {
+	if settings.ProtectionEvidenceExpiryMinutes == 0 {
+		settings.ProtectionEvidenceExpiryMinutes = DefaultUpstreamCacheGuardSettings().ProtectionEvidenceExpiryMinutes
+	}
 	if err := validateUpstreamCacheGuardSettings(&settings); err != nil {
 		return err
 	}

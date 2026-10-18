@@ -22,19 +22,29 @@ const (
 )
 
 type Settings struct {
-	Mode                     Mode    `json:"mode"`
-	GroupIDs                 []int64 `json:"group_ids"`
-	ThresholdPercent         float64 `json:"threshold_percent"`
-	WindowMinutes            int     `json:"window_minutes"`
-	MinValidRequests         int     `json:"min_valid_requests"`
-	RecoveryThresholdPercent float64 `json:"recovery_threshold_percent"`
-	CooldownMinutes          int     `json:"cooldown_minutes"`
-	TrialPercent             int     `json:"trial_percent"`
-	Priority                 string  `json:"scheduling_priority,omitempty"`
+	Mode                            Mode    `json:"mode"`
+	GroupIDs                        []int64 `json:"group_ids"`
+	ThresholdPercent                float64 `json:"threshold_percent"`
+	WindowMinutes                   int     `json:"window_minutes"`
+	MinValidRequests                int     `json:"min_valid_requests"`
+	RecoveryThresholdPercent        float64 `json:"recovery_threshold_percent"`
+	CooldownMinutes                 int     `json:"cooldown_minutes"`
+	TrialPercent                    int     `json:"trial_percent"`
+	ProtectionEvidenceExpiryMinutes int     `json:"protection_evidence_expiry_minutes"`
+	Priority                        string  `json:"scheduling_priority,omitempty"`
 }
 
 func DefaultSettings() Settings {
-	return Settings{Mode: Disabled, GroupIDs: []int64{}, ThresholdPercent: 75, WindowMinutes: 60, MinValidRequests: 20, RecoveryThresholdPercent: 80, CooldownMinutes: 10, TrialPercent: 10, Priority: "cache_first"}
+	return Settings{Mode: Disabled, GroupIDs: []int64{}, ThresholdPercent: 75, WindowMinutes: 60, MinValidRequests: 20, RecoveryThresholdPercent: 80, CooldownMinutes: 10, TrialPercent: 10, ProtectionEvidenceExpiryMinutes: 15, Priority: "cache_first"}
+}
+
+// Rows written before this setting existed decode as zero. Interpret those
+// values consistently in durable projections as well as the settings API.
+func protectionEvidenceExpiryMinutes(s Settings) int {
+	if s.ProtectionEvidenceExpiryMinutes == 0 {
+		return 15
+	}
+	return s.ProtectionEvidenceExpiryMinutes
 }
 func (s Settings) Validate() error {
 	if s.Priority != "" && s.Priority != "cache_first" && s.Priority != "ttft_first" {
@@ -46,7 +56,9 @@ func (s Settings) Validate() error {
 	if math.IsNaN(s.ThresholdPercent) || math.IsInf(s.ThresholdPercent, 0) || s.ThresholdPercent < 0 || s.ThresholdPercent > 100 || math.IsNaN(s.RecoveryThresholdPercent) || math.IsInf(s.RecoveryThresholdPercent, 0) || s.RecoveryThresholdPercent <= s.ThresholdPercent || s.RecoveryThresholdPercent > 100 {
 		return errors.New("invalid cache guard thresholds")
 	}
-	if s.WindowMinutes < 5 || s.WindowMinutes > 1440 || s.MinValidRequests < 1 || s.MinValidRequests > 100000 || s.CooldownMinutes < 1 || s.CooldownMinutes > 1440 || s.TrialPercent < 1 || s.TrialPercent > 100 {
+	// Zero is accepted for rows written before this field existed and means the
+	// default expiry. Settings service normalizes it before persistence.
+	if s.WindowMinutes < 5 || s.WindowMinutes > 1440 || s.MinValidRequests < 1 || s.MinValidRequests > 100000 || s.CooldownMinutes < 1 || s.CooldownMinutes > 1440 || s.TrialPercent < 1 || s.TrialPercent > 100 || s.ProtectionEvidenceExpiryMinutes < 0 || s.ProtectionEvidenceExpiryMinutes > 1440 {
 		return errors.New("invalid cache guard limits")
 	}
 	for _, id := range s.GroupIDs {
@@ -130,34 +142,36 @@ const (
 	Degraded Phase = "degraded"
 	Cooling  Phase = "cooling"
 	Trial    Phase = "trial"
+	Unknown  Phase = "unknown"
 )
 
 type AccountState struct {
 	// Policies share immutable observations, but own recovery/reset boundaries.
-	Policies           map[string]PolicyProjection `json:"policies,omitempty"`
-	PolicySignature    string                      `json:"policy_signature,omitempty"`
-	AccountID          int64                       `json:"account_id"`
-	UpstreamKeyID      int64                       `json:"upstream_key_id"`
-	Model              string                      `json:"model"`
-	Protocol           string                      `json:"protocol"`
-	Phase              Phase                       `json:"phase"`
-	ValidRequests      int                         `json:"valid_requests"`
-	CachePercent       float64                     `json:"cache_percent"`
-	TotalInputTokens   int64                       `json:"total_input_tokens"`
-	CacheReadTokens    int64                       `json:"cache_read_tokens"`
-	UpdatedAt          time.Time                   `json:"updated_at"`
-	LastEvidenceAt     time.Time                   `json:"last_evidence_at"`
-	QualitySince       time.Time                   `json:"quality_since,omitempty"`
-	DegradedAt         time.Time                   `json:"degraded_at,omitempty"`
-	CooldownUntil      time.Time                   `json:"cooldown_until,omitempty"`
-	CohortID           string                      `json:"cohort_id,omitempty"`
-	FirstTrialAt       time.Time                   `json:"first_trial_at,omitempty"`
-	TrialValidRequests int                         `json:"trial_valid_requests"`
-	TrialSessions      int                         `json:"trial_sessions"`
-	TrialCachePercent  float64                     `json:"trial_cache_percent"`
-	GroupIDs           []int64                     `json:"group_ids,omitempty"`
-	TrialGroupIDs      []int64                     `json:"trial_group_ids,omitempty"`
-	LegacyQualitySince map[int64]time.Time         `json:"legacy_quality_since,omitempty"`
+	Policies               map[string]PolicyProjection `json:"policies,omitempty"`
+	PolicySignature        string                      `json:"policy_signature,omitempty"`
+	AccountID              int64                       `json:"account_id"`
+	UpstreamKeyID          int64                       `json:"upstream_key_id"`
+	Model                  string                      `json:"model"`
+	Protocol               string                      `json:"protocol"`
+	Phase                  Phase                       `json:"phase"`
+	ValidRequests          int                         `json:"valid_requests"`
+	CachePercent           float64                     `json:"cache_percent"`
+	TotalInputTokens       int64                       `json:"total_input_tokens"`
+	CacheReadTokens        int64                       `json:"cache_read_tokens"`
+	UpdatedAt              time.Time                   `json:"updated_at"`
+	LastEvidenceAt         time.Time                   `json:"last_evidence_at"`
+	QualitySince           time.Time                   `json:"quality_since,omitempty"`
+	DegradedAt             time.Time                   `json:"degraded_at,omitempty"`
+	LastDegradedEvidenceAt *time.Time                  `json:"last_degraded_evidence_at,omitempty"`
+	CooldownUntil          time.Time                   `json:"cooldown_until,omitempty"`
+	CohortID               string                      `json:"cohort_id,omitempty"`
+	FirstTrialAt           time.Time                   `json:"first_trial_at,omitempty"`
+	TrialValidRequests     int                         `json:"trial_valid_requests"`
+	TrialSessions          int                         `json:"trial_sessions"`
+	TrialCachePercent      float64                     `json:"trial_cache_percent"`
+	GroupIDs               []int64                     `json:"group_ids,omitempty"`
+	TrialGroupIDs          []int64                     `json:"trial_group_ids,omitempty"`
+	LegacyQualitySince     map[int64]time.Time         `json:"legacy_quality_since,omitempty"`
 }
 
 type PolicyProjection struct {

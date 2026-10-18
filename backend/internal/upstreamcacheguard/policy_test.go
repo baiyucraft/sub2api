@@ -9,6 +9,39 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/upstreamcacheusage"
 )
 
+func TestDefaultEvidenceExpiryPreservesReleasedPolicyIdentity(t *testing.T) {
+	e, _ := testEngine(t)
+	s := e.Settings()
+	legacy := s
+	legacy.ProtectionEvidenceExpiryMinutes = 0
+	signature := digest(fmt.Sprintf("cache-policy-v1:%g:%g:%d", s.ThresholdPercent, s.RecoveryThresholdPercent, s.MinValidRequests))
+	if PolicySignature(s) != signature || PolicySignature(legacy) != signature || !projectionSettingsCompatible(s, legacy) {
+		t.Fatal("default expiry changed released policy identity")
+	}
+	anchor := testNow.Add(-time.Minute)
+	state := AccountState{AccountID: 2, UpstreamKeyID: 3, Policies: map[string]PolicyProjection{
+		signature: {Settings: legacy, State: AccountState{AccountID: 2, UpstreamKeyID: 3, Phase: Trial,
+			PolicySignature: signature, CohortID: "released-cohort", LastEvidenceAt: anchor}},
+	}}
+	e.preparePolicies(&state)
+	if p := state.Policies[signature]; p.State.Phase != Trial || p.State.CohortID != "released-cohort" {
+		t.Fatalf("upgrade replaced released trial: %+v", p)
+	}
+	// A persisted projection without the new field must expire on read too.
+	legacySnapshot := AccountSnapshot{AccountState: AccountState{Policies: map[string]PolicyProjection{
+		signature: {Settings: legacy, State: AccountState{Phase: Cooling, LastEvidenceAt: testNow.Add(-16 * time.Minute)}},
+	}}, LoadedAt: testNow}
+	got := projectAccountSnapshot(e.accountSnapshotAtLocked("2:3", legacySnapshot, testNow), s)
+	if got.Phase != Unknown {
+		t.Fatalf("legacy projection zero expiry skipped expiration: %+v", got)
+	}
+	custom := s
+	custom.ProtectionEvidenceExpiryMinutes = 2
+	if PolicySignature(custom) == signature {
+		t.Fatal("different expiry reused incompatible policy identity")
+	}
+}
+
 func TestPolicySharedFactsSeparateThresholdsAndDisabledSampling(t *testing.T) {
 	e, _ := testEngine(t)
 	global := e.Settings()

@@ -17,6 +17,7 @@ export interface UpstreamCacheGuardSettings {
   recovery_threshold_percent: number
   cooldown_minutes: number
   trial_percent: number
+  protection_evidence_expiry_minutes: number
 }
 
 export interface ProbeGuardSettings {

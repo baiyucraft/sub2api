@@ -309,8 +309,145 @@ func TestStrictCountCrossModelAndExpiredWindow(t *testing.T) {
 	if err := RecomputeAccount(&a, nil, s, testNow.Add(2*time.Hour), false); err != nil {
 		t.Fatal(err)
 	}
-	if a.ValidRequests != 0 || a.Phase != Cooling {
-		t.Fatalf("expired stats auto recovered=%+v", a)
+	if a.ValidRequests != 0 || a.Phase != Unknown {
+		t.Fatalf("expired protection evidence did not become unknown=%+v", a)
+	}
+}
+
+func TestProtectionEvidenceExpiryUsesDefaultAndConfiguredWindow(t *testing.T) {
+	s := DefaultSettings()
+	if s.ProtectionEvidenceExpiryMinutes != 15 {
+		t.Fatalf("default protection evidence expiry=%d, want 15 minutes", s.ProtectionEvidenceExpiryMinutes)
+	}
+
+	cases := []struct {
+		name    string
+		minutes int
+	}{
+		{name: "default", minutes: 15},
+		{name: "configured", minutes: 2},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			settings := s
+			settings.ProtectionEvidenceExpiryMinutes = tc.minutes
+			a := AccountState{
+				AccountID:          2,
+				Phase:              Cooling,
+				DegradedAt:         testNow,
+				CohortID:           "old-cohort",
+				CooldownUntil:      testNow.Add(time.Hour),
+				FirstTrialAt:       testNow,
+				TrialValidRequests: 5,
+				TrialSessions:      3,
+				TrialCachePercent:  12,
+				TrialGroupIDs:      []int64{1},
+			}
+
+			before := testNow.Add(time.Duration(tc.minutes) * time.Minute)
+			if err := RecomputeAccount(&a, nil, settings, before, false); err != nil {
+				t.Fatal(err)
+			}
+			if a.Phase != Cooling {
+				t.Fatalf("evidence expired at exact boundary: phase=%s", a.Phase)
+			}
+
+			after := before.Add(time.Nanosecond)
+			if err := RecomputeAccount(&a, nil, settings, after, false); err != nil {
+				t.Fatal(err)
+			}
+			if a.Phase != Unknown {
+				t.Fatalf("phase after %d minutes=%s, want unknown", tc.minutes, a.Phase)
+			}
+			if a.CohortID != "" || !a.CooldownUntil.IsZero() || !a.FirstTrialAt.IsZero() || a.TrialValidRequests != 0 || a.TrialSessions != 0 || a.TrialCachePercent != 0 || len(a.TrialGroupIDs) != 0 {
+				t.Fatalf("expired protection state retained recovery controls=%+v", a)
+			}
+
+			// Wall-clock passage must not immediately recreate protection or a
+			// trial cohort when no newer valid evidence exists.
+			if err := RecomputeAccount(&a, nil, settings, after.Add(time.Hour), true); err != nil {
+				t.Fatal(err)
+			}
+			if a.Phase != Unknown {
+				t.Fatalf("timer-only refresh recreated protection=%s", a.Phase)
+			}
+		})
+	}
+}
+
+func TestUnknownProtectionStateIsNeutralForScheduling(t *testing.T) {
+	s := DefaultSettings()
+	s.Mode = Protect
+	s.MinValidRequests = 1
+	a := AccountState{
+		AccountID:     2,
+		UpstreamKeyID: 3,
+		Phase:         Unknown,
+		LastDegradedEvidenceAt: func() *time.Time {
+			x := testNow.Add(-16 * time.Minute)
+			return &x
+		}(),
+	}
+	snap := Snapshot{Mode: Protect, Available: true, Accounts: []AccountSnapshot{{AccountState: a}}}
+	candidate := Candidate{AccountID: a.AccountID}
+	if got := CandidatePreference(snap, SessionRead{}, candidate); got != 0 {
+		t.Fatalf("unknown account got cache protection preference=%d", got)
+	}
+
+	// A durable expired account must also produce an ordinary admission. This
+	// guards the trial/protected-at-start paths, which are separate from sorting.
+	e, store := testEngine(t)
+	if err := store.Transact(context.Background(), 1, func(tx Tx) error {
+		_, err := tx.Write(AccountKind, "2", a)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	r := request("expired-unknown", "session", testNow)
+	admission, err := e.Admit(context.Background(), r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if admission.ProtectedAtStart || admission.Trial {
+		t.Fatalf("unknown account remained protected/trial: %+v", admission)
+	}
+}
+
+func TestProtectionEvidenceExpiryTracksLatestValidSample(t *testing.T) {
+	s := DefaultSettings()
+	s.MinValidRequests = 1
+	initial := testNow.Add(-time.Hour)
+	latest := testNow.Add(-14 * time.Minute)
+	a := AccountState{AccountID: 2, UpstreamKeyID: 3, Phase: Cooling,
+		DegradedAt: initial, LastEvidenceAt: initial, LastDegradedEvidenceAt: &initial}
+	facts := []Evidence{{Request: Request{AccountID: 2, UpstreamKeyID: 3},
+		Admission: Admission{Sample: true, WarmAtStart: true}, Success: true,
+		CompletedAt: latest, RawUsage: RawUsage{Status: upstreamcacheusage.Known, TotalInputTokens: 100, CacheReadTokens: 10}}}
+	if err := RecomputeAccount(&a, facts, s, testNow, true); err != nil {
+		t.Fatal(err)
+	}
+	if a.Phase != Cooling {
+		t.Fatalf("recent valid evidence did not extend protection: %+v", a)
+	}
+	if err := RecomputeAccount(&a, facts, s, latest.Add(15*time.Minute), false); err != nil {
+		t.Fatal(err)
+	}
+	if a.Phase != Cooling {
+		t.Fatal("latest evidence expired at the exact boundary")
+	}
+	if err := RecomputeAccount(&a, facts, s, latest.Add(15*time.Minute+time.Nanosecond), false); err != nil {
+		t.Fatal(err)
+	}
+	if a.Phase != Unknown || a.LastDegradedEvidenceAt == nil || !a.LastDegradedEvidenceAt.Equal(latest) {
+		t.Fatalf("expiry did not freeze latest valid evidence: %+v", a)
+	}
+	// Replaying that sample with enough old facts must not recreate protection.
+	facts = append(facts, facts[0])
+	if err := RecomputeAccount(&a, facts, s, latest.Add(16*time.Minute), true); err != nil {
+		t.Fatal(err)
+	}
+	if a.Phase != Unknown {
+		t.Fatal("replayed latest sample recreated expired protection")
 	}
 }
 
@@ -537,6 +674,49 @@ func TestSnapshotExpiryObserveNeutralAndSettingsValidation(t *testing.T) {
 	r.LogicalSessionDigest = strings.Repeat("z", 64)
 	if validateRequest(r) == nil {
 		t.Fatal("raw session accepted")
+	}
+}
+
+func TestProtectedEvidenceExpiryUsesNewEvidenceBoundary(t *testing.T) {
+	e, _ := testEngine(t)
+	s := e.Settings()
+	s.ProtectionEvidenceExpiryMinutes = 15
+	anchor := testNow.Add(-16 * time.Minute)
+	facts := make([]Evidence, 21)
+	for i := range facts {
+		r := request(fmt.Sprintf("old-%d", i), "expiry", testNow.Add(-20*time.Minute+time.Duration(i)*time.Second))
+		facts[i] = Evidence{Request: r, Admission: Admission{Sample: true, WarmAtStart: true}, Success: true,
+			CompletedAt: r.StartedAt, RawUsage: RawUsage{Status: upstreamcacheusage.Known, TotalInputTokens: 100, CacheReadTokens: 10}}
+	}
+	aAnchor := anchor
+	a := AccountState{AccountID: 2, UpstreamKeyID: 3, Phase: Cooling, DegradedAt: anchor,
+		LastDegradedEvidenceAt: &aAnchor, LastEvidenceAt: facts[len(facts)-1].CompletedAt,
+		CooldownUntil: testNow.Add(time.Hour)}
+	if err := RecomputeAccount(&a, facts, s, testNow, false); err != nil {
+		t.Fatal(err)
+	}
+	if a.Phase != Unknown {
+		t.Fatalf("expired protection phase=%+v", a)
+	}
+	// Replaying the same old low window must not immediately re-enter cooling.
+	if err := RecomputeAccount(&a, facts, s, testNow, true); err != nil {
+		t.Fatal(err)
+	}
+	if a.Phase != Unknown {
+		t.Fatalf("old evidence resurrected protection phase=%+v", a)
+	}
+	// A fresh low sample after the expiry boundary is allowed to establish a
+	// new protection decision.
+	for i := 0; i < 2; i++ {
+		r := request(fmt.Sprintf("new-%d", i), "expiry-new", testNow.Add(-time.Minute+time.Duration(i)*time.Second))
+		facts = append(facts, Evidence{Request: r, Admission: Admission{Sample: true, WarmAtStart: true}, Success: true,
+			CompletedAt: r.StartedAt, RawUsage: RawUsage{Status: upstreamcacheusage.Known, TotalInputTokens: 100, CacheReadTokens: 0}})
+	}
+	if err := RecomputeAccount(&a, facts, s, testNow, true); err != nil {
+		t.Fatal(err)
+	}
+	if a.Phase != Cooling {
+		t.Fatalf("new low evidence did not restart protection phase=%+v", a)
 	}
 }
 

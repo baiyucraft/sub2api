@@ -80,10 +80,12 @@ export default {
       recovery_threshold_percent: '恢复阈值（%）',
       cooldown_minutes: '冷却时间（分钟）',
       trial_percent: '恢复试用新会话比例（%）',
+      protection_evidence_expiry_minutes: '保护证据有效期（分钟）',
+      evidenceExpiryHint: '连续超过有效期没有有效续聊样本时，解除缓存保护并回到普通调度，等待新样本重新判断；不视为已验证恢复。',
       sampleHint: '有效请求数严格超过 {count} 次后才判定；缓存率为缓存输入 Token / 全部输入 Token。',
       recoveryHint: '冷却结束后，新会话按比例进入对应生效策略的恢复试用；参数相同的策略共享进度。试用样本独立于普通流量，至少 3 个会话并观察 10 分钟。',
       sessionHint: '旧会话连续两次有效续聊低率后尝试迁移；目标缓存率需高至少 5 个百分点且有容量，迁移后至少驻留 5 分钟。全组偏低时仍在可调用账号中择优。',
-      invalid: '窗口需为 5–1440 分钟，恢复阈值必须高于保护阈值且不超过 100%；请求门槛需为 1–100000，冷却需为 1–1440 分钟，试用比例需为 1–100%，均使用有效数值。',
+      invalid: '窗口需为 5–1440 分钟，恢复阈值必须高于保护阈值且不超过 100%；请求门槛需为 1–100000，冷却与保护证据有效期需为 1–1440 分钟，试用比例需为 1–100%，均使用有效数值。',
       rate: '有效续聊缓存率',
       accountSummary: '账号统一统计',
       windowMinutes: '统计窗口：{count} 分钟',
@@ -116,7 +118,7 @@ export default {
       sourcePhases: { healthy: '正常', degraded: '低缓存保护', cooling: '冷却中', trial: '恢复试用' },
       metricHint: '当前账号与 Key 的所有分组有效样本按输入 Token 加权合并，冷启动和无效样本不计。未知不等于 0%。各组按自己的生效阈值判定和恢复。',
       states: { disabled: '关闭', observing: '观察中', insufficient: '样本不足', normal: '正常', protected: '保护中', recovering: '恢复试用', expired: '数据过期', unavailable: '状态暂不可用' },
-      reasons: { disabled: '保护已关闭', collecting_samples: '收集有效样本', insufficient_samples: '有效续聊样本不足', low_cache_rate: '缓存率低于保护阈值', below_threshold: '低于保护阈值', cooldown: '等待冷却结束', waiting_recovery_samples: '等待恢复样本与观察时间', waiting_recovery_validation: '等待独立试用验证', recovery_verified: '恢复判定通过', healthy: '正常窗口缓存表现', unavailable: '状态暂不可用', snapshot_unavailable: '共享状态暂不可用', linked_group_protection: '同一上游账号受到其他分组联动保护' }
+      reasons: { disabled: '保护已关闭', collecting_samples: '收集有效样本', insufficient_samples: '有效续聊样本不足', low_cache_rate: '缓存率低于保护阈值', below_threshold: '低于保护阈值', cooldown: '等待冷却结束', waiting_recovery_samples: '等待恢复样本与观察时间', waiting_recovery_validation: '等待独立试用验证', recovery_verified: '恢复判定通过', healthy: '正常窗口缓存表现', unavailable: '状态暂不可用', snapshot_unavailable: '共享状态暂不可用', evidence_expired: '保护证据已过期，等待新有效样本', linked_group_protection: '同一上游账号受到其他分组联动保护' }
     },
     retryStatusCodes: {
       title: '同账号重试状态码',

@@ -155,7 +155,7 @@ describe('UpstreamManagementSettingsDialog', () => {
     await flushPromises()
     expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({
       scheduling_protection_platforms: ['openai'],
-      cache_guard: { mode: 'observe', group_ids: [], threshold_percent: 75, window_minutes: 60, min_valid_requests: 20, recovery_threshold_percent: 80, cooldown_minutes: 10, trial_percent: 10 },
+      cache_guard: { mode: 'observe', group_ids: [], threshold_percent: 75, window_minutes: 60, min_valid_requests: 20, recovery_threshold_percent: 80, cooldown_minutes: 10, trial_percent: 10, protection_evidence_expiry_minutes: 15 },
       pool_mode_retry_status_codes: [401, 403, 429]
     }))
   })
@@ -206,13 +206,37 @@ describe('UpstreamManagementSettingsDialog', () => {
 
   it('removes the duplicate group selector while preserving compatibility scope fields', async () => {
     const settings = await getSettings()
-    getSettings.mockResolvedValue({ ...settings, cache_guard: { mode: 'protect', group_ids: [99, 2], threshold_percent: 75, window_minutes: 60, min_valid_requests: 20, recovery_threshold_percent: 80, cooldown_minutes: 10, trial_percent: 10 } })
+    getSettings.mockResolvedValue({ ...settings, cache_guard: { mode: 'protect', group_ids: [99, 2], threshold_percent: 75, window_minutes: 60, min_valid_requests: 20, recovery_threshold_percent: 80, cooldown_minutes: 10, trial_percent: 10, protection_evidence_expiry_minutes: 15 } })
     const wrapper = mountDialog()
     await flushPromises()
     expect(wrapper.find('[data-test="cache-guard-groups"]').exists()).toBe(false)
     await wrapper.get('button.btn-primary').trigger('click')
     await flushPromises()
     expect(updateSettings.mock.calls[0]?.[0].cache_guard.group_ids).toEqual([2, 99])
+  })
+
+  it('loads a custom evidence expiry and validates it before saving', async () => {
+    const settings = await getSettings()
+    getSettings.mockResolvedValue({ ...settings, cache_guard: {
+      mode: 'protect', group_ids: [], threshold_percent: 75, window_minutes: 60,
+      min_valid_requests: 20, recovery_threshold_percent: 80, cooldown_minutes: 10,
+      trial_percent: 10, protection_evidence_expiry_minutes: 42
+    } })
+    const wrapper = mountDialog()
+    await flushPromises()
+    const input = wrapper.get('[data-test="cache-guard-protection_evidence_expiry_minutes"]')
+    expect(input.element).toHaveProperty('value', '42')
+    for (const invalid of [0, 1441]) {
+      await input.setValue(invalid)
+      expect(wrapper.get('button.btn-primary').attributes('disabled')).toBeDefined()
+    }
+    await input.setValue(30)
+    expect(wrapper.get('button.btn-primary').attributes('disabled')).toBeUndefined()
+    await wrapper.get('button.btn-primary').trigger('click')
+    await flushPromises()
+    expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      cache_guard: expect.objectContaining({ protection_evidence_expiry_minutes: 30 })
+    }))
   })
 
   it('rejects recovery thresholds at or below protection and invalid windows', async () => {
