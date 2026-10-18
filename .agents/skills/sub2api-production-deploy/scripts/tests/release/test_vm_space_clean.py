@@ -203,7 +203,7 @@ class VMSpaceCleanTest(unittest.TestCase):
         self.assertIn('> "$state_dir/failure-line"', validator)
         self.assertIn('chmod 400 "$state_dir/migrate-candidate.log"', validator)
         builds = list(re.finditer(
-            r"(?m)^[ \t]*docker_build_with_registry_bypass --network=host --progress=plain \\$",
+            r'(?m)^[ \t]*vm_build_candidate "\$build_log" \\$',
             validator,
         ))
         self.assertEqual(len(builds), 2, "match actual v2 and legacy build calls, not the helper definition")

@@ -328,7 +328,7 @@ _RECOVERY_RUNTIME_FILES = frozenset(
         "bootstrap_backup_dr_assets.sh", "bootstrap_vm_signer.sh",
         "production-recovery-retention-clean.sh", "production-space-clean.sh",
         "promote-dr-baseline.sh", "sign-dr-evidence.sh", "sign-gate.sh",
-        "vm-only-validate.sh", "vm-validate.sh", "vm-space-clean.sh", "bootstrap.py", "production_bootstrap.py",
+        "vm-only-validate.sh", "vm-validate.sh", "vm-space-clean.sh", "vm-build-common.sh", "bootstrap.py", "production_bootstrap.py",
         "production_cleanup.py", "production_recovery_retention.py", "profiles.py",
         "paths.py", "atomic.py", "migration_planner.py",
         # These collectors, signing domains and baseline publishers can alter
@@ -347,7 +347,7 @@ _RECOVERY_RUNTIME_FILES = frozenset(
 _RECOVERY_CONTROL_FILES = frozenset({
     _SCRIPTS_PREFIX + suffix for suffix in (
         "release.py", "release/__init__.py", "release/ssh.py", "release/process.py",
-        "release/vm_only.py", "release/vm-only-switch.sh",
+        "release/vm_only.py", "release/vm-only-switch.sh", "release/vm_build.py",
         "release/plugin_api.py", "release/plugin_cli.py", "release/plugin_credentials.py",
         "release/plugin_package.py", "release/plugin_state.py", "release/plugin_supervisor.py",
         "release/observer.py", "release/plugin_observer.py",

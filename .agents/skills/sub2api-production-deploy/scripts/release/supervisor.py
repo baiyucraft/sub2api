@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import ctypes
 import hashlib
 import json
 import os
@@ -19,7 +18,7 @@ from .doctor import ReleaseDoctor
 from .gate import verify_gate
 from .manifest import create_manifest, runner_checksum, validate_commit, validate_image_id, write_manifest_once
 from .paths import ENTRYPOINT, MAINTENANCE_ROOT, RUN_ROOT, SCRIPTS_ROOT, TRUSTED_VM_PUBLIC_KEY, WORKSPACE
-from .process import popen_detached_worker
+from .process import popen_detached_worker, process_identity
 from .profiles import get_profile, get_release_profile
 from .recovery_bundle import stage_recovery_bundle, recovery_command, RECOVERY_RESULT_FIELDS, bundle_from_manifest
 from .recovery_gate import assert_release_allowed
@@ -103,31 +102,7 @@ def _write_json(path: Path, value: dict[str, Any]) -> None:
 
 
 def _process_token(pid: int) -> str | None:
-    if pid <= 0:
-        return None
-    if os.name == "nt":
-        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-        handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
-        if not handle:
-            return None
-        try:
-            creation = ctypes.c_ulonglong()
-            exit_time = ctypes.c_ulonglong()
-            kernel = ctypes.c_ulonglong()
-            user = ctypes.c_ulonglong()
-            ok = ctypes.windll.kernel32.GetProcessTimes(
-                handle, ctypes.byref(creation), ctypes.byref(exit_time), ctypes.byref(kernel), ctypes.byref(user)
-            )
-            return f"win:{creation.value}" if ok else None
-        finally:
-            ctypes.windll.kernel32.CloseHandle(handle)
-    stat = Path(f"/proc/{pid}/stat")
-    try:
-        fields = stat.read_text(encoding="ascii").rsplit(")", 1)[1].split()
-        boot_id = Path("/proc/sys/kernel/random/boot_id").read_text(encoding="ascii").strip()
-        return f"linux:{boot_id}:{fields[19]}"
-    except (OSError, IndexError, UnicodeError):
-        return None
+    return process_identity(pid)
 
 
 def _runner_alive(runner: dict[str, Any] | None) -> bool:

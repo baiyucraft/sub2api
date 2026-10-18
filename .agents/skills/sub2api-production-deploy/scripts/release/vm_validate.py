@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import shlex
 import time
@@ -12,6 +13,8 @@ from .profiles import get_profile
 from .bootstrap import install_vm_validator
 from .paths import LAYOUT_SKILL_V1, RELEASE_PACKAGE_ROOT, TRUSTED_VM_PUBLIC_KEY
 from .ssh import SSHRunner
+from .atomic import atomic_write, canonical_json
+from .vm_build import BUILD_FAILURE_CODES
 
 
 TRUSTED_KEY = TRUSTED_VM_PUBLIC_KEY
@@ -60,6 +63,7 @@ VM_WORKER_FIELDS = {
     "worker_exit_code",
     "gate_stage",
     "gate_failure_category",
+    "gate_build_failure_code",
     "gate_output_ready",
     "gate_signature_ready",
     "candidate_archive_ready",
@@ -257,12 +261,28 @@ if [[ "$pid" =~ ^[0-9]+$ && "$pid" -gt 1 && -r "/proc/$pid/stat" && -r /proc/sys
   if [[ "$current_boot_id" == "$boot_id" && "$current_start_token" == "$start_token" ]]; then token_match=yes; fi
 fi
 gate_root=${{output%/output}}
+gate_build_failure_code=none
+build_code_path="$gate_root/build-failure-code"
+if [[ -e "$build_code_path" || -L "$build_code_path" ]]; then
+  if [[ -f "$build_code_path" && ! -L "$build_code_path" ]] &&
+     build_code_metadata=$(stat -c '%u:%g:%a:%h' "$build_code_path") &&
+     [[ $build_code_metadata == 0:0:400:1 || $build_code_metadata == 0:0:600:1 ]]; then
+    gate_build_failure_code=$(tr -d '\r\n' <"$build_code_path")
+  else
+    gate_build_failure_code=none
+  fi
+fi
+case "$gate_build_failure_code" in
+  {'|'.join(sorted(BUILD_FAILURE_CODES))}) ;;
+  *) gate_build_failure_code=none ;;
+esac
 printf 'worker_status=%s\n' "$worker_status"
 printf 'worker_pid=%s\n' "$pid"
 printf 'worker_token_match=%s\n' "$token_match"
 printf 'worker_exit_code=%s\n' "$worker_exit_code"
 printf 'gate_stage=%s\n' "$(read_optional "$gate_root/stage" absent)"
 printf 'gate_failure_category=%s\n' "$(read_optional "$gate_root/failure-category" absent)"
+printf 'gate_build_failure_code=%s\n' "$gate_build_failure_code"
 printf 'gate_output_ready=%s\n' "$(test -f "$output/gate.json" && test ! -L "$output/gate.json" && echo yes || echo no)"
 printf 'gate_signature_ready=%s\n' "$(test -f "$output/gate.sig" && test ! -L "$output/gate.sig" && echo yes || echo no)"
 printf 'candidate_archive_ready=%s\n' "$(test -f "$output/candidate.tar.gz" && test ! -L "$output/candidate.tar.gz" && echo yes || echo no)"
@@ -343,9 +363,21 @@ def _wait_for_vm_worker(
     raise VMWorkerStateUnknownError("timed out waiting for detached VM validator")
 
 
+def _vm_worker_build_failure_code(worker: dict[str, str]) -> str | None:
+    code = worker.get("gate_build_failure_code", "none")
+    if code in BUILD_FAILURE_CODES and code != "none":
+        return code
+    if worker.get("gate_stage") == "candidate_build":
+        return "build_preflight_unproven"
+    return None
+
+
 def _validate_completed_vm_worker(worker: dict[str, str]) -> None:
     if worker["worker_exit_code"] != "0":
-        raise RuntimeError("remote VM validator failed; inspect VM raw log and release evidence")
+        code = _vm_worker_build_failure_code(worker)
+        if code is not None:
+            raise RuntimeError(f"remote VM validator failed: {code}")
+        raise RuntimeError("remote VM validator failed; inspect structured Gate evidence")
     if worker["raw_log_status"] != "ok":
         raise RuntimeError("detached VM validator raw log contract failed")
     if (
@@ -354,6 +386,21 @@ def _validate_completed_vm_worker(worker: dict[str, str]) -> None:
         or worker["candidate_archive_ready"] != "yes"
     ):
         raise RuntimeError("detached VM validator exited without complete Gate output")
+
+
+def _persist_vm_build_failure(worker: dict[str, str], manifest: dict, run_dir: Path) -> None:
+    if worker["worker_exit_code"] == "0":
+        return
+    code = _vm_worker_build_failure_code(worker)
+    if code is None:
+        return
+    report = {
+        "schema_version": 1, "release_id": manifest["release_id"],
+        "commit_sha": manifest["commit_sha"], "status": "failed",
+        "build_failure_code": code,
+        "checked_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+    atomic_write(run_dir / "vm-build-failure.json", canonical_json(report) + b"\n")
 
 
 def space_cleaner_checksum(manifest: dict[str, object]) -> str:
@@ -497,6 +544,7 @@ def main() -> None:
                 raise VMWorkerNotStartedError(str(error)) from launch_error
             raise
         cleanup_remote_root = True
+        _persist_vm_build_failure(worker, manifest, manifest_path.parent)
         _validate_completed_vm_worker(worker)
         download_dir = f"{remote_root}/download"
         runner.run(

@@ -82,20 +82,39 @@ ss -H -ltn | awk '$4 ~ /:8211$/ {found=1} END {exit !found}'
 }
 
 tag="sub2api:vm-only-$release_id"
-build_log="${output_dir%/output}/build.log"
-: >"$build_log"
-chmod 600 "$build_log"
-{
-  required_query_14=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-  docker build --network=host --progress=plain \
+build_state_dir="${output_dir%/output}"
+on_vm_only_build_failure() {
+  local exit_code=$?
+  trap - ERR INT TERM
+  printf '%s\n' vm_only_candidate_build > "$build_state_dir/failure-category"
+  local failure_code=${VM_BUILD_FAILURE_CODE:-build_unknown}
+  [[ $failure_code != none ]] || failure_code=build_unknown
+  printf '%s\n' "$failure_code" > "$build_state_dir/build-failure-code"
+  chmod 400 "$build_state_dir/failure-category" "$build_state_dir/build-failure-code"
+  exit "$exit_code"
+}
+trap on_vm_only_build_failure ERR INT TERM
+printf '%s\n' candidate_build > "$build_state_dir/stage"
+build_helper_relative=.agents/skills/sub2api-production-deploy/scripts/release/vm-build-common.sh
+build_helper="$source_dir/$build_helper_relative"
+build_helper_expected=$(git show "$commit:$build_helper_relative" | sha256sum | awk '{print $1}')
+[[ $build_helper_expected =~ ^[0-9a-f]{64}$ && -f $build_helper && ! -L $build_helper ]]
+build_helper_actual=$(sha256sum "$build_helper" | awk '{print $1}')
+[[ $build_helper_actual == "$build_helper_expected" ]]
+source "$build_helper"
+install -d -m 700 "$build_state_dir/build-dependencies"
+vm_build_preflight "$build_state_dir/build-dependencies"
+build_log="$build_state_dir/build.log"
+required_query_14=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+vm_build_candidate "$build_log" \
   --build-arg COMMIT="$commit" --build-arg VERSION="$version" \
   --build-arg DATE="${required_query_14}" \
   -t "$tag" .
-} >"$build_log" 2>&1
 candidate_image_id=$(docker image inspect -f '{{.Id}}' "$tag")
 [[ $candidate_image_id =~ ^sha256:[0-9a-f]{64}$ ]]
 candidate_version=$(docker run --rm --entrypoint /app/sub2api "$candidate_image_id" --version 2>&1)
 [[ $candidate_version == *"commit: $commit"* && $candidate_version == *"Sub2API $version"* ]]
+trap - ERR INT TERM
 
 candidate_container="sub2api-vm-only-${release_id//[^a-zA-Z0-9]/-}"
 candidate_port=38121

@@ -30,6 +30,7 @@ from .recovery_gate import classify as classify_recovery_gate
 from .recovery_gate import assert_release_allowed, require_full, require_specialized, unproven_report
 from .state import TERMINAL_STATES, RunLock, RunState
 from .vm_lifecycle import vm_guard
+from .vm_build import BUILD_DEPENDENCY_FIELDS, BUILD_FAILURE_CODES, ensure_vm_build_dependencies
 
 
 LOGGING_ROOT = SCRIPTS_ROOT / "logging"
@@ -41,6 +42,33 @@ from release_logging.retention import ReleaseLogRecord, build_retention_plan, ve
 
 
 DEPLOYMENT_MODES = ("blue-green", "downtime")
+
+
+def _check_build_dependencies(runner, manifest: dict, run_dir: Path, logger) -> None:
+    """Fail before preparing a production recovery package when images cannot resolve."""
+    state_path = run_dir / "state.json"
+    state = RunState.load(state_path) if state_path.exists() else RunState.create(state_path, run_dir.name)
+    state.transition("vm_validate", "running", {"operation": "build_dependencies"})
+    logger.emit(stage="build_dependencies", script="release.cli", event="stage_started", message="VM build dependencies check started")
+    try:
+        report = ensure_vm_build_dependencies(runner, manifest)
+    except BaseException as error:
+        report = getattr(error, "report", {})
+        if (
+            not isinstance(report, dict) or set(report) != BUILD_DEPENDENCY_FIELDS
+            or not all(isinstance(value, str) for value in report.values())
+            or report.get("build_failure_code") not in BUILD_FAILURE_CODES - {"none"}
+            or report.get("build_dependency_status") != "failed"
+            or report.get("build_dependency_count") != "4"
+            or report.get("build_dependency_verified_count") not in {"0", "1", "2", "3", "4"}
+        ):
+            report = {"build_dependency_status": "failed", "build_failure_code": "build_preflight_unproven", "build_dependency_count": "4", "build_dependency_verified_count": "0"}
+        atomic_write(run_dir / "build-dependencies.json", canonical_json({"checked_at": int(time.time()), **report}) + b"\n")
+        state.transition("vm_validate", "failed", report)
+        logger.emit(stage="build_dependencies", script="release.cli", event="stage_failed", message="VM build dependencies check failed", level="error", exit_code=1, details=report)
+        raise
+    atomic_write(run_dir / "build-dependencies.json", canonical_json({"checked_at": int(time.time()), **report}) + b"\n")
+    logger.emit(stage="build_dependencies", script="release.cli", event="stage_finished", message="VM build dependencies verified", exit_code=0, details=report)
 
 
 def _recovery_gate_report(
@@ -398,6 +426,7 @@ def vm_validate(args: argparse.Namespace) -> None:
                 getattr(args, "recovery_gate_mode", "auto"),
                 getattr(args, "full_recovery_evidence", None),
             )
+            _check_build_dependencies(runner, current_manifest, run_dir, logger)
             if recovery_gate["mode"] != "fast":
                 pre_gate_input, rack_pre_gate_dir, vm_pre_gate_dir = prepare_pre_gate_inputs(
                     runner,
@@ -519,6 +548,7 @@ def deploy(args: argparse.Namespace, acquire_lock: bool = True) -> None:
                 getattr(args, "recovery_gate_mode", "auto"),
                 getattr(args, "full_recovery_evidence", None),
             )
+            _check_build_dependencies(runner, current_manifest, RUN_ROOT / identifier, logger)
             if recovery_gate["mode"] != "fast":
                 pre_gate_input, rack_pre_gate_dir, vm_pre_gate_dir = prepare_pre_gate_inputs(
                     runner,

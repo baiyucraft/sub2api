@@ -315,3 +315,10 @@ Vertex 健康探针执行 `upstream_health_probe_client_test.go`：Service Accou
 稳定接口和刷新合同见 `.wiki/03-模块指南/15-上游账号表刷新与质量统计.md`；原始压测记录不复制进长期Wiki。
 
 本次最终交付以代码正确、判断等价、刷新稳定、最终构建及浏览器功能为要求；50ms/32ms/25%等原性能目标未完整达成，仅保留参考，不再阻挡交付或追加长矩阵。正式浏览器工具位于 `scripts/perf/upstream-table/browser/`（相对production-deploy skill），`smoke.js` 为功能入口，精确浏览器版本留证；CPU、原生滚动及30分钟工具为可选测量。未测、未达和旧构建证据的限制保持，不宣称完整矩阵或浏览器性能全部通过。
+
+
+## 发布进程身份与构建依赖前置合同
+
+发布 supervisor、插件 supervisor 与 finalization 共用 `release.process.process_identity`。Windows 使用完整 HANDLE 类型，在创建时间查询前后执行零等待检查，仅 WAIT_TIMEOUT 表示仍存活；已退出（包括退出码259）返回空身份，未知权限或查询错误阻断。Linux 保留 boot/start token，僵尸或不存在返回空身份，未知读取错误阻断。回归入口 `test_process_identity.py`、`test_supervisor.py`、`test_plugin_supervisor.py`、`test_finalization.py` 与 preserve 测试；真实 Windows 保留进程句柄验证不得被 mock 替代。
+
+VM Gate v2、历史 Gate v1 与 VM-only 三入口共用 SHA 绑定的 `vm-build-common.sh`。固定 Node24、Go1.27.2、Alpine3.21、PostgreSQL18 四个既有 daocloud 镜像，每引用每轮只调用一次 imagetools raw，校验 schema2 index/list、唯一 linux/amd64 descriptor 的 digest/mediaType/size；恢复输入准备前及实际构建前均执行前置。`vm_build_docker` 合并两种 NO_PROXY 并保留父代理环境，`vm_build_candidate` 统一构建；无自动重试、切源、daemon 重启或工具链降级。错误只输出固定码，远端0700目录/0600日志，不回显或下载raw内容。回归 `test_vm_build_dependencies.py`、`test_cli_build_dependencies.py`、`test_vm_build_registry_proxy.py` 与三构建入口合同测试及完整 release suite；本地通过不代表镜像 metadata 可用、签名 Gate 或生产发布成功。新增恢复敏感最终 blob/mode 仍需独立精确审阅，不继承历史豁免。

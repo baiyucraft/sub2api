@@ -12,6 +12,7 @@ from datetime import datetime
 from typing import Any
 
 from .supervisor import _read_json, _run_dir, start, status_view, verified_result_view
+from .vm_build import BUILD_FAILURE_CODES
 
 
 _STAGE_TEXT = {
@@ -50,6 +51,14 @@ def _now() -> str:
 def _failure_hint(identifier: str) -> str:
     """Return only a stable, allowlisted failure code for human display."""
 
+    for name in ("vm-build-failure.json", "build-dependencies.json"):
+        try:
+            report = _read_json(_run_dir(identifier) / name) or {}
+        except (OSError, RuntimeError):
+            continue
+        code = report.get("build_failure_code")
+        if isinstance(code, str) and code != "none" and code in BUILD_FAILURE_CODES:
+            return code
     try:
         production = _read_json(_run_dir(identifier) / "gate" / "production-result.json") or {}
     except (OSError, RuntimeError):

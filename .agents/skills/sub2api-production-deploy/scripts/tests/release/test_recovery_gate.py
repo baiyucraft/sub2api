@@ -86,7 +86,7 @@ class RecoveryGateTest(unittest.TestCase):
     def test_execution_and_evidence_roles_require_review_individually(self) -> None:
         paths = [SCRIPTS_PREFIX + suffix for suffix in (
             "release.py", "release/__init__.py", "release/ssh.py", "release/process.py",
-            "release/vm_only.py", "release/vm-only-switch.sh", "release/plugin_api.py",
+            "release/vm_only.py", "release/vm-only-switch.sh", "release/vm_build.py", "release/vm-build-common.sh", "release/plugin_api.py",
             "release/plugin_cli.py", "release/plugin_credentials.py", "release/plugin_package.py",
             "release/plugin_state.py", "release/plugin_supervisor.py", "release/observer.py",
             "release/plugin_observer.py", "release/backfill-activity-reward-costs.sh",
