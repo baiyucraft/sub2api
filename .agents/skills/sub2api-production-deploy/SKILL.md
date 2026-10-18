@@ -444,3 +444,5 @@ Windows 既有目标采用 `ReplaceFileW` 安全替换并保留独占备份，�
 本地验收必须覆盖真实 Windows 多进程持有旧快照、并发状态观察、备份清理、首次创建竞争、普通不共享删除读者拒绝、错误状态保全及句柄释放；模拟错误不能冒称实际诱发的系统故障。相关字节变化仍须独立精确分类、干净最终 SHA 的回归、新候选及签名 Gate，原失败 release 不复用。
 
 新 runner 的成功终态还须有独占发布的完成见证，绑定 release ID 与 terminal runner 原字节 SHA-256。见证只在状态提交和所有必需收尾成功后发布；缺失、损坏或不匹配时，status、wait 和 verify-result 均拒绝成功。已发布 verified JSON 后发生校验或清理错误也不能绕过该约束。历史 runner 按原 schema 验证，不回填旧证据。
+
+本批精确审阅固定生产 BASE `5deebb2929c2a694145cc2726e895f01c43d28c1` → 实现 TARGET `48d2f9660f51b9037f6875fffcb6e51bb280ce29`，仅限 `_WINDOWS_STATE_IO_REVIEW_PATHS` 的 14 个显式同路径旧/新 Git blob 与模式；新 `worker_errors.py`、`terminal_receipt.py` 的生产旧状态必须不存在，且纳入控制文件敏感性检测。理由为 `reviewed_windows_state_io_changed`，仍强制 specialized 真实隔离恢复及新签名 Gate。历史 tranche 和路径组不变，任一对象、模式、BASE 或额外敏感路径漂移继续阻断；回归为 `test_windows_state_recovery_review.py`。
