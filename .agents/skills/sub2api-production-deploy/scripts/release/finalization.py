@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from . import supervisor
-from .atomic import canonical_json
+from .atomic import canonical_json, hash_replaceable_file
 from .doctor import ReleaseDoctor
 from .manifest import _git_output, release_asset_checksums, runner_checksum, validate_commit, validate_image_id
 from .migration_planner import plan_migrations
@@ -71,6 +71,11 @@ def _hash_file(path: Path) -> str:
         current = current.parent
     if root not in path.resolve().parents or not path.is_file() or path.stat().st_nlink != 1:
         raise RuntimeError("finalization evidence is not a regular single-link file")
+    if path.name in {
+        "manifest.json", "runner.json", "state.json", "release-state.json", "vm-lifecycle.json",
+        "production-result.json", "vm-finalization.json",
+    }:
+        return hash_replaceable_file(path)
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):

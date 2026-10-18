@@ -111,7 +111,7 @@ class PluginSupervisorTest(unittest.TestCase):
 
     def initialized_state(self) -> None:
         self.write_manifest()
-        self.write("runner.json", {"status": "starting", "exit_code": None})
+        self.write("runner.json", {"release_id": self.release_id, "status": "starting", "exit_code": None})
         self.module.PluginRunState.create(
             self.run_dir() / "state.json", self.release_id, "baiyu.codex-state", "a" * 40,
         )
@@ -255,6 +255,7 @@ class PluginSupervisorTest(unittest.TestCase):
                 "instances_verified": "1",
             },
         )
+        self.write("runner.json", {"release_id": self.release_id, "status": "verified", "exit_code": 0})
         with self.assertRaisesRegex(RuntimeError, "instance verification is incomplete"):
             self.module.verify_result(argparse.Namespace(release_id=self.release_id))
 
@@ -394,7 +395,8 @@ class PluginSupervisorTest(unittest.TestCase):
             self.module.authorize(argparse.Namespace(release_id=self.release_id))
         factory.assert_not_called()
         self.assertEqual(api.apply.call_count, 2)
-        with mock.patch("builtins.print"):
+        self.assertEqual(self.module._verified_result(self.run_dir())["status"], "verified")
+        with mock.patch("builtins.print"), self.assertRaisesRegex(RuntimeError, "not successfully terminal"):
             self.module.verify_result(argparse.Namespace(release_id=self.release_id))
 
     def test_worker_verifies_production_evidence_before_shutdown(self) -> None:

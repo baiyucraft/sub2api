@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from .atomic import atomic_write, canonical_json
+from .atomic import atomic_write, canonical_json, read_replaceable_bytes
 from .doctor import ReleaseDoctor
 from .gate import verify_gate
 from .manifest import create_manifest, runner_checksum, validate_commit, validate_image_id, write_manifest_once
@@ -25,6 +25,8 @@ from .recovery_gate import assert_release_allowed
 from .ssh import SSHRunner
 from .state import RunLock, RunState, TERMINAL_STATES
 from .vm_lifecycle import VMLease, lifecycle_view
+from .worker_errors import failure_details, preserve_secondary
+from .terminal_receipt import publish_terminal_receipt, require_terminal_receipt, terminal_receipt_status
 
 
 LOGGING_ROOT = SCRIPTS_ROOT / "logging"
@@ -42,7 +44,7 @@ STATUS_FIELDS = (
     "vm_stage", "vm_status", "production_stage", "production_status",
     "candidate_image_id", "running_image_id", "image_ids_match", "claim_final_state", "updated_at",
     "vm_power_status", "vm_started_by_release", "vm_cleanup_status",
-    "finalization_status",
+    "finalization_status", "runner_terminal_receipt",
 )
 DANGEROUS_STAGES = {
     "production_preflight", "pre_switch_streaming_verified", "freeze", "freeze_verified",
@@ -68,7 +70,7 @@ def _run_dir(identifier: str) -> Path:
     return path
 
 
-def _read_json(path: Path, required: bool = False) -> dict[str, Any] | None:
+def _json_snapshot(path: Path, required: bool = False) -> tuple[dict[str, Any] | None, bytes]:
     root = RUN_ROOT.resolve()
     resolved = path.resolve(strict=False)
     if resolved != root and root not in resolved.parents:
@@ -85,16 +87,23 @@ def _read_json(path: Path, required: bool = False) -> dict[str, Any] | None:
     if not path.exists():
         if required:
             raise RuntimeError(f"missing state file: {path.name}")
-        return None
+        return None, b""
     if not path.is_file() or path.stat().st_size > MAX_JSON_BYTES:
         raise RuntimeError(f"invalid state file: {path.name}")
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
+        raw = read_replaceable_bytes(path, max_bytes=MAX_JSON_BYTES)
+        value = json.loads(raw.decode("utf-8"))
     except (UnicodeError, json.JSONDecodeError) as error:
         raise RuntimeError(f"malformed state file: {path.name}") from error
+    except ValueError as error:
+        raise RuntimeError(f"invalid state file: {path.name}") from error
     if not isinstance(value, dict):
         raise RuntimeError(f"invalid state document: {path.name}")
-    return value
+    return value, raw
+
+
+def _read_json(path: Path, required: bool = False) -> dict[str, Any] | None:
+    return _json_snapshot(path, required=required)[0]
 
 
 def _write_json(path: Path, value: dict[str, Any]) -> None:
@@ -181,6 +190,7 @@ def start(args: argparse.Namespace, *, announce: bool = True) -> str:
         "started_at": now, "updated_at": now, "stdout": "logs/runner.stdout.log",
         "stderr": "logs/runner.stderr.log", "runner_sha256": runner_checksum(),
         "deployment_mode": deployment_mode,
+        "terminal_receipt_schema": 1,
     }
     _write_json(run_dir / "runner.json", runner)
     logger = _event_logger(run_dir, deployment_mode)
@@ -270,8 +280,9 @@ def worker(args: argparse.Namespace) -> None:
         raise RuntimeError("worker launcher handshake is incomplete")
     exit_code = 1
     terminal = "failed"
+    primary_error = None
     try:
-        _update_runner(run_dir, status="waiting_for_lock")
+        _update_runner(run_dir, status="waiting_for_lock", terminal_receipt_schema=1)
         logger.emit(stage="runner", script="release.supervisor", event="lock_wait_started", message="Release worker is waiting for the release lock")
         with RunLock(RUN_ROOT / ".release.lock"):
             _update_runner(run_dir, status="running")
@@ -301,25 +312,58 @@ def worker(args: argparse.Namespace) -> None:
         exit_code = 0
         terminal = "verified"
     except BaseException as error:
-        release_state = _read_json(run_dir / "release-state.json") or {}
-        production = _read_json(run_dir / "gate" / "production-result.json") or {}
-        candidate = production.get("status") or release_state.get("status")
-        if candidate in {"recovered", "blocked_reconciliation"}:
-            terminal = str(candidate)
-        logger.emit(
-            stage="runner", script="release.supervisor", event="worker_failed",
-            message="Release worker failed", level="error", exit_code=1,
-            details={"error_type": type(error).__name__, "terminal_status": terminal},
-        )
+        primary_error = error
+        try:
+            release_state = _read_json(run_dir / "release-state.json") or {}
+            production = _read_json(run_dir / "gate" / "production-result.json") or {}
+            candidate = production.get("status") or release_state.get("status")
+            if candidate in {"recovered", "blocked_reconciliation"}:
+                terminal = str(candidate)
+        except BaseException as secondary:
+            preserve_secondary(error, secondary, "read_failure_state")
+        try:
+            logger.emit(
+                stage="runner", script="release.supervisor", event="worker_failed",
+                message="Release worker failed", level="error", exit_code=1,
+                details={**failure_details(error), "terminal_status": terminal},
+            )
+        except BaseException as secondary:
+            preserve_secondary(error, secondary, "log_worker_failure")
         raise
     finally:
-        _update_runner(run_dir, status=terminal, exit_code=exit_code, finished_at=int(time.time()))
-        logger.emit(
-            stage="runner", script="release.supervisor", event="worker_finished",
-            message="Release worker reached a terminal state",
-            level="info" if exit_code == 0 else "error", exit_code=exit_code,
-            details={"terminal_status": terminal},
-        )
+        try:
+            terminal_runner = _update_runner(run_dir, status=terminal, exit_code=exit_code, finished_at=int(time.time()))
+        except BaseException as secondary:
+            if primary_error is None:
+                primary_error = secondary
+                details = {**failure_details(secondary), "operation": "terminal_runner_commit"}
+            else:
+                details = preserve_secondary(primary_error, secondary, "terminal_runner_commit")
+            try:
+                logger.emit(
+                    stage="runner", script="release.supervisor", event="worker_terminal_commit_failed",
+                    message="Release worker terminal state commit failed", level="error", exit_code=1,
+                    details=details,
+                )
+            except BaseException as log_error:
+                preserve_secondary(primary_error, log_error, "log_terminal_commit_failure")
+            if primary_error is secondary:
+                raise
+        else:
+            try:
+                logger.emit(
+                    stage="runner", script="release.supervisor", event="worker_finished",
+                    message="Release worker reached a terminal state",
+                    level="info" if exit_code == 0 else "error", exit_code=exit_code,
+                    details={"terminal_status": terminal},
+                )
+                sys.stdout.flush()
+                sys.stderr.flush()
+                publish_terminal_receipt(run_dir, terminal_runner, canonical_json(terminal_runner) + b"\n")
+            except BaseException as secondary:
+                if primary_error is None:
+                    raise
+                preserve_secondary(primary_error, secondary, "log_worker_finished")
 
 
 def status_view(identifier: str) -> dict[str, Any]:
@@ -327,7 +371,8 @@ def status_view(identifier: str) -> dict[str, Any]:
     if not run_dir.is_dir():
         raise RuntimeError("release does not exist")
     manifest = _read_json(run_dir / "manifest.json", required=True) or {}
-    runner = _read_json(run_dir / "runner.json") or {}
+    runner, runner_raw = _json_snapshot(run_dir / "runner.json")
+    runner = runner or {}
     vm = _read_json(run_dir / "state.json") or {}
     release_state = _read_json(run_dir / "release-state.json") or {}
     production = _read_json(run_dir / "gate" / "production-result.json") or {}
@@ -369,7 +414,15 @@ def status_view(identifier: str) -> dict[str, Any]:
         "image_ids_match": bool(candidate and running and candidate == running), "claim_final_state": claim, "updated_at": updated,
         **lifecycle_view(run_dir),
         "finalization_status": "not_started",
+        "runner_terminal_receipt": terminal_receipt_status(run_dir, runner, runner_raw),
     }
+    if value["runner_terminal_receipt"] not in {"legacy_schema_1", "not_required", "verified"}:
+        pending = (
+            value["runner_terminal_receipt"] == "terminal_receipt_missing"
+            and type(runner.get("pid")) is int and isinstance(runner.get("process_token"), str)
+            and _process_token(runner["pid"]) == runner["process_token"]
+        )
+        value.update(runner_status="running" if pending else "blocked_reconciliation", runner_alive=pending, runner_exit=None if pending else 1)
     if (run_dir / "finalization-result.json").exists():
         from .finalization import finalized_result_view
 
@@ -500,18 +553,17 @@ def reconcile_vm_preserve(args: argparse.Namespace, *, audit_fixture=None, audit
     if shared.is_symlink() or not shared.is_dir():
         raise RuntimeError("vm_preserve_unsafe_owner")
     with RunLock(RUN_ROOT / ".release.lock"), RunLock(shared / "lease.lock"):
-        manifest = _read_json(run_dir / "manifest.json", required=True) or {}
-        runner = _read_json(run_dir / "runner.json", required=True) or {}
-        state = _read_json(run_dir / "state.json", required=True) or {}
-        manifest_sha256 = hashlib.sha256((run_dir / "manifest.json").read_bytes()).hexdigest()
-        lease = lifecycle._read_state(run_dir / "vm-lifecycle.json")
-        owner = lifecycle._read_state(shared / "owner.json")
-        local_evidence_bytes = {
-            path: path.read_bytes() for path in (
-                run_dir / "manifest.json", run_dir / "runner.json", run_dir / "state.json",
-                run_dir / "vm-lifecycle.json", shared / "owner.json",
-            )
-        } if failed_stage != "pre-validator" else {}
+        manifest, manifest_raw = _json_snapshot(run_dir / "manifest.json", required=True)
+        runner, runner_raw = _json_snapshot(run_dir / "runner.json", required=True)
+        state, state_raw = _json_snapshot(run_dir / "state.json", required=True)
+        manifest, runner, state = manifest or {}, runner or {}, state or {}
+        manifest_sha256 = hashlib.sha256(manifest_raw).hexdigest()
+        lease, lease_raw = lifecycle._state_snapshot(run_dir / "vm-lifecycle.json")
+        owner, owner_raw = lifecycle._state_snapshot(shared / "owner.json")
+        local_evidence_bytes = dict(zip((
+            run_dir / "manifest.json", run_dir / "runner.json", run_dir / "state.json",
+            run_dir / "vm-lifecycle.json", shared / "owner.json",
+        ), (manifest_raw, runner_raw, state_raw, lease_raw, owner_raw))) if failed_stage != "pre-validator" else {}
         commit = manifest.get("commit_sha")
         if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}", commit):
             raise RuntimeError("vm_preserve_identity_mismatch")
@@ -627,8 +679,8 @@ printf 'production_not_started=verified\\n'
                 if path.exists() or path.is_symlink():
                     raise RuntimeError("vm_preserve_production_state_present")
             if failed_stage != "pre-validator" and (
-                hashlib.sha256((run_dir / "manifest.json").read_bytes()).hexdigest() != manifest_sha256
-                or any(path.read_bytes() != original for path, original in local_evidence_bytes.items())
+                hashlib.sha256(read_replaceable_bytes(run_dir / "manifest.json", max_bytes=MAX_JSON_BYTES)).hexdigest() != manifest_sha256
+                or any(read_replaceable_bytes(path, max_bytes=MAX_JSON_BYTES) != original for path, original in local_evidence_bytes.items())
                 or _read_json(run_dir / "manifest.json", required=True) != manifest
                 or _read_json(run_dir / "runner.json", required=True) != runner
                 or _read_json(run_dir / "state.json", required=True) != state
@@ -854,13 +906,15 @@ def _final_evidence(production: dict[str, Any]) -> dict[str, Any]:
 
 def verified_result_view(identifier: str) -> dict[str, Any]:
     run_dir = _run_dir(identifier)
-    runner = _read_json(run_dir / "runner.json", required=True) or {}
+    runner, runner_raw = _json_snapshot(run_dir / "runner.json", required=True)
+    runner = runner or {}
     if (run_dir / "finalization-result.json").exists():
         from .finalization import finalized_result_view
 
         return finalized_result_view(identifier)
     if _runner_alive(runner) or runner.get("status") != "verified" or runner.get("exit_code") != 0:
         raise RuntimeError("release runner is not successfully terminal")
+    require_terminal_receipt(run_dir, runner, runner_raw)
     return _verified_evidence_view(identifier)
 
 
@@ -935,12 +989,14 @@ def _recovery_evidence(production: dict[str, Any]) -> dict[str, Any]:
 def recovered_result_view(identifier: str) -> dict[str, Any]:
     run_dir = _run_dir(identifier)
     manifest = _read_json(run_dir / "manifest.json", required=True) or {}
-    runner = _read_json(run_dir / "runner.json", required=True) or {}
+    runner, runner_raw = _json_snapshot(run_dir / "runner.json", required=True)
+    runner = runner or {}
     vm = _read_json(run_dir / "state.json", required=True) or {}
     release_state = _read_json(run_dir / "release-state.json", required=True) or {}
     production = _read_json(run_dir / "gate" / "production-result.json", required=True) or {}
     if _runner_alive(runner) or runner.get("status") != "recovered":
         raise RuntimeError("release runner is not terminal recovered")
+    require_terminal_receipt(run_dir, runner, runner_raw)
     document = verify_gate(
         run_dir / "gate",
         TRUSTED_VM_PUBLIC_KEY,
@@ -1311,5 +1367,11 @@ printf 'release_claim_reconciled=true\nplaintext_state_removed=true\n'
     state.transition("production_release", "recovered", values)
     runner = _read_json(run_dir / "runner.json")
     if runner is not None and runner.get("status") != "verified":
-        _update_runner(run_dir, status="recovered")
+        runner = _update_runner(run_dir, status="recovered")
+        # The final print can fail (for example a closed output pipe), so the
+        # witness is published only after all remaining fallible output.
+        print(canonical_json({"release_id": identifier, "status": "recovered", "claim_final_state": "recovered"}).decode("ascii"), flush=True)
+        sys.stderr.flush()
+        publish_terminal_receipt(run_dir, runner, canonical_json(runner) + b"\n")
+        return
     print(canonical_json({"release_id": identifier, "status": "recovered", "claim_final_state": "recovered"}).decode("ascii"))
