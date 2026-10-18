@@ -183,6 +183,7 @@ HOOK_REGISTRY: dict[str, dict[str, Any]] = {
     "285_upstream_null_rate_lifecycle.sql": {"script": "migration-285-assert.sh", "rollback_policy": "coordinated_restore", "preflight": ("preflight",), "bind": (), "postflight": ("postflight",), "vm_postflight": ("vm_semantics", "verified_replay"), "replay": True},
     "297_upstream_cache_guard_account_scope.sql": {"script": "migration-297-assert.sh", "rollback_policy": "coordinated_restore", "preflight": ("preflight",), "bind": (), "postflight": ("postflight", "verified_replay"), "vm_postflight": ("vm_semantics",), "replay": True},
     "299_upstream_cache_guard_revisions.sql": {"script": "migration-299-assert.sh", "rollback_policy": "coordinated_restore", "preflight": ("preflight",), "bind": (), "postflight": ("postflight", "verified_replay"), "vm_postflight": ("vm_semantics",), "replay": True},
+    "301_upstream_cache_guard_admissions.sql": {"script": "migration-301-assert.sh", "rollback_policy": "coordinated_restore", "preflight": ("preflight",), "bind": (), "postflight": ("postflight", "verified_replay"), "vm_postflight": ("vm_semantics",), "replay": True},
     "298_group_scheduling_protection_policies.sql": {"script": "migration-298-assert.sh", "rollback_policy": "coordinated_restore", "preflight": ("preflight",), "bind": (), "postflight": ("postflight", "verified_replay"), "vm_postflight": ("vm_semantics",), "replay": True},
 }
 

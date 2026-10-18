@@ -88,9 +88,18 @@ type cacheGuardRequestBudget struct {
 	deadline           time.Time
 	exhausted          atomic.Bool
 	ordinary           atomic.Bool
+	stages             map[string]time.Duration
+	activeElapsed      time.Duration
+	groupID            int64
+	accountID          int64
+	upstreamKeyID      int64
 }
 
 func cacheGuardDatabaseContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return cacheGuardDatabaseContextForStage(ctx, "session_load")
+}
+
+func cacheGuardDatabaseContextForStage(ctx context.Context, operation string) (context.Context, context.CancelFunc) {
 	identity, ok := ctx.Value(cacheGuardSchedulingKey{}).(cacheGuardSchedulingIdentity)
 	if !ok || identity.budget == nil {
 		return context.WithTimeout(ctx, 100*time.Millisecond)
@@ -103,14 +112,43 @@ func cacheGuardDatabaseContext(ctx context.Context) (context.Context, context.Ca
 	deadline := b.deadline
 	b.mu.Unlock()
 	child, cancel := context.WithDeadline(ctx, deadline)
+	child = upstreamcacheguard.WithStageObserver(child, func(stage string, elapsed time.Duration) {
+		b.mu.Lock()
+		if b.stages == nil {
+			b.stages = map[string]time.Duration{}
+		}
+		b.stages[stage] += elapsed
+		b.mu.Unlock()
+	})
+	started := time.Now()
+	var finished sync.Once
 	return child, func() {
-		if child.Err() == context.DeadlineExceeded {
-			b.ordinary.Store(true)
-		}
-		if child.Err() == context.DeadlineExceeded && b.exhausted.CompareAndSwap(false, true) {
-			slog.Warn("upstream_cache_guard_budget_exhausted", "budget_ms", 100, "fallback", "ordinary_scheduler")
-		}
-		cancel()
+		finished.Do(func() {
+			b.mu.Lock()
+			b.activeElapsed += time.Since(started)
+			b.mu.Unlock()
+			if child.Err() == context.DeadlineExceeded {
+				b.ordinary.Store(true)
+			}
+			if child.Err() == context.DeadlineExceeded && b.exhausted.CompareAndSwap(false, true) {
+				b.mu.Lock()
+				elapsed := time.Since(deadline.Add(-100 * time.Millisecond))
+				gap := elapsed - b.activeElapsed
+				if gap < 0 {
+					gap = 0
+				}
+				stages := make(map[string]float64, len(b.stages))
+				for stage, duration := range b.stages {
+					stages[stage] = float64(duration) / float64(time.Millisecond)
+				}
+				groupID, accountID, keyID := b.groupID, b.accountID, b.upstreamKeyID
+				b.mu.Unlock()
+				slog.Warn("upstream_cache_guard_budget_exhausted", "budget_ms", 100, "fallback", "ordinary_scheduler", "operation", operation,
+					"budget_elapsed_ms", float64(elapsed)/float64(time.Millisecond), "between_operations_ms", float64(gap)/float64(time.Millisecond),
+					"stages_ms", stages, "group_id", groupID, "account_id", accountID, "upstream_key_id", keyID)
+			}
+			cancel()
+		})
 	}
 }
 
@@ -174,20 +212,22 @@ type UpstreamCacheGuardRunner struct {
 	policyResolver GroupSchedulingProtectionPolicyResolver
 	appliedPolicy  *GroupSchedulingProtectionPolicySnapshot
 	skipCounts     [cacheGuardSkipReasonCount]atomic.Uint64
+	diagnostics    cacheGuardDiagnostics
 }
 
-func (r *UpstreamCacheGuardRunner) recordAdmissionSkip(reason cacheGuardSkipReason, groupID, accountID int64) {
+func (r *UpstreamCacheGuardRunner) recordAdmissionSkip(reason cacheGuardSkipReason, groupID, accountID int64, keyID ...int64) {
 	if r == nil || reason >= cacheGuardSkipReasonCount {
 		return
 	}
-	count := r.skipCounts[reason].Add(1)
+	r.skipCounts[reason].Add(1)
 	// Keep the hot path effectively silent while retaining a low-cost, useful
-	// counter log. The first occurrence and every thousandth occurrence are
-	// enough to identify a systematic gate without logging request metadata.
-	if count != 1 && count%1000 != 0 {
-		return
+	// counter log per account/Key. A process-global counter can hide an affected
+	// account's first failure behind another account's accumulated failures.
+	var upstreamKeyID int64
+	if len(keyID) > 0 {
+		upstreamKeyID = keyID[0]
 	}
-	slog.Info("upstream_cache_guard_admission_skipped", "reason", reason.String(), "count", count, "group_id", groupID, "account_id", accountID)
+	r.diagnostics.record("skipped_"+reason.String(), groupID, accountID, upstreamKeyID)
 }
 
 var installedCacheGuardRunner atomic.Pointer[UpstreamCacheGuardRunner]
@@ -491,6 +531,17 @@ func BeginUpstreamCacheGuardRequest(ctx context.Context, apiKeyID int64, groupID
 }
 
 func beginUpstreamCacheGuardRequest(ctx context.Context, apiKeyID int64, groupID *int64, sessionHash, model, protocol string, account *Account) (*UpstreamCacheGuardAdmission, error) {
+	if identity, ok := ctx.Value(cacheGuardSchedulingKey{}).(cacheGuardSchedulingIdentity); ok && identity.budget != nil {
+		identity.budget.mu.Lock()
+		if groupID != nil {
+			identity.budget.groupID = *groupID
+		}
+		if account != nil {
+			identity.budget.accountID = account.ID
+			identity.budget.upstreamKeyID = accountUpstreamKeyID(account)
+		}
+		identity.budget.mu.Unlock()
+	}
 	strict, _ := ctx.Value(cacheGuardProtectedSelectionKey{}).(bool)
 	if protectionOrdinaryFallback(ctx) {
 		if r := currentUpstreamCacheGuardRunner(); r != nil {
@@ -501,7 +552,7 @@ func beginUpstreamCacheGuardRequest(ctx context.Context, apiKeyID int64, groupID
 			if account != nil {
 				aid = account.ID
 			}
-			r.recordAdmissionSkip(cacheGuardSkipOrdinaryFallback, gid, aid)
+			r.recordAdmissionSkip(cacheGuardSkipOrdinaryFallback, gid, aid, accountUpstreamKeyID(account))
 		}
 		if strict {
 			return nil, protectionBudgetFallbackError()
@@ -521,32 +572,32 @@ func beginUpstreamCacheGuardRequest(ctx context.Context, apiKeyID int64, groupID
 		if account != nil {
 			aid = account.ID
 		}
-		r.recordAdmissionSkip(cacheGuardSkipAccountUnavailable, 0, aid)
+		r.recordAdmissionSkip(cacheGuardSkipAccountUnavailable, 0, aid, accountUpstreamKeyID(account))
 		return nil, nil
 	}
 	at := time.Now().UTC()
 	snapshot := r.engine.CachedMetadataAt(*groupID, at)
 	if !snapshot.Available {
-		r.recordAdmissionSkip(cacheGuardSkipSnapshotUnavailable, *groupID, account.ID)
+		r.recordAdmissionSkip(cacheGuardSkipSnapshotUnavailable, *groupID, account.ID, *account.UpstreamKeyID)
 		return nil, nil
 	}
 	if !r.protectionScopeSelected(*groupID, account) {
-		r.recordAdmissionSkip(cacheGuardSkipScopeNotSelected, *groupID, account.ID)
+		r.recordAdmissionSkip(cacheGuardSkipScopeNotSelected, *groupID, account.ID, *account.UpstreamKeyID)
 		return nil, nil
 	}
 	identity, authorized := ctx.Value(cacheGuardSchedulingKey{}).(cacheGuardSchedulingIdentity)
 	if !authorized || identity.APIKeyID != apiKeyID {
-		r.recordAdmissionSkip(cacheGuardSkipIdentityUnauthorized, *groupID, account.ID)
+		r.recordAdmissionSkip(cacheGuardSkipIdentityUnauthorized, *groupID, account.ID, *account.UpstreamKeyID)
 		return nil, nil
 	}
 	accountSnapshot, ok := r.engine.CachedAccountForGroupAt(*groupID, account.ID, *account.UpstreamKeyID, at)
 	if !ok {
-		r.recordAdmissionSkip(cacheGuardSkipAccountSnapshotUnavailable, *groupID, account.ID)
+		r.recordAdmissionSkip(cacheGuardSkipAccountSnapshotUnavailable, *groupID, account.ID, *account.UpstreamKeyID)
 		return nil, nil
 	}
 	req, ok := r.logicalRequest(ctx, groupID, sessionHash, model, protocol)
 	if !ok {
-		r.recordAdmissionSkip(cacheGuardSkipLogicalRequestInvalid, *groupID, account.ID)
+		r.recordAdmissionSkip(cacheGuardSkipLogicalRequestInvalid, *groupID, account.ID, *account.UpstreamKeyID)
 		return nil, nil
 	}
 	req.AccountID = account.ID
@@ -559,18 +610,18 @@ func beginUpstreamCacheGuardRequest(ctx context.Context, apiKeyID int64, groupID
 	if stale {
 		session, err := r.engine.SessionReadAtWithDatabaseContext(ctx, req, at, cacheGuardDatabaseContext)
 		if err != nil {
-			r.recordAdmissionSkip(cacheGuardSkipStaleSessionUnavailable, *groupID, account.ID)
+			r.recordAdmissionSkip(cacheGuardSkipStaleSessionUnavailable, *groupID, account.ID, *account.UpstreamKeyID)
 			if strict && protectionOrdinaryFallback(ctx) && ctx.Err() == nil {
 				return nil, protectionBudgetFallbackError()
 			}
 			return nil, nil
 		}
 		if !session.Known || session.PreferredAccountID != account.ID {
-			r.recordAdmissionSkip(cacheGuardSkipStaleSessionUnbound, *groupID, account.ID)
+			r.recordAdmissionSkip(cacheGuardSkipStaleSessionUnbound, *groupID, account.ID, *account.UpstreamKeyID)
 			return nil, nil
 		}
 	}
-	dbCtx, cancel := cacheGuardDatabaseContext(ctx)
+	dbCtx, cancel := cacheGuardDatabaseContextForStage(ctx, "admission")
 	defer cancel()
 	var a upstreamcacheguard.Admission
 	var err error
@@ -580,7 +631,7 @@ func beginUpstreamCacheGuardRequest(ctx context.Context, apiKeyID int64, groupID
 		a, err = r.engine.Admit(dbCtx, req)
 	}
 	if err != nil {
-		r.recordAdmissionSkip(cacheGuardSkipAdmissionError, *groupID, account.ID)
+		r.recordAdmissionSkip(cacheGuardSkipAdmissionError, *groupID, account.ID, *account.UpstreamKeyID)
 		r.available.Store(false)
 		if (dbCtx.Err() == context.DeadlineExceeded || errors.Is(err, context.DeadlineExceeded)) && ctx.Err() == nil {
 			if identity.budget != nil {
@@ -593,9 +644,14 @@ func beginUpstreamCacheGuardRequest(ctx context.Context, apiKeyID int64, groupID
 		return nil, nil
 	}
 	if !a.Sample {
-		r.recordAdmissionSkip(cacheGuardSkipAdmissionNotSample, *groupID, account.ID)
+		r.recordAdmissionSkip(cacheGuardSkipAdmissionNotSample, *groupID, account.ID, *account.UpstreamKeyID)
 		return nil, nil
 	}
+	classification := "admitted_cold"
+	if a.WarmAtStart {
+		classification = "admitted_warm"
+	}
+	r.diagnostics.record(classification, req.GroupID, req.AccountID, req.UpstreamKeyID)
 	return &UpstreamCacheGuardAdmission{Request: req, Admission: a, AccountPlatform: account.Platform}, nil
 }
 func ObserveUpstreamCacheGuardResult(admission *UpstreamCacheGuardAdmission, evidence *UpstreamCacheUsageEvidence, success bool, completedAt time.Time) {
@@ -608,6 +664,18 @@ func ObserveUpstreamCacheGuardResult(admission *UpstreamCacheGuardAdmission, evi
 	if evidence != nil {
 		v.RawUsage = *evidence
 	}
+	outcome := "completion_valid"
+	switch {
+	case !success:
+		outcome = "completion_unsuccessful"
+	case !v.Admission.Sample:
+		outcome = "completion_not_sample"
+	case !v.Admission.WarmAtStart:
+		outcome = "completion_cold"
+	case !v.RawUsage.Known():
+		outcome = "completion_usage_unknown"
+	}
+	r.diagnostics.record(outcome, v.Request.GroupID, v.Request.AccountID, v.Request.UpstreamKeyID)
 	// Durable delivery happens before returning from the completion observer.
 	// The queue only retries database outages; durable admissions make any
 	// discarded completion visible after a crash, so incomplete data fails open.
@@ -621,6 +689,7 @@ func ObserveUpstreamCacheGuardResult(admission *UpstreamCacheGuardAdmission, evi
 		}
 		return
 	}
+	r.diagnostics.record("enqueue_failed", v.Request.GroupID, v.Request.AccountID, v.Request.UpstreamKeyID)
 	r.available.Store(false)
 	r.pendingFailure.Store(true)
 	r.engine.MarkSamplingFailure(admission.Request, false)
@@ -628,6 +697,7 @@ func ObserveUpstreamCacheGuardResult(admission *UpstreamCacheGuardAdmission, evi
 	select {
 	case r.queue <- v:
 	default:
+		r.diagnostics.record("completion_queue_full", v.Request.GroupID, v.Request.AccountID, v.Request.UpstreamKeyID)
 		r.lost.Store(true)
 		r.engine.MarkSamplingFailure(admission.Request, true)
 	}

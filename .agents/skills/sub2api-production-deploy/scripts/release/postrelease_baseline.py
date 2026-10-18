@@ -130,7 +130,7 @@ def sign_and_promote(*, release_id: str, drill_id: str, evidence_sha256: str, ru
     read or transported by this controller. A signed result already present is
     reverified instead of signing it twice after a transport interruption.
     """
-    need(re.fullmatch(r"(?:270|271|272|273)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}", release_id) is not None and re.fullmatch(r"dr-(?:270|271|272|273)-[0-9]{8}T[0-9]{6}Z", drill_id) is not None and release_id.split("-",1)[0] == drill_id.split("-",2)[1] and SHA.fullmatch(evidence_sha256) is not None, "promotion identity")
+    need(re.fullmatch(r"(?:270|271|272|273|274)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}", release_id) is not None and re.fullmatch(r"dr-(?:270|271|272|273|274)-[0-9]{8}T[0-9]{6}Z", drill_id) is not None and release_id.split("-",1)[0] == drill_id.split("-",2)[1] and SHA.fullmatch(evidence_sha256) is not None, "promotion identity")
     client = runner or SSHRunner()
     evidence = "/opt/sub2api-deploy/dr-evidence/" + release_id + "/" + drill_id + "/evidence.json"
     signature = evidence.removesuffix("evidence.json") + "evidence.sig"

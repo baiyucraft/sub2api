@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "catalog_version": "2026-10-17",
+  "catalog_version": "2026-10-18",
   "version_contract": {
     "upstream_path": "backend/cmd/server/VERSION",
     "fork_suffix": "-baiyu",
@@ -135,21 +135,25 @@
     "269": {"version":"0.2.16-baiyu","parent":"268","gate_schema":2,"new_migrations":["297_upstream_cache_guard_account_scope.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
     "270": {"version":"0.2.16-baiyu","parent":"269","gate_schema":2,"new_migrations":["298_group_scheduling_protection_policies.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
     "271": {"version":"0.2.16-baiyu","parent":"270","gate_schema":2,"new_migrations":["299_upstream_cache_guard_revisions.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
-    "272": {"version":"0.2.17-baiyu","parent":"271","gate_schema":2,"new_migrations":[],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}}
+    "272": {"version":"0.2.17-baiyu","parent":"271","gate_schema":2,"new_migrations":[],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
+    "273": {"version":"0.2.17-baiyu","parent":"272","gate_schema":2,"new_migrations":["300_upstream_health_history_index.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}}
   },
   "current_profile": {
-    "id": "273",
+    "id": "274",
     "status": "pending",
     "version": "0.2.17-baiyu",
-    "parent": "272",
+    "parent": "273",
     "gate_schema": 2,
-    "new_migrations": ["300_upstream_health_history_index.sql"],
+    "new_migrations": [
+      "301_upstream_cache_guard_admissions.sql"
+    ],
     "release_policy": {
       "compatibility_image": "production_current",
       "migration_source": "database_state"
     }
   },
   "migration_contracts": {
+    "301_upstream_cache_guard_admissions.sql": "ec83ff7020753185f382202e5b6926f1917a63462b0428b3f05cd37e095879ee",
     "300_upstream_health_history_index.sql": "83215f619d9b5c0eb462f7c2c04db97bc3e067952e2e39baaca8f2cbf9636696",
     "299_upstream_cache_guard_revisions.sql": "203ff042c1129f24549c696d6fdcb0dc27b0fedcff8f7e61413520b4bf9cc856",
     "297_upstream_cache_guard_account_scope.sql": "a17cdd895a2fd8306eebc4d21c4c93ae22defaa93f9e54e2e7b8208ed2725244",
@@ -266,6 +270,7 @@
     "official_238_purge_unlimited_user_platform_quotas": "275_purge_unlimited_user_platform_quotas.sql"
   },
   "migration_assertions": {
+    "backend/migrations/301_upstream_cache_guard_admissions.sql": ["CREATE TABLE upstream_cache_guard_admissions", "PRIMARY KEY (group_id, session_key, admission_key)", "state_json=state_json-'admissions'", "idx_cache_guard_admission_pending_age", "idx_cache_guard_admission_acknowledgement"],
     "backend/migrations/300_upstream_health_history_index.sql": [
       "CREATE INDEX IF NOT EXISTS idx_upstream_health_observations_key_recent",
       "ON upstream_health_observations (upstream_key_id, observed_at DESC, id DESC)"
@@ -874,7 +879,11 @@
         "backend/internal/service/openai_plugin_transport.go",
         "backend/internal/service/antigravity_gateway_retry.go",
         "backend/internal/service/antigravity_gateway_upstream.go",
-        "backend/internal/service/gateway_protection_send_admission_test.go"
+        "backend/internal/service/gateway_protection_send_admission_test.go",
+        "backend/internal/repository/upstream_cache_guard_admissions.go",
+        "backend/migrations/301_upstream_cache_guard_admissions.sql",
+        "backend/internal/upstreamcacheguard/admissions.go",
+        "backend/internal/service/upstream_cache_guard_diagnostics.go"
       ],
       "symbols": [
         "SettingKeyUpstreamCacheGuard",
@@ -891,7 +900,15 @@
         "UpstreamCacheGuardAccountStatesBatch",
         "PolicySignature",
         "GroupSchedulingProtectionPolicyService",
-        "AccountUpstreamProtection"
+        "AccountUpstreamProtection",
+        "AdmissionTx",
+        "AdmissionStore",
+        "AdmissionHealth",
+        "AdmissionFailure",
+        "ReadAdmission",
+        "WriteAdmission",
+        "PendingAdmissions",
+        "RetainedAdmissionCount"
       ],
       "api_routes": [
         "/admin/upstream-management/settings",
@@ -907,7 +924,8 @@
       "migration_files": [
         "296_upstream_cache_guard.sql",
         "297_upstream_cache_guard_account_scope.sql",
-        "298_group_scheduling_protection_policies.sql"
+        "298_group_scheduling_protection_policies.sql",
+        "301_upstream_cache_guard_admissions.sql"
       ],
       "required_tests": [
         "backend/internal/handler/scheduling_protection_scope_failover_test.go",
@@ -969,7 +987,11 @@
         "backend/internal/service/openai_protection_regression_test.go",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_migration_297.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/migration-297-integration.sh",
-        ".agents/skills/sub2api-production-deploy/scripts/tests/release/migration-298-integration.sh"
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/migration-298-integration.sh",
+        "backend/internal/upstreamcacheguard/split_admission_test.go",
+        "backend/internal/repository/upstream_cache_guard_admissions_test.go",
+        "backend/internal/repository/upstream_cache_guard_admissions_pg_test.go",
+        "backend/internal/service/upstream_cache_guard_diagnostics_test.go"
       ],
       "invariants": [
         "全局 scheduling_protection_platforms 默认仅 openai；仅选中具体平台的分组提供配置并执行保护，实际账号平台也须选中；composite 不支持；自定义不能绕过范围，空选全部停用，旧客户端省略保留，取消选择保留历史事实与组配置，状态明确 platform_not_selected",
@@ -994,7 +1016,10 @@
         "账号列表在单次请求内复用共享快照，管理接口在最后成功快照30秒内返回旧值，超过30秒或从未成功才不可用；账号摘要与分组兼容投影全部参与ETag且仅缓存字段变化仍完整刷新；跨请求读取不续期，前端不独立保留快照、不增加过期文案",
         "缓存分组inherit/enabled/disabled，仅三个阈值门槛自定义，时间与试用配额继承全局；enabled在全局disabled/observe下独立protect",
         "迁移298将旧非空group_ids白名单投影为inherit/disabled，重放不覆盖自定义且保留原settings供旧镜像回滚",
-        "软保护迁移与试用仅在实际transport发送前的最终准入点提交；本地校验、插件或利润准入拒绝、取消、目标Key改变时不迁移绑定、不启动缓存cohort、不计TTFT试用发送；同账号重试与WS turn共用once提交边界"
+        "软保护迁移与试用仅在实际transport发送前的最终准入点提交；本地校验、插件或利润准入拒绝、取消、目标Key改变时不迁移绑定、不启动缓存cohort、不计TTFT试用发送；同账号重试与WS turn共用once提交边界",
+        "会话主体与逐请求admission拆分，生产按主键读写本次准入记录，未完成屏障和完成确认定向读取；长期会话历史不再进入请求JSON热路径。发送前准入仍同步、原子、幂等，共用100ms预算，warm/cohort/自然试用身份及48小时保留语义不变。",
+        "迁移保留原会话身份、自然试用序号、路线、业务updated_at和所有admissions，旧记录仅从原admission或冻结route确定Key，无来源保留0且不能归给当前Key。旧binary不兼容新增存储，要求停旧写者和协调恢复。",
+        "采样诊断以(group,account,key)有界进程窗口计数，completion观察不能代替数据库去重事实；预算记录固定阶段耗时与操作间隔，不记录session值或凭据，稀疏日志不能证明全部缺失的逐请求原因。"
       ]
     },
     {
@@ -1863,7 +1888,8 @@
         "279_proxy_ip_groups.sql",
         "280_plugin_runtime_state.sql",
         "296_upstream_cache_guard.sql",
-        "298_group_scheduling_protection_policies.sql"
+        "298_group_scheduling_protection_policies.sql",
+        "301_upstream_cache_guard_admissions.sql"
       ],
       "required_tests": [
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile273_release_contract.py",
@@ -1920,7 +1946,9 @@
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile268_release_contract.py",
         "backend/migrations/group_scheduling_protection_migration_test.go",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile270_release_contract.py",
-        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_migration_298.py"
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_migration_298.py",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile274_release_contract.py",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_migration_301.py"
       ],
       "recommended_tests": [
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_signer_assets.py",
@@ -1952,7 +1980,8 @@
         "同一 signed candidate 的 --clear-dashboard-cache 复用运行时配置，仅删除单个 dashboard snapshot 并核验缺失，不启动后台、不迁移、不清其他 Redis 键；结果保存在 root-only release state；新进程重建本地缓存",
         "264 精确恢复审阅：生产 0898fe8c6289f87a1a4d90cf74a50e296689960e 到 7c58225c34f876e1fe3967f1d8cf941d7d3d5f49 仅35项接线；同一 before 到 bc57b804fe4467d96b530c8874dd7152d28386a0 仅五项奖励停机 helper/prepare/switch/production/validator；新文件旧状态不存在，blob/mode/基线漂移拒绝，仍执行 specialized 真实恢复",
         "缓存保护新增连续profile268，parent267，version0.2.16-baiyu，仅296_upstream_cache_guard.sql；历史267四项官方迁移和全部旧SQL/profile/checksum不回写；Python/Shell/VM/Gate/DR/生产/祖先断言/备份/清理接线，未知269拒绝；不增加恢复审阅豁免。",
-        "profile270保持0.2.16-baiyu,parent269,只新增298_group_scheduling_protection_policies.sql；269及所有历史SQL/checksum不回写；298生产只读核验，VM隔离fixture绑定source与catalog checksum，四phase全部验真，未知271拒绝"
+        "profile270保持0.2.16-baiyu,parent269,只新增298_group_scheduling_protection_policies.sql；269及所有历史SQL/checksum不回写；298生产只读核验，VM隔离fixture绑定source与catalog checksum，四phase全部验真，未知271拒绝",
+        "当前 profile 274 parent 273，同版本0.2.17-baiyu仅新增301；273及更早SQL/profile/checksum保持不可变，未知275拒绝。301要求停旧写者迁移并coordinated_restore，不能让旧镜像继续写入拆分后的会话。迁移断言生产只读，写入fixture仅在显式绑定的隔离库事务回滚；未新增恢复敏感blob豁免。"
       ]
     },
     {

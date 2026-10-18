@@ -389,7 +389,8 @@ class FinalizationTest(unittest.TestCase):
         from release.migration_planner import discover_migration_catalog
 
         catalog = discover_migration_catalog(finalization.WORKSPACE)
-        self.assertEqual(len(catalog), 351)
+        self.assertEqual(len(catalog), 352)
+        self.assertTrue(any(row["filename"] == "301_upstream_cache_guard_admissions.sql" for row in catalog))
         self.assertTrue(any(row["filename"] == "298_group_scheduling_protection_policies.sql" for row in catalog))
         self.assertTrue(any(row["filename"] == "299_upstream_cache_guard_revisions.sql" for row in catalog))
         self.assertTrue(any(row["filename"] == "296_upstream_cache_guard.sql" for row in catalog))

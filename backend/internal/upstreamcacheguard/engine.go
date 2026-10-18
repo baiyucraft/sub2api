@@ -271,7 +271,11 @@ func (e *Engine) admit(ctx context.Context, r Request, existingOnly bool) (Admis
 				return ErrUnavailable
 			}
 		}
-		if old, ok := session.Admissions[admissionKey(r)]; ok {
+		old, exists, err := readAdmission(tx, &session, r)
+		if err != nil {
+			return err
+		}
+		if exists {
 			if !admissionMatchesKey(old, r) {
 				return errors.New("cache guard admission Key changed")
 			}
@@ -279,7 +283,6 @@ func (e *Engine) admit(ctx context.Context, r Request, existingOnly bool) (Admis
 			return nil
 		}
 		var plan TrialPlan
-		var err error
 		if executing && !existingOnly {
 			plan, err = planInTx(tx, r, &session, s)
 			if err != nil {
@@ -316,9 +319,6 @@ func (e *Engine) admit(ctx context.Context, r Request, existingOnly bool) (Admis
 		a.RouteKey = WarmRouteKey(r)
 		if session.Routes == nil {
 			session.Routes = map[string]SessionRoute{}
-		}
-		if session.Admissions == nil {
-			session.Admissions = map[string]Admission{}
 		}
 		a.WarmAtStart = routeWarm(session.Routes[WarmRouteKey(r)], r.StartedAt)
 		a.ProtectedAtStart = executing && selected.Phase != "" && selected.Phase != Healthy && selected.Phase != Unknown
@@ -366,17 +366,12 @@ func (e *Engine) admit(ctx context.Context, r Request, existingOnly bool) (Admis
 		if r.StartedAt.After(session.LastStartedAt) {
 			session.LastStartedAt = r.StartedAt.UTC()
 		}
-		for k, old := range session.Admissions {
-			if old.Completed && r.StartedAt.Sub(old.StartedAt) > FactLifetime {
-				delete(session.Admissions, k)
-			}
+		if err := checkAdmissionBound(tx, &session, r); err != nil {
+			return err
 		}
-		// In-flight admissions cannot evict the frozen cold classification of an
-		// earlier request. Large pathological sessions fail open instead.
-		if len(session.Admissions) >= 100000 {
-			return errors.New("cache guard session admission bound exceeded")
+		if err := saveAdmission(tx, &session, r, a); err != nil {
+			return err
 		}
-		session.Admissions[admissionKey(r)] = a
 		saved = session
 		savedVersion, err = tx.Write(SessionKind, a.SessionKey, &session)
 		return err
@@ -428,14 +423,12 @@ func (e *Engine) Complete(ctx context.Context, v Evidence) error {
 		if session.FirstSeenAt.IsZero() {
 			session.Key = v.Admission.SessionKey
 			session.FirstSeenAt = v.Request.StartedAt
-			session.Admissions = map[string]Admission{admissionKey(v.Request): v.Admission}
-		}
-		if session.Admissions == nil {
-			session.Admissions = map[string]Admission{}
 		}
 		completed := v.Admission
 		completed.Completed = true
-		session.Admissions[admissionKey(v.Request)] = completed
+		if err := saveAdmission(tx, &session, v.Request, completed); err != nil {
+			return err
+		}
 		if !applyPolicy {
 			_, err = tx.Write(SessionKind, v.Admission.SessionKey, &session)
 			return err
@@ -508,10 +501,12 @@ func (e *Engine) Complete(ctx context.Context, v Evidence) error {
 		}
 		// An unfinished intervening attempt is also a barrier. Otherwise two
 		// quickly completed lows could be joined across a slower in-flight call.
-		for _, pending := range session.Admissions {
-			if !pending.Completed && pending.AccountID == v.Request.AccountID && (pending.RouteKey == routeKey || pending.RouteKey == "") {
-				own = append(own, Evidence{ID: pending.RequestID, Request: Request{StartedAt: pending.StartedAt}})
-			}
+		pending, err := pendingRouteAdmissions(tx, &session, v.Request)
+		if err != nil {
+			return err
+		}
+		for _, a := range pending {
+			own = append(own, Evidence{ID: a.RequestID, Request: Request{StartedAt: a.StartedAt}})
 		}
 		sort.Slice(own, func(i, j int) bool {
 			if own[i].Request.StartedAt.Equal(own[j].Request.StartedAt) {

@@ -58,6 +58,11 @@ func buildCacheGuardPreference(ctx context.Context, groupID *int64, sessionHash,
 	if groupID == nil {
 		return p
 	}
+	if identity, ok := ctx.Value(cacheGuardSchedulingKey{}).(cacheGuardSchedulingIdentity); ok && identity.budget != nil {
+		identity.budget.mu.Lock()
+		identity.budget.groupID = *groupID
+		identity.budget.mu.Unlock()
+	}
 	if !SchedulingProtectionGroupSelected(r.protectionPolicyReader(), *groupID) {
 		return p
 	}
@@ -189,7 +194,7 @@ func buildCacheGuardPreference(ctx context.Context, groupID *int64, sessionHash,
 	}
 	// Admission assigns a shared ordinal once per logical natural new session.
 	// A later round, model switch or migration can never acquire a new trial slot.
-	dbCtx, cancel := cacheGuardDatabaseContext(ctx)
+	dbCtx, cancel := cacheGuardDatabaseContextForStage(ctx, "trial_plan")
 	defer cancel()
 	trial, err := guard.PlanTrial(dbCtx, req)
 	if err != nil || !protectionPolicyEvaluationCurrent(ctx) {

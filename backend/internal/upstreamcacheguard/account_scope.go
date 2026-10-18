@@ -227,6 +227,7 @@ func (e *Engine) refreshAccounts(ctx context.Context) error {
 	sessionVersions := map[string]int64{}
 	gaps := map[string]bool{}
 	acknowledged := map[string][]string{}
+	admissionStore, splitAdmissions := e.store.(AdmissionStore)
 	for _, row := range rows {
 		g := groups[row.GroupID]
 		g.GroupID, g.Mode, g.Available, g.LoadedAt = row.GroupID, s.Mode, true, now
@@ -256,6 +257,9 @@ func (e *Engine) refreshAccounts(ctx context.Context) error {
 			}
 			sessions[cacheKey] = session
 			for key, a := range session.Admissions {
+				if splitAdmissions {
+					break
+				}
 				keyID := a.UpstreamKeyID
 				if keyID == 0 {
 					keyID = session.Routes[a.RouteKey].UpstreamKeyID
@@ -277,8 +281,39 @@ func (e *Engine) refreshAccounts(ctx context.Context) error {
 		}
 		groups[row.GroupID] = g
 	}
-	// Materialize new policy projections under the same account lock as facts.
-	if optimized {
+	if splitAdmissions {
+		// Completed history is deliberately absent from session bodies. Check
+		// only active gaps and this instance's transient failed deliveries.
+		var failures []AdmissionFailure
+		e.mu.RLock()
+		for id, keys := range e.samplingFailures {
+			var accountID, keyID int64
+			_, _ = fmt.Sscanf(id, "%d:%d", &accountID, &keyID)
+			for key := range keys {
+				if key != "" {
+					failures = append(failures, AdmissionFailure{AccountID: accountID, UpstreamKeyID: keyID, Key: key})
+				}
+			}
+		}
+		e.mu.RUnlock()
+		health, err := admissionStore.AdmissionHealth(ctx, e.bornAt, now, failures)
+		if err != nil {
+			return err
+		}
+		for _, a := range health.Pending {
+			if a.UpstreamKeyID > 0 && stalePending(a, e.bornAt, now) {
+				id := accountIdentity(a.AccountID, a.UpstreamKeyID)
+				gaps[id] = true
+				delete(unchanged, id)
+			}
+		}
+		for _, a := range health.Acknowledged {
+			id := accountIdentity(a.AccountID, a.UpstreamKeyID)
+			acknowledged[id] = append(acknowledged[id], a.Key)
+		}
+	}
+	// Legacy stores still expose admissions in their session rows.
+	if optimized && !splitAdmissions {
 		for _, session := range sessions {
 			for key, a := range session.Admissions {
 				keyID := a.UpstreamKeyID
@@ -297,6 +332,7 @@ func (e *Engine) refreshAccounts(ctx context.Context) error {
 			}
 		}
 	}
+	// Materialize new policy projections under the same account lock as facts.
 	var accountErrors []error
 	materializeCtx := ctx
 	materializeCancel := func() {}

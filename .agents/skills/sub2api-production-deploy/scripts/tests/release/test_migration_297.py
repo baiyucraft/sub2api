@@ -89,7 +89,7 @@ class Migration297ContractTest(unittest.TestCase):
         self.assertIn("catalog_checksum=" + catalog, source)
         self.assertNotEqual(catalog, hashlib.sha256(raw).hexdigest())
         for clause in (
-            '[[ $profile == 269 || $profile == 270 || $profile == 271 || $profile == 272 || $profile == 273 ]]', '$m.parent_profile == "268"',
+            '[[ $profile == 269 || $profile == 270 || $profile == 271 || $profile == 272 || $profile == 273 || $profile == 274 ]]', '$m.parent_profile == "268"',
             '$m.new_migrations == [$filename]', 'COUNT(*)=1 AND bool_and(checksum=',
             'BEGIN READ ONLY;', 'SET LOCAL search_path = public, pg_catalog;',
             "'upstream_cache_guard_facts','upstream_key_id'",

@@ -69,8 +69,6 @@ func (r *upstreamCacheGuardRepository) ActiveRuntimeRows(ctx context.Context, ac
  SELECT group_id,state_kind,state_key,version FROM upstream_cache_guard_runtime WHERE state_kind='session' AND updated_at >= $1
  UNION
  SELECT state.group_id,state.state_kind,state.state_key,state.version FROM resident r JOIN upstream_cache_guard_runtime state ON state.group_id=r.g AND state.state_kind='session' AND state.state_key=r.k
- UNION
- SELECT group_id,state_kind,state_key,version FROM upstream_cache_guard_runtime WHERE state_kind='session' AND has_pending_admissions=TRUE
  )
  SELECT state.group_id,state.state_kind,state.state_key,state.version,state.state_json,state.updated_at
  FROM live JOIN upstream_cache_guard_runtime state ON state.group_id=live.group_id AND state.state_kind=live.state_kind AND state.state_key=live.state_key
@@ -96,6 +94,7 @@ func (r *upstreamCacheGuardRepository) ActiveRuntimeRows(ctx context.Context, ac
 }
 
 func (r *upstreamCacheGuardRepository) LoadSession(ctx context.Context, group int64, key string) (*upstreamcacheguard.SessionState, int64, error) {
+	defer upstreamcacheguard.MeasureStage(ctx, "session_cold_load")()
 	if r == nil || r.db == nil {
 		return nil, 0, upstreamcacheguard.ErrUnavailable
 	}
