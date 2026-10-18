@@ -374,6 +374,8 @@ VM Gate v2、历史 Gate v1 与 VM-only 三个构建入口共用 `vm-build-commo
 
 ## 固定工作树与缓存
 
+发布进程身份与构建依赖前置修复另经独立审阅，精确绑定生产 BASE `5deebb2929c2a694145cc2726e895f01c43d28c1` 到实现 TARGET `1a6271af98027b67e63dfb24915aaf11ab395974`。`_PROCESS_BUILD_PREFLIGHT_REVIEW_PATHS` 仅登记 `release/{cli.py,finalization.py,observer.py,plugin_supervisor.py,process.py,supervisor.py,vm-build-common.sh,vm-only-validate.sh,vm-validate.sh,vm_build.py,vm_validate.py}` 十一条同路径旧/新 Git blob 与模式，理由为 `reviewed_process_build_preflight_changed`。两项新 helper 的旧状态必须不存在；历史 48 条 profile274 登记原样保留，其中两个 validator 因新字节不再命中旧登记。当前净敏感闭包为 57 条：旧登记仍匹配 46 条，本批精确匹配 11 条。未来 blob、模式、删除、改名、额外路径和生产基线漂移继续阻断。该登记只允许当前实现进入 specialized 真实专项恢复与新签名 Gate，不证明构建、Gate、生产发布或完整灾备基线通过。
+
 固定路径以 [architecture-and-current-state.md](architecture-and-current-state.md) 为唯一事实源。构建任务必须先读取该文档，再使用其中定义的 RackNerd/VM 源码、部署和 `data-dev` 路径；本文件不单独维护第二份路径表。
 
 构建前确认：

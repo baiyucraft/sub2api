@@ -179,7 +179,8 @@ def test_exact_reviewed_objects_groups_and_prior_registry_are_frozen():
     exec(compile(prior_source, TARGET + ":recovery_gate.py", "exec"), prior)
     for name in ("_REVIEWED_COMPATIBILITY_TRANCHES", "_REVIEWED_GATE_POLICY_TRANCHES", "_REVIEWED_MIGRATION_GATE_TRANCHES"):
         assert getattr(gate,name) == prior[name]
-    assert gate._REVIEWED_SCOPED_TRANCHES == (*prior["_REVIEWED_SCOPED_TRANCHES"], *TRANCHES)
+    frozen = (*prior["_REVIEWED_SCOPED_TRANCHES"], *TRANCHES)
+    assert gate._REVIEWED_SCOPED_TRANCHES[:len(frozen)] == frozen
 
 
 def test_actual_review_requires_specialized():
