@@ -2194,7 +2194,8 @@
         "vm_build_use_proof",
         "vm_build_candidate",
         "bind_build_dependencies",
-        "validate_build_dependency_binding"
+        "validate_build_dependency_binding",
+        "_BUILDKIT_DEPENDENCY_REVIEW_PATHS"
       ],
       "api_routes": [],
       "settings_keys": [],
@@ -2204,6 +2205,7 @@
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_vm_build_dependencies.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_vm_build_registry_proxy.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_build_dependency_preserve.py",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_buildkit_dependency_recovery_review.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/vm_build_real_integration.py"
       ],
       "invariants": [
@@ -2211,7 +2213,8 @@
         "proof绑定完整源码/helper、四文件物化hash、docker-driver builder与daemon/context/endpoint身份摘要；v1/v2/VM-only及发送前必须复核，迟到旧proof不得复用",
         "隔离真实OCI registry与私有docker driver覆盖HEAD502、缺frontend、digest漂移、config/layer故障和身份/平台漂移；CLI mock不代表实际resolver通过",
         "依赖阶段与候选阶段失败分别归因，不自动重试，不改正式daemon/全局代理/镜像源；新helper重新精确审阅和签发Gate，原失败release不变",
-        "原本运行VM的新build-dependencies收口复用退出/owner/boot/无候选/生产未开始证明，保持旧candidate和其他初始电源状态的严格合同"
+        "原本运行VM的新build-dependencies收口复用退出/owner/boot/无候选/生产未开始证明，保持旧candidate和其他初始电源状态的严格合同",
+        "独立精确审阅固定生产BASE 5deebb2929c2a694145cc2726e895f01c43d28c1到实现TARGET 89e105dc1618e05018a26a8053f5a8b710db8e98，仅_BUILDKIT_DEPENDENCY_REVIEW_PATHS十条完整blob/mode，理由reviewed_buildkit_dependency_proof_changed；旧PROCESS_BUILD及历史登记不变，未来内容/模式/delete/move/base及额外敏感路径拒绝，仍执行specialized真实恢复、新签名Gate与生产验真"
       ]
     },
     {

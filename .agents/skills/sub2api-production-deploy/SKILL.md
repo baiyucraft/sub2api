@@ -299,7 +299,7 @@ Profile 265 镜像代理例外的第四批精确审阅绑定 `aeb410bccc524164bd
 
 - VM 的 Gate v2 和 legacy 构建入口必须使用与同 commit 的 `backend/go.mod` 及根 Dockerfile 默认一致的 Go 镜像版本，当前为既有镜像源的 `golang:1.27.2-alpine`。版本漂移必须由回归阻断；不得降低模块最低版本或绕过工具链检查。
 
-- VM 的 Gate v2 和 legacy 构建共用 `docker_build_with_registry_bypass`：合并原 `NO_PROXY` 与 `no_proxy` 例外，仅为构建子命令补充镜像主机 `docker.m.daocloud.io` 与其匿名令牌主机 `m.daocloud.io` 两个精确例外，同时提供两种大小写变量，供 BuildKit 客户端匿名 token 请求使用；禁止域名通配或整个公司后缀。保留 HTTP/HTTPS/ALL 代理及父环境，基础镜像来源、版本和 build args 不变；不修改 daemon/global 代理、不重启 Docker。镜像 metadata 的 EOF 先按只读直连／代理 manifest 对照定位，不当作权限拒绝或工具链不兼容；脚本新 blob 仍需独立精确恢复审阅，旧登记不自动覆盖。
+- VM 的 Gate v2、legacy 和 VM-only 构建共用 `vm-build-common.sh` 的 `vm_build_docker`：合并原 `NO_PROXY` 与 `no_proxy` 例外，仅为构建子命令补充镜像主机 `docker.m.daocloud.io` 与其匿名令牌主机 `m.daocloud.io` 两个精确例外，同时提供两种大小写变量，供 BuildKit 客户端匿名 token 请求使用；禁止域名通配或整个公司后缀。保留 HTTP/HTTPS/ALL 代理及父环境，基础镜像来源、版本和 build args 不变；不修改 daemon/global 代理、不重启 Docker。镜像 metadata 的 EOF 先按只读直连／代理 manifest 对照定位，不当作权限拒绝或工具链不兼容；脚本新 blob 仍需独立精确恢复审阅，旧登记不自动覆盖。
 
 - Docker 使用 containerd image store 时，`docker system df` 的 image/cache 数字包含共享逻辑大小，不能与 `/var/lib/containerd` 的物理占用相加。空间判断必须同时记录 `df`、containerd snapshots、Docker volumes、BuildKit records 和 release-gates 归档。
 - VM Gate 构建前安装构建阶段失败 trap；构建失败、构建后空间断言失败或中断时，移除本次新 tag/image 并恢复构建前同名 tag。失败清理不得触碰原 candidate、当前 dev image 或 BuildKit cachemount。
@@ -427,3 +427,10 @@ jq -cS '.manifest.migration_sha256' | sha256sum
 有界只读 proof 绑定 release、完整 commit、Dockerfile/helper SHA、五角色 index/manifest digest 与 config/layer 描述、四份物化文件 SHA，以及 builder、daemon/context/endpoint 的非秘密身份摘要。proof 以 canonical JSON 加 LF 形成 SHA，严格校验后一次绑定 manifest 并纳入 Gate 签名。Gate v2、历史 Gate v1 的新执行和 VM-only 均消费同一合同；发送候选前只复核 proof、源码和实际 builder/platform 身份，不重复 solve，也不重新解析 tag。正式候选通过 `buildx build --load` 使用同五个 pinned ref；调用方只能提供 COMMIT/VERSION/DATE/tag，不能通过后置参数覆盖依赖、平台、builder、Dockerfile 或 exporter。历史签名证据保持原字节，不补字段。
 
 依赖和候选均不自动重试、不切换镜像源、不修改正式 daemon/global 代理。诊断仅返回固定原因码、阶段、角色、已知 HEAD/GET 或 unknown，以及 `retry_count=0`；成功的 5/5 必须同时有一次 solve 的完整 proof。raw metadata、stderr、身份端点和构建日志仅留远端私有目录（0700，日志0600），本地只接收有界白名单 proof。依赖失败与 `candidate_build` 分开记录，未取得正式收口资格时继续阻断；原本运行 VM 的 proof 阶段失败使用精确 `reconcile-vm-preserve --failed-stage build-dependencies`，复核原 worker 退出、同 owner/boot、无候选/签名/生产副作用后保留 VM 并释放租约，不扩宽旧 candidate 合同。
+
+
+### BuildKit 依赖证明的精确审阅
+
+经独立审阅，本批固定生产 BASE `5deebb2929c2a694145cc2726e895f01c43d28c1` → 实现 TARGET `89e105dc1618e05018a26a8053f5a8b710db8e98`，仅冻结 `release/cli.py`、`gate.py`、`manifest.py`、`supervisor.py`、`vm-build-common.sh`、`vm-only-validate.sh`、`vm-validate.sh`、`vm_build.py`、`vm_only.py`、`vm_validate.py` 十条同路径 Git blob 与模式。权威组为 `_BUILDKIT_DEPENDENCY_REVIEW_PATHS`，理由 `reviewed_buildkit_dependency_proof_changed`；其中两个新 helper 的生产旧状态必须不存在。原 `_PROCESS_BUILD_PREFLIGHT_REVIEW_PATHS` 及全部历史 TARGET 不回写，其他未变化的路径继续匹配各自历史审阅。
+
+本批覆盖五角色 digest 锁、一次真实物化、proof 下载/绑定及签名验证、三入口消费、早期生产快照绑定与严格 proof 失败收口；不修改生产数据恢复算法、备份格式或信任根。最终候选仍须 `specialized` 真实隔离恢复、新签名 VM Gate 及生产验真。`test_buildkit_dependency_recovery_review.py` 固定十项 literal 对象与历史登记，逐项拒绝 blob、mode、删除、移动、BASE 漂移和额外敏感路径。登记不自动学习未来候选，不以目录或祖先关系豁免；本地测试与真实依赖 solve 均不能替代应用构建或生产发布。
