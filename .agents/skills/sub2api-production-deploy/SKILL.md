@@ -87,7 +87,7 @@ description: 面向 Sub2API fork 的构建、开发门禁、应用与独立插�
 
 Profile 270 保持 `0.2.16-baiyu`，parent 为 269，仅新增 `298_group_scheduling_protection_policies.sql`。迁移以 fork 独立表保存分组缓存三态及优先策略；旧非空 `settings.group_ids` 一次性投影为选中组继承、未选中组停用，不覆盖自定义行，并保留原 setting 供旧镜像回滚。旧 269 及全部历史 profile、迁移原始字节和 checksum 保持不变。
 
-298 的 immutable helper 绑定 manifest/catalog/source checksum，生产 preflight/postflight/verified replay 只读；修改语义 fixture 仅允许精确确认的 `sub2api_v2_*` 隔离数据库并在事务内回滚。Python profile、VM/Gate/DR、bootstrap、生产/祖先断言、奖励 postflight、备份与清理执行入口支持历史 270、271、272 和当前273，未知274拒绝。最低回归为 `test_profile270_release_contract.py` 与 `test_migration_298.py`；最终敏感 blob/模式未分类时仍阻断，不扩展任何历史冻结审阅豁免。
+298 的 immutable helper 绑定 manifest/catalog/source checksum，生产 preflight/postflight/verified replay 只读；修改语义 fixture 仅允许精确确认的 `sub2api_v2_*` 隔离数据库并在事务内回滚。Python profile、VM/Gate/DR、bootstrap、生产/祖先断言、奖励 postflight、备份与清理执行入口支持历史 270、271、272、273 和当前274，未知275拒绝。最低回归为 `test_profile270_release_contract.py` 与 `test_migration_298.py`；最终敏感 blob/模式未分类时仍阻断，不扩展任何历史冻结审阅豁免。
 
 本地测试及一次性隔离 PostgreSQL 测试不等于正式签名 VM Gate。VM-only Gate 仍绑定干净、已提交且远端可达的完整源码 SHA，dirty checkout 或远端默认分支身份不符时必须停止；不能用旧 HEAD 代表工作树中的新实现，也不能据接口测试称为生产发布。
 
@@ -95,7 +95,7 @@ Profile 270 保持 `0.2.16-baiyu`，parent 为 269，仅新增 `298_group_schedu
 
 Profile 271 保持 `0.2.16-baiyu`，parent 为 270，仅新增 `299_upstream_cache_guard_revisions.sql`。迁移新增账号事实版本表、事实增删及 processed 变化触发器、活跃会话与待处理 admission 索引；旧数据回填并由运行时精确重建。旧写者也通过数据库触发器推进事实版本，回滚不要求删表或回写历史迁移。新增索引不重复 297 已有的 legacy identity 索引。
 
-299 helper 绑定 source/catalog checksum；生产 preflight/postflight/verified replay 只读，语义 fixture 仅允许精确确认的 `sub2api_v2_*` 隔离数据库并在事务内回滚。Python/Shell、VM/Gate/DR、bootstrap、生产 prepare/context、祖先迁移断言、备份晋升及清理入口同步支持历史271、272和当前273；未知274拒绝。最低回归为 `test_profile271_release_contract.py`、`test_migration_299.py` 和 VM-only `migration-299-integration.sh`。本地合同测试不证明 PostgreSQL 语义、正式签名 VM Gate 或生产发布；最终敏感 blob 未分类时仍阻断，历史冻结豁免不自动扩展。
+299 helper 绑定 source/catalog checksum；生产 preflight/postflight/verified replay 只读，语义 fixture 仅允许精确确认的 `sub2api_v2_*` 隔离数据库并在事务内回滚。Python/Shell、VM/Gate/DR、bootstrap、生产 prepare/context、祖先迁移断言、备份晋升及清理入口同步支持历史271、272、273和当前274；未知275拒绝。最低回归为 `test_profile271_release_contract.py`、`test_migration_299.py` 和 VM-only `migration-299-integration.sh`。本地合同测试不证明 PostgreSQL 语义、正式签名 VM Gate 或生产发布；最终敏感 blob 未分类时仍阻断，历史冻结豁免不自动扩展。
 
 ## 当前链路摘要
 
@@ -378,7 +378,7 @@ jq -cS '.manifest.migration_sha256' | sha256sum
 
 ## 上游缓存保护发布合同
 
-历史 profile 268，parent 267，版本 `0.2.16-baiyu`，仅新增 `296_upstream_cache_guard.sql`。历史保留 profile 269，parent 268，同版本仅新增 `297_upstream_cache_guard_account_scope.sql`。全部历史 profile、SQL 和 checksum 不回写。Python/Shell、VM validator、Gate/DR signer、bootstrap 自测、生产 context/prepare、祖先断言、奖励 postflight、备份和清理入口共同支持当前273，未知274拒绝。新迁移为事实补当前 Key 身份与跨组索引，保存账号级统一状态，不写余额、计费或错误重试配置，不保存原始请求正文、认证头或凭据。
+历史 profile 268，parent 267，版本 `0.2.16-baiyu`，仅新增 `296_upstream_cache_guard.sql`。历史保留 profile 269，parent 268，同版本仅新增 `297_upstream_cache_guard_account_scope.sql`。全部历史 profile、SQL 和 checksum 不回写。Python/Shell、VM validator、Gate/DR signer、bootstrap 自测、生产 context/prepare、祖先断言、奖励 postflight、备份和清理入口共同支持当前274，未知275拒绝。新迁移为事实补当前 Key 身份与跨组索引，保存账号级统一状态，不写余额、计费或错误重试配置，不保存原始请求正文、认证头或凭据。
 
 本地最低验证包括 `test_profile269_release_contract.py`、缓存核心与调度/API 回归、前端设置/状态测试、双语键完整性、typecheck/lint/build、完整 release suite、修改 Shell 语法及 `git diff --check`。本地登记不证明 PostgreSQL 实际升级、旧镜像兼容、VM Gate 或生产上线；恢复敏感最终 blob/模式重新精确分类，未分类继续阻断，不增加新的审阅豁免。长期产品合同见 `.wiki/03-模块指南/14-上游缓存保护.md`。
 
@@ -389,7 +389,7 @@ jq -cS '.manifest.migration_sha256' | sha256sum
 
 ## 官方 0.2.17 与 profile 272 发布合同
 
-历史 profile `272` 的版本 `0.2.17-baiyu`、parent `271`、`new_migrations=[]` 保持不变；当前273合同见下节，未登记274拒绝。签名自测、停机奖励 postflight、migration 297/298/299 的祖先 manifest 校验、备份及清理入口均须接入 272。祖先 helper 仍逐项核对 schema、profile、parent、空新增迁移列表及 catalog checksum，不能只放宽外层 profile guard。
+历史 profile `272` 的版本 `0.2.17-baiyu`、parent `271`、`new_migrations=[]` 保持不变；历史273合同见下节，当前274见末节。签名自测、停机奖励 postflight、migration 297/298/299 的祖先 manifest 校验、备份及清理入口均须接入 272。祖先 helper 仍逐项核对 schema、profile、parent、空新增迁移列表及 catalog checksum，不能只放宽外层 profile guard。
 
 最低本地回归为 `test_profile272_release_contract.py`（实际 jq 校验设置 `SUB2API_TEST_JQ` 为 jq 可执行路径）、历史 profile 合同、完整 `tests/release`、变更 Shell 的 `bash -n` 和 `git diff --check`。新 profile 同时更新允许身份和下一个未知身份负例；既有版本、迁移和 checksum 断言继续冻结。本地验证不代表 VM Gate、实际数据库升级、恢复或生产部署完成。
 
@@ -400,6 +400,17 @@ jq -cS '.manifest.migration_sha256' | sha256sum
 
 迁移 298 在 PG18 dump/restore 后的两条枚举 CHECK 允许原定义或实测逐元素 cast 定义的精确二选一，其余 schema 不变量不变；真实回归必须同时覆盖 fresh 与连续 restore 及漂移拒绝。已知旧 helper 的迁移 preflight 失败租约只走显式 `reconcile-vm-preserve --failed-stage migration-preflight`：冻结原提交/validator/assertion、失败和计划证据，证明无 apply/后续产物、probe 已清理、同 boot/owner、原 worker 已退出且生产未开始，双重复验后仅保存独立证明并最后释放 owner。旧分支不扩权，不手改状态；新 helper 重新分类并执行实际恢复、签名、新 Gate 与新 release。详细边界见 `release-doctor-and-recovery.md` 与 Wiki 发布合同。
 
-当前 pending profile 为 `273`，版本 `0.2.17-baiyu`、parent `272`，仅新增 `300_upstream_health_history_index.sql`。300 以非唯一可重复创建索引 `(upstream_key_id, observed_at DESC, id DESC)` 有界读取每 Key 最近历史，旧读写协议不变。272 的版本、parent `271` 和 `new_migrations=[]` 及全部旧 SQL/checksum 保持不可变；下一未登记 profile `274` 拒绝。原始文件 checksum 与 Gate 的 strip 后 SQL checksum分别登记。
+历史 profile 为 `273`，版本 `0.2.17-baiyu`、parent `272`，仅新增 `300_upstream_health_history_index.sql`。300 以非唯一可重复创建索引 `(upstream_key_id, observed_at DESC, id DESC)` 有界读取每 Key 最近历史，旧读写协议不变。272 的版本、parent `271` 和 `new_migrations=[]` 及全部旧 SQL/checksum 保持不可变；当时下一未登记 profile `274` 拒绝；当前 274 见末节。原始文件 checksum 与 Gate 的 strip 后 SQL checksum分别登记。
 
 本地运行 profile273、全部历史 profile、release suite 和变更 Shell 的语法检查；真实 PostgreSQL 的索引定义/幂等/旧 SQL 读写兼容、健康与质量差分另行验证。上述本地/隔离 fixture 验证不代表 signed VM Gate、旧生产镜像兼容或生产发布。新增 helper blob/模式仍按最终候选分类，不新增恢复目录豁免。长期接口与刷新规则见 `.wiki/03-模块指南/15-上游账号表刷新与质量统计.md`。
+
+
+## Profile 274 的精确恢复审阅
+
+当前 profile 274 保持 `0.2.17-baiyu`，parent 为 273，仅新增 `301_upstream_cache_guard_admissions.sql`；历史 273 及全部旧 SQL/checksum 保持不可变，下一未登记 profile 275 拒绝。
+
+本批实际生产 BASE `5deebb2929c2a694145cc2726e895f01c43d28c1` 到已独审 TARGET `aca670e896ffa0e0e54204f1e6c33c205d5160f5` 的 48 条敏感净差异，按三组显式路径和同路径旧/新 Git blob、文件模式冻结：41 条 profile 兼容接线、5 条 migration 301 Gate 接线、2 条停机奖励 postflight 接线。权威登记为 `recovery_gate.py` 的 `_PROFILE274_COMPATIBILITY_PATHS`、`_PROFILE274_MIGRATION_GATE_PATHS`、`_PROFILE274_POSTFLIGHT_PATHS`；新增 301 helper 的旧状态必须不存在。任何未来字节、模式、删除、改名、额外敏感路径或基线漂移继续阻断，历史登记保持不变。
+
+本批不改变恢复算法、备份格式或信任链，按 `specialized` 执行当前 helper 的真实隔离恢复与新的签名 VM Gate。301 将会话 JSON 的逐请求 admissions 迁出，必须先停止旧写者，只允许 `downtime`，失败采用 `coordinated_restore`；旧镜像健康 smoke 不代表旧镜像可继续写新结构，也不代表可直接回退镜像。VM 的旧镜像健康步骤不豁免，301 仍须有 checksum、preflight、postflight、vm_semantics、verified_replay 证据。
+
+回归入口 `test_profile274_recovery_review.py` 固定 48 条 literal 对象、互斥分组及全部历史登记，并验证每条路径的 blob、mode、delete、rename、BASE 漂移和额外恢复/信任/传输文件拒绝。登记与本地测试不能替代最终 SHA 的完整 release suite、真实专项恢复、生产验真或灾备基线晋升。

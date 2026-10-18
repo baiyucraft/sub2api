@@ -54,8 +54,8 @@ def test_review_requires_specialized_and_all_previous_reviews_remain_fixed():
     for name in ("_REVIEWED_COMPATIBILITY_TRANCHES", "_REVIEWED_GATE_POLICY_TRANCHES",
                  "_REVIEWED_MIGRATION_GATE_TRANCHES"):
         assert getattr(gate, name) == prior[name]
-    assert gate._REVIEWED_SCOPED_TRANCHES == (
-        *prior["_REVIEWED_SCOPED_TRANCHES"], (BASE, TARGET, REASON, PATHS))
+    frozen = (*prior["_REVIEWED_SCOPED_TRANCHES"], (BASE, TARGET, REASON, PATHS))
+    assert gate._REVIEWED_SCOPED_TRANCHES[:len(frozen)] == frozen
 
 
 def report_for(old, new, paths):

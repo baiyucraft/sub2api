@@ -137,6 +137,44 @@ _VM_PLAN_SOURCES_REVIEW_PATHS = frozenset({
     _SCRIPTS_PREFIX + "release/" + name
     for name in ("cli.py", "vm-validate.sh", "vm_failed_preserve.py")
 })
+# Independently reviewed profile 274 net changes from verified production 273.
+# Freeze explicit paths as well as before/after blobs and modes; no future or
+# directory-wide exemption. Admission migration rollback remains coordinated.
+_PROFILE274_COMPATIBILITY_PATHS = frozenset({
+    _SCRIPTS_PREFIX + suffix for suffix in (
+        "maintenance/181/mask-backup-units.sh", "maintenance/181/restore-backup-units.sh",
+        "maintenance/release/context.sh", "maintenance/release/full-recovery-capture.sh",
+        "maintenance/release/migration-195-assert.sh",
+        "maintenance/release/migration-232-assert.sh", "maintenance/release/migration-233-assert.sh",
+        "maintenance/release/migration-234-assert.sh", "maintenance/release/migration-235-assert.sh",
+        "maintenance/release/migration-236-assert.sh", "maintenance/release/migration-237-assert.sh",
+        "maintenance/release/migration-238-assert.sh", "maintenance/release/migration-239-assert.sh",
+        "maintenance/release/migration-240-assert.sh", "maintenance/release/migration-241-assert.sh",
+        "maintenance/release/migration-242-assert.sh", "maintenance/release/migration-243-assert.sh",
+        "maintenance/release/migration-244-assert.sh", "maintenance/release/migration-245-assert.sh",
+        "maintenance/release/migration-254-assert.sh", "maintenance/release/migration-285-assert.sh",
+        "maintenance/release/migration-297-assert.sh", "maintenance/release/migration-298-assert.sh",
+        "maintenance/release/migration-299-assert.sh", "maintenance/release/prepare.sh",
+        "maintenance/release/promote-backup.sh", "release/baseline_candidate_load.py",
+        "release/bootstrap_backup_dr_assets.sh", "release/bootstrap_vm_signer.sh",
+        "release/postrelease_baseline.py", "release/production-recovery-retention-clean.sh",
+        "release/production-space-clean.sh", "release/production_cleanup.py",
+        "release/production_recovery_retention.py", "release/profiles.py",
+        "release/promote-dr-baseline.sh", "release/recovery_drill.py",
+        "release/sign-dr-evidence.sh", "release/sign-gate.sh",
+        "release/stage-dr-baseline-candidate.sh", "release/vm-only-validate.sh",
+    )
+})
+_PROFILE274_MIGRATION_GATE_PATHS = frozenset({
+    _SCRIPTS_PREFIX + suffix for suffix in (
+        "maintenance/release/migration-301-assert.sh", "release/gate.py",
+        "release/manifest.py", "release/migration_planner.py", "release/vm-validate.sh",
+    )
+})
+_PROFILE274_POSTFLIGHT_PATHS = frozenset({
+    _SCRIPTS_PREFIX + "maintenance/release/" + name
+    for name in ("activity-reward-cost-postflight.sh", "switch.sh")
+})
 _REVIEWED_SCOPED_TRANCHES = (
     (
         "aeb410bccc524164bdafbd3db865d4f5f588aced",
@@ -239,6 +277,24 @@ _REVIEWED_SCOPED_TRANCHES = (
         "8cbb42d9f358875854a6b0d87a44cdb8b84b6ea4",
         "reviewed_vm_preflight_recovery_changed",
         _VM_PLAN_SOURCES_REVIEW_PATHS,
+    ),
+    (
+        "5deebb2929c2a694145cc2726e895f01c43d28c1",
+        "aca670e896ffa0e0e54204f1e6c33c205d5160f5",
+        "reviewed_profile_compatibility_changed",
+        _PROFILE274_COMPATIBILITY_PATHS,
+    ),
+    (
+        "5deebb2929c2a694145cc2726e895f01c43d28c1",
+        "aca670e896ffa0e0e54204f1e6c33c205d5160f5",
+        "reviewed_profile274_migration_gate_changed",
+        _PROFILE274_MIGRATION_GATE_PATHS,
+    ),
+    (
+        "5deebb2929c2a694145cc2726e895f01c43d28c1",
+        "aca670e896ffa0e0e54204f1e6c33c205d5160f5",
+        "reviewed_reward_cost_postflight_changed",
+        _PROFILE274_POSTFLIGHT_PATHS,
     ),
 )
 _RELEASE_STATE_MACHINE_FILES = frozenset(
