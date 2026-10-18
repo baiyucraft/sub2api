@@ -15,6 +15,7 @@ from .manifest import create_vm_only_manifest, sha256_file, validate_commit
 from .paths import RELEASE_PACKAGE_ROOT, RUN_ROOT, TRUSTED_VM_PUBLIC_KEY, WORKSPACE
 from .profiles import CURRENT_RELEASE_PROFILE, get_profile
 from .ssh import SSHRunner
+from .vm_build import bind_build_dependencies, ensure_vm_build_dependencies
 
 
 VM_ONLY_VALIDATE = RELEASE_PACKAGE_ROOT / "vm-only-validate.sh"
@@ -64,11 +65,12 @@ def vm_only_validate(args: argparse.Namespace, *, runner: SSHRunner | None = Non
         sha256_file(VM_ONLY_VALIDATE),
         sha256_file(VM_ONLY_SWITCH),
     )
+    ssh = runner or SSHRunner()
+    install_vm_validator(ssh)
+    manifest = bind_build_dependencies(manifest, ensure_vm_build_dependencies(ssh, manifest))
     manifest_path = run_dir / "manifest.json"
     manifest_path.write_bytes(canonical_json(manifest) + b"\n")
     manifest_path.chmod(0o400)
-    ssh = runner or SSHRunner()
-    install_vm_validator(ssh)
     remote_root = ssh.create_temp_dir("local_vm", "/opt/sub2api-deploy/release-input", "vm-only")
     remote_manifest = f"{remote_root}/manifest.json"
     remote_validator = f"{remote_root}/vm-only-validate.sh"

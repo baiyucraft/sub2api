@@ -7,6 +7,34 @@ source_dir=/opt/sub2api-src
 deploy_dir=/opt/sub2api-deploy
 unit_lock=/usr/local/libexec/.sub2api-release-unit.lock
 
+prepare_vm_build_proof() {
+  local directory=$1 proof="$1/proof.json" expected_sha
+  VM_BUILD_FAILURE_CODE=build_dependency_contract
+  VM_BUILD_FAILURE_PHASE=contract
+  VM_BUILD_FAILURE_ROLE=none
+  VM_BUILD_FAILURE_METHOD=unknown
+  [[ -f $manifest && ! -L $manifest && $(stat -c '%u:%g:%a:%h' "$manifest") == 0:0:400:1 ]] || return 1
+  [[ ! -e $proof && ! -L $proof ]] || return 1
+  jq -e 'has("build_dependencies") and has("build_dependencies_sha256") and (.build_dependencies|type=="object")
+    and (.build_dependencies_sha256|type=="string" and test("^[0-9a-f]{64}$"))' "$manifest" >/dev/null || return 1
+  (set -o noclobber; jq -cS '.build_dependencies' "$manifest" > "$proof") || return 1
+  chmod 400 "$proof" || return 1
+  expected_sha=$(jq -er '.build_dependencies_sha256' "$manifest") || return 1
+  vm_build_use_proof "$proof" "$expected_sha" "$release_id" "$commit" "$source_dir/Dockerfile" || return 1
+}
+
+record_vm_build_failure_details() {
+  local directory=$1 phase=${VM_BUILD_FAILURE_PHASE:-contract} role=${VM_BUILD_FAILURE_ROLE:-none} method=${VM_BUILD_FAILURE_METHOD:-unknown}
+  case $phase in contract|identity|metadata|manifest|config|layer|dependency|candidate|run) ;; *) phase=contract;; esac
+  case $role in none|frontend|node|golang|alpine|postgres) ;; *) role=none;; esac
+  case $method in HEAD|GET|unknown) ;; *) method=unknown;; esac
+  printf '%s\n' "$phase" > "$directory/build-failure-phase"
+  printf '%s\n' "$role" > "$directory/build-failure-role"
+  printf '%s\n' "$method" > "$directory/build-failure-method"
+  printf '0\n' > "$directory/build-retry-count"
+  chmod 400 "$directory/build-failure-phase" "$directory/build-failure-role" "$directory/build-failure-method" "$directory/build-retry-count"
+}
+
 {
   required_query_1=$(id -u)
   [[ ${required_query_1} == 0 ]]
@@ -86,15 +114,17 @@ build_state_dir="${output_dir%/output}"
 on_vm_only_build_failure() {
   local exit_code=$?
   trap - ERR INT TERM
-  printf '%s\n' vm_only_candidate_build > "$build_state_dir/failure-category"
+  printf 'vm_only_%s\n' "$vm_only_build_stage" > "$build_state_dir/failure-category"
   local failure_code=${VM_BUILD_FAILURE_CODE:-build_unknown}
   [[ $failure_code != none ]] || failure_code=build_unknown
   printf '%s\n' "$failure_code" > "$build_state_dir/build-failure-code"
   chmod 400 "$build_state_dir/failure-category" "$build_state_dir/build-failure-code"
+  record_vm_build_failure_details "$build_state_dir"
   exit "$exit_code"
 }
 trap on_vm_only_build_failure ERR INT TERM
-printf '%s\n' candidate_build > "$build_state_dir/stage"
+vm_only_build_stage=build_dependencies
+printf '%s\n' "$vm_only_build_stage" > "$build_state_dir/stage"
 build_helper_relative=.agents/skills/sub2api-production-deploy/scripts/release/vm-build-common.sh
 build_helper="$source_dir/$build_helper_relative"
 build_helper_expected=$(git show "$commit:$build_helper_relative" | sha256sum | awk '{print $1}')
@@ -103,7 +133,9 @@ build_helper_actual=$(sha256sum "$build_helper" | awk '{print $1}')
 [[ $build_helper_actual == "$build_helper_expected" ]]
 source "$build_helper"
 install -d -m 700 "$build_state_dir/build-dependencies"
-vm_build_preflight "$build_state_dir/build-dependencies"
+prepare_vm_build_proof "$build_state_dir/build-dependencies"
+vm_only_build_stage=candidate_build
+printf '%s\n' "$vm_only_build_stage" > "$build_state_dir/stage"
 build_log="$build_state_dir/build.log"
 required_query_14=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 vm_build_candidate "$build_log" \

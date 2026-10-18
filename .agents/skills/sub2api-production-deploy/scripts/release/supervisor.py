@@ -451,18 +451,39 @@ unset -f check_file
 '''
 
 
+def _build_dependency_preserve_checks(identifier: str, manifest_sha256: str) -> str:
+    """Accept only validator proof failure before any candidate build attempt.
+
+    Reuse the candidate failure's immutable evidence, raw-log, no-restored-probe
+    and no-signed-Gate checks without broadening that historical contract.
+    The stage is written before proof validation and candidate_build is written
+    before the build helper can create build.log; both must remain unattempted.
+    """
+    checks = _candidate_build_preserve_checks(identifier, manifest_sha256)
+    checks = checks.replace("= candidate_build\n", "= build_dependencies\n")
+    checks = checks.replace("= vm_v2_candidate_build\n", "= vm_v2_build_dependencies\n")
+    checks = checks.replace("stage=candidate_build$", "stage=build_dependencies$")
+    return checks + '''for absent in "$gate_root/build.log" "$gate_root/candidate-identity" "$gate_root/candidate-version.log" "$gate_root/candidate-help.log"; do
+  test ! -e "$absent"
+  test ! -L "$absent"
+done
+'''
+
+
 def reconcile_vm_preserve(args: argparse.Namespace, *, audit_fixture=None, audit_only: bool = False) -> dict[str, Any]:
     """Release an explicitly audited failure lease without changing VM power.
 
     The default excludes started validators. The candidate-build mode accepts
-    only their terminal pre-restore failure evidence. The separately audited
-    migration-preflight incident requires an exited, cleaned isolated probe.
-    Neither accepts a completed Gate, a production claim or a VM it started.
+    only their terminal pre-restore failure evidence. The build-dependencies
+    mode accepts validator proof failure before candidate work starts. The
+    separately audited migration-preflight incident requires an exited, cleaned
+    isolated probe. No mode accepts a completed Gate, a production claim or a
+    VM it started.
     """
     from . import vm_lifecycle as lifecycle
 
     failed_stage = getattr(args, "failed_stage", "pre-validator")
-    if failed_stage not in {"pre-validator", "candidate-build", "migration-preflight"}:
+    if failed_stage not in {"pre-validator", "candidate-build", "build-dependencies", "migration-preflight"}:
         raise RuntimeError("vm_preserve_invalid_failed_stage")
     if (
         type(audit_only) is not bool
@@ -539,6 +560,9 @@ test ! -L "$raw_root/vm-validate.raw.log"
         if failed_stage == "candidate-build":
             gate_checks = ""
             raw_checks = _candidate_build_preserve_checks(identifier, manifest_sha256)
+        elif failed_stage == "build-dependencies":
+            gate_checks = ""
+            raw_checks = _build_dependency_preserve_checks(identifier, manifest_sha256)
         elif failed_stage == "migration-preflight":
             from .vm_preflight_preserve import migration_preflight_checks
             gate_checks = ""
