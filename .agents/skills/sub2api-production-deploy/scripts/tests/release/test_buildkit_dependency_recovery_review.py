@@ -93,7 +93,7 @@ def test_all_historical_registry_prefixes_remain_unchanged():
     ):
         assert getattr(gate, name) == prior[name]
     frozen = (*prior["_REVIEWED_SCOPED_TRANCHES"], TRANCHE)
-    assert gate._REVIEWED_SCOPED_TRANCHES == frozen
+    assert gate._REVIEWED_SCOPED_TRANCHES[:len(frozen)] == frozen
     for name, value in prior.items():
         if name.endswith("_REVIEW_PATHS"):
             assert getattr(gate, name) == value

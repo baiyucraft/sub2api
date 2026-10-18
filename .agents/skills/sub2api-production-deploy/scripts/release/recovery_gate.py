@@ -193,6 +193,16 @@ _BUILDKIT_DEPENDENCY_REVIEW_PATHS = frozenset({
         "vm_build.py", "vm_only.py", "vm_validate.py",
     )
 })
+# Independent review of Windows local state snapshots, safe publication and
+# terminal confirmation. Production data restore and trust formats are unchanged.
+_WINDOWS_STATE_IO_REVIEW_PATHS = frozenset({
+    _SCRIPTS_PREFIX + "release/" + name for name in (
+        "atomic.py", "cli.py", "finalization.py", "manifest.py", "plugin_state.py",
+        "plugin_supervisor.py", "production_cleanup.py", "state.py", "supervisor.py",
+        "vm_failed_preserve.py", "vm_lifecycle.py", "vm_validate.py",
+        "worker_errors.py", "terminal_receipt.py",
+    )
+})
 _REVIEWED_SCOPED_TRANCHES = (
     (
         "aeb410bccc524164bdafbd3db865d4f5f588aced",
@@ -326,6 +336,12 @@ _REVIEWED_SCOPED_TRANCHES = (
         "reviewed_buildkit_dependency_proof_changed",
         _BUILDKIT_DEPENDENCY_REVIEW_PATHS,
     ),
+    (
+        "5deebb2929c2a694145cc2726e895f01c43d28c1",
+        "48d2f9660f51b9037f6875fffcb6e51bb280ce29",
+        "reviewed_windows_state_io_changed",
+        _WINDOWS_STATE_IO_REVIEW_PATHS,
+    ),
 )
 _RELEASE_STATE_MACHINE_FILES = frozenset(
     {
@@ -381,6 +397,7 @@ _RECOVERY_CONTROL_FILES = frozenset({
         "release/plugin_api.py", "release/plugin_cli.py", "release/plugin_credentials.py",
         "release/plugin_package.py", "release/plugin_state.py", "release/plugin_supervisor.py",
         "release/observer.py", "release/plugin_observer.py",
+        "release/worker_errors.py", "release/terminal_receipt.py",
         "release/backfill-activity-reward-costs.sh", "release/backup-host-space-clean.sh",
         "logging/release_logging/events.py", "logging/release_logging/redact.py",
         "logging/release_logging/retention.py",
