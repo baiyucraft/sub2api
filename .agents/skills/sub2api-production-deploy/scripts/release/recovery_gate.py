@@ -249,6 +249,7 @@ _RELEASE_STATE_MACHINE_FILES = frozenset(
         ".agents/skills/sub2api-production-deploy/scripts/release/vm_validate.py",
         ".agents/skills/sub2api-production-deploy/scripts/release/vm_lifecycle.py",
         ".agents/skills/sub2api-production-deploy/scripts/release/vm_preflight_preserve.py",
+        ".agents/skills/sub2api-production-deploy/scripts/release/vm_failed_preserve.py",
     }
 )
 _SPECIALIZED_PREFIXES = ("backend/migrations/",)
