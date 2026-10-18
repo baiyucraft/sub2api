@@ -213,7 +213,9 @@ if source 'SCRIPT' --mode check; then builtin printf unsafe-or-success; fi
                                         (17, 'true', None), (17, 'false', None), (0, 'null', None)):
             with self.subTest(status=status, value=value):
                 result = self.shell(function('required_jq_predicate', source) + '\n' + pending + '\n'
-                                    'plan_before=inert\njq() { printf ' + value + '; return ' + str(status) + '; }\n'
+                                    'plan_before=wrong-source\nprobe_plan=inert\n'
+                                    'jq() { local input; IFS= read -r input || return 18; '
+                                    '[[ $input == inert ]] || return 18; printf ' + value + '; return ' + str(status) + '; }\n'
                                     'if is_pending_v2 inert; then printf pending; else printf not-pending; fi\n')
                 if expected is None:
                     self.assertNotEqual(result.returncode, 0)
