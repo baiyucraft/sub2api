@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 trap 'rc=$?; printf "vm_validate_failure_line=%s status=%s\\n" "$LINENO" "$rc"; exit "$rc"' ERR
-# Legacy Gate v1 profile allowlist; Gate v2 current profile is 273 and 242-272 remain historical.
+# Legacy Gate v1 profile allowlist; Gate v2 current profile is 274 and 242-273 remain historical.
 
 required_commands=(awk chmod cp curl date df diff docker find flock git grep gzip head id install jq ln mkdir mv rm sed seq sha256sum sleep sort ss stat tar tr xargs)
 for command_name in "${required_commands[@]}"; do
@@ -155,8 +155,8 @@ test_tag="sub2api:vm-test-$commit"
 profile=$(jq -er '.profile' "$manifest")
 manifest_schema=$(jq -er '.schema' "$manifest")
 if [[ "$manifest_schema" == 2 ]]; then
-  [[ "$profile" == 254 || "$profile" == 255 || "$profile" == 256 || "$profile" == 257 || "$profile" == 258 || "$profile" == 259 || "$profile" == 260 || "$profile" == 261 || "$profile" == 262 || "$profile" == 263 || "$profile" == 264 || "$profile" == 265 || "$profile" == 266 || "$profile" == 267 || "$profile" == 268 || "$profile" == 269 || "$profile" == 270 || "$profile" == 271 || "$profile" == 272 || "$profile" == 273 ]]
-  [[ "$release_id" =~ ^(254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
+  [[ "$profile" == 254 || "$profile" == 255 || "$profile" == 256 || "$profile" == 257 || "$profile" == 258 || "$profile" == 259 || "$profile" == 260 || "$profile" == 261 || "$profile" == 262 || "$profile" == 263 || "$profile" == 264 || "$profile" == 265 || "$profile" == 266 || "$profile" == 267 || "$profile" == 268 || "$profile" == 269 || "$profile" == 270 || "$profile" == 271 || "$profile" == 272 || "$profile" == 273 || "$profile" == 274 ]]
+  [[ "$release_id" =~ ^(254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273|274)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
   {
     required_query_4=$(jq -er '.release_asset_layout' "$manifest") || exit $?
     [[ ${required_query_4} == skill-v1 ]]
@@ -321,6 +321,11 @@ if [[ "$manifest_schema" == 2 ]]; then
       [[ ${required_query_29} == 272 ]]
     }
     jq -e '.new_migrations == ["300_upstream_health_history_index.sql"]' "$manifest" >/dev/null
+  elif [[ "$profile" == 274 ]]; then
+    [[ "$version" == 0.2.17-baiyu ]]
+    required_parent_274=$(jq -er '.parent_profile' "$manifest") || exit $?
+    [[ $required_parent_274 == 273 ]]
+    jq -e '.new_migrations == ["301_upstream_cache_guard_admissions.sql"] and .deployment_mode == "downtime"' "$manifest" >/dev/null
   else
     exit 1
   fi
@@ -773,7 +778,8 @@ SQL
     285_upstream_null_rate_lifecycle.sql \
     297_upstream_cache_guard_account_scope.sql \
     298_group_scheduling_protection_policies.sql \
-    299_upstream_cache_guard_revisions.sql; do
+    299_upstream_cache_guard_revisions.sql \
+    301_upstream_cache_guard_admissions.sql; do
     is_pending_v2 "$filename" || continue
     case "$filename" in
       195_*) script=migration-195-assert.sh ;;
@@ -789,6 +795,7 @@ SQL
       297_*) script=migration-297-assert.sh ;;
       298_*) script=migration-298-assert.sh ;;
       299_*) script=migration-299-assert.sh ;;
+      301_*) script=migration-301-assert.sh ;;
     esac
     run_hook_v2 "$filename" "$script" preflight absent
     case "$filename" in
@@ -831,6 +838,15 @@ SQL
       run_hook_v2 "$revisions_filename" migration-299-assert.sh preflight verified
     fi
   fi
+  admissions_filename=301_upstream_cache_guard_admissions.sql
+  admissions_in_catalog=false
+  if required_jq_predicate --arg filename "$admissions_filename" '.migration_catalog | any(.filename == $filename)' "$manifest" >/dev/null; then
+    admissions_in_catalog=true
+    if ! is_pending_v2 "$admissions_filename"; then
+      printf '%s' "$probe_plan" | jq -e --arg filename "$admissions_filename" '.existing | any(.filename == $filename and .status == "existing")' >/dev/null
+      run_hook_v2 "$admissions_filename" migration-301-assert.sh preflight verified
+    fi
+  fi
   plan_apply="$state_dir/migration-plan-apply.json"
   if [[ "$recovery_gate_mode" == fast ]]; then
     install -o 0 -g 0 -m 444 "$state_dir/fixture-bootstrap-after.json" "$plan_apply"
@@ -866,7 +882,8 @@ SQL
     285_upstream_null_rate_lifecycle.sql \
     297_upstream_cache_guard_account_scope.sql \
     298_group_scheduling_protection_policies.sql \
-    299_upstream_cache_guard_revisions.sql; do
+    299_upstream_cache_guard_revisions.sql \
+    301_upstream_cache_guard_admissions.sql; do
     is_pending_v2 "$filename" || continue
     case "$filename" in
       195_*) run_hook_v2 "$filename" migration-195-assert.sh postflight_db verified ;;
@@ -882,6 +899,7 @@ SQL
       297_*) run_hook_v2 "$filename" migration-297-assert.sh postflight verified ;;
       298_*) run_hook_v2 "$filename" migration-298-assert.sh postflight verified ;;
       299_*) run_hook_v2 "$filename" migration-299-assert.sh postflight verified ;;
+      301_*) run_hook_v2 "$filename" migration-301-assert.sh postflight verified ;;
     esac
   done
   if [[ "$lifecycle_in_catalog" == true ]]; then
@@ -912,6 +930,13 @@ SQL
     run_hook_v2 "$revisions_filename" migration-299-assert.sh vm_semantics verified
     run_hook_v2 "$revisions_filename" migration-299-assert.sh verified_replay verified
   fi
+  if [[ "$admissions_in_catalog" == true ]]; then
+    if ! is_pending_v2 "$admissions_filename"; then
+      run_hook_v2 "$admissions_filename" migration-301-assert.sh postflight verified
+    fi
+    run_hook_v2 "$admissions_filename" migration-301-assert.sh vm_semantics verified
+    run_hook_v2 "$admissions_filename" migration-301-assert.sh verified_replay verified
+  fi
   if [[ "$recovery_gate_mode" != fast ]]; then
     mark_v2_stage old_image_health
     assert_old_image_protected
@@ -935,7 +960,7 @@ SQL
     docker rm -f "$old_probe_app" >/dev/null
   fi
   mark_v2_stage candidate_health
-  if [[ "$profile" == 264 || "$profile" == 265 || "$profile" == 266 || "$profile" == 267 || "$profile" == 268 || "$profile" == 269 || "$profile" == 270 || "$profile" == 271 || $profile == 272 || $profile == 273 ]]; then
+  if [[ "$profile" == 264 || "$profile" == 265 || "$profile" == 266 || "$profile" == 267 || "$profile" == 268 || "$profile" == 269 || "$profile" == 270 || "$profile" == 271 || $profile == 272 || $profile == 273 || $profile == 274 ]]; then
     # Exercise the maintenance mode against the restored isolated Redis before
     # starting any new application process. Never touch the production cache.
     sentinel="sub2api:release-cache-sentinel:$release_id"
@@ -1022,7 +1047,10 @@ SQL
         ($hooks[0][$protection.filename] + {checksum:$protection.checksum}) end
     | ($m[0].migration_catalog | map(select(.filename == "299_upstream_cache_guard_revisions.sql")) | first) as $revisions
     | if $revisions == null then . else .evidence.migration_evidence.migration_299 =
-        ($hooks[0][$revisions.filename] + {checksum:$revisions.checksum}) end'
+        ($hooks[0][$revisions.filename] + {checksum:$revisions.checksum}) end
+    | ($m[0].migration_catalog | map(select(.filename == "301_upstream_cache_guard_admissions.sql")) | first) as $admissions
+    | if $admissions == null then . else .evidence.migration_evidence.migration_301 =
+        ($hooks[0][$admissions.filename] + {checksum:$admissions.checksum}) end'
   } > "$output_dir/gate.json"
   chmod 400 "$output_dir/gate.json"
   install -m 400 "$candidate_archive" "$output_dir/candidate.tar.gz"
@@ -1036,8 +1064,8 @@ SQL
   fi
   exit 0
 fi
-[[ $release_id =~ ^(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
-[[ $profile == 182 || $profile == 187 || $profile == 191 || $profile == 192 || $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 || $profile == 240 || $profile == 241 || $profile == 242 || $profile == 243 || $profile == 244 || $profile == 245 || $profile == 246 || $profile == 247 || $profile == 248 || $profile == 249 || $profile == 250 || $profile == 251 || $profile == 252 || $profile == 253 || $profile == 254 || $profile == 255 || $profile == 256 || $profile == 257 || $profile == 258 || $profile == 259 || $profile == 260 || $profile == 261 || $profile == 262 || $profile == 263 || $profile == 264 || $profile == 265 || $profile == 266 || $profile == 267 || $profile == 268 || $profile == 269 || $profile == 270 || $profile == 271 || $profile == 272 || $profile == 273 ]]
+[[ $release_id =~ ^(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273|274)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
+[[ $profile == 182 || $profile == 187 || $profile == 191 || $profile == 192 || $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 || $profile == 240 || $profile == 241 || $profile == 242 || $profile == 243 || $profile == 244 || $profile == 245 || $profile == 246 || $profile == 247 || $profile == 248 || $profile == 249 || $profile == 250 || $profile == 251 || $profile == 252 || $profile == 253 || $profile == 254 || $profile == 255 || $profile == 256 || $profile == 257 || $profile == 258 || $profile == 259 || $profile == 260 || $profile == 261 || $profile == 262 || $profile == 263 || $profile == 264 || $profile == 265 || $profile == 266 || $profile == 267 || $profile == 268 || $profile == 269 || $profile == 270 || $profile == 271 || $profile == 272 || $profile == 273 || $profile == 274 ]]
 [[ $release_id == "$profile-${commit:0:12}-"* ]]
 {
   required_query_65=$(jq -er '.schema' "$manifest")

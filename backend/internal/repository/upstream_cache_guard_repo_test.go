@@ -54,7 +54,7 @@ func TestUpstreamCacheGuardOutboxLeaseAndRetention(t *testing.T) {
 	if p, err := repo.HasPending(context.Background()); err != nil || !p {
 		t.Fatalf("pending detection %v %v", p, err)
 	}
-	mock.ExpectExec(`DELETE FROM upstream_cache_guard_facts.*processed=TRUE AND completed_at`).WithArgs(at, 1000).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(`(?s)WITH expired_admissions AS .*completed=TRUE AND started_at.*deleted_admissions.*expired_facts AS .*processed=TRUE AND completed_at.*deleted_facts`).WithArgs(at, 1000).WillReturnRows(sqlmock.NewRows([]string{"deleted"}).AddRow(1))
 	if err := repo.Cleanup(context.Background(), at); err != nil {
 		t.Fatal(err)
 	}

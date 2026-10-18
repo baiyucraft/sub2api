@@ -41,19 +41,27 @@ func (r *upstreamCacheGuardRepository) TransactAccount(ctx context.Context, grou
 	if groupID < 0 || accountID <= 0 || keyID <= 0 {
 		return errors.New("invalid cache guard account identity")
 	}
+	beginDone := upstreamcacheguard.MeasureStage(ctx, "db_begin")
 	tx, err := r.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	beginDone()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 	// Account lock precedes the group lock in every account transaction.
-	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(298, ($1 % 2147483647)::integer)`, accountID); err != nil {
+	lockDone := upstreamcacheguard.MeasureStage(ctx, "account_lock")
+	_, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(298, ($1 % 2147483647)::integer)`, accountID)
+	lockDone()
+	if err != nil {
 		return err
 	}
 	if err = fn(&upstreamCacheGuardTx{tx: tx, ctx: ctx, groupID: groupID, accountID: accountID, keyID: keyID}); err != nil {
 		return err
 	}
-	return tx.Commit()
+	commitDone := upstreamcacheguard.MeasureStage(ctx, "transaction_commit")
+	err = tx.Commit()
+	commitDone()
+	return err
 }
 
 func (t *upstreamCacheGuardTx) ReadAccount(accountID, keyID int64, out any) (int64, error) {
@@ -319,7 +327,9 @@ func (r *upstreamCacheGuardRepository) Transact(ctx context.Context, groupID int
 	if groupID <= 0 {
 		return errors.New("invalid cache guard group")
 	}
+	beginDone := upstreamcacheguard.MeasureStage(ctx, "db_begin")
 	tx, err := r.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	beginDone()
 	if err != nil {
 		return err
 	}
@@ -329,7 +339,10 @@ func (r *upstreamCacheGuardRepository) Transact(ctx context.Context, groupID int
 	if err = fn(&upstreamCacheGuardTx{tx: tx, ctx: ctx, groupID: groupID}); err != nil {
 		return err
 	}
-	return tx.Commit()
+	commitDone := upstreamcacheguard.MeasureStage(ctx, "transaction_commit")
+	err = tx.Commit()
+	commitDone()
+	return err
 }
 func (t *upstreamCacheGuardTx) Read(kind, key string, out any) (int64, error) {
 	if err := t.lockState(kind, key); err != nil {
@@ -337,14 +350,23 @@ func (t *upstreamCacheGuardTx) Read(kind, key string, out any) (int64, error) {
 	}
 	var raw []byte
 	var version int64
+	readStage, decodeStage := "runtime_read_sql", "runtime_decode"
+	if kind == upstreamcacheguard.SessionKind {
+		readStage, decodeStage = "session_read_sql", "session_decode"
+	}
+	readDone := upstreamcacheguard.MeasureStage(t.ctx, readStage)
 	err := t.tx.QueryRowContext(t.ctx, `SELECT state_json, version FROM upstream_cache_guard_runtime WHERE group_id=$1 AND state_kind=$2 AND state_key=$3`, t.groupID, kind, key).Scan(&raw, &version)
+	readDone()
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, nil
 	}
 	if err != nil {
 		return 0, err
 	}
-	if err = json.Unmarshal(raw, out); err != nil {
+	decodeDone := upstreamcacheguard.MeasureStage(t.ctx, decodeStage)
+	err = json.Unmarshal(raw, out)
+	decodeDone()
+	if err != nil {
 		return 0, fmt.Errorf("cache guard typed state decode: %w", err)
 	}
 	return version, nil
@@ -356,12 +378,20 @@ func (t *upstreamCacheGuardTx) Write(kind, key string, value any) (int64, error)
 	if kind != upstreamcacheguard.GroupKind && kind != upstreamcacheguard.AccountKind && kind != upstreamcacheguard.SessionKind {
 		return 0, errors.New("invalid cache guard state kind")
 	}
-	raw, err := json.Marshal(value)
+	encodeStage, writeStage := "runtime_encode", "runtime_write_sql"
+	if kind == upstreamcacheguard.SessionKind {
+		encodeStage, writeStage = "session_encode", "session_write_sql"
+	}
+	encodeDone := upstreamcacheguard.MeasureStage(t.ctx, encodeStage)
+	raw, err := marshalCacheGuardRuntime(kind, value)
+	encodeDone()
 	if err != nil {
 		return 0, err
 	}
 	var version int64
+	writeDone := upstreamcacheguard.MeasureStage(t.ctx, writeStage)
 	err = t.tx.QueryRowContext(t.ctx, `INSERT INTO upstream_cache_guard_runtime(group_id,state_kind,state_key,version,state_json,updated_at) VALUES($1,$2,$3,1,$4,CURRENT_TIMESTAMP) ON CONFLICT(group_id,state_kind,state_key) DO UPDATE SET version=upstream_cache_guard_runtime.version+1,state_json=EXCLUDED.state_json,updated_at=EXCLUDED.updated_at RETURNING version`, t.groupID, kind, key, string(raw)).Scan(&version)
+	writeDone()
 	return version, err
 }
 func (t *upstreamCacheGuardTx) InsertFact(e upstreamcacheguard.Evidence) (bool, error) {
@@ -444,16 +474,26 @@ func (r *upstreamCacheGuardRepository) CleanupBatch(ctx context.Context, before 
 	if r == nil || r.db == nil {
 		return 0, upstreamcacheguard.ErrUnavailable
 	}
-	// processed facts alone expire. Typed session identity and degraded status do
-	// not expire into new sessions or automatic healthy status.
+	// Only processed facts and completed admissions expire. Typed session
+	// identity, route information and unfinished classifications never expire.
 	if limit < 1 || limit > 1000 {
 		return 0, errors.New("invalid cache guard cleanup batch")
 	}
-	result, err := r.db.ExecContext(ctx, `DELETE FROM upstream_cache_guard_facts WHERE (group_id,evidence_id) IN (SELECT group_id,evidence_id FROM upstream_cache_guard_facts WHERE processed=TRUE AND completed_at<$1 ORDER BY completed_at LIMIT $2 FOR UPDATE SKIP LOCKED)`, before.UTC(), limit)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
+	var deleted int64
+	err := r.db.QueryRowContext(ctx, `WITH expired_admissions AS (
+		SELECT group_id,session_key,admission_key FROM upstream_cache_guard_admissions
+		WHERE completed=TRUE AND started_at<$1 ORDER BY started_at,group_id,session_key,admission_key LIMIT $2 FOR UPDATE SKIP LOCKED
+	), deleted_admissions AS (
+		DELETE FROM upstream_cache_guard_admissions a USING expired_admissions old
+		WHERE a.group_id=old.group_id AND a.session_key=old.session_key AND a.admission_key=old.admission_key RETURNING 1
+	), expired_facts AS (
+		SELECT group_id,evidence_id FROM upstream_cache_guard_facts WHERE processed=TRUE AND completed_at<$1
+		ORDER BY completed_at,group_id,evidence_id LIMIT (SELECT $2-COUNT(*) FROM deleted_admissions) FOR UPDATE SKIP LOCKED
+	), deleted_facts AS (
+		DELETE FROM upstream_cache_guard_facts f USING expired_facts old
+		WHERE f.group_id=old.group_id AND f.evidence_id=old.evidence_id RETURNING 1
+	) SELECT (SELECT COUNT(*) FROM deleted_admissions)+(SELECT COUNT(*) FROM deleted_facts)`, before.UTC(), limit).Scan(&deleted)
+	return deleted, err
 }
 
 func (t *upstreamCacheGuardTx) lockState(kind, key string) error {
@@ -464,7 +504,9 @@ func (t *upstreamCacheGuardTx) lockState(kind, key string) error {
 		if t.sessionLocked != "" {
 			return errors.New("cache guard multiple session locks")
 		}
+		lockDone := upstreamcacheguard.MeasureStage(t.ctx, "session_lock")
 		_, err := t.tx.ExecContext(t.ctx, `SELECT pg_advisory_xact_lock(299,hashtext($1::text || ':' || $2::text))`, t.groupID, key)
+		lockDone()
 		if err != nil {
 			return err
 		}

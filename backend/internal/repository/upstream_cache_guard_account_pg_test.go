@@ -106,6 +106,15 @@ func TestCacheGuardAccountPostgres(t *testing.T) {
 	if err := scopedDB.QueryRowContext(ctx, `SELECT upstream_key_id FROM upstream_cache_guard_facts WHERE evidence_id=$1`, oldFact.ID).Scan(&migratedKey); err != nil || migratedKey != 5 {
 		t.Fatalf("migration key=%d err=%v", migratedKey, err)
 	}
+	for _, name := range []string{"299_upstream_cache_guard_revisions.sql", "301_upstream_cache_guard_admissions.sql"} {
+		text, err := migrations.FS.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := scopedDB.ExecContext(ctx, string(text)); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	repo := NewUpstreamCacheGuardRepository(scopedDB).(*upstreamCacheGuardRepository)
 	rows, err := repo.AccountRows(ctx)

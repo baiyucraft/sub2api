@@ -59,7 +59,7 @@ func TestCacheGuardCrossProcessPostgres(t *testing.T) {
 	defer db.Close()
 	_, err = db.ExecContext(ctx, `CREATE TABLE accounts(id BIGINT PRIMARY KEY,upstream_key_id BIGINT,deleted_at TIMESTAMPTZ); INSERT INTO accounts(id,upstream_key_id) VALUES(1,1),(2,1),(3,1)`)
 	require.NoError(t, err)
-	for _, name := range []string{"296_upstream_cache_guard.sql", "297_upstream_cache_guard_account_scope.sql", "299_upstream_cache_guard_revisions.sql"} {
+	for _, name := range []string{"296_upstream_cache_guard.sql", "297_upstream_cache_guard_account_scope.sql", "299_upstream_cache_guard_revisions.sql", "301_upstream_cache_guard_admissions.sql"} {
 		text, err := migrations.FS.ReadFile(name)
 		require.NoError(t, err)
 		_, err = db.ExecContext(ctx, string(text))
@@ -83,7 +83,7 @@ func TestCacheGuardCrossProcessPostgres(t *testing.T) {
 	require.NoError(t, db.QueryRowContext(ctx, `SELECT state_json FROM upstream_cache_guard_runtime WHERE group_id=1 AND state_kind='session' AND state_key=$1`, upstreamcacheguard.SessionKey(r)).Scan(&raw))
 	// Validate both account-specific admissions in the one durable identity.
 	var completed int
-	require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM upstream_cache_guard_runtime r CROSS JOIN LATERAL jsonb_each(r.state_json->'admissions') a WHERE r.group_id=1 AND r.state_kind='session' AND r.state_key=$1 AND (a.value->>'completed')::boolean`, upstreamcacheguard.SessionKey(r)).Scan(&completed))
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM upstream_cache_guard_admissions WHERE group_id=1 AND session_key=$1 AND completed=TRUE`, upstreamcacheguard.SessionKey(r)).Scan(&completed))
 	require.Equal(t, 2, completed)
 	// A worker claims and exits before completion. Another process cannot
 	// steal a live lease; after expiry it must recover and complete only once.

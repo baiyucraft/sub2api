@@ -44,6 +44,7 @@ class GateV2Test(unittest.TestCase):
             ".agents/skills/sub2api-production-deploy/scripts/maintenance/release/migration-297-assert.sh": "7" * 64,
             ".agents/skills/sub2api-production-deploy/scripts/maintenance/release/migration-298-assert.sh": "8" * 64,
             ".agents/skills/sub2api-production-deploy/scripts/maintenance/release/migration-299-assert.sh": "9" * 64,
+            ".agents/skills/sub2api-production-deploy/scripts/maintenance/release/migration-301-assert.sh": "1" * 64,
         }
 
     @staticmethod
@@ -64,6 +65,7 @@ class GateV2Test(unittest.TestCase):
             {"filename": "297_upstream_cache_guard_account_scope.sql", "checksum": "e" * 64, "non_transactional": False},
             {"filename": "298_group_scheduling_protection_policies.sql", "checksum": "f" * 64, "non_transactional": False},
             {"filename": "299_upstream_cache_guard_revisions.sql", "checksum": "0" * 64, "non_transactional": False},
+            {"filename": "301_upstream_cache_guard_admissions.sql", "checksum": "1" * 64, "non_transactional": False},
         ]
 
     def _document(self, pending: list[dict] | None = None, *, profile: str = CURRENT_RELEASE_PROFILE) -> dict:
@@ -75,7 +77,7 @@ class GateV2Test(unittest.TestCase):
         (self.root / "candidate.tar.gz").write_bytes(archive)
         manifest = {
             "schema": 2,
-            "deployment_mode": "blue-green",
+            "deployment_mode": "downtime" if profile == "274" else "blue-green",
             "profile": profile,
             "release_id": f"{profile}-aaaaaaaaaaaa-1-aaaaaaaa",
             "version": contract["version"],
@@ -143,6 +145,10 @@ class GateV2Test(unittest.TestCase):
             "vm_semantics": True, "verified_replay": True,
         }
         evidence["migration_evidence"]["migration_299"] = {
+            "checksum": next(row["checksum"] for row in catalog if row["filename"].startswith("299_")), "preflight": True, "postflight": True,
+            "vm_semantics": True, "verified_replay": True,
+        }
+        evidence["migration_evidence"]["migration_301"] = {
             "checksum": catalog[-1]["checksum"], "preflight": True, "postflight": True,
             "vm_semantics": True, "verified_replay": True,
         }
@@ -228,7 +234,7 @@ class GateV2Test(unittest.TestCase):
     def test_profile_262_historical_signed_contract_rejects_drift(self) -> None:
         document = self._document(profile="262")
         self._sign(document)
-        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 273"):
+        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 274"):
             self._verify(profile="262")
         self.assertEqual(self._verify(profile="262", allow_historical_runner=True, validate_profile_contract=True), document)
         for field, value, message in (
@@ -244,15 +250,15 @@ class GateV2Test(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, message):
                     self._verify(profile="262", allow_historical_runner=True, validate_profile_contract=True)
 
-    def test_unregistered_profile_274_is_rejected_even_for_recovery(self) -> None:
+    def test_unregistered_profile_275_is_rejected_even_for_recovery(self) -> None:
         document = self._document()
-        document["profile_id"] = 274
-        document["manifest"].update(profile="274", release_id="274-aaaaaaaaaaaa-1-aaaaaaaa")
+        document["profile_id"] = 275
+        document["manifest"].update(profile="275", release_id="275-aaaaaaaaaaaa-1-aaaaaaaa")
         self._sign(document)
-        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 273"):
-            self._verify(profile="274")
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 274"):
-            self._verify(profile="274", allow_historical_runner=True)
+        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 274"):
+            self._verify(profile="275")
+        with self.assertRaisesRegex(ValueError, "unknown release profile: 275"):
+            self._verify(profile="275", allow_historical_runner=True)
 
     def test_fast_gate_requires_non_restore_evidence(self) -> None:
         document = self._document()
@@ -283,14 +289,14 @@ class GateV2Test(unittest.TestCase):
         document["profile_id"] = 246
         document["manifest"].update(profile="246", release_id="246-aaaaaaaaaaaa-1-aaaaaaaa", version="0.2.1-baiyu")
         self._sign(document)
-        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 273"):
+        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 274"):
             self._verify(profile="246")
         self.assertEqual(self._verify(profile="246", allow_historical_runner=True), document)
 
     def test_previous_profile_requires_historical_runner_for_recovery(self) -> None:
         document = self._document(profile="260")
         self._sign(document)
-        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 273"):
+        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 274"):
             self._verify(profile="260")
         self.assertEqual(self._verify(profile="260", allow_historical_runner=True, validate_profile_contract=True), document)
 
@@ -373,6 +379,7 @@ class GateV2Test(unittest.TestCase):
         del document["evidence"]["migration_evidence"]["migration_297"]
         del document["evidence"]["migration_evidence"]["migration_298"]
         del document["evidence"]["migration_evidence"]["migration_299"]
+        del document["evidence"]["migration_evidence"]["migration_301"]
         _validate_v2_pending(document["manifest"], document["evidence"])
 
     def test_invalid_285_catalog_type_is_rejected_cleanly(self) -> None:
