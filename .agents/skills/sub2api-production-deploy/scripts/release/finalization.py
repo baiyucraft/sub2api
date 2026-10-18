@@ -8,7 +8,6 @@ Gate, claim, migration, deployment or disaster-recovery baseline.
 from __future__ import annotations
 
 import argparse
-import ctypes
 import hashlib
 import os
 import re
@@ -24,6 +23,7 @@ from .manifest import _git_output, release_asset_checksums, runner_checksum, val
 from .migration_planner import plan_migrations
 from .paths import WORKSPACE
 from .production_snapshot import decode_snapshot
+from .process import process_identity
 from .profiles import get_profile
 from .ssh import SSHRunner
 from .state import RunLock
@@ -54,34 +54,9 @@ REMOTE_REQUIRED = {
 
 
 def _process_identity(pid: int) -> str | None:
-    """Distinguish a dead PID from inaccessible or malformed process state."""
-    if os.name == "nt":
-        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
-        kernel.OpenProcess.argtypes = (ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong)
-        kernel.OpenProcess.restype = ctypes.c_void_p
-        kernel.GetProcessTimes.argtypes = (ctypes.c_void_p,) + (ctypes.POINTER(ctypes.c_ulonglong),) * 4
-        kernel.CloseHandle.argtypes = (ctypes.c_void_p,)
-        handle = kernel.OpenProcess(0x1000, False, pid)
-        if not handle:
-            if ctypes.get_last_error() == 87:
-                return None
-            raise RuntimeError("finalization worker identity query is uncertain")
-        try:
-            times = [ctypes.c_ulonglong() for _ in range(4)]
-            if not kernel.GetProcessTimes(handle, *(ctypes.byref(value) for value in times)):
-                raise RuntimeError("finalization worker identity query is uncertain")
-            return f"win:{times[0].value}"
-        finally:
-            kernel.CloseHandle(handle)
     try:
-        content = Path(f"/proc/{pid}/stat").read_text(encoding="ascii")
-    except FileNotFoundError:
-        return None
-    try:
-        fields = content.rsplit(")", 1)[1].split()
-        boot = Path("/proc/sys/kernel/random/boot_id").read_text(encoding="ascii").strip()
-        return f"linux:{boot}:{int(fields[19])}"
-    except (OSError, IndexError, UnicodeError, ValueError):
+        return process_identity(pid)
+    except RuntimeError:
         raise RuntimeError("finalization worker identity query is uncertain") from None
 
 

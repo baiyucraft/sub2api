@@ -151,3 +151,14 @@ validator 尚未启动的失败使用独立 `reconcile-vm-preserve <release_id>`
 三层门禁时间预算为 `fast=0-2min`、`specialized=5-15min`、`full=20-60min`。这些值仅用于计划、状态心跳和最终报告，不缩短子阶段原有 timeout，也不授权调用端在预算到期后杀死 runner。
 
 失败租约恢复在VM上还须独占既有发布单元锁，以排除SSH断线后仍在途的安装和VM-only任务；默认分支存在validator启动原始日志时，即使Gate目录缺失和进程已退出也拒绝收口。显式构建失败分支另按上述严格证据验真。生产健康检查沿用Gate前入口策略，允许健康的needs_update，不要求尚未发生的生产策略升级；镜像身份和其余健康、备份、claim校验不放宽。
+
+
+### 进程存活身份与构建依赖前置合同
+
+应用 runner、独立插件 runner 与 consumed 发布 finalization 统一使用 `release.process.process_identity`。Windows 显式声明完整 HANDLE 和 Win32 调用类型，使用同一句柄在读取创建时间前后执行 `WaitForSingleObject(handle, 0)`：已终止返回无存活身份，等待超时才允许返回原格式的创建时间 token。保留进程句柄不代表进程仍存活；真实退出码 259 也不能以 `STILL_ACTIVE` 数值推断存活。访问拒绝、等待失败或时间查询失败按未知阻断，取得的句柄最终关闭。Linux 的不存在 PID 和僵尸/退出状态没有存活身份，权限、格式和读取异常继续阻断。三入口不得各自维护弱化实现；finalization 保持既有未知身份错误合同。
+
+四个固定基础镜像为 `docker.m.daocloud.io/library/node:24-alpine`、`docker.m.daocloud.io/library/golang:1.27.2-alpine`、`docker.m.daocloud.io/library/alpine:3.21` 和 `docker.m.daocloud.io/library/postgres:18-alpine`。每个引用在一次检查中仅调用一次 `docker buildx imagetools inspect --raw`，验证 schema 2 OCI index/Docker manifest list 及唯一合法 `linux/amd64` descriptor 的 media type、SHA-256 digest 和正整数 size。基础 HTTPS 可达或认证返回成功不能替代该元数据检查。
+
+正式发布在准备生产恢复输入前执行 early 检查，失败立即阻断，不进入恢复输入准备或 candidate 构建；实际构建前重新检查，防止早期观察失效。Gate v2、历史 Gate v1 和 VM-only 三条构建入口共用同一个 SHA-256 绑定的 `vm-build-common.sh`，其固定镜像引用也作为构建参数使用。检查和构建均不自动重试、不切换镜像源；保留既有代理配置，仅在 Docker 子进程范围合并镜像站的 NO_PROXY 条目。
+
+构建诊断只返回固定白名单状态、已验证数量和 `build_registry_502`、`build_registry_eof`、`build_registry_auth`、`build_registry_tls`、`build_timeout`、`build_space`、`build_compile`、`build_registry_metadata_invalid`、`build_dependency_contract`、`build_preflight_unproven` 或 `build_unknown` 等固定原因码。原始 metadata、stderr 和构建日志只保留于远端本 release 的私有目录，目录 `0700`、文件 `0600`；不得整体回显、下载到本地或输出代理值和认证响应。失败 release、原始日志和身份记录保持不变，后续仍按既有正式 reconciliation 与新发布合同执行。

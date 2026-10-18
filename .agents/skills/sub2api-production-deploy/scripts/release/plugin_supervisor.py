@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import ctypes
 import json
 import os
 import re
@@ -26,7 +25,7 @@ from .plugin_package import (
     validate_source_commit,
 )
 from .plugin_state import PLUGIN_TERMINAL_STATES, PluginRunState
-from .process import popen_detached_worker
+from .process import popen_detached_worker, process_identity
 from .ssh import SSHRunner
 from .state import RunLock
 from .vm_lifecycle import VMLease, lifecycle_view, vm_guard
@@ -81,29 +80,7 @@ def _read_json(path: Path, required: bool = False) -> dict[str, Any] | None:
 
 
 def _process_token(pid: int) -> str | None:
-    if pid <= 0:
-        return None
-    if os.name == "nt":
-        handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)
-        if not handle:
-            return None
-        try:
-            creation = ctypes.c_ulonglong()
-            exit_time = ctypes.c_ulonglong()
-            kernel = ctypes.c_ulonglong()
-            user = ctypes.c_ulonglong()
-            ok = ctypes.windll.kernel32.GetProcessTimes(
-                handle, ctypes.byref(creation), ctypes.byref(exit_time), ctypes.byref(kernel), ctypes.byref(user)
-            )
-            return f"win:{creation.value}" if ok else None
-        finally:
-            ctypes.windll.kernel32.CloseHandle(handle)
-    try:
-        fields = Path(f"/proc/{pid}/stat").read_text(encoding="ascii").rsplit(")", 1)[1].split()
-        boot_id = Path("/proc/sys/kernel/random/boot_id").read_text(encoding="ascii").strip()
-        return f"linux:{boot_id}:{fields[19]}"
-    except (OSError, IndexError, UnicodeError):
-        return None
+    return process_identity(pid)
 
 
 def _runner_alive(runner: dict[str, Any]) -> bool:
