@@ -20,6 +20,34 @@ load_vm_build_helper() {
   source "$helper"
 }
 
+prepare_vm_build_proof() {
+  local directory=$1 proof="$1/proof.json" expected_sha
+  VM_BUILD_FAILURE_CODE=build_dependency_contract
+  VM_BUILD_FAILURE_PHASE=contract
+  VM_BUILD_FAILURE_ROLE=none
+  VM_BUILD_FAILURE_METHOD=unknown
+  [[ -f $manifest && ! -L $manifest && $(stat -c '%u:%g:%a:%h' "$manifest") == 0:0:400:1 ]] || return 1
+  [[ ! -e $proof && ! -L $proof ]] || return 1
+  jq -e 'has("build_dependencies") and has("build_dependencies_sha256") and (.build_dependencies|type=="object")
+    and (.build_dependencies_sha256|type=="string" and test("^[0-9a-f]{64}$"))' "$manifest" >/dev/null || return 1
+  (set -o noclobber; jq -cS '.build_dependencies' "$manifest" > "$proof") || return 1
+  chmod 400 "$proof" || return 1
+  expected_sha=$(jq -er '.build_dependencies_sha256' "$manifest") || return 1
+  vm_build_use_proof "$proof" "$expected_sha" "$release_id" "$commit" "$source_dir/Dockerfile" || return 1
+}
+
+record_vm_build_failure_details() {
+  local directory=$1 phase=${VM_BUILD_FAILURE_PHASE:-contract} role=${VM_BUILD_FAILURE_ROLE:-none} method=${VM_BUILD_FAILURE_METHOD:-unknown}
+  case $phase in contract|identity|metadata|manifest|config|layer|dependency|candidate|run) ;; *) phase=contract;; esac
+  case $role in none|frontend|node|golang|alpine|postgres) ;; *) role=none;; esac
+  case $method in HEAD|GET|unknown) ;; *) method=unknown;; esac
+  printf '%s\n' "$phase" > "$directory/build-failure-phase"
+  printf '%s\n' "$role" > "$directory/build-failure-role"
+  printf '%s\n' "$method" > "$directory/build-failure-method"
+  printf '0\n' > "$directory/build-retry-count"
+  chmod 400 "$directory/build-failure-phase" "$directory/build-failure-role" "$directory/build-failure-method" "$directory/build-retry-count"
+}
+
 # A successful inventory distinguishes an absent tag from a failed daemon query.
 # jq -e uses the same nonzero channel for false and query failures. Required
 # control predicates render a boolean with -r, validate it, and only then
@@ -435,11 +463,12 @@ if [[ "$manifest_schema" == 2 ]]; then
     printf 'vm_v2_%s\n' "$v2_stage" > "$state_dir/failure-category"
     printf '%s\n' "$failed_line" > "$state_dir/failure-line"
     printf 'status=%s stage=%s\n' "$code" "$v2_stage" > "$state_dir/failure-detail"
-    if [[ $v2_stage == candidate_build ]]; then
+    if [[ $v2_stage == candidate_build || $v2_stage == build_dependencies ]]; then
       build_failure_code=${VM_BUILD_FAILURE_CODE:-build_unknown}
       [[ $build_failure_code != none ]] || build_failure_code=build_unknown
       printf '%s\n' "$build_failure_code" > "$state_dir/build-failure-code"
       chmod 400 "$state_dir/build-failure-code"
+      record_vm_build_failure_details "$state_dir"
     fi
     chmod 400 "$state_dir/failure-category" "$state_dir/failure-line" "$state_dir/failure-detail"
     cleanup_old_image_tag || true
@@ -486,10 +515,11 @@ if [[ "$manifest_schema" == 2 ]]; then
     assert_old_image_protected
     rm -f -- "$compatibility_path"
   fi
-  mark_v2_stage candidate_build
+  mark_v2_stage build_dependencies
   load_vm_build_helper
   install -d -m 700 "$state_dir/build-dependencies"
-  vm_build_preflight "$state_dir/build-dependencies"
+  prepare_vm_build_proof "$state_dir/build-dependencies"
+  mark_v2_stage candidate_build
   build_log="$state_dir/build.log"
   required_query_43=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   vm_build_candidate "$build_log" \
@@ -1356,21 +1386,25 @@ cleanup_candidate_tag() {
 on_build_failure() {
   code=$?
   trap - ERR INT TERM
-  printf '%s\n' candidate_build > "$state_dir/failure-category"
+  printf '%s\n' "$build_stage" > "$state_dir/failure-category"
   build_failure_code=${VM_BUILD_FAILURE_CODE:-build_unknown}
   [[ $build_failure_code != none ]] || build_failure_code=build_unknown
   printf '%s\n' "$build_failure_code" > "$state_dir/build-failure-code"
   chmod 400 "$state_dir/build-failure-code"
+  record_vm_build_failure_details "$state_dir"
   rm -f "$state_dir/candidate.tar.gz"
   cleanup_candidate_tag
   exit "$code"
 }
 trap on_build_failure ERR INT TERM
 export DOCKER_BUILDKIT=1
-mark_stage candidate_build
+build_stage=build_dependencies
+mark_stage "$build_stage"
 load_vm_build_helper
 install -d -m 700 "$state_dir/build-dependencies"
-vm_build_preflight "$state_dir/build-dependencies"
+prepare_vm_build_proof "$state_dir/build-dependencies"
+build_stage=candidate_build
+mark_stage "$build_stage"
 build_log="$state_dir/build.log"
 required_query_100=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 vm_build_candidate "$build_log" \

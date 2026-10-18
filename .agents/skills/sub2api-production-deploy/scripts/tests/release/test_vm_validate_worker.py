@@ -122,6 +122,7 @@ class VMValidateWorkerTest(unittest.TestCase):
         self.assertEqual(VM_WORKER_FIELDS, {
             "worker_status", "worker_pid", "worker_token_match", "worker_exit_code",
             "gate_stage", "gate_failure_category", "gate_build_failure_code", "gate_output_ready",
+            "gate_build_failure_phase", "gate_build_failure_role", "gate_build_failure_method", "gate_build_retry_count",
             "gate_signature_ready", "candidate_archive_ready", "raw_log_status",
             "raw_log_bytes",
         })

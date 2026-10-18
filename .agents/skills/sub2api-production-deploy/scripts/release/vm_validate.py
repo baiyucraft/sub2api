@@ -14,7 +14,11 @@ from .bootstrap import install_vm_validator
 from .paths import LAYOUT_SKILL_V1, RELEASE_PACKAGE_ROOT, TRUSTED_VM_PUBLIC_KEY
 from .ssh import SSHRunner
 from .atomic import atomic_write, canonical_json
-from .vm_build import BUILD_FAILURE_CODES
+from .vm_build import (
+    BUILD_FAILURE_CODES, BUILD_FAILURE_PHASES, BUILD_FAILURE_ROLES, BUILD_FAILURE_METHODS,
+    VMCandidateBuildError, bind_build_dependencies,
+    ensure_vm_build_dependencies, validate_build_dependency_binding, validate_build_dependency_report,
+)
 
 
 TRUSTED_KEY = TRUSTED_VM_PUBLIC_KEY
@@ -64,6 +68,7 @@ VM_WORKER_FIELDS = {
     "gate_stage",
     "gate_failure_category",
     "gate_build_failure_code",
+    "gate_build_failure_phase", "gate_build_failure_role", "gate_build_failure_method", "gate_build_retry_count",
     "gate_output_ready",
     "gate_signature_ready",
     "candidate_archive_ready",
@@ -276,6 +281,22 @@ case "$gate_build_failure_code" in
   {'|'.join(sorted(BUILD_FAILURE_CODES))}) ;;
   *) gate_build_failure_code=none ;;
 esac
+read_build_detail() {{
+  local path=$1 metadata size
+  if [[ -f $path && ! -L $path ]] && metadata=$(stat -c '%u:%g:%a:%h' "$path") &&
+     [[ $metadata == 0:0:400:1 || $metadata == 0:0:600:1 ]] && size=$(stat -c '%s' "$path") &&
+     [[ $size =~ ^[1-9][0-9]{{0,2}}$ && $size -le 128 ]]; then
+    tr -d '\\r\\n' < "$path"
+  else printf '%s' none; fi
+}}
+gate_build_failure_phase=$(read_build_detail "$gate_root/build-failure-phase")
+gate_build_failure_role=$(read_build_detail "$gate_root/build-failure-role")
+gate_build_failure_method=$(read_build_detail "$gate_root/build-failure-method")
+gate_build_retry_count=$(read_build_detail "$gate_root/build-retry-count")
+case "$gate_build_failure_phase" in {'|'.join(sorted(BUILD_FAILURE_PHASES))}) ;; *) gate_build_failure_phase=none;; esac
+case "$gate_build_failure_role" in {'|'.join(sorted(BUILD_FAILURE_ROLES))}) ;; *) gate_build_failure_role=none;; esac
+case "$gate_build_failure_method" in {'|'.join(sorted(BUILD_FAILURE_METHODS))}) ;; *) gate_build_failure_method=none;; esac
+[[ $gate_build_retry_count == 0 ]] || gate_build_retry_count=0
 printf 'worker_status=%s\n' "$worker_status"
 printf 'worker_pid=%s\n' "$pid"
 printf 'worker_token_match=%s\n' "$token_match"
@@ -283,6 +304,7 @@ printf 'worker_exit_code=%s\n' "$worker_exit_code"
 printf 'gate_stage=%s\n' "$(read_optional "$gate_root/stage" absent)"
 printf 'gate_failure_category=%s\n' "$(read_optional "$gate_root/failure-category" absent)"
 printf 'gate_build_failure_code=%s\n' "$gate_build_failure_code"
+printf 'gate_build_failure_phase=%s\ngate_build_failure_role=%s\ngate_build_failure_method=%s\ngate_build_retry_count=%s\n' "$gate_build_failure_phase" "$gate_build_failure_role" "$gate_build_failure_method" "$gate_build_retry_count"
 printf 'gate_output_ready=%s\n' "$(test -f "$output/gate.json" && test ! -L "$output/gate.json" && echo yes || echo no)"
 printf 'gate_signature_ready=%s\n' "$(test -f "$output/gate.sig" && test ! -L "$output/gate.sig" && echo yes || echo no)"
 printf 'candidate_archive_ready=%s\n' "$(test -f "$output/candidate.tar.gz" && test ! -L "$output/candidate.tar.gz" && echo yes || echo no)"
@@ -365,9 +387,9 @@ def _wait_for_vm_worker(
 
 def _vm_worker_build_failure_code(worker: dict[str, str]) -> str | None:
     code = worker.get("gate_build_failure_code", "none")
-    if code in BUILD_FAILURE_CODES and code != "none":
+    if isinstance(code, str) and code in BUILD_FAILURE_CODES and code != "none":
         return code
-    if worker.get("gate_stage") == "candidate_build":
+    if worker.get("gate_stage") in {"candidate_build", "build_dependencies"}:
         return "build_preflight_unproven"
     return None
 
@@ -394,10 +416,20 @@ def _persist_vm_build_failure(worker: dict[str, str], manifest: dict, run_dir: P
     code = _vm_worker_build_failure_code(worker)
     if code is None:
         return
+    phase = worker.get("gate_build_failure_phase", "none")
+    if not isinstance(phase, str) or phase not in BUILD_FAILURE_PHASES - {"none"}:
+        phase = "candidate" if worker.get("gate_stage") == "candidate_build" else "contract"
+    role = worker.get("gate_build_failure_role", "none")
+    if not isinstance(role, str) or role not in BUILD_FAILURE_ROLES:
+        role = "none"
+    method = worker.get("gate_build_failure_method", "unknown")
+    if not isinstance(method, str) or method not in BUILD_FAILURE_METHODS - {"none"}:
+        method = "unknown"
     report = {
         "schema_version": 1, "release_id": manifest["release_id"],
         "commit_sha": manifest["commit_sha"], "status": "failed",
         "build_failure_code": code,
+        "build_failure_phase": phase, "build_failure_role": role, "build_failure_method": method, "build_retry_count": "0",
         "checked_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     }
     atomic_write(run_dir / "vm-build-failure.json", canonical_json(report) + b"\n")
@@ -443,6 +475,26 @@ def ensure_vm_space(runner: SSHRunner, cleaner: str, manifest: dict[str, object]
     return {**verified, "cleanup_applied": "true"}
 
 
+def _ensure_build_dependencies(runner: SSHRunner, manifest: dict, manifest_path: Path) -> dict:
+    """Bind a new execution locally; an existing proof is never solved twice."""
+    validate_build_dependency_binding(manifest)
+    if "build_dependencies" in manifest:
+        return manifest
+    try:
+        verified = ensure_vm_build_dependencies(runner, manifest)
+        bound = bind_build_dependencies(manifest, verified)
+        atomic_write(manifest_path, canonical_json(bound) + b"\n", 0o400)
+        report = verified.report
+    except BaseException as error:
+        report = getattr(error, "report", {})
+        if not validate_build_dependency_report(report) or report.get("build_dependency_status") != "failed":
+            report = VMCandidateBuildError({"build_failure_code": "build_preflight_unproven"}).report
+        atomic_write(manifest_path.with_name("build-dependencies.json"), canonical_json({"checked_at": int(time.time()), **report}) + b"\n")
+        raise
+    atomic_write(manifest_path.with_name("build-dependencies.json"), canonical_json({"checked_at": int(time.time()), **report}) + b"\n")
+    return bound
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--manifest", required=True)
@@ -457,6 +509,7 @@ def main() -> None:
     space_cleaner_checksum(manifest)
     runner = SSHRunner()
     install_vm_validator(runner)
+    manifest = _ensure_build_dependencies(runner, manifest, manifest_path)
     runner.run(
         "local_vm",
         "install -d -m 700 /opt/sub2api-deploy/release-input && input_metadata=$(stat -c '%u:%a' /opt/sub2api-deploy/release-input) && input_uid=$(id -u) && test \"$input_metadata\" = \"$input_uid:700\" && printf 'input_root_ready=true\\n'",

@@ -80,7 +80,7 @@ def test_real_bash_build_bypass_preserves_parent_and_all_proxies(entry, upper, l
             setup.append(f"export {name}={shlex.quote(value)}")
     proxy_values = [f"http://fixture-{index}.test:8080" for index in range(len(PROXY_NAMES))]
     setup.extend(f"export {name}={shlex.quote(value)}" for name, value in zip(PROXY_NAMES, proxy_values))
-    script = "set -Eeuo pipefail\n" + "\n".join(setup) + "\n" + helper + r'''
+    script = "set -Eeuo pipefail\n" + "\n".join(setup) + "\nsource " + shlex.quote(BUILD_HELPER.as_posix()) + r'''
 emit_environment() {
   printf '%s\0' "${NO_PROXY-<unset>}" "${no_proxy-<unset>}" \
     "${HTTP_PROXY-<unset>}" "${http_proxy-<unset>}" \
@@ -107,8 +107,24 @@ commit=fixture-commit
 version=fixture-version
 tag=fixture-tag
 scratch=$(mktemp -d)
+scratch=$(cd "$scratch" && pwd -P)
 chmod 700 "$scratch"
 trap 'rm -rf -- "$scratch"' EXIT
+cd "$scratch"
+printf '# syntax=docker/dockerfile:1.7\nFROM scratch\n' >Dockerfile
+VM_BUILD_PROOF_PATH="$scratch/proof.json"
+VM_BUILD_DOCKERFILE="$scratch/Dockerfile"
+VM_BUILD_COMMIT=$commit
+vm_build_use_proof() {
+  VM_BUILD_FAILURE_CODE=none
+  VM_BUILD_IMAGE_ARGS=(
+    --build-arg "NODE_IMAGE=docker.m.daocloud.io/library/node@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    --build-arg "GOLANG_IMAGE=docker.m.daocloud.io/library/golang@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    --build-arg "ALPINE_IMAGE=docker.m.daocloud.io/library/alpine@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    --build-arg "POSTGRES_IMAGE=docker.m.daocloud.io/library/postgres@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    --build-arg "BUILDKIT_SYNTAX=docker.io/docker/dockerfile@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  )
+}
 build_log="$scratch/build.log"
 # Windows ACLs do not implement POSIX directory modes. Linux executions keep
 # the actual production metadata check; these cases exercise proxy scope.
@@ -135,9 +151,10 @@ printf '%s\0' "$result"
     assert fields[8].split(",").count(AUTH) == 1
     argument_count = int(fields[16])
     arguments = fields[17:17 + argument_count]
-    assert arguments[:3] == ["build", "--network=host", "--progress=plain"]
-    for image in ("node:24-alpine", "golang:1.27.2-alpine", "alpine:3.21", "postgres:18-alpine"):
-        assert any(argument.endswith(f"=docker.m.daocloud.io/library/{image}") for argument in arguments)
+    assert arguments[:9] == ["buildx", "build", "--builder", "default", "--platform", "linux/amd64", "--load", "--network=host", "--progress=plain"]
+    for image in ("node", "golang", "alpine", "postgres"):
+        assert any(f"=docker.m.daocloud.io/library/{image}@sha256:" in argument for argument in arguments)
+    assert any(argument.startswith("BUILDKIT_SYNTAX=docker.io/docker/dockerfile@sha256:") for argument in arguments)
     assert arguments[-3:] == ["-t", "fixture-tag", "."]
     assert arguments.count("DATE=fixture-date") == 1
     assert arguments[arguments.index("DATE=fixture-date") - 1] == "--build-arg"

@@ -30,7 +30,7 @@ from .recovery_gate import classify as classify_recovery_gate
 from .recovery_gate import assert_release_allowed, require_full, require_specialized, unproven_report
 from .state import TERMINAL_STATES, RunLock, RunState
 from .vm_lifecycle import vm_guard
-from .vm_build import BUILD_DEPENDENCY_FIELDS, BUILD_FAILURE_CODES, ensure_vm_build_dependencies
+from .vm_build import VMCandidateBuildError, bind_build_dependencies, ensure_vm_build_dependencies, validate_build_dependency_report
 
 
 LOGGING_ROOT = SCRIPTS_ROOT / "logging"
@@ -44,31 +44,43 @@ from release_logging.retention import ReleaseLogRecord, build_retention_plan, ve
 DEPLOYMENT_MODES = ("blue-green", "downtime")
 
 
-def _check_build_dependencies(runner, manifest: dict, run_dir: Path, logger) -> None:
+def _bind_preflight_snapshot(manifest: dict, snapshot: dict, image_id: str, recovery_gate: dict, run_dir: Path) -> tuple[dict, dict]:
+    snapshot = dict(snapshot)
+    snapshot["plan"] = plan_migrations(manifest.get("migration_catalog", []), snapshot.get("schema_migrations", []))
+    bound = bind_production_snapshot(manifest, image_id, snapshot_sha256(snapshot), recovery_gate)
+    snapshot_path = run_dir / "production-snapshot.json"
+    snapshot_bytes = canonical_json(snapshot) + b"\n"
+    if snapshot_path.exists() or snapshot_path.is_symlink():
+        if snapshot_path.is_symlink() or not snapshot_path.is_file() or snapshot_path.read_bytes() != snapshot_bytes:
+            raise RuntimeError("immutable production snapshot differs from release workspace")
+    else:
+        atomic_write(snapshot_path, snapshot_bytes, 0o400)
+    atomic_write(run_dir / "manifest.json", canonical_json(bound) + b"\n", 0o400)
+    return bound, snapshot
+
+
+def _check_build_dependencies(runner, manifest: dict, run_dir: Path, logger) -> dict:
     """Fail before preparing a production recovery package when images cannot resolve."""
     state_path = run_dir / "state.json"
     state = RunState.load(state_path) if state_path.exists() else RunState.create(state_path, run_dir.name)
     state.transition("vm_validate", "running", {"operation": "build_dependencies"})
     logger.emit(stage="build_dependencies", script="release.cli", event="stage_started", message="VM build dependencies check started")
     try:
-        report = ensure_vm_build_dependencies(runner, manifest)
+        verified = ensure_vm_build_dependencies(runner, manifest)
+        bound_manifest = bind_build_dependencies(manifest, verified)
+        atomic_write(run_dir / "manifest.json", canonical_json(bound_manifest) + b"\n", mode=0o400)
+        report = verified.report
     except BaseException as error:
         report = getattr(error, "report", {})
-        if (
-            not isinstance(report, dict) or set(report) != BUILD_DEPENDENCY_FIELDS
-            or not all(isinstance(value, str) for value in report.values())
-            or report.get("build_failure_code") not in BUILD_FAILURE_CODES - {"none"}
-            or report.get("build_dependency_status") != "failed"
-            or report.get("build_dependency_count") != "4"
-            or report.get("build_dependency_verified_count") not in {"0", "1", "2", "3", "4"}
-        ):
-            report = {"build_dependency_status": "failed", "build_failure_code": "build_preflight_unproven", "build_dependency_count": "4", "build_dependency_verified_count": "0"}
+        if not validate_build_dependency_report(report) or report.get("build_dependency_status") != "failed":
+            report = VMCandidateBuildError({"build_failure_code": "build_preflight_unproven"}).report
         atomic_write(run_dir / "build-dependencies.json", canonical_json({"checked_at": int(time.time()), **report}) + b"\n")
         state.transition("vm_validate", "failed", report)
         logger.emit(stage="build_dependencies", script="release.cli", event="stage_failed", message="VM build dependencies check failed", level="error", exit_code=1, details=report)
         raise
     atomic_write(run_dir / "build-dependencies.json", canonical_json({"checked_at": int(time.time()), **report}) + b"\n")
     logger.emit(stage="build_dependencies", script="release.cli", event="stage_finished", message="VM build dependencies verified", exit_code=0, details=report)
+    return bound_manifest
 
 
 def _recovery_gate_report(
@@ -426,7 +438,8 @@ def vm_validate(args: argparse.Namespace) -> None:
                 getattr(args, "recovery_gate_mode", "auto"),
                 getattr(args, "full_recovery_evidence", None),
             )
-            _check_build_dependencies(runner, current_manifest, run_dir, logger)
+            current_manifest, production_snapshot = _bind_preflight_snapshot(current_manifest, production_snapshot, production_image_id, recovery_gate, run_dir)
+            current_manifest = _check_build_dependencies(runner, current_manifest, run_dir, logger)
             if recovery_gate["mode"] != "fast":
                 pre_gate_input, rack_pre_gate_dir, vm_pre_gate_dir = prepare_pre_gate_inputs(
                     runner,
@@ -548,7 +561,8 @@ def deploy(args: argparse.Namespace, acquire_lock: bool = True) -> None:
                 getattr(args, "recovery_gate_mode", "auto"),
                 getattr(args, "full_recovery_evidence", None),
             )
-            _check_build_dependencies(runner, current_manifest, RUN_ROOT / identifier, logger)
+            current_manifest, production_snapshot = _bind_preflight_snapshot(current_manifest, production_snapshot, str(production_doctor.get("production_current_image_id", "")), recovery_gate, RUN_ROOT / identifier)
+            current_manifest = _check_build_dependencies(runner, current_manifest, RUN_ROOT / identifier, logger)
             if recovery_gate["mode"] != "fast":
                 pre_gate_input, rack_pre_gate_dir, vm_pre_gate_dir = prepare_pre_gate_inputs(
                     runner,
@@ -879,7 +893,7 @@ def main() -> None:
     inspect_parser.set_defaults(handler=lambda args: __import__("release.supervisor", fromlist=["reconcile_inspect"]).reconcile_inspect(args))
     preserve_parser = subparsers.add_parser("reconcile-vm-preserve")
     preserve_parser.add_argument("release_id")
-    preserve_parser.add_argument("--failed-stage", choices=("pre-validator", "candidate-build", "migration-preflight"), default="pre-validator")
+    preserve_parser.add_argument("--failed-stage", choices=("pre-validator", "build-dependencies", "candidate-build", "migration-preflight"), default="pre-validator")
     preserve_parser.set_defaults(handler=lambda args: __import__("release.supervisor", fromlist=["reconcile_vm_preserve"]).reconcile_vm_preserve(args))
     failed_preserve_parser = subparsers.add_parser("reconcile-vm-failed-preserve")
     failed_preserve_parser.add_argument("release_id")

@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "catalog_version": "2026-10-18",
+  "catalog_version": "2026-10-19",
   "version_contract": {
     "upstream_path": "backend/cmd/server/VERSION",
     "fork_suffix": "-baiyu",
@@ -2170,6 +2170,49 @@
       "api_routes": [], "settings_keys": [], "migration_files": [],
       "required_tests": [".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile265_registry_proxy_review.py", ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_vm_build_registry_proxy.py", ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_release_core.py"],
       "invariants": ["265第四批精确审阅绑定生产aeb410bccc524164bdafbd3db865d4f5f588aced到67545c6d6e02f5210574ced9ea5c366688d28b87，仅vm-validate.sh一条完整净100755 blob（49dbe1513aafe049a76c5ae7425ae5f8824d73eb到242622e8aa9db7d3a911b47031540d4acdc6eef3）；独立集合_PROFILE265_REGISTRY_PROXY_REVIEW_PATHS，旧35+2和99d9三路径批完全不变，净敏感并集仍39；未来blob/mode/delete/move/base与未登记restore/ingress/trust继续阻断，登记和本地Bash回归不证明镜像在线可达、新VM Gate、真实恢复或生产通过", "原 NO_PROXY/no_proxy 例外合并后仅添加镜像主机 docker.m.daocloud.io 与匿名令牌主机 m.daocloud.io 两个精确例外，不添加域名通配或公司后缀，两种变量只对构建子命令生效；父环境和 HTTP/HTTPS/ALL 代理不变", "v2 与 legacy 两入口共用 helper，基础镜像来源、版本及 build args 不变；不修改 daemon/global 代理或重启 Docker", "metadata EOF 先做只读 manifest 对照，不凭匿名 token 请求失败推断权限拒绝；源码新 blob 仍需独立精确恢复审阅，历史分类批不回写"]
+    },
+    {
+      "id": "release-buildkit-dependency-proof",
+      "title": "BuildKit 五依赖锁与真实物化证明",
+      "description": "发布前以实际 docker driver 验证四基础镜像和 frontend，并将同一 digest 锁和后端身份绑定到候选、manifest 与签名 Gate。",
+      "ownership": "fork-operations",
+      "risk_level": "critical",
+      "paths": [
+        ".agents/skills/sub2api-production-deploy/scripts/release/vm-build-common.sh",
+        ".agents/skills/sub2api-production-deploy/scripts/release/vm_build.py",
+        ".agents/skills/sub2api-production-deploy/scripts/release/cli.py",
+        ".agents/skills/sub2api-production-deploy/scripts/release/manifest.py",
+        ".agents/skills/sub2api-production-deploy/scripts/release/gate.py",
+        ".agents/skills/sub2api-production-deploy/scripts/release/vm_validate.py",
+        ".agents/skills/sub2api-production-deploy/scripts/release/vm_only.py",
+        ".agents/skills/sub2api-production-deploy/scripts/release/vm-validate.sh",
+        ".agents/skills/sub2api-production-deploy/scripts/release/vm-only-validate.sh",
+        ".agents/skills/sub2api-production-deploy/scripts/release/supervisor.py"
+      ],
+      "symbols": [
+        "vm_build_preflight",
+        "vm_build_use_proof",
+        "vm_build_candidate",
+        "bind_build_dependencies",
+        "validate_build_dependency_binding"
+      ],
+      "api_routes": [],
+      "settings_keys": [],
+      "migration_files": [],
+      "required_tests": [
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_vm_build_proof.py",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_vm_build_dependencies.py",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_vm_build_registry_proxy.py",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_build_dependency_preserve.py",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/vm_build_real_integration.py"
+      ],
+      "invariants": [
+        "四个既有mirror基础镜像与原DockerHub frontend构成恰好五角色；index与子manifest精确字节校验，同一digest用于一次真实无RUN solve和实际candidate，禁止tag回退",
+        "proof绑定完整源码/helper、四文件物化hash、docker-driver builder与daemon/context/endpoint身份摘要；v1/v2/VM-only及发送前必须复核，迟到旧proof不得复用",
+        "隔离真实OCI registry与私有docker driver覆盖HEAD502、缺frontend、digest漂移、config/layer故障和身份/平台漂移；CLI mock不代表实际resolver通过",
+        "依赖阶段与候选阶段失败分别归因，不自动重试，不改正式daemon/全局代理/镜像源；新helper重新精确审阅和签发Gate，原失败release不变",
+        "原本运行VM的新build-dependencies收口复用退出/owner/boot/无候选/生产未开始证明，保持旧candidate和其他初始电源状态的严格合同"
+      ]
     },
     {
       "id": "release-dmit-http-connect", "title": "生产发布经 DMIT 1080 中继", "description": "RackNerd 的发布命令、状态检查、镜像与恢复包传输统一经 DMIT SSH 和 WireGuard 地址上的 1080 HTTP CONNECT 代理，不允许回退到旧 8888、本机代理或直连。", "ownership": "fork-operations", "risk_level": "critical", "paths": [".agents/skills/sub2api-production-deploy/scripts/release/ssh.py", ".agents/skills/sub2api-production-deploy/scripts/racknerd_readonly_status.py", ".agents/skills/sub2api-production-deploy/SKILL.md", ".agents/skills/sub2api-production-deploy/references/operations-and-online-status.md"], "symbols": ["http_connect_via_ssh", "proxy_via", "_establish_http_connect", "10.77.0.1:1080"], "api_routes": [], "settings_keys": [], "migration_files": [], "required_tests": [".agents/skills/sub2api-production-deploy/scripts/tests/release/test_ssh_output.py", ".agents/skills/sub2api-production-deploy/scripts/test_racknerd_readonly_status.py"], "invariants": ["当前 RackNerd 路由必须先直连 DMIT SSH，再通过 1080 HTTP CONNECT 到 RackNerd 管理端口", "DMIT relay 必须是 direct 且不得递归代理", "HTTP CONNECT 非 200、响应超限、DMIT SSH 或 1080 不可用时 fail-closed", "命令、SFTP 上传下载、doctor 和恢复流程共用同一连接入口", "不得静默回退到本机 SOCKS、旧 8888 或 RackNerd 直连", "1080 只监听 WireGuard 地址；旧 8888 保持停止和禁用"]

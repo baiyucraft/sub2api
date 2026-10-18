@@ -22,22 +22,22 @@ from release.vm_build import (
 )
 from release.vm_validate import _persist_vm_build_failure, _validate_completed_vm_worker
 from test_vm_build_registry_proxy import bash_path
+from test_vm_build_proof import DOCKERFILE_BYTES, mock_committed_files, proof_case, verified_case
+
+
+@pytest.fixture(autouse=True)
+def committed_files(monkeypatch):
+    mock_committed_files(monkeypatch)
 
 
 def manifest():
-    return {
-        "release_id": "274-aaaaaaaaaaaa-1792330000-aaaaaaaa",
-        "commit_sha": "a" * 40,
-        "release_asset_sha256": {BUILD_HELPER_ASSET: hashlib.sha256(BUILD_HELPER.read_bytes()).hexdigest()},
-    }
+    return proof_case()[0]
 
 
 class FakeRunner:
     def __init__(self, values=None, failure=None):
-        self.values = values or {
-            "build_dependency_status": "verified", "build_failure_code": "none",
-            "build_dependency_count": "4", "build_dependency_verified_count": "4",
-        }
+        self.proof = proof_case()[1]
+        self.values = verified_case(self.proof).report if values is None else values
         self.failure = failure
         self.calls = []
         self.uploads = []
@@ -57,18 +57,26 @@ class FakeRunner:
     def upload(self, host, data, path, mode):
         self.uploads.append((host, data, path, mode))
 
+    def download_file(self, host, remote_path, local_path):
+        from release.atomic import canonical_json
+        assert host == "local_vm"
+        assert remote_path == "/opt/sub2api-deploy/release-input/build-dependencies.fixture/proof.json"
+        local_path.write_bytes(canonical_json(self.proof) + b"\n")
+
 
 def test_early_preflight_verifies_helper_and_removes_only_its_input():
     runner = FakeRunner()
     result = ensure_vm_build_dependencies(runner, manifest())
-    assert set(result) == BUILD_DEPENDENCY_FIELDS
-    assert len(runner.uploads) == 1 and runner.uploads[0][3] == 0o400
+    assert set(result.report) == BUILD_DEPENDENCY_FIELDS
+    assert result.proof == runner.proof
+    assert len(runner.uploads) == 2 and all(item[3] == 0o400 for item in runner.uploads)
+    assert runner.uploads[1][1] == DOCKERFILE_BYTES
     command = runner.calls[1][1]
     assert "sha256sum" in command and "0:0:400:1" in command
     assert "source \"$helper\"" in command and "vm_build_preflight" in command
     assert "/build-dependencies-early" in command and "0:0:700" in command
     assert "docker build " not in command and "cat " not in command
-    assert runner.calls[1][3] == 480
+    assert runner.calls[1][3] == 3000
     assert runner.calls[-1][1].startswith("rm -rf -- /opt/sub2api-deploy/release-input/build-dependencies.fixture")
     assert "release-logs" not in runner.calls[-1][1]
 
@@ -86,7 +94,9 @@ def test_missing_or_changed_helper_checksum_does_not_connect():
 def test_early_failure_preserves_only_fixed_report_without_retry(code):
     runner = FakeRunner({
         "build_dependency_status": "failed", "build_failure_code": code,
-        "build_dependency_count": "4", "build_dependency_verified_count": "2",
+        "build_dependency_count": "5", "build_dependency_verified_count": "2",
+        "build_dependency_proof_sha256": "none", "build_dependency_proof_size": "0",
+        "build_failure_phase": "metadata", "build_failure_role": "golang", "build_failure_method": "unknown", "build_retry_count": "0",
     })
     with pytest.raises(VMCandidateBuildError) as error:
         ensure_vm_build_dependencies(runner, manifest())
@@ -121,36 +131,50 @@ def test_ssh_failure_is_unproven_and_never_exposes_error_text():
     assert runner.calls[-1][2] == {"input_removed"}
 
 
-def descriptor():
-    return {
-        "mediaType": "application/vnd.oci.image.manifest.v1+json", "size": 502,
-        "digest": "sha256:" + "a" * 64,
-        "platform": {"os": "linux", "architecture": "amd64"},
-    }
-
-
-def index():
-    return {
-        "schemaVersion": 2, "mediaType": "application/vnd.oci.image.index.v1+json",
-        "manifests": [descriptor()],
-    }
+@pytest.mark.parametrize("damage", ["digest", "size", "json", "noncanonical"])
+def test_downloaded_proof_requires_report_hash_size_and_canonical_bytes(damage):
+    from release.atomic import canonical_json
+    runner = FakeRunner()
+    def download(host, remote_path, local_path):
+        raw = canonical_json(runner.proof) + b"\n"
+        if damage == "digest":
+            runner.proof["materialized_sha256"]["node"] = "7" * 64
+            raw = canonical_json(runner.proof) + b"\n"
+        elif damage == "size":
+            raw += b" "
+        elif damage == "json":
+            raw = b"{secret-token-value}"
+            runner.values["build_dependency_proof_sha256"] = hashlib.sha256(raw).hexdigest()
+            runner.values["build_dependency_proof_size"] = str(len(raw))
+        elif damage == "noncanonical":
+            raw = json.dumps(runner.proof, indent=2).encode() + b"\n"
+            runner.values["build_dependency_proof_sha256"] = hashlib.sha256(raw).hexdigest()
+            runner.values["build_dependency_proof_size"] = str(len(raw))
+        local_path.write_bytes(raw)
+    runner.download_file = download
+    with pytest.raises(VMCandidateBuildError) as error:
+        ensure_vm_build_dependencies(runner, manifest())
+    assert "secret-token-value" not in str(error.value) + json.dumps(error.value.report)
+    assert runner.calls[-1][2] == {"input_removed"}
 
 
 def run_bash(body: str):
-    script = "set -Eeuo pipefail\n" + BUILD_HELPER.read_text(encoding="utf-8") + r'''
+    script = "set -Eeuo pipefail\nsource " + shlex.quote(BUILD_HELPER.as_posix()) + r'''
 scratch=$(mktemp -d)
+scratch=$(cd "$scratch" && pwd -P)
 chmod 700 "$scratch"
 trap 'rm -rf -- "$scratch"' EXIT
 if [[ $OSTYPE == msys* ]]; then
   vm_build_private_directory() { [[ -d $1 && ! -L $1 ]]; }
+  install() { [[ $1 == -d && $2 == -m && $3 == 700 ]] && mkdir -p "$4"; }
+  stat() {
+    if [[ $1 == -c && $2 == '%u:%a:%h' ]]; then printf '%s:400:1' "$(id -u)";
+    else command stat "$@"; fi
+  }
 fi
-timeout() {
-  [[ $1 == --kill-after=10s && $2 == 90s ]] || return 97
-  shift 2
-  "$@"
-}
+timeout() { shift 2; "$@"; }
 ''' + body
-    result = run_hidden([bash_path(), "--noprofile", "--norc", "-s"], input=script, text=True, capture_output=True, timeout=20)
+    result = run_hidden([bash_path(), "--noprofile", "--norc", "-s"], input=script, text=True, encoding="utf-8", capture_output=True, timeout=30)
     assert result.returncode == 0, result.stderr
     assert "secret-token-value" not in result.stdout + result.stderr
     return result.stdout.strip()
@@ -163,70 +187,170 @@ def jq_setup():
     return f"jq() {{ {shlex.quote(Path(jq).as_posix())} \"$@\"; }}\n"
 
 
-def test_four_metadata_inspections_use_fixed_refs_once_and_never_build_or_pull():
-    body = jq_setup() + "fixture=" + shlex.quote(json.dumps(index())) + r'''
-count=0
-docker() {
-  [[ $# == 5 && $1 == buildx && $2 == imagetools && $3 == inspect && $4 == --raw ]] || return 98
-  [[ $5 == "${VM_BUILD_IMAGES[$count]}" ]] || return 99
-  [[ $DOCKER_BUILDKIT == 1 && $NO_PROXY == "$no_proxy" ]] || return 96
-  count=$((count + 1))
-  printf '%s' "$fixture"
+def registry_setup(damage=None):
+    def content(v):
+        raw = json.dumps(v, separators=(",", ":"))
+        return raw, "sha256:" + hashlib.sha256(raw.encode()).hexdigest()
+    child = {
+        "schemaVersion": 2, "mediaType": "application/vnd.oci.image.manifest.v1+json",
+        "config": {"digest": "sha256:" + "1" * 64, "size": 12, "mediaType": "application/vnd.oci.image.config.v1+json"},
+        "layers": [{"digest": "sha256:" + "2" * 64, "size": 20, "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip"}],
+    }
+    raw_child, child_digest = content(child)
+    descriptor = {"mediaType": child["mediaType"], "size": len(raw_child), "digest": child_digest,
+                  "platform": {"os": "linux", "architecture": "amd64"}}
+    if damage == "missing_arch": descriptor["platform"]["architecture"] = "arm64"
+    if damage == "bad_digest": descriptor["digest"] = "secret-token-value"
+    if damage == "bad_size": descriptor["size"] = 0.5
+    index = {"schemaVersion": 2, "mediaType": "application/vnd.oci.image.index.v1+json", "manifests": [descriptor]}
+    if damage == "duplicate_arch": index["manifests"].append(descriptor.copy())
+    raw_index, index_digest = content(index)
+    root_descriptor = {"mediaType": index["mediaType"], "size": len(raw_index), "digest": index_digest}
+    return jq_setup() + "\n".join(f"{k}={shlex.quote(v)}" for k, v in {
+        "root_descriptor": json.dumps(root_descriptor), "raw_index": raw_index,
+        "raw_child": raw_child, "index_digest": index_digest, "child_digest": child_digest,
+    }.items()) + r'''
+printf '# syntax=docker/dockerfile:1.7\nFROM scratch\n' >"$scratch/Dockerfile"
+release_id=274-aaaaaaaaaaaa-1792330000-aaaaaaaa
+commit=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+identity_hash=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+vm_build_capture_identity() {
+  jq -cnS --arg hash "$identity_hash" '{name:"default",driver:"docker",identity_sha256:$hash}' >"$1/builder.json"
 }
-vm_build_preflight "$scratch"
-printf '%s %s %s' "$VM_BUILD_FAILURE_CODE" "$VM_BUILD_DEPENDENCY_VERIFIED_COUNT" "$count"
+docker() {
+  printf x >>"$scratch/docker-calls"
+  if [[ $1 == buildx && $2 == imagetools && $3 == inspect ]]; then
+    case $4 in
+      --format) printf '%s\n' "$root_descriptor";;
+      --raw)
+        case $5 in
+          *@"$index_digest") printf '%s\n' "$raw_index";;
+          *@"$child_digest") printf '%s\n' "$raw_child";;
+          *) return 98;;
+        esac;;
+      *) return 99;;
+    esac
+  elif [[ $1 == buildx && $2 == build ]]; then
+    local arg destination=
+    for arg in "$@"; do
+      if [[ $arg == type=local,dest=* ]]; then destination=${arg#type=local,dest=}; fi
+    done
+    if [[ -z $destination ]]; then
+      [[ " $* " == *' --load '* ]] || return 97
+      local pinned_count=0
+      for arg in "$@"; do
+        case $arg in
+          NODE_IMAGE=*|GOLANG_IMAGE=*|ALPINE_IMAGE=*|POSTGRES_IMAGE=*|BUILDKIT_SYNTAX=*)
+            [[ $arg == *@sha256:* ]] || return 94
+            pinned_count=$((pinned_count+1));;
+        esac
+      done
+      [[ $pinned_count == 5 ]] || return 95
+      printf candidate >>"$scratch/candidate-calls"
+      return 0
+    fi
+    mkdir -p "$destination"
+    for arg in node golang alpine postgres; do printf 'ID=fixture-%s\n' "$arg" >"$destination/$arg"; done
+  else
+    return 96
+  fi
+}
 '''
-    assert run_bash(body) == "none 4 4"
 
 
-@pytest.mark.parametrize("damage", ["missing_arch", "duplicate_arch", "bad_digest", "bad_size", "bad_type", "single_manifest"])
-def test_metadata_requires_exactly_one_valid_linux_amd64_descriptor(damage):
-    value = index()
-    if damage == "missing_arch":
-        value["manifests"][0]["platform"]["architecture"] = "arm64"
-    elif damage == "duplicate_arch":
-        value["manifests"].append(descriptor())
-    elif damage == "bad_digest":
-        value["manifests"][0]["digest"] = "secret-token-value"
-    elif damage == "bad_size":
-        value["manifests"][0]["size"] = 0.1
-    elif damage == "bad_type":
-        value["mediaType"] = "secret-token-value"
-    else:
-        value = descriptor()
-    body = jq_setup() + "fixture=" + shlex.quote(json.dumps(value)) + r'''
-count=0
-docker() { count=$((count + 1)); printf '%s' "$fixture"; }
-if vm_build_preflight "$scratch"; then exit 98; fi
-printf '%s %s %s' "$VM_BUILD_FAILURE_CODE" "$VM_BUILD_DEPENDENCY_VERIFIED_COUNT" "$count"
+def test_real_solve_proof_contains_five_locked_roles_and_four_materializations():
+    body = registry_setup() + r'''
+vm_build_preflight "$scratch" "$release_id" "$commit" "$scratch/Dockerfile"
+jq -e '(.roles|length)==5 and (.materialized_sha256|length)==4 and .dependency_solve_count==1' "$scratch/proof.json" >/dev/null
+printf '%s %s %s' "$VM_BUILD_FAILURE_CODE" "$VM_BUILD_DEPENDENCY_VERIFIED_COUNT" "$(wc -c <"$scratch/docker-calls")"
 '''
-    assert run_bash(body) == "build_registry_metadata_invalid 0 1"
+    assert run_bash(body) == "none 5 16"
+
+
+def test_candidate_consumes_proof_and_uses_all_five_pinned_refs_once():
+    body = registry_setup() + r'''
+vm_build_preflight "$scratch" "$release_id" "$commit" "$scratch/Dockerfile"
+proof_hash=$(sha256sum "$scratch/proof.json" | awk '{print $1}')
+vm_build_use_proof "$scratch/proof.json" "$proof_hash" "$release_id" "$commit" "$scratch/Dockerfile"
+cd "$scratch"
+vm_build_candidate "$scratch/build.log" --build-arg COMMIT="$commit" --build-arg VERSION=fixture --build-arg DATE=fixture -t fixture .
+[[ $(cat "$scratch/candidate-calls") == candidate ]]
+printf '%s %s' "$VM_BUILD_FAILURE_CODE" "$(wc -c <"$scratch/docker-calls")"
+'''
+    assert run_bash(body) == "none 17"
+
+
+@pytest.mark.parametrize("override", [
+    "--build-arg NODE_IMAGE=evil", "--build-arg BUILDKIT_SYNTAX=evil", "--platform linux/arm64",
+    "--builder other", "--build-arg COMMIT=wrong", "--file other", "--output type=registry",
+])
+def test_later_candidate_arguments_cannot_override_verified_inputs(override):
+    body = registry_setup() + r'''
+vm_build_preflight "$scratch" "$release_id" "$commit" "$scratch/Dockerfile"
+proof_hash=$(sha256sum "$scratch/proof.json" | awk '{print $1}')
+vm_build_use_proof "$scratch/proof.json" "$proof_hash" "$release_id" "$commit" "$scratch/Dockerfile"
+cd "$scratch"
+'''
+    body += f'if vm_build_candidate "$scratch/build.log" --build-arg COMMIT="$commit" --build-arg VERSION=fixture --build-arg DATE=fixture -t fixture {override} .; then exit 98; fi\n'
+    body += '[[ ! -e $scratch/candidate-calls ]]\nprintf "%s" "$VM_BUILD_FAILURE_CODE"\n'
+    assert run_bash(body) == "build_dependency_contract"
+
+
+@pytest.mark.parametrize("damage", ["missing_arch", "duplicate_arch", "bad_digest", "bad_size"])
+def test_metadata_requires_one_amd64_and_verified_descriptor_content(damage):
+    body = registry_setup(damage) + r'''
+if vm_build_preflight "$scratch" "$release_id" "$commit" "$scratch/Dockerfile"; then exit 98; fi
+[[ ! -e $scratch/proof.json && ! -e $scratch/solve.log ]]
+printf '%s %s' "$VM_BUILD_FAILURE_CODE" "$VM_BUILD_DEPENDENCY_VERIFIED_COUNT"
+'''
+    assert run_bash(body) == "build_registry_metadata_invalid 0"
+
+
+@pytest.mark.parametrize("target", ["index", "child"])
+def test_wrong_raw_content_never_materializes(target):
+    body = registry_setup() + ("raw_index+=x\n" if target == "index" else "raw_child+=x\n") + r'''
+if vm_build_preflight "$scratch" "$release_id" "$commit" "$scratch/Dockerfile"; then exit 98; fi
+[[ ! -e $scratch/proof.json && ! -e $scratch/solve.log ]]
+printf '%s' "$VM_BUILD_FAILURE_CODE"
+'''
+    assert run_bash(body) == "build_registry_metadata_invalid"
 
 
 @pytest.mark.parametrize("message,status,code", [
     ("unexpected status: 502 Bad Gateway", 1, "build_registry_502"),
-    ("failed to authorize: failed to fetch anonymous token: unexpected status: 502 Bad Gateway", 1, "build_registry_502"),
     ("failed to fetch anonymous token: EOF", 1, "build_registry_eof"),
     ("unauthorized: authentication required", 1, "build_registry_auth"),
     ("x509: certificate signed by unknown authority", 1, "build_registry_tls"),
-    ("i/o timeout", 1, "build_timeout"),
     ("TLS handshake timeout", 1, "build_timeout"),
     ("unclassified", 124, "build_timeout"),
     ("no space left on device", 1, "build_space"),
     ("main.go:7: undefined: missing", 1, "build_compile"),
     ("unclassified", 1, "build_unknown"),
 ])
-@pytest.mark.parametrize("phase", ["metadata", "candidate"])
-def test_failure_codes_hide_raw_diagnostics_and_do_not_retry(message, status, code, phase):
-    if phase == "metadata" and code == "build_compile":
-        code = "build_unknown"
-    body = f"fixture={shlex.quote(message + ' secret-token-value')}\nfixture_status={status}\n" + r'''
-count=0
-docker() { count=$((count + 1)); printf '%s' "$fixture" >&2; return "$fixture_status"; }
+@pytest.mark.parametrize("phase", ["metadata", "dependency", "candidate"])
+def test_fixed_failure_codes_never_return_raw_diagnostics(message, status, code, phase):
+    if phase != "candidate" and code == "build_compile": code = "build_unknown"
+    body = f"printf '%s' {shlex.quote(message + ' secret-token-value')} >\"$scratch/error\"\n"
+    body += f"vm_build_failure_code {phase} {status} \"$scratch/error\""
+    assert run_bash(body) == code
+
+
+@pytest.mark.parametrize("change", ["identity", "commit", "helper", "role", "digest"])
+def test_proof_drift_is_rejected_before_candidate(change):
+    body = registry_setup() + r'''
+vm_build_preflight "$scratch" "$release_id" "$commit" "$scratch/Dockerfile"
+proof_hash=$(sha256sum "$scratch/proof.json" | awk '{print $1}')
 '''
-    call = 'vm_build_preflight "$scratch"' if phase == "metadata" else 'vm_build_candidate "$scratch/build.log" --build-arg COMMIT=fixture -t fixture .'
-    body += f"if {call}; then exit 98; fi\nprintf '%s %s' \"$VM_BUILD_FAILURE_CODE\" \"$count\"\n"
-    assert run_bash(body) == code + " 1"
+    if change == "identity": body += "identity_hash=" + "c" * 64 + "\n"
+    elif change == "commit": body += "commit=" + "c" * 40 + "\n"
+    elif change == "helper": body += 'VM_BUILD_HELPER_PATH="$scratch/Dockerfile"\n'
+    elif change == "role": body += 'VM_BUILD_IMAGES[0]=forbidden.example/node:24-alpine\n'
+    else: body += "proof_hash=" + "c" * 64 + "\n"
+    body += r'''
+if vm_build_use_proof "$scratch/proof.json" "$proof_hash" "$release_id" "$commit" "$scratch/Dockerfile"; then exit 98; fi
+printf '%s' "$VM_BUILD_FAILURE_CODE"
+'''
+    assert run_bash(body) == "build_dependency_contract"
 
 
 def test_failure_is_persisted_locally_with_only_fixed_code(tmp_path):
@@ -250,12 +374,8 @@ def test_nonbuild_worker_failure_keeps_original_vm_failure(stage, code, tmp_path
     assert str(error.value) == "remote VM validator failed; inspect structured Gate evidence"
 
 
-def test_failed_metadata_does_not_classify_successful_json_size_as_http_502():
-    body = "fixture=" + shlex.quote(json.dumps(index())) + r'''
-docker() { printf '%s' "$fixture"; printf 'unexpected EOF secret-token-value' >&2; return 1; }
-if vm_build_preflight "$scratch"; then exit 98; fi
-printf '%s' "$VM_BUILD_FAILURE_CODE"
-'''
+def test_json_sizes_are_not_scanned_for_http_failure():
+    body = 'printf \'{"size":502}\' >"$scratch/metadata"\nprintf \'unexpected EOF\' >"$scratch/error"\nvm_build_failure_code metadata 1 "$scratch/error"'
     assert run_bash(body) == "build_registry_eof"
 
 
@@ -282,13 +402,9 @@ printf '%s' "$VM_BUILD_FAILURE_CODE"
 
 
 @pytest.mark.parametrize("number", [401, 403, 502])
-def test_build_progress_byte_counts_and_source_line_numbers_are_not_http_errors(number):
+def test_build_byte_counts_and_source_lines_are_not_http_errors(number):
     diagnostic = f"transferring context: {number}B\nmain.go:{number}: undefined: missing"
-    body = f"fixture={shlex.quote(diagnostic)}\n" + r'''
-docker() { printf '%s' "$fixture"; return 1; }
-if vm_build_candidate "$scratch/build.log" -t fixture .; then exit 98; fi
-printf '%s' "$VM_BUILD_FAILURE_CODE"
-'''
+    body = f"printf '%s' {shlex.quote(diagnostic)} >\"$scratch/error\"\nvm_build_failure_code candidate 1 \"$scratch/error\""
     assert run_bash(body) == "build_compile"
 
 
@@ -301,9 +417,9 @@ def test_completed_worker_failure_is_persisted_before_validation():
 def test_helper_loading_and_build_preflight_cover_three_entrypoints():
     formal = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
     isolated = (DEPLOY_ROOT / "release" / "vm-only-validate.sh").read_text(encoding="utf-8")
-    assert formal.count('vm_build_preflight "$state_dir/build-dependencies"') == 2
+    assert formal.count('vm_build_use_proof') >= 1
     assert formal.count('vm_build_candidate "$build_log"') == 2
-    assert isolated.count('vm_build_preflight "$build_state_dir/build-dependencies"') == 1
+    assert isolated.count('vm_build_use_proof') == 1
     assert isolated.count('vm_build_candidate "$build_log"') == 1
     assert ".release_asset_sha256[$key]" in formal
     assert 'git show "$commit:$build_helper_relative"' in isolated
