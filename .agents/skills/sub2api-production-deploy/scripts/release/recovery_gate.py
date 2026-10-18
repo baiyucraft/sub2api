@@ -184,6 +184,15 @@ _PROCESS_BUILD_PREFLIGHT_REVIEW_PATHS = frozenset({
         "vm-validate.sh", "vm_build.py", "vm_validate.py",
     )
 })
+# Independent review of the materialized BuildKit dependency proof and its
+# callers. Historical process/preflight objects above remain frozen.
+_BUILDKIT_DEPENDENCY_REVIEW_PATHS = frozenset({
+    _SCRIPTS_PREFIX + "release/" + name for name in (
+        "cli.py", "gate.py", "manifest.py", "supervisor.py",
+        "vm-build-common.sh", "vm-only-validate.sh", "vm-validate.sh",
+        "vm_build.py", "vm_only.py", "vm_validate.py",
+    )
+})
 _REVIEWED_SCOPED_TRANCHES = (
     (
         "aeb410bccc524164bdafbd3db865d4f5f588aced",
@@ -310,6 +319,12 @@ _REVIEWED_SCOPED_TRANCHES = (
         "1a6271af98027b67e63dfb24915aaf11ab395974",
         "reviewed_process_build_preflight_changed",
         _PROCESS_BUILD_PREFLIGHT_REVIEW_PATHS,
+    ),
+    (
+        "5deebb2929c2a694145cc2726e895f01c43d28c1",
+        "89e105dc1618e05018a26a8053f5a8b710db8e98",
+        "reviewed_buildkit_dependency_proof_changed",
+        _BUILDKIT_DEPENDENCY_REVIEW_PATHS,
     ),
 )
 _RELEASE_STATE_MACHINE_FILES = frozenset(
