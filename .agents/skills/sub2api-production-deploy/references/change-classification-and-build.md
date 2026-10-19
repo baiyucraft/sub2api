@@ -455,3 +455,7 @@ sub2api:baiyu-<base-version>-<full-commit-sha>
 官方来源变更单独冻结生产 BASE `5deebb2929c2a694145cc2726e895f01c43d28c1` → 实现 TARGET `3dcb4c0de414bfc2165b55722e22599287a20b80` 的两个 helper：`release/vm-build-common.sh`、`release/vm_build.py`。权威组为 `_OFFICIAL_REGISTRY_SOURCE_REVIEW_PATHS`，理由 `reviewed_official_registry_source_changed`；两条路径在生产 BASE 均须不存在，候选逐项匹配精确新 blob 与模式。源码仅将四个基础镜像前缀改为 `docker.io/library/`，版本、frontend、平台、builder、digest 校验、一次 solve 和三入口合同保持不变。
 
 旧十路径 BuildKit 登记和十四路径 Windows 状态登记均保持冻结；额外敏感路径、删除、改名、模式、BASE 或任一 blob 漂移继续阻断。该来源变更仍走 `specialized` 真实隔离恢复及新 Gate，不要求因切源重做 Full DR。获批 VM 出口维护另以精确计划执行，不进入自动发布脚本；维护、离线 fixture 或官方依赖物化均不能替代应用构建、签名 Gate 和生产验真。
+
+### 原始 index 解析的精确审阅
+
+`_RAW_INDEX_RESOLUTION_REVIEW_PATHS` 独立固定生产 BASE `5deebb2929c2a694145cc2726e895f01c43d28c1` → 实现 TARGET `32aeb69419151beb04610e7ae4452b955c17bf3e`，仅 `release/vm-build-common.sh` 的旧状态不存在、新对象 `100644:789b66786b903716d2756b328891688e193ebf33`，理由 `reviewed_raw_index_resolution_changed`。以 tag 原字节派生初始内容承诺，再按同仓库 digest 复读逐字节确认，不冒称独立 tag-header descriptor 校验。旧官方来源、BuildKit、Windows 与历史登记不回写，未来对象、模式、删除、移动、BASE 和额外敏感路径继续拒绝。回归 `test_raw_index_resolution_recovery_review.py` 固定 literal 对象和历史前缀；最终完整 release suite、specialized 真实恢复、新候选、新签名 Gate 及生产验真仍必需，不因该修复重做 Full DR。
