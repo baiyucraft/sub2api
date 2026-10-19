@@ -614,7 +614,7 @@ class ReleaseCoreTest(unittest.TestCase):
         helper = (DEPLOY_ROOT / "release" / "vm-build-common.sh").read_text(encoding="utf-8")
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
         vm_only = (DEPLOY_ROOT / "release" / "vm-only-validate.sh").read_text(encoding="utf-8")
-        self.assertEqual(helper.count("docker.m.daocloud.io/library/golang:1.27.2-alpine"), 1)
+        self.assertEqual(helper.count("docker.io/library/golang:1.27.2-alpine"), 1)
         self.assertIn('--build-arg "GOLANG_IMAGE=$(jq -r .roles.golang.pinned_ref "$proof")"', helper)
         self.assertIn('vm_build_docker buildx build --builder "$VM_BUILD_BUILDER" --platform "$VM_BUILD_PLATFORM" --load', helper)
         self.assertIn('--network=host --progress=plain "${VM_BUILD_IMAGE_ARGS[@]}" "${candidate_args[@]}"', helper)
@@ -630,6 +630,8 @@ class ReleaseCoreTest(unittest.TestCase):
         for source in (helper, validator, vm_only):
             self.assertNotIn("docker.m.daocloud.io/library/golang:1.27.0-alpine", source)
             self.assertNotIn("docker.m.daocloud.io/library/golang:1.26.6-alpine", source)
+            self.assertNotIn("docker.io/library/golang:1.27.0-alpine", source)
+            self.assertNotIn("docker.io/library/golang:1.26.6-alpine", source)
 
     def test_vm_builder_pins_cannot_drift_from_go_module_and_dockerfile(self) -> None:
         module = (WORKSPACE / "backend" / "go.mod").read_text(encoding="utf-8")
@@ -640,8 +642,8 @@ class ReleaseCoreTest(unittest.TestCase):
         version = required_version[0]
         docker_default = re.findall(r"^ARG GOLANG_IMAGE=(\S+)$", dockerfile, re.MULTILINE)
         self.assertEqual(docker_default, [f"golang:{version}-alpine"])
-        vm_pins = re.findall(r"(?m)^[ \t]*(docker\.m\.daocloud\.io/library/golang:\S+)[ \t]*$", helper)
-        self.assertEqual(vm_pins, [f"docker.m.daocloud.io/library/golang:{version}-alpine"])
+        vm_pins = re.findall(r"(?m)^[ \t]*(docker\.io/library/golang:\S+)[ \t]*$", helper)
+        self.assertEqual(vm_pins, [f"docker.io/library/golang:{version}-alpine"])
 
     def test_profile_192_extends_profile_191_with_group_duplicate_migration(self) -> None:
         profile_191 = get_profile("191")

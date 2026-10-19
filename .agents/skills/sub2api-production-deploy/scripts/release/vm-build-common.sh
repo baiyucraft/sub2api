@@ -3,10 +3,10 @@
 # Metadata resolution, dependency materialization and candidate build are never retried here.
 
 VM_BUILD_IMAGES=(
-  docker.m.daocloud.io/library/node:24-alpine
-  docker.m.daocloud.io/library/golang:1.27.2-alpine
-  docker.m.daocloud.io/library/alpine:3.21
-  docker.m.daocloud.io/library/postgres:18-alpine
+  docker.io/library/node:24-alpine
+  docker.io/library/golang:1.27.2-alpine
+  docker.io/library/alpine:3.21
+  docker.io/library/postgres:18-alpine
 )
 VM_BUILD_FRONTEND=docker.io/docker/dockerfile:1.7
 VM_BUILD_PLATFORM=linux/amd64

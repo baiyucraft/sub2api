@@ -94,7 +94,7 @@ def test_valid_proof_binds_once_and_is_idempotent():
     (("helper_sha256",), "b" * 64), (("platform",), "linux/arm64"),
     (("builder", "name"), "other"), (("builder", "driver"), "docker-container"),
     (("builder", "identity_sha256"), "invalid"), (("builder", "endpoint"), "secret-token-value"),
-    (("roles", "node", "declared_ref"), "docker.io/library/node:24-alpine"),
+    (("roles", "node", "declared_ref"), "docker.m.daocloud.io/library/node:24-alpine"),
     (("roles", "node", "pinned_ref"), "docker.m.daocloud.io/library/node@sha256:" + "7" * 64),
     (("roles", "frontend", "index_digest"), "sha256:invalid"),
     (("roles", "golang", "config", "size"), True),
@@ -376,3 +376,13 @@ printf 'status=%s\\nsolve=%s\\nuse=%s\\n' "$status" "$solve" "$use"
     assert result.returncode == 0, result.stderr
     values = dict(line.split("=", 1) for line in result.stdout.splitlines())
     assert values == {"status": "success" if scenario == "success" else "failed", "solve": "0", "use": "1" if scenario in {"success", "bad_sha", "reject"} else "0"}
+
+
+@pytest.mark.parametrize("role", ["node", "golang", "alpine", "postgres"])
+def test_previous_mirror_proof_is_rejected_even_with_consistent_digest(role):
+    manifest, proof = proof_case()
+    record = proof["roles"][role]
+    record["declared_ref"] = record["declared_ref"].replace("docker.io/", "docker.m.daocloud.io/")
+    record["pinned_ref"] = record["pinned_ref"].replace("docker.io/", "docker.m.daocloud.io/")
+    with pytest.raises(RuntimeError, match="proof contract is invalid"):
+        vm_build.validate_build_dependency_proof(proof, manifest)
