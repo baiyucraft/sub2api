@@ -449,3 +449,9 @@ sub2api:baiyu-<base-version>-<full-commit-sha>
 经独立审阅，本批固定生产 BASE `5deebb2929c2a694145cc2726e895f01c43d28c1` → 实现 TARGET `89e105dc1618e05018a26a8053f5a8b710db8e98`，仅冻结 `release/cli.py`、`gate.py`、`manifest.py`、`supervisor.py`、`vm-build-common.sh`、`vm-only-validate.sh`、`vm-validate.sh`、`vm_build.py`、`vm_only.py`、`vm_validate.py` 十条同路径 Git blob 与模式。权威组为 `_BUILDKIT_DEPENDENCY_REVIEW_PATHS`，理由 `reviewed_buildkit_dependency_proof_changed`；其中两个新 helper 的生产旧状态必须不存在。原 `_PROCESS_BUILD_PREFLIGHT_REVIEW_PATHS` 及全部历史 TARGET 不回写，其他未变化的路径继续匹配各自历史审阅。
 
 本批覆盖五角色 digest 锁、一次真实物化、proof 下载/绑定及签名验证、三入口消费、早期生产快照绑定与严格 proof 失败收口；不修改生产数据恢复算法、备份格式或信任根。最终候选仍须 `specialized` 真实隔离恢复、新签名 VM Gate 及生产验真。`test_buildkit_dependency_recovery_review.py` 固定十项 literal 对象与历史登记，逐项拒绝 blob、mode、删除、移动、BASE 漂移和额外敏感路径。登记不自动学习未来候选，不以目录或祖先关系豁免；本地测试与真实依赖 solve 均不能替代应用构建或生产发布。
+
+### 官方镜像来源的精确审阅
+
+官方来源变更单独冻结生产 BASE `5deebb2929c2a694145cc2726e895f01c43d28c1` → 实现 TARGET `3dcb4c0de414bfc2165b55722e22599287a20b80` 的两个 helper：`release/vm-build-common.sh`、`release/vm_build.py`。权威组为 `_OFFICIAL_REGISTRY_SOURCE_REVIEW_PATHS`，理由 `reviewed_official_registry_source_changed`；两条路径在生产 BASE 均须不存在，候选逐项匹配精确新 blob 与模式。源码仅将四个基础镜像前缀改为 `docker.io/library/`，版本、frontend、平台、builder、digest 校验、一次 solve 和三入口合同保持不变。
+
+旧十路径 BuildKit 登记和十四路径 Windows 状态登记均保持冻结；额外敏感路径、删除、改名、模式、BASE 或任一 blob 漂移继续阻断。该来源变更仍走 `specialized` 真实隔离恢复及新 Gate，不要求因切源重做 Full DR。获批 VM 出口维护另以精确计划执行，不进入自动发布脚本；维护、离线 fixture 或官方依赖物化均不能替代应用构建、签名 Gate 和生产验真。
