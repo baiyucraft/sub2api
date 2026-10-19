@@ -361,7 +361,7 @@ frontend source
 - `sub2api-go-mod`
 - `sub2api-go-build`
 
-VM Gate v2、历史 Gate v1 与 VM-only 三个构建入口共用 `vm-build-common.sh` 的 `vm_build_docker`／`vm_build_candidate`。它从原环境一次合并 `NO_PROXY`／`no_proxy` 例外，仅添加既有镜像主机 `docker.m.daocloud.io` 与其匿名令牌主机 `m.daocloud.io` 两个精确例外，不使用域名通配或公司后缀，将相同列表以两种大小写传给构建子命令；父环境与 HTTP/HTTPS/ALL 代理保持原样。该范围同时覆盖 BuildKit 客户端的匿名 token 请求，不替代 daemon 的网络配置。不得为构建修复重启 Docker、清空全局代理、切换基础镜像来源或降低 Go 版本。metadata EOF 应先以只读 manifest 对照区分代理传输问题、权限错误和缺失镜像，不能仅凭匿名 token 请求失败推断 401/403。回归以真实 Bash 覆盖三个入口、原例外合并、父环境隔离和失败退出码；validator 新 blob 仍须在源码提交后独立精确审阅，历史批次不回写。
+VM Gate v2、历史 Gate v1 与 VM-only 三个构建入口共用 `vm-build-common.sh` 的 `vm_build_docker`／`vm_build_candidate`。它从原环境一次合并 `NO_PROXY`／`no_proxy` 例外，仅添加既有镜像主机 `docker.m.daocloud.io` 与其匿名令牌主机 `m.daocloud.io` 两个精确例外，不使用域名通配或公司后缀，将相同列表以两种大小写传给构建子命令；父环境与 HTTP/HTTPS/ALL 代理保持原样。该范围同时覆盖 BuildKit 客户端的匿名 token 请求，不替代 daemon 的网络配置。发布脚本不得自动重启 Docker、清空全局代理、动态切换基础镜像来源或降低 Go 版本。当前固定官方来源继承既有官方域名代理规则，不新增 Docker Hub 的 NO_PROXY 例外；旧镜像站两个精确例外仅保留兼容。显式获批的 VM 出口维护与发布脚本分离，须先记录精确配置差异、服务影响、回退和实际 builder 验证结果。metadata EOF 应先以只读 manifest 对照区分代理传输问题、权限错误和缺失镜像，不能仅凭匿名 token 请求失败推断 401/403。回归以真实 Bash 覆盖三个入口、原例外合并、父环境隔离和失败退出码；validator 新 blob 仍须在源码提交后独立精确审阅，历史批次不回写。
 
 `deploy/docker-compose.dev.yml` 的 build context 指向仓库根，并使用根 `Dockerfile`。`deploy/Dockerfile` 与根 Dockerfile 的差异本身属于构建链改动，不能在不分类的情况下切换。
 
@@ -435,13 +435,13 @@ sub2api:baiyu-<base-version>-<full-commit-sha>
 
 应用 runner、独立插件 runner 与 consumed 发布 finalization 统一使用 `release.process.process_identity`。Windows 显式声明完整 HANDLE 和 Win32 调用类型，使用同一句柄在读取创建时间前后执行 `WaitForSingleObject(handle, 0)`：已终止返回无存活身份，等待超时才允许返回原格式的创建时间 token。保留进程句柄不代表进程仍存活；真实退出码 259 也不能以 `STILL_ACTIVE` 数值推断存活。访问拒绝、等待失败或时间查询失败按未知阻断，取得的句柄最终关闭。Linux 的不存在 PID 和僵尸/退出状态没有存活身份，权限、格式和读取异常继续阻断。三入口不得各自维护弱化实现；finalization 保持既有未知身份错误合同。
 
-五个固定 registry 依赖为四个既有基础镜像（`docker.m.daocloud.io/library/node:24-alpine`、`golang:1.27.2-alpine`、`alpine:3.21`、`postgres:18-alpine`）及原 Docker Hub frontend `docker.io/docker/dockerfile:1.7`。每个角色只解析一次 tag descriptor，再按 digest 获取 index 和唯一 `linux/amd64` 子 manifest；校验 descriptor 的精确长度、media type 与原始字节 SHA-256，拒绝错误摘要、额外 JSON 文档和不合法 config/layer 描述。仅允许剥离 CLI 在精确长度后追加的一个 LF，不能对重排后的 JSON 计算 registry digest。
+五个固定 registry 依赖统一使用 Docker Hub 官方来源：`docker.io/library/node:24-alpine`、`docker.io/library/golang:1.27.2-alpine`、`docker.io/library/alpine:3.21`、`docker.io/library/postgres:18-alpine` 及 `docker.io/docker/dockerfile:1.7`。四个基础镜像的声明与严格证明校验必须同步，旧镜像站引用即使与 pinned ref 自洽也拒绝；不在失败时自动切回镜像站。每个角色只解析一次 tag descriptor，再按 digest 获取 index 和唯一 `linux/amd64` 子 manifest；校验 descriptor 的精确长度、media type 与原始字节 SHA-256，拒绝错误摘要、额外 JSON 文档和不合法 config/layer 描述。仅允许剥离 CLI 在精确长度后追加的一个 LF，不能对重排后的 JSON 计算 registry digest。
 
 准备生产恢复输入前，使用现有 `docker` driver、显式 `default` builder 和 `linux/amd64` 平台完成一次无 `RUN` 的真实 BuildKit solve。最终 scratch stage 从四个基础镜像分别 `COPY /etc/os-release` 并导出核对，所有来源均可达；frontend 通过同一 digest 的 `BUILDKIT_SYNTAX` 被实际执行。config/layer 内容由 BuildKit 的内容寻址校验承担。该检查证明 resolver 和文件物化，不证明后续 apk/npm/Go 下载、编译或镜像站持续可用。
 
 有界只读 proof 绑定 release、完整 commit、Dockerfile/helper SHA、五角色 index/manifest digest 与 config/layer 描述、四份物化文件 SHA，以及 builder、daemon/context/endpoint 的非秘密身份摘要。proof 以 canonical JSON 加 LF 形成 SHA，严格校验后一次绑定 manifest 并纳入 Gate 签名。Gate v2、历史 Gate v1 的新执行和 VM-only 均消费同一合同；发送候选前只复核 proof、源码和实际 builder/platform 身份，不重复 solve，也不重新解析 tag。正式候选通过 `buildx build --load` 使用同五个 pinned ref；调用方只能提供 COMMIT/VERSION/DATE/tag，不能通过后置参数覆盖依赖、平台、builder、Dockerfile 或 exporter。历史签名证据保持原字节，不补字段。
 
-依赖和候选均不自动重试、不切换镜像源、不修改正式 daemon/global 代理。诊断仅返回固定原因码、阶段、角色、已知 HEAD/GET 或 unknown，以及 `retry_count=0`；成功的 5/5 必须同时有一次 solve 的完整 proof。raw metadata、stderr、身份端点和构建日志仅留远端私有目录（0700，日志0600），本地只接收有界白名单 proof。依赖失败与 `candidate_build` 分开记录，未取得正式收口资格时继续阻断；原本运行 VM 的 proof 阶段失败使用精确 `reconcile-vm-preserve --failed-stage build-dependencies`，复核原 worker 退出、同 owner/boot、无候选/签名/生产副作用后保留 VM 并释放租约，不扩宽旧 candidate 合同。
+依赖和候选均不自动重试、不切换镜像源、不修改正式 daemon/global 代理。诊断仅返回固定原因码、阶段、角色、已知 HEAD/GET 或 unknown，以及 `retry_count=0`；成功的 5/5 必须同时有一次 solve 的完整 proof。raw metadata、stderr、身份端点和构建日志仅留远端私有目录（0700，日志0600），本地只接收有界白名单 proof。依赖失败与 `candidate_build` 分开记录，未取得正式收口资格时继续阻断；原本运行 VM 的 validator 内部 proof 阶段失败使用精确 `reconcile-vm-preserve --failed-stage build-dependencies`；CLI 早期依赖检查尚未启动 validator、远端 Gate 和 raw log 均不存在时使用既有 `pre-validator` 分支。正式入口仍须复核原 worker 退出、同 owner/boot、无候选/签名/生产副作用后保留 VM 并释放租约，不按同名阶段猜测收口资格，不扩宽旧 candidate 合同。
 
 
 ### BuildKit 依赖证明的精确审阅

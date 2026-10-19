@@ -118,10 +118,10 @@ VM_BUILD_COMMIT=$commit
 vm_build_use_proof() {
   VM_BUILD_FAILURE_CODE=none
   VM_BUILD_IMAGE_ARGS=(
-    --build-arg "NODE_IMAGE=docker.m.daocloud.io/library/node@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    --build-arg "GOLANG_IMAGE=docker.m.daocloud.io/library/golang@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    --build-arg "ALPINE_IMAGE=docker.m.daocloud.io/library/alpine@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    --build-arg "POSTGRES_IMAGE=docker.m.daocloud.io/library/postgres@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    --build-arg "NODE_IMAGE=docker.io/library/node@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    --build-arg "GOLANG_IMAGE=docker.io/library/golang@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    --build-arg "ALPINE_IMAGE=docker.io/library/alpine@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    --build-arg "POSTGRES_IMAGE=docker.io/library/postgres@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     --build-arg "BUILDKIT_SYNTAX=docker.io/docker/dockerfile@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
   )
 }
@@ -147,13 +147,14 @@ printf '%s\0' "$result"
             merged = ",".join(value for value in (merged, host) if value)
     assert fields[:8] == parent
     assert fields[8:16] == [merged, merged] + proxy_values
+    assert not {"docker.io", "registry-1.docker.io", "auth.docker.io"} & set(fields[8].split(","))
     assert fields[8].split(",").count(MIRROR) == 1
     assert fields[8].split(",").count(AUTH) == 1
     argument_count = int(fields[16])
     arguments = fields[17:17 + argument_count]
     assert arguments[:9] == ["buildx", "build", "--builder", "default", "--platform", "linux/amd64", "--load", "--network=host", "--progress=plain"]
     for image in ("node", "golang", "alpine", "postgres"):
-        assert any(f"=docker.m.daocloud.io/library/{image}@sha256:" in argument for argument in arguments)
+        assert any(f"=docker.io/library/{image}@sha256:" in argument for argument in arguments)
     assert any(argument.startswith("BUILDKIT_SYNTAX=docker.io/docker/dockerfile@sha256:") for argument in arguments)
     assert arguments[-3:] == ["-t", "fixture-tag", "."]
     assert arguments.count("DATE=fixture-date") == 1
@@ -166,3 +167,19 @@ def test_real_bash_validator_syntax():
     for path in (VALIDATOR, VM_ONLY_VALIDATOR, BUILD_HELPER):
         result = run_hidden([bash_path(), "--noprofile", "--norc", "-n"], input=path.read_text(encoding="utf-8"), capture_output=True, text=True, timeout=15)
         assert result.returncode == 0, result.stderr
+
+
+def test_official_sources_are_exact_and_shared_by_python_and_shell():
+    from release.vm_build import BUILD_DEPENDENCY_REFS
+    expected = {
+        "frontend": "docker.io/docker/dockerfile:1.7",
+        "node": "docker.io/library/node:24-alpine",
+        "golang": "docker.io/library/golang:1.27.2-alpine",
+        "alpine": "docker.io/library/alpine:3.21",
+        "postgres": "docker.io/library/postgres:18-alpine",
+    }
+    assert BUILD_DEPENDENCY_REFS == expected
+    script = 'source ' + shlex.quote(BUILD_HELPER.as_posix()) + '; printf "%s\\n" "$VM_BUILD_FRONTEND" "${VM_BUILD_IMAGES[@]}"'
+    result = run_hidden([bash_path(), "--noprofile", "--norc", "-c", script], capture_output=True, text=True, timeout=15)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == list(expected.values())

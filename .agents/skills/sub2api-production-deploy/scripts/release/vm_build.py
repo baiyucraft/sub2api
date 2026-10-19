@@ -19,10 +19,10 @@ BUILD_HELPER = RELEASE_PACKAGE_ROOT / "vm-build-common.sh"
 BUILD_HELPER_ASSET = skill_asset_path("release/vm-build-common.sh")
 BUILD_DEPENDENCY_REFS = {
     "frontend": "docker.io/docker/dockerfile:1.7",
-    "node": "docker.m.daocloud.io/library/node:24-alpine",
-    "golang": "docker.m.daocloud.io/library/golang:1.27.2-alpine",
-    "alpine": "docker.m.daocloud.io/library/alpine:3.21",
-    "postgres": "docker.m.daocloud.io/library/postgres:18-alpine",
+    "node": "docker.io/library/node:24-alpine",
+    "golang": "docker.io/library/golang:1.27.2-alpine",
+    "alpine": "docker.io/library/alpine:3.21",
+    "postgres": "docker.io/library/postgres:18-alpine",
 }
 BUILD_DEPENDENCY_COUNT = str(len(BUILD_DEPENDENCY_REFS))
 BUILD_DEPENDENCY_CONTRACT = "buildkit-dependencies-v1"
