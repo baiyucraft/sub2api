@@ -217,15 +217,22 @@ identity_hash=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 vm_build_capture_identity() {
   jq -cnS --arg hash "$identity_hash" '{name:"default",driver:"docker",identity_sha256:$hash}' >"$1/builder.json"
 }
+tag_raw_index=$raw_index
+raw_extra_lf=0
 docker() {
   printf x >>"$scratch/docker-calls"
+  printf '%s\n' "$*" >>"$scratch/docker-arguments"
   if [[ $1 == buildx && $2 == imagetools && $3 == inspect ]]; then
     case $4 in
-      --format) printf '%s\n' "$root_descriptor";;
+      --format) return 93;;
       --raw)
         case $5 in
-          *@"$index_digest") printf '%s\n' "$raw_index";;
-          *@"$child_digest") printf '%s\n' "$raw_child";;
+          *@*) ;;
+          *) printf '%s' "$tag_raw_index"; return 0;;
+        esac
+        case $5 in
+          *@"$index_digest") printf '%s' "$raw_index"; if [[ $raw_extra_lf == 1 ]]; then printf '\n'; fi;;
+          *@"$child_digest") printf '%s' "$raw_child"; if [[ $raw_extra_lf == 1 ]]; then printf '\n'; fi;;
           *) return 98;;
         esac;;
       *) return 99;;
@@ -424,3 +431,81 @@ def test_helper_loading_and_build_preflight_cover_three_entrypoints():
     assert ".release_asset_sha256[$key]" in formal
     assert 'git show "$commit:$build_helper_relative"' in isolated
     assert '[[ $build_helper_actual == "$build_helper_expected" ]]' in isolated
+
+
+@pytest.mark.parametrize("native_lf", [False, True])
+@pytest.mark.parametrize("extra_lf", [False, True])
+def test_tag_raw_bytes_are_hashed_without_stripping_native_lf(native_lf, extra_lf):
+    body = registry_setup()
+    if extra_lf:
+        body += "raw_extra_lf=1\n"
+    if native_lf:
+        body += r"""raw_index+=$'\n'; tag_raw_index=$raw_index; index_digest=sha256:$(printf "%s" "$raw_index" | sha256sum | awk '{print $1}')""" + "\n"
+    body += r'''
+vm_build_lock_role "$scratch" node "${VM_BUILD_IMAGES[0]}"
+[[ $(jq -r .digest "$scratch/node-descriptor.json") == "$index_digest" ]]
+[[ $(jq -r .size "$scratch/node-descriptor.json") == $(stat -c %s "$scratch/node-tag-index.json") ]]
+cmp -s "$scratch/node-tag-index.json" "$scratch/node-index.json"
+printf pass
+'''
+    assert run_bash(body) == "pass"
+
+
+@pytest.mark.parametrize("damage", ["double_json", "wrong_type", "wrong_version", "not_index", "empty", "oversize"])
+def test_tag_raw_shape_and_bounds_fail_before_immutable_fetch(damage):
+    body = registry_setup()
+    changes = {
+        "double_json": 'tag_raw_index+=\'{}\'\n',
+        "wrong_type": "tag_raw_index='[]'\n",
+        "wrong_version": "tag_raw_index='{" + '\"schemaVersion\":1,\"mediaType\":\"application/vnd.oci.image.index.v1+json\",\"manifests\":[]' + "}'\n",
+        "not_index": "tag_raw_index='{" + '\"schemaVersion\":2,\"mediaType\":\"application/vnd.oci.image.manifest.v1+json\",\"manifests\":[]' + "}'\n",
+        "empty": "tag_raw_index=''\n",
+        "oversize": "tag_raw_index=$(head -c 4194305 /dev/zero | tr '\\0' x)\n",
+    }
+    body += changes[damage] + r'''
+if vm_build_lock_role "$scratch" node "${VM_BUILD_IMAGES[0]}"; then exit 98; fi
+[[ $(wc -c <"$scratch/docker-calls") == 1 ]]
+[[ ! -e $scratch/node-index.json && ! -e $scratch/proof.json && ! -e $scratch/solve.log ]]
+printf '%s' "$VM_BUILD_FAILURE_CODE"
+'''
+    assert run_bash(body) == "build_registry_metadata_invalid"
+
+
+def test_tag_is_resolved_once_then_only_immutable_digest_is_read():
+    body = registry_setup() + r'''
+vm_build_lock_role "$scratch" node "${VM_BUILD_IMAGES[0]}"
+[[ $(wc -c <"$scratch/docker-calls") == 3 ]]
+[[ $(grep -Fxc -- "buildx imagetools inspect --raw ${VM_BUILD_IMAGES[0]}" "$scratch/docker-arguments") == 1 ]]
+[[ -e $scratch/node-tag-index.json && -e $scratch/node-manifest.json ]]
+printf pass
+'''
+    assert run_bash(body) == "pass"
+
+
+def test_extra_lf_only_on_tag_cannot_change_registry_digest_identity():
+    body = registry_setup() + r'''
+tag_raw_index+=$'\n'
+if vm_build_lock_role "$scratch" node "${VM_BUILD_IMAGES[0]}"; then exit 98; fi
+[[ $(wc -c <"$scratch/docker-calls") == 2 ]]
+[[ ! -e $scratch/node-lock.json && ! -e $scratch/proof.json && ! -e $scratch/solve.log ]]
+printf '%s' "$VM_BUILD_FAILURE_CODE"
+'''
+    assert run_bash(body) == "build_unknown"
+
+
+@pytest.mark.parametrize("symlink", [False, True])
+def test_existing_derived_descriptor_is_never_overwritten(symlink):
+    body = registry_setup() + r'''
+printf evidence >"$scratch/preserved"
+'''
+    body += 'ln -s "$scratch/preserved" "$scratch/node-descriptor.json"\n[[ -L $scratch/node-descriptor.json ]] || { printf symlink_unavailable; exit 0; }\n' if symlink else 'cp "$scratch/preserved" "$scratch/node-descriptor.json"\n'
+    body += r'''
+if vm_build_lock_role "$scratch" node "${VM_BUILD_IMAGES[0]}"; then exit 98; fi
+[[ $(cat "$scratch/node-descriptor.json") == evidence && $(cat "$scratch/preserved") == evidence ]]
+[[ ! -e $scratch/node-index.json && ! -e $scratch/proof.json && ! -e $scratch/solve.log ]]
+printf pass
+'''
+    result = run_bash(body)
+    if result == "symlink_unavailable":
+        pytest.skip("Bash filesystem does not create real symlinks")
+    assert result == "pass"
