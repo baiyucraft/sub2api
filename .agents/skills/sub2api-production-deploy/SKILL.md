@@ -452,3 +452,9 @@ Windows 既有目标采用 `ReplaceFileW` 安全替换并保留独占备份，�
 官方基础镜像来源变更单独冻结生产 BASE `5deebb2929c2a694145cc2726e895f01c43d28c1` → 实现 TARGET `3dcb4c0de414bfc2165b55722e22599287a20b80`。`_OFFICIAL_REGISTRY_SOURCE_REVIEW_PATHS` 仅接受 `release/vm-build-common.sh`、`release/vm_build.py` 两个精确同路径新 blob 与模式，生产旧状态均须不存在；理由 `reviewed_official_registry_source_changed`。旧 BuildKit、Windows 和全部历史登记保持冻结，未来字节、模式、删除、改名、BASE 或额外敏感路径漂移继续阻断。
 
 源码只变更四个基础镜像前缀，版本、frontend、builder、平台、digest 校验、一次 solve 和三入口合同不变。仍执行 specialized 当前 helper 的真实隔离恢复、新候选和新签名 Gate，不因切源重做 Full DR。获批的 VM 出口维护与发布脚本分离，不授权自动修改 daemon；离线 fixture、官方依赖物化和应用编译各自留证，不能互相替代或当作生产成功。
+
+### 原始 index 解析的精确审阅
+
+独立登记 `_RAW_INDEX_RESOLUTION_REVIEW_PATHS` 固定生产 BASE `5deebb2929c2a694145cc2726e895f01c43d28c1` → 实现 TARGET `32aeb69419151beb04610e7ae4452b955c17bf3e`，仅接受生产旧状态不存在的 `release/vm-build-common.sh`，新对象为 `100644:789b66786b903716d2756b328891688e193ebf33`，理由 `reviewed_raw_index_resolution_changed`。原官方来源两路径、BuildKit 十路径、Windows 十四路径和全部历史登记均保持冻结。
+
+该修复以 tag 返回的完整原字节作为初始内容承诺，再以同仓库 digest 独立复读和逐字节比较确认；不宣称取得独立 tag-header descriptor。三入口继续执行相同 digest 的一次真实物化、specialized 隔离恢复、新候选及新签名 Gate，不因此重做 Full DR。`test_raw_index_resolution_recovery_review.py` 固定精确 literal 对象与历史登记，拒绝未来 blob、mode、删除、移动、BASE 和额外敏感路径漂移；完整最终提交测试与生产验真仍不可省略。

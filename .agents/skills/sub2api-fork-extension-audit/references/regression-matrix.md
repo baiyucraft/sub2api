@@ -326,6 +326,8 @@ VM Gate v2、历史 Gate v1 的新执行与 VM-only 三入口共用 SHA 绑定�
 
 官方镜像来源的独立登记由 `test_official_registry_source_recovery_review.py` 固定生产 BASE `5deebb2929c2a694145cc2726e895f01c43d28c1` → 实现 TARGET `3dcb4c0de414bfc2165b55722e22599287a20b80`，仅 `_OFFICIAL_REGISTRY_SOURCE_REVIEW_PATHS` 两个 helper 的 literal blob/mode，生产旧状态均不存在。负例逐项覆盖 blob、模式、删除、改名、BASE、旧对象存在及额外敏感路径，保持旧 BuildKit/Windows 和历史登记前缀不变；specialized 实际恢复、新 Gate 及最终生产验真仍必需，切源本身不触发 Full DR。
 
+原始 index 解析另由 `test_raw_index_resolution_recovery_review.py` 固定生产 BASE `5deebb2929c2a694145cc2726e895f01c43d28c1` → 实现 TARGET `32aeb69419151beb04610e7ae4452b955c17bf3e`：`_RAW_INDEX_RESOLUTION_REVIEW_PATHS` 仅接受旧状态不存在的 `release/vm-build-common.sh`，新对象 `100644:789b66786b903716d2756b328891688e193ebf33`，理由 `reviewed_raw_index_resolution_changed`。初始承诺由 tag 原字节派生，同仓库 digest 独立复读逐字节确认，不冒称独立 tag-header descriptor；历史登记不回写。literal 负例拒绝未来 blob、mode、delete、move、BASE 及额外敏感路径；完整最终测试、specialized 真实恢复、新候选、新签名 Gate 与生产验真仍必需，不因此重做 Full DR。
+
 ## Windows 发布状态快照
 
 应用、插件、VM owner 和后置完成的可变 JSON、hash、字节 snapshot 共用共享删除读。Windows 原生安全替换保留旧备份，首次创建不覆盖竞争目标，POSIX 原合同保持；成功后核对目标与备份，失败保留可用对象并区分提交前/后。真实多进程覆盖 held reader、状态观察、备份清理和首次创建竞争；普通不共享删除读者、权限及中间态错误仍失败封闭。新 runner 完成见证绑定 release ID 与同次 terminal 原字节，status/wait/verify-result 对缺失、损坏、漂移和提交后失败一致拒绝成功；历史证据不回填。回归入口 `test_windows_atomic.py`、`test_replaceable_state_readers.py`、supervisor/plugin_supervisor、VM lifecycle/finalization 与完整 release suite；模拟错误不冒称真实系统故障。源码和密钥、签名、归档不通配改读，candidate 哈希保持分块。恢复敏感最终 blob/mode 仍须独立精确审阅和新 Gate，不复用失败发布。
