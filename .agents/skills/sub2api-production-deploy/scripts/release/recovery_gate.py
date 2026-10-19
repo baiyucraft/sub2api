@@ -203,6 +203,13 @@ _WINDOWS_STATE_IO_REVIEW_PATHS = frozenset({
         "worker_errors.py", "terminal_receipt.py",
     )
 })
+# Exact source-selection review only; dependency materialization, recovery
+# logic, proxy scope and all historical reviewed objects remain unchanged.
+_OFFICIAL_REGISTRY_SOURCE_REVIEW_PATHS = frozenset({
+    _SCRIPTS_PREFIX + "release/" + name for name in (
+        "vm-build-common.sh", "vm_build.py",
+    )
+})
 _REVIEWED_SCOPED_TRANCHES = (
     (
         "aeb410bccc524164bdafbd3db865d4f5f588aced",
@@ -341,6 +348,12 @@ _REVIEWED_SCOPED_TRANCHES = (
         "48d2f9660f51b9037f6875fffcb6e51bb280ce29",
         "reviewed_windows_state_io_changed",
         _WINDOWS_STATE_IO_REVIEW_PATHS,
+    ),
+    (
+        "5deebb2929c2a694145cc2726e895f01c43d28c1",
+        "3dcb4c0de414bfc2165b55722e22599287a20b80",
+        "reviewed_official_registry_source_changed",
+        _OFFICIAL_REGISTRY_SOURCE_REVIEW_PATHS,
     ),
 )
 _RELEASE_STATE_MACHINE_FILES = frozenset(

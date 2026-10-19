@@ -420,7 +420,7 @@ jq -cS '.manifest.migration_sha256' | sha256sum
 
 应用 runner、独立插件 runner 与 consumed 发布 finalization 统一使用 `release.process.process_identity`。Windows 显式声明完整 HANDLE 和 Win32 调用类型，使用同一句柄在读取创建时间前后执行 `WaitForSingleObject(handle, 0)`：已终止返回无存活身份，等待超时才允许返回原格式的创建时间 token。保留进程句柄不代表进程仍存活；真实退出码 259 也不能以 `STILL_ACTIVE` 数值推断存活。访问拒绝、等待失败或时间查询失败按未知阻断，取得的句柄最终关闭。Linux 的不存在 PID 和僵尸/退出状态没有存活身份，权限、格式和读取异常继续阻断。三入口不得各自维护弱化实现；finalization 保持既有未知身份错误合同。
 
-五个固定 registry 依赖为四个既有基础镜像（`docker.m.daocloud.io/library/node:24-alpine`、`golang:1.27.2-alpine`、`alpine:3.21`、`postgres:18-alpine`）及原 Docker Hub frontend `docker.io/docker/dockerfile:1.7`。每个角色只解析一次 tag descriptor，再按 digest 获取 index 和唯一 `linux/amd64` 子 manifest；校验 descriptor 的精确长度、media type 与原始字节 SHA-256，拒绝错误摘要、额外 JSON 文档和不合法 config/layer 描述。仅允许剥离 CLI 在精确长度后追加的一个 LF，不能对重排后的 JSON 计算 registry digest。
+五个固定 registry 依赖统一使用 Docker Hub 官方来源：`docker.io/library/node:24-alpine`、`docker.io/library/golang:1.27.2-alpine`、`docker.io/library/alpine:3.21`、`docker.io/library/postgres:18-alpine` 及 `docker.io/docker/dockerfile:1.7`。四个基础镜像的声明与严格证明校验必须同步，旧镜像站引用即使与 pinned ref 自洽也拒绝；不在失败时自动切回镜像站。每个角色只解析一次 tag descriptor，再按 digest 获取 index 和唯一 `linux/amd64` 子 manifest；校验 descriptor 的精确长度、media type 与原始字节 SHA-256，拒绝错误摘要、额外 JSON 文档和不合法 config/layer 描述。仅允许剥离 CLI 在精确长度后追加的一个 LF，不能对重排后的 JSON 计算 registry digest。
 
 准备生产恢复输入前，使用现有 `docker` driver、显式 `default` builder 和 `linux/amd64` 平台完成一次无 `RUN` 的真实 BuildKit solve。最终 scratch stage 从四个基础镜像分别 `COPY /etc/os-release` 并导出核对，所有来源均可达；frontend 通过同一 digest 的 `BUILDKIT_SYNTAX` 被实际执行。config/layer 内容由 BuildKit 的内容寻址校验承担。该检查证明 resolver 和文件物化，不证明后续 apk/npm/Go 下载、编译或镜像站持续可用。
 
@@ -446,3 +446,9 @@ Windows 既有目标采用 `ReplaceFileW` 安全替换并保留独占备份，�
 新 runner 的成功终态还须有独占发布的完成见证，绑定 release ID 与 terminal runner 原字节 SHA-256。见证只在状态提交和所有必需收尾成功后发布；缺失、损坏或不匹配时，status、wait 和 verify-result 均拒绝成功。已发布 verified JSON 后发生校验或清理错误也不能绕过该约束。历史 runner 按原 schema 验证，不回填旧证据。
 
 本批精确审阅固定生产 BASE `5deebb2929c2a694145cc2726e895f01c43d28c1` → 实现 TARGET `48d2f9660f51b9037f6875fffcb6e51bb280ce29`，仅限 `_WINDOWS_STATE_IO_REVIEW_PATHS` 的 14 个显式同路径旧/新 Git blob 与模式；新 `worker_errors.py`、`terminal_receipt.py` 的生产旧状态必须不存在，且纳入控制文件敏感性检测。理由为 `reviewed_windows_state_io_changed`，仍强制 specialized 真实隔离恢复及新签名 Gate。历史 tranche 和路径组不变，任一对象、模式、BASE 或额外敏感路径漂移继续阻断；回归为 `test_windows_state_recovery_review.py`。
+
+### 官方镜像来源的精确审阅
+
+官方基础镜像来源变更单独冻结生产 BASE `5deebb2929c2a694145cc2726e895f01c43d28c1` → 实现 TARGET `3dcb4c0de414bfc2165b55722e22599287a20b80`。`_OFFICIAL_REGISTRY_SOURCE_REVIEW_PATHS` 仅接受 `release/vm-build-common.sh`、`release/vm_build.py` 两个精确同路径新 blob 与模式，生产旧状态均须不存在；理由 `reviewed_official_registry_source_changed`。旧 BuildKit、Windows 和全部历史登记保持冻结，未来字节、模式、删除、改名、BASE 或额外敏感路径漂移继续阻断。
+
+源码只变更四个基础镜像前缀，版本、frontend、builder、平台、digest 校验、一次 solve 和三入口合同不变。仍执行 specialized 当前 helper 的真实隔离恢复、新候选和新签名 Gate，不因切源重做 Full DR。获批的 VM 出口维护与发布脚本分离，不授权自动修改 daemon；离线 fixture、官方依赖物化和应用编译各自留证，不能互相替代或当作生产成功。
