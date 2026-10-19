@@ -210,6 +210,11 @@ _OFFICIAL_REGISTRY_SOURCE_REVIEW_PATHS = frozenset({
         "vm-build-common.sh", "vm_build.py",
     )
 })
+# Independent review of raw root-index resolution; the prior official source
+# selection and every historical object/path group remain frozen.
+_RAW_INDEX_RESOLUTION_REVIEW_PATHS = frozenset({
+    _SCRIPTS_PREFIX + "release/vm-build-common.sh",
+})
 _REVIEWED_SCOPED_TRANCHES = (
     (
         "aeb410bccc524164bdafbd3db865d4f5f588aced",
@@ -354,6 +359,12 @@ _REVIEWED_SCOPED_TRANCHES = (
         "3dcb4c0de414bfc2165b55722e22599287a20b80",
         "reviewed_official_registry_source_changed",
         _OFFICIAL_REGISTRY_SOURCE_REVIEW_PATHS,
+    ),
+    (
+        "5deebb2929c2a694145cc2726e895f01c43d28c1",
+        "32aeb69419151beb04610e7ae4452b955c17bf3e",
+        "reviewed_raw_index_resolution_changed",
+        _RAW_INDEX_RESOLUTION_REVIEW_PATHS,
     ),
 )
 _RELEASE_STATE_MACHINE_FILES = frozenset(
