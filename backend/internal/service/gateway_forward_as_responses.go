@@ -198,7 +198,15 @@ func (s *GatewayService) ForwardAsResponses(
 	var result *ForwardResult
 	var handleErr error
 	if clientStream {
+		writerSizeBeforeStream := c.Writer.Size()
 		result, handleErr = s.handleResponsesStreamingResponse(resp, c, originalModel, mappedModel, reasoningEffort, startTime, clientToolMapping)
+		var sseErr *sseStreamErrorEventError
+		switch {
+		case errors.As(handleErr, &sseErr):
+			return nil, s.sseStreamErrorEventFailover(ctx, c, account, resp, sseErr.RawData, mappedModel, c.Writer.Size() != writerSizeBeforeStream)
+		case errors.Is(handleErr, errAnthropicNativeStreamIdle) && s.rateLimitService != nil:
+			s.rateLimitService.HandleStreamTimeout(ctx, account, originalModel)
+		}
 	} else {
 		result, handleErr = s.handleResponsesBufferedStreamingResponse(resp, c, originalModel, mappedModel, reasoningEffort, startTime, clientToolMapping)
 	}
@@ -545,21 +553,10 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 	var usage ClaudeUsage
 	var firstTokenMs *int
 	firstChunk := true
-	// 客户端断开后停止向下游写入，继续读完上游以合并 message_delta 的最终 usage。
-	clientDisconnected := false
+	writerSizeBeforeStream := c.Writer.Size()
 
-	scanner := bufio.NewScanner(resp.Body)
-	maxLineSize := defaultMaxLineSize
-	if s.cfg != nil && s.cfg.Gateway.MaxLineSize > 0 {
-		maxLineSize = s.cfg.Gateway.MaxLineSize
-	}
-	scanner.Buffer(make([]byte, 0, 64*1024), maxLineSize)
-	streamInterval := s.anthropicCompatStreamInterval()
-	pump := newAnthropicNativeLinePump(scanner, streamInterval)
-	defer pump.stop()
-	nextLine := func() (string, bool) {
-		return nextAnthropicCompatLine(pump, resp.Body, streamInterval, "forward_as_responses", requestID, clientDisconnected)
-	}
+	stream := newAnthropicCompatStream(s.cfg, c, resp, "forward_as_responses", requestID)
+	defer stream.stop()
 
 	resultWithUsage := func() *ForwardResult {
 		return &ForwardResult{
@@ -572,7 +569,7 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 			Stream:           true,
 			Duration:         time.Since(startTime),
 			FirstTokenMs:     firstTokenMs,
-			ClientDisconnect: clientDisconnected,
+			ClientDisconnect: stream.clientDisconnected,
 		}
 	}
 
@@ -592,7 +589,7 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 		if event.Type == "message_start" && event.Message != nil {
 			mergeAnthropicUsage(&usage, event.Message.Usage)
 		}
-		if clientDisconnected {
+		if stream.clientDisconnected {
 			return
 		}
 
@@ -625,10 +622,7 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 			for _, restored := range payloads {
 				eventType := gjson.GetBytes(restored, "type").String()
 				if _, err := fmt.Fprintf(c.Writer, "event: %s\ndata: %s\n\n", eventType, restored); err != nil {
-					clientDisconnected = true
-					logger.L().Info("forward_as_responses stream: client disconnected, continuing to drain upstream for billing",
-						zap.String("request_id", requestID),
-					)
+					stream.markClientDisconnected()
 					return
 				}
 			}
@@ -639,7 +633,12 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 	}
 
 	finalizeStream := func() (*ForwardResult, error) {
-		if clientDisconnected {
+		if failure := stream.failure(); failure != nil {
+			return finishAnthropicCompatStreamFailure(c, writerSizeBeforeStream, failure, resultWithUsage(), func() {
+				writeAnthropicCompatResponsesStreamFailure(c, state, clientToolRestorer, failure)
+			})
+		}
+		if stream.clientDisconnected {
 			return resultWithUsage(), nil
 		}
 		if finalEvents := apicompat.FinalizeAnthropicResponsesStream(state); len(finalEvents) > 0 {
@@ -658,7 +657,7 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 
 	// Read Anthropic SSE events
 	for {
-		line, ok := nextLine()
+		line, ok := stream.nextLine()
 		if !ok {
 			break
 		}
@@ -668,7 +667,7 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 		}
 
 		// Read data line
-		dataLine, ok := nextLine()
+		dataLine, ok := stream.nextLine()
 		if !ok {
 			break
 		}
@@ -687,6 +686,10 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 			continue
 		}
 
+		stream.observe(&event, payload)
+		if stream.upstreamErrType != "" {
+			break
+		}
 		processEvent(&event)
 	}
 
