@@ -130,6 +130,27 @@ class FixtureData:
         self.manifests[sha256(manifest)] = (manifest, MANIFEST)
         return manifest
 
+    def add_metadata_only_branches(self) -> None:
+        """Extra platform and attestation content must never be metadata input."""
+        for role in (*ROLES, "frontend"):
+            index = json.loads(self.manifests[self.tags[role]][0])
+            config = json_bytes({"architecture": "unknown", "os": "unknown", "config": {},
+                                 "rootfs": {"type": "layers", "diff_ids": []}})
+            sbom = json_bytes({"_type": "https://in-toto.io/Statement/v0.1", "predicateType": "fixture-sbom"})
+            self.blobs[sha256(config)], self.blobs[sha256(sbom)] = config, sbom
+            attestation = json_bytes({"schemaVersion": 2, "mediaType": MANIFEST,
+                "config": descriptor(config, CONFIG),
+                "layers": [descriptor(sbom, "application/vnd.in-toto+json")]})
+            self.manifests[sha256(attestation)] = (attestation, MANIFEST)
+            item = descriptor(attestation, MANIFEST)
+            item.update(platform={"os": "unknown", "architecture": "unknown"},
+                        annotations={"vnd.docker.reference.type": "attestation-manifest",
+                                     "vnd.docker.reference.digest": self.role_data[role]["manifest"]})
+            index["manifests"].append(item)
+            raw = json_bytes(index)
+            self.manifests[sha256(raw)] = (raw, INDEX)
+            self.tags[role] = sha256(raw)
+
 
 class Registry:
     def __init__(self, data: FixtureData, scenario: str, certificate: Path | None = None, key: Path | None = None):
@@ -214,6 +235,9 @@ class Registry:
                         payload = payload.replace(b'"schemaVersion":2', b'"schemaVersion":3')
                     self.send_resource(resource, digest, payload, media, 200, head)
                 else:
+                    if registry.scenario == "metadata_only_no_blobs":
+                        self.send_resource(resource, reference if is_digest else "", b'{"errors":[{"code":"BLOB_UNKNOWN"}]}', "application/json", 404, head)
+                        return
                     if reference not in registry.data.blobs or (registry.scenario == "config_missing" and role == "golang" and reference == registry.data.role_data[role]["config"]):
                         self.send_resource(resource, reference if is_digest else "", b'{"errors":[{"code":"BLOB_UNKNOWN"}]}', "application/json", 404, head)
                         return

@@ -2211,7 +2211,7 @@
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/vm_build_real_integration.py"
       ],
       "invariants": [
-        "四个docker.io/library官方基础镜像与docker.io/docker/dockerfile官方frontend构成恰好五角色，严格映射拒绝旧mirror来源即使declared/pinned自洽；index与子manifest精确字节校验，同一digest用于一次真实无RUN solve和实际candidate，禁止tag回退",
+        "四个docker.io/library官方基础镜像与docker.io/docker/dockerfile官方frontend构成恰好五角色，严格映射拒绝旧mirror来源即使declared/pinned自洽；tag仅一次原字节index读取，严格JSON/mediaType/4MiB检查，原字节长度和SHA派生root descriptor并按digest独立复读核对；metadata不得加载任何blob；原生尾LF参与摘要，禁止首tag猜测裁剪或JSON重排；子manifest独立descriptor精确字节校验，同一digest用于一次真实无RUN solve和实际candidate，禁止tag回退",
         "proof绑定完整源码/helper、四文件物化hash、docker-driver builder与daemon/context/endpoint身份摘要；v1/v2/VM-only及发送前必须复核，迟到旧proof不得复用",
         "隔离真实OCI registry与私有docker driver覆盖HEAD502、缺frontend、digest漂移、config/layer故障和身份/平台漂移；CLI mock不代表实际resolver通过",
         "依赖阶段与候选阶段失败分别归因，不自动重试，不改正式daemon/全局代理/镜像源；新helper重新精确审阅和签发Gate，原失败release不变",

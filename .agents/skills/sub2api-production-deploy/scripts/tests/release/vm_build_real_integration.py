@@ -8,6 +8,7 @@ No registry, builder, or other image is downloaded. Raw logs remain on the VM.
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import http.client
 import json
@@ -27,7 +28,7 @@ SCENARIOS = (
     "original_success", "success", "tag_head_502", "frontend_missing", "tag_drift",
     "wrong_digest", "config_missing", "layer_truncated", "manifest_missing", "auth_error",
     "unsupported_builder", "unsupported_platform", "builder_drift", "context_drift",
-    "daemon_drift", "platform_drift",
+    "daemon_drift", "platform_drift", "metadata_only_no_blobs",
 )
 COMMIT = "a" * 40
 RELEASE = "274-aaaaaaaaaaaa-1-deadbeef"
@@ -203,6 +204,9 @@ def scenario(root: Path, data: Any, name: str) -> dict[str, Any]:
     proof_dir.mkdir(mode=0o700)
     result: dict[str, Any] = {"scenario": name, "status": "failed", "candidate_invoked": False,
                               "application_compile": "not_checked", "fault_observed": False}
+    if name == "metadata_only_no_blobs":
+        data = copy.deepcopy(data)
+        data.add_metadata_only_branches()
     registry = Registry(data, name, root / "registry.crt", root / "registry.key")
     registry.start()
     daemon = None
@@ -217,6 +221,32 @@ def scenario(root: Path, data: Any, name: str) -> dict[str, Any]:
             if not result["index_get200_verified"]:
                 raise RuntimeError("control_index_get")
         prelude = shell_prelude(root, registry.address)
+        if name == "metadata_only_no_blobs":
+            control = execute(["docker", "buildx", "imagetools", "inspect", "--format", "{{json .Manifest}}",
+                               registry.address + "/fixture/golang:v1"], env=env, timeout=90,
+                              log=directory / "formatted-negative-control.log")
+            result["formatted_control_failed"] = control.returncode != 0
+            result["formatted_control_blob_404"] = any(row["resource"] == "blob" and row["status"] == 404 for row in registry.trace)
+            metadata_offset = len(registry.trace)
+            commands = ["vm_build_lock_role " + shlex.quote(str(proof_dir)) + " " + role + " " +
+                        shlex.quote(registry.address + "/fixture/" + role + ":v1") for role in (*ROLES, "frontend")]
+            metadata = execute(["bash", "-c", prelude + "\n".join(commands)], env=env, timeout=180,
+                               log=directory / "metadata-wrapper.log")
+            result["metadata_process_exit"] = metadata.returncode
+            result["metadata_blob_request_count"] = sum(row["resource"] == "blob" for row in registry.trace[metadata_offset:])
+            result["metadata_locked_count"] = sum((proof_dir / (role + "-lock.json")).is_file() for role in (*ROLES, "frontend"))
+            result["metadata_amd64_locks_verified"] = all((proof_dir / (role + "-lock.json")).is_file() and
+                json.loads((proof_dir / (role + "-lock.json")).read_text())["manifest_digest"] == data.role_data[role]["manifest"]
+                for role in (*ROLES, "frontend"))
+            allowed_manifests = set(data.tags.values()) | {data.role_data[role]["manifest"] for role in (*ROLES, "frontend")}
+            result["metadata_unselected_manifest_request_count"] = sum(row["resource"] == "manifest_digest" and
+                row["digest"] not in allowed_manifests for row in registry.trace[metadata_offset:])
+            result["no_solve_or_proof"] = not (proof_dir / "proof.json").exists() and not (proof_dir / "solve.log").exists()
+            result["fault_observed"] = result["formatted_control_failed"] and result["formatted_control_blob_404"]
+            result["status"] = "pass" if (result["fault_observed"] and metadata.returncode == 0 and
+                result["metadata_blob_request_count"] == 0 and result["metadata_locked_count"] == 5 and result["metadata_amd64_locks_verified"] and
+                result["metadata_unselected_manifest_request_count"] == 0 and result["no_solve_or_proof"]) else "failed"
+            return result
         alteration = "VM_BUILD_BUILDER=fixture-unsupported\n" if name == "unsupported_builder" else "VM_BUILD_PLATFORM=linux/arm64\n" if name == "unsupported_platform" else ""
         output = directory / "preflight-result"
         script = prelude + alteration + "\n".join([

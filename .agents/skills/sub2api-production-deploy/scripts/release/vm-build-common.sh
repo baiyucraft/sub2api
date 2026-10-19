@@ -172,18 +172,22 @@ vm_build_lock_role() {
   VM_BUILD_FAILURE_PHASE=metadata
   VM_BUILD_FAILURE_ROLE=$role
   VM_BUILD_FAILURE_METHOD=unknown
-  vm_build_inspect "$directory/$role-descriptor.json" "$directory/$role-descriptor.stderr" --format '{{json .Manifest}}' "$image" || return 1
-  jq -se 'length==1' "$directory/$role-descriptor.json" >/dev/null 2>&1 || return 1
-  jq -e '
-    (.digest | type == "string" and test("^sha256:[0-9a-f]{64}$")) and
-    (.size | type == "number" and . > 0 and . <= 4194304 and floor == .) and
-    (.mediaType == "application/vnd.oci.image.index.v1+json" or .mediaType == "application/vnd.docker.distribution.manifest.list.v2+json")
-  ' "$directory/$role-descriptor.json" >/dev/null 2>&1 || return 1
-  root_digest=$(jq -r .digest "$directory/$role-descriptor.json") || return 1
-  root_size=$(jq -r .size "$directory/$role-descriptor.json") || return 1
-  root_type=$(jq -r .mediaType "$directory/$role-descriptor.json") || return 1
+  # A formatted inspect eagerly loads every platform's config/attestations in
+  # Buildx. Raw mode fetches only the root manifest and preserves its bytes.
+  vm_build_inspect "$directory/$role-tag-index.json" "$directory/$role-descriptor.stderr" --raw "$image" || return 1
+  root_size=$(stat -c '%s' "$directory/$role-tag-index.json") || return 1
+  [[ $root_size =~ ^[1-9][0-9]*$ && $root_size -le 4194304 ]] || return 1
+  jq -se 'length == 1 and (.[0] | type == "object" and .schemaVersion == 2 and
+    (.mediaType == "application/vnd.oci.image.index.v1+json" or .mediaType == "application/vnd.docker.distribution.manifest.list.v2+json") and
+    (.manifests | type == "array"))' "$directory/$role-tag-index.json" >/dev/null 2>&1 || return 1
+  root_digest=sha256:$(sha256sum "$directory/$role-tag-index.json" | awk '{print $1}') || return 1
+  root_type=$(jq -r .mediaType "$directory/$role-tag-index.json") || return 1
+  vm_build_new_log "$directory/$role-descriptor.json" || return 1
+  jq -cnS --arg digest "$root_digest" --argjson size "$root_size" --arg media "$root_type" \
+    '{digest:$digest,size:$size,mediaType:$media}' >"$directory/$role-descriptor.json" || return 1
   vm_build_inspect "$directory/$role-index.json" "$directory/$role-index.stderr" --raw "$repository@$root_digest" || return 1
   vm_build_verify_content "$directory/$role-index.json" "$root_digest" "$root_size" || return 1
+  cmp -s "$directory/$role-tag-index.json" "$directory/$role-index.json" || return 1
   jq -se 'length==1' "$directory/$role-index.json" >/dev/null 2>&1 || return 1
   jq -e --arg media "$root_type" '
     .schemaVersion == 2 and .mediaType == $media and (.manifests | type == "array") and
