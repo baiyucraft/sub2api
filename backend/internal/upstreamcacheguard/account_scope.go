@@ -676,8 +676,19 @@ func (e *Engine) accountSnapshotAtLocked(id string, a AccountSnapshot, now time.
 	a.LoadedAt = loadedAt
 	a.Available = ageValid && now.Sub(loadedAt) <= UsableSnapshotLifetime
 	a.Fresh = a.Available && !gap && now.Sub(loadedAt) <= RefreshLifetime
-	if e.accountPolicyEpoch != nil && a.AccountID != 0 && e.accountPolicyEpoch[id] != e.policyEpoch.Load() {
-		a.Fresh = false
+	if e.accountPolicyEpoch != nil && a.AccountID != 0 {
+		policyEpoch, registered := e.accountPolicyEpoch[id]
+		_, published := e.accounts[id]
+		_, versioned := e.refreshVersions[id]
+		if !registered && !published && !versioned && !gap {
+			// A successful directory refresh also verifies identities with no
+			// persisted evidence yet. Let them reach their first admission;
+			// existing or failed identities must retain their own epoch check.
+			policyEpoch = e.refreshPolicyEpoch
+		}
+		if policyEpoch != e.policyEpoch.Load() {
+			a.Fresh = false
+		}
 	}
 	return a
 }
