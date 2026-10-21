@@ -437,3 +437,7 @@ Redis 延迟注入的 150 秒启动观察预算从本次 `redis_restored.started
 `full_recovery_authorization.py` 的 `authorize-drill` 签发隔离执行授权，`request`/`sign` 只处理实际 collector receipt 与其完成后的独立审阅批准；`sign-full-recovery-review.sh` 使用既有固定 Ed25519 身份。完整证据仍由现有 `recovery_evidence.py` 重算 Git/分类/资产与全部真实恢复字段。实际 Guest 失败保留 root-only 诊断，不生成完整通过证明；单元测试密钥、工具自检、资源安装、来源捕获与签发代码存在均不证明真实恢复或生产发布完成。
 
 Guest manifest 必须绑定实际 Docker 版本、离线 daemon 配置和 Compose 插件字节，provisioning 显式核验 UTC zoneinfo；capture release 命名空间不得冒充真实生产 source commit/profile/version。发布后基线另用 fresh postrelease capture 和同 Guest candidate-load receipt，独立 findings 绑定 exact bundle/engine/rootfs/time，保留旧晋升器 TTL 等式与旧 `verified`。执行顺序与 runtime 前置基准见 [Full DR 与发布后基线调度串](backup-and-restore.md#full-dr-与发布后基线的可重跑调度串)；这些前置观察不证明真实恢复或基线晋升。
+
+### probe_config_identity 与恢复前认证
+
+doctor/recovery 审阅应把 `probe_config_identity` 视为独立阶段：它证明的是 VM 有效凭据、probe 副本配置、不可变 PostgreSQL image、隔离网络和认证结果的闭包，不证明生产配置 user 与 VM owner 相同。状态与诊断只允许输出阶段、固定原因码和资源归属标记；不得输出密码、完整环境或原始连接错误。probe 连接目录和临时环境快照在成功或失败路径均清除，仅保留本 release 的私有有界失败诊断；不能用清理结果掩盖前置失败。

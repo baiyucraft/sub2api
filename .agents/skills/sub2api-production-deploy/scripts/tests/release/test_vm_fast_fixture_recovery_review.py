@@ -15,6 +15,7 @@ from release.process import check_output_hidden
 
 BASE = "c88f06e57a829438595263d524e02219aa2f5a2e"
 TARGET = "85d7274703ad07570403e501ecb9b66c8f0218ea"
+REGISTRY = "2b3adebac40c86c683999a895a3a765813e8623e"
 PREFIX = ".agents/skills/sub2api-production-deploy/scripts/release/"
 HELPER = PREFIX + "vm_fast_fixture_preserve.py"
 REASON = "reviewed_vm_fixture_ownership_preserve_changed"
@@ -58,11 +59,14 @@ def test_prior_registry_is_frozen_and_ast_only_adds_this_tranche():
     exec(compile(text, TARGET + ":recovery_gate.py", "exec"), prior)
     for name in ("_REVIEWED_COMPATIBILITY_TRANCHES", "_REVIEWED_GATE_POLICY_TRANCHES", "_REVIEWED_MIGRATION_GATE_TRANCHES"):
         assert getattr(gate, name) == prior[name]
-    assert gate._REVIEWED_SCOPED_TRANCHES == (*prior["_REVIEWED_SCOPED_TRANCHES"], TRANCHE)
+    frozen = (*prior["_REVIEWED_SCOPED_TRANCHES"], TRANCHE)
+    assert gate._REVIEWED_SCOPED_TRANCHES[:len(frozen)] == frozen
     for name, value in prior.items():
         if name.startswith("_") and name.endswith("_PATHS"):
             assert getattr(gate, name) == value
-    current = ast.parse(Path(gate.__file__).read_text(encoding="utf-8"))
+    # Audit the historical registration at its immutable commit. New reviewed
+    # tranches must not rewrite the proof for this older incident.
+    current = ast.parse(source_at(REGISTRY))
     retained = []
     for node in current.body:
         names = {t.id for t in node.targets if isinstance(t, ast.Name)} if isinstance(node, ast.Assign) else set()

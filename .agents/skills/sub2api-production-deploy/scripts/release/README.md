@@ -456,3 +456,7 @@ SSH 超时后以远端 committed marker 重新判定阶段，不凭本地异常�
 分类理由为 `reviewed_vm_fixture_ownership_preserve_changed`。完整净 validator 同时包含应用角色恢复对象、配置角色核验和同族失败退出码/输出先持久化修复；新增 helper 是专事故保留收口，不修改生产 PostgreSQL/Redis 协调恢复算法、备份格式或信任根。该 helper 已明确列入恢复敏感文件，不按目录、祖先或事故类型豁免未来变化。
 
 历史各路径集合和登记前缀保持冻结；任何未来字节、模式、删除、改名、BASE、额外敏感路径及新增 helper 旧状态不为空均拒绝，显式 full 不能解除未知变化阻断。`test_vm_fast_fixture_recovery_review.py` 独立固定 literal 对象、逐项负例和当前分类 AST 的唯一登记增量；旧 raw-index AST 在其固定登记提交验真，不把新登记写回历史。最终仍须新完整 SHA、干净推送、新候选、新签名 VM Gate 及生产验真；精确登记与本地/隔离回归不等于发布完成。
+
+### VM probe 配置与资源归属
+
+`vm-validate.sh` 的所有恢复探针入口均先调用 `vm-probe-config.py`：它从 VM 有效环境生成 probe-only `connection.env`/`postgres.env`，完成 PostgreSQL 身份预检后才创建隔离数据库。`DATABASE_*` 的非空环境值遵循 Viper 优先级，生产配置不会被改写；恢复使用 `pg_restore --no-owner --role`，不要求跨环境 user/owner 相等。资源 cleanup 只针对本次成功创建并有 owned 标记的容器、网络、连接和数据库；同名已有资源不会被删除。成功或失败均清理临时连接，仅保留 0700/0600 私有有界失败诊断。
