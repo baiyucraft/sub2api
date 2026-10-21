@@ -460,3 +460,18 @@ SSH 超时后以远端 committed marker 重新判定阶段，不凭本地异常�
 ### VM probe 配置与资源归属
 
 `vm-validate.sh` 的所有恢复探针入口均先调用 `vm-probe-config.py`：它从 VM 有效环境生成 probe-only `connection.env`/`postgres.env`，完成 PostgreSQL 身份预检后才创建隔离数据库。`DATABASE_*` 的非空环境值遵循 Viper 优先级，生产配置不会被改写；恢复使用 `pg_restore --no-owner --role`，不要求跨环境 user/owner 相等。资源 cleanup 只针对本次成功创建并有 owned 标记的容器、网络、连接和数据库；同名已有资源不会被删除。成功或失败均清理临时连接，仅保留 0700/0600 私有有界失败诊断。
+
+### Probe 连接与失败保留的精确审阅
+
+`_VM_PROBE_CONFIG_PRESERVE_REVIEW_PATHS` 仅追加生产 BASE `c88f06e57a829438595263d524e02219aa2f5a2e` → 实现 TARGET `91a13c6c64558f5d78ae8b75979af0e6a24b60b2`，理由为 `reviewed_vm_probe_config_preserve_changed`。固定对象如下，两个新 helper 的旧状态必须不存在：
+
+| 相对 scripts 路径 | BASE 对象 | TARGET 对象 |
+| --- | --- | --- |
+| `release/cli.py` | `100644:c7b1c9b4bb633a7474bc9761b3d9b4f3a710558e` | `100644:65ba379d893258d40266799ae4a35b1b2d82b068` |
+| `release/vm-validate.sh` | `100755:e45e1bbd9d972f16823b64054646500c91c5ea90` | `100755:d48b6dc2ab97e2b470b8299318121f212a4f6e93` |
+| `release/vm-probe-config.py` | 不存在 | `100644:2957c1eb31c48e11b73d707bdf553fec15b9809c` |
+| `release/vm_restore_probe_preserve.py` | 不存在 | `100644:d39f66afb85783263aafc75747bf03493a190c72` |
+
+本批统一 probe-only 连接权限、应用角色恢复和容器所有权；容器先 create、记录不可变 ID 和 owned，再 start，失败按 ID 清理。专事故 preserve helper 只收口冻结的 `274-12d4cf67d1c6-1792572302-7b82c271`，不重跑、不清理远端资源、不关机。生产恢复算法、备份格式和信任根未改，仍要求 `specialized` 真实隔离恢复、新候选及新签名 Gate。
+
+历史 tranche 不回写。`test_vm_probe_config_recovery_review.py` 独立固定 literal 对象、旧登记 AST 和实现的两项敏感标记；逐路径拒绝 blob/mode/删除/改名/BASE、额外敏感路径、缺失审阅来源，以及新增 helper 旧路径已是文件、目录、symlink 或 gitlink。同名异目录不能借用登记，既有敏感路径迁移仍阻断。显式 full 不能解除未审变化阻断；本地测试不代表生产发布。
