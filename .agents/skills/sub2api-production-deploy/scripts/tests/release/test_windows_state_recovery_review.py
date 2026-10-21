@@ -15,6 +15,7 @@ from release.process import check_output_hidden
 
 BASE = "5deebb2929c2a694145cc2726e895f01c43d28c1"
 TARGET = "48d2f9660f51b9037f6875fffcb6e51bb280ce29"
+REGISTRY = "3327fe7591029edde0ad37898deac9dd3d1a195d"
 PREFIX = ".agents/skills/sub2api-production-deploy/scripts/release/"
 REASON = "reviewed_windows_state_io_changed"
 OBJECTS = {
@@ -115,9 +116,22 @@ def test_all_historical_registry_prefixes_remain_unchanged():
     for name, value in prior.items():
         if name.endswith("_PATHS"):
             assert getattr(gate, name) == value
-    assert gate._RECOVERY_CONTROL_FILES == prior["_RECOVERY_CONTROL_FILES"] | NEW_HELPERS
-    for name in ("_RELEASE_STATE_MACHINE_FILES", "_RECOVERY_RUNTIME_FILES", "_SPECIALIZED_FILES"):
-        assert getattr(gate, name) == prior[name]
+    # Verify the sensitive-file delta at this review's immutable registration.
+    # Later reviewed helpers have their own literal/AST regression contracts.
+    registered_source = check_output_hidden(
+        ["git", "show", REGISTRY + ":" + PREFIX + "recovery_gate.py"],
+        cwd=WORKSPACE, text=True,
+    )
+    registered = {"__name__": "windows_state_review_registered", "__package__": "release"}
+    exec(compile(registered_source, REGISTRY + ":recovery_gate.py", "exec"), registered)
+    assert registered["_RECOVERY_CONTROL_FILES"] == prior["_RECOVERY_CONTROL_FILES"] | NEW_HELPERS
+    assert registered["_RECOVERY_CONTROL_FILES"] <= gate._RECOVERY_CONTROL_FILES
+    for name in ("_RELEASE_STATE_MACHINE_FILES", "_RECOVERY_RUNTIME_FILES"):
+        assert registered[name] == prior[name]
+        assert registered[name] <= getattr(gate, name)
+    assert registered["_SPECIALIZED_FILES"] == prior["_SPECIALIZED_FILES"]
+    for path, reason in registered["_SPECIALIZED_FILES"].items():
+        assert gate._SPECIALIZED_FILES.get(path) == reason
 
 
 def test_actual_review_is_specialized_and_does_not_waive_recovery():

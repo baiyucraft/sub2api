@@ -238,7 +238,18 @@ class VMSpaceCleanTest(unittest.TestCase):
         self.assertIn('rm -f -- "$compatibility_path"', validator)
         self.assertIn('rm -f -- "$recovery_path"', validator)
         self.assertLess(validator.index('rm -f -- "$compatibility_path"'), validator.index('mark_v2_stage candidate_build'))
-        self.assertLess(validator.index('rm -f -- "$recovery_path"'), validator.index('docker exec -i sub2api-postgres /bin/sh -lc'))
+        # Match the two executed application-role restores, not the helper
+        # definition above the v2 branch or a historical docker invocation.
+        restore_calls = list(re.finditer(
+            r'(?m)^[ \t]*restore_probe_database "\$probe_db" "\$database_owner"'
+            r'(?: < "\$recovery_dir/database/sub2api\.dump")?$',
+            validator,
+        ))
+        self.assertEqual(len(restore_calls), 2, "fast clone and production snapshot must both use the role-aware restore")
+        recovery_removed = validator.index('rm -f -- "$recovery_path"', restore)
+        for call in restore_calls:
+            self.assertLess(restore, recovery_removed)
+            self.assertLess(recovery_removed, call.start())
 
     def test_gate_v2_protects_old_image_until_gate_cleanup(self) -> None:
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
