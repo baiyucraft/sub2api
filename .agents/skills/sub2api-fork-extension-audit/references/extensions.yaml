@@ -2071,6 +2071,7 @@
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/vm_fast_fixture_preserve_integration.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_vm_probe_ownership.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_vm_validator_capture_contract.py",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_vm_fast_fixture_recovery_review.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/vm_probe_ownership_integration.sh",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/vm_failed_preserve_integration.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_vm_plan_sources.py",

@@ -441,3 +441,18 @@ SSH 超时后以远端 committed marker 重新判定阶段，不凭本地异常�
 本批不改变恢复算法、备份格式或信任链，按 `specialized` 执行当前 helper 的真实隔离恢复与新的签名 VM Gate。301 将会话 JSON 的逐请求 admissions 迁出，必须先停止旧写者，只允许 `downtime`，失败采用 `coordinated_restore`；旧镜像健康 smoke 不代表旧镜像可继续写新结构，也不代表可直接回退镜像。VM 的旧镜像健康步骤不豁免，301 仍须有 checksum、preflight、postflight、vm_semantics、verified_replay 证据。
 
 回归入口 `test_profile274_recovery_review.py` 固定 48 条 literal 对象、互斥分组及全部历史登记，并验证每条路径的 blob、mode、delete、rename、BASE 漂移和额外恢复/信任/传输文件拒绝。登记与本地测试不能替代最终 SHA 的完整 release suite、真实专项恢复、生产验真或灾备基线晋升。
+
+
+### 隔离 probe 所有权与失败保留的精确审阅
+
+独立登记 `_VM_FAST_FIXTURE_PRESERVE_REVIEW_PATHS` 固定实际生产 BASE `c88f06e57a829438595263d524e02219aa2f5a2e` → 实施 TARGET `85d7274703ad07570403e501ecb9b66c8f0218ea`，仅三条同路径 Git blob 与模式：
+
+| 相对 skill scripts 路径 | BASE 对象 | TARGET 对象 |
+| --- | --- | --- |
+| `release/cli.py` | `100644:c7b1c9b4bb633a7474bc9761b3d9b4f3a710558e` | `100644:0a28894545be615437e07bc94ae1c4b83cb993ff` |
+| `release/vm-validate.sh` | `100755:e45e1bbd9d972f16823b64054646500c91c5ea90` | `100755:840a1eda0a603c13fa9d941edfddbfee46e81d00` |
+| `release/vm_fast_fixture_preserve.py` | 不存在 | `100644:b651bbeb4020a740afb504dddb13e606cefeb3f8` |
+
+分类理由为 `reviewed_vm_fixture_ownership_preserve_changed`。完整净 validator 同时包含应用角色恢复对象、配置角色核验和同族失败退出码/输出先持久化修复；新增 helper 是专事故保留收口，不修改生产 PostgreSQL/Redis 协调恢复算法、备份格式或信任根。该 helper 已明确列入恢复敏感文件，不按目录、祖先或事故类型豁免未来变化。
+
+历史各路径集合和登记前缀保持冻结；任何未来字节、模式、删除、改名、BASE、额外敏感路径及新增 helper 旧状态不为空均拒绝，显式 full 不能解除未知变化阻断。`test_vm_fast_fixture_recovery_review.py` 独立固定 literal 对象、逐项负例和当前分类 AST 的唯一登记增量；旧 raw-index AST 在其固定登记提交验真，不把新登记写回历史。最终仍须新完整 SHA、干净推送、新候选、新签名 VM Gate 及生产验真；精确登记与本地/隔离回归不等于发布完成。
