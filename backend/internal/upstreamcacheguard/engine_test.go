@@ -168,6 +168,21 @@ func (s *memoryStore) HasPendingBefore(ctx context.Context, cutoff time.Time) (b
 	return false, nil
 }
 
+func (s *memoryStore) AdmissionHealth(ctx context.Context, cutoff time.Time, _ []AdmissionFailure) (AdmissionHealth, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return AdmissionHealth{}, err
+	}
+	var health AdmissionHealth
+	for storageKey, fact := range s.facts {
+		if !s.processed[storageKey] && fact.CompletedAt.Before(cutoff) {
+			health.PendingFacts = append(health.PendingFacts, PendingFact{AccountID: fact.Request.AccountID, UpstreamKeyID: fact.Request.UpstreamKeyID, CompletedAt: fact.CompletedAt})
+		}
+	}
+	return health, nil
+}
+
 var testNow = time.Date(2026, 10, 14, 0, 0, 0, 0, time.UTC)
 
 func testEngine(t *testing.T) (*Engine, *memoryStore) {
