@@ -77,7 +77,7 @@ func TestCacheGuardSplitAdmissionQueriesKeepSessionLock(t *testing.T) {
 	}
 }
 
-func TestCacheGuardAdmissionHealthReadsOnlyOldPendingAndExplicitFailures(t *testing.T) {
+func TestCacheGuardAdmissionHealthReadsOnlyUnprocessedFactsAndExplicitFailures(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatal(err)
@@ -85,13 +85,11 @@ func TestCacheGuardAdmissionHealthReadsOnlyOldPendingAndExplicitFailures(t *test
 	defer db.Close()
 	repo := NewUpstreamCacheGuardRepository(db).(upstreamcacheguard.AdmissionStore)
 	now := time.Date(2026, 10, 18, 0, 0, 0, 0, time.UTC)
-	born := now.Add(-time.Hour)
-	a := upstreamcacheguard.Admission{AccountID: 2, UpstreamKeyID: 5, StartedAt: now.Add(-10 * time.Minute)}
-	raw, _ := json.Marshal(a)
-	mock.ExpectQuery(`(?s)SELECT DISTINCT ON \(account_id,upstream_key_id\) admission_json.*WHERE completed=FALSE AND \(started_at<\$1 OR started_at<\$2\)`).WithArgs(born, now.Add(-5*time.Minute), upstreamcacheguard.MaxRuntimeRows+1).WillReturnRows(sqlmock.NewRows([]string{"admission_json"}).AddRow(raw))
+	cutoff := now.Add(-upstreamcacheguard.RefreshLifetime)
+	mock.ExpectQuery(`(?s)SELECT account_id,upstream_key_id,MIN\(completed_at\).*FROM upstream_cache_guard_facts.*WHERE processed=FALSE AND completed_at<\$1.*GROUP BY account_id,upstream_key_id.*ORDER BY account_id,upstream_key_id LIMIT \$2`).WithArgs(cutoff, upstreamcacheguard.MaxRuntimeRows+1).WillReturnRows(sqlmock.NewRows([]string{"account_id", "upstream_key_id", "completed_at"}).AddRow(2, 5, now.Add(-10*time.Minute)))
 	mock.ExpectQuery(`(?s)FROM unnest.*WHERE EXISTS.*a.admission_key=request.admission_key AND a.completed=TRUE`).WithArgs("{2}", "{5}", `{"opaque-key"}`).WillReturnRows(sqlmock.NewRows([]string{"account_id", "key_id", "admission_key"}).AddRow(2, 5, "opaque-key"))
-	health, err := repo.AdmissionHealth(context.Background(), born, now, []upstreamcacheguard.AdmissionFailure{{AccountID: 2, UpstreamKeyID: 5, Key: "opaque-key"}})
-	if err != nil || len(health.Pending) != 1 || len(health.Acknowledged) != 1 || health.Acknowledged[0].Key != "opaque-key" {
+	health, err := repo.AdmissionHealth(context.Background(), cutoff, []upstreamcacheguard.AdmissionFailure{{AccountID: 2, UpstreamKeyID: 5, Key: "opaque-key"}})
+	if err != nil || len(health.PendingFacts) != 1 || health.PendingFacts[0].AccountID != 2 || health.PendingFacts[0].UpstreamKeyID != 5 || !health.PendingFacts[0].CompletedAt.Equal(now.Add(-10*time.Minute)) || len(health.Acknowledged) != 1 || health.Acknowledged[0].Key != "opaque-key" {
 		t.Fatalf("health=%+v err=%v", health, err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -106,10 +104,46 @@ func TestCacheGuardAdmissionHealthFailureIsExplicit(t *testing.T) {
 	}
 	defer db.Close()
 	want := errors.New("database unavailable")
-	mock.ExpectQuery(`SELECT DISTINCT ON`).WillReturnError(want)
-	_, err = NewUpstreamCacheGuardRepository(db).(upstreamcacheguard.AdmissionStore).AdmissionHealth(context.Background(), time.Now(), time.Now(), nil)
+	mock.ExpectQuery(`SELECT account_id,upstream_key_id,MIN`).WillReturnError(want)
+	_, err = NewUpstreamCacheGuardRepository(db).(upstreamcacheguard.AdmissionStore).AdmissionHealth(context.Background(), time.Now(), nil)
 	if !errors.Is(err, want) {
 		t.Fatalf("health failure=%v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCacheGuardAdmissionHealthStreamFailureIsExplicit(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	want := errors.New("stream interrupted")
+	rows := sqlmock.NewRows([]string{"account_id", "upstream_key_id", "completed_at"}).AddRow(2, 5, time.Now()).RowError(0, want)
+	mock.ExpectQuery(`SELECT account_id,upstream_key_id,MIN`).WillReturnRows(rows)
+	_, err = NewUpstreamCacheGuardRepository(db).(upstreamcacheguard.AdmissionStore).AdmissionHealth(context.Background(), time.Now(), nil)
+	if !errors.Is(err, want) {
+		t.Fatalf("health stream failure=%v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCacheGuardAdmissionHealthAcknowledgementFailureIsExplicit(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	want := errors.New("acknowledgement lookup unavailable")
+	mock.ExpectQuery(`SELECT account_id,upstream_key_id,MIN`).WillReturnRows(sqlmock.NewRows([]string{"account_id", "upstream_key_id", "completed_at"}))
+	mock.ExpectQuery(`(?s)FROM unnest.*WHERE EXISTS`).WillReturnError(want)
+	_, err = NewUpstreamCacheGuardRepository(db).(upstreamcacheguard.AdmissionStore).AdmissionHealth(context.Background(), time.Now(), []upstreamcacheguard.AdmissionFailure{{AccountID: 2, UpstreamKeyID: 5, Key: "opaque-key"}})
+	if !errors.Is(err, want) {
+		t.Fatalf("acknowledgement failure=%v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

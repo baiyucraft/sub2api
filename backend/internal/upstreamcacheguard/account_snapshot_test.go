@@ -45,12 +45,15 @@ func TestAccountSnapshotProjectsSameQualityWithoutDerivedGroupProtection(t *test
 func TestAccountSamplingGapDoesNotPoisonOtherAccountsOrNewKeys(t *testing.T) {
 	e, store := testEngine(t)
 	r := request("lost", "conversation", testNow.Add(-6*time.Minute))
-	admit(t, e, r)
+	a := admit(t, e, r)
+	if err := store.Enqueue(context.Background(), Evidence{ID: "unprocessed-completion", Request: r, Admission: a, CompletedAt: testNow.Add(-6 * time.Second)}); err != nil {
+		t.Fatal(err)
+	}
 	if err := e.Refresh(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := e.CachedAccount(2, 3); ok {
-		t.Fatal("incomplete admission hidden")
+		t.Fatal("unprocessed completion hidden")
 	}
 	if _, ok := e.CachedAccount(2, 4); !ok {
 		t.Fatal("old key gap poisoned new key")

@@ -140,6 +140,50 @@ func (s *runnerTestStore) HasPendingBefore(ctx context.Context, cutoff time.Time
 	}
 	return false, nil
 }
+
+func (s *runnerTestStore) AdmissionHealth(ctx context.Context, cutoff time.Time, failures []upstreamcacheguard.AdmissionFailure) (upstreamcacheguard.AdmissionHealth, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var health upstreamcacheguard.AdmissionHealth
+	if err := ctx.Err(); err != nil {
+		return health, err
+	}
+	oldest := map[[2]int64]upstreamcacheguard.PendingFact{}
+	for id, fact := range s.events {
+		if s.processed[id] || !fact.CompletedAt.Before(cutoff) {
+			continue
+		}
+		identity := [2]int64{fact.Request.AccountID, fact.Request.UpstreamKeyID}
+		prior, exists := oldest[identity]
+		if !exists || fact.CompletedAt.Before(prior.CompletedAt) {
+			oldest[identity] = upstreamcacheguard.PendingFact{AccountID: identity[0], UpstreamKeyID: identity[1], CompletedAt: fact.CompletedAt}
+		}
+	}
+	for _, fact := range oldest {
+		health.PendingFacts = append(health.PendingFacts, fact)
+	}
+	sort.Slice(health.PendingFacts, func(i, j int) bool {
+		if health.PendingFacts[i].AccountID == health.PendingFacts[j].AccountID {
+			return health.PendingFacts[i].UpstreamKeyID < health.PendingFacts[j].UpstreamKeyID
+		}
+		return health.PendingFacts[i].AccountID < health.PendingFacts[j].AccountID
+	})
+	for _, failure := range failures {
+		for _, raw := range s.rows {
+			var session upstreamcacheguard.SessionState
+			if err := json.Unmarshal(raw, &session); err != nil {
+				return health, err
+			}
+			admission, exists := session.Admissions[failure.Key]
+			if exists && admission.Completed && admission.AccountID == failure.AccountID && admission.UpstreamKeyID == failure.UpstreamKeyID {
+				health.Acknowledged = append(health.Acknowledged, failure)
+				break
+			}
+		}
+	}
+	return health, nil
+}
+
 func testRunner(t *testing.T, s *runnerTestStore) *UpstreamCacheGuardRunner {
 	t.Helper()
 	r := &UpstreamCacheGuardRunner{engine: upstreamcacheguard.NewEngine(s), store: s, owner: "test", queue: make(chan upstreamcacheguard.Evidence, 1), wake: make(chan struct{}, 1), stop: make(chan struct{}), done: make(chan struct{})}
