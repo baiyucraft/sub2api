@@ -1168,7 +1168,15 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn("if ASSERT_CONTEXT_FILE=", validator)
         self.assertIn('sh -lc "dropdb -U', validator)
         self.assertEqual(validator.count("create_probe_database\n"), 2)
-        self.assertEqual(validator.count('docker exec -i sub2api-postgres sh -lc "pg_restore'), 2)
+        # The legacy probe's two restore phases now share the role/no-owner
+        # helper, whose argv and database/role guards are exercised separately.
+        restore_invocations = [
+            line.strip() for line in validator.splitlines()
+            if 'restore_probe_database "$probe_db" "$database_owner" < "$state_dir/probe.dump"' in line
+        ]
+        self.assertEqual(restore_invocations, [
+            'restore_probe_database "$probe_db" "$database_owner" < "$state_dir/probe.dump" >/dev/null 2>&1',
+        ] * 2)
         self.assertEqual(validator.count('< "$state_dir/probe.dump"'), 2)
         self.assertNotIn("dropdb -U \\\"\\${POSTGRES_USER:-postgres}\\\" $probe_db && createdb", validator)
         self.assertIn("fixture_rejected=true", validator)
