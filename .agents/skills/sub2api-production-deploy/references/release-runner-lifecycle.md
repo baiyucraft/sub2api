@@ -178,7 +178,7 @@ validator 尚未启动的失败使用独立 `reconcile-vm-preserve <release_id>`
 
 ### 隔离 probe 的 PostgreSQL 所有权与失败证据
 
-VM Gate 的 fast 克隆与 specialized/full 恢复必须在创建隔离库前证明配置中唯一的 `database.user` 与 `sub2api_dev` 的数据库 owner 一致，拒绝别名、merge、重复键和无法确定的写法。随后统一使用 `pg_restore --no-owner --role <应用角色>` 建立隔离对象；数据库 owner 或 GRANT 不能替代表、序列和函数的 DDL 所有权。验证只操作独占的 `sub2api_v2_*` 库，不改变源库和生产权限。
+VM Gate 的 fast 克隆与 specialized/full 恢复统一由 `vm-probe-config.py` 生成临时 probe 连接闭包：VM 有效的 `DATABASE_*` 环境（非空环境优先，空值回落配置文件）是凭据权威，probe 配置只修改副本，生产配置与恢复包保持不变。创建隔离库前必须用当前 PostgreSQL 不可变 image、隔离 network 和 `postgres.env` 完成 `current_user|current_database` 认证预检，且数据库名为 `sub2api_dev`、角色为规范化应用角色；不再要求生产配置的 user 与 VM owner 相同，也拒绝别名、merge、重复键和无法确定的写法。随后统一使用 `pg_restore --no-owner --role <应用角色>` 建立隔离对象；数据库 owner 或 GRANT 不能替代表、序列和函数的 DDL 所有权。验证只操作本 release 独占的 `sub2api_v2_*`/`sub2api_probe_*` 库和 probe Redis，不改变源库、生产权限或生产恢复配置。probe 连接目录及 env 文件为 0700/0600 私有临时资产，成功或失败均清除，失败仅保留本 release 的私有有界诊断。
 
 migration plan、fixture bootstrap 和恢复探针的非零退出必须先保存退出码与输出，再断言成功，避免 ERR trap 在证据落盘前退出。失败不得继续签名 Gate 或启动生产发布。真实 PostgreSQL 回归同时证明旧恢复方式会拒绝应用角色 DDL、两条新恢复来源均可执行 DDL，以及源库对象和权限不变。
 

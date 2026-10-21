@@ -400,6 +400,7 @@ _RELEASE_STATE_MACHINE_FILES = frozenset(
         ".agents/skills/sub2api-production-deploy/scripts/release/vm_preflight_preserve.py",
         ".agents/skills/sub2api-production-deploy/scripts/release/vm_failed_preserve.py",
         ".agents/skills/sub2api-production-deploy/scripts/release/vm_fast_fixture_preserve.py",
+        ".agents/skills/sub2api-production-deploy/scripts/release/vm_restore_probe_preserve.py",
     }
 )
 _SPECIALIZED_PREFIXES = ("backend/migrations/",)
@@ -412,7 +413,7 @@ _RECOVERY_RUNTIME_FILES = frozenset(
         "bootstrap_backup_dr_assets.sh", "bootstrap_vm_signer.sh",
         "production-recovery-retention-clean.sh", "production-space-clean.sh",
         "promote-dr-baseline.sh", "sign-dr-evidence.sh", "sign-gate.sh",
-        "vm-only-validate.sh", "vm-validate.sh", "vm-space-clean.sh", "vm-build-common.sh", "bootstrap.py", "production_bootstrap.py",
+        "vm-only-validate.sh", "vm-validate.sh", "vm-probe-config.py", "vm-space-clean.sh", "vm-build-common.sh", "bootstrap.py", "production_bootstrap.py",
         "production_cleanup.py", "production_recovery_retention.py", "profiles.py",
         "paths.py", "atomic.py", "migration_planner.py",
         # These collectors, signing domains and baseline publishers can alter
