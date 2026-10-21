@@ -49,14 +49,7 @@ server_version=$(docker exec "$container" psql -X -q -A -t -v ON_ERROR_STOP=1 -U
 [[ $server_version =~ ^[0-9]+$ && $server_version -ge 180000 && $server_version -lt 190000 ]]
 printf 'migration_298_postgres_version=%s\n' "$server_version"
 sql() {
-  if [[ ${restored_mutations:-false} == true ]]; then
-    # --no-owner makes the restoring role own restored objects. Mutate only
-    # this owned synthetic DB with that role; helper reads still use $owner.
-    printf '%s\n' "$1" | docker exec -i "$container" sh -lc \
-      'psql -X -q -A -t -v ON_ERROR_STOP=1 -U "${POSTGRES_USER:-postgres}" -d "$1"' sh "$db" >/dev/null
-  else
-    docker exec "$container" psql -X -q -A -t -v ON_ERROR_STOP=1 -U "$owner" -d "$db" -c "$1" >/dev/null
-  fi
+  docker exec "$container" psql -X -q -A -t -v ON_ERROR_STOP=1 -U "$owner" -d "$db" -c "$1" >/dev/null
 }
 sql 'CREATE TABLE groups(id BIGINT PRIMARY KEY, alternate_id BIGINT UNIQUE, deleted_at TIMESTAMPTZ);
      CREATE TABLE settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -199,13 +192,9 @@ for round in 1 2; do
     'createdb -U "${POSTGRES_USER:-postgres}" -O "$DB_OWNER" "$DB_NAME"'
   owned_dbs+=("$target_db")
   docker exec "$container" pg_dump -Fc -U "$owner" "$source_db" > "$work/roundtrip.dump"
-  docker exec -i "$container" sh -lc 'pg_restore --exit-on-error --no-owner -U "${POSTGRES_USER:-postgres}" -d "$1"' \
+  docker exec -i -e DB_OWNER="$owner" "$container" sh -lc 'pg_restore --exit-on-error --no-owner --role "$DB_OWNER" -U "${POSTGRES_USER:-postgres}" -d "$1"' \
     sh "$target_db" < "$work/roundtrip.dump" >/dev/null
-  printf 'GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO "%s"; GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO "%s";\n' \
-    "$owner" "$owner" | docker exec -i "$container" sh -lc \
-    'psql -X -q -v ON_ERROR_STOP=1 -U "${POSTGRES_USER:-postgres}" -d "$1"' sh "$target_db" >/dev/null
   db=$target_db
-  restored_mutations=true
   export ASSERT_DB_NAME="$db" ASSERT_VM_ISOLATED_DB="$db"
   expect_pass preflight verified
   expect_pass postflight verified
