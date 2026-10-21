@@ -16,6 +16,7 @@ from release.process import check_output_hidden
 BASE = "5deebb2929c2a694145cc2726e895f01c43d28c1"
 TARGET = "32aeb69419151beb04610e7ae4452b955c17bf3e"
 PRIOR = "89c2a1ccb1ec1a87d99f36b9f58397b0a2c5ecb9"
+REGISTRY = "c88f06e57a829438595263d524e02219aa2f5a2e"
 PREFIX = ".agents/skills/sub2api-production-deploy/scripts/release/"
 HELPER = PREFIX + "vm-build-common.sh"
 REASON = "reviewed_raw_index_resolution_changed"
@@ -57,7 +58,8 @@ def test_all_prior_tranches_and_path_sets_are_frozen():
     for name in ("_REVIEWED_COMPATIBILITY_TRANCHES", "_REVIEWED_GATE_POLICY_TRANCHES",
                  "_REVIEWED_MIGRATION_GATE_TRANCHES"):
         assert getattr(gate, name) == prior[name]
-    assert gate._REVIEWED_SCOPED_TRANCHES == (*prior["_REVIEWED_SCOPED_TRANCHES"], TRANCHE)
+    frozen = (*prior["_REVIEWED_SCOPED_TRANCHES"], TRANCHE)
+    assert gate._REVIEWED_SCOPED_TRANCHES[:len(frozen)] == frozen
     for name, value in prior.items():
         if name.startswith("_") and name.endswith("_PATHS"):
             assert getattr(gate, name) == value
@@ -67,7 +69,13 @@ def test_all_prior_tranches_and_path_sets_are_frozen():
 
 
 def test_classifier_ast_only_adds_one_path_set_and_one_tranche():
-    current = ast.parse(Path(gate.__file__).read_text(encoding="utf-8"))
+    # Audit this historical registration at its immutable commit. Later
+    # independently reviewed tranches must not rewrite the original proof.
+    registered = check_output_hidden(
+        ["git", "show", REGISTRY + ":" + PREFIX + "recovery_gate.py"],
+        cwd=WORKSPACE,
+    ).decode("utf-8")
+    current = ast.parse(registered)
     prior = ast.parse(implementation_gate_source())
     retained = []
     for node in current.body:

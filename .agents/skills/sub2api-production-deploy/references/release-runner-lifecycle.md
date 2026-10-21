@@ -174,3 +174,16 @@ validator 尚未启动的失败使用独立 `reconcile-vm-preserve <release_id>`
 构建诊断只返回固定白名单状态、已验证数量和 `build_registry_502`、`build_registry_eof`、`build_registry_auth`、`build_registry_tls`、`build_timeout`、`build_space`、`build_compile`、`build_registry_metadata_invalid`、`build_dependency_contract`、`build_preflight_unproven` 或 `build_unknown` 等固定原因码。原始 metadata、stderr 和构建日志只保留于远端本 release 的私有目录，目录 `0700`、文件 `0600`；不得整体回显、下载到本地或输出代理值和认证响应。失败 release、原始日志和身份记录保持不变，后续仍按既有正式 reconciliation 与新发布合同执行。
 
 诊断另含固定阶段、角色、已知 `HEAD`/`GET` 或 `unknown` 及 `retry_count=0`。validator 内的 proof 失败记录为 `build_dependencies`，不得误记成已尝试 candidate；使用显式 `reconcile-vm-preserve --failed-stage build-dependencies` 时，除原候选失败合同的锁、owner/boot、退出、manifest/raw-log、无 probe/签名/生产副作用证明外，还要求候选日志和身份文件从未创建。原本运行且非本 release 启动的 VM 才允许保留并释放租约；原 candidate-build 分支不放宽。
+
+
+### 隔离 probe 的 PostgreSQL 所有权与失败证据
+
+VM Gate 的 fast 克隆与 specialized/full 恢复必须在创建隔离库前证明配置中唯一的 `database.user` 与 `sub2api_dev` 的数据库 owner 一致，拒绝别名、merge、重复键和无法确定的写法。随后统一使用 `pg_restore --no-owner --role <应用角色>` 建立隔离对象；数据库 owner 或 GRANT 不能替代表、序列和函数的 DDL 所有权。验证只操作独占的 `sub2api_v2_*` 库，不改变源库和生产权限。
+
+migration plan、fixture bootstrap 和恢复探针的非零退出必须先保存退出码与输出，再断言成功，避免 ERR trap 在证据落盘前退出。失败不得继续签名 Gate 或启动生产发布。真实 PostgreSQL 回归同时证明旧恢复方式会拒绝应用角色 DDL、两条新恢复来源均可执行 DDL，以及源库对象和权限不变。
+
+### fast fixture 失败的专事故保留收口
+
+`reconcile-vm-fast-fixture-preserve <release_id>` 与 `verify-vm-fast-fixture-preserve <release_id>` 只接受代码冻结的单一事故。必须校验原 manifest、runner、state、VM 生命周期及远端阶段文件的固定字节摘要；原 worker 已退出，VM 原本运行且 boot 未变，正式签名/生产发布未开始，隔离数据库、容器、网络和临时文件均不存在。VM 证明在既有双锁下只读执行，生产核对无 claim、旧镜像与健康，查询未知或失败一律阻断。
+
+收口不修改原失败证据、不恢复数据、不删除资源、不关机、不重跑 Gate。当前已提交推送的 helper 身份独立绑定 checks/result，持久化后重新读回验真并复查现场，最后将 shared owner 置为 released；中断后只按既有独立记录续验，成功重放仍复核现场。helper 本身列入恢复敏感文件；任何后续字节、模式、删除或迁移必须重新审阅，不能套用到其他事故。新发布仍使用新的完整 commit、candidate 和签名 Gate。
