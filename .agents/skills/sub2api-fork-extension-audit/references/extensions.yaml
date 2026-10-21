@@ -2072,6 +2072,9 @@
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_vm_probe_ownership.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_vm_validator_capture_contract.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_vm_fast_fixture_recovery_review.py",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_vm_probe_config_recovery_review.py",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_vm_probe_config.py",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_vm_restore_probe_preserve.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/vm_probe_ownership_integration.sh",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/vm_failed_preserve_integration.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_vm_plan_sources.py",
@@ -2124,6 +2127,7 @@
       "invariants": [
         "Gate生产plan-before与隔离probe的plan-actual分离：fast生产必须零pending且VM先执行独立完整计划fixture bootstrap再运行verified语义hooks，不虚称生产迁移前置验证；specialized/full仍核对两源pending一致；hooks/apply只用probe计划，对外Gate只用生产snapshot计划",
         "隔离probe恢复由vm-probe-config.py基于VM有效DATABASE_*凭据生成私有临时连接闭包；probe配置只改副本，生产配置与恢复包不动。创建隔离库前使用当前不可变PostgreSQL image、隔离network和postgres.env完成current_user|current_database认证预检，数据库固定为sub2api_dev且角色为规范化应用角色；不再要求生产config.yaml的database.user与VM owner相同，仍拒绝别名、merge、重复键和歧义写法。fast与specialized/full均以pg_restore --no-owner --role该应用角色建立对象；不以GRANT替代DDL所有权，不修改源库或生产权限；计划/执行失败先保留退出码与输出，再阻断后续签名和发布。临时连接目录及env文件为私有0700/0600，成功或失败均清除，仅保留私有有界失败诊断。",
+        "probe连接与失败保留另追加精确审阅_VM_PROBE_CONFIG_PRESERVE_REVIEW_PATHS，生产BASE c88f06e57a829438595263d524e02219aa2f5a2e到实现TARGET 91a13c6c64558f5d78ae8b75979af0e6a24b60b2，仅cli.py/vm-validate.sh/vm-probe-config.py/vm_restore_probe_preserve.py四条同路径blob/mode，理由reviewed_vm_probe_config_preserve_changed；两新helper旧路径必须不存在，旧tranche与分类算法不改。独立literal测试冻结旧AST及实现仅两项敏感标记，拒绝每路径blob/mode/delete/rename/BASE、额外敏感/缺review source和新helper原位置file/dir/symlink/gitlink；同名异目录不能借用登记，既有敏感路径迁移仍阻断；容器create后记录不可变ID和owned再start，失败按ID清理。restore-probe preserve只收口冻结事故并保留原本运行VM，不重跑Gate、不清远端资源、不关机；生产恢复算法/备份格式/信任根不改，仍specialized实际隔离恢复与新签名Gate",
         "fast-fixture失败收口为独立专事故入口，精确绑定原失败本地和VM证据字节、同boot、原本运行VM、已退出worker及无probe/生产副作用；远端只读且持既有双锁，原事故文件保持不变，独立checks/result持久验真后才最后释放shared owner，不关机、不清资源、不重跑Gate；新增helper始终属于恢复敏感文件",
         "Shell必需断言覆盖独立否定/非末项AND/条件函数/命令与进程替换上下文，采集非零不以输出或空集覆盖；清理与停机前独立读回，Nginx冲突进入事务回滚，逐步失败fixture从正式入口执行；同族补丁和交叉独审固定后重建helper/DR/Gate，不反复部署试错",
         "profile274独立精确审阅绑定生产5deebb2929c2a694145cc2726e895f01c43d28c1到aca670e896ffa0e0e54204f1e6c33c205d5160f5的41兼容+5迁移Gate+2停机postflight路径及blob/mode；未来漂移仍阻断，301必须downtime与协调恢复，仍执行specialized真实隔离恢复。恢复分类精确登记release入口、SSH/process、VM切换、插件控制、可启动observer及events/redact/retention证据职责；新增编辑模式删除移出均full且未审阻断，不新增目录或历史豁免；recovery_gate自身既有specialized策略不变",

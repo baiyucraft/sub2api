@@ -1,10 +1,12 @@
 """Cross-environment connection identity; no Docker or network operations."""
 from __future__ import annotations
 
+import ast
 import importlib.util
 import json
 import os
 from pathlib import Path
+import secrets
 
 import pytest
 
@@ -30,6 +32,7 @@ database:
   dbname: sub2api_dev
   sslmode: disable
   max_open_conns: 9
+  max_idle_conns: 3
 redis:
   host: sub2api-redis
   port: 6379
@@ -37,6 +40,8 @@ redis:
   password: vm_redis_secret
   db: 0
   enable_tls: false
+  pool_size: 9
+  min_idle_conns: 2
 timezone: Asia/Shanghai
 """
 
@@ -50,6 +55,7 @@ database:
   dbname: production_db
   sslmode: verify-full
   max_open_conns: 17
+  max_idle_conns: 3
 redis:
   host: production-redis.invalid
   port: 6380
@@ -58,6 +64,7 @@ redis:
   db: 5
   enable_tls: true
   pool_size: 23
+  min_idle_conns: 2
 jwt:
   secret: retained-business-secret
 timezone: Asia/Shanghai
@@ -196,6 +203,38 @@ def test_existing_output_is_not_overwritten(tmp_path):
         module().prepare(source, probe, [], "sub2api_v2_configfixture", output)
     assert marker.read_text() == "preserve"
     assert probe.read_text(encoding="utf-8") == PRODUCTION
+
+
+@pytest.mark.parametrize("mode", ["source", "fast", "specialized", "full"])
+def test_real_fixture_config_has_valid_pool_pairs_before_and_after_normalization(tmp_path, mode):
+    # Evaluate only the real fixture's configuration builder: never execute its
+    # Docker/bootstrap body during this offline regression.
+    fixture = (HERE / "vm_probe_config_integration.sh").read_text(encoding="utf-8")
+    embedded = fixture.split("python3 -B - <<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
+    tree = ast.parse(embedded)
+    builders = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "config"]
+    assert len(builders) == 1
+    namespace = {"json": json, "secrets": secrets}
+    exec(compile(ast.Module(body=builders, type_ignores=[]), "real-fixture-config", "exec"), namespace)
+    source = tmp_path / "vm.yaml"
+    probe = tmp_path / mode / "config.yaml"
+    namespace["config"](source, "fixture_vm", "synthetic-vm", "sub2api_dev")
+    namespace["config"](probe, "fixture_prod", "synthetic-prod", "fixture_source")
+    helper = module()
+    _, before, _ = helper.read_config(probe)
+    pairs = {section: {key: int(before[section][key][1]) for key in keys} for section, keys in (
+        ("database", ("max_open_conns", "max_idle_conns")),
+        ("redis", ("pool_size", "min_idle_conns")),
+    )}
+    assert pairs["database"]["max_open_conns"] > 0
+    assert 0 <= pairs["database"]["max_idle_conns"] <= pairs["database"]["max_open_conns"]
+    assert pairs["redis"]["pool_size"] > 0
+    assert 0 <= pairs["redis"]["min_idle_conns"] <= pairs["redis"]["pool_size"]
+    if mode != "source":
+        helper.prepare(source, probe, [], "sub2api_v2_offline_" + mode, tmp_path / "connection")
+        _, after, _ = helper.read_config(probe)
+        for section, values in pairs.items():
+            assert {key: int(after[section][key][1]) for key in values} == values
 
 
 @pytest.mark.skipif(os.name == "nt", reason="Linux inode guard tested by explicit fixture")

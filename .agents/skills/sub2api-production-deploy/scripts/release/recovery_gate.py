@@ -222,6 +222,13 @@ _VM_FAST_FIXTURE_PRESERVE_REVIEW_PATHS = frozenset({
         "cli.py", "vm-validate.sh", "vm_fast_fixture_preserve.py",
     )
 })
+# Probe-only connection authority, owned container cleanup and the separate
+# frozen restore-probe preserve path. Historical tranches remain immutable.
+_VM_PROBE_CONFIG_PRESERVE_REVIEW_PATHS = frozenset({
+    _SCRIPTS_PREFIX + "release/" + name for name in (
+        "cli.py", "vm-validate.sh", "vm-probe-config.py", "vm_restore_probe_preserve.py",
+    )
+})
 _REVIEWED_SCOPED_TRANCHES = (
     (
         "aeb410bccc524164bdafbd3db865d4f5f588aced",
@@ -378,6 +385,12 @@ _REVIEWED_SCOPED_TRANCHES = (
         "85d7274703ad07570403e501ecb9b66c8f0218ea",
         "reviewed_vm_fixture_ownership_preserve_changed",
         _VM_FAST_FIXTURE_PRESERVE_REVIEW_PATHS,
+    ),
+    (
+        "c88f06e57a829438595263d524e02219aa2f5a2e",
+        "91a13c6c64558f5d78ae8b75979af0e6a24b60b2",
+        "reviewed_vm_probe_config_preserve_changed",
+        _VM_PROBE_CONFIG_PRESERVE_REVIEW_PATHS,
     ),
 )
 _RELEASE_STATE_MACHINE_FILES = frozenset(

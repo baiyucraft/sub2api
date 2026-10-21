@@ -88,8 +88,8 @@ def config(path, role, password, db, host='sub2api-postgres'):
     path.parent.mkdir(mode=0o700, exist_ok=True)
     path.write_text('server:\n  host: 0.0.0.0\n  port: 8080\n  mode: release\n'
         + 'database:\n  host: ' + host + '\n  port: 5432\n  user: ' + role
-        + '\n  password: ' + json.dumps(password) + '\n  dbname: ' + db + '\n  sslmode: disable\n  max_open_conns: 7\n'
-        + 'redis:\n  host: probe-redis\n  port: 6379\n  username: ""\n  password: ""\n  db: 0\n  enable_tls: false\n  pool_size: 9\n'
+        + '\n  password: ' + json.dumps(password) + '\n  dbname: ' + db + '\n  sslmode: disable\n  max_open_conns: 7\n  max_idle_conns: 3\n'
+        + 'redis:\n  host: probe-redis\n  port: 6379\n  username: ""\n  password: ""\n  db: 0\n  enable_tls: false\n  pool_size: 9\n  min_idle_conns: 2\n'
         + 'jwt:\n  secret: ' + secrets.token_hex(32) + '\ntimezone: Asia/Shanghai\n')
     path.chmod(0o600)
 
