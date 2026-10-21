@@ -459,3 +459,18 @@ sub2api:baiyu-<base-version>-<full-commit-sha>
 ### 原始 index 解析的精确审阅
 
 `_RAW_INDEX_RESOLUTION_REVIEW_PATHS` 独立固定生产 BASE `5deebb2929c2a694145cc2726e895f01c43d28c1` → 实现 TARGET `32aeb69419151beb04610e7ae4452b955c17bf3e`，仅 `release/vm-build-common.sh` 的旧状态不存在、新对象 `100644:789b66786b903716d2756b328891688e193ebf33`，理由 `reviewed_raw_index_resolution_changed`。以 tag 原字节派生初始内容承诺，再按同仓库 digest 复读逐字节确认，不冒称独立 tag-header descriptor 校验。旧官方来源、BuildKit、Windows 与历史登记不回写，未来对象、模式、删除、移动、BASE 和额外敏感路径继续拒绝。回归 `test_raw_index_resolution_recovery_review.py` 固定 literal 对象和历史前缀；最终完整 release suite、specialized 真实恢复、新候选、新签名 Gate 及生产验真仍必需，不因该修复重做 Full DR。
+
+
+### 隔离 probe 所有权与失败保留的精确审阅
+
+独立登记 `_VM_FAST_FIXTURE_PRESERVE_REVIEW_PATHS` 固定实际生产 BASE `c88f06e57a829438595263d524e02219aa2f5a2e` → 实施 TARGET `85d7274703ad07570403e501ecb9b66c8f0218ea`，仅三条同路径 Git blob 与模式：
+
+| 相对 skill scripts 路径 | BASE 对象 | TARGET 对象 |
+| --- | --- | --- |
+| `release/cli.py` | `100644:c7b1c9b4bb633a7474bc9761b3d9b4f3a710558e` | `100644:0a28894545be615437e07bc94ae1c4b83cb993ff` |
+| `release/vm-validate.sh` | `100755:e45e1bbd9d972f16823b64054646500c91c5ea90` | `100755:840a1eda0a603c13fa9d941edfddbfee46e81d00` |
+| `release/vm_fast_fixture_preserve.py` | 不存在 | `100644:b651bbeb4020a740afb504dddb13e606cefeb3f8` |
+
+分类理由为 `reviewed_vm_fixture_ownership_preserve_changed`。完整净 validator 同时包含应用角色恢复对象、配置角色核验和同族失败退出码/输出先持久化修复；新增 helper 是专事故保留收口，不修改生产 PostgreSQL/Redis 协调恢复算法、备份格式或信任根。该 helper 已明确列入恢复敏感文件，不按目录、祖先或事故类型豁免未来变化。
+
+历史各路径集合和登记前缀保持冻结；任何未来字节、模式、删除、改名、BASE、额外敏感路径及新增 helper 旧状态不为空均拒绝，显式 full 不能解除未知变化阻断。`test_vm_fast_fixture_recovery_review.py` 独立固定 literal 对象、逐项负例和当前分类 AST 的唯一登记增量；旧 raw-index AST 在其固定登记提交验真，不把新登记写回历史。最终仍须新完整 SHA、干净推送、新候选、新签名 VM Gate 及生产验真；精确登记与本地/隔离回归不等于发布完成。
