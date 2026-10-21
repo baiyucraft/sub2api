@@ -282,3 +282,7 @@ Gate 必须保留至少一个非零受影响行用例来证明备份内容与 pr
 `vm-validate.sh` 的 fast、specialized、full 与 v1 入口都通过 `release/vm-probe-config.py` 生成 probe 连接闭包。VM 容器中非空 `DATABASE_HOST/PORT/USER/PASSWORD/DBNAME/SSLMODE` 环境变量优先，空值按 Viper 语义回落 VM 配置；只复制并修改 probe 配置副本，生产配置、恢复包和源库不改。helper 输出 `connection.env`、`postgres.env`、`role`，目录权限为 0700、文件为 0600，容器只接收 env-file。
 
 创建临时数据库前，validator 使用当前 PostgreSQL image digest、当前隔离 network 和 `postgres.env` 执行 `SELECT current_user,current_database()`，必须得到规范化角色与 `sub2api_dev`。恢复统一使用 `pg_restore --no-owner --role`；不再用生产配置 user 与 VM owner 相等作为跨环境恢复条件。失败时保留私有、有界诊断；成功时清除 probe 连接和环境快照。所有隔离资源只在本次 create/run/connect 成功标记后清理，同名已有资源或 create 失败不会被误删。
+
+精确审阅新增 `_VM_PROBE_CONFIG_PRESERVE_REVIEW_PATHS`，BASE `c88f06e57a829438595263d524e02219aa2f5a2e` → TARGET `91a13c6c64558f5d78ae8b75979af0e6a24b60b2`，仅 `release/cli.py`、`vm-validate.sh`、`vm-probe-config.py`、`vm_restore_probe_preserve.py`，理由 `reviewed_vm_probe_config_preserve_changed`；两新 helper 的旧路径必须不存在，完整 literal 对象见 `scripts/release/README.md`。历史登记保持不变，仍执行 specialized 实际隔离恢复，不修改生产恢复算法。
+
+最低定向回归为 `test_vm_probe_config_recovery_review.py`、`test_vm_probe_config.py`、`test_vm_probe_ownership.py`、`test_vm_restore_probe_preserve.py` 和旧 recovery-review 测试。新测试冻结旧 AST 与实现提交仅两项敏感标记，覆盖逐路径 blob/mode/delete/rename/BASE、额外敏感/缺审阅来源以及新 helper 原位置存在 file/dir/symlink/gitlink；同名异目录不能借用登记，既有敏感路径迁移仍阻断；create/start 故障注入验证 owned ID 清理。完整最终提交测试、新 Gate 与生产验真仍需单独完成。
