@@ -227,7 +227,7 @@ func (e *Engine) refreshAccounts(ctx context.Context) error {
 	sessionVersions := map[string]int64{}
 	gaps := map[string]bool{}
 	acknowledged := map[string][]string{}
-	admissionStore, splitAdmissions := e.store.(AdmissionStore)
+	admissionStore, hasAdmissionHealth := e.store.(AdmissionStore)
 	for _, row := range rows {
 		g := groups[row.GroupID]
 		g.GroupID, g.Mode, g.Available, g.LoadedAt = row.GroupID, s.Mode, true, now
@@ -257,33 +257,24 @@ func (e *Engine) refreshAccounts(ctx context.Context) error {
 			}
 			sessions[cacheKey] = session
 			for key, a := range session.Admissions {
-				if splitAdmissions {
-					break
+				if !a.Completed {
+					continue
 				}
 				keyID := a.UpstreamKeyID
 				if keyID == 0 {
 					keyID = session.Routes[a.RouteKey].UpstreamKeyID
 				}
-				if a.Completed {
-					id := accountIdentity(a.AccountID, keyID)
-					acknowledged[id] = append(acknowledged[id], key)
-					continue
-				}
-				if !a.StartedAt.Before(e.bornAt) && now.Sub(a.StartedAt) <= 5*time.Minute {
-					continue
-				}
-				if keyID > 0 {
-					gaps[accountIdentity(a.AccountID, keyID)] = true
-				}
+				id := accountIdentity(a.AccountID, keyID)
+				acknowledged[id] = append(acknowledged[id], key)
 			}
 		default:
 			return errors.New("unknown cache guard typed state")
 		}
 		groups[row.GroupID] = g
 	}
-	if splitAdmissions {
-		// Completed history is deliberately absent from session bodies. Check
-		// only active gaps and this instance's transient failed deliveries.
+	if hasAdmissionHealth {
+		// Check the durable completion outbox across instances. An unfinished
+		// admission retains its route barrier without blocking the whole account.
 		var failures []AdmissionFailure
 		e.mu.RLock()
 		for id, keys := range e.samplingFailures {
@@ -296,16 +287,18 @@ func (e *Engine) refreshAccounts(ctx context.Context) error {
 			}
 		}
 		e.mu.RUnlock()
-		health, err := admissionStore.AdmissionHealth(ctx, e.bornAt, now, failures)
+		health, err := admissionStore.AdmissionHealth(ctx, now.Add(-RefreshLifetime), failures)
 		if err != nil {
 			return err
 		}
-		for _, a := range health.Pending {
-			if a.UpstreamKeyID > 0 && stalePending(a, e.bornAt, now) {
-				id := accountIdentity(a.AccountID, a.UpstreamKeyID)
-				gaps[id] = true
-				delete(unchanged, id)
+		for _, fact := range health.PendingFacts {
+			if fact.UpstreamKeyID <= 0 {
+				// Legacy facts without a frozen Key cannot identify today's Key.
+				continue
 			}
+			id := accountIdentity(fact.AccountID, fact.UpstreamKeyID)
+			gaps[id] = true
+			delete(unchanged, id)
 		}
 		for _, a := range health.Acknowledged {
 			id := accountIdentity(a.AccountID, a.UpstreamKeyID)
@@ -313,22 +306,18 @@ func (e *Engine) refreshAccounts(ctx context.Context) error {
 		}
 	}
 	// Legacy stores still expose admissions in their session rows.
-	if optimized && !splitAdmissions {
+	if optimized {
 		for _, session := range sessions {
 			for key, a := range session.Admissions {
+				if !a.Completed {
+					continue
+				}
 				keyID := a.UpstreamKeyID
 				if keyID == 0 {
 					keyID = session.Routes[a.RouteKey].UpstreamKeyID
 				}
 				id := accountIdentity(a.AccountID, keyID)
-				if a.Completed {
-					acknowledged[id] = append(acknowledged[id], key)
-					continue
-				}
-				if keyID > 0 && (a.StartedAt.Before(e.bornAt) || now.Sub(a.StartedAt) > 5*time.Minute) {
-					gaps[id] = true
-					delete(unchanged, id)
-				}
+				acknowledged[id] = append(acknowledged[id], key)
 			}
 		}
 	}

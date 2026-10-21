@@ -124,7 +124,10 @@ func TestAccountSamplingGapRetainsLastSuccessWithoutExtendingAge(t *testing.T) {
 	e, store := testEngine(t)
 	seedSnapshotAccounts(t, e, store)
 	r := request("lost", "conversation", testNow.Add(-6*time.Minute))
-	admit(t, e, r)
+	a := admit(t, e, r)
+	if err := store.Enqueue(context.Background(), Evidence{ID: "pending-fact", Request: r, Admission: a, CompletedAt: testNow.Add(-6 * time.Second)}); err != nil {
+		t.Fatal(err)
+	}
 	for _, age := range []time.Duration{time.Second, 30 * time.Second, 31 * time.Second} {
 		e.now = func() time.Time { return testNow.Add(age) }
 		if err := e.Refresh(context.Background()); err != nil {
@@ -137,6 +140,60 @@ func TestAccountSamplingGapRetainsLastSuccessWithoutExtendingAge(t *testing.T) {
 		if other, available := e.CachedSharedAccount(9, 3); !available || !other.Fresh {
 			t.Fatalf("gap affected another account: %+v", other)
 		}
+	}
+}
+
+func TestPendingFactStrictBoundaryAndRefreshFailureNeverRenewIncompleteSnapshot(t *testing.T) {
+	e, memory := testEngine(t)
+	store := &snapshotFailureStore{memoryStore: memory}
+	e.store = store
+	seedSnapshotAccounts(t, e, memory)
+	r := request("queued-at-boundary", "boundary-session", testNow.Add(-time.Second))
+	a := admit(t, e, r)
+	v := Evidence{ID: "boundary-completion", Request: r, Admission: a, CompletedAt: testNow}
+	if err := store.Enqueue(context.Background(), v); err != nil {
+		t.Fatal(err)
+	}
+	e.now = func() time.Time { return testNow.Add(5 * time.Second) }
+	if err := e.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	lastSuccess := e.now()
+	if account, available := e.CachedAccount(2, 3); !available || !account.Fresh || !account.LoadedAt.Equal(lastSuccess) {
+		t.Fatalf("exactly five-second completion was treated as older than cutoff: %+v available=%v", account, available)
+	}
+	for _, tc := range []struct {
+		age       time.Duration
+		available bool
+	}{{5*time.Second + time.Nanosecond, true}, {35 * time.Second, true}, {35*time.Second + time.Nanosecond, false}} {
+		e.now = func() time.Time { return testNow.Add(tc.age) }
+		if err := e.Refresh(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		account, available := e.CachedAccount(2, 3)
+		if available != tc.available || account.Fresh || !account.LoadedAt.Equal(lastSuccess) {
+			t.Fatalf("pending completion renewed last success: %+v available=%v want=%v", account, available, tc.available)
+		}
+		if other, available := e.CachedAccount(9, 3); !available || !other.Fresh {
+			t.Fatalf("pending completion affected foreign account: %+v available=%v", other, available)
+		}
+	}
+	if err := e.Complete(context.Background(), v); err != nil {
+		t.Fatal(err)
+	}
+	store.queryFailure = true
+	if err := e.Refresh(context.Background()); err == nil {
+		t.Fatal("expected failed refresh after completion")
+	}
+	if account, available := e.CachedAccount(2, 3); available || !account.LoadedAt.Equal(lastSuccess) {
+		t.Fatalf("failed refresh published a new success: %+v available=%v", account, available)
+	}
+	store.queryFailure = false
+	if err := e.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if account, available := e.CachedAccount(2, 3); !available || !account.Fresh || account.Phase != Cooling {
+		t.Fatalf("verified completion did not release gap or fabricated recovery: %+v available=%v", account, available)
 	}
 }
 

@@ -378,15 +378,22 @@ type AdmissionFailure struct {
 	Key                      string
 }
 
+// PendingFact identifies an already persisted completion that has not entered
+// the account window yet. Unfinished admissions alone do not prove a sampling gap.
+type PendingFact struct {
+	AccountID, UpstreamKeyID int64
+	CompletedAt              time.Time
+}
+
 type AdmissionHealth struct {
-	// Pending contains only unfinished records that predate this runner or are
-	// older than five minutes. Completed history never needs to be materialized.
-	Pending      []Admission
+	PendingFacts []PendingFact
 	Acknowledged []AdmissionFailure
 }
 
 type AdmissionStore interface {
-	AdmissionHealth(ctx context.Context, bornAt, now time.Time, failures []AdmissionFailure) (AdmissionHealth, error)
+	// Return unprocessed facts strictly older than cutoff, grouped by their
+	// frozen account/Key identity, including facts held by a consumer lease.
+	AdmissionHealth(ctx context.Context, cutoff time.Time, failures []AdmissionFailure) (AdmissionHealth, error)
 }
 
 var ErrUnavailable = errors.New("cache guard persistence unavailable")

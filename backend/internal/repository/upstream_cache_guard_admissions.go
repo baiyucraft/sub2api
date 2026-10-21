@@ -128,35 +128,32 @@ func (t *upstreamCacheGuardTx) RetainedAdmissionCount(sessionKey string, since t
 	return count, err
 }
 
-// AdmissionHealth reads only unfinished records old enough to create a gap and
-// completed acknowledgements explicitly requested by the engine. Historical
-// completed records never participate in the one-second refresh.
-func (r *upstreamCacheGuardRepository) AdmissionHealth(ctx context.Context, bornAt, now time.Time, failures []upstreamcacheguard.AdmissionFailure) (upstreamcacheguard.AdmissionHealth, error) {
+// AdmissionHealth distinguishes unfinished upstream attempts from completed
+// evidence awaiting processing. Only the latter can withhold an account's new
+// snapshot. A consumer lease never removes a fact from this completeness check.
+func (r *upstreamCacheGuardRepository) AdmissionHealth(ctx context.Context, cutoff time.Time, failures []upstreamcacheguard.AdmissionFailure) (upstreamcacheguard.AdmissionHealth, error) {
 	var health upstreamcacheguard.AdmissionHealth
 	if r == nil || r.db == nil {
 		return health, upstreamcacheguard.ErrUnavailable
 	}
-	rows, err := r.db.QueryContext(ctx, `SELECT DISTINCT ON (account_id,upstream_key_id) admission_json
-		FROM upstream_cache_guard_admissions
-		WHERE completed=FALSE AND (started_at<$1 OR started_at<$2)
-		ORDER BY account_id,upstream_key_id,started_at,group_id,session_key,admission_key LIMIT $3`, bornAt.UTC(), now.Add(-5*time.Minute).UTC(), upstreamcacheguard.MaxRuntimeRows+1)
+	rows, err := r.db.QueryContext(ctx, `SELECT account_id,upstream_key_id,MIN(completed_at)
+		FROM upstream_cache_guard_facts
+		WHERE processed=FALSE AND completed_at<$1
+		GROUP BY account_id,upstream_key_id
+		ORDER BY account_id,upstream_key_id LIMIT $2`, cutoff.UTC(), upstreamcacheguard.MaxRuntimeRows+1)
 	if err != nil {
 		return health, err
 	}
 	for rows.Next() {
-		var raw []byte
-		var a upstreamcacheguard.Admission
-		if err = rows.Scan(&raw); err == nil {
-			err = json.Unmarshal(raw, &a)
-		}
-		if err != nil {
+		var fact upstreamcacheguard.PendingFact
+		if err = rows.Scan(&fact.AccountID, &fact.UpstreamKeyID, &fact.CompletedAt); err != nil {
 			rows.Close()
-			return health, fmt.Errorf("cache guard admission health decode: %w", err)
+			return health, fmt.Errorf("cache guard pending fact health decode: %w", err)
 		}
-		health.Pending = append(health.Pending, a)
-		if len(health.Pending) > upstreamcacheguard.MaxRuntimeRows {
+		health.PendingFacts = append(health.PendingFacts, fact)
+		if len(health.PendingFacts) > upstreamcacheguard.MaxRuntimeRows {
 			rows.Close()
-			return health, errors.New("cache guard admission health bound exceeded")
+			return health, errors.New("cache guard pending fact health bound exceeded")
 		}
 	}
 	err = rows.Err()

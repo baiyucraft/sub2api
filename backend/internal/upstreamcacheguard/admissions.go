@@ -1,9 +1,6 @@
 package upstreamcacheguard
 
-import (
-	"errors"
-	"time"
-)
+import "errors"
 
 func readAdmission(tx Tx, session *SessionState, r Request) (Admission, bool, error) {
 	if split, ok := tx.(AdmissionTx); ok {
@@ -59,8 +56,4 @@ func pendingRouteAdmissions(tx Tx, session *SessionState, r Request) ([]Admissio
 		}
 	}
 	return out, nil
-}
-
-func stalePending(a Admission, bornAt, now time.Time) bool {
-	return !a.Completed && (a.StartedAt.Before(bornAt) || now.Sub(a.StartedAt) > 5*time.Minute)
 }

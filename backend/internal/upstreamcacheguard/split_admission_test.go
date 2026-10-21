@@ -133,17 +133,17 @@ func (t *splitMemoryTx) RetainedAdmissionCount(session string, since time.Time) 
 	return n, nil
 }
 
-func (s *splitMemoryStore) AdmissionHealth(ctx context.Context, bornAt, now time.Time, failures []AdmissionFailure) (AdmissionHealth, error) {
+func (s *splitMemoryStore) AdmissionHealth(ctx context.Context, cutoff time.Time, failures []AdmissionFailure) (AdmissionHealth, error) {
+	health, err := s.memoryStore.AdmissionHealth(ctx, cutoff, nil)
+	if err != nil {
+		return health, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := ctx.Err(); err != nil {
 		return AdmissionHealth{}, err
 	}
-	var health AdmissionHealth
 	for storageKey, a := range s.admissions {
-		if !a.Completed && (a.StartedAt.Before(bornAt) || now.Sub(a.StartedAt) > 5*time.Minute) {
-			health.Pending = append(health.Pending, a)
-		}
 		if a.Completed {
 			for _, f := range failures {
 				if f.AccountID == a.AccountID && f.UpstreamKeyID == a.UpstreamKeyID && strings.HasSuffix(storageKey, ":"+f.Key) {
@@ -228,6 +228,9 @@ func TestSplitAdmissionUnfinishedAttemptRemainsLowStreakBarrier(t *testing.T) {
 	next := request("barrier-next", "barrier", base.Add(4*time.Minute))
 	if read := e.CachedSessionRead(next); read.PendingLow {
 		t.Fatal("unfinished split admission failed to interrupt low streak")
+	}
+	if account, available := e.CachedAccount(pending.AccountID, pending.UpstreamKeyID); !available || !account.Fresh {
+		t.Fatalf("unfinished ordering barrier revoked account snapshot: %+v available=%v", account, available)
 	}
 	complete(t, e, pending, pendingAdmission, 0, false, "absent")
 	if err := e.Refresh(context.Background()); err != nil {
@@ -416,18 +419,18 @@ func TestSplitAdmissionCompletionRebuildsMissingSession(t *testing.T) {
 	}
 }
 
-func TestSplitAdmissionRefreshRestartGapAndCompletionAcknowledgment(t *testing.T) {
+func TestSplitAdmissionOldUnfinishedSurvivesRestartWithoutGapAndCompletionAcknowledgesFailure(t *testing.T) {
 	e, s := splitTestEngine(t)
-	r := request("old-pending", "restart", testNow.Add(-10*time.Minute))
+	r := request("old-pending", "restart", testNow.Add(-72*time.Hour))
 	a := admit(t, e, r)
 	if err := e.Refresh(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if !e.accountGaps[accountIdentity(r.AccountID, r.UpstreamKeyID)] {
-		t.Fatal("old split pending failed to mark sampling gap")
+	if account, available := e.CachedAccount(r.AccountID, r.UpstreamKeyID); !available || !account.Fresh || account.ValidRequests != 0 {
+		t.Fatalf("three-day unfinished request blocked fresh completed-only snapshot: %+v available=%v", account, available)
 	}
-	// A new runner must also see unfinished work created before its birth,
-	// including young records that have not yet hit the five-minute threshold.
+	// Unfinished classifications are neither completed evidence nor proof that
+	// a completion was lost, even when another engine starts after admission.
 	young := request("young-pending", "restart-young", testNow.Add(-time.Second))
 	ya := admit(t, e, young)
 	restarted := NewEngine(s)
@@ -439,8 +442,21 @@ func TestSplitAdmissionRefreshRestartGapAndCompletionAcknowledgment(t *testing.T
 	if err := restarted.Refresh(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if !restarted.accountGaps[accountIdentity(young.AccountID, young.UpstreamKeyID)] {
-		t.Fatal("restart failed to detect pre-birth split pending")
+	if account, available := restarted.CachedAccount(young.AccountID, young.UpstreamKeyID); !available || !account.Fresh {
+		t.Fatalf("restart treated an unfinished admission as a lost completion: %+v available=%v", account, available)
+	}
+	continued := request("after-restart", "restart", testNow)
+	ca := admit(t, restarted, continued)
+	if !ca.Sample || ca.WarmAtStart || ca.NaturalNew {
+		t.Fatalf("restart did not preserve session identity and cold classification: %+v", ca)
+	}
+	complete(t, restarted, continued, ca, 90, true, "known")
+	warm := request("warm-after-restart", "restart", testNow.Add(2*time.Second))
+	if wa := admit(t, restarted, warm); !wa.Sample || !wa.WarmAtStart {
+		t.Fatalf("new real success did not warm the preserved route: %+v", wa)
+	}
+	if old := s.admissions[key(r.GroupID, SessionKey(r), admissionKey(r))]; old.Completed || !reflect.DeepEqual(old, a) {
+		t.Fatalf("new sampling rewrote old immutable admission: old=%+v frozen=%+v", old, a)
 	}
 	complete(t, e, r, a, 90, true, "known")
 	complete(t, e, young, ya, 90, true, "known")
@@ -456,6 +472,94 @@ func TestSplitAdmissionRefreshRestartGapAndCompletionAcknowledgment(t *testing.T
 	}
 	if e.accountGaps[accountIdentity(r.AccountID, r.UpstreamKeyID)] {
 		t.Fatal("completed split records left a false sampling gap")
+	}
+}
+
+func TestSplitAdmissionQueuedCompletionSurvivesRestartAndRecoversAfterConsumption(t *testing.T) {
+	e, store := splitTestEngine(t)
+	seedSnapshotAccounts(t, e, store.memoryStore)
+	seed := request("pre-exit-cold", "pre-exit-session", testNow.Add(-20*time.Second))
+	complete(t, e, seed, admit(t, e, seed), 90, true, "known")
+	r := request("pre-exit-warm", "pre-exit-session", testNow.Add(-10*time.Second))
+	a := admit(t, e, r)
+	if !a.WarmAtStart {
+		t.Fatal("fixture did not freeze a warm admission")
+	}
+	v := Evidence{ID: "queued-before-process-exit", Request: r, Admission: a, CompletedAt: testNow.Add(-9 * time.Second), Success: true,
+		RawUsage: RawUsage{Status: "known", TotalInputTokens: 100, CacheReadTokens: 40}}
+	if err := store.Enqueue(context.Background(), v); err != nil {
+		t.Fatal(err)
+	}
+	restarted := NewEngine(store)
+	restarted.now = e.now
+	restarted.bornAt = testNow
+	if err := restarted.ApplySettings(e.Settings()); err != nil {
+		t.Fatal(err)
+	}
+	if err := restarted.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, available := restarted.CachedAccount(r.AccountID, r.UpstreamKeyID); available {
+		t.Fatal("restart published a snapshot missing an old durable completion")
+	}
+	if other, available := restarted.CachedAccount(9, 3); !available || !other.Fresh {
+		t.Fatalf("queued completion affected another account: %+v available=%v", other, available)
+	}
+	claimed, err := store.ClaimPending(context.Background(), "replacement-worker", 32, time.Second)
+	if err != nil || len(claimed) != 1 {
+		t.Fatalf("durable completion was not reclaimable: %+v err=%v", claimed, err)
+	}
+	if err := restarted.Complete(context.Background(), claimed[0]); err != nil {
+		t.Fatal(err)
+	}
+	if _, available := restarted.CachedAccount(r.AccountID, r.UpstreamKeyID); available {
+		t.Fatal("consumption without refresh revived an unverified snapshot")
+	}
+	if err := restarted.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := restarted.Complete(context.Background(), v); err != nil {
+		t.Fatal(err)
+	}
+	if err := restarted.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	account, available := restarted.CachedAccount(r.AccountID, r.UpstreamKeyID)
+	if !available || !account.Fresh || account.ValidRequests != 1 || account.CachePercent != 40 || account.Phase != Cooling {
+		t.Fatalf("consumed completion changed classification, duplicated a sample or fabricated recovery: %+v available=%v", account, available)
+	}
+	if !store.admissions[key(r.GroupID, SessionKey(r), admissionKey(r))].Completed {
+		t.Fatal("consumed fact did not acknowledge its original admission")
+	}
+}
+
+func TestSplitAdmissionUnfinishedAloneCannotRestoreProtectedAccount(t *testing.T) {
+	e, store := splitTestEngine(t)
+	r := request("unfinished-before-protection", "idle-protection", testNow.Add(-72*time.Hour))
+	admission := admit(t, e, r)
+	if err := store.TransactAccount(context.Background(), r.GroupID, r.AccountID, r.UpstreamKeyID, func(tx Tx) error {
+		_, err := tx.(AccountTx).WriteAccount(r.AccountID, r.UpstreamKeyID, AccountState{AccountID: r.AccountID, UpstreamKeyID: r.UpstreamKeyID,
+			Phase: Cooling, LastEvidenceAt: testNow, DegradedAt: testNow, CooldownUntil: testNow.Add(10 * time.Minute)})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		age   time.Duration
+		phase Phase
+	}{{time.Minute, Cooling}, {16 * time.Minute, Unknown}, {72 * time.Hour, Unknown}} {
+		now := testNow.Add(tc.age)
+		e.now = func() time.Time { return now }
+		if err := e.Refresh(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		account, available := e.CachedAccount(r.AccountID, r.UpstreamKeyID)
+		if !available || !account.Fresh || account.Phase != tc.phase || account.ValidRequests != 0 || account.TrialValidRequests != 0 {
+			t.Fatalf("time without completed evidence changed recovery: %+v available=%v", account, available)
+		}
+	}
+	if got := store.admissions[key(r.GroupID, SessionKey(r), admissionKey(r))]; !reflect.DeepEqual(got, admission) {
+		t.Fatalf("time passage changed the unfinished classification: got=%+v want=%+v", got, admission)
 	}
 }
 

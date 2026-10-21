@@ -141,16 +141,13 @@ func TestCacheGuardAdmissionSplitPostgres(t *testing.T) {
 			return nil
 		}))
 		failures := []upstreamcacheguard.AdmissionFailure{{AccountID: 2, UpstreamKeyID: 5, Key: "ancient-pending"}, {AccountID: 2, UpstreamKeyID: 5, Key: "five-minute-boundary"}, {AccountID: 2, UpstreamKeyID: 5, Key: "does-not-exist"}}
-		health, err := store.AdmissionHealth(ctx, now.Add(-time.Hour), now, failures)
+		health, err := store.AdmissionHealth(ctx, now.Add(-upstreamcacheguard.RefreshLifetime), failures)
 		require.NoError(t, err)
 		require.Len(t, health.Acknowledged, 1)
 		require.Equal(t, "ancient-pending", health.Acknowledged[0].Key)
-		// One old-pending representative per concrete identity; the Key=0 legacy
-		// record is retained explicitly for diagnostics rather than fabricated.
-		require.Len(t, health.Pending, 2)
-		for _, pending := range health.Pending {
-			require.Equal(t, now.Add(-10*time.Minute), pending.StartedAt)
-		}
+		// An unfinished request remains a route barrier and an immutable ledger
+		// entry, but it has no completed usage to hold an account snapshot back.
+		require.Empty(t, health.PendingFacts)
 	})
 
 	t.Run("atomic rollback and cross account session serialization", func(t *testing.T) {
@@ -322,6 +319,120 @@ func TestCacheGuardAdmissionSplitPostgres(t *testing.T) {
 			return nil
 		}))
 	})
+}
+
+func TestCacheGuardAdmissionHealthPostgres(t *testing.T) {
+	db, ctx := cacheGuardAdmissionPostgres(t)
+	migration, err := migrations.FS.ReadFile("301_upstream_cache_guard_admissions.sql")
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, string(migration))
+	require.NoError(t, err)
+	writer := NewUpstreamCacheGuardRepository(db).(*upstreamCacheGuardRepository)
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	cutoff := now.Add(-upstreamcacheguard.RefreshLifetime)
+
+	// Another application instance has an independent database pool. Its birth
+	// time cannot tell whether either of these attempts is still running.
+	var schema string
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT current_schema()`).Scan(&schema))
+	readerDB, err := sql.Open("postgres", cacheGuardScopedDSN(os.Getenv("SUB2API_CACHE_GUARD_TEST_DSN"), schema))
+	require.NoError(t, err)
+	defer readerDB.Close()
+	reader := NewUpstreamCacheGuardRepository(readerDB).(*upstreamCacheGuardRepository)
+	for _, admission := range []struct {
+		key string
+		at  time.Time
+	}{{"orphaned-before-restart", now.Add(-72 * time.Hour)}, {"live-on-another-instance", now.Add(-time.Second)}} {
+		require.NoError(t, writer.TransactAccount(ctx, 9, 2, 5, func(rawTx upstreamcacheguard.Tx) error {
+			return rawTx.(upstreamcacheguard.AdmissionTx).WriteAdmission("health-session", admission.key, upstreamcacheguard.Admission{
+				RequestID: admission.key, GroupID: 9, AccountID: 2, UpstreamKeyID: 5, SessionKey: "health-session", StartedAt: admission.at, RouteKey: "health-route", Sample: true,
+			})
+		}))
+	}
+	health, err := reader.AdmissionHealth(ctx, cutoff, nil)
+	require.NoError(t, err)
+	require.Empty(t, health.PendingFacts, "an unfinished ledger entry alone is not missing completed evidence")
+	var unfinished int
+	require.NoError(t, readerDB.QueryRowContext(ctx, `SELECT count(*) FROM upstream_cache_guard_admissions WHERE completed=FALSE`).Scan(&unfinished))
+	require.Equal(t, 2, unfinished, "ignoring account-wide gaps must neither complete nor remove unfinished attempts")
+
+	cases := []struct {
+		id      string
+		group   int64
+		account int64
+		key     int64
+		at      time.Time
+	}{
+		{"same-account-first", 9, 2, 5, cutoff.Add(-time.Minute)},
+		{"same-account-second", 10, 2, 5, cutoff.Add(-time.Second)},
+		{"previous-key", 9, 2, 4, cutoff.Add(-2 * time.Second)},
+		{"unknown-key", 9, 2, 0, cutoff.Add(-3 * time.Second)},
+		{"another-account", 9, 3, 5, cutoff.Add(-4 * time.Second)},
+		{"strict-cutoff", 9, 3, 6, cutoff},
+		{"after-cutoff", 9, 3, 7, cutoff.Add(time.Microsecond)},
+		{"already-processed", 9, 3, 8, cutoff.Add(-time.Second)},
+	}
+	facts := make(map[string]upstreamcacheguard.Evidence, len(cases))
+	for _, tc := range cases {
+		fact := upstreamcacheguard.Evidence{ID: tc.id, Request: upstreamcacheguard.Request{ID: tc.id, GroupID: tc.group, AccountID: tc.account, UpstreamKeyID: tc.key}, CompletedAt: tc.at}
+		facts[tc.id] = fact
+		require.NoError(t, writer.Enqueue(ctx, fact))
+	}
+	require.NoError(t, writer.TransactAccount(ctx, 9, 3, 8, func(tx upstreamcacheguard.Tx) error {
+		inserted, err := tx.InsertFact(facts["already-processed"])
+		if err != nil || !inserted {
+			return fmt.Errorf("processed fixture inserted=%v: %w", inserted, err)
+		}
+		return nil
+	}))
+	// A live consumer lease is about processing ownership, not completeness of
+	// the statistical window. A different reader still sees all delayed facts.
+	claimed, err := writer.ClaimPending(ctx, "other-instance-consumer", 32, time.Minute)
+	require.NoError(t, err)
+	require.Len(t, claimed, len(cases)-1)
+	health, err = reader.AdmissionHealth(ctx, cutoff, nil)
+	require.NoError(t, err)
+	expected := []upstreamcacheguard.PendingFact{
+		{AccountID: 2, UpstreamKeyID: 0, CompletedAt: cutoff.Add(-3 * time.Second)},
+		{AccountID: 2, UpstreamKeyID: 4, CompletedAt: cutoff.Add(-2 * time.Second)},
+		{AccountID: 2, UpstreamKeyID: 5, CompletedAt: cutoff.Add(-time.Minute)},
+		{AccountID: 3, UpstreamKeyID: 5, CompletedAt: cutoff.Add(-4 * time.Second)},
+	}
+	require.Len(t, health.PendingFacts, len(expected), "deduplicate exact account/Key identities without borrowing the current Key or excluding live leases")
+	for i, fact := range health.PendingFacts {
+		require.Equal(t, expected[i].AccountID, fact.AccountID)
+		require.Equal(t, expected[i].UpstreamKeyID, fact.UpstreamKeyID)
+		require.True(t, expected[i].CompletedAt.Equal(fact.CompletedAt), "completion instant must match independently of the database session time zone")
+	}
+	// Equality stays inside the tolerance; one PostgreSQL precision step later
+	// exposes that identity, while the next newer fact remains inside it.
+	health, err = reader.AdmissionHealth(ctx, cutoff.Add(time.Microsecond), nil)
+	require.NoError(t, err)
+	require.Len(t, health.PendingFacts, 5)
+	require.Equal(t, int64(3), health.PendingFacts[4].AccountID)
+	require.Equal(t, int64(6), health.PendingFacts[4].UpstreamKeyID)
+	require.True(t, cutoff.Equal(health.PendingFacts[4].CompletedAt))
+
+	// Completing one identity on one instance removes only its delayed fact
+	// gap; other Key identities and the durable unfinished ledger stay intact.
+	for _, id := range []string{"same-account-first", "same-account-second"} {
+		fact := facts[id]
+		require.NoError(t, writer.TransactAccount(ctx, fact.Request.GroupID, 2, 5, func(tx upstreamcacheguard.Tx) error {
+			inserted, err := tx.InsertFact(fact)
+			if err != nil || !inserted {
+				return fmt.Errorf("acknowledge delayed fact inserted=%v: %w", inserted, err)
+			}
+			return nil
+		}))
+	}
+	health, err = reader.AdmissionHealth(ctx, cutoff, nil)
+	require.NoError(t, err)
+	require.Len(t, health.PendingFacts, 3)
+	for _, pending := range health.PendingFacts {
+		require.False(t, pending.AccountID == 2 && pending.UpstreamKeyID == 5)
+	}
+	require.NoError(t, readerDB.QueryRowContext(ctx, `SELECT count(*) FROM upstream_cache_guard_admissions WHERE completed=FALSE`).Scan(&unfinished))
+	require.Equal(t, 2, unfinished)
 }
 
 // The fixture applies the published ancestors unchanged, then lets the test
