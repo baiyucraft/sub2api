@@ -3,7 +3,7 @@ set -Eeuo pipefail
 trap 'rc=$?; printf "vm_validate_failure_line=%s status=%s\\n" "$LINENO" "$rc"; exit "$rc"' ERR
 # Legacy Gate v1 profile allowlist; Gate v2 current profile is 274 and 242-273 remain historical.
 
-required_commands=(awk chmod cp curl date df diff docker find flock git grep gzip head id install jq ln mkdir mv rm sed seq sha256sum sleep sort ss stat tar tr xargs)
+required_commands=(awk chmod cp curl date df diff docker find flock git grep gzip head id install jq ln mkdir mv python3 rm sed seq sha256sum sleep sort ss stat tar tr xargs)
 for command_name in "${required_commands[@]}"; do
   command -v "$command_name" >/dev/null 2>&1 || exit 127
 done
@@ -113,9 +113,37 @@ assert_probe_database_user() {
 
 restore_probe_database() {
   local database=$1 owner=$2
-  [[ $database =~ ^sub2api_v2_[A-Za-z0-9_]+$ && $owner =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || return 1
+  [[ $database =~ ^sub2api_(v2|probe)_[A-Za-z0-9_]+$ && $owner =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || return 1
   docker exec -i -e DB_OWNER="$owner" sub2api-postgres /bin/sh -lc \
     'exec pg_restore --exit-on-error --no-owner --role "$DB_OWNER" -U "${POSTGRES_USER:-postgres}" -d "$1"' sh "$database"
+}
+
+# All images and commands consume the same temporary DB/Redis authority.
+# VM credentials are never copied into manifests, logs or production assets.
+prepare_probe_connection() {
+  local relative=.agents/skills/sub2api-production-deploy/scripts/release/vm-probe-config.py
+  local helper="$source_dir/$relative" expected actual pg_image identity
+  expected=$(jq -er --arg key "$relative" '.release_asset_sha256[$key]' "$manifest") || return 1
+  [[ $expected =~ ^[0-9a-f]{64}$ && -f $helper && ! -L $helper ]] || return 1
+  actual=$(sha256sum "$helper" | awk '{print $1}') || return 1
+  [[ $actual == "$expected" ]] || return 1
+  (umask 077; set -o noclobber; docker inspect -f '{{json .Config.Env}}' sub2api-dev | \
+    jq -c '[.[] | select(test("^(DATABASE_(HOST|PORT|USER|PASSWORD|DBNAME|SSLMODE)|CONFIG_FILE|DATA_DIR)="))]' \
+      > "$state_dir/probe-vm-environment.json") || return 1
+  python3 "$helper" --vm-config "$data_dir/config.yaml" --probe-config "$probe_dir/config.yaml" \
+    --database "$probe_db" --output "$state_dir/probe-connection" \
+    --environment-file "$state_dir/probe-vm-environment.json" || return 1
+  rm -f -- "$state_dir/probe-vm-environment.json" || return 1
+  probe_connection_env="$state_dir/probe-connection/connection.env"
+  IFS= read -r probe_role < "$state_dir/probe-connection/role" || return 1
+  [[ $probe_role =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || return 1
+  assert_probe_database_user "$probe_dir/config.yaml" "$probe_role" || return 1
+  pg_image=$(docker inspect -f '{{.Image}}' sub2api-postgres) || return 1
+  [[ $pg_image =~ ^sha256:[0-9a-f]{64}$ ]] || return 1
+  identity=$(docker run --rm --pull never --tmpfs /var/lib/postgresql:rw,nosuid --network "$probe_network" \
+    --env-file "$state_dir/probe-connection/postgres.env" --entrypoint psql "$pg_image" \
+    -X -w -A -t -F '|' -v ON_ERROR_STOP=1 -c 'SELECT current_user,current_database()') || return 1
+  [[ $identity == "$probe_role|sub2api_dev" ]] || return 1
 }
 
 wait_for_redis_ready() {
@@ -615,7 +643,7 @@ if [[ "$manifest_schema" == 2 ]]; then
       [[ ${required_query_44} == sufficient ]]
     }
   fi
-  probe_suffix=${release_id//[^a-zA-Z0-9]/}
+  probe_suffix=$(printf '%s' "$release_id" | sha256sum | awk '{print $1}')
   probe_db="sub2api_v2_${probe_suffix:0:24}"
   probe_dir="$state_dir/probe-data"
   probe_network="sub2api-v2-net-${probe_suffix:0:12}"
@@ -624,12 +652,25 @@ if [[ "$manifest_schema" == 2 ]]; then
   old_probe_app="sub2api-v2-old-${probe_suffix:0:12}"
   recovery_dir="$state_dir/production-recovery"
   probe_redis_data="$state_dir/probe-redis-data"
+  probe_database_created=false
+  probe_network_created=false
+  probe_postgres_connected=false
+  probe_redis_created=false
+  probe_app_created=false
+  old_probe_app_created=false
+  probe_redis_id=
+  probe_app_id=
+  old_probe_app_id=
   cleanup_v2() {
-    docker rm -f "$probe_app" "$old_probe_app" "$probe_redis" >/dev/null 2>&1 || true
-    docker network disconnect "$probe_network" sub2api-postgres >/dev/null 2>&1 || true
-    docker network rm "$probe_network" >/dev/null 2>&1 || true
-    docker exec sub2api-postgres sh -lc "dropdb --if-exists -U \"\${POSTGRES_USER:-postgres}\" $probe_db" >/dev/null 2>&1 || true
-    rm -rf "$probe_dir" "$recovery_dir" "$probe_redis_data"
+    if [[ $probe_app_created == true ]]; then docker rm -f -v "$probe_app_id" >/dev/null 2>&1 || true; fi
+    if [[ $old_probe_app_created == true ]]; then docker rm -f -v "$old_probe_app_id" >/dev/null 2>&1 || true; fi
+    if [[ $probe_redis_created == true ]]; then docker rm -f -v "$probe_redis_id" >/dev/null 2>&1 || true; fi
+    if [[ $probe_postgres_connected == true ]]; then docker network disconnect "$probe_network" sub2api-postgres >/dev/null 2>&1 || true; fi
+    if [[ $probe_network_created == true ]]; then docker network rm "$probe_network" >/dev/null 2>&1 || true; fi
+    if [[ $probe_database_created == true ]]; then
+      docker exec sub2api-postgres sh -lc "dropdb --if-exists -U \"\${POSTGRES_USER:-postgres}\" $probe_db" >/dev/null 2>&1 || true
+    fi
+    rm -rf "$probe_dir" "$recovery_dir" "$probe_redis_data" "$state_dir/probe-connection" "$state_dir/probe-vm-environment.json"
   }
   trap cleanup_v2 EXIT
   if [[ "$recovery_gate_mode" == fast ]]; then
@@ -646,16 +687,22 @@ if [[ "$manifest_schema" == 2 ]]; then
     }
     rm -f -- "$recovery_path"
   fi
-  database_owner=$(docker exec sub2api-postgres sh -lc 'psql -X -A -t -U "${POSTGRES_USER:-postgres}" -d postgres -c "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname='"'"'sub2api_dev'"'"'"' | tr -d '\r')
-  [[ "$database_owner" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]
   install -d -m 700 "$probe_dir"
   if [[ "$recovery_gate_mode" == fast ]]; then
     cp -a "$data_dir/." "$probe_dir/"
   else
     cp -a "$recovery_dir/config/data/." "$probe_dir/"
   fi
-  assert_probe_database_user "$probe_dir/config.yaml" "$database_owner"
+  mark_v2_stage probe_config_identity
+  docker network create "$probe_network" >/dev/null
+  probe_network_created=true
+  docker network connect --alias sub2api-postgres "$probe_network" sub2api-postgres
+  probe_postgres_connected=true
+  prepare_probe_connection
+  database_owner=$probe_role
+  if [[ $recovery_gate_mode == fast ]]; then mark_v2_stage fast_probe; else mark_v2_stage restore_probe; fi
   docker exec sub2api-postgres sh -lc "createdb -U \"\${POSTGRES_USER:-postgres}\" -O \"$database_owner\" $probe_db"
+  probe_database_created=true
   # GRANT cannot authorize ALTER TABLE or CREATE OR REPLACE FUNCTION. Restore
   # every object under the application role in this disposable database only.
   if [[ "$recovery_gate_mode" == fast ]]; then
@@ -664,13 +711,9 @@ if [[ "$manifest_schema" == 2 ]]; then
   else
     restore_probe_database "$probe_db" "$database_owner" < "$recovery_dir/database/sub2api.dump"
   fi
-  docker network create "$probe_network" >/dev/null
-  docker network connect --alias sub2api-postgres "$probe_network" sub2api-postgres
   [[ -f "$probe_dir/config.yaml" && ! -L "$probe_dir/config.yaml" ]]
-  sed -i "/^database:/,/^[^[:space:]]/ s/^[[:space:]]*dbname:[[:space:]]*.*/  dbname: $probe_db/" "$probe_dir/config.yaml"
-  sed -i '/^database:/,/^[^[:space:]]/ s/^[[:space:]]*host:[[:space:]]*.*/  host: sub2api-postgres/' "$probe_dir/config.yaml"
   redis_image=$(docker inspect -f '{{.Config.Image}}' sub2api-redis)
-  redis_volume_args=()
+  redis_volume_args=(--tmpfs /data:rw,nosuid)
   redis_probe_diagnostics="$state_dir/redis-probe-diagnostics"
   redis_wait_seconds=180
   if [[ "$recovery_gate_mode" != fast ]]; then
@@ -690,7 +733,10 @@ if [[ "$manifest_schema" == 2 ]]; then
     redis_wait_seconds=$((180 + (redis_rdb_bytes / 10485760) * 60))
     (( redis_wait_seconds > 600 )) && redis_wait_seconds=600
   fi
-  docker run -d --name "$probe_redis" --network "$probe_network" --network-alias probe-redis "${redis_volume_args[@]}" "$redis_image" redis-server --save '' --appendonly no >/dev/null
+  probe_redis_id=$(docker create --name "$probe_redis" --network "$probe_network" --network-alias probe-redis "${redis_volume_args[@]}" "$redis_image" redis-server --save '' --appendonly no)
+  [[ $probe_redis_id =~ ^[0-9a-f]{64}$ ]]
+  probe_redis_created=true
+  docker start "$probe_redis_id" >/dev/null
   wait_for_redis_ready "$probe_redis" "$redis_wait_seconds" "$redis_probe_diagnostics"
   if [[ "$recovery_gate_mode" != fast ]]; then
     redis_backup_keys=$(sed -n 's/^redis_keys=//p' "$recovery_dir/manifest")
@@ -707,10 +753,6 @@ if [[ "$manifest_schema" == 2 ]]; then
     redis_restored_persistent=$((redis_restored_keys - redis_restored_expires))
     [[ $redis_restored_persistent -ge $redis_backup_persistent ]]
   fi
-  sed -i '/^redis:/,/^[^[:space:]]/ s/^[[:space:]]*host:[[:space:]]*.*/  host: probe-redis/' "$probe_dir/config.yaml"
-  sed -i '/^redis:/,/^[^[:space:]]/ s/^[[:space:]]*port:[[:space:]]*.*/  port: 6379/' "$probe_dir/config.yaml"
-  sed -i '/^redis:/,/^[^[:space:]]/ s/^[[:space:]]*password:[[:space:]]*.*/  password: ""/' "$probe_dir/config.yaml"
-  sed -i '/^redis:/,/^[^[:space:]]/ s/^[[:space:]]*db:[[:space:]]*.*/  db: 0/' "$probe_dir/config.yaml"
   # The candidate entrypoint drops to uid 1000. Keep the root-only source
   # untouched and expose a read-only copy with no write bits to the container.
   plan_snapshot="$state_dir/production-snapshot.json"
@@ -720,7 +762,7 @@ if [[ "$manifest_schema" == 2 ]]; then
     [[ -f "$plan_snapshot" && ! -L "$plan_snapshot" && ${required_query_46} == 0:0:444:1 ]]
   }
   mark_v2_stage migration_plan_before
-  if plan_before=$(docker run --rm -v "$plan_snapshot:/input/production-snapshot.json:ro" "$candidate_image_id" /app/sub2api --migration-plan-snapshot-json /input/production-snapshot.json 2>"$state_dir/plan-before.log"); then
+  if plan_before=$(docker run --rm --network none --env-file "$probe_connection_env" -v "$plan_snapshot:/input/production-snapshot.json:ro" "$candidate_image_id" /app/sub2api --migration-plan-snapshot-json /input/production-snapshot.json 2>"$state_dir/plan-before.log"); then
     plan_before_exit=0
   else
     plan_before_exit=$?
@@ -740,7 +782,7 @@ if [[ "$manifest_schema" == 2 ]]; then
     required_query_50=$(jq -r '.checksum_policy_sha256' "$manifest")
     [[ ${required_query_49} == ${required_query_50} ]]
   }
-  if actual_plan=$(docker run --rm --network="$probe_network" -v "$probe_dir:/app/data" "$candidate_image_id" /app/sub2api --migration-plan-json 2>"$state_dir/plan-actual.log"); then
+  if actual_plan=$(docker run --rm --network="$probe_network" --env-file "$probe_connection_env" -v "$probe_dir:/app/data" "$candidate_image_id" /app/sub2api --migration-plan-json 2>"$state_dir/plan-actual.log"); then
     actual_plan_exit=0
   else
     actual_plan_exit=$?
@@ -772,7 +814,7 @@ if [[ "$manifest_schema" == 2 ]]; then
     # has no pending migration, while this independent clone can be older.
     mark_v2_stage fast_fixture_bootstrap
     install -o 0 -g 0 -m 444 "$state_dir/plan-actual.json" "$state_dir/fixture-bootstrap-before.json"
-    if docker run --rm --network="$probe_network" -v "$probe_dir:/app/data" -v "$state_dir/fixture-bootstrap-before.json:/input/migration-plan.json:ro" "$candidate_image_id" /app/sub2api --migration-apply-plan-json /input/migration-plan.json >"$state_dir/fixture-bootstrap.log" 2>&1; then
+    if docker run --rm --network="$probe_network" --env-file "$probe_connection_env" -v "$probe_dir:/app/data" -v "$state_dir/fixture-bootstrap-before.json:/input/migration-plan.json:ro" "$candidate_image_id" /app/sub2api --migration-apply-plan-json /input/migration-plan.json >"$state_dir/fixture-bootstrap.log" 2>&1; then
       fixture_bootstrap_exit=0
     else
       fixture_bootstrap_exit=$?
@@ -780,7 +822,7 @@ if [[ "$manifest_schema" == 2 ]]; then
     printf '%s\n' "$fixture_bootstrap_exit" > "$state_dir/fixture-bootstrap.exit"
     chmod 400 "$state_dir/fixture-bootstrap.exit"
     [[ $fixture_bootstrap_exit == 0 ]]
-    if probe_plan=$(docker run --rm --network="$probe_network" -v "$probe_dir:/app/data" "$candidate_image_id" /app/sub2api --migration-plan-json 2>"$state_dir/fixture-bootstrap-after.log"); then
+    if probe_plan=$(docker run --rm --network="$probe_network" --env-file "$probe_connection_env" -v "$probe_dir:/app/data" "$candidate_image_id" /app/sub2api --migration-plan-json 2>"$state_dir/fixture-bootstrap-after.log"); then
       fixture_plan_exit=0
     else
       fixture_plan_exit=$?
@@ -929,9 +971,9 @@ if [[ "$manifest_schema" == 2 ]]; then
     [[ -f "$plan_apply" && ! -L "$plan_apply" && ${required_query_52} == 0:0:444:1 ]]
   }
   mark_v2_stage migration_apply
-  docker run --rm --network="$probe_network" -v "$probe_dir:/app/data" -v "$plan_apply:/input/migration-plan.json:ro" "$candidate_image_id" /app/sub2api --migration-apply-plan-json /input/migration-plan.json >"$state_dir/migrate-candidate.log" 2>&1
+  docker run --rm --network="$probe_network" --env-file "$probe_connection_env" -v "$probe_dir:/app/data" -v "$plan_apply:/input/migration-plan.json:ro" "$candidate_image_id" /app/sub2api --migration-apply-plan-json /input/migration-plan.json >"$state_dir/migrate-candidate.log" 2>&1
   mark_v2_stage migration_plan_after
-  plan_after=$(docker run --rm --network="$probe_network" -v "$probe_dir:/app/data" "$candidate_image_id" /app/sub2api --migration-plan-json 2>"$state_dir/plan-after.log")
+  plan_after=$(docker run --rm --network="$probe_network" --env-file "$probe_connection_env" -v "$probe_dir:/app/data" "$candidate_image_id" /app/sub2api --migration-plan-json 2>"$state_dir/plan-after.log")
   printf '%s' "$plan_after" | jq -e 'type == "object" and (.pending|type)=="array" and (.pending|length)==0 and (.conflicts|type)=="array" and (.conflicts|length)==0 and (.unknown|type)=="array" and (.unknown|length)==0 and .existing_checksums_verified==true' >/dev/null
   observed_catalog_sha256=$(printf '%s' "$plan_after" | jq -er '.catalog_sha256') || exit $?
   expected_catalog_sha256=$(jq -er '.catalog_sha256' "$manifest") || exit $?
@@ -1012,7 +1054,10 @@ if [[ "$manifest_schema" == 2 ]]; then
     mark_v2_stage old_image_health
     assert_old_image_protected
     docker image inspect "$old_image_id" >/dev/null
-    docker run -d --name "$old_probe_app" --network="$probe_network" -e SERVER_HOST=0.0.0.0 -e SERVER_PORT=8080 -e UPSTREAM_SYNC_AUTO_ENABLED=false -v "$probe_dir:/app/data" --health-cmd 'wget -q -T 5 -O /dev/null http://127.0.0.1:8080/health || exit 1' --health-interval 5s --health-timeout 5s --health-start-period 5s --health-retries 12 "$old_image_id" >/dev/null
+    old_probe_app_id=$(docker create --name "$old_probe_app" --network="$probe_network" --env-file "$probe_connection_env" -e SERVER_HOST=0.0.0.0 -e SERVER_PORT=8080 -e UPSTREAM_SYNC_AUTO_ENABLED=false -v "$probe_dir:/app/data" --health-cmd 'wget -q -T 5 -O /dev/null http://127.0.0.1:8080/health || exit 1' --health-interval 5s --health-timeout 5s --health-start-period 5s --health-retries 12 "$old_image_id")
+    [[ $old_probe_app_id =~ ^[0-9a-f]{64}$ ]]
+    old_probe_app_created=true
+    docker start "$old_probe_app_id" >/dev/null
     for _ in $(seq 1 90); do
       {
         required_query_53=$(docker inspect -f '{{.State.Health.Status}}' "$old_probe_app") || exit $?
@@ -1028,7 +1073,8 @@ if [[ "$manifest_schema" == 2 ]]; then
       required_query_55=$(docker inspect -f '{{.State.Health.Status}}' "$old_probe_app") || exit $?
       [[ ${required_query_55} == healthy ]]
     }
-    docker rm -f "$old_probe_app" >/dev/null
+    docker rm -f -v "$old_probe_app_id" >/dev/null
+    old_probe_app_created=false
   fi
   mark_v2_stage candidate_health
   if [[ "$profile" == 264 || "$profile" == 265 || "$profile" == 266 || "$profile" == 267 || "$profile" == 268 || "$profile" == 269 || "$profile" == 270 || "$profile" == 271 || $profile == 272 || $profile == 273 || $profile == 274 ]]; then
@@ -1044,7 +1090,7 @@ if [[ "$manifest_schema" == 2 ]]; then
       [[ ${required_query_56} == stale ]]
     }
     for cache_attempt in 1 2; do
-      cache_result=$(docker run --rm --network="$probe_network" -e DASHBOARD_CACHE_KEY_PREFIX="$dashboard_prefix" -v "$probe_dir:/app/data" "$candidate_image_id" /app/sub2api --clear-dashboard-cache 2>"$state_dir/dashboard-cache-refresh-$cache_attempt.log")
+      cache_result=$(docker run --rm --network="$probe_network" --env-file "$probe_connection_env" -e DASHBOARD_CACHE_KEY_PREFIX="$dashboard_prefix" -v "$probe_dir:/app/data" "$candidate_image_id" /app/sub2api --clear-dashboard-cache 2>"$state_dir/dashboard-cache-refresh-$cache_attempt.log")
       jq -e 'keys==["dashboard_cache_cleared"] and .dashboard_cache_cleared==true' <<<"$cache_result" >/dev/null
       {
         required_query_57=$(docker exec "$probe_redis" redis-cli EXISTS "$dashboard_key") || exit $?
@@ -1057,7 +1103,10 @@ if [[ "$manifest_schema" == 2 ]]; then
     done
     docker exec "$probe_redis" redis-cli DEL "$sentinel" >/dev/null
   fi
-  docker run -d --name "$probe_app" --network="$probe_network" -e SERVER_HOST=0.0.0.0 -e SERVER_PORT=8080 -e UPSTREAM_SYNC_AUTO_ENABLED=false -p 127.0.0.1::8080 -v "$probe_dir:/app/data" --health-cmd 'wget -q -T 5 -O /dev/null http://127.0.0.1:8080/health || exit 1' --health-interval 5s --health-timeout 5s --health-start-period 5s --health-retries 12 "$candidate_image_id" >/dev/null
+  probe_app_id=$(docker create --name "$probe_app" --network="$probe_network" --env-file "$probe_connection_env" -e SERVER_HOST=0.0.0.0 -e SERVER_PORT=8080 -e UPSTREAM_SYNC_AUTO_ENABLED=false -p 127.0.0.1::8080 -v "$probe_dir:/app/data" --health-cmd 'wget -q -T 5 -O /dev/null http://127.0.0.1:8080/health || exit 1' --health-interval 5s --health-timeout 5s --health-start-period 5s --health-retries 12 "$candidate_image_id")
+  [[ $probe_app_id =~ ^[0-9a-f]{64}$ ]]
+  probe_app_created=true
+  docker start "$probe_app_id" >/dev/null
   for _ in $(seq 1 90); do
     {
       required_query_59=$(docker inspect -f '{{.State.Health.Status}}' "$probe_app") || exit $?
@@ -1463,7 +1512,7 @@ free_after_build=$(df -PB1 /var/lib/docker 2>/dev/null | awk 'NR==2{print $4}' |
 required_free=$((database_size * 2 + candidate_size + 1073741824))
 [[ $free_after_build -gt $required_free ]]
 trap - ERR INT TERM
-probe_suffix=${release_id//[^a-zA-Z0-9]/}
+probe_suffix=$(printf '%s' "$release_id" | sha256sum | awk '{print $1}')
 probe_db="sub2api_probe_${probe_suffix:0:24}"
 probe_dir="$state_dir/probe-data"
 probe_redis="sub2api-probe-redis-${probe_suffix:0:12}"
@@ -1471,19 +1520,30 @@ probe_app="sub2api-probe-app-${probe_suffix:0:12}"
 old_probe_app="sub2api-probe-old-${probe_suffix:0:12}"
 probe_network="sub2api-probe-net-${probe_suffix:0:12}"
 redis_image=$(docker inspect -f '{{.Config.Image}}' sub2api-redis)
-database_owner=$(docker exec sub2api-postgres sh -lc 'psql -X -A -t -U "${POSTGRES_USER:-postgres}" -d postgres -c "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname='"'"'sub2api_dev'"'"'"' | tr -d '\r')
-[[ $database_owner =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]]
+probe_database_created=false
+probe_network_created=false
+probe_postgres_connected=false
+probe_redis_created=false
+probe_app_created=false
+old_probe_app_created=false
+probe_redis_id=
+probe_app_id=
+old_probe_app_id=
 create_probe_database() {
   docker exec -i -e DB_OWNER="$database_owner" sub2api-postgres sh -lc 'psql -X -v ON_ERROR_STOP=1 -v db_owner="$DB_OWNER" -U "${POSTGRES_USER:-postgres}" -d postgres' >/dev/null <<SQL
 SELECT format('CREATE DATABASE %I OWNER %I', '$probe_db', :'db_owner') \gexec
 SQL
 }
 cleanup_probe() {
-  docker rm -f "$probe_app" "$old_probe_app" "$probe_redis" >/dev/null 2>&1 || true
-  docker network disconnect -f "$probe_network" sub2api-postgres >/dev/null 2>&1 || true
-  docker network rm "$probe_network" >/dev/null 2>&1 || true
-  docker exec sub2api-postgres sh -lc "dropdb --if-exists -U \"\${POSTGRES_USER:-postgres}\" $probe_db" >/dev/null 2>&1 || true
-  rm -rf "$probe_dir" "$state_dir/probe.dump"
+  if [[ $probe_app_created == true ]]; then docker rm -f -v "$probe_app_id" >/dev/null 2>&1 || true; fi
+  if [[ $old_probe_app_created == true ]]; then docker rm -f -v "$old_probe_app_id" >/dev/null 2>&1 || true; fi
+  if [[ $probe_redis_created == true ]]; then docker rm -f -v "$probe_redis_id" >/dev/null 2>&1 || true; fi
+  if [[ $probe_postgres_connected == true ]]; then docker network disconnect "$probe_network" sub2api-postgres >/dev/null 2>&1 || true; fi
+  if [[ $probe_network_created == true ]]; then docker network rm "$probe_network" >/dev/null 2>&1 || true; fi
+  if [[ $probe_database_created == true ]]; then
+    docker exec sub2api-postgres sh -lc "dropdb --if-exists -U \"\${POSTGRES_USER:-postgres}\" $probe_db" >/dev/null 2>&1 || true
+  fi
+  rm -rf "$probe_dir" "$state_dir/probe.dump" "$state_dir/probe-connection" "$state_dir/probe-vm-environment.json"
 }
 on_failure() {
   code=$?
@@ -1492,6 +1552,9 @@ on_failure() {
   [[ $failed_line =~ ^[0-9]+$ ]] || failed_line=0
   category=unknown
   current_stage=$(<"$state_dir/stage")
+  if [[ $current_stage == probe_config_identity ]]; then
+    category=probe_config_identity
+  fi
   if [[ $current_stage == migration_assertion_* || $current_stage == runtime_assertion_* ]]; then
     category=$current_stage
   fi
@@ -1600,21 +1663,25 @@ trap 'on_failure $LINENO' ERR INT TERM
 mark_stage isolated_database
 install -d -m 700 "$probe_dir"
 docker network create "$probe_network" >/dev/null 2>&1
+probe_network_created=true
 docker network connect --alias sub2api-postgres "$probe_network" sub2api-postgres >/dev/null 2>&1
+probe_postgres_connected=true
+cp -a "$data_dir/." "$probe_dir/"
+mark_stage probe_config_identity
+prepare_probe_connection
+database_owner=$probe_role
+mark_stage isolated_database
 docker exec sub2api-postgres sh -lc 'pg_dump -Fc -Z 1 -U "${POSTGRES_USER:-postgres}" -d sub2api_dev' > "$state_dir/probe.dump"
 create_probe_database
-docker exec -i sub2api-postgres sh -lc "pg_restore --exit-on-error -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db" < "$state_dir/probe.dump" >/dev/null 2>&1
-cp -a "$data_dir/." "$probe_dir/"
-sed -i "/^database:/,/^[^[:space:]]/ s/^[[:space:]]*dbname:[[:space:]]*.*/  dbname: $probe_db/" "$probe_dir/config.yaml"
-sed -i '/^database:/,/^[^[:space:]]/ s/^[[:space:]]*host:[[:space:]]*.*/  host: sub2api-postgres/' "$probe_dir/config.yaml"
+probe_database_created=true
+restore_probe_database "$probe_db" "$database_owner" < "$state_dir/probe.dump" >/dev/null 2>&1
 
 mark_stage isolated_redis
-docker run -d --name "$probe_redis" --network "$probe_network" --network-alias probe-redis "$redis_image" redis-server --save '' --appendonly no >/dev/null 2>&1
+probe_redis_id=$(docker create --name "$probe_redis" --network "$probe_network" --network-alias probe-redis --tmpfs /data:rw,nosuid "$redis_image" redis-server --save '' --appendonly no 2>/dev/null)
+[[ $probe_redis_id =~ ^[0-9a-f]{64}$ ]]
+probe_redis_created=true
+docker start "$probe_redis_id" >/dev/null 2>&1
 wait_for_redis_ready "$probe_redis" 180 "$state_dir/redis-probe-diagnostics"
-sed -i '/^redis:/,/^[^[:space:]]/ s/^[[:space:]]*host:[[:space:]]*.*/  host: probe-redis/' "$probe_dir/config.yaml"
-sed -i '/^redis:/,/^[^[:space:]]/ s/^[[:space:]]*port:[[:space:]]*.*/  port: 6379/' "$probe_dir/config.yaml"
-sed -i '/^redis:/,/^[^[:space:]]/ s/^[[:space:]]*password:[[:space:]]*.*/  password: ""/' "$probe_dir/config.yaml"
-sed -i '/^redis:/,/^[^[:space:]]/ s/^[[:space:]]*db:[[:space:]]*.*/  db: 0/' "$probe_dir/config.yaml"
 
 mark_stage migrate_candidate
 probe_timezone=$(sed -n 's/^timezone:[[:space:]]*//p' "$probe_dir/config.yaml" | head -n1 | tr -d '"\r')
@@ -1807,8 +1874,10 @@ if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 |
   fi
   fixture_rejected=true
   docker exec sub2api-postgres sh -lc "dropdb -U \"\${POSTGRES_USER:-postgres}\" $probe_db" >/dev/null 2>&1
+  probe_database_created=false
   create_probe_database
-  docker exec -i sub2api-postgres sh -lc "pg_restore --exit-on-error -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db" < "$state_dir/probe.dump" >/dev/null 2>&1
+  probe_database_created=true
+  restore_probe_database "$probe_db" "$database_owner" < "$state_dir/probe.dump" >/dev/null 2>&1
   {
     required_query_101=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT to_regclass('public.accounts') IS NOT NULL AND to_regclass('public.upstream_keys') IS NOT NULL\"") || exit $?
     [[ ${required_query_101} == t ]]
@@ -1942,7 +2011,7 @@ if [[ $release_profile == 239 || $release_profile == 240 || $release_profile == 
       fi
     fi
 fi
-docker run --rm --network "$probe_network" -v "$probe_dir:/app/data" "$candidate_image_id" /app/sub2api --migrate-only >"$state_dir/migrate-candidate.log" 2>&1
+docker run --rm --network "$probe_network" --env-file "$probe_connection_env" -v "$probe_dir:/app/data" "$candidate_image_id" /app/sub2api --migrate-only >"$state_dir/migrate-candidate.log" 2>&1
 rm -f "$state_dir/migrate-candidate.log"
 if [[ $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
   mark_stage migration_assertion_profile_195_postflight_db
@@ -1994,12 +2063,15 @@ if [[ $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 |
     fi
     unset old_image_version_output
   fi
-  docker run -d --name "$old_probe_app" --network "$probe_network" \
+  old_probe_app_id=$(docker create --name "$old_probe_app" --network "$probe_network" --env-file "$probe_connection_env" \
     -e SERVER_HOST=0.0.0.0 -e SERVER_PORT="$server_port" -e UPSTREAM_SYNC_AUTO_ENABLED=false \
     -p "127.0.0.1::$server_port" \
     --health-cmd "wget -q -T 5 -O /dev/null http://127.0.0.1:$server_port/health || exit 1" \
     --health-interval 5s --health-timeout 5s --health-start-period 5s --health-retries 6 \
-    -v "$probe_dir:/app/data" "$compat_image_id" >/dev/null 2>&1
+    -v "$probe_dir:/app/data" "$compat_image_id" 2>/dev/null)
+  [[ $old_probe_app_id =~ ^[0-9a-f]{64}$ ]]
+  old_probe_app_created=true
+  docker start "$old_probe_app_id" >/dev/null 2>&1
   mark_stage old_image_compatibility_health
   for _ in $(seq 1 90); do
     {
@@ -2036,7 +2108,8 @@ if [[ $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 |
   [[ $old_image_auth_command_status == 0 ]]
   [[ $old_image_auth_status == 401 ]]
   rm -f "$state_dir/old-image-auth-status"
-  docker rm -f "$old_probe_app" >/dev/null
+  docker rm -f -v "$old_probe_app_id" >/dev/null
+  old_probe_app_created=false
   vm_old_image_compatibility_verified=true
 fi
 if [[ $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 ]]; then
@@ -2092,14 +2165,17 @@ fi
 mark_stage candidate_health
 activation_instance="$release_id-vm-gate"
 rm -f "$probe_dir/.sub2api-active-instance"
-docker run -d --name "$probe_app" --network "$probe_network" \
+probe_app_id=$(docker create --name "$probe_app" --network "$probe_network" --env-file "$probe_connection_env" \
   -e SERVER_HOST=0.0.0.0 -e SERVER_PORT="$server_port" -e UPSTREAM_SYNC_AUTO_ENABLED=false \
   -e "SUB2API_INSTANCE_ID=$activation_instance" \
   -e SUB2API_BACKGROUND_ACTIVATION_FILE=/app/data/.sub2api-active-instance \
   -p "127.0.0.1::$server_port" \
   --health-cmd "wget -q -T 5 -O /dev/null http://127.0.0.1:$server_port/health || exit 1" \
   --health-interval 5s --health-timeout 5s --health-start-period 5s --health-retries 6 \
-  -v "$probe_dir:/app/data" "$candidate_image_id" >/dev/null 2>&1
+  -v "$probe_dir:/app/data" "$candidate_image_id" 2>/dev/null)
+[[ $probe_app_id =~ ^[0-9a-f]{64}$ ]]
+probe_app_created=true
+docker start "$probe_app_id" >/dev/null 2>&1
 for _ in $(seq 1 90); do
   {
     required_query_106=$(docker inspect -f '{{.State.Health.Status}}' "$probe_app") || exit $?

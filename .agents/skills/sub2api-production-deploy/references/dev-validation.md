@@ -276,3 +276,9 @@ Gate 必须保留至少一个非零受影响行用例来证明备份内容与 pr
 - 无法证明回滚路径。
 
 最终报告只保留旧 image ID、candidate image ID、dump 标识、checksum、验证状态和时间，不保留数据值、DSN、密码或完整日志。
+
+### 隔离 probe 配置合同（当前发布）
+
+`vm-validate.sh` 的 fast、specialized、full 与 v1 入口都通过 `release/vm-probe-config.py` 生成 probe 连接闭包。VM 容器中非空 `DATABASE_HOST/PORT/USER/PASSWORD/DBNAME/SSLMODE` 环境变量优先，空值按 Viper 语义回落 VM 配置；只复制并修改 probe 配置副本，生产配置、恢复包和源库不改。helper 输出 `connection.env`、`postgres.env`、`role`，目录权限为 0700、文件为 0600，容器只接收 env-file。
+
+创建临时数据库前，validator 使用当前 PostgreSQL image digest、当前隔离 network 和 `postgres.env` 执行 `SELECT current_user,current_database()`，必须得到规范化角色与 `sub2api_dev`。恢复统一使用 `pg_restore --no-owner --role`；不再用生产配置 user 与 VM owner 相等作为跨环境恢复条件。失败时保留私有、有界诊断；成功时清除 probe 连接和环境快照。所有隔离资源只在本次 create/run/connect 成功标记后清理，同名已有资源或 create 失败不会被误删。
