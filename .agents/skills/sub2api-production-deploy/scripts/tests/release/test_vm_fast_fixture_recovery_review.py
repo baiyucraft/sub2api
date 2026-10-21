@@ -76,6 +76,36 @@ def test_prior_registry_is_frozen_and_ast_only_adds_this_tranche():
     assert ast.dump(current, include_attributes=False) == ast.dump(ast.parse(text), include_attributes=False)
 
 
+def test_implementation_only_adds_the_literal_sensitive_helper():
+    before_source, after_source = source_at(BASE), source_at(TARGET)
+    before = {"__name__": "vm_fast_fixture_sensitive_before", "__package__": "release"}
+    after = {"__name__": "vm_fast_fixture_sensitive_after", "__package__": "release"}
+    exec(compile(before_source, BASE + ":recovery_gate.py", "exec"), before)
+    exec(compile(after_source, TARGET + ":recovery_gate.py", "exec"), after)
+    assert HELPER == PREFIX + "vm_fast_fixture_preserve.py"
+    assert after["_RELEASE_STATE_MACHINE_FILES"] == before["_RELEASE_STATE_MACHINE_FILES"] | {HELPER}
+    assert HELPER not in before["_RELEASE_STATE_MACHINE_FILES"]
+    for name in ("_RECOVERY_CONTROL_FILES", "_RECOVERY_RUNTIME_FILES", "_SPECIALIZED_FILES"):
+        assert after[name] == before[name]
+
+    implementation = ast.parse(after_source)
+    matched = 0
+    for node in implementation.body:
+        names = {t.id for t in node.targets if isinstance(t, ast.Name)} if isinstance(node, ast.Assign) else set()
+        if "_RELEASE_STATE_MACHINE_FILES" not in names:
+            continue
+        assert isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name)
+        assert node.value.func.id == "frozenset" and len(node.value.args) == 1
+        values = node.value.args[0]
+        assert isinstance(values, ast.Set)
+        matches = [value for value in values.elts if isinstance(value, ast.Constant) and value.value == HELPER]
+        assert len(matches) == 1
+        values.elts.remove(matches[0])
+        matched += 1
+    assert matched == 1
+    assert ast.dump(implementation, include_attributes=False) == ast.dump(ast.parse(before_source), include_attributes=False)
+
+
 def before_objects():
     return {p: a for p, (a, _) in OBJECTS.items() if a is not None}
 
