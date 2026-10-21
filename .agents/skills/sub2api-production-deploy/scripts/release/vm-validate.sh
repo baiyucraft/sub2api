@@ -70,6 +70,54 @@ image_id_for_tag() {
   printf '%s' "$image_id"
 }
 
+# Probe restores must create objects as the same role that runs migrations.
+# Accept only an unambiguous literal role in the generated config; aliases,
+# merges, duplicate keys and flow mappings cannot prove the application's user.
+assert_probe_database_user() {
+  local config=$1 owner=$2
+  [[ -f $config && ! -L $config && $owner =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || return 1
+  awk -v expected="$owner" '
+    BEGIN { section=0; sections=0; users=0; invalid=0 }
+    /^[ \t]*\t/ { invalid=1 }
+    /^[^[:space:]#]/ {
+      section=0
+      key=$0; sub(/:.*/, "", key); gsub(/["\047[:space:]]/, "", key)
+      if (tolower(key) == "database") {
+        sections++
+        if ($0 !~ /^database:[[:space:]]*(#.*)?$/) invalid=1
+        section=1; direct_indent=0
+      }
+      next
+    }
+    section && /^[[:space:]]+[^[:space:]#]/ {
+      match($0,/[^[:space:]]/); indent=RSTART-1
+      if (direct_indent == 0) direct_indent=indent
+      if (indent < direct_indent) invalid=1
+      if (indent != direct_indent) next
+      if ($0 ~ /^[[:space:]]*<</) invalid=1
+      key=$0; sub(/:.*/, "", key); gsub(/["\047[:space:]]/, "", key)
+      if (tolower(key) != "user") next
+      users++
+      if ($0 !~ /^[[:space:]]*user:/) invalid=1
+      value=$0
+      sub(/^[[:space:]]*user:[[:space:]]*/, "", value)
+      sub(/[[:space:]]+#.*$/, "", value)
+      sub(/[[:space:]]*$/, "", value)
+      if (value ~ /^"[A-Za-z_][A-Za-z0-9_]*"$/ || value ~ /^\047[A-Za-z_][A-Za-z0-9_]*\047$/)
+        value=substr(value,2,length(value)-2)
+      if (value !~ /^[A-Za-z_][A-Za-z0-9_]*$/ || value != expected) invalid=1
+    }
+    END { exit (invalid || sections != 1 || users != 1) }
+  ' "$config"
+}
+
+restore_probe_database() {
+  local database=$1 owner=$2
+  [[ $database =~ ^sub2api_v2_[A-Za-z0-9_]+$ && $owner =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || return 1
+  docker exec -i -e DB_OWNER="$owner" sub2api-postgres /bin/sh -lc \
+    'exec pg_restore --exit-on-error --no-owner --role "$DB_OWNER" -U "${POSTGRES_USER:-postgres}" -d "$1"' sh "$database"
+}
+
 wait_for_redis_ready() {
   local container=$1 max_seconds=${2:-180} diagnostics_path=${3:-}
   local state loading ping
@@ -600,29 +648,24 @@ if [[ "$manifest_schema" == 2 ]]; then
   fi
   database_owner=$(docker exec sub2api-postgres sh -lc 'psql -X -A -t -U "${POSTGRES_USER:-postgres}" -d postgres -c "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname='"'"'sub2api_dev'"'"'"' | tr -d '\r')
   [[ "$database_owner" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]
-  docker exec sub2api-postgres sh -lc "createdb -U \"\${POSTGRES_USER:-postgres}\" -O \"$database_owner\" $probe_db"
   install -d -m 700 "$probe_dir"
-  if [[ "$recovery_gate_mode" == fast ]]; then
-    docker exec sub2api-postgres sh -lc 'pg_dump -Fc -Z 1 -U "${POSTGRES_USER:-postgres}" -d sub2api_dev' | \
-      docker exec -i sub2api-postgres /bin/sh -lc "pg_restore --exit-on-error --no-owner -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db"
-  else
-    docker exec -i sub2api-postgres /bin/sh -lc "pg_restore --exit-on-error --no-owner -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db" < "$recovery_dir/database/sub2api.dump"
-  fi
-  # pg_restore --no-owner makes the restoring role own restored objects.  The
-  # application role is intentionally the probe database owner, so normalize
-  # its table/sequence privileges inside this isolated database before running
-  # Isolated migration checks.  This never changes production permissions.
-  docker exec -i -e DB_OWNER="$database_owner" sub2api-postgres sh -lc "psql -X -v ON_ERROR_STOP=1 -v db_owner=\"\$DB_OWNER\" -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db" >/dev/null <<'SQL'
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO :"db_owner";
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO :"db_owner";
-SQL
-  docker network create "$probe_network" >/dev/null
-  docker network connect --alias sub2api-postgres "$probe_network" sub2api-postgres
   if [[ "$recovery_gate_mode" == fast ]]; then
     cp -a "$data_dir/." "$probe_dir/"
   else
     cp -a "$recovery_dir/config/data/." "$probe_dir/"
   fi
+  assert_probe_database_user "$probe_dir/config.yaml" "$database_owner"
+  docker exec sub2api-postgres sh -lc "createdb -U \"\${POSTGRES_USER:-postgres}\" -O \"$database_owner\" $probe_db"
+  # GRANT cannot authorize ALTER TABLE or CREATE OR REPLACE FUNCTION. Restore
+  # every object under the application role in this disposable database only.
+  if [[ "$recovery_gate_mode" == fast ]]; then
+    docker exec sub2api-postgres sh -lc 'pg_dump -Fc -Z 1 -U "${POSTGRES_USER:-postgres}" -d sub2api_dev' | \
+      restore_probe_database "$probe_db" "$database_owner"
+  else
+    restore_probe_database "$probe_db" "$database_owner" < "$recovery_dir/database/sub2api.dump"
+  fi
+  docker network create "$probe_network" >/dev/null
+  docker network connect --alias sub2api-postgres "$probe_network" sub2api-postgres
   [[ -f "$probe_dir/config.yaml" && ! -L "$probe_dir/config.yaml" ]]
   sed -i "/^database:/,/^[^[:space:]]/ s/^[[:space:]]*dbname:[[:space:]]*.*/  dbname: $probe_db/" "$probe_dir/config.yaml"
   sed -i '/^database:/,/^[^[:space:]]/ s/^[[:space:]]*host:[[:space:]]*.*/  host: sub2api-postgres/' "$probe_dir/config.yaml"
@@ -677,10 +720,11 @@ SQL
     [[ -f "$plan_snapshot" && ! -L "$plan_snapshot" && ${required_query_46} == 0:0:444:1 ]]
   }
   mark_v2_stage migration_plan_before
-  set +e
-  plan_before=$(docker run --rm -v "$plan_snapshot:/input/production-snapshot.json:ro" "$candidate_image_id" /app/sub2api --migration-plan-snapshot-json /input/production-snapshot.json 2>"$state_dir/plan-before.log")
-  plan_before_exit=$?
-  set -e
+  if plan_before=$(docker run --rm -v "$plan_snapshot:/input/production-snapshot.json:ro" "$candidate_image_id" /app/sub2api --migration-plan-snapshot-json /input/production-snapshot.json 2>"$state_dir/plan-before.log"); then
+    plan_before_exit=0
+  else
+    plan_before_exit=$?
+  fi
   printf '%s' "$plan_before" > "$state_dir/plan-before.json"
   printf '%s\n' "$plan_before_exit" > "$state_dir/plan-before.exit"
   chmod 400 "$state_dir/plan-before.json" "$state_dir/plan-before.exit"
@@ -696,15 +740,15 @@ SQL
     required_query_50=$(jq -r '.checksum_policy_sha256' "$manifest")
     [[ ${required_query_49} == ${required_query_50} ]]
   }
-  set +e
-  actual_plan=$(docker run --rm --network="$probe_network" -v "$probe_dir:/app/data" "$candidate_image_id" /app/sub2api --migration-plan-json 2>"$state_dir/plan-actual.log")
-  actual_plan_exit=$?
-  set -e
-  printf '%s\n' "$actual_plan_exit" > "$state_dir/plan-actual.exit"
-  chmod 400 "$state_dir/plan-actual.exit"
-  [[ "$actual_plan_exit" == 0 ]]
+  if actual_plan=$(docker run --rm --network="$probe_network" -v "$probe_dir:/app/data" "$candidate_image_id" /app/sub2api --migration-plan-json 2>"$state_dir/plan-actual.log"); then
+    actual_plan_exit=0
+  else
+    actual_plan_exit=$?
+  fi
   printf '%s' "$actual_plan" > "$state_dir/plan-actual.json"
-  chmod 400 "$state_dir/plan-actual.json"
+  printf '%s\n' "$actual_plan_exit" > "$state_dir/plan-actual.exit"
+  chmod 400 "$state_dir/plan-actual.json" "$state_dir/plan-actual.exit"
+  [[ "$actual_plan_exit" == 0 ]]
   printf '%s' "$actual_plan" | jq -e 'type == "object" and (.pending|type)=="array" and (.conflicts|type)=="array" and (.conflicts|length)==0 and (.unknown|type)=="array" and (.unknown|length)==0 and .existing_checksums_verified==true' >/dev/null
   plan_before_pending=$(printf '%s' "$plan_before" | jq -c '.pending | map({filename,checksum})')
   actual_plan_pending=$(printf '%s' "$actual_plan" | jq -c '.pending | map({filename,checksum})')
@@ -728,17 +772,19 @@ SQL
     # has no pending migration, while this independent clone can be older.
     mark_v2_stage fast_fixture_bootstrap
     install -o 0 -g 0 -m 444 "$state_dir/plan-actual.json" "$state_dir/fixture-bootstrap-before.json"
-    set +e
-    docker run --rm --network="$probe_network" -v "$probe_dir:/app/data" -v "$state_dir/fixture-bootstrap-before.json:/input/migration-plan.json:ro" "$candidate_image_id" /app/sub2api --migration-apply-plan-json /input/migration-plan.json >"$state_dir/fixture-bootstrap.log" 2>&1
-    fixture_bootstrap_exit=$?
-    set -e
+    if docker run --rm --network="$probe_network" -v "$probe_dir:/app/data" -v "$state_dir/fixture-bootstrap-before.json:/input/migration-plan.json:ro" "$candidate_image_id" /app/sub2api --migration-apply-plan-json /input/migration-plan.json >"$state_dir/fixture-bootstrap.log" 2>&1; then
+      fixture_bootstrap_exit=0
+    else
+      fixture_bootstrap_exit=$?
+    fi
     printf '%s\n' "$fixture_bootstrap_exit" > "$state_dir/fixture-bootstrap.exit"
     chmod 400 "$state_dir/fixture-bootstrap.exit"
     [[ $fixture_bootstrap_exit == 0 ]]
-    set +e
-    probe_plan=$(docker run --rm --network="$probe_network" -v "$probe_dir:/app/data" "$candidate_image_id" /app/sub2api --migration-plan-json 2>"$state_dir/fixture-bootstrap-after.log")
-    fixture_plan_exit=$?
-    set -e
+    if probe_plan=$(docker run --rm --network="$probe_network" -v "$probe_dir:/app/data" "$candidate_image_id" /app/sub2api --migration-plan-json 2>"$state_dir/fixture-bootstrap-after.log"); then
+      fixture_plan_exit=0
+    else
+      fixture_plan_exit=$?
+    fi
     printf '%s\n' "$fixture_plan_exit" > "$state_dir/fixture-bootstrap-after.exit"
     printf '%s' "$probe_plan" > "$state_dir/fixture-bootstrap-after.json"
     chmod 400 "$state_dir/fixture-bootstrap-after.exit" "$state_dir/fixture-bootstrap-after.json"
@@ -1665,18 +1711,20 @@ if [[ $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 |
     local filename=$1 migration_number expected actual command_status
     migration_number=${filename%%_*}
     mark_stage "migration_assertion_status_${migration_number}"
-    set +e
-    expected=$(jq -er --arg filename "$filename" '.migration_sha256[$filename]' "$manifest")
-    command_status=$?
-    set -e
+    if expected=$(jq -er --arg filename "$filename" '.migration_sha256[$filename]' "$manifest"); then
+      command_status=0
+    else
+      command_status=$?
+    fi
     if [[ $command_status != 0 || ! $expected =~ ^[0-9a-f]{64}$ ]]; then
       mark_stage "migration_assertion_status_manifest_${migration_number}"
       return 1
     fi
-    set +e
-    actual=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT checksum FROM schema_migrations WHERE filename='$filename'\"" 2>/dev/null | tr -d '\r\n')
-    command_status=$?
-    set -e
+    if actual=$(docker exec sub2api-postgres sh -lc "psql -X -A -t -U \"\${POSTGRES_USER:-postgres}\" -d $probe_db -c \"SELECT checksum FROM schema_migrations WHERE filename='$filename'\"" 2>/dev/null | tr -d '\r\n'); then
+      command_status=0
+    else
+      command_status=$?
+    fi
     if [[ $command_status != 0 ]]; then
       mark_stage "migration_assertion_status_query_${migration_number}"
       return 1
@@ -1974,10 +2022,14 @@ if [[ $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 |
   old_probe_port=$(docker port "$old_probe_app" "$server_port/tcp" | sed -n 's/^127\.0\.0\.1://p')
   [[ $old_probe_port =~ ^[1-9][0-9]{0,4}$ && $old_probe_port -le 65535 ]]
   mark_stage old_image_compatibility_auth
-  set +e
-  old_image_auth_status=$(curl -q --noproxy '*' --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 10 "http://127.0.0.1:$old_probe_port/api/v1/auth/me")
-  old_image_auth_command_status=$?
-  set -e
+  if old_image_auth_status=$(curl -q --noproxy '*' --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 10 "http://127.0.0.1:$old_probe_port/api/v1/auth/me"); then
+    old_image_auth_command_status=0
+  else
+    old_image_auth_command_status=$?
+  fi
+  printf '%s\n' "$old_image_auth_command_status" > "$state_dir/old-image-auth.exit"
+  printf '%s' "$old_image_auth_status" > "$state_dir/old-image-auth.status"
+  chmod 400 "$state_dir/old-image-auth.exit" "$state_dir/old-image-auth.status"
   if [[ $old_image_auth_command_status == 0 && $old_image_auth_status =~ ^[0-9]{3}$ ]]; then
     printf '%s\n' "$old_image_auth_status" > "$state_dir/old-image-auth-status"
   fi
