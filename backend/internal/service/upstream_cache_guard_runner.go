@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -77,91 +76,6 @@ func (r cacheGuardSkipReason) String() string {
 	default:
 		return "unknown"
 	}
-}
-
-// The deadline begins at the first protection database operation. It is shared
-// by selection and admission, without shortening the ordinary request context.
-type cacheGuardRequestBudget struct {
-	ttftOpportunity    atomic.Bool
-	ttftTrialAttempted atomic.Bool
-	mu                 sync.Mutex
-	deadline           time.Time
-	exhausted          atomic.Bool
-	ordinary           atomic.Bool
-	stages             map[string]time.Duration
-	activeElapsed      time.Duration
-	groupID            int64
-	accountID          int64
-	upstreamKeyID      int64
-}
-
-func cacheGuardDatabaseContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	return cacheGuardDatabaseContextForStage(ctx, "session_load")
-}
-
-func cacheGuardDatabaseContextForStage(ctx context.Context, operation string) (context.Context, context.CancelFunc) {
-	identity, ok := ctx.Value(cacheGuardSchedulingKey{}).(cacheGuardSchedulingIdentity)
-	if !ok || identity.budget == nil {
-		return context.WithTimeout(ctx, 100*time.Millisecond)
-	}
-	b := identity.budget
-	b.mu.Lock()
-	if b.deadline.IsZero() {
-		b.deadline = time.Now().Add(100 * time.Millisecond)
-	}
-	deadline := b.deadline
-	b.mu.Unlock()
-	child, cancel := context.WithDeadline(ctx, deadline)
-	child = upstreamcacheguard.WithStageObserver(child, func(stage string, elapsed time.Duration) {
-		b.mu.Lock()
-		if b.stages == nil {
-			b.stages = map[string]time.Duration{}
-		}
-		b.stages[stage] += elapsed
-		b.mu.Unlock()
-	})
-	started := time.Now()
-	var finished sync.Once
-	return child, func() {
-		finished.Do(func() {
-			b.mu.Lock()
-			b.activeElapsed += time.Since(started)
-			b.mu.Unlock()
-			if child.Err() == context.DeadlineExceeded {
-				b.ordinary.Store(true)
-			}
-			if child.Err() == context.DeadlineExceeded && b.exhausted.CompareAndSwap(false, true) {
-				b.mu.Lock()
-				elapsed := time.Since(deadline.Add(-100 * time.Millisecond))
-				gap := elapsed - b.activeElapsed
-				if gap < 0 {
-					gap = 0
-				}
-				stages := make(map[string]float64, len(b.stages))
-				for stage, duration := range b.stages {
-					stages[stage] = float64(duration) / float64(time.Millisecond)
-				}
-				groupID, accountID, keyID := b.groupID, b.accountID, b.upstreamKeyID
-				b.mu.Unlock()
-				slog.Warn("upstream_cache_guard_budget_exhausted", "budget_ms", 100, "fallback", "ordinary_scheduler", "operation", operation,
-					"budget_elapsed_ms", float64(elapsed)/float64(time.Millisecond), "between_operations_ms", float64(gap)/float64(time.Millisecond),
-					"stages_ms", stages, "group_id", groupID, "account_id", accountID, "upstream_key_id", keyID)
-			}
-			cancel()
-		})
-	}
-}
-
-func protectionOrdinaryFallback(ctx context.Context) bool {
-	identity, _ := ctx.Value(cacheGuardSchedulingKey{}).(cacheGuardSchedulingIdentity)
-	return identity.budget != nil && identity.budget.ordinary.Load()
-}
-
-func protectionBudgetFallbackError() *UpstreamFailoverError {
-	failure := schedulingProtectionScopeChangedError()
-	failure.Reason = "scheduling_protection_budget_exhausted"
-	failure.ProtectionOrdinaryFallback = true
-	return failure
 }
 
 // WithUpstreamCacheGuardScheduling is installed only by authenticated streaming
@@ -409,6 +323,8 @@ func (r *UpstreamCacheGuardRunner) run() {
 				case <-r.stop:
 					return
 				default:
+					r.diagnostics.record("completion_queue_full", v.Request.GroupID, v.Request.AccountID, v.Request.UpstreamKeyID)
+					r.retrying.Add(-1)
 					r.lost.Store(true)
 					r.engine.MarkSamplingFailure(v.Request, true)
 				}
@@ -430,6 +346,7 @@ func (r *UpstreamCacheGuardRunner) retryEnqueue(v upstreamcacheguard.Evidence) b
 		r.engine.MarkSamplingFailure(v.Request, false)
 		return false
 	}
+	r.diagnostics.record("delivery_retry_acknowledged", v.Request.GroupID, v.Request.AccountID, v.Request.UpstreamKeyID)
 	r.retrying.Add(-1)
 	select {
 	case r.wake <- struct{}{}:
@@ -464,13 +381,21 @@ func (r *UpstreamCacheGuardRunner) processPending() {
 			for account := range jobs {
 				for _, v := range account {
 					ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-					err := r.engine.Complete(ctx, v)
+					inserted, err := r.engine.CompleteWithResult(ctx, v)
 					cancel()
 					if err != nil {
+						r.diagnostics.record("processing_failed", v.Request.GroupID, v.Request.AccountID, v.Request.UpstreamKeyID)
 						r.available.Store(false)
 						r.pendingFailure.Store(true)
 						r.engine.MarkSamplingFailure(v.Request, false)
 						break
+					}
+					if inserted {
+						outcome := "processed_excluded"
+						if v.ValidSample() {
+							outcome = "processed_valid"
+						}
+						r.diagnostics.record(outcome, v.Request.GroupID, v.Request.AccountID, v.Request.UpstreamKeyID)
 					}
 					r.engine.ClearSamplingFailure(v.Request)
 				}
@@ -543,28 +468,18 @@ func beginUpstreamCacheGuardRequest(ctx context.Context, apiKeyID int64, groupID
 		identity.budget.mu.Unlock()
 	}
 	strict, _ := ctx.Value(cacheGuardProtectedSelectionKey{}).(bool)
-	if protectionOrdinaryFallback(ctx) {
-		if r := currentUpstreamCacheGuardRunner(); r != nil {
-			var gid, aid int64
-			if groupID != nil {
-				gid = *groupID
-			}
-			if account != nil {
-				aid = account.ID
-			}
-			r.recordAdmissionSkip(cacheGuardSkipOrdinaryFallback, gid, aid, accountUpstreamKeyID(account))
-		}
-		if strict {
-			return nil, protectionBudgetFallbackError()
-		}
-		return nil, nil
-	}
+	identity, authorized := ctx.Value(cacheGuardSchedulingKey{}).(cacheGuardSchedulingIdentity)
 	r := currentUpstreamCacheGuardRunner()
 	if r == nil {
 		return nil, nil
 	}
 	if r.closed.Load() {
 		r.recordAdmissionSkip(cacheGuardSkipRunnerUnavailable, 0, 0)
+		return nil, nil
+	}
+	// Joint TTFT selections also carry strict. With every cache policy disabled,
+	// there is no cache admission to require or database budget to consume.
+	if !r.engine.AnyPolicyActive() {
 		return nil, nil
 	}
 	if account == nil || !account.IsUpstreamBound() || account.UpstreamKeyID == nil || groupID == nil {
@@ -575,24 +490,21 @@ func beginUpstreamCacheGuardRequest(ctx context.Context, apiKeyID int64, groupID
 		r.recordAdmissionSkip(cacheGuardSkipAccountUnavailable, 0, aid, accountUpstreamKeyID(account))
 		return nil, nil
 	}
-	at := time.Now().UTC()
-	snapshot := r.engine.CachedMetadataAt(*groupID, at)
-	if !snapshot.Available {
-		r.recordAdmissionSkip(cacheGuardSkipSnapshotUnavailable, *groupID, account.ID, *account.UpstreamKeyID)
-		return nil, nil
-	}
 	if !r.protectionScopeSelected(*groupID, account) {
 		r.recordAdmissionSkip(cacheGuardSkipScopeNotSelected, *groupID, account.ID, *account.UpstreamKeyID)
 		return nil, nil
 	}
-	identity, authorized := ctx.Value(cacheGuardSchedulingKey{}).(cacheGuardSchedulingIdentity)
 	if !authorized || identity.APIKeyID != apiKeyID {
 		r.recordAdmissionSkip(cacheGuardSkipIdentityUnauthorized, *groupID, account.ID, *account.UpstreamKeyID)
 		return nil, nil
 	}
-	accountSnapshot, ok := r.engine.CachedAccountForGroupAt(*groupID, account.ID, *account.UpstreamKeyID, at)
-	if !ok {
-		r.recordAdmissionSkip(cacheGuardSkipAccountSnapshotUnavailable, *groupID, account.ID, *account.UpstreamKeyID)
+	settings := r.engine.ResolvedSettings(*groupID)
+	cacheProtectionRequired := settings.Mode == upstreamcacheguard.Protect && settings.ContainsGroup(*groupID)
+	if identity.budget != nil && identity.budget.ordinary.Load() {
+		r.recordAdmissionSkip(cacheGuardSkipOrdinaryFallback, *groupID, account.ID, *account.UpstreamKeyID)
+		if strict && cacheProtectionRequired {
+			return nil, protectionBudgetFallbackError()
+		}
 		return nil, nil
 	}
 	req, ok := r.logicalRequest(ctx, groupID, sessionHash, model, protocol)
@@ -603,43 +515,68 @@ func beginUpstreamCacheGuardRequest(ctx context.Context, apiKeyID int64, groupID
 	req.AccountID = account.ID
 	req.UpstreamKeyID = *account.UpstreamKeyID
 	req.StartedAt = time.Now().UTC()
-	// During the bounded stale window only continue an already classified
-	// session. This prevents a refresh outage from creating new trial evidence
-	// or making a migration decision from old observations.
-	stale := !snapshot.Fresh || !accountSnapshot.Fresh
-	if stale {
-		session, err := r.engine.SessionReadAtWithDatabaseContext(ctx, req, at, cacheGuardDatabaseContext)
+	view := r.engine.CachedAdmissionReadView(req)
+	if view.Consistent {
+		cacheProtectionRequired = view.Settings.Mode == upstreamcacheguard.Protect && view.Settings.ContainsGroup(*groupID)
+	}
+	captureOnly := !cacheProtectionRequired || !view.Consistent || !view.Metadata.Available || !view.Account.Available || (identity.budget != nil && identity.budget.selectionFallback.Load())
+	stale := !view.Metadata.Fresh || !view.Account.Fresh
+	if !captureOnly && stale {
+		loaded, err := r.engine.SessionReadViewWithDatabaseContext(ctx, req, cacheGuardDatabaseContext)
 		if err != nil {
-			r.recordAdmissionSkip(cacheGuardSkipStaleSessionUnavailable, *groupID, account.ID, *account.UpstreamKeyID)
-			if strict && protectionOrdinaryFallback(ctx) && ctx.Err() == nil {
-				return nil, protectionBudgetFallbackError()
+			if ctx.Err() != nil || (identity.budget != nil && identity.budget.ordinary.Load()) {
+				r.recordAdmissionSkip(cacheGuardSkipStaleSessionUnavailable, *groupID, account.ID, *account.UpstreamKeyID)
+				if strict && ctx.Err() == nil {
+					return nil, protectionBudgetFallbackError()
+				}
+				return nil, nil
 			}
-			return nil, nil
-		}
-		if !session.Known || session.PreferredAccountID != account.ID {
-			r.recordAdmissionSkip(cacheGuardSkipStaleSessionUnbound, *groupID, account.ID, *account.UpstreamKeyID)
-			return nil, nil
+			captureOnly = true
+		} else {
+			view = loaded
+			captureOnly = !view.Consistent || !view.Metadata.Available || !view.Account.Available || !view.Session.Known || view.Session.PreferredAccountID != account.ID
+			stale = !view.Metadata.Fresh || !view.Account.Fresh
 		}
 	}
+	// Missing protection data does not make the actual request unobservable.
+	// Capture-only freezes its durable route without allocating a recovery trial.
+	if r.engine.PolicyVersion() != view.PolicyVersion {
+		captureOnly = true
+	}
+	if strict && !protectionPolicyEvaluationCurrent(ctx) {
+		return nil, schedulingProtectionScopeChangedError()
+	}
+	selection, _ := ctx.Value(protectionSelectionKey{}).(*protectionSelection)
+	newDecision := cacheGuardAdmittedMigration(ctx, account.ID) || (selection != nil && (selection.trial != nil || selection.newAllocation))
+	if strict && cacheProtectionRequired && (captureOnly || (stale && newDecision)) {
+		r.diagnostics.record("selection_snapshot_fallback", req.GroupID, req.AccountID, req.UpstreamKeyID)
+		return nil, protectionSnapshotFallbackError(ctx)
+	}
 	dbCtx, cancel := cacheGuardDatabaseContextForStage(ctx, "admission")
-	defer cancel()
 	var a upstreamcacheguard.Admission
 	var err error
-	if stale {
+	if captureOnly {
+		a, err = r.engine.CaptureOnly(dbCtx, req)
+	} else if stale {
 		a, err = r.engine.AdmitExisting(dbCtx, req)
 	} else {
 		a, err = r.engine.Admit(dbCtx, req)
 	}
+	deadlineExceeded := dbCtx.Err() == context.DeadlineExceeded
+	cancel()
 	if err != nil {
 		r.recordAdmissionSkip(cacheGuardSkipAdmissionError, *groupID, account.ID, *account.UpstreamKeyID)
 		r.available.Store(false)
-		if (dbCtx.Err() == context.DeadlineExceeded || errors.Is(err, context.DeadlineExceeded)) && ctx.Err() == nil {
+		if (deadlineExceeded || errors.Is(err, context.DeadlineExceeded)) && ctx.Err() == nil {
 			if identity.budget != nil {
 				identity.budget.ordinary.Store(true)
 			}
-			if strict {
+			if strict && cacheProtectionRequired {
 				return nil, protectionBudgetFallbackError()
 			}
+		}
+		if strict && cacheProtectionRequired && ctx.Err() == nil {
+			return nil, protectionSnapshotFallbackError(ctx)
 		}
 		return nil, nil
 	}
@@ -652,9 +589,16 @@ func beginUpstreamCacheGuardRequest(ctx context.Context, apiKeyID int64, groupID
 		classification = "admitted_warm"
 	}
 	r.diagnostics.record(classification, req.GroupID, req.AccountID, req.UpstreamKeyID)
+	if a.CaptureOnly {
+		r.diagnostics.record("admitted_capture_only", req.GroupID, req.AccountID, req.UpstreamKeyID)
+	}
 	return &UpstreamCacheGuardAdmission{Request: req, Admission: a, AccountPlatform: account.Platform}, nil
 }
 func ObserveUpstreamCacheGuardResult(admission *UpstreamCacheGuardAdmission, evidence *UpstreamCacheUsageEvidence, success bool, completedAt time.Time) {
+	observeUpstreamCacheGuardResult(admission, evidence, success, "", completedAt)
+}
+
+func observeUpstreamCacheGuardResult(admission *UpstreamCacheGuardAdmission, evidence *UpstreamCacheUsageEvidence, success bool, reason string, completedAt time.Time) {
 	r := currentUpstreamCacheGuardRunner()
 	if r == nil || admission == nil || r.closed.Load() {
 		return
@@ -664,7 +608,7 @@ func ObserveUpstreamCacheGuardResult(admission *UpstreamCacheGuardAdmission, evi
 	if evidence != nil {
 		v.RawUsage = *evidence
 	}
-	outcome := "completion_valid"
+	outcome := "completion_valid_candidate"
 	switch {
 	case !success:
 		outcome = "completion_unsuccessful"
@@ -675,6 +619,10 @@ func ObserveUpstreamCacheGuardResult(admission *UpstreamCacheGuardAdmission, evi
 	case !v.RawUsage.Known():
 		outcome = "completion_usage_unknown"
 	}
+	if reason != "" {
+		outcome = "completion_" + reason
+	}
+	v.CompletionReason = outcome
 	r.diagnostics.record(outcome, v.Request.GroupID, v.Request.AccountID, v.Request.UpstreamKeyID)
 	// Durable delivery happens before returning from the completion observer.
 	// The queue only retries database outages; durable admissions make any
@@ -683,6 +631,7 @@ func ObserveUpstreamCacheGuardResult(admission *UpstreamCacheGuardAdmission, evi
 	err := r.store.Enqueue(ctx, v)
 	cancel()
 	if err == nil {
+		r.diagnostics.record("delivery_acknowledged", v.Request.GroupID, v.Request.AccountID, v.Request.UpstreamKeyID)
 		select {
 		case r.wake <- struct{}{}:
 		default:
@@ -698,6 +647,7 @@ func ObserveUpstreamCacheGuardResult(admission *UpstreamCacheGuardAdmission, evi
 	case r.queue <- v:
 	default:
 		r.diagnostics.record("completion_queue_full", v.Request.GroupID, v.Request.AccountID, v.Request.UpstreamKeyID)
+		r.retrying.Add(-1)
 		r.lost.Store(true)
 		r.engine.MarkSamplingFailure(admission.Request, true)
 	}

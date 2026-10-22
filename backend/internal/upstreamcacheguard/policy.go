@@ -40,6 +40,8 @@ func (e *Engine) ApplyPolicySettings(values map[int64]Settings) error {
 		s.GroupIDs = append([]int64(nil), s.GroupIDs...)
 		copy[id] = s
 	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	old := e.policies.Load()
 	if old == nil && len(copy) == 0 {
 		return nil
@@ -130,10 +132,14 @@ func (e *Engine) preparePolicies(a *AccountState) {
 }
 
 func (e *Engine) recomputePolicies(a *AccountState, facts []Evidence, now time.Time, fresh bool) error {
+	return e.recomputePoliciesWithRecovery(a, facts, now, fresh, true)
+}
+
+func (e *Engine) recomputePoliciesWithRecovery(a *AccountState, facts []Evidence, now time.Time, fresh, allowRecovery bool) error {
 	for sig, p := range a.Policies {
 		// A newly configured strategy evaluates the already shared observations.
 		initial := p.State.LastEvidenceAt.IsZero()
-		if err := RecomputeAccount(&p.State, facts, p.Settings, now, fresh || initial); err != nil {
+		if err := recomputeAccountWithRecovery(&p.State, facts, p.Settings, now, fresh || initial, allowRecovery && fresh); err != nil {
 			return err
 		}
 		a.Policies[sig] = p
@@ -200,7 +206,8 @@ func ProjectAccountSnapshot(a AccountSnapshot, s Settings) AccountSnapshot {
 }
 
 func (e *Engine) CachedAccountForGroup(groupID, accountID, keyID int64) (AccountSnapshot, bool) {
-	a, _ := e.CachedSharedAccount(accountID, keyID)
-	a = projectAccountSnapshot(a, e.ResolvedSettings(groupID))
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	a := e.cachedAccountForGroupAtLocked(Request{GroupID: groupID, AccountID: accountID, UpstreamKeyID: keyID}, e.ResolvedSettings(groupID), e.now().UTC())
 	return a, a.Available
 }
