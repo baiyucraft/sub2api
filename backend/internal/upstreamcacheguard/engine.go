@@ -77,6 +77,8 @@ func (e *Engine) ApplySettings(s Settings) error {
 		}
 	}
 	s.GroupIDs = ids
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	if old := e.settings.Load(); old != nil && sameSettings(*old, s) {
 		return nil
 	}
@@ -162,7 +164,7 @@ func planInTx(tx Tx, r Request, session *SessionState, s Settings) (TrialPlan, e
 	p := TrialPlan{RequestID: r.ID, SessionKey: SessionKey(r), GroupID: r.GroupID}
 	if !session.FirstSeenAt.IsZero() {
 		p.NaturalNew = session.NaturalRequestID == r.ID
-		p.TrialSlot = p.NaturalNew && session.NaturalTrialSlot
+		p.TrialSlot = p.NaturalNew && session.NaturalTrialSlot && !session.NaturalTrialSuppressed
 		p.TrialOrdinal = session.NaturalTrialOrdinal
 		return p, nil
 	}
@@ -232,6 +234,82 @@ func (e *Engine) PlanTrial(ctx context.Context, r Request) (TrialPlan, error) {
 
 func (e *Engine) Admit(ctx context.Context, r Request) (Admission, error) {
 	return e.admit(ctx, r, false)
+}
+
+// CaptureOnly freezes physical warmness before sending an ordinary selection.
+// It reserves a first session's natural ordinal, but cannot create a trial or
+// change affinity from unavailable scheduling projections.
+func (e *Engine) CaptureOnly(ctx context.Context, r Request) (Admission, error) {
+	s := e.ResolvedSettings(r.GroupID)
+	a := Admission{RequestID: r.ID, GroupID: r.GroupID, AccountID: r.AccountID, UpstreamKeyID: r.UpstreamKeyID, StartedAt: r.StartedAt.UTC(), Mode: s.Mode}
+	if !e.AnyPolicyActive() {
+		return a, nil
+	}
+	if err := validateRequest(r); err != nil {
+		return a, err
+	}
+	if e.store == nil {
+		return a, ErrUnavailable
+	}
+	a.SessionKey = SessionKey(r)
+	var saved SessionState
+	var savedVersion int64
+	ctx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+	defer cancel()
+	err := e.transactAccount(ctx, r, func(tx Tx) error {
+		var session SessionState
+		if _, err := tx.Read(SessionKind, a.SessionKey, &session); err != nil {
+			return err
+		}
+		old, exists, err := readAdmission(tx, &session, r)
+		if err != nil {
+			return err
+		}
+		if exists {
+			if !admissionMatchesKey(old, r) {
+				return errors.New("cache guard admission Key changed")
+			}
+			a = old
+			return nil
+		}
+		if s.Mode != Disabled && s.ContainsGroup(r.GroupID) {
+			plan, err := planInTx(tx, r, &session, s)
+			if err != nil {
+				return err
+			}
+			a.NaturalNew = plan.NaturalNew
+			if plan.NaturalNew {
+				session.NaturalTrialSuppressed = true
+			}
+		} else if session.FirstSeenAt.IsZero() {
+			session.Key, session.FirstSeenAt = a.SessionKey, r.StartedAt.UTC()
+		}
+		a.CaptureOnly, a.Sample = true, true
+		a.PolicySignature = PolicySignature(s)
+		a.RouteKey = WarmRouteKey(r)
+		a.WarmAtStart = routeWarm(session.Routes[a.RouteKey], r.StartedAt)
+		if r.StartedAt.After(session.LastStartedAt) {
+			session.LastStartedAt = r.StartedAt.UTC()
+		}
+		if err := checkAdmissionBound(tx, &session, r); err != nil {
+			return err
+		}
+		if err := saveAdmission(tx, &session, r, a); err != nil {
+			return err
+		}
+		saved = session
+		savedVersion, err = tx.Write(SessionKind, a.SessionKey, &session)
+		return err
+	})
+	if err != nil {
+		return Admission{}, err
+	}
+	if saved.Key != "" {
+		e.mu.Lock()
+		e.cacheSessionLocked(sessionCacheKey(r.GroupID, saved.Key), saved, savedVersion, e.now().UTC())
+		e.mu.Unlock()
+	}
+	return a, nil
 }
 
 // AdmitExisting records a continuation during a refresh outage. Recheck the
@@ -322,7 +400,7 @@ func (e *Engine) admit(ctx context.Context, r Request, existingOnly bool) (Admis
 		}
 		a.WarmAtStart = routeWarm(session.Routes[WarmRouteKey(r)], r.StartedAt)
 		a.ProtectedAtStart = executing && selected.Phase != "" && selected.Phase != Healthy && selected.Phase != Unknown
-		if executing && plan.NaturalNew && session.NaturalAccountID == 0 {
+		if executing && plan.NaturalNew && session.NaturalAccountID == 0 && !session.NaturalTrialSuppressed {
 			session.NaturalAccountID = r.AccountID
 			if plan.TrialSlot && selected.Phase != Healthy && selected.Phase != Unknown && selected.Phase != "" && !r.StartedAt.Before(selected.CooldownUntil) {
 				if selected.CohortID == "" {
@@ -388,27 +466,41 @@ func (e *Engine) admit(ctx context.Context, r Request, existingOnly bool) (Admis
 }
 
 func (e *Engine) Complete(ctx context.Context, v Evidence) error {
+	_, err := e.CompleteWithResult(ctx, v)
+	return err
+}
+
+// CompleteWithResult reports only newly consumed facts whose transaction
+// committed. Durable retries and rolled-back insertions are not new samples.
+func (e *Engine) CompleteWithResult(ctx context.Context, v Evidence) (bool, error) {
+	inserted, err := e.complete(ctx, v)
+	return err == nil && inserted, err
+}
+
+func (e *Engine) complete(ctx context.Context, v Evidence) (bool, error) {
 	s := e.ResolvedSettings(v.Request.GroupID)
 	if e.store == nil {
-		return ErrUnavailable
+		return false, ErrUnavailable
 	}
 	if err := validateRequest(v.Request); err != nil {
-		return err
+		return false, err
 	}
 	if v.ID == "" || len(v.ID) > 200 || v.CompletedAt.IsZero() || v.CompletedAt.Before(v.Request.StartedAt) || v.Admission.SessionKey != SessionKey(v.Request) || v.Admission.RequestID != v.Request.ID || v.Admission.AccountID != v.Request.AccountID || v.Admission.GroupID != v.Request.GroupID || !admissionMatchesKey(v.Admission, v.Request) {
-		return errors.New("cache guard evidence/admission mismatch")
+		return false, errors.New("cache guard evidence/admission mismatch")
 	}
 	now := e.now().UTC()
 	if v.CompletedAt.After(now.Add(time.Minute)) {
-		return errors.New("cache guard completion in future")
+		return false, errors.New("cache guard completion in future")
 	}
 	// Very late delivery is outside the deduplication/recomputation horizon.
 	applyPolicy := !v.ProtectionPaused && v.Admission.Sample && e.AnyPolicyActive() && !v.CompletedAt.Before(now.Add(-FactLifetime))
 	v.CompletedAt = v.CompletedAt.UTC()
 	v.RawUsage.CompletedAt = v.CompletedAt
 	v.RawUsage.Success = v.Success
-	return e.transactAccount(ctx, v.Request, func(tx Tx) error {
-		inserted, err := tx.InsertFact(v)
+	var inserted bool
+	err := e.transactAccount(ctx, v.Request, func(tx Tx) error {
+		var err error
+		inserted, err = tx.InsertFact(v)
 		if err != nil || !inserted {
 			return err
 		}
@@ -436,14 +528,14 @@ func (e *Engine) Complete(ctx context.Context, v Evidence) error {
 		routeKey := WarmRouteKey(v.Request)
 		route := session.Routes[routeKey]
 		signature := PolicySignature(s)
-		if route.PolicySignature != signature {
+		if !v.Admission.CaptureOnly && route.PolicySignature != signature {
 			// Warmness is a physical fact. Affinity and pending migration are
 			// interpretations of that fact under one effective quality rule.
 			route.HighCacheSeen, route.PendingLow, route.LowStreak = false, false, 0
 			route.PolicySignature = signature
 		}
 		if v.Success && v.RawUsage.Known() && v.CompletedAt.After(route.LastSuccessfulAt) {
-			if session.LastAccountID > 0 && session.LastAccountID != v.Request.AccountID && !v.CompletedAt.Before(session.LastCompletedAt) {
+			if !v.Admission.CaptureOnly && session.LastAccountID > 0 && session.LastAccountID != v.Request.AccountID && !v.CompletedAt.Before(session.LastCompletedAt) {
 				session.ResidenceUntil = v.CompletedAt.Add(ResidenceLifetime)
 			}
 			rate, _ := v.RawUsage.Rate()
@@ -451,10 +543,10 @@ func (e *Engine) Complete(ctx context.Context, v Evidence) error {
 			route.UpstreamKeyID = v.Request.UpstreamKeyID
 			route.LastSuccessfulAt = v.CompletedAt
 			route.LastCachePercent = rate
-			if rate >= s.ThresholdPercent {
+			if !v.Admission.CaptureOnly && rate >= s.ThresholdPercent {
 				route.HighCacheSeen = true
 			}
-			if !v.CompletedAt.Before(session.LastCompletedAt) {
+			if !v.Admission.CaptureOnly && !v.CompletedAt.Before(session.LastCompletedAt) {
 				session.LastAccountID = v.Request.AccountID
 				session.LastModel = v.Request.Model
 				session.LastProtocol = v.Request.Protocol
@@ -484,7 +576,15 @@ func (e *Engine) Complete(ctx context.Context, v Evidence) error {
 			return errors.New("cache guard bounded recomputation exceeded")
 		}
 		fresh := v.ValidSample() && !v.CompletedAt.Before(reference.Add(-time.Duration(s.WindowMinutes)*time.Minute))
-		if err = e.recomputePolicies(&account, facts, reference, fresh); err != nil {
+		if err = e.recomputePoliciesWithRecovery(&account, facts, reference, fresh, !v.Admission.CaptureOnly); err != nil {
+			return err
+		}
+		if v.Admission.CaptureOnly {
+			session.Routes[routeKey] = route
+			if _, err = tx.(AccountTx).WriteAccount(v.Request.AccountID, v.Request.UpstreamKeyID, &account); err != nil {
+				return err
+			}
+			_, err = tx.Write(SessionKind, v.Admission.SessionKey, &session)
 			return err
 		}
 		// Recompute the last two valid warm outcomes, including out-of-order facts.
@@ -492,7 +592,7 @@ func (e *Engine) Complete(ctx context.Context, v Evidence) error {
 		for _, f := range facts {
 			if f.Admission.SessionKey == v.Admission.SessionKey && WarmRouteKey(f.Request) == routeKey && !f.CompletedAt.Before(now.Add(-historyWindow)) {
 				own = append(own, f)
-				if f.ValidSample() {
+				if f.ValidSample() && !f.Admission.CaptureOnly {
 					if rate, ok := f.RawUsage.Rate(); ok && rate >= s.ThresholdPercent {
 						route.HighCacheSeen = true
 					}
@@ -516,7 +616,7 @@ func (e *Engine) Complete(ctx context.Context, v Evidence) error {
 		})
 		route.LowStreak = 0
 		for i := len(own) - 1; i >= 0 && route.LowStreak < 2; i-- {
-			if !own[i].ValidSample() || !own[i].Admission.ProtectedAtStart || (own[i].Admission.PolicySignature != "" && own[i].Admission.PolicySignature != PolicySignature(s)) {
+			if !own[i].ValidSample() || own[i].Admission.CaptureOnly || !own[i].Admission.ProtectedAtStart || (own[i].Admission.PolicySignature != "" && own[i].Admission.PolicySignature != PolicySignature(s)) {
 				break
 			}
 			rate, _ := own[i].RawUsage.Rate()
@@ -533,6 +633,7 @@ func (e *Engine) Complete(ctx context.Context, v Evidence) error {
 		_, err = tx.Write(SessionKind, v.Admission.SessionKey, &session)
 		return err
 	})
+	return inserted, err
 }
 
 func protectionEvidenceAnchor(a *AccountState) time.Time {
@@ -578,6 +679,10 @@ func expireProtectionState(a *AccountState, s Settings, now time.Time) bool {
 // RecomputeAccount is deliberately a bounded replay of immutable raw facts;
 // retries and late arrival cannot double count or reverse the evidence clock.
 func RecomputeAccount(a *AccountState, facts []Evidence, s Settings, now time.Time, fresh bool) error {
+	return recomputeAccountWithRecovery(a, facts, s, now, fresh, fresh)
+}
+
+func recomputeAccountWithRecovery(a *AccountState, facts []Evidence, s Settings, now time.Time, fresh, allowRecovery bool) error {
 	var total, read, trialTotal, trialRead int64
 	valid, trialValid := 0, 0
 	trialSessions := map[string]struct{}{}
@@ -599,7 +704,7 @@ func RecomputeAccount(a *AccountState, facts []Evidence, s Settings, now time.Ti
 		total += f.RawUsage.TotalInputTokens
 		read += f.RawUsage.CacheReadTokens
 		valid++
-		if !f.ProtectionPaused && a.CohortID != "" && f.Admission.Trial && f.Admission.CohortID == a.CohortID && (f.Admission.PolicySignature == a.PolicySignature || f.Admission.PolicySignature == "") {
+		if !f.ProtectionPaused && !f.Admission.CaptureOnly && a.CohortID != "" && f.Admission.Trial && f.Admission.CohortID == a.CohortID && (f.Admission.PolicySignature == a.PolicySignature || f.Admission.PolicySignature == "") {
 			trialTotal += f.RawUsage.TotalInputTokens
 			trialRead += f.RawUsage.CacheReadTokens
 			trialValid++
@@ -660,7 +765,7 @@ func RecomputeAccount(a *AccountState, facts []Evidence, s Settings, now time.Ti
 				a.LastDegradedEvidenceAt = &x
 			}
 			a.CooldownUntil = now.Add(time.Duration(s.CooldownMinutes) * time.Minute)
-		} else {
+		} else if allowRecovery {
 			a.Phase = Healthy
 			a.LastDegradedEvidenceAt = nil
 			a.QualitySince = now
@@ -671,7 +776,7 @@ func RecomputeAccount(a *AccountState, facts []Evidence, s Settings, now time.Ti
 	if a.Phase != Trial || a.FirstTrialAt.IsZero() || now.Before(a.FirstTrialAt.Add(RecoveryLifetime)) || trialValid <= s.MinValidRequests || len(trialSessions) < MinRecoverySessions {
 		return nil
 	}
-	if a.TrialCachePercent >= s.RecoveryThresholdPercent {
+	if allowRecovery && a.TrialCachePercent >= s.RecoveryThresholdPercent {
 		a.Phase = Healthy
 		a.CohortID = ""
 		a.TrialGroupIDs = nil
@@ -725,17 +830,13 @@ func (e *Engine) Cleanup(ctx context.Context) error {
 	return e.store.Cleanup(ctx, before)
 }
 func (e *Engine) CachedSnapshot(groupID int64) Snapshot {
-	s := e.ResolvedSettings(groupID)
-	active := e.AnyPolicyActive()
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	g := e.groups[groupID]
-	g.GroupID, g.Mode, g.LoadedAt = groupID, s.Mode, e.loadedAt
-	g.Available = active && e.usableLocked()
-	g.Fresh = active && e.freshLocked()
-	g.Accounts = nil
+	at := e.now().UTC()
+	s := e.ResolvedSettings(groupID)
+	g := e.cachedMetadataAtLocked(groupID, s, at)
 	for id, account := range e.accounts {
-		account = e.accountSnapshotLocked(id, account)
+		account = e.accountSnapshotAtLocked(id, account, at)
 		account = projectAccountSnapshot(account, s)
 		if account.Available {
 			g.Accounts = append(g.Accounts, account)
@@ -752,17 +853,21 @@ func (e *Engine) Snapshot(_ context.Context, groupID int64) (Snapshot, error) {
 	return s, nil
 }
 func (e *Engine) CachedSessionRead(r Request) SessionRead {
-	return e.CachedSessionReadAt(r, e.now().UTC())
-}
-func (e *Engine) CachedSessionReadAt(r Request, at time.Time) SessionRead {
-	snapshot := e.CachedMetadataAt(r.GroupID, at)
-	if !snapshot.Available {
-		return SessionRead{}
-	}
-	s := e.ResolvedSettings(r.GroupID)
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	if e.loadedAt.IsZero() || at.Before(e.loadedAt) || at.Sub(e.loadedAt) > UsableSnapshotLifetime || !s.ContainsGroup(r.GroupID) {
+	at := e.now().UTC()
+	s := e.ResolvedSettings(r.GroupID)
+	return e.cachedSessionReadAtLocked(r, s, at, e.cachedMetadataAtLocked(r.GroupID, s, at))
+}
+func (e *Engine) CachedSessionReadAt(r Request, at time.Time) SessionRead {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	s := e.ResolvedSettings(r.GroupID)
+	return e.cachedSessionReadAtLocked(r, s, at, e.cachedMetadataAtLocked(r.GroupID, s, at))
+}
+
+func (e *Engine) cachedSessionReadAtLocked(r Request, s Settings, at time.Time, snapshot Snapshot) SessionRead {
+	if !snapshot.Available || !s.ContainsGroup(r.GroupID) {
 		return SessionRead{}
 	}
 	x, ok := e.sessions[sessionCacheKey(r.GroupID, SessionKey(r))]
@@ -813,7 +918,8 @@ func (e *Engine) CachedSessionReadAt(r Request, at time.Time) SessionRead {
 	return read
 }
 func (e *Engine) SessionRead(ctx context.Context, r Request) (SessionRead, error) {
-	return e.SessionReadAt(ctx, r, e.now().UTC())
+	view, err := e.SessionReadViewWithDatabaseContext(ctx, r, nil)
+	return view.Session, err
 }
 func (e *Engine) SessionReadAt(ctx context.Context, r Request, at time.Time) (SessionRead, error) {
 	return e.SessionReadAtWithDatabaseContext(ctx, r, at, nil)

@@ -65,14 +65,15 @@ func TestCacheGuardDiagnosticWindowIsBoundedAndEvictionHasNewEpoch(t *testing.T)
 	require.Equal(t, float64(1000), entry["count"], "long-running identities retain periodic diagnostic summaries")
 }
 
-func TestCacheGuardBudgetStagesDoNotExtendDeadlineOrCancelOrdinaryContext(t *testing.T) {
+func TestCacheGuardBudgetStagesReportCumulativeTimeWithoutCancelingOrdinaryContext(t *testing.T) {
 	var logs bytes.Buffer
 	old := slog.Default()
 	slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
 	t.Cleanup(func() { slog.SetDefault(old) })
 	ctx := WithUpstreamCacheGuardScheduling(context.Background(), 1)
 	identity := ctx.Value(cacheGuardSchedulingKey{}).(cacheGuardSchedulingIdentity)
-	identity.budget.deadline = time.Now().Add(-20 * time.Millisecond)
+	identity.budget.startedAt = time.Now().Add(-170 * time.Millisecond)
+	identity.budget.activeElapsed = 100 * time.Millisecond
 	identity.budget.groupID, identity.budget.accountID, identity.budget.upstreamKeyID = 22, 13328, 296
 	child, cancel := cacheGuardDatabaseContextForStage(ctx, "admission")
 	finish := upstreamcacheguard.MeasureStage(child, "account_lock")
@@ -87,8 +88,9 @@ func TestCacheGuardBudgetStagesDoNotExtendDeadlineOrCancelOrdinaryContext(t *tes
 	require.NoError(t, json.Unmarshal(logs.Bytes(), &entry))
 	require.Equal(t, "admission", entry["operation"])
 	require.Equal(t, float64(13328), entry["account_id"])
-	require.GreaterOrEqual(t, entry["budget_elapsed_ms"].(float64), float64(120))
+	require.GreaterOrEqual(t, entry["budget_elapsed_ms"].(float64), float64(100))
 	require.Greater(t, entry["between_operations_ms"].(float64), float64(0))
+	require.Greater(t, entry["wall_elapsed_ms"].(float64), entry["budget_elapsed_ms"].(float64))
 	stages := entry["stages_ms"].(map[string]any)
 	require.Contains(t, stages, "account_lock")
 	require.GreaterOrEqual(t, stages["account_lock"].(float64), float64(0), "Windows clocks can round a very short stage to zero")

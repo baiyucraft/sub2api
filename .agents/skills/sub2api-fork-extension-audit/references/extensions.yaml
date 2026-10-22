@@ -885,7 +885,12 @@
         "backend/internal/repository/upstream_cache_guard_admissions.go",
         "backend/migrations/301_upstream_cache_guard_admissions.sql",
         "backend/internal/upstreamcacheguard/admissions.go",
-        "backend/internal/service/upstream_cache_guard_diagnostics.go"
+        "backend/internal/service/upstream_cache_guard_diagnostics.go",
+        "backend/internal/service/upstream_cache_guard_budget.go",
+        "backend/internal/upstreamcacheguard/read_view.go",
+        "backend/internal/upstreamcacheguard/read_view_benchmark_test.go",
+        "backend/internal/upstreamcacheguard/read_batch.go",
+        "backend/internal/handler/admin/account_cache_guard_diagnostics.go"
       ],
       "symbols": [
         "SettingKeyUpstreamCacheGuard",
@@ -911,13 +916,20 @@
         "ReadAdmission",
         "WriteAdmission",
         "PendingAdmissions",
-        "RetainedAdmissionCount"
+        "RetainedAdmissionCount",
+        "CaptureOnly",
+        "CachedAdmissionReadView",
+        "CachedCandidatesReadView",
+        "SessionReadViewWithDatabaseContext",
+        "CandidatesReadViewWithDatabaseContext",
+        "GetUpstreamCacheGuardSamplingDiagnostics"
       ],
       "api_routes": [
         "/admin/upstream-management/settings",
         "/admin/upstream-management/accounts",
         "/admin/groups/upstream-protection-policies",
-        "/admin/groups/:id/upstream-protection-policy"
+        "/admin/groups/:id/upstream-protection-policy",
+        "/admin/accounts/:id/cache-guard-diagnostics"
       ],
       "settings_keys": [
         "upstream_scheduling_protection_platforms",
@@ -996,7 +1008,18 @@
         "backend/internal/upstreamcacheguard/split_admission_test.go",
         "backend/internal/repository/upstream_cache_guard_admissions_test.go",
         "backend/internal/repository/upstream_cache_guard_admissions_pg_test.go",
-        "backend/internal/service/upstream_cache_guard_diagnostics_test.go"
+        "backend/internal/service/upstream_cache_guard_diagnostics_test.go",
+        "backend/internal/service/upstream_cache_guard_diagnostics_snapshot_test.go",
+        "backend/internal/service/upstream_cache_guard_budget_test.go",
+        "backend/internal/upstreamcacheguard/read_view_test.go",
+        "backend/internal/upstreamcacheguard/capture_only_test.go",
+        "backend/internal/handler/admin/account_cache_guard_diagnostics_test.go",
+        "backend/internal/repository/upstream_cache_guard_capture_compatibility_pg_test.go",
+        "backend/internal/repository/upstream_cache_guard_json_compatibility_test.go",
+        "backend/internal/service/upstream_cache_guard_capture_test.go",
+        "backend/internal/service/upstream_cache_guard_snapshot_fallback_test.go",
+        "backend/internal/service/upstream_cache_usage_diagnostics_test.go",
+        "backend/internal/service/upstream_cache_guard_ttft_only_test.go"
       ],
       "invariants": [
         "全局 scheduling_protection_platforms 默认仅 openai；仅选中具体平台的分组提供配置并执行保护，实际账号平台也须选中；composite 不支持；自定义不能绕过范围，空选全部停用，旧客户端省略保留，取消选择保留历史事实与组配置，状态明确 platform_not_selected",
@@ -1028,7 +1051,13 @@
         "软保护迁移与试用仅在实际transport发送前的最终准入点提交；本地校验、插件或利润准入拒绝、取消、目标Key改变时不迁移绑定、不启动缓存cohort、不计TTFT试用发送；同账号重试与WS turn共用once提交边界",
         "会话主体与逐请求admission拆分，生产按主键读写本次准入记录，未完成屏障和完成确认定向读取；长期会话历史不再进入请求JSON热路径。发送前准入仍同步、原子、幂等，共用100ms预算，warm/cohort/自然试用身份及48小时保留语义不变。",
         "迁移保留原会话身份、自然试用序号、路线、业务updated_at和所有admissions，旧记录仅从原admission或冻结route确定Key，无来源保留0且不能归给当前Key。旧binary不兼容新增存储，要求停旧写者和协调恢复。",
-        "采样诊断以(group,account,key)有界进程窗口计数，completion观察不能代替数据库去重事实；预算记录固定阶段耗时与操作间隔，不记录session值或凭据，稀疏日志不能证明全部缺失的逐请求原因。"
+        "采样诊断以(group,account,key)有界进程窗口计数，completion观察不能代替数据库去重事实；预算记录固定阶段耗时与操作间隔，不记录session值或凭据，稀疏日志不能证明全部缺失的逐请求原因。",
+        "候选择优和发送准入使用同一发布锁内的评估时间、策略代次、设置、元信息、账号及会话视图；无参读取在取得锁后取时，显式固定时间保留负年龄与5秒/30秒严格边界。会话冷加载后重读完整视图，发送前重验策略代次和当前Key/硬约束，不能混读旧候选与新会话。",
+        "快照或会话保护视图暂不可用时，普通调度请求可在发送前同步原子幂等提交CaptureOnly，按物理路线冻结开始时warm/cold，首次及首个成功前并发仍cold；不回填历史、不放宽可靠会话或有效用量条件。CaptureOnly保留首次身份和自然新会话序号、抑制后续补领试用，不增加试用计数、不创建恢复cohort或迁移亲和；完成可更新共享事实、物理暖上下文和降级，不推进恢复及低率迁移计数，后台初始投影也不能借此恢复。",
+        "同逻辑请求的会话冷加载、trial规划、admission及CaptureOnly共用累计100ms活跃数据库阶段预算，并发阶段串行消费剩余预算，调用方更短deadline优先；阶段结束立即释放，阶段间普通计算不计预算。耗尽后沿原请求上下文回普通调度，不重置预算、不异步补录，不以扩大预算提高样本率。",
+        "strict发送前快照不可用或陈旧状态将用于新trial/migration时返回scheduling_protection_snapshot_unavailable，ProtectionOrdinaryFallback只禁后续保护选号、不耗尽或重置采样预算；普通重选仍可在原剩余预算内CaptureOnly。不排除原账号、不计上游故障、不提前提交sticky，陈旧已有会话继续AdmitExisting。",
+        "联合选择strict也用于TTFT；仅当前组有效cache Protect且ContainsGroup时缓存快照是发送硬前提。Observe或本组Disabled但其他策略活跃可CaptureOnly，不能因cache未知拒绝TTFT-only；全部cache Disabled不启动DB。TTFT票据账号/Key/模型/租约/策略代次验证不放宽。新增JSON缺省兼容旧历史不代表旧binary可安全处理CaptureOnly；未来发布须统一切换所有admission/completion writer与consumer、禁止新旧混写混消费，无新增SQL或profile，本地测试不是部署。",
+        "管理员只读GET /admin/accounts/:id/cache-guard-diagnostics返回no-store的当前Key进程窗口计数与关联分组内存视图，不冷加载会话或推进保护；process_id、counter_epoch、observed_from、evictions及complete_history=false明确重启/多实例/FIFO4096身份范围，不能与质量近1h直接相减。账号gap为聚合缺口而非全部pending，reason非空不等于30秒宽限内不可用；只返回白名单元数据，不返回会话/正文/凭据，无历史对账或生产修复完成承诺。"
       ]
     },
     {

@@ -31,6 +31,7 @@ func (s *OpenAIGatewayService) doOpenAIUpstream(request *http.Request, proxyURL 
 		return nil, err
 	}
 	markOpenAITTFTGuardSend(request.Context(), account, "", "openai")
+	markUpstreamCacheGuardSend(request.Context(), account)
 	response, err = s.httpUpstream.Do(request, proxyURL, account.ID, account.Concurrency)
 	if response != nil {
 		response.Request = request

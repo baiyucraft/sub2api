@@ -61,16 +61,21 @@ func TestJointProtectionSlowSessionMigratesDespiteHigherCacheAfterTwoSuccesses(t
 				}
 			}
 			for i := 0; i < 2; i++ {
+				ctx = context.WithValue(ctx, cacheGuardSchedulingKey{}, cacheGuardSchedulingIdentity{})
+				ctx = WithUpstreamCacheGuardScheduling(ctx, 1)
 				result, _, err := svc.SelectAccountWithScheduler(ctx, &group, "", "conversation", "gpt-test", nil, OpenAIUpstreamTransportAny, false)
 				require.NoError(t, err)
 				require.Equal(t, int64(1), result.Account.ID)
-				attempt := WithUpstreamCacheGuardAttempt(ContextWithSelectionProfitGate(ctx, result), 1, &group, "conversation", true)
+				ordinary := *result
+				ordinary.cacheGuardProtectedSelection = false
+				attempt := WithUpstreamCacheGuardAttempt(ContextWithSelectionProfitGate(ctx, &ordinary), 1, &group, "conversation", true)
 				// An account admission persistence outage does not suppress the
-				// TTFT completion path or manufacture cache evidence. Runner health
-				// alone no longer disables a usable account snapshot.
+				// TTFT completion path for ordinary traffic or manufacture cache
+				// evidence. Strict selections instead require ordinary reselection.
 				store := runner.store.(*cacheGuardSelectionStore)
 				store.failAccounts = map[int64]bool{result.Account.ID: true}
-				BeginUpstreamCacheGuardSend(attempt, result.Account, "gpt-test", "openai")
+				require.NoError(t, BeginUpstreamCacheGuardSend(attempt, result.Account, "gpt-test", "openai"))
+				require.Nil(t, attempt.Value(cacheUsageAttemptContextKey{}).(*cacheUsageAttempt).admission)
 				store.failAccounts = nil
 				ms := 35000
 				FinishOpenAIUpstreamCacheGuardAttempt(attempt, &OpenAIForwardResult{FirstTokenMs: &ms}, nil)
@@ -79,6 +84,8 @@ func TestJointProtectionSlowSessionMigratesDespiteHigherCacheAfterTwoSuccesses(t
 					result.ReleaseFunc()
 				}
 			}
+			ctx = context.WithValue(ctx, cacheGuardSchedulingKey{}, cacheGuardSchedulingIdentity{})
+			ctx = WithUpstreamCacheGuardScheduling(ctx, 1)
 			result, _, err := svc.SelectAccountWithScheduler(ctx, &group, "", "conversation", "gpt-test", nil, OpenAIUpstreamTransportAny, false)
 			require.NoError(t, err)
 			want := int64(1)

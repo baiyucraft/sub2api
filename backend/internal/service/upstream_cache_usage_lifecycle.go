@@ -27,6 +27,7 @@ type cacheUsageAttempt struct {
 	account            *Account
 	model              string
 	protocol           string
+	sendAttempts       uint64
 }
 
 func WithUpstreamCacheGuardAttempt(ctx context.Context, apiKeyID int64, groupID *int64, sessionHash string, stream bool) context.Context {
@@ -57,7 +58,13 @@ func BeginUpstreamCacheGuardSend(ctx context.Context, account *Account, model, p
 		}
 		markOpenAITTFTGuardSend(ctx, account, model, protocol)
 	}
-	return beginUpstreamCacheGuardSend(ctx, account, model, protocol)
+	if err := beginUpstreamCacheGuardSend(ctx, account, model, protocol); err != nil {
+		return err
+	}
+	if protocol != "openai" {
+		markUpstreamCacheGuardSend(ctx, account)
+	}
+	return nil
 }
 
 // HTTP OpenAI paths prepare metadata before host/plugin admission, then freeze
@@ -106,6 +113,10 @@ func beginUpstreamCacheGuardSend(ctx context.Context, account *Account, model, p
 }
 
 func FinishUpstreamCacheGuardAttempt(ctx context.Context, evidence *UpstreamCacheUsageEvidence, success bool, completedAt time.Time) {
+	finishUpstreamCacheGuardAttempt(ctx, evidence, success, "", completedAt)
+}
+
+func finishUpstreamCacheGuardAttempt(ctx context.Context, evidence *UpstreamCacheUsageEvidence, success bool, reason string, completedAt time.Time) {
 	if ctx == nil {
 		return
 	}
@@ -120,16 +131,74 @@ func FinishUpstreamCacheGuardAttempt(ctx context.Context, evidence *UpstreamCach
 	}
 	a.finished = true
 	admission := a.admission
+	account, groupID, sends, begun := a.account, a.groupID, a.sendAttempts, a.begun
 	a.mu.Unlock()
 	if admission == nil {
+		if r := currentUpstreamCacheGuardRunner(); r != nil && account != nil && groupID != nil {
+			outcome := "attempt_completed_without_admission"
+			if !begun {
+				outcome = "attempt_not_admitted_before_finish"
+			}
+			r.diagnostics.record(outcome, *groupID, account.ID, accountUpstreamKeyID(account))
+		}
 		return
+	}
+	if reason == "" {
+		switch {
+		case ctx.Err() != nil:
+			reason = "canceled"
+		case evidence != nil && evidence.StreamIncomplete:
+			reason = "stream_incomplete"
+		case !success:
+			reason = "unsuccessful"
+		case evidence == nil || !evidence.Known():
+			reason = "usage_unknown"
+			if evidence != nil && evidence.Status == "invalid" {
+				reason = "usage_invalid"
+			}
+		case !admission.Admission.WarmAtStart:
+			reason = "cold"
+		default:
+			reason = "valid_candidate"
+		}
+	}
+	if sends == 0 {
+		if r := currentUpstreamCacheGuardRunner(); r != nil {
+			r.diagnostics.record("attempt_without_send_confirmation", admission.Request.GroupID, admission.Request.AccountID, admission.Request.UpstreamKeyID)
+		}
 	}
 	protocol := ""
 	if evidence != nil {
 		protocol = evidence.Protocol
 	}
 	completed := upstreamcacheusage.Complete(evidence, protocol, success, completedAt)
-	ObserveUpstreamCacheGuardResult(admission, completed, success && evidence != nil && evidence.Known() && !evidence.StreamIncomplete, completedAt)
+	observeUpstreamCacheGuardResult(admission, completed, success && evidence != nil && evidence.Known() && !evidence.StreamIncomplete, reason, completedAt)
+}
+
+// Count transport invocations separately from account attempts: retries share
+// the immutable admission but can invoke the upstream transport more than once.
+func markUpstreamCacheGuardSend(ctx context.Context, account *Account) {
+	if ctx == nil || account == nil {
+		return
+	}
+	a, _ := ctx.Value(cacheUsageAttemptContextKey{}).(*cacheUsageAttempt)
+	if a == nil {
+		return
+	}
+	a.mu.Lock()
+	if a.finished || a.account == nil || a.account.ID != account.ID || accountUpstreamKeyID(a.account) != accountUpstreamKeyID(account) {
+		a.mu.Unlock()
+		return
+	}
+	a.sendAttempts++
+	first, groupID := a.sendAttempts == 1, a.groupID
+	a.mu.Unlock()
+	if r := currentUpstreamCacheGuardRunner(); r != nil && groupID != nil {
+		r.diagnostics.record("transport_send_attempt", *groupID, account.ID, accountUpstreamKeyID(account))
+		if first {
+			r.diagnostics.record("account_attempt_sent", *groupID, account.ID, accountUpstreamKeyID(account))
+		}
+	}
 }
 
 func UpstreamCacheGuardTextRequest(path string, body []byte) bool {
@@ -240,6 +309,7 @@ func WithUpstreamCacheGuardTurn(ctx context.Context, body []byte, first bool) co
 
 func FinishOpenAIUpstreamCacheGuardAttempt(ctx context.Context, result *OpenAIForwardResult, err error) {
 	var evidence *UpstreamCacheUsageEvidence
+	reason := ""
 	success := err == nil && result != nil && !result.ClientDisconnect && result.SucceededForScheduling()
 	if result != nil {
 		evidence = result.CacheUsageEvidence
@@ -248,6 +318,10 @@ func FinishOpenAIUpstreamCacheGuardAttempt(ctx context.Context, result *OpenAIFo
 		}
 		if result.ImageCount > 0 || result.VideoCount > 0 || result.AudioUsage != nil || result.WebSearchCalls > 0 {
 			success = false
+			reason = "non_text_output"
+		}
+		if result.ClientDisconnect {
+			reason = "client_disconnected"
 		}
 	}
 	if evidence != nil && evidence.StreamIncomplete {
@@ -296,11 +370,12 @@ func FinishOpenAIUpstreamCacheGuardAttempt(ctx context.Context, result *OpenAIFo
 			a.mu.Unlock()
 		}
 	}
-	FinishUpstreamCacheGuardAttempt(ctx, evidence, success && ctx.Err() == nil, time.Now())
+	finishUpstreamCacheGuardAttempt(ctx, evidence, success && ctx.Err() == nil, reason, time.Now())
 }
 
 func FinishGatewayUpstreamCacheGuardAttempt(ctx context.Context, result *ForwardResult, err error) {
 	var evidence *UpstreamCacheUsageEvidence
+	reason := ""
 	success := err == nil && result != nil && !result.ClientDisconnect
 	if result != nil {
 		evidence = result.CacheUsageEvidence
@@ -309,9 +384,13 @@ func FinishGatewayUpstreamCacheGuardAttempt(ctx context.Context, result *Forward
 		}
 		if result.ImageCount > 0 || result.AudioUsage != nil {
 			success = false
+			reason = "non_text_output"
+		}
+		if result.ClientDisconnect {
+			reason = "client_disconnected"
 		}
 	}
-	FinishUpstreamCacheGuardAttempt(ctx, evidence, success && ctx.Err() == nil, time.Now())
+	finishUpstreamCacheGuardAttempt(ctx, evidence, success && ctx.Err() == nil, reason, time.Now())
 }
 
 func cacheUsageWithStreamCompletion(evidence *UpstreamCacheUsageEvidence, completed bool) *UpstreamCacheUsageEvidence {

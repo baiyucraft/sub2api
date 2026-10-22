@@ -710,9 +710,9 @@ func cloneAccountSnapshot(a AccountSnapshot) AccountSnapshot {
 
 // Missing account evidence is a fresh empty window, not a zero-percent sample.
 func (e *Engine) CachedSharedAccount(accountID, keyID int64) (AccountSnapshot, bool) {
-	active := e.AnyPolicyActive()
 	e.mu.RLock()
 	defer e.mu.RUnlock()
+	active := e.AnyPolicyActive()
 	id := accountIdentity(accountID, keyID)
 	a, exists := e.accounts[id]
 	if !exists {
@@ -726,8 +726,10 @@ func (e *Engine) CachedSharedAccount(accountID, keyID int64) (AccountSnapshot, b
 
 // CachedAccount preserves the global-policy reader contract for old callers.
 func (e *Engine) CachedAccount(accountID, keyID int64) (AccountSnapshot, bool) {
-	a, fresh := e.CachedSharedAccount(accountID, keyID)
-	return projectAccountSnapshot(a, e.Settings()), fresh
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	a := e.cachedAccountForGroupAtLocked(Request{AccountID: accountID, UpstreamKeyID: keyID}, e.Settings(), e.now().UTC())
+	return a, a.Available
 }
 
 func (e *Engine) CachedAccountGroups(accountID, keyID int64) []int64 {
