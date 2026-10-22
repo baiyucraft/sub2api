@@ -66,20 +66,45 @@ func buildCacheGuardPreference(ctx context.Context, groupID *int64, sessionHash,
 	if !SchedulingProtectionGroupSelected(r.protectionPolicyReader(), *groupID) {
 		return p
 	}
-	s := r.engine.ResolvedSettings(*groupID)
-	if policy, ok := protectionPolicyForEvaluation(ctx, *groupID); ok && !reflect.DeepEqual(policy.Cache, s) {
-		return p
-	}
-	if s.Mode != upstreamcacheguard.Protect || !s.ContainsGroup(*groupID) {
-		return p
-	}
 	req, ok := r.logicalRequest(ctx, groupID, sessionHash, model, protocol)
 	if !ok {
 		return p
 	}
-	at := protectionEvaluationTime(ctx, time.Now)
-	snapshot := r.engine.CachedMetadataAt(*groupID, at)
-	if !snapshot.Available {
+	candidates := make([]upstreamcacheguard.Candidate, 0, len(accounts))
+	for _, a := range accounts {
+		candidates = append(candidates, upstreamcacheguard.Candidate{AccountID: a.ID, UpstreamKeyID: accountUpstreamKeyID(&a)})
+	}
+	view := r.engine.CachedCandidatesReadView(req, candidates)
+	if !view.Consistent || !view.Snapshot.Available || view.PolicyVersion != epoch || view.Settings.Mode != upstreamcacheguard.Protect || !view.Settings.ContainsGroup(*groupID) {
+		return p
+	}
+	if !view.SessionCached {
+		var err error
+		view, err = r.engine.CandidatesReadViewWithDatabaseContext(ctx, req, candidates, cacheGuardDatabaseContext)
+		if err != nil || !view.Consistent || view.PolicyVersion != epoch {
+			return p
+		}
+	}
+	if view.Session.Known && view.Session.PreferredAccountID > 0 {
+		for i := range accounts {
+			account := &accounts[i]
+			if account.ID == view.Session.PreferredAccountID {
+				req.Model = canonicalOpenAIAccountSchedulingModel(account, model)
+				req.Protocol = cacheGuardAccountProtocol(ctx, account, req.Model, protocol)
+				req.AccountID, req.UpstreamKeyID = account.ID, accountUpstreamKeyID(account)
+				view = r.engine.CachedCandidatesReadView(req, candidates)
+				if !view.Consistent || !view.Snapshot.Available || view.PolicyVersion != epoch {
+					return p
+				}
+				break
+			}
+		}
+	}
+	s, snapshot, session := view.Settings, view.Snapshot, view.Session
+	if policy, ok := protectionPolicyForEvaluation(ctx, *groupID); ok && !reflect.DeepEqual(policy.Cache, s) {
+		return p
+	}
+	if s.Mode != upstreamcacheguard.Protect || !s.ContainsGroup(*groupID) {
 		return p
 	}
 	p.Active = true
@@ -87,11 +112,7 @@ func buildCacheGuardPreference(ctx context.Context, groupID *int64, sessionHash,
 	p.CandidateKeyIDs = map[int64]int64{}
 	states := map[int64]upstreamcacheguard.AccountSnapshot{}
 	eligible := map[int64]Account{}
-	candidates := make([]upstreamcacheguard.Candidate, 0, len(accounts))
-	for _, a := range accounts {
-		candidates = append(candidates, upstreamcacheguard.Candidate{AccountID: a.ID, UpstreamKeyID: accountUpstreamKeyID(&a)})
-	}
-	for _, cached := range r.engine.CachedCandidatesAt(*groupID, candidates, at).Accounts {
+	for _, cached := range snapshot.Accounts {
 		states[cached.AccountID] = cached
 	}
 	for _, a := range accounts {
@@ -117,28 +138,10 @@ func buildCacheGuardPreference(ctx context.Context, groupID *int64, sessionHash,
 			firstPool = a
 		}
 	}
-	session, err := r.engine.SessionReadAtWithDatabaseContext(ctx, req, at, cacheGuardDatabaseContext)
-	if err != nil {
-		return cacheGuardPreference{}
-	}
 	if session.Known && session.PreferredAccountID > 0 {
 		if _, usable := eligible[session.PreferredAccountID]; !usable {
 			return cacheGuardPreference{}
 		}
-		if account, exists := eligible[session.PreferredAccountID]; exists {
-			req.Model = canonicalOpenAIAccountSchedulingModel(&account, model)
-			req.Protocol = cacheGuardAccountProtocol(ctx, &account, req.Model, protocol)
-			req.AccountID = account.ID
-			if account.UpstreamKeyID != nil {
-				req.UpstreamKeyID = *account.UpstreamKeyID
-			}
-			session, err = r.engine.SessionReadAtWithDatabaseContext(ctx, req, at, cacheGuardDatabaseContext)
-			if err != nil {
-				return cacheGuardPreference{}
-			}
-		}
-	}
-	if session.Known && session.PreferredAccountID > 0 {
 		if _, ok := eligible[session.PreferredAccountID]; ok {
 			source := states[session.PreferredAccountID]
 			if !snapshot.Fresh || !source.Fresh || !session.Fresh {
@@ -195,8 +198,8 @@ func buildCacheGuardPreference(ctx context.Context, groupID *int64, sessionHash,
 	// Admission assigns a shared ordinal once per logical natural new session.
 	// A later round, model switch or migration can never acquire a new trial slot.
 	dbCtx, cancel := cacheGuardDatabaseContextForStage(ctx, "trial_plan")
-	defer cancel()
 	trial, err := guard.PlanTrial(dbCtx, req)
+	cancel()
 	if err != nil || !protectionPolicyEvaluationCurrent(ctx) {
 		return cacheGuardPreference{}
 	}

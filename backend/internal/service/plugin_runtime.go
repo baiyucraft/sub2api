@@ -344,6 +344,7 @@ func (r *pluginRuntime) roundTrip(ctx context.Context, request *http.Request, pr
 		return nil, err
 	}
 	markOpenAITTFTGuardSend(ctx, account, metadata.Model, "openai")
+	markUpstreamCacheGuardSend(ctx, account)
 	if err := stream.Send(&pluginv1.ForwardRequest{Frame: &pluginv1.ForwardRequest_Start{Start: &pluginv1.ForwardRequestStart{
 		RequestId:          requestID,
 		Method:             request.Method,

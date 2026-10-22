@@ -154,6 +154,32 @@ type cacheGuardSelectionTx struct {
 	accountID, keyID int64
 }
 
+func (tx *cacheGuardSelectionTx) Read(kind, key string, out any) (int64, error) {
+	for _, row := range tx.store.rows {
+		if row.Kind == kind && row.Key == key {
+			return row.Version, json.Unmarshal(row.Payload, out)
+		}
+	}
+	return 0, nil
+}
+
+func (tx *cacheGuardSelectionTx) Write(kind, key string, value any) (int64, error) {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return 0, err
+	}
+	for i := range tx.store.rows {
+		row := &tx.store.rows[i]
+		if row.Kind == kind && row.Key == key {
+			row.Version++
+			row.Payload = raw
+			return row.Version, nil
+		}
+	}
+	tx.store.rows = append(tx.store.rows, upstreamcacheguard.RuntimeRow{GroupID: 100, Kind: kind, Key: key, Version: 1, Payload: raw})
+	return 1, nil
+}
+
 func (tx *cacheGuardSelectionTx) ReadAccount(id, keyID int64, out any) (int64, error) {
 	if a, exists := tx.store.accounts[cacheGuardSelectionIdentity(id, keyID)]; exists {
 		raw, err := json.Marshal(a)
@@ -641,7 +667,10 @@ func TestUpstreamCacheGuardStaleSnapshotSkipsNewTrialsAndKeepsRealSchedulerAffin
 	p := buildCacheGuardPreference(ctx, &group, "new-conversation", "gpt-test", "openai", accounts, nil)
 	require.False(t, p.Active)
 	require.Equal(t, before, store.trialPlans)
-	require.Nil(t, BeginUpstreamCacheGuardRequest(ctx, 1, &group, "new-conversation", "gpt-test", "openai", &accounts[0]))
+	admission := BeginUpstreamCacheGuardRequest(ctx, 1, &group, "new-conversation", "gpt-test", "openai", &accounts[0])
+	require.NotNil(t, admission, "stale preferences must not discard ordinary request facts")
+	require.True(t, admission.Admission.CaptureOnly)
+	require.False(t, admission.Admission.Trial)
 	_, _, err, handled := svc.selectWithCacheGuardPreference(ctx, &group, "", "new-conversation", "gpt-test", nil, OpenAIUpstreamTransportAny, "", "", false, PlatformOpenAI, false, false)
 	require.NoError(t, err)
 	require.False(t, handled, "a new session must fall back to ordinary scheduling")

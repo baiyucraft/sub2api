@@ -108,6 +108,7 @@ type Admission struct {
 	ProtectedAtStart bool      `json:"protected_at_start"`
 	Trial            bool      `json:"trial"`
 	Sample           bool      `json:"sample"`
+	CaptureOnly      bool      `json:"capture_only,omitempty"`
 	CohortID         string    `json:"cohort_id,omitempty"`
 	Mode             Mode      `json:"mode"`
 	Completed        bool      `json:"completed"`
@@ -122,6 +123,7 @@ type TrialPlan struct {
 	TrialOrdinal int64  `json:"trial_ordinal"`
 }
 type Evidence struct {
+	CompletionReason string    `json:"completion_reason,omitempty"`
 	ID               string    `json:"id"`
 	Request          Request   `json:"request"`
 	Admission        Admission `json:"admission"`
@@ -189,25 +191,26 @@ type SessionRoute struct {
 	HighCacheSeen    bool      `json:"high_cache_seen"`
 }
 type SessionState struct {
-	PolicySignature     string                  `json:"policy_signature,omitempty"`
-	Key                 string                  `json:"key"`
-	FirstSeenAt         time.Time               `json:"first_seen_at"`
-	NaturalRequestID    string                  `json:"natural_request_id"`
-	NaturalTrialSlot    bool                    `json:"natural_trial_slot"`
-	NaturalTrialOrdinal int64                   `json:"natural_trial_ordinal"`
-	NaturalAccountID    int64                   `json:"natural_account_id"`
-	LastStartedAt       time.Time               `json:"last_started_at"`
-	LastCompletedAt     time.Time               `json:"last_completed_at"`
-	LastAccountID       int64                   `json:"last_account_id"`
-	LastModel           string                  `json:"last_model"`
-	LastProtocol        string                  `json:"last_protocol"`
-	LastRouteKey        string                  `json:"last_route_key"`
-	ResidenceUntil      time.Time               `json:"residence_until"`
-	TrialAccountID      int64                   `json:"trial_account_id"`
-	TrialModel          string                  `json:"trial_model"`
-	TrialProtocol       string                  `json:"trial_protocol"`
-	CohortID            string                  `json:"cohort_id,omitempty"`
-	Routes              map[string]SessionRoute `json:"routes"`
+	PolicySignature        string                  `json:"policy_signature,omitempty"`
+	Key                    string                  `json:"key"`
+	FirstSeenAt            time.Time               `json:"first_seen_at"`
+	NaturalRequestID       string                  `json:"natural_request_id"`
+	NaturalTrialSlot       bool                    `json:"natural_trial_slot"`
+	NaturalTrialOrdinal    int64                   `json:"natural_trial_ordinal"`
+	NaturalTrialSuppressed bool                    `json:"natural_trial_suppressed,omitempty"`
+	NaturalAccountID       int64                   `json:"natural_account_id"`
+	LastStartedAt          time.Time               `json:"last_started_at"`
+	LastCompletedAt        time.Time               `json:"last_completed_at"`
+	LastAccountID          int64                   `json:"last_account_id"`
+	LastModel              string                  `json:"last_model"`
+	LastProtocol           string                  `json:"last_protocol"`
+	LastRouteKey           string                  `json:"last_route_key"`
+	ResidenceUntil         time.Time               `json:"residence_until"`
+	TrialAccountID         int64                   `json:"trial_account_id"`
+	TrialModel             string                  `json:"trial_model"`
+	TrialProtocol          string                  `json:"trial_protocol"`
+	CohortID               string                  `json:"cohort_id,omitempty"`
+	Routes                 map[string]SessionRoute `json:"routes"`
 	// Admissions is retained for legacy stores and migration input only. Split
 	// stores keep the immutable per-request records outside the session body.
 	Admissions map[string]Admission `json:"admissions,omitempty"`
