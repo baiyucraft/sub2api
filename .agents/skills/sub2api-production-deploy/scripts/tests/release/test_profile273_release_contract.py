@@ -28,23 +28,23 @@ class Profile273ReleaseContractTest(unittest.TestCase):
             cwd=WORKSPACE, check=True, capture_output=True, timeout=10,
         ).stdout
         exec(compile(source, "profile272-baseline", "exec"), previous)
-        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"273", "274"})
+        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"273", "274", "275"})
         for name, contract in previous["PROFILES"].items():
             with self.subTest(profile=name):
                 self.assertEqual(PROFILES[name], contract)
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "274")
+        self.assertEqual(CURRENT_RELEASE_PROFILE, "275")
         profile = get_profile("273")
         self.assertEqual((profile["version"], profile["parent"], profile["gate_schema"], profile["new_migrations"]),
                          ("0.2.17-baiyu", "272", 2, [MIGRATION]))
         with self.assertRaisesRegex(ValueError, "historical"):
             get_release_profile("272")
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 275"):
-            get_profile("275")
+        with self.assertRaisesRegex(ValueError, "unknown release profile: 276"):
+            get_profile("276")
         catalog = discover_migration_catalog(WORKSPACE)
         snapshot = {row["filename"]: row["checksum"] for row in catalog if row["filename"] not in (MIGRATION, "301_upstream_cache_guard_admissions.sql")}
         self.assertEqual([row["filename"] for row in plan_migrations(catalog, snapshot)["pending"]], [MIGRATION, "301_upstream_cache_guard_admissions.sql"])
         registry = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(registry["current_profile"]["id"], "274")
+        self.assertEqual(registry["current_profile"]["id"], "275")
         for key in ("version", "parent", "new_migrations"):
             self.assertEqual(registry["historical_profiles"]["273"][key], profile[key])
         migration_owner = next(e for e in registry["extensions"] if e["id"] == "migration-profile-contract")
@@ -61,7 +61,7 @@ class Profile273ReleaseContractTest(unittest.TestCase):
         self.assertIn("(upstream_key_id, observed_at DESC, id DESC)", raw.decode())
         self.assertNotIn("UNIQUE", raw.decode())
         self.assertIsNotNone(RELEASE_ID.fullmatch("273-aaaaaaaaaaaa-1-aaaaaaaa"))
-        self.assertIsNone(RELEASE_ID.fullmatch("275-aaaaaaaaaaaa-1-aaaaaaaa"))
+        self.assertIsNone(RELEASE_ID.fullmatch("276-aaaaaaaaaaaa-1-aaaaaaaa"))
 
 
 class Profile273BashContractTest(unittest.TestCase):

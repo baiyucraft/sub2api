@@ -154,3 +154,13 @@ python .agents/skills/sub2api-fork-extension-audit/scripts/audit_fork_extensions
 
 
 当前 pending profile 273 为 `0.2.17-baiyu`、parent 272，仅新增 `300_upstream_health_history_index.sql`。272 及更早 profile、SQL、checksum 原合同不变，未知274拒绝。审计新增 `upstream-account-table-refresh-performance` 扩展：健康每Key最新24条、精确confidence分流、列表内联质量、失败隔离及请求取消/结构共享，不得以TTL结果缓存、省略判断或缩短统计窗口实现性能目标。300仅增加非唯一索引，实际数据库验证和签名Gate另行证明。
+
+## 官方 0.2.18 与 profile 275
+
+官方目标为 `5c185c5c5d4f5e409e2139806e0964ae944e03e8`，fork 版本为 `0.2.18-baiyu`。当前 profile `275` 的 parent 为 `274`，仅新增 `302_enable_gemini_image_generation_groups.sql`；官方 `246_enable_gemini_image_generation_groups.sql` 只重编号，原始字节不变。该迁移开启存量 Gemini / Antigravity 分组的生图权限，Composite / OpenAI 不在回填范围内。274 及更早 profile、SQL 和 checksum 保持冻结，未知 276 拒绝。
+
+275 仍要求停机并继承 migration 301 的旧写者退出与协调恢复约束；297 / 298 / 299 / 301 的祖先断言逐项校验当前 parent、新增列表和原 catalog checksum。新 profile 和 Go `1.27.3` 构建依赖必须在 Python、Shell、VM、signer、备份及清理入口一致。最终恢复敏感 blob 仍须重新分类，不扩大任何历史精确审阅豁免。
+
+调度快照采用官方内存母本与写时复制，新增 revision 键继续使用 `sched:v2:meta:rev` / `sched:v2:meta:rev:`，保留 fork 上游元数据、优先池与最终账号 hydration。官方流式断连结算只改变已观测 usage 的记账；fork 缓存保护仍要求成功终止、完整读取和客户端输出，读错、断连及缺失终止证据不能据 usage 推定有效 warm 样本。Cloudflare 1010 的非认证阻断不惩罚账号或绑定的上游 Key。
+
+账号编辑采用官方 Vertex service_account 配额，继续通过 fork 配置白名单过滤运行态字段。普通账号与上游管理分别使用 `account-filter-values` / `upstream-account-filter-values`，切换 scope 后重载筛选并丢弃旧请求响应。最低验证包含 profile 275 / migration 302 合同、调度快照隔离、Anthropic / Gemini 断连缓存证据、绑定 Key 的 1010、Vertex 配额和账号页筛选隔离。以上登记不代表 VM Gate 或生产部署完成。

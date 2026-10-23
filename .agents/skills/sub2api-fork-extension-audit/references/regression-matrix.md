@@ -331,3 +331,12 @@ VM Gate v2、历史 Gate v1 的新执行与 VM-only 三入口共用 SHA 绑定�
 ## Windows 发布状态快照
 
 应用、插件、VM owner 和后置完成的可变 JSON、hash、字节 snapshot 共用共享删除读。Windows 原生安全替换保留旧备份，首次创建不覆盖竞争目标，POSIX 原合同保持；成功后核对目标与备份，失败保留可用对象并区分提交前/后。真实多进程覆盖 held reader、状态观察、备份清理和首次创建竞争；普通不共享删除读者、权限及中间态错误仍失败封闭。新 runner 完成见证绑定 release ID 与同次 terminal 原字节，status/wait/verify-result 对缺失、损坏、漂移和提交后失败一致拒绝成功；历史证据不回填。回归入口 `test_windows_atomic.py`、`test_replaceable_state_readers.py`、supervisor/plugin_supervisor、VM lifecycle/finalization 与完整 release suite；模拟错误不冒称真实系统故障。源码和密钥、签名、归档不通配改读，candidate 哈希保持分块。恢复敏感最终 blob/mode 仍须独立精确审阅和新 Gate，不复用失败发布。
+
+## Profile 275 与官方 0.2.18 最低回归
+
+- `test_profile275_release_contract.py` 与 `profile_275_migrations_test.go`：全部历史 profile/SQL 不变、302 原字节重编号、274 快照仅 pending302、更旧快照保留301→302顺序和 coordinated_restore；275 精确版本/parent/new_migrations、继承断言、停机及未知276拒绝。
+- 调度母本与 fork Redis v2 revision 隔离、上游字段/优先池保留、模型限流写时复制。
+- Anthropic 兼容流与 Gemini native/messages/chat 断连后仍按已观测 usage 记账，但缺失完整终止/读取/客户端输出证据不得生成有效缓存保护样本。
+- 全平台 HTML/JSON Cloudflare1010不惩罚账号或绑定Key；真实认证403继续处理。
+- Vertex配额创建/保存/展示、普通与上游账号筛选scope隔离、派生账号编辑不回放quota运行态。
+- 完整release pytest、Go普通与unit-tag全量、Vitest/typecheck/lint/build，以及修改Shell的语法检查。最终敏感blob未审阅时正式Gate保持阻断；本地合并与回归不等于VM或生产成功。

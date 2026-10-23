@@ -2,6 +2,7 @@ package service
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -29,6 +30,62 @@ func (w *cacheGuardGeminiFailWriter) Write(p []byte) (int, error) {
 
 func (w *cacheGuardGeminiFailWriter) WriteString(p string) (int, error) {
 	return w.Write([]byte(p))
+}
+
+type cacheGuardGeminiCanceledReader struct {
+	*strings.Reader
+	cancel context.CancelFunc
+}
+
+func (r *cacheGuardGeminiCanceledReader) Read(p []byte) (int, error) {
+	n, err := r.Reader.Read(p)
+	if err == io.EOF {
+		r.cancel()
+		return n, context.Canceled
+	}
+	return n, err
+}
+
+func TestCacheGuardGeminiCanceledReadAfterTerminalPreservesBillingWithoutWarmSample(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, route := range []string{"native", "messages", "chat"} {
+		t.Run(route, func(t *testing.T) {
+			store := cacheGuardTestRunner(t)
+			ctx, cancel := context.WithCancel(cacheGuardTestAdmittedContext())
+			defer cancel()
+			ctx.Value(cacheUsageAttemptContextKey{}).(*cacheUsageAttempt).admission.Request.Protocol = "gemini"
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, "/test", nil).WithContext(ctx)
+			body := `data: {"candidates":[{"content":{"parts":[{"text":"hello"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":100,"cachedContentTokenCount":90,"candidatesTokenCount":7}}` + "\n\n"
+			resp := &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(&cacheGuardGeminiCanceledReader{Reader: strings.NewReader(body), cancel: cancel})}
+			svc := &GeminiMessagesCompatService{}
+			var usage *ClaudeUsage
+			if route == "native" {
+				result, err := svc.handleNativeStreamingResponse(c, resp, time.Now(), false, &Account{ID: 1}, "test-request")
+				require.NoError(t, err)
+				require.True(t, result.clientDisconnect)
+				usage = result.usage
+			} else if route == "messages" {
+				result, err := svc.handleStreamingResponse(c, resp, time.Now(), "gemini-test")
+				require.NoError(t, err)
+				require.True(t, result.clientDisconnect)
+				usage = result.usage
+			} else {
+				result, err := svc.handleChatCompletionsStreamingResponseFromGemini(c, resp, time.Now(), "gemini-test", false, true)
+				require.NoError(t, err)
+				require.True(t, result.clientDisconnect)
+				usage = result.usage
+			}
+			require.Equal(t, 10, usage.InputTokens)
+			require.Equal(t, 90, usage.CacheReadInputTokens)
+			require.Equal(t, 7, usage.OutputTokens)
+			require.NotNil(t, usage.CacheUsageEvidence)
+			require.True(t, usage.CacheUsageEvidence.StreamIncomplete)
+			FinishGatewayUpstreamCacheGuardAttempt(ctx, &ForwardResult{Usage: *usage, Stream: true}, nil)
+			require.Len(t, store.events, 1)
+			require.False(t, store.events[0].ValidSample())
+		})
+	}
 }
 
 func TestCacheGuardGeminiBusinessStreamRequiresTerminalAndClientOutput(t *testing.T) {
