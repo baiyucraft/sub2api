@@ -9,6 +9,32 @@ vi.mock('vue-i18n', async () => ({
 import AccountCapacityCell from '../AccountCapacityCell.vue'
 
 describe('AccountCapacityCell proxy concurrency', () => {
+  it('renders daily, weekly and total quota badges for Vertex service accounts', () => {
+    const wrapper = mount(AccountCapacityCell, {
+      props: {
+        account: {
+          id: 1,
+          platform: 'gemini',
+          type: 'service_account',
+          concurrency: 1,
+          quota_limit: 200,
+          quota_used: 35.5,
+          quota_daily_limit: 20,
+          quota_daily_used: 12,
+          quota_weekly_limit: 70,
+          quota_weekly_used: 30,
+        } as never,
+      },
+      global: { stubs: { QuotaBadge: true } },
+    })
+
+    const quotas = wrapper.findAllComponents({ name: 'QuotaBadge' })
+    expect(quotas).toHaveLength(3)
+    expect(quotas.map(badge => badge.props('limit'))).toEqual([20, 70, 200])
+    expect(quotas.map(badge => badge.props('used'))).toEqual([12, 30, 35.5])
+    wrapper.unmount()
+  })
+
   it('renders one status badge per proxy with current and limit values', () => {
     const wrapper = mount(AccountCapacityCell, {
       props: {

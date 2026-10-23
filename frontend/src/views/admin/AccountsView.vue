@@ -720,6 +720,7 @@ import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 import { adminAPI } from '@/api/admin'
 import upstreamManagementAPI, { type UpstreamAccountPage } from '@/api/admin/upstreamManagement'
+import { CONCRETE_PLATFORM_OPTIONS } from '@/constants/platforms'
 import { useTableLoader } from '@/composables/useTableLoader'
 import { setPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { useSwipeSelect, type SwipeSelectVirtualContext } from '@/composables/useSwipeSelect'
@@ -1014,6 +1015,7 @@ type ViewPreferenceStorageConfig = {
   currentVersion: string
   sortStorageKey: string
   autoRefreshStorageKey: string
+  filterStorageKey: string
 }
 
 const getViewPreferenceStorageConfig = (scope: AccountScope = props.scope): ViewPreferenceStorageConfig => {
@@ -1023,7 +1025,8 @@ const getViewPreferenceStorageConfig = (scope: AccountScope = props.scope): View
       versionKey: 'upstream-account-hidden-columns-version',
       currentVersion: 'health-quality-today-visible-v1',
       sortStorageKey: 'upstream-account-table-sort',
-      autoRefreshStorageKey: 'upstream-account-auto-refresh'
+      autoRefreshStorageKey: 'upstream-account-auto-refresh',
+      filterStorageKey: 'upstream-account-filter-values'
     }
   }
   return {
@@ -1031,10 +1034,35 @@ const getViewPreferenceStorageConfig = (scope: AccountScope = props.scope): View
     versionKey: 'account-hidden-columns-version',
     currentVersion: 'quality-stats-merged-v3',
     sortStorageKey: 'account-table-sort',
-    autoRefreshStorageKey: 'account-auto-refresh'
+    autoRefreshStorageKey: 'account-auto-refresh',
+    filterStorageKey: 'account-filter-values'
   }
 }
 const viewPreferenceStorage = computed(() => getViewPreferenceStorageConfig(props.scope))
+
+// Account filter settings
+type AccountFilterValues = {
+  platform: string
+  status: string
+}
+const loadInitialAccountFilterValues = (scope: AccountScope = props.scope): AccountFilterValues => {
+  const fallback: AccountFilterValues = { platform: '', status: '' }
+  try {
+    const raw = localStorage.getItem(getViewPreferenceStorageConfig(scope).filterStorageKey)
+    if (!raw) return fallback
+    const parsed: unknown = JSON.parse(raw)
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return fallback
+    const values = parsed as Record<string, unknown>
+    return {
+      platform: typeof values.platform === 'string' && CONCRETE_PLATFORM_OPTIONS.some(option => option.value === values.platform)
+        ? values.platform : '',
+      status: typeof values.status === 'string' && ['active', 'inactive', 'error', 'rate_limited', 'temp_unschedulable', 'unschedulable'].includes(values.status)
+        ? values.status : ''
+    }
+  } catch {
+    return fallback
+  }
+}
 
 // Sorting settings
 type AccountSortOrder = 'asc' | 'desc'
@@ -1872,8 +1900,7 @@ const {
 } = useTableLoader<AccountListItem, any>({
   fetchFn: fetchAccountTablePage,
   initialParams: {
-    platform: '',
-    status: '',
+    ...loadInitialAccountFilterValues(),
     group: '',
     search: '',
     preferred: '',
@@ -1969,6 +1996,7 @@ watch(() => props.scope, (scope, previousScope) => {
   usageBatchLoadingByAccountId.value = {}
   usageBatchRequestTokenByAccountId.value = {}
   loadSavedColumns(scope)
+  Object.assign(params, loadInitialAccountFilterValues(scope))
   const nextSort = loadAccountSortState(scope)
   sortState.sort_by = nextSort.sort_by
   sortState.sort_order = nextSort.sort_order
@@ -2201,9 +2229,21 @@ const refreshUpstreamBillingSortedList = async (force = false) => {
 
 useIntervalFn(() => { void refreshUpstreamBillingRates() }, 5 * 60_000, { immediate: false })
 
+const saveAccountFilterValues = () => {
+  try {
+    localStorage.setItem(viewPreferenceStorage.value.filterStorageKey, JSON.stringify({
+      platform: params.platform,
+      status: params.status
+    }))
+  } catch {
+    // Filtering must remain available when browser storage is unavailable.
+  }
+}
+
 const debouncedAccountReload = useDebounceFn(reload, 300)
 const debouncedReload = () => {
   cancelAccountQualityRequest()
+  saveAccountFilterValues()
   clearSelection()
   syncAccountListDerivedParams()
   hasPendingListSync.value = false

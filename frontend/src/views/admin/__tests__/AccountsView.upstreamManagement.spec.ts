@@ -130,6 +130,14 @@ const AccountTableFiltersStub = {
         data-test="quality-filter-clear"
         @click="$emit('update:filters', Object.assign({}, filters, { quality_filter: '' })); $emit('change')"
       />
+      <button
+        data-test="filter-anthropic-rate-limited"
+        @click="$emit('update:filters', Object.assign({}, filters, { platform: 'anthropic', status: 'rate_limited' })); $emit('change')"
+      />
+      <button
+        data-test="filter-gemini-error"
+        @click="$emit('update:filters', Object.assign({}, filters, { platform: 'gemini', status: 'error' })); $emit('change')"
+      />
     </div>
   `
 }
@@ -609,6 +617,59 @@ describe('admin AccountsView upstream management mode', () => {
     })
     wrapper.unmount()
   })
+
+  it('persists platform and status independently and restores them on scope switches and remounts', async () => {
+    localStorage.setItem('account-filter-values', JSON.stringify({ platform: 'openai', status: 'active' }))
+    localStorage.setItem('upstream-account-filter-values', JSON.stringify({ platform: 'grok', status: 'inactive' }))
+    const wrapper = mountView('ordinary')
+    await flushPromises()
+    expect(ordinaryList).toHaveBeenLastCalledWith(1, 20, expect.objectContaining({
+      platform: 'openai', status: 'active'
+    }), expect.anything())
+
+    await wrapper.get('[data-test="filter-anthropic-rate-limited"]').trigger('click')
+    expect(JSON.parse(localStorage.getItem('account-filter-values') || '{}')).toEqual({
+      platform: 'anthropic', status: 'rate_limited'
+    })
+    await wrapper.setProps({ scope: 'upstream' })
+    await flushPromises()
+    expect(upstreamList).toHaveBeenLastCalledWith(expect.objectContaining({
+      platform: 'grok', status: 'inactive'
+    }), expect.anything())
+
+    await wrapper.get('[data-test="filter-gemini-error"]').trigger('click')
+    expect(JSON.parse(localStorage.getItem('upstream-account-filter-values') || '{}')).toEqual({
+      platform: 'gemini', status: 'error'
+    })
+    await wrapper.setProps({ scope: 'ordinary' })
+    await flushPromises()
+    expect(ordinaryList).toHaveBeenLastCalledWith(1, 20, expect.objectContaining({
+      platform: 'anthropic', status: 'rate_limited'
+    }), expect.anything())
+    wrapper.unmount()
+
+    const remounted = mountView('upstream')
+    await flushPromises()
+    expect(upstreamList).toHaveBeenLastCalledWith(expect.objectContaining({
+      platform: 'gemini', status: 'error'
+    }), expect.anything())
+    expect(JSON.parse(localStorage.getItem('account-filter-values') || '{}')).toEqual({
+      platform: 'anthropic', status: 'rate_limited'
+    })
+    remounted.unmount()
+  })
+
+  it.each(['{', 'null', '[]', JSON.stringify({ platform: 'unknown', status: 'unknown' })])(
+    'ignores invalid saved account filters: %s', async (savedFilters) => {
+      localStorage.setItem('upstream-account-filter-values', savedFilters)
+      const wrapper = mountView('upstream')
+      await flushPromises()
+      expect(upstreamList).toHaveBeenLastCalledWith(expect.objectContaining({
+        platform: '', status: ''
+      }), expect.anything())
+      wrapper.unmount()
+    }
+  )
 
   it('refreshes upstream quality with every list evaluation while today totals retain their interval', async () => {
     vi.useFakeTimers()

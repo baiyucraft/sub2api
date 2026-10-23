@@ -38,7 +38,7 @@ class Profile268ReleaseContractTest(unittest.TestCase):
         baseline = {}
         exec(compile(git_blob(".agents/skills/sub2api-production-deploy/scripts/release/profiles.py"), "baseline", "exec"), baseline)
         self.assertEqual(baseline["CURRENT_RELEASE_PROFILE"], "267")
-        self.assertEqual(set(PROFILES), set(baseline["PROFILES"]) | {"268", "269", "270", "271", "272", "273", "274"})
+        self.assertEqual(set(PROFILES), set(baseline["PROFILES"]) | {"268", "269", "270", "271", "272", "273", "274", "275"})
         for name, profile in baseline["PROFILES"].items():
             self.assertEqual(get_profile(name), profile, name)
             with self.assertRaisesRegex(ValueError, "historical"):
@@ -51,7 +51,7 @@ class Profile268ReleaseContractTest(unittest.TestCase):
         for path in historical:
             self.assertEqual((WORKSPACE / path).read_bytes(), git_blob(path), path)
         current = {path.relative_to(WORKSPACE).as_posix() for path in (WORKSPACE / "backend/migrations").glob("*.sql")}
-        self.assertEqual(current, historical | {f"backend/migrations/{MIGRATION}", "backend/migrations/297_upstream_cache_guard_account_scope.sql", "backend/migrations/298_group_scheduling_protection_policies.sql", "backend/migrations/299_upstream_cache_guard_revisions.sql", "backend/migrations/300_upstream_health_history_index.sql", "backend/migrations/301_upstream_cache_guard_admissions.sql"})
+        self.assertEqual(current, historical | {f"backend/migrations/{MIGRATION}", "backend/migrations/297_upstream_cache_guard_account_scope.sql", "backend/migrations/298_group_scheduling_protection_policies.sql", "backend/migrations/299_upstream_cache_guard_revisions.sql", "backend/migrations/300_upstream_health_history_index.sql", "backend/migrations/301_upstream_cache_guard_admissions.sql", "backend/migrations/302_enable_gemini_image_generation_groups.sql"})
         prior = json.loads(git_blob(".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml"))
         registration = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
         for name, checksum in prior["migration_contracts"].items():
@@ -62,14 +62,14 @@ class Profile268ReleaseContractTest(unittest.TestCase):
 
     def test_profile_registration_and_raw_vs_runner_checksum(self):
         profile = get_profile("268")
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "274")
+        self.assertEqual(CURRENT_RELEASE_PROFILE, "275")
         self.assertEqual((profile["version"], profile["parent"], profile["gate_schema"]), ("0.2.16-baiyu", "267", 2))
         self.assertEqual(profile["new_migrations"], [MIGRATION])
         self.assertEqual(profile["release_policy"], get_profile("267")["release_policy"])
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 275"):
-            get_profile("275")
+        with self.assertRaisesRegex(ValueError, "unknown release profile: 276"):
+            get_profile("276")
         registration = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(registration["current_profile"]["id"], "274")
+        self.assertEqual(registration["current_profile"]["id"], "275")
         self.assertEqual(registration["current_profile"]["status"], "pending")
         for field in ("version", "parent", "gate_schema", "new_migrations", "release_policy"):
             self.assertEqual(registration["historical_profiles"]["268"][field], profile[field])
@@ -100,7 +100,7 @@ class Profile268ReleaseContractTest(unittest.TestCase):
         self.assertEqual([entry["filename"] for entry in bad["conflicts"]], [MIGRATION])
         self.assertIsNotNone(RELEASE_ID.fullmatch("268-aaaaaaaaaaaa-1-aaaaaaaa"))
         self.assertIsNotNone(RELEASE_ID.fullmatch("272-aaaaaaaaaaaa-1-aaaaaaaa"))
-        self.assertIsNone(RELEASE_ID.fullmatch("275-aaaaaaaaaaaa-1-aaaaaaaa"))
+        self.assertIsNone(RELEASE_ID.fullmatch("276-aaaaaaaaaaaa-1-aaaaaaaa"))
 
     def test_manifest_identity_and_ancestor_evidence_remain_required(self):
         profile = get_profile("268")
