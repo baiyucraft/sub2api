@@ -1054,7 +1054,21 @@ PROFILES["274"] = {
     },
 }
 
-CURRENT_RELEASE_PROFILE = "274"
+# Official 0.2.18 backfill is appended without rewriting historical profiles.
+PROFILES["275"] = {
+    **{key: PROFILES["274"][key] for key in _PROFILE_V2_RUNTIME_KEYS},
+    "name": "275",
+    "version": "0.2.18-baiyu",
+    "parent": "274",
+    "new_migrations": ["302_enable_gemini_image_generation_groups.sql"],
+    "gate_schema": 2,
+    "release_policy": {
+        "compatibility_image": "production_current",
+        "migration_source": "database_state",
+    },
+}
+
+CURRENT_RELEASE_PROFILE = "275"
 
 
 def get_profile(name: str) -> dict:

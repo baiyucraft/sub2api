@@ -66,6 +66,7 @@ class GateV2Test(unittest.TestCase):
             {"filename": "298_group_scheduling_protection_policies.sql", "checksum": "f" * 64, "non_transactional": False},
             {"filename": "299_upstream_cache_guard_revisions.sql", "checksum": "0" * 64, "non_transactional": False},
             {"filename": "301_upstream_cache_guard_admissions.sql", "checksum": "1" * 64, "non_transactional": False},
+            {"filename": "302_enable_gemini_image_generation_groups.sql", "checksum": "2" * 64, "non_transactional": False},
         ]
 
     def _document(self, pending: list[dict] | None = None, *, profile: str = CURRENT_RELEASE_PROFILE) -> dict:
@@ -77,7 +78,7 @@ class GateV2Test(unittest.TestCase):
         (self.root / "candidate.tar.gz").write_bytes(archive)
         manifest = {
             "schema": 2,
-            "deployment_mode": "downtime" if profile == "274" else "blue-green",
+            "deployment_mode": "downtime" if profile in {"274", "275"} else "blue-green",
             "profile": profile,
             "release_id": f"{profile}-aaaaaaaaaaaa-1-aaaaaaaa",
             "version": contract["version"],
@@ -149,7 +150,7 @@ class GateV2Test(unittest.TestCase):
             "vm_semantics": True, "verified_replay": True,
         }
         evidence["migration_evidence"]["migration_301"] = {
-            "checksum": catalog[-1]["checksum"], "preflight": True, "postflight": True,
+            "checksum": next(row["checksum"] for row in catalog if row["filename"].startswith("301_")), "preflight": True, "postflight": True,
             "vm_semantics": True, "verified_replay": True,
         }
         return {"gate_version": 2, "profile_id": int(profile), "manifest": manifest, "evidence": evidence}
@@ -234,7 +235,7 @@ class GateV2Test(unittest.TestCase):
     def test_profile_262_historical_signed_contract_rejects_drift(self) -> None:
         document = self._document(profile="262")
         self._sign(document)
-        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 274"):
+        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 275"):
             self._verify(profile="262")
         self.assertEqual(self._verify(profile="262", allow_historical_runner=True, validate_profile_contract=True), document)
         for field, value, message in (
@@ -250,15 +251,15 @@ class GateV2Test(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, message):
                     self._verify(profile="262", allow_historical_runner=True, validate_profile_contract=True)
 
-    def test_unregistered_profile_275_is_rejected_even_for_recovery(self) -> None:
+    def test_unregistered_profile_276_is_rejected_even_for_recovery(self) -> None:
         document = self._document()
-        document["profile_id"] = 275
-        document["manifest"].update(profile="275", release_id="275-aaaaaaaaaaaa-1-aaaaaaaa")
+        document["profile_id"] = 276
+        document["manifest"].update(profile="276", release_id="276-aaaaaaaaaaaa-1-aaaaaaaa")
         self._sign(document)
-        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 274"):
-            self._verify(profile="275")
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 275"):
-            self._verify(profile="275", allow_historical_runner=True)
+        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 275"):
+            self._verify(profile="276")
+        with self.assertRaisesRegex(ValueError, "unknown release profile: 276"):
+            self._verify(profile="276", allow_historical_runner=True)
 
     def test_fast_gate_requires_non_restore_evidence(self) -> None:
         document = self._document()
@@ -289,14 +290,14 @@ class GateV2Test(unittest.TestCase):
         document["profile_id"] = 246
         document["manifest"].update(profile="246", release_id="246-aaaaaaaaaaaa-1-aaaaaaaa", version="0.2.1-baiyu")
         self._sign(document)
-        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 274"):
+        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 275"):
             self._verify(profile="246")
         self.assertEqual(self._verify(profile="246", allow_historical_runner=True), document)
 
     def test_previous_profile_requires_historical_runner_for_recovery(self) -> None:
         document = self._document(profile="260")
         self._sign(document)
-        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 274"):
+        with self.assertRaisesRegex(RuntimeError, "only accepted for current profile 275"):
             self._verify(profile="260")
         self.assertEqual(self._verify(profile="260", allow_historical_runner=True, validate_profile_contract=True), document)
 

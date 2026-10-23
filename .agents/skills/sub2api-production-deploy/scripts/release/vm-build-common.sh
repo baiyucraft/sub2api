@@ -4,7 +4,7 @@
 
 VM_BUILD_IMAGES=(
   docker.io/library/node:24-alpine
-  docker.io/library/golang:1.27.2-alpine
+  docker.io/library/golang:1.27.3-alpine
   docker.io/library/alpine:3.21
   docker.io/library/postgres:18-alpine
 )

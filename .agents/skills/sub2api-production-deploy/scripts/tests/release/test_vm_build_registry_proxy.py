@@ -174,7 +174,7 @@ def test_official_sources_are_exact_and_shared_by_python_and_shell():
     expected = {
         "frontend": "docker.io/docker/dockerfile:1.7",
         "node": "docker.io/library/node:24-alpine",
-        "golang": "docker.io/library/golang:1.27.2-alpine",
+        "golang": "docker.io/library/golang:1.27.3-alpine",
         "alpine": "docker.io/library/alpine:3.21",
         "postgres": "docker.io/library/postgres:18-alpine",
     }

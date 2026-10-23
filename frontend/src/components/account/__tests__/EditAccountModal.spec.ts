@@ -1846,6 +1846,37 @@ describe('EditAccountModal', () => {
     wrapper.unmount()
   })
 
+  it.each(['upstream', 'ordinary'] as const)('keeps quota configuration without replaying runtime extra for a bound account in %s mode', async (mode) => {
+    const account = buildUpstreamBoundAccount()
+    account.extra = {
+      quota_limit: 200,
+      quota_daily_limit: 20,
+      quota_weekly_limit: 70,
+      quota_used: 35.5,
+      quota_daily_used: 12,
+      quota_daily_start: '2026-10-23T00:00:00Z',
+      quota_weekly_used: 30,
+      quota_weekly_start: '2026-10-19T00:00:00Z',
+      sub2api_image_pricing_snapshot: { status: 'available' }
+    }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account, { mode })
+    await flushPromises()
+    expect(wrapper.findComponent({ name: 'QuotaLimitCard' }).exists()).toBe(mode === 'upstream')
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    const extra = updateAccountMock.mock.calls[0]?.[1]?.extra
+    expect(extra).toMatchObject({ quota_limit: 200, quota_daily_limit: 20, quota_weekly_limit: 70 })
+    for (const key of ['quota_used', 'quota_daily_used', 'quota_daily_start', 'quota_weekly_used', 'quota_weekly_start', 'sub2api_image_pricing_snapshot']) {
+      expect(extra).not.toHaveProperty(key)
+    }
+    wrapper.unmount()
+  })
+
   it('uses the official xAI base URL when a Grok API-key account omits base_url', async () => {
     const account = buildGrokAPIKeyAccount()
     updateAccountMock.mockReset()
@@ -2526,6 +2557,26 @@ describe('EditAccountModal', () => {
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
 
     expect(updateAccountMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows quota limit card for Vertex SA account and keeps quota limits on save', async () => {
+    const account = buildVertexAccount()
+    account.extra = { quota_limit: 200, quota_daily_limit: 20, quota_used: 35.5 }
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+    expect(wrapper.findComponent({ name: 'QuotaLimitCard' }).exists()).toBe(true)
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    const extra = updateAccountMock.mock.calls[0]?.[1]?.extra
+    expect(extra?.quota_limit).toBe(200)
+    expect(extra?.quota_daily_limit).toBe(20)
+    expect(extra?.quota_weekly_limit).toBeUndefined()
   })
 
   it('blocks Vertex SA save when neither credentials_status nor legacy json indicates existence', async () => {

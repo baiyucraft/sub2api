@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Sourced only by the signed downtime switch context. No standalone write path.
 sub2api_activity_reward_cost_postflight() {
-  [[ ( $release_profile == 264 || $release_profile == 265 || $release_profile == 266 || $release_profile == 267 || $release_profile == 268 || $release_profile == 269 || $release_profile == 270 || $release_profile == 271 || $release_profile == 272 || $release_profile == 273 || $release_profile == 274 ) && $deployment_mode == downtime ]] || return 1
+  [[ ( $release_profile == 264 || $release_profile == 265 || $release_profile == 266 || $release_profile == 267 || $release_profile == 268 || $release_profile == 269 || $release_profile == 270 || $release_profile == 271 || $release_profile == 272 || $release_profile == 273 || $release_profile == 274 || $release_profile == 275 ) && $deployment_mode == downtime ]] || return 1
   _required_1=$(docker inspect -f '{{.State.Running}}' "$active_container") || return 1
   [[ ${_required_1} == false ]] || return 1
   local container containers inspection is_application

@@ -434,7 +434,7 @@ SSH 超时后以远端 committed marker 重新判定阶段，不凭本地异常�
 
 ## Profile 274 的精确恢复审阅
 
-当前 profile 274 保持 `0.2.17-baiyu`，parent 为 273，仅新增 `301_upstream_cache_guard_admissions.sql`；历史 273 及全部旧 SQL/checksum 保持不可变，下一未登记 profile 275 拒绝。
+历史 profile 274 保持 `0.2.17-baiyu`，parent 为 273，仅新增 `301_upstream_cache_guard_admissions.sql`；历史 273 及全部旧 SQL/checksum 保持不可变，登记时未登记的 profile 275 拒绝；当前 275 见末节。
 
 本批实际生产 BASE `5deebb2929c2a694145cc2726e895f01c43d28c1` 到已独审 TARGET `aca670e896ffa0e0e54204f1e6c33c205d5160f5` 的 48 条敏感净差异，按三组显式路径和同路径旧/新 Git blob、文件模式冻结：41 条 profile 兼容接线、5 条 migration 301 Gate 接线、2 条停机奖励 postflight 接线。权威登记为 `recovery_gate.py` 的 `_PROFILE274_COMPATIBILITY_PATHS`、`_PROFILE274_MIGRATION_GATE_PATHS`、`_PROFILE274_POSTFLIGHT_PATHS`；新增 301 helper 的旧状态必须不存在。任何未来字节、模式、删除、改名、额外敏感路径或基线漂移继续阻断，历史登记保持不变。
 
@@ -475,3 +475,10 @@ SSH 超时后以远端 committed marker 重新判定阶段，不凭本地异常�
 本批统一 probe-only 连接权限、应用角色恢复和容器所有权；容器先 create、记录不可变 ID 和 owned，再 start，失败按 ID 清理。专事故 preserve helper 只收口冻结的 `274-12d4cf67d1c6-1792572302-7b82c271`，不重跑、不清理远端资源、不关机。生产恢复算法、备份格式和信任根未改，仍要求 `specialized` 真实隔离恢复、新候选及新签名 Gate。
 
 历史 tranche 不回写。`test_vm_probe_config_recovery_review.py` 独立固定 literal 对象、旧登记 AST 和实现的两项敏感标记；逐路径拒绝 blob/mode/删除/改名/BASE、额外敏感路径、缺失审阅来源，以及新增 helper 旧路径已是文件、目录、symlink 或 gitlink。同名异目录不能借用登记，既有敏感路径迁移仍阻断。显式 full 不能解除未审变化阻断；本地测试不代表生产发布。
+
+
+## 官方 0.2.18 / profile 275
+
+当前 profile `275` 使用 `0.2.18-baiyu`、parent `274`，仅新增 `302_enable_gemini_image_generation_groups.sql`。官方目标 `5c185c5c5d4f5e409e2139806e0964ae944e03e8` 的 246 生图开关回填只按原字节重编号，不改历史 fork 246、301 或任何旧 profile/checksum；原始 SQL SHA-256 为 `f49b458cfbd52bd17f5bb02e30e3813c8e192e4ae38bce6358713ef65f3874b5`，Gate catalog strip 后 checksum 为 `87267be7ab657173768989e2b0b105c5569c5930a7f1ed124f4cf81e5198297c`。旧章节的 current 274/未知275是当时历史边界，现行未知276拒绝。
+
+275 继续只允许 downtime；累计升级仍可能执行301，须保留停旧写者、四项祖先迁移 assertion 的精确身份及301 coordinated_restore。候选 Go 构建 pin 对齐官方 go.mod 的 `1.27.3`。最低验证包含 `test_profile275_release_contract.py`、新旧迁移 Go 测试、全部历史 profile、完整 release suite 和变更 Shell 语法检查。恢复敏感最终 blob 仍须重新精确分类，旧审阅不扩展；本地验证不等于真实数据库升级、VM Gate、旧镜像兼容或生产发布。
