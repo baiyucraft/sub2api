@@ -865,8 +865,10 @@ func attachQuotaSnapshot(results []*CheckResult, snapshot *domain.MonitorQuotaSn
 	}
 }
 
-// persistCheckResults 写入本次检测的历史记录并更新 last_checked_at。
-// 任一写库失败都只记日志，不影响调用方拿到 results（与 MVP 期望一致：宁可漏记历史也要先返回结果）。
+const channelMonitorPersistenceTimeout = 5 * time.Second
+
+// persistCheckResults 写入本次检测的历史记录，成功后才更新 last_checked_at。
+// 写库失败只记日志，不影响调用方拿到 results；历史未保存时不推进检查时间。
 func (s *ChannelMonitorService) persistCheckResults(ctx context.Context, m *ChannelMonitor, results []*CheckResult) {
 	rows := make([]*ChannelMonitorHistoryRow, 0, len(results))
 	for _, r := range results {
@@ -882,9 +884,16 @@ func (s *ChannelMonitorService) persistCheckResults(ctx context.Context, m *Chan
 			Quota:         r.Quota,
 		})
 	}
+	if ctx.Err() != nil {
+		return
+	}
 	if err := s.repo.InsertHistoryBatch(ctx, rows); err != nil {
 		slog.Error("channel_monitor: insert history failed",
 			"monitor_id", m.ID, "name", m.Name, "error", err)
+		return
+	}
+	if ctx.Err() != nil {
+		return
 	}
 	if err := s.repo.MarkChecked(ctx, m.ID, time.Now()); err != nil {
 		slog.Error("channel_monitor: mark checked failed",
@@ -894,11 +903,17 @@ func (s *ChannelMonitorService) persistCheckResults(ctx context.Context, m *Chan
 
 // persistCheckResultsIfAllowed suppresses only results from a scheduled task
 // whose parent task was cancelled (Stop, Unschedule, or Schedule replacement).
-// A normal probe timeout still uses the child request context and therefore is
-// persisted as an error. Manual RunCheck calls have no task marker and retain
-// their existing persistence behavior.
+// Scheduled persistence has its own budget under that parent task, so a probe
+// timeout remains observable without detaching writes from task cancellation.
+// Manual RunCheck calls keep their original request context.
 func (s *ChannelMonitorService) persistCheckResultsIfAllowed(ctx context.Context, m *ChannelMonitor, results []*CheckResult) {
-	if channelMonitorRunnerTaskCancelled(ctx) {
+	if taskCtx := channelMonitorRunnerTaskContext(ctx); taskCtx != nil {
+		if taskCtx.Err() != nil {
+			return
+		}
+		persistCtx, cancel := context.WithTimeout(taskCtx, channelMonitorPersistenceTimeout)
+		defer cancel()
+		s.persistCheckResults(persistCtx, m, results)
 		return
 	}
 	s.persistCheckResults(ctx, m, results)
