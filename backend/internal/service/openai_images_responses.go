@@ -1955,6 +1955,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 					ResponseHeaders:               resp.Header.Clone(),
 					Duration:                      time.Since(startTime),
 					FirstTokenMs:                  firstTokenMs,
+					ImageEndpoint:                 true,
 					ImageCount:                    imageCount,
 					ImageSize:                     parsed.SizeTier,
 					ImageInputSize:                parsed.Size,
@@ -1991,7 +1992,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 			)
 		}
 	}
-	imageCount = resolveBillableImageCount(imageCount)
+	imageCount = resolveBillableImageCount(imageCount, parsed.N, imageCountBillingEnabled(getAPIKeyFromContext(c)))
 	return &OpenAIForwardResult{
 		RequestID:                     resp.Header.Get("x-request-id"),
 		UpstreamHeaders:               resp.Header,
@@ -2005,6 +2006,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 		ResponseHeaders:               resp.Header.Clone(),
 		Duration:                      time.Since(startTime),
 		FirstTokenMs:                  firstTokenMs,
+		ImageEndpoint:                 true,
 		ImageCount:                    imageCount,
 		ImageSize:                     parsed.SizeTier,
 		ImageInputSize:                parsed.Size,
