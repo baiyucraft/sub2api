@@ -36,6 +36,7 @@
 | 成本与归因 | 倍率/Priority 独立、原始倍率不公开、余额与价格快照、usage/batch-image 归因不随后续解绑变化 |
 | Channel Monitor V2 | managed Key 生命周期、倍率趋势、分组权限、隐私默认值、错误分类和缓存/rollup |
 | 渠道监控 V1 SSE 探针 | OpenAI Responses 等流式探针允许超过旧 64 KiB 的完整事件；单次有界读取 1 MiB，超限报明确容量错误而非 JSON EOF；损坏 JSON 与未完成流仍分别报错，TTFT、challenge、重试和非流式 64 KiB 上限不回归 |
+| 渠道监控 SSE 兼容与超时落库 | `channel_monitor_sse_test.go`、`channel_monitor_persistence_test.go`、`channel_monitor_retry_test.go`：标准多行/连续对象/独立DONE、字符串DONE与相同delta、帧原子提交、终止后坏尾部/协议错误/新文本拒绝、TTFT保留与1MiB边界；子deadline过期父任务活仍写失败历史，父预取消/写库中取消/历史后取消、history失败不MarkChecked、MarkChecked失败保留历史、manual取消和共用5秒预算；全部使用离线fixture与尊重ctx的repository桩 |
 | 质量与累计用量 | 质量仅展示不参与调度；coverage/backfill 完整后才允许 raw cleanup；日聚合时区正确；单条使用记录缓存率读/(输入+创建+读)，排除输出及重复 5m/1h 分项，两位小数、0.00%/100.00%/零分母 —，异常历史计数归零，列表和 Token 明细只显示结果，图片计费不显示 |
 | 图片成本路由与展示 | Key 快照 supported/status/stale、共享/独立倍率、1K/2K/4K 成本、免费成本 0、partial/stale/unknown 排序、prefer/strict、无价格回退、普通文本隔离、账号 hydration、API Key auth cache、scheduler cache、账号页与分组配置 UI；成本摘要必须结构化展示能力、倍率来源和分辨率成本；不得绕过健康、共享并发、TTFT Guard 或 Priority 约束 |
 | Codex 图片权限与固定账号重试 | `openai-image-permission-routing`：自动跟随与手动覆盖、passive/native/explicit/history 分离、原始 body 不可变、图片能力独立成本路由、known denied 保留直到成功 allow、固定 403/SSE 语义状态、图片 scope 30 分钟冷却且健康/文本隔离、同号重试不逃逸、候选/预算耗尽 503 `image_generation_unavailable`、输出后不重放与取消边界；详见下方专项 |
