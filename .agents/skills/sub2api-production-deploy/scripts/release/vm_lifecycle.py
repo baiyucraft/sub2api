@@ -7,6 +7,7 @@ import json
 import os
 import re
 import secrets
+import stat
 import subprocess
 import time
 from typing import Callable
@@ -33,6 +34,7 @@ class VMSettings:
     vmx_path: Path
     startup_timeout_seconds: int = 180
     shutdown_timeout_seconds: int = 180
+    shared_dir: Path | None = None
 
     @property
     def identity(self) -> str:
@@ -51,7 +53,7 @@ def load_settings() -> VMSettings | None:
             return None
         if not isinstance(config, dict) or type(config.get("enabled")) is not bool:
             raise ValueError
-        if set(config) - {"enabled", "vmrun_path", "vmx_path", "startup_timeout_seconds", "shutdown_timeout_seconds"}:
+        if set(config) - {"enabled", "vmrun_path", "vmx_path", "startup_timeout_seconds", "shutdown_timeout_seconds", "shared_dir"}:
             raise ValueError
         if not config["enabled"]:
             return None
@@ -72,14 +74,59 @@ def load_settings() -> VMSettings | None:
             if type(value) is not int or not 30 <= value <= 600:
                 raise ValueError
             timeouts.append(value)
-        return VMSettings(*paths, *timeouts)
+        shared = None
+        if "shared_dir" in config:
+            value = config["shared_dir"]
+            if not isinstance(value, str) or not value or any(ord(c) < 32 for c in value):
+                raise ValueError
+            shared = Path(value)
+        settings = VMSettings(*paths, *timeouts, shared_dir=shared)
+        if shared is not None:
+            _validate_shared_dir(settings, shared)
+        return settings
     except (OSError, ValueError, yaml.YAMLError) as error:
         raise VMLifecycleError("vm_lifecycle_config_invalid") from None
 
 
 def _shared_dir(settings: VMSettings) -> Path:
+    if settings.shared_dir is not None:
+        _validate_shared_dir(settings, settings.shared_dir)
+        return settings.shared_dir
     root = Path(os.environ.get("LOCALAPPDATA") or (Path.home() / ".local" / "state"))
     return root / "sub2api-release" / "vm-lifecycle" / settings.identity
+
+
+def _validate_shared_dir(settings: VMSettings, shared: Path) -> None:
+    """A configured directory must refer to the existing VM ownership domain."""
+    try:
+        if (not shared.is_absolute() or shared != shared.resolve(strict=True)
+                or shared != settings.shared_dir or shared.name != settings.identity):
+            raise ValueError
+        for parent in (shared, *shared.parents):
+            info = parent.lstat()
+            if (not stat.S_ISDIR(info.st_mode) or parent.is_symlink()
+                    or getattr(info, "st_file_attributes", 0) & 0x400):
+                raise ValueError
+        for name in ("owner.json", "lease.lock"):
+            info = (shared / name).lstat()
+            if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
+                    or getattr(info, "st_file_attributes", 0) & 0x400):
+                raise ValueError
+        if _read_state(shared / "owner.json").get("vm_identity") != settings.identity:
+            raise ValueError
+    except (OSError, ValueError, RuntimeError):
+        raise VMLifecycleError("vm_lifecycle_shared_dir_invalid") from None
+
+
+@contextmanager
+def shared_lock(settings: VMSettings, shared: Path):
+    require_existing = getattr(settings, "shared_dir", None) is not None
+    if require_existing:
+        _validate_shared_dir(settings, shared)
+    with RunLock(shared / "lease.lock", require_existing=require_existing):
+        if require_existing:
+            _validate_shared_dir(settings, shared)
+        yield
 
 
 def _state_snapshot(path: Path, *, finalization: bool = False) -> tuple[dict, bytes]:
@@ -134,7 +181,7 @@ def vm_guard():
     shared = _shared_dir(settings)
     if shared.is_symlink():
         raise VMLifecycleError("vm_lifecycle_state_unsafe")
-    with RunLock(shared / "lease.lock"):
+    with shared_lock(settings, shared):
         _assert_free(shared)
         yield
 
@@ -175,7 +222,7 @@ class VMLease:
         self.shared = _shared_dir(self.settings)
         if self.shared.is_symlink():
             raise VMLifecycleError("vm_lifecycle_state_unsafe")
-        self.lock = RunLock(self.shared / "lease.lock")
+        self.lock = shared_lock(self.settings, self.shared)
         self.lock.__enter__()
         try:
             _assert_free(self.shared)
@@ -560,7 +607,7 @@ class RetainedVMFinalization(VMLease):
         self.shared = _shared_dir(self.settings)
         if self.shared.is_symlink():
             raise VMLifecycleError("vm_lifecycle_state_unsafe")
-        self.lock = RunLock(self.shared / "lease.lock")
+        self.lock = shared_lock(self.settings, self.shared)
         self.lock.__enter__()
         try:
             self._assert_original_worker_dead()

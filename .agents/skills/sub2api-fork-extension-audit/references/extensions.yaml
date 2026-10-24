@@ -2036,7 +2036,7 @@
     {
       "id": "release-operations-isolation",
       "title": "发布 skill 隔离、VM 电源所有权、日志与清理",
-      "description": "fork 专用发布资产隔离在 production-deploy skill，使用三层门禁、原子恢复 helper、幂等 checkpoint、独立恢复验真、可选 VM 自动启停、跨 checkout 身份锁和持久所有权；生产成功与 VM cleanup 分别验收，保留 8211 单实例展示合同。",
+      "description": "fork 专用发布资产隔离在 production-deploy skill，固定脚本读取本地四字段部署参数，沿用三层门禁、原子恢复 helper、幂等 checkpoint、独立恢复验真、可选 VM 自动启停、跨 checkout 身份锁和持久所有权；生产成功与 VM cleanup 分别验收，保留 8211 单实例展示合同。",
       "ownership": "fork-operations",
       "risk_level": "critical",
       "paths": [
@@ -2077,6 +2077,7 @@
       ],
       "migration_files": [],
       "required_tests": [
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_deploy_config.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_asset_shell_guards.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_required_shell_guards.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_observation_shell_failures.py",
@@ -2165,6 +2166,8 @@
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/recovery-compose-integration.sh"
       ],
       "invariants": [
+        "本地.release/deploy.local.json只含schema=1、完整40位小写commit、已登记profile及mode；显式完整CLI参数优先，重复键/未知字段/非法值在SSH前拒绝。配置仅补齐原入口参数，不改变Gate、备份、迁移、恢复和验真；观察/验真及内部worker不读下一次发布默认配置，脚本变化仍按原合同审阅和验证",
+        "机器连接与路径保存在.ssh.local；vm_lifecycle.shared_dir只复用已有规范物理目录中的原lease.lock和匹配VM身份的owner.json，缺失/冲突/在途owner继续阻断，禁止因checkout不同新建目录或替换原锁形成并行发布域",
         "Gate生产plan-before与隔离probe的plan-actual分离：fast生产必须零pending且VM先执行独立完整计划fixture bootstrap再运行verified语义hooks，不虚称生产迁移前置验证；specialized/full仍核对两源pending一致；hooks/apply只用probe计划，对外Gate只用生产snapshot计划",
         "隔离probe恢复由vm-probe-config.py基于VM有效DATABASE_*凭据生成私有临时连接闭包；probe配置只改副本，生产配置与恢复包不动。创建隔离库前使用当前不可变PostgreSQL image、隔离network和postgres.env完成current_user|current_database认证预检，数据库固定为sub2api_dev且角色为规范化应用角色；不再要求生产config.yaml的database.user与VM owner相同，仍拒绝别名、merge、重复键和歧义写法。fast与specialized/full均以pg_restore --no-owner --role该应用角色建立对象；不以GRANT替代DDL所有权，不修改源库或生产权限；计划/执行失败先保留退出码与输出，再阻断后续签名和发布。临时连接目录及env文件为私有0700/0600，成功或失败均清除，仅保留私有有界失败诊断。",
         "probe连接与失败保留另追加精确审阅_VM_PROBE_CONFIG_PRESERVE_REVIEW_PATHS，生产BASE c88f06e57a829438595263d524e02219aa2f5a2e到实现TARGET 91a13c6c64558f5d78ae8b75979af0e6a24b60b2，仅cli.py/vm-validate.sh/vm-probe-config.py/vm_restore_probe_preserve.py四条同路径blob/mode，理由reviewed_vm_probe_config_preserve_changed；两新helper旧路径必须不存在，旧tranche与分类算法不改。独立literal测试冻结旧AST及实现仅两项敏感标记，拒绝每路径blob/mode/delete/rename/BASE、额外敏感/缺review source和新helper原位置file/dir/symlink/gitlink；同名异目录不能借用登记，既有敏感路径迁移仍阻断；容器create后记录不可变ID和owned再start，失败按ID清理。restore-probe preserve只收口冻结事故并保留原本运行VM，不重跑Gate、不清远端资源、不关机；生产恢复算法/备份格式/信任根不改，仍specialized实际隔离恢复与新签名Gate",
