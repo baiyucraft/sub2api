@@ -1991,7 +1991,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 			)
 		}
 	}
-	imageCount = resolveBillableImageCount(imageCount, parsed.N)
+	imageCount = resolveBillableImageCount(imageCount)
 	return &OpenAIForwardResult{
 		RequestID:                     resp.Header.Get("x-request-id"),
 		UpstreamHeaders:               resp.Header,
