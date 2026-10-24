@@ -229,6 +229,37 @@ _VM_PROBE_CONFIG_PRESERVE_REVIEW_PATHS = frozenset({
         "cli.py", "vm-validate.sh", "vm-probe-config.py", "vm_restore_probe_preserve.py",
     )
 })
+# Independently reviewed production-to-275 wiring. These exact objects grant
+# no permission to change recovery algorithms, trust, or future profile data.
+_PROFILE275_COMPATIBILITY_REVIEW_PATHS = frozenset({
+    _SCRIPTS_PREFIX + suffix for suffix in (
+        "maintenance/181/mask-backup-units.sh", "maintenance/181/restore-backup-units.sh",
+        "maintenance/release/activity-reward-cost-postflight.sh", "maintenance/release/context.sh",
+        "maintenance/release/full-recovery-capture.sh", "maintenance/release/prepare.sh",
+        "maintenance/release/promote-backup.sh", "maintenance/release/switch.sh",
+        "release/baseline_candidate_load.py", "release/bootstrap_backup_dr_assets.sh",
+        "release/bootstrap_vm_signer.sh", "release/gate.py", "release/manifest.py",
+        "release/postrelease_baseline.py", "release/production-recovery-retention-clean.sh",
+        "release/production-space-clean.sh", "release/production_cleanup.py",
+        "release/production_recovery_retention.py", "release/profiles.py",
+        "release/promote-dr-baseline.sh", "release/recovery_drill.py", "release/sign-dr-evidence.sh",
+        "release/sign-gate.sh", "release/stage-dr-baseline-candidate.sh",
+        "release/vm-only-validate.sh", "release/vm-validate.sh",
+    )
+} | {
+    _SCRIPTS_PREFIX + f"maintenance/release/migration-{number}-assert.sh"
+    for number in (195, *range(232, 246), 254, 285, 297, 298, 299, 301)
+})
+_PROFILE275_BUILD_REVIEW_PATHS = frozenset({
+    _SCRIPTS_PREFIX + "release/" + name for name in ("vm-build-common.sh", "vm_build.py")
+})
+_DEPLOY_CONFIG_REVIEW_PATHS = frozenset({
+    _SCRIPTS_PREFIX + suffix for suffix in (
+        "release.py", "release/deploy_config.py", "release/state.py", "release/supervisor.py",
+        "release/vm_failed_preserve.py", "release/vm_fast_fixture_preserve.py",
+        "release/vm_lifecycle.py", "release/vm_restore_probe_preserve.py",
+    )
+})
 _REVIEWED_SCOPED_TRANCHES = (
     (
         "aeb410bccc524164bdafbd3db865d4f5f588aced",
@@ -391,6 +422,24 @@ _REVIEWED_SCOPED_TRANCHES = (
         "91a13c6c64558f5d78ae8b75979af0e6a24b60b2",
         "reviewed_vm_probe_config_preserve_changed",
         _VM_PROBE_CONFIG_PRESERVE_REVIEW_PATHS,
+    ),
+    (
+        "7c526f7a9666ff7c10ea48c4611bc070eeb0e00f",
+        "76db7bbb1d1f421f7ea6a47408c7525f95fe557b",
+        "reviewed_profile_compatibility_changed",
+        _PROFILE275_COMPATIBILITY_REVIEW_PATHS,
+    ),
+    (
+        "7c526f7a9666ff7c10ea48c4611bc070eeb0e00f",
+        "76db7bbb1d1f421f7ea6a47408c7525f95fe557b",
+        "reviewed_buildkit_dependency_proof_changed",
+        _PROFILE275_BUILD_REVIEW_PATHS,
+    ),
+    (
+        "7c526f7a9666ff7c10ea48c4611bc070eeb0e00f",
+        "76db7bbb1d1f421f7ea6a47408c7525f95fe557b",
+        "reviewed_deploy_config_changed",
+        _DEPLOY_CONFIG_REVIEW_PATHS,
     ),
 )
 _RELEASE_STATE_MACHINE_FILES = frozenset(
