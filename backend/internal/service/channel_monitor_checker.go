@@ -772,30 +772,17 @@ func postRawMonitorStream(ctx context.Context, fullURL string, payload []byte, h
 			return nil
 		}
 		data := strings.Join(dataLines, "\n")
-		dataLines = dataLines[:0]
 		result.RawBody = append(result.RawBody, []byte("data: "+data+"\n\n")...)
-		if data == "[DONE]" {
-			result.Completed = true
-			return nil
-		}
-		var done bool
-		var eventErr error
-		switch {
-		case (provider == MonitorProviderOpenAI || provider == MonitorProviderZhipu) && apiMode == MonitorAPIModeResponses:
-			done, eventErr = parseMonitorResponsesEvent([]byte(data), &output, &result, requestStartedAt)
-		case provider == MonitorProviderAnthropic:
-			done, eventErr = parseMonitorAnthropicEvent([]byte(data), &output, &result, requestStartedAt)
-		case provider == MonitorProviderGemini:
-			done, eventErr = parseMonitorGeminiEvent([]byte(data), &output, &result, requestStartedAt)
-		default:
-			done, eventErr = parseMonitorChatEvent([]byte(data), &output, &result, requestStartedAt)
-		}
+		frame, eventErr := parseMonitorSSEFrame(dataLines, provider, apiMode, requestStartedAt, result)
+		dataLines = dataLines[:0]
 		if eventErr != nil {
 			return eventErr
 		}
-		if done {
-			result.Completed = true
-		}
+		output.WriteString(frame.Text)
+		result.Text = output.String()
+		result.TTFTMs = frame.TTFTMs
+		result.Completed = frame.Completed
+		result.FinishReason = frame.FinishReason
 		return nil
 	}
 	// Read one byte beyond the limit so a truncated SSE event is distinguishable
@@ -850,6 +837,7 @@ func setMonitorTTFT(result *monitorStreamResult, started time.Time) {
 
 func parseMonitorChatEvent(data []byte, output *strings.Builder, result *monitorStreamResult, started time.Time) (bool, error) {
 	var event struct {
+		Error   json.RawMessage `json:"error"`
 		Choices []struct {
 			Delta struct {
 				Content string `json:"content"`
@@ -862,6 +850,11 @@ func parseMonitorChatEvent(data []byte, output *strings.Builder, result *monitor
 	}
 	if err := json.Unmarshal(data, &event); err != nil {
 		return false, fmt.Errorf("decode monitor chat event: %w", err)
+	}
+	if monitorSSEHasError(event.Error) {
+		// Provider error bodies can contain credentials or request text. Keep the
+		// monitor's persisted diagnostic fixed rather than echoing that payload.
+		return false, errors.New("monitor chat stream reported error")
 	}
 	completed := false
 	for _, choice := range event.Choices {
@@ -883,14 +876,18 @@ func parseMonitorChatEvent(data []byte, output *strings.Builder, result *monitor
 
 func parseMonitorResponsesEvent(data []byte, output *strings.Builder, result *monitorStreamResult, started time.Time) (bool, error) {
 	var event struct {
-		Type     string `json:"type"`
-		Delta    string `json:"delta"`
+		Type     string          `json:"type"`
+		Delta    string          `json:"delta"`
+		Error    json.RawMessage `json:"error"`
 		Response struct {
 			Status string `json:"status"`
 		} `json:"response"`
 	}
 	if err := json.Unmarshal(data, &event); err != nil {
 		return false, fmt.Errorf("decode monitor responses event: %w", err)
+	}
+	if event.Type == "error" || monitorSSEHasError(event.Error) {
+		return false, errors.New("monitor responses stream reported error")
 	}
 	if event.Type == "response.output_text.delta" {
 		if strings.TrimSpace(event.Delta) != "" {
@@ -910,7 +907,8 @@ func parseMonitorResponsesEvent(data []byte, output *strings.Builder, result *mo
 
 func parseMonitorAnthropicEvent(data []byte, output *strings.Builder, result *monitorStreamResult, started time.Time) (bool, error) {
 	var event struct {
-		Type  string `json:"type"`
+		Type  string          `json:"type"`
+		Error json.RawMessage `json:"error"`
 		Delta struct {
 			Type string `json:"type"`
 			Text string `json:"text"`
@@ -918,6 +916,9 @@ func parseMonitorAnthropicEvent(data []byte, output *strings.Builder, result *mo
 	}
 	if err := json.Unmarshal(data, &event); err != nil {
 		return false, fmt.Errorf("decode monitor Anthropic event: %w", err)
+	}
+	if event.Type == "error" || monitorSSEHasError(event.Error) {
+		return false, errors.New("monitor Anthropic stream reported error")
 	}
 	if event.Type == "content_block_delta" && event.Delta.Type == "text_delta" && strings.TrimSpace(event.Delta.Text) != "" {
 		setMonitorTTFT(result, started)
@@ -927,14 +928,12 @@ func parseMonitorAnthropicEvent(data []byte, output *strings.Builder, result *mo
 		result.FinishReason = "stop"
 		return true, nil
 	}
-	if event.Type == "error" {
-		return false, errors.New("monitor Anthropic stream reported error")
-	}
 	return false, nil
 }
 
 func parseMonitorGeminiEvent(data []byte, output *strings.Builder, result *monitorStreamResult, started time.Time) (bool, error) {
 	var event struct {
+		Error      json.RawMessage `json:"error"`
 		Candidates []struct {
 			Content struct {
 				Parts []struct {
@@ -946,6 +945,9 @@ func parseMonitorGeminiEvent(data []byte, output *strings.Builder, result *monit
 	}
 	if err := json.Unmarshal(data, &event); err != nil {
 		return false, fmt.Errorf("decode monitor Gemini event: %w", err)
+	}
+	if monitorSSEHasError(event.Error) {
+		return false, errors.New("monitor Gemini stream reported error")
 	}
 	completed := false
 	for _, candidate := range event.Candidates {

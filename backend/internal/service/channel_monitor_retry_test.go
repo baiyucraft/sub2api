@@ -26,21 +26,59 @@ type retryProbeHandler struct {
 
 type unknownMonitorRepo struct {
 	ChannelMonitorRepository
-	monitor *ChannelMonitor
-	rows    []*ChannelMonitorHistoryRow
+	monitor      *ChannelMonitor
+	rows         []*ChannelMonitorHistoryRow
+	insertCalls  int
+	markCalls    int
+	insertCtx    context.Context
+	markCtx      context.Context
+	beforeInsert func(context.Context) error
+	afterInsert  func()
+	beforeMark   func(context.Context) error
+	insertErr    error
+	markErr      error
 }
 
 func (r *unknownMonitorRepo) GetByID(context.Context, int64) (*ChannelMonitor, error) {
 	return r.monitor, nil
 }
 
-func (r *unknownMonitorRepo) InsertHistoryBatch(_ context.Context, rows []*ChannelMonitorHistoryRow) error {
+func (r *unknownMonitorRepo) InsertHistoryBatch(ctx context.Context, rows []*ChannelMonitorHistoryRow) error {
+	r.insertCalls++
+	r.insertCtx = ctx
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if r.beforeInsert != nil {
+		if err := r.beforeInsert(ctx); err != nil {
+			return err
+		}
+	}
+	if r.insertErr != nil {
+		return r.insertErr
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	r.rows = append(r.rows, rows...)
+	if r.afterInsert != nil {
+		r.afterInsert()
+	}
 	return nil
 }
 
-func (r *unknownMonitorRepo) MarkChecked(context.Context, int64, time.Time) error {
-	return nil
+func (r *unknownMonitorRepo) MarkChecked(ctx context.Context, _ int64, _ time.Time) error {
+	r.markCalls++
+	r.markCtx = ctx
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if r.beforeMark != nil {
+		if err := r.beforeMark(ctx); err != nil {
+			return err
+		}
+	}
+	return r.markErr
 }
 
 type failingMonitorDecryptor struct{}
@@ -278,6 +316,8 @@ func TestRunCheck_CancelledScheduledProbeSkipsPersistence(t *testing.T) {
 	require.Len(t, results, 1)
 	require.Equal(t, MonitorStatusUnknown, results[0].Status)
 	require.Empty(t, repo.rows, "cancelled scheduled probes must not create history")
+	require.Zero(t, repo.insertCalls)
+	require.Zero(t, repo.markCalls)
 }
 
 func TestRunCheck_ManualProbeStillPersistsAfterNormalRequestFailure(t *testing.T) {
@@ -301,6 +341,8 @@ func TestRunCheck_ManualProbeStillPersistsAfterNormalRequestFailure(t *testing.T
 	require.Len(t, results, 1)
 	require.Equal(t, MonitorStatusUnknown, results[0].Status)
 	require.Len(t, repo.rows, 1, "manual probes retain existing persistence behavior")
+	require.Equal(t, 1, repo.insertCalls)
+	require.Equal(t, 1, repo.markCalls)
 }
 
 func TestPersistCheckResults_RequestTimeoutStillPersistsWhenTaskIsNotCancelled(t *testing.T) {
@@ -314,4 +356,6 @@ func TestPersistCheckResults_RequestTimeoutStillPersistsWhenTaskIsNotCancelled(t
 		{Model: "gpt-test", Status: MonitorStatusError, Message: "request timeout"},
 	})
 	require.Len(t, repo.rows, 1, "request timeout must remain observable when scheduler task is alive")
+	require.Equal(t, 1, repo.insertCalls)
+	require.Equal(t, 1, repo.markCalls)
 }

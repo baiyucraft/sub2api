@@ -19,10 +19,10 @@ func withChannelMonitorRunnerTaskContext(ctx, taskCtx context.Context) context.C
 	return context.WithValue(ctx, channelMonitorRunnerTaskContextKey{}, taskCtx)
 }
 
-func channelMonitorRunnerTaskCancelled(ctx context.Context) bool {
+func channelMonitorRunnerTaskContext(ctx context.Context) context.Context {
 	if ctx == nil {
-		return false
+		return nil
 	}
-	taskCtx, ok := ctx.Value(channelMonitorRunnerTaskContextKey{}).(context.Context)
-	return ok && taskCtx != nil && taskCtx.Err() != nil
+	taskCtx, _ := ctx.Value(channelMonitorRunnerTaskContextKey{}).(context.Context)
+	return taskCtx
 }
