@@ -298,7 +298,7 @@ def reconcile(args: argparse.Namespace) -> dict:
             or shared.is_symlink() or not shared.is_dir()
             or any(parent.is_symlink() for parent in shared.parents)):
         raise RuntimeError("vm_restore_probe_preserve_unsafe_owner")
-    with RunLock(supervisor.RUN_ROOT / ".release.lock"), RunLock(shared / "lease.lock"):
+    with RunLock(supervisor.RUN_ROOT / ".release.lock"), vm_lifecycle.shared_lock(settings, shared):
         originals = _hash_originals(run_dir)
         manifest = supervisor._read_json(run_dir / "manifest.json", required=True) or {}
         runner = supervisor._read_json(run_dir / "runner.json", required=True) or {}
