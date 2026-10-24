@@ -552,7 +552,7 @@ def reconcile_vm_preserve(args: argparse.Namespace, *, audit_fixture=None, audit
     shared = lifecycle._shared_dir(settings)
     if shared.is_symlink() or not shared.is_dir():
         raise RuntimeError("vm_preserve_unsafe_owner")
-    with RunLock(RUN_ROOT / ".release.lock"), RunLock(shared / "lease.lock"):
+    with RunLock(RUN_ROOT / ".release.lock"), lifecycle.shared_lock(settings, shared):
         manifest, manifest_raw = _json_snapshot(run_dir / "manifest.json", required=True)
         runner, runner_raw = _json_snapshot(run_dir / "runner.json", required=True)
         state, state_raw = _json_snapshot(run_dir / "state.json", required=True)

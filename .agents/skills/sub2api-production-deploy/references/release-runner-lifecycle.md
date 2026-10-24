@@ -53,6 +53,8 @@ vm_lifecycle:
 
 未配置 `vm_lifecycle` 时保持既有人工电源管理行为。配置存在时必须验证结构、boolean、路径和正整数 timeout；启用时可执行文件与目标 VMX 必须可解析且存在。配置错误、`vmrun list` 失败或电源身份不明均 fail-closed，不能当作未配置、猜测 VM 已关机或绕过电源检查直接连接。
 
+跨 checkout 复用已有 VM 时，在本机 `.ssh.local` 的同一 `vm_lifecycle` 下设置 `shared_dir`，值为原共享目录的规范绝对物理路径；末级目录必须是该 VM 的 identity，且已有原 `lease.lock` 和身份匹配的 `owner.json`。配置目录及父链拒绝链接或 reparse；缺失、身份冲突或在途 owner 继续阻断，禁止新建目录、复制 owner 或重建锁来绕过。机器路径只保存在 `.ssh.local`，不写入应用部署参数。
+
 应用与独立插件后台发布 worker 共用以下电源合同；各自仍使用原有 Gate、生产写授权和验真入口：
 
 ```text
@@ -117,6 +119,32 @@ Windows 下 runner、Python、OpenSSL、Git Bash 和 Go 子进程统一走 `scri
                                ├ claim_only_recover -> 用户确认后 reconcile --mode recover
                                └ 其他 -> blocked，人工完成证据审计
 ```
+
+## 本地部署参数
+
+日常发布复用同一套已验证脚本；待发布代码提交后，在仓库根生成本机参数。下例解析当前提交的完整 SHA，并以无 BOM UTF-8 保存；此文件已被 Git 忽略：
+
+```powershell
+$commit = (git rev-parse --verify 'HEAD^{commit}').Trim()
+$config = @{ schema = 1; commit = $commit; profile = '275'; mode = 'downtime' }
+New-Item -ItemType Directory -Force '.release' | Out-Null
+[IO.File]::WriteAllText((Join-Path $PWD '.release/deploy.local.json'), ($config | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
+```
+
+配置只接受这四个字段：`schema` 为整数 `1`，`commit` 为完整 40 位小写 SHA，`profile` 为已登记字符串，`mode` 为 `blue-green` 或 `downtime`。当前 `275` 仍要求停机；配置不能改写 profile 的版本、父链、迁移或发布限制，也不能包含凭据、连接、命令或机器路径。重复键、未知字段和非法值在连接 SSH 前拒绝。
+
+使用已准备好的发布 Python 解释器运行：
+
+```text
+python -I -S -B .agents/skills/sub2api-production-deploy/scripts/release.py doctor
+python -I -S -B .agents/skills/sub2api-production-deploy/scripts/release.py deploy-follow --lang zh-CN
+```
+
+默认配置取入口所在仓库的 `.release/deploy.local.json`；也可显式传入 `--config <文件路径>`。显式完整的 `--commit/--profile/--mode` 优先于配置，文件不存在时仍可沿用完整 CLI 参数；显式指定的文件缺失或损坏则停止。配置必须整体有效，不能靠 CLI 覆盖掩盖坏字段；重复 CLI 参数及参数缩写也拒绝。
+
+`doctor`、`recovery-review-scope`、`vm-only-validate` 读取 commit/profile；`vm-validate`、`deploy`、`deploy-start`、`deploy-follow` 再读取 mode，仍由原命令完成其各自门禁。配置不会安装依赖或修改脚本。Gate、candidate、生产快照、备份、迁移、恢复和生产验真继续按本 release 的完整身份生成与核验，脚本发生变化时仍执行原审阅和验证。
+
+发布启动一次后使用 `follow <release_id>` 重连，最后执行 `verify-result <release_id>` 和原后置 doctor。`status/follow/wait/verify-result/verify-recovery-result` 与内部 worker 不读取默认配置；这些入口不接受 `--config`，因此修改本地下一次发布参数不改变既有 release 的身份，也不授权重跑失败 release。
 
 ## 标准命令
 

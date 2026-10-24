@@ -191,3 +191,4 @@ issues/
 # AstrBot 插件的纯单元测试属于本仓库交付物
 !astrbot/tests/
 !astrbot/tests/test_plugin.py
+/.release/deploy.local.json

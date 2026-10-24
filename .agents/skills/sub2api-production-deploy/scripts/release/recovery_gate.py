@@ -444,7 +444,7 @@ _RECOVERY_RUNTIME_FILES = frozenset(
 # change its ownership, or change the evidence retained for verification.
 _RECOVERY_CONTROL_FILES = frozenset({
     _SCRIPTS_PREFIX + suffix for suffix in (
-        "release.py", "release/__init__.py", "release/ssh.py", "release/process.py",
+        "release.py", "release/deploy_config.py", "release/__init__.py", "release/ssh.py", "release/process.py",
         "release/vm_only.py", "release/vm-only-switch.sh", "release/vm_build.py",
         "release/plugin_api.py", "release/plugin_cli.py", "release/plugin_credentials.py",
         "release/plugin_package.py", "release/plugin_state.py", "release/plugin_supervisor.py",

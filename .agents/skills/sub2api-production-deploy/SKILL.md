@@ -7,6 +7,12 @@ description: 面向 Sub2API fork 的构建、开发门禁、应用与独立插�
 
 使用本技能时用中文沟通。它描述本项目当前的 RackNerd、DMIT、异地备份机和本地 `sub2api-dev` 链路。主文件只负责决策和路由，详细步骤必须读取对应 reference。
 
+## 日常部署参数
+
+日常应用发布复用仓库中已验证的固定脚本，将 `schema/commit/profile/mode` 写入本地 `.release/deploy.local.json`，通过 `release.py doctor` 和 `release.py deploy-follow` 消费；显式完整参数优先。当前 profile `275` 使用 `downtime`，版本、父链和迁移仍取已登记的 profile。配置只补齐参数，原 Gate、备份、迁移、恢复及 `verify-result` 门禁照常执行，脚本字节变化仍按现有规则审阅和验证。
+
+连接及机器路径保留在 `.ssh.local`；`vm_lifecycle.shared_dir` 指向已有的规范物理共享目录，复用其中原 `lease.lock` 和 `owner.json`，不得因 checkout 不同新建发布所有权域。配置生成、支持命令与观察重连见 [本地部署参数](references/release-runner-lifecycle.md#本地部署参数)。
+
 ## 不可违反的边界
 
 - 读取 `.ssh.local` 只能作为连接输入；禁止输出、提交或记录密码、私钥、token、`.env`、完整环境变量、展开后的 Compose 和原始连接资料。
