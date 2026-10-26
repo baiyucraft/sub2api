@@ -37,6 +37,8 @@
 
 已接入签名 Gate 的不兼容迁移不得手工拼接生产命令。使用仓库一键入口，并要求 Gate 未过期、未 claim/consume、VM validator 与发布资产 checksum 完全匹配；任一 SSH 回包不确定状态必须从远端 committed marker 重新核验，不能凭本地异常猜测是否执行。
 
+生产 `prepare.sh` 按签名 Gate 的恢复分类核对证据，与 Python 验真器一致：Gate v2 的 `fast` 要求 `vm_restore_verified=false` 和 `restore_points_verified=false`，`specialized/full` 要求两者为 true；integration 始终为 true，字段必须是 JSON 布尔。历史 Gate v1 以及没有恢复分类的旧 v2 保持严格恢复要求，未知协议或模式拒绝。普通应用发布由现有分类器选择 fast，不需要为通过 prepare 临时改工具或强制 full；生产备份、迁移与最终验真仍照常执行。
+
 首次修复 Nginx ingress 的发布不要先运行独立 strict `doctor`：pre-Gate doctor 允许返回
 `nginx_ingress_policy=needs_update`，由 `deploy-start`/`deploy-follow` 内部的宽松检查继续完成
 签名 Gate、停写、migration preflight 和正式 recovery point，随后才由 release runner 应用

@@ -50,10 +50,27 @@ _required_3=$(jq -er '.manifest.origin' "$gate")
 [[ ${_required_3} == https://github.com/baiyucraft/sub2api.git ]]
 _required_4=$(jq -er '.manifest.vm_identity' "$gate")
 [[ ${_required_4} == sub2api-dev ]]
-_required_5=$(jq -er '.evidence.integration_verified' "$gate")
-[[ ${_required_5} == true ]]
-_required_6=$(jq -er '.evidence.vm_restore_verified' "$gate")
-[[ ${_required_6} == true ]]
+# Match the signed Gate policy used by release/gate.py. Fast validates an
+# isolated development fixture; only specialized/full prove production restore.
+# Compare JSON booleans directly: jq -r would also accept the string "true".
+jq -e '
+  .evidence.integration_verified == true and
+  (if .manifest.schema == 1 and (has("gate_version") | not) then
+    .evidence.vm_restore_verified == true
+  elif .manifest.schema == 2 and .gate_version == 2 and
+       .profile_id == (.manifest.profile | tonumber) then
+    (if (.manifest | has("recovery_gate")) then
+      .manifest.recovery_gate.mode
+    else "specialized" end) as $mode |
+    if $mode == "fast" then
+      .evidence.vm_restore_verified == false and
+      .evidence.release_policy.restore_points_verified == false
+    elif $mode == "specialized" or $mode == "full" then
+      .evidence.vm_restore_verified == true and
+      .evidence.release_policy.restore_points_verified == true
+    else false end
+  else false end)
+' "$gate" >/dev/null
 _required_8=$(jq -er '.manifest.expires_at' "$gate")
 _required_7=$(date +%s)
 [[ ${_required_8} -ge ${_required_7} ]]
