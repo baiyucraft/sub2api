@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "catalog_version": "2026-10-23",
+  "catalog_version": "2026-10-26",
   "version_contract": {
     "upstream_path": "backend/cmd/server/VERSION",
     "fork_suffix": "-baiyu",
@@ -744,7 +744,7 @@
     {
       "id": "upstream-cache-affinity-guard",
       "title": "上游有效续聊缓存保护",
-      "description": "默认关闭的上游账号与当前Key级有效续聊缓存保护；原始Token加权窗口共享，按三个质量阈值投影phase/冷却/恢复cohort。组inherit/enabled/disabled与cache_first/ttft_first统一配置，自定义enabled独立protect，不改变计费或错误重试策略。",
+      "description": "默认关闭的上游账号与当前Key级有效续聊缓存保护；原始Token加权窗口共享，按质量策略投影phase/冷却/恢复cohort，原trial恢复之外增加可靠已有会话普通流量的独立连续验证。组inherit/enabled/disabled与cache_first/ttft_first统一配置，自定义enabled独立protect，不改变计费或错误重试策略。",
       "ownership": "fork",
       "risk_level": "critical",
       "paths": [
@@ -895,7 +895,11 @@
         "backend/internal/upstreamcacheguard/read_view.go",
         "backend/internal/upstreamcacheguard/read_view_benchmark_test.go",
         "backend/internal/upstreamcacheguard/read_batch.go",
-        "backend/internal/handler/admin/account_cache_guard_diagnostics.go"
+        "backend/internal/handler/admin/account_cache_guard_diagnostics.go",
+        "backend/internal/upstreamcacheguard/ordinary_recovery.go",
+        "backend/internal/service/upstream_cache_guard_ordinary_generation.go",
+        "backend/internal/repository/upstream_cache_guard_ordinary_recovery.go",
+        "frontend/src/utils/upstreamTTFTSummary.ts"
       ],
       "symbols": [
         "SettingKeyUpstreamCacheGuard",
@@ -927,7 +931,13 @@
         "CachedCandidatesReadView",
         "SessionReadViewWithDatabaseContext",
         "CandidatesReadViewWithDatabaseContext",
-        "GetUpstreamCacheGuardSamplingDiagnostics"
+        "GetUpstreamCacheGuardSamplingDiagnostics",
+        "OrdinaryRecoveryState",
+        "OrdinaryRecoveryStatusAt",
+        "OrdinaryRecoveryFactEligible",
+        "AccountRecoveryFacts",
+        "ApplyRecoveryConfiguration",
+        "summarizeTTFTGroups"
       ],
       "api_routes": [
         "/admin/upstream-management/settings",
@@ -1025,7 +1035,14 @@
         "backend/internal/service/upstream_cache_guard_capture_test.go",
         "backend/internal/service/upstream_cache_guard_snapshot_fallback_test.go",
         "backend/internal/service/upstream_cache_usage_diagnostics_test.go",
-        "backend/internal/service/upstream_cache_guard_ttft_only_test.go"
+        "backend/internal/service/upstream_cache_guard_ttft_only_test.go",
+        "backend/internal/upstreamcacheguard/ordinary_recovery_test.go",
+        "backend/internal/service/upstream_cache_guard_ordinary_test.go",
+        "backend/internal/repository/upstream_cache_guard_ordinary_recovery_test.go",
+        "backend/internal/repository/upstream_cache_guard_ordinary_pg_test.go",
+        "backend/internal/repository/upstream_cache_guard_ordinary_bench_pg_test.go",
+        "frontend/src/utils/__tests__/upstreamTTFTSummary.spec.ts",
+        "frontend/src/components/account/__tests__/UpstreamProtectionStatus.spec.ts"
       ],
       "invariants": [
         "官方Anthropic兼容流有界drain与Gemini断连结算保留原始usage缓存证据；缺失终止或读取失败不构成完整缓存证据，客户端断连由最终生命周期独立拒绝warm样本；Gemini三入口均验证取消后保留用量但StreamIncomplete。",
@@ -1037,7 +1054,7 @@
         "不可迁移previous_response和固定同账号重试保持原语义；不更改错误状态码重试配置",
         "全低仍在硬合法池按cache择优，差不超过5个百分点优先TTFT正常再负载，cache或TTFT软限制不新增拒绝，不撤caller失败排除及其他硬条件",
         "冷却10分钟后分组总体10%自然新会话试用并固定账号，多个恢复账号轮转分配，不解释为每账号或每请求10%",
-        "账号恢复cohort统一收集各启用组的有效试用样本；未启用组普通样本只参与正常窗口，不替代恢复验证；同窗口N严格超过20、至少3会话、率达到80%且观察至少10分钟恢复",
+        "原trial恢复cohort统一收集各启用组的有效试用样本；保留原配额、分类与恢复门槛。新增独立普通恢复按账号/当前Key/策略记录，非trial的可靠已有会话样本可验证，原始窗口、自然新会话序号及cohort不被挪用；任一路径通过共用健康收尾。",
         "仅保存事实metadata、HMAC会话摘要和分布式版本状态，不保存原始请求正文、提示词或凭据，跨实例保证请求幂等与试用份额一致",
         "账号上游保护统一入口展示缓存原始窗口、共享模型TTFT与逐组策略投影，明确来源/阈值/priority/恢复进度；未知不当0%，shared observed不当normal，full/detail/lite与ETag一致",
         "原始账号/Key窗口跨组共享，phase/冷却/cohort/reset按质量签名投影；签名含保护阈值/恢复阈值/最小有效请求数及有效证据期限，默认15分钟兼容已发布v1身份，非默认用v2；同签名共享，不同规则独立；组会话/暖上下文/容量/自然新会话配额仍分开",
@@ -1064,7 +1081,12 @@
         "同逻辑请求的会话冷加载、trial规划、admission及CaptureOnly共用累计100ms活跃数据库阶段预算，并发阶段串行消费剩余预算，调用方更短deadline优先；阶段结束立即释放，阶段间普通计算不计预算。耗尽后沿原请求上下文回普通调度，不重置预算、不异步补录，不以扩大预算提高样本率。",
         "strict发送前快照不可用或陈旧状态将用于新trial/migration时返回scheduling_protection_snapshot_unavailable，ProtectionOrdinaryFallback只禁后续保护选号、不耗尽或重置采样预算；普通重选仍可在原剩余预算内CaptureOnly。不排除原账号、不计上游故障、不提前提交sticky，陈旧已有会话继续AdmitExisting。",
         "联合选择strict也用于TTFT；仅当前组有效cache Protect且ContainsGroup时缓存快照是发送硬前提。Observe或本组Disabled但其他策略活跃可CaptureOnly，不能因cache未知拒绝TTFT-only；全部cache Disabled不启动DB。TTFT票据账号/Key/模型/租约/策略代次验证不放宽。新增JSON缺省兼容旧历史不代表旧binary可安全处理CaptureOnly；未来发布须统一切换所有admission/completion writer与consumer、禁止新旧混写混消费，无新增SQL或profile，本地测试不是部署。",
-        "管理员只读GET /admin/accounts/:id/cache-guard-diagnostics返回no-store的当前Key进程窗口计数与关联分组内存视图，不冷加载会话或推进保护；process_id、counter_epoch、observed_from、evictions及complete_history=false明确重启/多实例/FIFO4096身份范围，不能与质量近1h直接相减。账号gap为聚合缺口而非全部pending，reason非空不等于30秒宽限内不可用；只返回白名单元数据，不返回会话/正文/凭据，无历史对账或生产修复完成承诺。"
+        "管理员只读GET /admin/accounts/:id/cache-guard-diagnostics返回no-store的当前Key进程窗口计数与关联分组内存视图，不冷加载会话或推进保护；process_id、counter_epoch、observed_from、evictions及complete_history=false明确重启/多实例/FIFO4096身份范围，不能与质量近1h直接相减。账号gap为聚合缺口而非全部pending，reason非空不等于30秒宽限内不可用；只返回白名单元数据，不返回会话/正文/凭据，无历史对账或生产修复完成承诺。",
+        "普通恢复仅接受新增处理的成功/known/warm且非trial/CaptureOnly/暂停事实；Request与Admission冻结独立domain的APIKey+显式会话HMAC及身份代次并校验一致，跨组同会话去重，旧字段缺失不回填。冷却及重置边界之后的普通N严格大于策略min、至少3会话、普通和共享Token加权rate均达到恢复阈值，首次真实核验后连续10分钟，并由严格推进完成水位的新合格普通完成触发恢复；重复/同timestamp/迟到不得开始或完成验证。",
+        "普通进度按相同策略跨组共享、不同策略独立；qualified_until逐批同timestamp过期计算首个真实失格边界，受原保护证据期限限制，不简单取最老样本，支持5分钟窗持续10分钟验证。间隙失格、迟到坏事实、回拨、采样失败和本账号Key严格超过5秒完成积压均重置；正常在途与短排队不算gap。管理GET/刷新仅投影、不推进或自动健康，5秒/30秒快照及原有效样本/缓存率/硬约束保持。",
+        "普通进度使用算法版本/规则指纹/持久策略代次/身份代次；配置与代次整套原子发布，完成读取配置的锁覆盖COMMIT，不能跨切换写旧健康。Key/启停/有效规则或身份密钥变化后重验，不改既有PolicySignature或trial cohort。完成在原账号锁内合并有界事实与gap的一次SQL读取，不扩窗口、无新增请求前SQL或轮询。",
+        "分组可选ordinary_recovery与旧trial recovery_*分离，返回门槛/样本/会话/率/开始及最早完成时间/原因，rate达标仍受保护显示等待恢复验证；恢复字段及时间边界原因参与完整响应后ETag。TTFT仅展示按后端模型身份跨组保守去重，保护优先，区分部分不足/全部不足/待复核/不可用/停用/平台未选；样本是近期滑动窗口，采样及调度不变。",
+        "本普通恢复扩展沿用现有表及JSON，无新增SQL迁移或profile；旧binary重写会丢新增身份与进度，未来必须协调切换admission writers与completion consumers，禁止混版本混写混消费；回退放弃普通进度重新验证。本地测试与微基准不代表生产恢复或性能达标。"
       ]
     },
     {

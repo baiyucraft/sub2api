@@ -31,6 +31,7 @@
         </section>
         <section>
           <h4 class="mb-3 text-sm font-semibold text-gray-900 dark:text-white">{{ t('admin.upstreamManagement.protection.models') }}</h4>
+          <p v-if="!platformExcluded && ttftModelTotal" class="mb-3 text-xs text-gray-500 dark:text-gray-400" data-test="protection-ttft-model-counts">{{ t('admin.upstreamManagement.protection.modelCounts', ttftPresentation.counts) }}</p>
           <p v-if="!models.length" class="rounded-lg bg-gray-50 p-3 text-xs text-gray-500 dark:bg-dark-800 dark:text-gray-400">{{ platformExcluded ? stateLabel('platform_not_selected') : t(!protection && legacyTTFT.length ? 'admin.upstreamManagement.protection.legacyTTFTMetrics' : 'admin.upstreamManagement.protection.noTTFTSamples') }}</p>
           <div v-else class="space-y-2">
             <article v-for="item in models" :key="item.model" class="rounded-xl border border-gray-200 p-4 dark:border-dark-600" data-test="protection-ttft-detail">
@@ -51,7 +52,16 @@
                   <div class="flex flex-wrap items-center gap-2"><h6 class="font-semibold">{{ t('admin.upstreamManagement.protection.cache') }}</h6><span :class="['state-badge', stateClass(groupExcluded(item) ? 'platform_not_selected' : cacheDisplayStateFor(item))]">{{ stateLabel(groupExcluded(item) ? 'platform_not_selected' : cacheDisplayStateFor(item)) }}</span><span class="text-gray-500 dark:text-gray-400">{{ sourceLabel(item.cache.source) }}</span></div>
                   <p v-if="item.cache.source !== 'unavailable'">{{ t('admin.upstreamManagement.protection.cacheValues', { threshold: item.cache.threshold_percent, recovery: item.cache.recovery_threshold_percent, samples: item.cache.min_valid_requests }) }}</p>
                   <p>{{ groupExcluded(item) ? stateLabel('platform_not_selected') : reasonLabel(item.cache.reason) }}</p>
-                  <div v-if="!groupExcluded(item) && (item.cache.state === 'recovering' || item.cache.recovery_started_at)" class="rounded-lg bg-gray-50 p-2 dark:bg-dark-800"><p>{{ t('admin.upstreamManagement.cacheGuard.recoveryRate') }}: {{ rateLabel(item.cache.recovery_rate_percent) }}</p><p>{{ t('admin.upstreamManagement.cacheGuard.recoveryRequests') }}: {{ item.cache.recovery_valid_requests }}</p><p>{{ t('admin.upstreamManagement.cacheGuard.recoverySessions') }}: {{ item.cache.recovery_sessions }}</p><p>{{ t('admin.upstreamManagement.cacheGuard.recoveryStartedAt') }}: {{ dateLabel(item.cache.recovery_started_at) }}</p></div>
+                  <div v-if="!groupExcluded(item) && item.cache.ordinary_recovery" class="rounded-lg bg-gray-50 p-2 dark:bg-dark-800" data-test="protection-cache-ordinary-recovery">
+                    <p class="font-medium">{{ t('admin.upstreamManagement.protection.ordinaryCacheRecovery') }}</p>
+                    <p>{{ t('admin.upstreamManagement.protection.cacheRecoveryRequests', { current: item.cache.ordinary_recovery.valid_requests, required: item.cache.ordinary_recovery.required_requests }) }}</p>
+                    <p>{{ t('admin.upstreamManagement.protection.cacheRecoverySessions', { current: item.cache.ordinary_recovery.sessions, required: item.cache.ordinary_recovery.required_sessions }) }}</p>
+                    <p>{{ t('admin.upstreamManagement.protection.cacheRecoveryRate', { current: rateLabel(item.cache.ordinary_recovery.rate_percent), required: rateLabel(item.cache.ordinary_recovery.required_rate_percent) }) }}</p>
+                    <p>{{ cacheRecoveryReasonLabel(item.cache.ordinary_recovery.reason) }}</p>
+                    <p v-if="validDate(item.cache.ordinary_recovery.started_at)">{{ t('admin.upstreamManagement.cacheGuard.recoveryStartedAt') }}: {{ dateLabel(item.cache.ordinary_recovery.started_at) }}</p>
+                    <p v-if="validDate(item.cache.ordinary_recovery.ready_at)">{{ t('admin.upstreamManagement.protection.cacheRecoveryReadyAt') }}: {{ dateLabel(item.cache.ordinary_recovery.ready_at) }}</p>
+                  </div>
+                  <div v-if="!groupExcluded(item) && (item.cache.state === 'recovering' || item.cache.recovery_started_at)" class="rounded-lg bg-gray-50 p-2 dark:bg-dark-800" data-test="protection-cache-trial-recovery"><p class="font-medium">{{ t('admin.upstreamManagement.protection.trialCacheRecovery') }}</p><p>{{ t('admin.upstreamManagement.cacheGuard.recoveryRate') }}: {{ rateLabel(item.cache.recovery_rate_percent) }}</p><p>{{ t('admin.upstreamManagement.cacheGuard.recoveryRequests') }}: {{ item.cache.recovery_valid_requests }}</p><p>{{ t('admin.upstreamManagement.cacheGuard.recoverySessions') }}: {{ item.cache.recovery_sessions }}</p><p>{{ t('admin.upstreamManagement.cacheGuard.recoveryStartedAt') }}: {{ dateLabel(item.cache.recovery_started_at) }}</p></div>
                   <p v-if="!groupExcluded(item) && item.cache.cooldown_until">{{ t('admin.upstreamManagement.cacheGuard.cooldownUntil') }}: {{ dateLabel(item.cache.cooldown_until) }}</p>
                 </section>
                 <section class="min-w-0 space-y-2 text-xs leading-5 text-gray-600 dark:text-gray-300" data-test="protection-group-ttft">
@@ -60,7 +70,7 @@
                   <p v-if="!item.ttft.models.length && !groupExcluded(item) && item.ttft.state !== 'disabled'">{{ t('admin.upstreamManagement.protection.noTTFTSamples') }}</p>
                   <p v-if="!groupExcluded(item) && ['disabled', 'unavailable'].includes(item.ttft.state)">{{ stateLabel(item.ttft.state) }}</p>
                   <div v-for="model in item.ttft.models" :key="model.model" class="rounded-lg bg-gray-50 p-3 dark:bg-dark-800" data-test="protection-model-policy">
-                    <div class="flex flex-wrap items-center justify-between gap-1"><span class="break-all font-medium">{{ model.model }}</span><span :class="stateTextClass(groupExcluded(item) ? 'platform_not_selected' : displayState(model.state, model.display_state))">{{ stateLabel(groupExcluded(item) ? 'platform_not_selected' : displayState(model.state, model.display_state)) }}</span></div>
+                    <div class="flex flex-wrap items-center justify-between gap-1"><span class="break-all font-medium">{{ model.model }}</span><span :class="stateTextClass(groupExcluded(item) ? 'platform_not_selected' : ttftModelDisplay(model))">{{ stateLabel(groupExcluded(item) ? 'platform_not_selected' : ttftModelDisplay(model)) }}</span></div>
                     <template v-if="!groupExcluded(item)">
                       <p>{{ reasonLabel(model.reason) }}</p>
                       <p v-if="model.recovery_reason">{{ t('admin.upstreamManagement.protection.recoveryReason') }}: {{ recoveryReasonLabel(model.recovery_reason) }}</p>
@@ -114,6 +124,7 @@ import type { Account, UpstreamProtectionDisplayState, UpstreamProtectionGroupSt
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { formatDateTime } from '@/utils/format'
+import { summarizeTTFTGroups, ttftGroupDisplay, ttftModelDisplay } from '@/utils/upstreamTTFTSummary'
 
 const props = defineProps<{ account: Account }>()
 const { t, te } = useI18n()
@@ -128,8 +139,8 @@ const isProtected = (state: string) => ['degraded', 'draining', 'protected', 're
 const groupExcluded = (item: UpstreamProtectionGroupState) => platformExcluded.value || item.platform_selected === false || item.cache.state === 'platform_not_selected' || item.ttft.state === 'platform_not_selected'
 const activeGroups = computed(() => groups.value.filter(item => !groupExcluded(item)))
 const cacheProtectedGroups = computed(() => new Set((protection.value ? activeGroups.value.map(item => ({ group_id: item.group_id, state: cacheDisplayStateFor(item) })) : props.account.upstream_cache_guard_states ?? []).filter(item => isProtected(item.state)).map(item => item.group_id)).size)
-const ttftProtectedGroups = computed(() => new Set(activeGroups.value.filter(item => ttftDisplayStateFor(item) === 'protected' || item.ttft.models.some(model => displayState(model.state, model.display_state) === 'protected')).map(item => item.group_id)).size)
-const protectedModels = computed(() => new Set(activeGroups.value.flatMap(item => item.ttft.models.filter(model => displayState(model.state, model.display_state) === 'protected').map(model => model.model))).size)
+const ttftProtectedGroups = computed(() => new Set(activeGroups.value.filter(item => ttftDisplayStateFor(item) === 'protected').map(item => item.group_id)).size)
+const protectedModels = computed(() => new Set(activeGroups.value.filter(item => item.ttft.state !== 'disabled').flatMap(item => item.ttft.models.filter(model => ttftModelDisplay(model) === 'protected').map(model => model.model))).size)
 const hasMetrics = computed(() => !!protection.value || !!cache.value || !!props.account.ttft_guard_degradations?.length)
 function displayState(state: string, current?: UpstreamProtectionDisplayState): UpstreamProtectionDisplayState {
   if (current) return current
@@ -137,13 +148,15 @@ function displayState(state: string, current?: UpstreamProtectionDisplayState): 
   return state === 'normal' || state === 'healthy' ? 'normal' : 'insufficient'
 }
 const cacheDisplayStateFor = (item: UpstreamProtectionGroupState) => displayState(item.cache.state, item.cache.display_state)
-const ttftDisplayStateFor = (item: UpstreamProtectionGroupState) => displayState(item.ttft.state, item.ttft.display_state)
+const ttftDisplayStateFor = ttftGroupDisplay
 function aggregateState(states: UpstreamProtectionDisplayState[]): UpstreamProtectionDisplayState {
   if (states.includes('protected')) return 'protected'
   return states.length && states.every(state => state === 'normal') ? 'normal' : 'insufficient'
 }
 const cacheDisplayState = computed(() => aggregateState(groups.value.length ? activeGroups.value.map(cacheDisplayStateFor) : cache.value ? [displayState(cache.value.state)] : []))
-const ttftDisplayState = computed(() => !protection.value && legacyTTFT.value.length ? 'protected' : aggregateState(groups.value.length ? activeGroups.value.map(ttftDisplayStateFor) : models.value.map(item => displayState(item.state, item.display_state))))
+const ttftPresentation = computed(() => summarizeTTFTGroups(groups.value))
+const ttftModelTotal = computed(() => Object.values(ttftPresentation.value.counts).reduce((total, count) => total + count, 0))
+const ttftDisplayState = computed(() => !protection.value && legacyTTFT.value.length ? 'protected' : ttftPresentation.value.state)
 const cacheSummary = computed(() => `${t('admin.upstreamManagement.protection.cache')} ${rateLabel(cache.value?.rate_percent)} · ${cacheProtectedGroups.value ? t('admin.upstreamManagement.protection.protectedGroups', { count: cacheProtectedGroups.value }) : stateLabel(cacheDisplayState.value)}`)
 const ttftSummary = computed(() => `${t('admin.upstreamManagement.protection.ttft')} · ${ttftProtectedGroups.value ? t('admin.upstreamManagement.protection.protectedModelsGroups', { models: protectedModels.value, groups: ttftProtectedGroups.value }) : protection.value ? stateLabel(ttftDisplayState.value) : legacyTTFT.value.length ? t('admin.upstreamManagement.protection.protectedModels', { count: new Set(legacyTTFT.value.map(item => item.model)).size }) : stateLabel('insufficient')}`)
 const stateLabel = (state: string) => t(`admin.upstreamManagement.protection.state.${state}`)
@@ -160,6 +173,10 @@ const validDate = (value?: string | null) => !!value && !value.startsWith('0001-
 const countLabel = (value?: number) => value == null || !Number.isFinite(value) ? '—' : String(value)
 function recoveryReasonLabel(reason: string) {
   const key = `admin.upstreamManagement.protection.recoveryReasons.${reason}`
+  return te(key) ? t(key) : reason
+}
+function cacheRecoveryReasonLabel(reason: string) {
+  const key = `admin.upstreamManagement.protection.cacheRecoveryReasons.${reason}`
   return te(key) ? t(key) : reason
 }
 function recoveryBlockReasonLabel(reason: string) {
