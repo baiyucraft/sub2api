@@ -24,14 +24,14 @@ func PolicySignature(s Settings) string {
 // read if a policy changes between its otherwise immutable snapshot reads.
 func (e *Engine) PolicyVersion() uint64 { return e.policyEpoch.Load() }
 
-func (e *Engine) ApplyPolicySettings(values map[int64]Settings) error {
+func normalizePolicySettings(values map[int64]Settings) (map[int64]Settings, error) {
 	copy := make(map[int64]Settings, len(values))
 	for id, s := range values {
 		if id <= 0 {
 			continue
 		}
 		if err := s.Validate(); err != nil {
-			return err
+			return nil, err
 		}
 		if s.Priority == "" {
 			s.Priority = "cache_first"
@@ -40,6 +40,16 @@ func (e *Engine) ApplyPolicySettings(values map[int64]Settings) error {
 		s.GroupIDs = append([]int64(nil), s.GroupIDs...)
 		copy[id] = s
 	}
+	return copy, nil
+}
+
+func (e *Engine) ApplyPolicySettings(values map[int64]Settings) error {
+	copy, err := normalizePolicySettings(values)
+	if err != nil {
+		return err
+	}
+	e.ordinaryConfigMu.Lock()
+	defer e.ordinaryConfigMu.Unlock()
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	old := e.policies.Load()

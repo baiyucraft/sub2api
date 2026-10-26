@@ -640,7 +640,9 @@ func (e *Engine) accountSnapshotAtLocked(id string, a AccountSnapshot, now time.
 	// copy only the map shell when an expired projection must be replaced.
 	var expired map[string]PolicyProjection
 	for sig, projection := range a.Policies {
-		if expireProtectionState(&projection.State, projection.Settings, now) {
+		changed := expireProtectionState(&projection.State, projection.Settings, now)
+		changed = e.ordinaryRecoveryReadState(&projection.State, projection.Settings, now, e.accountGaps[id] || len(e.samplingFailures[id]) > 0) || changed
+		if changed {
 			if expired == nil {
 				expired = make(map[string]PolicyProjection, len(a.Policies))
 				for key, value := range a.Policies {
@@ -683,6 +685,10 @@ func (e *Engine) accountSnapshotAtLocked(id string, a AccountSnapshot, now time.
 }
 
 func cloneAccountSnapshot(a AccountSnapshot) AccountSnapshot {
+	if a.OrdinaryRecovery != nil {
+		ordinary := *a.OrdinaryRecovery
+		a.OrdinaryRecovery = &ordinary
+	}
 	if a.LastDegradedEvidenceAt != nil {
 		anchor := *a.LastDegradedEvidenceAt
 		a.LastDegradedEvidenceAt = &anchor

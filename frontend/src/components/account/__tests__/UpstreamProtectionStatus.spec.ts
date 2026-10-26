@@ -142,11 +142,70 @@ describe('UpstreamProtectionStatus', () => {
     value.groups[0].ttft.models = []
     value.cache!.rate_percent = null
     const wrapper = render(value)
-    expect(wrapper.get('[data-test="protection-ttft-summary"]').text()).toContain('样本不足')
+    expect(wrapper.get('[data-test="protection-ttft-summary"]').text()).toContain(state === 'disabled' ? '已关闭' : state === 'unavailable' ? '暂不可用' : '样本不足')
     expect(wrapper.get('[data-test="protection-ttft-summary"]').text()).not.toContain('正常')
     expect(wrapper.get('[data-test="protection-cache-summary"]').text()).toContain('未知')
     await wrapper.get('[data-test="protection-ttft-summary"]').trigger('click')
-    expect(wrapper.get('[data-test="upstream-protection-details"]').text()).toContain('暂无有效 TTFT 观测')
+    if (state !== 'disabled') expect(wrapper.get('[data-test="upstream-protection-details"]').text()).toContain('暂无有效 TTFT 观测')
+  })
+
+  it('explains a low-traffic model without marking the account as entirely short of samples', async () => {
+    const value = protection()
+    value.groups = [8, 21, 22].map(id => {
+      const item = group(id, 'insufficient')
+      item.ttft.models = [
+        { ...model('normal'), model: 'gpt-6.1-sol', sample_count: 10, reason: '', recovery_samples: 0, recovery_samples_required: 3 },
+        { ...model('normal'), model: 'gpt-5.6-sol', sample_count: 7, reason: '', recovery_samples: 0, recovery_samples_required: 3 },
+        { ...model('insufficient'), model: 'gpt-6-sol', sample_count: 1, recovery_reason: 'fresh_samples_insufficient', reason: '', recovery_samples: 0, recovery_samples_required: 3 }
+      ]
+      return item
+    })
+    const wrapper = render(value)
+    expect(wrapper.get('[data-test="protection-ttft-summary"]').text()).toBe('TTFT · 部分模型样本不足')
+    await wrapper.get('[data-test="protection-ttft-summary"]').trigger('click')
+    expect(wrapper.get('[data-test="protection-ttft-model-counts"]').text()).toContain('正常 2 · 样本不足 1')
+    expect(wrapper.get('[data-protection-group="8"] [data-test="protection-group-ttft"] .state-badge').text()).toBe('部分模型样本不足')
+    expect(wrapper.findAll('[data-protection-group="8"] [data-test="protection-model-policy"]')[0].text()).toContain('正常')
+    value.groups[0].ttft.models[0].state = 'protected'
+    await wrapper.setProps({ account: { id: 1, name: '上游账号', upstream_protection: structuredClone(value) } as Account })
+    expect(wrapper.get('[data-test="protection-ttft-summary"]').text()).toBe('TTFT · 1模型／1组保护')
+  })
+
+  it('labels a completed bad-evidence window as revalidation instead of missing request samples', async () => {
+    const value = protection()
+    value.groups = [group(1, 'insufficient')]
+    Object.assign(value.groups[0].ttft.models[0], { sample_count: 10, recovery_reason: 'bad_evidence_expired', revalidation_epoch: 2 })
+    const wrapper = render(value)
+    expect(wrapper.get('[data-test="protection-ttft-summary"]').text()).toBe('TTFT · 待复核')
+    await wrapper.get('[data-test="protection-ttft-summary"]').trigger('click')
+    expect(wrapper.get('[data-test="protection-model-policy"] .font-medium + span').text()).toBe('待复核')
+    expect(wrapper.get('[data-test="protection-recovery-evidence"]').exists()).toBe(true)
+  })
+
+  it('separates ordinary cache recovery from trial progress and supports legacy responses', async () => {
+    const value = protection()
+    value.groups = [group(1)]
+    Object.assign(value.groups[0].cache, {
+      reason: 'waiting_recovery_validation', state: 'recovering', recovery_valid_requests: 2,
+      recovery_sessions: 1, recovery_rate_percent: 80, recovery_started_at: '2026-10-14T01:00:00Z',
+      ordinary_recovery: { valid_requests: 6, required_requests: 6, sessions: 3, required_sessions: 3, rate_percent: 96,
+        required_rate_percent: 95, started_at: '2026-10-14T01:01:00Z', ready_at: '2026-10-14T01:11:00Z', reason: 'waiting_validation_time' }
+    })
+    const wrapper = render(value)
+    await wrapper.get('[data-test="protection-cache-summary"]').trigger('click')
+    const ordinary = wrapper.get('[data-test="protection-cache-ordinary-recovery"]')
+    expect(ordinary.text()).toContain('普通流量恢复验证')
+    expect(ordinary.text()).toContain('有效请求 6/6')
+    expect(ordinary.text()).toContain('独立会话 3/3')
+    expect(ordinary.text()).toContain('96.0% · 要求 ≥ 95.0%')
+    expect(ordinary.text()).toContain('等待恢复观察期结束')
+    expect(wrapper.get('[data-test="protection-cache-trial-recovery"]').text()).toContain('试用恢复验证')
+    expect(wrapper.get('[data-test="protection-cache-trial-recovery"]').text()).toContain('80.0%')
+    const legacy = structuredClone(value)
+    delete legacy.groups[0].cache.ordinary_recovery
+    await wrapper.setProps({ account: { id: 1, name: '新Key账号', upstream_key_id: 2, upstream_protection: legacy } as Account })
+    expect(wrapper.find('[data-test="protection-cache-ordinary-recovery"]').exists()).toBe(false)
+    expect(wrapper.get('[data-test="protection-cache-trial-recovery"]').text()).toContain('80.0%')
   })
 
   it.each(['insufficient', 'expired'] as const)('shows insufficient samples across TTFT summaries and details (%s)', async state => {

@@ -10,6 +10,13 @@ func (w AccountWindow) Apply(a *AccountState, now time.Time) {
 	if a == nil {
 		return
 	}
+	if a.OrdinaryRecovery != nil {
+		// Read projections own their metrics but never advance a durable timer.
+		ordinary := *a.OrdinaryRecovery
+		ordinary.ValidRequests, ordinary.Sessions = w.OrdinaryValidRequests, w.OrdinarySessions
+		ordinary.TotalInputTokens, ordinary.CacheReadTokens = w.OrdinaryInputTokens, w.OrdinaryCacheReadTokens
+		a.OrdinaryRecovery = &ordinary
+	}
 	for sig, window := range w.Policies {
 		if p, ok := a.Policies[sig]; ok {
 			window.Apply(&p.State, now)
