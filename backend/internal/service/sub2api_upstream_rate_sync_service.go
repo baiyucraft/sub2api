@@ -172,6 +172,7 @@ type sub2APIUpstreamKey struct {
 	ID          int64  `json:"id"`
 	Key         string `json:"key"`
 	Name        string `json:"name"`
+	Status      string `json:"status"`
 	Description string `json:"description"`
 	Desc        string `json:"desc"`
 	Remark      string `json:"remark"`
@@ -604,6 +605,12 @@ func syncSub2APIUpstreamSnapshot(ctx context.Context, cfg *UpstreamConfig, proxy
 	now := time.Now()
 	out := make([]UpstreamKey, 0, len(session.keys))
 	for _, upstreamKey := range session.keys {
+		// Pagination is validated against the complete raw list before disabled
+		// keys are omitted here, so they follow the existing missing-key lifecycle.
+		switch strings.ToLower(strings.TrimSpace(upstreamKey.Status)) {
+		case "inactive", StatusAPIKeyDisabled:
+			continue
+		}
 		key := strings.TrimSpace(upstreamKey.Key)
 		var sourceRate *float64
 		if rate, rateErr := resolveSub2APIKeyRate(upstreamKey, session.groupRates); rateErr == nil {

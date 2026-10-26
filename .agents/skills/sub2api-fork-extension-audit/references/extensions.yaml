@@ -1207,6 +1207,8 @@
       "risk_level": "high",
       "paths": [
         "backend/internal/service/upstream_config.go",
+        "backend/internal/service/sub2api_upstream_rate_sync_service.go",
+        "backend/internal/service/sub2api_upstream_disabled_keys_test.go",
         "backend/internal/service/upstream_dashboard.go",
         "backend/internal/repository/upstream_config_repo.go",
         "backend/internal/repository/upstream_dashboard_repo.go",
@@ -1248,6 +1250,7 @@
       ],
       "required_tests": [
         "backend/internal/service/upstream_config_test.go",
+        "backend/internal/service/sub2api_upstream_disabled_keys_test.go",
         "backend/internal/handler/admin/upstream_config_handler_redaction_test.go",
         "backend/internal/handler/admin/upstream_config_list_handler_test.go",
         "backend/internal/repository/upstream_config_sort_test.go",
@@ -1277,6 +1280,7 @@
         "旧前端上游地址不再注册",
         "Key 平台白名单复用 concrete platform catalog，排除 composite",
         "未知上游平台保留在结构化 extra 证据并置为未分配，不因单个 Key 阻断整次 Sub2API 同步",
+        "Sub2API先完整抓取并校验原始分页，再排除status为inactive/disabled的Key，比较忽略大小写和首尾空白；全部停用是完整空有效快照，过滤不影响原始分页总数校验；停用Key不参与密钥回填、计费探测、倍率或平台解析、创建或恢复账号；缺少或空status保持旧兼容，expired/quota_exhausted及其他状态保持原行为，不影响其他provider",
         "compact 列表只暴露清洗后的派生、能力与调度元数据，不暴露凭据；编辑按需加载详情，列表刷新不得用 lite 数据覆盖完整编辑对象",
         "官方模型元数据同步与 fork sync_managed 持久白名单同步分开执行，各自保留 ownership",
         "上游账号列表按页去重Key并使用可选批量可信度reader和批量缓存保护显示投影，旧single reader兼容；汇总变化仍参与ETag，304不代表跳过列表组装查询"
@@ -1295,7 +1299,7 @@
     {
       "id": "upstream-account-lifecycle", "title": "上游派生账号同步生命周期", "description": "区分 manual 与 sync_managed 派生账号，对完整同步中持续缺失的 Key 和同步托管账号执行可恢复的同事务软归档，并清理关联运行态。", "ownership": "fork", "risk_level": "critical",
       "paths": ["backend/ent/schema/account.go", "backend/internal/service/account.go", "backend/internal/service/upstream_config.go", "backend/internal/service/upstream_health.go", "backend/internal/repository/account_repo.go", "backend/internal/repository/upstream_config_repo.go", "backend/internal/repository/scheduled_test_repo.go", "backend/internal/handler/admin/upstream_config_handler.go", "backend/migrations/238_upstream_account_lifecycle.sql", "backend/migrations/285_upstream_null_rate_lifecycle.sql", ".agents/skills/sub2api-production-deploy/scripts/maintenance/release/migration-238-assert.sh"],
-      "symbols": ["AccountUpstreamLifecycleOwnerSyncManaged", "upstreamKeyMissingGrace", "archiveSyncManagedAccountsForMissingKey", "restoreSyncManagedAccountArchivedForMissingKey", "GlobalUpstreamHealthRegistry().Forget", "validate_account_upstream_key_binding"], "api_routes": [], "settings_keys": [], "migration_files": ["238_upstream_account_lifecycle.sql", "285_upstream_null_rate_lifecycle.sql"], "required_tests": ["backend/internal/repository/upstream_account_lifecycle_test.go", "backend/internal/repository/upstream_key_reconcile_integration_test.go", "backend/internal/repository/upstream_actual_rate_integration_test.go", "backend/internal/repository/scheduled_test_repo_lifecycle_test.go", "backend/internal/service/upstream_operations_test.go", "backend/migrations/profile_239_migrations_test.go", "backend/migrations/upstream_null_rate_lifecycle_migration_test.go", "backend/internal/repository/upstream_null_rate_binding_integration_test.go", ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_migration_285.py"], "invariants": ["仅完整同步快照可推进缺失计数", "sync_managed 派生账号仅在连续缺失至少 3 次且 missing_since 已满 30 分钟后与 Key 同事务软归档", "manual 账号绝不由同步生命周期自动归档", "仅 sync_managed 且 upstream_archive_reason=key_missing 的账号可自动恢复", "自动恢复复用原账号 ID 并保留分组、定时计划和历史记录", "定时测试计划查询必须过滤 accounts.deleted_at", "归档和恢复后必须失效账号缓存、Redis 调度态、共享并发态及对应健康 Registry 快照", "历史 NULL actual Key 的同一既有绑定仅可在身份和 rate/source/priority 不变时暂停或归档；不得借归档重新启用，不推断或回填 Key 倍率", "新增、重绑定、恢复和启用仍要求有效 actual；恢复亦校验 active 和平台一致，零倍率有效；source 单独更新必须进入绑定校验", "缺失归档与健康 Key 更新保持同事务；NULL 倍率安全退出不阻断正常同步，不改写历史计费快照", "持久化错误保持 persist/account_apply 数据库分类，不因文本包含 key/group/token 冒充上游分页或认证失败；约束错误不标记可重试"]
+      "symbols": ["AccountUpstreamLifecycleOwnerSyncManaged", "upstreamKeyMissingGrace", "archiveSyncManagedAccountsForMissingKey", "restoreSyncManagedAccountArchivedForMissingKey", "GlobalUpstreamHealthRegistry().Forget", "validate_account_upstream_key_binding"], "api_routes": [], "settings_keys": [], "migration_files": ["238_upstream_account_lifecycle.sql", "285_upstream_null_rate_lifecycle.sql"], "required_tests": ["backend/internal/repository/upstream_account_lifecycle_test.go", "backend/internal/repository/upstream_key_reconcile_integration_test.go", "backend/internal/repository/upstream_actual_rate_integration_test.go", "backend/internal/repository/scheduled_test_repo_lifecycle_test.go", "backend/internal/service/upstream_operations_test.go", "backend/migrations/profile_239_migrations_test.go", "backend/migrations/upstream_null_rate_lifecycle_migration_test.go", "backend/internal/repository/upstream_null_rate_binding_integration_test.go", ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_migration_285.py"], "invariants": ["仅完整同步快照可推进缺失计数；Sub2API停用与真正缺失共用同一周期，宽限期不因显式停用立即暂停", "sync_managed 派生账号仅在连续缺失至少 3 次且 missing_since 已满 30 分钟后与 Key 同事务软归档", "manual 账号绝不由同步生命周期自动归档", "仅 sync_managed 且 upstream_archive_reason=key_missing 的账号可自动恢复", "自动恢复复用原账号 ID 并保留分组、定时计划和历史记录", "定时测试计划查询必须过滤 accounts.deleted_at", "归档和恢复后必须失效账号缓存、Redis 调度态、共享并发态及对应健康 Registry 快照", "历史 NULL actual Key 的同一既有绑定仅可在身份和 rate/source/priority 不变时暂停或归档；不得借归档重新启用，不推断或回填 Key 倍率", "新增、重绑定、恢复和启用仍要求有效 actual；恢复亦校验 active 和平台一致，零倍率有效；source 单独更新必须进入绑定校验", "缺失归档与健康 Key 更新保持同事务；NULL 倍率安全退出不阻断正常同步，不改写历史计费快照", "持久化错误保持 persist/account_apply 数据库分类，不因文本包含 key/group/token 冒充上游分页或认证失败；约束错误不标记可重试"]
     },
     {
       "id": "upstream-model-capability-sync", "title": "上游模型能力自动同步", "description": "为 sync_managed 派生账号自动同步并维护模型白名单：NewAPI 的有效 model_limits 优先，其他平台通过上游模型目录同步；30 分钟 freshness 控制重复请求，24 小时 enforcement 窗口控制旧映射继续生效。", "ownership": "fork", "risk_level": "high",
