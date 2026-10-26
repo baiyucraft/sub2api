@@ -24,14 +24,17 @@ const RecoveryLifetime = 10 * time.Minute
 const MaxActiveSessions = 65536
 
 type Engine struct {
-	store       Store
-	settings    atomic.Pointer[Settings]
-	policies    atomic.Pointer[map[int64]Settings]
-	refreshMu   sync.Mutex
-	mu          sync.RWMutex
-	groups      map[int64]Snapshot
-	accounts    map[string]AccountSnapshot
-	accountGaps map[string]bool
+	ordinaryConfigMu           sync.RWMutex
+	ordinaryIdentityGeneration atomic.Pointer[string]
+	ordinaryPolicyGenerations  atomic.Pointer[map[string]string]
+	store                      Store
+	settings                   atomic.Pointer[Settings]
+	policies                   atomic.Pointer[map[int64]Settings]
+	refreshMu                  sync.Mutex
+	mu                         sync.RWMutex
+	groups                     map[int64]Snapshot
+	accounts                   map[string]AccountSnapshot
+	accountGaps                map[string]bool
 	// Failed completions are account-local. Queued attempts clear when their
 	// durable completion succeeds; discarded attempts latch until restart.
 	samplingFailures   map[string]map[string]struct{}
@@ -60,9 +63,9 @@ func NewEngine(store Store) *Engine {
 	e.policyEpoch.Add(1)
 	return e
 }
-func (e *Engine) ApplySettings(s Settings) error {
+func normalizeEngineSettings(s Settings) (Settings, error) {
 	if err := s.Validate(); err != nil {
-		return err
+		return Settings{}, err
 	}
 	if s.Priority == "" {
 		s.Priority = "cache_first"
@@ -77,6 +80,16 @@ func (e *Engine) ApplySettings(s Settings) error {
 		}
 	}
 	s.GroupIDs = ids
+	return s, nil
+}
+
+func (e *Engine) ApplySettings(s Settings) error {
+	s, err := normalizeEngineSettings(s)
+	if err != nil {
+		return err
+	}
+	e.ordinaryConfigMu.Lock()
+	defer e.ordinaryConfigMu.Unlock()
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if old := e.settings.Load(); old != nil && sameSettings(*old, s) {
@@ -241,7 +254,8 @@ func (e *Engine) Admit(ctx context.Context, r Request) (Admission, error) {
 // change affinity from unavailable scheduling projections.
 func (e *Engine) CaptureOnly(ctx context.Context, r Request) (Admission, error) {
 	s := e.ResolvedSettings(r.GroupID)
-	a := Admission{RequestID: r.ID, GroupID: r.GroupID, AccountID: r.AccountID, UpstreamKeyID: r.UpstreamKeyID, StartedAt: r.StartedAt.UTC(), Mode: s.Mode}
+	a := Admission{RequestID: r.ID, GroupID: r.GroupID, AccountID: r.AccountID, UpstreamKeyID: r.UpstreamKeyID, StartedAt: r.StartedAt.UTC(), Mode: s.Mode,
+		OrdinaryRecoverySessionID: r.OrdinaryRecoverySessionID, OrdinaryRecoveryIdentityGeneration: r.OrdinaryRecoveryIdentityGeneration}
 	if !e.AnyPolicyActive() {
 		return a, nil
 	}
@@ -321,7 +335,8 @@ func (e *Engine) AdmitExisting(ctx context.Context, r Request) (Admission, error
 
 func (e *Engine) admit(ctx context.Context, r Request, existingOnly bool) (Admission, error) {
 	s := e.ResolvedSettings(r.GroupID)
-	a := Admission{RequestID: r.ID, GroupID: r.GroupID, AccountID: r.AccountID, UpstreamKeyID: r.UpstreamKeyID, StartedAt: r.StartedAt.UTC(), Mode: s.Mode}
+	a := Admission{RequestID: r.ID, GroupID: r.GroupID, AccountID: r.AccountID, UpstreamKeyID: r.UpstreamKeyID, StartedAt: r.StartedAt.UTC(), Mode: s.Mode,
+		OrdinaryRecoverySessionID: r.OrdinaryRecoverySessionID, OrdinaryRecoveryIdentityGeneration: r.OrdinaryRecoveryIdentityGeneration}
 	if !e.AnyPolicyActive() {
 		return a, nil
 	}
@@ -478,6 +493,11 @@ func (e *Engine) CompleteWithResult(ctx context.Context, v Evidence) (bool, erro
 }
 
 func (e *Engine) complete(ctx context.Context, v Evidence) (bool, error) {
+	// The store owns COMMIT, which happens after its callback returns. Hold the
+	// configuration generation until TransactAccount itself has returned, not
+	// merely until the mutation callback has finished.
+	e.ordinaryConfigMu.RLock()
+	defer e.ordinaryConfigMu.RUnlock()
 	s := e.ResolvedSettings(v.Request.GroupID)
 	if e.store == nil {
 		return false, ErrUnavailable
@@ -487,6 +507,10 @@ func (e *Engine) complete(ctx context.Context, v Evidence) (bool, error) {
 	}
 	if v.ID == "" || len(v.ID) > 200 || v.CompletedAt.IsZero() || v.CompletedAt.Before(v.Request.StartedAt) || v.Admission.SessionKey != SessionKey(v.Request) || v.Admission.RequestID != v.Request.ID || v.Admission.AccountID != v.Request.AccountID || v.Admission.GroupID != v.Request.GroupID || !admissionMatchesKey(v.Admission, v.Request) {
 		return false, errors.New("cache guard evidence/admission mismatch")
+	}
+	if v.Request.OrdinaryRecoverySessionID != v.Admission.OrdinaryRecoverySessionID ||
+		v.Request.OrdinaryRecoveryIdentityGeneration != v.Admission.OrdinaryRecoveryIdentityGeneration {
+		return false, errors.New("cache guard ordinary recovery identity mismatch")
 	}
 	now := e.now().UTC()
 	if v.CompletedAt.After(now.Add(time.Minute)) {
@@ -522,6 +546,27 @@ func (e *Engine) complete(ctx context.Context, v Evidence) (bool, error) {
 			return err
 		}
 		if !applyPolicy {
+			if v.ProtectionPaused {
+				if _, ok := tx.(RecoveryFactsTx); ok {
+					var account AccountState
+					if _, err := tx.(AccountTx).ReadAccount(v.Request.AccountID, v.Request.UpstreamKeyID, &account); err != nil {
+						return err
+					}
+					changed := false
+					for signature, projection := range account.Policies {
+						if projection.State.OrdinaryRecovery != nil {
+							resetOrdinaryProgress(projection.State.OrdinaryRecovery, now, "paused")
+							account.Policies[signature] = projection
+							changed = true
+						}
+					}
+					if changed {
+						if _, err := tx.(AccountTx).WriteAccount(v.Request.AccountID, v.Request.UpstreamKeyID, &account); err != nil {
+							return err
+						}
+					}
+				}
+			}
 			_, err = tx.Write(SessionKind, v.Admission.SessionKey, &session)
 			return err
 		}
@@ -568,7 +613,15 @@ func (e *Engine) complete(ctx context.Context, v Evidence) (bool, error) {
 		if historyWindow < WarmLifetime {
 			historyWindow = WarmLifetime
 		}
-		facts, err := tx.(AccountTx).AccountFacts(v.Request.AccountID, v.Request.UpstreamKeyID, reference.Add(-historyWindow))
+		var facts []Evidence
+		recoverySupported, pendingGap := false, false
+		if recoveryTx, ok := tx.(RecoveryFactsTx); ok {
+			var recoveryFacts AccountRecoveryFacts
+			recoveryFacts, err = recoveryTx.AccountRecoveryFacts(v.Request.AccountID, v.Request.UpstreamKeyID, reference.Add(-historyWindow), reference)
+			facts, pendingGap, recoverySupported = recoveryFacts.Facts, recoveryFacts.HasPendingGap, true
+		} else {
+			facts, err = tx.(AccountTx).AccountFacts(v.Request.AccountID, v.Request.UpstreamKeyID, reference.Add(-historyWindow))
+		}
 		if err != nil {
 			return err
 		}
@@ -577,6 +630,9 @@ func (e *Engine) complete(ctx context.Context, v Evidence) (bool, error) {
 		}
 		fresh := v.ValidSample() && !v.CompletedAt.Before(reference.Add(-time.Duration(s.WindowMinutes)*time.Minute))
 		if err = e.recomputePoliciesWithRecovery(&account, facts, reference, fresh, !v.Admission.CaptureOnly); err != nil {
+			return err
+		}
+		if err = e.advanceOrdinaryPolicies(&account, facts, v, now, recoverySupported, pendingGap); err != nil {
 			return err
 		}
 		if v.Admission.CaptureOnly {
@@ -669,6 +725,7 @@ func expireProtectionState(a *AccountState, s Settings, now time.Time) bool {
 	a.TrialSessions = 0
 	a.TrialCachePercent = 0
 	a.TrialGroupIDs = nil
+	a.OrdinaryRecovery = nil
 	// Freeze the latest valid evidence as the revalidation boundary. Old facts
 	// cannot recreate protection, even if they arrived after initial degradation.
 	boundary := anchor
@@ -777,17 +834,7 @@ func recomputeAccountWithRecovery(a *AccountState, facts []Evidence, s Settings,
 		return nil
 	}
 	if allowRecovery && a.TrialCachePercent >= s.RecoveryThresholdPercent {
-		a.Phase = Healthy
-		a.CohortID = ""
-		a.TrialGroupIDs = nil
-		a.FirstTrialAt = time.Time{}
-		a.CooldownUntil = time.Time{}
-		a.LastDegradedEvidenceAt = nil
-		a.QualitySince = now
-		a.ValidRequests = 0
-		a.TotalInputTokens = 0
-		a.CacheReadTokens = 0
-		a.CachePercent = 0
+		recoverAccount(a, now)
 		return nil
 	}
 	if a.TrialCachePercent < s.ThresholdPercent {
@@ -802,6 +849,24 @@ func recomputeAccountWithRecovery(a *AccountState, facts []Evidence, s Settings,
 		a.FirstTrialAt = time.Time{}
 	}
 	return nil
+}
+
+// Both sufficient recovery paths use the released trial transition. Historical
+// trial counters remain a projection until the next window recomputation;
+// resetting the cohort prevents any old trial from being counted again.
+func recoverAccount(a *AccountState, now time.Time) {
+	a.Phase = Healthy
+	a.CohortID = ""
+	a.TrialGroupIDs = nil
+	a.FirstTrialAt = time.Time{}
+	a.CooldownUntil = time.Time{}
+	a.LastDegradedEvidenceAt = nil
+	a.QualitySince = now
+	a.ValidRequests = 0
+	a.TotalInputTokens = 0
+	a.CacheReadTokens = 0
+	a.CachePercent = 0
+	a.OrdinaryRecovery = nil
 }
 
 func (e *Engine) Refresh(ctx context.Context) error {

@@ -120,13 +120,19 @@ type UpstreamCacheGuardRunner struct {
 	lost           atomic.Bool
 	pendingFailure atomic.Bool
 	// Backlog health is diagnostic only; routing reads account snapshots.
-	pendingDelayed atomic.Bool
-	pendingUnknown atomic.Bool
-	policyMu       sync.RWMutex
-	policyResolver GroupSchedulingProtectionPolicyResolver
-	appliedPolicy  *GroupSchedulingProtectionPolicySnapshot
-	skipCounts     [cacheGuardSkipReasonCount]atomic.Uint64
-	diagnostics    cacheGuardDiagnostics
+	pendingDelayed        atomic.Bool
+	pendingUnknown        atomic.Bool
+	policyMu              sync.RWMutex
+	policyResolver        GroupSchedulingProtectionPolicyResolver
+	appliedPolicy         *GroupSchedulingProtectionPolicySnapshot
+	appliedGlobal         string
+	appliedPolicies       map[int64]UpstreamCacheGuardSettings
+	appliedOrdinary       bool
+	ordinaryWritePending  bool
+	ordinaryBlockedPolicy *GroupSchedulingProtectionPolicySnapshot
+	localSettingsRevision atomic.Uint64
+	skipCounts            [cacheGuardSkipReasonCount]atomic.Uint64
+	diagnostics           cacheGuardDiagnostics
 }
 
 func (r *UpstreamCacheGuardRunner) recordAdmissionSkip(reason cacheGuardSkipReason, groupID, accountID int64, keyID ...int64) {
@@ -155,6 +161,7 @@ func ProvideUpstreamCacheGuardRunner(store upstreamcacheguard.Store, settings *S
 	if cfg != nil {
 		r.secret = []byte(cfg.JWT.Secret)
 	}
+	r.engine.SetOrdinaryRecoveryIdentityGeneration(r.ordinaryRecoveryIdentityGeneration())
 	if policies != nil {
 		r.SetProtectionPolicyResolver(policies)
 	}
@@ -164,8 +171,24 @@ func ProvideUpstreamCacheGuardRunner(store upstreamcacheguard.Store, settings *S
 }
 func (r *UpstreamCacheGuardRunner) applySettings(s UpstreamCacheGuardSettings) {
 	if r != nil {
-		_ = r.engine.ApplySettings(s)
+		r.policyMu.Lock()
+		defer r.policyMu.Unlock()
+		r.localSettingsRevision.Add(1)
+		// A save advances the durable revision even if its value returns to the
+		// previous configuration. Do not re-enable an older matching snapshot.
+		r.ordinaryWritePending = true
+		r.ordinaryBlockedPolicy = r.appliedPolicy
+		_ = r.applyRecoveryConfigurationLocked(s)
 	}
+}
+
+func (r *UpstreamCacheGuardRunner) applyRecoverySettings(s UpstreamCacheGuardSettings, readRevision uint64) error {
+	r.policyMu.Lock()
+	defer r.policyMu.Unlock()
+	if readRevision != r.localSettingsRevision.Load() {
+		return nil // A direct save superseded this earlier database read.
+	}
+	return r.applyRecoveryConfigurationLocked(s)
 }
 
 func (r *UpstreamCacheGuardRunner) SetProtectionPolicyResolver(resolver GroupSchedulingProtectionPolicyResolver) {
@@ -175,40 +198,78 @@ func (r *UpstreamCacheGuardRunner) SetProtectionPolicyResolver(resolver GroupSch
 	r.policyMu.Lock()
 	r.policyResolver = resolver
 	r.appliedPolicy = nil
+	r.appliedGlobal = ""
+	r.appliedPolicies = nil
+	r.appliedOrdinary = false
+	r.ordinaryWritePending = false
+	r.ordinaryBlockedPolicy = nil
 	r.policyMu.Unlock()
 	r.applyPolicySnapshot()
 }
 
 func (r *UpstreamCacheGuardRunner) applyPolicySnapshot() {
+	if r == nil || r.engine == nil {
+		return
+	}
 	// Resolver replacement and publication are serialized so an older refresh
 	// cannot install its policies after a new resolver has been selected.
 	r.policyMu.Lock()
 	defer r.policyMu.Unlock()
+	_ = r.applyRecoveryConfigurationLocked(r.engine.Settings())
+}
+
+func (r *UpstreamCacheGuardRunner) applyRecoveryConfigurationLocked(global UpstreamCacheGuardSettings) error {
 	resolver := r.policyResolver
+	identity := cacheGuardConfigurationIdentity(global)
 	if provider, ok := resolver.(protectionPolicySnapshotProvider); ok {
 		snapshot := provider.ProtectionPoliciesSnapshot()
-		if snapshot == nil {
-			_ = r.engine.ApplyPolicySettings(nil)
-			r.appliedPolicy = nil
-			return
+		if r.ordinaryWritePending && snapshot != nil && snapshot != r.ordinaryBlockedPolicy {
+			r.ordinaryWritePending = false
+			r.ordinaryBlockedPolicy = nil
 		}
-		if snapshot == r.appliedPolicy {
-			return
+		ordinary := !r.ordinaryWritePending && snapshot != nil && snapshot.globalCache != nil && cacheGuardConfigurationIdentity(*snapshot.globalCache) == identity
+		if snapshot == r.appliedPolicy && identity == r.appliedGlobal && ordinary == r.appliedOrdinary {
+			return nil
 		}
-		values := make(map[int64]UpstreamCacheGuardSettings, len(snapshot.policies))
-		for id, policy := range snapshot.policies {
-			values[id] = policy.Cache
+		var values map[int64]UpstreamCacheGuardSettings
+		var generations map[string]string
+		if snapshot != nil {
+			values = snapshot.cachePolicies
+			if values == nil {
+				// Compatibility for lightweight providers with preloaded policies.
+				// Construct only once per immutable snapshot, never on every tick.
+				if snapshot == r.appliedPolicy {
+					values = r.appliedPolicies
+				} else {
+					values = make(map[int64]UpstreamCacheGuardSettings, len(snapshot.policies))
+					for id, policy := range snapshot.policies {
+						values[id] = policy.Cache
+					}
+				}
+			}
+			if ordinary {
+				generations = snapshot.ordinaryRecoveryGenerations
+			}
 		}
-		if r.engine.ApplyPolicySettings(values) == nil {
-			r.appliedPolicy = snapshot
+		// A directly updated global setting can arrive before its corresponding
+		// resolved-policy snapshot. Publish normal settings promptly, but pause
+		// ordinary recovery until all three values belong to the same bundle.
+		if err := r.engine.ApplyRecoveryConfiguration(global, values, generations); err != nil {
+			return err
 		}
-		return
+		r.appliedPolicy, r.appliedGlobal = snapshot, identity
+		r.appliedPolicies, r.appliedOrdinary = values, ordinary
+		return nil
 	}
+	// Legacy providers do not publish a durable generation, so ordinary recovery
+	// stays disabled. Preserve manually installed policy maps when unavailable.
+	r.engine.SetOrdinaryRecoveryPolicyGenerations(nil)
 	if provider, ok := resolver.(interface {
 		CachePolicies() map[int64]UpstreamCacheGuardSettings
 	}); ok {
-		_ = r.engine.ApplyPolicySettings(provider.CachePolicies())
+		return r.engine.ApplyRecoveryConfiguration(global, provider.CachePolicies(), nil)
 	}
+	return r.engine.ApplySettings(global)
 }
 
 func (r *UpstreamCacheGuardRunner) cachePolicyMetadata(groupID int64) (string, string) {
@@ -227,16 +288,16 @@ func (r *UpstreamCacheGuardRunner) refresh() {
 		r.available.Store(false)
 		return
 	}
+	readRevision := r.localSettingsRevision.Load()
 	s, err := r.settings.GetUpstreamCacheGuardSettings(ctx)
 	if err != nil {
 		r.available.Store(false)
 		return
 	}
-	if err = r.engine.ApplySettings(s); err != nil {
+	if err = r.applyRecoverySettings(s, readRevision); err != nil {
 		r.available.Store(false)
 		return
 	}
-	r.applyPolicySnapshot()
 	if !r.engine.AnyPolicyActive() {
 		r.available.Store(false)
 		return
@@ -439,7 +500,8 @@ func (r *UpstreamCacheGuardRunner) Close() {
 
 func (r *UpstreamCacheGuardRunner) logicalRequest(ctx context.Context, groupID *int64, session, model, protocol string) (upstreamcacheguard.Request, bool) {
 	identity, ok := ctx.Value(cacheGuardSchedulingKey{}).(cacheGuardSchedulingIdentity)
-	if stable, exists := ctx.Value(cacheGuardLogicalSessionKey{}).(string); exists && stable != "" {
+	stable, reliable := ctx.Value(cacheGuardLogicalSessionKey{}).(string)
+	if reliable && stable != "" {
 		session = stable
 	}
 	if !ok || identity.APIKeyID <= 0 || identity.RequestID == "" || groupID == nil || *groupID <= 0 || session == "" || model == "" || len(r.secret) == 0 {
@@ -447,7 +509,23 @@ func (r *UpstreamCacheGuardRunner) logicalRequest(ctx context.Context, groupID *
 	}
 	h := hmac.New(sha256.New, r.secret)
 	_, _ = fmt.Fprintf(h, "upstream-cache-guard:v1:%d:%d:%s", identity.APIKeyID, *groupID, session)
-	return upstreamcacheguard.Request{ID: identity.RequestID, LogicalSessionDigest: hex.EncodeToString(h.Sum(nil)), APIKeyID: identity.APIKeyID, GroupID: *groupID, Model: model, Protocol: protocol, StartedAt: identity.StartedAt}, true
+	request := upstreamcacheguard.Request{ID: identity.RequestID, LogicalSessionDigest: hex.EncodeToString(h.Sum(nil)), APIKeyID: identity.APIKeyID, GroupID: *groupID, Model: model, Protocol: protocol, StartedAt: identity.StartedAt}
+	if reliable && stable != "" {
+		ordinary := hmac.New(sha256.New, r.secret)
+		_, _ = fmt.Fprintf(ordinary, "upstream-cache-guard:ordinary-session:v1:%d:%s", identity.APIKeyID, stable)
+		request.OrdinaryRecoverySessionID = hex.EncodeToString(ordinary.Sum(nil))
+		request.OrdinaryRecoveryIdentityGeneration = r.ordinaryRecoveryIdentityGeneration()
+	}
+	return request, true
+}
+
+func (r *UpstreamCacheGuardRunner) ordinaryRecoveryIdentityGeneration() string {
+	if r == nil || len(r.secret) == 0 {
+		return ""
+	}
+	h := hmac.New(sha256.New, r.secret)
+	_, _ = h.Write([]byte("upstream-cache-guard:ordinary-identity-generation:v1"))
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 func BeginUpstreamCacheGuardRequest(ctx context.Context, apiKeyID int64, groupID *int64, sessionHash, model, protocol string, account *Account) *UpstreamCacheGuardAdmission {

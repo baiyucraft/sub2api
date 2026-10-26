@@ -1448,6 +1448,17 @@ export interface UpstreamCacheGuardState {
   cooldown_until: string | null
   updated_at: string | null
   trial_participant?: boolean
+  ordinary_recovery?: {
+    valid_requests: number
+    required_requests: number
+    sessions: number
+    required_sessions: number
+    rate_percent: number | null
+    required_rate_percent: number
+    started_at: string | null
+    ready_at: string | null
+    reason: string
+  }
   native_state?: UpstreamCacheGuardState['state']
   native_reason?: string
   linked_protection?: {

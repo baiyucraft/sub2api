@@ -107,8 +107,11 @@ type GroupSchedulingProtectionResolvedPolicy struct {
 // can be retained for one scheduling evaluation without copying every group.
 // Accessors return owned values, including the only slice in a policy.
 type GroupSchedulingProtectionPolicySnapshot struct {
-	revision uint64
-	policies map[int64]GroupSchedulingProtectionResolvedPolicy
+	revision                    uint64
+	policies                    map[int64]GroupSchedulingProtectionResolvedPolicy
+	ordinaryRecoveryGenerations map[string]string
+	globalCache                 *UpstreamCacheGuardSettings
+	cachePolicies               map[int64]UpstreamCacheGuardSettings
 }
 
 func (s *GroupSchedulingProtectionPolicySnapshot) Revision() uint64 {
@@ -315,16 +318,27 @@ func (s *GroupSchedulingProtectionPolicyService) RefreshProtectionPolicies(ctx c
 		next[record.TTFT.GroupID] = resolved
 	}
 	platforms := s.settings.SchedulingProtectionPlatformsSnapshot()
+	revisions, err := s.settings.ordinaryRecoverySettingRevisions(ctx)
+	if err != nil {
+		return err
+	}
+	generations := ordinaryRecoveryPolicyGenerations(cache, next, records, revisions)
 	s.mu.Lock()
 	// Refresh success updates health even when policy content is unchanged.
 	// Never mutate a published map: evaluations may still retain its revision.
-	if s.published == nil || !reflect.DeepEqual(s.snapshot, next) || !reflect.DeepEqual(s.platforms, platforms) {
+	if s.published == nil || !reflect.DeepEqual(s.snapshot, next) || !reflect.DeepEqual(s.platforms, platforms) || !reflect.DeepEqual(s.published.ordinaryRecoveryGenerations, generations) || s.published.globalCache == nil || cacheGuardConfigurationIdentity(*s.published.globalCache) != cacheGuardConfigurationIdentity(cache) {
 		revision := uint64(1)
 		if s.published != nil {
 			revision = s.published.revision + 1
 		}
 		s.snapshot = next
-		s.published = &GroupSchedulingProtectionPolicySnapshot{revision: revision, policies: next}
+		global := cache
+		global.GroupIDs = append([]int64(nil), cache.GroupIDs...)
+		values := make(map[int64]UpstreamCacheGuardSettings, len(next))
+		for id, policy := range next {
+			values[id] = policy.Cache
+		}
+		s.published = &GroupSchedulingProtectionPolicySnapshot{revision: revision, policies: next, ordinaryRecoveryGenerations: generations, globalCache: &global, cachePolicies: values}
 		s.platforms = platforms
 	}
 	s.loadedAt = time.Now()

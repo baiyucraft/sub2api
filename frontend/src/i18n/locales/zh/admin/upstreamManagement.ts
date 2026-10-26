@@ -23,8 +23,22 @@ export default {
       sourceUnavailable: '配置来源暂不可用', priorityUnavailable: '优先策略暂不可用',
       noTTFTSamples: '暂无有效 TTFT 观测，不能据此判定正常。', ttftValues: '首字阈值 {threshold} · 恢复目标 ≤ {recovery} · 至少 {samples} 个样本',
       noTTFTDegradation: '样本不足', noData: '暂无保护统计', unknown: '未知',
+      modelCounts: '模型去重：正常 {normal} · 样本不足 {insufficient} · 待复核 {revalidating} · 保护 {protected} · 暂不可用 {unavailable}',
+      ordinaryCacheRecovery: '普通流量恢复验证', trialCacheRecovery: '试用恢复验证',
+      cacheRecoveryRequests: '有效请求 {current}/{required}', cacheRecoverySessions: '独立会话 {current}/{required}',
+      cacheRecoveryRate: '恢复窗口缓存率 {current} · 要求 ≥ {required}', cacheRecoveryReadyAt: '最早验证时间',
+      cacheRecoveryReasons: {
+        cooldown: '等待冷却结束', waiting_samples: '等待更多有效普通请求', insufficient_samples: '等待更多有效普通请求',
+        waiting_sessions: '等待更多独立会话', insufficient_sessions: '等待更多独立会话',
+        below_recovery_threshold: '普通恢复窗口缓存率未达恢复阈值', shared_below_recovery_threshold: '总有效窗口缓存率未达恢复阈值',
+        waiting_validation_time: '等待恢复观察期结束', validating: '等待恢复观察期结束',
+        awaiting_fresh_evidence: '条件已满足，等待新有效完成确认', ready_waiting_new_evidence: '条件已满足，等待新有效完成确认',
+        sampling_gap: '采样缺口未补齐，暂停恢复', pending_gap: '采样缺口未补齐，暂停恢复',
+        waiting_identity: '等待新的可靠会话身份', identity_changed: '会话身份代次变化后重新验证',
+        rule_changed: '策略变化后重新验证', paused: '保护暂停后重新验证', window_interrupted: '窗口条件中断后重新验证'
+      },
       metrics: '账号统计', models: '模型 TTFT', groups: '分组执行', sharedHint: '同一账号共享统计；各分组使用自己的阈值与优先策略。',
-      state: { healthy: '正常', unknown: '样本不足', normal: '正常', insufficient: '样本不足', observed: '共享观测', degraded: '保护', draining: '保护', protected: '保护', recovering: '保护', observing: '样本不足', expired: '样本不足', disabled: '已关闭', unavailable: '暂不可用', platform_not_selected: '未纳入平台范围' },
+      state: { healthy: '正常', unknown: '样本不足', normal: '正常', insufficient: '样本不足', partial_insufficient: '部分模型样本不足', revalidating: '待复核', partial_revalidating: '部分模型待复核', partial_unavailable: '部分状态暂不可用', observed: '共享观测', degraded: '保护', draining: '保护', protected: '保护', recovering: '保护', observing: '样本不足', expired: '样本不足', disabled: '已关闭', unavailable: '暂不可用', platform_not_selected: '未纳入平台范围' },
       trigger: '触发证据', triggerValues: '当次 TTFT {ttft} · 当时阈值 {threshold}', triggeredAt: '触发时间',
       noTriggerSnapshot: '暂无可核验的触发快照', badEvidenceExpiresAt: '坏证据截止',
       currentQuality: '当前质量：平滑 {ewma} · 最近 {latest} · {samples} 个样本',
@@ -118,7 +132,7 @@ export default {
       sourcePhases: { healthy: '正常', degraded: '低缓存保护', cooling: '冷却中', trial: '恢复试用' },
       metricHint: '当前账号与 Key 的所有分组有效样本按输入 Token 加权合并，冷启动和无效样本不计。未知不等于 0%。各组按自己的生效阈值判定和恢复。',
       states: { disabled: '关闭', observing: '观察中', insufficient: '样本不足', normal: '正常', protected: '保护中', recovering: '恢复试用', expired: '数据过期', unavailable: '状态暂不可用' },
-      reasons: { disabled: '保护已关闭', collecting_samples: '收集有效样本', insufficient_samples: '有效续聊样本不足', low_cache_rate: '缓存率低于保护阈值', below_threshold: '低于保护阈值', cooldown: '等待冷却结束', waiting_recovery_samples: '等待恢复样本与观察时间', waiting_recovery_validation: '等待独立试用验证', recovery_verified: '恢复判定通过', healthy: '正常窗口缓存表现', unavailable: '状态暂不可用', snapshot_unavailable: '共享状态暂不可用', evidence_expired: '保护证据已过期，等待新有效样本', linked_group_protection: '同一上游账号受到其他分组联动保护' }
+      reasons: { disabled: '保护已关闭', collecting_samples: '收集有效样本', insufficient_samples: '有效续聊样本不足', low_cache_rate: '缓存率低于保护阈值', below_threshold: '低于保护阈值', cooldown: '等待冷却结束', waiting_recovery_samples: '等待恢复样本与观察时间', waiting_recovery_validation: '等待恢复验证', recovery_verified: '恢复判定通过', healthy: '正常窗口缓存表现', unavailable: '状态暂不可用', snapshot_unavailable: '共享状态暂不可用', evidence_expired: '保护证据已过期，等待新有效样本', linked_group_protection: '同一上游账号受到其他分组联动保护' }
     },
     retryStatusCodes: {
       title: '同账号重试状态码',

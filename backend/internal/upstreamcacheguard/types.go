@@ -85,34 +85,38 @@ func (s Settings) ContainsGroup(id int64) bool {
 
 type RawUsage = upstreamcacheusage.Evidence
 type Request struct {
-	ID                   string    `json:"id"`
-	LogicalSessionDigest string    `json:"logical_session_digest"`
-	APIKeyID             int64     `json:"api_key_id"`
-	GroupID              int64     `json:"group_id"`
-	AccountID            int64     `json:"account_id"`
-	UpstreamKeyID        int64     `json:"upstream_key_id"`
-	Model                string    `json:"model"`
-	Protocol             string    `json:"protocol"`
-	StartedAt            time.Time `json:"started_at"`
+	OrdinaryRecoverySessionID          string    `json:"ordinary_recovery_session_id,omitempty"`
+	OrdinaryRecoveryIdentityGeneration string    `json:"ordinary_recovery_identity_generation,omitempty"`
+	ID                                 string    `json:"id"`
+	LogicalSessionDigest               string    `json:"logical_session_digest"`
+	APIKeyID                           int64     `json:"api_key_id"`
+	GroupID                            int64     `json:"group_id"`
+	AccountID                          int64     `json:"account_id"`
+	UpstreamKeyID                      int64     `json:"upstream_key_id"`
+	Model                              string    `json:"model"`
+	Protocol                           string    `json:"protocol"`
+	StartedAt                          time.Time `json:"started_at"`
 }
 type Admission struct {
-	PolicySignature  string    `json:"policy_signature,omitempty"`
-	RequestID        string    `json:"request_id"`
-	SessionKey       string    `json:"session_key"`
-	GroupID          int64     `json:"group_id"`
-	AccountID        int64     `json:"account_id"`
-	UpstreamKeyID    int64     `json:"upstream_key_id,omitempty"`
-	StartedAt        time.Time `json:"started_at"`
-	NaturalNew       bool      `json:"natural_new"`
-	WarmAtStart      bool      `json:"warm_at_start"`
-	ProtectedAtStart bool      `json:"protected_at_start"`
-	Trial            bool      `json:"trial"`
-	Sample           bool      `json:"sample"`
-	CaptureOnly      bool      `json:"capture_only,omitempty"`
-	CohortID         string    `json:"cohort_id,omitempty"`
-	Mode             Mode      `json:"mode"`
-	Completed        bool      `json:"completed"`
-	RouteKey         string    `json:"route_key"`
+	OrdinaryRecoverySessionID          string    `json:"ordinary_recovery_session_id,omitempty"`
+	OrdinaryRecoveryIdentityGeneration string    `json:"ordinary_recovery_identity_generation,omitempty"`
+	PolicySignature                    string    `json:"policy_signature,omitempty"`
+	RequestID                          string    `json:"request_id"`
+	SessionKey                         string    `json:"session_key"`
+	GroupID                            int64     `json:"group_id"`
+	AccountID                          int64     `json:"account_id"`
+	UpstreamKeyID                      int64     `json:"upstream_key_id,omitempty"`
+	StartedAt                          time.Time `json:"started_at"`
+	NaturalNew                         bool      `json:"natural_new"`
+	WarmAtStart                        bool      `json:"warm_at_start"`
+	ProtectedAtStart                   bool      `json:"protected_at_start"`
+	Trial                              bool      `json:"trial"`
+	Sample                             bool      `json:"sample"`
+	CaptureOnly                        bool      `json:"capture_only,omitempty"`
+	CohortID                           string    `json:"cohort_id,omitempty"`
+	Mode                               Mode      `json:"mode"`
+	Completed                          bool      `json:"completed"`
+	RouteKey                           string    `json:"route_key"`
 }
 type TrialPlan struct {
 	RequestID    string `json:"request_id"`
@@ -148,6 +152,7 @@ const (
 )
 
 type AccountState struct {
+	OrdinaryRecovery *OrdinaryRecoveryState `json:"ordinary_recovery,omitempty"`
 	// Policies share immutable observations, but own recovery/reset boundaries.
 	Policies               map[string]PolicyProjection `json:"policies,omitempty"`
 	PolicySignature        string                      `json:"policy_signature,omitempty"`
@@ -305,16 +310,18 @@ type AccountWindow struct {
 	NextBoundary time.Time
 	// Err isolates a malformed projection to this account/Key. Query-wide
 	// failures are returned by AccountWindows itself.
-	Err                                    error
-	AccountID, UpstreamKeyID, Version      int64
-	State                                  AccountState
-	ValidRequests                          int
-	TotalInputTokens, CacheReadTokens      int64
-	TrialValidRequests, TrialSessions      int
-	TrialInputTokens, TrialCacheReadTokens int64
-	LastEvidenceAt                         time.Time
-	GroupIDs, TrialGroupIDs                []int64
-	Policies                               map[string]AccountWindow
+	Err                                          error
+	AccountID, UpstreamKeyID, Version            int64
+	State                                        AccountState
+	ValidRequests                                int
+	TotalInputTokens, CacheReadTokens            int64
+	TrialValidRequests, TrialSessions            int
+	TrialInputTokens, TrialCacheReadTokens       int64
+	OrdinaryValidRequests, OrdinarySessions      int
+	OrdinaryInputTokens, OrdinaryCacheReadTokens int64
+	LastEvidenceAt                               time.Time
+	GroupIDs, TrialGroupIDs                      []int64
+	Policies                                     map[string]AccountWindow
 }
 
 type AccountTx interface {
@@ -323,6 +330,19 @@ type AccountTx interface {
 	WriteAccount(int64, int64, any) (int64, error)
 	AccountFacts(int64, int64, time.Time) ([]Evidence, error)
 	LegacyAccounts(int64, int64) ([]LegacyAccountState, error)
+}
+
+// RecoveryFactsTx returns the same bounded account facts as AccountFacts and
+// checks pending completions under the account transaction's identity lock.
+// The just-inserted completion is part of Facts, never itself a pending gap.
+// Stores without this capability keep the original trial-only recovery path.
+type RecoveryFactsTx interface {
+	AccountRecoveryFacts(accountID, keyID int64, since, at time.Time) (AccountRecoveryFacts, error)
+}
+
+type AccountRecoveryFacts struct {
+	Facts         []Evidence
+	HasPendingGap bool
 }
 
 type LegacyAccountState struct {

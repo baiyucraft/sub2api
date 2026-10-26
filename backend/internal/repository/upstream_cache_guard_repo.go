@@ -215,6 +215,7 @@ func (r *upstreamCacheGuardRepository) accountWindows(ctx context.Context, ids [
 	rows, err := r.db.QueryContext(ctx, `WITH eligible AS (
 		SELECT state.account_id,state.upstream_key_id,
 			fact.group_id,fact.completed_at,fact.evidence_json->'admission' AS admission,
+			fact.evidence_json->'request' AS request,
 			COALESCE(fact.evidence_json->>'protection_paused','false') = 'true' AS protection_paused,
 			(fact.evidence_json->'raw_usage'->>'TotalInputTokens')::BIGINT AS input_tokens,
 			(fact.evidence_json->'raw_usage'->>'CacheReadTokens')::BIGINT AS cache_read_tokens,
@@ -253,6 +254,10 @@ func (r *upstreamCacheGuardRepository) accountWindows(ctx context.Context, ids [
 				'TrialInputTokens',COALESCE(SUM(f.input_tokens) FILTER (WHERE f.cohort_trial),0)::BIGINT,
 				'TrialCacheReadTokens',COALESCE(SUM(f.cache_read_tokens) FILTER (WHERE f.cohort_trial),0)::BIGINT,
 				'TrialSessions',COUNT(DISTINCT (f.group_id,f.session_key)) FILTER (WHERE f.cohort_trial),
+				'OrdinaryValidRequests',COUNT(f.group_id) FILTER (WHERE f.ordinary_recovery),
+				'OrdinarySessions',COUNT(DISTINCT f.admission->>'ordinary_recovery_session_id') FILTER (WHERE f.ordinary_recovery),
+				'OrdinaryInputTokens',COALESCE(SUM(f.input_tokens) FILTER (WHERE f.ordinary_recovery),0)::BIGINT,
+				'OrdinaryCacheReadTokens',COALESCE(SUM(f.cache_read_tokens) FILTER (WHERE f.ordinary_recovery),0)::BIGINT,
 				'LastEvidenceAt',to_char(MAX(f.completed_at) AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
 				'GroupIDs',COALESCE(ARRAY_AGG(DISTINCT f.group_id),'{}'::BIGINT[]),
 				'TrialGroupIDs',COALESCE(ARRAY_AGG(DISTINCT f.group_id) FILTER (WHERE f.cohort_trial),'{}'::BIGINT[])) AS metrics
@@ -261,7 +266,17 @@ func (r *upstreamCacheGuardRepository) accountWindows(ctx context.Context, ids [
 					 AND NULLIF(policy.value->'state'->>'cohort_id','') IS NOT NULL
 					 AND normal.admission->>'cohort_id'=policy.value->'state'->>'cohort_id'
 					 AND (COALESCE(normal.admission->>'policy_signature','')=''
-					      OR normal.admission->>'policy_signature'=policy.key)) AS cohort_trial
+					      OR normal.admission->>'policy_signature'=policy.key)) AS cohort_trial,
+					(NOT normal.protection_paused
+					 AND COALESCE(normal.admission->>'trial','false') <> 'true'
+					 AND COALESCE(normal.admission->>'capture_only','false') <> 'true'
+					 AND normal.admission->>'ordinary_recovery_session_id' ~ '^[0-9a-f]{64}$'
+					 AND normal.admission->>'ordinary_recovery_session_id'=normal.request->>'ordinary_recovery_session_id'
+					 AND normal.admission->>'ordinary_recovery_identity_generation' ~ '^[0-9a-f]{64}$'
+					 AND normal.admission->>'ordinary_recovery_identity_generation'=normal.request->>'ordinary_recovery_identity_generation'
+					 AND normal.admission->>'ordinary_recovery_identity_generation'=policy.value->'state'->'ordinary_recovery'->>'identity_generation'
+					 AND NULLIF(normal.request->>'started_at','')::TIMESTAMPTZ >= NULLIF(policy.value->'state'->'ordinary_recovery'->>'barrier_at','')::TIMESTAMPTZ
+					 AND normal.completed_at >= NULLIF(policy.value->'state'->'ordinary_recovery'->>'barrier_at','')::TIMESTAMPTZ) AS ordinary_recovery
 					FROM eligible AS normal
 					WHERE normal.account_id=state.account_id AND normal.upstream_key_id=state.upstream_key_id
 					AND normal.completed_at>COALESCE(NULLIF(policy.value->'state'->>'quality_since','')::TIMESTAMPTZ,'-infinity'::TIMESTAMPTZ)) AS f) AS projection_window),'{}'::JSONB)

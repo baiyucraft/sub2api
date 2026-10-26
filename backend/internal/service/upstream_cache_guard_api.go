@@ -8,31 +8,33 @@ import (
 )
 
 type UpstreamCacheGuardState struct {
-	PolicySource             string                              `json:"policy_source"`
-	PolicyMode               string                              `json:"policy_mode"`
-	ThresholdPercent         float64                             `json:"threshold_percent"`
-	RecoveryThresholdPercent float64                             `json:"recovery_threshold_percent"`
-	MinValidRequests         int                                 `json:"min_valid_requests"`
-	SchedulingPriority       string                              `json:"scheduling_priority"`
-	GroupID                  int64                               `json:"group_id"`
-	GroupName                string                              `json:"group_name,omitempty"`
-	State                    string                              `json:"state"`
-	RatePercent              *float64                            `json:"rate_percent"`
-	ValidRequests            int                                 `json:"valid_requests"`
-	Reason                   string                              `json:"reason"`
-	RecoveryValidRequests    int                                 `json:"recovery_valid_requests"`
-	RecoveryRatePercent      *float64                            `json:"recovery_rate_percent"`
-	RecoverySessions         int                                 `json:"recovery_sessions"`
-	RecoveryStartedAt        *time.Time                          `json:"recovery_started_at"`
-	CooldownUntil            *time.Time                          `json:"cooldown_until"`
-	UpdatedAt                *time.Time                          `json:"updated_at"`
-	NativeState              string                              `json:"native_state,omitempty"`
-	NativeReason             string                              `json:"native_reason,omitempty"`
-	LinkedProtection         *UpstreamCacheGuardLinkedProtection `json:"linked_protection,omitempty"`
-	TrialParticipant         bool                                `json:"trial_participant"`
+	PolicySource             string                                   `json:"policy_source"`
+	PolicyMode               string                                   `json:"policy_mode"`
+	ThresholdPercent         float64                                  `json:"threshold_percent"`
+	RecoveryThresholdPercent float64                                  `json:"recovery_threshold_percent"`
+	MinValidRequests         int                                      `json:"min_valid_requests"`
+	SchedulingPriority       string                                   `json:"scheduling_priority"`
+	GroupID                  int64                                    `json:"group_id"`
+	GroupName                string                                   `json:"group_name,omitempty"`
+	State                    string                                   `json:"state"`
+	RatePercent              *float64                                 `json:"rate_percent"`
+	ValidRequests            int                                      `json:"valid_requests"`
+	Reason                   string                                   `json:"reason"`
+	RecoveryValidRequests    int                                      `json:"recovery_valid_requests"`
+	RecoveryRatePercent      *float64                                 `json:"recovery_rate_percent"`
+	RecoverySessions         int                                      `json:"recovery_sessions"`
+	RecoveryStartedAt        *time.Time                               `json:"recovery_started_at"`
+	CooldownUntil            *time.Time                               `json:"cooldown_until"`
+	UpdatedAt                *time.Time                               `json:"updated_at"`
+	NativeState              string                                   `json:"native_state,omitempty"`
+	NativeReason             string                                   `json:"native_reason,omitempty"`
+	LinkedProtection         *UpstreamCacheGuardLinkedProtection      `json:"linked_protection,omitempty"`
+	TrialParticipant         bool                                     `json:"trial_participant"`
+	OrdinaryRecovery         *upstreamcacheguard.OrdinaryRecoveryView `json:"ordinary_recovery,omitempty"`
 }
 
 type UpstreamCacheGuardSummary struct {
+	ordinaryRecovery      *upstreamcacheguard.OrdinaryRecoveryView
 	State                 string     `json:"state"`
 	RatePercent           *float64   `json:"rate_percent"`
 	ValidRequests         int        `json:"valid_requests"`
@@ -135,7 +137,7 @@ func UpstreamCacheGuardAccountViewsBatchAt(accounts []Account, at time.Time) map
 	if r == nil || !r.engine.AnyPolicyActive() {
 		return map[int64]UpstreamCacheGuardAccountView{}
 	}
-	views := upstreamCacheGuardPolicyAccountViewsBatch(accounts, settings, available, readAccount, r.engine.ResolvedSettings, r.cachePolicyMetadata)
+	views := upstreamCacheGuardPolicyAccountViewsBatchAt(accounts, settings, available, readAccount, r.engine.ResolvedSettings, r.cachePolicyMetadata, at)
 	for i := range accounts {
 		account := &accounts[i]
 		view, ok := views[account.ID]
@@ -165,6 +167,7 @@ func MarkUpstreamCacheGuardPlatformNotSelected(state *UpstreamCacheGuardState) {
 	state.RecoveryValidRequests, state.RecoverySessions = 0, 0
 	state.RecoveryRatePercent, state.RecoveryStartedAt, state.CooldownUntil = nil, nil, nil
 	state.TrialParticipant = false
+	state.OrdinaryRecovery = nil
 	state.LinkedProtection = nil
 	state.NativeState, state.NativeReason = "", ""
 }
@@ -174,6 +177,10 @@ func upstreamCacheGuardAccountViewsBatch(accounts []Account, settings UpstreamCa
 }
 
 func upstreamCacheGuardPolicyAccountViewsBatch(accounts []Account, settings UpstreamCacheGuardSettings, available bool, readAccount func(int64, int64) (upstreamcacheguard.AccountSnapshot, bool), resolve func(int64) UpstreamCacheGuardSettings, metadata func(int64) (string, string)) map[int64]UpstreamCacheGuardAccountView {
+	return upstreamCacheGuardPolicyAccountViewsBatchAt(accounts, settings, available, readAccount, resolve, metadata, time.Now().UTC())
+}
+
+func upstreamCacheGuardPolicyAccountViewsBatchAt(accounts []Account, settings UpstreamCacheGuardSettings, available bool, readAccount func(int64, int64) (upstreamcacheguard.AccountSnapshot, bool), resolve func(int64) UpstreamCacheGuardSettings, metadata func(int64) (string, string), at time.Time) map[int64]UpstreamCacheGuardAccountView {
 	result := make(map[int64]UpstreamCacheGuardAccountView, len(accounts))
 	if settings.Mode == upstreamcacheguard.Disabled && resolve == nil {
 		return result
@@ -192,7 +199,7 @@ func upstreamCacheGuardPolicyAccountViewsBatch(accounts []Account, settings Upst
 		}
 		// The header reports shared observations. Policy-local recovery resets
 		// only affect the per-group details below.
-		summary := upstreamCacheGuardSummary(snapshot, fresh, settings)
+		summary := upstreamCacheGuardSummaryAt(snapshot, fresh, settings, at)
 		states := upstreamCacheGuardGroupStates(account, settings, summary, snapshot)
 		for i := range states {
 			groupSettings := settings
@@ -209,7 +216,7 @@ func upstreamCacheGuardPolicyAccountViewsBatch(accounts []Account, settings Upst
 			}
 			if resolve != nil && accountMatchesCacheGuardGroup(account, states[i].GroupID) && groupSettings.Mode != upstreamcacheguard.Disabled && groupSettings.ContainsGroup(states[i].GroupID) {
 				projected := upstreamcacheguard.ProjectAccountSnapshot(snapshot, groupSettings)
-				groupSummary := upstreamCacheGuardSummary(projected, fresh && projected.Available, groupSettings)
+				groupSummary := upstreamCacheGuardSummaryAt(projected, fresh && projected.Available, groupSettings, at)
 				applyCacheGuardGroupSummary(&states[i], groupSummary)
 				states[i].TrialParticipant = false
 				for _, id := range projected.TrialGroupIDs {
@@ -221,6 +228,7 @@ func upstreamCacheGuardPolicyAccountViewsBatch(accounts []Account, settings Upst
 				states[i].RecoveryRatePercent, states[i].RecoveryValidRequests, states[i].RecoverySessions = nil, 0, 0
 				states[i].RecoveryStartedAt, states[i].CooldownUntil = nil, nil
 				states[i].TrialParticipant = false
+				states[i].OrdinaryRecovery = nil
 			}
 		}
 		if resolve != nil {
@@ -281,9 +289,14 @@ func applyCacheGuardGroupSummary(item *UpstreamCacheGuardState, summary Upstream
 	item.UpdatedAt, item.CooldownUntil = summary.UpdatedAt, summary.CooldownUntil
 	item.RecoveryStartedAt, item.RecoveryValidRequests = summary.RecoveryStartedAt, summary.RecoveryValidRequests
 	item.RecoveryRatePercent, item.RecoverySessions = summary.RecoveryRatePercent, summary.RecoverySessions
+	item.OrdinaryRecovery = summary.ordinaryRecovery
 }
 
 func upstreamCacheGuardSummary(a upstreamcacheguard.AccountSnapshot, fresh bool, settings UpstreamCacheGuardSettings) UpstreamCacheGuardSummary {
+	return upstreamCacheGuardSummaryAt(a, fresh, settings, time.Now().UTC())
+}
+
+func upstreamCacheGuardSummaryAt(a upstreamcacheguard.AccountSnapshot, fresh bool, settings UpstreamCacheGuardSettings, at time.Time) UpstreamCacheGuardSummary {
 	item := UpstreamCacheGuardSummary{State: "insufficient", Reason: "insufficient_samples", WindowMinutes: settings.WindowMinutes}
 	if !fresh {
 		item.State, item.Reason = "unavailable", "snapshot_unavailable"
@@ -313,6 +326,10 @@ func upstreamCacheGuardSummary(a upstreamcacheguard.AccountSnapshot, fresh bool,
 	}
 	if a.Phase != upstreamcacheguard.Healthy && a.Phase != "" {
 		item.State, item.Reason = "protected", "below_threshold"
+		item.ordinaryRecovery = upstreamcacheguard.OrdinaryRecoveryStatusAt(a.AccountState, settings, at)
+		if a.ValidRequests > settings.MinValidRequests && a.CachePercent >= settings.ThresholdPercent {
+			item.Reason = "waiting_recovery_validation"
+		}
 		if a.Phase == upstreamcacheguard.Trial {
 			item.State, item.Reason = "recovering", "waiting_recovery_validation"
 		}
@@ -360,6 +377,7 @@ func upstreamCacheGuardGroupStates(account *Account, settings UpstreamCacheGuard
 			item.UpdatedAt, item.CooldownUntil = summary.UpdatedAt, summary.CooldownUntil
 			item.RecoveryStartedAt, item.RecoveryValidRequests = summary.RecoveryStartedAt, summary.RecoveryValidRequests
 			item.RecoveryRatePercent, item.RecoverySessions = summary.RecoveryRatePercent, summary.RecoverySessions
+			item.OrdinaryRecovery = summary.ordinaryRecovery
 			item.TrialParticipant = trialGroups[id]
 		}
 		result = append(result, item)
