@@ -3,6 +3,7 @@
 | 扩展域 | 最低回归要求 |
 | --- | --- |
 | 上游配置与管理 | provider 同步、缺失 Key 对账、派生账号绑定、账号编辑白名单、两个一级菜单、局部运行态刷新；合并时若 upstream/main 变更账号管理/编辑，必须同步对比上游管理后端、编辑 modal、白名单、payload 与回归测试 |
+| Sub2API 停用 Key | `sub2api_upstream_disabled_keys_test.go`：active、inactive/disabled 大小写与空白、缺失/空 status、expired/quota_exhausted/其他状态兼容；原始分页校验后再过滤、全停用完整空快照、停用的掩码/无倍率/未知平台记录不触发回填或探测；停用复用缺失生命周期，宽限期不立即暂停，失败/不完整同步不推进删除；`upstream_key_reconcile_integration_test.go`：连续缺失至少 3 次且满 30 分钟边界、停用与真正缺失共用计数、同 ID 恢复、手动暂停/删除、混合所有权、平台冲突与事务回滚；其他 provider 不变 |
 | LCodex 退场与历史安全兼容 | `upstream_config_test.go`：新建/更新显式 `lcodex` 返回 `UPSTREAM_PROVIDER_REMOVED`、旧配置读取不改 provider、旧 `lcodex_login_password` 保存时清理、Sub2API/NewAPI 正常行为保留；`upstream_config_handler_redaction_test.go`：旧 `lcodex_login_password` 脱敏与图片快照隐藏；`upstream_auth_session_test.go` 的 `TestUpstreamAuthFingerprintRetiredProviderRemovalPreservesActiveSessions`：保留旧认证指纹材料遗留字段，仅用于内部摘要兼容，Sub2API/NewAPI 现有持久会话不因退场整体失效；`openai_image_request_policy_test.go` 的 `TestOpenAIImagePolicyRetiredLCodexSnapshotFallback`：旧 negative/stale negative 原始快照回退、`DeriveUpstreamKeyImagePricingForAccount` 仅旧 provider 的只读仓储 hydration、Sub2API 混合快照优先、nil 参数；`upstream_key_image_pricing_test.go`：Sub2API 定价回归；前端无专用入口/充值规则；历史 migration/profile/checksum 与发布断言不改写、不批量清理历史数据 |
 | 上游派生账号生命周期 | 仅完整同步推进缺失计数；sync_managed 连续缺失 3 次且至少 30 分钟后与 Key 同事务软归档；manual 永不自动归档；仅 `sync_managed+key_missing` 恢复同 ID 并保留分组、定时计划和历史；定时计划过滤 deleted_at；归档/恢复清理账号缓存、Redis、共享并发和健康 Registry；真实 PostgreSQL 验证 NULL-rate 历史绑定暂停/归档与健康 Key 同步、旧 241 回滚复现、同绑定计费字段保留、归档夹带启用/身份或 source 变更拒绝、未知率恢复回滚与有效零率恢复 |
 | 上游模型能力同步 | 仅 sync_managed 自动写白名单；NewAPI 有效 `model_limits` 优先于 live `/models`；无效/空结果保留最近成功映射；30m freshness 跳过重复请求，30m–24h 继续执行旧白名单，超过 24h 放行其他能力回退；成功更新触发 scheduler outbox/快照失效；并发 4、单账号 15s；状态与错误不得泄露 URL、凭据、响应体或原始错误 |
@@ -166,6 +167,7 @@ migration release-manifest map sha256: 0a0afac9d991533476f66210d1a7ed1cc18dc81f6
 ```text
 backend/internal/repository/upstream_account_lifecycle_test.go
 backend/internal/repository/upstream_key_reconcile_integration_test.go
+backend/internal/service/sub2api_upstream_disabled_keys_test.go
 backend/internal/repository/scheduled_test_repo_lifecycle_test.go
 backend/migrations/profile_239_migrations_test.go
 frontend/src/views/admin/__tests__/AccountsView.upstreamManagement.spec.ts
