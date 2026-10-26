@@ -2062,7 +2062,7 @@
     {
       "id": "release-operations-isolation",
       "title": "发布 skill 隔离、VM 电源所有权、日志与清理",
-      "description": "fork 专用发布资产隔离在 production-deploy skill，固定脚本读取本地四字段部署参数，沿用三层门禁、原子恢复 helper、幂等 checkpoint、独立恢复验真、可选 VM 自动启停、跨 checkout 身份锁和持久所有权；生产成功与 VM cleanup 分别验收，保留 8211 单实例展示合同。",
+      "description": "fork 专用发布资产隔离在 production-deploy skill，固定脚本读取本地四字段部署参数；生产 prepare 按签名恢复分类核对严格布尔，与 Python Gate 验真一致，普通应用不强制 full。沿用三层门禁、原子恢复 helper、幂等 checkpoint、独立恢复验真、可选 VM 自动启停、跨 checkout 身份锁和持久所有权；生产成功与 VM cleanup 分别验收，保留 8211 单实例展示合同。",
       "ownership": "fork-operations",
       "risk_level": "critical",
       "paths": [
@@ -2131,6 +2131,7 @@
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_backup_retention_clean.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_release_core.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_production_release.py",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_prepare_gate_policy.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_supervisor.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_vm_preflight_preserve.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_vm_failed_preserve.py",
