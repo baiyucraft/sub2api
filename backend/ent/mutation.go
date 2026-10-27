@@ -24246,6 +24246,7 @@ type GroupMutation struct {
 	default_validity_days                   *int
 	adddefault_validity_days                *int
 	allow_image_generation                  *bool
+	strip_optional_image_tools              *bool
 	allow_batch_image_generation            *bool
 	image_rate_independent                  *bool
 	image_rate_multiplier                   *float64
@@ -25405,6 +25406,42 @@ func (m *GroupMutation) OldAllowImageGeneration(ctx context.Context) (v bool, er
 // ResetAllowImageGeneration resets all changes to the "allow_image_generation" field.
 func (m *GroupMutation) ResetAllowImageGeneration() {
 	m.allow_image_generation = nil
+}
+
+// SetStripOptionalImageTools sets the "strip_optional_image_tools" field.
+func (m *GroupMutation) SetStripOptionalImageTools(b bool) {
+	m.strip_optional_image_tools = &b
+}
+
+// StripOptionalImageTools returns the value of the "strip_optional_image_tools" field in the mutation.
+func (m *GroupMutation) StripOptionalImageTools() (r bool, exists bool) {
+	v := m.strip_optional_image_tools
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldStripOptionalImageTools returns the old "strip_optional_image_tools" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldStripOptionalImageTools(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldStripOptionalImageTools is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldStripOptionalImageTools requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldStripOptionalImageTools: %w", err)
+	}
+	return oldValue.StripOptionalImageTools, nil
+}
+
+// ResetStripOptionalImageTools resets all changes to the "strip_optional_image_tools" field.
+func (m *GroupMutation) ResetStripOptionalImageTools() {
+	m.strip_optional_image_tools = nil
 }
 
 // SetAllowBatchImageGeneration sets the "allow_batch_image_generation" field.
@@ -28400,7 +28437,7 @@ func (m *GroupMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *GroupMutation) Fields() []string {
-	fields := make([]string, 0, 71)
+	fields := make([]string, 0, 72)
 	if m.created_at != nil {
 		fields = append(fields, group.FieldCreatedAt)
 	}
@@ -28463,6 +28500,9 @@ func (m *GroupMutation) Fields() []string {
 	}
 	if m.allow_image_generation != nil {
 		fields = append(fields, group.FieldAllowImageGeneration)
+	}
+	if m.strip_optional_image_tools != nil {
+		fields = append(fields, group.FieldStripOptionalImageTools)
 	}
 	if m.allow_batch_image_generation != nil {
 		fields = append(fields, group.FieldAllowBatchImageGeneration)
@@ -28664,6 +28704,8 @@ func (m *GroupMutation) Field(name string) (ent.Value, bool) {
 		return m.DefaultValidityDays()
 	case group.FieldAllowImageGeneration:
 		return m.AllowImageGeneration()
+	case group.FieldStripOptionalImageTools:
+		return m.StripOptionalImageTools()
 	case group.FieldAllowBatchImageGeneration:
 		return m.AllowBatchImageGeneration()
 	case group.FieldImageRateIndependent:
@@ -28815,6 +28857,8 @@ func (m *GroupMutation) OldField(ctx context.Context, name string) (ent.Value, e
 		return m.OldDefaultValidityDays(ctx)
 	case group.FieldAllowImageGeneration:
 		return m.OldAllowImageGeneration(ctx)
+	case group.FieldStripOptionalImageTools:
+		return m.OldStripOptionalImageTools(ctx)
 	case group.FieldAllowBatchImageGeneration:
 		return m.OldAllowBatchImageGeneration(ctx)
 	case group.FieldImageRateIndependent:
@@ -29070,6 +29114,13 @@ func (m *GroupMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetAllowImageGeneration(v)
+		return nil
+	case group.FieldStripOptionalImageTools:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetStripOptionalImageTools(v)
 		return nil
 	case group.FieldAllowBatchImageGeneration:
 		v, ok := value.(bool)
@@ -30018,6 +30069,9 @@ func (m *GroupMutation) ResetField(name string) error {
 		return nil
 	case group.FieldAllowImageGeneration:
 		m.ResetAllowImageGeneration()
+		return nil
+	case group.FieldStripOptionalImageTools:
+		m.ResetStripOptionalImageTools()
 		return nil
 	case group.FieldAllowBatchImageGeneration:
 		m.ResetAllowBatchImageGeneration()

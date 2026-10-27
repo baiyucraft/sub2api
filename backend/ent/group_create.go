@@ -310,6 +310,20 @@ func (_c *GroupCreate) SetNillableAllowImageGeneration(v *bool) *GroupCreate {
 	return _c
 }
 
+// SetStripOptionalImageTools sets the "strip_optional_image_tools" field.
+func (_c *GroupCreate) SetStripOptionalImageTools(v bool) *GroupCreate {
+	_c.mutation.SetStripOptionalImageTools(v)
+	return _c
+}
+
+// SetNillableStripOptionalImageTools sets the "strip_optional_image_tools" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableStripOptionalImageTools(v *bool) *GroupCreate {
+	if v != nil {
+		_c.SetStripOptionalImageTools(*v)
+	}
+	return _c
+}
+
 // SetAllowBatchImageGeneration sets the "allow_batch_image_generation" field.
 func (_c *GroupCreate) SetAllowBatchImageGeneration(v bool) *GroupCreate {
 	_c.mutation.SetAllowBatchImageGeneration(v)
@@ -1189,6 +1203,10 @@ func (_c *GroupCreate) defaults() error {
 		v := group.DefaultAllowImageGeneration
 		_c.mutation.SetAllowImageGeneration(v)
 	}
+	if _, ok := _c.mutation.StripOptionalImageTools(); !ok {
+		v := group.DefaultStripOptionalImageTools
+		_c.mutation.SetStripOptionalImageTools(v)
+	}
 	if _, ok := _c.mutation.AllowBatchImageGeneration(); !ok {
 		v := group.DefaultAllowBatchImageGeneration
 		_c.mutation.SetAllowBatchImageGeneration(v)
@@ -1409,6 +1427,9 @@ func (_c *GroupCreate) check() error {
 	}
 	if _, ok := _c.mutation.AllowImageGeneration(); !ok {
 		return &ValidationError{Name: "allow_image_generation", err: errors.New(`ent: missing required field "Group.allow_image_generation"`)}
+	}
+	if _, ok := _c.mutation.StripOptionalImageTools(); !ok {
+		return &ValidationError{Name: "strip_optional_image_tools", err: errors.New(`ent: missing required field "Group.strip_optional_image_tools"`)}
 	}
 	if _, ok := _c.mutation.AllowBatchImageGeneration(); !ok {
 		return &ValidationError{Name: "allow_batch_image_generation", err: errors.New(`ent: missing required field "Group.allow_batch_image_generation"`)}
@@ -1662,6 +1683,10 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.AllowImageGeneration(); ok {
 		_spec.SetField(group.FieldAllowImageGeneration, field.TypeBool, value)
 		_node.AllowImageGeneration = value
+	}
+	if value, ok := _c.mutation.StripOptionalImageTools(); ok {
+		_spec.SetField(group.FieldStripOptionalImageTools, field.TypeBool, value)
+		_node.StripOptionalImageTools = value
 	}
 	if value, ok := _c.mutation.AllowBatchImageGeneration(); ok {
 		_spec.SetField(group.FieldAllowBatchImageGeneration, field.TypeBool, value)
@@ -2342,6 +2367,18 @@ func (u *GroupUpsert) SetAllowImageGeneration(v bool) *GroupUpsert {
 // UpdateAllowImageGeneration sets the "allow_image_generation" field to the value that was provided on create.
 func (u *GroupUpsert) UpdateAllowImageGeneration() *GroupUpsert {
 	u.SetExcluded(group.FieldAllowImageGeneration)
+	return u
+}
+
+// SetStripOptionalImageTools sets the "strip_optional_image_tools" field.
+func (u *GroupUpsert) SetStripOptionalImageTools(v bool) *GroupUpsert {
+	u.Set(group.FieldStripOptionalImageTools, v)
+	return u
+}
+
+// UpdateStripOptionalImageTools sets the "strip_optional_image_tools" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateStripOptionalImageTools() *GroupUpsert {
+	u.SetExcluded(group.FieldStripOptionalImageTools)
 	return u
 }
 
@@ -3567,6 +3604,20 @@ func (u *GroupUpsertOne) SetAllowImageGeneration(v bool) *GroupUpsertOne {
 func (u *GroupUpsertOne) UpdateAllowImageGeneration() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateAllowImageGeneration()
+	})
+}
+
+// SetStripOptionalImageTools sets the "strip_optional_image_tools" field.
+func (u *GroupUpsertOne) SetStripOptionalImageTools(v bool) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetStripOptionalImageTools(v)
+	})
+}
+
+// UpdateStripOptionalImageTools sets the "strip_optional_image_tools" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateStripOptionalImageTools() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateStripOptionalImageTools()
 	})
 }
 
@@ -5097,6 +5148,20 @@ func (u *GroupUpsertBulk) SetAllowImageGeneration(v bool) *GroupUpsertBulk {
 func (u *GroupUpsertBulk) UpdateAllowImageGeneration() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateAllowImageGeneration()
+	})
+}
+
+// SetStripOptionalImageTools sets the "strip_optional_image_tools" field.
+func (u *GroupUpsertBulk) SetStripOptionalImageTools(v bool) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetStripOptionalImageTools(v)
+	})
+}
+
+// UpdateStripOptionalImageTools sets the "strip_optional_image_tools" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateStripOptionalImageTools() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateStripOptionalImageTools()
 	})
 }
 

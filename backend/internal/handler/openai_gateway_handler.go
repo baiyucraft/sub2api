@@ -584,10 +584,18 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		return
 	}
 
-	// 使用 IsExplicitImageGenerationIntent 排除被动 image_gen namespace 声明。
-	// Codex 在所有请求中被动声明 image_gen namespace，宽泛检测会导致禁了生图的
-	// 分组中所有 Codex 请求被 403（#4447），并误占生图并发槽位。
-	imageIntent := service.DescribeOpenAIImageRequest("/v1/responses", reqModel, body, false).RequiresCapability()
+	// Apply group policy before permission checks, concurrency and account selection.
+	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
+	forwardModel := openAIChannelForwardModel(channelMapping, reqModel)
+	imageRequest := service.DescribeOpenAIImageRequest("/v1/responses", forwardModel, body, false)
+	var imagePolicyChanged bool
+	body, imageRequest, imagePolicyChanged, err = service.ApplyOpenAIImageRequestGroupPolicy(body, imageRequest, apiKey.Group)
+	if err != nil {
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Invalid image tool declarations")
+		return
+	}
+	logOpenAIIngressImagePolicy(reqLog, imageRequest, apiKey.Group, imagePolicyChanged)
+	imageIntent := imageRequest.RequiresCapability()
 	if imageIntent && !service.GroupAllowsImageGeneration(apiKey.Group) {
 		h.errorResponse(c, http.StatusForbidden, "permission_error", service.ImageGenerationPermissionMessage())
 		return
@@ -605,10 +613,8 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	}
 
 	// 解析渠道级模型映射
-	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
 	forwardBody := openAIModelMappedBody(body, channelMapping.Mapped, channelMapping.MappedModel, h.gatewayService.ReplaceModelInBody)
 	seedOpenAIForwardImageIntentHint(c, channelMapping.Mapped, imageIntent)
-	forwardModel := openAIChannelForwardModel(channelMapping, reqModel)
 	c.Request = c.Request.WithContext(h.openAIImageRoutingContext(c.Request.Context(), c, apiKey.Group, forwardModel, forwardBody))
 	c.Request = c.Request.WithContext(service.WithOpenAIForwardModel(
 		c.Request.Context(),
@@ -692,6 +698,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	upstreamAttempts := make(openAIUpstreamAttemptBudget)
 	abandonFixedRetry := func(retry *openAIFixedAccountRetry) bool {
 		lastFailoverErr = retry.failure
+		service.RecordOpenAIImageFailover(c.Request.Context(), lastFailoverErr)
 		if h.abandonFixedAccountRetry(c, retry, failedAccountIDs, &switchCount, maxAccountSwitches, &oauth429FailoverState, reqLog) {
 			return true
 		}
@@ -825,6 +832,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 				ClientStatusCode: http.StatusBadRequest,
 				ClientMessage:    "previous_response_id requires an OpenAI API-key account for HTTP requests",
 			}
+			service.RecordOpenAIImageFailover(c.Request.Context(), lastFailoverErr)
 			reqLog.Debug("openai.account_skipped_http_continuation_unsupported",
 				zap.Int64("account_id", account.ID),
 				zap.String("account_type", account.Type),
@@ -1022,6 +1030,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 							failedAccountIDs[account.ID] = struct{}{}
 						}
 						lastFailoverErr = failoverErr
+						service.RecordOpenAIImageFailover(c.Request.Context(), lastFailoverErr)
 						continue
 					}
 					if openAIFirstOutputFailoverExhausted(failoverErr, &firstOutputTimeoutSwitchCount) {
@@ -1062,6 +1071,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 					h.gatewayService.RecordOpenAIAccountSwitch()
 					failedAccountIDs[account.ID] = struct{}{}
 					lastFailoverErr = failoverErr
+					service.RecordOpenAIImageFailover(c.Request.Context(), lastFailoverErr)
 					switchCount++
 					service.ReportMonitorSwitchCount(c.Request.Context(), switchCount)
 					if h.gatewayService.ShouldStopOpenAIOAuth429Failover(account, failoverErr.StatusCode, switchCount, &oauth429FailoverState) {
@@ -1427,6 +1437,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	upstreamAttempts := make(openAIUpstreamAttemptBudget)
 	abandonFixedRetry := func(retry *openAIFixedAccountRetry) bool {
 		lastFailoverErr = retry.failure
+		service.RecordOpenAIImageFailover(c.Request.Context(), lastFailoverErr)
 		if h.abandonFixedAccountRetry(c, retry, failedAccountIDs, &switchCount, maxAccountSwitches, &oauth429FailoverState, reqLog) {
 			return true
 		}
@@ -1679,6 +1690,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 							failedAccountIDs[account.ID] = struct{}{}
 						}
 						lastFailoverErr = failoverErr
+						service.RecordOpenAIImageFailover(c.Request.Context(), lastFailoverErr)
 						continue
 					}
 					// 池模式：同账号重试
@@ -1715,6 +1727,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 					h.gatewayService.RecordOpenAIAccountSwitch()
 					failedAccountIDs[account.ID] = struct{}{}
 					lastFailoverErr = failoverErr
+					service.RecordOpenAIImageFailover(c.Request.Context(), lastFailoverErr)
 					switchCount++
 					service.ReportMonitorSwitchCount(c.Request.Context(), switchCount)
 					if h.gatewayService.ShouldStopOpenAIOAuth429Failover(account, failoverErr.StatusCode, switchCount, &oauth429FailoverState) {
@@ -3172,9 +3185,56 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		return
 	}
 
-	imageIntent := service.DescribeOpenAIImageRequest("/v1/responses", reqModel, firstMessage, false).RequiresCapability()
+	// Classify the resolved channel model as well as the unmodified client frame.
+	// A text-facing alias may route to an image model before account selection.
+	channelMappingWS, _ := h.gatewayService.ResolveChannelMappingAndRestrict(ctx, apiKey.GroupID, wsRouteModel)
+	wsForwardModel := openAIChannelForwardModel(channelMappingWS, wsRouteModel)
+	imageRequest := service.DescribeOpenAIImageRequest("/v1/responses", wsForwardModel, firstMessage, false)
+	var imagePolicyChanged bool
+	firstMessage, imageRequest, imagePolicyChanged, err = service.ApplyOpenAIImageRequestGroupPolicy(firstMessage, imageRequest, apiKey.Group)
+	if err != nil {
+		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "Invalid image tool declarations")
+		return
+	}
+	logOpenAIIngressImagePolicy(reqLog, imageRequest, apiKey.Group, imagePolicyChanged)
+	imageIntent := imageRequest.RequiresCapability()
 	if imageIntent && !service.GroupAllowsImageGeneration(apiKey.Group) {
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, service.ImageGenerationPermissionMessage())
+		return
+	}
+
+	var imageSlotMu sync.Mutex
+	var imageSlotRelease func()
+	releaseWSImageSlot := func() {
+		imageSlotMu.Lock()
+		defer imageSlotMu.Unlock()
+		if imageSlotRelease != nil {
+			imageSlotRelease()
+			imageSlotRelease = nil
+		}
+	}
+	defer releaseWSImageSlot()
+	acquireWSImageSlot := func(required bool) error {
+		if !required || h.cfg == nil || h.imageLimiter == nil {
+			return nil
+		}
+		imageSlotMu.Lock()
+		defer imageSlotMu.Unlock()
+		if imageSlotRelease != nil {
+			return nil
+		}
+		limit := h.cfg.Gateway.ImageConcurrency
+		release, acquired := h.imageLimiter.Acquire(ctx, limit.Enabled, limit.MaxConcurrentRequests,
+			strings.TrimSpace(limit.OverflowMode) == config.ImageConcurrencyOverflowModeWait,
+			time.Duration(limit.WaitTimeoutSeconds)*time.Second, limit.MaxWaitingRequests)
+		if !acquired {
+			return service.NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, "Image generation concurrency limit exceeded, please retry later", nil)
+		}
+		imageSlotRelease = release
+		return nil
+	}
+	if err := acquireWSImageSlot(imageIntent); err != nil {
+		closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "Image generation concurrency limit exceeded, please retry later")
 		return
 	}
 
@@ -3202,10 +3262,6 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		cyberTurnBodiesMu.Unlock()
 		return body
 	}
-
-	// 解析渠道级模型映射
-	channelMappingWS, _ := h.gatewayService.ResolveChannelMappingAndRestrict(ctx, apiKey.GroupID, wsRouteModel)
-	wsForwardModel := openAIChannelForwardModel(channelMappingWS, wsRouteModel)
 
 	var currentUserRelease func()
 	var currentAccountRelease func()
@@ -3343,6 +3399,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		if ctx.Err() != nil {
 			return false
 		}
+		service.RecordOpenAIImageFailover(ctx, failoverErr)
 		bindUpstreamFailoverAccount(c, account, failoverErr)
 		if failoverErr.ShouldReportAccountScheduleFailure() {
 			h.gatewayService.ReportOpenAIAccountScheduleResultForCompletedAttempt(apiKey.GroupID, account, openAIAccountScheduleModel(c, account, wsForwardModel, false, nil), false, nil, failoverErr)
@@ -3360,6 +3417,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				failedAccountIDs[account.ID] = struct{}{}
 			}
 			lastFailoverErr = failoverErr
+			service.RecordOpenAIImageFailover(c.Request.Context(), lastFailoverErr)
 			return ensureUserSlotHeld()
 		}
 		if switchCount >= maxAccountSwitches {
@@ -3373,6 +3431,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		h.gatewayService.RecordOpenAIAccountSwitch()
 		failedAccountIDs[account.ID] = struct{}{}
 		lastFailoverErr = failoverErr
+		service.RecordOpenAIImageFailover(c.Request.Context(), lastFailoverErr)
 		switchCount++
 		service.ReportMonitorSwitchCount(ctx, switchCount)
 		if h.gatewayService.ShouldStopOpenAIOAuth429Failover(account, failoverErr.StatusCode, switchCount, &oauth429FailoverState) {
@@ -3395,7 +3454,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	// WSv2 传输本身已隐含 Responses 支持，此处为防御性对齐。
 	// 使用 IsExplicitImageGenerationIntent 排除被动 namespace 声明（#4476）。
 	requiredCapability := service.OpenAIEndpointCapabilityChatCompletions
-	if service.IsExplicitImageGenerationIntent("/v1/responses", reqModel, firstMessage) && requestPlatform == service.PlatformOpenAI {
+	if imageIntent && requestPlatform == service.PlatformOpenAI {
 		requiredCapability = service.OpenAIEndpointCapabilityResponses
 	}
 
@@ -3407,6 +3466,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	wsPricingCtx, _ := h.gatewayService.WithOpenAIRequestPricingContext(ctx, apiKey.GroupID)
 	ctx = wsPricingCtx
 	ctx = h.openAIImageRoutingContext(ctx, c, apiKey.Group, wsForwardModel, firstMessage)
+	c.Request = c.Request.WithContext(ctx)
 
 	currentTurnRetryAsFirst := false
 	for {
@@ -3433,6 +3493,13 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				zap.Error(openAICompatibleSelectionErrorForLog(err, requestPlatform)),
 				zap.Int("excluded_account_count", len(failedAccountIDs)),
 			)
+			lastFailoverErr = service.OpenAIImageFailoverForExhaustion(ctx, lastFailoverErr)
+			if lastFailoverErr == nil && service.OpenAIImageSelectionExhaustion(ctx, nil) {
+				logOpenAIImageFailurePolicy(ctx, nil)
+				service.MarkOpsStreamFailure(c, "server_error", "image_generation_unavailable", "No image-capable upstream account is available", http.StatusServiceUnavailable)
+				closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "No image-capable upstream account is available")
+				return
+			}
 			if lastFailoverErr != nil && !lastFailoverErr.PluginAdmissionRejected {
 				h.closeOpenAIWSFailoverExhausted(c, wsConn, lastFailoverErr)
 			} else {
@@ -3441,6 +3508,13 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			return
 		}
 		if selection == nil || selection.Account == nil {
+			lastFailoverErr = service.OpenAIImageFailoverForExhaustion(ctx, lastFailoverErr)
+			if lastFailoverErr == nil && service.OpenAIImageSelectionExhaustion(ctx, nil) {
+				logOpenAIImageFailurePolicy(ctx, nil)
+				service.MarkOpsStreamFailure(c, "server_error", "image_generation_unavailable", "No image-capable upstream account is available", http.StatusServiceUnavailable)
+				closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "No image-capable upstream account is available")
+				return
+			}
 			if lastFailoverErr != nil && !lastFailoverErr.PluginAdmissionRejected {
 				h.closeOpenAIWSFailoverExhausted(c, wsConn, lastFailoverErr)
 			} else {
@@ -3584,6 +3658,10 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			zap.Int("candidate_count", scheduleDecision.CandidateCount),
 		)
 
+		if slotErr := acquireWSImageSlot(imageIntent); slotErr != nil {
+			closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "Image generation concurrency limit exceeded, please retry later")
+			return
+		}
 		maxReasoningEffort, reasoningEffortMappings, maxReasoningEffortOverLimit, _ := openAIReasoningEffortPolicyForRequest(c, apiKey)
 		var requestPayloadHash string
 		var turnStartsMu sync.Mutex
@@ -3626,7 +3704,22 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			MaxReasoningEffortOverLimit: maxReasoningEffortOverLimit,
 			ReasoningEffortMappings:     reasoningEffortMappings,
 			TurnStarted:                 recordTurnStart,
+			BeforeImageSend: func(request service.OpenAIImageRequest) error {
+				return acquireWSImageSlot(request.RequiresCapability())
+			},
 			BeforeRequest: func(turn int, payload []byte, originalModel string) error {
+				turnImage := service.DescribeOpenAIImageRequest("/v1/responses", originalModel, payload, false)
+				_, turnImage, _, policyErr := service.ApplyOpenAIImageRequestGroupPolicy(payload, turnImage, apiKey.Group)
+				if policyErr != nil {
+					return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "Invalid image tool declarations", policyErr)
+				}
+				if turnImage.RequiresCapability() && !service.GroupAllowsImageGeneration(apiKey.Group) {
+					return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, service.ImageGenerationPermissionMessage(), nil)
+				}
+				if slotErr := acquireWSImageSlot(turnImage.RequiresCapability()); slotErr != nil {
+					return slotErr
+				}
+
 				c.Set(securityAuditWSTurnContextKey, turn)
 				service.BeginOpsStreamTurn(c, turn)
 				setCyberTurnBody(turn, payload)
@@ -3780,6 +3873,11 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				return nil
 			},
 			AfterTurn: func(turn int, result *service.OpenAIForwardResult, turnErr error) {
+				releaseWSImageSlot()
+				if turnErr == nil {
+					service.ResetOpenAIImageSelectionTrace(ctx)
+					lastFailoverErr = nil
+				}
 				turnStart := getTurnStart(turn)
 				cyberBlockBody := takeCyberTurnBody(turn)
 				// 每次 attempt 都清 cyber mark；failover 链结束前保留 recorded guard，
@@ -3957,8 +4055,9 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					currentTurnRetryAsFirst = true
 					channelMappingWS, _ = h.gatewayService.ResolveChannelMappingAndRestrict(ctx, apiKey.GroupID, reqModel)
 					wsForwardModel = openAIChannelForwardModel(channelMappingWS, reqModel)
-					imageIntent = service.DescribeOpenAIImageRequest("/v1/responses", reqModel, retryPayload, false).RequiresCapability()
 					ctx = h.openAIImageRoutingContext(ctx, c, apiKey.Group, wsForwardModel, retryPayload)
+					c.Request = c.Request.WithContext(ctx)
+					imageIntent = openAIImageCapabilityRequested(ctx)
 					requiredCapability = service.OpenAIEndpointCapabilityChatCompletions
 					if imageIntent && requestPlatform == service.PlatformOpenAI {
 						requiredCapability = service.OpenAIEndpointCapabilityResponses
@@ -4282,6 +4381,9 @@ func (h *OpenAIGatewayHandler) handleConcurrencyError(c *gin.Context, err error,
 }
 
 func (h *OpenAIGatewayHandler) handleFailoverExhausted(c *gin.Context, failoverErr *service.UpstreamFailoverError, streamStarted bool) {
+	service.RecordOpenAIImageFailover(c.Request.Context(), failoverErr)
+	failoverErr = service.OpenAIImageFailoverForExhaustion(c.Request.Context(), failoverErr)
+	logOpenAIImageFailurePolicy(c.Request.Context(), failoverErr)
 	if failoverErr == nil {
 		h.handleFailoverExhaustedSimple(c, http.StatusBadGateway, streamStarted)
 		return
@@ -4762,6 +4864,9 @@ func openAIWSNextAttemptMessage(current, retryPayload []byte, retryCurrentTurn b
 }
 
 func (h *OpenAIGatewayHandler) closeOpenAIWSFailoverExhausted(c *gin.Context, conn *coderws.Conn, failoverErr *service.UpstreamFailoverError) {
+	service.RecordOpenAIImageFailover(c.Request.Context(), failoverErr)
+	failoverErr = service.OpenAIImageFailoverForExhaustion(c.Request.Context(), failoverErr)
+	logOpenAIImageFailurePolicy(c.Request.Context(), failoverErr)
 	if decision, ok := upstream429CapacityExhaustion(c, h.capacityFailoverProvider, h.cfg, failoverErr); ok {
 		service.MarkOpsStreamFailure(c, "api_error", gatewayCapacityExhaustedCode, gatewayCapacityExhaustedMessage, decision.statusCode)
 		closeOpenAIClientWS(conn, coderws.StatusTryAgainLater, gatewayCapacityExhaustedMessage)
@@ -4781,7 +4886,13 @@ func closeOpenAIWSFailoverExhausted(c *gin.Context, conn *coderws.Conn, failover
 		if reason := strings.TrimSpace(string(failoverErr.Reason)); reason != "" {
 			errorCode = reason
 		}
-		if failoverErr.Stage == service.GatewayFailureStageAccountAuth {
+		if service.IsOpenAIImagePermissionFailover(failoverErr) {
+			intendedStatus = http.StatusServiceUnavailable
+			errorType = "server_error"
+			errorCode = "image_generation_unavailable"
+			message = "No image-capable upstream account is available"
+			closeStatus = coderws.StatusTryAgainLater
+		} else if failoverErr.Stage == service.GatewayFailureStageAccountAuth {
 			intendedStatus = http.StatusServiceUnavailable
 			errorType = "api_error"
 			message = service.GrokCredentialUnavailableClientMessage

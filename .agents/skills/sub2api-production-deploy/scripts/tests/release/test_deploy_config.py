@@ -17,7 +17,7 @@ sys.path.insert(0, str(SCRIPTS))
 from release.deploy_config import load_config, prepare_arguments
 
 
-DOCUMENT = {"schema": 1, "commit": "a" * 40, "profile": "275", "mode": "downtime"}
+DOCUMENT = {"schema": 1, "commit": "a" * 40, "profile": "276", "mode": "downtime"}
 
 
 class DeployConfigTest(unittest.TestCase):
@@ -36,7 +36,7 @@ class DeployConfigTest(unittest.TestCase):
         for command in ("deploy", "deploy-start", "deploy-follow", "vm-validate", "doctor", "vm-only-validate", "recovery-review-scope"):
             with self.subTest(command=command):
                 result = prepare_arguments([command], self.workspace)
-                expected = [command, "--profile", "275", "--commit", "a" * 40]
+                expected = [command, "--profile", "276", "--commit", "a" * 40]
                 if command in {"deploy", "deploy-start", "deploy-follow", "vm-validate"}:
                     expected += ["--mode", "downtime"]
                 self.assertEqual(result, expected)
@@ -47,7 +47,7 @@ class DeployConfigTest(unittest.TestCase):
         for arguments in (["--config", str(self.config), "doctor"],
                           ["doctor", "--config=" + str(self.config)]):
             self.assertEqual(prepare_arguments(arguments, elsewhere),
-                             ["doctor", "--profile", "275", "--commit", "a" * 40])
+                             ["doctor", "--profile", "276", "--commit", "a" * 40])
 
     def test_explicit_options_override_valid_config(self):
         self.write_config()
@@ -90,22 +90,22 @@ class DeployConfigTest(unittest.TestCase):
 
     def test_bad_sha_profile_and_mode_are_rejected_even_if_cli_overrides_them(self):
         cases = (("commit", "a" * 39), ("commit", "A" * 40), ("commit", "main"),
-                 ("profile", "276"), ("profile", 275), ("mode", "automatic"))
+                 ("profile", "277"), ("profile", 275), ("mode", "automatic"))
         for field, value in cases:
             with self.subTest(field=field, value=value), self.assertRaises(ValueError):
                 self.write_config({**DOCUMENT, field: value})
-                prepare_arguments(["deploy", "--commit", "b" * 40, "--profile", "275", "--mode", "downtime"], self.workspace)
+                prepare_arguments(["deploy", "--commit", "b" * 40, "--profile", "276", "--mode", "downtime"], self.workspace)
 
     def test_duplicate_cli_options_and_aliases_are_rejected(self):
         for options in (["--commit", "a" * 40, "--commit=" + "b" * 40],
-                        ["--profile", "275", "--profile=275"],
+                        ["--profile", "276", "--profile=276"],
                         ["--mode=downtime", "--mode", "blue-green"],
                         ["--node", "all", "--node=local"], ["--comm", "a" * 40]):
             with self.subTest(options=options), self.assertRaises(ValueError):
                 prepare_arguments(["doctor", *options], self.workspace)
 
     def test_bad_explicit_values_and_missing_values_fail_without_config(self):
-        for options in (["--commit", "main"], ["--profile=276"], ["--mode=unknown"],
+        for options in (["--commit", "main"], ["--profile=277"], ["--mode=unknown"],
                         ["--commit"], ["--profile", "--node", "all"], ["--mode="]):
             with self.subTest(options=options), self.assertRaises(ValueError):
                 prepare_arguments(["deploy", *options], self.workspace)
@@ -134,7 +134,7 @@ class DeployConfigTest(unittest.TestCase):
                 with mock.patch.object(sys, "argv", [str(SCRIPTS / "release.py"), *prepare_arguments([command], self.workspace)]):
                     cli.main()
                 namespace = handler.call_args.args[0]
-                self.assertEqual((namespace.profile, namespace.commit), ("275", "a" * 40))
+                self.assertEqual((namespace.profile, namespace.commit), ("276", "a" * 40))
                 if command != "doctor":
                     self.assertEqual(namespace.deployment_mode, "downtime")
 

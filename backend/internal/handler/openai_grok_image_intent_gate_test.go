@@ -36,9 +36,9 @@ func TestOpenAIGatewayHandlerResponses_ImagePermissionHardSignalsStillRejected(t
 		body     string
 	}{
 		{
-			name:     "Grok native image_generation declaration",
+			name:     "Grok required image_generation declaration",
 			platform: service.PlatformGrok,
-			body:     `{"model":"grok-4.5","tools":[{"type":"image_generation"}],"input":"draw"}`,
+			body:     `{"model":"grok-4.5","tools":[{"type":"image_generation"}],"tool_choice":"required","input":"draw"}`,
 		},
 		{
 			name:     "Grok explicit image_gen tool choice",
@@ -46,9 +46,9 @@ func TestOpenAIGatewayHandlerResponses_ImagePermissionHardSignalsStillRejected(t
 			body:     `{"model":"grok-4.5","tools":[{"type":"namespace","name":"image_gen"}],"tool_choice":{"type":"namespace","name":"image_gen"},"input":"draw"}`,
 		},
 		{
-			name:     "OpenAI native image_generation tool",
+			name:     "OpenAI required image_generation tool",
 			platform: service.PlatformOpenAI,
-			body:     `{"model":"gpt-5.5","tools":[{"type":"image_generation","model":"gpt-image-2"}],"input":"draw a cat"}`,
+			body:     `{"model":"gpt-5.5","tools":[{"type":"image_generation","model":"gpt-image-2"}],"tool_choice":"required","input":"draw a cat"}`,
 		},
 		{
 			name:     "OpenAI image model",
@@ -110,4 +110,16 @@ func runOpenAIResponsesImagePermissionGateTest(t *testing.T, platform string, bo
 
 	h.Responses(c)
 	return rec
+}
+
+func TestResponsesOptionalNativeAndUnknownHistoryDoNotReject(t *testing.T) {
+	for _, body := range []string{
+		`{"model":"gpt-5.5","tools":[{"type":"image_generation"}],"input":"write code"}`,
+		`{"model":"gpt-5.5","tools":[{"type":"image_generation"},{"type":"function","name":"shell"}],"tool_choice":"required","input":[{"type":"function_call","name":"shell","call_id":"call_shell"},{"type":"function_call_output","call_id":"call_shell","output":"ok"}]}`,
+		`{"model":"gpt-5.5","tools":[{"type":"image_generation"}],"input":[{"type":"function_call_output","call_id":"unknown","output":"ok"}]}`,
+	} {
+		rec := runOpenAIResponsesImagePermissionGateTest(t, service.PlatformOpenAI, body)
+		require.NotEqual(t, http.StatusForbidden, rec.Code)
+		require.NotContains(t, rec.Body.String(), "image_generation_unavailable")
+	}
 }

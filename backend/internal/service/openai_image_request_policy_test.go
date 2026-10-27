@@ -22,15 +22,15 @@ func TestOpenAIImageRequestDescriptor(t *testing.T) {
 		required, strip    bool
 	}{
 		{"ordinary", `{"input":"draw a picture"}`, "ordinary", false, false},
-		{"native auto", `{"tools":[{"type":"image_generation"}],"tool_choice":"auto"}`, "native", true, false},
-		{"native none", `{"tools":[{"type":"image_generation"}],"tool_choice":"none"}`, "native", true, false},
-		{"lite native", `{"input":[{"type":"additional_tools","tools":[{"type":"image_generation"}]}]}`, "native", true, false},
+		{"native auto", `{"tools":[{"type":"image_generation"}],"tool_choice":"auto"}`, "native", false, true},
+		{"native none", `{"tools":[{"type":"image_generation"}],"tool_choice":"none"}`, "native", false, true},
+		{"lite native", `{"input":[{"type":"additional_tools","tools":[{"type":"image_generation"}]}]}`, "native", false, true},
 		{"passive", `{"tools":[{"type":"namespace","name":"image_gen"}]}`, "passive", false, true},
 		{"flattened passive", `{"tools":[{"type":"function","name":"image_gen__imagegen"}]}`, "passive", false, true},
 		{"selected function", `{"tool_choice":{"type":"function","name":"image_gen.imagegen"}}`, "explicit", true, false},
-		{"continuation", `{"previous_response_id":"resp_x","tools":[{"type":"namespace","name":"image_gen"}]}`, "history", true, false},
+		{"continuation", `{"previous_response_id":"resp_x","tools":[{"type":"namespace","name":"image_gen"}]}`, "passive", false, true},
 		{"history call", `{"input":[{"type":"function_call","namespace":"image_gen","name":"imagegen"}]}`, "history", true, false},
-		{"unresolved output", `{"tools":[{"type":"namespace","name":"image_gen"}],"input":[{"type":"function_call_output","call_id":"call_x","output":"done"}]}`, "history", true, false},
+		{"unresolved output", `{"tools":[{"type":"namespace","name":"image_gen"}],"input":[{"type":"function_call_output","call_id":"call_x","output":"done"}]}`, "passive", false, true},
 		{"duplicate", `{"tools":[{"type":"namespace","name":"image_gen"}],"tools":[]}`, "passive", false, false},
 		{"nested duplicate", `{"tools":[{"type":"namespace","name":"image_gen","type":"image_generation"}]}`, "passive", false, false},
 		{"chat history", `{"tools":[{"type":"namespace","name":"image_gen"}],"messages":[{"role":"assistant","tool_calls":[{"type":"function","function":{"name":"image_gen.imagegen"}}]}]}`, "history", true, false},
@@ -112,8 +112,8 @@ func TestOpenAIImagePassiveChatOnlyCompatibility(t *testing.T) {
 
 func TestOpenAIImagePolicyRetainsExplicitAndHistory(t *testing.T) {
 	for _, body := range []string{
-		`{"tools":[{"type":"image_generation"}],"tool_choice":"none"}`,
-		`{"tools":[{"type":"namespace","name":"image_gen"}],"previous_response_id":"resp_x"}`,
+		`{"tools":[{"type":"image_generation"}],"tool_choice":"required"}`,
+		`{"tools":[{"type":"namespace","name":"image_gen"}],"tool_choice":{"type":"namespace","name":"image_gen"}}`,
 		`{"tools":[{"type":"namespace","name":"image_gen"}],"input":[{"type":"function_call","call_id":"call_x","name":"imagegen","namespace":"image_gen"}]}`,
 	} {
 		r := DescribeOpenAIImageRequest("/v1/responses", "gpt-6.1-sol", []byte(body), true)
@@ -153,7 +153,6 @@ func TestOpenAIImageOptionalBridgeGate(t *testing.T) {
 func TestOpenAIImageFinalGuardRetainsHistoryAfterTransform(t *testing.T) {
 	for _, body := range []string{
 		`{"input":[{"type":"image_generation_call","result":"old"}]}`,
-		`{"previous_response_id":"resp_x","tools":[{"type":"namespace","name":"image_gen"}]}`,
 	} {
 		ctx := WithOpenAIImageRequest(context.Background(), "/v1/responses", "gpt-6.1-sol", []byte(body), true)
 		final := DescribeOpenAIImageRequest("/v1/responses", "gpt-6.1-sol", []byte(`{"input":"hello"}`), true)

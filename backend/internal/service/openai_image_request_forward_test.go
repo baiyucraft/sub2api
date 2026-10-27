@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -10,10 +11,49 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 func imagePolicyTextUpstream() *httpUpstreamRecorder {
 	return &httpUpstreamRecorder{resp: &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"id":"resp_text","model":"gpt-6.1-sol","usage":{"input_tokens":1,"output_tokens":1}}`))}}
+}
+
+func TestOpenAIOptionalImageHTTPForwardPreservesOrdinaryRequests(t *testing.T) {
+	for _, allow := range []bool{false, true} {
+		for _, passthrough := range []bool{false, true} {
+			for _, stream := range []bool{false, true} {
+				t.Run(fmt.Sprintf("allow=%t/passthrough=%t/stream=%t", allow, passthrough, stream), func(t *testing.T) {
+					upstream := imagePolicyTextUpstream()
+					if stream {
+						upstream.resp.Header.Set("Content-Type", "text/event-stream")
+						upstream.resp.Body = io.NopCloser(strings.NewReader("data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_new\"}}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_new\",\"model\":\"gpt-6.1-sol\",\"output\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\ndata: [DONE]\n\n"))
+					}
+					svc := newOpenAIImageGenerationControlTestService(upstream)
+					svc.cfg.Gateway.CodexImageGenerationBridgeEnabled = true
+					c, _ := newOpenAIImageGenerationControlTestContext(allow, "codex_cli_rs/0.98.0")
+					getAPIKeyFromContext(c).Group.StripOptionalImageTools = allow
+					SetOpenAIClientTransport(c, OpenAIClientTransportHTTP)
+					a := newOpenAIImageGenerationControlTestAccount()
+					a.Extra = map[string]any{"openai_passthrough": passthrough, featureKeyCodexImageGenerationBridge: true}
+					a.UpstreamImagePricing = imagePolicyAccount(false).UpstreamImagePricing
+					body := []byte(`{"model":"gpt-6.1-sol","previous_response_id":"resp_existing","tools":[{"type":"image_generation"},{"type":"function","name":"shell","parameters":{"type":"object"}}],"tool_choice":{"type":"allowed_tools","mode":"auto","tools":[{"type":"image_generation"}]},"input":[{"type":"function_call","name":"shell","call_id":"call_shell","arguments":"{}"},{"type":"function_call_output","call_id":"call_shell","output":"ok"}]}`)
+					body, err := sjson.SetBytes(body, "stream", stream)
+					require.NoError(t, err)
+					original := string(body)
+					result, err := svc.Forward(context.Background(), c, a, body)
+					require.NoError(t, err)
+					require.NotNil(t, result)
+					require.Equal(t, original, string(body))
+					require.NotNil(t, upstream.lastReq)
+					require.False(t, gjson.GetBytes(upstream.lastBody, `tools.#(type=="image_generation")`).Exists())
+					require.Equal(t, "shell", gjson.GetBytes(upstream.lastBody, "tools.0.name").String())
+					require.Equal(t, "none", gjson.GetBytes(upstream.lastBody, "tool_choice").String())
+					require.Equal(t, "resp_existing", gjson.GetBytes(upstream.lastBody, "previous_response_id").String())
+					require.Contains(t, string(upstream.lastBody), "call_shell")
+				})
+			}
+		}
+	}
 }
 
 func TestOpenAIImagePolicyForwardIndependentAttempts(t *testing.T) {
@@ -46,7 +86,7 @@ func TestOpenAIImagePolicyForwardDenialKeepsTextAndStopsNative(t *testing.T) {
 	for _, body := range []string{
 		`{"model":"gpt-6.1-sol","input":"hello","tools":[{"type":"image_generation"}],"tool_choice":"auto"}`,
 		`{"model":"gpt-6.1-sol","input":"hello","tools":[{"type":"image_generation"}],"tool_choice":"none"}`,
-		`{"model":"gpt-6.1-sol","tools":[{"type":"namespace","name":"image_gen"}],"previous_response_id":"resp_x","input":"hello"}`,
+		`{"model":"gpt-6.1-sol","tools":[{"type":"namespace","name":"image_gen"}],"previous_response_id":"resp_x","input":[{"type":"function_call","name":"image_gen__imagegen","call_id":"image_call"},{"type":"function_call_output","call_id":"image_call","output":"old image"}]}`,
 	} {
 		upstream := &httpUpstreamRecorder{}
 		svc := newOpenAIImageGenerationControlTestService(upstream)

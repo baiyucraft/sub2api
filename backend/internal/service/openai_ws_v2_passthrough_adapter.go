@@ -951,6 +951,11 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			}
 			imageSendCount++
 			if gjson.GetBytes(payload, "type").String() == "response.create" {
+				if hooks != nil && hooks.BeforeImageSend != nil {
+					if err := hooks.BeforeImageSend(prepared.request); err != nil {
+						return nil, err
+					}
+				}
 				request, model := usageMeta.turnModels("")
 				usageMeta.updateFromResponseCreate(prepared.body, model, request)
 			}

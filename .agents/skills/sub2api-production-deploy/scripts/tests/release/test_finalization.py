@@ -389,7 +389,8 @@ class FinalizationTest(unittest.TestCase):
         from release.migration_planner import discover_migration_catalog
 
         catalog = discover_migration_catalog(finalization.WORKSPACE)
-        self.assertEqual(len(catalog), 353)
+        self.assertEqual(len(catalog), 354)
+        self.assertTrue(any(row["filename"] == "303_group_strip_optional_image_tools.sql" for row in catalog))
         self.assertTrue(any(row["filename"] == "302_enable_gemini_image_generation_groups.sql" for row in catalog))
         self.assertTrue(any(row["filename"] == "301_upstream_cache_guard_admissions.sql" for row in catalog))
         self.assertTrue(any(row["filename"] == "298_group_scheduling_protection_policies.sql" for row in catalog))

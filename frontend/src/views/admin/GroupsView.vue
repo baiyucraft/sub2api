@@ -933,6 +933,27 @@
           </div>
         </div>
 
+        <div class="border-t pt-4" data-testid="create-optional-image-tools-policy">
+          <label class="block mb-2 font-medium text-gray-700 dark:text-gray-300">
+            {{ t("admin.groups.optionalImageTools.title") }}
+          </label>
+          <p v-if="!createForm.allow_image_generation" class="text-xs text-gray-500 dark:text-gray-400">
+            {{ t("admin.groups.optionalImageTools.automaticHint") }}
+          </p>
+          <label v-else class="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300">
+            <input
+              v-model="createForm.strip_optional_image_tools"
+              type="checkbox"
+              data-testid="create-strip-optional-image-tools"
+              class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <span>{{ t("admin.groups.optionalImageTools.enabledLabel") }}</span>
+          </label>
+          <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+            {{ t("admin.groups.optionalImageTools.description") }}
+          </p>
+        </div>
+
         <!-- 图片生成计费配置 -->
         <div
           v-if="supportsImagePricingPlatform(createForm.platform)"
@@ -2660,6 +2681,27 @@
               </p>
             </div>
           </div>
+        </div>
+
+        <div class="border-t pt-4" data-testid="edit-optional-image-tools-policy">
+          <label class="block mb-2 font-medium text-gray-700 dark:text-gray-300">
+            {{ t("admin.groups.optionalImageTools.title") }}
+          </label>
+          <p v-if="!editForm.allow_image_generation" class="text-xs text-gray-500 dark:text-gray-400">
+            {{ t("admin.groups.optionalImageTools.automaticHint") }}
+          </p>
+          <label v-else class="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300">
+            <input
+              v-model="editForm.strip_optional_image_tools"
+              type="checkbox"
+              data-testid="edit-strip-optional-image-tools"
+              class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <span>{{ t("admin.groups.optionalImageTools.enabledLabel") }}</span>
+          </label>
+          <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+            {{ t("admin.groups.optionalImageTools.description") }}
+          </p>
         </div>
 
         <!-- 图片生成计费配置 -->
@@ -5256,6 +5298,7 @@ const createForm = reactive({
   // 图片生成计费配置
   allow_image_generation: false,
   allow_batch_image_generation: false,
+  strip_optional_image_tools: false,
   image_rate_independent: false,
   image_rate_multiplier: 1,
   batch_image_discount_multiplier: 0.5,
@@ -5626,6 +5669,7 @@ const editForm = reactive({
   // 图片生成计费配置
   allow_image_generation: false,
   allow_batch_image_generation: false,
+  strip_optional_image_tools: false,
   image_rate_independent: false,
   image_rate_multiplier: 1,
   batch_image_discount_multiplier: 0.5,
@@ -6195,6 +6239,7 @@ const closeCreateModal = () => {
   createForm.monthly_limit_usd = null;
   createForm.allow_image_generation = false;
   createForm.allow_batch_image_generation = false;
+  createForm.strip_optional_image_tools = false;
   createForm.image_rate_independent = false;
   createForm.image_rate_multiplier = 1;
   createForm.batch_image_discount_multiplier = 0.5;
@@ -6508,6 +6553,7 @@ const handleEdit = async (group: AdminGroup) => {
   editForm.free_openai_fast = group.free_openai_fast ?? false;
   editForm.model_pricing = groupPricingFromAPI(group.model_pricing);
   editForm.allow_image_generation = group.allow_image_generation ?? false;
+  editForm.strip_optional_image_tools = group.strip_optional_image_tools ?? false;
   editForm.allow_batch_image_generation =
     group.allow_batch_image_generation ?? false;
   editForm.image_rate_independent = group.image_rate_independent ?? false;
@@ -6656,6 +6702,7 @@ const closeEditModal = () => {
   editForm.profit_control_enabled = false;
   editForm.profit_min_margin_percent = 0;
   editForm.profit_safety_buffer_percent = 0;
+  editForm.strip_optional_image_tools = false;
   editForm.image_cost_routing_enabled = false;
   editForm.image_cost_routing_mode = "prefer_lowest";
   editForm.image_cost_tolerance_percent = 5;

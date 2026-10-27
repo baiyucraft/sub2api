@@ -277,7 +277,13 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 	apiKey := getAPIKeyFromContext(c)
 	imageRequest, _ := OpenAIImageRequestFromContext(ctx)
 	finalImageRequest := DescribeOpenAIImageRequest(imageRequest.Endpoint, policyModel, body, imageRequest.IsCodex)
-	finalImageRequest.History = finalImageRequest.History || imageRequest.History
+	if isOpenAIResponsesCompactPath(c) {
+		// Compact capability follows the model actually sent on this attempt.
+		// Keep call history and declaration policy across transforms, while a
+		// canonical image model mapped to text must not remain an image attempt.
+		imageRequest.Explicit = finalImageRequest.Explicit
+	}
+	finalImageRequest = ReconcileOpenAIImageRequestDescriptor(finalImageRequest, imageRequest)
 	if err := CheckOpenAIImageRequestPermission(ctx, finalImageRequest, account); err != nil {
 		return nil, err
 	}

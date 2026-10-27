@@ -17,6 +17,7 @@ import (
 type openAIWSImageSendPayload struct {
 	body    []byte
 	billing OpenAIResponsesImageBillingConfig
+	request OpenAIImageRequest
 }
 
 // Refresh only admission metadata: the socket's chosen credential, proxy,
@@ -48,16 +49,13 @@ func (s *OpenAIGatewayService) openAIWSImagePermissionView(ctx context.Context, 
 // reconnect/recovery writes. It never calls turn hooks or performs billing.
 func (s *OpenAIGatewayService) prepareOpenAIWSImageSend(ctx context.Context, c *gin.Context, chosen *Account, body []byte, original OpenAIImageRequest, hosted bool) (openAIWSImageSendPayload, error) {
 	result := openAIWSImageSendPayload{body: body}
-	if chosen == nil || chosen.Platform != PlatformOpenAI {
+	if chosen == nil {
 		return result, nil
 	}
 	if ingress, ok := OpenAIImageRequestFromContext(ctx); ok {
 		original.Lite = original.Lite || ingress.Lite
 	}
-	view, err := s.openAIWSImagePermissionView(ctx, chosen)
-	if err != nil {
-		return result, err
-	}
+
 	var apiKey *APIKey
 	if c != nil {
 		apiKey = getAPIKeyFromContext(c)
@@ -71,17 +69,32 @@ func (s *OpenAIGatewayService) prepareOpenAIWSImageSend(ctx context.Context, c *
 		ctx = s.WithOpenAIImageRequestPolicy(ctx, groupID)
 		ctx = WithOpenAIImageRequestGroup(ctx, apiKeyGroup(apiKey))
 	}
-	next, changed, err := DeriveOpenAIImageRequestBody(body, original, view)
+	groupBody, effective, groupChanged, err := ApplyOpenAIImageRequestContextPolicy(ctx, body, original)
+	if err != nil {
+		return result, err
+	}
+	original = effective
+	if original.RequiresCapability() {
+		if p, ok := ctx.Value(openAIImagePolicyContextKey{}).(openAIImageRequestPolicy); ok && p.groupAllowed != nil && !*p.groupAllowed {
+			return result, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, ImageGenerationPermissionMessage(), nil)
+		}
+	}
+	if chosen.Platform != PlatformOpenAI {
+		result.body = groupBody
+		result.request = original
+		return result, nil
+	}
+	view, err := s.openAIWSImagePermissionView(ctx, chosen)
+	if err != nil {
+		return result, err
+	}
+	next, changed, err := DeriveOpenAIImageRequestBody(groupBody, original, view)
+	changed = changed || groupChanged
 	if err != nil {
 		return result, err
 	}
 	final := DescribeOpenAIImageRequest(openAIResponsesEndpoint, gjson.GetBytes(next, "model").String(), next, original.IsCodex)
-	if !openAIImageManualStrip(original, view) {
-		final.Native = final.Native || original.Native
-		final.Explicit = final.Explicit || original.Explicit
-	}
-	final.History = final.History || original.History
-	final.Explicit = final.Explicit || IsImageGenerationEndpoint(original.Endpoint) || isOpenAIImageGenerationModel(original.Model)
+	final = ReconcileOpenAIImageRequestDescriptor(final, original)
 	groupAllowed := true
 	if p, ok := ctx.Value(openAIImagePolicyContextKey{}).(openAIImageRequestPolicy); ok && p.groupAllowed != nil {
 		groupAllowed = *p.groupAllowed
@@ -114,12 +127,13 @@ func (s *OpenAIGatewayService) prepareOpenAIWSImageSend(ctx context.Context, c *
 	} else {
 		next = stripped
 	}
-	final = DescribeOpenAIImageRequest(openAIResponsesEndpoint, gjson.GetBytes(next, "model").String(), next, original.IsCodex)
+	final = ReconcileOpenAIImageRequestDescriptor(DescribeOpenAIImageRequest(openAIResponsesEndpoint, gjson.GetBytes(next, "model").String(), next, original.IsCodex), original)
 	if err := CheckOpenAIImageRequestPermission(ctx, final, view); err != nil {
 		return result, err
 	}
 	logOpenAIImageRequestDecision(ctx, original, view, changed, eligible)
 	result.body = next
+	result.request = final
 	if IsImageGenerationIntent(openAIResponsesEndpoint, final.Model, next) {
 		result.billing, err = resolveOpenAIResponsesImageBillingConfigDetailedFromBody(next, original.Model)
 	}
@@ -190,13 +204,7 @@ func (c *openAIWSImageGuardFrameConn) WriteFrame(ctx context.Context, typ coderw
 		if raw.Model != "" {
 			original.Model = raw.Model
 		}
-		original.IsCodex = raw.IsCodex
-		original.Lite = original.Lite || raw.Lite
-		original.Native = original.Native || raw.Native
-		original.Explicit = original.Explicit || raw.Explicit
-		original.Passive = original.Passive || raw.Passive
-		original.History = original.History || raw.History
-		original.PreviousResponse = original.PreviousResponse || raw.PreviousResponse
+		original = ReconcileOpenAIImageRequestDescriptor(original, raw)
 	}
 	prepared, err := c.prepare(ctx, effective, original)
 	if err != nil {

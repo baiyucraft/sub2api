@@ -3,13 +3,11 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 )
 
 // OpenAIImageRequest describes client intent before account-specific transforms.
@@ -20,20 +18,22 @@ type OpenAIImageRequest struct {
 	Model            string
 	IsCodex          bool
 	Native           bool
+	NativeRequired   bool
 	Explicit         bool
 	Passive          bool
 	History          bool
+	UnknownHistory   bool
 	PreviousResponse bool
 	Lite             bool
 	Valid            bool
 }
 
 func (r OpenAIImageRequest) RequiresCapability() bool {
-	return r.Native || r.Explicit || r.History || (r.Passive && r.PreviousResponse)
+	return r.Explicit || r.History || r.NativeRequired
 }
 
 func (r OpenAIImageRequest) CanStripPassive() bool {
-	return r.Valid && r.Passive && !r.RequiresCapability() && !r.PreviousResponse
+	return r.Valid && (r.Native || r.Passive) && !r.RequiresCapability()
 }
 
 // DescribeOpenAIImageRequest never infers image intent from free-form prompt text.
@@ -60,43 +60,18 @@ func DescribeOpenAIImageRequest(endpoint, model string, body []byte, isCodex boo
 			}
 			return true
 		})
-		// Tool outputs may carry only a call_id. Without resolved history they
-		// cannot prove that an advertised image namespace is unused.
-		var inspectHistory func(gjson.Result)
-		inspectHistory = func(v gjson.Result) {
-			if v.IsArray() {
-				v.ForEach(func(_, child gjson.Result) bool { inspectHistory(child); return true })
-				return
-			}
-			if !v.IsObject() || v.Get("type").String() == "additional_tools" {
-				return
-			}
-			typ := v.Get("type").String()
-			imageRef := isOpenAIImageGenFunctionReference(v.Get("namespace").String(), v.Get("name").String()) || isOpenAIImageGenFunctionReference(v.Get("function.namespace").String(), v.Get("function.name").String())
-			if typ == "image_generation_call" || ((strings.Contains(typ, "call") || typ == "tool_use" || typ == "tool_result") && imageRef) {
-				r.History = true
-			}
-			if r.Passive && (v.Get("call_id").Exists() || v.Get("tool_call_id").Exists() || len(v.Get("tool_calls").Array()) > 0 || v.Get("role").String() == "tool" || typ == "tool_result" || typ == "tool") {
-				r.History = true
-			}
-			v.ForEach(func(key, child gjson.Result) bool {
-				if key.String() != "tools" && key.String() != "arguments" && key.String() != "parameters" {
-					inspectHistory(child)
-				}
-				return true
-			})
-		}
-		inspectHistory(root.Get("input"))
-		inspectHistory(root.Get("messages"))
+		r.Explicit = r.Explicit || openAIRequiredChoiceOnlyImages(root)
+		r.History, r.UnknownHistory = describeOpenAIImageHistory(root)
+		r.UnknownHistory = r.UnknownHistory || r.PreviousResponse
 		r.Valid = !hasDuplicateOpenAIImagePolicyKeys(root)
 	}
 	switch {
-	case r.Native:
-		r.Source = "native"
 	case r.Explicit:
 		r.Source = "explicit"
-	case r.History || (r.Passive && r.PreviousResponse):
+	case r.History:
 		r.Source = "history"
+	case r.Native:
+		r.Source = "native"
 	case r.Passive:
 		r.Source = "passive"
 	}
@@ -157,16 +132,19 @@ type openAIImageRequestPolicy struct {
 	cached            bool
 	staleAfterSeconds int
 	groupAllowed      *bool
+	stripOptional     bool
 }
 
 // WithOpenAIImageRequestPolicy caches only request-scoped channel/global policy;
 // account overrides are evaluated independently for every candidate.
 func (s *OpenAIGatewayService) WithOpenAIImageRequestPolicy(ctx context.Context, groupID *int64) context.Context {
+	prior, _ := ctx.Value(openAIImagePolicyContextKey{}).(openAIImageRequestPolicy)
 	id := int64(0)
 	if groupID != nil {
 		id = *groupID
+	} else if prior.groupAllowed != nil {
+		id = prior.groupID
 	}
-	prior, _ := ctx.Value(openAIImagePolicyContextKey{}).(openAIImageRequestPolicy)
 	if prior.cached && prior.groupID == id {
 		return ctx
 	}
@@ -176,6 +154,7 @@ func (s *OpenAIGatewayService) WithOpenAIImageRequestPolicy(ctx context.Context,
 	}
 	if !prior.cached || prior.groupID == id {
 		p.groupAllowed = prior.groupAllowed
+		p.stripOptional = prior.stripOptional
 	}
 	p.bridge = s != nil && s.cfg != nil && s.cfg.Gateway.CodexImageGenerationBridgeEnabled
 	if s != nil && s.channelService != nil && groupID != nil {
@@ -205,6 +184,7 @@ func WithOpenAIImageRequestGroup(ctx context.Context, group *Group) context.Cont
 	p, _ := ctx.Value(openAIImagePolicyContextKey{}).(openAIImageRequestPolicy)
 	allowed := GroupAllowsImageGeneration(group)
 	p.groupAllowed = &allowed
+	p.stripOptional = group != nil && group.StripOptionalImageTools
 	if group != nil {
 		if p.groupID != group.ID {
 			p.cached = false
@@ -290,11 +270,11 @@ func openAIImageAutomaticStrip(r OpenAIImageRequest, account *Account) bool {
 // logOpenAIImageRequestDecision is field-allowlisted: never attach the payload,
 // extra/credentials maps, tool arguments, or user-provided continuation IDs.
 func logOpenAIImageRequestDecision(ctx context.Context, r OpenAIImageRequest, account *Account, stripped, hosted bool) {
-	if account == nil || account.Platform != PlatformOpenAI || (!r.RequiresCapability() && !r.Passive && !hosted) {
+	if account == nil || account.Platform != PlatformOpenAI || (!r.RequiresCapability() && !r.Native && !r.Passive && !hosted) {
 		return
 	}
 	attrs := []any{"account_id", account.ID, "image_source", r.Source,
-		"image_required", r.RequiresCapability(), "image_passive_stripped", stripped && r.CanStripPassive() && !openAIImageManualStrip(r, account),
+		"image_required", r.RequiresCapability(), "image_history_unknown", r.UnknownHistory, "image_passive_stripped", stripped && r.CanStripPassive() && !openAIImageManualStrip(r, account),
 		"image_policy_stripped", stripped && openAIImageManualStrip(r, account), "image_hosted_eligible", hosted,
 		"image_permission_rank", OpenAIImagePermissionRank(account, openAIImageStaleAfter(ctx))}
 	if p := openAIImagePermissionSnapshot(account); p != nil {
@@ -323,7 +303,10 @@ func (s *OpenAIGatewayService) AccountRequiresOpenAIImageCapability(ctx context.
 	if r.RequiresCapability() {
 		return true
 	}
-	return (r.Passive && !openAIImageAutomaticStrip(r, account)) || s.CanInjectOpenAIHostedImageGeneration(ctx, groupID, account)
+	if openAIImageContextStripsOptional(ctx) {
+		return false
+	}
+	return ((r.Native || r.Passive) && !openAIImageAutomaticStrip(r, account)) || s.CanInjectOpenAIHostedImageGeneration(ctx, groupID, account)
 }
 
 // AccountRequiresOpenAIResponsesForImage distinguishes native hosted image work
@@ -336,7 +319,10 @@ func (s *OpenAIGatewayService) AccountRequiresOpenAIResponsesForImage(ctx contex
 	if openAIImageManualStrip(r, account) {
 		return isOpenAIImageGenerationModel(r.Model) || r.History
 	}
-	return r.RequiresCapability() || s.CanInjectOpenAIHostedImageGeneration(ctx, groupID, account)
+	if !r.RequiresCapability() && openAIImageContextStripsOptional(ctx) {
+		return false
+	}
+	return r.RequiresCapability() || (r.Native && !openAIImageAutomaticStrip(r, account)) || s.CanInjectOpenAIHostedImageGeneration(ctx, groupID, account)
 }
 
 // CanInjectOpenAIHostedImageGeneration performs the final selected-account gate.
@@ -350,7 +336,7 @@ func (s *OpenAIGatewayService) CanInjectOpenAIHostedImageGeneration(ctx context.
 	if !account.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityResponses) || account.isRateLimitActiveForKey(openAIImageGenerationRateLimitKey) {
 		return false
 	}
-	if policy, ok := ctx.Value(openAIImagePolicyContextKey{}).(openAIImageRequestPolicy); ok && policy.groupAllowed != nil && !*policy.groupAllowed {
+	if openAIImageContextStripsOptional(ctx) {
 		return false
 	}
 	p := openAIImagePermissionSnapshot(account)
@@ -369,6 +355,9 @@ func (s *OpenAIGatewayService) CanInjectOpenAIHostedImageGeneration(ctx context.
 // for each account. Automatic following removes only unused passive declarations.
 func DeriveOpenAIImageRequestBody(body []byte, r OpenAIImageRequest, account *Account) ([]byte, bool, error) {
 	if openAIImageManualStrip(r, account) {
+		if r.CanStripPassive() {
+			return stripOptionalOpenAIImageTools(body, r)
+		}
 		var payload map[string]any
 		if err := decodeOpenAIJSONUseNumber(body, &payload); err != nil {
 			return body, false, err
@@ -382,60 +371,17 @@ func DeriveOpenAIImageRequestBody(body []byte, r OpenAIImageRequest, account *Ac
 	if !openAIImageAutomaticStrip(r, account) {
 		return body, false, nil
 	}
-	next := body
-	changed := false
-	stripTools := func(path string) error {
-		tools := gjson.GetBytes(next, path).Array()
-		for i := len(tools) - 1; i >= 0; i-- {
-			if !isPassiveOpenAIImageTool(tools[i]) {
-				continue
-			}
-			var err error
-			next, err = sjson.DeleteBytes(next, fmt.Sprintf("%s.%d", path, i))
-			if err != nil {
-				return err
-			}
-			changed = true
-		}
-		if len(tools) > 0 && len(gjson.GetBytes(next, path).Array()) == 0 {
-			var err error
-			next, err = sjson.DeleteBytes(next, path)
-			return err
-		}
-		return nil
-	}
-	if err := stripTools("tools"); err != nil {
-		return body, false, err
-	}
-	items := gjson.GetBytes(next, "input").Array()
-	for i := len(items) - 1; i >= 0; i-- {
-		if items[i].Get("type").String() != "additional_tools" {
-			continue
-		}
-		path := fmt.Sprintf("input.%d.tools", i)
-		hadTools := gjson.GetBytes(next, path).Exists()
-		if err := stripTools(path); err != nil {
-			return body, false, err
-		}
-		if hadTools && !gjson.GetBytes(next, path).Exists() {
-			var err error
-			next, err = sjson.DeleteBytes(next, fmt.Sprintf("input.%d", i))
-			if err != nil {
-				return body, false, err
-			}
-		}
-	}
-	return next, changed, nil
+	return stripOptionalOpenAIImageTools(body, r)
 }
 
 // CheckOpenAIImageRequestPermission is shared by HTTP and WS after all payload
 // transforms. It rejects only image capability, never disables text on an account.
 func CheckOpenAIImageRequestPermission(ctx context.Context, r OpenAIImageRequest, account *Account) error {
-	if original, ok := OpenAIImageRequestFromContext(ctx); ok && (original.History ||
-		(original.Passive && original.PreviousResponse && !openAIImageManualStrip(original, account))) {
-		r.History = true
+	if original, ok := OpenAIImageRequestFromContext(ctx); ok {
+		r.History = r.History || original.History
+		r.NativeRequired = r.NativeRequired || (r.Native && original.NativeRequired)
 	}
-	if account == nil || account.Platform != PlatformOpenAI || (!r.RequiresCapability() && !r.Passive) {
+	if account == nil || account.Platform != PlatformOpenAI || (!r.RequiresCapability() && !r.Native && !r.Passive) {
 		return nil
 	}
 	reason := ""
@@ -445,7 +391,7 @@ func CheckOpenAIImageRequestPermission(ctx context.Context, r OpenAIImageRequest
 	if account.isRateLimitActiveForKey(openAIImageGenerationRateLimitKey) {
 		reason = "image_capability_cooldown"
 	}
-	if r.RequiresCapability() && !IsImageGenerationEndpoint(r.Endpoint) && !account.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityResponses) {
+	if (r.RequiresCapability() || r.Native) && !IsImageGenerationEndpoint(r.Endpoint) && !account.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityResponses) {
 		reason = "image_responses_unsupported"
 	}
 	if reason == "" {
