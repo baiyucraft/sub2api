@@ -82,7 +82,7 @@ def reviewed():
     assert COMPATIBILITY_PATHS | PREPARE_PATHS == PATHS
     assert gate._PROFILE277_COMPATIBILITY_REVIEW_PATHS == TRANCHES[0][3]
     assert gate._PREPARE_GATE_POLICY_REVIEW_PATHS == TRANCHES[1][3]
-    assert gate._REVIEWED_SCOPED_TRANCHES[-2:] == TRANCHES
+    assert tuple(group for group in gate._REVIEWED_SCOPED_TRANCHES if group[:2] == (BASE, TARGET)) == TRANCHES
     expected = {PREFIX + path: pair for path, pair in OBJECTS.items()}
     old, new = gate._tree_blobs(WORKSPACE, BASE), gate._tree_blobs(WORKSPACE, TARGET)
     assert {path: (old.get(path), new.get(path)) for path in expected} == expected
