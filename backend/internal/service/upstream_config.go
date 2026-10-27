@@ -1654,16 +1654,82 @@ func (s *UpstreamConfigService) probeKeyUnlocked(ctx context.Context, keyID int6
 	distributionEnabled := confidenceIndependent && account.Platform == PlatformOpenAI && account.Type == AccountTypeAPIKey
 	if distributionEnabled {
 		model = UpstreamConfidenceDistributionClaimedModel
-		collector, ok := s.repo.(UpstreamConfidenceDistributionRepository)
-		if !ok {
-			return UpstreamHealthSnapshot{}, infraerrors.ServiceUnavailable("UPSTREAM_CONFIDENCE_COLLECTOR_UNAVAILABLE", "persistent confidence collector is unavailable")
+	}
+	fingerprintEnabled := confidenceIndependent && account.Type == AccountTypeAPIKey
+	var fingerprintIdentity ConfidenceFingerprintIdentity
+	var fingerprintAttempt *ConfidenceFingerprintAttempt
+	fingerprintClaimUnavailable := false
+	if fingerprintEnabled {
+		var ok bool
+		identityModel := model
+		if distributionEnabled {
+			identityModel = UpstreamConfidenceDistributionClaimedModel
 		}
-		ctx = context.WithValue(ctx, distributionProbeContextKey{}, distributionProbeClaim(func(claimCtx context.Context, identity ConfidenceDistributionIdentity) (*DistributionAttempt, error) {
-			return collector.ClaimConfidenceDistribution(claimCtx, keyID, identity, time.Now().UTC())
-		}))
+		fingerprintIdentity, ok = ConfidenceFingerprintIdentityForAccount(&account, identityModel)
+		if !ok {
+			fingerprintEnabled = false
+			fingerprintClaimUnavailable = true
+		}
 	}
 	var result UpstreamHealthProbeResult
 	var probeErr error
+	runProbe := func(probeCtx context.Context) {
+		probeModel := model
+		probeContext := probeCtx
+		distributionClaimAttached := false
+		if distributionEnabled {
+			probeModel = UpstreamConfidenceDistributionClaimedModel
+		}
+		if fingerprintEnabled {
+			fingerprintCollector, available := s.repo.(ConfidenceFingerprintRepository)
+			if available {
+				attempt, claimErr := fingerprintCollector.ClaimConfidenceFingerprint(probeCtx, keyID, fingerprintIdentity, time.Now().UTC())
+				if claimErr != nil {
+					slog.Warn("failed to claim upstream confidence fingerprint; continuing health probe", "upstream_key_id", keyID, "error", claimErr)
+					fingerprintEnabled = false
+					fingerprintClaimUnavailable = true
+				} else if attempt != nil {
+					fingerprintAttempt = attempt
+					probeContext = context.WithValue(probeContext, confidenceFingerprintAttemptContextKey{}, attempt)
+				} else {
+					fingerprintEnabled = false
+					fingerprintClaimUnavailable = true
+				}
+			} else {
+				slog.Warn("upstream confidence fingerprint collector unavailable; continuing health probe", "upstream_key_id", keyID)
+				fingerprintEnabled = false
+				fingerprintClaimUnavailable = true
+			}
+		}
+		if fingerprintClaimUnavailable {
+			probeContext = context.WithValue(probeContext, confidenceFingerprintUnavailableContextKey{}, true)
+		}
+		if distributionEnabled && (fingerprintAttempt == nil || !fingerprintEnabled || fingerprintAttempt.Method == "distribution") {
+			collector, available := s.repo.(UpstreamConfidenceDistributionRepository)
+			if available {
+				probeModel = UpstreamConfidenceDistributionClaimedModel
+				distributionClaimAttached = true
+				probeContext = context.WithValue(probeContext, distributionProbeContextKey{}, distributionProbeClaim(func(claimCtx context.Context, identity ConfidenceDistributionIdentity) (*DistributionAttempt, error) {
+					return collector.ClaimConfidenceDistribution(claimCtx, keyID, identity, time.Now().UTC())
+				}))
+			} else {
+				probeContext = context.WithValue(probeContext, confidenceFingerprintUnavailableContextKey{}, true)
+				if fingerprintAttempt != nil {
+					fingerprintAttempt.Method = "behavioral"
+				}
+			}
+		}
+		result, probeErr = s.accountProber.RunUpstreamHealthProbe(probeContext, &account, probeModel)
+		if distributionClaimAttached && result.distributionAttempt == nil && probeCtx.Err() == nil {
+			// The distribution request claims its own lease before dispatch. If it
+			// cannot be claimed, use this same health cycle for the ordinary probe.
+			if fingerprintAttempt != nil && fingerprintAttempt.Method == "distribution" {
+				fingerprintAttempt.Method = "behavioral"
+			}
+			fallbackContext := context.WithValue(probeCtx, confidenceFingerprintUnavailableContextKey{}, true)
+			result, probeErr = s.accountProber.RunUpstreamHealthProbe(fallbackContext, &account, probeModel)
+		}
+	}
 	if background {
 		var current UpstreamHealthSnapshot
 		var skip bool
@@ -1681,22 +1747,42 @@ func (s *UpstreamConfigService) probeKeyUnlocked(ctx context.Context, keyID int6
 			}
 			probeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			defer cancel()
-			result, probeErr = s.accountProber.RunUpstreamHealthProbe(probeCtx, &account, model)
+			runProbe(probeCtx)
 			return nil
 		})
 		if err != nil {
 			return UpstreamHealthSnapshot{}, err
 		}
 		if skip {
+			if fingerprintAttempt != nil {
+				if collector, ok := s.repo.(ConfidenceFingerprintRepository); ok {
+					evidence := ConfidenceFingerprintEvidence{ProtocolStatus: "unknown", ProtocolReason: "probe_not_due"}
+					persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+					if finishErr := collector.FinishConfidenceFingerprint(persistCtx, keyID, fingerprintAttempt, fingerprintIdentity, evidence, time.Now().UTC()); finishErr != nil {
+						slog.Warn("failed to finish skipped upstream confidence fingerprint", "upstream_key_id", keyID, "error", finishErr)
+					}
+					cancel()
+				}
+			}
 			return current, nil
 		}
 	} else {
 		probeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
-		result, probeErr = s.accountProber.RunUpstreamHealthProbe(probeCtx, &account, model)
+		runProbe(probeCtx)
 	}
 	probeRequestSucceeded := probeErr == nil
 	if errors.Is(probeErr, errDistributionProbeBusy) {
+		if fingerprintAttempt != nil {
+			if collector, ok := s.repo.(ConfidenceFingerprintRepository); ok {
+				evidence := ConfidenceFingerprintEvidence{ProtocolStatus: "unknown", ProtocolReason: "probe_not_dispatched"}
+				persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+				if finishErr := collector.FinishConfidenceFingerprint(persistCtx, keyID, fingerprintAttempt, fingerprintIdentity, evidence, time.Now().UTC()); finishErr != nil {
+					slog.Warn("failed to finish skipped upstream confidence fingerprint", "upstream_key_id", keyID, "error", finishErr)
+				}
+				cancel()
+			}
+		}
 		return GlobalUpstreamHealthRegistry().Snapshot(keyID), nil
 	}
 	if result.distributionAttempt != nil {
@@ -1710,6 +1796,37 @@ func (s *UpstreamConfigService) probeKeyUnlocked(ctx context.Context, keyID int6
 			return UpstreamHealthSnapshot{}, persistErr
 		}
 		result.ConfidenceStatus = distribution.Status
+	}
+	if fingerprintAttempt != nil {
+		if fingerprintCollector, ok := s.repo.(ConfidenceFingerprintRepository); ok {
+			fingerprintResult, fingerprintProtocol := effectiveFingerprintProbeResult(result)
+			identity := fingerprintIdentity
+			if !(account.IsCNProvider() && account.IsAdaptiveAPIProtocol()) && fingerprintProtocol != "" && fingerprintProtocol != upstreamHealthProbeProtocolAdaptive && fingerprintResult.Model != "" {
+				if resolved, ok := ConfidenceFingerprintIdentityForEffectiveModel(&account, fingerprintResult.Model, fingerprintProtocol); ok {
+					identity = resolved
+				}
+			}
+			fingerprintEvidence := confidenceFingerprintEvidenceFromProbe(fingerprintResult, fingerprintProtocol)
+			persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+			if err := fingerprintCollector.FinishConfidenceFingerprint(persistCtx, keyID, fingerprintAttempt, identity, fingerprintEvidence, time.Now().UTC()); err != nil {
+				slog.Warn("failed to persist upstream confidence fingerprint", "upstream_key_id", keyID, "error", err)
+			}
+			cancel()
+		}
+	} else if fingerprintEnabled {
+		if fingerprintCollector, ok := s.repo.(ConfidenceFingerprintRepository); ok {
+			fingerprintResult, fingerprintProtocol := effectiveFingerprintProbeResult(result)
+			if !(account.IsCNProvider() && account.IsAdaptiveAPIProtocol()) && fingerprintProtocol != "" && fingerprintProtocol != upstreamHealthProbeProtocolAdaptive && fingerprintResult.Model != "" {
+				if identity, ok := ConfidenceFingerprintIdentityForEffectiveModel(&account, fingerprintResult.Model, fingerprintProtocol); ok {
+					fingerprintEvidence := confidenceFingerprintEvidenceFromProbe(fingerprintResult, fingerprintProtocol)
+					persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+					if err := fingerprintCollector.RecordConfidenceFingerprintSample(persistCtx, keyID, identity, fingerprintEvidence, time.Now().UTC()); err != nil {
+						slog.Warn("failed to persist upstream confidence fingerprint", "upstream_key_id", keyID, "error", err)
+					}
+					cancel()
+				}
+			}
+		}
 	}
 	s.persistCNProtocolCapabilities(ctx, &account, result)
 	if confidenceIndependent && !distributionEnabled && s.openAIScheduleReporter != nil {
@@ -1777,7 +1894,7 @@ func (s *UpstreamConfigService) probeKeyUnlocked(ctx context.Context, keyID int6
 		}
 		return item, infraerrors.New(http.StatusBadGateway, "UPSTREAM_KEY_PROBE_FAILED", "upstream key probe failed").WithMetadata(metadata)
 	}
-	if distributionEnabled {
+	if confidenceIndependent && (distributionEnabled || fingerprintEnabled) {
 		if confidence, err := s.GetUpstreamHealthConfidence(ctx, keyID); err == nil {
 			item = MergeUpstreamHealthConfidence(item, confidence)
 		}

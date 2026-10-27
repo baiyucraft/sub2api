@@ -1,5 +1,5 @@
 import { apiClient } from '../client'
-import type { Account, AccountQualityFilter, AccountQualityStats, PaginatedResponse, UpstreamConfidenceDistribution, UpstreamHealthObservation } from '@/types'
+import type { Account, AccountQualityFilter, AccountQualityStats, PaginatedResponse, UpstreamConfidenceAttribution, UpstreamConfidenceDistribution, UpstreamHealthObservation } from '@/types'
 import { SCHEDULING_PROTECTION_SETTINGS_UPDATED } from '@/utils/schedulingProtection'
 
 export interface TTFTGuardSettings {
@@ -96,6 +96,7 @@ export interface UpstreamHealthSnapshot {
   confidence_prompt_version?: string
   confidence_evidence?: Record<string, unknown>
   confidence_distribution?: UpstreamConfidenceDistribution | null
+  confidence_attribution?: UpstreamConfidenceAttribution | null
   confidence_attempted_24h?: number
   confidence_attempted_7d?: number
   confidence_valid_completed_24h?: number

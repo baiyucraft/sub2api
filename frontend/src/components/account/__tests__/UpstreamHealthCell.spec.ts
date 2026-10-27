@@ -12,12 +12,20 @@ vi.mock('vue-i18n', async () => {
     ...actual,
     useI18n: () => ({
       t: (key: string, values: Record<string, unknown> = {}) => {
-        if (!key.includes('.distribution.')) return key
+        if (!key.includes('.distribution.') && !key.includes('.attribution.')) return key
         let value: unknown = zh
         for (const part of key.replace('admin.', '').split('.')) value = (value as Record<string, unknown>)?.[part]
         return typeof value === 'string' ? value.replace(/\{(\w+)\}/g, (_, name: string) => String(values[name] ?? '')) : key
       },
-      te: (key: string) => key !== 'admin.upstreamManagement.health.reasons.unknown_reason'
+      te: (key: string) => {
+        if (key === 'admin.upstreamManagement.health.reasons.unknown_reason') return false
+        if (key.startsWith('admin.upstreamManagement.health.attribution.reasons.')) {
+          let value: unknown = zh
+          for (const part of key.replace('admin.', '').split('.')) value = (value as Record<string, unknown>)?.[part]
+          return typeof value === 'string'
+        }
+        return true
+      }
     })
   }
 })
@@ -334,6 +342,55 @@ describe('UpstreamHealthCell', () => {
     })
     expect(wrapper.find('[data-test="confidence-badge"]').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('admin.upstreamManagement.health.confidenceLabel')
+  })
+
+  it('shows cross-platform attribution and protocol evidence without changing health state', () => {
+    const wrapper = mount(UpstreamHealthCell, {
+      props: { account: account({ platform: 'anthropic', upstream_health: {
+        key_id: 9, status: 'healthy', observation_enabled: true, consecutive_failures: 0,
+        updated_at: '2026-08-24T01:01:00Z',
+        confidence_attribution: {
+          status: 'unknown', platform: 'anthropic', model: 'claude-sonnet', protocol: 'anthropic_messages', observed_protocol: 'anthropic_messages',
+          protocol_status: 'mismatch', protocol_reason: 'probe_protocol_mismatch', reason: 'no_matching_baseline',
+          methods: { behavioral: { status: 'unknown', sample_count: 4, minimum_samples: 12, reason: 'no_matching_baseline' } }
+        }
+      } }) },
+      global: { stubs }
+    })
+
+    expect(wrapper.get('[data-upstream-health-state="healthy"]').exists()).toBe(true)
+    expect(wrapper.get('[data-test="attribution-badge"]').text()).toBe('未知')
+    expect(wrapper.get('[data-test="attribution-protocol-status"]').text()).toBe('协议不匹配')
+    expect(wrapper.get('[data-test="attribution-observed-protocol"]').text()).toBe('anthropic_messages')
+    expect(wrapper.get('[data-test="attribution-protocol-reason"]').text()).toContain('当前证据原因暂不可识别')
+    expect(wrapper.get('[data-test="attribution-method-behavioral"]').text()).toBe('未知')
+    expect(wrapper.text()).toContain('有效样本 4 / 12')
+    expect(wrapper.text()).toContain('没有适用于该平台、模型和协议的已校准基线')
+    expect(wrapper.text()).not.toContain('probe_protocol_mismatch')
+  })
+
+  it('supports provisional and conflicting attribution outcomes while keeping old responses optional', () => {
+    const wrapper = mount(UpstreamHealthCell, {
+      props: { account: account({ upstream_health: {
+        key_id: 9, status: 'degraded', observation_enabled: true, consecutive_failures: 1,
+        updated_at: '2026-08-24T01:01:00Z',
+        confidence_attribution: {
+          status: 'conflict', platform: 'openai', model: 'gpt-6.1-sol', protocol: 'responses',
+          methods: {
+            distribution: { status: 'match', sample_count: 128, minimum_samples: 128, baseline_version: 'dist-v1' },
+            behavioral: { status: 'mismatch', sample_count: 16, minimum_samples: 12, baseline_version: 'fingerprint-v2' }
+          }
+        }
+      } }) },
+      global: { stubs }
+    })
+    expect(wrapper.get('[data-test="attribution-badge"]').text()).toBe('证据冲突待复核')
+    expect(wrapper.text()).toContain('dist-v1')
+    expect(wrapper.text()).toContain('fingerprint-v2')
+    expect(wrapper.get('[data-upstream-health-state="degraded"]').exists()).toBe(true)
+
+    const legacy = mount(UpstreamHealthCell, { props: { account: account({ platform: 'gemini' }) }, global: { stubs } })
+    expect(legacy.find('[data-test="attribution-badge"]').exists()).toBe(false)
   })
 
   it('renders mixed evidence and degrades the badge for a 24h hard anomaly', () => {

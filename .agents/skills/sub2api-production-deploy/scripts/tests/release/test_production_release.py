@@ -1816,7 +1816,7 @@ class ReleaseClaimScriptTest(unittest.TestCase):
     def test_current_profile_260_version_contract_matches_vm_validator(self) -> None:
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
         profiles = (DEPLOY_ROOT / "release" / "profiles.py").read_text(encoding="utf-8")
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "276")
+        self.assertEqual(CURRENT_RELEASE_PROFILE, "277")
         successor = get_profile("261")
         self.assertEqual(successor["version"], "0.2.13-baiyu")
         self.assertEqual(successor["parent"], "260")

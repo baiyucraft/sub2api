@@ -212,7 +212,75 @@ func (s *UpstreamConfigService) GetUpstreamHealthConfidencesAt(ctx context.Conte
 		out[id] = UpstreamHealthConfidenceSummary{Distribution: read.Distribution, Status: read.Distribution.Status,
 			RequestedEffort: "low", PromptVersion: UpstreamConfidenceDistributionPromptVersion}
 	}
+	if err := s.attachConfidenceFingerprintAttributions(ctx, keyIDs, accountsByKey, out, now); err != nil {
+		return nil, err
+	}
 	return out, nil
+}
+
+func (s *UpstreamConfigService) attachConfidenceFingerprintAttributions(ctx context.Context, keyIDs []int64, accountsByKey map[int64][]Account, out map[int64]UpstreamHealthConfidenceSummary, now time.Time) error {
+	collector, ok := s.repo.(ConfidenceFingerprintRepository)
+	if !ok {
+		for _, id := range keyIDs {
+			if len(accountsByKey[id]) == 1 && accountsByKey[id][0].Type == AccountTypeAPIKey {
+				attribution := ConfidenceFingerprintAttribution{Status: "unknown", Reason: "fingerprint_storage_unavailable", Platform: accountsByKey[id][0].Platform, Methods: map[string]ConfidenceFingerprintMethodSummary{}}
+				out[id] = withConfidenceAttribution(out[id], MergeConfidenceFingerprintAttribution(out[id].Distribution, attribution))
+			}
+		}
+		return nil
+	}
+	models := DefaultUpstreamProbeModels()
+	if s.settingService != nil {
+		if configured, err := s.settingService.GetUpstreamProbeModels(ctx); err == nil {
+			models = configured
+		}
+	}
+	identities := make(map[int64]ConfidenceFingerprintIdentity, len(keyIDs))
+	for _, id := range keyIDs {
+		accounts := accountsByKey[id]
+		if len(accounts) != 1 || accounts[0].Type != AccountTypeAPIKey || !UpstreamProbePlatformSupported(accounts[0].Platform) {
+			continue
+		}
+		model := models.ModelFor(accounts[0].Platform)
+		if accounts[0].Platform == PlatformOpenAI {
+			model = UpstreamConfidenceDistributionClaimedModel
+		}
+		identity, ok := ConfidenceFingerprintIdentityForAccount(&accounts[0], model)
+		if ok {
+			identities[id] = identity
+		}
+	}
+	reads, err := collector.LoadConfidenceFingerprints(ctx, identities)
+	if reads == nil {
+		reads = map[int64]ConfidenceFingerprintReadResult{}
+	}
+	if err != nil {
+		for id := range identities {
+			reads[id] = ConfidenceFingerprintReadResult{Err: err}
+		}
+	}
+	for id, identity := range identities {
+		read := reads[id]
+		var attribution ConfidenceFingerprintAttribution
+		if read.Err != nil {
+			attribution = ScoreConfidenceFingerprintAt(identity, nil, now)
+			attribution.Reason = "fingerprint_read_unavailable"
+			for key, method := range attribution.Methods {
+				method.Reason = "fingerprint_read_unavailable"
+				attribution.Methods[key] = method
+			}
+		} else {
+			attribution = ScoreConfidenceFingerprintAt(identity, read.State, now)
+		}
+		attribution = MergeConfidenceFingerprintAttribution(out[id].Distribution, attribution)
+		out[id] = withConfidenceAttribution(out[id], attribution)
+	}
+	return nil
+}
+
+func withConfidenceAttribution(summary UpstreamHealthConfidenceSummary, attribution ConfidenceFingerprintAttribution) UpstreamHealthConfidenceSummary {
+	summary.Attribution = &attribution
+	return summary
 }
 
 func confidenceSummaryKeyIDs(ids []int64) []int64 {

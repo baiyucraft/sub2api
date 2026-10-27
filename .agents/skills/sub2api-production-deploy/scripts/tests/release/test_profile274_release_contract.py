@@ -32,17 +32,17 @@ class Profile274ReleaseContractTest(unittest.TestCase):
         source = subprocess.run(["git", "show", f"{BASELINE}:.agents/skills/sub2api-production-deploy/scripts/release/profiles.py"],
                                 cwd=WORKSPACE, check=True, capture_output=True, timeout=10).stdout
         exec(compile(source, "profile273-baseline", "exec"), previous)
-        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"274", "275", "276"})
+        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"274", "275", "276", "277"})
         for name, contract in previous["PROFILES"].items():
             self.assertEqual(PROFILES[name], contract, name)
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "276")
+        self.assertEqual(CURRENT_RELEASE_PROFILE, "277")
         profile = get_profile("274")
         self.assertEqual((profile["version"], profile["parent"], profile["gate_schema"], profile["new_migrations"]),
                          ("0.2.17-baiyu", "273", 2, [MIGRATION]))
         with self.assertRaisesRegex(ValueError, "historical"):
             get_release_profile("273")
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 277"):
-            get_profile("277")
+        with self.assertRaisesRegex(ValueError, "unknown release profile: 278"):
+            get_profile("278")
         old_files = subprocess.run(["git", "ls-tree", "-r", "--name-only", BASELINE, "--", "backend/migrations"],
                                    cwd=WORKSPACE, check=True, capture_output=True, text=True, timeout=10).stdout.splitlines()
         changed = subprocess.run(["git", "diff", "--name-only", BASELINE, "--", "backend/migrations/*.sql"], cwd=WORKSPACE,
@@ -54,7 +54,7 @@ class Profile274ReleaseContractTest(unittest.TestCase):
         snapshot = {row["filename"]: row["checksum"] for row in catalog if row["filename"] != MIGRATION}
         self.assertEqual([row["filename"] for row in plan_migrations(catalog, snapshot)["pending"]], [MIGRATION])
         registry = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(registry["current_profile"]["id"], "276")
+        self.assertEqual(registry["current_profile"]["id"], "277")
         for key in ("version", "parent", "new_migrations", "release_policy"):
             self.assertEqual(registry["historical_profiles"]["274"][key], profile[key])
         self.assertEqual(registry["migration_contracts"][MIGRATION], hashlib.sha256((WORKSPACE / "backend/migrations" / MIGRATION).read_bytes()).hexdigest())

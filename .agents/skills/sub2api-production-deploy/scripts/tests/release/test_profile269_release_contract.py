@@ -32,7 +32,7 @@ class Profile269ReleaseContractTest(unittest.TestCase):
         baseline = {}
         exec(compile(git_blob(".agents/skills/sub2api-production-deploy/scripts/release/profiles.py"), "baseline", "exec"), baseline)
         self.assertEqual(baseline["CURRENT_RELEASE_PROFILE"], "268")
-        self.assertEqual(set(PROFILES), set(baseline["PROFILES"]) | {"269", "270", "271", "272", "273", "274", "275", "276"})
+        self.assertEqual(set(PROFILES), set(baseline["PROFILES"]) | {"269", "270", "271", "272", "273", "274", "275", "276", "277"})
         for name, contract in baseline["PROFILES"].items():
             self.assertEqual(get_profile(name), contract, name)
             with self.assertRaisesRegex(ValueError, "historical"):
@@ -60,14 +60,14 @@ class Profile269ReleaseContractTest(unittest.TestCase):
         profile = get_profile("269")
         with self.assertRaisesRegex(ValueError, "historical"):
             get_release_profile("269")
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "276")
+        self.assertEqual(CURRENT_RELEASE_PROFILE, "277")
         self.assertEqual((profile["version"], profile["parent"], profile["gate_schema"]), ("0.2.16-baiyu", "268", 2))
         self.assertEqual(profile["new_migrations"], [MIGRATION])
         self.assertEqual(profile["release_policy"], get_profile("268")["release_policy"])
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 277"):
-            get_profile("277")
+        with self.assertRaisesRegex(ValueError, "unknown release profile: 278"):
+            get_profile("278")
         registered = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(registered["current_profile"]["id"], "276")
+        self.assertEqual(registered["current_profile"]["id"], "277")
         self.assertEqual(registered["current_profile"]["status"], "pending")
         for field in ("version", "parent", "gate_schema", "new_migrations", "release_policy"):
             self.assertEqual(registered["historical_profiles"]["269"][field], profile[field])

@@ -11,7 +11,7 @@ input=${2:?private staging directory required}
 expected_artifact=${3:?encrypted artifact SHA-256 required}
 {
   required_query_1=$(id -u)
-  [[ ${required_query_1} == 0 && $release_id =~ ^(271|272|273|274|275|276)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ && $expected_artifact =~ ^[0-9a-f]{64}$ ]]
+  [[ ${required_query_1} == 0 && $release_id =~ ^(271|272|273|274|275|276|277)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ && $expected_artifact =~ ^[0-9a-f]{64}$ ]]
 }
 [[ $input =~ ^/srv/sub2api-backups/dr-baseline-stage\.[A-Za-z0-9]{8}$ ]]
 {

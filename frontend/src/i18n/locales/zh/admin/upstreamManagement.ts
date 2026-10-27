@@ -352,6 +352,30 @@ export default {
         output_rewrite_40_prefix: '检测到 40 前缀改写'
       },
       confidenceDisclaimer: '分数表示有效返回中的 Juice 命中比例，不是模型身份或路由概率。',
+      attribution: {
+        title: '模型行为归因',
+        platform: '平台',
+        model: '实际模型',
+        protocol: '请求协议',
+        protocolStatus: '协议证据',
+        observedProtocol: '本次实际协议',
+        methods: '归因方法',
+        samples: '有效样本',
+        baseline: '基线版本',
+        disclaimer: '这是基于当前协议和基线的诊断证据，不是身份保证，也不会改变账号健康或调度。',
+        statuses: {
+          confirmed_match: '多方法一致匹配',
+          confirmed_mismatch: '多方法一致不匹配',
+          provisional_match: '暂定匹配',
+          provisional_mismatch: '暂定不匹配',
+          conflict: '证据冲突待复核',
+          insufficient: '证据不足',
+          unknown: '未知'
+        },
+        methodStatuses: { match: '匹配', mismatch: '不匹配', insufficient: '样本不足', unknown: '未知' },
+        protocolStatuses: { compatible: '符合预期', mismatch: '协议不匹配', unknown: '未知' },
+        reasons: { no_matching_baseline: '没有适用于该平台、模型和协议的已校准基线', baseline_unavailable: '模型行为基线暂不可用', insufficient_samples: '有效样本尚未达到判定要求', protocol_mismatch: '协议行为与所选协议不一致', other: '当前证据原因暂不可识别' }
+      },
       temporarilyExcluded: '探针异常已联动临时不可调度，可使用“恢复调度”手动恢复',
       recoveryInProgress: '正在恢复验证，连续成功后会自动恢复调度',
       past: '过去',
