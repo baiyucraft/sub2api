@@ -1027,7 +1027,7 @@ export default {
       addMapping: 'Add Mapping',
       upstreamModelCustomRules: {
         title: 'Account custom edit rules',
-        description: 'These account-level additions, changes, and removals override the automatic model snapshot. Removing a rule restores the automatic result after saving.',
+        description: 'These account-level additions, changes, and removals override the automatic model snapshot. Deny prevents ordinary requests from using that model; the Sol distribution probe still checks it when the last successful sync includes it. Removing a rule restores the automatic result after saving.',
         actions: {
           allow: 'Allow',
           map: 'Map',
