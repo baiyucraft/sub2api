@@ -56,11 +56,18 @@ class Profile275ReleaseContractTest(unittest.TestCase):
                                cwd=WORKSPACE, check=True, capture_output=True, text=True, timeout=30).stdout.splitlines()
         changed = subprocess.run(["git", "diff", "--name-only", BASELINE, "--", "backend/migrations/*.sql"],
                                  cwd=WORKSPACE, check=True, capture_output=True, text=True, timeout=30).stdout.splitlines()
-        self.assertLessEqual(set(changed), {"backend/migrations/" + MIGRATION, "backend/migrations/303_group_strip_optional_image_tools.sql"})
+        self.assertLessEqual(set(changed), {
+            "backend/migrations/" + MIGRATION,
+            "backend/migrations/303_group_strip_optional_image_tools.sql",
+            "backend/migrations/304_upstream_confidence_fingerprint.sql",
+        })
         current_names = {p.name for p in (WORKSPACE / "backend/migrations").glob("*.sql")}
-        self.assertEqual(current_names, {Path(p).name for p in names if p.endswith(".sql")} | {MIGRATION, "303_group_strip_optional_image_tools.sql"})
+        self.assertEqual(current_names, {
+            Path(p).name for p in names if p.endswith(".sql")
+        } | {MIGRATION, "303_group_strip_optional_image_tools.sql", "304_upstream_confidence_fingerprint.sql"})
         self.assertIsNotNone(RELEASE_ID.fullmatch("275-aaaaaaaaaaaa-1-aaaaaaaa"))
-        self.assertIsNone(RELEASE_ID.fullmatch("277-aaaaaaaaaaaa-1-aaaaaaaa"))
+        self.assertIsNotNone(RELEASE_ID.fullmatch("277-aaaaaaaaaaaa-1-aaaaaaaa"))
+        self.assertIsNone(RELEASE_ID.fullmatch("278-aaaaaaaaaaaa-1-aaaaaaaa"))
 
     def test_official_bytes_and_independent_checksum_contracts(self):
         raw = (WORKSPACE / "backend/migrations" / MIGRATION).read_bytes()
@@ -75,7 +82,7 @@ class Profile275ReleaseContractTest(unittest.TestCase):
             self.assertEqual(registry["historical_profiles"]["274"][key], get_profile("274")[key])
         self.assertEqual(registry["migration_contracts"][MIGRATION], RAW_SHA256)
         self.assertIn(MIGRATION, next(e for e in registry["extensions"] if e["id"] == "migration-profile-contract")["migration_files"])
-        self.assertEqual((WORKSPACE / "backend/cmd/server/VERSION").read_text().strip(), "0.2.18-baiyu")
+        self.assertEqual((WORKSPACE / "backend/cmd/server/VERSION").read_text().strip(), get_profile(CURRENT_RELEASE_PROFILE)["version"])
 
     def test_partial_upgrade_checksum_conflict_and_inherited_301_restore(self):
         catalog = discover_migration_catalog(WORKSPACE)
