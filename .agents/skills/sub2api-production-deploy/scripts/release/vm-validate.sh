@@ -253,7 +253,7 @@ test_tag="sub2api:vm-test-$commit"
 profile=$(jq -er '.profile' "$manifest")
 manifest_schema=$(jq -er '.schema' "$manifest")
 if [[ "$manifest_schema" == 2 ]]; then
-  [[ "$profile" == 254 || "$profile" == 255 || "$profile" == 256 || "$profile" == 257 || "$profile" == 258 || "$profile" == 259 || "$profile" == 260 || "$profile" == 261 || "$profile" == 262 || "$profile" == 263 || "$profile" == 264 || "$profile" == 265 || "$profile" == 266 || "$profile" == 267 || "$profile" == 268 || "$profile" == 269 || "$profile" == 270 || "$profile" == 271 || "$profile" == 272 || "$profile" == 273 || "$profile" == 274 || "$profile" == 275 || "$profile" == 276 ]]
+  [[ "$profile" == 254 || "$profile" == 255 || "$profile" == 256 || "$profile" == 257 || "$profile" == 258 || "$profile" == 259 || "$profile" == 260 || "$profile" == 261 || "$profile" == 262 || "$profile" == 263 || "$profile" == 264 || "$profile" == 265 || "$profile" == 266 || "$profile" == 267 || "$profile" == 268 || "$profile" == 269 || "$profile" == 270 || "$profile" == 271 || "$profile" == 272 || "$profile" == 273 || "$profile" == 274 || "$profile" == 275 || "$profile" == 276 || "$profile" == 277 ]]
   [[ "$release_id" =~ ^(254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273|274|275|276|277)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
   {
     required_query_4=$(jq -er '.release_asset_layout' "$manifest") || exit $?
