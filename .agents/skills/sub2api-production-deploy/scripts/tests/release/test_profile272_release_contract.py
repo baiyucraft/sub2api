@@ -31,19 +31,19 @@ class Profile272ReleaseContractTest(unittest.TestCase):
         ).stdout
         exec(compile(source, "profile271-baseline", "exec"), previous)
         self.assertEqual(previous["CURRENT_RELEASE_PROFILE"], "271")
-        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"272", "273", "274", "275", "276"})
+        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"272", "273", "274", "275", "276", "277"})
         for name, contract in previous["PROFILES"].items():
             with self.subTest(profile=name):
                 self.assertEqual(PROFILES[name], contract)
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "276")
+        self.assertEqual(CURRENT_RELEASE_PROFILE, "277")
         profile = get_profile("272")
         self.assertEqual((profile["version"], profile["parent"], profile["gate_schema"], profile["new_migrations"]),
                          ("0.2.17-baiyu", "271", 2, []))
         catalog = discover_migration_catalog(WORKSPACE)
         snapshot = {row["filename"]: row["checksum"] for row in catalog}
         self.assertEqual(plan_migrations(catalog, snapshot)["pending"], [])
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 277"):
-            get_profile("277")
+        with self.assertRaisesRegex(ValueError, "unknown release profile: 278"):
+            get_profile("278")
 
     @unittest.skipUnless(JQ, "jq unavailable; set SUB2API_TEST_JQ for real filter validation")
     def test_inherited_hooks_validate_real_manifest_filters(self):

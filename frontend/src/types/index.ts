@@ -1753,6 +1753,7 @@ export interface Account {
     confidence_prompt_version?: string
     confidence_evidence?: Record<string, unknown>
     confidence_distribution?: UpstreamConfidenceDistribution | null
+    confidence_attribution?: UpstreamConfidenceAttribution | null
     confidence_attempted_24h?: number
     confidence_attempted_7d?: number
     confidence_valid_completed_24h?: number
@@ -1893,6 +1894,26 @@ export interface UpstreamConfidenceDistribution {
   protocol: string
   reasons: string[]
   series_reset?: UpstreamConfidenceDistributionReset
+}
+
+export interface UpstreamConfidenceAttributionMethod {
+  status: string
+  sample_count: number
+  minimum_samples: number
+  baseline_version?: string
+  reason?: string
+}
+
+export interface UpstreamConfidenceAttribution {
+  status: string
+  reason?: string
+  platform?: string
+  model?: string
+  protocol?: string
+  observed_protocol?: string
+  protocol_status?: string
+  protocol_reason?: string
+  methods?: Record<string, UpstreamConfidenceAttributionMethod>
 }
 
 export interface UpstreamHealthObservation {

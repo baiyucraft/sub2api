@@ -266,7 +266,7 @@ def _validate_v2_pending(manifest: dict[str, Any], evidence: dict[str, Any]) -> 
         (item for item in catalog if isinstance(item, dict) and item.get("filename") == lifecycle_filename),
         None,
     )
-    if manifest.get("profile") in {"260", "261", "262", "263", "264", "265", "266", "267", "268", "269", "270", "271", "272", "273", "274", "275", "276"} and lifecycle_catalog is None:
+    if manifest.get("profile") in {"260", "261", "262", "263", "264", "265", "266", "267", "268", "269", "270", "271", "272", "273", "274", "275", "276", "277"} and lifecycle_catalog is None:
         raise RuntimeError("Gate v2 lacks migration 285 catalog entry")
     if lifecycle_catalog is not None:
         required_fields.add("migration_285")
@@ -274,22 +274,22 @@ def _validate_v2_pending(manifest: dict[str, Any], evidence: dict[str, Any]) -> 
         (item for item in catalog if isinstance(item, dict) and item.get("filename") == "297_upstream_cache_guard_account_scope.sql"),
         None,
     )
-    if manifest.get("profile") in {"269", "270", "271", "272", "273", "274", "275", "276"} and account_scope_catalog is None:
+    if manifest.get("profile") in {"269", "270", "271", "272", "273", "274", "275", "276", "277"} and account_scope_catalog is None:
         raise RuntimeError("Gate v2 lacks migration 297 catalog entry")
     if account_scope_catalog is not None:
         required_fields.add("migration_297")
     protection_catalog = next((item for item in catalog if isinstance(item, dict) and item.get("filename") == "298_group_scheduling_protection_policies.sql"), None)
-    if manifest.get("profile") in {"270", "271", "272", "273", "274", "275", "276"} and protection_catalog is None:
+    if manifest.get("profile") in {"270", "271", "272", "273", "274", "275", "276", "277"} and protection_catalog is None:
         raise RuntimeError("Gate v2 lacks migration 298 catalog entry")
     if protection_catalog is not None:
         required_fields.add("migration_298")
     revisions_catalog = next((item for item in catalog if isinstance(item, dict) and item.get("filename") == "299_upstream_cache_guard_revisions.sql"), None)
-    if manifest.get("profile") in {"271", "272", "273", "274", "275", "276"} and revisions_catalog is None:
+    if manifest.get("profile") in {"271", "272", "273", "274", "275", "276", "277"} and revisions_catalog is None:
         raise RuntimeError("Gate v2 lacks migration 299 catalog entry")
     if revisions_catalog is not None:
         required_fields.add("migration_299")
     admissions_catalog = next((item for item in catalog if isinstance(item, dict) and item.get("filename") == "301_upstream_cache_guard_admissions.sql"), None)
-    if manifest.get("profile") in {"274", "275", "276"} and admissions_catalog is None:
+    if manifest.get("profile") in {"274", "275", "276", "277"} and admissions_catalog is None:
         raise RuntimeError("Gate v2 lacks migration 301 catalog entry")
     if admissions_catalog is not None:
         required_fields.add("migration_301")
