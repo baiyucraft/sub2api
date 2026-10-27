@@ -57,6 +57,12 @@ class Profile277ReleaseContractTest(unittest.TestCase):
         context = (ROOT / "maintenance/release/context.sh").read_text(encoding="utf-8")
         validator = (ROOT / "release/vm-validate.sh").read_text(encoding="utf-8")
         self.assertIn("|276|277)", context)
+        schema_two_profile_guard = next(
+            line for line in validator.splitlines()
+            if line.lstrip().startswith('[[ "$profile" == 254')
+        )
+        self.assertRegex(schema_two_profile_guard, r'\$profile" == 277 \]\]$')
+        self.assertNotIn('"$profile" == 278', schema_two_profile_guard)
         self.assertIn('elif [[ "$profile" == 277 ]]; then', validator)
         self.assertIn('0.2.19-baiyu', validator)
         self.assertIn(MIGRATION, validator)
