@@ -1134,7 +1134,7 @@ export default {
       addMapping: '添加映射',
       upstreamModelCustomRules: {
         title: '当前账号自定义编辑规则',
-        description: '这里记录相对自动同步结果的账号级增删改。删除规则会恢复该模型的自动同步结果，保存后生效。',
+        description: '这里记录相对自动同步结果的账号级增删改。禁用会阻止该模型用于普通请求；若最近一次成功同步仍包含该模型，Sol 分布可信探针仍会检测。删除规则会恢复自动同步结果，保存后生效。',
         actions: {
           allow: '允许',
           map: '映射',
