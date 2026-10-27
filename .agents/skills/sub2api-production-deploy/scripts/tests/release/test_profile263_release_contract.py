@@ -32,26 +32,27 @@ class Profile263ReleaseContractTest(unittest.TestCase):
         previous = {}
         exec(compile(source, "historical-profiles", "exec"), previous)
         self.assertEqual(previous["CURRENT_RELEASE_PROFILE"], "262")
-        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"263", "264", "265", "266", "267", "268", "269", "270", "271", "272", "273", "274", "275", "276"})
+        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"263", "264", "265", "266", "267", "268", "269", "270", "271", "272", "273", "274", "275", "276", "277"})
         for name, contract in previous["PROFILES"].items():
             with self.subTest(profile=name):
                 self.assertEqual(get_profile(name), contract)
                 with self.assertRaisesRegex(ValueError, "historical"):
                     get_release_profile(name)
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "276")
+        self.assertEqual(CURRENT_RELEASE_PROFILE, "277")
         current = get_profile("263")
         self.assertEqual(current["version"], "0.2.14-baiyu")
         self.assertEqual(current["parent"], "262")
         self.assertEqual(current["new_migrations"], [])
         self.assertEqual(current["gate_schema"], 2)
         self.assertEqual(current["release_policy"], get_profile("262")["release_policy"])
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 277"):
-            get_profile("277")
-        self.assertEqual(get_release_profile("276")["name"], "276")
+        with self.assertRaisesRegex(ValueError, "unknown release profile: 278"):
+            get_profile("278")
+        self.assertEqual(get_profile("276")["name"], "276")
+        self.assertEqual(get_release_profile("277")["name"], "277")
 
     def test_registration_and_existing_database_replay(self) -> None:
         registration = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(registration["current_profile"]["id"], "276")
+        self.assertEqual(registration["current_profile"]["id"], "277")
         for field in ("version", "parent", "new_migrations", "gate_schema", "release_policy"):
             self.assertEqual(registration["historical_profiles"]["263"][field], get_profile("263")[field])
             self.assertEqual(registration["historical_profiles"]["262"][field], get_profile("262")[field])
@@ -172,15 +173,15 @@ jq() {
             self.assertTrue(groups, relative)
             for group in groups:
                 with self.subTest(file=relative):
-                    cases = tuple((f"{profile}-aaaaaaaaaaaa-1-aaaaaaaa", allowed) for profile, allowed in (("261", True), ("262", True), ("263", True), ("264", True), ("265", True), ("266", True), ("267", True), ("268", True), ("269", True), ("270", True), ("271", True), ("272", True), ("273", True), ("274", True), ("275", True), ("276", True), ("277", False)))
+                    cases = tuple((f"{profile}-aaaaaaaaaaaa-1-aaaaaaaa", allowed) for profile, allowed in (("261", True), ("262", True), ("263", True), ("264", True), ("265", True), ("266", True), ("267", True), ("268", True), ("269", True), ("270", True), ("271", True), ("272", True), ("273", True), ("274", True), ("275", True), ("276", True), ("277", True), ("278", False)))
                     self.assert_guard_cases(f'[[ $release_id =~ ^{group}-[0-9a-f]{{12}}-[0-9]+-[0-9a-f]{{8}}$ ]]', "release_id", cases)
 
     def test_ancestor_assertion_guards_admit_263_through_270_and_reject_271(self) -> None:
         newer_profiles = {
-            "migration-297-assert.sh": {"269", "270", "271", "272", "273", "274", "275", "276"},
-            "migration-298-assert.sh": {"270", "271", "272", "273", "274", "275", "276"},
-            "migration-299-assert.sh": {"271", "272", "273", "274", "275", "276"},
-            "migration-301-assert.sh": {"274", "275", "276"},
+            "migration-297-assert.sh": {"269", "270", "271", "272", "273", "274", "275", "276", "277"},
+            "migration-298-assert.sh": {"270", "271", "272", "273", "274", "275", "276", "277"},
+            "migration-299-assert.sh": {"271", "272", "273", "274", "275", "276", "277"},
+            "migration-301-assert.sh": {"274", "275", "276", "277"},
         }
         for path in sorted((DEPLOY_ROOT / "maintenance/release").glob("migration-*-assert.sh")):
             source = path.read_text(encoding="utf-8")

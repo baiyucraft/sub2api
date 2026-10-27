@@ -78,6 +78,7 @@ func TestConfidenceDistributionNativePostgres(t *testing.T) {
 		`CREATE TABLE upstream_keys (id BIGINT PRIMARY KEY, upstream_config_id BIGINT NOT NULL)`,
 		`INSERT INTO upstream_keys VALUES (1,1),(2,1),(3,1),(4,1),(5,1),(6,1),(7,1),(8,1)`,
 		`CREATE TABLE upstream_confidence_distribution_states (upstream_key_id BIGINT PRIMARY KEY REFERENCES upstream_keys(id) ON DELETE CASCADE, revision BIGINT NOT NULL DEFAULT 1, state_json JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
+		`CREATE TABLE upstream_confidence_fingerprint_states (upstream_key_id BIGINT PRIMARY KEY REFERENCES upstream_keys(id) ON DELETE CASCADE, revision BIGINT NOT NULL DEFAULT 1, state_json JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
 		`CREATE TABLE upstream_events (id BIGSERIAL PRIMARY KEY, upstream_config_id BIGINT NOT NULL, upstream_key_id BIGINT, event_type TEXT NOT NULL, severity TEXT NOT NULL, source TEXT NOT NULL, message TEXT, payload JSONB NOT NULL, occurred_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL)`,
 	} {
 		_, err := db.ExecContext(ctx, ddl)
@@ -106,4 +107,27 @@ func TestConfidenceDistributionNativePostgres(t *testing.T) {
 			testConfidenceDistributionSamplingPolicyUpgrade(t, repo, db, int64(6+i), pendingOutcome)
 		})
 	}
+	t.Run("fingerprint_cross_instance_claim", func(t *testing.T) {
+		identity := service.NewConfidenceFingerprintIdentity("openai", "gpt-6.1-sol", "responses", "https://api.example.test/v1")
+		start := make(chan struct{})
+		results := make(chan *service.ConfidenceFingerprintAttempt, 2)
+		errors := make(chan error, 2)
+		for range 2 {
+			go func() {
+				<-start
+				attempt, err := repo.ClaimConfidenceFingerprint(ctx, 8, identity, time.Now().UTC())
+				results <- attempt
+				errors <- err
+			}()
+		}
+		close(start)
+		var claimed int
+		for range 2 {
+			require.NoError(t, <-errors)
+			if <-results != nil {
+				claimed++
+			}
+		}
+		require.Equal(t, 1, claimed)
+	})
 }

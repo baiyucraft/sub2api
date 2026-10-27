@@ -352,6 +352,30 @@ export default {
         output_rewrite_40_prefix: '40-prefix output rewrite detected'
       },
       confidenceDisclaimer: 'This score is the Juice hit ratio among valid completed responses, not model identity or routing probability.',
+      attribution: {
+        title: 'Model behavior attribution',
+        platform: 'Platform',
+        model: 'Effective model',
+        protocol: 'Request protocol',
+        protocolStatus: 'Protocol evidence',
+        observedProtocol: 'Protocol used',
+        methods: 'Attribution methods',
+        samples: 'Valid samples',
+        baseline: 'Baseline version',
+        disclaimer: 'This is diagnostic evidence against the current protocol and baseline, not an identity guarantee. It does not change account health or scheduling.',
+        statuses: {
+          confirmed_match: 'Methods agree: match',
+          confirmed_mismatch: 'Methods agree: mismatch',
+          provisional_match: 'Provisional match',
+          provisional_mismatch: 'Provisional mismatch',
+          conflict: 'Conflicting evidence; review needed',
+          insufficient: 'Insufficient evidence',
+          unknown: 'Unknown'
+        },
+        methodStatuses: { match: 'Match', mismatch: 'Mismatch', insufficient: 'Insufficient samples', unknown: 'Unknown' },
+        protocolStatuses: { compatible: 'Expected behavior', mismatch: 'Protocol mismatch', unknown: 'Unknown' },
+        reasons: { no_matching_baseline: 'No calibrated baseline matches this platform, model, and protocol', baseline_unavailable: 'The model behavior baseline is unavailable', insufficient_samples: 'Valid samples have not reached the required minimum', protocol_mismatch: 'Observed protocol behavior differs from the selected protocol', other: 'The evidence reason is not recognized' }
+      },
       temporarilyExcluded: 'Probe error is linked to temporary unschedulable status; use “Restore scheduling” to recover manually',
       recoveryInProgress: 'Recovery verification is running; scheduling resumes after consecutive successes',
       past: 'Past',

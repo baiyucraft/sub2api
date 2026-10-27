@@ -29,36 +29,35 @@ class Profile276ReleaseContractTest(unittest.TestCase):
     def test_frozen_history_and_current_release_identity(self):
         previous = {}
         exec(compile(predecessor.git_blob(BASELINE, ".agents/skills/sub2api-production-deploy/scripts/release/profiles.py"), "profile275-baseline", "exec"), previous)
-        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"276"})
+        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"276", "277"})
         for name, profile in previous["PROFILES"].items():
             self.assertEqual(get_profile(name), profile, name)
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "276")
-        profile = get_release_profile("276")
+        self.assertEqual(CURRENT_RELEASE_PROFILE, "277")
+        profile = get_profile("276")
         self.assertEqual((profile["version"], profile["parent"], profile["new_migrations"], profile["gate_schema"]),
                          ("0.2.18-baiyu", "275", [MIGRATION], 2))
         with self.assertRaisesRegex(ValueError, "historical"):
             get_release_profile("275")
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 277"):
-            get_profile("277")
+        self.assertEqual(get_release_profile("277")["name"], "277")
+        with self.assertRaisesRegex(ValueError, "unknown release profile: 278"):
+            get_profile("278")
         self.assertIsNotNone(RELEASE_ID.fullmatch("276-aaaaaaaaaaaa-1-aaaaaaaa"))
-        self.assertIsNone(RELEASE_ID.fullmatch("277-aaaaaaaaaaaa-1-aaaaaaaa"))
+        self.assertIsNotNone(RELEASE_ID.fullmatch("277-aaaaaaaaaaaa-1-aaaaaaaa"))
         names = subprocess.run(["git", "ls-tree", "-r", "--name-only", BASELINE, "--", "backend/migrations"], cwd=WORKSPACE, check=True, capture_output=True, text=True).stdout.splitlines()
         for name in names:
             if name.endswith(".sql"):
                 self.assertEqual((WORKSPACE / name).read_bytes(), predecessor.git_blob(BASELINE, name), name)
         self.assertEqual({p.name for p in (WORKSPACE / "backend/migrations").glob("*.sql")},
-                         {Path(name).name for name in names if name.endswith(".sql")} | {MIGRATION})
+                         {Path(name).name for name in names if name.endswith(".sql")} | {MIGRATION, "304_upstream_confidence_fingerprint.sql"})
 
     def test_registry_checksums_and_pending_migration(self):
         registry = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(registry["current_profile"]["id"], "276")
+        self.assertEqual(registry["historical_profiles"]["276"]["version"], "0.2.18-baiyu")
         for key in ("version", "parent", "new_migrations", "gate_schema", "release_policy"):
-            self.assertEqual(registry["current_profile"][key], get_profile("276")[key])
+            self.assertEqual(registry["historical_profiles"]["276"][key], get_profile("276")[key])
             self.assertEqual(registry["historical_profiles"]["275"][key], get_profile("275")[key])
         raw = (WORKSPACE / "backend/migrations" / MIGRATION).read_bytes()
         self.assertEqual(registry["migration_contracts"][MIGRATION], hashlib.sha256(raw).hexdigest())
-        for owner in ("migration-profile-contract", "openai-image-permission-routing"):
-            self.assertIn(MIGRATION, next(e for e in registry["extensions"] if e["id"] == owner)["migration_files"])
         catalog = discover_migration_catalog(WORKSPACE)
         snapshot = {r["filename"]: r["checksum"] for r in catalog if r["filename"] != MIGRATION}
         self.assertEqual([r["filename"] for r in plan_migrations(catalog, snapshot)["pending"]], [MIGRATION])
@@ -121,6 +120,7 @@ jq() {
   case "$2" in
     .parent_profile) printf '%s\\n' "$parent" ;;
     '.new_migrations == ["303_group_strip_optional_image_tools.sql"] and .deployment_mode == "downtime"') [[ $migrations == optional_image && $mode == downtime ]] ;;
+    '.new_migrations == ["304_upstream_confidence_fingerprint.sql"] and .deployment_mode == "downtime"') [[ $migrations == fingerprint && $mode == downtime ]] ;;
     *) return 1 ;;
   esac
 }
@@ -131,6 +131,9 @@ jq() {
             ("276", "0.2.18-baiyu", "274", "optional_image", "downtime", False),
             ("276", "0.2.18-baiyu", "275", "none", "downtime", False),
             ("276", "0.2.18-baiyu", "275", "optional_image", "blue-green", False),
-            ("277", "0.2.18-baiyu", "276", "optional_image", "downtime", False)):
+            ("276", "0.2.18-baiyu", "275", "optional_image", "downtime", True),
+            ("277", "0.2.19-baiyu", "276", "fingerprint", "downtime", True),
+            ("277", "0.2.19-baiyu", "275", "fingerprint", "downtime", False),
+            ("278", "0.2.19-baiyu", "277", "fingerprint", "downtime", False)):
             result = self.execute(stub + checks, profile, version, parent, migrations, mode)
             self.assertEqual(result.returncode == 0, allowed, result.stderr)

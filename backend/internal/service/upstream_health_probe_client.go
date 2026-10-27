@@ -429,6 +429,14 @@ func (s *AccountTestService) RunUpstreamHealthProbe(ctx context.Context, account
 			challenge = padUpstreamHealthChallenge(account, challenge)
 			return s.runOpenAIChatCompletionsUpstreamHealthProbe(ctx, account, result, challenge)
 		}
+		if _, fingerprint := ctx.Value(confidenceFingerprintAttemptContextKey{}).(*ConfidenceFingerprintAttempt); fingerprint {
+			challenge, challengeErr := newUpstreamHealthChallenge()
+			if challengeErr != nil {
+				return failUpstreamHealthProbe(result, "challenge_error", "probe_challenge_error", challengeErr)
+			}
+			challenge = padUpstreamHealthChallenge(account, challenge)
+			return s.runOpenAIUpstreamHealthProbe(ctx, account, result, challenge)
+		}
 		juiceChallenge, juiceErr := newOpenAIConfidenceChallenge()
 		if juiceErr != nil {
 			return failUpstreamHealthProbe(result, "challenge_error", "probe_challenge_error", juiceErr)
@@ -776,10 +784,12 @@ func (s *AccountTestService) runOpenAIUpstreamHealthProbe(ctx context.Context, a
 	}
 	result.ConfidencePromptVersion = upstreamConfidencePromptVersion
 	result.RequestedEffort = upstreamConfidenceDefaultEffort
+	_, fingerprintAttempt := ctx.Value(confidenceFingerprintAttemptContextKey{}).(*ConfidenceFingerprintAttempt)
+	fingerprintUnavailable, _ := ctx.Value(confidenceFingerprintUnavailableContextKey{}).(bool)
 	confidenceEnabled := false
 	if s.settingService != nil {
 		if configured, explicitlyConfigured, loadErr := s.settingService.GetUpstreamConfidenceProbeSettingsState(ctx); loadErr == nil {
-			confidenceEnabled = explicitlyConfigured && configured.Enabled
+			confidenceEnabled = explicitlyConfigured && configured.Enabled && !fingerprintAttempt && !fingerprintUnavailable
 		}
 	}
 	if confidenceEnabled {

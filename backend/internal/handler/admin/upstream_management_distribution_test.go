@@ -82,3 +82,23 @@ func TestUpstreamHealthAdminActionsPreserveDistribution(t *testing.T) {
 		})
 	}
 }
+
+func TestUpstreamHealthSnapshotJSONKeepsAttributionOptional(t *testing.T) {
+	value := service.ConfidenceFingerprintAttribution{
+		Status: "unknown", Platform: "anthropic", Model: "claude-test", Protocol: "anthropic_messages",
+		ProtocolStatus: "compatible",
+	}
+	snapshot := service.UpstreamHealthSnapshot{ConfidenceAttribution: &value}
+	raw, err := json.Marshal(snapshot)
+	require.NoError(t, err)
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(raw, &payload))
+	require.Equal(t, "unknown", payload["confidence_attribution"].(map[string]any)["status"])
+
+	legacyRaw, err := json.Marshal(service.UpstreamHealthSnapshot{})
+	require.NoError(t, err)
+	var legacyPayload map[string]any
+	require.NoError(t, json.Unmarshal(legacyRaw, &legacyPayload))
+	_, exists := legacyPayload["confidence_attribution"]
+	require.False(t, exists)
+}

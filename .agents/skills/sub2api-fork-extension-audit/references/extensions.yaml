@@ -138,16 +138,17 @@
     "272": {"version":"0.2.17-baiyu","parent":"271","gate_schema":2,"new_migrations":[],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
     "273": {"version":"0.2.17-baiyu","parent":"272","gate_schema":2,"new_migrations":["300_upstream_health_history_index.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
     "274": {"version":"0.2.17-baiyu","parent":"273","gate_schema":2,"new_migrations":["301_upstream_cache_guard_admissions.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
-    "275": {"version": "0.2.18-baiyu", "parent": "274", "gate_schema": 2, "new_migrations": ["302_enable_gemini_image_generation_groups.sql"], "release_policy": {"compatibility_image": "production_current", "migration_source": "database_state"}}
+    "275": {"version": "0.2.18-baiyu", "parent": "274", "gate_schema": 2, "new_migrations": ["302_enable_gemini_image_generation_groups.sql"], "release_policy": {"compatibility_image": "production_current", "migration_source": "database_state"}},
+    "276": {"version": "0.2.18-baiyu", "parent": "275", "gate_schema": 2, "new_migrations": ["303_group_strip_optional_image_tools.sql"], "release_policy": {"compatibility_image": "production_current", "migration_source": "database_state"}}
   },
   "current_profile": {
-    "id": "276",
+    "id": "277",
     "status": "pending",
-    "version": "0.2.18-baiyu",
-    "parent": "275",
+    "version": "0.2.19-baiyu",
+    "parent": "276",
     "gate_schema": 2,
     "new_migrations": [
-      "303_group_strip_optional_image_tools.sql"
+      "304_upstream_confidence_fingerprint.sql"
     ],
     "release_policy": {
       "compatibility_image": "production_current",
@@ -155,6 +156,7 @@
     }
   },
   "migration_contracts": {
+    "304_upstream_confidence_fingerprint.sql": "fd7e5c4e93e07a41af57f5cd171236e32b869b588a51c33e5959a740334f4d5b",
     "302_enable_gemini_image_generation_groups.sql": "f49b458cfbd52bd17f5bb02e30e3813c8e192e4ae38bce6358713ef65f3874b5",
     "301_upstream_cache_guard_admissions.sql": "ec83ff7020753185f382202e5b6926f1917a63462b0428b3f05cd37e095879ee",
     "300_upstream_health_history_index.sql": "83215f619d9b5c0eb462f7c2c04db97bc3e067952e2e39baaca8f2cbf9636696",
@@ -2061,7 +2063,7 @@
         "缓存保护新增连续profile268，parent267，version0.2.16-baiyu，仅296_upstream_cache_guard.sql；历史267四项官方迁移和全部旧SQL/profile/checksum不回写；Python/Shell/VM/Gate/DR/生产/祖先断言/备份/清理接线，未知269拒绝；不增加恢复审阅豁免。",
         "profile270保持0.2.16-baiyu,parent269,只新增298_group_scheduling_protection_policies.sql；269及所有历史SQL/checksum不回写；298生产只读核验，VM隔离fixture绑定source与catalog checksum，四phase全部验真，未知271拒绝",
         "当前 profile 274 parent 273，同版本0.2.17-baiyu仅新增301；273及更早SQL/profile/checksum保持不可变，未知275拒绝。301要求停旧写者迁移并coordinated_restore，不能让旧镜像继续写入拆分后的会话。迁移断言生产只读，写入fixture仅在显式绑定的隔离库事务回滚；未新增恢复敏感blob豁免。",
-        "当前 profile 276：0.2.18-baiyu，parent 275，仅 303_group_strip_optional_image_tools.sql；275 及更早合同不可变，未知 277 拒绝；303 原始字节 SHA-256 与 migration_contracts 一致；Python、Shell、signer、备份和清理全入口一致，最终敏感 blob 必须重新审阅，不扩大历史豁免"
+        "当前 profile 277：0.2.19-baiyu，parent 276，仅 304_upstream_confidence_fingerprint.sql；276 及更早合同不可变，未知 278 拒绝；304 原始字节 SHA-256 与 migration_contracts 一致；Python、Shell、signer、备份和清理全入口一致，最终敏感 blob 必须重新审阅，不扩大历史豁免"
       ]
     },
     {
@@ -2638,6 +2640,64 @@
         "缓存保留原始上游内容，客户端补全后的最终 body 决定 ETag；相同目录可返回 304",
         "临时长上下文开关与旧版分支已删除：GPT-6.1 Sol 生成默认窗口始终 500k，符合实际 OpenAI OAuth/SetupToken 凭据与最终发送模型条件时按官方规则免模型价卡长上下文附加费",
         "API Key、其他模型及管理员自定义区间定价保持既有规则；不重算历史账单，不新增 migration，不改写历史 profile；旧 settings 键不再读取或写入"
+      ]
+    },
+    {
+      "id": "cross-platform-upstream-confidence-fingerprint",
+      "title": "跨平台上游可信度指纹探针",
+      "description": "复用上游健康探针周期，为支持主动探测的 API Key 账号采集平台/协议适用的指纹证据；模型归因与协议证据分离，无合格基线时保持未知，且不影响健康或调度。",
+      "ownership": "fork",
+      "risk_level": "high",
+      "paths": [
+        ".wiki/03-模块指南/17-跨平台上游可信度探针.md",
+        ".wiki/INDEX.md",
+        "backend/internal/service/upstream_confidence_fingerprint*.go",
+        "backend/internal/service/upstream_health_confidence_batch.go",
+        "backend/internal/service/upstream_health.go",
+        "backend/internal/service/upstream_health_probe_client.go",
+        "backend/internal/service/upstream_config.go",
+        "backend/internal/repository/upstream_confidence_fingerprint*.go",
+        "backend/internal/handler/admin/upstream_management_handler.go",
+        "backend/migrations/304_upstream_confidence_fingerprint.sql",
+        "frontend/src/components/account/UpstreamHealthCell.vue",
+        "frontend/src/api/admin/upstreamManagement.ts",
+        "frontend/src/types/index.ts",
+        "frontend/src/i18n/locales/zh/admin/upstreamManagement.ts",
+        "frontend/src/i18n/locales/en/admin/upstreamManagement.ts"
+      ],
+      "symbols": [
+        "RunUpstreamHealthProbe",
+        "GetUpstreamHealthConfidencesAt",
+        "ConfidenceFingerprintIdentity",
+        "ClaimConfidenceFingerprint",
+        "FinishConfidenceFingerprint",
+        "LoadConfidenceFingerprintsForSeries",
+        "MergeUpstreamHealthConfidence"
+      ],
+      "api_routes": ["/admin/upstream-management"],
+      "settings_keys": ["upstream_confidence_probe_settings"],
+      "migration_files": ["304_upstream_confidence_fingerprint.sql"],
+      "required_tests": [
+        "backend/internal/service/upstream_confidence_fingerprint_test.go",
+        "backend/internal/service/upstream_confidence_fingerprint_state_test.go",
+        "backend/internal/service/upstream_confidence_fingerprint_probe_test.go",
+        "backend/internal/service/upstream_health_confidence_batch_test.go",
+        "backend/internal/repository/upstream_confidence_fingerprint_repo_test.go",
+        "backend/internal/repository/upstream_confidence_fingerprint_postgres_test.go",
+        "backend/internal/handler/admin/upstream_management_fingerprint_test.go",
+        "backend/migrations/profile_277_migrations_test.go",
+        "frontend/src/components/account/__tests__/UpstreamHealthCell.spec.ts"
+      ],
+      "invariants": [
+        "只覆盖现有主动健康探测支持的 API Key 上游账号；OAuth 和服务账号不做模型身份归因；复用既有探针周期，不增加自动上游请求总量",
+        "每次探针至多执行当前轮换选中的一个算法；OpenAI 在既有 128 有效样本分布与指纹方法间轮换，不改变分布窗口与有效样本口径",
+        "系列身份绑定 Key/账号绑定、平台、实际映射模型、协议、规范化端点身份摘要、凭据身份摘要、挑战/解析/归一化版本及基线版本；自适应国产协议按已配置端点集合保持稳定系列，每条样本另存实际路由协议；明文凭据不得持久化",
+        "每个平台/协议/模型只能匹配独立审核且有留出验证的基线；无基线时为 unknown，样本不足时为 insufficient，不把通用算术/JSON挑战通过视作模型身份",
+        "协议证据独立于模型归因；协议不匹配不得转换为模型 mismatch；未知基线、采样失败或单Key状态读取失败不得污染其他Key",
+        "OpenAI融合状态在方法一致时确认、单一有效方法时暂定、有效方法冲突时待复核、双方不足时证据不足；方法细项始终可见，不合成概率分数",
+        "所有模型归因只用于管理诊断，不改变健康状态、账号可用性、停用行为或调度权重；指纹租约竞争或分布采样不可用不得跳过本轮健康探针，真实网络/鉴权/协议失败仍按既有健康探针语义处理",
+        "基线随版本内置且运行时不联网更新；记录来源、平台/协议/模型范围、采集与校准版本、训练样本和独立留出样本；不直接复制未审核许可的 Chanshui/ModelTrace 第三方数据",
+        "跨平台状态使用独立迁移304/profile277，不改写迁移288及profile262历史合同；跨版本部署必须按新迁移和 release profile 合同完成兼容验证"
       ]
     }
   ]
