@@ -474,3 +474,8 @@ sub2api:baiyu-<base-version>-<full-commit-sha>
 分类理由为 `reviewed_vm_fixture_ownership_preserve_changed`。完整净 validator 同时包含应用角色恢复对象、配置角色核验和同族失败退出码/输出先持久化修复；新增 helper 是专事故保留收口，不修改生产 PostgreSQL/Redis 协调恢复算法、备份格式或信任根。该 helper 已明确列入恢复敏感文件，不按目录、祖先或事故类型豁免未来变化。
 
 历史各路径集合和登记前缀保持冻结；任何未来字节、模式、删除、改名、BASE、额外敏感路径及新增 helper 旧状态不为空均拒绝，显式 full 不能解除未知变化阻断。`test_vm_fast_fixture_recovery_review.py` 独立固定 literal 对象、逐项负例和当前分类 AST 的唯一登记增量；旧 raw-index AST 在其固定登记提交验真，不把新登记写回历史。最终仍须新完整 SHA、干净推送、新候选、新签名 VM Gate 及生产验真；精确登记与本地/隔离回归不等于发布完成。
+
+
+## 可选图片工具与 profile 276
+
+当前 pending profile `276`，版本 `0.2.18-baiyu`，parent `275`，仅新增 `303_group_strip_optional_image_tools.sql`。新字段默认 false；禁图组自动清可选声明，允许组由 strip_optional_image_tools 控制，明确图片请求仍校验。旧 275 及更早 profile、SQL、checksum 与精确恢复审阅不可变，未知 277 拒绝。276 继续保留 downtime 和祖先 migration 301 的旧写者退出与 coordinated_restore 合同；全 Python/Shell/signer/备份/清理入口一致，回归 test_profile276_release_contract.py。最终敏感 blob 必须新审阅，未分类仍阻断，不以历史豁免或本地单测代替真实隔离恢复与签名 VM Gate。

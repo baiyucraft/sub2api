@@ -53,7 +53,7 @@ class PrepareGatePolicyTest(unittest.TestCase):
     def _openssl(self, *args: str) -> None:
         subprocess.run(["openssl", *args], check=True, capture_output=True, timeout=15)
 
-    def _document(self, mode="fast", *, schema=2, profile="275", suffix="aaaaaaaa") -> dict:
+    def _document(self, mode="fast", *, schema=2, profile="276", suffix="aaaaaaaa") -> dict:
         restored = mode != "fast"
         document = {
             "manifest": {
@@ -136,7 +136,7 @@ exec bash "$1"
             self.assertFalse((releases / ".active-release").exists(), "failed claim was retained")
 
     def test_signed_fast_gate_prepares_for_two_profiles_and_release_ids(self):
-        for profile, suffix in (("275", "aaaaaaaa"), ("273", "bbbbbbbb")):
+        for profile, suffix in (("276", "aaaaaaaa"), ("273", "bbbbbbbb")):
             with self.subTest(profile=profile):
                 self._prepare(self._document(profile=profile, suffix=suffix), accepted=True)
 

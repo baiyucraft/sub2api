@@ -126,12 +126,12 @@ Windows 下 runner、Python、OpenSSL、Git Bash 和 Go 子进程统一走 `scri
 
 ```powershell
 $commit = (git rev-parse --verify 'HEAD^{commit}').Trim()
-$config = @{ schema = 1; commit = $commit; profile = '275'; mode = 'downtime' }
+$config = @{ schema = 1; commit = $commit; profile = '276'; mode = 'downtime' }
 New-Item -ItemType Directory -Force '.release' | Out-Null
 [IO.File]::WriteAllText((Join-Path $PWD '.release/deploy.local.json'), ($config | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
 ```
 
-配置只接受这四个字段：`schema` 为整数 `1`，`commit` 为完整 40 位小写 SHA，`profile` 为已登记字符串，`mode` 为 `blue-green` 或 `downtime`。当前 `275` 仍要求停机；配置不能改写 profile 的版本、父链、迁移或发布限制，也不能包含凭据、连接、命令或机器路径。重复键、未知字段和非法值在连接 SSH 前拒绝。
+配置只接受这四个字段：`schema` 为整数 `1`，`commit` 为完整 40 位小写 SHA，`profile` 为已登记字符串，`mode` 为 `blue-green` 或 `downtime`。当前 `276` 仍要求停机；配置不能改写 profile 的版本、父链、迁移或发布限制，也不能包含凭据、连接、命令或机器路径。重复键、未知字段和非法值在连接 SSH 前拒绝。
 
 使用已准备好的发布 Python 解释器运行：
 

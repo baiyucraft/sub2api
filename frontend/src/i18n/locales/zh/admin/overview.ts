@@ -1249,6 +1249,12 @@ export default {
         validityHint: '分配给用户时订阅的有效天数',
         noLimit: '无限制'
       },
+      optionalImageTools: {
+        title: '可选生图工具兼容',
+        enabledLabel: '移除可选图片工具',
+        automaticHint: '当前分组禁止生图，会自动清理可选生图工具声明，无需额外开启。',
+        description: '开启后无法自动调用生图工具，可兼容 Codex / Magpie 自动附带的声明；保留普通工具和截图、识图输入。明确选择生图工具、已有生图调用或直接生图请求仍按生图权限处理。',
+      },
       imagePricing: {
         title: '图片生成计费',
         description: '配置图片生成能力和图片基础单价，留空则使用默认价格',

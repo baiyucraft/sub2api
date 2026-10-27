@@ -155,6 +155,11 @@ func AllowImageGeneration(v bool) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldAllowImageGeneration, v))
 }
 
+// StripOptionalImageTools applies equality check predicate on the "strip_optional_image_tools" field. It's identical to StripOptionalImageToolsEQ.
+func StripOptionalImageTools(v bool) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldStripOptionalImageTools, v))
+}
+
 // AllowBatchImageGeneration applies equality check predicate on the "allow_batch_image_generation" field. It's identical to AllowBatchImageGenerationEQ.
 func AllowBatchImageGeneration(v bool) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldAllowBatchImageGeneration, v))
@@ -1333,6 +1338,16 @@ func AllowImageGenerationEQ(v bool) predicate.Group {
 // AllowImageGenerationNEQ applies the NEQ predicate on the "allow_image_generation" field.
 func AllowImageGenerationNEQ(v bool) predicate.Group {
 	return predicate.Group(sql.FieldNEQ(FieldAllowImageGeneration, v))
+}
+
+// StripOptionalImageToolsEQ applies the EQ predicate on the "strip_optional_image_tools" field.
+func StripOptionalImageToolsEQ(v bool) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldStripOptionalImageTools, v))
+}
+
+// StripOptionalImageToolsNEQ applies the NEQ predicate on the "strip_optional_image_tools" field.
+func StripOptionalImageToolsNEQ(v bool) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldStripOptionalImageTools, v))
 }
 
 // AllowBatchImageGenerationEQ applies the EQ predicate on the "allow_batch_image_generation" field.

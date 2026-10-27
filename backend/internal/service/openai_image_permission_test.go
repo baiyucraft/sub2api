@@ -156,7 +156,7 @@ func TestOpenAIImagePermissionFailoverIncludesLocalAdmission(t *testing.T) {
 	require.False(t, IsOpenAIImagePermissionFailover(nil))
 	require.True(t, IsOpenAIImagePermissionFailover(newOpenAIUpstreamFailoverError(403, nil, []byte(openAIImagePermissionTestBody), "", true)))
 	for _, scope := range []GatewayFailureScope{GatewayFailureScopeAccount, GatewayFailureScopeAccountCapability} {
-		for _, reason := range []GatewayFailureReason{"image_permission_denied", "image_capability_cooldown", "image_responses_unsupported", "image_permission_refresh_unavailable"} {
+		for _, reason := range []GatewayFailureReason{"image_permission_denied", "image_capability_cooldown", "image_responses_unsupported"} {
 			e := &UpstreamFailoverError{StatusCode: http.StatusServiceUnavailable, Scope: scope, Reason: reason}
 			require.True(t, IsOpenAIImagePermissionFailover(e))
 			require.False(t, e.ShouldReportAccountScheduleFailure())
@@ -171,6 +171,8 @@ func TestOpenAIImagePermissionFailoverIncludesLocalAdmission(t *testing.T) {
 		{Scope: GatewayFailureScopeRequest, Reason: "image_permission_denied"},
 		{Scope: GatewayFailureScopeProvider, Reason: "image_capability_cooldown"},
 		{Scope: GatewayFailureScopeAccount, Reason: OpenAIUpstreamAccessStateReason},
+		{Scope: GatewayFailureScopeAccount, Reason: "image_permission_refresh_unavailable"},
+		{Scope: GatewayFailureScopeAccountCapability, Reason: "image_permission_refresh_unavailable"},
 	} {
 		require.False(t, IsOpenAIImagePermissionFailover(e))
 	}

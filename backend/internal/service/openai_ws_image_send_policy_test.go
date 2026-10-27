@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -99,18 +100,23 @@ func TestWSImageWriteGuardSessionInheritanceAndFreshPermission(t *testing.T) {
 func TestWSImageSendPassiveStripAndContinuation(t *testing.T) {
 	svc := &OpenAIGatewayService{accountRepo: &wsImagePermissionRepo{account: imagePolicyAccount(false)}}
 	chosen := imagePolicyAccount(true)
-	body := []byte(`{"type":"response.create","model":"gpt-6.1-sol","tools":[{"type":"namespace","name":"image_gen"}]}`)
-	r := DescribeOpenAIImageRequest(openAIResponsesEndpoint, "gpt-6.1-sol", body, true)
-	prepared, err := svc.prepareOpenAIWSImageSend(context.Background(), nil, chosen, body, r, false)
-	require.NoError(t, err)
-	require.False(t, gjson.GetBytes(prepared.body, "tools").Exists())
-	require.True(t, gjson.GetBytes(body, "tools").Exists())
+	for _, body := range []string{
+		`{"type":"response.create","model":"gpt-6.1-sol","tools":[{"type":"namespace","name":"image_gen"}]}`,
+		`{"type":"response.create","model":"gpt-6.1-sol","previous_response_id":"resp_unknown","tools":[{"type":"namespace","name":"image_gen"}]}`,
+	} {
+		r := DescribeOpenAIImageRequest(openAIResponsesEndpoint, "gpt-6.1-sol", []byte(body), true)
+		prepared, err := svc.prepareOpenAIWSImageSend(context.Background(), nil, chosen, []byte(body), r, false)
+		require.NoError(t, err)
+		require.Empty(t, gjson.GetBytes(prepared.body, "tools").Array())
+		require.False(t, prepared.request.RequiresCapability())
+		require.Equal(t, gjson.Get(body, "previous_response_id").String(), gjson.GetBytes(prepared.body, "previous_response_id").String())
+		require.Len(t, gjson.Get(body, "tools").Array(), 1)
+	}
 	for _, history := range []string{
-		`{"previous_response_id":"resp_test","tools":[{"type":"namespace","name":"image_gen"}]}`,
 		`{"input":[{"type":"function_call","namespace":"image_gen","name":"imagegen"}],"tools":[{"type":"namespace","name":"image_gen"}]}`,
 	} {
-		r = DescribeOpenAIImageRequest(openAIResponsesEndpoint, "gpt-6.1-sol", []byte(history), true)
-		_, err = svc.prepareOpenAIWSImageSend(context.Background(), nil, chosen, []byte(history), r, false)
+		r := DescribeOpenAIImageRequest(openAIResponsesEndpoint, "gpt-6.1-sol", []byte(history), true)
+		_, err := svc.prepareOpenAIWSImageSend(context.Background(), nil, chosen, []byte(history), r, false)
 		require.Error(t, err)
 	}
 }
@@ -409,10 +415,10 @@ func TestWSImageHTTPNativeSendRefreshAfterAcquireAndPrewarm(t *testing.T) {
 			}
 			svc.accountRepo = repo
 			c, _ := newOpenAIImageGenerationControlTestContext(true, "unit-test")
-			original := []byte(`{"model":"client-model","tools":[{"type":"image_generation"}],"tool_choice":"none","input":[]}`)
+			original := []byte(`{"model":"client-model","tools":[{"type":"image_generation"}],"tool_choice":"required","input":[]}`)
 			ctx := WithOpenAIImageRequest(context.Background(), openAIResponsesEndpoint, "client-model", original, false)
-			// Earlier transforms may remove declarations; the original descriptor
-			// remains authoritative at the physical send boundary.
+			// Earlier transforms may remove declarations; the explicitly required
+			// image intent remains authoritative at the physical send boundary.
 			reqBody := map[string]any{"model": "upstream-model", "stream": false, "input": []any{}}
 			before := string(payloadAsJSONBytes(reqBody))
 			result, err := svc.forwardOpenAIWSV2(ctx, c, a, reqBody, "", "", "test-token", OpenAIWSProtocolDecision{Transport: OpenAIUpstreamTransportResponsesWebsocketV2}, false, false, "client-model", "upstream-model", time.Now(), 1, "", nil)
@@ -471,7 +477,7 @@ func TestWSImageHTTPNativeSendAllowedAndPassiveDenied(t *testing.T) {
 				require.Equal(t, "gpt-image-1", gjson.Get(wire, "tools.0.model").String())
 				require.Equal(t, "none", gjson.Get(wire, "tool_choice").String())
 			} else {
-				require.False(t, gjson.Get(wire, "tools").Exists())
+				require.Equal(t, "[]", gjson.Get(wire, "tools").Raw, "cleanup preserves an empty catalog while removing the image namespace")
 			}
 		})
 	}
@@ -806,4 +812,54 @@ func TestWSImageHTTPNativeEmptyOutputItemDoesNotCommit(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestWSGroupOptionalImagePolicyAcrossSessionAndReconnect(t *testing.T) {
+	for _, group := range []*Group{
+		{AllowImageGeneration: false},
+		{AllowImageGeneration: true, StripOptionalImageTools: true},
+	} {
+		for _, platform := range []string{PlatformOpenAI, PlatformDeepseek} {
+			ctx := WithOpenAIImageRequestGroup(context.Background(), group)
+			chosen := imagePolicyAccount(true)
+			chosen.Platform = platform
+			svc := &OpenAIGatewayService{accountRepo: &wsImagePermissionRepo{account: chosen}}
+			for reconnect := 0; reconnect < 2; reconnect++ {
+				capture := &openAIWSCaptureConn{}
+				guard := &openAIWSImageGuardFrameConn{inner: capture, prepare: func(ctx context.Context, body []byte, r OpenAIImageRequest) ([]byte, error) {
+					out, err := svc.prepareOpenAIWSImageSend(ctx, nil, chosen, body, r, true)
+					return out.body, err
+				}}
+				first := []byte(`{"type":"session.update","session":{"model":"gpt-6.1-sol","tools":[{"type":"image_generation"},{"type":"function","name":"shell"}],"tool_choice":{"type":"allowed_tools","mode":"auto","tools":[{"type":"image_generation"}]}}}`)
+				snapshot := string(first)
+				require.NoError(t, guard.WriteFrame(ctx, coderws.MessageText, first))
+				require.Equal(t, snapshot, string(first))
+				require.NoError(t, guard.WriteFrame(ctx, coderws.MessageText, []byte(`{"type":"response.create","previous_response_id":"resp_private","input":[{"type":"function_call_output","call_id":"unknown","output":"ok"}]}`)))
+				require.Len(t, capture.writes, 2)
+				require.Equal(t, "shell", gjson.GetBytes(mustMarshalWSImageTest(t, capture.writes[0]), "session.tools.0.name").String())
+				require.Equal(t, "none", gjson.GetBytes(mustMarshalWSImageTest(t, capture.writes[0]), "session.tool_choice").String())
+				require.Equal(t, "resp_private", gjson.GetBytes(mustMarshalWSImageTest(t, capture.writes[1]), "previous_response_id").String())
+				require.False(t, gjson.GetBytes(mustMarshalWSImageTest(t, capture.writes[1]), `tools.#(type=="image_generation")`).Exists())
+			}
+		}
+	}
+}
+
+func TestWSGroupOptionalPolicyClearsAllInheritedTools(t *testing.T) {
+	svc := &OpenAIGatewayService{accountRepo: &wsImagePermissionRepo{account: imagePolicyAccount(true)}}
+	capture := &openAIWSCaptureConn{}
+	guard := &openAIWSImageGuardFrameConn{inner: capture, session: []byte(`{"tools":[{"type":"image_generation"}],"model":"gpt-6.1-sol"}`), prepare: func(ctx context.Context, body []byte, r OpenAIImageRequest) ([]byte, error) {
+		out, err := svc.prepareOpenAIWSImageSend(ctx, nil, imagePolicyAccount(true), body, r, false)
+		return out.body, err
+	}}
+	ctx := WithOpenAIImageRequestGroup(context.Background(), &Group{AllowImageGeneration: false})
+	require.NoError(t, guard.WriteFrame(ctx, coderws.MessageText, []byte(`{"type":"response.create"}`)))
+	require.Equal(t, "[]", gjson.GetBytes(mustMarshalWSImageTest(t, capture.writes[0]), "tools").Raw)
+}
+
+func mustMarshalWSImageTest(t *testing.T, v any) []byte {
+	t.Helper()
+	b, err := json.Marshal(v)
+	require.NoError(t, err)
+	return b
 }
