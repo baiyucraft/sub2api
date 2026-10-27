@@ -132,3 +132,8 @@ VM 磁盘、根分区、文件系统和 Docker/containerd 所在位置以现场�
 2. 新任务一开始，旧观测态自动视为 `stale`，直到重新核验。
 3. 只检查到一条路径时，不得汇总为“生产健康”；例如 direct 通过而 DMIT 未测，应报告线路状态未知。
 4. RackNerd、DMIT、备份机和 VM 的连接失败都应记录为 `unknown` 或 `failed`，不能用“应该正常”替代证据。
+
+
+## 可选图片工具与 profile 276
+
+当前 pending profile `276`，版本 `0.2.18-baiyu`，parent `275`，仅新增 `303_group_strip_optional_image_tools.sql`。新字段默认 false；禁图组自动清可选声明，允许组由 strip_optional_image_tools 控制，明确图片请求仍校验。旧 275 及更早 profile、SQL、checksum 与精确恢复审阅不可变，未知 277 拒绝。276 继续保留 downtime 和祖先 migration 301 的旧写者退出与 coordinated_restore 合同；全 Python/Shell/signer/备份/清理入口一致，回归 test_profile276_release_contract.py。最终敏感 blob 必须新审阅，未分类仍阻断，不以历史豁免或本地单测代替真实隔离恢复与签名 VM Gate。

@@ -1252,6 +1252,12 @@ export default {
         validityHint: 'Number of days the subscription is valid when assigned to a user',
         noLimit: 'No limit'
       },
+      optionalImageTools: {
+        title: 'Optional image tool compatibility',
+        enabledLabel: 'Remove optional image generation tool declarations',
+        automaticHint: 'Image generation is disabled for this group, so optional image tools are removed automatically.',
+        description: 'Disables automatic image tool calls and removes optional declarations attached by Codex / Magpie while preserving regular tools and image inputs. Explicit image tool choices, existing image calls, and direct image generation requests still follow image permissions.',
+      },
       imagePricing: {
         title: 'Image Generation Pricing',
         description: 'Configure image generation access and base image prices. Leave empty to use default prices.',

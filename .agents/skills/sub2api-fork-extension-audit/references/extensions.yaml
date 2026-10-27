@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "catalog_version": "2026-10-26",
+  "catalog_version": "2026-10-27",
   "version_contract": {
     "upstream_path": "backend/cmd/server/VERSION",
     "fork_suffix": "-baiyu",
@@ -137,16 +137,17 @@
     "271": {"version":"0.2.16-baiyu","parent":"270","gate_schema":2,"new_migrations":["299_upstream_cache_guard_revisions.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
     "272": {"version":"0.2.17-baiyu","parent":"271","gate_schema":2,"new_migrations":[],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
     "273": {"version":"0.2.17-baiyu","parent":"272","gate_schema":2,"new_migrations":["300_upstream_health_history_index.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
-    "274": {"version":"0.2.17-baiyu","parent":"273","gate_schema":2,"new_migrations":["301_upstream_cache_guard_admissions.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}}
+    "274": {"version":"0.2.17-baiyu","parent":"273","gate_schema":2,"new_migrations":["301_upstream_cache_guard_admissions.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
+    "275": {"version": "0.2.18-baiyu", "parent": "274", "gate_schema": 2, "new_migrations": ["302_enable_gemini_image_generation_groups.sql"], "release_policy": {"compatibility_image": "production_current", "migration_source": "database_state"}}
   },
   "current_profile": {
-    "id": "275",
+    "id": "276",
     "status": "pending",
     "version": "0.2.18-baiyu",
-    "parent": "274",
+    "parent": "275",
     "gate_schema": 2,
     "new_migrations": [
-      "302_enable_gemini_image_generation_groups.sql"
+      "303_group_strip_optional_image_tools.sql"
     ],
     "release_policy": {
       "compatibility_image": "production_current",
@@ -240,7 +241,8 @@
     "278_fork_group_ttft_guard_policies.sql": "0637f2c51df53a76ea66730cc5f7127c1f20adf187ec649edda5f1993e42d207",
     "279_proxy_ip_groups.sql": "6d9e622320d7c4264f9ea501f1f56d3dc7124774d52ff2c3a263e538c4b4e039",
     "280_plugin_runtime_state.sql": "700479dfaf0ecee741ded67df3e670a53433a5a486a7c7b2d87d27c6d48d8341",
-    "298_group_scheduling_protection_policies.sql": "97ccd6842138d835393d61e719e84b4b17bd169e95d92053416e62411989b568"
+    "298_group_scheduling_protection_policies.sql": "97ccd6842138d835393d61e719e84b4b17bd169e95d92053416e62411989b568",
+    "303_group_strip_optional_image_tools.sql": "fc1f8f42f2212341db0a4e235979ee3b729c094313a5112007f13270319bc915"
   },
   "migration_renames": {
     "official_246_enable_gemini_image_generation_groups": "302_enable_gemini_image_generation_groups.sql",
@@ -1961,7 +1963,8 @@
         "280_plugin_runtime_state.sql",
         "296_upstream_cache_guard.sql",
         "298_group_scheduling_protection_policies.sql",
-        "301_upstream_cache_guard_admissions.sql"
+        "301_upstream_cache_guard_admissions.sql",
+        "303_group_strip_optional_image_tools.sql"
       ],
       "required_tests": [
         "backend/migrations/profile_275_migrations_test.go",
@@ -2022,7 +2025,8 @@
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile270_release_contract.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_migration_298.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile274_release_contract.py",
-        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_migration_301.py"
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_migration_301.py",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile276_release_contract.py"
       ],
       "recommended_tests": [
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_signer_assets.py",
@@ -2056,7 +2060,8 @@
         "264 精确恢复审阅：生产 0898fe8c6289f87a1a4d90cf74a50e296689960e 到 7c58225c34f876e1fe3967f1d8cf941d7d3d5f49 仅35项接线；同一 before 到 bc57b804fe4467d96b530c8874dd7152d28386a0 仅五项奖励停机 helper/prepare/switch/production/validator；新文件旧状态不存在，blob/mode/基线漂移拒绝，仍执行 specialized 真实恢复",
         "缓存保护新增连续profile268，parent267，version0.2.16-baiyu，仅296_upstream_cache_guard.sql；历史267四项官方迁移和全部旧SQL/profile/checksum不回写；Python/Shell/VM/Gate/DR/生产/祖先断言/备份/清理接线，未知269拒绝；不增加恢复审阅豁免。",
         "profile270保持0.2.16-baiyu,parent269,只新增298_group_scheduling_protection_policies.sql；269及所有历史SQL/checksum不回写；298生产只读核验，VM隔离fixture绑定source与catalog checksum，四phase全部验真，未知271拒绝",
-        "当前 profile 274 parent 273，同版本0.2.17-baiyu仅新增301；273及更早SQL/profile/checksum保持不可变，未知275拒绝。301要求停旧写者迁移并coordinated_restore，不能让旧镜像继续写入拆分后的会话。迁移断言生产只读，写入fixture仅在显式绑定的隔离库事务回滚；未新增恢复敏感blob豁免。"
+        "当前 profile 274 parent 273，同版本0.2.17-baiyu仅新增301；273及更早SQL/profile/checksum保持不可变，未知275拒绝。301要求停旧写者迁移并coordinated_restore，不能让旧镜像继续写入拆分后的会话。迁移断言生产只读，写入fixture仅在显式绑定的隔离库事务回滚；未新增恢复敏感blob豁免。",
+        "当前 profile 276：0.2.18-baiyu，parent 275，仅 303_group_strip_optional_image_tools.sql；275 及更早合同不可变，未知 277 拒绝；303 原始字节 SHA-256 与 migration_contracts 一致；Python、Shell、signer、备份和清理全入口一致，最终敏感 blob 必须重新审阅，不扩大历史豁免"
       ]
     },
     {
@@ -2480,12 +2485,26 @@
         "frontend/src/components/account/codexImageToolPolicy.ts",
         "frontend/src/components/account/__tests__/codexImageToolPolicy.spec.ts",
         "frontend/src/i18n/locales/zh/admin/accounts.ts",
-        "frontend/src/i18n/locales/en/admin/accounts.ts"
+        "frontend/src/i18n/locales/en/admin/accounts.ts",
+        "backend/internal/service/openai_optional_image_tools.go",
+        "backend/migrations/303_group_strip_optional_image_tools.sql",
+        ".wiki/03-模块指南/16-可选图片工具与分组策略.md",
+        "backend/internal/service/openai_optional_image_tools_test.go",
+        "backend/internal/service/openai_ws_image_admission_test.go",
+        "backend/internal/handler/openai_image_routing_test.go",
+        "backend/internal/handler/admin/group_handler_optional_image_tools_test.go",
+        "backend/internal/service/admin_group_optional_image_tools_test.go",
+        "backend/internal/service/api_key_auth_cache_optional_image_tools_test.go",
+        "backend/internal/repository/api_key_repo_optional_image_tools_projection_integration_test.go",
+        "backend/migrations/group_optional_image_tools_migration_test.go",
+        "backend/internal/handler/openai_ws_image_failover_test.go",
+        "backend/internal/service/openai_image_generation_controls_test.go",
+        "backend/internal/service/openai_image_intent_hint_test.go"
       ],
       "symbols": ["DescribeOpenAIImageRequest", "DeriveOpenAIImageRequestBody", "OpenAIImagePermissionRank", "CanInjectOpenAIHostedImageGeneration", "CheckOpenAIImageRequestPermission", "IsOpenAIImagePermissionDenied", "IsOpenAIImagePermissionFailover", "HandleOpenAIImagePermissionDenied", "ShouldReportAccountScheduleFailure", "WithOpenAIFixedRetryAccount", "selectFixedOpenAIRetryAccount", "readCodexImageToolMode", "applyCodexImageToolMode"],
       "api_routes": ["/v1/responses", "/v1/messages", "/v1/chat/completions", "/v1/images/generations", "/v1/images/edits"],
-      "settings_keys": ["codex_image_generation_bridge", "codex_image_generation_explicit_tool_policy", "upstream_pool_mode_retry_status_codes"],
-      "migration_files": [],
+      "settings_keys": ["codex_image_generation_bridge", "codex_image_generation_explicit_tool_policy", "upstream_pool_mode_retry_status_codes", "strip_optional_image_tools"],
+      "migration_files": ["303_group_strip_optional_image_tools.sql"],
       "required_tests": [
         "backend/internal/service/openai_image_permission_test.go",
         "backend/internal/service/openai_image_request_policy_test.go",
@@ -2513,21 +2532,32 @@
         "backend/internal/handler/openai_responses_failover_cancel_test.go",
         "backend/internal/handler/openai_images_failover_test.go",
         "frontend/src/components/account/__tests__/codexImageToolPolicy.spec.ts",
-        "frontend/src/components/account/__tests__/EditAccountModal.spec.ts"
+        "frontend/src/components/account/__tests__/EditAccountModal.spec.ts",
+        "backend/internal/service/openai_optional_image_tools_test.go",
+        "backend/internal/service/openai_ws_image_admission_test.go",
+        "backend/internal/handler/openai_image_routing_test.go",
+        "backend/internal/handler/admin/group_handler_optional_image_tools_test.go",
+        "backend/internal/service/admin_group_optional_image_tools_test.go",
+        "backend/internal/service/api_key_auth_cache_optional_image_tools_test.go",
+        "backend/internal/repository/api_key_repo_optional_image_tools_projection_integration_test.go",
+        "backend/migrations/group_optional_image_tools_migration_test.go",
+        "backend/internal/handler/openai_ws_image_failover_test.go",
+        "backend/internal/service/openai_image_intent_hint_test.go"
       ],
       "invariants": [
         "上游绑定账号无手动覆盖时自动跟随权限快照；同步不得覆盖管理员既有 bridge 或 explicit-tool 覆盖；普通账号保留旧继承语义",
         "LCodex专用权限同步已退场；历史lcodex_image_pricing_snapshot中negative/stale negative仍须拒绝图片，不能因provider退场自动回退unknown并放行；DeriveUpstreamKeyImagePricingForAccount仓储hydration仅对旧provider=lcodex只读补齐，保留raw fallback，混合快照Sub2API优先且不被旧快照覆盖；回归绑定openai_image_request_policy_test.go的TestOpenAIImagePolicyRetiredLCodexSnapshotFallback并覆盖nil参数；upstream_key_image_pricing_test.go继续承担Sub2API定价回归；不改写历史快照",
         "permission allowed 不是 Hosted 注入开关；注入仍由账号、渠道、全局 bridge 及分组准入控制；明确 negative 在成功刷新 allowed 前保持拒绝，包括 stale negative；失败、缺失、非法或 unavailable 快照保留旧证据并标记 stale，历史读取失败阻止该次同步写入；unknown 或 stale positive 仅作能力回退",
-        "原始请求 descriptor 不根据自由 prompt 猜测图片意图；自动跟随仅剥离无历史与续接依赖的 passive image_gen 声明；native image_generation、显式调用及历史续接保守要求图片能力；手动 strip 保留既有明确覆盖合同",
+        "结构化图片端点、模型、明确工具选择和按调用 ID 确认的图片历史要求图片能力；unknown 输出、普通工具往返和 previous_response_id 本身不证明生图；native/namespace/function 的 omitted/auto/none 是可选声明，required 仅全部图片工具时强制生图；保留历史、结果、图片输入、续链及 ownership，不猜 prompt",
         "原始请求 body 不可变，每次候选独立派生；图片能力筛选与 image-cost-routing 开关分离，保留文本模型映射、Responses 支持、健康、共享并发、TTFT 与 Priority 约束",
-        "WS response.create 每次物理发送（含 HTTP 转原生 WS、新 turn、重连恢复与 ctx_pool）前刷新同账号图片准入视图，固定 socket 账号/凭据/代理/并发所有权，不因 per-send guard 重复 turn hook 或记账；负向 native 不发送，passive 仅移除无状态声明；权限刷新失败 fail-closed 且不惩罚账号健康",
+        "HTTP/WS/Lite 统一入站策略；禁图组或 strip_optional_image_tools=true 先清理 tools/additional_tools 和 allowed_tools 图片引用，空限制为 none；明确选择与真实历史不降级；禁止 bridge 再补入；WS session.update、多轮、重连/恢复需显式清空继承工具，固定账号与并发所有权保持",
         "只有结构化错误字段中的固定图片权限原文或 error.message 中精确 403: 前缀可分类；HTTP 必须是 403；HTTP 200 SSE 与 WS error/response.failed 终止错误的结构化精确原文即使无显式 status/type 也推导 403，显式冲突 502（含外层 502 与内层 403）不得改判；普通 502、HTML、回显 prompt、子串及账号停用错误不得误分类",
         "图片权限故障使用 account_capability scope 与 openai_image_permission_denied reason，禁止 pool 或同账号 retry；仅 openai:image_generation 冷却 30 分钟，不停账号、不惩罚共享上游 Key、不触发账号健康熔断、不影响 text；持久化失败仍分类并换号，不回落全账号停调",
-        "IsOpenAIImagePermissionFailover 同时接受本地 account/account_capability scope 的 image_permission_denied、image_capability_cooldown、image_responses_unsupported、image_permission_refresh_unavailable；这些故障 ShouldReportAccountScheduleFailure 与直接 post-output API Key health 分类均不惩罚账号；普通 502 和真实账号认证失败保留既有健康合同",
-        "图片候选或 failover 预算耗尽返回 503 和稳定 image_generation_unavailable；已开始 SSE 则以失败事件终止，不把 HTTP 200 当业务成功；WS 语义输出后固定图片 403 仅冷却图片并以 1013 关闭，不返回可重放 failover；语义输出后不可重放",
+        "IsOpenAIImagePermissionFailover 同时接受本地 account/account_capability scope 的 image_permission_denied、image_capability_cooldown、image_responses_unsupported；这些故障 ShouldReportAccountScheduleFailure 与直接 post-output API Key health 分类均不惩罚账号；image_permission_refresh_unavailable 不属于图片权限 failover，保留普通故障及既有健康分类合同；普通 502 和真实账号认证失败保留既有健康合同",
+        "仅图片能力筛选或明确图片权限失败导致耗尽才返回 503 image_generation_unavailable；混合模型路由、网络或其他上游失败保留原错误映射；已开始 SSE 以失败事件终止，语义输出后不重放",
         "同账号 retry 只能重选原 account_id 并重新做准入与并发，等待前释放 slot；不可借 sticky 自动换号，失败后显式计入换号预算；取消后不新增尝试",
-        "新日志不记录正文、prompt、凭据、Token、代理 URL 或原始持久化错误；不启用 observer，不新增 migration、改写历史 profile 或扩大恢复门禁豁免"
+        "日志仅保存分类、清理原因和失败类别白名单；不记录 prompt、工具参数、正文、续接 ID、凭据或原始持久化错误；不加跨请求历史缓存，不启 observer；303 默认 false，更新省略保持原值，创建/查询/复制/认证与调度缓存同步",
+        "WS 每个成功 turn 结束后重置失败归因 trace，避免前一轮图片筛选或普通错误污染后续请求；权限快照刷新元数据失败保持普通上游失败，不报告图片能力耗尽"
       ]
     },
     {

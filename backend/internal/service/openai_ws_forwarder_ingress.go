@@ -275,6 +275,12 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		} else {
 			normalized = next
 		}
+		groupImageRequest := DescribeOpenAIImageRequest(openAIResponsesEndpoint, strings.TrimSpace(values[1].String()), normalized, isCodexCLI)
+		var groupPolicyErr error
+		normalized, _, _, groupPolicyErr = ApplyOpenAIImageRequestContextPolicy(ctx, normalized, groupImageRequest)
+		if groupPolicyErr != nil {
+			return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid image tool declarations", groupPolicyErr)
+		}
 		responsesLite := isOpenAIResponsesLiteWebSocketPayload(normalized)
 		if compatibilityBody, compatibilityChanged, compatibilityErr := normalizeOpenAIResponsesWebSocketCompatibilityBodyWithConfig(s.cfg, normalized, account, responsesLite); compatibilityErr != nil {
 			return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket request payload", compatibilityErr)
@@ -937,6 +943,11 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			return nil, prepareErr
 		}
 		payload = prepared.body
+		if hooks != nil && hooks.BeforeImageSend != nil {
+			if err := hooks.BeforeImageSend(prepared.request); err != nil {
+				return nil, err
+			}
+		}
 		payloadBytes = len(payload)
 		imageBillingModel, imageSizeTier, imageInputSize = prepared.billing.Model, prepared.billing.SizeTier, prepared.billing.InputSize
 		turnCtx, err := cacheTurns.beginAdmitted(turn, account, payload, gjson.GetBytes(payload, "model").String(), "openai_ws")

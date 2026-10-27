@@ -285,6 +285,10 @@ type OpenAIWSIngressHooks struct {
 	TurnStarted             func(turn int, startedAt time.Time)
 	BeforeTurn              func(turn int) error
 	BeforeRequest           func(turn int, payload []byte, originalModel string) error
+	// BeforeImageSend runs after session inheritance and image policy, immediately
+	// before a response.create write, including reconnect/recovery attempts. It
+	// must be idempotent within a turn; session.update alone never calls it.
+	BeforeImageSend func(request OpenAIImageRequest) error
 	// MapRequestModel resolves the current turn's client model to the model
 	// that must be written into the upstream response.create frame.
 	MapRequestModel func(turn int, originalModel string) (string, error)

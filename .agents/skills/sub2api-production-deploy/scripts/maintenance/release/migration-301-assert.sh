@@ -5,7 +5,7 @@ migration_status=${MIGRATION_STATUS:-absent}
 context_file=${ASSERT_CONTEXT_FILE:-/opt/sub2api/releases/.active-release/assets/context.sh}
 [[ -f $context_file && ! -L $context_file ]] || exit 1
 source "$context_file"
-[[ $profile == 274 || $profile == 275 ]] || exit 1
+[[ $profile == 274 || $profile == 275 || $profile == 276 ]] || exit 1
 [[ $phase == preflight || $phase == postflight || $phase == verified_replay || $phase == vm_semantics ]] || exit 1
 [[ $migration_status == absent || $migration_status == verified ]] || exit 1
 [[ $phase == preflight || $migration_status == verified ]] || exit 1
@@ -25,7 +25,8 @@ jq -e --arg filename "$filename" --arg checksum "$catalog_checksum" '
   (if has("manifest") then .manifest else . end) as $m |
   $m.schema == 2 and
   (($m.profile == "274" and $m.parent_profile == "273" and $m.new_migrations == [$filename]) or
-   ($m.profile == "275" and $m.parent_profile == "274" and $m.new_migrations == ["302_enable_gemini_image_generation_groups.sql"])) and
+   ($m.profile == "275" and $m.parent_profile == "274" and $m.new_migrations == ["302_enable_gemini_image_generation_groups.sql"]) or
+   ($m.profile == "276" and $m.parent_profile == "275" and $m.new_migrations == ["303_group_strip_optional_image_tools.sql"])) and
   $m.deployment_mode == "downtime" and
   ([$m.migration_catalog[] | select(.filename == $filename)] | length) == 1 and
   ([$m.migration_catalog[] | select(.filename == $filename)][0].checksum == $checksum)

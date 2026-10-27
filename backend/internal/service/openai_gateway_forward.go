@@ -41,14 +41,10 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	}
 	startTime := time.Now()
 	// 固定渠道映射后的请求级 canonical body；账号 normalize/strip 不得改写跨 failover hint。
-	canonicalImageIntentBody := body
 	isCodexCLI := openai.IsCodexOfficialClientByHeaders(c.GetHeader("User-Agent"), c.GetHeader("originator")) || (s.cfg != nil && s.cfg.Gateway.ForceCodexCLI)
 	imageRequest := DescribeOpenAIImageRequest(openAIResponsesEndpoint, gjson.GetBytes(body, "model").String(), body, isCodexCLI)
-	if original, ok := OpenAIImageRequestFromContext(ctx); ok && original.History {
-		imageRequest.History = true
-		if !imageRequest.Native && !imageRequest.Explicit {
-			imageRequest.Source = "history"
-		}
+	if original, ok := OpenAIImageRequestFromContext(ctx); ok {
+		imageRequest = ReconcileOpenAIImageRequestDescriptor(imageRequest, original)
 	}
 	imageRequest.Lite = imageRequest.Lite || isOpenAIResponsesLiteHeader(c.GetHeader(responsesLiteHeader))
 	if isOpenAIResponsesCompactPath(c) {
@@ -62,16 +58,22 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	ctx = WithOpenAIImageRequestDescriptor(ctx, imageRequest)
 	ctx = s.WithOpenAIImageRequestPolicy(ctx, imageGroupID)
 	ctx = WithOpenAIImageRequestGroup(ctx, apiKeyGroup(apiKey))
+	groupBody, imageRequest, groupBodyChanged, imagePolicyErr := ApplyOpenAIImageRequestContextPolicy(ctx, body, imageRequest)
+	if imagePolicyErr != nil {
+		return nil, imagePolicyErr
+	}
+	body = groupBody
+	canonicalImageIntentBody := body
+	ctx = WithOpenAIImageRequestDescriptor(ctx, imageRequest)
 	derivedBody, imageBodyChanged, imagePolicyErr := DeriveOpenAIImageRequestBody(body, imageRequest, account)
 	if imagePolicyErr != nil {
 		return nil, imagePolicyErr
 	}
 	body = derivedBody
+	imageBodyChanged = imageBodyChanged || groupBodyChanged
 	logOpenAIImageRequestDecision(ctx, imageRequest, account, imageBodyChanged, s.CanInjectOpenAIHostedImageGeneration(ctx, imageGroupID, account))
 	derivedImageRequest := DescribeOpenAIImageRequest(imageRequest.Endpoint, imageRequest.Model, body, isCodexCLI)
-	if imageRequest.History {
-		derivedImageRequest.History = true
-	}
+	derivedImageRequest = ReconcileOpenAIImageRequestDescriptor(derivedImageRequest, imageRequest)
 	if imageRequest.Endpoint != openAIResponsesCompactEndpoint && derivedImageRequest.RequiresCapability() && !GroupAllowsImageGeneration(apiKeyGroup(apiKey)) {
 		MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalFeatureGate)
 		c.JSON(http.StatusForbidden, gin.H{"error": gin.H{"type": "permission_error", "message": ImageGenerationPermissionMessage()}})

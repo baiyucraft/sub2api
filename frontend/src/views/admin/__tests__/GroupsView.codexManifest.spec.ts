@@ -12,12 +12,14 @@ const {
   getUsageSummary,
   getCapacitySummary,
   getLiveCapability,
+  updateGroup,
 } = vi.hoisted(() => ({
   listGroups: vi.fn(),
   getModelAllowlistCandidates: vi.fn(),
   getUsageSummary: vi.fn(),
   getCapacitySummary: vi.fn(),
   getLiveCapability: vi.fn(),
+  updateGroup: vi.fn(),
 }));
 
 vi.mock("@/api/admin", () => ({
@@ -30,7 +32,9 @@ vi.mock("@/api/admin", () => ({
       getCapacitySummary,
       getLiveCapability,
       create: vi.fn(),
-      update: vi.fn(),
+      update: updateGroup,
+      updatePreferredAccounts: vi.fn().mockResolvedValue(undefined),
+      getPreferredAccounts: vi.fn().mockResolvedValue([]),
       delete: vi.fn(),
       duplicate: vi.fn(),
       updateSortOrder: vi.fn(),
@@ -226,7 +230,12 @@ const mountView = () =>
         GroupCapacityBadge: true,
         GroupRateMultipliersModal: true,
         GroupRPMOverridesModal: true,
-        ReasoningEffortPolicyFields: true,
+        ReasoningEffortPolicyFields: defineComponent({
+          setup(_, { expose }) {
+            expose({ validate: () => true, resetValidation: () => undefined });
+            return () => h("div");
+          },
+        }),
         CodexManifestAccountsField: CodexManifestAccountsFieldStub,
         PricingEntryCard: true,
         VueDraggable: true,
@@ -242,6 +251,8 @@ describe("GroupsView Codex manifest binding", () => {
     getUsageSummary.mockReset();
     getCapacitySummary.mockReset();
     getLiveCapability.mockReset();
+    updateGroup.mockReset();
+    updateGroup.mockResolvedValue(sourceGroup);
 
     listGroups.mockResolvedValue({
       items: [sourceGroup],
@@ -254,6 +265,31 @@ describe("GroupsView Codex manifest binding", () => {
     getUsageSummary.mockResolvedValue([]);
     getCapacitySummary.mockResolvedValue([]);
     getLiveCapability.mockResolvedValue({ supported: false });
+  });
+
+  it("explains automatic filtering for image-disabled groups", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    await wrapper.findAll("button").find((button) => button.text().includes("common.edit"))!.trigger("click");
+    await flushPromises();
+    expect(wrapper.get('[data-testid="edit-optional-image-tools-policy"]').text()).toContain("admin.groups.optionalImageTools.automaticHint");
+    expect(wrapper.find('[data-testid="edit-strip-optional-image-tools"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("loads and saves the independent optional image-tool preference", async () => {
+    listGroups.mockResolvedValue({ items: [{ ...sourceGroup, allow_image_generation: true, strip_optional_image_tools: true }], total: 1, page: 1, page_size: 20, pages: 1 });
+    const wrapper = mountView();
+    await flushPromises();
+    await wrapper.findAll("button").find((button) => button.text().includes("common.edit"))!.trigger("click");
+    await flushPromises();
+    const checkbox = wrapper.get<HTMLInputElement>('[data-testid="edit-strip-optional-image-tools"]');
+    expect(checkbox.element.checked).toBe(true);
+    await checkbox.setValue(false);
+    await wrapper.get("#edit-group-form").trigger("submit");
+    await flushPromises();
+    expect(updateGroup).toHaveBeenCalledWith(42, expect.objectContaining({ allow_image_generation: true, strip_optional_image_tools: false }));
+    wrapper.unmount();
   });
 
   it("preserves consecutive child updates on the reactive edit config", async () => {

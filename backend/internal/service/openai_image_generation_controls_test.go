@@ -28,8 +28,8 @@ func TestOpenAIGatewayServiceForward_RejectsDisabledImageGenerationIntents(t *te
 			body: []byte(`{"model":"gpt-image-2","input":"draw"}`),
 		},
 		{
-			name: "image tool",
-			body: []byte(`{"model":"gpt-5.4","input":"draw","tools":[{"type":"image_generation"}]}`),
+			name: "required image tool",
+			body: []byte(`{"model":"gpt-5.4","input":"draw","tools":[{"type":"image_generation"}],"tool_choice":"required"}`),
 		},
 		{
 			name: "image tool choice",
@@ -277,7 +277,7 @@ func TestOpenAIGatewayServiceForward_AccountPolicyStripsImageNamespaceTools(t *t
 			require.Equal(t, "write code", gjson.GetBytes(upstream.lastBody, "input.0.content.0.text").String())
 			cached, known := getOpenAIImageIntentHint(c)
 			require.True(t, known)
-			require.True(t, cached)
+			require.False(t, cached, "group cleanup removes optional declarations before canonical intent is cached")
 		})
 	}
 }

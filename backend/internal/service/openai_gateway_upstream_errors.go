@@ -419,7 +419,7 @@ func IsOpenAIImagePermissionFailover(e *UpstreamFailoverError) bool {
 		return false
 	}
 	switch e.Reason {
-	case "image_permission_denied", "image_capability_cooldown", "image_responses_unsupported", "image_permission_refresh_unavailable":
+	case "image_permission_denied", "image_capability_cooldown", "image_responses_unsupported":
 		return true
 	default:
 		return false

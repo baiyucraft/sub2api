@@ -164,3 +164,8 @@ python .agents/skills/sub2api-fork-extension-audit/scripts/audit_fork_extensions
 调度快照采用官方内存母本与写时复制，新增 revision 键继续使用 `sched:v2:meta:rev` / `sched:v2:meta:rev:`，保留 fork 上游元数据、优先池与最终账号 hydration。官方流式断连结算只改变已观测 usage 的记账；fork 缓存保护仍要求成功终止、完整读取和客户端输出，读错、断连及缺失终止证据不能据 usage 推定有效 warm 样本。Cloudflare 1010 的非认证阻断不惩罚账号或绑定的上游 Key。
 
 账号编辑采用官方 Vertex service_account 配额，继续通过 fork 配置白名单过滤运行态字段。普通账号与上游管理分别使用 `account-filter-values` / `upstream-account-filter-values`，切换 scope 后重载筛选并丢弃旧请求响应。最低验证包含 profile 275 / migration 302 合同、调度快照隔离、Anthropic / Gemini 断连缓存证据、绑定 Key 的 1010、Vertex 配额和账号页筛选隔离。以上登记不代表 VM Gate 或生产部署完成。
+
+
+## 可选图片工具与 profile 276
+
+当前 pending profile `276`，版本 `0.2.18-baiyu`，parent `275`，仅新增 `303_group_strip_optional_image_tools.sql`。新字段默认 false；禁图组自动清可选声明，允许组由 strip_optional_image_tools 控制，明确图片请求仍校验。旧 275 及更早 profile、SQL、checksum 与精确恢复审阅不可变，未知 277 拒绝。276 继续保留 downtime 和祖先 migration 301 的旧写者退出与 coordinated_restore 合同；全 Python/Shell/signer/备份/清理入口一致，回归 test_profile276_release_contract.py。最终敏感 blob 必须新审阅，未分类仍阻断，不以历史豁免或本地单测代替真实隔离恢复与签名 VM Gate。

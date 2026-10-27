@@ -1002,7 +1002,7 @@ func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID 
 	if !isOpenAICompatibleAccountEligibleForRequest(ctx, account, platform, requestedModel, false, requiredCapability) {
 		return nil
 	}
-	if s.openAIImageCandidateFailure(ctx, account, OpenAIAccountScheduleRequest{GroupID: groupID, RequestedModel: requestedModel}) != "" {
+	if s.openAIImageCandidateFailure(ctx, account, OpenAIAccountScheduleRequest{GroupID: groupID, Platform: platform, RequestedModel: requestedModel, RequireCompact: requireCompact, RequiredCapability: requiredCapability}) != "" {
 		return nil
 	}
 	if !parentHealthyForShadow(account, s.parentAccountLookup(ctx)) {
@@ -1053,7 +1053,7 @@ func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *i
 
 	for i := range accounts {
 		acc := &accounts[i]
-		if reason := s.openAIImageCandidateFailure(ctx, acc, OpenAIAccountScheduleRequest{GroupID: groupID, RequestedModel: requestedModel}); reason != "" {
+		if reason := s.openAIImageCandidateFailure(ctx, acc, OpenAIAccountScheduleRequest{GroupID: groupID, Platform: platform, RequestedModel: requestedModel, RequireCompact: requireCompact, RequiredCapability: requiredCapability, ExcludedIDs: excludedIDs}); reason != "" {
 			filterStats.exclude(reason)
 			continue
 		}
@@ -1332,7 +1332,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 	candidates := make([]*Account, 0, len(accounts))
 	for i := range accounts {
 		acc := &accounts[i]
-		if reason := s.openAIImageCandidateFailure(ctx, acc, OpenAIAccountScheduleRequest{GroupID: groupID, RequestedModel: requestedModel}); reason != "" {
+		if reason := s.openAIImageCandidateFailure(ctx, acc, OpenAIAccountScheduleRequest{GroupID: groupID, Platform: platform, RequestedModel: requestedModel, RequireCompact: requireCompact, RequiredCapability: requiredCapability, ExcludedIDs: excludedIDs}); reason != "" {
 			filterStats.exclude(reason)
 			continue
 		}
@@ -1713,7 +1713,7 @@ func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDBBeforeProfit(ct
 	}
 	platform = NormalizeOpenAICompatiblePlatform(platform)
 	if s.accountRepo == nil || (s.schedulerSnapshot == nil && !cacheGuardTentativeSelection(ctx)) {
-		if s.openAIImageCandidateFailure(ctx, account, OpenAIAccountScheduleRequest{GroupID: groupID, RequestedModel: requestedModel}) != "" {
+		if s.openAIImageCandidateFailure(ctx, account, OpenAIAccountScheduleRequest{GroupID: groupID, Platform: platform, RequestedModel: requestedModel, RequireCompact: requireCompact, RequiredCapability: requiredCapability}) != "" {
 			return nil
 		}
 		if s.openAIGroupRequiresPrivacySet(ctx, groupID) && !account.IsPrivacySet() {
@@ -1741,7 +1741,7 @@ func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDBBeforeProfit(ct
 	if err != nil || latest == nil {
 		return nil
 	}
-	if s.openAIImageCandidateFailure(ctx, latest, OpenAIAccountScheduleRequest{GroupID: groupID, RequestedModel: requestedModel}) != "" {
+	if s.openAIImageCandidateFailure(ctx, latest, OpenAIAccountScheduleRequest{GroupID: groupID, Platform: platform, RequestedModel: requestedModel, RequireCompact: requireCompact, RequiredCapability: requiredCapability}) != "" {
 		return nil
 	}
 	if !s.openAIAccountMatchesSchedulingGroup(latest, groupID) {

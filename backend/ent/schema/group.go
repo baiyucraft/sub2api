@@ -106,6 +106,9 @@ func (Group) Fields() []ent.Field {
 		field.Bool("allow_image_generation").
 			Default(false).
 			Comment("是否允许该分组使用图片生成能力"),
+		field.Bool("strip_optional_image_tools").
+			Default(false).
+			Comment("允许生图分组是否主动清理可选生图工具；禁图分组自动清理"),
 		field.Bool("allow_batch_image_generation").
 			Default(false).
 			Comment("是否允许该分组使用批量图片生成能力"),
