@@ -27,7 +27,8 @@ ARG COREPACK_NPM_REGISTRY
 ENV COREPACK_NPM_REGISTRY=${COREPACK_NPM_REGISTRY}
 
 WORKDIR /app/frontend
-ENV NODE_OPTIONS=--max-old-space-size=2048
+# Type checking and bundling need more than 2 GiB; leave headroom on the 4 GiB build VM.
+ENV NODE_OPTIONS=--max-old-space-size=3072
 
 # Install pnpm at the exact lockfile-compatible version. Resolving the major
 # tag makes Corepack query npm's version metadata and is fragile in restricted
