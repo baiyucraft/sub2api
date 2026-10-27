@@ -132,6 +132,85 @@ func TestDistributionTimeoutWithHTTP200RemainsHealthEvidenceWithoutEffectiveSamp
 	require.Len(t, repo.histories[keyID], 2, "failed health history remains after successful collection")
 }
 
+func TestDistributionProbeRunsWhenSolIsDeniedForRequests(t *testing.T) {
+	distributionTestClientResolver(t, func() string { return buildCodexCLIUserAgent("0.160.0") })
+	const keyID int64 = 92326
+	GlobalUpstreamHealthRegistry().Forget(keyID)
+	defer GlobalUpstreamHealthRegistry().Forget(keyID)
+	platform := PlatformOpenAI
+	model := UpstreamConfidenceDistributionClaimedModel
+	account := distributionIdentityTestAccount()
+	account.UpstreamKeyID = int64Ptr(keyID)
+	account.Credentials["model_mapping"] = map[string]any{"other-model": "other-model"}
+	account.Extra = map[string]any{
+		AccountUpstreamModelSyncExtraKey: map[string]any{
+			"last_success_at": time.Now().UTC().Format(time.RFC3339),
+			"auto_mapping":    map[string]any{model: model},
+		},
+		AccountUpstreamModelCustomRulesExtraKey: []UpstreamModelCustomRule{{Source: model, Action: UpstreamModelCustomRuleActionDeny}},
+	}
+	require.False(t, account.IsModelSupported(model), "the request mapping remains denied")
+	repo := &distributionWindowTestRepo{healthProbeLockRepo: &healthProbeLockRepo{key: UpstreamKey{ID: keyID, UpstreamConfigID: 42, Status: StatusActive, Platform: &platform}}}
+	accounts := &healthProbeAccountRepo{account: *account}
+	upstream := &upstreamHealthProbeHTTPStub{stream: "data: {\"type\":\"response.output_text.delta\",\"delta\":\"Canada\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\"}}\n\n"}
+	client := &AccountTestService{httpUpstream: upstream, cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}}}
+	settingRepo := newCodexVersionSyncSettingRepoStub(map[string]string{SettingKeyUpstreamConfidenceProbe: `{"enabled":true}`, SettingKeyOpenAICodexClientVersionSynced: "0.160.0"})
+	settings := NewSettingService(settingRepo, nil)
+	client.SetSettingService(settings)
+	svc := NewUpstreamConfigService(repo, nil, accounts)
+	svc.SetHealthProbeDependencies(client, settings)
+
+	item, err := svc.ProbeKey(context.Background(), keyID)
+	require.NoError(t, err)
+	require.Equal(t, "success", item.LastProbeStatus)
+	require.Equal(t, 1, item.ConfidenceDistribution.Attempted)
+	require.Equal(t, 1, item.ConfidenceDistribution.ValidSamples)
+	require.Len(t, upstream.bodies, 1)
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(upstream.bodies[0], &payload))
+	require.Equal(t, model, payload["model"])
+}
+
+func TestDistributionProbeDeniedModelRequiresSuccessfulSyncSnapshot(t *testing.T) {
+	model := UpstreamConfidenceDistributionClaimedModel
+	for i, tc := range []struct {
+		name      string
+		syncState map[string]any
+	}{
+		{name: "no successful sync", syncState: map[string]any{"auto_mapping": map[string]any{model: model}}},
+		{name: "successful sync missing model", syncState: map[string]any{
+			"last_success_at": time.Now().UTC().Format(time.RFC3339),
+			"auto_mapping":    map[string]any{"other-model": "other-model"},
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			keyID := int64(92327 + i)
+			GlobalUpstreamHealthRegistry().Forget(keyID)
+			defer GlobalUpstreamHealthRegistry().Forget(keyID)
+			platform := PlatformOpenAI
+			account := distributionIdentityTestAccount()
+			account.UpstreamKeyID = int64Ptr(keyID)
+			account.Credentials["model_mapping"] = map[string]any{"other-model": "other-model"}
+			account.Extra = map[string]any{
+				AccountUpstreamModelSyncExtraKey:        tc.syncState,
+				AccountUpstreamModelCustomRulesExtraKey: []UpstreamModelCustomRule{{Source: model, Action: UpstreamModelCustomRuleActionDeny}},
+			}
+			repo := &distributionWindowTestRepo{healthProbeLockRepo: &healthProbeLockRepo{key: UpstreamKey{ID: keyID, UpstreamConfigID: 42, Status: StatusActive, Platform: &platform}}}
+			accounts := &healthProbeAccountRepo{account: *account}
+			upstream := &upstreamHealthProbeHTTPStub{}
+			client := &AccountTestService{httpUpstream: upstream, cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}}}
+			settings := NewSettingService(&upstreamManagementSettingRepoStub{values: map[string]string{SettingKeyUpstreamConfidenceProbe: `{"enabled":true}`}}, nil)
+			svc := NewUpstreamConfigService(repo, nil, accounts)
+			svc.SetHealthProbeDependencies(client, settings)
+
+			_, err := svc.ProbeKey(context.Background(), keyID)
+			require.Error(t, err)
+			require.Nil(t, repo.state, "configuration rejection must not claim a sample")
+			require.Empty(t, upstream.requests, "configuration rejection must not send a request")
+		})
+	}
+}
+
 type distributionUnavailableTestRepo struct {
 	*distributionWindowTestRepo
 	readerErr, distributionErr error

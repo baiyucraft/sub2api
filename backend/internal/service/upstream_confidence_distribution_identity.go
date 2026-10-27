@@ -112,7 +112,7 @@ func (s *AccountTestService) resolveDistributionRequestWithPolicy(account *Accou
 	}
 	protocol := distributionAccountProtocol(&snapshot)
 	model := snapshot.GetMappedModel(UpstreamConfidenceDistributionClaimedModel)
-	if strings.TrimSpace(model) == "" || !snapshot.IsModelSupported(UpstreamConfidenceDistributionClaimedModel) || isTextProbeUnsupportedModel(model) {
+	if strings.TrimSpace(model) == "" || !distributionProbeModelSupported(&snapshot, UpstreamConfidenceDistributionClaimedModel) || isTextProbeUnsupportedModel(model) {
 		return nil, &distributionConfigurationError{"unsupported_model", "probe_model_unsupported", errors.New("account does not support the Sol distribution probe model")}
 	}
 	apiKey, baseURL := snapshot.GetOpenAIApiKey(), snapshot.GetOpenAIBaseURL()
@@ -219,6 +219,25 @@ func (s *AccountTestService) resolveDistributionRequestWithPolicy(account *Accou
 		V2Fingerprint: v2Fingerprint, ClientVersion: clientVersion,
 	}
 	return &distributionRequestSpec{identity: identity, account: snapshot, endpoint: endpoint, model: model, headers: headers}, nil
+}
+
+func distributionProbeModelSupported(account *Account, requestedModel string) bool {
+	if account == nil {
+		return false
+	}
+	rules, _, err := UpstreamModelCustomRulesFromExtra(account.Extra)
+	if err != nil {
+		return false
+	}
+	for _, rule := range rules {
+		if rule.Source != requestedModel || rule.Action != UpstreamModelCustomRuleActionDeny {
+			continue
+		}
+		state := account.upstreamModelSyncState()
+		_, present := state.AutoMapping[requestedModel]
+		return state.LastSuccessAt != nil && present
+	}
+	return account.IsModelSupported(requestedModel)
 }
 
 func distributionHeaderValue(headers http.Header, name string) string {

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
@@ -43,6 +44,27 @@ func TestDistributionIdentityIgnoresUnrelatedConfiguration(t *testing.T) {
 	raw, err := json.Marshal(current)
 	require.NoError(t, err)
 	require.JSONEq(t, `{}`, string(raw), "internal identity must never enter an API response")
+}
+
+func TestDistributionIdentityKeepsSeriesWhenSolIsDeniedForRequests(t *testing.T) {
+	svc, account := distributionIdentityTestService(), distributionIdentityTestAccount()
+	initial, err := svc.ResolveConfidenceDistributionIdentity(account)
+	require.NoError(t, err)
+
+	account.Credentials["model_mapping"] = map[string]any{"other-model": "other-model"}
+	account.Extra = map[string]any{
+		AccountUpstreamModelSyncExtraKey: map[string]any{
+			"last_success_at": time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC).Format(time.RFC3339),
+			"auto_mapping":    map[string]any{UpstreamConfidenceDistributionClaimedModel: UpstreamConfidenceDistributionClaimedModel},
+		},
+		AccountUpstreamModelCustomRulesExtraKey: []UpstreamModelCustomRule{{Source: UpstreamConfidenceDistributionClaimedModel, Action: UpstreamModelCustomRuleActionDeny}},
+	}
+	require.False(t, account.IsModelSupported(UpstreamConfidenceDistributionClaimedModel), "the deny rule still blocks ordinary request routing")
+
+	current, err := svc.ResolveConfidenceDistributionIdentity(account)
+	require.NoError(t, err)
+	require.Equal(t, initial.Fingerprint, current.Fingerprint, "request-only denial must not reset a series for the same probe model")
+	require.Equal(t, UpstreamConfidenceDistributionClaimedModel, account.GetMappedModel(UpstreamConfidenceDistributionClaimedModel))
 }
 
 func TestDistributionIdentityEquivalentEndpointAndHeaders(t *testing.T) {
