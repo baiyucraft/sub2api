@@ -16,7 +16,7 @@ PREFIX = ".agents/skills/sub2api-production-deploy/scripts/"
 
 @pytest.fixture(scope="module")
 def reviewed():
-    groups = gate._REVIEWED_SCOPED_TRANCHES[-3:]
+    groups = tuple(group for group in gate._REVIEWED_SCOPED_TRANCHES if group[:2] == (BASE, TARGET))
     assert all(before == BASE and after == TARGET for before, after, _, _ in groups)
     assert tuple(len(paths) for _, _, _, paths in groups) == (47, 2, 8)
     paths = set().union(*(paths for _, _, _, paths in groups))
