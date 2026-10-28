@@ -135,6 +135,7 @@ type SettingService struct {
 	schedulingProtectionPlatformsCache atomic.Value // *schedulingProtectionPlatformsSnapshot
 	schedulingProtectionPlatformsMu    sync.Mutex
 
+	scopedAdminKeyRepo          ScopedAdminKeyRepository
 	settingRepo                 SettingRepository
 	defaultSubGroupReader       DefaultSubscriptionGroupReader
 	proxyRepo                   ProxyRepository // for resolving websearch provider proxy URLs

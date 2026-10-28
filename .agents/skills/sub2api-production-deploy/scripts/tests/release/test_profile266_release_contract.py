@@ -45,7 +45,7 @@ class Profile266ReleaseContractTest(unittest.TestCase):
             content = (WORKSPACE / path).read_bytes()
             self.assertEqual(hashlib.sha1(f"blob {len(content)}\0".encode() + content).hexdigest(), blob, path)
         current_sql = {p.relative_to(WORKSPACE).as_posix() for p in (WORKSPACE / "backend/migrations").glob("*.sql")}
-        self.assertEqual(current_sql, set(old_sql) | {f"backend/migrations/{name}" for name in [MIGRATION, *get_profile("267")["new_migrations"], *get_profile("268")["new_migrations"], *get_profile("269")["new_migrations"], *get_profile("270")["new_migrations"], *get_profile("271")["new_migrations"], *get_profile("273")["new_migrations"], *get_profile("274")["new_migrations"], *get_profile("275")["new_migrations"], *get_profile("276")["new_migrations"], *get_profile("277")["new_migrations"], *get_profile("278")["new_migrations"]]})
+        self.assertEqual(current_sql, set(old_sql) | {f"backend/migrations/{name}" for name in [MIGRATION, *get_profile("267")["new_migrations"], *get_profile("268")["new_migrations"], *get_profile("269")["new_migrations"], *get_profile("270")["new_migrations"], *get_profile("271")["new_migrations"], *get_profile("273")["new_migrations"], *get_profile("274")["new_migrations"], *get_profile("275")["new_migrations"], *get_profile("276")["new_migrations"], *get_profile("277")["new_migrations"], *get_profile("278")["new_migrations"], *get_profile("281")["new_migrations"]]})
         self.assertEqual(CURRENT_RELEASE_PROFILE, "281")
         current = get_profile("266")
         with self.assertRaisesRegex(ValueError, "historical"):

@@ -95,6 +95,7 @@ const sourceGroup = {
   profit_min_margin: 0,
   profit_safety_buffer: 0,
   allow_image_generation: false,
+  image_count_billing: false,
   allow_batch_image_generation: false,
   image_rate_independent: false,
   image_rate_multiplier: 1,
@@ -289,6 +290,40 @@ describe("GroupsView Codex manifest binding", () => {
     await wrapper.get("#edit-group-form").trigger("submit");
     await flushPromises();
     expect(updateGroup).toHaveBeenCalledWith(42, expect.objectContaining({ allow_image_generation: true, strip_optional_image_tools: false }));
+    wrapper.unmount();
+  });
+
+  it("loads image count billing without changing the optional image-tool preference", async () => {
+    listGroups.mockResolvedValue({ items: [{ ...sourceGroup, allow_image_generation: true, image_count_billing: true, strip_optional_image_tools: true }], total: 1, page: 1, page_size: 20, pages: 1 });
+    const wrapper = mountView();
+    await flushPromises();
+    await wrapper.findAll("button").find((button) => button.text().includes("common.edit"))!.trigger("click");
+    await flushPromises();
+    const countLabel = wrapper.findAll("label").find((label) => label.text().trim() === "admin.groups.imagePricing.perImageBilling");
+    expect(countLabel).toBeDefined();
+    const countCheckbox = countLabel!.get<HTMLInputElement>('input[type="checkbox"]');
+    expect(countCheckbox.element.checked).toBe(true);
+    await countCheckbox.setValue(false);
+    await wrapper.get("#edit-group-form").trigger("submit");
+    await flushPromises();
+    expect(updateGroup).toHaveBeenCalledWith(42, expect.objectContaining({ image_count_billing: false, strip_optional_image_tools: true }));
+    wrapper.unmount();
+  });
+
+  it("clears image count billing when image generation is disabled", async () => {
+    listGroups.mockResolvedValue({ items: [{ ...sourceGroup, allow_image_generation: true, image_count_billing: true }], total: 1, page: 1, page_size: 20, pages: 1 });
+    const wrapper = mountView();
+    await flushPromises();
+    await wrapper.findAll("button").find((button) => button.text().includes("common.edit"))!.trigger("click");
+    await flushPromises();
+    const allowLabel = wrapper.findAll("label").find((label) => label.text().trim() === "admin.groups.imagePricing.allowImageGeneration");
+    expect(allowLabel).toBeDefined();
+    await allowLabel!.get('input[type="checkbox"]').setValue(false);
+    await flushPromises();
+    expect(wrapper.findAll("label").some((label) => label.text().trim() === "admin.groups.imagePricing.perImageBilling")).toBe(false);
+    await wrapper.get("#edit-group-form").trigger("submit");
+    await flushPromises();
+    expect(updateGroup).toHaveBeenCalledWith(42, expect.objectContaining({ allow_image_generation: false, image_count_billing: false }));
     wrapper.unmount();
   });
 

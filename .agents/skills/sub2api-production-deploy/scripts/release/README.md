@@ -479,7 +479,7 @@ SSH 超时后以远端 committed marker 重新判定阶段，不凭本地异常�
 
 ## 官方 0.2.18 / profile 275
 
-历史 profile `275` 使用 `0.2.18-baiyu`、parent `274`，仅新增 `302_enable_gemini_image_generation_groups.sql`。官方目标 `5c185c5c5d4f5e409e2139806e0964ae944e03e8` 的 246 生图开关回填只按原字节重编号，不改历史 fork 246、301 或任何旧 profile/checksum；原始 SQL SHA-256 为 `f49b458cfbd52bd17f5bb02e30e3813c8e192e4ae38bce6358713ef65f3874b5`，Gate catalog strip 后 checksum 为 `87267be7ab657173768989e2b0b105c5569c5930a7f1ed124f4cf81e5198297c`。旧章节的 current 274/未知275是当时历史边界；profile 278/279 与当前 profile 280 合同见后续说明，未知281拒绝。
+历史 profile `275` 使用 `0.2.18-baiyu`、parent `274`，仅新增 `302_enable_gemini_image_generation_groups.sql`。官方目标 `5c185c5c5d4f5e409e2139806e0964ae944e03e8` 的 246 生图开关回填只按原字节重编号，不改历史 fork 246、301 或任何旧 profile/checksum；原始 SQL SHA-256 为 `f49b458cfbd52bd17f5bb02e30e3813c8e192e4ae38bce6358713ef65f3874b5`，Gate catalog strip 后 checksum 为 `87267be7ab657173768989e2b0b105c5569c5930a7f1ed124f4cf81e5198297c`。旧章节的 current 274/未知275是当时历史边界；profile 278/279/280 的历史合同与当前 profile 281 合同见后续说明，未知282拒绝。
 
 profile `278` 使用 `0.2.20-baiyu`、parent `277`，无新增 migration，保留为历史；历史 profile `279` 使用 `0.2.21-baiyu`、parent `278`，无新增 migration。历史 profile `277` 保留 `304_upstream_confidence_fingerprint.sql`。当前 Gate v2 signer 覆盖 242–281，VM validator 仅接受当前 profile 281，未知282拒绝。
 

@@ -89,6 +89,7 @@ const sourceGroup: AdminGroup = {
   weekly_limit_usd: null,
   monthly_limit_usd: null,
   allow_image_generation: false,
+  image_count_billing: false,
   allow_live: false,
   allow_batch_image_generation: false,
   image_rate_independent: false,

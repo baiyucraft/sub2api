@@ -17,7 +17,7 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from release.doctor import ReleaseDoctor
 from release.manifest import canonical_json
-from release.production import ProductionRelease, gate_consumption_probe_script
+from release.production import ProductionRelease, gate_consumption_probe_script, recovered_claim_probe_script
 from release.production_bootstrap import bootstrap_production
 
 
@@ -52,7 +52,39 @@ class ObservationShellFailuresTest(unittest.TestCase):
             syntax = self.shell('bash -n -c ' + shlex.quote(script))
             self.assertEqual(syntax.returncode, 0, syntax.stderr)
             guards.extend(re.findall(r'\{ required_observed=\$\(.*?\) \|\| exit 125; \} && test "\$required_observed" = (?:\'[^\']*\'|[^\s;&]+)', script))
-        self.assertEqual(len(guards), 24)
+        # 3b98e13cd moved the recovered health/timer checks into the dedicated
+        # probe below. Pin every remaining producer and expected value rather
+        # than accepting any 22 comparisons (or silently losing another one).
+        expected_identities = [
+            ("sha256sum /opt/sub2api-release-trust/vm-gate-ed25519.pub | awk '{print $1}'", 'a' * 64),
+            ("sha256sum /tmp/stage/bundle | awk '{print $1}'", 'b' * 64),
+            ('find . -type l -print -quit', ''),
+            ("stat -c '%U:%G:%a:%h' /tmp/release/preflight-failure", 'root:root:600:1'),
+            ('stat -c \'%U:%G:%a\' "$state/backup-result"', 'root:root:400'),
+            ('stat -c \'%U:%G:%a\' "$state/backup-result.sha256"', 'root:root:400'),
+            ('grep -c \'^[a-z_][a-z0-9_]*=\' "$state/backup-result"', '8'),
+            ('sed -n \'s/^attempt_id=//p\' "$state/backup-failure"', 'fixture'),
+            ('stat -c \'%U:%G:%a:%h\' "$state/migration-preflight-context.sh"', 'root:root:600:1'),
+            ('stat -c \'%U:%G:%a:%h\' "$file"', 'root:root:600:1'),
+            ("stat -c '%U:%G:%a:%h' /tmp/release/migration-233-failure", 'root:root:600:1'),
+            ('stat -c \'%U:%G:%a:%h\' "$failure_file"', 'root:root:600:1'),
+            ('grep -c \'^candidate_\' "$failure_file"', '10'),
+            ('stat -c \'%U:%G:%a:%h\' "$init_failure_file"', 'root:root:600:1'),
+            ('grep -c \'^switch_failure_\' "$init_failure_file"', '4'),
+            ('stat -c \'%U:%G:%a:%h\' "$switch_file"', 'root:root:600:1'),
+            ('grep -c \'^switch_failure_\' "$switch_file"', '4'),
+            ('stat -c \'%U:%G:%a:%h\' "$m195_file"', 'root:root:600:1'),
+            ('grep -c \'^migration_195_failure_\' "$m195_file"', '2'),
+            ('stat -c \'%U:%G:%a\' "$state/finalize-failure"', 'root:root:600'),
+            ('grep -c \'^finalize_failure_\' "$state/finalize-failure"', '2'),
+            ("curl -sS --resolve fixture.invalid:443:127.0.0.1 --max-time 15 -o /dev/null -w '%{http_code}' https://fixture.invalid/health", '200'),
+        ]
+        identities = [
+            (guard[len('{ required_observed=$('):guard.index(') || exit 125')],
+             shlex.split(guard[guard.index(' && test '):])[-1])
+            for guard in guards
+        ]
+        self.assertCountEqual(identities, expected_identities)
         for guard in guards:
             expected = shlex.split(guard[guard.index(' && test '):])[-1]
             for code in (0, 17):
@@ -61,6 +93,48 @@ class ObservationShellFailuresTest(unittest.TestCase):
                     result = self.shell('set -Eeuo pipefail\n' + definitions + '\nactive_container=sub2api; state=/tmp/state; slot=/tmp/slot; file=/tmp/file; failure_file=/tmp/file; init_failure_file=/tmp/file; switch_file=/tmp/file; m195_file=/tmp/file\n' + guard + '\nprintf "comparison_accepted=true\\n"', {'EXPECTED': expected, 'PRODUCER_CODE': str(code)})
                     self.assertEqual(result.returncode, 0 if code == 0 else 125, (guard, expected, result.stderr))
                     self.assertEqual('comparison_accepted=true' in result.stdout, code == 0)
+
+    def test_actual_recovered_claim_comparisons_reject_failed_producers(self):
+        release_id = '273-' + 'a' * 12 + '-1-' + 'a' * 8
+        image_id = 'sha256:' + 'b' * 64
+        script = recovered_claim_probe_script(release_id, image_id, 'c' * 64, 'd' * 64)
+        syntax = self.shell('bash -n -c ' + shlex.quote(script))
+        self.assertEqual(syntax.returncode, 0, syntax.stderr)
+        checks = list(re.finditer(
+            r'(?m)^(?P<name>required_[a-z_]+)=\$\((?P<producer>[^\n]+)\) \|\| exit \$\?\n'
+            r'test "\$(?P=name)" = (?P<expected>[^\n]+)$',
+            script,
+        ))
+        # Execute the actual generated snippets, including both migrated
+        # comparisons and all five additional required-value checks.
+        expected_identities = {
+            'required_gate_release': ('jq -er \'.manifest.release_id\' "$recovered/gate.json"', release_id),
+            'required_gate_candidate': ('jq -er \'.evidence.candidate_image_id\' "$recovered/gate.json"', image_id),
+            'required_health': ('docker inspect -f \'{{.State.Health.Status}}\' "$active_container"', 'healthy'),
+            'required_running': ('docker inspect -f \'{{.State.Running}}\' "$active_container"', 'true'),
+            'required_nginx': ('systemctl is-active nginx', 'active'),
+            'required_timer_enabled': ('systemctl is-enabled sub2api-backup.timer', 'enabled'),
+            'required_timer_active': ('systemctl is-active sub2api-backup.timer', 'active'),
+        }
+        self.assertCountEqual([check['name'] for check in checks], expected_identities)
+        for check in checks:
+            expected = shlex.split(check['expected'])[0]
+            self.assertEqual((check['producer'], expected), expected_identities[check['name']])
+            for code, output in ((0, expected), (17, expected), (0, 'unexpected')):
+                with self.subTest(check=check['name'], code=code, output=output):
+                    definitions = '\n'.join(
+                        name + '() { builtin printf "%s" "$EXPECTED"; return "$PRODUCER_CODE"; }'
+                        for name in ('jq', 'docker', 'systemctl')
+                    )
+                    result = self.shell(
+                        'set -Eeuo pipefail\n' + definitions +
+                        '\nrecovered=/tmp/recovered; active_container=sub2api\n' +
+                        check.group() + '\nprintf "comparison_accepted=true\\n"',
+                        {'EXPECTED': output, 'PRODUCER_CODE': str(code)},
+                    )
+                    accepted = code == 0 and output == expected
+                    self.assertEqual(result.returncode, 0 if accepted else code or 1, result.stderr)
+                    self.assertEqual('comparison_accepted=true' in result.stdout, accepted)
 
     def test_actual_inactive_checks_require_known_exit_status(self):
         runner = mock.Mock()
