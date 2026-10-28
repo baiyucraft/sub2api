@@ -5,17 +5,48 @@ set -Eeuo pipefail
 
 release_id=${RELEASE_ID:?RELEASE_ID is required}
 release_dir=${RELEASE_DIR:?RELEASE_DIR is required}
+minimum_free_bytes=${MINIMUM_FREE_BYTES:-10737418240}
 trust_key=${TRUST_KEY:-/opt/sub2api-release-trust/vm-gate-ed25519.pub}
+[[ $minimum_free_bytes =~ ^[1-9][0-9]{0,17}$ ]]
 [[ $release_id =~ ^(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273|274|275|276)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
 [[ $release_dir == "/opt/sub2api/releases/$release_id" ]]
 [[ -d $release_dir && ! -L $release_dir ]]
+
+# Keep import behind a conservative reservation; candidate.tar.gz is restored
+# to the release directory by the claim trap if the capacity check fails.
+load_candidate_with_capacity_guard() {
+  local archive=${1:?candidate archive is required}
+  local minimum=${2:?minimum free bytes are required}
+  local candidate_expanded_bytes free_bytes required_free_bytes
+  [[ $minimum =~ ^[1-9][0-9]{0,17}$ ]]
+  candidate_expanded_bytes=$(gzip -dc "$archive" | wc -c | tr -d '[:space:]')
+  [[ $candidate_expanded_bytes =~ ^[1-9][0-9]{0,17}$ ]]
+  free_bytes=$(df -PB1 /var/lib/docker 2>/dev/null | awk 'NR==2{print $4}') || free_bytes=
+  if [[ ! $free_bytes =~ ^[0-9]{1,18}$ ]]; then
+    free_bytes=$(df -PB1 / | awk 'NR==2{print $4}')
+  fi
+  [[ $free_bytes =~ ^[0-9]{1,18}$ ]]
+  required_free_bytes=$((candidate_expanded_bytes + minimum))
+  (( free_bytes >= required_free_bytes ))
+  gzip -dc "$archive" | docker load >/dev/null
+}
+
 exec 9>/run/lock/sub2api-production-release.lock
 flock -n 9
 active_claim=/opt/sub2api/releases/.active-release
 [[ ! -e $active_claim && ! -L $active_claim ]]
 mkdir "$active_claim"
 chmod 700 "$active_claim"
-cleanup_claim() { rm -rf "$active_claim"; }
+cleanup_claim() {
+  local status=$?
+  trap - ERR INT TERM
+  if [[ -f $active_claim/candidate.tar.gz && ! -L $active_claim/candidate.tar.gz &&
+        ! -e $release_dir/candidate.tar.gz && ! -L $release_dir/candidate.tar.gz ]]; then
+    mv -T -- "$active_claim/candidate.tar.gz" "$release_dir/candidate.tar.gz" || exit 125
+  fi
+  rm -rf -- "$active_claim"
+  exit "$status"
+}
 trap cleanup_claim ERR INT TERM
 printf 'release_id=%s\n' "$release_id" > "$active_claim/release_id"
 chmod 400 "$active_claim/release_id"
@@ -134,7 +165,7 @@ candidate_tag="sub2api:baiyu-$version-$commit"
 _required_11=$(sha256sum "$active_claim/candidate.tar.gz" | awk '{print $1}')
 [[ ${_required_11} == "$candidate_sha" ]]
 gzip -t "$active_claim/candidate.tar.gz"
-gzip -dc "$active_claim/candidate.tar.gz" | docker load >/dev/null
+load_candidate_with_capacity_guard "$active_claim/candidate.tar.gz" "$minimum_free_bytes"
 _required_12=$(docker image inspect -f '{{.Id}}' "$candidate_image_id")
 [[ ${_required_12} == "$candidate_image_id" ]]
 docker tag "$candidate_image_id" "$candidate_tag"

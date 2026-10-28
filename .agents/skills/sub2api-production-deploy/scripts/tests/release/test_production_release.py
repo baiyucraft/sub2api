@@ -24,7 +24,26 @@ from release.production import ProductionRelease, write_stage_bundle
 from release.production import emit_progress
 from release.production import gate_consumption_probe_script
 from release.production import quoted_env
+from release.production import RECOVERED_CLAIM_FIELDS
 from release import recovery_bundle
+from release.ssh import UnexpectedRemoteStderr
+
+
+def recovered_claim_values(candidate: str) -> dict[str, str]:
+    return {
+        "recovery_marker_verified": "true",
+        "release_claim_reconciled": "true",
+        "plaintext_state_removed": "true",
+        "active_slot_verified": "true",
+        "application_health": "pass",
+        "nginx_active": "true",
+        "nginx_route_verified": "true",
+        "backup_service_inactive": "true",
+        "backup_timer_enabled": "true",
+        "backup_timer_active": "true",
+        "candidate_absent": "true",
+        "running_image_id": "sha256:" + "c" * 64 if candidate != "sha256:" + "c" * 64 else "sha256:" + "d" * 64,
+    }
 
 
 def _assert_required_capture(source, producer, assertion, failure):
@@ -177,7 +196,12 @@ class ProductionRecoveryTest(unittest.TestCase):
         instance.release_id = "182-aaaaaaaaaaaa-1-aaaaaaaa"
         instance.release_dir = "/opt/sub2api/releases/" + instance.release_id
         instance.runner = mock.Mock()
-        instance.gate_dir = Path("fixture-release/gate")
+        gate_temp = tempfile.TemporaryDirectory()
+        self.addCleanup(gate_temp.cleanup)
+        instance.gate_dir = Path(gate_temp.name) / "gate"
+        instance.gate_dir.mkdir()
+        (instance.gate_dir / "gate.json").write_bytes(b"signed-gate")
+        (instance.gate_dir / "gate.sig").write_bytes(b"signed-gate-signature")
         files = {}
         for name in recovery_bundle.REQUIRED:
             category = "release" if name.endswith(".py") else "maintenance/181" if name == "restore-backup-units.sh" else "maintenance/release"
@@ -194,6 +218,7 @@ class ProductionRecoveryTest(unittest.TestCase):
             {"backup_units_restored": "true"},
             {"plaintext_state_removed": "true"},
             {"release_claim_reconciled": "true"},
+            recovered_claim_values(instance.image_id),
         ])
         return instance
 
@@ -373,6 +398,7 @@ class ProductionRecoveryTest(unittest.TestCase):
             (release.gate_dir / "candidate.tar.gz").write_bytes(b"candidate")
             release.evidence = {"candidate_archive_sha256": "digest"}
             release.manifest = {}
+            release.profile = {"minimum_rack_free_bytes": 10737418240}
             release.runner = mock.Mock()
             release.runner.create_temp_dir.return_value = "/opt/sub2api/releases/.stage-test"
             release.runner.upload_file.side_effect = [RuntimeError("temporary SFTP failure"), None]
@@ -393,6 +419,7 @@ class ProductionRecoveryTest(unittest.TestCase):
             self.assertEqual(sleep.call_args_list, [mock.call(5)])
             self.assertEqual(release.runner.upload_file.call_count, 2)
             self.assertTrue(release.claimed)
+            self.assertIn("MINIMUM_FREE_BYTES=10737418240", release.run_remote.call_args_list[-1].args[1])
             # The uploaded helpers must be the exact signed sources, including
             # the non-maintenance backfill script used by downtime postflight.
             bundle = release.runner.upload_file.call_args_list[0].args[1]
@@ -594,6 +621,7 @@ class ProductionRecoveryTest(unittest.TestCase):
             {"old_application_resumed": "true", "running_image_id": "old"},
             {"plaintext_state_removed": "true"},
             {"release_claim_reconciled": "true"},
+            recovered_claim_values(release.image_id),
         ]
         release.recover()
         self.assertIn("resume-old.sh", release.run_remote.call_args_list[0].args[1])
@@ -679,10 +707,59 @@ class ProductionRecoveryTest(unittest.TestCase):
         release.frozen = False
         release.units_masked = False
         release.remote_pre_switch_recovery_needed = mock.Mock(return_value=False)
-        release.run_remote = mock.Mock(side_effect=[{"plaintext_state_removed": "true"}, RuntimeError("reply lost"), {"release_claim_reconciled": "true"}])
+        release.run_remote = mock.Mock(side_effect=[
+            {"plaintext_state_removed": "true"},
+            UnexpectedRemoteStderr("racknerd returned unexpected stderr", {"release_claim_reconciled": "true"}),
+            recovered_claim_values(release.image_id),
+        ])
         release.recover()
-        self.assertIn(".recovered/marker", release.run_remote.call_args_list[2].args[1])
+        self.assertIn("for file in marker plaintext-cleaned", release.run_remote.call_args_list[2].args[1])
+        self.assertIn("active_slot_image_id", release.run_remote.call_args_list[2].args[1])
+        self.assertEqual(release.run_remote.call_args_list[2].args[2], RECOVERED_CLAIM_FIELDS)
         self.assertEqual(release.result["status"], "recovered")
+
+    def test_cleanup_state_stderr_requires_explicit_success_receipt(self) -> None:
+        accepted = {"plaintext_state_removed": "true", "state_cleanup": "recovery_point_preserved"}
+        for receipt in (
+            accepted,
+            {"plaintext_state_removed": "false", "state_cleanup": "removed"},
+            {"plaintext_state_removed": "true", "state_cleanup": "unknown"},
+            {"state_cleanup": "removed"},
+        ):
+            with self.subTest(receipt=receipt):
+                release = self.release()
+                release.frozen = False
+                release.units_masked = False
+                release.remote_pre_switch_recovery_needed = mock.Mock(return_value=False)
+                proof = recovered_claim_values(release.image_id)
+                responses = [UnexpectedRemoteStderr("racknerd returned unexpected stderr", receipt)]
+                if receipt is accepted:
+                    responses.append({"release_claim_reconciled": "true"})
+                responses.append(proof)
+                release.run_remote = mock.Mock(side_effect=responses)
+                if receipt is accepted:
+                    release.recover()
+                    self.assertEqual(release.result["status"], "recovered")
+                    self.assertEqual(release.run_remote.call_count, 3)
+                else:
+                    with self.assertRaisesRegex(UnexpectedRemoteStderr, "unexpected stderr"):
+                        release.recover()
+                    self.assertEqual(release.run_remote.call_count, 1)
+                    self.assertNotEqual(release.result["status"], "recovered")
+
+    def test_reconcile_nonzero_failure_does_not_probe_or_mark_recovered(self) -> None:
+        release = self.release()
+        release.frozen = False
+        release.units_masked = False
+        release.remote_pre_switch_recovery_needed = mock.Mock(return_value=False)
+        release.run_remote = mock.Mock(side_effect=[
+            {"plaintext_state_removed": "true", "state_cleanup": "removed"},
+            RuntimeError("racknerd stage failed with exit code 1; remote stderr withheld"),
+        ])
+        with self.assertRaisesRegex(RuntimeError, "exit code 1"):
+            release.recover()
+        self.assertEqual(release.run_remote.call_count, 2)
+        self.assertNotEqual(release.result["status"], "recovered")
 
     def test_public_exposure_failure_never_calls_snapshot_recovery(self) -> None:
         release = self.release()
@@ -1178,6 +1255,61 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         self.assertIn("stat -c '%h' \"$release_dir/candidate.tar.gz\"", script)
         self.assertIn("install -m 500 \"$path\"", script)
         self.assertNotIn("$release_dir/.claimed", script)
+        self.assertIn("candidate_expanded_bytes=$(gzip -dc", script)
+        self.assertIn("required_free_bytes=$((candidate_expanded_bytes + minimum))", script)
+        self.assertLess(script.index("load_candidate_with_capacity_guard()"), script.index("docker load"))
+
+    def test_candidate_capacity_guard_blocks_load_below_reservation(self) -> None:
+        source = self.script("prepare.sh")
+        function = re.search(r"(?ms)^load_candidate_with_capacity_guard\(\) \{.*?^\}", source)
+        self.assertIsNotNone(function)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            docker_log = root / "docker.log"
+            (bin_dir / "gzip").write_text(
+                "#!/bin/sh\n"
+                "if [ \"$1\" = -dc ]; then printf xxxxx; else exit 0; fi\n",
+                encoding="ascii",
+            )
+            (bin_dir / "df").write_text(
+                "#!/bin/sh\n"
+                "echo 'Filesystem 1B-blocks Used Available Use% Mounted on'\n"
+                "case \"$*\" in\n"
+                "  *var/lib/docker*) echo \"/dev/x 1 0 $FAKE_DOCKER_FREE 0 /var/lib/docker\" ;;\n"
+                "  *) echo \"/dev/x 1 0 $FAKE_ROOT_FREE 0 /\" ;;\n"
+                "esac\n",
+                encoding="ascii",
+            )
+            (bin_dir / "docker").write_text(
+                "#!/bin/sh\nprintf '%s\\n' load >> \"$DOCKER_LOG\"\ncat >/dev/null\n",
+                encoding="ascii",
+            )
+            for path in bin_dir.iterdir():
+                path.chmod(0o755)
+            guard = function.group(0)
+            prefix = f"set -Eeuo pipefail\nPATH={shlex.quote(str(bin_dir))}:$PATH\n"
+            command = prefix + guard + "\nload_candidate_with_capacity_guard candidate.tar.gz 10\n"
+            env = os.environ.copy()
+            env.update({
+                "DOCKER_LOG": str(docker_log),
+                "FAKE_DOCKER_FREE": "14",
+                "FAKE_ROOT_FREE": "100",
+            })
+            failed = subprocess.run(
+                [r"C:\Program Files\Git\bin\bash.exe", "-c", command],
+                env=env, capture_output=True, text=True,
+            )
+            self.assertNotEqual(failed.returncode, 0)
+            self.assertFalse(docker_log.exists())
+            env["FAKE_DOCKER_FREE"] = "15"
+            passed = subprocess.run(
+                [r"C:\Program Files\Git\bin\bash.exe", "-c", command],
+                env=env, capture_output=True, text=True,
+            )
+            self.assertEqual(passed.returncode, 0, passed.stderr)
+            self.assertEqual(docker_log.read_text(encoding="ascii").splitlines(), ["load"])
 
     def test_context_reads_release_id_in_prepared_format(self) -> None:
         context = self.script("context.sh")

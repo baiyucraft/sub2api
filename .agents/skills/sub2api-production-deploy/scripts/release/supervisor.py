@@ -16,13 +16,13 @@ from typing import Any
 from .atomic import atomic_write, canonical_json, read_replaceable_bytes
 from .doctor import ReleaseDoctor
 from .gate import verify_gate
-from .manifest import create_manifest, runner_checksum, validate_commit, validate_image_id, write_manifest_once
+from .manifest import create_manifest, runner_checksum, sha256_file, validate_commit, validate_image_id, write_manifest_once
 from .paths import ENTRYPOINT, MAINTENANCE_ROOT, RUN_ROOT, SCRIPTS_ROOT, TRUSTED_VM_PUBLIC_KEY, WORKSPACE
 from .process import popen_detached_worker, process_identity
 from .profiles import get_profile, get_release_profile
 from .recovery_bundle import stage_recovery_bundle, recovery_command, RECOVERY_RESULT_FIELDS, bundle_from_manifest
 from .recovery_gate import assert_release_allowed
-from .ssh import SSHRunner
+from .ssh import SSHRunner, UnexpectedRemoteStderr
 from .state import RunLock, RunState, TERMINAL_STATES
 from .vm_lifecycle import VMLease, lifecycle_view
 from .worker_errors import failure_details, preserve_secondary
@@ -120,6 +120,16 @@ def _runner_alive(runner: dict[str, Any] | None) -> bool:
     pid = runner.get("pid")
     token = runner.get("process_token")
     return isinstance(pid, int) and isinstance(token, str) and _process_token(pid) == token
+
+
+def _runner_exit_proven(runner: dict[str, Any] | None) -> bool:
+    if not runner:
+        return False
+    pid = runner.get("pid")
+    token = runner.get("process_token")
+    if type(pid) is not int or not isinstance(token, str) or not token:
+        return False
+    return _process_token(pid) != token
 
 
 def _deployment_mode(run_dir: Path, fallback: str = "blue-green") -> str:
@@ -1048,17 +1058,24 @@ def recovered_result_view(identifier: str) -> dict[str, Any]:
             raise RuntimeError("recovery evidence restored the candidate image")
     release_dir = f"/opt/sub2api/releases/{identifier}"
     candidate_name = f"sub2api-candidate-{identifier}"
+    gate_sha256 = sha256_file(run_dir / "gate" / "gate.json")
+    gate_signature_sha256 = sha256_file(run_dir / "gate" / "gate.sig")
     script = f"""set -Eeuo pipefail
 recovered={shlex.quote(release_dir + '/.recovered')}
 test -d "$recovered"
 test ! -L "$recovered"
-for file in marker plaintext-cleaned release_id gate.json CLAIM_SHA256SUMS; do
+for file in marker plaintext-cleaned release_id gate.json gate.sig CLAIM_SHA256SUMS; do
   test -f "$recovered/$file"
   test ! -L "$recovered/$file"
 done
 grep -Fxq {shlex.quote(f'release_id={identifier}')} "$recovered/release_id"
 grep -Fxq {shlex.quote(f'release_id={identifier}')} "$recovered/marker"
+test -s "$recovered/plaintext-cleaned"
 (cd "$recovered" && sha256sum -c CLAIM_SHA256SUMS >/dev/null)
+recovered_gate_sha256=$(sha256sum "$recovered/gate.json" | awk '{{print $1}}')
+test "$recovered_gate_sha256" = {shlex.quote(gate_sha256)}
+recovered_gate_signature_sha256=$(sha256sum "$recovered/gate.sig" | awk '{{print $1}}')
+test "$recovered_gate_signature_sha256" = {shlex.quote(gate_signature_sha256)}
 required_capture_13=$(jq -er '.manifest.release_id' "$recovered/gate.json") || exit $?
 test "$required_capture_13" = {shlex.quote(identifier)}
 required_capture_14=$(jq -er '.evidence.candidate_image_id' "$recovered/gate.json") || exit $?
@@ -1070,19 +1087,33 @@ test -f /opt/sub2api/active-app
 test ! -L /opt/sub2api/active-app
 active_container=$(sed -n 's/^container=//p' /opt/sub2api/active-app)
 active_slot_image_id=$(sed -n 's/^image_id=//p' /opt/sub2api/active-app)
+active_port=$(sed -n 's/^port=//p' /opt/sub2api/active-app)
 test -n "$active_container"
 test -n "$active_slot_image_id"
+test -n "$active_port"
 required_capture_15=$(docker inspect -f '{{{{.State.Health.Status}}}}' "$active_container") || exit $?
 test "$required_capture_15" = healthy
+required_capture_running=$(docker inspect -f '{{{{.State.Running}}}}' "$active_container") || exit $?
+test "$required_capture_running" = true
 running_image_id=$(docker inspect -f '{{{{.Image}}}}' "$active_container")
 test "$active_slot_image_id" = "$running_image_id"
 test "$running_image_id" != {shlex.quote(candidate)}
 required_capture_16=$(systemctl is-active nginx) || exit $?
 test "$required_capture_16" = active
+managed_upstream=${{NGINX_MANAGED_UPSTREAM:-/etc/nginx/conf.d/sub2api-release-upstream.conf}}
+test -f "$managed_upstream"
+test ! -L "$managed_upstream"
+grep -Fq "server 127.0.0.1:$active_port;" "$managed_upstream"
+backup_service_exit=0
+backup_service_state=$(systemctl is-active sub2api-backup.service 2>/dev/null) || backup_service_exit=$?
+test "$backup_service_state" = inactive
+test "$backup_service_exit" = 3
 required_capture_17=$(systemctl is-enabled sub2api-backup.timer) || exit $?
 test "$required_capture_17" = enabled
 required_capture_18=$(systemctl is-active sub2api-backup.timer) || exit $?
 test "$required_capture_18" = active
+printf 'plaintext_state_removed=true\n'
+printf 'nginx_route_verified=true\nbackup_service_inactive=true\n'
 printf 'recovery_marker_verified=true\nrelease_claim_reconciled=true\nactive_slot_verified=true\napplication_health=pass\nnginx_active=true\nbackup_timer_enabled=true\nbackup_timer_active=true\ncandidate_absent=true\nrunning_image_id=%s\n' "$running_image_id"
 """
     remote = SSHRunner().run(
@@ -1091,9 +1122,12 @@ printf 'recovery_marker_verified=true\nrelease_claim_reconciled=true\nactive_slo
         {
             "recovery_marker_verified",
             "release_claim_reconciled",
+            "plaintext_state_removed",
             "active_slot_verified",
             "application_health",
             "nginx_active",
+            "nginx_route_verified",
+            "backup_service_inactive",
             "backup_timer_enabled",
             "backup_timer_active",
             "candidate_absent",
@@ -1104,9 +1138,12 @@ printf 'recovery_marker_verified=true\nrelease_claim_reconciled=true\nactive_slo
     remote_expected = {
         "recovery_marker_verified": "true",
         "release_claim_reconciled": "true",
+        "plaintext_state_removed": "true",
         "active_slot_verified": "true",
         "application_health": "pass",
         "nginx_active": "true",
+        "nginx_route_verified": "true",
+        "backup_service_inactive": "true",
         "backup_timer_enabled": "true",
         "backup_timer_active": "true",
         "candidate_absent": "true",
@@ -1143,7 +1180,6 @@ def _inspect_reconciliation(identifier: str) -> dict[str, Any]:
     run_dir = _run_dir(identifier)
     manifest = _read_json(run_dir / "manifest.json", required=True) or {}
     runner_document = _read_json(run_dir / "runner.json")
-    runner_metadata_present = runner_document is not None
     runner = runner_document or {}
     production = _read_json(run_dir / "gate" / "production-result.json", required=True) or {}
     document = verify_gate(run_dir / "gate", TRUSTED_VM_PUBLIC_KEY, str(manifest.get("profile")), allow_expired=True, allow_historical_runner=True)
@@ -1244,6 +1280,7 @@ printf 'active_claim=%s\nconsumed=%s\nrecovered=%s\nstate_present=%s\ningress_tr
     history = production.get("history") if isinstance(production.get("history"), list) else []
     stages = {item.get("stage") for item in history if isinstance(item, dict)}
     runner_alive = _runner_alive(runner)
+    runner_exit_proven = _runner_exit_proven(runner)
     running_image_valid = True
     try:
         validate_image_id(remote["running_image_id"])
@@ -1253,6 +1290,8 @@ printf 'active_claim=%s\nconsumed=%s\nrecovered=%s\nstate_present=%s\ningress_tr
     failure_code = "state_not_proven"
     if runner_alive:
         decision, failure_code = "runner_active", "runner_still_running"
+    elif not runner_exit_proven:
+        decision, failure_code = "blocked", "runner_exit_unproven"
     elif remote["consumed"] == "true":
         decision, failure_code = "already_consumed", "none"
     elif remote["recovered"] == "true":
@@ -1278,11 +1317,10 @@ printf 'active_claim=%s\nconsumed=%s\nrecovered=%s\nstate_present=%s\ningress_tr
         decision, failure_code = "cleanup_completed_recover", "cleanup_reply_rejected"
     elif remote["state_present"] == "true":
         decision, failure_code = "coordinated_restore_required", "release_state_exists"
-    if not runner_metadata_present and decision not in {"already_consumed", "already_recovered", "coordinated_restore_required"}:
-        decision, failure_code = "blocked", "runner_metadata_missing"
     return {
         "release_id": identifier, "decision": decision, "failure_code": failure_code,
-        "runner_alive": runner_alive, "active_claim": remote["active_claim"],
+        "runner_alive": runner_alive, "runner_exit_proven": runner_exit_proven,
+        "active_claim": remote["active_claim"],
         "state_present": remote["state_present"], "ingress_transaction": remote.get("ingress_transaction", "unsafe"),
         "plaintext_cleaned": remote.get("plaintext_cleaned", "false"),
         "route_started": remote.get("route_started", "true"), "migration_started": remote.get("migration_started", "true"),
@@ -1302,7 +1340,11 @@ def reconcile(args: argparse.Namespace) -> None:
     identifier = args.release_id
     release_dir = f"/opt/sub2api/releases/{identifier}"
     if args.mode == "coordinated-recover":
-        if inspection["decision"] not in {"coordinated_restore_required", "already_recovered"} or inspection["runner_alive"]:
+        if (
+            inspection["decision"] not in {"coordinated_restore_required", "already_recovered"}
+            or inspection["runner_alive"]
+            or inspection.get("runner_exit_proven") is not True
+        ):
             raise RuntimeError(f"coordinated recovery is not allowed: {inspection['decision']}")
         original_gate = _run_dir(identifier) / "gate"
         helper_gate_arg = getattr(args, "recovery_helper_gate", None)
@@ -1330,8 +1372,23 @@ def reconcile(args: argparse.Namespace) -> None:
         ).values
         recovery_stage = "recovered_after_coordinated_restore"
     else:
-        if inspection["decision"] not in {"claim_only_recover", "cleanup_completed_recover"}:
+        if inspection["decision"] not in {"claim_only_recover", "cleanup_completed_recover", "already_recovered"}:
             raise RuntimeError(f"automatic recovery is not allowed: {inspection['decision']}")
+        if inspection.get("runner_exit_proven") is not True:
+            raise RuntimeError("automatic recovery requires proven runner exit")
+        run_dir = _run_dir(identifier)
+        production = _read_json(run_dir / "gate" / "production-result.json", required=True) or {}
+        history = production.get("history") if isinstance(production.get("history"), list) else []
+        stages = {item.get("stage") for item in history if isinstance(item, dict)}
+        if "stage_assets_verified" not in stages or stages.intersection(DANGEROUS_STAGES):
+            raise RuntimeError("automatic recovery is not allowed after production side effects")
+        from .production import (
+            RECOVERED_CLAIM_FIELDS,
+            recovered_claim_probe_script,
+            validate_recovered_claim_evidence,
+        )
+
+        candidate = inspection["candidate_image_id"]
         candidate_name = f"sub2api-candidate-{identifier}"
         cleanup_candidate = f"if docker inspect {candidate_name} >/dev/null 2>&1; then docker stop -t 30 {candidate_name} >/dev/null 2>&1 || true; docker rm {candidate_name} >/dev/null 2>&1 || true; fi"
         cleanup_command = f"{cleanup_candidate}\n/opt/sub2api/releases/.active-release/assets/cleanup-state.sh" if inspection["decision"] == "claim_only_recover" else cleanup_candidate
@@ -1350,7 +1407,27 @@ required_capture_20=$(systemctl is-enabled sub2api-backup.timer) || exit $?
 test "$required_capture_20" = enabled
 printf 'release_claim_reconciled=true\nplaintext_state_removed=true\n'
 """
-        values = SSHRunner().run("racknerd", script, {"release_claim_reconciled", "plaintext_state_removed"}, timeout=600).values
+        if inspection["decision"] != "already_recovered":
+            try:
+                SSHRunner().run("racknerd", script, {"release_claim_reconciled", "plaintext_state_removed"}, timeout=600)
+            except UnexpectedRemoteStderr:
+                pass
+        local_gate = run_dir / "gate" / "gate.json"
+        local_signature = run_dir / "gate" / "gate.sig"
+        if not local_gate.is_file() or local_gate.is_symlink() or not local_signature.is_file() or local_signature.is_symlink():
+            raise RuntimeError("signed Gate files are unavailable for recovery reconciliation")
+        values = SSHRunner().run(
+            "racknerd",
+            recovered_claim_probe_script(
+                identifier,
+                candidate,
+                hashlib.sha256(local_gate.read_bytes()).hexdigest(),
+                hashlib.sha256(local_signature.read_bytes()).hexdigest(),
+            ),
+            RECOVERED_CLAIM_FIELDS,
+            timeout=300,
+        ).values
+        values = validate_recovered_claim_evidence(values, candidate)
         recovery_stage = "recovered_after_interruption"
     run_dir = _run_dir(identifier)
     production_path = run_dir / "gate" / "production-result.json"
