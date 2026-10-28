@@ -136,4 +136,7 @@ VM 磁盘、根分区、文件系统和 Docker/containerd 所在位置以现场�
 
 ## 可选图片工具与 profile 276
 
-历史 profile `276` 使用版本 `0.2.18-baiyu`、parent `275`，仅新增 `303_group_strip_optional_image_tools.sql`。新字段默认 false；禁图组自动清可选声明，允许组由 strip_optional_image_tools 控制，明确图片请求仍校验。旧 275 及更早 profile、SQL、checksum 与精确恢复审阅不可变；profile 276 继续保留 downtime 和祖先 migration 301 的旧写者退出与 coordinated_restore 合同。当前 profile 278 为 `0.2.20-baiyu`、parent 277、无新增 migration；未知 279 拒绝。
+历史 profile `276` 使用版本 `0.2.18-baiyu`、parent `275`，仅新增 `303_group_strip_optional_image_tools.sql`。新字段默认 false；禁图组自动清可选声明，允许组由 strip_optional_image_tools 控制，明确图片请求仍校验。旧 275 及更早 profile、SQL、checksum 与精确恢复审阅不可变；profile 276 继续保留 downtime 和祖先 migration 301 的旧写者退出与 coordinated_restore 合同。profile 278 为 `0.2.20-baiyu`、parent 277、无新增 migration，保留为历史；profile 279 为 `0.2.21-baiyu`、parent 278、无新增 migration，保留为历史；当前 profile 280 为 `0.2.22-baiyu`、parent 279、无新增 migration；未知 281 拒绝。
+
+
+统一可信度摘要使用当前 profile `280`：`0.2.22-baiyu`、parent `279`、`new_migrations=[]`。历史 279 的版本、parent、Gate、SQL 和checksum不回写；Python/Shell/signer/备份/清理入口同步接纳280并拒绝未登记281。对外摘要与前后端协调切换，旧后台采样写者停止后启用新版；本地定向检查不证明VM Gate或生产发布。

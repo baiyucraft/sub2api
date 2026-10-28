@@ -576,6 +576,7 @@ func (s *UpstreamConfigService) GetManagementSettings(ctx context.Context) (Upst
 	if confidenceErr != nil {
 		return UpstreamManagementSettings{}, confidenceErr
 	}
+	models = EffectiveUpstreamConfidenceProbeModels(models, confidence)
 	retryCodes, retryErr := s.getManagementRetryStatusCodes(ctx)
 	if retryErr != nil {
 		return UpstreamManagementSettings{}, retryErr
@@ -1157,9 +1158,13 @@ func (s *UpstreamConfigService) GetUpstreamHealthConfidence(ctx context.Context,
 // Expected local configuration failures and unavailable readers must replace
 // cached verdicts, rather than letting API callers retain old Juice/model scores
 // after ignoring an error. Only safe reason enums enter this display summary.
-func unavailableConfidenceDistributionSummary(protocol, reason string) UpstreamHealthConfidenceSummary {
-	distribution, _ := ScoreUpstreamConfidenceDistribution(protocol, nil)
-	distribution.Status, distribution.Reasons = "insufficient", []string{reason}
+func unavailableConfidenceDistributionSummary(protocol, reason string, claimedModels ...string) UpstreamHealthConfidenceSummary {
+	model := UpstreamConfidenceDistributionClaimedModel
+	if len(claimedModels) > 0 && claimedModels[0] != "" {
+		model = claimedModels[0]
+	}
+	distribution, _ := ScoreUpstreamConfidenceDistributionForModel(protocol, model, nil)
+	distribution.Status, distribution.Reasons = "unavailable", []string{reason}
 	return UpstreamHealthConfidenceSummary{Distribution: distribution, Status: "insufficient",
 		RequestedEffort: "low", PromptVersion: UpstreamConfidenceDistributionPromptVersion}
 }
@@ -1635,12 +1640,20 @@ func (s *UpstreamConfigService) probeKeyUnlocked(ctx context.Context, keyID int6
 	account := accounts[0]
 	models := DefaultUpstreamProbeModels()
 	probeGuard := DefaultUpstreamProbeGuardSettings()
+	confidenceIndependent := false
+	probeModelsAvailable := true
 	if s.settingService != nil {
 		if configured, loadErr := s.settingService.GetUpstreamProbeModels(ctx); loadErr == nil {
 			models = configured
+		} else {
+			probeModelsAvailable = false
 		}
 		if configured, loadErr := s.settingService.GetUpstreamProbeGuardSettings(ctx); loadErr == nil {
 			probeGuard = configured
+		}
+		if confidence, configured, loadErr := s.settingService.GetUpstreamConfidenceProbeSettingsState(ctx); loadErr == nil && configured {
+			confidenceIndependent = confidence.Enabled && probeModelsAvailable
+			models = EffectiveUpstreamConfidenceProbeModels(models, confidence)
 		}
 	}
 	model := models.ModelFor(account.Platform)
@@ -1650,22 +1663,14 @@ func (s *UpstreamConfigService) probeKeyUnlocked(ctx context.Context, keyID int6
 	// Scheduler feedback is reserved for the independent confidence mode: an
 	// explicitly stored, enabled confidence configuration. Missing, disabled,
 	// or invalid settings must not feed probe samples into the scheduler.
-	confidenceIndependent := s.confidenceProbeIndependent(ctx)
-	distributionEnabled := confidenceIndependent && account.Platform == PlatformOpenAI && account.Type == AccountTypeAPIKey
-	if distributionEnabled {
-		model = UpstreamConfidenceDistributionClaimedModel
-	}
+	distributionEnabled := confidenceIndependent && account.Type == AccountTypeAPIKey && DistributionProbeSupportsModel(account.Platform, account.GetMappedModel(model), distributionAccountProtocol(&account))
 	fingerprintEnabled := confidenceIndependent && account.Type == AccountTypeAPIKey
 	var fingerprintIdentity ConfidenceFingerprintIdentity
 	var fingerprintAttempt *ConfidenceFingerprintAttempt
 	fingerprintClaimUnavailable := false
 	if fingerprintEnabled {
 		var ok bool
-		identityModel := model
-		if distributionEnabled {
-			identityModel = UpstreamConfidenceDistributionClaimedModel
-		}
-		fingerprintIdentity, ok = ConfidenceFingerprintIdentityForAccount(&account, identityModel)
+		fingerprintIdentity, ok = ConfidenceFingerprintIdentityForAccount(&account, model)
 		if !ok {
 			fingerprintEnabled = false
 			fingerprintClaimUnavailable = true
@@ -1677,9 +1682,6 @@ func (s *UpstreamConfigService) probeKeyUnlocked(ctx context.Context, keyID int6
 		probeModel := model
 		probeContext := probeCtx
 		distributionClaimAttached := false
-		if distributionEnabled {
-			probeModel = UpstreamConfidenceDistributionClaimedModel
-		}
 		if fingerprintEnabled {
 			fingerprintCollector, available := s.repo.(ConfidenceFingerprintRepository)
 			if available {
@@ -1707,8 +1709,8 @@ func (s *UpstreamConfigService) probeKeyUnlocked(ctx context.Context, keyID int6
 		if distributionEnabled && (fingerprintAttempt == nil || !fingerprintEnabled || fingerprintAttempt.Method == "distribution") {
 			collector, available := s.repo.(UpstreamConfidenceDistributionRepository)
 			if available {
-				probeModel = UpstreamConfidenceDistributionClaimedModel
 				distributionClaimAttached = true
+				probeContext = context.WithValue(probeContext, distributionProbeModelContextKey{}, model)
 				probeContext = context.WithValue(probeContext, distributionProbeContextKey{}, distributionProbeClaim(func(claimCtx context.Context, identity ConfidenceDistributionIdentity) (*DistributionAttempt, error) {
 					return collector.ClaimConfidenceDistribution(claimCtx, keyID, identity, time.Now().UTC())
 				}))
@@ -1797,10 +1799,11 @@ func (s *UpstreamConfigService) probeKeyUnlocked(ctx context.Context, keyID int6
 			identity := fingerprintIdentity
 			if !(account.IsCNProvider() && account.IsAdaptiveAPIProtocol()) && fingerprintProtocol != "" && fingerprintProtocol != upstreamHealthProbeProtocolAdaptive && fingerprintResult.Model != "" {
 				if resolved, ok := ConfidenceFingerprintIdentityForEffectiveModel(&account, fingerprintResult.Model, fingerprintProtocol); ok {
-					identity = resolved
+					identity = bindConfidenceFingerprintTarget(resolved, model)
 				}
 			}
 			fingerprintEvidence := confidenceFingerprintEvidenceFromProbe(fingerprintResult, fingerprintProtocol)
+			addReferenceFingerprintPayload(&fingerprintEvidence, fingerprintAttempt, fingerprintResult.probeResponseText)
 			persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 			if err := fingerprintCollector.FinishConfidenceFingerprint(persistCtx, keyID, fingerprintAttempt, identity, fingerprintEvidence, time.Now().UTC()); err != nil {
 				slog.Warn("failed to persist upstream confidence fingerprint", "upstream_key_id", keyID, "error", err)
@@ -1812,6 +1815,7 @@ func (s *UpstreamConfigService) probeKeyUnlocked(ctx context.Context, keyID int6
 			fingerprintResult, fingerprintProtocol := effectiveFingerprintProbeResult(result)
 			if !(account.IsCNProvider() && account.IsAdaptiveAPIProtocol()) && fingerprintProtocol != "" && fingerprintProtocol != upstreamHealthProbeProtocolAdaptive && fingerprintResult.Model != "" {
 				if identity, ok := ConfidenceFingerprintIdentityForEffectiveModel(&account, fingerprintResult.Model, fingerprintProtocol); ok {
+					identity = bindConfidenceFingerprintTarget(identity, model)
 					fingerprintEvidence := confidenceFingerprintEvidenceFromProbe(fingerprintResult, fingerprintProtocol)
 					persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 					if err := fingerprintCollector.RecordConfidenceFingerprintSample(persistCtx, keyID, identity, "protocol", fingerprintEvidence, time.Now().UTC()); err != nil {

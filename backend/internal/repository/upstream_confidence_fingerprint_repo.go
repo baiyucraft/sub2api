@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"entgo.io/ent/dialect"
@@ -97,6 +98,15 @@ func (r *upstreamConfigRepository) ClaimConfidenceFingerprint(ctx context.Contex
 		if state.Pending != nil && state.LeaseExpires.After(now) {
 			_ = tx.Rollback()
 			return nil, nil
+		}
+		// Older series can omit the model component. The matching fingerprint
+		// authenticates the current identity; fill only this missing scheduling
+		// input when a new claim is actually persisted, preserving the series.
+		if strings.TrimSpace(state.Components["model"]) == "" && strings.TrimSpace(identity.Model) != "" {
+			if state.Components == nil {
+				state.Components = make(map[string]string)
+			}
+			state.Components["model"] = identity.Model
 		}
 		attempt, err := state.Claim(now)
 		if err != nil {
@@ -260,11 +270,12 @@ func (r *upstreamConfigRepository) LoadConfidenceFingerprints(ctx context.Contex
 				continue
 			}
 			state := new(service.ConfidenceFingerprintState)
-			if err := json.Unmarshal(raw, state); err == nil {
-				err = state.Validate()
+			decodeErr := json.Unmarshal(raw, state)
+			if decodeErr == nil {
+				decodeErr = state.Validate()
 			}
-			if err != nil {
-				out[keyID] = service.ConfidenceFingerprintReadResult{Err: err}
+			if decodeErr != nil {
+				out[keyID] = service.ConfidenceFingerprintReadResult{Err: decodeErr}
 				continue
 			}
 			if !stateIdentityMatches(state, identities[keyID]) {
@@ -287,11 +298,12 @@ func (r *upstreamConfigRepository) LoadConfidenceFingerprints(ctx context.Contex
 			return nil, err
 		}
 		state := new(service.ConfidenceFingerprintState)
-		if err := json.Unmarshal(raw, state); err == nil {
-			err = state.Validate()
+		decodeErr := json.Unmarshal(raw, state)
+		if decodeErr == nil {
+			decodeErr = state.Validate()
 		}
-		if err != nil {
-			out[keyID] = service.ConfidenceFingerprintReadResult{Err: err}
+		if decodeErr != nil {
+			out[keyID] = service.ConfidenceFingerprintReadResult{Err: decodeErr}
 			continue
 		}
 		if !stateIdentityMatches(state, identities[keyID]) {
