@@ -735,12 +735,12 @@
       ],
       "invariants": [
         "策略内容变化才递增revision；同签名共享恢复进度；读取管理状态不推进样本年龄、试用或恢复。缓存5秒新鲜/30秒可用、TTFT15分钟严格有效期保持；核验成功不改业务更新时间，失败不续期。",
-        "缓存刷新每秒读轻量身份版本，事实revision包含pending新增、事实确认与删除及只记事实分支；旧应用由兼容trigger推进，发布前复核目录/版本/策略/采样gap。活跃会话30分钟驻留、主键冷加载，读取失败未知，不当自然新会话。",
+        "缓存刷新每轮读轻量身份版本，事实revision包含pending新增、事实确认与删除及只记事实分支；旧应用由兼容trigger推进，发布前复核目录/版本/策略/采样gap。活跃会话30分钟驻留、主键冷加载，读取失败未知，不当自然新会话。",
         "保护DB共用从首次真实数据库调用开始的100ms预算，内存命中不启动，且受更短调用截止限制；同步原子幂等PlanTrial/admission先于sticky提交；账号→会话→配额锁序，仅配额变更取分组锁。严格保护选择在发送前admission超时以request-local信号用原请求预算普通重选，不排除本账号、不消耗上游故障次数、不报告上游故障；transport不得改写成502。重选清除旧保护/迁移标记，WS已有turn保留物理连接；普通调度仍核验权限/Key/额度/容量等硬条件。",
         "事实/state/policy版本、pending、gap、cohort、时间边界及回拨全部参与复用判定；仅时间推进不自动恢复；保留原始事实与精确重算。完成最多4 worker、同账号串行；刷新/消费/清理独立，清理每分钟1000每批且2秒预算，只删48小时外已完成事实。",
         "列表当前页缓存与TTFT批读且固定评估时间；质量候选先稳定ID排序和原Go评分，分页后加载关联；费用按各账号窗口一次SQL。singleflight只合并相同授权与完整查询的进行中读取，不缓存完成结果，各caller独立取消。ETag仍完整响应后计算，不能以TTL或提前304隐藏状态过期。",
         "历史271 parent270 version0.2.16-baiyu仅迁移299，270/298与更早合同不回写；当前272 parent271 version0.2.17-baiyu无新增迁移，未知273拒绝。299仅兼容revision/pending列与索引，不改计费或原始事实。真实性能验收须区分微基准与端到端、真实PG负载；本地测试不代表VM Gate或生产上线。",
-        "带截止时间的后台刷新每轮最多256个连续待重建身份，物化仅用剩余预算一半，预留窗口与最终目录确认；成功子集独立发布，失败/未处理不推进LoadedAt、事实/状态版本或逐账号策略代次，确认失败不发布；任意非空pending集合都按游标轮转，慢首账号不能饿死尾部；每秒全目录与活跃会话核验不降频。共享原始率与分组投影分别判断可用性，兼容旧投影沿原30s不续期，新签名或不兼容窗口/冷却/试用参数在重建前未知，不得默认健康或撤销其他兼容组；priority-only轻量确认不重扫事实。冷启动须记录全账号收敛时间。",
+        "带截止时间的后台刷新每轮最多256个连续待重建身份，物化仅用剩余预算一半，预留窗口与最终目录确认；成功子集独立发布，失败/未处理不推进LoadedAt、事实/状态版本或逐账号策略代次，确认失败不发布；任意非空pending集合都按游标轮转，慢首账号不能饿死尾部；每轮完整核验轻量目录与活跃会话，后台按完成后1秒节拍执行且不补跑积压tick。共享原始率与分组投影分别判断可用性，兼容旧投影沿原30s不续期，新签名或不兼容窗口/冷却/试用参数在重建前未知，不得默认健康或撤销其他兼容组；priority-only轻量确认不重扫事实。冷启动须记录全账号收敛时间。",
         "五分钟补充校验仅因批次上限延期且本轮轻量核验确认未变化的身份，不记采样gap并可推进成功核验时间；实际事实/状态/策略/Key变化、采样失败、时间边界、时钟回拨或读取/发布确认失败仍阻止续期，补充校验游标只推进连续成功身份。",
         "PlanTrial已有持久会话身份和规划未变化时不重写会话/配额、不推进version或updated_at；相同请求返回原计划，已有会话的新请求不重复占自然名额，并发首次规划仅原子写入一次会话及一次配额；最低回归plan_trial_noop_test.go。"
       ]
@@ -752,6 +752,14 @@
       "ownership": "fork",
       "risk_level": "critical",
       "paths": [
+        "backend/internal/service/upstream_cache_guard_runner_pg_export_test.go",
+        "backend/internal/service/upstream_cache_guard_runner_pg_test.go",
+        "backend/internal/service/upstream_cache_guard_refresh.go",
+        "backend/internal/service/upstream_cache_guard_refresh_test.go",
+        "backend/internal/upstreamcacheguard/refresh_stage.go",
+        "backend/internal/upstreamcacheguard/refresh_stage_test.go",
+        "backend/internal/repository/upstream_cache_guard_account_windows_pg_test.go",
+        "backend/internal/repository/testdata/upstream_cache_guard_account_windows_legacy.sql",
         "backend/internal/service/gateway_forward_compat_cache_evidence_fork_test.go",
         "backend/internal/service/scheduling_protection_platforms.go",
         "backend/internal/service/protection_platform_scope.go",
@@ -962,6 +970,11 @@
         "301_upstream_cache_guard_admissions.sql"
       ],
       "required_tests": [
+        "backend/internal/service/upstream_cache_guard_runner_pg_export_test.go",
+        "backend/internal/service/upstream_cache_guard_runner_pg_test.go",
+        "backend/internal/service/upstream_cache_guard_refresh_test.go",
+        "backend/internal/upstreamcacheguard/refresh_stage_test.go",
+        "backend/internal/repository/upstream_cache_guard_account_windows_pg_test.go",
         "backend/internal/service/gateway_forward_compat_cache_evidence_fork_test.go",
         "backend/internal/handler/scheduling_protection_scope_failover_test.go",
         "backend/internal/service/scheduling_protection_platforms_test.go",
@@ -1049,6 +1062,9 @@
         "frontend/src/components/account/__tests__/UpstreamProtectionStatus.spec.ts"
       ],
       "invariants": [
+        "账号窗口汇总在同一当前账号/Key范围内复用窄标量事实，账号与策略分别集合聚合，保持原17列、有效样本JSON类型、quality_since严格边界、trial与ordinary不同去重口径、空策略零指标及NextBoundary；不得用策略连接倍增账号指标或放宽恢复条件。",
+        "后台刷新独享3秒预算，单worker每轮结束等待1秒且不补跑积压tick；pending健康检查独立500毫秒。关闭取消刷新但保留原5秒证据排空，发布前复核取消及策略代次；Fresh5秒/Available30秒和请求100毫秒预算不变，失败不续期旧快照。",
+        "缓存展示优先识别原始unavailable，全部不可用显示暂不可用，部分不可用保留已知保护组并附提示；不可用不得归为样本不足。刷新失败按固定阶段分类记录首次及每60秒汇总，恢复记录一次，不输出SQL、原始错误、请求正文或会话凭据。",
         "官方Anthropic兼容流有界drain与Gemini断连结算保留原始usage缓存证据；缺失终止或读取失败不构成完整缓存证据，客户端断连由最终生命周期独立拒绝warm样本；Gemini三入口均验证取消后保留用量但StreamIncomplete。",
         "全局 scheduling_protection_platforms 默认仅 openai；仅选中具体平台的分组提供配置并执行保护，实际账号平台也须选中；composite 不支持；自定义不能绕过范围，空选全部停用，旧客户端省略保留，取消选择保留历史事实与组配置，状态明确 platform_not_selected",
         "统计固定account ID加当前upstream Key ID，所有组、模型、协议有效样本按Token加权合并，排除冷首轮和无效样本；Key轮换不继承旧证据，未知率不是零",
