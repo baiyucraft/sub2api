@@ -17,6 +17,7 @@ type UpstreamConfidenceProbeSettings struct {
 	LongContextMaxTokens    int    `json:"long_context_max_tokens"`
 	QualityDegradeThreshold int    `json:"quality_degrade_threshold"`
 	PromptVersion           string `json:"prompt_version"`
+	ModelSelectionVersion   int    `json:"model_selection_version,omitempty"`
 }
 
 func DefaultUpstreamConfidenceProbeSettings() UpstreamConfidenceProbeSettings {
@@ -25,6 +26,9 @@ func DefaultUpstreamConfidenceProbeSettings() UpstreamConfidenceProbeSettings {
 
 func normalizeUpstreamConfidenceProbeSettings(value UpstreamConfidenceProbeSettings) (UpstreamConfidenceProbeSettings, error) {
 	defaults := DefaultUpstreamConfidenceProbeSettings()
+	if value.ModelSelectionVersion < 0 || value.ModelSelectionVersion > 1 {
+		return value, fmt.Errorf("unsupported confidence model_selection_version")
+	}
 	if strings.TrimSpace(value.ReasoningEffort) == "" {
 		value.ReasoningEffort = defaults.ReasoningEffort
 	}
@@ -86,6 +90,9 @@ func (s *SettingService) GetUpstreamConfidenceProbeSettingsState(ctx context.Con
 }
 
 func (s *SettingService) SetUpstreamConfidenceProbeSettings(ctx context.Context, value UpstreamConfidenceProbeSettings) error {
+	// Only an explicit save opts an existing enabled configuration into the
+	// platform model selector. GETs must not migrate the running Sol contract.
+	value.ModelSelectionVersion = 1
 	value, err := normalizeUpstreamConfidenceProbeSettings(value)
 	if err != nil {
 		return err

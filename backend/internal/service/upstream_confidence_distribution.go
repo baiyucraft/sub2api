@@ -290,11 +290,42 @@ func NormalizeDistributionAnswer(raw string) (string, bool) {
 	return answer, true
 }
 
+// DistributionProbeSupportsModel only accepts exact calibrated targets. The
+// external/unknown bucket is never a selectable model identity.
+func DistributionProbeSupportsModel(platform, model, protocol string) bool {
+	if platform != PlatformOpenAI {
+		return false
+	}
+	switch protocol {
+	case upstreamHealthProbeProtocolOpenAI:
+		protocol = "responses"
+	case upstreamHealthProbeProtocolOpenAIChat:
+		protocol = "chat_completions"
+	}
+	baseline, err := distributionLoadBaseline(protocol)
+	if err != nil {
+		return false
+	}
+	for _, target := range baseline.Fitted.Models {
+		if model == target && target != distributionOther {
+			return true
+		}
+	}
+	return false
+}
+
 func ScoreUpstreamConfidenceDistribution(protocol string, samples []DistributionSample) (*UpstreamConfidenceDistribution, error) {
+	return ScoreUpstreamConfidenceDistributionForModel(protocol, UpstreamConfidenceDistributionClaimedModel, samples)
+}
+
+func ScoreUpstreamConfidenceDistributionForModel(protocol, claimedModel string, samples []DistributionSample) (*UpstreamConfidenceDistribution, error) {
+	if claimedModel == "" {
+		claimedModel = UpstreamConfidenceDistributionClaimedModel
+	}
 	result := &UpstreamConfidenceDistribution{
 		Status: "collecting", WindowSize: UpstreamConfidenceDistributionWindowSize,
 		SamplingPolicyVersion: UpstreamConfidenceDistributionSamplingPolicyVersion,
-		ClaimedModel:          UpstreamConfidenceDistributionClaimedModel, Protocol: distributionProtocol(protocol),
+		ClaimedModel:          claimedModel, Protocol: distributionProtocol(protocol),
 		Cells: make(map[string]UpstreamConfidenceDistributionCell), Matches: make(map[string]float64),
 		Scores: make(map[string]float64), Thresholds: make(map[string]float64), Reasons: []string{},
 	}
@@ -319,6 +350,10 @@ func ScoreUpstreamConfidenceDistribution(protocol string, samples []Distribution
 		return result, err
 	}
 	result.BaselineVersion = baseline.Version
+	if !DistributionProbeSupportsModel(PlatformOpenAI, claimedModel, protocol) {
+		result.Status, result.Reasons = "insufficient", []string{"no_matching_baseline"}
+		return result, nil
+	}
 	return distributionScoreWindow(baseline, result, window), nil
 }
 

@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "catalog_version": "2026-10-27",
+  "catalog_version": "2026-10-28",
   "version_contract": {
     "upstream_path": "backend/cmd/server/VERSION",
     "fork_suffix": "-baiyu",
@@ -139,17 +139,18 @@
     "273": {"version":"0.2.17-baiyu","parent":"272","gate_schema":2,"new_migrations":["300_upstream_health_history_index.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
     "274": {"version":"0.2.17-baiyu","parent":"273","gate_schema":2,"new_migrations":["301_upstream_cache_guard_admissions.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
     "275": {"version": "0.2.18-baiyu", "parent": "274", "gate_schema": 2, "new_migrations": ["302_enable_gemini_image_generation_groups.sql"], "release_policy": {"compatibility_image": "production_current", "migration_source": "database_state"}},
-    "276": {"version": "0.2.18-baiyu", "parent": "275", "gate_schema": 2, "new_migrations": ["303_group_strip_optional_image_tools.sql"], "release_policy": {"compatibility_image": "production_current", "migration_source": "database_state"}}
+    "276": {"version": "0.2.18-baiyu", "parent": "275", "gate_schema": 2, "new_migrations": ["303_group_strip_optional_image_tools.sql"], "release_policy": {"compatibility_image": "production_current", "migration_source": "database_state"}},
+    "277": {"version": "0.2.19-baiyu", "parent": "276", "gate_schema": 2, "new_migrations": ["304_upstream_confidence_fingerprint.sql"], "release_policy": {"compatibility_image": "production_current", "migration_source": "database_state"}},
+    "278": {"version": "0.2.20-baiyu", "parent": "277", "gate_schema": 2, "new_migrations": [], "release_policy": {"compatibility_image": "production_current", "migration_source": "database_state"}},
+    "279": {"version": "0.2.21-baiyu", "parent": "278", "gate_schema": 2, "new_migrations": [], "release_policy": {"compatibility_image": "production_current", "migration_source": "database_state"}}
   },
   "current_profile": {
-    "id": "277",
+    "id": "280",
     "status": "pending",
-    "version": "0.2.19-baiyu",
-    "parent": "276",
+    "version": "0.2.22-baiyu",
+    "parent": "279",
     "gate_schema": 2,
-    "new_migrations": [
-      "304_upstream_confidence_fingerprint.sql"
-    ],
+    "new_migrations": [],
     "release_policy": {
       "compatibility_image": "production_current",
       "migration_source": "database_state"
@@ -2079,7 +2080,7 @@
         "缓存保护新增连续profile268，parent267，version0.2.16-baiyu，仅296_upstream_cache_guard.sql；历史267四项官方迁移和全部旧SQL/profile/checksum不回写；Python/Shell/VM/Gate/DR/生产/祖先断言/备份/清理接线，未知269拒绝；不增加恢复审阅豁免。",
         "profile270保持0.2.16-baiyu,parent269,只新增298_group_scheduling_protection_policies.sql；269及所有历史SQL/checksum不回写；298生产只读核验，VM隔离fixture绑定source与catalog checksum，四phase全部验真，未知271拒绝",
         "当前 profile 274 parent 273，同版本0.2.17-baiyu仅新增301；273及更早SQL/profile/checksum保持不可变，未知275拒绝。301要求停旧写者迁移并coordinated_restore，不能让旧镜像继续写入拆分后的会话。迁移断言生产只读，写入fixture仅在显式绑定的隔离库事务回滚；未新增恢复敏感blob豁免。",
-        "当前 profile 277：0.2.19-baiyu，parent 276，仅 304_upstream_confidence_fingerprint.sql；276 及更早合同不可变，未知 278 拒绝；304 原始字节 SHA-256 与 migration_contracts 一致；Python、Shell、signer、备份和清理全入口一致，最终敏感 blob 必须重新审阅，不扩大历史豁免"
+        "profile 278：0.2.20-baiyu，parent 277，无新增 migration，保留为历史；profile 279：0.2.21-baiyu，parent 278，无新增 migration，保留为历史；当前 profile 280：0.2.22-baiyu，parent 279，无新增 migration。profile 277 历史保留 304_upstream_confidence_fingerprint.sql，276 及更早合同不可变；未知 281 拒绝；304 原始字节 SHA-256 与 migration_contracts 一致；Python、Shell、signer、备份和清理全入口一致，最终敏感 blob 必须重新审阅，不扩大历史豁免"
       ]
     },
     {
@@ -2437,7 +2438,7 @@
       "migration_files": ["288_upstream_confidence_distribution.sql"],
       "required_tests": ["backend/internal/service/upstream_confidence_distribution_test.go", "backend/internal/service/upstream_confidence_distribution_state_test.go", "backend/internal/service/upstream_confidence_distribution_probe_test.go", "backend/internal/service/upstream_confidence_distribution_identity_test.go", "backend/internal/handler/admin/upstream_management_distribution_test.go", "backend/internal/service/upstream_confidence_probe_settings_test.go", "backend/internal/repository/upstream_confidence_distribution_repo_test.go", "backend/internal/repository/upstream_confidence_distribution_integration_test.go", "backend/internal/repository/upstream_confidence_distribution_postgres_test.go", "frontend/src/components/account/__tests__/UpstreamHealthCell.spec.ts", "frontend/src/views/admin/upstream/__tests__/UpstreamKeyRateTrendPanel.spec.ts", "frontend/src/components/admin/account/__tests__/UpstreamManagementSettingsDialog.spec.ts", "frontend/src/components/common/__tests__/HelpTooltip.spec.ts", "backend/migrations/profile_262_migrations_test.go", ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile262_release_contract.py", "backend/internal/repository/upstream_health_confidence_batch_test.go", "backend/internal/service/upstream_health_confidence_batch_test.go"],
       "invariants": [
-        "OpenAI 真实探针固定 gpt-6.1-sol、空历史、system 点号、low、128 输出 token、流式；Responses store=false 与 Chat Completions 协议各用对应授权基准，不进行 padding、额外挑战、立即重试或第二请求",
+        "OpenAI 分布探针使用平台所选及账号实际映射型号，只对内置基准精确支持的gpt-6.1-sol/gpt-6-astra/gpt-5.6-terra/gpt-6-luna及协议启用；空历史、system 点号、low、128 输出 token、流式；Responses store=false 与 Chat Completions 协议各用对应授权基准，不进行 padding、额外挑战、立即重试或第二请求；旧启用设置在明确保存模型选择前仍实际使用Sol",
         "随机排列包含 64 标点、16 国家、48 整数并始终循环同一有效序列，只有合法有效完成才推进；任意最近 128 条有效样本保持配额；超时、HTTP错误、取消、空回答、不完整响应和崩溃不占有效窗口，下一次正常到期继续当前题型，不立即重试；未发送的配置失败或跳过不消费实际尝试",
         "持久化独立表使用 revision CAS 和 120 秒租约；手动与定时按 Key 共享执行锁，开始发送前只消费实际尝试序号并写pending，独立有效序号用于连续性；无效Finish或lease过期只计一次失败且不淘汰有效样本；系列绑定完整请求合同和基准版本，35天清理保留最后过期项之后连续有效尾段，CAS不覆盖并发Claim/Finish，保留身份、题序和两套递增序号",
         "满128条有效且标点/国家/整数64/16/48完整才判定，不再用60%有效门槛；在途或失败保留已有完整有效窗口判定，只有新的有效样本淘汰旧有效样本；trim与Unicode casefold按原长度规则规范化，非空未知答案保留unknown，不修正数字或合并国家别名",
@@ -2445,12 +2446,12 @@
         "使用用户确认的既有商业授权基准，独立 Go 实现公式，保存来源版本、原始内容指纹及对照 fixture；不引入参考项目 Python 实现",
         "分布 mismatch 不改变健康状态、账号可用性或调度权重，不转 quality_degraded；网络/鉴权/协议故障仍按现有健康合同；新分布不混入旧 Juice 24h/7d 成功率",
         "首次充分 mismatch 和 match/mismatch 切换原子生成 key_confidence_distribution_changed 事件；持续同状态静默，insufficient 不产生失真或恢复告警；事件只保存安全 allowlist 字段",
-        "列表与详情显示有效样本进度、本系列累计实际尝试（含在途）和累计失败、状态、三类有效配额、候选浮点分数及采样时间；sampling_policy_version区分新旧口径，缺失旧字段不伪造新口径结论；评分仅描述完整成功请求行为分布，不能视为整体服务成功率",
-        "请求身份v3只绑定实际Key/账号、协议、最终端点、实际鉴权、Sol有效模型、生效代理、稳定请求头、合同与基准；凭据/代理密码/请求头值只保存内部摘要，无关模型白名单/同步元数据/调度参数和系统随机WindowID不参与，显式生效覆写参与",
+        "列表与详情只显示统一可信度及方法有效样本进度、候选、工程权重、是否参与和安全原因，协议与基准版本收进技术详情；累计实际尝试、失败、题型配额、候选浮点分数、采样时间及完整重置对象保持内部计算和事件语义，不承诺旧对外明细；sampling_policy_version区分新旧口径，缺失旧字段不伪造新口径结论；评分仅描述完整成功请求行为分布，不能视为整体服务成功率",
+        "请求身份v3只绑定实际Key/账号、协议、最终端点、实际鉴权、实际映射型号、生效代理、稳定请求头、合同与基准；凭据/代理密码/请求头值只保存内部摘要，无关模型白名单/同步元数据/调度参数和系统随机WindowID不参与，显式生效覆写参与",
         "Responses系列固定系统生成的Codex客户端版本，实际发送的自动User-Agent版本片段与version使用持久化系列版本；自动同步或默认版本更新不重置，只有自动版本字段被身份归一化，模板其他内容仍参与；管理员生效请求头覆写保留实际值，不被系列版本覆盖；Chat协议不应用此固定规则",
         "全局管理员固定客户端版本仅在自动User-Agent/version至少一项仍生效时参与身份，合法固定版本修改或清除仍headers_changed；账号同时显式覆写两项则全局固定版本不参与；固定策略读取失败不领取槽，身份与发送使用同一策略快照；公开SemVer生成参数仅保存于内部state_json，不进入API/证据/事件/日志",
         "sampling policy v2独立于identity v3；缺失或旧policy的JSON仍可解码，读取只显示sampling_policy_changed待重置，原有效pending先完成或过期，下次Claim经CAS新开系列并清LastDecisive，不继承旧尝试窗口或回填历史；当前policy内identity v2仅完整指纹/协议/基准精确一致才原位升级v3，否则保守重开；旧二进制不能fence新增JSON字段，上线须统一切换全部collector与清理写入者，禁止新旧双槽或多实例混写",
-        "读取配置或采样策略变化只返回空窗口与series_reset.pending说明；有效pending不被覆盖；下次Claim的新系列/新尝试和key_confidence_distribution_reset info事件同事务提交，初始化与原位身份升级不产生重置事件；详情只显示安全原因枚举和上一系列累计尝试数（可大于128、无128分母），不输出摘要或配置原值；配置不可用返回可替换缓存旧判定的insufficient，手动探针/开关响应保留完整分布",
+        "读取配置或采样策略变化只在内部返回空窗口与series_reset.pending说明；有效pending不被覆盖；下次Claim的新系列/新尝试和key_confidence_distribution_reset info事件同事务提交，初始化与原位身份升级不产生重置事件；配置不可用使用内部unavailable撤销旧判定，统一摘要显示证据不足；手动探针/开关对外仅由health.confidence_summary.methods承载状态、有效进度、候选、基准、权重和安全原因，移除旧distribution/attribution摘要，不输出身份摘要或配置原值",
         "独立分布批量读取保持全库账号绑定唯一性、协议/模型/凭据配置身份及unavailable原因；稳定态只读，原lease恢复和身份升级继续走既有CAS；单Key损坏不污染其它Key，不以旧Juice汇总替代分布判定",
         "账号自定义模型deny仅影响普通请求路由；仅当最近一次成功自动模型同步快照包含gpt-6.1-sol时，分布探针绕过deny并按该模型发送；缺少成功快照或模型条目时返回unsupported_model且不领取采样槽；无模型身份变化时保留现有系列"
       ]
@@ -2663,25 +2664,34 @@
     {
       "id": "cross-platform-upstream-confidence-fingerprint",
       "title": "跨平台上游可信度指纹探针",
-      "description": "复用上游健康探针周期，为支持主动探测的 API Key 账号采集平台/协议适用的指纹证据；模型归因与协议证据分离，无合格基线时保持未知，且不影响健康或调度。",
+      "description": "复用上游健康周期，为支持主动探测的 API Key 账号生成统一 confidence_summary；通过精确基线、方法门槛和独立轮次进行保守推断，协议证据独立，不影响健康或调度。",
       "ownership": "fork",
       "risk_level": "high",
       "paths": [
         ".wiki/03-模块指南/17-跨平台上游可信度探针.md",
+        ".wiki/03-模块指南/12-OpenAI-Sol分布可信探针.md",
         ".wiki/INDEX.md",
         "backend/internal/service/upstream_confidence_fingerprint*.go",
+        "backend/internal/service/chanshui_behavioral.go",
+        "backend/internal/service/chanshui_behavioral_baseline.json",
+        "backend/internal/service/modeltrace_numeric/**",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile279_release_contract.py",
         "backend/internal/service/upstream_health_confidence_batch.go",
         "backend/internal/service/upstream_health.go",
         "backend/internal/service/upstream_health_probe_client.go",
         "backend/internal/service/upstream_config.go",
         "backend/internal/repository/upstream_confidence_fingerprint*.go",
+        "backend/internal/repository/upstream_confidence_fingerprint_repo_test.go",
         "backend/internal/handler/admin/upstream_management_handler.go",
         "backend/migrations/304_upstream_confidence_fingerprint.sql",
         "frontend/src/components/account/UpstreamHealthCell.vue",
         "frontend/src/api/admin/upstreamManagement.ts",
         "frontend/src/types/index.ts",
         "frontend/src/i18n/locales/zh/admin/upstreamManagement.ts",
-        "frontend/src/i18n/locales/en/admin/upstreamManagement.ts"
+        "frontend/src/i18n/locales/en/admin/upstreamManagement.ts",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile280_release_contract.py",
+        "backend/internal/service/upstream_confidence_summary.go",
+        "backend/internal/service/upstream_confidence_summary_test.go"
       ],
       "symbols": [
         "RunUpstreamHealthProbe",
@@ -2690,32 +2700,51 @@
         "ClaimConfidenceFingerprint",
         "FinishConfidenceFingerprint",
         "LoadConfidenceFingerprintsForSeries",
-        "MergeUpstreamHealthConfidence"
+        "MergeUpstreamHealthConfidence",
+        "BuildConfidenceSummary"
       ],
-      "api_routes": ["/admin/upstream-management"],
-      "settings_keys": ["upstream_confidence_probe_settings"],
-      "migration_files": ["304_upstream_confidence_fingerprint.sql"],
+      "api_routes": [
+        "/admin/upstream-management"
+      ],
+      "settings_keys": [
+        "upstream_confidence_probe_settings"
+      ],
+      "migration_files": [
+        "304_upstream_confidence_fingerprint.sql"
+      ],
       "required_tests": [
         "backend/internal/service/upstream_confidence_fingerprint_test.go",
         "backend/internal/service/upstream_confidence_fingerprint_state_test.go",
         "backend/internal/service/upstream_confidence_fingerprint_probe_test.go",
+        "backend/internal/service/chanshui_behavioral_test.go",
+        "backend/internal/service/modeltrace_numeric/scorer_test.go",
         "backend/internal/service/upstream_health_confidence_batch_test.go",
         "backend/internal/repository/upstream_confidence_fingerprint_repo_test.go",
         "backend/internal/repository/upstream_confidence_fingerprint_postgres_test.go",
         "backend/internal/handler/admin/upstream_management_fingerprint_test.go",
         "backend/migrations/profile_277_migrations_test.go",
-        "frontend/src/components/account/__tests__/UpstreamHealthCell.spec.ts"
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile278_release_contract.py",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile279_release_contract.py",
+        "frontend/src/components/account/__tests__/UpstreamHealthCell.spec.ts",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile280_release_contract.py",
+        "backend/internal/service/upstream_confidence_summary_test.go"
       ],
       "invariants": [
         "只覆盖现有主动健康探测支持的 API Key 上游账号；OAuth 和服务账号不做模型身份归因；复用既有探针周期，不增加自动上游请求总量",
         "每次探针至多执行当前轮换选中的一个算法；OpenAI 在既有 128 有效样本分布与指纹方法间轮换，不改变分布窗口与有效样本口径",
         "系列身份绑定 Key/账号绑定、平台、实际映射模型、协议、规范化端点身份摘要、凭据身份摘要、挑战/解析/归一化版本及基线版本；自适应国产协议按已配置端点集合保持稳定系列，每条样本另存实际路由协议；明文凭据不得持久化",
-        "每个平台/协议/模型只能匹配独立审核且有留出验证的基线；无基线时为 unknown，样本不足时为 insufficient，不把通用算术/JSON挑战通过视作模型身份",
+        "Chanshui 与 ModelTrace 参考数据固定随版本内置并按精确标签匹配，覆盖分别为 34/18 个模型；无精确条目时为 unknown，不作近似型号映射",
+        "分布/数字/行为通过门槛后按3/2/1工程默认权重参与统一推断，不是实测准确率或身份概率。数字要求封闭集第一名支持度≥0.80且第一减第二≥0.65，relative_fit不参与门槛；行为要求余弦≥0.88且领先第二≥0.03；参考方法须两个完整不重叠轮同候选，不能滑窗复用、GET或幂等重放制造确认",
         "协议证据独立于模型归因；协议不匹配不得转换为模型 mismatch；未知基线、采样失败或单Key状态读取失败不得污染其他Key",
-        "OpenAI融合状态在方法一致时确认、单一有效方法时暂定、有效方法冲突时待复核、双方不足时证据不足；方法细项始终可见，不合成概率分数",
+        "对外只返回 health.confidence_summary，状态collecting/insufficient/match/suspected，包含target/effective/candidate模型、reason、fusion_version=1、inference和方法明细；旧confidence_distribution/attribution字段移除，前后端协调发布。方法明细保留weight/effective_weight/participating/candidate_model/confirmed_rounds；有效方法冲突返回insufficient，不以票重压过冲突；target与effective不同时先target_model_mismatch；只有分布允许other候选",
         "所有模型归因只用于管理诊断，不改变健康状态、账号可用性、停用行为或调度权重；指纹租约竞争或分布采样不可用不得跳过本轮健康探针，真实网络/鉴权/协议失败仍按既有健康探针语义处理",
-        "基线随版本内置且运行时不联网更新；记录来源、平台/协议/模型范围、采集与校准版本、训练样本和独立留出样本；不直接复制未审核许可的 Chanshui/ModelTrace 第三方数据",
-        "跨平台状态使用独立迁移304/profile277，不改写迁移288及profile262历史合同；跨版本部署必须按新迁移和 release profile 合同完成兼容验证"
+        "Chanshui固定2e23eeac864a7c7f5cb0fe0574215c903cd7a7f7的数据入口为data_ref/probe_v3e_snapshot.json，记录@bazaarlink/probe-engine/openruterati生产submodel_baselines_v3（2026-08-07 benign ladder）；34条仅聚合画像，无原始分组样本。数字另源ModelTrace固定6cd4a8ff0f3f4e49d6d6969dd2fbadfa1569fde2的18模型648样本；不存在跨方法独立联合验证，不把工程权重称为校准概率；许可说明与自用内置范围分别记录",
+        "状态只持久化 Chanshui 六维特征或 ModelTrace 解析后的数字，不持久化原始回答；固定源版本、基线版本及资产校验值，运行时不联网更新；参考挑战不加健康填充或Claude系统提示，保留空白，截断/拒绝/内容过滤不计样本，仅最新完整三挑战区块可排名",
+        "profile277由migration304引入跨平台状态，278/279/280依次为0.2.20/0.2.21/0.2.22-baiyu且均无新增SQL，280 parent279；内部distribution/fingerprint持久化和128有效样本保留，不因统一对外摘要删除算法；旧writer不得混跑，Claim/Finish/清理写者与前后端协调切换；不修改历史288/304或profile",
+        "无精确适用参考基线时 OpenAI 每个既有探针机会都采 distribution，非 OpenAI 只保存独立最近协议证据；存在适用参考条目时 OpenAI 每十次恰采一次行为挑战，其他平台才采行为挑战",
+        "行为挑战与 distribution 共用原探针周期且单次请求只归属一个方法；失败消耗排程位置，不立即补发；当前128条有效分布窗口不得因策略更新而重置",
+        "sampling policy 版本、序号、样本与在途 lease 兼容旧 JSON；有效旧 lease 按持久化 attempt 方法完成，方法不可由回退路径改写；最近协议证据独立于64条行为样本容量",
+        "有效候选一致且总有效权重≥3才生成match/suspected；分布可独立达到3。无分布时必须数字和行为分别通过两轮并同候选（2+1），inference=true；单数字或单行为仅证据不足。不得以总分或方法原始分数充当身份概率"
       ]
     }
   ]

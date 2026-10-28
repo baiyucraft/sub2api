@@ -353,15 +353,16 @@ describe('UpstreamManagementSettingsDialog', () => {
     expect(wrapper.find('button.btn-primary').attributes('disabled')).toBeDefined()
   })
 
-  it('keeps confidence disabled by default and writes the low-effort distribution contract', async () => {
+  it('keeps confidence disabled by default and explains the unified sampling contract', async () => {
     const wrapper = mountDialog(true, true)
     await flushPromises()
     expect(wrapper.find('[data-test="fixed-openai-probe-model"]').exists()).toBe(false)
     expect(wrapper.find('[data-test="cache-guard-settings"]').exists()).toBe(false)
-    expect(wrapper.text()).toContain('128 条有效样本滑动窗口')
-    expect(wrapper.get('[data-test="confidence-sample-policy"]').text()).toContain('标点 64 条、国家 16 条、整数 48 条')
-    expect(wrapper.get('[data-test="confidence-sample-policy"]').text()).toContain('超时、失败和空回答不占有效窗口')
-    expect(wrapper.get('[data-test="confidence-sample-policy"]').text()).toContain('下一次正常探测继续补采')
+    expect(wrapper.text()).toContain(zh.upstreamManagement.confidenceProbe.window)
+    expect(wrapper.get('[data-test="confidence-sample-policy"]').text()).toBe(zh.upstreamManagement.confidenceProbe.samplePolicy)
+    expect(wrapper.get('[data-test="confidence-sample-policy"]').text()).toContain('数字和行为指纹每轮各 3 条，参考推断需连续两轮确认')
+    expect(wrapper.get('[data-test="confidence-sample-policy"]').text()).toContain('不增加健康探针请求次数')
+    expect(wrapper.get('[data-test="confidence-selected-openai-model"]').text()).toBe('OpenAI: gpt-live')
     await wrapper.find('button.btn-primary').trigger('click')
     await flushPromises()
     expect(updateProbeSettings).toHaveBeenCalledWith(expect.objectContaining({
@@ -372,7 +373,7 @@ describe('UpstreamManagementSettingsDialog', () => {
     expect(getGroups).not.toHaveBeenCalled()
   })
 
-  it('fixes the enabled OpenAI model without overwriting the ordinary model', async () => {
+  it('shows the active legacy Sol model in an editable selector and opts into model selection only on save', async () => {
     getProbeSettings.mockResolvedValueOnce({
       ttft_guard: { enabled: true, degradation_ttft_seconds: 30, min_samples: 7 },
       probe_guard: { enabled: true, suspend_after_failures: 3, recovery_successes: 2, custom_error_codes_enabled: false, custom_error_codes: [] },
@@ -381,17 +382,33 @@ describe('UpstreamManagementSettingsDialog', () => {
     })
     const wrapper = mountDialog(true, true)
     await flushPromises()
-    expect(wrapper.get('[data-test="fixed-openai-probe-model"]').text()).toBe('gpt-6.1-sol')
-    expect(wrapper.findAll('[data-test="select"]')).toHaveLength(2)
+    expect(wrapper.find('[data-test="fixed-openai-probe-model"]').exists()).toBe(false)
+    expect(wrapper.findAll('[data-test="select"]')).toHaveLength(3)
+    expect(wrapper.findAll('[data-test="select"]')[0]?.text()).toBe('gpt-6.1-sol')
+    expect(wrapper.get('[data-test="confidence-selected-openai-model"]').text()).toBe('OpenAI: gpt-6.1-sol')
+    expect(updateProbeSettings).not.toHaveBeenCalled()
+    await wrapper.findAll('[data-test="select"]')[0]?.trigger('click')
+    expect(wrapper.get('[data-test="confidence-selected-openai-model"]').text()).toBe('OpenAI: custom-model')
     await wrapper.find('button.btn-primary').trigger('click')
     await flushPromises()
     expect(updateProbeSettings).toHaveBeenCalledWith(expect.objectContaining({
-      confidence_probe: expect.objectContaining({ enabled: true, reasoning_effort: 'low', long_context_enabled: false, quality_degrade_threshold: 0, prompt_version: 'openai-sol-distribution-v1' }),
-      probe_models: expect.objectContaining({ openai: 'ordinary-original-model' })
+      confidence_probe: expect.objectContaining({ enabled: true, reasoning_effort: 'low', long_context_enabled: false, quality_degrade_threshold: 0, prompt_version: 'openai-sol-distribution-v1', model_selection_version: 1 }),
+      probe_models: expect.objectContaining({ openai: 'custom-model' })
     }))
     await wrapper.get('[aria-label="admin.upstreamManagement.confidenceProbe.enabled"]').trigger('click')
     expect(wrapper.find('[data-test="fixed-openai-probe-model"]').exists()).toBe(false)
     expect(wrapper.findAll('[data-test="select"]')).toHaveLength(3)
-    expect(wrapper.text()).toContain('ordinary-original-model')
+    expect(wrapper.text()).toContain('custom-model')
+  })
+
+  it('retains the explicitly selected confidence model when reopening settings', async () => {
+    getProbeSettings.mockResolvedValueOnce({
+      probe_models: { openai: 'gpt-6-astra', anthropic: 'claude-live', gemini: 'gemini-live' },
+      confidence_probe: { enabled: true, model_selection_version: 1 }
+    })
+    const wrapper = mountDialog(true, true)
+    await flushPromises()
+    expect(wrapper.findAll('[data-test="select"]')[0]?.text()).toBe('gpt-6-astra')
+    expect(updateProbeSettings).not.toHaveBeenCalled()
   })
 })

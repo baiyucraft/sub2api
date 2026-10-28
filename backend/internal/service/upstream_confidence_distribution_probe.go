@@ -26,7 +26,7 @@ func (s *AccountTestService) runOpenAIDistributionHealthProbe(ctx context.Contex
 	if distributionAccountProtocol(account) == "chat_completions" {
 		result.Protocol = upstreamHealthProbeProtocolOpenAIChat
 	}
-	spec, err := s.resolveDistributionRequest(account)
+	spec, err := s.resolveDistributionRequestWithPolicy(account, &distributionClientPolicy{ctx: ctx})
 	if err != nil {
 		var configErr *distributionConfigurationError
 		if errors.As(err, &configErr) {
@@ -71,8 +71,8 @@ func (s *AccountTestService) runOpenAIDistributionHealthProbe(ctx context.Contex
 		"kind": "distribution", "probe_id": attempt.ProbeID, "series_id": attempt.SeriesID,
 		"sequence": attempt.Sequence, "valid_sequence": attempt.ValidSequence,
 		"sampling_policy_version": UpstreamConfidenceDistributionSamplingPolicyVersion,
-		"claimed_model":           UpstreamConfidenceDistributionClaimedModel,
-		"requested_model":         UpstreamConfidenceDistributionClaimedModel, "effective_model": result.Model,
+		"claimed_model":           spec.model,
+		"requested_model":         spec.requestedModel, "effective_model": result.Model,
 		"requested_effort": "low", "baseline_version": DistributionBaselineVersion(protocol),
 	}
 	messages := []map[string]string{{"role": "system", "content": "."}, {"role": "user", "content": DistributionPrompt(attempt.ProbeID)}}

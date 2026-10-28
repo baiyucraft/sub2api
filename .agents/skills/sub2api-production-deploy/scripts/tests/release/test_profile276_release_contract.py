@@ -29,18 +29,20 @@ class Profile276ReleaseContractTest(unittest.TestCase):
     def test_frozen_history_and_current_release_identity(self):
         previous = {}
         exec(compile(predecessor.git_blob(BASELINE, ".agents/skills/sub2api-production-deploy/scripts/release/profiles.py"), "profile275-baseline", "exec"), previous)
-        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"276", "277"})
+        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"276", "277", "278", "279", "280"})
         for name, profile in previous["PROFILES"].items():
             self.assertEqual(get_profile(name), profile, name)
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "277")
+        self.assertEqual(CURRENT_RELEASE_PROFILE, "280")
         profile = get_profile("276")
         self.assertEqual((profile["version"], profile["parent"], profile["new_migrations"], profile["gate_schema"]),
                          ("0.2.18-baiyu", "275", [MIGRATION], 2))
         with self.assertRaisesRegex(ValueError, "historical"):
             get_release_profile("275")
-        self.assertEqual(get_release_profile("277")["name"], "277")
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 278"):
-            get_profile("278")
+        self.assertEqual(get_profile("277")["name"], "277")
+        with self.assertRaisesRegex(ValueError, "historical"):
+            get_release_profile("277")
+        self.assertEqual(get_profile("278")["name"], "278")
+        self.assertEqual(get_release_profile("280")["name"], "280")
         self.assertIsNotNone(RELEASE_ID.fullmatch("276-aaaaaaaaaaaa-1-aaaaaaaa"))
         self.assertIsNotNone(RELEASE_ID.fullmatch("277-aaaaaaaaaaaa-1-aaaaaaaa"))
         names = subprocess.run(["git", "ls-tree", "-r", "--name-only", BASELINE, "--", "backend/migrations"], cwd=WORKSPACE, check=True, capture_output=True, text=True).stdout.splitlines()
@@ -121,6 +123,7 @@ jq() {
     .parent_profile) printf '%s\\n' "$parent" ;;
     '.new_migrations == ["303_group_strip_optional_image_tools.sql"] and .deployment_mode == "downtime"') [[ $migrations == optional_image && $mode == downtime ]] ;;
     '.new_migrations == ["304_upstream_confidence_fingerprint.sql"] and .deployment_mode == "downtime"') [[ $migrations == fingerprint && $mode == downtime ]] ;;
+    '.new_migrations == [] and .deployment_mode == "downtime"') [[ $migrations == none && $mode == downtime ]] ;;
     *) return 1 ;;
   esac
 }
@@ -134,6 +137,6 @@ jq() {
             ("276", "0.2.18-baiyu", "275", "optional_image", "downtime", True),
             ("277", "0.2.19-baiyu", "276", "fingerprint", "downtime", True),
             ("277", "0.2.19-baiyu", "275", "fingerprint", "downtime", False),
-            ("278", "0.2.19-baiyu", "277", "fingerprint", "downtime", False)):
+            ("280", "0.2.21-baiyu", "278", "none", "downtime", False)):
             result = self.execute(stub + checks, profile, version, parent, migrations, mode)
             self.assertEqual(result.returncode == 0, allowed, result.stderr)

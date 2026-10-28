@@ -15,6 +15,15 @@ type distributionClientPolicy struct {
 	err                    error
 }
 
+type distributionProbeModelContextKey struct{}
+
+func (p *distributionClientPolicy) probeModel() string {
+	if model, ok := p.ctx.Value(distributionProbeModelContextKey{}).(string); ok && model != "" {
+		return model
+	}
+	return UpstreamConfidenceDistributionClaimedModel
+}
+
 func (p *distributionClientPolicy) load(settings *SettingService) (string, string, error) {
 	if p.loaded {
 		return p.manualVersion, p.version, p.err

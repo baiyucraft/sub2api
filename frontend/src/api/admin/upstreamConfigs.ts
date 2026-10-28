@@ -1,5 +1,5 @@
 import { apiClient } from '../client'
-import type { PaginatedResponse, UpstreamConfidenceDistribution } from '@/types'
+import type { PaginatedResponse, UpstreamConfidenceSummary } from '@/types'
 
 export type UpstreamProvider = 'sub2api' | 'newapi' | 'other'
 export type UpstreamAuthMode = 'user_login' | 'manual_jwt' | 'cookie' | 'access_token'
@@ -298,7 +298,7 @@ export interface UpstreamDashboardProbeSummary {
   average_duration_ms?: number | null
   confidence_samples: number
   confidence_status?: string | null
-  confidence_distribution?: UpstreamConfidenceDistribution | null
+  confidence_summary?: UpstreamConfidenceSummary | null
 }
 export interface UpstreamDashboardCard {
   id: number

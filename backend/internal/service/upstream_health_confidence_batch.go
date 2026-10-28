@@ -71,9 +71,31 @@ func (s *UpstreamConfigService) GetUpstreamHealthConfidencesAt(ctx context.Conte
 	if len(keyIDs) == 0 {
 		return out, nil
 	}
-	if !s.confidenceProbeIndependent(ctx) {
+	confidence := DefaultUpstreamConfidenceProbeSettings()
+	independent := false
+	if s.settingService != nil {
+		configured, stored, err := s.settingService.GetUpstreamConfidenceProbeSettingsState(ctx)
+		if err == nil && stored {
+			confidence, independent = configured, configured.Enabled
+		}
+	}
+	if !independent {
 		return s.readLegacyHealthConfidencesAt(ctx, keyIDs, now)
 	}
+	models := DefaultUpstreamProbeModels()
+	_, fingerprintSupported := s.repo.(ConfidenceFingerprintRepository)
+	if s.settingService != nil && (confidence.ModelSelectionVersion > 0 || fingerprintSupported) {
+		configured, err := s.settingService.GetUpstreamProbeModels(ctx)
+		if err != nil {
+			for _, id := range keyIDs {
+				out[id] = unavailableConfidenceDistributionSummary("responses", "request_configuration_unavailable")
+			}
+			return out, nil
+		}
+		models = configured
+	}
+	models = EffectiveUpstreamConfidenceProbeModels(models, confidence)
+	ctx = context.WithValue(ctx, distributionProbeModelContextKey{}, models.OpenAI)
 
 	readErrors := map[int64]error{}
 	lister, bound := s.accountRepo.(upstreamAccountBindingLister)
@@ -130,6 +152,12 @@ func (s *UpstreamConfigService) GetUpstreamHealthConfidencesAt(ctx context.Conte
 			continue
 		}
 		protocols[id] = distributionAccountProtocol(account)
+		if !DistributionProbeSupportsModel(account.Platform, account.GetMappedModel(models.OpenAI), protocols[id]) {
+			// Absence of a model-specific baseline is not a 0/128 collection.
+			// Reference methods may still be supported by the fingerprint reader.
+			out[id] = UpstreamHealthConfidenceSummary{Status: "insufficient", RequestedEffort: "low", PromptVersion: UpstreamConfidenceDistributionPromptVersion}
+			continue
+		}
 		if !supported || !available {
 			out[id] = unavailableConfidenceDistributionSummary(protocols[id], "request_configuration_unavailable")
 			continue
@@ -203,7 +231,7 @@ func (s *UpstreamConfigService) GetUpstreamHealthConfidencesAt(ctx context.Conte
 		}
 		if read.Distribution == nil {
 			var err error
-			read.Distribution, err = ScoreUpstreamConfidenceDistribution(protocols[id], nil)
+			read.Distribution, err = ScoreUpstreamConfidenceDistributionForModel(protocols[id], identities[id].ClaimedModel, nil)
 			if err != nil {
 				out[id] = unavailableConfidenceDistributionSummary(protocols[id], "baseline_unavailable")
 				continue
@@ -212,28 +240,37 @@ func (s *UpstreamConfigService) GetUpstreamHealthConfidencesAt(ctx context.Conte
 		out[id] = UpstreamHealthConfidenceSummary{Distribution: read.Distribution, Status: read.Distribution.Status,
 			RequestedEffort: "low", PromptVersion: UpstreamConfidenceDistributionPromptVersion}
 	}
-	if err := s.attachConfidenceFingerprintAttributions(ctx, keyIDs, accountsByKey, out, now); err != nil {
+	if err := s.attachConfidenceFingerprintAttributions(ctx, keyIDs, accountsByKey, out, now, models); err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (s *UpstreamConfigService) attachConfidenceFingerprintAttributions(ctx context.Context, keyIDs []int64, accountsByKey map[int64][]Account, out map[int64]UpstreamHealthConfidenceSummary, now time.Time) error {
+func (s *UpstreamConfigService) attachConfidenceFingerprintAttributions(ctx context.Context, keyIDs []int64, accountsByKey map[int64][]Account, out map[int64]UpstreamHealthConfidenceSummary, now time.Time, modelSnapshots ...UpstreamProbeModels) error {
+	models := DefaultUpstreamProbeModels()
+	if len(modelSnapshots) > 0 {
+		models = modelSnapshots[0]
+	} else if s.settingService != nil {
+		if configured, err := s.settingService.GetUpstreamProbeModels(ctx); err == nil {
+			models = configured
+		}
+	}
 	collector, ok := s.repo.(ConfidenceFingerprintRepository)
 	if !ok {
 		for _, id := range keyIDs {
 			if len(accountsByKey[id]) == 1 && accountsByKey[id][0].Type == AccountTypeAPIKey {
-				attribution := ConfidenceFingerprintAttribution{Status: "unknown", Reason: "fingerprint_storage_unavailable", Platform: accountsByKey[id][0].Platform, Methods: map[string]ConfidenceFingerprintMethodSummary{}}
-				out[id] = withConfidenceAttribution(out[id], MergeConfidenceFingerprintAttribution(out[id].Distribution, attribution))
+				account := &accountsByKey[id][0]
+				targetModel := models.ModelFor(account.Platform)
+				attribution := ConfidenceFingerprintAttribution{Status: "unknown", Reason: "fingerprint_storage_unavailable", Platform: account.Platform, TargetModel: targetModel, Model: account.GetMappedModel(targetModel), Methods: map[string]ConfidenceFingerprintMethodSummary{}}
+				if identity, valid := ConfidenceFingerprintIdentityForAccount(account, targetModel); valid {
+					attribution.Protocol = identity.Protocol
+				}
+				attribution = MergeConfidenceFingerprintAttribution(out[id].Distribution, attribution)
+				attribution.Reason = "fingerprint_storage_unavailable"
+				out[id] = withConfidenceAttribution(out[id], attribution)
 			}
 		}
 		return nil
-	}
-	models := DefaultUpstreamProbeModels()
-	if s.settingService != nil {
-		if configured, err := s.settingService.GetUpstreamProbeModels(ctx); err == nil {
-			models = configured
-		}
 	}
 	identities := make(map[int64]ConfidenceFingerprintIdentity, len(keyIDs))
 	for _, id := range keyIDs {
@@ -242,9 +279,6 @@ func (s *UpstreamConfigService) attachConfidenceFingerprintAttributions(ctx cont
 			continue
 		}
 		model := models.ModelFor(accounts[0].Platform)
-		if accounts[0].Platform == PlatformOpenAI {
-			model = UpstreamConfidenceDistributionClaimedModel
-		}
 		identity, ok := ConfidenceFingerprintIdentityForAccount(&accounts[0], model)
 		if ok {
 			identities[id] = identity
@@ -266,6 +300,7 @@ func (s *UpstreamConfigService) attachConfidenceFingerprintAttributions(ctx cont
 			attribution = ScoreConfidenceFingerprintAt(identity, nil, now)
 			attribution.Reason = "fingerprint_read_unavailable"
 			for key, method := range attribution.Methods {
+				method.Status = "unknown"
 				method.Reason = "fingerprint_read_unavailable"
 				attribution.Methods[key] = method
 			}
@@ -273,6 +308,10 @@ func (s *UpstreamConfigService) attachConfidenceFingerprintAttributions(ctx cont
 			attribution = ScoreConfidenceFingerprintAt(identity, read.State, now)
 		}
 		attribution = MergeConfidenceFingerprintAttribution(out[id].Distribution, attribution)
+		if read.Err != nil {
+			attribution.Reason = "fingerprint_read_unavailable"
+		}
+		attribution.TargetModel = models.ModelFor(identity.Platform)
 		out[id] = withConfidenceAttribution(out[id], attribution)
 	}
 	return nil

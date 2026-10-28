@@ -107,6 +107,15 @@ func (m UpstreamProbeModels) ModelFor(platform string) string {
 	return m.AsMap()[strings.ToLower(strings.TrimSpace(platform))]
 }
 
+// EffectiveUpstreamConfidenceProbeModels preserves the model actually used by
+// old enabled configurations until the operator explicitly saves the selector.
+func EffectiveUpstreamConfidenceProbeModels(models UpstreamProbeModels, settings UpstreamConfidenceProbeSettings) UpstreamProbeModels {
+	if settings.Enabled && settings.ModelSelectionVersion == 0 {
+		models.OpenAI = UpstreamConfidenceDistributionClaimedModel
+	}
+	return models
+}
+
 func validateUpstreamProbeModels(models UpstreamProbeModels) error {
 	for platform, model := range map[string]string{
 		PlatformOpenAI:    models.OpenAI,
@@ -192,7 +201,22 @@ func (s *SettingService) SetUpstreamProbeModels(ctx context.Context, models Upst
 	if err != nil {
 		return err
 	}
-	return s.settingRepo.Set(ctx, SettingKeyUpstreamProbeModels, string(raw))
+	// The dedicated model selector is an explicit opt-in too. Persist both
+	// values together so a successful save cannot keep an old enabled account
+	// pinned to Sol or publish only half of the selection change.
+	confidence, _, err := s.GetUpstreamConfidenceProbeSettingsState(ctx)
+	if err != nil {
+		return err
+	}
+	confidence.ModelSelectionVersion = 1
+	confidenceRaw, err := json.Marshal(confidence)
+	if err != nil {
+		return err
+	}
+	return s.settingRepo.SetMultiple(ctx, map[string]string{
+		SettingKeyUpstreamProbeModels:     string(raw),
+		SettingKeyUpstreamConfidenceProbe: string(confidenceRaw),
+	})
 }
 
 func validateUpstreamProbeIntervalSeconds(seconds int) error {

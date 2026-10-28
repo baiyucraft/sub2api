@@ -350,3 +350,26 @@ VM Gate v2、历史 Gate v1 的新执行与 VM-only 三入口共用 SHA 绑定�
 ### 可选图片工具与分组策略
 
 profile 276 / migration 303 的创建、更新省略保持、复制、默认值、认证缓存失效及页面回填须回归；test_profile276_release_contract.py 绑定 275 历史不变、276 全入口可用与未知 277 拒绝。普通工具往返、孤立输出和仅续接 ID 在禁图组/清理组不得误报图片 403/503；图片接口、模型、明确选择及确认图片历史仍执行权限。native/namespace/function、auto/none/required 混合及 allowed_tools 不扩大权限；覆盖 HTTP 流式/非流式、Lite、WS 继承/重连、多候选原请求不变、图片并发释放，以及普通上游错误不被图片错误覆盖。稳定契约见 .wiki/03-模块指南/16-可选图片工具与分组策略.md；实际 sub2api-dev 与签名 VM Gate 独立验收，不以本机后端替代。
+
+### 可信度探针采样策略 profile 278
+
+profile 278 为 parent 277、版本 `0.2.20-baiyu`，无 SQL migration。`test_profile278_release_contract.py` 必须绑定所有 Python/Shell 发布入口、VM validator、Gate/DR signer、备份及清理入口；277 的 migration 304 及旧 profile 合同保持不变。无行为基线时 OpenAI 全部采集 distribution，其他平台只更新独立最近协议证据；通过审核和留出验证后，OpenAI 每十个既有探针位置恰有一个 behavioral，其余九个 distribution，其他平台开始计入 behavioral。排程位置必须按系列和区块稳定复现，失败不补发，单请求不能重复计样。旧 JSON 的序号、已采样行为、128 distribution 窗口和在途 lease 不得重置；协议证据不能挤占行为样本容量。回归覆盖旧 JSON/重启、identity 变化、lease 竞争与不可改写方法、90:10 分块及位置打乱、无基线 UI 隐藏门槛和有基线 UI 显示门槛。稳定行为见 `.wiki/03-模块指南/17-跨平台上游可信度探针.md`。
+
+### Chanshui 与 ModelTrace 参考库 profile 279
+
+profile 279 为 parent 278、版本 `0.2.21-baiyu`，不新增 SQL migration。回归必须确认 Chanshui 参考库固定来源为 `kiss-kedaya/chanshui@2e23eeac864a7c7f5cb0fe0574215c903cd7a7f7`，ModelTrace 数字参考库固定来源为 `xqy2006/ModelTrace@6cd4a8ff0f3f4e49d6d6969dd2fbadfa1569fde2`；资产随版本内置且运行时不联网更新。Chanshui 对每个精确标签使用三条挑战形成六维特征，ModelTrace 固定三挑战请求 292／308／324 个数字，按来源 55% 完成规则分别至少接收 161／170／179 个有效数字（80 只是通用下限）；验证标签覆盖分别为 34 和 18 个模型。
+
+定向回归覆盖：精确挑战文本、不注入健康填充/Claude Code system/固定温度、2,048/4,096 输出预算、SSE/JSON 空白一致性、空回答和失败不采样、截断/拒绝/内容过滤不生成参考特征；重启与幂等完成后每十次仍为九次分布一次参考。只有最新完整三挑战区块可排名，失效或新块开始时不复用旧排名。已有参考排名的整体状态为 `reference_only`，不再误报无基线；旧分布融合语义和健康调度边界不变。数字评分使用固定源 Python 实现的三输出 fixture 对照，不把候选概率作为身份概率。
+
+验证平台/模型精确匹配、无近似别名回退、三条挑战组成一个评分窗口、错误/协议不兼容样本不污染窗口、原始回答不落库。管理输出只能展示参考候选和相对分数，不得表达身份概率或可靠 match/mismatch。明确检查 `gpt-6-sol` 命中不意味着 `gpt-6.1-sol` 命中。基线存在时确认每次仍只用现有健康探针请求，OpenAI 维持每十次最多一次对应行为挑战、其余九次分布挑战；没有适用条目时继续按旧规则采集，不增加请求。必要的回归包括 `chanshui_behavioral_test.go`、`modeltrace_numeric/scorer_test.go`、`upstream_confidence_fingerprint_test.go`、探针调用路径和 `test_profile279_release_contract.py`。稳定行为见 `.wiki/03-模块指南/17-跨平台上游可信度探针.md`。
+
+
+### 统一跨平台可信度推断 profile 280
+
+profile 280 为 parent 279、版本 `0.2.22-baiyu`，无新增 SQL migration，历史 279/278、288/304 原字节与校验值不变。对外 `health.confidence_summary` 替代旧 distribution/attribution 字段，前后端协调发布；内部样本与分布算法继续保留，原满额 128 窗口不重采。旧 Claim/Finish/清理写者不得与新版混跑。
+
+固定时钟与样本验证：权重分布3、数字2、行为1，仅通过门槛的方法有有效权重；数字封闭集首名支持度0.80及首/次差0.65、行为余弦0.88及首/次差0.03的恰好/前后边界；数字relative_fit不参加门槛，不把任何分数或权重称为模型身份概率。数字/行为两完整不重叠轮同候选才确认，旧JSON、重复完成、滑窗重读、GET和时间推进不得凭空确认；新系列、身份、基线或规则变化重新验证。
+
+统一摘要覆盖collecting/insufficient/match/suspected，单一方法、意见一致和有效冲突；总有效权重至少3，合格分布可单独结论，无分布时必须数字/行为各自两轮后同候选，单参考方法不足，reference共识的inference=true；冲突返回insufficient，target/effective不同以target_model_mismatch拒绝身份推断；只有分布允许other。无精确平台/模型/协议条目不得借用相似模型。页面只显示一套摘要和方法证据，旧对外字段缺失是明确协调接口变更；协议证据、健康和调度保持独立。
+
+来源登记须区分Chanshui数据入口与实际行为画像来源：data_ref/probe_v3e_snapshot.json记录@bazaarlink/probe-engine/openruterati的2026-08-07 benign-ladder生产聚合画像，34条无原始分组；ModelTrace另有18模型648数字样本。没有跨方法独立联合验证，3/2/1为工程默认。运行时固定资产，不联网更新。最低定向回归包括统一summary、两轮状态、原fingerprint/distribution、管理响应/前端健康格及test_profile280_release_contract.py；发布前再按正式Gate范围执行完整验证。

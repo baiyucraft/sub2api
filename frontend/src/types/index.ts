@@ -1752,8 +1752,7 @@ export interface Account {
     confidence_breakdown?: Record<string, number>
     confidence_prompt_version?: string
     confidence_evidence?: Record<string, unknown>
-    confidence_distribution?: UpstreamConfidenceDistribution | null
-    confidence_attribution?: UpstreamConfidenceAttribution | null
+    confidence_summary?: UpstreamConfidenceSummary | null
     confidence_attempted_24h?: number
     confidence_attempted_7d?: number
     confidence_valid_completed_24h?: number
@@ -1859,61 +1858,41 @@ export interface AccountTTFTGuardDegradation {
   recovery_samples_required: number
 }
 
-export interface UpstreamConfidenceDistributionCell {
-  planned: number
-  minimum: number
-  completed: number
-  valid: number
-  counts: Record<string, number>
-}
-
-export interface UpstreamConfidenceDistributionReset {
-  pending: boolean
-  at?: string | null
-  reasons: string[]
-  previous_attempted: number
-}
-
-/** Relative behavioral fit scores, never model identity probabilities. */
-export interface UpstreamConfidenceDistribution {
-  status: 'collecting' | 'match' | 'mismatch' | 'insufficient'
-  window_size: number
-  attempted: number
-  valid_samples: number
-  sampling_policy_version?: number
-  failed_attempts?: number
-  cells: Record<string, UpstreamConfidenceDistributionCell>
-  matches: Record<string, number>
-  scores: Record<string, number>
-  thresholds: Record<string, number>
-  closest_model?: string
-  claimed_model: string
-  window_start?: string | null
-  window_end?: string | null
-  baseline_version: string
-  protocol: string
-  reasons: string[]
-  series_reset?: UpstreamConfidenceDistributionReset
-}
-
 export interface UpstreamConfidenceAttributionMethod {
   status: string
   sample_count: number
-  minimum_samples: number
+  minimum_samples?: number
   baseline_version?: string
   reason?: string
+  weight?: number
+  effective_weight?: number
+  participating?: boolean
+  candidate_model?: string
+  confirmed_rounds?: number
+  current_sample_count?: number
+  candidates?: Array<{
+    model_id: string
+    display_name: string
+    score?: number
+    relative_fit?: number
+    closed_set_support?: number
+    sample_size?: number
+  }>
 }
 
-export interface UpstreamConfidenceAttribution {
-  status: string
-  reason?: string
-  platform?: string
-  model?: string
+export interface UpstreamConfidenceSummary {
+  status: 'collecting' | 'insufficient' | 'match' | 'suspected'
+  target_model: string
+  effective_model: string
+  candidate_model?: string
+  reason: string
+  fusion_version: number
+  inference: boolean
   protocol?: string
   observed_protocol?: string
   protocol_status?: string
   protocol_reason?: string
-  methods?: Record<string, UpstreamConfidenceAttributionMethod>
+  methods: Record<string, UpstreamConfidenceAttributionMethod>
 }
 
 export interface UpstreamHealthObservation {

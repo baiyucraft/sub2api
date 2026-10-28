@@ -52,185 +52,89 @@
       </div>
       </HelpTooltip>
 
-      <HelpTooltip v-if="distribution" trigger="click" width-class="w-96 max-w-[calc(100vw-2rem)]" trigger-class="!ml-0 max-w-full">
+      <HelpTooltip v-if="unifiedConfidence" trigger="click" width-class="w-[30rem] max-w-[calc(100vw-2rem)]" trigger-class="!ml-0 max-w-full">
         <template #trigger>
           <button
             type="button"
-            data-test="distribution-badge"
-            :data-distribution-status="distributionCurrentPolicy ? distribution.status : 'collecting'"
-            :aria-label="`${t('admin.upstreamManagement.health.distribution.title')} · ${distributionLabel}`"
-            :class="['inline-flex min-h-6 max-w-full items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-current focus-visible:ring-offset-2', distributionBadgeClass]"
+            data-test="unified-confidence-badge"
+            :data-confidence-status="unifiedConfidence.status"
+            :aria-label="`${t('admin.upstreamManagement.health.unified.title')} · ${unifiedConfidenceLabel}`"
+            :class="['inline-flex min-h-6 max-w-full items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-current focus-visible:ring-offset-2', unifiedConfidenceClass]"
           >
             <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-current" />
-            <span class="truncate">{{ distributionLabel }}</span>
+            <span class="truncate">{{ unifiedConfidenceLabel }}</span>
           </button>
         </template>
-        <div data-test="distribution-details" class="max-h-[65vh] space-y-3 overflow-y-auto pr-4">
+        <div data-test="unified-confidence-details" class="max-h-[65vh] space-y-3 overflow-y-auto pr-4">
           <div class="border-b border-white/10 pb-2">
-            <div class="font-medium text-gray-100">{{ t('admin.upstreamManagement.health.distribution.title') }}</div>
-            <div class="mt-1 text-gray-300">{{ distributionLabel }}</div>
+            <div class="font-medium text-gray-100">{{ t('admin.upstreamManagement.health.unified.title') }}</div>
+            <div class="mt-1 text-base font-semibold text-white">{{ unifiedConfidenceLabel }}</div>
+            <div class="mt-1 break-all text-gray-300">{{ t('admin.upstreamManagement.health.unified.targetModel') }}: {{ unifiedConfidence.target_model || '-' }}</div>
+            <p v-if="unifiedConfidence.reason" data-test="unified-confidence-reason" class="mt-1 text-gray-300">{{ safeConfidenceReason(unifiedConfidence.reason) }}</p>
+            <span v-if="unifiedConfidence.inference" data-test="unified-confidence-inference" class="mt-2 inline-flex rounded border border-white/15 px-1.5 py-0.5 text-gray-300">{{ t('admin.upstreamManagement.health.unified.inference') }}</span>
           </div>
-          <dl class="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1">
-            <template v-if="distributionCurrentPolicy">
-              <dt class="text-gray-300">{{ t('admin.upstreamManagement.health.distribution.validSamples') }}</dt>
-              <dd data-test="distribution-valid-progress" class="text-right tabular-nums">{{ distribution.valid_samples }} / {{ distribution.window_size }}</dd>
-              <dt class="text-gray-300">{{ t('admin.upstreamManagement.health.distribution.attempts') }}</dt>
-              <dd data-test="distribution-attempts" class="text-right tabular-nums">{{ distribution.attempted }}</dd>
-              <dt class="text-gray-300">{{ t('admin.upstreamManagement.health.distribution.failedAttempts') }}</dt>
-              <dd data-test="distribution-failed-attempts" class="text-right tabular-nums">{{ distribution.failed_attempts ?? '-' }}</dd>
-            </template>
-            <template v-else>
-              <dt class="text-gray-300">{{ t('admin.upstreamManagement.health.distribution.legacyAttempts') }}</dt>
-              <dd class="text-right tabular-nums">{{ distribution.attempted }} / {{ distribution.window_size }}</dd>
-              <dt class="text-gray-300">{{ t('admin.upstreamManagement.health.distribution.legacyValidSamples') }}</dt>
-              <dd class="text-right tabular-nums">{{ distribution.valid_samples }}</dd>
-            </template>
-            <dt class="text-gray-300">{{ t('admin.upstreamManagement.health.claimedModel') }}</dt>
-            <dd class="break-all text-right">{{ distribution.claimed_model }}</dd>
-          </dl>
-          <p v-if="!distributionCurrentPolicy" data-test="distribution-legacy-policy" class="text-amber-200">{{ t('admin.upstreamManagement.health.distribution.legacyPolicy') }}</p>
-          <section v-if="distribution.series_reset" data-test="distribution-reset" class="space-y-2 rounded-lg border border-white/10 bg-white/5 p-2.5">
-            <div class="font-medium text-gray-100">{{ t('admin.upstreamManagement.health.distribution.resetTitle') }}</div>
-            <p v-if="distribution.series_reset.pending" data-test="distribution-reset-pending" class="text-amber-200">
-              {{ t('admin.upstreamManagement.health.distribution.resetPending') }}
-            </p>
-            <dl class="grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)] gap-x-3 gap-y-1">
-              <template v-if="!distribution.series_reset.pending">
-                <dt class="text-gray-300">{{ t('admin.upstreamManagement.health.distribution.resetAt') }}</dt>
-                <dd data-test="distribution-reset-at" class="text-right">{{ distribution.series_reset.at ? formatDateTime(distribution.series_reset.at) : '-' }}</dd>
+          <div v-if="confidenceMethods.length" class="overflow-x-auto">
+            <table class="w-full text-left text-xs" data-test="unified-confidence-methods">
+              <thead class="text-gray-400">
+                <tr>
+                  <th class="pb-2 pr-3 font-normal">{{ t('admin.upstreamManagement.health.unified.method') }}</th>
+                  <th class="pb-2 pr-3 font-normal">{{ t('admin.upstreamManagement.health.unified.attribution') }}</th>
+                  <th class="pb-2 text-right font-normal">{{ t('admin.upstreamManagement.health.unified.contribution') }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="method in confidenceMethods" :key="method.id" class="border-t border-white/10 align-top" :data-test="`confidence-method-${method.id}`">
+                  <td class="py-2 pr-3">
+                    <div class="font-medium text-gray-100">{{ attributionMethodName(method.id) }}</div>
+                    <div class="mt-1 whitespace-nowrap tabular-nums text-gray-300" :data-test="`confidence-progress-${method.id}`">
+                      <template v-if="method.baseline_version && method.minimum_samples && method.id !== 'behavioral'">{{ method.sample_count }} / {{ method.minimum_samples }}</template>
+                      <template v-else>{{ t('admin.upstreamManagement.health.attribution.collectedSamples', { count: method.sample_count }) }}</template>
+                    </div>
+                    <div v-if="method.id !== 'distribution' && method.current_sample_count !== undefined && method.current_sample_count !== method.sample_count" class="mt-1 whitespace-nowrap text-gray-400">{{ t('admin.upstreamManagement.health.unified.currentRound', { count: method.current_sample_count, total: method.minimum_samples || 3 }) }}</div>
+                    <div v-if="method.confirmed_rounds !== undefined && method.id !== 'distribution'" class="mt-1 whitespace-nowrap text-gray-400">{{ t('admin.upstreamManagement.health.unified.confirmedRounds', { count: method.confirmed_rounds }) }}</div>
+                  </td>
+                  <td class="py-2 pr-3">
+                    <div class="break-all text-gray-100" :data-test="`confidence-candidate-${method.id}`">{{ confidenceCandidate(method) }}</div>
+                    <div class="mt-1 text-gray-400">{{ method.participating ? t('admin.upstreamManagement.health.unified.qualified') : attributionMethodLabel(method.status) }}</div>
+                    <div v-if="method.reason" class="mt-1 text-gray-400">{{ safeConfidenceReason(method.reason) }}</div>
+                  </td>
+                  <td class="py-2 text-right">
+                    <div class="whitespace-nowrap tabular-nums text-gray-200" :data-test="`confidence-weight-${method.id}`">{{ method.effective_weight || 0 }} / {{ method.weight || 0 }}</div>
+                    <div class="mt-1 whitespace-nowrap text-gray-400">{{ t(`admin.upstreamManagement.health.unified.${method.participating ? 'participating' : 'notParticipating'}`) }}</div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="text-gray-400">{{ t('admin.upstreamManagement.health.unified.weightsHint') }}</p>
+          <details class="border-t border-white/10 pt-2" data-test="unified-confidence-technical">
+            <summary class="cursor-pointer select-none text-gray-300">{{ t('admin.upstreamManagement.health.unified.technicalDetails') }}</summary>
+            <dl class="mt-2 grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)] gap-x-3 gap-y-1 text-gray-300">
+              <dt>{{ t('admin.upstreamManagement.health.unified.effectiveModel') }}</dt>
+              <dd data-test="confidence-effective-model" class="break-all text-right">{{ unifiedConfidence.effective_model || '-' }}</dd>
+              <dt>{{ t('admin.upstreamManagement.health.unified.fusionVersion') }}</dt>
+              <dd class="break-all text-right">{{ unifiedConfidence.fusion_version ?? '-' }}</dd>
+              <dt>{{ t('admin.upstreamManagement.health.attribution.protocol') }}</dt>
+              <dd class="break-all text-right">{{ unifiedConfidence.protocol || '-' }}</dd>
+              <template v-if="unifiedConfidence.observed_protocol">
+                <dt>{{ t('admin.upstreamManagement.health.attribution.observedProtocol') }}</dt>
+                <dd data-test="attribution-observed-protocol" class="break-all text-right">{{ unifiedConfidence.observed_protocol }}</dd>
               </template>
-              <dt class="text-gray-300">{{ t('admin.upstreamManagement.health.distribution.resetReasonsLabel') }}</dt>
-              <dd data-test="distribution-reset-reasons" class="break-words text-right">{{ distributionResetReasons.join(' · ') || '-' }}</dd>
-              <dt class="text-gray-300">{{ t('admin.upstreamManagement.health.distribution.previousAttempts') }}</dt>
-              <dd data-test="distribution-reset-previous" class="text-right tabular-nums">{{ distribution.series_reset.previous_attempted }}</dd>
+              <template v-if="unifiedConfidence.protocol_status">
+                <dt>{{ t('admin.upstreamManagement.health.attribution.protocolStatus') }}</dt>
+                <dd data-test="attribution-protocol-status" class="break-all text-right">{{ attributionProtocolLabel }}</dd>
+              </template>
+              <template v-for="method in confidenceMethods.filter(value => value.baseline_version)" :key="method.id">
+                <dt>{{ attributionMethodName(method.id) }}</dt>
+                <dd class="break-all text-right">{{ method.baseline_version }}</dd>
+              </template>
             </dl>
-          </section>
-          <div v-if="distributionCandidates.length" class="border-t border-white/10 pt-2">
-            <div class="mb-1.5 font-medium">{{ t('admin.upstreamManagement.health.distribution.fitScores') }}</div>
-            <div v-for="candidate in distributionCandidates" :key="candidate.model" class="flex items-center justify-between gap-3 rounded px-1 py-0.5" :class="candidate.model === distribution.closest_model ? 'bg-white/5 text-white' : 'text-gray-300'">
-              <span>{{ distributionModelLabel(candidate.model) }}</span>
-              <span class="font-mono tabular-nums" :data-test="`distribution-score-${candidate.model}`">{{ formatDistributionScore(candidate.score) }}</span>
-            </div>
-          </div>
-          <div v-if="distributionCurrentPolicy" class="space-y-2 border-t border-white/10 pt-2">
-            <div class="font-medium">{{ t('admin.upstreamManagement.health.distribution.answerDistribution') }}</div>
-            <div v-for="cell in distributionCells" :key="cell.id">
-              <div class="mb-1 flex items-center justify-between gap-3">
-                <span class="text-gray-200">{{ cell.label }}</span>
-                <span :data-test="`distribution-cell-${cell.id}`" class="text-gray-300 tabular-nums">{{ cell.value.valid }} / {{ cell.value.planned }}</span>
-              </div>
-              <div v-if="cell.answers.length" class="flex flex-wrap gap-1">
-                <span v-for="answer in cell.answers" :key="answer.value" class="inline-flex max-w-full items-baseline gap-1.5 rounded border border-white/10 bg-white/5 px-1.5 py-0.5">
-                  <span class="break-all">{{ answer.value === '__UNSEEN_IN_TRAINING__' ? t('admin.upstreamManagement.health.distribution.otherAnswers') : answer.value }}</span>
-                  <span class="shrink-0 font-mono text-gray-300 tabular-nums">{{ answer.count }}</span>
-                </span>
-              </div>
-              <div v-else class="text-gray-400">{{ t('admin.upstreamManagement.health.distribution.noAnswers') }}</div>
-            </div>
-          </div>
-          <div class="space-y-1 border-t border-white/10 pt-2 text-gray-300">
-            <div>{{ t('admin.upstreamManagement.health.distribution.windowStart') }}: {{ distribution.window_start ? formatDateTime(distribution.window_start) : '-' }}</div>
-            <div>{{ t('admin.upstreamManagement.health.distribution.windowEnd') }}: {{ distribution.window_end ? formatDateTime(distribution.window_end) : '-' }}</div>
-            <div>{{ t('admin.upstreamManagement.health.distribution.protocol') }}: {{ distribution.protocol === 'chat_completions' ? 'Chat Completions' : 'Responses' }}</div>
-            <div class="break-all">{{ t('admin.upstreamManagement.health.distribution.baselineVersion') }}: {{ distribution.baseline_version || '-' }}</div>
-            <p v-if="distributionReasons.length">{{ distributionReasons.join(' · ') }}</p>
-            <p>{{ t('admin.upstreamManagement.health.distribution.disclaimer') }}</p>
-          </div>
+            <p v-if="unifiedConfidence.protocol_reason" data-test="attribution-protocol-reason" class="mt-2 text-amber-200">{{ safeConfidenceReason(unifiedConfidence.protocol_reason) }}</p>
+          </details>
+          <p class="border-t border-white/10 pt-2 text-gray-400">{{ t('admin.upstreamManagement.health.unified.disclaimer') }}</p>
         </div>
       </HelpTooltip>
 
-      <HelpTooltip v-if="attribution" trigger="click" width-class="w-96 max-w-[calc(100vw-2rem)]" trigger-class="!ml-0 max-w-full">
-        <template #trigger>
-          <button
-            type="button"
-            data-test="attribution-badge"
-            :data-attribution-status="attribution.status"
-            :aria-label="`${t('admin.upstreamManagement.health.attribution.title')} · ${attributionLabel}`"
-            :class="['inline-flex min-h-6 max-w-full items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-current focus-visible:ring-offset-2', attributionBadgeClass]"
-          >
-            <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-current" />
-            <span class="truncate">{{ attributionLabel }}</span>
-          </button>
-        </template>
-        <div data-test="attribution-details" class="max-h-[65vh] space-y-3 overflow-y-auto pr-4">
-          <div class="border-b border-white/10 pb-2">
-            <div class="font-medium text-gray-100">{{ t('admin.upstreamManagement.health.attribution.title') }}</div>
-            <div class="mt-1 text-gray-300">{{ attributionLabel }}</div>
-          </div>
-          <dl class="grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)] gap-x-3 gap-y-1">
-            <template v-if="attribution.platform || platform">
-              <dt class="text-gray-300">{{ t('admin.upstreamManagement.health.attribution.platform') }}</dt>
-              <dd class="break-all text-right">{{ attribution.platform || platform || '-' }}</dd>
-            </template>
-            <template v-if="attribution.model">
-              <dt class="text-gray-300">{{ t('admin.upstreamManagement.health.attribution.model') }}</dt>
-              <dd class="break-all text-right">{{ attribution.model }}</dd>
-            </template>
-            <template v-if="attribution.protocol">
-              <dt class="text-gray-300">{{ t('admin.upstreamManagement.health.attribution.protocol') }}</dt>
-              <dd class="break-all text-right">{{ attribution.protocol }}</dd>
-            </template>
-            <template v-if="attribution.observed_protocol">
-              <dt class="text-gray-300">{{ t('admin.upstreamManagement.health.attribution.observedProtocol') }}</dt>
-              <dd data-test="attribution-observed-protocol" class="break-all text-right">{{ attribution.observed_protocol }}</dd>
-            </template>
-            <template v-if="attribution.protocol_status">
-              <dt class="text-gray-300">{{ t('admin.upstreamManagement.health.attribution.protocolStatus') }}</dt>
-              <dd data-test="attribution-protocol-status" class="break-all text-right">{{ attributionProtocolLabel }}</dd>
-            </template>
-          </dl>
-          <p v-if="attribution.protocol_reason" data-test="attribution-protocol-reason" class="text-amber-200">{{ safeAttributionReason(attribution.protocol_reason) }}</p>
-          <div v-if="attributionMethods.length" class="space-y-2 border-t border-white/10 pt-2">
-            <div class="font-medium">{{ t('admin.upstreamManagement.health.attribution.methods') }}</div>
-            <div v-for="method in attributionMethods" :key="method.id" class="rounded border border-white/10 bg-white/5 p-2">
-              <div class="flex items-center justify-between gap-3">
-                <span class="break-all">{{ method.id }}</span>
-                <span :data-test="`attribution-method-${method.id}`" class="shrink-0 text-gray-200">{{ attributionMethodLabel(method.status) }}</span>
-              </div>
-              <div class="mt-1 text-gray-300 tabular-nums">
-                {{ t('admin.upstreamManagement.health.attribution.samples') }} {{ method.sample_count }} / {{ method.minimum_samples }}
-              </div>
-              <div v-if="method.baseline_version" class="mt-1 break-all text-gray-400">{{ t('admin.upstreamManagement.health.attribution.baseline') }}: {{ method.baseline_version }}</div>
-              <div v-if="method.reason" class="mt-1 text-gray-400">{{ safeAttributionReason(method.reason) }}</div>
-            </div>
-          </div>
-          <p v-if="attribution.reason" class="border-t border-white/10 pt-2 text-gray-300">{{ safeAttributionReason(attribution.reason) }}</p>
-          <p class="border-t border-white/10 pt-2 text-gray-400">{{ t('admin.upstreamManagement.health.attribution.disclaimer') }}</p>
-        </div>
-      </HelpTooltip>
-
-      <HelpTooltip v-if="!distribution && showConfidence" width-class="w-96 max-w-[calc(100vw-2rem)]" trigger-class="!ml-0">
-      <template #trigger>
-        <span data-test="confidence-badge" :class="['inline-flex min-h-6 items-center rounded-md px-2 py-1 text-xs font-medium', confidenceBadgeClass]">
-          {{ t('admin.upstreamManagement.health.confidenceLabel') }} {{ formatScore(health?.confidence_score_24h) }} / {{ formatScore(health?.confidence_score_7d) }}
-        </span>
-      </template>
-      <div class="mb-1 font-medium text-violet-200">{{ t('admin.upstreamManagement.health.confidenceTitle') }}</div>
-      <div>{{ t('admin.upstreamManagement.health.confidence24h') }}: {{ ratioLine('24h') }}</div>
-      <div>{{ t('admin.upstreamManagement.health.confidence7d') }}: {{ ratioLine('7d') }}</div>
-      <div class="text-gray-300">{{ t('admin.upstreamManagement.health.confidenceFormula') }}</div>
-      <div>{{ t('admin.upstreamManagement.health.networkErrors') }}: {{ health?.confidence_network_error_24h || 0 }}（{{ t('admin.upstreamManagement.health.excludedFromScore') }}）</div>
-      <div>{{ t('admin.upstreamManagement.health.mixedCount') }}: {{ health?.confidence_mixed_24h || 0 }} · {{ t('admin.upstreamManagement.health.unsuccessfulCount') }}: {{ health?.confidence_unsuccessful_24h || 0 }}</div>
-      <div class="mt-2 border-t border-white/10 pt-2 font-medium">{{ t('admin.upstreamManagement.health.latestEvidence') }}</div>
-      <template v-if="evidence">
-        <div>{{ t('admin.upstreamManagement.health.probeKind') }}: {{ evidenceKindLabel }}</div>
-        <div v-if="evidence.claimed_model">{{ t('admin.upstreamManagement.health.claimedModel') }}: {{ evidence.claimed_model }}</div>
-        <div v-if="evidence.requested_effort">{{ t('admin.upstreamManagement.health.requestedEffort') }}: {{ evidence.requested_effort }}</div>
-        <div v-if="expectedLabel">{{ expectedLabel }}: {{ evidenceExpected || '-' }}</div>
-        <div>{{ t('admin.upstreamManagement.health.observedValue') }}: {{ evidenceObserved || t('admin.upstreamManagement.health.noResponse') }}</div>
-        <div>{{ t('admin.upstreamManagement.health.verdict') }}: {{ evidenceVerdict }}</div>
-        <div v-if="mixedModels">{{ t('admin.upstreamManagement.health.matchedOtherModels') }}: {{ mixedModels }}</div>
-      </template>
-      <template v-else>
-        <div>{{ t('admin.upstreamManagement.health.verdict') }}: {{ evidenceVerdict }}</div>
-        <div class="text-gray-300">{{ t('admin.upstreamManagement.health.legacyEvidence') }}</div>
-      </template>
-      <div class="mt-2 border-t border-white/10 pt-2">{{ t('admin.upstreamManagement.health.reasoningTokens') }}: {{ health?.confidence_reasoning_tokens ?? '-' }}</div>
-      <div class="text-gray-300">{{ t('admin.upstreamManagement.health.reasoningTokensHint') }}</div>
-      <div>{{ t('admin.upstreamManagement.health.promptVersion') }}: {{ health?.confidence_prompt_version || '-' }}</div>
-      <div>{{ t('admin.upstreamManagement.health.hardAnomaly24h') }}: {{ hardAnomalyLabel }}</div>
-      <div class="mt-1 text-gray-300">{{ t('admin.upstreamManagement.health.confidenceDisclaimer') }}</div>
-      </HelpTooltip>
     </div>
 
     <span
@@ -250,7 +154,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
-import type { Account } from '@/types'
+import type { Account, UpstreamConfidenceAttributionMethod } from '@/types'
 import { formatDateTime } from '@/utils/format'
 import UpstreamHealthHistory from './UpstreamHealthHistory.vue'
 
@@ -266,84 +170,54 @@ const emit = defineEmits<{ (event: 'showHistory'): void }>()
 const { t, te } = useI18n()
 
 const health = computed(() => props.snapshot ?? props.account?.upstream_health)
-const platform = computed(() => props.platform ?? props.account?.platform)
 const schedulable = computed(() => props.schedulable ?? props.account?.schedulable)
-const distribution = computed(() => platform.value?.toLowerCase() === 'openai'
-  ? health.value?.confidence_distribution : undefined)
-const attribution = computed(() => health.value?.confidence_attribution ?? undefined)
-const attributionLabel = computed(() => t(`admin.upstreamManagement.health.attribution.statuses.${attribution.value?.status || 'unknown'}`))
-const attributionProtocolLabel = computed(() => t(`admin.upstreamManagement.health.attribution.protocolStatuses.${attribution.value?.protocol_status || 'unknown'}`))
-const attributionBadgeClass = computed(() => {
-  switch (attribution.value?.status) {
-    case 'confirmed_match': return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
-    case 'confirmed_mismatch': return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
-    case 'provisional_match': return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
-    case 'provisional_mismatch': return 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300'
-    case 'conflict': return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
-    case 'insufficient': return 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300'
-    default: return 'bg-gray-100 text-gray-600 dark:bg-dark-700 dark:text-gray-300'
-  }
+const unifiedConfidence = computed(() => health.value?.confidence_summary ?? undefined)
+const attributionProtocolLabel = computed(() => t(`admin.upstreamManagement.health.attribution.protocolStatuses.${unifiedConfidence.value?.protocol_status || 'unknown'}`))
+const unifiedConfidenceLabel = computed(() => {
+  const summary = unifiedConfidence.value
+  const label = t(`admin.upstreamManagement.health.unified.statuses.${summary?.status || 'insufficient'}`)
+  return summary?.status === 'suspected' && summary.candidate_model
+    ? `${label} · ${confidenceModelLabel(summary.candidate_model)}` : label
 })
-const attributionMethods = computed(() => Object.entries(attribution.value?.methods || {})
-  .sort(([left], [right]) => left.localeCompare(right))
-  .map(([id, method]) => ({ id, ...method })))
-function attributionMethodLabel(status: string) {
-  const key = `admin.upstreamManagement.health.attribution.methodStatuses.${status}`
-  return te(key) ? t(key) : t('admin.upstreamManagement.health.attribution.methodStatuses.unknown')
-}
-function safeAttributionReason(reason: string) {
-  const key = `admin.upstreamManagement.health.attribution.reasons.${reason}`
-  return te(key) ? t(key) : t('admin.upstreamManagement.health.attribution.reasons.other')
-}
-const distributionCurrentPolicy = computed(() => distribution.value?.sampling_policy_version === 2)
-const distributionLabel = computed(() => {
-  if (!distributionCurrentPolicy.value) return t('admin.upstreamManagement.health.distribution.waitingResample')
-  switch (distribution.value?.status) {
-    case 'collecting': return t('admin.upstreamManagement.health.distribution.collecting', { count: distribution.value.valid_samples, total: distribution.value.window_size })
-    case 'match': return t('admin.upstreamManagement.health.distribution.match')
-    case 'mismatch': return t('admin.upstreamManagement.health.distribution.mismatch', { model: distributionModelLabel(distribution.value.closest_model || 'other_known_external') })
-    default: return t('admin.upstreamManagement.health.distribution.insufficient')
-  }
-})
-const distributionBadgeClass = computed(() => {
-  switch (distributionCurrentPolicy.value ? distribution.value?.status : 'collecting') {
+const unifiedConfidenceClass = computed(() => {
+  switch (unifiedConfidence.value?.status) {
     case 'match': return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
-    case 'mismatch': return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
+    case 'suspected': return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
     case 'insufficient': return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
     default: return 'bg-gray-100 text-gray-600 dark:bg-dark-700 dark:text-gray-300'
   }
 })
-const distributionCandidates = computed(() => Object.entries(distributionCurrentPolicy.value && distribution.value &&
-  distribution.value.valid_samples >= distribution.value.window_size && distribution.value.status !== 'collecting'
-  ? distribution.value.matches : {})
-  .map(([model, score]) => ({ model, score }))
-  .sort((a, b) => b.score - a.score || a.model.localeCompare(b.model)))
-const distributionCells = computed(() => [
-  { id: 'gpt__screen067', label: t('admin.upstreamManagement.health.distribution.punctuation') },
-  { id: 'gpt__screen101', label: t('admin.upstreamManagement.health.distribution.country') },
-  { id: 'gpt__screen108', label: t('admin.upstreamManagement.health.distribution.integer') }
-].flatMap(cell => {
-  const value = distribution.value?.cells?.[cell.id]
-  return value ? [{ ...cell, value, answers: Object.entries(value.counts || {})
-    .map(([value, count]) => ({ value, count })).sort((a, b) => b.count - a.count || a.value.localeCompare(b.value)) }] : []
-}))
-const distributionReasons = computed(() => (distribution.value?.reasons || []).map(reason => {
-  const key = `admin.upstreamManagement.health.distribution.reasons.${reason}`
-  return te(key) ? t(key) : reason
-}))
-const knownDistributionResetReasons = new Set([
-  'binding_changed', 'protocol_changed', 'endpoint_changed', 'credential_changed',
-  'model_changed', 'proxy_changed', 'headers_changed', 'contract_changed',
-  'baseline_changed', 'legacy_identity_unverifiable', 'sampling_policy_changed'
-])
-const distributionResetReasons = computed(() => [...new Set((distribution.value?.series_reset?.reasons || []).map(reason =>
-  t(`admin.upstreamManagement.health.distribution.resetReasons.${knownDistributionResetReasons.has(reason) ? reason : 'unknown'}`)
-))])
-function distributionModelLabel(model: string) {
-  const names: Record<string, string> = { 'gpt-6.1-sol': 'Sol', 'gpt-6-astra': 'Astra', 'gpt-5.6-terra': 'Terra', 'gpt-6-luna': 'Luna', other_known_external: 'other' }
+const confidenceMethods = computed(() => Object.entries(unifiedConfidence.value?.methods || {})
+  .filter(([id]) => id !== 'behavioral')
+  .sort(([left], [right]) => {
+    const order = ['distribution', 'modeltrace_numeric', 'chanshui_behavioral', 'behavioral']
+    const a = order.indexOf(left), b = order.indexOf(right)
+    return (a === -1 ? 99 : a) - (b === -1 ? 99 : b) || left.localeCompare(right)
+  })
+  .map(([id, method]) => ({ id, ...method })))
+function confidenceCandidate(method: UpstreamConfidenceAttributionMethod) {
+  return method.candidate_model ? confidenceModelLabel(method.candidate_model)
+    : method.candidates?.[0]?.display_name || method.candidates?.[0]?.model_id || '-'
+}
+function attributionMethodLabel(status: string) {
+  const key = `admin.upstreamManagement.health.attribution.methodStatuses.${status}`
+  return te(key) ? t(key) : t('admin.upstreamManagement.health.attribution.methodStatuses.unknown')
+}
+function attributionMethodName(id: string) {
+  const key = `admin.upstreamManagement.health.attribution.methodNames.${id}`
+  return te(key) ? t(key) : id
+}
+function safeConfidenceReason(reason: string) {
+  for (const section of ['unified', 'attribution', 'distribution']) {
+    const key = `admin.upstreamManagement.health.${section}.reasons.${reason}`
+    if (te(key)) return t(key)
+  }
+  return t('admin.upstreamManagement.health.attribution.reasons.other')
+}
+function confidenceModelLabel(model: string) {
+  const names: Record<string, string> = { 'gpt-6.1-sol': 'Sol', 'gpt-6-astra': 'Astra', 'gpt-5.6-terra': 'Terra', 'gpt-6-luna': 'Luna', other_known_external: t('admin.upstreamManagement.health.unified.otherModel'), other: t('admin.upstreamManagement.health.unified.otherModel') }
   return names[model] || model
 }
-function formatDistributionScore(score: number) { return Number.isFinite(score) ? score.toFixed(6) : '--' }
 
 const healthStateLabel = computed(() => {
   const state = health.value?.status
@@ -386,39 +260,4 @@ const healthReasonLabel = computed(() => {
   return te(key) ? t(key) : reason
 })
 
-const showConfidence = computed(() =>
-  platform.value?.toLowerCase() === 'openai' &&
-  health.value?.confidence_prompt_version === 'openai-juice-multiprobe-v2' &&
-  ((health.value?.confidence_valid_completed_24h || health.value?.confidence_sample_count_24h || 0) > 0 ||
-    (health.value?.confidence_valid_completed_7d || health.value?.confidence_sample_count_7d || 0) > 0 ||
-    (health.value?.confidence_coverage_hard_anomaly_24h || 0) > 0 ||
-    (health.value?.confidence_output_rewrite_24h || 0) > 0 ||
-    Boolean(health.value?.confidence_evidence))
-)
-const evidence = computed(() => health.value?.confidence_evidence as Record<string, unknown> | undefined)
-const hardAnomaly = computed(() => (health.value?.confidence_coverage_hard_anomaly_24h || 0) > 0 || (health.value?.confidence_output_rewrite_24h || 0) > 0)
-const confidenceBadgeClass = computed(() => hardAnomaly.value
-  ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
-  : 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300')
-const evidenceKindLabel = computed(() => t(`admin.upstreamManagement.health.probeKinds.${String(evidence.value?.kind || 'juice')}`))
-const evidenceExpected = computed(() => String(evidence.value?.expected_value ?? evidence.value?.synthetic_value ?? ''))
-const evidenceObserved = computed(() => String(evidence.value?.observed_value ?? evidence.value?.normalized_value ?? ''))
-const expectedLabel = computed(() => evidence.value?.kind === 'coverage'
-  ? t('admin.upstreamManagement.health.syntheticValue')
-  : evidence.value?.kind === 'output_integrity' ? t('admin.upstreamManagement.health.expectedOutput') : t('admin.upstreamManagement.health.expectedJuice'))
-const evidenceVerdict = computed(() => t(`admin.upstreamManagement.health.confidenceStatuses.${String(evidence.value?.classification || health.value?.confidence_status || 'data_insufficient')}`))
-const mixedModels = computed(() => Array.isArray(evidence.value?.mixed_models) ? (evidence.value?.mixed_models as string[]).join(', ') : '')
-const hardAnomalyLabel = computed(() => {
-  const parts: string[] = []
-  if ((health.value?.confidence_coverage_hard_anomaly_24h || 0) > 0) parts.push(t('admin.upstreamManagement.health.coverageAnomaly'))
-  if ((health.value?.confidence_output_rewrite_24h || 0) > 0) parts.push(t('admin.upstreamManagement.health.outputRewrite'))
-  return parts.length ? parts.join('、') : t('admin.upstreamManagement.health.none')
-})
-function ratioLine(window: '24h' | '7d') {
-  const success = window === '24h' ? health.value?.confidence_current_success_24h : health.value?.confidence_current_success_7d
-  const valid = window === '24h' ? health.value?.confidence_valid_completed_24h : health.value?.confidence_valid_completed_7d
-  const score = window === '24h' ? health.value?.confidence_score_24h : health.value?.confidence_score_7d
-  return valid ? `${success || 0} / ${valid} = ${formatScore(score)}%` : t('admin.upstreamManagement.health.dataInsufficient')
-}
-function formatScore(score: number | undefined) { return score === undefined || score === null ? '--' : Math.round(score).toString() }
 </script>
