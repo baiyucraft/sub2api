@@ -94,16 +94,22 @@ func (e *Engine) readAccount(tx Tx, r Request, s Settings, now time.Time) (Accou
 func (e *Engine) refreshAccounts(ctx context.Context) error {
 	// Refresh may be triggered by both the runner and an explicit rebuild. A
 	// slower earlier read must never publish over a later successful refresh.
-	e.refreshMu.Lock()
+	lockDone := MeasureStage(ctx, "refresh_lock")
+	lockErr := e.refreshMu.Lock(ctx)
+	lockDone()
+	if lockErr != nil {
+		return &RefreshStageError{Stage: "refresh_lock", Err: lockErr}
+	}
 	defer e.refreshMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return &RefreshStageError{Stage: "identity_versions", Err: err}
+	}
 	store, ok := e.store.(AccountStore)
 	if !ok {
 		return ErrUnavailable
 	}
-	s := e.Settings()
+	s, epoch, activePolicies := e.refreshConfiguration()
 	now := e.now().UTC()
-	epoch := e.policyEpoch.Load()
-	activePolicies := e.activePolicies()
 	incremental, optimized := e.store.(IncrementalStore)
 	reconcileDue, pageEnd := false, 0
 	var versions []IdentityVersion
@@ -116,7 +122,10 @@ func (e *Engine) refreshAccounts(ctx context.Context) error {
 	processed := map[string]bool{}
 	nextCursor := e.refreshCursor
 	if optimized {
-		versions, err = incremental.IdentityVersions(ctx)
+		err = runRefreshStage(ctx, "identity_versions", func() error {
+			versions, err = incremental.IdentityVersions(ctx)
+			return err
+		})
 		if err != nil {
 			return err
 		}
@@ -195,18 +204,30 @@ func (e *Engine) refreshAccounts(ctx context.Context) error {
 			}
 		}
 		e.mu.Unlock()
-		rows, err = incremental.ActiveRuntimeRows(ctx, active, now.Add(-30*time.Minute))
+		err = runRefreshStage(ctx, "active_runtime_rows", func() error {
+			rows, err = incremental.ActiveRuntimeRows(ctx, active, now.Add(-30*time.Minute))
+			return err
+		})
 	} else {
-		rows, err = e.store.Rows(ctx, nil)
+		err = runRefreshStage(ctx, "active_runtime_rows", func() error {
+			rows, err = e.store.Rows(ctx, nil)
+			return err
+		})
 	}
 	if err != nil {
 		return err
 	}
 	var accountRows []AccountRuntimeRow
 	if optimized {
-		accountRows, err = incremental.AccountRowsFor(ctx, ids)
+		err = runRefreshStage(ctx, "account_rows", func() error {
+			accountRows, err = incremental.AccountRowsFor(ctx, ids)
+			return err
+		})
 	} else {
-		accountRows, err = store.AccountRows(ctx)
+		err = runRefreshStage(ctx, "account_rows", func() error {
+			accountRows, err = store.AccountRows(ctx)
+			return err
+		})
 	}
 	if err != nil {
 		return err
@@ -287,7 +308,12 @@ func (e *Engine) refreshAccounts(ctx context.Context) error {
 			}
 		}
 		e.mu.RUnlock()
-		health, err := admissionStore.AdmissionHealth(ctx, now.Add(-RefreshLifetime), failures)
+		var health AdmissionHealth
+		err := runRefreshStage(ctx, "admission_health", func() error {
+			var err error
+			health, err = admissionStore.AdmissionHealth(ctx, now.Add(-RefreshLifetime), failures)
+			return err
+		})
 		if err != nil {
 			return err
 		}
@@ -331,6 +357,7 @@ func (e *Engine) refreshAccounts(ctx context.Context) error {
 	defer materializeCancel()
 	eligibleIDs := make([]int64, 0, len(ids))
 	returned := map[string]bool{}
+	materializeDone := MeasureStage(ctx, "account_materialize")
 	for _, row := range accountRows {
 		id := accountIdentity(row.AccountID, row.UpstreamKeyID)
 		returned[id] = true
@@ -380,7 +407,7 @@ func (e *Engine) refreshAccounts(ctx context.Context) error {
 			return err
 		}); err != nil {
 			gaps[id] = true
-			accountErrors = append(accountErrors, err)
+			accountErrors = append(accountErrors, &RefreshStageError{Stage: "account_materialize", Err: err})
 			deferred[id] = true
 		} else {
 			eligibleIDs = append(eligibleIDs, row.AccountID)
@@ -388,6 +415,7 @@ func (e *Engine) refreshAccounts(ctx context.Context) error {
 			nextCursor = sort.Search(len(versions), func(i int) bool { return versions[i].AccountID > row.AccountID })
 		}
 	}
+	materializeDone()
 	if optimized {
 		// The directory can expose a fact-only identity before its typed account
 		// row is materialized. Do not let the shared LoadedAt make that identity
@@ -413,15 +441,26 @@ func (e *Engine) refreshAccounts(ctx context.Context) error {
 	}
 	var windows map[string]AccountWindow
 	if optimized {
-		windows, err = incremental.AccountWindowsFor(ctx, ids, now.Add(-time.Duration(s.WindowMinutes)*time.Minute), now)
+		err = runRefreshStage(ctx, "account_windows", func() error {
+			windows, err = incremental.AccountWindowsFor(ctx, ids, now.Add(-time.Duration(s.WindowMinutes)*time.Minute), now)
+			return err
+		})
 	} else {
-		windows, err = store.AccountWindows(ctx, now.Add(-time.Duration(s.WindowMinutes)*time.Minute), now)
+		err = runRefreshStage(ctx, "account_windows", func() error {
+			windows, err = store.AccountWindows(ctx, now.Add(-time.Duration(s.WindowMinutes)*time.Minute), now)
+			return err
+		})
 	}
 	if err != nil {
 		return err
 	}
 	if optimized {
-		confirmed, checkErr := incremental.IdentityVersions(ctx)
+		var confirmed []IdentityVersion
+		checkErr := runRefreshStage(ctx, "identity_recheck", func() error {
+			var err error
+			confirmed, err = incremental.IdentityVersions(ctx)
+			return err
+		})
 		if checkErr != nil {
 			return checkErr
 		}
@@ -467,6 +506,10 @@ func (e *Engine) refreshAccounts(ctx context.Context) error {
 		return errors.New("cache guard account window bound exceeded")
 	}
 	e.mu.Lock()
+	if err := ctx.Err(); err != nil {
+		e.mu.Unlock()
+		return &RefreshStageError{Stage: "publish", Err: err}
+	}
 	// A different worker may have completed a retried delivery. Its durable
 	// admission acknowledgment also releases this instance's transient marker.
 	for id, keys := range acknowledged {
@@ -526,6 +569,10 @@ func (e *Engine) refreshAccounts(ctx context.Context) error {
 		}
 	}
 	e.mu.Lock()
+	if err := ctx.Err(); err != nil {
+		e.mu.Unlock()
+		return &RefreshStageError{Stage: "publish", Err: err}
+	}
 	// A completion can fail while a refresh reads the database. Do not publish
 	// a new success timestamp over a failure observed during that read.
 	for id := range e.samplingFailures {
@@ -545,6 +592,14 @@ func (e *Engine) refreshAccounts(ctx context.Context) error {
 				sessions[key] = session
 			}
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		e.mu.Unlock()
+		return &RefreshStageError{Stage: "publish", Err: err}
+	}
+	if epoch != e.policyEpoch.Load() {
+		e.mu.Unlock()
+		return &RefreshStageError{Stage: "publish", Err: ErrUnavailable}
 	}
 	e.groups, e.sessions, e.accounts, e.accountGaps, e.loadedAt = groups, sessions, accounts, gaps, now
 	if optimized {

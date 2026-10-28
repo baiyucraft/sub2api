@@ -130,9 +130,70 @@ describe('UpstreamProtectionStatus', () => {
     Object.assign(unavailable.cache!, { state: 'unavailable', reason: 'snapshot_unavailable', rate_percent: null, valid_requests: 0, updated_at: null })
     unavailable.groups.forEach(item => Object.assign(item.cache, { state: 'unavailable', reason: 'snapshot_unavailable', rate_percent: null, valid_requests: 0, updated_at: null }))
     await wrapper.setProps({ account: { id: 1, name: '上游账号', upstream_protection: unavailable } as Account })
-    expect(wrapper.get('[data-test="protection-cache-summary"]').text()).toBe('缓存 未知 · 样本不足')
+    expect(wrapper.get('[data-test="protection-cache-summary"]').text()).toBe('缓存 未知 · 暂不可用')
     expect(wrapper.get('[data-test="protection-cache-metrics"]').text()).not.toContain('82.6%')
     expect(wrapper.get('[data-test="protection-cache-metrics"]').text()).toContain('未知')
+  })
+
+  it('prioritizes unavailable cache states over retained display states and shows the snapshot reason', async () => {
+    const value = protection()
+    value.cache!.state = 'unavailable'
+    value.groups.forEach(item => Object.assign(item.cache, { state: 'unavailable', display_state: 'protected', reason: 'snapshot_unavailable' }))
+    const wrapper = render(value)
+    const summary = wrapper.get('[data-test="protection-cache-summary"]')
+    expect(summary.text()).toBe('缓存 未知 · 暂不可用')
+    expect(summary.text()).not.toContain('组保护')
+    expect(summary.attributes('aria-label')).toContain('缓存 未知 · 暂不可用')
+    await summary.trigger('click')
+    const details = wrapper.get('[data-protection-group="1"] [data-test="protection-group-cache"]')
+    expect(details.get('.state-badge').text()).toBe('暂不可用')
+    expect(details.text()).toContain('共享状态暂不可用')
+  })
+
+  it.each(['normal', 'protected', 'insufficient'] as const)('shows partial cache unavailability alongside a known %s group', async state => {
+    const value = protection()
+    Object.assign(value.groups[0].cache, { state, display_state: state })
+    Object.assign(value.groups[1].cache, { state: 'unavailable', display_state: 'insufficient', reason: 'snapshot_unavailable' })
+    const wrapper = render(value)
+    const summary = wrapper.get('[data-test="protection-cache-summary"]')
+    expect(summary.text()).toBe(`缓存 82.6% · ${state === 'protected' ? '1组保护 · ' : ''}部分状态暂不可用`)
+    expect(summary.text()).not.toContain('样本不足')
+    if (state === 'protected') expect(summary.classes()).toContain('text-amber-800')
+    await summary.trigger('click')
+    expect(wrapper.get('[data-protection-group="1"] [data-test="protection-group-cache"] .state-badge').text()).toBe(state === 'normal' ? '正常' : state === 'protected' ? '保护' : '样本不足')
+    expect(wrapper.get('[data-protection-group="2"] [data-test="protection-group-cache"] .state-badge').text()).toBe('暂不可用')
+  })
+
+  it('keeps genuine insufficient cache samples distinct from unavailable snapshots', () => {
+    const value = protection()
+    Object.assign(value.cache!, { state: 'insufficient', rate_percent: null, reason: 'insufficient_samples' })
+    value.groups.forEach(item => Object.assign(item.cache, { state: 'insufficient', display_state: 'insufficient', reason: 'insufficient_samples' }))
+    const wrapper = render(value)
+    expect(wrapper.get('[data-test="protection-cache-summary"]').text()).toBe('缓存 未知 · 样本不足')
+  })
+
+  it('shows an unavailable cache summary without group projections', () => {
+    const value = protection()
+    value.groups = []
+    Object.assign(value.cache!, { state: 'unavailable', reason: 'snapshot_unavailable', rate_percent: null })
+    const wrapper = render(value)
+    expect(wrapper.get('[data-test="protection-cache-summary"]').text()).toBe('缓存 未知 · 暂不可用')
+  })
+
+  it('does not include excluded groups in cache unavailability', () => {
+    const value = protection()
+    Object.assign(value.groups[0].cache, { state: 'normal', display_state: 'normal' })
+    value.groups[1].platform_selected = false
+    Object.assign(value.groups[1].cache, { state: 'unavailable', reason: 'snapshot_unavailable' })
+    const wrapper = render(value)
+    expect(wrapper.get('[data-test="protection-cache-summary"]').text()).toBe('缓存 82.6% · 正常')
+  })
+
+  it('provides matching Chinese and English cache availability labels', () => {
+    expect(locale.upstreamManagement.protection.state.unavailable).toBe('暂不可用')
+    expect(locale.upstreamManagement.protection.state.partial_unavailable).toBe('部分状态暂不可用')
+    expect(enLocale.upstreamManagement.protection.state.unavailable).toBe('Unavailable')
+    expect(enLocale.upstreamManagement.protection.state.partial_unavailable).toBe('Some states are unavailable')
   })
 
   it.each(['insufficient', 'expired', 'unavailable', 'disabled'] as const)('does not infer normal from an empty model list (%s)', async state => {
