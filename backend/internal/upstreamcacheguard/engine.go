@@ -30,7 +30,7 @@ type Engine struct {
 	store                      Store
 	settings                   atomic.Pointer[Settings]
 	policies                   atomic.Pointer[map[int64]Settings]
-	refreshMu                  sync.Mutex
+	refreshMu                  refreshLock
 	mu                         sync.RWMutex
 	groups                     map[int64]Snapshot
 	accounts                   map[string]AccountSnapshot

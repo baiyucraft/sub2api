@@ -287,7 +287,7 @@ func TestUpstreamCacheGuardAccountWindowsAggregatesCurrentKey(t *testing.T) {
 	columns := []string{"account_id", "upstream_key_id", "version", "state_json", "valid_requests", "input_tokens", "read_tokens", "trial_valid_requests", "trial_input_tokens", "trial_read_tokens", "trial_sessions", "last_evidence_at", "oldest", "future", "group_ids", "trial_group_ids", "policy_windows"}
 	firstState, _ := json.Marshal(upstreamcacheguard.AccountState{AccountID: 2, UpstreamKeyID: 5})
 	secondState, _ := json.Marshal(upstreamcacheguard.AccountState{AccountID: 3, UpstreamKeyID: 6})
-	mock.ExpectQuery(`(?s)WITH eligible AS .*fact.processed=TRUE AND fact.valid_sample=TRUE.*fact.completed_at <= \$2.*legacy_quality_since.*COUNT\(DISTINCT \(fact.group_id,fact.session_key\)\).*LIMIT \$3`).WithArgs(since, until, upstreamcacheguard.MaxRuntimeRows+1, sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows(columns).
+	mock.ExpectQuery(`(?s)WITH states AS MATERIALIZED .*fact.processed=TRUE AND fact.valid_sample=TRUE.*fact.completed_at <= \$2.*legacy_quality_since.*COUNT\(DISTINCT \(fact.group_id,fact.session_key\)\).*LIMIT \$3`).WithArgs(since, until, upstreamcacheguard.MaxRuntimeRows+1, sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows(columns).
 		AddRow(2, 5, 4, firstState, 2, 110, 60, 1, 10, 0, 1, since.Add(time.Second), since.Add(time.Second), nil, "{9,10}", "{10}", "{}").
 		AddRow(3, 6, 1, secondState, 0, 0, 0, 0, 0, 0, 0, nil, nil, nil, nil, nil, "{}"))
 	windows, err := repo.AccountWindows(context.Background(), since, until)
@@ -318,7 +318,7 @@ func TestUpstreamCacheGuardAccountWindowsForFiltersOuterAccountRows(t *testing.T
 	now := time.Date(2026, 10, 17, 0, 0, 0, 0, time.UTC)
 	// Filtering only eligible facts still returns every LEFT JOIN account with
 	// zero metrics. The account relation itself must have the same restriction.
-	mock.ExpectQuery(`(?s)LEFT JOIN eligible AS fact ON .*\s+WHERE \(\$4::bigint\[\] IS NULL OR state.account_id=ANY\(\$4\)\)\s+GROUP BY`).
+	mock.ExpectQuery(`(?s)WITH states AS MATERIALIZED \(.*FROM upstream_cache_guard_accounts AS state.*WHERE \(\$4::bigint\[\] IS NULL OR state.account_id=ANY\(\$4\)\).*FROM states AS state.*LEFT JOIN account_metrics AS fact ON`).
 		WithArgs(now.Add(-time.Hour), now, upstreamcacheguard.MaxRuntimeRows+1, "{2}").
 		WillReturnRows(sqlmock.NewRows([]string{"account_id", "upstream_key_id", "version", "state_json", "valid_requests", "input_tokens", "read_tokens", "trial_valid_requests", "trial_input_tokens", "trial_read_tokens", "trial_sessions", "last_evidence_at", "oldest", "future", "group_ids", "trial_group_ids", "policy_windows"}).
 			AddRow(2, 5, 4, `{"account_id":2,"upstream_key_id":5}`, 2, 110, 60, 0, 0, 0, 0, now, now, nil, "{1}", nil, "{}"))
@@ -346,7 +346,7 @@ func TestUpstreamCacheGuardAccountWindowDecodeFailureIsIsolated(t *testing.T) {
 			repo := NewUpstreamCacheGuardRepository(db).(upstreamcacheguard.AccountStore)
 			now := time.Now().UTC()
 			columns := []string{"account_id", "upstream_key_id", "version", "state_json", "valid_requests", "input_tokens", "read_tokens", "trial_valid_requests", "trial_input_tokens", "trial_read_tokens", "trial_sessions", "last_evidence_at", "oldest", "future", "group_ids", "trial_group_ids", "policy_windows"}
-			mock.ExpectQuery(`(?s)WITH eligible AS`).WillReturnRows(sqlmock.NewRows(columns).
+			mock.ExpectQuery(`(?s)WITH states AS MATERIALIZED`).WillReturnRows(sqlmock.NewRows(columns).
 				AddRow(2, 5, 1, invalid.state, 0, 0, 0, 0, 0, 0, 0, nil, nil, nil, nil, nil, invalid.policy).
 				AddRow(3, 6, 1, `{"account_id":3,"upstream_key_id":6}`, 21, 1000, 900, 0, 0, 0, 0, nil, nil, nil, nil, nil, `{}`))
 			windows, err := repo.AccountWindows(context.Background(), now.Add(-time.Hour), now)

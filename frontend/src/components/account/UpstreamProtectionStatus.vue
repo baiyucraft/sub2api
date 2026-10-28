@@ -3,7 +3,7 @@
     <button v-if="platformExcluded" type="button" data-test="protection-platform-summary" :aria-label="`${t('admin.upstreamManagement.protection.viewDetails')}：${stateLabel('platform_not_selected')}`" aria-haspopup="dialog" :aria-expanded="show" :class="['protection-summary', stateClass('platform_not_selected')]" @click="show = true">
       <Icon name="shield" size="xs" /><span class="truncate">{{ t('admin.upstreamManagement.protection.action') }} · {{ stateLabel('platform_not_selected') }}</span><Icon name="chevronRight" size="xs" />
     </button>
-    <button v-else-if="cache || groups.length" type="button" data-test="protection-cache-summary" :aria-label="`${t('admin.upstreamManagement.protection.viewCacheDetails')}：${cacheSummary}`" aria-haspopup="dialog" :aria-expanded="show" :class="['protection-summary', stateClass(cacheDisplayState)]" @click="show = true">
+    <button v-else-if="cache || groups.length" type="button" data-test="protection-cache-summary" :aria-label="`${t('admin.upstreamManagement.protection.viewCacheDetails')}：${cacheSummary}`" aria-haspopup="dialog" :aria-expanded="show" :class="['protection-summary', stateClass(cacheProtectedGroups ? 'protected' : cacheDisplayState)]" @click="show = true">
       <Icon name="shield" size="xs" />
       <span class="truncate">{{ cacheSummary }}</span>
       <Icon name="chevronRight" size="xs" />
@@ -147,17 +147,26 @@ function displayState(state: string, current?: UpstreamProtectionDisplayState): 
   if (isProtected(state)) return 'protected'
   return state === 'normal' || state === 'healthy' ? 'normal' : 'insufficient'
 }
-const cacheDisplayStateFor = (item: UpstreamProtectionGroupState) => displayState(item.cache.state, item.cache.display_state)
+type CachePresentationState = UpstreamProtectionDisplayState | 'unavailable' | 'partial_unavailable'
+const cacheDisplayStateFor = (item: UpstreamProtectionGroupState): CachePresentationState => item.cache.state === 'unavailable' ? 'unavailable' : displayState(item.cache.state, item.cache.display_state)
 const ttftDisplayStateFor = ttftGroupDisplay
-function aggregateState(states: UpstreamProtectionDisplayState[]): UpstreamProtectionDisplayState {
+function aggregateState(states: CachePresentationState[]): CachePresentationState {
+  if (states.length && states.every(state => state === 'unavailable')) return 'unavailable'
+  if (states.includes('unavailable')) return 'partial_unavailable'
   if (states.includes('protected')) return 'protected'
   return states.length && states.every(state => state === 'normal') ? 'normal' : 'insufficient'
 }
-const cacheDisplayState = computed(() => aggregateState(groups.value.length ? activeGroups.value.map(cacheDisplayStateFor) : cache.value ? [displayState(cache.value.state)] : []))
+const cacheDisplayState = computed(() => aggregateState(groups.value.length ? activeGroups.value.map(cacheDisplayStateFor) : cache.value ? [cache.value.state === 'unavailable' ? 'unavailable' : displayState(cache.value.state)] : []))
 const ttftPresentation = computed(() => summarizeTTFTGroups(groups.value))
 const ttftModelTotal = computed(() => Object.values(ttftPresentation.value.counts).reduce((total, count) => total + count, 0))
 const ttftDisplayState = computed(() => !protection.value && legacyTTFT.value.length ? 'protected' : ttftPresentation.value.state)
-const cacheSummary = computed(() => `${t('admin.upstreamManagement.protection.cache')} ${rateLabel(cache.value?.rate_percent)} · ${cacheProtectedGroups.value ? t('admin.upstreamManagement.protection.protectedGroups', { count: cacheProtectedGroups.value }) : stateLabel(cacheDisplayState.value)}`)
+const cacheSummary = computed(() => {
+  const state = cacheDisplayState.value
+  const unavailable = state === 'unavailable' || state === 'partial_unavailable'
+  const status = cacheProtectedGroups.value ? t('admin.upstreamManagement.protection.protectedGroups', { count: cacheProtectedGroups.value }) : stateLabel(state)
+  const availability = cacheProtectedGroups.value && unavailable ? ` · ${stateLabel(state)}` : ''
+  return `${t('admin.upstreamManagement.protection.cache')} ${rateLabel(state === 'unavailable' ? null : cache.value?.rate_percent)} · ${status}${availability}`
+})
 const ttftSummary = computed(() => `${t('admin.upstreamManagement.protection.ttft')} · ${ttftProtectedGroups.value ? t('admin.upstreamManagement.protection.protectedModelsGroups', { models: protectedModels.value, groups: ttftProtectedGroups.value }) : protection.value ? stateLabel(ttftDisplayState.value) : legacyTTFT.value.length ? t('admin.upstreamManagement.protection.protectedModels', { count: new Set(legacyTTFT.value.map(item => item.model)).size }) : stateLabel('insufficient')}`)
 const stateLabel = (state: string) => t(`admin.upstreamManagement.protection.state.${state}`)
 const hasTriggerSnapshot = (model: UpstreamTTFTModelObservation) => (model.trigger_ttft_ms ?? 0) > 0 && (model.trigger_threshold_ms ?? 0) > 0 && validDate(model.triggered_at)

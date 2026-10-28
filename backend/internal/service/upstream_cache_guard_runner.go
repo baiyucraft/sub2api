@@ -133,6 +133,10 @@ type UpstreamCacheGuardRunner struct {
 	localSettingsRevision atomic.Uint64
 	skipCounts            [cacheGuardSkipReasonCount]atomic.Uint64
 	diagnostics           cacheGuardDiagnostics
+	refreshLifecycleMu    sync.Mutex
+	refreshCtx            context.Context
+	refreshCancel         context.CancelFunc
+	refreshDiagnostics    cacheGuardRefreshDiagnostics
 }
 
 func (r *UpstreamCacheGuardRunner) recordAdmissionSkip(reason cacheGuardSkipReason, groupID, accountID int64, keyID ...int64) {
@@ -282,28 +286,68 @@ func (r *UpstreamCacheGuardRunner) cachePolicyMetadata(groupID int64) (string, s
 	return "inherit", "global"
 }
 func (r *UpstreamCacheGuardRunner) refresh() {
-	ctx, cancel := context.WithTimeout(context.Background(), 750*time.Millisecond)
+	parent := r.refreshContext()
+	ctx, cancel := context.WithTimeout(parent, cacheGuardRefreshBudget)
 	defer cancel()
+	started := time.Now()
+	timings := newCacheGuardRefreshTimings()
+	ctx = upstreamcacheguard.WithStageObserver(ctx, timings.observe)
+	var refreshErr error
+	var refreshFinished time.Time
+	reportRefresh := false
+	defer func() {
+		if reportRefresh && parent.Err() == nil {
+			if refreshFinished.IsZero() {
+				refreshFinished = time.Now()
+			}
+			r.refreshDiagnostics.recordAt(time.Now(), "refresh", refreshErr, refreshFinished.Sub(started), cacheGuardRefreshBudget, timings.snapshot())
+		}
+	}()
+	if ctx.Err() != nil {
+		return
+	}
 	if r.settings == nil || len(r.secret) == 0 {
 		r.available.Store(false)
 		return
 	}
+	reportRefresh = true
 	readRevision := r.localSettingsRevision.Load()
-	s, err := r.settings.GetUpstreamCacheGuardSettings(ctx)
+	var s UpstreamCacheGuardSettings
+	err := cacheGuardRefreshStage(ctx, "settings", func() error {
+		var err error
+		s, err = r.settings.GetUpstreamCacheGuardSettings(ctx)
+		return err
+	})
 	if err != nil {
+		refreshErr = err
 		r.available.Store(false)
 		return
 	}
-	if err = r.applyRecoverySettings(s, readRevision); err != nil {
+	if err = cacheGuardRefreshStage(ctx, "apply_settings", func() error { return r.applyRecoverySettings(s, readRevision) }); err != nil {
+		refreshErr = err
 		r.available.Store(false)
 		return
 	}
 	if !r.engine.AnyPolicyActive() {
+		reportRefresh = false
 		r.available.Store(false)
 		return
 	}
 	err = r.engine.Refresh(ctx)
-	delayed, pendingErr := r.store.HasPendingBefore(ctx, time.Now().UTC().Add(-upstreamcacheguard.RefreshLifetime))
+	err = errors.Join(err, ctx.Err())
+	refreshErr = err
+	refreshFinished = time.Now()
+	r.available.Store(err == nil && r.retrying.Load() == 0 && !r.lost.Load() && !r.pendingFailure.Load() && !r.closed.Load())
+	if parent.Err() != nil {
+		return
+	}
+	// Outbox health has its own diagnostic budget; it cannot consume the
+	// snapshot refresh budget or invalidate an otherwise successful refresh.
+	pendingCtx, pendingCancel := context.WithTimeout(parent, cacheGuardPendingHealthBudget)
+	defer pendingCancel()
+	pendingStarted := time.Now()
+	delayed, pendingErr := r.store.HasPendingBefore(pendingCtx, time.Now().UTC().Add(-upstreamcacheguard.RefreshLifetime))
+	pendingErr = errors.Join(pendingErr, pendingCtx.Err())
 	r.pendingUnknown.Store(pendingErr != nil)
 	if pendingErr == nil {
 		r.pendingDelayed.Store(delayed)
@@ -311,7 +355,9 @@ func (r *UpstreamCacheGuardRunner) refresh() {
 	// A delayed pending row is an outbox health signal, not a global cache
 	// protection circuit breaker. The engine keeps the last successful snapshot
 	// available for a short bounded window when a refresh is temporarily late.
-	r.available.Store(err == nil && r.retrying.Load() == 0 && !r.lost.Load() && !r.pendingFailure.Load() && !r.closed.Load())
+	if parent.Err() == nil {
+		r.refreshDiagnostics.record("pending_health", pendingErr, pendingStarted, cacheGuardPendingHealthBudget, nil)
+	}
 }
 func (r *UpstreamCacheGuardRunner) run() {
 	defer close(r.done)
@@ -319,15 +365,19 @@ func (r *UpstreamCacheGuardRunner) run() {
 	workers.Add(3)
 	go func() {
 		defer workers.Done()
-		r.refresh()
-		ticker := time.NewTicker(time.Second)
-		defer ticker.Stop()
 		for {
+			if r.refreshContext().Err() != nil {
+				return
+			}
+			r.refresh()
+			// Wait after completion, rather than consuming a stale ticker event
+			// immediately after a slow round and hammering the database.
+			timer := time.NewTimer(time.Second)
 			select {
 			case <-r.stop:
+				timer.Stop()
 				return
-			case <-ticker.C:
-				r.refresh()
+			case <-timer.C:
 			}
 		}
 	}()
@@ -492,6 +542,7 @@ func (r *UpstreamCacheGuardRunner) Close() {
 	r.once.Do(func() {
 		r.closed.Store(true)
 		r.available.Store(false)
+		r.cancelRefresh()
 		installedCacheGuardRunner.CompareAndSwap(r, nil)
 		close(r.stop)
 		<-r.done
