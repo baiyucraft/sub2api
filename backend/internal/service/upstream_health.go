@@ -100,6 +100,7 @@ type UpstreamHealthConfidencesReader interface {
 func MergeUpstreamHealthConfidence(snapshot UpstreamHealthSnapshot, summary UpstreamHealthConfidenceSummary) UpstreamHealthSnapshot {
 	snapshot.ConfidenceDistribution = summary.Distribution
 	snapshot.ConfidenceAttribution = summary.Attribution
+	snapshot.ConfidenceSummary = BuildConfidenceSummary(summary.Distribution, summary.Attribution)
 	snapshot.ConfidenceScore24h, snapshot.ConfidenceScore7d = summary.Score24h, summary.Score7d
 	snapshot.ConfidenceSampleCount24h, snapshot.ConfidenceSampleCount7d = summary.SampleCount24h, summary.SampleCount7d
 	snapshot.ConfidenceLastScore, snapshot.ConfidenceLastProbeAt = summary.LastScore, summary.LastProbeAt
@@ -232,8 +233,9 @@ type UpstreamHealthSnapshot struct {
 	SuspensionSource                 string                            `json:"suspension_source,omitempty"`
 	UpdatedAt                        time.Time                         `json:"updated_at"`
 	ConfidenceScore24h               *float64                          `json:"confidence_score_24h,omitempty"`
-	ConfidenceDistribution           *UpstreamConfidenceDistribution   `json:"confidence_distribution,omitempty"`
-	ConfidenceAttribution            *ConfidenceFingerprintAttribution `json:"confidence_attribution,omitempty"`
+	ConfidenceDistribution           *UpstreamConfidenceDistribution   `json:"-"`
+	ConfidenceAttribution            *ConfidenceFingerprintAttribution `json:"-"`
+	ConfidenceSummary                *ConfidenceSummary                `json:"confidence_summary,omitempty"`
 	ConfidenceScore7d                *float64                          `json:"confidence_score_7d,omitempty"`
 	ConfidenceSampleCount24h         int                               `json:"confidence_sample_count_24h"`
 	ConfidenceSampleCount7d          int                               `json:"confidence_sample_count_7d"`

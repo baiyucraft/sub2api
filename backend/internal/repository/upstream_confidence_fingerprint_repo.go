@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"entgo.io/ent/dialect"
@@ -98,6 +99,15 @@ func (r *upstreamConfigRepository) ClaimConfidenceFingerprint(ctx context.Contex
 			_ = tx.Rollback()
 			return nil, nil
 		}
+		// Older series can omit the model component. The matching fingerprint
+		// authenticates the current identity; fill only this missing scheduling
+		// input when a new claim is actually persisted, preserving the series.
+		if strings.TrimSpace(state.Components["model"]) == "" && strings.TrimSpace(identity.Model) != "" {
+			if state.Components == nil {
+				state.Components = make(map[string]string)
+			}
+			state.Components["model"] = identity.Model
+		}
 		attempt, err := state.Claim(now)
 		if err != nil {
 			_ = tx.Rollback()
@@ -161,7 +171,10 @@ func (r *upstreamConfigRepository) FinishConfidenceFingerprint(ctx context.Conte
 				return err
 			}
 			state.NextSequence = nextSequence
-			state.Samples = append(state.Samples, service.ConfidenceFingerprintSample{ObservedAt: attempt.ObservedAt.UTC(), Method: attempt.Method, Evidence: evidence})
+			if err := state.RecordEvidence(attempt.Method, attempt.ObservedAt, evidence); err != nil {
+				_ = tx.Rollback()
+				return err
+			}
 		}
 		changed, err := saveConfidenceFingerprintState(ctx, tx, keyID, revision, state, now)
 		if err != nil {
@@ -177,7 +190,7 @@ func (r *upstreamConfigRepository) FinishConfidenceFingerprint(ctx context.Conte
 	return errors.New("confidence fingerprint completion contention")
 }
 
-func (r *upstreamConfigRepository) RecordConfidenceFingerprintSample(ctx context.Context, keyID int64, identity service.ConfidenceFingerprintIdentity, evidence service.ConfidenceFingerprintEvidence, now time.Time) error {
+func (r *upstreamConfigRepository) RecordConfidenceFingerprintSample(ctx context.Context, keyID int64, identity service.ConfidenceFingerprintIdentity, method string, evidence service.ConfidenceFingerprintEvidence, now time.Time) error {
 	if keyID <= 0 || identity.Version != service.ConfidenceFingerprintIdentityVersion || identity.Fingerprint == "" {
 		return errors.New("invalid confidence fingerprint sample")
 	}
@@ -206,9 +219,14 @@ func (r *upstreamConfigRepository) RecordConfidenceFingerprintSample(ctx context
 			_ = tx.Rollback()
 			return errors.New("confidence fingerprint sample conflicts with pending claim")
 		}
-		state.Samples = append(state.Samples, service.ConfidenceFingerprintSample{ObservedAt: now.UTC(), Method: "behavioral", Evidence: evidence})
-		if len(state.Samples) > service.ConfidenceFingerprintSampleLimit {
-			state.Samples = append([]service.ConfidenceFingerprintSample(nil), state.Samples[len(state.Samples)-service.ConfidenceFingerprintSampleLimit:]...)
+		if method != "protocol" {
+			_ = tx.Rollback()
+			return errors.New("invalid unclaimed confidence fingerprint sample method")
+		}
+		state.SamplingPolicyVersion = service.ConfidenceFingerprintSamplingPolicyVersion
+		if err := state.RecordEvidence(method, now, evidence); err != nil {
+			_ = tx.Rollback()
+			return err
 		}
 		changed, err := saveConfidenceFingerprintState(ctx, tx, keyID, revision, state, now)
 		if err != nil {
@@ -252,11 +270,12 @@ func (r *upstreamConfigRepository) LoadConfidenceFingerprints(ctx context.Contex
 				continue
 			}
 			state := new(service.ConfidenceFingerprintState)
-			if err := json.Unmarshal(raw, state); err == nil {
-				err = state.Validate()
+			decodeErr := json.Unmarshal(raw, state)
+			if decodeErr == nil {
+				decodeErr = state.Validate()
 			}
-			if err != nil {
-				out[keyID] = service.ConfidenceFingerprintReadResult{Err: err}
+			if decodeErr != nil {
+				out[keyID] = service.ConfidenceFingerprintReadResult{Err: decodeErr}
 				continue
 			}
 			if !stateIdentityMatches(state, identities[keyID]) {
@@ -279,11 +298,12 @@ func (r *upstreamConfigRepository) LoadConfidenceFingerprints(ctx context.Contex
 			return nil, err
 		}
 		state := new(service.ConfidenceFingerprintState)
-		if err := json.Unmarshal(raw, state); err == nil {
-			err = state.Validate()
+		decodeErr := json.Unmarshal(raw, state)
+		if decodeErr == nil {
+			decodeErr = state.Validate()
 		}
-		if err != nil {
-			out[keyID] = service.ConfidenceFingerprintReadResult{Err: err}
+		if decodeErr != nil {
+			out[keyID] = service.ConfidenceFingerprintReadResult{Err: decodeErr}
 			continue
 		}
 		if !stateIdentityMatches(state, identities[keyID]) {

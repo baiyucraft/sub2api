@@ -32,7 +32,7 @@ exec 8<>"$unit_lock"
   [[ ${required_query_5} == root:root:600:1 ]]
 }
 flock -s 8
-[[ $gate =~ ^/opt/sub2api-deploy/release-gates/(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273|274|275|276|277)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}/output/gate\.json$ ]]
+[[ $gate =~ ^/opt/sub2api-deploy/release-gates/(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273|274|275|276|277|278|279|280)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}/output/gate\.json$ ]]
 gate_release_dir=${gate%/output/gate.json}
 gate_release_id=${gate_release_dir##*/}
 gate_profile=${gate_release_id%%-*}
@@ -45,7 +45,7 @@ gate_profile=${gate_release_id%%-*}
   [[ ${required_query_7} == "$gate_profile" ]]
 }
 gate_schema=$(jq -er '.manifest.schema' "$gate")
-if [[ $gate_profile == 242 || $gate_profile == 243 || $gate_profile == 244 || $gate_profile == 245 || $gate_profile == 246 || $gate_profile == 247 || $gate_profile == 248 || $gate_profile == 249 || $gate_profile == 250 || $gate_profile == 251 || $gate_profile == 252 || $gate_profile == 253 || $gate_profile == 254 || $gate_profile == 255 || $gate_profile == 256 || $gate_profile == 257 || $gate_profile == 258 || $gate_profile == 259 || $gate_profile == 260 || $gate_profile == 261 || $gate_profile == 262 || $gate_profile == 263 || $gate_profile == 264 || $gate_profile == 265 || $gate_profile == 266 || $gate_profile == 267 || $gate_profile == 268 || $gate_profile == 269 || $gate_profile == 270 || $gate_profile == 271 || $gate_profile == 272 || $gate_profile == 273 || $gate_profile == 274 || $gate_profile == 275 || $gate_profile == 276 || $gate_profile == 277 ]]; then
+if [[ $gate_profile == 242 || $gate_profile == 243 || $gate_profile == 244 || $gate_profile == 245 || $gate_profile == 246 || $gate_profile == 247 || $gate_profile == 248 || $gate_profile == 249 || $gate_profile == 250 || $gate_profile == 251 || $gate_profile == 252 || $gate_profile == 253 || $gate_profile == 254 || $gate_profile == 255 || $gate_profile == 256 || $gate_profile == 257 || $gate_profile == 258 || $gate_profile == 259 || $gate_profile == 260 || $gate_profile == 261 || $gate_profile == 262 || $gate_profile == 263 || $gate_profile == 264 || $gate_profile == 265 || $gate_profile == 266 || $gate_profile == 267 || $gate_profile == 268 || $gate_profile == 269 || $gate_profile == 270 || $gate_profile == 271 || $gate_profile == 272 || $gate_profile == 273 || $gate_profile == 274 || $gate_profile == 275 || $gate_profile == 276 || $gate_profile == 277 || $gate_profile == 278 || $gate_profile == 279 || $gate_profile == 280 ]]; then
   [[ $gate_schema == 2 ]]
   {
     required_query_8=$(jq -er '.gate_version' "$gate") || exit $?
