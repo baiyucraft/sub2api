@@ -5,6 +5,7 @@ set -Eeuo pipefail
 
 release_id=${RELEASE_ID:?RELEASE_ID is required}
 release_dir=${RELEASE_DIR:?RELEASE_DIR is required}
+minimum_free_bytes=${MINIMUM_FREE_BYTES:-10737418240}
 trust_key=${TRUST_KEY:-/opt/sub2api-release-trust/vm-gate-ed25519.pub}
 [[ $release_id =~ ^(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273|274|275|276|277)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
 [[ $release_dir == "/opt/sub2api/releases/$release_id" ]]
@@ -15,7 +16,20 @@ active_claim=/opt/sub2api/releases/.active-release
 [[ ! -e $active_claim && ! -L $active_claim ]]
 mkdir "$active_claim"
 chmod 700 "$active_claim"
-cleanup_claim() { rm -rf "$active_claim"; }
+preserve_candidate_archive=false
+cleanup_claim() {
+  local status=$?
+  trap - ERR INT TERM
+  if [[ $preserve_candidate_archive == true && -f $active_claim/candidate.tar.gz ]]; then
+    if [[ -e $release_dir/candidate.tar.gz || -L $release_dir/candidate.tar.gz ]]; then
+      return 1
+    fi
+    mv -Tn -- "$active_claim/candidate.tar.gz" "$release_dir/candidate.tar.gz" || return 1
+    [[ ! -e $active_claim/candidate.tar.gz && -f $release_dir/candidate.tar.gz && ! -L $release_dir/candidate.tar.gz ]] || return 1
+  fi
+  rm -rf "$active_claim"
+  return "$status"
+}
 trap cleanup_claim ERR INT TERM
 printf 'release_id=%s\n' "$release_id" > "$active_claim/release_id"
 chmod 400 "$active_claim/release_id"
@@ -31,6 +45,7 @@ install -m 400 "$release_dir/gate.json" "$active_claim/gate.json"
 install -m 400 "$release_dir/gate.sig" "$active_claim/gate.sig"
 chmod 400 "$release_dir/candidate.tar.gz"
 mv -T -- "$release_dir/candidate.tar.gz" "$active_claim/candidate.tar.gz"
+preserve_candidate_archive=true
 install -d -m 700 "$active_claim/assets"
 for path in "$release_dir"/assets/*; do
   [[ -f $path && ! -L $path ]]
@@ -134,7 +149,18 @@ candidate_tag="sub2api:baiyu-$version-$commit"
 _required_11=$(sha256sum "$active_claim/candidate.tar.gz" | awk '{print $1}')
 [[ ${_required_11} == "$candidate_sha" ]]
 gzip -t "$active_claim/candidate.tar.gz"
+docker_root=$(docker info --format '{{.DockerRootDir}}')
+[[ -n $docker_root && $docker_root == /* ]]
+free_bytes=$(df -PB1 "$docker_root" | awk 'NR==2 {print $4}')
+candidate_import_bytes=$(gzip -dc "$active_claim/candidate.tar.gz" | wc -c | tr -d '[:space:]')
+[[ $free_bytes =~ ^[0-9]{1,18}$ && $candidate_import_bytes =~ ^[0-9]{1,18}$ ]]
+required_free_bytes=$((candidate_import_bytes + minimum_free_bytes))
+if (( free_bytes < required_free_bytes )); then
+  printf 'candidate import capacity is insufficient; archive retained for retry\n' >&2
+  false
+fi
 gzip -dc "$active_claim/candidate.tar.gz" | docker load >/dev/null
+preserve_candidate_archive=false
 _required_12=$(docker image inspect -f '{{.Id}}' "$candidate_image_id")
 [[ ${_required_12} == "$candidate_image_id" ]]
 docker tag "$candidate_image_id" "$candidate_tag"

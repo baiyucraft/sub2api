@@ -79,7 +79,8 @@ class PrepareGatePolicyTest(unittest.TestCase):
             document["evidence"]["vm_restore_verified"] = True
         return document
 
-    def _prepare(self, document: dict, *, accepted: bool, bad_signature=False) -> None:
+    def _prepare(self, document: dict, *, accepted: bool, bad_signature=False, free_bytes=1000000000000,
+                 preserve_candidate_on_failure=False) -> None:
         # Every run gets its own releases/lock tree; no host path is touched.
         sandbox = self.root / str(len(list(self.root.iterdir())))
         sandbox.mkdir()
@@ -111,15 +112,22 @@ class PrepareGatePolicyTest(unittest.TestCase):
         docker_calls = sandbox / "docker-calls"
         command = '''docker() {
  printf '%s\n' "$1" >> "$FIXTURE_DOCKER_CALLS"
- if [[ $1 == load ]]; then cat >/dev/null;
+ if [[ $1 == info ]]; then printf '%s\n' "$FIXTURE_DOCKER_ROOT";
+ elif [[ $1 == load ]]; then cat >/dev/null;
  elif [[ $1 == image ]]; then printf '%s\n' "$FIXTURE_IMAGE"; fi
 }
+df() {
+ printf 'Filesystem 1B-blocks Used Available Use%% Mounted on\nfixture 1000000000000 0 %s 0%% /\n' "$FIXTURE_FREE_BYTES"
+}
+export -f df
 export -f docker
 exec bash "$1"
 '''
         environment = os.environ.copy()
         environment.update(RELEASE_ID=release_id, RELEASE_DIR=release.as_posix(), TRUST_KEY=self.public.as_posix(),
-                           FIXTURE_DOCKER_CALLS=docker_calls.as_posix(), FIXTURE_IMAGE=self.image)
+                           FIXTURE_DOCKER_CALLS=docker_calls.as_posix(), FIXTURE_IMAGE=self.image,
+                           FIXTURE_DOCKER_ROOT="/fixture/docker", FIXTURE_FREE_BYTES=str(free_bytes),
+                           MINIMUM_FREE_BYTES="1024")
         result = subprocess.run([self.bash, "-c", command, "prepare-test", str(script)], env=environment,
                                 capture_output=True, text=True, timeout=30)
         if accepted:
@@ -132,8 +140,11 @@ exec bash "$1"
             self.assertNotEqual(result.returncode, 0, result.stdout)
             self.assertFalse((release / ".prepared").exists())
             self.assertNotIn("prepared=true", result.stdout)
-            self.assertFalse(docker_calls.exists(), "rejected Gate reached Docker")
+            self.assertNotIn("load\n", docker_calls.read_text() if docker_calls.exists() else "",
+                             "rejected Gate reached docker load")
             self.assertFalse((releases / ".active-release").exists(), "failed claim was retained")
+            if preserve_candidate_on_failure:
+                self.assertEqual((release / "candidate.tar.gz").read_bytes(), self.archive)
 
     def test_signed_fast_gate_prepares_for_two_profiles_and_release_ids(self):
         for profile, suffix in (("276", "aaaaaaaa"), ("273", "bbbbbbbb")):
@@ -187,6 +198,9 @@ exec bash "$1"
 
     def test_invalid_signature_stops_before_docker(self):
         self._prepare(self._document(), accepted=False, bad_signature=True)
+
+    def test_insufficient_import_space_preserves_candidate_archive_for_retry(self):
+        self._prepare(self._document(), accepted=False, free_bytes=1024, preserve_candidate_on_failure=True)
 
 
 if __name__ == "__main__":

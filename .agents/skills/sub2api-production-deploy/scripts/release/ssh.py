@@ -336,10 +336,27 @@ exit "$code"
         assert last_error is not None
         raise last_error
 
-    def run(self, name: str, script: str, allowed: Iterable[str], timeout: int = 120) -> SSHResult:
-        return self.run_with_input(name, script, allowed, b"", timeout=timeout)
+    def run(
+        self,
+        name: str,
+        script: str,
+        allowed: Iterable[str],
+        timeout: int = 120,
+        *,
+        allow_stderr: bool = False,
+    ) -> SSHResult:
+        return self.run_with_input(name, script, allowed, b"", timeout=timeout, allow_stderr=allow_stderr)
 
-    def run_with_input(self, name: str, script: str, allowed: Iterable[str], data: bytes, timeout: int = 120) -> SSHResult:
+    def run_with_input(
+        self,
+        name: str,
+        script: str,
+        allowed: Iterable[str],
+        data: bytes,
+        timeout: int = 120,
+        *,
+        allow_stderr: bool = False,
+    ) -> SSHResult:
         command_id = secrets.token_hex(8)
         allowlist = set(allowed)
         self._emit(
@@ -372,7 +389,7 @@ exit "$code"
                 if key not in allowlist:
                     raise RuntimeError(f"{name} returned an undeclared field: {key}")
                 values[key] = value
-            if error_output.strip():
+            if error_output.strip() and not allow_stderr:
                 self._emit(
                     name, stage="ssh_command", event="command_failed", message="Remote command returned unexpected stderr",
                     command_id=command_id, level="error", exit_code=97,

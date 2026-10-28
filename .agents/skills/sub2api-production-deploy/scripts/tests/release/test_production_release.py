@@ -173,7 +173,8 @@ class ProductionRecoveryTest(unittest.TestCase):
         instance.route_switched = False
         instance.migration_started = False
         instance.state_dir = "/opt/sub2api/backups/release-state/182-aaaaaaaaaaaa-1-aaaaaaaa"
-        instance.profile = {"public_domain": "example.test", "rack_public_ip": "192.0.2.1"}
+        instance.profile = {"public_domain": "example.test", "rack_public_ip": "192.0.2.1",
+                            "minimum_rack_free_bytes": 10737418240}
         instance.release_id = "182-aaaaaaaaaaaa-1-aaaaaaaa"
         instance.release_dir = "/opt/sub2api/releases/" + instance.release_id
         instance.runner = mock.Mock()
@@ -393,6 +394,10 @@ class ProductionRecoveryTest(unittest.TestCase):
             self.assertEqual(sleep.call_args_list, [mock.call(5)])
             self.assertEqual(release.runner.upload_file.call_count, 2)
             self.assertTrue(release.claimed)
+            self.assertIn(
+                "MINIMUM_FREE_BYTES=10737418240",
+                release.run_remote.call_args_list[-1].args[1],
+            )
             # The uploaded helpers must be the exact signed sources, including
             # the non-maintenance backfill script used by downtime postflight.
             bundle = release.runner.upload_file.call_args_list[0].args[1]

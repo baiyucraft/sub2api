@@ -30,14 +30,17 @@ from release.ssh import (
 
 
 class FakeChannel:
+    def __init__(self, exit_code: int = 0):
+        self.exit_code = exit_code
+
     def recv_exit_status(self) -> int:
-        return 0
+        return self.exit_code
 
 
 class FakeStream:
-    def __init__(self, value: bytes):
+    def __init__(self, value: bytes, channel=None):
         self.value = value
-        self.channel = FakeChannel()
+        self.channel = channel or FakeChannel()
 
     def read(self) -> bytes:
         return self.value
@@ -61,12 +64,13 @@ class FakeInput(FakeStream):
 
 
 class FakeClient:
-    def __init__(self, stdout: bytes, stderr: bytes = b""):
+    def __init__(self, stdout: bytes, stderr: bytes = b"", exit_code: int = 0):
         self.stdout = stdout
         self.stderr = stderr
+        self.exit_code = exit_code
 
     def exec_command(self, command: str, timeout: int, get_pty: bool):
-        return FakeInput(), FakeStream(self.stdout), FakeStream(self.stderr)
+        return FakeInput(), FakeStream(self.stdout, FakeChannel(self.exit_code)), FakeStream(self.stderr)
 
     def close(self) -> None:
         pass
@@ -507,9 +511,9 @@ class SSHOutputTest(unittest.TestCase):
             runner.connect("vm").close()
         self.assertEqual(keepalive_seconds, [PROXY_SSH_KEEPALIVE_SECONDS, DIRECT_SSH_KEEPALIVE_SECONDS])
 
-    def runner(self, stdout: bytes, stderr: bytes = b"") -> SSHRunner:
+    def runner(self, stdout: bytes, stderr: bytes = b"", exit_code: int = 0) -> SSHRunner:
         instance = object.__new__(SSHRunner)
-        instance.connect = lambda name: FakeClient(stdout, stderr)
+        instance.connect = lambda name: FakeClient(stdout, stderr, exit_code)
         instance.temp_dirs = set()
         return instance
 
@@ -576,6 +580,23 @@ class SSHOutputTest(unittest.TestCase):
     def test_rejects_any_stderr(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "unexpected stderr"):
             self.runner(b"health=pass\n", b"token=secret\n").run("vm", "true", {"health"})
+
+    def test_opt_in_accepts_stderr_only_for_a_valid_success_response(self) -> None:
+        runner = self.runner(b"first=done\nsecond=verified\n", b"harmless warning\n")
+        result = runner.run("vm", "true", {"first", "second"}, allow_stderr=True)
+        self.assertEqual(result.values, {"first": "done", "second": "verified"})
+        with self.assertRaisesRegex(RuntimeError, "undeclared"):
+            self.runner(b"first=done\nother=value\n", b"warning\n").run(
+                "vm", "true", {"first"}, allow_stderr=True
+            )
+        with self.assertRaisesRegex(RuntimeError, "omitted required fields"):
+            self.runner(b"first=done\n", b"warning\n").run(
+                "vm", "true", {"first", "second"}, allow_stderr=True
+            )
+        with self.assertRaisesRegex(RuntimeError, "exit code 7"):
+            self.runner(b"first=done\nsecond=verified\n", b"warning\n", exit_code=7).run(
+                "vm", "true", {"first", "second"}, allow_stderr=True
+            )
 
     def test_successful_remote_wrapper_does_not_promote_stderr_to_exit_97(self) -> None:
         runner = object.__new__(SSHRunner)

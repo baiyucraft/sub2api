@@ -112,6 +112,7 @@ class PreStateClaimTest(unittest.TestCase):
         self.vm_probe.assert_called_once()
         checks = (self.run / "pre-state-claim-checks.json").read_bytes()
         self.assertEqual(result["checks_sha256"], hashlib.sha256(checks).hexdigest())
+        self.assertIs(ssh.return_value.run.call_args.kwargs["allow_stderr"], True)
         script = ssh.return_value.run.call_args.args[1]
         self.assertLess(script.index("flock -n 9"), script.index("observations="))
         self.assertLess(script.index('test "$observed_sha"'), script.rindex("/cleanup-state.sh"))
