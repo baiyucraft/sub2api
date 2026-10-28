@@ -77,6 +77,14 @@ class SSHResult:
     values: dict[str, str]
 
 
+class UnexpectedRemoteStderr(RuntimeError):
+    """A remote command exited successfully but wrote to stderr."""
+
+    def __init__(self, message: str, values: dict[str, str]) -> None:
+        super().__init__(message)
+        self.values = values
+
+
 class SSHRunner:
     def __init__(self) -> None:
         document = yaml.safe_load(SSH_CONFIG.read_text(encoding="utf-8"))
@@ -372,16 +380,16 @@ exit "$code"
                 if key not in allowlist:
                     raise RuntimeError(f"{name} returned an undeclared field: {key}")
                 values[key] = value
+            missing = allowlist.difference(values)
+            if missing:
+                raise RuntimeError(f"{name} omitted required fields: {sorted(missing)}")
             if error_output.strip():
                 self._emit(
                     name, stage="ssh_command", event="command_failed", message="Remote command returned unexpected stderr",
                     command_id=command_id, level="error", exit_code=97,
                     details={"stdout_bytes": len(output.encode("utf-8")), "stderr_bytes": len(error_output.encode("utf-8"))},
                 )
-                raise RuntimeError(f"{name} returned unexpected stderr")
-            missing = allowlist.difference(values)
-            if missing:
-                raise RuntimeError(f"{name} omitted required fields: {sorted(missing)}")
+                raise UnexpectedRemoteStderr(f"{name} returned unexpected stderr", values)
             self._emit(
                 name, stage="ssh_command", event="command_finished", message="Remote structured command finished",
                 command_id=command_id, exit_code=0,
