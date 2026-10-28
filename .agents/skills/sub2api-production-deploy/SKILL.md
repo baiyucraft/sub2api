@@ -9,7 +9,7 @@ description: 面向 Sub2API fork 的构建、开发门禁、应用与独立插�
 
 ## 日常部署参数
 
-日常应用发布复用仓库中已验证的固定脚本，将 `schema/commit/profile/mode` 写入本地 `.release/deploy.local.json`，通过 `release.py doctor` 和 `release.py deploy-follow` 消费；显式完整参数优先。当前 profile `280` 为 `0.2.22-baiyu`、parent `279`、无新增 migration，并沿用当前 `downtime` 发布约束；版本、父链和迁移仍取已登记的 profile。配置只补齐参数，原 Gate、备份、迁移、恢复及 `verify-result` 门禁照常执行，脚本字节变化仍按现有规则审阅和验证。
+日常应用发布复用仓库中已验证的固定脚本，将 `schema/commit/profile/mode` 写入本地 `.release/deploy.local.json`，通过 `release.py doctor` 和 `release.py deploy-follow` 消费；显式完整参数优先。当前 profile `281` 为 `0.2.19-baiyu`、parent `280`、新增 `305_scoped_admin_api_keys.sql` 与 `306_group_image_count_billing.sql`，并沿用当前 `downtime` 发布约束；版本、父链和迁移仍取已登记的 profile。配置只补齐参数，原 Gate、备份、迁移、恢复及 `verify-result` 门禁照常执行，脚本字节变化仍按现有规则审阅和验证。
 
 连接及机器路径保留在 `.ssh.local`；`vm_lifecycle.shared_dir` 指向已有的规范物理共享目录，复用其中原 `lease.lock` 和 `owner.json`，不得因 checkout 不同新建发布所有权域。配置生成、支持命令与观察重连见 [本地部署参数](references/release-runner-lifecycle.md#本地部署参数)。
 
@@ -414,7 +414,7 @@ jq -cS '.manifest.migration_sha256' | sha256sum
 
 ## Profile 274 的精确恢复审阅
 
-历史 profile 274 保持 `0.2.17-baiyu`，parent 为 273，仅新增 `301_upstream_cache_guard_admissions.sql`；历史 273 及全部旧 SQL/checksum 保持不可变，登记时未登记的 profile 275 拒绝；当前 profile 280 见末节。
+历史 profile 274 保持 `0.2.17-baiyu`，parent 为 273，仅新增 `301_upstream_cache_guard_admissions.sql`；历史 273 及全部旧 SQL/checksum 保持不可变，登记时未登记的 profile 275 拒绝；当前 profile 281 见末节。
 
 本批实际生产 BASE `5deebb2929c2a694145cc2726e895f01c43d28c1` 到已独审 TARGET `aca670e896ffa0e0e54204f1e6c33c205d5160f5` 的 48 条敏感净差异，按三组显式路径和同路径旧/新 Git blob、文件模式冻结：41 条 profile 兼容接线、5 条 migration 301 Gate 接线、2 条停机奖励 postflight 接线。权威登记为 `recovery_gate.py` 的 `_PROFILE274_COMPATIBILITY_PATHS`、`_PROFILE274_MIGRATION_GATE_PATHS`、`_PROFILE274_POSTFLIGHT_PATHS`；新增 301 helper 的旧状态必须不存在。任何未来字节、模式、删除、改名、额外敏感路径或基线漂移继续阻断，历史登记保持不变。
 
@@ -495,7 +495,18 @@ Windows 既有目标采用 `ReplaceFileW` 安全替换并保留独占备份，�
 
 ## 可选图片工具与历史 profile 276
 
-历史 profile `276` 使用版本 `0.2.18-baiyu`、parent `275`，仅新增 `303_group_strip_optional_image_tools.sql`。新字段默认 false；禁图组自动清可选声明，允许组由 strip_optional_image_tools 控制，明确图片请求仍校验。旧 275 及更早 profile、SQL、checksum 与精确恢复审阅不可变；profile 276 继续保留 downtime 和祖先 migration 301 的旧写者退出与 coordinated_restore 合同，全 Python/Shell/signer/备份/清理入口一致，回归 `test_profile276_release_contract.py`。profile 278 为 `0.2.20-baiyu`、parent 277、无新增 migration，保留为历史；profile 279 为 `0.2.21-baiyu`、parent 278、无新增 migration，保留为历史；当前 profile 280 为 `0.2.22-baiyu`、parent 279、无新增 migration；未知 281 拒绝。最终敏感 blob 必须新审阅，未分类仍阻断，不以历史豁免或本地单测代替真实隔离恢复与签名 VM Gate。
+历史 profile `276` 使用版本 `0.2.18-baiyu`、parent `275`，仅新增 `303_group_strip_optional_image_tools.sql`。新字段默认 false；禁图组自动清可选声明，允许组由 strip_optional_image_tools 控制，明确图片请求仍校验。旧 275 及更早 profile、SQL、checksum 与精确恢复审阅不可变；profile 276 继续保留 downtime 和祖先 migration 301 的旧写者退出与 coordinated_restore 合同，全 Python/Shell/signer/备份/清理入口一致，回归 `test_profile276_release_contract.py`。profile 278 为 `0.2.20-baiyu`、parent 277、无新增 migration，保留为历史；profile 279 为 `0.2.21-baiyu`、parent 278、无新增 migration，保留为历史；历史 profile 280 为 `0.2.22-baiyu`、parent 279、无新增 migration；当前 profile 281 为 `0.2.19-baiyu`、parent 280，新增 305/306；未知 282 拒绝。最终敏感 blob 必须新审阅，未分类仍阻断，不以历史豁免或本地单测代替真实隔离恢复与签名 VM Gate。
 
 
-统一可信度摘要使用当前 profile `280`：`0.2.22-baiyu`、parent `279`、`new_migrations=[]`。历史 279 的版本、parent、Gate、SQL 和checksum不回写；Python/Shell/signer/备份/清理入口同步接纳280并拒绝未登记281。对外摘要与前后端协调切换，旧后台采样写者停止后启用新版；本地定向检查不证明VM Gate或生产发布。
+统一可信度摘要保留历史 profile `280`：`0.2.22-baiyu`、parent `279`、`new_migrations=[]`。历史 279 的版本、parent、Gate、SQL 和checksum不回写；当时的 Python/Shell/signer/备份/清理入口接纳280并拒绝未登记281；当前 281 合同见后续说明。对外摘要与前后端协调切换，旧后台采样写者停止后启用新版；本地定向检查不证明VM Gate或生产发布。
+
+
+## Profile 281 官方同步合同
+
+当前 profile `281` 为 `0.2.19-baiyu`、parent `280`，固定官方目标为 `a9240d5016c226b341242a8c54a01a8605cbbc72`，版本直接继承官方源码 `VERSION=0.2.19`。历史 280 的 `0.2.22-baiyu` 及全部旧 profile、SQL、checksum 与精确恢复审阅保持不变。官方 247/248 与本地既有迁移冲突，仅将新增 SQL 原始字节重编号为 `305_scoped_admin_api_keys.sql`、`306_group_image_count_billing.sql`，按此顺序纳入 `new_migrations`；不回写本地旧 247/248 或数据库记录。
+
+Python profile、VM validator、Gate/DR signer、自测 bootstrap、生产 prepare/context、祖先 297/298/299/301 manifest 断言、备份和清理入口同步接纳 281，未登记 282 继续拒绝。281 保留 downtime、旧写者退出及 coordinated_restore 合同；新增管理员作用域密钥和分组图片按张计费字段。登记与本地测试不证明 VM Gate、真实 PostgreSQL 升级、生产部署或线上行为；恢复敏感脚本变化仍按最终 blob/模式分类，既有精确审阅和豁免不扩张。
+
+- `305_scoped_admin_api_keys.sql`：原始 SHA-256 `0c4c22f564f276fb305a54cf2d6c4b1a6179d748d5d8b74a3b99676282355bf6`；Gate strip checksum `03445774e2dfad32da9e23279193d1bca02953896bc3d3b8a87ba0b36b6ed577`。
+
+- `306_group_image_count_billing.sql`：原始 SHA-256 `c91d6d31937658e71c68fa3af6a26fc47380f61243a681ac275aeb4706b242ab`；Gate strip checksum `a872dde339b19f311feb5fa6fd85c8ff7b11d69794c35a18e2086d9846b3499c`。

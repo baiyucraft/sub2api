@@ -26,10 +26,10 @@ class Profile277ReleaseContractTest(unittest.TestCase):
     def test_profile_identity_and_immutable_history(self):
         previous = {}
         exec(compile(predecessor.git_blob(BASELINE, ".agents/skills/sub2api-production-deploy/scripts/release/profiles.py"), "profile275-baseline", "exec"), previous)
-        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"276", "277", "278", "279", "280"})
+        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"276", "277", "278", "279", "280", "281"})
         for name, profile in previous["PROFILES"].items():
             self.assertEqual(get_profile(name), profile, name)
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "280")
+        self.assertEqual(CURRENT_RELEASE_PROFILE, "281")
         self.assertEqual((get_profile("276")["version"], get_profile("276")["parent"], get_profile("276")["new_migrations"]),
                          ("0.2.18-baiyu", "275", ["303_group_strip_optional_image_tools.sql"]))
         profile = get_profile("277")
@@ -48,9 +48,9 @@ class Profile277ReleaseContractTest(unittest.TestCase):
 
     def test_catalog_checksum_and_pending_migration(self):
         registry = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(registry["current_profile"]["id"], "280")
+        self.assertEqual(registry["current_profile"]["id"], "281")
         for key in ("version", "parent", "new_migrations", "gate_schema", "release_policy"):
-            self.assertEqual(registry["current_profile"][key], get_profile("280")[key])
+            self.assertEqual(registry["current_profile"][key], get_profile("281")[key])
         self.assertEqual(registry["current_profile"]["new_migrations"], [])
         raw = (WORKSPACE / "backend/migrations" / MIGRATION).read_bytes()
         self.assertEqual(registry["migration_contracts"][MIGRATION], hashlib.sha256(raw).hexdigest())
@@ -63,15 +63,15 @@ class Profile277ReleaseContractTest(unittest.TestCase):
     def test_shell_context_and_vm_manifest_contract(self):
         context = (ROOT / "maintenance/release/context.sh").read_text(encoding="utf-8")
         validator = (ROOT / "release/vm-validate.sh").read_text(encoding="utf-8")
-        self.assertIn("|277|278|279|280)", context)
+        self.assertIn("|277|278|279|280|281)", context)
         schema_two_profile_guard = next(
             line for line in validator.splitlines()
-            if line.lstrip().startswith('[[ "$profile" == 280')
+            if line.lstrip().startswith('[[ "$profile" == 281')
         )
-        self.assertEqual(schema_two_profile_guard.strip(), '[[ "$profile" == 280 ]]')
+        self.assertEqual(schema_two_profile_guard.strip(), '[[ "$profile" == 281 ]]')
         self.assertIn('elif [[ "$profile" == 277 ]]; then', validator)
         self.assertIn('0.2.19-baiyu', validator)
-        self.assertIn('elif [[ "$profile" == 280 ]]; then', validator)
+        self.assertIn('elif [[ "$profile" == 281 ]]; then', validator)
         self.assertIn('0.2.20-baiyu', validator)
         self.assertIn('0.2.21-baiyu', validator)
         self.assertIn(MIGRATION, validator)
@@ -86,7 +86,7 @@ class Profile277ReleaseContractTest(unittest.TestCase):
         prepare = (ROOT / 'maintenance/release/prepare.sh').read_text(encoding='utf-8')
         guards = [
             ('release_dir', next(line for line in context.splitlines() if '$release_dir =~' in line).strip().split(' || return')[0], 'history'),
-            ('profile', next(line for line in validator.splitlines() if line.lstrip().startswith('[[ "$profile" == 280')).strip(), 'current'),
+            ('profile', next(line for line in validator.splitlines() if line.lstrip().startswith('[[ "$profile" == 281')).strip(), 'current'),
             ('profile', next(line for line in prepare.splitlines() if line.lstrip().startswith('[[ $profile ==')).strip(), 'current'),
         ]
         env = {key: value for key, value in os.environ.items() if key not in {'BASH_ENV', 'ENV', 'SHELLOPTS'}}

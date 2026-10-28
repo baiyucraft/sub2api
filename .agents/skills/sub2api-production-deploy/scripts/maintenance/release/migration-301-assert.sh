@@ -5,7 +5,7 @@ migration_status=${MIGRATION_STATUS:-absent}
 context_file=${ASSERT_CONTEXT_FILE:-/opt/sub2api/releases/.active-release/assets/context.sh}
 [[ -f $context_file && ! -L $context_file ]] || exit 1
 source "$context_file"
-[[ $profile == 274 || $profile == 275 || $profile == 276 || $profile == 277 || $profile == 278 || $profile == 279 || $profile == 280 ]] || exit 1
+[[ $profile == 274 || $profile == 275 || $profile == 276 || $profile == 277 || $profile == 278 || $profile == 279 || $profile == 280 || $profile == 281 ]] || exit 1
 [[ $phase == preflight || $phase == postflight || $phase == verified_replay || $phase == vm_semantics ]] || exit 1
 [[ $migration_status == absent || $migration_status == verified ]] || exit 1
 [[ $phase == preflight || $migration_status == verified ]] || exit 1
@@ -28,7 +28,8 @@ jq -e --arg filename "$filename" --arg checksum "$catalog_checksum" '
    ($m.profile == "275" and $m.parent_profile == "274" and $m.new_migrations == ["302_enable_gemini_image_generation_groups.sql"]) or
    ($m.profile == "276" and $m.parent_profile == "275" and $m.new_migrations == ["303_group_strip_optional_image_tools.sql"]) or
    ($m.profile == "277" and $m.parent_profile == "276" and $m.new_migrations == ["304_upstream_confidence_fingerprint.sql"]) or
-   ($m.profile == "278" and $m.parent_profile == "277" and $m.new_migrations == [])) and
+   ($m.profile == "278" and $m.parent_profile == "277" and $m.new_migrations == []) or
+   ($m.profile == "281" and $m.parent_profile == "280" and $m.new_migrations == ["305_scoped_admin_api_keys.sql", "306_group_image_count_billing.sql"])) and
   $m.deployment_mode == "downtime" and
   ([$m.migration_catalog[] | select(.filename == $filename)] | length) == 1 and
   ([$m.migration_catalog[] | select(.filename == $filename)][0].checksum == $checksum)
