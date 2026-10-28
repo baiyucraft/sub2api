@@ -488,6 +488,67 @@ def _file_sha256(path: Path) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
+def release_pre_state_claim_owner(run_dir: Path, settings: VMSettings, shared: Path, verify: Callable[[], None]) -> dict:
+    """Commit a preserved owner last, with both caller-held local locks.
+
+    Original lease/runner/production records are evidence and are never edited.
+    The independent claim result must already be durable and verified. A
+    repeated call only verifies the exact previously committed owner.
+    """
+    from .process import process_identity
+
+    checks, checks_raw = _state_snapshot(run_dir / "pre-state-claim-checks.json")
+    result, result_raw = _state_snapshot(run_dir / "pre-state-claim-result.json")
+    lease, _ = _state_snapshot(run_dir / "vm-lifecycle.json")
+    original = checks.get("vm_owner", {})
+    expected_files = {"manifest.json", "runner.json", "state.json", "release-state.json", "vm-lifecycle.json",
+                      "gate/gate.json", "gate/gate.sig", "gate/production-result.json"}
+    if (checks.get("schema") != 1 or result.get("schema") != 1
+            or not isinstance(checks.get("original_sha256"), dict) or set(checks["original_sha256"]) != expected_files
+            or checks.get("type") != "sub2api-pre-state-claim-checks" or checks.get("release_id") != run_dir.name
+            or result.get("type") != "sub2api-pre-state-claim-result" or result.get("release_id") != run_dir.name
+            or result.get("status") != "claim_recovered" or result.get("application_deployed") is not False
+            or result.get("checks_sha256") != hashlib.sha256(checks_raw).hexdigest()
+            or checks_raw != canonical_json(checks) + b"\n" or result_raw != canonical_json(result) + b"\n"
+            or not isinstance(original, dict) or original.get("vm_identity") != settings.identity
+            or original.get("release_id") != run_dir.name or original.get("lease_status") != "retained"
+            or original.get("initially_running") is not True or original.get("vm_started_by_release") is not False
+            or original.get("vm_power_status") != "running"
+            or checks.get("vm_owner_sha256") != hashlib.sha256(canonical_json(original) + b"\n").hexdigest()
+            or type(result.get("reconciled_at")) is not int or result["reconciled_at"] <= 0):
+        raise VMLifecycleError("pre_state_claim_owner_evidence_unproven")
+    keys = ("vm_identity", "release_id", "source_commit", "pid", "process_token", "lease_token",
+            "initially_running", "vm_started_by_release", "vm_boot_id")
+    if any(original.get(key) != lease.get(key) or original.get(key) is None for key in keys):
+        raise VMLifecycleError("pre_state_claim_owner_identity_changed")
+    released = {**original, "lease_status": "released", "vm_power_status": "running", "vm_cleanup_status": "preserved",
+                "updated_at": result["reconciled_at"], "pre_state_claim_result_sha256": hashlib.sha256(result_raw).hexdigest()}
+    current, current_raw = _state_snapshot(shared / "owner.json")
+    if current not in (original, released):
+        raise VMLifecycleError("pre_state_claim_owner_changed")
+    probe = VMLease(run_dir, run_dir.name)
+    if probe.settings != settings:
+        raise VMLifecycleError("pre_state_claim_config_changed")
+    _preserve_running_probe(probe, original["vm_boot_id"])
+    verify()
+    for name, digest in checks.get("original_sha256", {}).items():
+        if (name not in expected_files
+                or hashlib.sha256(read_replaceable_bytes(run_dir / name)).hexdigest() != digest):
+            raise VMLifecycleError("pre_state_claim_original_changed")
+    if (type(original.get("pid")) is not int or not isinstance(original.get("process_token"), str)
+            or process_identity(original["pid"]) == original["process_token"]
+            or _state_snapshot(shared / "owner.json")[1] != current_raw
+            or _state_snapshot(run_dir / "pre-state-claim-checks.json")[1] != checks_raw
+            or _state_snapshot(run_dir / "pre-state-claim-result.json")[1] != result_raw):
+        raise VMLifecycleError("pre_state_claim_owner_commit_unproven")
+    if current == original:
+        # This is the final write. A failure before it retains the old owner.
+        atomic_write(shared / "owner.json", canonical_json(released) + b"\n")
+    if _state_snapshot(shared / "owner.json")[0] != released:
+        raise VMLifecycleError("pre_state_claim_owner_commit_unproven")
+    return released
+
+
 def _finalization_owner(original: dict, record: dict) -> dict:
     preserve = finalization_mode(record) == FINALIZATION_PRESERVE
     return {

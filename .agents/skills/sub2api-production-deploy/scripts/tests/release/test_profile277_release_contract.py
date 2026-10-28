@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import shutil
 import subprocess
 import sys
 import unittest
@@ -66,3 +68,25 @@ class Profile277ReleaseContractTest(unittest.TestCase):
         self.assertIn('elif [[ "$profile" == 277 ]]; then', validator)
         self.assertIn('0.2.19-baiyu', validator)
         self.assertIn(MIGRATION, validator)
+
+    def test_current_shell_admission_executes_277_and_rejects_278(self):
+        bundled = Path('C:/Program Files/Git/bin/bash.exe')
+        bash = str(bundled) if bundled.is_file() else shutil.which('bash')
+        if not bash:
+            self.skipTest('Bash is required for inert profile admission predicates')
+        context = (ROOT / 'maintenance/release/context.sh').read_text(encoding='utf-8')
+        validator = (ROOT / 'release/vm-validate.sh').read_text(encoding='utf-8')
+        prepare = (ROOT / 'maintenance/release/prepare.sh').read_text(encoding='utf-8')
+        guards = [
+            ('release_dir', next(line for line in context.splitlines() if '$release_dir =~' in line).strip().split(' || return')[0]),
+            ('profile', next(line for line in validator.splitlines() if line.lstrip().startswith('[[ "$profile" == 254')).strip()),
+            ('profile', next(line for line in prepare.splitlines() if line.lstrip().startswith('[[ $profile ==')).strip()),
+        ]
+        env = {key: value for key, value in os.environ.items() if key not in {'BASH_ENV', 'ENV', 'SHELLOPTS'}}
+        for variable, guard in guards:
+            for profile, accepted in (('277', True), ('278', False), ('0277', False), ('277;true', False)):
+                value = '/opt/sub2api/releases/' + profile + '-aaaaaaaaaaaa-1-aaaaaaaa' if variable == 'release_dir' else profile
+                script = variable + '=$1\nif ' + guard + '; then exit 0; else exit 1; fi'
+                result = subprocess.run([bash, '--noprofile', '--norc', '-c', script, 'profile-admission', value],
+                                        env=env, capture_output=True, text=True, timeout=10)
+                self.assertEqual(result.returncode == 0, accepted, (variable, profile, result.stderr))

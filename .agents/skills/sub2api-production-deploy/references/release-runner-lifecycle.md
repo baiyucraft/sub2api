@@ -215,3 +215,11 @@ migration plan、fixture bootstrap 和恢复探针的非零退出必须先保存
 `reconcile-vm-fast-fixture-preserve <release_id>` 与 `verify-vm-fast-fixture-preserve <release_id>` 只接受代码冻结的单一事故。必须校验原 manifest、runner、state、VM 生命周期及远端阶段文件的固定字节摘要；原 worker 已退出，VM 原本运行且 boot 未变，正式签名/生产发布未开始，隔离数据库、容器、网络和临时文件均不存在。VM 证明在既有双锁下只读执行，生产核对无 claim、旧镜像与健康，查询未知或失败一律阻断。
 
 收口不修改原失败证据、不恢复数据、不删除资源、不关机、不重跑 Gate。当前已提交推送的 helper 身份独立绑定 checks/result，持久化后重新读回验真并复查现场，最后将 shared owner 置为 released；中断后只按既有独立记录续验，成功重放仍复核现场。helper 本身列入恢复敏感文件；任何后续字节、模式、删除或迁移必须重新审阅，不能套用到其他事故。新发布仍使用新的完整 commit、candidate 和签名 Gate。
+
+## 快照建立前的 claim 收口
+
+`freeze` 在本 release 状态快照建立前失败，不代表已停止生产或迁移。先运行 `reconcile-inspect <release_id>`；只有原 worker 退出、签名 Gate/claim/生产快照身份完整、旧镜像与迁移目录和路由未变化、备份 units 正常且不存在 state/staging、候选/迁移容器与切流副作用时，才允许既有 `reconcile <release_id> --mode recover` 执行 claim 收口。
+
+该分支独立写入 `pre-state-claim-checks.json` 和 `pre-state-claim-result.json`，保存原失败证据摘要并重复验真，最后受控释放原共享 VM owner。原 runner、production result、state 和 VM 生命周期事故文件保持不变；claim 收口不是应用部署成功，后续部署使用新 release 和新 Gate。未知、缺失、链接、boot/owner 漂移或任何副作用不能按本分支处理。
+
+`maintenance/181/{mask,restore}-backup-units.sh` 作为通用 unit 事务只验证状态目录几何与严格 ID 格式，不维护应用 profile 白名单；正式未知 profile 仍在受信应用合同和 Gate/context 中拒绝。

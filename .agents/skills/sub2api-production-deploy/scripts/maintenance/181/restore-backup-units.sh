@@ -28,7 +28,8 @@ base=${_unit_required_1}
 [[ -d $state_root && ! -L $state_root ]]
 _unit_required_2=$(realpath -e -- "$state_root") || exit 1
 [[ ${_unit_required_2} == "$state_root" ]]
-[[ $base =~ ^release181-state-[0-9]{8}T[0-9]{6}Z$ || $base =~ ^(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273|274|275|276)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
+# Profile admission belongs to the signed release context; this helper validates path syntax only.
+[[ $base != *$'\n'* && $base != *$'\r'* && ( $base =~ ^release181-state-[0-9]{8}T[0-9]{6}Z$ || $base =~ ^[1-9][0-9]*-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ) ]]
 _unit_required_3=$(dirname -- "$state_dir") || exit 1
 [[ $state_dir == "$state_root/$base" && ${_unit_required_3} == "$state_root" ]]
 [[ -d $state_dir && ! -L $state_dir ]]

@@ -1137,6 +1137,75 @@ def verify_recovery_result(args: argparse.Namespace) -> None:
     print(canonical_json(recovered_result_view(args.release_id)).decode("ascii"))
 
 
+def _pre_state_failure_eligible(identifier: str, manifest: dict, runner: dict, production: dict, document: dict) -> bool:
+    """A freeze intent is not a completed state capture, but requires proof."""
+    history = production.get("history")
+    if not isinstance(history, list) or any(not isinstance(item, dict) for item in history):
+        return False
+    stages = [item.get("stage") for item in history]
+    allowed = {"stage_assets", "stage_assets_verified", "production_preflight_v2", "production_preflight_v2_verified",
+               "pre_switch_public_health_preflight", "pre_switch_public_health_verified", "freeze", "recovery_started", "blocked_reconciliation"}
+    if (any(not isinstance(stage, str) or stage not in allowed for stage in stages)
+            or stages.count("freeze") != 1 or stages.count("stage_assets_verified") != 1
+            or stages.count("production_preflight_v2_verified") != 1):
+        return False
+    freeze = stages.index("freeze")
+    if (not stages.index("stage_assets_verified") < stages.index("production_preflight_v2_verified") < freeze
+            or any(stage not in {"recovery_started", "blocked_reconciliation"} for stage in stages[freeze + 1:])):
+        return False
+    return (
+        manifest == document.get("manifest") and manifest.get("schema") == 2 and manifest.get("release_id") == identifier
+        and runner.get("release_id") == identifier and runner.get("commit") == manifest.get("commit_sha")
+        and runner.get("profile") == manifest.get("profile") and runner.get("status") in {"failed", "blocked_reconciliation"}
+        and type(runner.get("exit_code")) is int and runner["exit_code"] != 0
+        and type(runner.get("pid")) is int and runner["pid"] > 0
+        and isinstance(runner.get("process_token"), str) and bool(runner["process_token"])
+        and _process_token(runner["pid"]) != runner["process_token"]
+        and production.get("release_id") == identifier
+        and ("commit_sha" not in production or production["commit_sha"] == manifest.get("commit_sha"))
+        and ("commit" not in production or production["commit"] == manifest.get("commit_sha"))
+        and ("profile" not in production or production["profile"] == manifest.get("profile"))
+        and production.get("status") in {"failed", "blocked_reconciliation"}
+    )
+
+
+def _prove_pre_state_claim(run_dir: Path, document: dict, *, recovered: bool = False) -> dict:
+    from .production import pre_state_claim_probe_script
+    from .production_snapshot import decode_snapshot, snapshot_sha256
+
+    script = pre_state_claim_probe_script(document, run_dir / "gate", TRUSTED_VM_PUBLIC_KEY, recovered=recovered)
+    values = SSHRunner().run("racknerd", script, {"pre_state_claim", "snapshot_b64"}, timeout=120).values
+    snapshot = decode_snapshot(values.get("snapshot_b64", ""))
+    evidence = document["evidence"]
+    if (values.get("pre_state_claim") != "verified"
+            or snapshot.get("current_image_id") != evidence.get("production_current_image_id")
+            or snapshot_sha256(snapshot) != evidence.get("production_snapshot_sha256")):
+        raise RuntimeError("pre-state claim production baseline is unproven")
+    return {"pre_state_claim": "verified", "production_snapshot_sha256": snapshot_sha256(snapshot),
+            "running_image_id": snapshot["current_image_id"]}
+
+
+def _prove_pre_state_runtime(document: dict) -> dict:
+    """Use the formal host checks and both real HTTPS routes before owner release."""
+    manifest, evidence = document["manifest"], document["evidence"]
+    profile = get_profile(str(manifest["profile"]))
+    doctor = ReleaseDoctor(str(manifest["profile"]), manifest["commit_sha"]).run(("racknerd", "dmit"), require_ingress_policy=False)
+    if (doctor.get("racknerd_ready") != "true" or doctor.get("dmit_ready") != "true"
+            or doctor.get("production_current_image_id") != evidence["production_current_image_id"]):
+        raise RuntimeError("pre-state claim production doctor is unproven")
+    ssh = SSHRunner()
+    for host, address in (("racknerd", profile["rack_public_ip"]), ("backup", profile["dmit_public_ip"])):
+        domain = shlex.quote(profile["public_domain"])
+        script = f'''set -Eeuo pipefail
+http_code=$(curl -fsS --connect-timeout 3 --max-time 15 --resolve {domain}:443:{shlex.quote(address)} -o /dev/null -w '%{{http_code}}' https://{domain}/health)
+test "$http_code" = 200
+printf 'public_health=pass\\n'
+'''
+        if ssh.run(host, script, {"public_health"}, timeout=30).values != {"public_health": "pass"}:
+            raise RuntimeError("pre-state claim public route is unproven")
+    return {"production_doctor": "verified", "direct_route_health": "pass", "dmit_route_health": "pass"}
+
+
 def _inspect_reconciliation(identifier: str) -> dict[str, Any]:
     from .production import observation_shell_helpers
 
@@ -1280,6 +1349,17 @@ printf 'active_claim=%s\nconsumed=%s\nrecovered=%s\nstate_present=%s\ningress_tr
         decision, failure_code = "coordinated_restore_required", "release_state_exists"
     if not runner_metadata_present and decision not in {"already_consumed", "already_recovered", "coordinated_restore_required"}:
         decision, failure_code = "blocked", "runner_metadata_missing"
+    if (decision == "blocked" and failure_code == "state_not_proven"
+            and remote["active_claim"] == "matching" and remote["state_present"] == "false"
+            and remote.get("ingress_transaction") == "absent" and remote.get("candidate_exists") == "false"
+            and remote.get("migration_started") == "false" and remote.get("route_started") == "false"
+            and _pre_state_failure_eligible(identifier, manifest, runner, production, document)):
+        try:
+            _prove_pre_state_claim(run_dir, document)
+        except (RuntimeError, ValueError, OSError, KeyError):
+            pass
+        else:
+            decision, failure_code = "claim_only_recover", "freeze_failed_before_state"
     return {
         "release_id": identifier, "decision": decision, "failure_code": failure_code,
         "runner_alive": runner_alive, "active_claim": remote["active_claim"],
@@ -1297,9 +1377,141 @@ def reconcile_inspect(args: argparse.Namespace) -> None:
     print(canonical_json(_inspect_reconciliation(args.release_id)).decode("ascii"))
 
 
+def _reconcile_pre_state_claim(identifier: str) -> dict:
+    """Close only the claim; preserve every failed runner/production byte."""
+    from . import vm_lifecycle as lifecycle
+    from .production import pre_state_claim_probe_script
+
+    run_dir = _run_dir(identifier)
+    settings = lifecycle.load_settings()
+    if settings is None:
+        raise RuntimeError("pre-state claim requires managed VM ownership")
+    shared = lifecycle._shared_dir(settings)
+    with RunLock(RUN_ROOT / ".release.lock"), lifecycle.shared_lock(settings, shared):
+        names = ("manifest.json", "runner.json", "state.json", "release-state.json", "vm-lifecycle.json",
+                 "gate/gate.json", "gate/gate.sig", "gate/production-result.json")
+        originals = {name: read_replaceable_bytes(run_dir / name, max_bytes=MAX_JSON_BYTES) for name in names}
+        manifest = _read_json(run_dir / "manifest.json", required=True) or {}
+        runner = _read_json(run_dir / "runner.json", required=True) or {}
+        production = _read_json(run_dir / "gate/production-result.json", required=True) or {}
+        document = verify_gate(run_dir / "gate", TRUSTED_VM_PUBLIC_KEY, str(manifest.get("profile")),
+                               allow_expired=True, allow_historical_runner=True)
+        if not _pre_state_failure_eligible(identifier, manifest, runner, production, document):
+            raise RuntimeError("pre-state claim failed runner is unproven")
+        checks_path = run_dir / "pre-state-claim-checks.json"
+        result_path = run_dir / "pre-state-claim-result.json"
+        prior_checks = _read_json(checks_path)
+        prior_result = _read_json(result_path)
+        current_owner, owner_raw = lifecycle._state_snapshot(shared / "owner.json")
+        owner = prior_checks.get("vm_owner", {}) if prior_checks else current_owner
+        lease, _ = lifecycle._state_snapshot(run_dir / "vm-lifecycle.json")
+        identity_keys = ("vm_identity", "release_id", "source_commit", "pid", "process_token", "lease_token",
+                         "initially_running", "vm_started_by_release", "vm_boot_id")
+        if (owner.get("release_id") != identifier or owner.get("source_commit") != manifest.get("commit_sha")
+                or owner.get("vm_identity") != settings.identity or owner.get("lease_status") != "retained"
+                or owner.get("initially_running") is not True or owner.get("vm_started_by_release") is not False
+                or owner.get("vm_power_status") != "running"
+                or owner.get("pid") != runner.get("pid") or owner.get("process_token") != runner.get("process_token")
+                or any(owner.get(key) != lease.get(key) or owner.get(key) is None for key in identity_keys)):
+            raise RuntimeError("pre-state claim VM owner is unproven")
+        if current_owner != owner:
+            released = {**owner, "lease_status": "released", "vm_power_status": "running", "vm_cleanup_status": "preserved",
+                        "updated_at": (prior_result or {}).get("reconciled_at"),
+                        "pre_state_claim_result_sha256": hashlib.sha256(canonical_json(prior_result) + b"\n").hexdigest()}
+            if current_owner != released:
+                raise RuntimeError("pre-state claim VM owner changed")
+
+        def unchanged() -> None:
+            if (any(read_replaceable_bytes(run_dir / name, max_bytes=MAX_JSON_BYTES) != raw for name, raw in originals.items())
+                    or lifecycle._state_snapshot(shared / "owner.json")[1] != owner_raw
+                    or _process_token(runner["pid"]) == runner["process_token"]):
+                raise RuntimeError("pre-state claim original evidence changed")
+
+        inspection = _inspect_reconciliation(identifier)
+        checks = {
+            "schema": 1, "type": "sub2api-pre-state-claim-checks", "release_id": identifier,
+            "original_sha256": {name: hashlib.sha256(raw).hexdigest() for name, raw in originals.items()},
+            "vm_owner": owner, "vm_owner_sha256": hashlib.sha256(canonical_json(owner) + b"\n").hexdigest(),
+            "production_snapshot_sha256": document["evidence"]["production_snapshot_sha256"],
+            "application_deployed": False,
+        }
+        if checks_path.exists() or checks_path.is_symlink():
+            if _read_json(checks_path, required=True) != checks:
+                raise RuntimeError("pre-state claim checks changed")
+        elif inspection.get("failure_code") == "freeze_failed_before_state":
+            _prove_pre_state_claim(run_dir, document)
+            unchanged()
+            _write_json(checks_path, checks)
+            if _read_json(checks_path, required=True) != checks:
+                raise RuntimeError("pre-state claim checks publication failed")
+        else:
+            raise RuntimeError("pre-state claim checks are missing")
+        checks_sha256 = hashlib.sha256(read_replaceable_bytes(checks_path, max_bytes=MAX_JSON_BYTES)).hexdigest()
+        if (result_path.exists() or result_path.is_symlink()) and inspection.get("decision") != "already_recovered":
+            raise RuntimeError("pre-state claim result conflicts with active claim")
+        if inspection.get("failure_code") == "freeze_failed_before_state":
+            unchanged()
+            probe = pre_state_claim_probe_script(document, run_dir / "gate", TRUSTED_VM_PUBLIC_KEY)
+            # Both shared production locks remain held from the final read-only
+            # proof through the existing cleanup/reconcile helpers. The live
+            # migration snapshot is re-hashed before any write, not after it.
+            script = f'''set -Eeuo pipefail
+exec 9>/run/lock/sub2api-production-release.lock
+flock -n 9
+exec 8>/run/lock/sub2api-backup-global.lock
+flock -n 8
+observations=$(bash -Eeuo pipefail -c {shlex.quote(probe)})
+grep -Fxq 'pre_state_claim=verified' <<<"$observations"
+snapshot=$(sed -n 's/^snapshot_b64=//p' <<<"$observations")
+observed_sha=$(printf '%s' "$snapshot" | base64 -d | jq -cS . | tr -d '\\n' | sha256sum)
+observed_sha=${{observed_sha%% *}}
+test "$observed_sha" = {document['evidence']['production_snapshot_sha256']}
+export RELEASE_DIR=/opt/sub2api/releases/{identifier}
+/opt/sub2api/releases/.active-release/assets/cleanup-state.sh >/dev/null
+/opt/sub2api/releases/.active-release/assets/reconcile.sh >/dev/null
+printf 'release_claim_reconciled=true\\nplaintext_state_removed=true\\n'
+'''
+            values = SSHRunner().run("racknerd", script, {"release_claim_reconciled", "plaintext_state_removed"}, timeout=600).values
+            if values != {"release_claim_reconciled": "true", "plaintext_state_removed": "true"}:
+                raise RuntimeError("pre-state claim cleanup reply is unproven")
+        elif inspection.get("decision") != "already_recovered":
+            raise RuntimeError("pre-state claim recovery is not allowed")
+        proof = {**_prove_pre_state_claim(run_dir, document, recovered=True), **_prove_pre_state_runtime(document)}
+        unchanged()
+        result = {
+            "schema": 1, "type": "sub2api-pre-state-claim-result", "release_id": identifier,
+            "status": "claim_recovered", "application_deployed": False,
+            "original_runner_status": runner["status"], "original_production_status": production["status"],
+            "checks_sha256": checks_sha256, "evidence": proof,
+            "reconciled_at": (prior_result or {}).get("reconciled_at", int(time.time())),
+        }
+        if result_path.exists() or result_path.is_symlink():
+            if _read_json(result_path, required=True) != result:
+                raise RuntimeError("pre-state claim result changed")
+        else:
+            _write_json(result_path, result)
+        if (_read_json(result_path, required=True) != result
+                or hashlib.sha256(read_replaceable_bytes(checks_path, max_bytes=MAX_JSON_BYTES)).hexdigest() != checks_sha256):
+            raise RuntimeError("pre-state claim result publication failed")
+        unchanged()
+        def final_proof() -> None:
+            _prove_pre_state_claim(run_dir, document, recovered=True)
+            _prove_pre_state_runtime(document)
+            unchanged()
+        lifecycle.release_pre_state_claim_owner(run_dir, settings, shared, final_proof)
+        return result
+
+
 def reconcile(args: argparse.Namespace) -> None:
     inspection = _inspect_reconciliation(args.release_id)
     identifier = args.release_id
+    if args.mode == "recover" and (
+        inspection.get("failure_code") == "freeze_failed_before_state"
+        or (_run_dir(identifier) / "pre-state-claim-checks.json").exists()
+        or (_run_dir(identifier) / "pre-state-claim-checks.json").is_symlink()
+    ):
+        print(canonical_json(_reconcile_pre_state_claim(identifier)).decode("ascii"))
+        return
     release_dir = f"/opt/sub2api/releases/{identifier}"
     if args.mode == "coordinated-recover":
         if inspection["decision"] not in {"coordinated_restore_required", "already_recovered"} or inspection["runner_alive"]:

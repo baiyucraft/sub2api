@@ -9,6 +9,10 @@ from pathlib import Path
 
 
 MAINTENANCE_ROOT = Path(__file__).resolve().parents[2] / "maintenance"
+# This fixture preserves the profile-276 historical contract. Current profile
+# admission and generic backup paths have their own live-source regressions.
+HISTORICAL_COMMIT = "3cbeebf3de3b79a1692f11ab2a2c557642c2624f"
+MAINTENANCE_PREFIX = ".agents/skills/sub2api-production-deploy/scripts/maintenance/"
 EARLY_PROFILES = (
     "182", "187", "191", "192", "194", "195", "197", "198", "199",
     "202", "206", "207", "208", "209", "210", "212", "213", "215",
@@ -57,9 +61,19 @@ class Profile260MaintenanceContractTest(unittest.TestCase):
             cls.bash = str(candidate) if candidate.is_file() else None
         if cls.bash is None:
             raise unittest.SkipTest("bash is unavailable")
+        paths = subprocess.check_output(
+            ["git", "ls-tree", "-r", "--full-tree", "--name-only", HISTORICAL_COMMIT, "--", MAINTENANCE_PREFIX],
+            cwd=MAINTENANCE_ROOT,
+        ).decode("utf-8").splitlines()
+        cls.sources = {
+            path.removeprefix(MAINTENANCE_PREFIX): subprocess.check_output(
+                ["git", "show", f"{HISTORICAL_COMMIT}:{path}"], cwd=MAINTENANCE_ROOT,
+            ).decode("utf-8")
+            for path in paths if path.endswith(".sh")
+        }
 
     def guards(self, relative_path: str, variable: str) -> list[str]:
-        text = (MAINTENANCE_ROOT / relative_path).read_text(encoding="utf-8")
+        text = self.sources[relative_path]
         guards = []
         for line in text.splitlines():
             if line.lstrip().startswith("#"):
@@ -151,15 +165,14 @@ class Profile260MaintenanceContractTest(unittest.TestCase):
     def test_all_maintenance_profile_allowlists_are_covered(self) -> None:
         covered = set(ID_GUARDS) | set(PROFILE_GUARDS)
         found = set()
-        for path in MAINTENANCE_ROOT.rglob("*.sh"):
-            text = path.read_text(encoding="utf-8")
+        for path, text in self.sources.items():
             for line in text.splitlines():
                 if line.lstrip().startswith("#"):
                     continue
                 profile_guard = line.lstrip().startswith("[[ $profile ==")
                 id_guard = "=~" in line and "-[0-9a-f]{12}-" in line
                 if profile_guard or id_guard:
-                    found.add(path.relative_to(MAINTENANCE_ROOT).as_posix())
+                    found.add(path)
         self.assertEqual(found, covered)
 
 
