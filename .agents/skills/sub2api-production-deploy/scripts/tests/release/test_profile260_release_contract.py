@@ -166,7 +166,7 @@ class Profile260ReleaseContractTest(unittest.TestCase):
             with self.subTest(script=name):
                 condition = next(line for line in source(name).splitlines() if f"if [[ ${variable} == 242" in line)
                 profiles = tuple(map(int, re.findall(rf"\${variable} == ([0-9]+)", condition)))
-                self.assertEqual(profiles, tuple(range(242, 281)))
+                self.assertEqual(profiles, tuple(range(242, 282)))
 
 
 class Profile260BashContractTest(unittest.TestCase):

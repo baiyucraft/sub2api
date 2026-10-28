@@ -32,7 +32,7 @@ def collect(*, archive: Path, gate: Path, signature: Path, trust: Path, expected
     checksum in the full recovery review's findings. This helper signs nothing.
     """
     need(re.fullmatch(r"full-dr-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", drill_id) is not None, "drill identity")
-    need(re.fullmatch(r"(?:270|271|272|273|274|275|276|277|278|279|280)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}", release_id) is not None, "release identity")
+    need(re.fullmatch(r"(?:270|271|272|273|274|275|276|277|278|279|280|281)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}", release_id) is not None, "release identity")
     need(isinstance(proof, dict) and set(proof) >= {"host_namespaces", "rootfs_identity_sha256", "host_docker_engine_id"}, "host proof missing")
     assert_isolated_guest(proof["host_namespaces"])
     need(re.fullmatch(r"[0-9a-f]{64}", str(proof["rootfs_identity_sha256"])) is not None, "rootfs identity missing")

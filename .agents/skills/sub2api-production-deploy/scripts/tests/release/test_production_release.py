@@ -1942,9 +1942,9 @@ class ReleaseClaimScriptTest(unittest.TestCase):
         profiles = (DEPLOY_ROOT / "release" / "profiles.py").read_text(encoding="utf-8")
         schema_two_profile_guard = next(
             line for line in validator.splitlines()
-            if line.lstrip().startswith('[[ "$profile" == 280')
+            if line.lstrip().startswith('[[ "$profile" == 281')
         )
-        self.assertEqual(schema_two_profile_guard.strip(), '[[ "$profile" == 280 ]]')
+        self.assertEqual(schema_two_profile_guard.strip(), '[[ "$profile" == 281 ]]')
         self.assertIn('canary_verified:"not_checked"', validator)
         self.assertNotIn("candidate-canary.json", validator)
         self.assertNotIn("key='admin_api_key'", validator)
@@ -1963,7 +1963,7 @@ class ReleaseClaimScriptTest(unittest.TestCase):
     def test_current_profile_260_version_contract_matches_vm_validator(self) -> None:
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
         profiles = (DEPLOY_ROOT / "release" / "profiles.py").read_text(encoding="utf-8")
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "280")
+        self.assertEqual(CURRENT_RELEASE_PROFILE, "281")
         successor = get_profile("261")
         self.assertEqual(successor["version"], "0.2.13-baiyu")
         self.assertEqual(successor["parent"], "260")

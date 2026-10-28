@@ -373,3 +373,13 @@ profile 280 为 parent 279、版本 `0.2.22-baiyu`，无新增 SQL migration，�
 统一摘要覆盖collecting/insufficient/match/suspected，单一方法、意见一致和有效冲突；总有效权重至少3，合格分布可单独结论，无分布时必须数字/行为各自两轮后同候选，单参考方法不足，reference共识的inference=true；冲突返回insufficient，target/effective不同以target_model_mismatch拒绝身份推断；只有分布允许other。无精确平台/模型/协议条目不得借用相似模型。页面只显示一套摘要和方法证据，旧对外字段缺失是明确协调接口变更；协议证据、健康和调度保持独立。
 
 来源登记须区分Chanshui数据入口与实际行为画像来源：data_ref/probe_v3e_snapshot.json记录@bazaarlink/probe-engine/openruterati的2026-08-07 benign-ladder生产聚合画像，34条无原始分组；ModelTrace另有18模型648数字样本。没有跨方法独立联合验证，3/2/1为工程默认。运行时固定资产，不联网更新。最低定向回归包括统一summary、两轮状态、原fingerprint/distribution、管理响应/前端健康格及test_profile280_release_contract.py；发布前再按正式Gate范围执行完整验证。
+
+
+### 官方 0.2.19 合并与 profile 281
+
+当前 profile281 为 `0.2.19-baiyu`、parent280，只新增原字节重编号305/306；历史profile与SQL不可变，未知282拒绝。运行 `test_profile281_release_contract.py`、全部 release suite、Go migration合同、变更Shell的 `bash -n` 及真实jq祖先manifest正负例。隔离PostgreSQL验证305/306执行、约束和重复应用；不将本地测试替代正式Gate或生产验证。
+
+- 权限和计费：scoped admin key签名/范围/路由/step-up授权回归；fork未声明管理路由默认拒绝。图片按次计费与 `strip_optional_image_tools` 同时保留，鉴权快照schema升26，旧缓存失效。
+- 账号与前端：受管目录sync回调、Grok诊断代次、编辑字段白名单、Key生命周期、Group表单图片计费、账号列表ETag/缓存未知/TTFT；类型检查和production build。
+- 转发和调度：共享buffered Responses的模型审计、TTFT和原始缓存证据；DeepSeek `prompt_cache_hit_tokens`字段存在性/显式零/类型错误/优先级；Gemini固定缓存账号重试和终态；缓存快照3秒后台预算与5/30秒合同不变；监控SSE兼容和超时结果落库、Sol deny例外回归。
+- 可信度登记核对：实际入口为 `LoadConfidenceFingerprints`；service的state/probe覆盖集中于 `upstream_confidence_fingerprint_test.go`，管理摘要/JSON/ETag覆盖为 `upstream_management_distribution_test.go`。仓储sqlmock/SQLite测试与真实隔离 `upstream_confidence_fingerprint_postgres_test.go` 分别执行，覆盖lease竞争、CAS、轮换与重启读取；不得把模拟数据库结果写作PostgreSQL通过。
