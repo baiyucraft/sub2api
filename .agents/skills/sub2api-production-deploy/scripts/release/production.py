@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import io
 import json
+import re
 import shlex
 import secrets
 import tarfile
@@ -112,6 +113,141 @@ observed_systemctl() {
   esac
   printf '%s\n' "$value"
 }
+'''
+
+
+def pre_state_claim_probe_script(document: dict, gate_dir: Path, trusted_key: Path, *, recovered: bool = False) -> str:
+    """Prove an untouched production baseline without executing claim helpers.
+
+    This is only for a verified schema-2 Gate whose freeze failed before its
+    state directory existed.  Absence alone is insufficient: the caller must
+    compare the returned live snapshot with the signed snapshot digest.
+    """
+    manifest, evidence = document["manifest"], document["evidence"]
+    identifier = manifest.get("release_id", "")
+    if manifest.get("schema") != 2 or not re.fullmatch(r"[0-9]+-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}", identifier):
+        raise RuntimeError("pre-state claim Gate identity is invalid")
+    for field in ("production_current_image_id", "candidate_image_id"):
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", str(evidence.get(field, ""))):
+            raise RuntimeError("pre-state claim image identity is invalid")
+    if (evidence["production_current_image_id"] == evidence["candidate_image_id"]
+            or any(not re.fullmatch(r"[0-9a-f]{64}", str(evidence.get(field, "")))
+                   for field in ("production_snapshot_sha256", "candidate_archive_sha256"))):
+        raise RuntimeError("pre-state claim baseline is invalid")
+    assets = {}
+    prefix = ".agents/skills/sub2api-production-deploy/scripts/"
+    for name, digest in manifest.get("release_asset_sha256", {}).items():
+        relative = name.removeprefix(prefix)
+        if relative.startswith("maintenance/release/") or relative in {
+            "maintenance/181/mask-backup-units.sh", "maintenance/181/restore-backup-units.sh",
+            "release/backfill-activity-reward-costs.sh",
+        }:
+            basename = relative.rsplit("/", 1)[-1]
+            if not re.fullmatch(r"[A-Za-z0-9_.-]+", basename) or not re.fullmatch(r"[0-9a-f]{64}", str(digest)) or basename in assets:
+                raise RuntimeError("pre-state claim asset identity is invalid")
+            assets[basename] = digest
+    if not {"context.sh", "cleanup-state.sh", "reconcile.sh"}.issubset(assets):
+        raise RuntimeError("pre-state claim helper closure is incomplete")
+    checks = "\n".join(f"{digest}  assets/{name}" for name, digest in sorted(assets.items()))
+    expected_names = "\n".join(sorted(assets))
+    release_dir = f"/opt/sub2api/releases/{identifier}"
+    state_dir = f"/opt/sub2api/backups/release-state/{identifier}"
+    terminal_checks = f'''test ! -e {release_dir}/.consumed
+test ! -L {release_dir}/.consumed
+test ! -e /opt/sub2api/releases/.active-release
+test ! -L /opt/sub2api/releases/.active-release
+active={release_dir}/.recovered
+test -f "$active/marker"; test ! -L "$active/marker"
+grep -Fxq {shlex.quote('release_id=' + identifier)} "$active/marker"
+test -f "$active/plaintext-cleaned"; test ! -L "$active/plaintext-cleaned"
+''' if recovered else f'''for terminal in .consumed .recovered; do
+  test ! -e {release_dir}/"$terminal"
+  test ! -L {release_dir}/"$terminal"
+done
+active=/opt/sub2api/releases/.active-release
+'''
+    return f'''set -Eeuo pipefail
+{observation_shell_helpers()}
+for parent in /opt /opt/sub2api /opt/sub2api/releases /opt/sub2api/backups /opt/sub2api/backups/release-state; do
+  test -d "$parent"
+  test ! -L "$parent"
+done
+test ! -e {state_dir}
+test ! -L {state_dir}
+staging=$(find /opt/sub2api/backups/release-state -mindepth 1 -maxdepth 1 -name {shlex.quote('.' + identifier + '.staging.*')} -print -quit)
+test -z "$staging"
+test -d {release_dir}
+test ! -L {release_dir}
+{terminal_checks}
+test -d "$active"
+test ! -L "$active"
+metadata=$(stat -c '%u:%g:%a' "$active"); test "$metadata" = 0:0:700
+test -d "$active/assets"; test ! -L "$active/assets"
+metadata=$(stat -c '%u:%g:%a' "$active/assets"); test "$metadata" = 0:0:700
+unsafe=$(find "$active" \\( -type l -o \\( ! -type d -a ! -type f \\) -o -type f -links +1 \\) -print -quit)
+test -z "$unsafe"
+asset_names=$(find "$active/assets" -mindepth 1 -maxdepth 1 -printf '%f\\n' | LC_ALL=C sort)
+test "$asset_names" = {shlex.quote(expected_names)}
+for file in "$active/assets/"*; do
+  test -f "$file"; test ! -L "$file"
+  metadata=$(stat -c '%u:%g:%a:%h' "$file"); test "$metadata" = 0:0:500:1
+done
+for file in release_id gate.json gate.sig CLAIM_SHA256SUMS; do
+  test -f "$active/$file"
+  test ! -L "$active/$file"
+  metadata=$(stat -c '%u:%g:%a:%h' "$active/$file")
+  test "$metadata" = 0:0:400:1
+done
+grep -Fxq {shlex.quote('release_id=' + identifier)} "$active/release_id"
+gate_sha=$(sha256sum "$active/gate.json"); gate_sha=${{gate_sha%% *}}
+test "$gate_sha" = {sha256_file(gate_dir / 'gate.json')}
+signature_sha=$(sha256sum "$active/gate.sig"); signature_sha=${{signature_sha%% *}}
+test "$signature_sha" = {sha256_file(gate_dir / 'gate.sig')}
+test -f "$active/candidate.tar.gz"; test ! -L "$active/candidate.tar.gz"
+archive_sha=$(sha256sum "$active/candidate.tar.gz"); archive_sha=${{archive_sha%% *}}
+test "$archive_sha" = {evidence['candidate_archive_sha256']}
+trust=/opt/sub2api-release-trust/vm-gate-ed25519.pub
+test -f "$trust"
+test ! -L "$trust"
+trust_sha=$(sha256sum "$trust"); trust_sha=${{trust_sha%% *}}
+test "$trust_sha" = {sha256_file(trusted_key)}
+openssl pkeyutl -verify -pubin -inkey "$trust" -rawin -in "$active/gate.json" -sigfile "$active/gate.sig" >/dev/null 2>&1
+(cd "$active"; sha256sum --strict -c CLAIM_SHA256SUMS >/dev/null; printf '%s\\n' {shlex.quote(checks)} | sha256sum --strict -c - >/dev/null)
+containers=$(docker ps -a --format '{{{{.Names}}}}')
+for container in sub2api-candidate-{identifier} sub2api-migrate-{identifier}; do
+  if observed_grep -Fxq "$container" <<<"$containers"; then exit 1; fi
+done
+markers=$(find {release_dir} -maxdepth 2 \\( -name '*migration*committed*' -o -name 'route-switch*' -o -name 'route-switched' -o -name 'nginx-ingress-transaction' \\) -print -quit)
+test -z "$markers"
+slot=/opt/sub2api/active-app
+upstream=/etc/nginx/conf.d/sub2api-release-upstream.conf
+test -f "$slot"; test ! -L "$slot"
+test -f "$upstream"; test ! -L "$upstream"
+active_container=$(sed -n 's/^container=//p' "$slot")
+active_port=$(sed -n 's/^port=//p' "$slot")
+slot_image=$(sed -n 's/^image_id=//p' "$slot")
+[[ "$active_container" =~ ^[A-Za-z0-9_.-]{{1,100}}$ ]]
+[[ "$active_port" == 18080 || "$active_port" == 18081 ]]
+test "$slot_image" = {shlex.quote(evidence['production_current_image_id'])}
+health=$(docker inspect -f '{{{{.State.Health.Status}}}}' "$active_container")
+test "$health" = healthy
+status=$(docker inspect -f '{{{{.State.Status}}}}' "$active_container")
+test "$status" = running
+upstream_port=$(sed -nE 's/^[[:space:]]*server[[:space:]]+127[.]0[.]0[.]1:(18080|18081);[[:space:]]*$/\\1/p' "$upstream")
+test "$upstream_port" = "$active_port"
+expected_upstream=$(printf 'upstream sub2api_release_backend {{\\n    server 127.0.0.1:%s;\\n    keepalive 128;\\n}}\\n' "$active_port")
+actual_upstream=$(cat "$upstream")
+test "$actual_upstream" = "$expected_upstream"
+nginx -t >/dev/null 2>&1
+nginx_state=$(observed_systemctl is-active nginx); test "$nginx_state" = active
+timer_enabled=$(observed_systemctl is-enabled sub2api-backup.timer); test "$timer_enabled" = enabled
+timer_active=$(observed_systemctl is-active sub2api-backup.timer); test "$timer_active" = active
+service_enabled=$(observed_systemctl is-enabled sub2api-backup.service)
+case "$service_enabled" in disabled|static|indirect|enabled) ;; *) exit 1;; esac
+service_active=$(observed_systemctl is-active sub2api-backup.service)
+case "$service_active" in inactive|failed) ;; *) exit 1;; esac
+{snapshot_script()}
+printf 'pre_state_claim=verified\\n'
 '''
 
 
