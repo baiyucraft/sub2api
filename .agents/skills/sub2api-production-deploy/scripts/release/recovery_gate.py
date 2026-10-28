@@ -288,6 +288,14 @@ _DEPLOY_CONFIG_REVIEW_PATHS = frozenset({
         "release/vm_lifecycle.py", "release/vm_restore_probe_preserve.py",
     )
 })
+# Independently reviewed pre-state claim closure and backup path validation.
+# Exactly these before/after objects and modes; historical reviews stay frozen.
+_PRE_STATE_CLAIM_RECOVERY_REVIEW_PATHS = frozenset({
+    _SCRIPTS_PREFIX + suffix for suffix in (
+        "maintenance/181/mask-backup-units.sh", "maintenance/181/restore-backup-units.sh",
+        "release/production.py", "release/supervisor.py", "release/vm_lifecycle.py",
+    )
+})
 _REVIEWED_SCOPED_TRANCHES = (
     (
         "aeb410bccc524164bdafbd3db865d4f5f588aced",
@@ -480,6 +488,12 @@ _REVIEWED_SCOPED_TRANCHES = (
         "51c9f3e029dd9fe1a92013a5670eaa7ee5f42009",
         "reviewed_prepare_gate_policy_changed",
         _PREPARE_GATE_POLICY_REVIEW_PATHS,
+    ),
+    (
+        "f984872ebb536c84d1234bbe0d7b1de01d1401d5",
+        "cd240aaa340bb9fea2b5fcc90df892cbab39a044",
+        "reviewed_pre_state_claim_recovery_changed",
+        _PRE_STATE_CLAIM_RECOVERY_REVIEW_PATHS,
     ),
 )
 _RELEASE_STATE_MACHINE_FILES = frozenset(
