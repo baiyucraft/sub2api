@@ -26,27 +26,30 @@ class Profile277ReleaseContractTest(unittest.TestCase):
     def test_profile_identity_and_immutable_history(self):
         previous = {}
         exec(compile(predecessor.git_blob(BASELINE, ".agents/skills/sub2api-production-deploy/scripts/release/profiles.py"), "profile275-baseline", "exec"), previous)
-        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"276", "277"})
+        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"276", "277", "278"})
         for name, profile in previous["PROFILES"].items():
             self.assertEqual(get_profile(name), profile, name)
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "277")
+        self.assertEqual(CURRENT_RELEASE_PROFILE, "278")
         self.assertEqual((get_profile("276")["version"], get_profile("276")["parent"], get_profile("276")["new_migrations"]),
                          ("0.2.18-baiyu", "275", ["303_group_strip_optional_image_tools.sql"]))
-        profile = get_release_profile("277")
+        profile = get_profile("277")
         self.assertEqual((profile["version"], profile["parent"], profile["new_migrations"], profile["gate_schema"]),
                          ("0.2.19-baiyu", "276", [MIGRATION], 2))
         with self.assertRaisesRegex(ValueError, "historical"):
+            get_release_profile("277")
+        self.assertEqual((get_release_profile("278")["version"], get_release_profile("278")["parent"], get_release_profile("278")["new_migrations"]),
+                         ("0.2.20-baiyu", "277", []))
+        with self.assertRaisesRegex(ValueError, "historical"):
             get_release_profile("276")
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 278"):
-            get_profile("278")
         self.assertIsNotNone(RELEASE_ID.fullmatch("277-aaaaaaaaaaaa-1-aaaaaaaa"))
-        self.assertIsNone(RELEASE_ID.fullmatch("278-aaaaaaaaaaaa-1-aaaaaaaa"))
+        self.assertIsNotNone(RELEASE_ID.fullmatch("278-aaaaaaaaaaaa-1-aaaaaaaa"))
 
     def test_catalog_checksum_and_pending_migration(self):
         registry = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(registry["current_profile"]["id"], "277")
+        self.assertEqual(registry["current_profile"]["id"], "278")
         for key in ("version", "parent", "new_migrations", "gate_schema", "release_policy"):
-            self.assertEqual(registry["current_profile"][key], get_profile("277")[key])
+            self.assertEqual(registry["current_profile"][key], get_profile("278")[key])
+        self.assertEqual(registry["current_profile"]["new_migrations"], [])
         raw = (WORKSPACE / "backend/migrations" / MIGRATION).read_bytes()
         self.assertEqual(registry["migration_contracts"][MIGRATION], hashlib.sha256(raw).hexdigest())
         catalog = discover_migration_catalog(WORKSPACE)
@@ -58,18 +61,19 @@ class Profile277ReleaseContractTest(unittest.TestCase):
     def test_shell_context_and_vm_manifest_contract(self):
         context = (ROOT / "maintenance/release/context.sh").read_text(encoding="utf-8")
         validator = (ROOT / "release/vm-validate.sh").read_text(encoding="utf-8")
-        self.assertIn("|276|277)", context)
+        self.assertIn("|276|277|278)", context)
         schema_two_profile_guard = next(
             line for line in validator.splitlines()
-            if line.lstrip().startswith('[[ "$profile" == 254')
+            if line.lstrip().startswith('[[ "$profile" == 278')
         )
-        self.assertRegex(schema_two_profile_guard, r'\$profile" == 277 \]\]$')
-        self.assertNotIn('"$profile" == 278', schema_two_profile_guard)
+        self.assertEqual(schema_two_profile_guard.strip(), '[[ "$profile" == 278 ]]')
         self.assertIn('elif [[ "$profile" == 277 ]]; then', validator)
         self.assertIn('0.2.19-baiyu', validator)
+        self.assertIn('elif [[ "$profile" == 278 ]]; then', validator)
+        self.assertIn('0.2.20-baiyu', validator)
         self.assertIn(MIGRATION, validator)
 
-    def test_current_shell_admission_executes_277_and_rejects_278(self):
+    def test_release_id_parser_keeps_277_and_278_while_vm_admission_accepts_current_only(self):
         bundled = Path('C:/Program Files/Git/bin/bash.exe')
         bash = str(bundled) if bundled.is_file() else shutil.which('bash')
         if not bash:
@@ -78,13 +82,16 @@ class Profile277ReleaseContractTest(unittest.TestCase):
         validator = (ROOT / 'release/vm-validate.sh').read_text(encoding='utf-8')
         prepare = (ROOT / 'maintenance/release/prepare.sh').read_text(encoding='utf-8')
         guards = [
-            ('release_dir', next(line for line in context.splitlines() if '$release_dir =~' in line).strip().split(' || return')[0]),
-            ('profile', next(line for line in validator.splitlines() if line.lstrip().startswith('[[ "$profile" == 254')).strip()),
-            ('profile', next(line for line in prepare.splitlines() if line.lstrip().startswith('[[ $profile ==')).strip()),
+            ('release_dir', next(line for line in context.splitlines() if '$release_dir =~' in line).strip().split(' || return')[0], 'history'),
+            ('profile', next(line for line in validator.splitlines() if line.lstrip().startswith('[[ "$profile" == 278')).strip(), 'current'),
+            ('profile', next(line for line in prepare.splitlines() if line.lstrip().startswith('[[ $profile ==')).strip(), 'current'),
         ]
         env = {key: value for key, value in os.environ.items() if key not in {'BASH_ENV', 'ENV', 'SHELLOPTS'}}
-        for variable, guard in guards:
-            for profile, accepted in (('277', True), ('278', False), ('0277', False), ('277;true', False)):
+        for variable, guard, scope in guards:
+            cases = (('278', True), ('277', True), ('0278', False), ('278;true', False), ('279', False)) if scope == 'history' else (
+                ('278', True), ('277', False), ('0278', False), ('278;true', False)
+            )
+            for profile, accepted in cases:
                 value = '/opt/sub2api/releases/' + profile + '-aaaaaaaaaaaa-1-aaaaaaaa' if variable == 'release_dir' else profile
                 script = variable + '=$1\nif ' + guard + '; then exit 0; else exit 1; fi'
                 result = subprocess.run([bash, '--noprofile', '--norc', '-c', script, 'profile-admission', value],

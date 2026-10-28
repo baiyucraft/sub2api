@@ -161,7 +161,10 @@ func (r *upstreamConfigRepository) FinishConfidenceFingerprint(ctx context.Conte
 				return err
 			}
 			state.NextSequence = nextSequence
-			state.Samples = append(state.Samples, service.ConfidenceFingerprintSample{ObservedAt: attempt.ObservedAt.UTC(), Method: attempt.Method, Evidence: evidence})
+			if err := state.RecordEvidence(attempt.Method, attempt.ObservedAt, evidence); err != nil {
+				_ = tx.Rollback()
+				return err
+			}
 		}
 		changed, err := saveConfidenceFingerprintState(ctx, tx, keyID, revision, state, now)
 		if err != nil {
@@ -177,7 +180,7 @@ func (r *upstreamConfigRepository) FinishConfidenceFingerprint(ctx context.Conte
 	return errors.New("confidence fingerprint completion contention")
 }
 
-func (r *upstreamConfigRepository) RecordConfidenceFingerprintSample(ctx context.Context, keyID int64, identity service.ConfidenceFingerprintIdentity, evidence service.ConfidenceFingerprintEvidence, now time.Time) error {
+func (r *upstreamConfigRepository) RecordConfidenceFingerprintSample(ctx context.Context, keyID int64, identity service.ConfidenceFingerprintIdentity, method string, evidence service.ConfidenceFingerprintEvidence, now time.Time) error {
 	if keyID <= 0 || identity.Version != service.ConfidenceFingerprintIdentityVersion || identity.Fingerprint == "" {
 		return errors.New("invalid confidence fingerprint sample")
 	}
@@ -206,9 +209,14 @@ func (r *upstreamConfigRepository) RecordConfidenceFingerprintSample(ctx context
 			_ = tx.Rollback()
 			return errors.New("confidence fingerprint sample conflicts with pending claim")
 		}
-		state.Samples = append(state.Samples, service.ConfidenceFingerprintSample{ObservedAt: now.UTC(), Method: "behavioral", Evidence: evidence})
-		if len(state.Samples) > service.ConfidenceFingerprintSampleLimit {
-			state.Samples = append([]service.ConfidenceFingerprintSample(nil), state.Samples[len(state.Samples)-service.ConfidenceFingerprintSampleLimit:]...)
+		if method != "protocol" {
+			_ = tx.Rollback()
+			return errors.New("invalid unclaimed confidence fingerprint sample method")
+		}
+		state.SamplingPolicyVersion = service.ConfidenceFingerprintSamplingPolicyVersion
+		if err := state.RecordEvidence(method, now, evidence); err != nil {
+			_ = tx.Rollback()
+			return err
 		}
 		changed, err := saveConfidenceFingerprintState(ctx, tx, keyID, revision, state, now)
 		if err != nil {
