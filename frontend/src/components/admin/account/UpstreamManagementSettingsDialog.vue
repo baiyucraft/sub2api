@@ -114,11 +114,7 @@
             <span class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-200">
               {{ platform.label }}
             </span>
-            <div v-if="platform.id === 'openai' && draft.confidence_probe.enabled" data-test="fixed-openai-probe-model" class="flex min-h-10 items-center rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm font-medium text-gray-700 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-200">
-              gpt-6.1-sol
-            </div>
             <Select
-              v-else
               v-model="draft.probe_models[platform.id]"
               :options="candidateOptions[platform.id] || []"
               searchable
@@ -162,8 +158,7 @@
             <Toggle v-model="draft.confidence_probe.enabled" :aria-label="t('admin.upstreamManagement.confidenceProbe.enabled')" />
           </div>
           <div class="mt-4 flex flex-wrap gap-2 text-xs">
-            <span class="rounded-md border border-gray-200 bg-gray-50 px-2.5 py-1.5 font-medium text-gray-700 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-200">gpt-6.1-sol</span>
-            <span class="rounded-md border border-gray-200 px-2.5 py-1.5 text-gray-600 dark:border-dark-600 dark:text-gray-300">{{ t('admin.upstreamManagement.confidenceProbe.fixedEffort') }}</span>
+            <span data-test="confidence-selected-openai-model" class="rounded-md border border-gray-200 bg-gray-50 px-2.5 py-1.5 font-medium text-gray-700 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-200">OpenAI: {{ draft.probe_models.openai }}</span>
             <span class="rounded-md border border-gray-200 px-2.5 py-1.5 text-gray-600 dark:border-dark-600 dark:text-gray-300">{{ t('admin.upstreamManagement.confidenceProbe.window') }}</span>
           </div>
           <p data-test="confidence-sample-policy" class="mt-3 text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('admin.upstreamManagement.confidenceProbe.samplePolicy') }}</p>
@@ -271,7 +266,7 @@ const defaults: SettingsDraft = {
   },
   probe_models: { openai: 'gpt-4o-mini', anthropic: 'claude-3-5-haiku-latest', gemini: 'gemini-2.0-flash' },
   probe_interval_seconds: 300,
-  confidence_probe: { enabled: false, reasoning_effort: 'low', long_context_enabled: false, long_context_max_tokens: 2048, quality_degrade_threshold: 0, prompt_version: 'openai-sol-distribution-v1' }
+  confidence_probe: { enabled: false, reasoning_effort: 'low', long_context_enabled: false, long_context_max_tokens: 2048, quality_degrade_threshold: 0, prompt_version: 'openai-sol-distribution-v1', model_selection_version: 1 }
   , pool_mode_retry_status_codes: [401, 403, 429]
 }
 const draft = reactive<SettingsDraft>(structuredClone(defaults))
@@ -362,6 +357,9 @@ async function load() {
     draft.probe_models = { ...defaults.probe_models, ...(settings.probe_models || {}) }
     draft.probe_interval_seconds = settings.probe_interval_seconds ?? defaults.probe_interval_seconds
     draft.confidence_probe = { ...defaults.confidence_probe, ...(settings.confidence_probe || {}) }
+    if (settings.confidence_probe?.enabled && !settings.confidence_probe.model_selection_version) {
+      draft.probe_models.openai = 'gpt-6.1-sol'
+    }
     draft.confidence_probe.reasoning_effort = 'low'
     draft.confidence_probe.prompt_version = 'openai-sol-distribution-v1'
     draft.confidence_probe.long_context_enabled = false
@@ -414,7 +412,7 @@ async function save() {
       },
       probe_models: Object.fromEntries(Object.entries(draft.probe_models).map(([platform, model]) => [platform, model.trim()])),
       probe_interval_seconds: probeIntervalMinutes.value * 60,
-      confidence_probe: { ...draft.confidence_probe, reasoning_effort: 'low', long_context_enabled: false, quality_degrade_threshold: 0, prompt_version: 'openai-sol-distribution-v1' },
+      confidence_probe: { ...draft.confidence_probe, reasoning_effort: 'low', long_context_enabled: false, quality_degrade_threshold: 0, prompt_version: 'openai-sol-distribution-v1', model_selection_version: 1 },
       ...(probeOnly.value ? {} : { pool_mode_retry_status_codes: retryStatusCodes, cache_guard: { ...draft.cache_guard, group_ids: [...new Set(draft.cache_guard.group_ids)].sort((a, b) => a - b) } })
     }
     const saved = probeOnly.value

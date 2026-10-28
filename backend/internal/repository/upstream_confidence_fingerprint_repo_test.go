@@ -3,12 +3,14 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
 
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
+	"github.com/DATA-DOG/go-sqlmock"
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
@@ -96,6 +98,65 @@ func TestConfidenceFingerprintRepositoryBatchIsolationAndCascade(t *testing.T) {
 	require.Zero(t, count)
 }
 
+func TestConfidenceFingerprintRepositoryBatchDecodeFailureIsolation(t *testing.T) {
+	identity := service.NewConfidenceFingerprintIdentity("openai", "gpt-6.1-sol", "responses", "https://api.example.test")
+	healthy, err := service.NewConfidenceFingerprintState(identity)
+	require.NoError(t, err)
+	healthyRaw, err := json.Marshal(healthy)
+	require.NoError(t, err)
+	invalid := *healthy
+	invalid.NextSequence = 0
+	invalidRaw, err := json.Marshal(invalid)
+	require.NoError(t, err)
+
+	for _, tc := range []struct {
+		name string
+		raw  string
+	}{
+		{"malformed_json", `{"policy_version":1,`},
+		{"invalid_state", string(invalidRaw)},
+	} {
+		t.Run(tc.name+"/sqlite", func(t *testing.T) {
+			repo, db := newConfidenceFingerprintSQLite(t)
+			now := time.Date(2026, 10, 28, 5, 0, 0, 0, time.UTC)
+			for id, raw := range map[int64]string{1: tc.raw, 2: string(healthyRaw)} {
+				_, err := db.Exec(`INSERT INTO upstream_confidence_fingerprint_states (upstream_key_id,revision,state_json,updated_at) VALUES (?,7,?,?)`, id, raw, now)
+				require.NoError(t, err)
+			}
+			reads, err := repo.LoadConfidenceFingerprints(context.Background(), map[int64]service.ConfidenceFingerprintIdentity{1: identity, 2: identity})
+			require.NoError(t, err)
+			require.Error(t, reads[1].Err)
+			require.Nil(t, reads[1].State)
+			require.NoError(t, reads[2].Err)
+			require.Equal(t, healthy, reads[2].State)
+			for id, want := range map[int64]string{1: tc.raw, 2: string(healthyRaw)} {
+				var raw string
+				var revision int64
+				require.NoError(t, db.QueryRow(`SELECT state_json,revision FROM upstream_confidence_fingerprint_states WHERE upstream_key_id=?`, id).Scan(&raw, &revision))
+				require.Equal(t, want, raw, "batch reads must not repair stored state")
+				require.Equal(t, int64(7), revision)
+			}
+		})
+		t.Run(tc.name+"/postgres_reader", func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			require.NoError(t, err)
+			client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, db)))
+			t.Cleanup(func() { _ = client.Close() })
+			repo := &upstreamConfigRepository{client: client}
+			mock.ExpectQuery(`SELECT upstream_key_id,state_json FROM upstream_confidence_fingerprint_states WHERE upstream_key_id=ANY\(\$1\)`).
+				WithArgs(sqlmock.AnyArg()).
+				WillReturnRows(sqlmock.NewRows([]string{"upstream_key_id", "state_json"}).AddRow(1, tc.raw).AddRow(2, string(healthyRaw)))
+			reads, err := repo.LoadConfidenceFingerprints(context.Background(), map[int64]service.ConfidenceFingerprintIdentity{1: identity, 2: identity})
+			require.NoError(t, err)
+			require.Error(t, reads[1].Err)
+			require.Nil(t, reads[1].State)
+			require.NoError(t, reads[2].Err)
+			require.Equal(t, healthy, reads[2].State)
+			require.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
+}
+
 func TestConfidenceFingerprintAdaptiveRouteKeepsReadableSeries(t *testing.T) {
 	repo, _ := newConfidenceFingerprintSQLite(t)
 	ctx := context.Background()
@@ -150,6 +211,9 @@ func TestConfidenceFingerprintRepositoryLegacyJSONKeepsSamplesSequenceAndPending
 	require.Len(t, reads[1].State.Samples, 1)
 	require.Equal(t, "behavioral", reads[1].State.Pending.Method)
 	require.Zero(t, reads[1].State.SamplingPolicyVersion, "read-only loading must not rewrite legacy state")
+	require.Empty(t, reads[1].State.Components["model"], "blocked claims and reads must not upgrade legacy components")
+	require.Equal(t, "legacy-token", reads[1].State.Pending.Token)
+	legacySamples := reads[1].State.Samples
 
 	next, err := repo.ClaimConfidenceFingerprint(ctx, 1, identity, now.Add(2*time.Minute))
 	require.NoError(t, err)
@@ -159,5 +223,9 @@ func TestConfidenceFingerprintRepositoryLegacyJSONKeepsSamplesSequenceAndPending
 	reads, err = repo.LoadConfidenceFingerprints(ctx, map[int64]service.ConfidenceFingerprintIdentity{1: identity})
 	require.NoError(t, err)
 	require.Len(t, reads[1].State.Samples, 1)
+	require.Equal(t, legacySamples, reads[1].State.Samples)
+	require.Equal(t, "legacy-series", reads[1].State.SeriesID)
+	require.Equal(t, identity.Fingerprint, reads[1].State.Fingerprint)
+	require.Equal(t, identity.Model, reads[1].State.Components["model"])
 	require.Equal(t, service.ConfidenceFingerprintSamplingPolicyVersion, reads[1].State.SamplingPolicyVersion)
 }

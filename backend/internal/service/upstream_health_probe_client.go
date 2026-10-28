@@ -20,11 +20,14 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
+	"github.com/Wei-Shaw/sub2api/internal/service/modeltrace_numeric"
 	"github.com/tidwall/gjson"
 )
 
 const (
-	upstreamHealthProbeMaxOutputTokens = 50
+	upstreamHealthProbeMaxOutputTokens     = 50
+	upstreamReferenceProbeMaxTokens        = 2048
+	upstreamNumericReferenceProbeMaxTokens = 4096
 	// Thinking-capable Gemini models may spend part of the output budget on
 	// internal thoughts. Keep enough budget for the complete structured answer.
 	upstreamHealthProbeGeminiMaxOutputTokens = 256
@@ -77,26 +80,31 @@ type UpstreamHealthProbeResult struct {
 	// probe evaluates more than one route. It is runtime evidence and is not
 	// serialized as a separate database column.
 	ProtocolResults     map[string]UpstreamHealthProbeResult
+	fingerprintMethod   string
+	probeResponseText   string
 	confidenceChallenge *upstreamHealthChallenge
 	distributionAttempt *DistributionAttempt
 	distributionSample  DistributionSample
 }
 
 type upstreamHealthChallenge struct {
-	Kind           string
-	Input          any
-	Prompt         string
-	LegacyPrompt   string
-	Expected       string
-	Marker         string
-	Constraint     string
-	ContextNeedle  string
-	ContextEnabled bool
-	Juice          bool
-	TemplateID     string
-	Effort         string
-	SyntheticValue string
-	ExpectedValue  string
+	Kind            string
+	Input           any
+	Prompt          string
+	LegacyPrompt    string
+	Expected        string
+	Marker          string
+	Constraint      string
+	ContextNeedle   string
+	ContextEnabled  bool
+	Juice           bool
+	TemplateID      string
+	Effort          string
+	SyntheticValue  string
+	ExpectedValue   string
+	ReferenceMethod string
+	ReferenceIndex  int
+	MaxOutputTokens int
 }
 
 // probeInputWithMinimumTokens pads only health-probe input. Some upstream keys
@@ -125,7 +133,9 @@ func probeInputWithMinimumTokens(account *Account, input string) string {
 }
 
 func padUpstreamHealthChallenge(account *Account, challenge upstreamHealthChallenge) upstreamHealthChallenge {
-	if account == nil || account.ProbeMinInputTokens <= 0 {
+	// Reference features are meaningful only for the exact pinned challenge.
+	// Account-specific padding would change the behavior being compared.
+	if challenge.ReferenceMethod != "" || account == nil || account.ProbeMinInputTokens <= 0 {
 		return challenge
 	}
 	challenge.Prompt = probeInputWithMinimumTokens(account, challenge.Prompt)
@@ -399,8 +409,49 @@ func newUpstreamHealthChallenge() (upstreamHealthChallenge, error) {
 	return upstreamHealthChallenge{Prompt: prompt, LegacyPrompt: fmt.Sprintf("What is %d + %d? Reply with only the decimal number.", a, b), Expected: fmt.Sprintf("%d", a+b), Marker: marker, Constraint: constraint, ContextNeedle: "not_requested"}, nil
 }
 
+func newUpstreamHealthChallengeForContext(ctx context.Context, account *Account) (upstreamHealthChallenge, error) {
+	if attempt, ok := ctx.Value(confidenceFingerprintAttemptContextKey{}).(*ConfidenceFingerprintAttempt); ok && attempt != nil {
+		index := int((attempt.MethodSequence - 1) % 3)
+		if attempt.MethodSequence > 0 {
+			var prompts []string
+			maxOutputTokens := upstreamReferenceProbeMaxTokens
+			switch attempt.Method {
+			case "chanshui_behavioral":
+				prompts = ChanshuiBehavioralPrompts()
+			case "modeltrace_numeric":
+				prompts = modeltrace_numeric.ChallengePrompts()
+				maxOutputTokens = upstreamNumericReferenceProbeMaxTokens
+			default:
+				prompts = nil
+			}
+			if index >= 0 && index < len(prompts) {
+				challenge := upstreamHealthChallenge{
+					Prompt: prompts[index], LegacyPrompt: prompts[index],
+					ReferenceMethod: attempt.Method, ReferenceIndex: index, MaxOutputTokens: maxOutputTokens,
+				}
+				return padUpstreamHealthChallenge(account, challenge), nil
+			}
+		}
+	}
+	return newUpstreamHealthChallenge()
+}
+
+func probeMaxOutputTokens(challenge upstreamHealthChallenge, fallback int) int {
+	if challenge.MaxOutputTokens > 0 {
+		return challenge.MaxOutputTokens
+	}
+	return fallback
+}
+
+func isReferenceFingerprintMethod(method string) bool {
+	return method == "chanshui_behavioral" || method == "modeltrace_numeric"
+}
+
 func (s *AccountTestService) RunUpstreamHealthProbe(ctx context.Context, account *Account, model string) (UpstreamHealthProbeResult, error) {
 	result := UpstreamHealthProbeResult{Model: strings.TrimSpace(model)}
+	if attempt, ok := ctx.Value(confidenceFingerprintAttemptContextKey{}).(*ConfidenceFingerprintAttempt); ok && attempt != nil {
+		result.fingerprintMethod = attempt.Method
+	}
 	if account == nil {
 		return failUpstreamHealthProbe(result, "unsupported_account", "probe_account_unsupported", errors.New("upstream health probe account is required"))
 	}
@@ -422,7 +473,7 @@ func (s *AccountTestService) RunUpstreamHealthProbe(ctx context.Context, account
 			return s.runOpenAIDistributionHealthProbe(ctx, account)
 		}
 		if account.Type == AccountTypeAPIKey && !openai_compat.ShouldUseResponsesAPI(account.Extra) {
-			challenge, challengeErr := newUpstreamHealthChallenge()
+			challenge, challengeErr := newUpstreamHealthChallengeForContext(ctx, account)
 			if challengeErr != nil {
 				return failUpstreamHealthProbe(result, "challenge_error", "probe_challenge_error", challengeErr)
 			}
@@ -430,7 +481,7 @@ func (s *AccountTestService) RunUpstreamHealthProbe(ctx context.Context, account
 			return s.runOpenAIChatCompletionsUpstreamHealthProbe(ctx, account, result, challenge)
 		}
 		if _, fingerprint := ctx.Value(confidenceFingerprintAttemptContextKey{}).(*ConfidenceFingerprintAttempt); fingerprint {
-			challenge, challengeErr := newUpstreamHealthChallenge()
+			challenge, challengeErr := newUpstreamHealthChallengeForContext(ctx, account)
 			if challengeErr != nil {
 				return failUpstreamHealthProbe(result, "challenge_error", "probe_challenge_error", challengeErr)
 			}
@@ -444,7 +495,7 @@ func (s *AccountTestService) RunUpstreamHealthProbe(ctx context.Context, account
 		juiceChallenge = padUpstreamHealthChallenge(account, juiceChallenge)
 		return s.runOpenAIUpstreamHealthProbe(ctx, account, result, juiceChallenge)
 	}
-	challenge, err := newUpstreamHealthChallenge()
+	challenge, err := newUpstreamHealthChallengeForContext(ctx, account)
 	if err != nil {
 		return failUpstreamHealthProbe(result, "challenge_error", "probe_challenge_error", err)
 	}
@@ -581,11 +632,15 @@ func (s *AccountTestService) runGrokUpstreamHealthProbe(ctx context.Context, acc
 	if err != nil {
 		return failUpstreamHealthProbe(result, "configuration_error", "probe_base_url_invalid", err)
 	}
-	payload, err := json.Marshal(map[string]any{
+	payloadValue := map[string]any{
 		"model":  result.Model,
 		"input":  challenge.LegacyPrompt,
 		"stream": true,
-	})
+	}
+	if challenge.MaxOutputTokens > 0 {
+		payloadValue["max_output_tokens"] = probeMaxOutputTokens(challenge, upstreamHealthProbeMaxOutputTokens)
+	}
+	payload, err := json.Marshal(payloadValue)
 	if err != nil {
 		return failUpstreamHealthProbe(result, "request_error", "probe_request_invalid", err)
 	}
@@ -710,7 +765,7 @@ func (s *AccountTestService) runOpenAIChatCompletionsUpstreamHealthProbe(ctx con
 	payload, err := json.Marshal(map[string]any{
 		"model":      result.Model,
 		"messages":   []map[string]string{{"role": "user", "content": probePrompt}},
-		"max_tokens": upstreamHealthProbeMaxOutputTokens,
+		"max_tokens": probeMaxOutputTokens(challenge, upstreamHealthProbeMaxOutputTokens),
 		"stream":     true,
 	})
 	if err != nil {
@@ -752,12 +807,16 @@ func (s *AccountTestService) runCNNativeResponsesUpstreamHealthProbe(ctx context
 	if err != nil {
 		return failUpstreamHealthProbe(result, "configuration_error", "probe_base_url_invalid", err)
 	}
-	payload, err := json.Marshal(map[string]any{
+	payloadValue := map[string]any{
 		"model":  result.Model,
 		"input":  challenge.LegacyPrompt,
 		"stream": true,
 		"store":  false,
-	})
+	}
+	if challenge.MaxOutputTokens > 0 {
+		payloadValue["max_output_tokens"] = probeMaxOutputTokens(challenge, upstreamHealthProbeMaxOutputTokens)
+	}
+	payload, err := json.Marshal(payloadValue)
 	if err != nil {
 		return failUpstreamHealthProbe(result, "request_error", "probe_request_invalid", err)
 	}
@@ -784,12 +843,15 @@ func (s *AccountTestService) runOpenAIUpstreamHealthProbe(ctx context.Context, a
 	}
 	result.ConfidencePromptVersion = upstreamConfidencePromptVersion
 	result.RequestedEffort = upstreamConfidenceDefaultEffort
-	_, fingerprintAttempt := ctx.Value(confidenceFingerprintAttemptContextKey{}).(*ConfidenceFingerprintAttempt)
+	fingerprintAttempt, hasFingerprintAttempt := ctx.Value(confidenceFingerprintAttemptContextKey{}).(*ConfidenceFingerprintAttempt)
+	if hasFingerprintAttempt && fingerprintAttempt != nil {
+		result.fingerprintMethod = fingerprintAttempt.Method
+	}
 	fingerprintUnavailable, _ := ctx.Value(confidenceFingerprintUnavailableContextKey{}).(bool)
 	confidenceEnabled := false
 	if s.settingService != nil {
 		if configured, explicitlyConfigured, loadErr := s.settingService.GetUpstreamConfidenceProbeSettingsState(ctx); loadErr == nil {
-			confidenceEnabled = explicitlyConfigured && configured.Enabled && !fingerprintAttempt && !fingerprintUnavailable
+			confidenceEnabled = explicitlyConfigured && configured.Enabled && !(hasFingerprintAttempt && fingerprintAttempt != nil) && !fingerprintUnavailable
 		}
 	}
 	if confidenceEnabled {
@@ -804,11 +866,13 @@ func (s *AccountTestService) runOpenAIUpstreamHealthProbe(ctx context.Context, a
 			result.RequestedEffort = upstreamConfidenceDefaultEffort
 		}
 	} else {
-		legacyChallenge, challengeErr := newUpstreamHealthChallenge()
-		if challengeErr != nil {
-			return failUpstreamHealthProbe(result, "challenge_error", "probe_challenge_error", challengeErr)
+		if challenge.ReferenceMethod == "" {
+			legacyChallenge, challengeErr := newUpstreamHealthChallenge()
+			if challengeErr != nil {
+				return failUpstreamHealthProbe(result, "challenge_error", "probe_challenge_error", challengeErr)
+			}
+			challenge = legacyChallenge
 		}
-		challenge = legacyChallenge
 		result.ConfidenceStatus = "disabled"
 		result.confidenceChallenge = nil
 	}
@@ -826,9 +890,13 @@ func (s *AccountTestService) runOpenAIUpstreamHealthProbe(ctx context.Context, a
 	}
 	var payloadValue map[string]any
 	if !confidenceEnabled {
-		instructions := "Solve the arithmetic challenge and return only the decimal answer, with no explanation."
 		input = challenge.LegacyPrompt
-		payloadValue = map[string]any{"model": result.Model, "instructions": instructions, "input": input, "max_output_tokens": upstreamHealthProbeMaxOutputTokens, "stream": true}
+		if challenge.ReferenceMethod != "" {
+			payloadValue = map[string]any{"model": result.Model, "input": input, "max_output_tokens": challenge.MaxOutputTokens, "stream": true}
+		} else {
+			instructions := "Solve the arithmetic challenge and return only the decimal answer, with no explanation."
+			payloadValue = map[string]any{"model": result.Model, "instructions": instructions, "input": input, "max_output_tokens": upstreamHealthProbeMaxOutputTokens, "stream": true}
+		}
 	} else {
 		// Keep the Juice request contract aligned with gpt56_api_detector:
 		// the calibrated user prompt is the complete probe instruction. Do not
@@ -886,18 +954,21 @@ func (s *AccountTestService) runAnthropicUpstreamHealthProbe(ctx context.Context
 	if strings.TrimSpace(probePrompt) == "" {
 		probePrompt = challenge.Prompt
 	}
-	payload, err := json.Marshal(map[string]any{
+	payloadValue := map[string]any{
 		"model": result.Model,
 		"messages": []map[string]any{{
 			"role":    "user",
 			"content": []map[string]any{{"type": "text", "text": probePrompt, "cache_control": map[string]string{"type": "ephemeral"}}},
 		}},
-		"system":      []map[string]any{{"type": "text", "text": claudeCodeSystemPrompt, "cache_control": map[string]string{"type": "ephemeral"}}},
-		"metadata":    map[string]string{"user_id": sessionID},
-		"max_tokens":  upstreamHealthProbeMaxOutputTokens,
-		"temperature": 1,
-		"stream":      true,
-	})
+		"metadata":   map[string]string{"user_id": sessionID},
+		"max_tokens": probeMaxOutputTokens(challenge, upstreamHealthProbeMaxOutputTokens),
+		"stream":     true,
+	}
+	if challenge.ReferenceMethod == "" {
+		payloadValue["system"] = []map[string]any{{"type": "text", "text": claudeCodeSystemPrompt, "cache_control": map[string]string{"type": "ephemeral"}}}
+		payloadValue["temperature"] = 1
+	}
+	payload, err := json.Marshal(payloadValue)
 	if err != nil {
 		return failUpstreamHealthProbe(result, "request_error", "probe_request_invalid", err)
 	}
@@ -933,7 +1004,7 @@ func (s *AccountTestService) runGeminiUpstreamHealthProbe(ctx context.Context, a
 	}
 	payload, err := json.Marshal(map[string]any{
 		"contents":         []map[string]any{{"role": "user", "parts": []map[string]any{{"text": challenge.Prompt}}}},
-		"generationConfig": map[string]any{"maxOutputTokens": upstreamHealthProbeGeminiMaxOutputTokens},
+		"generationConfig": map[string]any{"maxOutputTokens": probeMaxOutputTokens(challenge, upstreamHealthProbeGeminiMaxOutputTokens)},
 	})
 	if err != nil {
 		return failUpstreamHealthProbe(result, "request_error", "probe_request_invalid", err)
@@ -1114,6 +1185,12 @@ func (s *AccountTestService) executeUpstreamHealthProbeWithValidator(req *http.R
 		}
 		return result, err
 	}
+	if isReferenceFingerprintMethod(result.fingerprintMethod) {
+		if strings.TrimSpace(text) == "" {
+			return failUpstreamHealthProbe(result, "invalid_response", "probe_response_empty", errors.New("reference probe returned no text output"))
+		}
+		result.probeResponseText = text
+	}
 	if result.distributionAttempt != nil {
 		answer, valid := NormalizeDistributionAnswer(text)
 		result.distributionSample = DistributionSample{Answer: answer, Valid: valid}
@@ -1124,7 +1201,7 @@ func (s *AccountTestService) executeUpstreamHealthProbeWithValidator(req *http.R
 		if result.ConfidenceStatus == "network_error" {
 			return failUpstreamHealthProbe(result, "invalid_response", "probe_response_empty", errors.New("OpenAI confidence probe returned no valid output"))
 		}
-	} else if validate == nil || !validate(text) {
+	} else if !isReferenceFingerprintMethod(result.fingerprintMethod) && (validate == nil || !validate(text)) {
 		reason := strings.TrimSpace(result.Reason)
 		if reason == "" {
 			reason = "probe_response_mismatch"
@@ -1367,8 +1444,10 @@ func parseOpenAIUpstreamHealthStream(reader io.Reader, started time.Time, result
 		}
 		switch event.Type {
 		case "response.output_text.delta":
-			if strings.TrimSpace(event.Delta) != "" || result.distributionAttempt != nil {
-				setUpstreamHealthProbeTTFT(result, started)
+			if strings.TrimSpace(event.Delta) != "" || result.distributionAttempt != nil || isReferenceFingerprintMethod(result.fingerprintMethod) {
+				if strings.TrimSpace(event.Delta) != "" || !isReferenceFingerprintMethod(result.fingerprintMethod) {
+					setUpstreamHealthProbeTTFT(result, started)
+				}
 				output.WriteString(event.Delta)
 				if result.distributionAttempt != nil && output.Len() > 256*1024 {
 					result.Result, result.Reason = "invalid_response", "probe_output_too_long"
@@ -1378,7 +1457,8 @@ func parseOpenAIUpstreamHealthStream(reader io.Reader, started time.Time, result
 		case "response.output_text.done":
 			// Some relays omit delta events and expose only the final text event.
 			// Do not append it after deltas because `text` is usually cumulative.
-			if output.Len() == 0 && strings.TrimSpace(event.Text) != "" {
+			if (output.Len() == 0 || (isReferenceFingerprintMethod(result.fingerprintMethod) && strings.TrimSpace(output.String()) == "")) && strings.TrimSpace(event.Text) != "" {
+				output.Reset()
 				setUpstreamHealthProbeTTFT(result, started)
 				output.WriteString(event.Text)
 			}
@@ -1387,8 +1467,9 @@ func parseOpenAIUpstreamHealthStream(reader io.Reader, started time.Time, result
 				result.Result, result.Reason = "incomplete", "probe_response_incomplete"
 				return false, errors.New("distribution response did not complete")
 			}
-			if output.Len() == 0 {
-				if terminalText := extractOpenAIHealthTerminalText(data, result.distributionAttempt != nil); strings.TrimSpace(terminalText) != "" || result.distributionAttempt != nil {
+			if output.Len() == 0 || (isReferenceFingerprintMethod(result.fingerprintMethod) && strings.TrimSpace(output.String()) == "") {
+				if terminalText := extractOpenAIHealthTerminalText(data, result.distributionAttempt != nil || isReferenceFingerprintMethod(result.fingerprintMethod)); strings.TrimSpace(terminalText) != "" || result.distributionAttempt != nil {
+					output.Reset()
 					setUpstreamHealthProbeTTFT(result, started)
 					output.WriteString(terminalText)
 				}
@@ -1544,7 +1625,7 @@ func parseOpenAIUpstreamHealthJSON(body []byte, started time.Time, result *Upstr
 		}
 	}
 	text := strings.TrimSpace(response.OutputText)
-	if result.distributionAttempt != nil {
+	if result.distributionAttempt != nil || isReferenceFingerprintMethod(result.fingerprintMethod) {
 		text = response.OutputText
 	}
 	if result.distributionAttempt != nil && response.Status != "completed" {
@@ -1554,7 +1635,7 @@ func parseOpenAIUpstreamHealthJSON(body []byte, started time.Time, result *Upstr
 	if text == "" {
 		for _, item := range response.Output {
 			for _, content := range item.Content {
-				if strings.TrimSpace(content.Text) != "" || result.distributionAttempt != nil {
+				if strings.TrimSpace(content.Text) != "" || result.distributionAttempt != nil || isReferenceFingerprintMethod(result.fingerprintMethod) {
 					text += content.Text
 				}
 			}
@@ -1739,8 +1820,10 @@ func parseOpenAIChatCompletionsUpstreamHealthStream(reader io.Reader, started ti
 			if content == "" {
 				content = choice.Message.Content
 			}
-			if strings.TrimSpace(content) != "" || result.distributionAttempt != nil {
-				setUpstreamHealthProbeTTFT(result, started)
+			if strings.TrimSpace(content) != "" || result.distributionAttempt != nil || isReferenceFingerprintMethod(result.fingerprintMethod) {
+				if strings.TrimSpace(content) != "" || !isReferenceFingerprintMethod(result.fingerprintMethod) {
+					setUpstreamHealthProbeTTFT(result, started)
+				}
 				output.WriteString(content)
 				if result.distributionAttempt != nil && output.Len() > 256*1024 {
 					result.Result, result.Reason = "invalid_response", "probe_output_too_long"
@@ -1811,12 +1894,12 @@ func parseOpenAIChatCompletionsUpstreamHealthJSON(body []byte, started time.Time
 		return "", errors.New("distribution Chat response did not complete")
 	}
 	text := strings.TrimSpace(choice.Message.Content)
-	if result.distributionAttempt != nil {
+	if result.distributionAttempt != nil || isReferenceFingerprintMethod(result.fingerprintMethod) {
 		text = choice.Message.Content
 	}
 	if text == "" {
 		text = choice.Text
-		if result.distributionAttempt == nil {
+		if result.distributionAttempt == nil && !isReferenceFingerprintMethod(result.fingerprintMethod) {
 			text = strings.TrimSpace(text)
 		}
 	}
@@ -1880,8 +1963,10 @@ func parseAnthropicUpstreamHealthStream(reader io.Reader, started time.Time, res
 				result.InputTokens = &value
 			}
 		case "content_block_delta":
-			if event.Delta.Type == "text_delta" && strings.TrimSpace(event.Delta.Text) != "" {
-				setUpstreamHealthProbeTTFT(result, started)
+			if event.Delta.Type == "text_delta" && (strings.TrimSpace(event.Delta.Text) != "" || isReferenceFingerprintMethod(result.fingerprintMethod)) {
+				if strings.TrimSpace(event.Delta.Text) != "" {
+					setUpstreamHealthProbeTTFT(result, started)
+				}
 				output.WriteString(event.Delta.Text)
 			}
 		case "message_delta":
@@ -1946,7 +2031,10 @@ func parseAnthropicUpstreamHealthJSON(body []byte, started time.Time, result *Up
 		}
 	}
 	text := strings.TrimSpace(output.String())
-	if text == "" {
+	if isReferenceFingerprintMethod(result.fingerprintMethod) {
+		text = output.String()
+	}
+	if strings.TrimSpace(text) == "" {
 		result.Result, result.Reason = "invalid_response", "probe_response_mismatch"
 		return "", errors.New("Anthropic probe JSON response contained no text")
 	}
@@ -2030,10 +2118,12 @@ func parseGeminiUpstreamHealthStream(reader io.Reader, started time.Time, result
 				if part.Thought {
 					continue
 				}
-				if strings.TrimSpace(part.Text) == "" {
+				if strings.TrimSpace(part.Text) == "" && !isReferenceFingerprintMethod(result.fingerprintMethod) {
 					continue
 				}
-				setUpstreamHealthProbeTTFT(result, started)
+				if strings.TrimSpace(part.Text) != "" {
+					setUpstreamHealthProbeTTFT(result, started)
+				}
 				output.WriteString(part.Text)
 			}
 		}
