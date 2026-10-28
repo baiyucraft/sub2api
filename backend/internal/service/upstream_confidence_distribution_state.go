@@ -45,6 +45,7 @@ type ConfidenceDistributionState struct {
 	SeriesID          string                             `json:"series_id"`
 	Fingerprint       string                             `json:"fingerprint"`
 	Protocol          string                             `json:"protocol"`
+	ClaimedModel      string                             `json:"claimed_model,omitempty"`
 	BaselineVersion   string                             `json:"baseline_version"`
 	ProbeOrder        []string                           `json:"probe_order"`
 	NextSequence      int64                              `json:"next_sequence"`
@@ -75,6 +76,7 @@ func NewConfidenceDistributionState(fingerprint, protocol string) (*ConfidenceDi
 	return &ConfidenceDistributionState{
 		SamplingPolicyVersion: UpstreamConfidenceDistributionSamplingPolicyVersion,
 		SeriesID:              seriesID, Fingerprint: fingerprint, Protocol: protocol,
+		ClaimedModel:    UpstreamConfidenceDistributionClaimedModel,
 		BaselineVersion: DistributionBaselineVersion(protocol), ProbeOrder: order,
 		NextSequence: 1, NextValidSequence: 1, Samples: []DistributionSample{},
 	}, nil
@@ -85,6 +87,9 @@ func NewConfidenceDistributionState(fingerprint, protocol string) (*ConfidenceDi
 func NewConfidenceDistributionStateForIdentity(identity ConfidenceDistributionIdentity) (*ConfidenceDistributionState, error) {
 	if identity.Version != ConfidenceDistributionIdentityVersion || identity.BaselineVersion != DistributionBaselineVersion(identity.Protocol) {
 		return nil, errors.New("invalid confidence distribution request identity")
+	}
+	if identity.ClaimedModel != "" && !DistributionProbeSupportsModel(PlatformOpenAI, identity.ClaimedModel, identity.Protocol) {
+		return nil, errors.New("unsupported confidence distribution claimed model")
 	}
 	state, err := NewConfidenceDistributionState(identity.Fingerprint, identity.Protocol)
 	if err != nil {
@@ -133,6 +138,9 @@ func (s *ConfidenceDistributionState) requestIdentityChange(identity ConfidenceD
 	if s.BaselineVersion != identity.BaselineVersion {
 		reasons = append(reasons, "baseline_changed")
 	}
+	if s.ClaimedModel != "" && identity.ClaimedModel != "" && s.ClaimedModel != identity.ClaimedModel {
+		reasons = append(reasons, "model_changed")
+	}
 	if len(reasons) == 0 && s.Fingerprint != identity.Fingerprint {
 		reasons = append(reasons, "legacy_identity_unverifiable")
 	}
@@ -143,12 +151,16 @@ func (s *ConfidenceDistributionState) requestIdentityChange(identity ConfidenceD
 			unique = append(unique, reason)
 		}
 	}
-	return unique, false
+	return unique, len(unique) == 0 && s.ClaimedModel == "" && identity.ClaimedModel != ""
 }
 
 // UpgradeIdentity changes no sampling state, lease, or last decisive verdict.
 func (s *ConfidenceDistributionState) UpgradeIdentity(identity ConfidenceDistributionIdentity) {
 	s.IdentityVersion, s.Fingerprint = identity.Version, identity.Fingerprint
+	s.ClaimedModel = identity.ClaimedModel
+	if s.ClaimedModel == "" {
+		s.ClaimedModel = UpstreamConfidenceDistributionClaimedModel
+	}
 	s.ClientVersion = identity.ClientVersion
 	s.IdentityComponents = make(map[string]string, len(identity.Components))
 	for component, digest := range identity.Components {
@@ -157,7 +169,7 @@ func (s *ConfidenceDistributionState) UpgradeIdentity(identity ConfidenceDistrib
 }
 
 func (s *ConfidenceDistributionState) PendingResetSummary(identity ConfidenceDistributionIdentity, reasons []string) (*UpstreamConfidenceDistribution, error) {
-	summary, err := ScoreUpstreamConfidenceDistribution(identity.Protocol, nil)
+	summary, err := ScoreUpstreamConfidenceDistributionForModel(identity.Protocol, identity.ClaimedModel, nil)
 	if summary != nil {
 		summary.SamplingPolicyVersion = s.SamplingPolicyVersion
 		summary.SeriesReset = &ConfidenceDistributionSeriesReset{Pending: true, Reasons: append([]string(nil), reasons...), PreviousAttempted: int(s.NextSequence - 1)}
@@ -179,6 +191,9 @@ func (s *ConfidenceDistributionState) Validate() error {
 	}
 	if s.SamplingPolicyVersion < 0 || s.SamplingPolicyVersion > UpstreamConfidenceDistributionSamplingPolicyVersion {
 		return errors.New("invalid confidence distribution sampling policy")
+	}
+	if s.ClaimedModel != "" && !DistributionProbeSupportsModel(PlatformOpenAI, s.ClaimedModel, s.Protocol) {
+		return errors.New("unsupported confidence distribution claimed model")
 	}
 	if s.SamplingPolicyVersion == UpstreamConfidenceDistributionSamplingPolicyVersion {
 		if s.NextValidSequence < 1 || s.NextValidSequence > s.NextSequence || s.FailedAttempts < 0 || len(s.Samples) > UpstreamConfidenceDistributionWindowSize {
@@ -354,7 +369,7 @@ func (s *ConfidenceDistributionState) RecordDecisive(status string) bool {
 
 func (s *ConfidenceDistributionState) Summary() (*UpstreamConfidenceDistribution, error) {
 	if s.SamplingPolicyVersion != UpstreamConfidenceDistributionSamplingPolicyVersion {
-		summary, err := ScoreUpstreamConfidenceDistribution(s.Protocol, nil)
+		summary, err := ScoreUpstreamConfidenceDistributionForModel(s.Protocol, s.ClaimedModel, nil)
 		if summary != nil {
 			summary.SamplingPolicyVersion = s.SamplingPolicyVersion
 			summary.Attempted = int(s.NextSequence - 1)
@@ -363,7 +378,7 @@ func (s *ConfidenceDistributionState) Summary() (*UpstreamConfidenceDistribution
 		}
 		return summary, err
 	}
-	summary, err := ScoreUpstreamConfidenceDistribution(s.Protocol, s.Samples)
+	summary, err := ScoreUpstreamConfidenceDistributionForModel(s.Protocol, s.ClaimedModel, s.Samples)
 	if err == nil && summary != nil && s.Pending != nil && len(s.Samples) < UpstreamConfidenceDistributionWindowSize {
 		// An unfinished request cannot complete the first effective window.
 		// An existing full window remains usable until evidence expires or changes.

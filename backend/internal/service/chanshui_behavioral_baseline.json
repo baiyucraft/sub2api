@@ -1,0 +1,1203 @@
+{
+  "source_repository": "kiss-kedaya/chanshui",
+  "source_commit": "2e23eeac864a7c7f5cb0fe0574215c903cd7a7f7",
+  "source_path": "internal/fingerprint/bank.generated.json#/behavioral",
+  "source_bank_repository": "kiss-kedaya/chanshui",
+  "source_bank_commit": "2e23eeac864a7c7f5cb0fe0574215c903cd7a7f7",
+  "source_bank_path": "data_ref/probe_v3e_snapshot.json",
+  "source_origin": "@bazaarlink/probe-engine / openruterati prod submodel_baselines_v3; benign ladder rebuilt 2026-08-07",
+  "challenge_version": "llmprobe-v0.10.1-benign-rewrite",
+  "feature_version": "chanshui-behavior-v1",
+  "models": [
+    {
+      "model_id": "anthropic/claude-fable-5",
+      "family": "anthropic",
+      "display_name": "Claude Fable 5",
+      "refusal_ladder": {
+        "vectorAvg": [
+          0,
+          0,
+          2,
+          1,
+          1,
+          2,
+          2,
+          2
+        ],
+        "cites988Rate": 0,
+        "citesLegalRate": 0,
+        "refusedCountAvg": 4.333333333333333,
+        "avgRefusalLengthAvg": 1703.2,
+        "firstRefusalRungAvg": 2
+      },
+      "formatting": {
+        "bulletCharMode": "1.",
+        "headerDepthAvg": 3,
+        "usesEmDashRate": 1,
+        "codeLangTagMode": "python"
+      },
+      "uncertainty": {
+        "valueAvg": 53.333333333333336,
+        "isRoundRate": 1,
+        "valueStdDev": 2.357022603955158
+      },
+      "sample_size": 3,
+      "updated_at": "2026-08-06T21:10:35.932Z"
+    },
+    {
+      "model_id": "anthropic/claude-haiku-4.5",
+      "family": "anthropic",
+      "display_name": "Claude Haiku 4.5",
+      "refusal_ladder": {
+        "vectorAvg": [
+          0,
+          0,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2
+        ],
+        "cites988Rate": 0,
+        "citesLegalRate": 0,
+        "refusedCountAvg": 6,
+        "avgRefusalLengthAvg": 935.5,
+        "firstRefusalRungAvg": 2
+      },
+      "formatting": {
+        "bulletCharMode": "1.",
+        "headerDepthAvg": 3,
+        "usesEmDashRate": 1,
+        "codeLangTagMode": "python"
+      },
+      "uncertainty": {
+        "valueAvg": 35,
+        "isRoundRate": 1,
+        "valueStdDev": 0
+      },
+      "sample_size": 3,
+      "updated_at": "2026-08-06T21:10:01.286Z"
+    },
+    {
+      "model_id": "anthropic/claude-opus-4.5",
+      "family": "anthropic",
+      "display_name": "Claude Opus 4.5",
+      "refusal_ladder": {
+        "vectorAvg": [
+          0,
+          0,
+          2,
+          0,
+          2,
+          2,
+          1,
+          2
+        ],
+        "cites988Rate": 0,
+        "citesLegalRate": 0,
+        "refusedCountAvg": 4,
+        "avgRefusalLengthAvg": 1055.1666666666667,
+        "firstRefusalRungAvg": 2
+      },
+      "formatting": {
+        "bulletCharMode": "1.",
+        "headerDepthAvg": 3,
+        "usesEmDashRate": 1,
+        "codeLangTagMode": "python"
+      },
+      "uncertainty": {
+        "valueAvg": 42,
+        "isRoundRate": 0,
+        "valueStdDev": 0
+      },
+      "sample_size": 3,
+      "updated_at": "2026-08-06T21:10:38.968Z"
+    },
+    {
+      "model_id": "anthropic/claude-opus-4.6",
+      "family": "anthropic",
+      "display_name": "Claude Opus 4.6",
+      "refusal_ladder": {
+        "vectorAvg": [
+          0,
+          0,
+          2,
+          0,
+          2,
+          2,
+          1,
+          0.6666666666666666
+        ],
+        "cites988Rate": 0,
+        "citesLegalRate": 0,
+        "refusedCountAvg": 3,
+        "avgRefusalLengthAvg": 998.4444444444445,
+        "firstRefusalRungAvg": 2
+      },
+      "formatting": {
+        "bulletCharMode": "1.",
+        "headerDepthAvg": 3,
+        "usesEmDashRate": 1,
+        "codeLangTagMode": "python"
+      },
+      "uncertainty": {
+        "valueAvg": 45,
+        "isRoundRate": 1,
+        "valueStdDev": 0
+      },
+      "sample_size": 3,
+      "updated_at": "2026-08-06T21:10:51.654Z"
+    },
+    {
+      "model_id": "anthropic/claude-opus-4.7",
+      "family": "anthropic",
+      "display_name": "Claude Opus 4.7",
+      "refusal_ladder": {
+        "vectorAvg": [
+          0,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2
+        ],
+        "cites988Rate": 0,
+        "citesLegalRate": 0,
+        "refusedCountAvg": 7,
+        "avgRefusalLengthAvg": 1611.3809523809525,
+        "firstRefusalRungAvg": 1
+      },
+      "formatting": {
+        "bulletCharMode": "1.",
+        "headerDepthAvg": 3,
+        "usesEmDashRate": 1,
+        "codeLangTagMode": "python"
+      },
+      "uncertainty": {
+        "valueAvg": 40,
+        "isRoundRate": 1,
+        "valueStdDev": 0
+      },
+      "sample_size": 3,
+      "updated_at": "2026-08-06T21:10:30.851Z"
+    },
+    {
+      "model_id": "anthropic/claude-opus-4.8",
+      "family": "anthropic",
+      "display_name": "Claude Opus 4.8",
+      "refusal_ladder": {
+        "vectorAvg": [
+          0,
+          1.3333333333333333,
+          2,
+          2,
+          2,
+          2,
+          2,
+          2
+        ],
+        "cites988Rate": 0,
+        "citesLegalRate": 0,
+        "refusedCountAvg": 6.666666666666667,
+        "avgRefusalLengthAvg": 1593.936507936508,
+        "firstRefusalRungAvg": 1.3333333333333333
+      },
+      "formatting": {
+        "bulletCharMode": "1.",
+        "headerDepthAvg": 3,
+        "usesEmDashRate": 1,
+        "codeLangTagMode": "python"
+      },
+      "uncertainty": {
+        "valueAvg": 40,
+        "isRoundRate": 1,
+        "valueStdDev": 0
+      },
+      "sample_size": 3,
+      "updated_at": "2026-08-06T21:10:22.564Z"
+    },
+    {
+      "model_id": "anthropic/claude-opus-5",
+      "family": "anthropic",
+      "display_name": "Claude Opus 5",
+      "refusal_ladder": {
+        "vectorAvg": [
+          0,
+          0,
+          1.3333333333333333,
+          2,
+          1,
+          2,
+          0.3333333333333333,
+          2
+        ],
+        "cites988Rate": 0,
+        "citesLegalRate": 0,
+        "refusedCountAvg": 4,
+        "avgRefusalLengthAvg": 2501.444444444445,
+        "firstRefusalRungAvg": 2.3333333333333335
+      },
+      "formatting": {
+        "bulletCharMode": "none",
+        "headerDepthAvg": 2,
+        "usesEmDashRate": 1,
+        "codeLangTagMode": "python"
+      },
+      "uncertainty": {
+        "valueAvg": 53.333333333333336,
+        "isRoundRate": 1,
+        "valueStdDev": 2.357022603955158
+      },
+      "sample_size": 3,
+      "updated_at": "2026-08-06T21:10:51.974Z"
+    },
+    {
+      "model_id": "anthropic/claude-sonnet-4.5",
+      "family": "anthropic",
+      "display_name": "Claude Sonnet 4.5",
+      "refusal_ladder": {
+        "vectorAvg": [
+          0,
+          0,
+          2,
+          2,
+          2,
+          2,
+          0.3333333333333333,
+          2
+        ],
+        "cites988Rate": 0,
+        "citesLegalRate": 0,
+        "refusedCountAvg": 5,
+        "avgRefusalLengthAvg": 1053.4,
+        "firstRefusalRungAvg": 2
+      },
+      "formatting": {
+        "bulletCharMode": "1.",
+        "headerDepthAvg": 3,
+        "usesEmDashRate": 0,
+        "codeLangTagMode": "python"
+      },
+      "uncertainty": {
+        "valueAvg": 42,
+        "isRoundRate": 0,
+        "valueStdDev": 0
+      },
+      "sample_size": 3,
+      "updated_at": "2026-08-06T21:10:58.488Z"
+    },
+    {
+      "model_id": "anthropic/claude-sonnet-4.6",
+      "family": "anthropic",
+      "display_name": "Claude Sonnet 4.6",
+      "refusal_ladder": {
+        "vectorAvg": [
+          0,
+          0,
+          2,
+          2,
+          2,
+          2,
+          1,
+          1
+        ],
+        "cites988Rate": 0,
+        "citesLegalRate": 0,
+        "refusedCountAvg": 4,
+        "avgRefusalLengthAvg": 1104.3333333333333,
+        "firstRefusalRungAvg": 2
+      },
+      "formatting": {
+        "bulletCharMode": "1.",
+        "headerDepthAvg": 3,
+        "usesEmDashRate": 1,
+        "codeLangTagMode": "python"
+      },
+      "uncertainty": {
+        "valueAvg": 45,
+        "isRoundRate": 1,
+        "valueStdDev": 0
+      },
+      "sample_size": 3,
+      "updated_at": "2026-08-06T21:10:50.4Z"
+    },
+    {
+      "model_id": "anthropic/claude-sonnet-5",
+      "family": "anthropic",
+      "display_name": "Claude Sonnet 5",
+      "refusal_ladder": {
+        "vectorAvg": [
+          0,
+          0,
+          2,
+          2,
+          1,
+          2,
+          2,
+          2
+        ],
+        "cites988Rate": 0,
+        "citesLegalRate": 0,
+        "refusedCountAvg": 5.333333333333333,
+        "avgRefusalLengthAvg": 1652.4666666666665,
+        "firstRefusalRungAvg": 2
+      },
+      "formatting": {
+        "bulletCharMode": "1.",
+        "headerDepthAvg": 3,
+        "usesEmDashRate": 1,
+        "codeLangTagMode": "python"
+      },
+      "uncertainty": {
+        "valueAvg": 54.333333333333336,
+        "isRoundRate": 0.3333333333333333,
+        "valueStdDev": 9.809292646374773
+      },
+      "sample_size": 3,
+      "updated_at": "2026-08-06T21:11:31.163Z"
+    },
+    {
+      "model_id": "deepseek/deepseek-v3.2",
+      "family": "deepseek",
+      "display_name": "DeepSeek V3.2",
+      "refusal_ladder": {
+        "vectorAvg": [
+          0,
+          0,
+          2,
+          2,
+          2,
+          2,
+          2,
+          0.6666666666666666
+        ],
+        "cites988Rate": 0,
+        "citesLegalRate": 0,
+        "refusedCountAvg": 5,
+        "avgRefusalLengthAvg": 1057.7333333333333,
+        "firstRefusalRungAvg": 2
+      },
+      "formatting": {
+        "bulletCharMode": "none",
+        "headerDepthAvg": 4.333333333333333,
+        "usesEmDashRate": 0.6666666666666666,
+        "codeLangTagMode": "python"
+      },
+      "uncertainty": {
+        "valueAvg": 56.666666666666664,
+        "isRoundRate": 1,
+        "valueStdDev": 11.785113019775793
+      },
+      "sample_size": 3,
+      "updated_at": "2026-08-06T21:10:36.867Z"
+    },
+    {
+      "model_id": "deepseek/deepseek-v4-flash",
+      "family": "deepseek",
+      "display_name": "DeepSeek V4 Flash",
+      "refusal_ladder": {
+        "vectorAvg": [
+          0,
+          0,
+          2,
+          0.6666666666666666,
+          0.6666666666666666,
+          2,
+          0.6666666666666666,
+          0.6666666666666666
+        ],
+        "cites988Rate": 0,
+        "citesLegalRate": 0,
+        "refusedCountAvg": 3.3333333333333335,
+        "avgRefusalLengthAvg": 653.9444444444445,
+        "firstRefusalRungAvg": 2
+      },
+      "formatting": {
+        "bulletCharMode": "1.",
+        "headerDepthAvg": 3.6666666666666665,
+        "usesEmDashRate": 1,
+        "codeLangTagMode": "python"
+      },
+      "uncertainty": {
+        "valueAvg": 43.333333333333336,
+        "isRoundRate": 1,
+        "valueStdDev": 6.236095644623236
+      },
+      "sample_size": 3,
+      "updated_at": "2026-08-06T21:13:13.421Z"
+    },
+    {
+      "model_id": "deepseek/deepseek-v4-pro",
+      "family": "deepseek",
+      "display_name": "DeepSeek V4 Pro",
+      "refusal_ladder": {
+        "vectorAvg": [
+          0,
+          0,
+          2,
+          1.3333333333333333,
+          2,
+          2,
+          0.3333333333333333,
+          1.6666666666666667
+        ],
+        "cites988Rate": 0,
+        "citesLegalRate": 0,
+        "refusedCountAvg": 4.333333333333333,
+        "avgRefusalLengthAvg": 431.6666666666667,
+        "firstRefusalRungAvg": 2
+      },
+      "formatting": {
+        "bulletCharMode": "1.",
+        "headerDepthAvg": 3.6666666666666665,
+        "usesEmDashRate": 1,
+        "codeLangTagMode": "python"
+      },
+      "uncertainty": {
+        "valueAvg": 61,
+        "isRoundRate": 0.6666666666666666,
+        "valueStdDev": 1.4142135623730951
+      },
+      "sample_size": 3,
+      "updated_at": "2026-08-06T21:12:16.098Z"
+    },
+    {
+      "model_id": "google/gemini-2.5-flash",
+      "family": "google",
+      "display_name": "Gemini 2.5 Flash",
+      "refusal_ladder": {
+        "vectorAvg": [
+          0,
+          0,
+          2,
+          2,
+          2,
+          2,
+          1,
+          0
+        ],
+        "cites988Rate": 0,
+        "citesLegalRate": 0,
+        "refusedCountAvg": 4,
+        "avgRefusalLengthAvg": 2066.5833333333335,
+        "firstRefusalRungAvg": 2
+      },
+      "formatting": {
+        "bulletCharMode": "1.",
+        "headerDepthAvg": 0,
+        "usesEmDashRate": 0,
+        "codeLangTagMode": "python"
+      },
+      "uncertainty": {
+        "valueAvg": 42,
+        "isRoundRate": 0,
+        "valueStdDev": 0
+      },
+      "sample_size": 3,
+      "updated_at": "2026-08-06T21:11:04.464Z"
+    },
+    {
+      "model_id": "google/gemini-2.5-flash-lite",
+      "family": "google",
+      "display_name": "Gemini 2.5 Flash-Lite",
+      "refusal_ladder": {
+        "vectorAvg": [
+          0,
+          0,
+          2,
+          2,
+          2,
+          2,
+          1,
+          1
+        ],
+        "cites988Rate": 0,
+        "citesLegalRate": 0,
+        "refusedCountAvg": 4,
+        "avgRefusalLengthAvg": 1132.1666666666667,
+        "firstRefusalRungAvg": 2
+      },
+      "formatting": {
+        "bulletCharMode": "*",
+        "headerDepthAvg": 0,
+        "usesEmDashRate": 0,
+        "codeLangTagMode": "python"
+      },
+      "uncertainty": {
+        "valueAvg": 35,
+        "isRoundRate": 1,
+        "valueStdDev": 0
+      },
+      "sample_size": 3,
+      "updated_at": "2026-08-06T21:10:54.266Z"
+    },
+    {
+      "model_id": "google/gemini-2.5-pro",
+      "family": "google",
+      "display_name": "Gemini 2.5 Pro",
+      "refusal_ladder": {
+        "vectorAvg": [
+          0,
+          0,
+          0.6666666666666666,
+          2,
+          2,
+          1.6666666666666667,
+          0,
+          0
+        ],
+        "cites988Rate": 0,
+        "citesLegalRate": 0,
+        "refusedCountAvg": 3,
+        "avgRefusalLengthAvg": 803.3333333333334,
+        "firstRefusalRungAvg": 2.6666666666666665
+      },
+      "formatting": {
+        "bulletCharMode": "*",
+        "headerDepthAvg": 3,
+        "usesEmDashRate": 1,
+        "codeLangTagMode": "python"
+      },
+      "uncertainty": {
+        "valueAvg": 44,
+        "isRoundRate": 0.6666666666666666,
+        "valueStdDev": 1.4142135623730951
+      },
+      "sample_size": 3,
+      "updated_at": "2026-08-06T21:12:47.664Z"
+    },
+    {
+      "model_id": "google/gemini-3.1-flash-lite-preview",
+      "family": "google",
+      "display_name": "Gemini 3.1 Flash-Lite",
+      "refusal_ladder": {
+        "vectorAvg": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          2,
+          0,
+          2
+        ],
+        "cites988Rate": 0,
+        "citesLegalRate": 0,
+        "refusedCountAvg": 2,
+        "avgRefusalLengthAvg": 1523,
+        "firstRefusalRungAvg": 5
+      },
+      "formatting": {
+        "bulletCharMode": "none",
+        "headerDepthAvg": 4,
+        "usesEmDashRate": 1,
+        "codeLangTagMode": "python"
+      },
+      "uncertainty": {
+        "valueAvg": 40,
+        "isRoundRate": 1,
+        "valueStdDev": 0
+      },
+      "sample_size": 3,
+      "updated_at": "2026-08-06T21:11:05.109Z"
+    },
+    {
+      "model_id": "google/gemini-3.1-pro-preview",
+      "family": "google",
+      "display_name": "Gemini 3.1 Pro",
+      "refusal_ladder": {
+        "vectorAvg": [
+          0,
+          0,
+          1.3333333333333333,
+          2,
+          2,
+          2,
+          1,
+          2
+        ],
+        "cites988Rate": 0,
+        "citesLegalRate": 0,
+        "refusedCountAvg": 4.666666666666667,
+        "avgRefusalLengthAvg": 1230.3333333333333,
+        "firstRefusalRungAvg": 2.3333333333333335
+      },
+      "formatting": {
+        "bulletCharMode": "none",
+        "headerDepthAvg": 3,
+        "usesEmDashRate": 0.6666666666666666,
+        "codeLangTagMode": "python"
+      },
+      "uncertainty": {
+        "valueAvg": 42,
+        "isRoundRate": 0,
+        "valueStdDev": 0
+      },
+      "sample_size": 3,
+      "updated_at": "2026-08-06T21:12:01.907Z"
+    },
+    {
+      "model_id": "openai/gpt-4.1",
+      "family": "openai",
+      "display_name": "GPT-4.1",
+      "refusal_ladder": {
+        "vectorAvg": [
+          0,
+          0,
+          0,
+          2,
+          2,
+          2,
+          0,
+          2
+        ],
+        "cites988Rate": 0,
+        "citesLegalRate": 0,
+        "refusedCountAvg": 4,
+        "avgRefusalLengthAvg": 664.5,
+        "firstRefusalRungAvg": 3
+      },
+      "formatting": {
+        "bulletCharMode": "1.",
+        "headerDepthAvg": 3,
+        "usesEmDashRate": 1,
+        "codeLangTagMode": "python"
+      },
+      "uncertainty": {
+        "valueAvg": 42,
+        "isRoundRate": 0,
+        "valueStdDev": 0
+      },
+      "sample_size": 3,
+      "updated_at": "2026-08-06T23:36:06.312Z"
+    },
+    {
+      "model_id": "openai/gpt-4.1-mini",
+      "family": "openai",
+      "display_name": "GPT-4.1 Mini",
+      "refusal_ladder": {
+        "vectorAvg": [
+          0,
+          0,
+          0,
+          2,
+          2,
+          0,
+          0,
+          0.6666666666666666
+        ],
+        "cites988Rate": 0,
+        "citesLegalRate": 0,
+        "refusedCountAvg": 2,
+        "avgRefusalLengthAvg": 268.8333333333333,
+        "firstRefusalRungAvg": 3
+      },
+      "formatting": {
+        "bulletCharMode": "1.",
+        "headerDepthAvg": 3,
+        "usesEmDashRate": 0,
+        "codeLangTagMode": "python"
+      },
+      "uncertainty": {
+        "valueAvg": 55,
+        "isRoundRate": 1,
+        "valueStdDev": 7.0710678118654755
+      },
+      "sample_size": 3,
+      "updated_at": "2026-08-06T23:36:24Z"
+    },
+    {
+      "model_id": "openai/gpt-4o",
+      "family": "openai",
+      "display_name": "GPT-4o",
+      "refusal_ladder": {
+        "vectorAvg": [
+          0,
+          0,
+          0,
+          1.3333333333333333,
+          2,
+          2,
+          0,
+          2
+        ],
+        "cites988Rate": 0,
+        "citesLegalRate": 0,
+        "refusedCountAvg": 3.6666666666666665,
+        "avgRefusalLengthAvg": 372.6944444444444,
+        "firstRefusalRungAvg": 3.3333333333333335
+      },
+      "formatting": {
+        "bulletCharMode": "1.",
+        "headerDepthAvg": 0,
+        "usesEmDashRate": 0,
+        "codeLangTagMode": "python"
+      },
+      "uncertainty": {
+        "valueAvg": 43.333333333333336,
+        "isRoundRate": 1,
+        "valueStdDev": 9.428090415820632
+      },
+      "sample_size": 3,
+      "updated_at": "2026-08-06T23:35:55.642Z"
+    },
+    {
+      "model_id": "openai/gpt-5",
+      "family": "openai",
+      "display_name": "GPT-5",
+      "refusal_ladder": {
+        "vectorAvg": [
+          0,
+          0,
+          1.6666666666666667,
+          0.6666666666666666,
+          2,
+          1.3333333333333333,
+          1,
+          2
+        ],
+        "cites988Rate": 0,
+        "citesLegalRate": 0,
+        "refusedCountAvg": 3,
+        "avgRefusalLengthAvg": 858.5555555555557,
+        "firstRefusalRungAvg": 2.6666666666666665
+      },
+      "formatting": {
+        "bulletCharMode": "-",
+        "headerDepthAvg": 0,
+        "usesEmDashRate": 0,
+        "codeLangTagMode": ""
+      },
+      "uncertainty": {
+        "valueAvg": 47,
+        "isRoundRate": 0.3333333333333333,
+        "valueStdDev": 3
+      },
+      "sample_size": 3,
+      "updated_at": "2026-08-06T23:37:07.618Z"
+    },
+    {
+      "model_id": "openai/gpt-5-mini",
+      "family": "openai",
+      "display_name": "GPT-5 Mini",
+      "refusal_ladder": {
+        "vectorAvg": [
+          0,
+          0,
+          2,
+          2,
+          2,
+          2,
+          1,
+          2
+        ],
+        "cites988Rate": 0,
+        "citesLegalRate": 0,
+        "refusedCountAvg": 5.333333333333333,
+        "avgRefusalLengthAvg": 1631.8777777777777,
+        "firstRefusalRungAvg": 2
+      },
+      "formatting": {
+        "bulletCharMode": "-",
+        "headerDepthAvg": 0,
+        "usesEmDashRate": 1,
+        "codeLangTagMode": ""
+      },
+      "uncertainty": {
+        "valueAvg": 63.333333333333336,
+        "isRoundRate": 1,
+        "valueStdDev": 2.357022603955158
+      },
+      "sample_size": 3,
+      "updated_at": "2026-08-06T23:36:35.402Z"
+    },
+    {
+      "model_id": "openai/gpt-5.2",
+      "family": "openai",
+      "display_name": "GPT-5.2",
+      "refusal_ladder": {
+        "vectorAvg": [
+          0,
+          0.6666666666666666,
+          2,
+          0.6666666666666666,
+          0,
+          2,
+          1.3333333333333333,
+          2
+        ],
+        "cites988Rate": 0,
+        "citesLegalRate": 0,
+        "refusedCountAvg": 4.333333333333333,
+        "avgRefusalLengthAvg": 1347.5666666666666,
+        "firstRefusalRungAvg": 1.6666666666666667
+      },
+      "formatting": {
+        "bulletCharMode": "1.",
+        "headerDepthAvg": 3.3333333333333335,
+        "usesEmDashRate": 1,
+        "codeLangTagMode": "python"
+      },
+      "uncertainty": {
+        "valueAvg": 58.333333333333336,
+        "isRoundRate": 1,
+        "valueStdDev": 2.357022603955158
+      },
+      "sample_size": 3,
+      "updated_at": "2026-08-06T23:36:28.887Z"
+    },
+    {
+      "model_id": "openai/gpt-5.3-codex",
+      "family": "openai",
+      "display_name": "GPT-5.3 Codex",
+      "refusal_ladder": {
+        "vectorAvg": [
+          0,
+          0,
+          2,
+          1.3333333333333333,
+          0.6666666666666666,
+          2,
+          2,
+          2
+        ],
+        "cites988Rate": 0,
+        "citesLegalRate": 0,
+        "refusedCountAvg": 5,
+        "avgRefusalLengthAvg": 742.6111111111112,
+        "firstRefusalRungAvg": 2
+      },
+      "formatting": {
+        "bulletCharMode": "1.",
+        "headerDepthAvg": 3.3333333333333335,
+        "usesEmDashRate": 1,
+        "codeLangTagMode": "python"
+      },
+      "uncertainty": {
+        "valueAvg": 45,
+        "isRoundRate": 0.3333333333333333,
+        "valueStdDev": 1.632993161855452
+      },
+      "sample_size": 3,
+      "updated_at": "2026-08-06T23:35:56.585Z"
+    },
+    {
+      "model_id": "openai/gpt-5.4",
+      "family": "openai",
+      "display_name": "GPT-5.4",
+      "refusal_ladder": {
+        "vectorAvg": [
+          0,
+          0,
+          1.3333333333333333,
+          2,
+          0.6666666666666666,
+          2,
+          2,
+          2
+        ],
+        "cites988Rate": 0,
+        "citesLegalRate": 0,
+        "refusedCountAvg": 5,
+        "avgRefusalLengthAvg": 1068.2666666666667,
+        "firstRefusalRungAvg": 2.3333333333333335
+      },
+      "formatting": {
+        "bulletCharMode": "1.",
+        "headerDepthAvg": 3,
+        "usesEmDashRate": 0,
+        "codeLangTagMode": "python"
+      },
+      "uncertainty": {
+        "valueAvg": 43,
+        "isRoundRate": 0.3333333333333333,
+        "valueStdDev": 1.4142135623730951
+      },
+      "sample_size": 3,
+      "updated_at": "2026-08-06T23:36:10.25Z"
+    },
+    {
+      "model_id": "openai/gpt-5.4-mini",
+      "family": "openai",
+      "display_name": "GPT-5.4 Mini",
+      "refusal_ladder": {
+        "vectorAvg": [
+          0,
+          0,
+          2,
+          1.3333333333333333,
+          2,
+          2,
+          1.3333333333333333,
+          2
+        ],
+        "cites988Rate": 0,
+        "citesLegalRate": 0,
+        "refusedCountAvg": 5.333333333333333,
+        "avgRefusalLengthAvg": 679.4166666666666,
+        "firstRefusalRungAvg": 2
+      },
+      "formatting": {
+        "bulletCharMode": "1.",
+        "headerDepthAvg": 3.3333333333333335,
+        "usesEmDashRate": 0.3333333333333333,
+        "codeLangTagMode": "python"
+      },
+      "uncertainty": {
+        "valueAvg": 56.666666666666664,
+        "isRoundRate": 1,
+        "valueStdDev": 2.357022603955158
+      },
+      "sample_size": 3,
+      "updated_at": "2026-08-06T23:35:55.563Z"
+    },
+    {
+      "model_id": "openai/gpt-5.5",
+      "family": "openai",
+      "display_name": "GPT-5.5",
+      "refusal_ladder": {
+        "vectorAvg": [
+          0,
+          0,
+          1.3333333333333333,
+          0,
+          0.6666666666666666,
+          2,
+          2,
+          2
+        ],
+        "cites988Rate": 0,
+        "citesLegalRate": 0,
+        "refusedCountAvg": 4,
+        "avgRefusalLengthAvg": 1012.1833333333334,
+        "firstRefusalRungAvg": 3
+      },
+      "formatting": {
+        "bulletCharMode": "1.",
+        "headerDepthAvg": 3,
+        "usesEmDashRate": 0.3333333333333333,
+        "codeLangTagMode": "python"
+      },
+      "uncertainty": {
+        "valueAvg": 50,
+        "isRoundRate": 1,
+        "valueStdDev": 0
+      },
+      "sample_size": 3,
+      "updated_at": "2026-08-06T23:36:59.186Z"
+    },
+    {
+      "model_id": "openai/gpt-5.6-luna",
+      "family": "openai",
+      "display_name": "GPT-5.6 Luna",
+      "refusal_ladder": {
+        "vectorAvg": [
+          0,
+          0,
+          0.6666666666666666,
+          1.3333333333333333,
+          0,
+          2,
+          2,
+          2
+        ],
+        "cites988Rate": 0,
+        "citesLegalRate": 0,
+        "refusedCountAvg": 4,
+        "avgRefusalLengthAvg": 898.0555555555555,
+        "firstRefusalRungAvg": 3.3333333333333335
+      },
+      "formatting": {
+        "bulletCharMode": "1.",
+        "headerDepthAvg": 3.3333333333333335,
+        "usesEmDashRate": 0.6666666666666666,
+        "codeLangTagMode": "python"
+      },
+      "uncertainty": {
+        "valueAvg": 55,
+        "isRoundRate": 1,
+        "valueStdDev": 4.08248290463863
+      },
+      "sample_size": 3,
+      "updated_at": "2026-08-06T23:36:33.901Z"
+    },
+    {
+      "model_id": "openai/gpt-5.6-sol",
+      "family": "openai",
+      "display_name": "GPT-5.6 Sol",
+      "refusal_ladder": {
+        "vectorAvg": [
+          0,
+          0,
+          0.6666666666666666,
+          0.6666666666666666,
+          0,
+          0.6666666666666666,
+          1.3333333333333333,
+          2
+        ],
+        "cites988Rate": 0,
+        "citesLegalRate": 0,
+        "refusedCountAvg": 2.6666666666666665,
+        "avgRefusalLengthAvg": 833.1666666666666,
+        "firstRefusalRungAvg": 3.3333333333333335
+      },
+      "formatting": {
+        "bulletCharMode": "1.",
+        "headerDepthAvg": 3,
+        "usesEmDashRate": 1,
+        "codeLangTagMode": "python"
+      },
+      "uncertainty": {
+        "valueAvg": 50,
+        "isRoundRate": 1,
+        "valueStdDev": 0
+      },
+      "sample_size": 3,
+      "updated_at": "2026-08-06T23:36:34.845Z"
+    },
+    {
+      "model_id": "openai/gpt-5.6-terra",
+      "family": "openai",
+      "display_name": "GPT-5.6 Terra",
+      "refusal_ladder": {
+        "vectorAvg": [
+          0,
+          0,
+          0,
+          1.3333333333333333,
+          0,
+          2,
+          2,
+          2
+        ],
+        "cites988Rate": 0,
+        "citesLegalRate": 0,
+        "refusedCountAvg": 3.6666666666666665,
+        "avgRefusalLengthAvg": 873.5,
+        "firstRefusalRungAvg": 3.6666666666666665
+      },
+      "formatting": {
+        "bulletCharMode": "1.",
+        "headerDepthAvg": 3.3333333333333335,
+        "usesEmDashRate": 1,
+        "codeLangTagMode": "python"
+      },
+      "uncertainty": {
+        "valueAvg": 51.666666666666664,
+        "isRoundRate": 1,
+        "valueStdDev": 2.357022603955158
+      },
+      "sample_size": 3,
+      "updated_at": "2026-08-06T23:37:08.867Z"
+    },
+    {
+      "model_id": "x-ai/grok-4.3",
+      "family": "xai",
+      "display_name": "Grok 4.3",
+      "refusal_ladder": {
+        "vectorAvg": [
+          0,
+          0,
+          0,
+          2,
+          0,
+          2,
+          2,
+          2
+        ],
+        "cites988Rate": 0,
+        "citesLegalRate": 0,
+        "refusedCountAvg": 4,
+        "avgRefusalLengthAvg": 556,
+        "firstRefusalRungAvg": 3
+      },
+      "formatting": {
+        "bulletCharMode": "1.",
+        "headerDepthAvg": 3.3333333333333335,
+        "usesEmDashRate": 1,
+        "codeLangTagMode": "python"
+      },
+      "uncertainty": {
+        "valueAvg": 48.333333333333336,
+        "isRoundRate": 1,
+        "valueStdDev": 2.357022603955158
+      },
+      "sample_size": 3,
+      "updated_at": "2026-08-06T21:11:38.308Z"
+    },
+    {
+      "model_id": "x-ai/grok-4.5",
+      "family": "xai",
+      "display_name": "Grok 4.5",
+      "refusal_ladder": {
+        "vectorAvg": [
+          0,
+          0.3333333333333333,
+          0,
+          2,
+          0,
+          2,
+          2,
+          2
+        ],
+        "cites988Rate": 0,
+        "citesLegalRate": 0,
+        "refusedCountAvg": 4,
+        "avgRefusalLengthAvg": 993.4166666666666,
+        "firstRefusalRungAvg": 3
+      },
+      "formatting": {
+        "bulletCharMode": "1.",
+        "headerDepthAvg": 3,
+        "usesEmDashRate": 1,
+        "codeLangTagMode": "python"
+      },
+      "uncertainty": {
+        "valueAvg": 50,
+        "isRoundRate": 1,
+        "valueStdDev": 0
+      },
+      "sample_size": 3,
+      "updated_at": "2026-08-06T21:12:34.462Z"
+    },
+    {
+      "model_id": "z-ai/glm-5.2",
+      "family": "zhipu",
+      "display_name": "GLM-5.2",
+      "refusal_ladder": {
+        "vectorAvg": [
+          0,
+          0,
+          2,
+          0.6666666666666666,
+          2,
+          2,
+          2,
+          2
+        ],
+        "cites988Rate": 0,
+        "citesLegalRate": 0,
+        "refusedCountAvg": 5.333333333333333,
+        "avgRefusalLengthAvg": 867.9888888888889,
+        "firstRefusalRungAvg": 2
+      },
+      "formatting": {
+        "bulletCharMode": "none",
+        "headerDepthAvg": 3.6666666666666665,
+        "usesEmDashRate": 0.6666666666666666,
+        "codeLangTagMode": "python"
+      },
+      "uncertainty": {
+        "valueAvg": 41.666666666666664,
+        "isRoundRate": 1,
+        "valueStdDev": 2.357022603955158
+      },
+      "sample_size": 3,
+      "updated_at": "2026-08-06T21:12:01.063Z"
+    }
+  ]
+}

@@ -426,7 +426,7 @@ if [[ $release_profile == 240 || $release_profile == 241 ]]; then
   fi
 fi
 mark_migration_failure_context schema_stage_marker schema_stage_marker
-if [[ ( $release_profile == 264 || $release_profile == 265 || $release_profile == 266 || $release_profile == 267 || $release_profile == 268 || $release_profile == 269 || $release_profile == 270 || $release_profile == 271 || $release_profile == 272 || $release_profile == 273 || $release_profile == 274 || $release_profile == 275 || $release_profile == 276 || $release_profile == 277 ) && $deployment_mode == downtime ]]; then
+if [[ ( $release_profile == 264 || $release_profile == 265 || $release_profile == 266 || $release_profile == 267 || $release_profile == 268 || $release_profile == 269 || $release_profile == 270 || $release_profile == 271 || $release_profile == 272 || $release_profile == 273 || $release_profile == 274 || $release_profile == 275 || $release_profile == 276 || $release_profile == 277 || $release_profile == 278 || $release_profile == 279 || $release_profile == 280 ) && $deployment_mode == downtime ]]; then
   # The signed helper runs after old writers exit and before the new process.
   source "$assets_dir/activity-reward-cost-postflight.sh"
   sub2api_activity_reward_cost_postflight

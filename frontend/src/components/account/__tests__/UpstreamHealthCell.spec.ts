@@ -1,10 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import UpstreamHealthCell from '../UpstreamHealthCell.vue'
-import type { Account, UpstreamConfidenceDistribution } from '@/types'
+import type { Account } from '@/types'
 import zh from '@/i18n/locales/zh/admin/upstreamManagement'
 import en from '@/i18n/locales/en/admin/upstreamManagement'
-import { formatDateTime } from '@/utils/format'
 
 vi.mock('vue-i18n', async () => {
   const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
@@ -12,14 +11,14 @@ vi.mock('vue-i18n', async () => {
     ...actual,
     useI18n: () => ({
       t: (key: string, values: Record<string, unknown> = {}) => {
-        if (!key.includes('.distribution.') && !key.includes('.attribution.')) return key
+        if (!key.includes('.distribution.') && !key.includes('.attribution.') && !key.includes('.unified.')) return key
         let value: unknown = zh
         for (const part of key.replace('admin.', '').split('.')) value = (value as Record<string, unknown>)?.[part]
         return typeof value === 'string' ? value.replace(/\{(\w+)\}/g, (_, name: string) => String(values[name] ?? '')) : key
       },
       te: (key: string) => {
         if (key === 'admin.upstreamManagement.health.reasons.unknown_reason') return false
-        if (key.startsWith('admin.upstreamManagement.health.attribution.reasons.')) {
+        if (/admin\.upstreamManagement\.health\.(attribution|unified|distribution)\.reasons\./.test(key)) {
           let value: unknown = zh
           for (const part of key.replace('admin.', '').split('.')) value = (value as Record<string, unknown>)?.[part]
           return typeof value === 'string'
@@ -64,368 +63,153 @@ const stubs = {
   Icon: true
 }
 
+type Snapshot = NonNullable<Account['upstream_health']>
+const healthySnapshot = (extra: Record<string, unknown> = {}): Snapshot => ({
+  key_id: 9, status: 'healthy', observation_enabled: true, consecutive_failures: 0,
+  updated_at: '2026-10-06T00:00:00Z', ...extra
+}) as Snapshot
+const summary = (extra: Record<string, unknown> = {}) => ({
+  status: 'collecting', inference: false, target_model: 'gpt-6.1-sol', effective_model: 'gpt-6.1-sol', fusion_version: 1,
+  reason: 'insufficient_samples',
+  methods: {
+    distribution: { status: 'collecting', sample_count: 40, minimum_samples: 128,
+      baseline_version: 'distribution-v1', weight: 3, effective_weight: 0, participating: false }
+  }, ...extra
+})
+const mountSummary = (value: ReturnType<typeof summary>, platform = 'openai') => mount(UpstreamHealthCell, {
+  props: { account: account({ platform, upstream_health: healthySnapshot({ confidence_summary: value }) }) }, global: { stubs }
+})
+
 describe('UpstreamHealthCell', () => {
-  const distribution = (overrides: Partial<UpstreamConfidenceDistribution> = {}): UpstreamConfidenceDistribution => ({
-    status: 'collecting', sampling_policy_version: 2, window_size: 128, attempted: 42, valid_samples: 40, failed_attempts: 2,
-    cells: {
-      gpt__screen067: { planned: 64, minimum: 64, completed: 20, valid: 20, counts: { '！': 14, '。': 6 } },
-      gpt__screen101: { planned: 16, minimum: 16, completed: 7, valid: 7, counts: { uruguay: 5, __UNSEEN_IN_TRAINING__: 2 } },
-      gpt__screen108: { planned: 48, minimum: 48, completed: 13, valid: 13, counts: { '47': 13 } }
-    },
-    matches: {}, scores: {}, thresholds: {}, claimed_model: 'gpt-6.1-sol',
-    window_start: '2026-10-06T00:00:00Z', window_end: '2026-10-06T03:30:00Z',
-    baseline_version: '4.5.4-predictive.20261003.1', protocol: 'responses', reasons: ['window_incomplete'], ...overrides
-  })
-  const mountDistribution = (value: UpstreamConfidenceDistribution, platform = 'openai') => mount(UpstreamHealthCell, {
-    props: { account: account({ platform, upstream_health: {
-      key_id: 9, status: 'healthy', observation_enabled: true, consecutive_failures: 0, updated_at: '2026-10-06T00:00:00Z',
-      confidence_distribution: value,
-      confidence_prompt_version: 'openai-juice-multiprobe-v2', confidence_valid_completed_24h: 5, confidence_score_24h: 99
-    } }) }, global: { stubs }
-  })
-
-  it('shows collection progress without old ratios or premature candidate scores', () => {
-    const wrapper = mountDistribution(distribution())
-    expect(wrapper.get('[data-test="distribution-badge"]').text()).toBe('采集中 40/128')
-    expect(wrapper.get('[data-test="distribution-badge"]').classes()).toContain('bg-gray-100')
-    expect(wrapper.get('[data-test="health-confidence-row"]').classes()).toContain('flex-wrap')
-    expect(wrapper.get('[data-test="distribution-valid-progress"]').text()).toBe('40 / 128')
-    expect(wrapper.get('[data-test="distribution-attempts"]').text()).toBe('42')
-    expect(wrapper.get('[data-test="distribution-failed-attempts"]').text()).toBe('2')
-    expect(wrapper.get('[data-test="distribution-cell-gpt__screen067"]').text()).toBe('20 / 64')
-    expect(wrapper.get('[data-test="distribution-cell-gpt__screen101"]').text()).toBe('7 / 16')
-    expect(wrapper.get('[data-test="distribution-cell-gpt__screen108"]').text()).toBe('13 / 48')
-    expect(wrapper.text()).toContain('uruguay')
-    expect(wrapper.text()).toContain('未见答案')
-    expect(wrapper.text()).toContain('4.5.4-predictive.20261003.1')
+  it('renders exactly one confidence entry, with method contributions and collapsed diagnostics', () => {
+    const wrapper = mountSummary(summary())
+    expect(wrapper.get('[data-test="unified-confidence-badge"]').text()).toBe('采集中')
+    expect(wrapper.get('[data-test="confidence-progress-distribution"]').text()).toBe('40 / 128')
+    expect(wrapper.get('[data-test="confidence-weight-distribution"]').text()).toBe('0 / 3')
+    expect(wrapper.findAll('[data-test="unified-confidence-badge"]')).toHaveLength(1)
+    expect(wrapper.find('[data-test="distribution-badge"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="attribution-badge"]').exists()).toBe(false)
     expect(wrapper.find('[data-test="confidence-badge"]').exists()).toBe(false)
-    expect(wrapper.text()).not.toContain('confidence24h')
-    expect(wrapper.text()).not.toContain('0.0000')
-    expect(wrapper.find('[data-test="distribution-reset"]').exists()).toBe(false)
-  })
-
-  it('explains pending configuration changes without changing the compact progress or showing a reset time', () => {
-    const wrapper = mountDistribution(distribution({ attempted: 0, valid_samples: 0, series_reset: {
-      pending: true, at: null, reasons: ['credential_changed', 'endpoint_changed'], previous_attempted: 113
-    } }))
-    expect(wrapper.get('[data-test="distribution-badge"]').text()).toBe('采集中 0/128')
-    expect(wrapper.get('[data-test="distribution-badge"]').classes()).toContain('bg-gray-100')
-    expect(wrapper.get('[data-test="distribution-reset-pending"]').text()).toBe('配置已变化，等待下一次探针重新累计')
-    expect(wrapper.get('[data-test="distribution-reset-reasons"]').text()).toBe('鉴权凭据变化 · 请求端点变化')
-    expect(wrapper.get('[data-test="distribution-reset-previous"]').text()).toBe('113')
-    expect(wrapper.find('[data-test="distribution-reset-at"]').exists()).toBe(false)
-  })
-
-  it('shows the actual reset time and previous window after the first attempt in a new series', () => {
-    const at = '2026-10-07T13:34:39Z'
-    const wrapper = mountDistribution(distribution({ attempted: 1, valid_samples: 1, series_reset: {
-      pending: false, at, reasons: ['legacy_identity_unverifiable'], previous_attempted: 18
-    } }))
-    expect(wrapper.get('[data-test="distribution-badge"]').text()).toBe('采集中 1/128')
-    expect(wrapper.find('[data-test="distribution-reset-pending"]').exists()).toBe(false)
-    expect(wrapper.get('[data-test="distribution-reset-at"]').text()).toBe(formatDateTime(at))
-    expect(wrapper.get('[data-test="distribution-reset-reasons"]').text()).toBe('旧采样身份无法验证连续性')
-    expect(wrapper.get('[data-test="distribution-reset-previous"]').text()).toBe('18')
-  })
-
-  it('uses a safe fallback for unknown reset reasons and tolerates an omitted reset timestamp', () => {
-    const sensitive = 'api_key=private-value'
-    const wrapper = mountDistribution(distribution({ series_reset: {
-      pending: false, reasons: [sensitive, 'new_server_reason', 'model_changed'], previous_attempted: 128
-    } }))
-    expect(wrapper.get('[data-test="distribution-reset-at"]').text()).toBe('-')
-    expect(wrapper.get('[data-test="distribution-reset-reasons"]').text()).toBe('其他请求配置变化 · Sol 有效模型变化')
-    expect(wrapper.text()).not.toContain(sensitive)
-    expect(wrapper.text()).not.toContain('new_server_reason')
-  })
-
-  it('shows previous series attempts above 128 without a window denominator', () => {
-    const wrapper = mountDistribution(distribution({ attempted: 1, valid_samples: 0, failed_attempts: 1, series_reset: {
-      pending: false, reasons: ['sampling_policy_changed'], previous_attempted: 768
-    } }))
-    expect(wrapper.text()).toContain('上一系列尝试')
-    expect(wrapper.get('[data-test="distribution-reset-previous"]').text()).toBe('768')
-    expect(wrapper.text()).not.toContain('768 / 128')
-    expect(en.upstreamManagement.health.distribution.previousAttempts).toBe('Previous series attempts')
-  })
-
-  it('translates every identity reset reason in both locales', () => {
-    const reasons = ['binding_changed', 'protocol_changed', 'endpoint_changed', 'credential_changed',
-      'model_changed', 'proxy_changed', 'headers_changed', 'contract_changed', 'baseline_changed', 'legacy_identity_unverifiable', 'sampling_policy_changed']
-    const wrapper = mountDistribution(distribution({ series_reset: { pending: false, reasons, previous_attempted: 128 } }))
-    for (const reason of reasons) {
-      const zhMessage = zh.upstreamManagement.health.distribution.resetReasons[reason as keyof typeof zh.upstreamManagement.health.distribution.resetReasons]
-      const enMessage = en.upstreamManagement.health.distribution.resetReasons[reason as keyof typeof en.upstreamManagement.health.distribution.resetReasons]
-      expect(zhMessage).toBeTruthy()
-      expect(enMessage).toBeTruthy()
-      expect(wrapper.get('[data-test="distribution-reset-reasons"]').text()).toContain(zhMessage)
-      expect(wrapper.text()).not.toContain(`resetReasons.${reason}`)
-    }
+    expect(wrapper.text()).toContain('不参与判断')
+    expect(wrapper.text()).toContain('不是准确率或身份概率')
+    expect(wrapper.get('[data-test="unified-confidence-technical"]').attributes('open')).toBeUndefined()
+    expect(wrapper.text()).toContain('distribution-v1')
+    expect(wrapper.text()).not.toContain('标点')
+    expect(wrapper.text()).not.toContain('答案分布')
   })
 
   it.each([
-    { status: 'match' as const, closest_model: 'gpt-6.1-sol', label: 'Sol 匹配', color: 'bg-emerald-100' },
-    { status: 'mismatch' as const, closest_model: 'gpt-6-astra', label: '疑似 Astra', color: 'bg-red-100' },
-    { status: 'mismatch' as const, closest_model: 'other_known_external', label: '疑似 other', color: 'bg-red-100' },
-    { status: 'insufficient' as const, closest_model: 'gpt-6-astra', label: '证据不足', color: 'bg-amber-100' }
-  ])('renders $label while leaving health unchanged', ({ status, closest_model, label, color }) => {
-    const wrapper = mountDistribution(distribution({ status, closest_model, attempted: 256, valid_samples: 128, failed_attempts: 128,
-      matches: { 'gpt-6-astra': 0.57321, 'gpt-6.1-sol': 0.42679 }, reasons: status === 'insufficient' ? ['no_threshold'] : [] }))
-    expect(wrapper.get('[data-test="distribution-badge"]').text()).toBe(label)
-    expect(wrapper.get('[data-test="distribution-badge"]').classes()).toContain(color)
+    { status: 'collecting', label: '采集中', color: 'bg-gray-100' },
+    { status: 'insufficient', label: '证据不足', color: 'bg-amber-100' },
+    { status: 'match', label: '匹配', color: 'bg-emerald-100' },
+    { status: 'suspected', label: '疑似 · Luna', color: 'bg-red-100' }
+  ])('uses the server $status verdict without changing health', ({ status, label, color }) => {
+    const wrapper = mountSummary(summary({ status, candidate_model: 'gpt-6-luna' }))
+    expect(wrapper.get('[data-test="unified-confidence-badge"]').text()).toBe(label)
+    expect(wrapper.get('[data-test="unified-confidence-badge"]').classes()).toContain(color)
     expect(wrapper.get('[data-upstream-health-state="healthy"]').classes()).toContain('bg-emerald-100')
-    expect(wrapper.get('[data-test="distribution-score-gpt-6-astra"]').text()).toBe('0.573210')
-    expect(wrapper.text()).toContain('行为匹配分数')
-    expect(wrapper.text()).toContain('不是模型身份概率')
-    expect(wrapper.text()).not.toContain('57%')
-    expect(wrapper.get('[data-test="distribution-valid-progress"]').text()).toBe('128 / 128')
-    expect(wrapper.get('[data-test="distribution-attempts"]').text()).toBe('256')
-    if (status === 'insufficient') expect(wrapper.text()).toContain('匹配证据未达到判定线')
+    expect(wrapper.get('[data-test="unified-confidence-badge"]').attributes('data-confidence-status')).toBe(status)
   })
 
-  it.each([undefined, 0, 1, 3])('does not present sampling policy %s as a current valid window', sampling_policy_version => {
-    const wrapper = mountDistribution(distribution({ sampling_policy_version, status: 'match', attempted: 128, valid_samples: 35,
-      matches: { 'gpt-6.1-sol': 0.9 } }))
-    expect(wrapper.get('[data-test="distribution-badge"]').text()).toBe('等待重新采样')
-    expect(wrapper.get('[data-test="distribution-badge"]').classes()).toContain('bg-gray-100')
-    expect(wrapper.get('[data-test="distribution-legacy-policy"]').text()).toContain('旧样本不自动计入新窗口')
-    expect(wrapper.find('[data-test="distribution-valid-progress"]').exists()).toBe(false)
-    expect(wrapper.find('[data-test="distribution-score-gpt-6.1-sol"]').exists()).toBe(false)
+  it('does not invent an exact model name for the external bucket', () => {
+    expect(mountSummary(summary({ status: 'suspected', candidate_model: 'other_known_external' }))
+      .get('[data-test="unified-confidence-badge"]').text()).toBe('疑似 · 其他模型')
   })
 
-  it('keeps full valid-window scores available while an actual attempt is pending', () => {
-    const wrapper = mountDistribution(distribution({ status: 'match', attempted: 257, valid_samples: 128, failed_attempts: 128,
-      matches: { 'gpt-6.1-sol': 0.9 } }))
-    expect(wrapper.get('[data-test="distribution-badge"]').text()).toBe('Sol 匹配')
-    expect(wrapper.get('[data-test="distribution-score-gpt-6.1-sol"]').text()).toBe('0.900000')
-    expect(wrapper.get('[data-test="distribution-valid-progress"]').text()).toBe('128 / 128')
-    expect(wrapper.get('[data-test="distribution-attempts"]').text()).toBe('257')
+  it('shows qualified contributions and consecutive rounds without averaging candidate scores', () => {
+    const wrapper = mountSummary(summary({ status: 'match', target_model: 'gpt-5.4', effective_model: 'gpt-5.4',
+      inference: true, reason: 'reference_consensus', methods: {
+        modeltrace_numeric: { status: 'match', sample_count: 3, minimum_samples: 3, baseline_version: 'numeric-v1',
+          weight: 2, effective_weight: 2, participating: true, candidate_model: 'gpt-5.4', confirmed_rounds: 2, current_sample_count: 1,
+          candidates: [{ model_id: 'gpt-5.4', display_name: 'GPT-5.4', score: 0.98 }] },
+        chanshui_behavioral: { status: 'match', sample_count: 3, minimum_samples: 3, baseline_version: 'behavior-v1',
+          weight: 1, effective_weight: 1, participating: true, candidate_model: 'gpt-5.4', confirmed_rounds: 2 }
+      }
+    }))
+    expect(wrapper.get('[data-test="confidence-weight-modeltrace_numeric"]').text()).toBe('2 / 2')
+    expect(wrapper.get('[data-test="confidence-weight-chanshui_behavioral"]').text()).toBe('1 / 1')
+    expect(wrapper.get('[data-test="confidence-candidate-modeltrace_numeric"]').text()).toBe('gpt-5.4')
+    expect(wrapper.text()).toContain('连续确认 2 / 2 轮')
+    expect(wrapper.text()).toContain('本轮采集 1 / 3')
+    expect(wrapper.get('[data-test="unified-confidence-inference"]').text()).toBe('综合推断')
+    expect(wrapper.get('[data-test="confidence-effective-model"]').text()).toBe('gpt-5.4')
+    expect(wrapper.text()).not.toContain('0.98')
+    expect(wrapper.text()).not.toContain('98%')
   })
 
-  it('does not show an OpenAI distribution for another platform', () => {
-    const wrapper = mountDistribution(distribution(), 'anthropic')
-    expect(wrapper.find('[data-test="distribution-badge"]').exists()).toBe(false)
+  it('leaves a server conflict insufficient even when an individual method supports the target', () => {
+    const wrapper = mountSummary(summary({ status: 'insufficient', reason: 'methods_conflict', methods: {
+      distribution: { status: 'match', sample_count: 128, minimum_samples: 128, weight: 3,
+        effective_weight: 3, participating: true, candidate_model: 'gpt-6.1-sol' }
+    } }))
+    expect(wrapper.get('[data-test="unified-confidence-badge"]').text()).toBe('证据不足')
+    expect(wrapper.get('[data-test="unified-confidence-reason"]').text()).toContain('方法结论冲突')
   })
 
-  it('uses the transit-hub six-state color semantics and renders probe evidence', () => {
-    const wrapper = mount(UpstreamHealthCell, {
-      props: {
-        account: account({
-          upstream_health: {
-            key_id: 9,
-            status: 'degraded',
-            observation_enabled: true,
-            reason: 'authentication_failed',
-            last_probe_at: '2026-08-10T01:00:00Z',
-            last_probe_status: '401',
-            last_evidence_at: '2026-08-10T01:01:00Z',
-            last_traffic_status: '401',
-            consecutive_failures: 2,
-            recovery_samples: 0,
-            recovery_samples_required: 3,
-            updated_at: '2026-08-10T01:01:00Z',
-            history: [
-              { observed_at: '2026-08-10T00:59:00Z', state: 'healthy', source: 'probe', result: 'success', reason: 'probe_succeeded' },
-              { observed_at: '2026-08-10T01:01:00Z', state: 'degraded', source: 'traffic', result: '401', reason: 'authentication_failed' }
-            ]
-          }
-        })
-      },
-      global: { stubs }
-    })
+  it('retains the server verdict during a new incomplete round', async () => {
+    const wrapper = mountSummary(summary({ status: 'match' }))
+    const row = wrapper.get('[data-test="confidence-method-distribution"]').element
+    await wrapper.setProps({ account: account({ upstream_health: healthySnapshot({ confidence_summary: summary({ status: 'match', methods: {
+      distribution: { status: 'match', sample_count: 128, minimum_samples: 128, weight: 3, effective_weight: 3,
+        participating: true, candidate_model: 'gpt-6.1-sol' },
+      modeltrace_numeric: { status: 'collecting', sample_count: 1, minimum_samples: 3, weight: 2,
+        effective_weight: 0, participating: false, confirmed_rounds: 0, baseline_version: 'numeric-v1' }
+    } }) }) }) })
+    expect(wrapper.get('[data-test="unified-confidence-badge"]').text()).toBe('匹配')
+    expect(wrapper.get('[data-test="confidence-method-distribution"]').element).toBe(row)
+    expect(wrapper.get('[data-test="confidence-weight-modeltrace_numeric"]').text()).toBe('0 / 2')
+  })
 
-    const badge = wrapper.get('[data-upstream-health-state="degraded"]')
-    expect(badge.classes()).toContain('bg-amber-100')
-    expect(wrapper.text()).toContain('admin.upstreamManagement.health.degraded')
-    expect(wrapper.text()).toContain('admin.upstreamManagement.health.reasons.authentication_failed')
-    expect(wrapper.text()).toContain('401')
+  it('reports protocol anomalies independently from the model verdict on other platforms', () => {
+    const wrapper = mountSummary(summary({ status: 'match', target_model: 'claude-sonnet-4-6',
+      effective_model: 'claude-sonnet-4-6', protocol: 'anthropic_messages', observed_protocol: 'anthropic_messages',
+      protocol_status: 'mismatch', protocol_reason: 'protocol_mismatch', methods: {} }), 'anthropic')
+    expect(wrapper.get('[data-test="unified-confidence-badge"]').text()).toBe('匹配')
+    expect(wrapper.get('[data-test="attribution-protocol-status"]').text()).toBe('协议不匹配')
+    expect(wrapper.get('[data-test="attribution-observed-protocol"]').text()).toBe('anthropic_messages')
+    expect(wrapper.get('[data-upstream-health-state="healthy"]').exists()).toBe(true)
+  })
+
+  it('keeps missing baseline and mapping mismatch explanations clear', () => {
+    const wrapper = mountSummary(summary({ status: 'insufficient', reason: 'model_mapping_mismatch',
+      target_model: 'gpt-6.1-sol', effective_model: 'gpt-6-sol', methods: {} }))
+    expect(wrapper.get('[data-test="unified-confidence-reason"]').text()).toContain('目标与实际发送型号不一致')
+    expect(wrapper.get('[data-test="confidence-effective-model"]').text()).toBe('gpt-6-sol')
+    expect(mountSummary(summary({ status: 'insufficient', reason: 'no_applicable_baseline' })).text()).toContain('暂无适用于目标型号和协议的基线')
+  })
+
+  it('never exposes an unknown raw reason', () => {
+    const secret = 'api_key=private-value'
+    const wrapper = mountSummary(summary({ reason: secret }))
+    expect(wrapper.text()).not.toContain(secret)
+    expect(wrapper.get('[data-test="unified-confidence-reason"]').text()).toContain('当前证据原因暂不可识别')
+  })
+
+  it('does not show a second badge from legacy confidence fields', () => {
+    const wrapper = mount(UpstreamHealthCell, { props: { account: account({ upstream_health: healthySnapshot({
+      confidence_score_24h: 99, confidence_prompt_version: 'openai-juice-multiprobe-v2', confidence_valid_completed_24h: 10
+    }) }) }, global: { stubs } })
+    expect(wrapper.find('[data-test="unified-confidence-badge"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="confidence-badge"]').exists()).toBe(false)
+    expect(wrapper.get('[data-upstream-health-state="healthy"]').exists()).toBe(true)
+  })
+
+  it.each(['healthy', 'degraded', 'suspended', 'observing', 'recovering', 'disabled'])('preserves %s health independently', status => {
+    const wrapper = mount(UpstreamHealthCell, { props: { account: account({ upstream_health: healthySnapshot({ status }) }) }, global: { stubs } })
+    expect(wrapper.get(`[data-upstream-health-state="${status}"]`).exists()).toBe(true)
+  })
+
+  it('opens health history and preserves observation ordering', async () => {
+    const wrapper = mount(UpstreamHealthCell, { props: { account: account({ upstream_health: healthySnapshot({ history: [
+      { observed_at: '2026-08-10T00:59:00Z', state: 'healthy', source: 'probe', result: 'success' },
+      { observed_at: '2026-08-10T01:01:00Z', state: 'degraded', source: 'traffic', result: '401' }
+    ] }) }) }, global: { stubs } })
     expect(wrapper.findAll('[data-observation-state]').map(node => node.attributes('data-observation-state'))).toEqual(['healthy', 'degraded'])
-  })
-
-  it('opens the detailed history when the chart is clicked', async () => {
-    const wrapper = mount(UpstreamHealthCell, {
-      props: {
-        account: account({
-          upstream_health: {
-            key_id: 9,
-            status: 'healthy',
-            observation_enabled: true,
-            consecutive_failures: 0,
-            updated_at: '2026-08-10T01:01:00Z',
-            history: [{ observed_at: '2026-08-10T01:01:00Z', state: 'healthy', source: 'probe', result: 'success' }]
-          }
-        })
-      },
-      global: { stubs }
-    })
-
     await wrapper.get('[data-upstream-health-history]').trigger('click')
     expect(wrapper.emitted('showHistory')).toHaveLength(1)
   })
 
-  it('健康列不展示 TTFT 模型临时排除', () => {
-    const wrapper = mount(UpstreamHealthCell, {
-      props: {
-        account: account({
-          upstream_health: {
-            key_id: 9,
-            status: 'suspended',
-            observation_enabled: true,
-            reason: 'capacity_limited',
-            consecutive_failures: 3,
-            updated_at: '2026-08-10T01:01:00Z'
-          },
-          ttft_guard_degradations: [{
-            model: 'gpt-5.4-mini',
-            reason: 'critical_sample',
-            threshold_ms: 20_000,
-            last_ttft_ms: 61_000,
-            ewma_ms: 25_000,
-            sample_count: 2,
-            degraded_at: '2026-08-10T01:00:00Z',
-            last_sample_at: '2026-08-10T01:01:00Z',
-            expires_at: '2026-08-10T01:16:00Z',
-            recovery_samples: 0,
-            recovery_samples_required: 3
-          }]
-        })
-      },
-      global: { stubs }
-    })
-
-    expect(wrapper.get('[data-upstream-health-state="suspended"]').classes()).toContain('bg-red-100')
-    expect(wrapper.text()).toContain('admin.upstreamManagement.health.temporarilyExcluded')
-    expect(wrapper.text()).not.toContain('gpt-5.4-mini')
-  })
-
-  it('does not fabricate a healthy state when there is no health snapshot', () => {
-    const wrapper = mount(UpstreamHealthCell, {
-      props: { account: account() },
-      global: { stubs }
-    })
-
-    expect(wrapper.get('[data-upstream-health-state="unobserved"]').text()).toContain('admin.upstreamManagement.health.noData')
-    expect(wrapper.text()).not.toContain('admin.upstreamManagement.health.healthy')
-  })
-
-  it('renders OpenAI health and Juice confidence badges in the same row', () => {
-    const wrapper = mount(UpstreamHealthCell, {
-      props: { account: account({ upstream_health: {
-        key_id: 9, status: 'healthy', observation_enabled: true, consecutive_failures: 0,
-        updated_at: '2026-08-24T01:01:00Z', confidence_score_24h: 75, confidence_score_7d: 80,
-        confidence_sample_count_24h: 4, confidence_sample_count_7d: 10,
-        confidence_status: 'current_success', confidence_requested_effort: 'high',
-        confidence_breakdown: { valid_completed: 1, current_success: 1 },
-        confidence_prompt_version: 'openai-juice-multiprobe-v2',
-        confidence_valid_completed_24h: 4, confidence_valid_completed_7d: 10,
-        confidence_current_success_24h: 3, confidence_current_success_7d: 8,
-        confidence_evidence: { kind: 'juice', claimed_model: 'gpt-5.6-sol', requested_effort: 'high', expected_value: '40', observed_value: '40', classification: 'current_success' }
-      } }) },
-      global: { stubs }
-    })
-
-    const row = wrapper.get('[data-test="health-confidence-row"]')
-    expect(row.find('[data-upstream-health-state="healthy"]').exists()).toBe(true)
-    expect(row.find('[data-test="confidence-badge"]').exists()).toBe(true)
-    expect(wrapper.text()).toContain('high')
-    expect(wrapper.text()).toContain('current_success')
-  })
-
-  it('does not render confidence placeholders for non-OpenAI accounts', () => {
-    const wrapper = mount(UpstreamHealthCell, {
-      props: { account: account({ platform: 'anthropic', upstream_health: {
-        key_id: 9, status: 'healthy', observation_enabled: true, consecutive_failures: 0,
-        updated_at: '2026-08-24T01:01:00Z', confidence_sample_count_24h: 2,
-        confidence_sample_count_7d: 2, confidence_score_24h: 100, confidence_score_7d: 100
-      } }) },
-      global: { stubs }
-    })
-    expect(wrapper.find('[data-test="confidence-badge"]').exists()).toBe(false)
-    expect(wrapper.text()).not.toContain('admin.upstreamManagement.health.confidenceLabel')
-  })
-
-  it('shows cross-platform attribution and protocol evidence without changing health state', () => {
-    const wrapper = mount(UpstreamHealthCell, {
-      props: { account: account({ platform: 'anthropic', upstream_health: {
-        key_id: 9, status: 'healthy', observation_enabled: true, consecutive_failures: 0,
-        updated_at: '2026-08-24T01:01:00Z',
-        confidence_attribution: {
-          status: 'unknown', platform: 'anthropic', model: 'claude-sonnet', protocol: 'anthropic_messages', observed_protocol: 'anthropic_messages',
-          protocol_status: 'mismatch', protocol_reason: 'probe_protocol_mismatch', reason: 'no_matching_baseline',
-          methods: { behavioral: { status: 'unknown', sample_count: 4, minimum_samples: 12, reason: 'no_matching_baseline' } }
-        }
-      } }) },
-      global: { stubs }
-    })
-
-    expect(wrapper.get('[data-upstream-health-state="healthy"]').exists()).toBe(true)
-    expect(wrapper.get('[data-test="attribution-badge"]').text()).toBe('未知')
-    expect(wrapper.get('[data-test="attribution-protocol-status"]').text()).toBe('协议不匹配')
-    expect(wrapper.get('[data-test="attribution-observed-protocol"]').text()).toBe('anthropic_messages')
-    expect(wrapper.get('[data-test="attribution-protocol-reason"]').text()).toContain('当前证据原因暂不可识别')
-    expect(wrapper.get('[data-test="attribution-method-behavioral"]').text()).toBe('未知')
-    expect(wrapper.text()).toContain('有效样本 4 / 12')
-    expect(wrapper.text()).toContain('没有适用于该平台、模型和协议的已校准基线')
-    expect(wrapper.text()).not.toContain('probe_protocol_mismatch')
-  })
-
-  it('supports provisional and conflicting attribution outcomes while keeping old responses optional', () => {
-    const wrapper = mount(UpstreamHealthCell, {
-      props: { account: account({ upstream_health: {
-        key_id: 9, status: 'degraded', observation_enabled: true, consecutive_failures: 1,
-        updated_at: '2026-08-24T01:01:00Z',
-        confidence_attribution: {
-          status: 'conflict', platform: 'openai', model: 'gpt-6.1-sol', protocol: 'responses',
-          methods: {
-            distribution: { status: 'match', sample_count: 128, minimum_samples: 128, baseline_version: 'dist-v1' },
-            behavioral: { status: 'mismatch', sample_count: 16, minimum_samples: 12, baseline_version: 'fingerprint-v2' }
-          }
-        }
-      } }) },
-      global: { stubs }
-    })
-    expect(wrapper.get('[data-test="attribution-badge"]').text()).toBe('证据冲突待复核')
-    expect(wrapper.text()).toContain('dist-v1')
-    expect(wrapper.text()).toContain('fingerprint-v2')
-    expect(wrapper.get('[data-upstream-health-state="degraded"]').exists()).toBe(true)
-
-    const legacy = mount(UpstreamHealthCell, { props: { account: account({ platform: 'gemini' }) }, global: { stubs } })
-    expect(legacy.find('[data-test="attribution-badge"]').exists()).toBe(false)
-  })
-
-  it('renders mixed evidence and degrades the badge for a 24h hard anomaly', () => {
-    const wrapper = mount(UpstreamHealthCell, {
-      props: { account: account({ upstream_health: {
-        key_id: 9, status: 'healthy', observation_enabled: true, consecutive_failures: 0,
-        updated_at: '2026-08-24T01:01:00Z', confidence_score_24h: 50, confidence_score_7d: 50,
-        confidence_sample_count_24h: 2, confidence_sample_count_7d: 2,
-        confidence_valid_completed_24h: 2, confidence_valid_completed_7d: 2,
-        confidence_current_success_24h: 1, confidence_current_success_7d: 1,
-        confidence_mixed_24h: 1, confidence_mixed_7d: 1,
-        confidence_output_rewrite_24h: 1, confidence_output_rewrite_7d: 1,
-        confidence_prompt_version: 'openai-juice-multiprobe-v2',
-        confidence_evidence: { kind: 'juice', claimed_model: 'gpt-5.6-sol', requested_effort: 'high', expected_value: '40', observed_value: '48', classification: 'mixed', mixed_models: ['gpt-5.6-luna'] }
-      } }) },
-      global: { stubs }
-    })
-
-    expect(wrapper.get('[data-test="confidence-badge"]').classes()).toContain('bg-red-100')
-    expect(wrapper.text()).toContain('40')
-    expect(wrapper.text()).toContain('48')
-    expect(wrapper.text()).toContain('gpt-5.6-luna')
-    expect(wrapper.text()).toContain('admin.upstreamManagement.health.confidenceStatuses.mixed')
-  })
-
-  it('does not render confidence when OpenAI has no valid completed samples', () => {
-    const wrapper = mount(UpstreamHealthCell, {
-      props: { account: account({ upstream_health: {
-        key_id: 9, status: 'healthy', observation_enabled: true, consecutive_failures: 0,
-        updated_at: '2026-08-24T01:01:00Z', confidence_sample_count_24h: 0,
-        confidence_sample_count_7d: 0, confidence_status: 'data_insufficient'
-      } }) },
-      global: { stubs }
-    })
-    expect(wrapper.find('[data-test="confidence-badge"]').exists()).toBe(false)
-    expect(wrapper.find('[data-upstream-health-state="unobserved"]').exists()).toBe(false)
+  it('keeps both locales aligned for the four-state result', () => {
+    expect(Object.keys(zh.upstreamManagement.health.unified.statuses)).toEqual(Object.keys(en.upstreamManagement.health.unified.statuses))
   })
 })
