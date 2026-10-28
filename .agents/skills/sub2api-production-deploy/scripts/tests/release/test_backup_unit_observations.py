@@ -54,7 +54,7 @@ class BackupUnitObservationsTest(unittest.TestCase):
         return subprocess.run([self.bash, '-c', script], env=env, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=20)
 
     def fixture(self, root):
-        state = root / ('273-' + 'a' * 12 + '-1-' + 'b' * 8)
+        state = root / ('277-' + 'a' * 12 + '-1-' + 'b' * 8)
         state.mkdir()
         live = root / 'units'
         live.mkdir()
@@ -80,6 +80,73 @@ class BackupUnitObservationsTest(unittest.TestCase):
             'ENABLED_VALUE': 'enabled', 'ENABLED_CODE': '0',
         }
         return environment, bash_root + '/units'
+
+    def test_state_directory_syntax_is_independent_of_application_profiles(self):
+        guards = []
+        for path in ROOT.glob('*backup-units.sh'):
+            line = next(line for line in path.read_text(encoding='utf-8').splitlines() if '$base =~' in line)
+            guards.append(line.strip().split(' || return')[0])
+        self.assertEqual(len(guards), 2)
+        self.assertEqual(guards[0], guards[1])
+        suffix = '-aaaaaaaaaaaa-1-bbbbbbbb'
+        valid = [profile + suffix for profile in ('182', '273', '277', '278', '999999')]
+        valid.append('release181-state-20260930T120000Z')
+        invalid = [profile + suffix for profile in ('', '0', '0277', '-277', '277;true')]
+        invalid += ['277-AAAAAAAAAAAA-1-bbbbbbbb', '277-aaaaaaaaaaa-1-bbbbbbbb',
+                    '277-aaaaaaaaaaaa-x-bbbbbbbb', '277-aaaaaaaaaaaa-1-bbbbbbb',
+                    '277-aaaaaaaaaaaa-1-bbbbbbbb/../outside', '277-aaaaaaaaaaaa-1-bbbbbbbb\n',
+                    '277-aaaaaaaaaaaa-1-bbbbbbbb\r']
+        # Git Bash's Windows launcher strips literal trailing CR/LF arguments;
+        # materialize them inside Bash so this tests the actual predicate.
+        script = 'set -Eeuo pipefail\nwhile (( $# )); do printf -v base "%b" "$1"; expected=$2; shift 2; actual=1; if ' + guards[0] + '; then actual=0; fi; [[ $actual == "$expected" ]] || exit 23; done'
+        arguments = [item for value, expected in [(x, '0') for x in valid] + [(x, '1') for x in invalid]
+                     for item in (value.replace('\n', r'\n').replace('\r', r'\r'), expected)]
+        result = subprocess.run([self.bash, '--noprofile', '--norc', '-c', script, 'state-syntax', *arguments],
+                                env={key: value for key, value in os.environ.items() if key not in {'BASH_ENV', 'ENV', 'SHELLOPTS'}},
+                                capture_output=True, text=True, timeout=20)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_unsafe_paths_are_rejected_before_any_unit_observation(self):
+        for name in ('mask-backup-units.sh', 'restore-backup-units.sh'):
+            with self.subTest(script=name), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                environment, live = self.fixture(root)
+                source = (ROOT / name).read_text(encoding='utf-8').replace('/etc/systemd/system', live)
+                for bad in (environment['STATE_DIR'] + '/..', environment['STATE_DIR'] + '/',
+                            environment['STATE_ROOT'] + '/0-aaaaaaaaaaaa-1-bbbbbbbb',
+                            environment['STATE_ROOT'] + '/../277-aaaaaaaaaaaa-1-bbbbbbbb'):
+                    trace = root / 'trace'
+                    trace.unlink(missing_ok=True)
+                    result = self.shell(STUBS + source, {**environment, 'STATE_DIR': bad})
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertNotIn('backup_units_', result.stdout)
+                    if trace.exists():
+                        self.assertNotIn('systemctl', trace.read_text().splitlines())
+
+    def test_symlinks_are_rejected_before_unit_observation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            environment, live = self.fixture(root)
+            state_link = root / '278-aaaaaaaaaaaa-1-bbbbbbbb'
+            root_link = root / 'root-alias'
+            try:
+                os.symlink(root / Path(environment['STATE_DIR']).name, state_link, target_is_directory=True)
+                os.symlink(root, root_link, target_is_directory=True)
+            except OSError:
+                self.skipTest('native symlink capability is unavailable')
+            cases = [dict(environment, STATE_DIR=environment['STATE_ROOT'] + '/' + state_link.name),
+                     dict(environment, STATE_ROOT=environment['STATE_ROOT'] + '/' + root_link.name,
+                          STATE_DIR=environment['STATE_ROOT'] + '/' + root_link.name + '/' + Path(environment['STATE_DIR']).name)]
+            for name in ('mask-backup-units.sh', 'restore-backup-units.sh'):
+                source = (ROOT / name).read_text(encoding='utf-8').replace('/etc/systemd/system', live)
+                for case in cases:
+                    trace = root / 'trace'
+                    trace.unlink(missing_ok=True)
+                    result = self.shell(STUBS + source, case)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertNotIn('backup_units_', result.stdout)
+                    if trace.exists():
+                        self.assertNotIn('systemctl', trace.read_text().splitlines())
 
     def test_conditional_verifiers_and_best_effort_rollback_reject_failed_reads(self):
         mask = (ROOT / 'mask-backup-units.sh').read_text(encoding='utf-8')
