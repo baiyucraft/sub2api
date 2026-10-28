@@ -577,7 +577,11 @@ exit "$code"
             {"release_directory_created"},
         )
         self._remote_raw_logging_ready = True
-        env = quoted_env({"RELEASE_ID": self.release_id, "RELEASE_DIR": self.release_dir})
+        env = quoted_env({
+            "RELEASE_ID": self.release_id,
+            "RELEASE_DIR": self.release_dir,
+            "MINIMUM_FREE_BYTES": self.profile["minimum_rack_free_bytes"],
+        })
         prepared = self.run_remote(
             "racknerd",
             f"{env} {self.release_dir}/assets/prepare.sh",
