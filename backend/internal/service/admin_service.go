@@ -252,6 +252,7 @@ type CreateGroupInput struct {
 	AllowImageGeneration         bool
 	AllowBatchImageGeneration    bool
 	StripOptionalImageTools      bool
+	ImageCountBilling            bool
 	ImageRateIndependent         bool
 	ImageRateMultiplier          *float64
 	BatchImageDiscountMultiplier *float64
@@ -339,6 +340,7 @@ type UpdateGroupInput struct {
 	AllowImageGeneration         *bool
 	AllowBatchImageGeneration    *bool
 	StripOptionalImageTools      *bool
+	ImageCountBilling            *bool
 	ImageRateIndependent         *bool
 	ImageRateMultiplier          *float64
 	BatchImageDiscountMultiplier *float64
@@ -409,6 +411,7 @@ type UpdateGroupInput struct {
 }
 
 type CreateAccountInput struct {
+	ProxyMode           string // 受限写入在验权后选择代理。
 	Name                string
 	Notes               *string
 	Platform            string
@@ -449,6 +452,7 @@ type ShadowOptions struct {
 }
 
 type UpdateAccountInput struct {
+	ProxyMode                string // 受限写入在验权后选择代理。
 	Name                     string
 	Notes                    *string
 	Type                     string // Account type: oauth, setup-token, apikey

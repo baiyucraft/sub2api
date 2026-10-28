@@ -89,6 +89,7 @@ const groupFixture = (overrides: Partial<AdminGroup>): AdminGroup => ({
   weekly_limit_usd: null,
   monthly_limit_usd: null,
   allow_image_generation: false,
+  image_count_billing: false,
   image_rate_independent: false,
   image_rate_multiplier: 1,
   image_price_1k: null,

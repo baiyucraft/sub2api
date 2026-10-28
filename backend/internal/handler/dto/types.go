@@ -114,6 +114,7 @@ type Group struct {
 	AllowImageGeneration         bool    `json:"allow_image_generation"`
 	AllowBatchImageGeneration    bool    `json:"allow_batch_image_generation"`
 	StripOptionalImageTools      bool    `json:"strip_optional_image_tools"`
+	ImageCountBilling            bool    `json:"image_count_billing"`
 	ImageRateIndependent         bool    `json:"image_rate_independent"`
 	ImageRateMultiplier          float64 `json:"image_rate_multiplier"`
 	BatchImageDiscountMultiplier float64 `json:"batch_image_discount_multiplier"`
@@ -352,6 +353,8 @@ type Account struct {
 	GroupIDs []int64  `json:"group_ids,omitempty"`
 	Groups   []*Group `json:"groups,omitempty"`
 
+	// 仅账号详情填充。列表和公共 mapper 不计算，避免把目录诊断扩散到调度响应。
+	GrokModelDiagnostics *service.GrokModelDiagnostics `json:"grok_model_diagnostics,omitempty"`
 	// PreferredGroupIDs is the scheduler-preferred subset of GroupIDs. The full
 	// account detail response must expose it so account editing preserves the
 	// current preferred-pool selection even when no star is toggled explicitly.

@@ -40,6 +40,61 @@ func decodeGeminiModelNames(t *testing.T, body []byte) []string {
 	return names
 }
 
+func TestGeminiDeclaredModelsPreserveMappingAndSelectionContracts(t *testing.T) {
+	groupID := int64(8)
+	first := Account{ID: 1, Platform: PlatformGemini, Type: AccountTypeAPIKey, Credentials: map[string]any{
+		"api_key": "test", "model_mapping": map[string]any{"gemini-3.*": "gemini-3.8-flash", "gemini-2.5-flash": "gemini-2.5-flash"},
+	}}
+	second := Account{ID: 2, Platform: PlatformGemini, Type: AccountTypeAPIKey, Credentials: map[string]any{
+		"api_key": "test", "model_mapping": map[string]any{"gemini-3.1-pro-preview": "gemini-3.1-pro-preview", "gemini-2.5-flash": "gemini-2.5-flash"},
+	}}
+	for _, tc := range []struct {
+		name     string
+		accounts []Account
+		want     []string
+	}{
+		{"deduplicated_sorted_mapping_keys", []Account{second, first}, []string{"gemini-2.5-flash", "gemini-3.*", "gemini-3.1-pro-preview"}},
+		{"unrestricted_account_keeps_upstream_fallback", []Account{first, {ID: 3, Platform: PlatformGemini, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "test"}}}, nil},
+		{"other_platform_does_not_cancel_declared_list", []Account{first, {ID: 4, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}}, []string{"gemini-2.5-flash", "gemini-3.*"}},
+		{"empty_group", nil, []string{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := newGeminiModelsEndpointsTestService(tc.accounts, nil)
+			got, err := svc.DeclaredModelIDs(context.Background(), &groupID)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		})
+	}
+
+	failure := errors.New("model snapshot unavailable")
+	svc := newGeminiModelsEndpointsTestService(nil, nil)
+	svc.accountRepo = &mockAccountRepoForGemini{listByGroupFunc: func(context.Context, int64, []string) ([]Account, error) {
+		return nil, failure
+	}}
+	got, err := svc.DeclaredModelIDs(context.Background(), &groupID)
+	require.ErrorIs(t, err, failure)
+	require.Nil(t, got)
+}
+
+func TestGeminiDeclaredModelsCoverExactWildcardAndAlias(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		declared []string
+		model    string
+		want     bool
+	}{
+		{"exact", []string{"gemini-2.5-flash"}, "gemini-2.5-flash", true},
+		{"wildcard", []string{"gemini-3.*"}, "gemini-3.8-flash", true},
+		{"normalized_customtools_alias", []string{"gemini-3.1-pro-preview"}, "gemini-3.1-pro-preview-customtools", true},
+		{"distinct_model", []string{"gemini-3.1-pro-preview"}, "gemini-2.5-flash", false},
+		{"no_declaration", nil, "gemini-2.5-flash", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, DeclaredModelsCover(tc.declared, tc.model))
+		})
+	}
+}
+
 func TestSelectAccountForModelsEndpoints_VertexServiceAccountOnlyGroup(t *testing.T) {
 	groupID := int64(8)
 	vertex := *vertexModelSyncTestAccount(nil)

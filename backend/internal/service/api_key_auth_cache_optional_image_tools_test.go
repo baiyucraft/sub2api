@@ -15,7 +15,7 @@ func TestAPIKeyAuthSnapshotOptionalImageToolsRoundtrip(t *testing.T) {
 		User: &User{ID: 40, Status: StatusActive},
 		Group: &Group{
 			ID: groupID, Name: "image-tool-policy", Platform: PlatformOpenAI, Status: StatusActive,
-			Hydrated: true, AllowImageGeneration: true, StripOptionalImageTools: true,
+			Hydrated: true, AllowImageGeneration: true, StripOptionalImageTools: true, ImageCountBilling: true,
 		},
 	}
 	svc := &APIKeyService{}
@@ -23,15 +23,19 @@ func TestAPIKeyAuthSnapshotOptionalImageToolsRoundtrip(t *testing.T) {
 	require.NoError(t, err)
 	var cached APIKeyAuthCacheEntry
 	require.NoError(t, json.Unmarshal(payload, &cached))
+	require.Equal(t, 26, cached.Snapshot.Version)
 	materialized, used, err := svc.applyAuthCacheEntry(apiKey.Key, &cached)
 	require.NoError(t, err)
 	require.True(t, used)
 	require.True(t, materialized.Group.StripOptionalImageTools)
 	require.True(t, materialized.Group.AllowImageGeneration)
+	require.True(t, materialized.Group.ImageCountBilling)
 
-	cached.Snapshot.Version = 24
-	materialized, used, err = svc.applyAuthCacheEntry(apiKey.Key, &cached)
-	require.NoError(t, err)
-	require.False(t, used, "snapshots without the filtering policy must be reloaded")
-	require.Nil(t, materialized)
+	for _, version := range []int{24, 25} {
+		cached.Snapshot.Version = version
+		materialized, used, err = svc.applyAuthCacheEntry(apiKey.Key, &cached)
+		require.NoError(t, err)
+		require.False(t, used, "snapshots without both image policies must be reloaded")
+		require.Nil(t, materialized)
+	}
 }

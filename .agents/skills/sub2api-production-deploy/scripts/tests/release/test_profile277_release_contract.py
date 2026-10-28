@@ -39,7 +39,7 @@ class Profile277ReleaseContractTest(unittest.TestCase):
             get_release_profile("277")
         self.assertEqual((get_profile("278")["version"], get_profile("278")["parent"], get_profile("278")["new_migrations"]),
                          ("0.2.20-baiyu", "277", []))
-        self.assertEqual((get_release_profile("280")["version"], get_release_profile("280")["parent"], get_release_profile("280")["new_migrations"]),
+        self.assertEqual((get_profile("280")["version"], get_profile("280")["parent"], get_profile("280")["new_migrations"]),
                          ("0.2.22-baiyu", "279", []))
         with self.assertRaisesRegex(ValueError, "historical"):
             get_release_profile("276")
@@ -51,7 +51,7 @@ class Profile277ReleaseContractTest(unittest.TestCase):
         self.assertEqual(registry["current_profile"]["id"], "281")
         for key in ("version", "parent", "new_migrations", "gate_schema", "release_policy"):
             self.assertEqual(registry["current_profile"][key], get_profile("281")[key])
-        self.assertEqual(registry["current_profile"]["new_migrations"], [])
+        self.assertEqual(registry["current_profile"]["new_migrations"], ["305_scoped_admin_api_keys.sql", "306_group_image_count_billing.sql"])
         raw = (WORKSPACE / "backend/migrations" / MIGRATION).read_bytes()
         self.assertEqual(registry["migration_contracts"][MIGRATION], hashlib.sha256(raw).hexdigest())
         catalog = discover_migration_catalog(WORKSPACE)
@@ -91,8 +91,8 @@ class Profile277ReleaseContractTest(unittest.TestCase):
         ]
         env = {key: value for key, value in os.environ.items() if key not in {'BASH_ENV', 'ENV', 'SHELLOPTS'}}
         for variable, guard, scope in guards:
-            cases = (('278', True), ('277', True), ('279', True), ('280', True), ('281', False), ('0280', False), ('280;true', False)) if scope == 'history' else (
-                ('280', True), ('279', False), ('278', False), ('277', False), ('0280', False), ('280;true', False)
+            cases = (('278', True), ('277', True), ('279', True), ('280', True), ('281', True), ('282', False), ('0280', False), ('280;true', False)) if scope == 'history' else (
+                ('281', True), ('280', False), ('282', False), ('279', False), ('278', False), ('277', False), ('0280', False), ('280;true', False)
             )
             for profile, accepted in cases:
                 value = '/opt/sub2api/releases/' + profile + '-aaaaaaaaaaaa-1-aaaaaaaa' if variable == 'release_dir' else profile

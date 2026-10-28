@@ -47,9 +47,9 @@ class Profile274ReleaseContractTest(unittest.TestCase):
                                    cwd=WORKSPACE, check=True, capture_output=True, text=True, timeout=10).stdout.splitlines()
         changed = subprocess.run(["git", "diff", "--name-only", BASELINE, "--", "backend/migrations/*.sql"], cwd=WORKSPACE,
                                  check=True, capture_output=True, text=True, timeout=10).stdout.splitlines()
-        self.assertLessEqual(set(changed), {"backend/migrations/" + MIGRATION, "backend/migrations/302_enable_gemini_image_generation_groups.sql", "backend/migrations/303_group_strip_optional_image_tools.sql", "backend/migrations/304_upstream_confidence_fingerprint.sql"})
+        self.assertLessEqual(set(changed), {"backend/migrations/" + MIGRATION, "backend/migrations/302_enable_gemini_image_generation_groups.sql", "backend/migrations/303_group_strip_optional_image_tools.sql", "backend/migrations/304_upstream_confidence_fingerprint.sql", "backend/migrations/305_scoped_admin_api_keys.sql", "backend/migrations/306_group_image_count_billing.sql"})
         current = {str(p.relative_to(WORKSPACE)).replace("\\", "/") for p in (WORKSPACE / "backend/migrations").glob("*.sql")}
-        self.assertEqual(current, {name for name in old_files if name.endswith(".sql")} | {"backend/migrations/" + MIGRATION, "backend/migrations/302_enable_gemini_image_generation_groups.sql", "backend/migrations/303_group_strip_optional_image_tools.sql", "backend/migrations/304_upstream_confidence_fingerprint.sql"})
+        self.assertEqual(current, {name for name in old_files if name.endswith(".sql")} | {"backend/migrations/" + MIGRATION, "backend/migrations/302_enable_gemini_image_generation_groups.sql", "backend/migrations/303_group_strip_optional_image_tools.sql", "backend/migrations/304_upstream_confidence_fingerprint.sql", "backend/migrations/305_scoped_admin_api_keys.sql", "backend/migrations/306_group_image_count_billing.sql"})
         catalog = discover_migration_catalog(WORKSPACE)
         snapshot = {row["filename"]: row["checksum"] for row in catalog if row["filename"] != MIGRATION}
         self.assertEqual([row["filename"] for row in plan_migrations(catalog, snapshot)["pending"]], [MIGRATION])

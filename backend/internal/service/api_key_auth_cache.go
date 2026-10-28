@@ -70,6 +70,7 @@ type APIKeyAuthGroupSnapshot struct {
 	AllowImageGeneration            bool                          `json:"allow_image_generation"`
 	AllowBatchImageGeneration       bool                          `json:"allow_batch_image_generation"`
 	StripOptionalImageTools         bool                          `json:"strip_optional_image_tools"`
+	ImageCountBilling               bool                          `json:"image_count_billing"`
 	ImageRateIndependent            bool                          `json:"image_rate_independent"`
 	ImageRateMultiplier             float64                       `json:"image_rate_multiplier"`
 	ImagePrice1K                    *float64                      `json:"image_price_1k,omitempty"`

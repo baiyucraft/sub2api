@@ -109,17 +109,18 @@ class MigrationPlannerV2Test(unittest.TestCase):
                 script = (DEPLOY_ROOT / "maintenance" / "release" / hook["script"]).read_text(encoding="utf-8")
                 allowed = re.findall(r"\$profile == ([0-9]+)", script)
                 if hook["script"] == "migration-297-assert.sh":
-                    self.assertEqual(allowed, ["269", "270", "271", "272", "273", "274", "275", "276", "277"])
+                    self.assertEqual(allowed, ["269", "270", "271", "272", "273", "274", "275", "276", "277", "278", "279", "280", "281"])
                     continue
                 if hook["script"] == "migration-298-assert.sh":
-                    self.assertEqual(allowed, ["270", "271", "272", "273", "274", "275", "276", "277"])
+                    self.assertEqual(allowed, ["270", "271", "272", "273", "274", "275", "276", "277", "278", "279", "280", "281"])
                     continue
                 if hook["script"] == "migration-299-assert.sh":
-                    self.assertEqual(allowed, ["271", "272", "273", "274", "275", "276", "277"])
+                    self.assertEqual(allowed, ["271", "272", "273", "274", "275", "276", "277", "278", "279", "280", "281"])
                     continue
                 if hook["script"] == "migration-301-assert.sh":
-                    self.assertEqual(allowed, ["274", "275", "276", "277"])
+                    self.assertEqual(allowed, ["274", "275", "276", "277", "278", "279", "280", "281"])
                     continue
+                self.assertIn("281", allowed)
                 self.assertIn("274", allowed)
                 self.assertIn("275", allowed)
                 self.assertIn("260", allowed)
