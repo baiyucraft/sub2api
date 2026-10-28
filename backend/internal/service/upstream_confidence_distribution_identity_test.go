@@ -110,7 +110,7 @@ func TestDistributionIdentityChangesOnlyEffectiveRequestDimensions(t *testing.T)
 		{"endpoint", "endpoint", func(a *Account) { a.Credentials["base_url"] = "https://other.example" }},
 		{"credential", "credential", func(a *Account) { a.Credentials["api_key"] = "rotated-synthetic" }},
 		{"model", "model", func(a *Account) {
-			a.Credentials["model_mapping"] = map[string]any{UpstreamConfidenceDistributionClaimedModel: "gpt-6.1-sol-alias"}
+			a.Credentials["model_mapping"] = map[string]any{UpstreamConfidenceDistributionClaimedModel: "gpt-6-astra"}
 		}},
 		{"protocol", "protocol", func(a *Account) { a.Extra = map[string]any{"openai_responses_mode": "force_chat_completions"} }},
 		{"proxy binding", "proxy", func(a *Account) {

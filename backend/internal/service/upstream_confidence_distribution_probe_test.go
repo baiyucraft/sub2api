@@ -154,7 +154,11 @@ func TestDistributionProbeRunsWhenSolIsDeniedForRequests(t *testing.T) {
 	accounts := &healthProbeAccountRepo{account: *account}
 	upstream := &upstreamHealthProbeHTTPStub{stream: "data: {\"type\":\"response.output_text.delta\",\"delta\":\"Canada\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\"}}\n\n"}
 	client := &AccountTestService{httpUpstream: upstream, cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}}}
-	settingRepo := newCodexVersionSyncSettingRepoStub(map[string]string{SettingKeyUpstreamConfidenceProbe: `{"enabled":true}`, SettingKeyOpenAICodexClientVersionSynced: "0.160.0"})
+	settingRepo := newCodexVersionSyncSettingRepoStub(map[string]string{
+		SettingKeyUpstreamConfidenceProbe:        `{"enabled":true}`,
+		SettingKeyOpenAICodexClientVersionSynced: "0.160.0",
+		SettingKeyUpstreamProbeModels:            `{"openai":"gpt-4o-mini","anthropic":"claude-3-5-haiku-latest","gemini":"gemini-2.0-flash"}`,
+	})
 	settings := NewSettingService(settingRepo, nil)
 	client.SetSettingService(settings)
 	svc := NewUpstreamConfigService(repo, nil, accounts)
@@ -265,7 +269,7 @@ func TestDistributionConfidenceUnavailableClearsCachedVerdicts(t *testing.T) {
 			summary, err := svc.GetUpstreamHealthConfidence(context.Background(), 501)
 			require.NoError(t, err, "callers merge the clean summary only when no error is returned")
 			require.NotNil(t, summary.Distribution)
-			require.Equal(t, "insufficient", summary.Distribution.Status)
+			require.Equal(t, "unavailable", summary.Distribution.Status)
 			require.Equal(t, []string{tc.reason}, summary.Distribution.Reasons)
 			require.Nil(t, summary.Score24h)
 			require.Nil(t, summary.Score7d)
@@ -285,7 +289,7 @@ func TestDistributionConfidenceUnavailableClearsCachedVerdicts(t *testing.T) {
 			require.Nil(t, merged.ConfidenceScore7d)
 			require.Nil(t, merged.ConfidenceLastScore)
 			require.Empty(t, merged.ConfidenceEvidence)
-			require.Equal(t, "insufficient", merged.ConfidenceDistribution.Status)
+			require.Equal(t, "unavailable", merged.ConfidenceDistribution.Status)
 			require.Equal(t, UpstreamHealthHealthy, merged.Status, "display failures do not alter health")
 			public, marshalErr := json.Marshal(merged)
 			require.NoError(t, marshalErr)
@@ -296,6 +300,9 @@ func TestDistributionConfidenceUnavailableClearsCachedVerdicts(t *testing.T) {
 }
 
 func (s *distributionSequenceHTTPStub) DoWithTLS(req *http.Request, proxyURL string, accountID int64, concurrency int, _ *tlsfingerprint.Profile) (*http.Response, error) {
+	if s.repo.state == nil || s.repo.state.Pending == nil {
+		return nil, errors.New("distribution fixture received a request without a claimed distribution attempt")
+	}
 	probeID := s.repo.state.Pending.ProbeID
 	answer := "unknown-extra-sample"
 	for category, n := range s.counts[probeID] {
@@ -328,7 +335,11 @@ func TestDistributionProbeFullWindowIntegration(t *testing.T) {
 	require.NotNil(t, fixture.Counts)
 	upstream := &distributionSequenceHTTPStub{repo: repo, counts: fixture.Counts}
 	client := &AccountTestService{httpUpstream: upstream, cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}}}
-	settingRepo := newCodexVersionSyncSettingRepoStub(map[string]string{SettingKeyUpstreamConfidenceProbe: `{"enabled":true}`, SettingKeyOpenAICodexClientVersionSynced: version})
+	settingRepo := newCodexVersionSyncSettingRepoStub(map[string]string{
+		SettingKeyUpstreamConfidenceProbe:        `{"enabled":true}`,
+		SettingKeyOpenAICodexClientVersionSynced: version,
+		SettingKeyUpstreamProbeModels:            `{"openai":"gpt-4o-mini","anthropic":"claude-3-5-haiku-latest","gemini":"gemini-2.0-flash"}`,
+	})
 	settings := NewSettingService(settingRepo, nil)
 	client.SetSettingService(settings)
 	svc := NewUpstreamConfigService(repo, nil, accounts)

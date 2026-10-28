@@ -23,22 +23,22 @@ class Profile264ReleaseContractTest(unittest.TestCase):
         source = subprocess.run(["git", "cat-file", "blob", f"{BASELINE}:.agents/skills/sub2api-production-deploy/scripts/release/profiles.py"], cwd=WORKSPACE, check=True, capture_output=True, timeout=10).stdout
         baseline = {}
         exec(compile(source, "baseline-profiles", "exec"), baseline)
-        self.assertEqual(set(PROFILES), set(baseline["PROFILES"]) | {"264", "265", "266", "267", "268", "269", "270", "271", "272", "273", "274", "275", "276", "277", "278"})
+        self.assertEqual(set(PROFILES), set(baseline["PROFILES"]) | {"264", "265", "266", "267", "268", "269", "270", "271", "272", "273", "274", "275", "276", "277", "278", "279", "280"})
         for name, profile in baseline["PROFILES"].items():
             self.assertEqual(get_profile(name), profile, name)
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "278")
+        self.assertEqual(CURRENT_RELEASE_PROFILE, "280")
         profile = get_profile("264")
         self.assertEqual((profile["version"], profile["parent"], profile["gate_schema"]), ("0.2.14-baiyu", "263", 2))
         self.assertEqual(profile["new_migrations"], [MIGRATION])
         self.assertEqual(profile["release_policy"], get_profile("263")["release_policy"])
         with self.assertRaisesRegex(ValueError, "historical"):
             get_release_profile("263")
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 279"):
-            get_profile("279")
+        with self.assertRaisesRegex(ValueError, "unknown release profile: 281"):
+            get_profile("281")
 
     def test_registration_retains_previous_profile_and_raw_migration_hash(self):
         registration = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(registration["current_profile"]["id"], "278")
+        self.assertEqual(registration["current_profile"]["id"], "280")
         for field in ("version", "parent", "gate_schema", "new_migrations", "release_policy"):
             self.assertEqual(registration["historical_profiles"]["264"][field], get_profile("264")[field])
             self.assertEqual(registration["historical_profiles"]["263"][field], get_profile("263")[field])
@@ -49,7 +49,7 @@ class Profile264ReleaseContractTest(unittest.TestCase):
 
     def test_cleanup_accepts_current_and_retains_previous_rejects_unknown(self):
         for guard in (RELEASE_ID,):
-            for profile, allowed in (("263", True), ("264", True), ("265", True), ("266", True), ("267", True), ("268", True), ("269", True), ("270", True), ("271", True), ("272", True), ("273", True), ("274", True), ("275", True), ("276", True), ("277", True), ("278", False)):
+            for profile, allowed in (("263", True), ("264", True), ("265", True), ("266", True), ("267", True), ("268", True), ("269", True), ("270", True), ("271", True), ("272", True), ("273", True), ("274", True), ("275", True), ("276", True), ("277", True), ("278", True), ("279", True), ("280", True), ("281", False)):
                 self.assertEqual(guard.fullmatch(f"{profile}-aaaaaaaaaaaa-1-aaaaaaaa") is not None, allowed)
 
 

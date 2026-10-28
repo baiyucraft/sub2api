@@ -34,14 +34,16 @@ type ConfidenceDistributionIdentity struct {
 	LegacyCompatible  bool              `json:"-"`
 	V2Fingerprint     string            `json:"-"`
 	ClientVersion     string            `json:"-"`
+	ClaimedModel      string            `json:"-"`
 }
 
 type distributionRequestSpec struct {
-	identity ConfidenceDistributionIdentity
-	account  Account
-	endpoint string
-	model    string
-	headers  http.Header
+	identity       ConfidenceDistributionIdentity
+	account        Account
+	endpoint       string
+	model          string
+	requestedModel string
+	headers        http.Header
 }
 
 type distributionConfigurationError struct {
@@ -89,6 +91,15 @@ func (s *AccountTestService) ResolveConfidenceDistributionIdentity(account *Acco
 	return spec.identity, nil
 }
 
+func (s *AccountTestService) ResolveConfidenceDistributionIdentityForModel(account *Account, requestedModel string) (ConfidenceDistributionIdentity, error) {
+	ctx := context.WithValue(context.Background(), distributionProbeModelContextKey{}, requestedModel)
+	spec, err := s.resolveDistributionRequestWithPolicy(account, &distributionClientPolicy{ctx: ctx})
+	if err != nil {
+		return ConfidenceDistributionIdentity{}, err
+	}
+	return spec.identity, nil
+}
+
 func (s *AccountTestService) resolveDistributionRequest(account *Account) (*distributionRequestSpec, error) {
 	return s.resolveDistributionRequestWithPolicy(account, &distributionClientPolicy{ctx: context.Background()})
 }
@@ -111,9 +122,10 @@ func (s *AccountTestService) resolveDistributionRequestWithPolicy(account *Accou
 		snapshot.Proxy = &proxy
 	}
 	protocol := distributionAccountProtocol(&snapshot)
-	model := snapshot.GetMappedModel(UpstreamConfidenceDistributionClaimedModel)
-	if strings.TrimSpace(model) == "" || !distributionProbeModelSupported(&snapshot, UpstreamConfidenceDistributionClaimedModel) || isTextProbeUnsupportedModel(model) {
-		return nil, &distributionConfigurationError{"unsupported_model", "probe_model_unsupported", errors.New("account does not support the Sol distribution probe model")}
+	requestedModel := policy.probeModel()
+	model := snapshot.GetMappedModel(requestedModel)
+	if strings.TrimSpace(model) == "" || !distributionProbeModelSupported(&snapshot, requestedModel) || isTextProbeUnsupportedModel(model) || !DistributionProbeSupportsModel(snapshot.Platform, model, protocol) {
+		return nil, &distributionConfigurationError{"unsupported_model", "probe_model_unsupported", errors.New("account model has no exact distribution baseline")}
 	}
 	apiKey, baseURL := snapshot.GetOpenAIApiKey(), snapshot.GetOpenAIBaseURL()
 	if protocol == "chat_completions" {
@@ -204,7 +216,7 @@ func (s *AccountTestService) resolveDistributionRequestWithPolicy(account *Accou
 	// fingerprint proves their continuity. Proxy contents and runtime defaults
 	// were not; only accept those defaults when they cannot change independently.
 	overrides := snapshot.GetHeaderOverrides()
-	legacyCompatible := snapshot.ProxyID == nil && snapshot.ProxyIPGroupID == nil
+	legacyCompatible := model == UpstreamConfidenceDistributionClaimedModel && snapshot.ProxyID == nil && snapshot.ProxyIPGroupID == nil
 	if protocol == "responses" {
 		codexCanonicalUAMu.RLock()
 		staticDefaults := codexCanonicalUAResolver == nil
@@ -216,9 +228,9 @@ func (s *AccountTestService) resolveDistributionRequestWithPolicy(account *Accou
 		Fingerprint: distributionIdentityDigest([]any{ConfidenceDistributionIdentityVersion, components}),
 		Components:  components, Protocol: protocol, BaselineVersion: DistributionBaselineVersion(protocol),
 		LegacyFingerprint: distributionAccountFingerprint(&snapshot), LegacyCompatible: legacyCompatible,
-		V2Fingerprint: v2Fingerprint, ClientVersion: clientVersion,
+		V2Fingerprint: v2Fingerprint, ClientVersion: clientVersion, ClaimedModel: model,
 	}
-	return &distributionRequestSpec{identity: identity, account: snapshot, endpoint: endpoint, model: model, headers: headers}, nil
+	return &distributionRequestSpec{identity: identity, account: snapshot, endpoint: endpoint, model: model, requestedModel: requestedModel, headers: headers}, nil
 }
 
 func distributionProbeModelSupported(account *Account, requestedModel string) bool {
