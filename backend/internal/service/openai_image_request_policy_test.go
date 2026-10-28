@@ -44,6 +44,53 @@ func TestOpenAIImageRequestDescriptor(t *testing.T) {
 	}
 }
 
+func TestOpenAIImagePolicyDuplicateModelSafety(t *testing.T) {
+	for _, tt := range []struct {
+		name, body string
+		valid      bool
+		changed    bool
+	}{
+		{"identical", `{"model":"gpt-5.4","model":"gpt-5.4"}`, true, false},
+		{"escaped identical", `{"model":"gpt-5.4","model":"gpt-\u0035.4"}`, true, false},
+		{"identical with optional tools", `{"model":"gpt-5.4","model":"gpt-5.4","tools":[{"type":"image_generation"}]}`, true, true},
+		{"different", `{"model":"gpt-5.4","model":"gpt-4.1"}`, false, false},
+		{"whitespace differs", `{"model":"gpt-5.4","model":" gpt-5.4"}`, false, false},
+		{"case differs", `{"model":"gpt-5.4","model":"GPT-5.4"}`, false, false},
+		{"first non-string", `{"model":54,"model":"54"}`, false, false},
+		{"last non-string", `{"model":"54","model":54}`, false, false},
+		{"identical numbers", `{"model":54,"model":54}`, false, false},
+		{"identical nulls", `{"model":null,"model":null}`, false, false},
+		{"nested identical", `{"session":{"model":"gpt-5.4","model":"gpt-5.4"}}`, false, false},
+		{"duplicate tools", `{"model":"gpt-5.4","model":"gpt-5.4","tools":[{"type":"image_generation"}],"tools":[]}`, false, false},
+		{"duplicate choice", `{"model":"gpt-5.4","model":"gpt-5.4","tool_choice":"auto","tool_choice":"auto"}`, false, false},
+		{"case variant after", `{"model":"gpt-5.4","model":"gpt-5.4","Model":"gpt-image-1"}`, false, false},
+		{"case variant before", `{"Model":"gpt-image-1","model":"gpt-5.4","model":"gpt-5.4"}`, false, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			body := []byte(tt.body)
+			r := DescribeOpenAIImageRequest(openAIResponsesEndpoint, "gpt-5.4", body, false)
+			require.Equal(t, tt.valid, r.Valid)
+			next, final, changed, err := ApplyOpenAIImageRequestGroupPolicy(body, r, &Group{AllowImageGeneration: false})
+			if !tt.valid {
+				require.Error(t, err)
+				require.False(t, changed)
+				require.Equal(t, tt.body, string(next))
+				return
+			}
+			require.NoError(t, err)
+			require.True(t, final.Valid)
+			require.Equal(t, tt.changed, changed)
+			require.Equal(t, "gpt-5.4", gjson.GetBytes(next, "model").String())
+			if tt.changed {
+				require.Empty(t, gjson.GetBytes(next, "tools").Array())
+			} else {
+				require.Equal(t, tt.body, string(next))
+			}
+			require.Equal(t, tt.body, string(body))
+		})
+	}
+}
+
 func TestOpenAIImagePermissionSnapshotRanks(t *testing.T) {
 	a := imagePolicyAccount(true)
 	require.Equal(t, OpenAIImagePermissionAllowed, OpenAIImagePermissionRank(a, 0))

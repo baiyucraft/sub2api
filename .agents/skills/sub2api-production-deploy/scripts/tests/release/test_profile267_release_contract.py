@@ -70,7 +70,7 @@ class Profile267ReleaseContractTest(unittest.TestCase):
             raw = (WORKSPACE / path).read_bytes()
             self.assertEqual(hashlib.sha1(f"blob {len(raw)}\0".encode() + raw).hexdigest(), blob, path)
         current = {p.relative_to(WORKSPACE).as_posix() for p in (WORKSPACE / "backend/migrations").glob("*.sql")}
-        self.assertEqual(current, set(historical) | {f"backend/migrations/{name}" for name in [*MIGRATIONS, *get_profile("268")["new_migrations"], *get_profile("269")["new_migrations"], *get_profile("270")["new_migrations"], *get_profile("271")["new_migrations"], *get_profile("273")["new_migrations"], *get_profile("274")["new_migrations"], *get_profile("275")["new_migrations"], *get_profile("276")["new_migrations"], *get_profile("277")["new_migrations"]]})
+        self.assertEqual(current, set(historical) | {f"backend/migrations/{name}" for name in [*MIGRATIONS, *get_profile("268")["new_migrations"], *get_profile("269")["new_migrations"], *get_profile("270")["new_migrations"], *get_profile("271")["new_migrations"], *get_profile("273")["new_migrations"], *get_profile("274")["new_migrations"], *get_profile("275")["new_migrations"], *get_profile("276")["new_migrations"], *get_profile("277")["new_migrations"], *get_profile("281")["new_migrations"]]})
         self.assertEqual(CURRENT_RELEASE_PROFILE, "281")
         profile = get_profile("267")
         self.assertEqual((profile["version"], profile["parent"], profile["gate_schema"]), ("0.2.16-baiyu", "266", 2))
@@ -85,7 +85,7 @@ class Profile267ReleaseContractTest(unittest.TestCase):
         for name, historical in prior["historical_profiles"].items():
             self.assertEqual(registration["historical_profiles"][name], historical)
         for field in ("version", "parent", "gate_schema", "new_migrations", "release_policy"):
-            self.assertEqual(registration["current_profile"][field], get_profile("280")[field])
+            self.assertEqual(registration["current_profile"][field], get_profile("281")[field])
             self.assertEqual(registration["historical_profiles"]["266"][field], get_profile("266")[field])
         self.assertEqual(registration["current_profile"]["id"], "281")
         self.assertEqual(registration["current_profile"]["status"], "pending")

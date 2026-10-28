@@ -63,7 +63,7 @@ func DescribeOpenAIImageRequest(endpoint, model string, body []byte, isCodex boo
 		r.Explicit = r.Explicit || openAIRequiredChoiceOnlyImages(root)
 		r.History, r.UnknownHistory = describeOpenAIImageHistory(root)
 		r.UnknownHistory = r.UnknownHistory || r.PreviousResponse
-		r.Valid = !hasDuplicateOpenAIImagePolicyKeys(root)
+		r.Valid = !hasDuplicateOpenAIImagePolicyKeys(root, true)
 	}
 	switch {
 	case r.Explicit:
@@ -78,24 +78,35 @@ func DescribeOpenAIImageRequest(endpoint, model string, body []byte, isCodex boo
 	return r
 }
 
-func hasDuplicateOpenAIImagePolicyKeys(v gjson.Result) bool {
+func hasDuplicateOpenAIImagePolicyKeys(v gjson.Result, topLevel bool) bool {
 	if !v.IsArray() && !v.IsObject() {
 		return false
 	}
-	seen := make(map[string]bool)
+	seen := make(map[string]gjson.Result)
 	duplicate := false
+	repeatedModel, modelVariant := false, false
 	v.ForEach(func(k, child gjson.Result) bool {
 		if v.IsObject() {
-			if seen[k.String()] {
+			key := k.String()
+			if topLevel && key != "model" && strings.EqualFold(key, "model") {
+				modelVariant = true
+			}
+			if previous, exists := seen[key]; exists {
+				// Existing model admission accepts identical top-level strings.
+				// Compare decoded values exactly; other duplicate keys stay ambiguous.
+				if topLevel && key == "model" && previous.Type == gjson.String && child.Type == gjson.String && previous.Str == child.Str {
+					repeatedModel = true
+					return true
+				}
 				duplicate = true
 				return false
 			}
-			seen[k.String()] = true
+			seen[key] = child
 		}
-		duplicate = hasDuplicateOpenAIImagePolicyKeys(child)
+		duplicate = hasDuplicateOpenAIImagePolicyKeys(child, false)
 		return !duplicate
 	})
-	return duplicate
+	return duplicate || (repeatedModel && modelVariant)
 }
 
 func isPassiveOpenAIImageTool(tool gjson.Result) bool {

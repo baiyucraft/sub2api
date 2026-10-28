@@ -139,7 +139,7 @@ class Profile260ReleaseContractTest(unittest.TestCase):
         )
         for name, variable, expression, _ in contracts:
             expression = expression.replace("$evidence_root", "/opt/sub2api-deploy/dr-evidence")
-            for profile, allowed in (("259", True), ("260", True), ("261", True), ("262", True), ("263", True), ("264", True), ("265", True), ("266", True), ("267", True), ("268", True), ("269", True), ("270", True), ("271", True), ("272", True), ("273", True), ("274", True), ("275", True), ("276", True), ("277", False)):
+            for profile, allowed in (("259", True), ("260", True), ("261", True), ("262", True), ("263", True), ("264", True), ("265", True), ("266", True), ("267", True), ("268", True), ("269", True), ("270", True), ("271", True), ("272", True), ("273", True), ("274", True), ("275", True), ("276", True), ("277", True), ("278", True), ("279", True), ("280", True), ("281", True), ("282", False)):
                 with self.subTest(script=name, variable=variable, profile=profile):
                     value = identities(profile)[variable]
                     self.assertEqual(re.fullmatch(expression, value) is not None, allowed)
@@ -154,9 +154,9 @@ class Profile260ReleaseContractTest(unittest.TestCase):
                 loop = re.search(rf"^for {variable} in ([0-9 ]+); do$", source(name), re.MULTILINE)
                 self.assertIsNotNone(loop)
                 profiles = tuple(map(int, loop[1].split()))
-                self.assertEqual(profiles, (*HISTORICAL_DR_PROFILES, 260, 261, 262, 263, 264, 265, 266, 267, 268, 269, 270, 271, 272, 273, 274, 275, 276))
+                self.assertEqual(profiles, (*HISTORICAL_DR_PROFILES, 260, 261, 262, 263, 264, 265, 266, 267, 268, 269, 270, 271, 272, 273, 274, 275, 276, 277, 278, 279, 280, 281))
                 self.assertIn(275, profiles)
-                self.assertNotIn(277, profiles)
+                self.assertNotIn(282, profiles)
 
     def test_signer_and_bootstrap_route_260_and_259_to_gate_v2(self) -> None:
         for name, variable in (
@@ -179,8 +179,8 @@ class Profile260BashContractTest(unittest.TestCase):
     def run_contract(self, body: str, *args: str) -> subprocess.CompletedProcess[str]:
         # Execute only profile checks; full helpers require Linux root, locks and trust assets.
         return subprocess.run(
-            [self.bash, "--noprofile", "--norc", "-e", "-u", "-o", "pipefail", "-c", body, "contract", *args],
-            capture_output=True, text=True, timeout=10,
+            [self.bash, "--noprofile", "--norc", "-e", "-u", "-o", "pipefail", "-s", "--", *args],
+            input=body, capture_output=True, text=True, timeout=10,
         )
 
     def test_release_helpers_have_valid_bash_syntax(self) -> None:
@@ -205,14 +205,14 @@ class Profile260BashContractTest(unittest.TestCase):
                 f"{variable}=$1\n"
                 f"{guard}\n"
             )
-            for profile, allowed in (("259", True), ("260", True), ("261", True), ("262", True), ("263", True), ("264", True), ("265", True), ("266", True), ("267", True), ("268", True), ("269", True), ("270", True), ("271", True), ("272", True), ("273", True), ("274", True), ("275", True), ("276", True), ("277", False), ("0260", False)):
+            for profile, allowed in (("259", True), ("260", True), ("261", True), ("262", True), ("263", True), ("264", True), ("265", True), ("266", True), ("267", True), ("268", True), ("269", True), ("270", True), ("271", True), ("272", True), ("273", True), ("274", True), ("275", True), ("276", True), ("277", True), ("278", True), ("279", True), ("280", True), ("281", True), ("282", False), ("0260", False)):
                 with self.subTest(guard=guard, profile=profile):
                     result = self.run_contract(body, identities(profile)["release_id"])
                     self.assertEqual(result.returncode == 0, allowed, result.stderr)
 
     def test_real_bash_path_guards_accept_current_and_history_but_reject_unknown(self) -> None:
         for name, variable, _, assertion in regex_contracts():
-            for profile, allowed in (("259", True), ("260", True), ("261", True), ("262", True), ("263", True), ("264", True), ("265", True), ("266", True), ("267", True), ("268", True), ("269", True), ("270", True), ("271", True), ("272", True), ("273", True), ("274", True), ("275", True), ("276", True), ("277", False)):
+            for profile, allowed in (("259", True), ("260", True), ("261", True), ("262", True), ("263", True), ("264", True), ("265", True), ("266", True), ("267", True), ("268", True), ("269", True), ("270", True), ("271", True), ("272", True), ("273", True), ("274", True), ("275", True), ("276", True), ("277", True), ("278", True), ("279", True), ("280", True), ("281", True), ("282", False)):
                 with self.subTest(script=name, variable=variable, profile=profile):
                     result = self.run_contract(
                         f'{variable}=$1\nevidence_root=/opt/sub2api-deploy/dr-evidence\n{assertion}',
@@ -223,15 +223,17 @@ class Profile260BashContractTest(unittest.TestCase):
     def test_vm_v2_and_legacy_profile_guards_remain_closed(self) -> None:
         guards = [
             line.strip() for line in source("vm-validate.sh").splitlines()
-            if line.strip().startswith("[[ ") and " || " in line
+            if line.strip().startswith("[[ ")
             and ("$profile ==" in line or '"$profile" ==' in line)
+            and (" || " in line or line.strip() == '[[ "$profile" == 281 ]]')
         ]
         self.assertEqual(len(guards), 2)
         for assertion in guards:
-            for profile, allowed in (("259", True), ("260", True), ("261", True), ("262", True), ("263", True), ("264", True), ("265", True), ("266", True), ("267", True), ("268", True), ("269", True), ("270", True), ("271", True), ("272", True), ("273", True), ("274", True), ("275", True), ("276", True), ("277", False)):
+            for profile, allowed in (("259", True), ("260", True), ("261", True), ("262", True), ("263", True), ("264", True), ("265", True), ("266", True), ("267", True), ("268", True), ("269", True), ("270", True), ("271", True), ("272", True), ("273", True), ("274", True), ("275", True), ("276", True), ("277", True), ("278", True), ("279", True), ("280", True), ("281", True), ("282", False)):
                 with self.subTest(assertion=assertion, profile=profile):
                     result = self.run_contract("profile=$1\n" + assertion, profile)
-                    self.assertEqual(result.returncode == 0, allowed, result.stderr)
+                    expected = profile == "281" if assertion == '[[ "$profile" == 281 ]]' else allowed
+                    self.assertEqual(result.returncode == 0, expected, result.stderr)
 
     def test_vm_version_parent_and_exact_migrations_contract(self) -> None:
         checks = fragment("vm-validate.sh", '  if [[ "$profile" == 254 ]]; then', "  recovery_gate_mode=")
@@ -302,7 +304,7 @@ jq() {
         for release_profile, drill_profile, allowed in (
             ("259", "259", True), ("260", "260", True),
             ("260", "259", False), ("259", "260", False),
-            ("260", "261", False), ("261", "260", False), ("261", "261", True), ("262", "262", True), ("263", "263", True), ("264", "264", True), ("265", "265", True), ("266", "266", True), ("267", "267", True), ("268", "268", True), ("269", "269", True), ("270", "270", True), ("271", "271", True), ("272", "272", True), ("272", "271", False), ("271", "272", False), ("273", "273", True), ("274", "274", True), ("275", "275", True), ("276", "276", True), ("277", "277", False),
+            ("260", "261", False), ("261", "260", False), ("261", "261", True), ("262", "262", True), ("263", "263", True), ("264", "264", True), ("265", "265", True), ("266", "266", True), ("267", "267", True), ("268", "268", True), ("269", "269", True), ("270", "270", True), ("271", "271", True), ("272", "272", True), ("272", "271", False), ("271", "272", False), ("273", "273", True), ("274", "274", True), ("275", "275", True), ("276", "276", True), ("277", "277", True), ("278", "278", True), ("279", "279", True), ("280", "280", True), ("281", "281", True), ("282", "282", False),
         ):
             release = identities(release_profile)["release_id"]
             drill = identities(drill_profile)["drill_id"]

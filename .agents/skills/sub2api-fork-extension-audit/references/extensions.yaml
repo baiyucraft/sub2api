@@ -1344,14 +1344,128 @@
       "symbols": ["CheckBalanceAfterDeduction", "collectBalanceNotifyRecipients", "updateBalanceNotifyExtraEmails", "BindEmailIdentity", "SetAuthCacheInvalidator", "BalanceNotifyEnabled", "BalanceNotifyExtraEmails"], "api_routes": ["/api/v1/users/me", "/api/v1/user/account-bindings/email", "/api/v1/user/notify-email", "/api/v1/user/notify-email/toggle"], "settings_keys": ["balance_low_notify_enabled", "balance_low_notify_threshold", "balance_low_notify_recharge_url"], "migration_files": ["254_enable_balance_notifications_for_existing_users.sql"], "required_tests": ["backend/internal/service/balance_notify_service_test.go", "backend/internal/service/balance_notify_check_test.go", "backend/internal/service/user_service_update_fields_test.go", "backend/internal/service/auth_service_email_bind_test.go", "backend/internal/service/admin_service_update_user_rpm_test.go", "backend/migrations/profile_254_migrations_test.go", "frontend/src/components/user/profile/__tests__/ProfileBalanceNotifyCard.spec.ts"], "invariants": ["官方拥有基础余额通知，fork 只拥有自定义收件人、回退、迁移开启与认证缓存失效扩展", "存在已验证且未停用的自定义邮箱时仅发送这些邮箱", "无有效自定义邮箱时自动回退注册邮箱", "OAuth 合成 *.invalid 占位邮箱不得作为真实收件人", "提醒仍只在余额首次由阈值以上跌破阈值时触发", "迁移只重开未软删除用户一次，发布后用户可再次关闭", "开关、阈值、注册邮箱和自定义邮箱变更后不得继续使用旧 API Key 认证快照", "所有邮件继续经过统一 EmailService 和收件域名 SMTP 路由"]
     },
     {
-      "id": "upstream-account-lifecycle", "title": "上游派生账号同步生命周期", "description": "区分 manual 与 sync_managed 派生账号，对完整同步中持续缺失的 Key 和同步托管账号执行可恢复的同事务软归档，并清理关联运行态。", "ownership": "fork", "risk_level": "critical",
-      "paths": ["backend/ent/schema/account.go", "backend/internal/service/account.go", "backend/internal/service/upstream_config.go", "backend/internal/service/upstream_health.go", "backend/internal/repository/account_repo.go", "backend/internal/repository/upstream_config_repo.go", "backend/internal/repository/scheduled_test_repo.go", "backend/internal/handler/admin/upstream_config_handler.go", "backend/migrations/238_upstream_account_lifecycle.sql", "backend/migrations/285_upstream_null_rate_lifecycle.sql", ".agents/skills/sub2api-production-deploy/scripts/maintenance/release/migration-238-assert.sh"],
-      "symbols": ["AccountUpstreamLifecycleOwnerSyncManaged", "upstreamKeyMissingGrace", "archiveSyncManagedAccountsForMissingKey", "restoreSyncManagedAccountArchivedForMissingKey", "GlobalUpstreamHealthRegistry().Forget", "validate_account_upstream_key_binding"], "api_routes": [], "settings_keys": [], "migration_files": ["238_upstream_account_lifecycle.sql", "285_upstream_null_rate_lifecycle.sql"], "required_tests": ["backend/internal/repository/upstream_account_lifecycle_test.go", "backend/internal/repository/upstream_key_reconcile_integration_test.go", "backend/internal/repository/upstream_actual_rate_integration_test.go", "backend/internal/repository/scheduled_test_repo_lifecycle_test.go", "backend/internal/service/upstream_operations_test.go", "backend/migrations/profile_239_migrations_test.go", "backend/migrations/upstream_null_rate_lifecycle_migration_test.go", "backend/internal/repository/upstream_null_rate_binding_integration_test.go", ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_migration_285.py"], "invariants": ["仅完整同步快照可推进缺失计数；Sub2API停用与真正缺失共用同一周期，宽限期不因显式停用立即暂停", "sync_managed 派生账号仅在连续缺失至少 3 次且 missing_since 已满 30 分钟后与 Key 同事务软归档", "manual 账号绝不由同步生命周期自动归档", "仅 sync_managed 且 upstream_archive_reason=key_missing 的账号可自动恢复", "自动恢复复用原账号 ID 并保留分组、定时计划和历史记录", "定时测试计划查询必须过滤 accounts.deleted_at", "归档和恢复后必须失效账号缓存、Redis 调度态、共享并发态及对应健康 Registry 快照", "历史 NULL actual Key 的同一既有绑定仅可在身份和 rate/source/priority 不变时暂停或归档；不得借归档重新启用，不推断或回填 Key 倍率", "新增、重绑定、恢复和启用仍要求有效 actual；恢复亦校验 active 和平台一致，零倍率有效；source 单独更新必须进入绑定校验", "缺失归档与健康 Key 更新保持同事务；NULL 倍率安全退出不阻断正常同步，不改写历史计费快照", "持久化错误保持 persist/account_apply 数据库分类，不因文本包含 key/group/token 冒充上游分页或认证失败；约束错误不标记可重试"]
+      "id": "upstream-account-lifecycle",
+      "title": "上游派生账号同步生命周期",
+      "description": "区分 manual 与 sync_managed 派生账号，对完整同步中持续缺失的 Key 和同步托管账号执行可恢复的同事务软归档，并清理关联运行态。",
+      "ownership": "fork",
+      "risk_level": "critical",
+      "paths": [
+        "backend/ent/schema/account.go",
+        "backend/internal/service/account.go",
+        "backend/internal/service/upstream_config.go",
+        "backend/internal/service/upstream_health.go",
+        "backend/internal/repository/account_repo.go",
+        "backend/internal/repository/upstream_config_repo.go",
+        "backend/internal/repository/scheduled_test_repo.go",
+        "backend/internal/handler/admin/upstream_config_handler.go",
+        "backend/migrations/238_upstream_account_lifecycle.sql",
+        "backend/migrations/285_upstream_null_rate_lifecycle.sql",
+        ".agents/skills/sub2api-production-deploy/scripts/maintenance/release/migration-238-assert.sh",
+        "backend/internal/repository/custom_admin_key_scope.go",
+        "backend/internal/repository/custom_admin_key_scope_test.go",
+        "backend/internal/repository/custom_admin_key_review_test.go"
+      ],
+      "symbols": [
+        "AccountUpstreamLifecycleOwnerSyncManaged",
+        "upstreamKeyMissingGrace",
+        "archiveSyncManagedAccountsForMissingKey",
+        "restoreSyncManagedAccountArchivedForMissingKey",
+        "GlobalUpstreamHealthRegistry().Forget",
+        "validate_account_upstream_key_binding"
+      ],
+      "api_routes": [],
+      "settings_keys": [],
+      "migration_files": [
+        "238_upstream_account_lifecycle.sql",
+        "285_upstream_null_rate_lifecycle.sql"
+      ],
+      "required_tests": [
+        "backend/internal/repository/upstream_account_lifecycle_test.go",
+        "backend/internal/repository/upstream_key_reconcile_integration_test.go",
+        "backend/internal/repository/upstream_actual_rate_integration_test.go",
+        "backend/internal/repository/scheduled_test_repo_lifecycle_test.go",
+        "backend/internal/service/upstream_operations_test.go",
+        "backend/migrations/profile_239_migrations_test.go",
+        "backend/migrations/upstream_null_rate_lifecycle_migration_test.go",
+        "backend/internal/repository/upstream_null_rate_binding_integration_test.go",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_migration_285.py",
+        "backend/internal/repository/custom_admin_key_scope_test.go",
+        "backend/internal/repository/custom_admin_key_review_test.go"
+      ],
+      "invariants": [
+        "仅完整同步快照可推进缺失计数；Sub2API停用与真正缺失共用同一周期，宽限期不因显式停用立即暂停",
+        "sync_managed 派生账号仅在连续缺失至少 3 次且 missing_since 已满 30 分钟后与 Key 同事务软归档",
+        "manual 账号绝不由同步生命周期自动归档",
+        "仅 sync_managed 且 upstream_archive_reason=key_missing 的账号可自动恢复",
+        "自动恢复复用原账号 ID 并保留分组、定时计划和历史记录",
+        "定时测试计划查询必须过滤 accounts.deleted_at",
+        "归档和恢复后必须失效账号缓存、Redis 调度态、共享并发态及对应健康 Registry 快照",
+        "历史 NULL actual Key 的同一既有绑定仅可在身份和 rate/source/priority 不变时暂停或归档；不得借归档重新启用，不推断或回填 Key 倍率",
+        "新增、重绑定、恢复和启用仍要求有效 actual；恢复亦校验 active 和平台一致，零倍率有效；source 单独更新必须进入绑定校验",
+        "缺失归档与健康 Key 更新保持同事务；NULL 倍率安全退出不阻断正常同步，不改写历史计费快照",
+        "持久化错误保持 persist/account_apply 数据库分类，不因文本包含 key/group/token 冒充上游分页或认证失败；约束错误不标记可重试",
+        "限定作用域管理员密钥复用fork的带上下文账号查询，先保留完整账号集合再由官方权限谓词收窄；不扩展fork管理路由授权。"
+      ]
     },
     {
-      "id": "upstream-model-capability-sync", "title": "上游模型能力自动同步", "description": "为 sync_managed 派生账号自动同步并维护模型白名单：NewAPI 的有效 model_limits 优先，其他平台通过上游模型目录同步；30 分钟 freshness 控制重复请求，24 小时 enforcement 窗口控制旧映射继续生效。", "ownership": "fork", "risk_level": "high",
-      "paths": ["backend/internal/service/upstream_model_sync.go", "backend/internal/service/upstream_models.go", "backend/internal/service/newapi_upstream_adapter.go", "backend/internal/service/upstream_config.go", "backend/internal/service/account.go", "backend/internal/repository/account_repo.go", "backend/internal/repository/upstream_config_repo.go", "backend/internal/service/gemini_models_endpoints.go", "backend/internal/service/gemini_models_endpoints_test.go"],
-      "symbols": ["AccountUpstreamModelSyncExtraKey", "AccountNewAPIModelLimitsExtraKey", "UpstreamModelSyncFreshDuration", "UpstreamModelSyncEnforceDuration", "SyncUpstreamAccountModels", "automaticModelMappingEnforced", "PersistUpstreamModelSync", "newAPIModelLimitsPlatformEvidence", "SelectAccountForModelsEndpoints", "selectAccountForModelsEndpoints", "errGeminiModelsNoAvailableAccounts", "compareAccountSchedulingTier"], "api_routes": [], "settings_keys": [], "migration_files": [], "required_tests": ["backend/internal/service/upstream_models_test.go", "backend/internal/service/newapi_upstream_adapter_platform_test.go", "backend/internal/service/gemini_models_endpoints_test.go"], "recommended_tests": ["backend/internal/service/upstream_model_sync_test.go", "backend/internal/repository/account_repo_upstream_model_sync_test.go", "backend/internal/service/upstream_config_model_sync_test.go"], "invariants": ["只有 sync_managed 派生账号自动写入 model_mapping；manual 账号的同步调用只返回探测结果，不改持久化白名单", "NewAPI model_limits 仅在 enabled、解析有效且非空时优先于 live /models；无效配置必须记录失败而不清空上一次成功映射", "模型 ID 必须去重、排序并移除 models/ 前缀等协议包装", "成功同步 freshness 为 30 分钟；fresh 期间不重复请求；超过 30 分钟但未超过 24 小时继续沿用最近成功映射；超过 24 小时停止强制自动映射并允许人工/其他能力回退", "成功和失败状态写入 upstream_model_sync，但失败不得覆盖最近成功的 model_mapping", "持久化模型映射、同步状态、force_refresh 清理、scheduler outbox 和当前 scheduler snapshot 必须保持原子/可见一致", "同步并发最多 4 个账号、单账号超时 15 秒，失败分类不得泄露 URL、凭据、响应体或原始错误", "从 Key 复制 NewAPI model_limits 元数据时只复制 allowlisted fields，并保持 invalid 标记和脱敏边界", "Gemini模型列表/详情的新选号入口保留官方API Key/AI Studio/Code Assist/Vertex类型优先级；同类候选按priority、未舍入的精确有效上游成本和最近使用时间排序，并继承上游健康排除", "只有errGeminiModelsNoAvailableAccounts表示候选耗尽时才允许去掉临时健康排除重试；查询或完整账号补水失败原样返回，不能凭错误文字把基础设施错误当作候选耗尽"]
+      "id": "upstream-model-capability-sync",
+      "title": "上游模型能力自动同步",
+      "description": "为 sync_managed 派生账号自动同步并维护模型白名单：NewAPI 的有效 model_limits 优先，其他平台通过上游模型目录同步；30 分钟 freshness 控制重复请求，24 小时 enforcement 窗口控制旧映射继续生效。",
+      "ownership": "fork",
+      "risk_level": "high",
+      "paths": [
+        "backend/internal/service/upstream_model_sync.go",
+        "backend/internal/service/upstream_models.go",
+        "backend/internal/service/newapi_upstream_adapter.go",
+        "backend/internal/service/upstream_config.go",
+        "backend/internal/service/account.go",
+        "backend/internal/repository/account_repo.go",
+        "backend/internal/repository/upstream_config_repo.go",
+        "backend/internal/service/gemini_models_endpoints.go",
+        "backend/internal/service/gemini_models_endpoints_test.go",
+        "backend/internal/repository/account_repo_grok_managed_extra_test.go"
+      ],
+      "symbols": [
+        "AccountUpstreamModelSyncExtraKey",
+        "AccountNewAPIModelLimitsExtraKey",
+        "UpstreamModelSyncFreshDuration",
+        "UpstreamModelSyncEnforceDuration",
+        "SyncUpstreamAccountModels",
+        "automaticModelMappingEnforced",
+        "PersistUpstreamModelSync",
+        "newAPIModelLimitsPlatformEvidence",
+        "SelectAccountForModelsEndpoints",
+        "selectAccountForModelsEndpoints",
+        "errGeminiModelsNoAvailableAccounts",
+        "compareAccountSchedulingTier"
+      ],
+      "api_routes": [],
+      "settings_keys": [],
+      "migration_files": [],
+      "required_tests": [
+        "backend/internal/service/upstream_models_test.go",
+        "backend/internal/service/newapi_upstream_adapter_platform_test.go",
+        "backend/internal/service/gemini_models_endpoints_test.go",
+        "backend/internal/repository/account_repo_grok_managed_extra_test.go"
+      ],
+      "recommended_tests": [
+        "backend/internal/service/upstream_model_sync_test.go",
+        "backend/internal/repository/account_repo_upstream_model_sync_test.go",
+        "backend/internal/service/upstream_config_model_sync_test.go"
+      ],
+      "invariants": [
+        "只有 sync_managed 派生账号自动写入 model_mapping；manual 账号的同步调用只返回探测结果，不改持久化白名单",
+        "NewAPI model_limits 仅在 enabled、解析有效且非空时优先于 live /models；无效配置必须记录失败而不清空上一次成功映射",
+        "模型 ID 必须去重、排序并移除 models/ 前缀等协议包装",
+        "成功同步 freshness 为 30 分钟；fresh 期间不重复请求；超过 30 分钟但未超过 24 小时继续沿用最近成功映射；超过 24 小时停止强制自动映射并允许人工/其他能力回退",
+        "成功和失败状态写入 upstream_model_sync，但失败不得覆盖最近成功的 model_mapping",
+        "持久化模型映射、同步状态、force_refresh 清理、scheduler outbox 和当前 scheduler snapshot 必须保持原子/可见一致",
+        "同步并发最多 4 个账号、单账号超时 15 秒，失败分类不得泄露 URL、凭据、响应体或原始错误",
+        "从 Key 复制 NewAPI model_limits 元数据时只复制 allowlisted fields，并保持 invalid 标记和脱敏边界",
+        "Gemini模型列表/详情的新选号入口保留官方API Key/AI Studio/Code Assist/Vertex类型优先级；同类候选按priority、未舍入的精确有效上游成本和最近使用时间排序，并继承上游健康排除",
+        "只有errGeminiModelsNoAvailableAccounts表示候选耗尽时才允许去掉临时健康排除重试；查询或完整账号补水失败原样返回，不能凭错误文字把基础设施错误当作候选耗尽",
+        "Grok官方模型诊断同步叠加受管目录回填及配置白名单，持久化完成事件与受管自动模型事件分别保留，异步响应绑定账号与打开代次。"
+      ]
     },
     {
       "id": "newapi-compatibility", "title": "NewAPI 新旧登录会话适配", "description": "兼容旧 Cookie、平铺/嵌套登录及新版短期 access_token、路径受限 refresh Cookie 和同会话续期；按 QuantumNous/new-api v1.0.0-rc.41 协议独立适配。", "ownership": "fork", "risk_level": "high",
@@ -1841,7 +1955,99 @@
       "id": "channel-monitor-v2", "title": "Channel Monitor V2", "description": "基于官方渠道监控 CRUD 与主动探测框架，fork 增加 managed API Key、倍率趋势、分组可见性、权限、隐私默认值、错误分类，以及 V1 后台取消竞态、主动 SSE/TTFT 和全局成功降级策略。", "ownership": "fork", "risk_level": "high", "paths": ["backend/internal/service/channel_monitor*.go", "backend/internal/service/setting_public.go", "backend/internal/service/setting_parse.go", "backend/internal/service/setting_update.go", "backend/internal/service/settings_view.go", "backend/internal/handler/admin/channel_monitor_handler.go", "backend/internal/handler/admin/setting_handler.go", "backend/internal/handler/admin/setting_handler_update.go", "backend/internal/handler/channel_monitor_user_handler.go", "backend/internal/handler/dto/channel_monitor.go", "backend/internal/handler/dto/settings.go", "backend/ent/schema/channel_monitor_history.go", "backend/migrations/216_channel_monitor_v2.sql", "backend/migrations/217_channel_monitor_mode.sql", "backend/migrations/252_channel_monitor_streaming_ttft.sql", "frontend/src/views/admin/ChannelMonitorView.vue", "frontend/src/views/admin/SettingsView.vue", "frontend/src/components/admin/monitor/MonitorRunResultDialog.vue", "frontend/src/components/admin/monitor/MonitorFormDialog.vue", "frontend/src/components/user/monitor/MonitorCard.vue", "frontend/src/components/user/monitor/MonitorTimeline.vue", "frontend/src/views/user/ChannelStatusView.spec.ts"], "symbols": ["ManagedMonitor", "channel_monitor", "postRawMonitorStream", "setMonitorTTFT", "parseMonitorChatEvent", "parseMonitorResponsesEvent", "parseMonitorAnthropicEvent", "parseMonitorGeminiEvent", "TTFTMs", "channel_monitor_histories.ttft_ms", "ListRecentHistoryForMonitors", "NormalizeChannelMonitorTTFT", "rate trend", "channelMonitorRunnerTaskContext", "channelMonitorDegradedPolicy", "RetryCount", "AccountSwitchCount"], "api_routes": ["/channel-monitor", "/admin/settings"], "settings_keys": ["channel_monitor_degraded_threshold_seconds", "channel_monitor_degraded_retry_tolerance", "channel_monitor_degraded_switch_tolerance"], "migration_files": ["216_channel_monitor_v2.sql", "217_channel_monitor_mode.sql", "218_channel_monitor_v2_ignored_error_categories.sql", "228_channel_monitor_v2_privacy_defaults.sql", "252_channel_monitor_streaming_ttft.sql"], "required_tests": ["backend/internal/service/channel_monitor_sse_test.go", "backend/internal/service/channel_monitor_persistence_test.go", "backend/internal/service/channel_monitor_checker_body_test.go", "backend/internal/service/channel_monitor_retry_test.go", "backend/internal/service/channel_monitor_runner_test.go", "backend/internal/repository/channel_monitor_ttft_timeline_test.go", "backend/migrations/channel_monitor_streaming_ttft_migration_test.go", "frontend/src/components/user/__tests__/MonitorTimeline.ttft.spec.ts", "frontend/src/components/admin/monitor/__tests__/MonitorPrimaryModelCell.spec.ts", "frontend/src/views/admin/__tests__/ChannelMonitorView.duplicate.spec.ts", "frontend/src/views/admin/__tests__/SettingsView.spec.ts"], "invariants": ["官方拥有基础监控 CRUD 和探测框架，fork 只拥有 managed Key、SSE/TTFT、降级、趋势与隐私扩展", "managed Key 生命周期与监控事务一致", "默认主动探针使用 SSE；首个非空文本记录 TTFT，且计时从 HTTP Do 前请求开始，latency_ms 继续表示完整耗时", "响应头前等待计入 TTFT；有首字最小保存 1ms；空/非可见事件不计首字", "HTTP 200 后断流保留 TTFT 但记录失败；空流、HTTP/传输错误和请求超时按失败记录", "replace body 显式 stream=false 保持 JSON 兼容且 TTFT 为空", "V1 后台持久化从父调度任务派生独立5秒预算，探针自身超时和HTTP错误仍记录；父任务取消阻止尚未开始的写库并取消在途操作，已提交历史不撤回；手动检测沿用调用者上下文", "history写入失败不推进last_checked_at，MarkChecked失败保留已写历史", "监控SSE标准多行JSON优先，仅语法非法时兼容连续完整对象；独立data行DONE终止，字符串内容不改写；整个缓冲帧通过后才提交文本、TTFT和终止状态，不去重相同delta", "同帧终止后只允许usage等无文本元数据与重复终止，坏JSON、类型错误、协议错误及新增文本仍失败；非空Chat error不泄露正文；成功终止后不继续排水；流式1MiB与非流式/非2xx的64KiB边界不变", "V1 最终成功仅在总耗时达到阈值、额外重试超过容忍值或累计换号超过容忍值时降级；TTFT 不参与降级或可用率", "max_probe_attempts 只限制一次探测实际请求总数，不被全局容忍值扩大", "history/latest/timeline/立即探测读取时 ttft_ms<=0 归一为 NULL，不修改历史行", "时间线 SQL 投影与 Scan 固定为 monitor_id,status,latency_ms,ttft_ms,ping_latency_ms,checked_at；前端按 status 显示绿/黄/红", "旧历史 ttft_ms=NULL 保持为空，不回填；V2 被动聚合不变"]
     },
     {
-      "id": "group-preferred-account-pool", "title": "分组内上游账号优先池", "description": "为分组绑定关系增加独立的 scheduler_preferred 标记，在合法粘性和既有硬准入之后优先尝试指定账号；优先池忽略倍率/成本排序，容量或硬准入不满足时回退普通账号池。账号单改与批改可在选择分组时精确覆盖星标集合。", "ownership": "fork", "risk_level": "critical", "paths": ["backend/ent/schema/account_group.go", "backend/ent/accountgroup*.go", "backend/internal/service/account_group.go", "backend/internal/service/account_service.go", "backend/internal/service/admin_service.go", "backend/internal/service/admin_account.go", "backend/internal/service/preferred_account_pool.go", "backend/internal/service/openai_account_scheduler.go", "backend/internal/service/openai_gateway_scheduling.go", "backend/internal/service/gateway_scheduling.go", "backend/internal/repository/account_repo.go", "backend/internal/repository/group_repo.go", "backend/internal/repository/scheduler_cache.go", "backend/internal/repository/scheduler_cache_snapshot_memo_fork_test.go", "backend/internal/service/admin_group.go", "backend/internal/handler/admin/account_handler.go", "backend/internal/handler/admin/group_handler.go", "backend/internal/server/routes/admin.go", "backend/internal/handler/dto/types.go", "backend/internal/handler/dto/mappers.go", "frontend/src/api/admin/groups.ts", "frontend/src/components/common/GroupSelector.vue", "frontend/src/components/account/EditAccountModal.vue", "frontend/src/components/account/BulkEditAccountModal.vue", "frontend/src/views/admin/GroupsView.vue", "frontend/src/types/index.ts", "frontend/src/i18n/locales/zh/admin/accounts.ts", "frontend/src/i18n/locales/en/admin/accounts.ts", "frontend/src/i18n/locales/zh/common.ts", "frontend/src/i18n/locales/en/common.ts", "backend/migrations/253_group_preferred_account_pool.sql"], "symbols": ["scheduler_preferred", "preferred_group_ids", "PreferredAccountRepository", "AccountGroupPreferenceRepository", "BindGroupsWithPreferred", "GetPreferredAccounts", "SetPreferredAccountIDs", "GroupSelector", "partitionPreferredAccountsForGroup", "partitionPreferredAccountPointersForGroup", "partitionPreferredAccountWithLoadForGroup", "PreferredPoolHit", "PreferredCandidateCount", "PreferredFallbackReason"], "api_routes": ["/admin/groups/:id/preferred-accounts", "/admin/accounts/:id", "/admin/accounts/bulk"], "settings_keys": [], "migration_files": ["253_group_preferred_account_pool.sql"], "required_tests": ["backend/internal/repository/scheduler_cache_snapshot_memo_fork_test.go", "backend/internal/service/group_preferred_account_pool_test.go", "backend/internal/service/group_preferred_account_pool_gateway_test.go", "backend/internal/service/admin_service_bulk_update_test.go", "backend/internal/repository/group_preferred_account_pool_integration_test.go", "backend/internal/repository/account_repo_integration_test.go", "backend/migrations/group_preferred_account_pool_migration_test.go", "frontend/src/api/admin/__tests__/groupsPreferredAccounts.spec.ts", "frontend/src/views/admin/__tests__/GroupsView.preferredAccounts.spec.ts", "frontend/src/components/common/__tests__/GroupSelector.spec.ts", "frontend/src/components/account/__tests__/EditAccountModal.spec.ts", "frontend/src/components/account/__tests__/BulkEditAccountModal.spec.ts"], "invariants": ["调度共享母本保持不可变并最终 hydration；revision 键继续使用 sched:v2:meta:rev 与 sched:v2:meta:rev:，保留 fork 上游元数据及 SchedulerPreferred", "scheduler_preferred 独立于 account_groups.priority，默认 false；旧快照缺字段按 false", "GET/PUT 只处理当前分组已绑定账号，PUT 去重并在单事务中校验全部关系；非法账号不部分更新且不发送 outbox", "账号列表与单账号详情都返回由 account_groups.scheduler_preferred 投影的 preferred_group_ids；旧详情缺字段时编辑端从 account_groups 回退，修改其它字段不得清空已有星标", "账号编辑显式同时提交 group_ids 与 preferred_group_ids 时，preferred_group_ids 必须是已选分组子集，并在一个事务内精确覆盖分组顺序和星标状态；每次成功关系替换只发送一个 account_groups_changed outbox", "批量编辑仅在启用分组修改时提交 group_ids 与 preferred_group_ids；空星标集合清除最终分组全部优先状态，筛选目标与手选目标语义相同", "旧调用未提交 preferred_group_ids 时继续走 BindGroups：解绑删除优先标记，保留未解绑关系标记，新关系默认非优先；复制分组和复制账号不复制优先状态", "优先池只在最终实际分组和模型路由候选交集内生效，并保留合法 previous_response/session 粘性", "健康、启用、模型/协议/能力、利润、并发、限额、熔断、429/503 临时保护仍是硬准入；优先账号满载立即尝试其它优先账号并回退普通池", "优先池内部使用全局 Priority、负载、LRU 等非倍率信号；普通池倍率、成本、Top-K、等待和重试算法保持不变", "scheduler outbox 提交后刷新对应分组桶及受影响账号快照，生产环境不在本 change 内自动部署"]
+      "id": "group-preferred-account-pool",
+      "title": "分组内上游账号优先池",
+      "description": "为分组绑定关系增加独立的 scheduler_preferred 标记，在合法粘性和既有硬准入之后优先尝试指定账号；优先池忽略倍率/成本排序，容量或硬准入不满足时回退普通账号池。账号单改与批改可在选择分组时精确覆盖星标集合。",
+      "ownership": "fork",
+      "risk_level": "critical",
+      "paths": [
+        "backend/ent/schema/account_group.go",
+        "backend/ent/accountgroup*.go",
+        "backend/internal/service/account_group.go",
+        "backend/internal/service/account_service.go",
+        "backend/internal/service/admin_service.go",
+        "backend/internal/service/admin_account.go",
+        "backend/internal/service/preferred_account_pool.go",
+        "backend/internal/service/openai_account_scheduler.go",
+        "backend/internal/service/openai_gateway_scheduling.go",
+        "backend/internal/service/gateway_scheduling.go",
+        "backend/internal/repository/account_repo.go",
+        "backend/internal/repository/group_repo.go",
+        "backend/internal/repository/scheduler_cache.go",
+        "backend/internal/repository/scheduler_cache_snapshot_memo_fork_test.go",
+        "backend/internal/service/admin_group.go",
+        "backend/internal/handler/admin/account_handler.go",
+        "backend/internal/handler/admin/group_handler.go",
+        "backend/internal/server/routes/admin.go",
+        "backend/internal/handler/dto/types.go",
+        "backend/internal/handler/dto/mappers.go",
+        "frontend/src/api/admin/groups.ts",
+        "frontend/src/components/common/GroupSelector.vue",
+        "frontend/src/components/account/EditAccountModal.vue",
+        "frontend/src/components/account/BulkEditAccountModal.vue",
+        "frontend/src/views/admin/GroupsView.vue",
+        "frontend/src/types/index.ts",
+        "frontend/src/i18n/locales/zh/admin/accounts.ts",
+        "frontend/src/i18n/locales/en/admin/accounts.ts",
+        "frontend/src/i18n/locales/zh/common.ts",
+        "frontend/src/i18n/locales/en/common.ts",
+        "backend/migrations/253_group_preferred_account_pool.sql",
+        "backend/internal/repository/account_repo_scoped_fork_test.go"
+      ],
+      "symbols": [
+        "scheduler_preferred",
+        "preferred_group_ids",
+        "PreferredAccountRepository",
+        "AccountGroupPreferenceRepository",
+        "BindGroupsWithPreferred",
+        "GetPreferredAccounts",
+        "SetPreferredAccountIDs",
+        "GroupSelector",
+        "partitionPreferredAccountsForGroup",
+        "partitionPreferredAccountPointersForGroup",
+        "partitionPreferredAccountWithLoadForGroup",
+        "PreferredPoolHit",
+        "PreferredCandidateCount",
+        "PreferredFallbackReason"
+      ],
+      "api_routes": [
+        "/admin/groups/:id/preferred-accounts",
+        "/admin/accounts/:id",
+        "/admin/accounts/bulk"
+      ],
+      "settings_keys": [],
+      "migration_files": [
+        "253_group_preferred_account_pool.sql"
+      ],
+      "required_tests": [
+        "backend/internal/repository/scheduler_cache_snapshot_memo_fork_test.go",
+        "backend/internal/service/group_preferred_account_pool_test.go",
+        "backend/internal/service/group_preferred_account_pool_gateway_test.go",
+        "backend/internal/service/admin_service_bulk_update_test.go",
+        "backend/internal/repository/group_preferred_account_pool_integration_test.go",
+        "backend/internal/repository/account_repo_integration_test.go",
+        "backend/migrations/group_preferred_account_pool_migration_test.go",
+        "frontend/src/api/admin/__tests__/groupsPreferredAccounts.spec.ts",
+        "frontend/src/views/admin/__tests__/GroupsView.preferredAccounts.spec.ts",
+        "frontend/src/components/common/__tests__/GroupSelector.spec.ts",
+        "frontend/src/components/account/__tests__/EditAccountModal.spec.ts",
+        "frontend/src/components/account/__tests__/BulkEditAccountModal.spec.ts",
+        "backend/internal/repository/account_repo_scoped_fork_test.go"
+      ],
+      "invariants": [
+        "调度共享母本保持不可变并最终 hydration；revision 键继续使用 sched:v2:meta:rev 与 sched:v2:meta:rev:，保留 fork 上游元数据及 SchedulerPreferred",
+        "scheduler_preferred 独立于 account_groups.priority，默认 false；旧快照缺字段按 false",
+        "GET/PUT 只处理当前分组已绑定账号，PUT 去重并在单事务中校验全部关系；非法账号不部分更新且不发送 outbox",
+        "账号列表与单账号详情都返回由 account_groups.scheduler_preferred 投影的 preferred_group_ids；旧详情缺字段时编辑端从 account_groups 回退，修改其它字段不得清空已有星标",
+        "账号编辑显式同时提交 group_ids 与 preferred_group_ids 时，preferred_group_ids 必须是已选分组子集，并在一个事务内精确覆盖分组顺序和星标状态；每次成功关系替换只发送一个 account_groups_changed outbox",
+        "批量编辑仅在启用分组修改时提交 group_ids 与 preferred_group_ids；空星标集合清除最终分组全部优先状态，筛选目标与手选目标语义相同",
+        "旧调用未提交 preferred_group_ids 时继续走 BindGroups：解绑删除优先标记，保留未解绑关系标记，新关系默认非优先；复制分组和复制账号不复制优先状态",
+        "优先池只在最终实际分组和模型路由候选交集内生效，并保留合法 previous_response/session 粘性",
+        "健康、启用、模型/协议/能力、利润、并发、限额、熔断、429/503 临时保护仍是硬准入；优先账号满载立即尝试其它优先账号并回退普通池",
+        "优先池内部使用全局 Priority、负载、LRU 等非倍率信号；普通池倍率、成本、Top-K、等待和重试算法保持不变",
+        "scheduler outbox 提交后刷新对应分组桶及受影响账号快照，生产环境不在本 change 内自动部署",
+        "限定作用域管理员密钥保留官方最小能力，在任何写入前拒绝preferred变更，fork自定义账号写入口复用既有外层事务；普通JWT行为保持原样。"
+      ]
     },
     {
       "id": "quality-and-usage-aggregation", "title": "质量遥测与用户累计用量", "description": "基于官方 usage log、用量查询与统计基座，fork 增加账号/分组 1H/24H 质量遥测、缓存率评分，以及用户 hourly/daily 聚合、coverage/backfill 和 raw usage 清理边界；fork 将使用记录输出 TPS 调整为扣除首字等待后的口径。", "ownership": "fork", "risk_level": "medium", "paths": ["backend/internal/service/account_quality.go", "backend/internal/service/usage_log.go", "backend/internal/repository/usage_log_repo_stats.go", "backend/internal/handler/dto/types.go", "backend/internal/handler/dto/mappers.go", "backend/internal/handler/admin/account_handler.go", "backend/internal/handler/admin/group_handler.go", "backend/migrations/209_user_usage_aggregation.sql", "backend/migrations/235_group_usage_daily_rollups.sql", "backend/migrations/236_group_usage_rollup_timezone.sql", "frontend/src/components/account/AccountQualityCell.vue", "frontend/src/components/admin/usage/UsageTable.vue", "frontend/src/utils/latencyHealth.ts", "frontend/src/views/admin/UsageView.vue", "frontend/src/types/index.ts", "frontend/src/i18n/locales/zh/admin/accounts.ts", "frontend/src/i18n/locales/en/admin/accounts.ts", "frontend/src/i18n/locales/zh/dashboard.ts", "frontend/src/i18n/locales/en/dashboard.ts", "frontend/src/components/user/UserUsageStatsMatrix.vue"], "symbols": ["AccountQuality", "AccountQualityWindow", "CacheRateNumerator", "CacheRateDenominator", "accountQualityCacheRate", "applyAccountQualityScore", "coverage", "backfill", "group_usage_daily"], "api_routes": ["/admin/accounts/quality-stats/batch", "/admin/groups/quality-stats/batch", "/dashboard", "/usage"], "settings_keys": [], "migration_files": ["209_user_usage_aggregation.sql", "235_group_usage_daily_rollups.sql", "236_group_usage_rollup_timezone.sql"], "required_tests": ["backend/internal/service/account_quality_test.go", "backend/internal/service/usage_log_test.go", "backend/internal/handler/dto/mappers_usage_test.go", "backend/internal/repository/usage_log_repo_account_quality_test.go", "frontend/src/components/account/__tests__/AccountQualityCell.spec.ts", "frontend/src/components/admin/usage/__tests__/UsageTable.spec.ts", "frontend/src/utils/__tests__/latencyHealth.spec.ts", "frontend/src/views/admin/__tests__/UsageView.spec.ts", "frontend/src/components/user/__tests__/UserUsageStatsMatrix.spec.ts"], "invariants": ["官方拥有 usage log、基础用量查询与总耗时输出 TPS；fork 增加质量评分、缓存率、聚合覆盖与清理扩展，并将使用记录 TPS 展示调整为首字后口径", "质量统计和质量分数只读展示，不参与调度", "缓存率仅统计成功的真实流式 usage_logs，不包含健康/Juice 探针", "1H/24H cache_rate = cache_read_tokens / (input_tokens + cache_creation_tokens + cache_read_tokens) × 100；分母为 0 时返回 null，保留分子/分母字段", "全部指标有效时质量分使用 TTFT/总耗时/缓存率 50/15/35 权重；缺少缓存率时回退旧 TTFT/总耗时 85/15，部分指标按可用权重归一化", "用户端与管理端使用记录共用 formatUsageOutputRate：output_tokens × 1000 / (duration_ms - first_token_ms)，一位小数；首字允许 0，缺失、负数、非有限值或剩余耗时不大于 0 时显示 —，图片及未知请求类型不展示 TPS；Ops 汇总口径独立。数值沿用 text-violet-600/dark:text-violet-400 紫色；fork 首字后输出速率行、管理员 Excel 生成 TPS 列及用量 API 派生 output_tps 字段已移除，无数据库迁移且不修改历史 usage", "用户端与管理端单条使用记录缓存率共用 read/(input+creation+read)；两位小数、零分母显示 —、无命中显示 0.00%；不计输出或重复计入 5m/1h 创建分项，异常 Token 按 0 处理；列表和 Token 明细只展示百分比，图片计费不显示，不改变计费或新增 API 字段", "coverage 未完整前不清理 raw usage", "日聚合时区正确"]
@@ -1923,7 +2129,8 @@
         "backend/migrations/305_scoped_admin_api_keys.sql",
         "backend/migrations/306_group_image_count_billing.sql",
         "backend/migrations/profile_281_migrations_test.go",
-        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile281_release_contract.py"
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile281_release_contract.py",
+        "backend/internal/repository/custom_admin_keys_postgres_test.go"
       ],
       "symbols": [
         "PROFILES",
@@ -2080,7 +2287,8 @@
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_migration_301.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile276_release_contract.py",
         "backend/migrations/profile_281_migrations_test.go",
-        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile281_release_contract.py"
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile281_release_contract.py",
+        "backend/internal/repository/custom_admin_keys_postgres_test.go"
       ],
       "recommended_tests": [
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_signer_assets.py",
@@ -2115,7 +2323,8 @@
         "缓存保护新增连续profile268，parent267，version0.2.16-baiyu，仅296_upstream_cache_guard.sql；历史267四项官方迁移和全部旧SQL/profile/checksum不回写；Python/Shell/VM/Gate/DR/生产/祖先断言/备份/清理接线，未知269拒绝；不增加恢复审阅豁免。",
         "profile270保持0.2.16-baiyu,parent269,只新增298_group_scheduling_protection_policies.sql；269及所有历史SQL/checksum不回写；298生产只读核验，VM隔离fixture绑定source与catalog checksum，四phase全部验真，未知271拒绝",
         "当前 profile 274 parent 273，同版本0.2.17-baiyu仅新增301；273及更早SQL/profile/checksum保持不可变，未知275拒绝。301要求停旧写者迁移并coordinated_restore，不能让旧镜像继续写入拆分后的会话。迁移断言生产只读，写入fixture仅在显式绑定的隔离库事务回滚；未新增恢复敏感blob豁免。",
-        "历史 profile 278、279、280 的版本、parent、migration 与 checksum 保持不可变；当前 profile 281 为官方 0.2.19-baiyu、parent 280，仅新增原字节重编号的 305/306，未知 282 拒绝。显示版本从历史 fork 0.2.22-baiyu 重新跟随官方源码，不回退已有功能或改写历史 profile；305/306 不覆盖 fork 历史 247/248。Python、Shell、signer、祖先 migration 断言、备份和清理入口同步；最终敏感 blob 仍须重新审阅，不扩大历史豁免。"
+        "历史 profile 278、279、280 的版本、parent、migration 与 checksum 保持不可变；当前 profile 281 为官方 0.2.19-baiyu、parent 280，仅新增原字节重编号的 305/306，未知 282 拒绝。显示版本从历史 fork 0.2.22-baiyu 重新跟随官方源码，不回退已有功能或改写历史 profile；305/306 不覆盖 fork 历史 247/248。Python、Shell、signer、祖先 migration 断言、备份和清理入口同步；最终敏感 blob 仍须重新审阅，不扩大历史豁免。",
+        "官方限定管理员密钥PostgreSQL回归只将迁移读取名改为305，原字节305/306与官方247/248一致，旧SQL不回写。"
       ]
     },
     {
@@ -2536,6 +2745,7 @@
         "backend/internal/handler/openai_fixed_account_retry_test.go",
         "backend/internal/handler/openai_image_routing.go",
         "backend/internal/handler/openai_image_permission_routing_test.go",
+        "backend/internal/handler/openai_gateway_ws_model_allowlist_test.go",
         "backend/internal/handler/openai_responses_failover_cancel_test.go",
         "frontend/src/components/account/EditAccountModal.vue",
         "frontend/src/components/account/__tests__/EditAccountModal.spec.ts",
@@ -2585,6 +2795,7 @@
         "backend/internal/service/ratelimit_service_403_html_test.go",
         "backend/internal/service/ratelimit_service_openai_image_test.go",
         "backend/internal/handler/openai_image_permission_routing_test.go",
+        "backend/internal/handler/openai_gateway_ws_model_allowlist_test.go",
         "backend/internal/handler/openai_fixed_account_retry_test.go",
         "backend/internal/handler/openai_responses_failover_cancel_test.go",
         "backend/internal/handler/openai_images_failover_test.go",
@@ -2608,6 +2819,7 @@
         "结构化图片端点、模型、明确工具选择和按调用 ID 确认的图片历史要求图片能力；unknown 输出、普通工具往返和 previous_response_id 本身不证明生图；native/namespace/function 的 omitted/auto/none 是可选声明，required 仅全部图片工具时强制生图；保留历史、结果、图片输入、续链及 ownership，不猜 prompt",
         "原始请求 body 不可变，每次候选独立派生；图片能力筛选与 image-cost-routing 开关分离，保留文本模型映射、Responses 支持、健康、共享并发、TTFT 与 Priority 约束",
         "HTTP/WS/Lite 统一入站策略；禁图组或 strip_optional_image_tools=true 先清理 tools/additional_tools 和 allowed_tools 图片引用，空限制为 none；明确选择与真实历史不降级；禁止 bridge 再补入；WS session.update、多轮、重连/恢复需显式清空继承工具，固定账号与并发所有权保持",
+        "图片策略仅兼容顶层规范model键解码后严格同值字符串重复，不裁剪空白或忽略大小写；冲突值、非字符串、重复model伴随Model变体及所有嵌套/工具重复仍拒绝，不改独立模型准入与WS校验顺序，被拒绝的后续帧不得到达上游",
         "只有结构化错误字段中的固定图片权限原文或 error.message 中精确 403: 前缀可分类；HTTP 必须是 403；HTTP 200 SSE 与 WS error/response.failed 终止错误的结构化精确原文即使无显式 status/type 也推导 403，显式冲突 502（含外层 502 与内层 403）不得改判；普通 502、HTML、回显 prompt、子串及账号停用错误不得误分类",
         "图片权限故障使用 account_capability scope 与 openai_image_permission_denied reason，禁止 pool 或同账号 retry；仅 openai:image_generation 冷却 30 分钟，不停账号、不惩罚共享上游 Key、不触发账号健康熔断、不影响 text；持久化失败仍分类并换号，不回落全账号停调",
         "IsOpenAIImagePermissionFailover 同时接受本地 account/account_capability scope 的 image_permission_denied、image_capability_cooldown、image_responses_unsupported；这些故障 ShouldReportAccountScheduleFailure 与直接 post-output API Key health 分类均不惩罚账号；image_permission_refresh_unavailable 不属于图片权限 failover，保留普通故障及既有健康分类合同；普通 502 和真实账号认证失败保留既有健康合同",

@@ -85,7 +85,7 @@ func ParseOpenAI(value gjson.Result) *Evidence {
 		return e
 	}
 	total, hasTotal, totalOK := field(value, "input_tokens", "prompt_tokens")
-	read, hasRead, readOK := field(value, "input_tokens_details.cached_tokens", "prompt_tokens_details.cached_tokens", "cache_read_input_tokens", "cache_read_tokens", "cached_tokens")
+	read, hasRead, readOK := field(value, "input_tokens_details.cached_tokens", "prompt_tokens_details.cached_tokens", "cache_read_input_tokens", "cache_read_tokens", "cached_tokens", "prompt_cache_hit_tokens")
 	create, _, createOK := field(value, "input_tokens_details.cache_write_tokens", "prompt_tokens_details.cache_write_tokens", "input_tokens_details.cache_creation_tokens", "prompt_tokens_details.cache_creation_tokens", "cache_write_tokens", "cache_creation_input_tokens", "cache_write_input_tokens", "cache_creation_tokens")
 	e.TotalInputTokens, e.CacheReadTokens, e.CacheCreationTokens = total, read, create
 	if !totalOK || !readOK || !createOK {

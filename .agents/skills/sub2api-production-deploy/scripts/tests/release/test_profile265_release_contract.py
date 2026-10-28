@@ -42,7 +42,7 @@ class Profile265ReleaseContractTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "historical"):
                 get_release_profile(name)
         for path in sorted((WORKSPACE / "backend/migrations").glob("*.sql")):
-            if path.name not in (MIGRATION, "291_user_invoice_annotations.sql", *get_profile("267")["new_migrations"], *get_profile("268")["new_migrations"], *get_profile("269")["new_migrations"], *get_profile("270")["new_migrations"], *get_profile("271")["new_migrations"], *get_profile("273")["new_migrations"], *get_profile("274")["new_migrations"], *get_profile("275")["new_migrations"], *get_profile("276")["new_migrations"], *get_profile("277")["new_migrations"]):
+            if path.name not in (MIGRATION, "291_user_invoice_annotations.sql", *get_profile("267")["new_migrations"], *get_profile("268")["new_migrations"], *get_profile("269")["new_migrations"], *get_profile("270")["new_migrations"], *get_profile("271")["new_migrations"], *get_profile("273")["new_migrations"], *get_profile("274")["new_migrations"], *get_profile("275")["new_migrations"], *get_profile("276")["new_migrations"], *get_profile("277")["new_migrations"], *get_profile("281")["new_migrations"]):
                 self.assertEqual(path.read_bytes(), git_blob(BASELINE, f"backend/migrations/{path.name}"), path.name)
         current = get_profile("265")
         self.assertEqual(CURRENT_RELEASE_PROFILE, "281")

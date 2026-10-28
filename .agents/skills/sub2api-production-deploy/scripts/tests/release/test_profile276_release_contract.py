@@ -50,7 +50,7 @@ class Profile276ReleaseContractTest(unittest.TestCase):
             if name.endswith(".sql"):
                 self.assertEqual((WORKSPACE / name).read_bytes(), predecessor.git_blob(BASELINE, name), name)
         self.assertEqual({p.name for p in (WORKSPACE / "backend/migrations").glob("*.sql")},
-                         {Path(name).name for name in names if name.endswith(".sql")} | {MIGRATION, "304_upstream_confidence_fingerprint.sql"})
+                         {Path(name).name for name in names if name.endswith(".sql")} | {MIGRATION, "304_upstream_confidence_fingerprint.sql", "305_scoped_admin_api_keys.sql", "306_group_image_count_billing.sql"})
 
     def test_registry_checksums_and_pending_migration(self):
         registry = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))

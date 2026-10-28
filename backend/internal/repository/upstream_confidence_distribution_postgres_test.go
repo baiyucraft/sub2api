@@ -15,6 +15,7 @@ import (
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
 	dbent "github.com/Wei-Shaw/sub2api/ent"
+	"github.com/Wei-Shaw/sub2api/internal/service"
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 )

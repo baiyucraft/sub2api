@@ -16,6 +16,8 @@ from release.process import check_output_hidden
 BASE = "c88f06e57a829438595263d524e02219aa2f5a2e"
 IMPLEMENTATION_PARENT = "12d4cf67d1c666a661458d282fd2284fa3d543eb"
 TARGET = "91a13c6c64558f5d78ae8b75979af0e6a24b60b2"
+REGISTRY = "3637415ab083105e1533dc17915319eeba9f6f46"
+CURRENT_REGISTRY = "ac67368eaeb08d81a430cad58cc55d865e1622f4"
 PREFIX = ".agents/skills/sub2api-production-deploy/scripts/release/"
 CONFIG = PREFIX + "vm-probe-config.py"
 PRESERVE = PREFIX + "vm_restore_probe_preserve.py"
@@ -69,12 +71,18 @@ def test_prior_registry_is_frozen_and_current_ast_only_appends_this_tranche():
     prior = namespace(text, "vm_probe_config_prior")
     for name in ("_REVIEWED_COMPATIBILITY_TRANCHES", "_REVIEWED_GATE_POLICY_TRANCHES", "_REVIEWED_MIGRATION_GATE_TRANCHES"):
         assert getattr(gate, name) == prior[name]
-    assert gate._REVIEWED_SCOPED_TRANCHES == (*prior["_REVIEWED_SCOPED_TRANCHES"], TRANCHE)
+    frozen = (*prior["_REVIEWED_SCOPED_TRANCHES"], TRANCHE)
+    assert gate._REVIEWED_SCOPED_TRANCHES[:len(frozen)] == frozen
     for name, value in prior.items():
         if name.startswith("_") and name.endswith("_PATHS"):
             assert getattr(gate, name) == value
 
-    current = ast.parse(Path(gate.__file__).read_text(encoding="utf-8"))
+    # Freeze the complete live module to the pre-merge registry, including its
+    # later reviewed tranches, while auditing this incident at its original
+    # immutable registration. Neither check admits arbitrary new tail entries.
+    live = ast.parse(Path(gate.__file__).read_text(encoding="utf-8"))
+    assert ast.dump(live, include_attributes=False) == ast.dump(ast.parse(source_at(CURRENT_REGISTRY)), include_attributes=False)
+    current = ast.parse(source_at(REGISTRY))
     retained, removed, appended = [], 0, 0
     for node in current.body:
         names = {target.id for target in node.targets if isinstance(target, ast.Name)} if isinstance(node, ast.Assign) else set()

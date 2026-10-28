@@ -124,16 +124,22 @@ func TestOpenAIResponsesWebSocket_FirstFrameCaseVariantModelKeyRejected(t *testi
 	})
 }
 
-// 后续 turn 含重复 model 键（首个在白名单、末个不在）：拒绝并关闭连接。
+// 后续 turn 含冲突 model 键：图片策略先拒绝歧义 JSON，并关闭连接；
+// 两种 ingress 保留各自现有的拒绝文案，且不能把该帧发给上游。
 func TestOpenAIResponsesWebSocket_SubsequentTurnDuplicateModelKeysRejected(t *testing.T) {
 	for _, mode := range []string{service.OpenAIWSIngressModePassthrough, service.OpenAIWSIngressModeDedicated} {
 		t.Run(mode, func(t *testing.T) {
+			closeReason := "Invalid image tool declarations"
+			if mode == service.OpenAIWSIngressModeDedicated {
+				closeReason = "invalid image tool declarations"
+			}
 			runOpenAIResponsesWebSocketUsageLogCase(t, openAIResponsesWSUsageLogCase{
 				firstPayload:            `{"type":"response.create","model":"gpt-5.4","stream":false}`,
 				secondPayload:           `{"type":"response.create","model":"gpt-5.4","model":"gpt-4.1","stream":false}`,
 				group:                   wsAllowlistGroup(true, "gpt-5.4"),
 				ingressMode:             mode,
 				secondTurnCloseExpected: true,
+				closeReason:             closeReason,
 			})
 		})
 	}
@@ -141,13 +147,21 @@ func TestOpenAIResponsesWebSocket_SubsequentTurnDuplicateModelKeysRejected(t *te
 
 // 重复但同值的 model 键不误伤，连接正常完成两个 turn。
 func TestOpenAIResponsesWebSocket_DuplicateIdenticalModelKeysAllowed(t *testing.T) {
-	got := runOpenAIResponsesWebSocketUsageLogCase(t, openAIResponsesWSUsageLogCase{
-		firstPayload:  `{"type":"response.create","model":"gpt-5.4","model":"gpt-5.4","stream":false}`,
-		secondPayload: `{"type":"response.create","model":"gpt-5.4","stream":false}`,
-		group:         wsAllowlistGroup(true, "gpt-5.4"),
-	})
-	if len(got.clientEvents) != 2 {
-		t.Fatalf("expected two completed events, got %d", len(got.clientEvents))
+	for _, mode := range []string{service.OpenAIWSIngressModePassthrough, service.OpenAIWSIngressModeDedicated} {
+		t.Run(mode, func(t *testing.T) {
+			got := runOpenAIResponsesWebSocketUsageLogCase(t, openAIResponsesWSUsageLogCase{
+				firstPayload:  `{"type":"response.create","model":"gpt-5.4","model":"gpt-\u0035.4","stream":false}`,
+				secondPayload: `{"type":"response.create","model":"gpt-5.4","model":"gpt-5.4","stream":false}`,
+				group:         wsAllowlistGroup(true, "gpt-5.4"),
+				ingressMode:   mode,
+			})
+			if len(got.clientEvents) != 2 {
+				t.Fatalf("expected two completed events, got %d", len(got.clientEvents))
+			}
+			if len(got.upstreamPayloads) != 2 {
+				t.Fatalf("expected two upstream frames, got %d", len(got.upstreamPayloads))
+			}
+		})
 	}
 }
 
