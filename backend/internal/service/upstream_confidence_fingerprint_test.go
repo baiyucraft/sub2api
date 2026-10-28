@@ -27,7 +27,7 @@ func (*fingerprintOnlyProbeRepo) FinishConfidenceFingerprint(context.Context, in
 	return nil
 }
 
-func (*fingerprintOnlyProbeRepo) RecordConfidenceFingerprintSample(context.Context, int64, ConfidenceFingerprintIdentity, ConfidenceFingerprintEvidence, time.Time) error {
+func (*fingerprintOnlyProbeRepo) RecordConfidenceFingerprintSample(context.Context, int64, ConfidenceFingerprintIdentity, string, ConfidenceFingerprintEvidence, time.Time) error {
 	return nil
 }
 
@@ -48,7 +48,7 @@ func (r *fingerprintBusyProbeRepo) FinishConfidenceFingerprint(_ context.Context
 	return nil
 }
 
-func (*fingerprintBusyProbeRepo) RecordConfidenceFingerprintSample(context.Context, int64, ConfidenceFingerprintIdentity, ConfidenceFingerprintEvidence, time.Time) error {
+func (*fingerprintBusyProbeRepo) RecordConfidenceFingerprintSample(context.Context, int64, ConfidenceFingerprintIdentity, string, ConfidenceFingerprintEvidence, time.Time) error {
 	return nil
 }
 
@@ -202,7 +202,7 @@ func TestConfidenceFingerprintClaimRotationAndLease(t *testing.T) {
 	}
 	now := time.Date(2026, 10, 28, 0, 0, 0, 0, time.UTC)
 	first, err := state.Claim(now)
-	if err != nil || first == nil || first.Method != "behavioral" {
+	if err != nil || first == nil || first.Method != "distribution" {
 		t.Fatalf("first claim = %#v, %v", first, err)
 	}
 	if second, err := state.Claim(now.Add(time.Second)); err != nil || second != nil {
@@ -218,7 +218,7 @@ func TestConfidenceFingerprintClaimRotationAndLease(t *testing.T) {
 	if err := state.Finish(second, ConfidenceFingerprintEvidence{ProtocolStatus: "compatible"}, now.Add(3*time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	if state.NextSequence != 3 || len(state.Samples) != 2 {
+	if state.NextSequence != 3 || len(state.Samples) != 0 || state.LastProtocolEvidence == nil {
 		t.Fatalf("state after rotation = %#v", state)
 	}
 	changed := NewConfidenceFingerprintIdentity("openai", "gpt-6.1-sol", "responses", "https://other.example.test")
@@ -228,8 +228,162 @@ func TestConfidenceFingerprintClaimRotationAndLease(t *testing.T) {
 	}
 	newSeries.NextSequence = state.NextSequence
 	next, err := newSeries.Claim(now.Add(4 * time.Second))
-	if err != nil || next == nil || next.Method != "behavioral" || next.Sequence != 3 {
-		t.Fatalf("identity change must preserve alternation: %#v, %v", next, err)
+	if err != nil || next == nil || next.Method != "distribution" || next.Sequence != 3 {
+		t.Fatalf("identity change without baseline must preserve distribution-first policy: %#v, %v", next, err)
+	}
+}
+
+func TestConfidenceFingerprintSamplingMethodsByBaseline(t *testing.T) {
+	openAI := NewConfidenceFingerprintIdentity("openai", "gpt-6.1-sol", "responses", "https://example.test")
+	state := &ConfidenceFingerprintState{Components: openAI.Components, SeriesID: "openai-series"}
+	for sequence := int64(1); sequence <= 20; sequence++ {
+		if got := state.samplingMethod(sequence); got != "distribution" {
+			t.Fatalf("OpenAI without a behavioral baseline sequence %d = %q, want distribution", sequence, got)
+		}
+	}
+
+	other := NewConfidenceFingerprintIdentity("anthropic", "claude", "messages", "https://example.test")
+	otherState := &ConfidenceFingerprintState{Components: other.Components, SeriesID: "anthropic-series"}
+	if got := otherState.samplingMethod(1); got != "protocol" {
+		t.Fatalf("non-OpenAI without baseline = %q, want protocol", got)
+	}
+	other.Components["baseline"] = "reviewed-v1"
+	otherState.Components = other.Components
+	if got := otherState.samplingMethod(1); got != "behavioral" {
+		t.Fatalf("non-OpenAI with baseline = %q, want behavioral", got)
+	}
+}
+
+func TestConfidenceFingerprintSamplingUsesShuffledNinetyTenBlocksWithBaseline(t *testing.T) {
+	identity := NewConfidenceFingerprintIdentity("openai", "gpt-6.1-sol", "responses", "https://example.test")
+	identity.Components["baseline"] = "reviewed-v1"
+	firstState := &ConfidenceFingerprintState{Components: identity.Components, SeriesID: "series-a"}
+	secondState := &ConfidenceFingerprintState{Components: identity.Components, SeriesID: "series-b"}
+	behavioralSlots := map[int64]bool{}
+	sequencesBySlot := make(map[int64]map[int64]bool)
+	for block := int64(0); block < 5; block++ {
+		count := 0
+		for offset := int64(1); offset <= 10; offset++ {
+			sequence := block*10 + offset
+			method := firstState.samplingMethod(sequence)
+			if method == "behavioral" {
+				count++
+				slot := (sequence - 1) % 10
+				behavioralSlots[slot] = true
+				if sequencesBySlot[slot] == nil {
+					sequencesBySlot[slot] = make(map[int64]bool)
+				}
+				sequencesBySlot[slot][sequence] = true
+			} else if method != "distribution" {
+				t.Fatalf("unexpected method %q at sequence %d", method, sequence)
+			}
+		}
+		if count != 1 {
+			t.Fatalf("block %d has %d behavioral samples, want exactly 1", block, count)
+		}
+	}
+	if len(behavioralSlots) < 2 {
+		t.Fatalf("behavioral slot did not move between blocks: %v", behavioralSlots)
+	}
+	replayState := &ConfidenceFingerprintState{Components: identity.Components, SeriesID: "series-a"}
+	for sequence := int64(1); sequence <= 50; sequence++ {
+		if firstState.samplingMethod(sequence) != replayState.samplingMethod(sequence) {
+			t.Fatalf("same series and sequence %d must be reproducible", sequence)
+		}
+	}
+	if firstState.samplingMethod(1) == secondState.samplingMethod(1) {
+		for sequence := int64(1); sequence <= 10; sequence++ {
+			if firstState.samplingMethod(sequence) != secondState.samplingMethod(sequence) {
+				return
+			}
+		}
+		t.Fatal("different series should eventually spread the behavioral slot")
+	}
+}
+
+func TestConfidenceFingerprintOldStateKeepsSequenceAndPendingMethod(t *testing.T) {
+	identity := NewConfidenceFingerprintIdentity("openai", "gpt-6.1-sol", "responses", "https://example.test")
+	state := &ConfidenceFingerprintState{
+		PolicyVersion: ConfidenceFingerprintPolicyVersion, SeriesID: "legacy-series", Fingerprint: identity.Fingerprint,
+		Components: identity.Components, NextSequence: 9,
+		Pending:      &ConfidenceFingerprintAttempt{SeriesID: "legacy-series", Token: "lease", Method: "behavioral", Sequence: 8},
+		LeaseExpires: time.Now().UTC().Add(time.Minute), Samples: []ConfidenceFingerprintSample{{Method: "behavioral"}},
+	}
+	if err := state.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if attempt, err := state.Claim(time.Now().UTC()); err != nil || attempt != nil {
+		t.Fatalf("legacy active attempt must remain pending: %#v, %v", attempt, err)
+	}
+	if state.NextSequence != 9 || state.Pending.Method != "behavioral" || len(state.Samples) != 1 {
+		t.Fatalf("legacy state was reset: %#v", state)
+	}
+	attempt, err := state.Claim(state.LeaseExpires.Add(time.Second))
+	if err != nil || attempt == nil || attempt.Sequence != 9 || attempt.Method != "distribution" {
+		t.Fatalf("legacy sequence should continue under new no-baseline policy: %#v, %v", attempt, err)
+	}
+	if state.SamplingPolicyVersion != ConfidenceFingerprintSamplingPolicyVersion {
+		t.Fatalf("sampling policy version = %d", state.SamplingPolicyVersion)
+	}
+}
+
+func TestConfidenceFingerprintProtocolEvidenceDoesNotConsumeBehaviorSamples(t *testing.T) {
+	identity := NewConfidenceFingerprintIdentity("anthropic", "claude", "messages", "https://example.test")
+	identity.Components["baseline"] = "reviewed-v1"
+	state, err := NewConfidenceFingerprintState(identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 10, 28, 0, 0, 0, 0, time.UTC)
+	for i := 0; i < ConfidenceFingerprintSampleLimit+10; i++ {
+		if err := state.RecordEvidence("protocol", now.Add(time.Duration(i)*time.Minute), ConfidenceFingerprintEvidence{
+			ProtocolStatus: "compatible", Route: "anthropic_messages",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 0; i < 7; i++ {
+		if err := state.RecordEvidence("behavioral", now.Add(time.Hour+time.Duration(i)*time.Minute), ConfidenceFingerprintEvidence{ProtocolStatus: "compatible"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 0; i < 100; i++ {
+		if err := state.RecordEvidence("protocol", now.Add(2*time.Hour+time.Duration(i)*time.Minute), ConfidenceFingerprintEvidence{
+			ProtocolStatus: "compatible", Route: "anthropic_messages",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result := ScoreConfidenceFingerprintAt(identity, state, now.Add(4*time.Hour))
+	if got := result.Methods["behavioral"].SampleCount; got != 7 {
+		t.Fatalf("protocol refreshes changed behavioral sample count to %d, want 7", got)
+	}
+	if result.ObservedProtocol != "anthropic_messages" || result.ProtocolStatus != "compatible" {
+		t.Fatalf("latest protocol evidence = %#v, want latest compatible route", result)
+	}
+	if len(state.Samples) != 7 {
+		t.Fatalf("protocol evidence consumed behavioral sample capacity: %d", len(state.Samples))
+	}
+}
+
+func TestConfidenceFingerprintFinishRejectsMethodMutation(t *testing.T) {
+	identity := NewConfidenceFingerprintIdentity("openai", "gpt-6.1-sol", "responses", "https://example.test")
+	state, err := NewConfidenceFingerprintState(identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 10, 28, 0, 0, 0, 0, time.UTC)
+	attempt, err := state.Claim(now)
+	if err != nil || attempt == nil {
+		t.Fatalf("claim = %#v, %v", attempt, err)
+	}
+	mutated := *attempt
+	mutated.Method = "protocol"
+	if err := state.Finish(&mutated, ConfidenceFingerprintEvidence{ProtocolStatus: "compatible"}, now.Add(time.Second)); err == nil {
+		t.Fatal("finish must reject a changed method on an existing lease")
+	}
+	if state.Pending == nil || state.Pending.Method != attempt.Method || len(state.Samples) != 0 {
+		t.Fatalf("invalid method mutation changed pending state: %#v", state)
 	}
 }
 

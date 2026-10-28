@@ -188,7 +188,13 @@
                 <span :data-test="`attribution-method-${method.id}`" class="shrink-0 text-gray-200">{{ attributionMethodLabel(method.status) }}</span>
               </div>
               <div class="mt-1 text-gray-300 tabular-nums">
-                {{ t('admin.upstreamManagement.health.attribution.samples') }} {{ method.sample_count }} / {{ method.minimum_samples }}
+                <template v-if="method.baseline_version && method.minimum_samples">
+                  {{ t('admin.upstreamManagement.health.attribution.samples') }} {{ method.sample_count }} / {{ method.minimum_samples }}
+                </template>
+                <template v-else>
+                  {{ t('admin.upstreamManagement.health.attribution.collectedSamples', { count: method.sample_count }) }} ·
+                  {{ t('admin.upstreamManagement.health.attribution.noApplicableBaseline') }}
+                </template>
               </div>
               <div v-if="method.baseline_version" class="mt-1 break-all text-gray-400">{{ t('admin.upstreamManagement.health.attribution.baseline') }}: {{ method.baseline_version }}</div>
               <div v-if="method.reason" class="mt-1 text-gray-400">{{ safeAttributionReason(method.reason) }}</div>

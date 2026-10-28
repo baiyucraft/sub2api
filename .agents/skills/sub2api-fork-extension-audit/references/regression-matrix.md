@@ -350,3 +350,7 @@ VM Gate v2、历史 Gate v1 的新执行与 VM-only 三入口共用 SHA 绑定�
 ### 可选图片工具与分组策略
 
 profile 276 / migration 303 的创建、更新省略保持、复制、默认值、认证缓存失效及页面回填须回归；test_profile276_release_contract.py 绑定 275 历史不变、276 全入口可用与未知 277 拒绝。普通工具往返、孤立输出和仅续接 ID 在禁图组/清理组不得误报图片 403/503；图片接口、模型、明确选择及确认图片历史仍执行权限。native/namespace/function、auto/none/required 混合及 allowed_tools 不扩大权限；覆盖 HTTP 流式/非流式、Lite、WS 继承/重连、多候选原请求不变、图片并发释放，以及普通上游错误不被图片错误覆盖。稳定契约见 .wiki/03-模块指南/16-可选图片工具与分组策略.md；实际 sub2api-dev 与签名 VM Gate 独立验收，不以本机后端替代。
+
+### 可信度探针采样策略 profile 278
+
+profile 278 为 parent 277、版本 `0.2.20-baiyu`，无 SQL migration。`test_profile278_release_contract.py` 必须绑定所有 Python/Shell 发布入口、VM validator、Gate/DR signer、备份及清理入口；277 的 migration 304 及旧 profile 合同保持不变。无行为基线时 OpenAI 全部采集 distribution，其他平台只更新独立最近协议证据；通过审核和留出验证后，OpenAI 每十个既有探针位置恰有一个 behavioral，其余九个 distribution，其他平台开始计入 behavioral。排程位置必须按系列和区块稳定复现，失败不补发，单请求不能重复计样。旧 JSON 的序号、已采样行为、128 distribution 窗口和在途 lease 不得重置；协议证据不能挤占行为样本容量。回归覆盖旧 JSON/重启、identity 变化、lease 竞争与不可改写方法、90:10 分块及位置打乱、无基线 UI 隐藏门槛和有基线 UI 显示门槛。稳定行为见 `.wiki/03-模块指南/17-跨平台上游可信度探针.md`。

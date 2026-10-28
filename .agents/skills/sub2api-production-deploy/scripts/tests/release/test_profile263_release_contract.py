@@ -32,27 +32,27 @@ class Profile263ReleaseContractTest(unittest.TestCase):
         previous = {}
         exec(compile(source, "historical-profiles", "exec"), previous)
         self.assertEqual(previous["CURRENT_RELEASE_PROFILE"], "262")
-        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"263", "264", "265", "266", "267", "268", "269", "270", "271", "272", "273", "274", "275", "276", "277"})
+        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"263", "264", "265", "266", "267", "268", "269", "270", "271", "272", "273", "274", "275", "276", "277", "278"})
         for name, contract in previous["PROFILES"].items():
             with self.subTest(profile=name):
                 self.assertEqual(get_profile(name), contract)
                 with self.assertRaisesRegex(ValueError, "historical"):
                     get_release_profile(name)
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "277")
+        self.assertEqual(CURRENT_RELEASE_PROFILE, "278")
         current = get_profile("263")
         self.assertEqual(current["version"], "0.2.14-baiyu")
         self.assertEqual(current["parent"], "262")
         self.assertEqual(current["new_migrations"], [])
         self.assertEqual(current["gate_schema"], 2)
         self.assertEqual(current["release_policy"], get_profile("262")["release_policy"])
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 278"):
-            get_profile("278")
+        with self.assertRaisesRegex(ValueError, "unknown release profile: 279"):
+            get_profile("279")
         self.assertEqual(get_profile("276")["name"], "276")
         self.assertEqual(get_release_profile("277")["name"], "277")
 
     def test_registration_and_existing_database_replay(self) -> None:
         registration = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(registration["current_profile"]["id"], "277")
+        self.assertEqual(registration["current_profile"]["id"], "278")
         for field in ("version", "parent", "new_migrations", "gate_schema", "release_policy"):
             self.assertEqual(registration["historical_profiles"]["263"][field], get_profile("263")[field])
             self.assertEqual(registration["historical_profiles"]["262"][field], get_profile("262")[field])

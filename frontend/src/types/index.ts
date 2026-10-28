@@ -1899,7 +1899,7 @@ export interface UpstreamConfidenceDistribution {
 export interface UpstreamConfidenceAttributionMethod {
   status: string
   sample_count: number
-  minimum_samples: number
+  minimum_samples?: number
   baseline_version?: string
   reason?: string
 }

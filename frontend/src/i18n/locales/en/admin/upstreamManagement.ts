@@ -361,6 +361,8 @@ export default {
         observedProtocol: 'Protocol used',
         methods: 'Attribution methods',
         samples: 'Valid samples',
+        collectedSamples: '{count} collected',
+        noApplicableBaseline: 'No applicable baseline',
         baseline: 'Baseline version',
         disclaimer: 'This is diagnostic evidence against the current protocol and baseline, not an identity guarantee. It does not change account health or scheduling.',
         statuses: {

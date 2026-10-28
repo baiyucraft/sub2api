@@ -364,7 +364,9 @@ describe('UpstreamHealthCell', () => {
     expect(wrapper.get('[data-test="attribution-observed-protocol"]').text()).toBe('anthropic_messages')
     expect(wrapper.get('[data-test="attribution-protocol-reason"]').text()).toContain('当前证据原因暂不可识别')
     expect(wrapper.get('[data-test="attribution-method-behavioral"]').text()).toBe('未知')
-    expect(wrapper.text()).toContain('有效样本 4 / 12')
+    expect(wrapper.text()).toContain('已采集 4 条')
+    expect(wrapper.text()).toContain('暂无适用基线')
+    expect(wrapper.text()).not.toContain('/ 12')
     expect(wrapper.text()).toContain('没有适用于该平台、模型和协议的已校准基线')
     expect(wrapper.text()).not.toContain('probe_protocol_mismatch')
   })
@@ -385,6 +387,7 @@ describe('UpstreamHealthCell', () => {
       global: { stubs }
     })
     expect(wrapper.get('[data-test="attribution-badge"]').text()).toBe('证据冲突待复核')
+    expect(wrapper.text()).toContain('有效样本 16 / 12')
     expect(wrapper.text()).toContain('dist-v1')
     expect(wrapper.text()).toContain('fingerprint-v2')
     expect(wrapper.get('[data-upstream-health-state="degraded"]').exists()).toBe(true)

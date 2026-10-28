@@ -36,7 +36,7 @@ class Profile265ReleaseContractTest(unittest.TestCase):
         baseline = {}
         exec(compile(git_blob(BASELINE, ".agents/skills/sub2api-production-deploy/scripts/release/profiles.py"), "baseline", "exec"), baseline)
         self.assertEqual(baseline["CURRENT_RELEASE_PROFILE"], "264")
-        self.assertEqual(set(PROFILES), set(baseline["PROFILES"]) | {"265", "266", "267", "268", "269", "270", "271", "272", "273", "274", "275", "276", "277"})
+        self.assertEqual(set(PROFILES), set(baseline["PROFILES"]) | {"265", "266", "267", "268", "269", "270", "271", "272", "273", "274", "275", "276", "277", "278"})
         for name, profile in baseline["PROFILES"].items():
             self.assertEqual(get_profile(name), profile, name)
             with self.assertRaisesRegex(ValueError, "historical"):
@@ -45,19 +45,19 @@ class Profile265ReleaseContractTest(unittest.TestCase):
             if path.name not in (MIGRATION, "291_user_invoice_annotations.sql", *get_profile("267")["new_migrations"], *get_profile("268")["new_migrations"], *get_profile("269")["new_migrations"], *get_profile("270")["new_migrations"], *get_profile("271")["new_migrations"], *get_profile("273")["new_migrations"], *get_profile("274")["new_migrations"], *get_profile("275")["new_migrations"], *get_profile("276")["new_migrations"]):
                 self.assertEqual(path.read_bytes(), git_blob(BASELINE, f"backend/migrations/{path.name}"), path.name)
         current = get_profile("265")
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "277")
+        self.assertEqual(CURRENT_RELEASE_PROFILE, "278")
         self.assertEqual((current["version"], current["parent"], current["gate_schema"]), ("0.2.15-baiyu", "264", 2))
         self.assertEqual(current["new_migrations"], [MIGRATION])
         self.assertEqual(current["release_policy"], get_profile("264")["release_policy"])
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 278"):
-            get_profile("278")
+        with self.assertRaisesRegex(ValueError, "unknown release profile: 279"):
+            get_profile("279")
 
     def test_official_raw_bytes_registration_and_checksum_contracts(self):
         registration = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
         for field in ("version", "parent", "gate_schema", "new_migrations", "release_policy"):
             self.assertEqual(registration["historical_profiles"]["265"][field], get_profile("265")[field])
             self.assertEqual(registration["historical_profiles"]["264"][field], get_profile("264")[field])
-        self.assertEqual(registration["current_profile"]["id"], "277")
+        self.assertEqual(registration["current_profile"]["id"], "278")
         self.assertEqual(registration["current_profile"]["status"], "pending")
         self.assertEqual(registration["version_contract"]["official_release_versions"][UPSTREAM], "0.2.15")
         self.assertEqual(git_blob(UPSTREAM, "backend/cmd/server/VERSION").decode().strip(), "0.2.15")

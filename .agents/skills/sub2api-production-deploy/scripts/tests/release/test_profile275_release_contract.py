@@ -41,17 +41,17 @@ class Profile275ReleaseContractTest(unittest.TestCase):
         previous = {}
         exec(compile(git_blob(BASELINE, ".agents/skills/sub2api-production-deploy/scripts/release/profiles.py"),
                      "profile274-baseline", "exec"), previous)
-        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"275", "276", "277"})
+        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"275", "276", "277", "278"})
         for name, contract in previous["PROFILES"].items():
             self.assertEqual(get_profile(name), contract, name)
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "277")
+        self.assertEqual(CURRENT_RELEASE_PROFILE, "278")
         current = get_profile("275")
         self.assertEqual((current["version"], current["parent"], current["gate_schema"], current["new_migrations"]),
                          ("0.2.18-baiyu", "274", 2, [MIGRATION]))
         with self.assertRaisesRegex(ValueError, "historical"):
             get_release_profile("274")
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 278"):
-            get_profile("278")
+        with self.assertRaisesRegex(ValueError, "unknown release profile: 279"):
+            get_profile("279")
         names = subprocess.run(["git", "ls-tree", "-r", "--name-only", BASELINE, "--", "backend/migrations"],
                                cwd=WORKSPACE, check=True, capture_output=True, text=True, timeout=30).stdout.splitlines()
         changed = subprocess.run(["git", "diff", "--name-only", BASELINE, "--", "backend/migrations/*.sql"],
@@ -67,7 +67,8 @@ class Profile275ReleaseContractTest(unittest.TestCase):
         } | {MIGRATION, "303_group_strip_optional_image_tools.sql", "304_upstream_confidence_fingerprint.sql"})
         self.assertIsNotNone(RELEASE_ID.fullmatch("275-aaaaaaaaaaaa-1-aaaaaaaa"))
         self.assertIsNotNone(RELEASE_ID.fullmatch("277-aaaaaaaaaaaa-1-aaaaaaaa"))
-        self.assertIsNone(RELEASE_ID.fullmatch("278-aaaaaaaaaaaa-1-aaaaaaaa"))
+        self.assertIsNotNone(RELEASE_ID.fullmatch("278-aaaaaaaaaaaa-1-aaaaaaaa"))
+        self.assertIsNone(RELEASE_ID.fullmatch("279-aaaaaaaaaaaa-1-aaaaaaaa"))
 
     def test_official_bytes_and_independent_checksum_contracts(self):
         raw = (WORKSPACE / "backend/migrations" / MIGRATION).read_bytes()
@@ -76,9 +77,9 @@ class Profile275ReleaseContractTest(unittest.TestCase):
         self.assertEqual(migration_checksum(raw), CATALOG_SHA256)
         self.assertFalse((WORKSPACE / "backend/migrations" / OFFICIAL).exists())
         registry = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(registry["current_profile"]["id"], "277")
+        self.assertEqual(registry["current_profile"]["id"], "278")
         for key in ("version", "parent", "new_migrations", "gate_schema", "release_policy"):
-            self.assertEqual(registry["current_profile"][key], get_profile("277")[key])
+            self.assertEqual(registry["current_profile"][key], get_profile("278")[key])
             self.assertEqual(registry["historical_profiles"]["274"][key], get_profile("274")[key])
         self.assertEqual(registry["migration_contracts"][MIGRATION], RAW_SHA256)
         self.assertIn(MIGRATION, next(e for e in registry["extensions"] if e["id"] == "migration-profile-contract")["migration_files"])

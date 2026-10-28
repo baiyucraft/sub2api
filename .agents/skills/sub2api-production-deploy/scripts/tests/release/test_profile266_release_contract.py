@@ -30,7 +30,7 @@ class Profile266ReleaseContractTest(unittest.TestCase):
         baseline = {}
         exec(compile(source, "historical-profiles", "exec"), baseline)
         self.assertEqual(baseline["CURRENT_RELEASE_PROFILE"], "265")
-        self.assertEqual(set(PROFILES), set(baseline["PROFILES"]) | {"266", "267", "268", "269", "270", "271", "272", "273", "274", "275", "276", "277"})
+        self.assertEqual(set(PROFILES), set(baseline["PROFILES"]) | {"266", "267", "268", "269", "270", "271", "272", "273", "274", "275", "276", "277", "278"})
         for name, contract in baseline["PROFILES"].items():
             self.assertEqual(get_profile(name), contract, name)
             with self.assertRaisesRegex(ValueError, "historical"):
@@ -46,22 +46,22 @@ class Profile266ReleaseContractTest(unittest.TestCase):
             self.assertEqual(hashlib.sha1(f"blob {len(content)}\0".encode() + content).hexdigest(), blob, path)
         current_sql = {p.relative_to(WORKSPACE).as_posix() for p in (WORKSPACE / "backend/migrations").glob("*.sql")}
         self.assertEqual(current_sql, set(old_sql) | {f"backend/migrations/{name}" for name in [MIGRATION, *get_profile("267")["new_migrations"], *get_profile("268")["new_migrations"], *get_profile("269")["new_migrations"], *get_profile("270")["new_migrations"], *get_profile("271")["new_migrations"], *get_profile("273")["new_migrations"], *get_profile("274")["new_migrations"], *get_profile("275")["new_migrations"], *get_profile("276")["new_migrations"], *get_profile("278")["new_migrations"]]})
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "277")
+        self.assertEqual(CURRENT_RELEASE_PROFILE, "278")
         current = get_profile("266")
         with self.assertRaisesRegex(ValueError, "historical"):
             get_release_profile("266")
         self.assertEqual((current["version"], current["parent"], current["gate_schema"]), ("0.2.15-baiyu", "265", 2))
         self.assertEqual(current["new_migrations"], [MIGRATION])
         self.assertEqual(current["release_policy"], get_profile("265")["release_policy"])
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 278"):
-            get_profile("278")
+        with self.assertRaisesRegex(ValueError, "unknown release profile: 279"):
+            get_profile("279")
 
     def test_registration_and_distinct_checksum_contracts(self):
         registration = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
         for field in ("version", "parent", "gate_schema", "new_migrations", "release_policy"):
             self.assertEqual(registration["historical_profiles"]["266"][field], get_profile("266")[field])
             self.assertEqual(registration["historical_profiles"]["265"][field], get_profile("265")[field])
-        self.assertEqual(registration["current_profile"]["id"], "277")
+        self.assertEqual(registration["current_profile"]["id"], "278")
         self.assertEqual(registration["current_profile"]["status"], "pending")
         raw = (WORKSPACE / "backend/migrations" / MIGRATION).read_bytes()
         self.assertEqual(hashlib.sha256(raw).hexdigest(), RAW_SHA256)
