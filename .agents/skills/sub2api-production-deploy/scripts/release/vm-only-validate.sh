@@ -54,7 +54,7 @@ profile=$(jq -er '.profile' "$manifest")
 commit=$(jq -er '.commit_sha' "$manifest")
 version=$(jq -er '.version' "$manifest")
 release_id=$(jq -er '.release_id' "$manifest")
-[[ $scope == vm-only && ( $profile == 255 || $profile == 256 || $profile == 257 || $profile == 258 || $profile == 259 || $profile == 260 || $profile == 261 || $profile == 262 || $profile == 263 || $profile == 264 || $profile == 265 || $profile == 266 || $profile == 267 || $profile == 268 || $profile == 269 || $profile == 270 || $profile == 271 || $profile == 272 || $profile == 273 || $profile == 274 || $profile == 275 || $profile == 276 || $profile == 277 || $profile == 278 || $profile == 279 || $profile == 280 ) && $release_id == "${profile}-${commit:0:12}-"* ]]
+[[ $scope == vm-only && ( $profile == 255 || $profile == 256 || $profile == 257 || $profile == 258 || $profile == 259 || $profile == 260 || $profile == 261 || $profile == 262 || $profile == 263 || $profile == 264 || $profile == 265 || $profile == 266 || $profile == 267 || $profile == 268 || $profile == 269 || $profile == 270 || $profile == 271 || $profile == 272 || $profile == 273 || $profile == 274 || $profile == 275 || $profile == 276 || $profile == 277 || $profile == 278 || $profile == 279 || $profile == 280 || $profile == 281 ) && $release_id == "${profile}-${commit:0:12}-"* ]]
 [[ $commit =~ ^[0-9a-f]{40}$ ]]
 {
   required_query_3=$(jq -er '.vm_identity' "$manifest")

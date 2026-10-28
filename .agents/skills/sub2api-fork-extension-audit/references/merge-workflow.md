@@ -100,3 +100,12 @@
 ## 可选图片工具与 profile 276
 
 当前 pending profile `276`，版本 `0.2.18-baiyu`，parent `275`，仅新增 `303_group_strip_optional_image_tools.sql`。新字段默认 false；禁图组自动清可选声明，允许组由 strip_optional_image_tools 控制，明确图片请求仍校验。旧 275 及更早 profile、SQL、checksum 与精确恢复审阅不可变，未知 277 拒绝。276 继续保留 downtime 和祖先 migration 301 的旧写者退出与 coordinated_restore 合同；全 Python/Shell/signer/备份/清理入口一致，回归 test_profile276_release_contract.py。最终敏感 blob 必须新审阅，未分类仍阻断，不以历史豁免或本地单测代替真实隔离恢复与签名 VM Gate。
+
+
+## 官方 0.2.19 与 profile 281
+
+本轮官方目标固定为 `a9240d5016c226b341242a8c54a01a8605cbbc72`。当前 pending profile `281` 为 `0.2.19-baiyu`、parent `280`，仅新增 `305_scoped_admin_api_keys.sql` 与 `306_group_image_count_billing.sql`。两个文件分别由官方 `247_scoped_admin_api_keys.sql`、`248_group_image_count_billing.sql` 原字节重编号；fork 原有 247/248、profile 280 及以前的版本、parent、SQL 和 checksum 全部冻结。显示版本重新跟随目标官方源码，不删除此前 fork 功能；未知 282 拒绝。
+
+305 引入限定作用域管理员密钥，未登记的 fork 管理路由仍默认拒绝；306 引入分组图片计数计费，继续独立保留可选图片工具剥离策略。账号受管模型同步、运行态字段白名单、缓存保护快照、监控 SSE/超时落库和 Sol 探针 deny 例外保持各自合同。所有 Python/Shell/signer、祖先 manifest、备份与清理入口同步支持 281；继续要求停机和祖先 301 的协调恢复，不新增恢复豁免。
+
+最低本地验证覆盖 `test_profile281_release_contract.py`、`profile_281_migrations_test.go`、管理员密钥权限、图片计费、受管账号编辑/模型同步、缓存保护、健康探针、共享流式转发和前端类型/构建。最终敏感 blob 仍须单独审阅，实际 PostgreSQL 升级、旧镜像兼容、签名 VM Gate 和生产发布必须另行验证，本地合并通过不表示已上线。

@@ -332,7 +332,7 @@ profile 239 继续使用版本 `0.1.177-baiyu`，完整继承 profile 238 的 54
 migration 232 之后重新出现的非 Grok/Composite 视频价格，并增加数据库约束阻止再次漂移。
 profile 233–238 的历史证据保持不可变。
 
-VM Gate signer、DR signer、备份机 verifier/promoter 当前同时保留 legacy profile 195、199、202、206、207、208、209、210、212、213、215、232–241，以及 Gate v2 profile 242–280 合同；279 及以前的合同保留，280 是当前 profile，VM signer 自测和备份机目录 bootstrap 都必须覆盖它。未登记的 281 必须被拒绝。此处登记不代表 279 已完成 VM 验证或签名。发布资产定向回归至少执行：
+VM Gate signer、DR signer、备份机 verifier/promoter 当前同时保留 legacy profile 195、199、202、206、207、208、209、210、212、213、215、232–241，以及 Gate v2 profile 242–281 合同；280 及以前的合同保留，281 是当前 profile，VM signer 自测和备份机目录 bootstrap 都必须覆盖它。未登记的 282 必须被拒绝。此处登记不代表 281 已完成 VM 验证或签名。发布资产定向回归至少执行：
 
 ```text
 python -m pytest .agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile260_release_contract.py .agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile260_maintenance_contract.py .agents/skills/sub2api-production-deploy/scripts/tests/release/test_migration_planner_v2.py -q
@@ -434,7 +434,7 @@ SSH 超时后以远端 committed marker 重新判定阶段，不凭本地异常�
 
 ## Profile 274 的精确恢复审阅
 
-历史 profile 274 保持 `0.2.17-baiyu`，parent 为 273，仅新增 `301_upstream_cache_guard_admissions.sql`；历史 273 及全部旧 SQL/checksum 保持不可变，登记时未登记的 profile 275 拒绝；当前 profile 280 见末节。
+历史 profile 274 保持 `0.2.17-baiyu`，parent 为 273，仅新增 `301_upstream_cache_guard_admissions.sql`；历史 273 及全部旧 SQL/checksum 保持不可变，登记时未登记的 profile 275 拒绝；当前 profile 281 见末节。
 
 本批实际生产 BASE `5deebb2929c2a694145cc2726e895f01c43d28c1` 到已独审 TARGET `aca670e896ffa0e0e54204f1e6c33c205d5160f5` 的 48 条敏感净差异，按三组显式路径和同路径旧/新 Git blob、文件模式冻结：41 条 profile 兼容接线、5 条 migration 301 Gate 接线、2 条停机奖励 postflight 接线。权威登记为 `recovery_gate.py` 的 `_PROFILE274_COMPATIBILITY_PATHS`、`_PROFILE274_MIGRATION_GATE_PATHS`、`_PROFILE274_POSTFLIGHT_PATHS`；新增 301 helper 的旧状态必须不存在。任何未来字节、模式、删除、改名、额外敏感路径或基线漂移继续阻断，历史登记保持不变。
 
@@ -481,9 +481,20 @@ SSH 超时后以远端 committed marker 重新判定阶段，不凭本地异常�
 
 历史 profile `275` 使用 `0.2.18-baiyu`、parent `274`，仅新增 `302_enable_gemini_image_generation_groups.sql`。官方目标 `5c185c5c5d4f5e409e2139806e0964ae944e03e8` 的 246 生图开关回填只按原字节重编号，不改历史 fork 246、301 或任何旧 profile/checksum；原始 SQL SHA-256 为 `f49b458cfbd52bd17f5bb02e30e3813c8e192e4ae38bce6358713ef65f3874b5`，Gate catalog strip 后 checksum 为 `87267be7ab657173768989e2b0b105c5569c5930a7f1ed124f4cf81e5198297c`。旧章节的 current 274/未知275是当时历史边界；profile 278/279 与当前 profile 280 合同见后续说明，未知281拒绝。
 
-profile `278` 使用 `0.2.20-baiyu`、parent `277`，无新增 migration，保留为历史；历史 profile `279` 使用 `0.2.21-baiyu`、parent `278`，无新增 migration。历史 profile `277` 保留 `304_upstream_confidence_fingerprint.sql`。当前 Gate v2 signer 覆盖 242–280，VM validator 仅接受当前 profile 280，未知281拒绝。
+profile `278` 使用 `0.2.20-baiyu`、parent `277`，无新增 migration，保留为历史；历史 profile `279` 使用 `0.2.21-baiyu`、parent `278`，无新增 migration。历史 profile `277` 保留 `304_upstream_confidence_fingerprint.sql`。当前 Gate v2 signer 覆盖 242–281，VM validator 仅接受当前 profile 281，未知282拒绝。
 
 275 继续只允许 downtime；累计升级仍可能执行301，须保留停旧写者、四项祖先迁移 assertion 的精确身份及301 coordinated_restore。候选 Go 构建 pin 对齐官方 go.mod 的 `1.27.3`。最低验证包含 `test_profile275_release_contract.py`、新旧迁移 Go 测试、全部历史 profile、完整 release suite 和变更 Shell 语法检查。恢复敏感最终 blob 仍须重新精确分类，旧审阅不扩展；本地验证不等于真实数据库升级、VM Gate、旧镜像兼容或生产发布。
 
 
-统一可信度摘要使用当前 profile `280`：`0.2.22-baiyu`、parent `279`、`new_migrations=[]`。历史 279 的版本、parent、Gate、SQL 和checksum不回写；Python/Shell/signer/备份/清理入口同步接纳280并拒绝未登记281。对外摘要与前后端协调切换，旧后台采样写者停止后启用新版；本地定向检查不证明VM Gate或生产发布。
+统一可信度摘要保留历史 profile `280`：`0.2.22-baiyu`、parent `279`、`new_migrations=[]`。历史 279 的版本、parent、Gate、SQL 和checksum不回写；当时的 Python/Shell/signer/备份/清理入口接纳280并拒绝未登记281；当前 281 合同见后续说明。对外摘要与前后端协调切换，旧后台采样写者停止后启用新版；本地定向检查不证明VM Gate或生产发布。
+
+
+## Profile 281 官方同步合同
+
+当前 profile `281` 为 `0.2.19-baiyu`、parent `280`，固定官方目标为 `a9240d5016c226b341242a8c54a01a8605cbbc72`，版本直接继承官方源码 `VERSION=0.2.19`。历史 280 的 `0.2.22-baiyu` 及全部旧 profile、SQL、checksum 与精确恢复审阅保持不变。官方 247/248 与本地既有迁移冲突，仅将新增 SQL 原始字节重编号为 `305_scoped_admin_api_keys.sql`、`306_group_image_count_billing.sql`，按此顺序纳入 `new_migrations`；不回写本地旧 247/248 或数据库记录。
+
+Python profile、VM validator、Gate/DR signer、自测 bootstrap、生产 prepare/context、祖先 297/298/299/301 manifest 断言、备份和清理入口同步接纳 281，未登记 282 继续拒绝。281 保留 downtime、旧写者退出及 coordinated_restore 合同；新增管理员作用域密钥和分组图片按张计费字段。登记与本地测试不证明 VM Gate、真实 PostgreSQL 升级、生产部署或线上行为；恢复敏感脚本变化仍按最终 blob/模式分类，既有精确审阅和豁免不扩张。
+
+- `305_scoped_admin_api_keys.sql`：原始 SHA-256 `0c4c22f564f276fb305a54cf2d6c4b1a6179d748d5d8b74a3b99676282355bf6`；Gate strip checksum `03445774e2dfad32da9e23279193d1bca02953896bc3d3b8a87ba0b36b6ed577`。
+
+- `306_group_image_count_billing.sql`：原始 SHA-256 `c91d6d31937658e71c68fa3af6a26fc47380f61243a681ac275aeb4706b242ab`；Gate strip checksum `a872dde339b19f311feb5fa6fd85c8ff7b11d69794c35a18e2086d9846b3499c`。

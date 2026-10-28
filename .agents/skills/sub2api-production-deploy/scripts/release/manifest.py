@@ -291,7 +291,7 @@ def validate_manifest_profile_contract(manifest: dict[str, Any], profile: dict[s
         raise RuntimeError("manifest schema does not match")
     layout = manifest_release_asset_layout(manifest)
     deployment_mode = manifest.get("deployment_mode")
-    if profile["name"] in {"274", "275", "276", "277", "278", "279", "280"} and deployment_mode != "downtime":
+    if profile["name"] in {"274", "275", "276", "277", "278", "279", "280", "281"} and deployment_mode != "downtime":
         raise RuntimeError(f"profile {profile['name']} admission migration requires downtime")
     if layout == LAYOUT_SKILL_V1 and deployment_mode not in {"blue-green", "downtime"}:
         raise RuntimeError("manifest deployment mode is invalid")
@@ -341,19 +341,19 @@ def validate_manifest_profile_contract(manifest: dict[str, Any], profile: dict[s
             raise RuntimeError("manifest parent profile does not match")
         if manifest.get("new_migrations") != profile.get("new_migrations"):
             raise RuntimeError("manifest new migrations do not match profile")
-        if profile["name"] in {"269", "270", "271", "272", "273", "274", "275", "276", "277", "278", "279", "280"}:
+        if profile["name"] in {"269", "270", "271", "272", "273", "274", "275", "276", "277", "278", "279", "280", "281"}:
             helper = skill_asset_path("maintenance/release/migration-297-assert.sh")
             if not re.fullmatch(r"[0-9a-f]{64}", str(manifest.get("release_asset_sha256", {}).get(helper, ""))):
                 raise RuntimeError("manifest migration 297 assertion asset is missing")
-        if profile["name"] in {"270", "271", "272", "273", "274", "275", "276", "277", "278", "279", "280"}:
+        if profile["name"] in {"270", "271", "272", "273", "274", "275", "276", "277", "278", "279", "280", "281"}:
             helper = skill_asset_path("maintenance/release/migration-298-assert.sh")
             if not re.fullmatch(r"[0-9a-f]{64}", str(manifest.get("release_asset_sha256", {}).get(helper, ""))):
                 raise RuntimeError("manifest migration 298 assertion asset is missing")
-        if profile["name"] in {"271", "272", "273", "274", "275", "276", "277", "278", "279", "280"}:
+        if profile["name"] in {"271", "272", "273", "274", "275", "276", "277", "278", "279", "280", "281"}:
             helper = skill_asset_path("maintenance/release/migration-299-assert.sh")
             if not re.fullmatch(r"[0-9a-f]{64}", str(manifest.get("release_asset_sha256", {}).get(helper, ""))):
                 raise RuntimeError("manifest migration 299 assertion asset is missing")
-        if profile["name"] in {"274", "275", "276", "277", "278", "279", "280"}:
+        if profile["name"] in {"274", "275", "276", "277", "278", "279", "280", "281"}:
             helper = skill_asset_path("maintenance/release/migration-301-assert.sh")
             if not re.fullmatch(r"[0-9a-f]{64}", str(manifest.get("release_asset_sha256", {}).get(helper, ""))):
                 raise RuntimeError("manifest migration 301 assertion asset is missing")
@@ -382,7 +382,7 @@ def create_manifest(commit: str, profile: dict[str, Any], release_id: str, deplo
     commit = validate_commit(commit)
     if deployment_mode not in {"blue-green", "downtime"}:
         raise ValueError("deployment mode must be blue-green or downtime")
-    if profile["name"] in {"274", "275", "276", "277", "278", "279", "280"} and deployment_mode != "downtime":
+    if profile["name"] in {"274", "275", "276", "277", "278", "279", "280", "281"} and deployment_mode != "downtime":
         raise ValueError(f"profile {profile['name']} admission migration requires downtime")
     root = workspace_root()
     origin = check_output_hidden(["git", "remote", "get-url", "origin"], cwd=root, text=True).strip()

@@ -481,7 +481,7 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertEqual(current["version"], "0.2.11-baiyu")
         self.assertEqual(current["parent"], "259")
         self.assertEqual(current["new_migrations"], ["285_upstream_null_rate_lifecycle.sql"])
-        self.assertEqual(profiles.CURRENT_RELEASE_PROFILE, "280")
+        self.assertEqual(profiles.CURRENT_RELEASE_PROFILE, "281")
         successor = get_profile("261")
         self.assertEqual(successor["version"], "0.2.13-baiyu")
         self.assertEqual(successor["parent"], "260")
@@ -559,11 +559,11 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertEqual(catalog["historical_profiles"]["277"]["version"], "0.2.19-baiyu")
         self.assertEqual(catalog["historical_profiles"]["277"]["parent"], "276")
         self.assertEqual(catalog["historical_profiles"]["277"]["new_migrations"], ["304_upstream_confidence_fingerprint.sql"])
-        self.assertEqual(catalog["current_profile"]["id"], "280")
+        self.assertEqual(catalog["current_profile"]["id"], "281")
         self.assertEqual(catalog["current_profile"]["status"], "pending")
-        self.assertEqual(catalog["current_profile"]["version"], "0.2.22-baiyu")
-        self.assertEqual(catalog["current_profile"]["parent"], "279")
-        self.assertEqual(catalog["current_profile"]["new_migrations"], [])
+        self.assertEqual(catalog["current_profile"]["version"], "0.2.19-baiyu")
+        self.assertEqual(catalog["current_profile"]["parent"], "280")
+        self.assertEqual(catalog["current_profile"]["new_migrations"], ['305_scoped_admin_api_keys.sql', '306_group_image_count_billing.sql'])
         self.assertTrue(catalog["migration_assertions"]["backend/migrations/283_affiliate_ledger_operation_id.sql"])
         for migration_name in migration_names:
             migration_path = WORKSPACE / "backend" / "migrations" / migration_name
@@ -589,7 +589,7 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn('--build-arg COMMIT="$commit" --build-arg VERSION="$version"', validator)
 
     def test_current_profiles_are_allowed_by_release_entrypoints(self) -> None:
-        expected_release_pattern = "(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273|274|275|276|277|278|279|280)"
+        expected_release_pattern = "(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273|274|275|276|277|278|279|280|281)"
         for relative_path in (
             "release/vm-validate.sh",
             "release/sign-gate.sh",
@@ -602,9 +602,9 @@ class ReleaseCoreTest(unittest.TestCase):
             self.assertIn(expected_release_pattern, content, relative_path)
         validator = (DEPLOY_ROOT / "release/vm-validate.sh").read_text(encoding="utf-8")
         prepare = (DEPLOY_ROOT / "maintenance/release/prepare.sh").read_text(encoding="utf-8")
-        self.assertIn('[[ "$profile" == 280 ]]', validator)
+        self.assertIn('[[ "$profile" == 281 ]]', validator)
         self.assertIn('elif [[ "$profile" == 277 ]]; then', validator)
-        self.assertIn('[[ $profile == 280 ]]', prepare)
+        self.assertIn('[[ $profile == 281 ]]', prepare)
         self.assertNotIn('[[ $profile == 277 ]]', prepare)
 
         for relative_path in (
@@ -1240,7 +1240,7 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn('self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242", "243", "244", "245"}', production)
         assertion_allowlist = next(line for line in assertion.splitlines() if line.startswith("# Legacy profile assertion allowlist"))
         self.assertIn("$profile == 195", assertion_allowlist)
-        self.assertIn("$profile == 280 ]]", assertion_allowlist)
+        self.assertIn("$profile == 281 ]]", assertion_allowlist)
         self.assertIn('expected_profile in {"198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241"}', gate)
         self.assertIn("managed monitor key-name evidence", gate)
 

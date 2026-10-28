@@ -142,15 +142,28 @@
     "276": {"version": "0.2.18-baiyu", "parent": "275", "gate_schema": 2, "new_migrations": ["303_group_strip_optional_image_tools.sql"], "release_policy": {"compatibility_image": "production_current", "migration_source": "database_state"}},
     "277": {"version": "0.2.19-baiyu", "parent": "276", "gate_schema": 2, "new_migrations": ["304_upstream_confidence_fingerprint.sql"], "release_policy": {"compatibility_image": "production_current", "migration_source": "database_state"}},
     "278": {"version": "0.2.20-baiyu", "parent": "277", "gate_schema": 2, "new_migrations": [], "release_policy": {"compatibility_image": "production_current", "migration_source": "database_state"}},
-    "279": {"version": "0.2.21-baiyu", "parent": "278", "gate_schema": 2, "new_migrations": [], "release_policy": {"compatibility_image": "production_current", "migration_source": "database_state"}}
+    "279": {"version": "0.2.21-baiyu", "parent": "278", "gate_schema": 2, "new_migrations": [], "release_policy": {"compatibility_image": "production_current", "migration_source": "database_state"}},
+    "280": {
+      "version": "0.2.22-baiyu",
+      "parent": "279",
+      "gate_schema": 2,
+      "new_migrations": [],
+      "release_policy": {
+        "compatibility_image": "production_current",
+        "migration_source": "database_state"
+      }
+    }
   },
   "current_profile": {
-    "id": "280",
+    "id": "281",
     "status": "pending",
-    "version": "0.2.22-baiyu",
-    "parent": "279",
+    "version": "0.2.19-baiyu",
+    "parent": "280",
     "gate_schema": 2,
-    "new_migrations": [],
+    "new_migrations": [
+      "305_scoped_admin_api_keys.sql",
+      "306_group_image_count_billing.sql"
+    ],
     "release_policy": {
       "compatibility_image": "production_current",
       "migration_source": "database_state"
@@ -245,7 +258,9 @@
     "279_proxy_ip_groups.sql": "6d9e622320d7c4264f9ea501f1f56d3dc7124774d52ff2c3a263e538c4b4e039",
     "280_plugin_runtime_state.sql": "700479dfaf0ecee741ded67df3e670a53433a5a486a7c7b2d87d27c6d48d8341",
     "298_group_scheduling_protection_policies.sql": "97ccd6842138d835393d61e719e84b4b17bd169e95d92053416e62411989b568",
-    "303_group_strip_optional_image_tools.sql": "fc1f8f42f2212341db0a4e235979ee3b729c094313a5112007f13270319bc915"
+    "303_group_strip_optional_image_tools.sql": "fc1f8f42f2212341db0a4e235979ee3b729c094313a5112007f13270319bc915",
+    "305_scoped_admin_api_keys.sql": "0c4c22f564f276fb305a54cf2d6c4b1a6179d748d5d8b74a3b99676282355bf6",
+    "306_group_image_count_billing.sql": "c91d6d31937658e71c68fa3af6a26fc47380f61243a681ac275aeb4706b242ab"
   },
   "migration_renames": {
     "official_246_enable_gemini_image_generation_groups": "302_enable_gemini_image_generation_groups.sql",
@@ -275,7 +290,9 @@
     "official_234_channel_max_reasoning_effort_multiplier": "265_channel_max_reasoning_effort_multiplier.sql",
     "official_234_group_codex_models_manifest_config": "266_group_codex_models_manifest_config.sql",
     "official_238_opencode_go_platform": "274_opencode_go_platform.sql",
-    "official_238_purge_unlimited_user_platform_quotas": "275_purge_unlimited_user_platform_quotas.sql"
+    "official_238_purge_unlimited_user_platform_quotas": "275_purge_unlimited_user_platform_quotas.sql",
+    "official_247_scoped_admin_api_keys": "305_scoped_admin_api_keys.sql",
+    "official_248_group_image_count_billing": "306_group_image_count_billing.sql"
   },
   "migration_assertions": {
     "backend/migrations/302_enable_gemini_image_generation_groups.sql": ["UPDATE groups", "allow_image_generation = true", "platform IN ('gemini', 'antigravity')", "allow_image_generation = false"],
@@ -431,7 +448,16 @@
       "expires_at TIMESTAMPTZ NOT NULL DEFAULT '-infinity'",
       "PRIMARY KEY (plugin_key, namespace, key)"
     ],
-    "backend/migrations/298_group_scheduling_protection_policies.sql": ["CREATE TABLE IF NOT EXISTS fork_group_scheduling_protection_policies","REFERENCES groups(id) ON DELETE CASCADE","ON CONFLICT (group_id) DO NOTHING","Keep legacy group_ids intact"]
+    "backend/migrations/298_group_scheduling_protection_policies.sql": ["CREATE TABLE IF NOT EXISTS fork_group_scheduling_protection_policies","REFERENCES groups(id) ON DELETE CASCADE","ON CONFLICT (group_id) DO NOTHING","Keep legacy group_ids intact"],
+    "backend/migrations/305_scoped_admin_api_keys.sql": [
+      "CREATE TABLE IF NOT EXISTS scoped_admin_api_keys",
+      "key_hash VARCHAR(64) NOT NULL",
+      "ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ"
+    ],
+    "backend/migrations/306_group_image_count_billing.sql": [
+      "ALTER TABLE groups",
+      "ADD COLUMN IF NOT EXISTS image_count_billing BOOLEAN NOT NULL DEFAULT false"
+    ]
   },
   "semantic_overlap": {
     "ui_path_patterns": [
@@ -1893,7 +1919,11 @@
         ".agents/skills/sub2api-production-deploy/scripts/maintenance/release/migration-254-assert.sh",
         "backend/cmd/server/VERSION",
         "backend/cmd/server/dashboard_cache_maintenance.go",
-        ".agents/skills/sub2api-production-deploy/scripts/maintenance/release/activity-reward-cost-postflight.sh"
+        ".agents/skills/sub2api-production-deploy/scripts/maintenance/release/activity-reward-cost-postflight.sh",
+        "backend/migrations/305_scoped_admin_api_keys.sql",
+        "backend/migrations/306_group_image_count_billing.sql",
+        "backend/migrations/profile_281_migrations_test.go",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile281_release_contract.py"
       ],
       "symbols": [
         "PROFILES",
@@ -1918,7 +1948,8 @@
         "0.2.13-baiyu",
         "0.2.14-baiyu",
         "0.2.15-baiyu",
-        "0.2.16-baiyu"
+        "0.2.16-baiyu",
+        "0.2.19-baiyu"
       ],
       "api_routes": [],
       "settings_keys": [],
@@ -1983,7 +2014,9 @@
         "296_upstream_cache_guard.sql",
         "298_group_scheduling_protection_policies.sql",
         "301_upstream_cache_guard_admissions.sql",
-        "303_group_strip_optional_image_tools.sql"
+        "303_group_strip_optional_image_tools.sql",
+        "305_scoped_admin_api_keys.sql",
+        "306_group_image_count_billing.sql"
       ],
       "required_tests": [
         "backend/migrations/profile_275_migrations_test.go",
@@ -2045,7 +2078,9 @@
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_migration_298.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile274_release_contract.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_migration_301.py",
-        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile276_release_contract.py"
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile276_release_contract.py",
+        "backend/migrations/profile_281_migrations_test.go",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile281_release_contract.py"
       ],
       "recommended_tests": [
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_signer_assets.py",
@@ -2080,7 +2115,7 @@
         "缓存保护新增连续profile268，parent267，version0.2.16-baiyu，仅296_upstream_cache_guard.sql；历史267四项官方迁移和全部旧SQL/profile/checksum不回写；Python/Shell/VM/Gate/DR/生产/祖先断言/备份/清理接线，未知269拒绝；不增加恢复审阅豁免。",
         "profile270保持0.2.16-baiyu,parent269,只新增298_group_scheduling_protection_policies.sql；269及所有历史SQL/checksum不回写；298生产只读核验，VM隔离fixture绑定source与catalog checksum，四phase全部验真，未知271拒绝",
         "当前 profile 274 parent 273，同版本0.2.17-baiyu仅新增301；273及更早SQL/profile/checksum保持不可变，未知275拒绝。301要求停旧写者迁移并coordinated_restore，不能让旧镜像继续写入拆分后的会话。迁移断言生产只读，写入fixture仅在显式绑定的隔离库事务回滚；未新增恢复敏感blob豁免。",
-        "profile 278：0.2.20-baiyu，parent 277，无新增 migration，保留为历史；profile 279：0.2.21-baiyu，parent 278，无新增 migration，保留为历史；当前 profile 280：0.2.22-baiyu，parent 279，无新增 migration。profile 277 历史保留 304_upstream_confidence_fingerprint.sql，276 及更早合同不可变；未知 281 拒绝；304 原始字节 SHA-256 与 migration_contracts 一致；Python、Shell、signer、备份和清理全入口一致，最终敏感 blob 必须重新审阅，不扩大历史豁免"
+        "历史 profile 278、279、280 的版本、parent、migration 与 checksum 保持不可变；当前 profile 281 为官方 0.2.19-baiyu、parent 280，仅新增原字节重编号的 305/306，未知 282 拒绝。显示版本从历史 fork 0.2.22-baiyu 重新跟随官方源码，不回退已有功能或改写历史 profile；305/306 不覆盖 fork 历史 247/248。Python、Shell、signer、祖先 migration 断言、备份和清理入口同步；最终敏感 blob 仍须重新审阅，不扩大历史豁免。"
       ]
     },
     {
@@ -2699,7 +2734,7 @@
         "ConfidenceFingerprintIdentity",
         "ClaimConfidenceFingerprint",
         "FinishConfidenceFingerprint",
-        "LoadConfidenceFingerprintsForSeries",
+        "LoadConfidenceFingerprints",
         "MergeUpstreamHealthConfidence",
         "BuildConfidenceSummary"
       ],
@@ -2714,14 +2749,12 @@
       ],
       "required_tests": [
         "backend/internal/service/upstream_confidence_fingerprint_test.go",
-        "backend/internal/service/upstream_confidence_fingerprint_state_test.go",
-        "backend/internal/service/upstream_confidence_fingerprint_probe_test.go",
         "backend/internal/service/chanshui_behavioral_test.go",
         "backend/internal/service/modeltrace_numeric/scorer_test.go",
         "backend/internal/service/upstream_health_confidence_batch_test.go",
         "backend/internal/repository/upstream_confidence_fingerprint_repo_test.go",
         "backend/internal/repository/upstream_confidence_fingerprint_postgres_test.go",
-        "backend/internal/handler/admin/upstream_management_fingerprint_test.go",
+        "backend/internal/handler/admin/upstream_management_distribution_test.go",
         "backend/migrations/profile_277_migrations_test.go",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile278_release_contract.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile279_release_contract.py",

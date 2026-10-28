@@ -29,10 +29,10 @@ class Profile276ReleaseContractTest(unittest.TestCase):
     def test_frozen_history_and_current_release_identity(self):
         previous = {}
         exec(compile(predecessor.git_blob(BASELINE, ".agents/skills/sub2api-production-deploy/scripts/release/profiles.py"), "profile275-baseline", "exec"), previous)
-        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"276", "277", "278", "279", "280"})
+        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"276", "277", "278", "279", "280", "281"})
         for name, profile in previous["PROFILES"].items():
             self.assertEqual(get_profile(name), profile, name)
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "280")
+        self.assertEqual(CURRENT_RELEASE_PROFILE, "281")
         profile = get_profile("276")
         self.assertEqual((profile["version"], profile["parent"], profile["new_migrations"], profile["gate_schema"]),
                          ("0.2.18-baiyu", "275", [MIGRATION], 2))
@@ -42,7 +42,7 @@ class Profile276ReleaseContractTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "historical"):
             get_release_profile("277")
         self.assertEqual(get_profile("278")["name"], "278")
-        self.assertEqual(get_release_profile("280")["name"], "280")
+        self.assertEqual(get_release_profile("281")["name"], "281")
         self.assertIsNotNone(RELEASE_ID.fullmatch("276-aaaaaaaaaaaa-1-aaaaaaaa"))
         self.assertIsNotNone(RELEASE_ID.fullmatch("277-aaaaaaaaaaaa-1-aaaaaaaa"))
         names = subprocess.run(["git", "ls-tree", "-r", "--name-only", BASELINE, "--", "backend/migrations"], cwd=WORKSPACE, check=True, capture_output=True, text=True).stdout.splitlines()
