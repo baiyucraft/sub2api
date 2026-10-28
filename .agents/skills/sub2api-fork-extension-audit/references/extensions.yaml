@@ -139,17 +139,16 @@
     "273": {"version":"0.2.17-baiyu","parent":"272","gate_schema":2,"new_migrations":["300_upstream_health_history_index.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
     "274": {"version":"0.2.17-baiyu","parent":"273","gate_schema":2,"new_migrations":["301_upstream_cache_guard_admissions.sql"],"release_policy":{"compatibility_image":"production_current","migration_source":"database_state"}},
     "275": {"version": "0.2.18-baiyu", "parent": "274", "gate_schema": 2, "new_migrations": ["302_enable_gemini_image_generation_groups.sql"], "release_policy": {"compatibility_image": "production_current", "migration_source": "database_state"}},
-    "276": {"version": "0.2.18-baiyu", "parent": "275", "gate_schema": 2, "new_migrations": ["303_group_strip_optional_image_tools.sql"], "release_policy": {"compatibility_image": "production_current", "migration_source": "database_state"}}
+    "276": {"version": "0.2.18-baiyu", "parent": "275", "gate_schema": 2, "new_migrations": ["303_group_strip_optional_image_tools.sql"], "release_policy": {"compatibility_image": "production_current", "migration_source": "database_state"}},
+    "277": {"version": "0.2.19-baiyu", "parent": "276", "gate_schema": 2, "new_migrations": ["304_upstream_confidence_fingerprint.sql"], "release_policy": {"compatibility_image": "production_current", "migration_source": "database_state"}}
   },
   "current_profile": {
-    "id": "277",
+    "id": "278",
     "status": "pending",
-    "version": "0.2.19-baiyu",
-    "parent": "276",
+    "version": "0.2.20-baiyu",
+    "parent": "277",
     "gate_schema": 2,
-    "new_migrations": [
-      "304_upstream_confidence_fingerprint.sql"
-    ],
+    "new_migrations": [],
     "release_policy": {
       "compatibility_image": "production_current",
       "migration_source": "database_state"
@@ -2063,7 +2062,7 @@
         "缓存保护新增连续profile268，parent267，version0.2.16-baiyu，仅296_upstream_cache_guard.sql；历史267四项官方迁移和全部旧SQL/profile/checksum不回写；Python/Shell/VM/Gate/DR/生产/祖先断言/备份/清理接线，未知269拒绝；不增加恢复审阅豁免。",
         "profile270保持0.2.16-baiyu,parent269,只新增298_group_scheduling_protection_policies.sql；269及所有历史SQL/checksum不回写；298生产只读核验，VM隔离fixture绑定source与catalog checksum，四phase全部验真，未知271拒绝",
         "当前 profile 274 parent 273，同版本0.2.17-baiyu仅新增301；273及更早SQL/profile/checksum保持不可变，未知275拒绝。301要求停旧写者迁移并coordinated_restore，不能让旧镜像继续写入拆分后的会话。迁移断言生产只读，写入fixture仅在显式绑定的隔离库事务回滚；未新增恢复敏感blob豁免。",
-        "当前 profile 277：0.2.19-baiyu，parent 276，仅 304_upstream_confidence_fingerprint.sql；276 及更早合同不可变，未知 278 拒绝；304 原始字节 SHA-256 与 migration_contracts 一致；Python、Shell、signer、备份和清理全入口一致，最终敏感 blob 必须重新审阅，不扩大历史豁免"
+        "当前 profile 278：0.2.20-baiyu，parent 277，无新增 migration；profile 277 历史保留 304_upstream_confidence_fingerprint.sql，276 及更早合同不可变，未知 279 拒绝；304 原始字节 SHA-256 与 migration_contracts 一致；Python、Shell、signer、备份和清理全入口一致，最终敏感 blob 必须重新审阅，不扩大历史豁免"
       ]
     },
     {
@@ -2659,6 +2658,7 @@
         "backend/internal/service/upstream_health_probe_client.go",
         "backend/internal/service/upstream_config.go",
         "backend/internal/repository/upstream_confidence_fingerprint*.go",
+        "backend/internal/repository/upstream_confidence_fingerprint_repo_test.go",
         "backend/internal/handler/admin/upstream_management_handler.go",
         "backend/migrations/304_upstream_confidence_fingerprint.sql",
         "frontend/src/components/account/UpstreamHealthCell.vue",
@@ -2688,6 +2688,7 @@
         "backend/internal/repository/upstream_confidence_fingerprint_postgres_test.go",
         "backend/internal/handler/admin/upstream_management_fingerprint_test.go",
         "backend/migrations/profile_277_migrations_test.go",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile278_release_contract.py",
         "frontend/src/components/account/__tests__/UpstreamHealthCell.spec.ts"
       ],
       "invariants": [
@@ -2699,7 +2700,10 @@
         "OpenAI融合状态在方法一致时确认、单一有效方法时暂定、有效方法冲突时待复核、双方不足时证据不足；方法细项始终可见，不合成概率分数",
         "所有模型归因只用于管理诊断，不改变健康状态、账号可用性、停用行为或调度权重；指纹租约竞争或分布采样不可用不得跳过本轮健康探针，真实网络/鉴权/协议失败仍按既有健康探针语义处理",
         "基线随版本内置且运行时不联网更新；记录来源、平台/协议/模型范围、采集与校准版本、训练样本和独立留出样本；不直接复制未审核许可的 Chanshui/ModelTrace 第三方数据",
-        "跨平台状态使用独立迁移304/profile277，不改写迁移288及profile262历史合同；跨版本部署必须按新迁移和 release profile 合同完成兼容验证"
+        "跨平台状态由 migration304/profile277 引入；profile278（parent277，0.2.20-baiyu）仅调整采样策略，不新增 migration，不改写迁移288/304及历史 profile；所有版本入口和 profile278 合同测试必须同步",
+        "没有行为基线时 OpenAI 每个既有探针机会都采 distribution，非 OpenAI 只保存独立最近协议证据；存在已审核基线后 OpenAI 每十次恰采一次 behavioral，其他平台才采 behavioral",
+        "行为挑战与 distribution 共用原探针周期且单次请求只归属一个方法；失败消耗排程位置，不立即补发；当前128条有效分布窗口不得因策略更新而重置",
+        "sampling policy 版本、序号、样本与在途 lease 兼容旧 JSON；有效旧 lease 按持久化 attempt 方法完成，方法不可由回退路径改写；最近协议证据独立于64条行为样本容量"
       ]
     }
   ]

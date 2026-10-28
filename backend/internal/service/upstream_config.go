@@ -1714,18 +1714,12 @@ func (s *UpstreamConfigService) probeKeyUnlocked(ctx context.Context, keyID int6
 				}))
 			} else {
 				probeContext = context.WithValue(probeContext, confidenceFingerprintUnavailableContextKey{}, true)
-				if fingerprintAttempt != nil {
-					fingerprintAttempt.Method = "behavioral"
-				}
 			}
 		}
 		result, probeErr = s.accountProber.RunUpstreamHealthProbe(probeContext, &account, probeModel)
 		if distributionClaimAttached && result.distributionAttempt == nil && probeCtx.Err() == nil {
 			// The distribution request claims its own lease before dispatch. If it
 			// cannot be claimed, use this same health cycle for the ordinary probe.
-			if fingerprintAttempt != nil && fingerprintAttempt.Method == "distribution" {
-				fingerprintAttempt.Method = "behavioral"
-			}
 			fallbackContext := context.WithValue(probeCtx, confidenceFingerprintUnavailableContextKey{}, true)
 			result, probeErr = s.accountProber.RunUpstreamHealthProbe(fallbackContext, &account, probeModel)
 		}
@@ -1820,7 +1814,7 @@ func (s *UpstreamConfigService) probeKeyUnlocked(ctx context.Context, keyID int6
 				if identity, ok := ConfidenceFingerprintIdentityForEffectiveModel(&account, fingerprintResult.Model, fingerprintProtocol); ok {
 					fingerprintEvidence := confidenceFingerprintEvidenceFromProbe(fingerprintResult, fingerprintProtocol)
 					persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-					if err := fingerprintCollector.RecordConfidenceFingerprintSample(persistCtx, keyID, identity, fingerprintEvidence, time.Now().UTC()); err != nil {
+					if err := fingerprintCollector.RecordConfidenceFingerprintSample(persistCtx, keyID, identity, "protocol", fingerprintEvidence, time.Now().UTC()); err != nil {
 						slog.Warn("failed to persist upstream confidence fingerprint", "upstream_key_id", keyID, "error", err)
 					}
 					cancel()

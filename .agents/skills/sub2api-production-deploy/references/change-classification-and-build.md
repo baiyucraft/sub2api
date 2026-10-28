@@ -478,4 +478,4 @@ sub2api:baiyu-<base-version>-<full-commit-sha>
 
 ## 可选图片工具与 profile 276
 
-当前 pending profile `276`，版本 `0.2.18-baiyu`，parent `275`，仅新增 `303_group_strip_optional_image_tools.sql`。新字段默认 false；禁图组自动清可选声明，允许组由 strip_optional_image_tools 控制，明确图片请求仍校验。旧 275 及更早 profile、SQL、checksum 与精确恢复审阅不可变，未知 277 拒绝。276 继续保留 downtime 和祖先 migration 301 的旧写者退出与 coordinated_restore 合同；全 Python/Shell/signer/备份/清理入口一致，回归 test_profile276_release_contract.py。最终敏感 blob 必须新审阅，未分类仍阻断，不以历史豁免或本地单测代替真实隔离恢复与签名 VM Gate。
+历史 profile `276` 使用版本 `0.2.18-baiyu`、parent `275`，仅新增 `303_group_strip_optional_image_tools.sql`。新字段默认 false；禁图组自动清可选声明，允许组由 strip_optional_image_tools 控制，明确图片请求仍校验。旧 275 及更早 profile、SQL、checksum 与精确恢复审阅不可变；profile 276 继续保留 downtime 和祖先 migration 301 的旧写者退出与 coordinated_restore 合同。当前 profile 278 为 `0.2.20-baiyu`、parent 277、无新增 migration；未知 279 拒绝。

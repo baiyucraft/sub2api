@@ -16,11 +16,12 @@ import (
 )
 
 const (
-	ConfidenceFingerprintIdentityVersion = 1
-	ConfidenceFingerprintPolicyVersion   = 1
-	ConfidenceFingerprintSampleLimit     = 64
-	ConfidenceFingerprintMinimumSamples  = 12
-	confidenceFingerprintLease           = 2 * time.Minute
+	ConfidenceFingerprintIdentityVersion       = 1
+	ConfidenceFingerprintPolicyVersion         = 1
+	ConfidenceFingerprintSamplingPolicyVersion = 2
+	ConfidenceFingerprintSampleLimit           = 64
+	ConfidenceFingerprintMinimumSamples        = 12
+	confidenceFingerprintLease                 = 2 * time.Minute
 )
 
 type confidenceFingerprintAttemptContextKey struct{}
@@ -64,14 +65,16 @@ type ConfidenceFingerprintAttempt struct {
 }
 
 type ConfidenceFingerprintState struct {
-	PolicyVersion int                           `json:"policy_version"`
-	SeriesID      string                        `json:"series_id"`
-	Fingerprint   string                        `json:"fingerprint"`
-	Components    map[string]string             `json:"components,omitempty"`
-	NextSequence  int64                         `json:"next_sequence"`
-	Pending       *ConfidenceFingerprintAttempt `json:"pending,omitempty"`
-	LeaseExpires  time.Time                     `json:"lease_expires,omitempty"`
-	Samples       []ConfidenceFingerprintSample `json:"samples"`
+	PolicyVersion         int                           `json:"policy_version"`
+	SamplingPolicyVersion int                           `json:"sampling_policy_version,omitempty"`
+	SeriesID              string                        `json:"series_id"`
+	Fingerprint           string                        `json:"fingerprint"`
+	Components            map[string]string             `json:"components,omitempty"`
+	NextSequence          int64                         `json:"next_sequence"`
+	Pending               *ConfidenceFingerprintAttempt `json:"pending,omitempty"`
+	LeaseExpires          time.Time                     `json:"lease_expires,omitempty"`
+	Samples               []ConfidenceFingerprintSample `json:"samples"`
+	LastProtocolEvidence  *ConfidenceFingerprintSample  `json:"last_protocol_evidence,omitempty"`
 }
 
 type ConfidenceFingerprintMethodSummary struct {
@@ -97,7 +100,7 @@ type ConfidenceFingerprintAttribution struct {
 type ConfidenceFingerprintRepository interface {
 	ClaimConfidenceFingerprint(context.Context, int64, ConfidenceFingerprintIdentity, time.Time) (*ConfidenceFingerprintAttempt, error)
 	FinishConfidenceFingerprint(context.Context, int64, *ConfidenceFingerprintAttempt, ConfidenceFingerprintIdentity, ConfidenceFingerprintEvidence, time.Time) error
-	RecordConfidenceFingerprintSample(context.Context, int64, ConfidenceFingerprintIdentity, ConfidenceFingerprintEvidence, time.Time) error
+	RecordConfidenceFingerprintSample(context.Context, int64, ConfidenceFingerprintIdentity, string, ConfidenceFingerprintEvidence, time.Time) error
 	LoadConfidenceFingerprints(context.Context, map[int64]ConfidenceFingerprintIdentity) (map[int64]ConfidenceFingerprintReadResult, error)
 }
 
@@ -305,11 +308,11 @@ func (s *ConfidenceFingerprintState) Claim(now time.Time) (*ConfidenceFingerprin
 	if s.Pending != nil && s.LeaseExpires.After(now) {
 		return nil, nil
 	}
+	// Older JSON has no sampling version. Keep its sequence, samples, and any
+	// in-flight attempt intact while moving future claims to the current policy.
+	s.SamplingPolicyVersion = ConfidenceFingerprintSamplingPolicyVersion
 	s.trimExpiredSamples(now)
-	method := "behavioral"
-	if strings.EqualFold(identityPlatformFromComponents(s.Components), PlatformOpenAI) && s.NextSequence%2 == 0 {
-		method = "distribution"
-	}
+	method := s.samplingMethod(s.NextSequence)
 	var token [24]byte
 	if _, err := cryptorand.Read(token[:]); err != nil {
 		return nil, fmt.Errorf("create fingerprint probe lease: %w", err)
@@ -322,6 +325,28 @@ func (s *ConfidenceFingerprintState) Claim(now time.Time) (*ConfidenceFingerprin
 	s.Pending = attempt
 	s.LeaseExpires = now.UTC().Add(confidenceFingerprintLease)
 	return attempt, nil
+}
+
+func (s *ConfidenceFingerprintState) samplingMethod(sequence int64) string {
+	if strings.TrimSpace(s.Components["baseline"]) == "" {
+		if strings.EqualFold(identityPlatformFromComponents(s.Components), PlatformOpenAI) {
+			return "distribution"
+		}
+		return "protocol"
+	}
+	if !strings.EqualFold(identityPlatformFromComponents(s.Components), PlatformOpenAI) {
+		return "behavioral"
+	}
+
+	// Each series gets one reproducible behavioral slot in every ten probes.
+	// Hashing the series and block spreads that slot without mutable RNG state.
+	block := (sequence - 1) / 10
+	digest := sha256.Sum256([]byte(fmt.Sprintf("confidence-fingerprint-sampling-v2:%s:%d", s.SeriesID, block)))
+	behavioralSlot := int64(digest[0] % 10)
+	if (sequence-1)%10 == behavioralSlot {
+		return "behavioral"
+	}
+	return "distribution"
 }
 
 func (s *ConfidenceFingerprintState) trimExpiredSamples(now time.Time) {
@@ -343,16 +368,39 @@ func (s *ConfidenceFingerprintState) Finish(attempt *ConfidenceFingerprintAttemp
 	if err := s.Validate(); err != nil {
 		return err
 	}
-	if attempt == nil || s.Pending == nil || !s.LeaseExpires.After(now) || attempt.SeriesID != s.SeriesID || attempt.Token != s.Pending.Token || attempt.Sequence != s.Pending.Sequence {
+	if attempt == nil || s.Pending == nil || !s.LeaseExpires.After(now) || attempt.SeriesID != s.SeriesID || attempt.Token != s.Pending.Token || attempt.Sequence != s.Pending.Sequence || attempt.Method != s.Pending.Method {
 		return errors.New("confidence fingerprint lease lost")
 	}
-	s.Samples = append(s.Samples, ConfidenceFingerprintSample{ObservedAt: attempt.ObservedAt.UTC(), Method: attempt.Method, Evidence: evidence})
-	if len(s.Samples) > ConfidenceFingerprintSampleLimit {
-		s.Samples = append([]ConfidenceFingerprintSample(nil), s.Samples[len(s.Samples)-ConfidenceFingerprintSampleLimit:]...)
+	if err := s.recordEvidence(attempt.Method, attempt.ObservedAt, evidence); err != nil {
+		return err
 	}
 	s.Pending = nil
 	s.LeaseExpires = time.Time{}
 	return nil
+}
+
+func (s *ConfidenceFingerprintState) recordEvidence(method string, observedAt time.Time, evidence ConfidenceFingerprintEvidence) error {
+	sample := ConfidenceFingerprintSample{ObservedAt: observedAt.UTC(), Method: method, Evidence: evidence}
+	if evidence.ProtocolReason != "probe_not_dispatched" && evidence.ProtocolReason != "probe_not_due" {
+		protocolSample := sample
+		protocolSample.Method = "protocol"
+		s.LastProtocolEvidence = &protocolSample
+	}
+	switch method {
+	case "behavioral":
+		s.Samples = append(s.Samples, sample)
+		if len(s.Samples) > ConfidenceFingerprintSampleLimit {
+			s.Samples = append([]ConfidenceFingerprintSample(nil), s.Samples[len(s.Samples)-ConfidenceFingerprintSampleLimit:]...)
+		}
+	case "protocol", "distribution":
+	default:
+		return fmt.Errorf("unknown confidence fingerprint sample method %q", method)
+	}
+	return nil
+}
+
+func (s *ConfidenceFingerprintState) RecordEvidence(method string, observedAt time.Time, evidence ConfidenceFingerprintEvidence) error {
+	return s.recordEvidence(method, observedAt, evidence)
 }
 
 func NewConfidenceFingerprintState(identity ConfidenceFingerprintIdentity) (*ConfidenceFingerprintState, error) {
@@ -364,8 +412,8 @@ func NewConfidenceFingerprintState(identity ConfidenceFingerprintIdentity) (*Con
 		return nil, fmt.Errorf("create fingerprint series: %w", err)
 	}
 	return &ConfidenceFingerprintState{
-		PolicyVersion: ConfidenceFingerprintPolicyVersion,
-		SeriesID:      hex.EncodeToString(token[:]), Fingerprint: identity.Fingerprint,
+		PolicyVersion: ConfidenceFingerprintPolicyVersion, SamplingPolicyVersion: ConfidenceFingerprintSamplingPolicyVersion,
+		SeriesID: hex.EncodeToString(token[:]), Fingerprint: identity.Fingerprint,
 		Components: cloneFingerprintComponents(identity.Components), NextSequence: 1,
 		Samples: []ConfidenceFingerprintSample{},
 	}, nil
@@ -387,11 +435,17 @@ func ScoreConfidenceFingerprint(identity ConfidenceFingerprintIdentity, state *C
 }
 
 func ScoreConfidenceFingerprintAt(identity ConfidenceFingerprintIdentity, state *ConfidenceFingerprintState, now time.Time) ConfidenceFingerprintAttribution {
+	minimumSamples := 0
+	reason := "no_matching_baseline"
+	if strings.TrimSpace(identity.Baseline) != "" {
+		minimumSamples = ConfidenceFingerprintMinimumSamples
+		reason = "insufficient_samples"
+	}
 	result := ConfidenceFingerprintAttribution{
-		Status: "unknown", Reason: "no_matching_baseline", Platform: identity.Platform,
+		Status: "unknown", Reason: reason, Platform: identity.Platform,
 		Model: identity.Model, Protocol: identity.Protocol, ProtocolStatus: "unknown",
 		Methods: map[string]ConfidenceFingerprintMethodSummary{
-			"behavioral": {Status: "unknown", MinimumSamples: ConfidenceFingerprintMinimumSamples, Reason: "no_matching_baseline"},
+			"behavioral": {Status: "unknown", MinimumSamples: minimumSamples, BaselineVersion: identity.Baseline, Reason: reason},
 		},
 	}
 	if state == nil {
@@ -405,15 +459,20 @@ func ScoreConfidenceFingerprintAt(identity ConfidenceFingerprintIdentity, state 
 			break
 		}
 	}
-	if latestIndex >= 0 {
+	if state.LastProtocolEvidence != nil && !state.LastProtocolEvidence.ObservedAt.Before(cutoff) {
+		latest := state.LastProtocolEvidence.Evidence
+		result.ObservedProtocol = latest.Route
+		result.ProtocolStatus = latest.ProtocolStatus
+		result.ProtocolReason = latest.ProtocolReason
+	} else if latestIndex >= 0 {
 		latest := state.Samples[latestIndex].Evidence
 		result.ObservedProtocol = latest.Route
 		result.ProtocolStatus = latest.ProtocolStatus
 		result.ProtocolReason = latest.ProtocolReason
 	}
 	result.Methods["behavioral"] = ConfidenceFingerprintMethodSummary{
-		Status: "unknown", SampleCount: fingerprintMethodSampleCount(state.Samples, "behavioral", now), MinimumSamples: ConfidenceFingerprintMinimumSamples,
-		BaselineVersion: identity.Baseline, Reason: "no_matching_baseline",
+		Status: "unknown", SampleCount: fingerprintMethodSampleCount(state.Samples, "behavioral", now), MinimumSamples: minimumSamples,
+		BaselineVersion: identity.Baseline, Reason: reason,
 	}
 	return result
 }

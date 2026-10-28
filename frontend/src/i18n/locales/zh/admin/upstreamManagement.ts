@@ -361,6 +361,8 @@ export default {
         observedProtocol: '本次实际协议',
         methods: '归因方法',
         samples: '有效样本',
+        collectedSamples: '已采集 {count} 条',
+        noApplicableBaseline: '暂无适用基线',
         baseline: '基线版本',
         disclaimer: '这是基于当前协议和基线的诊断证据，不是身份保证，也不会改变账号健康或调度。',
         statuses: {
