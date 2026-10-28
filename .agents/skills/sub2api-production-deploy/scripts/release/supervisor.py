@@ -1471,7 +1471,10 @@ export RELEASE_DIR=/opt/sub2api/releases/{identifier}
 /opt/sub2api/releases/.active-release/assets/reconcile.sh >/dev/null
 printf 'release_claim_reconciled=true\\nplaintext_state_removed=true\\n'
 '''
-            values = SSHRunner().run("racknerd", script, {"release_claim_reconciled", "plaintext_state_removed"}, timeout=600).values
+            values = SSHRunner().run(
+                "racknerd", script, {"release_claim_reconciled", "plaintext_state_removed"},
+                timeout=600, allow_stderr=True,
+            ).values
             if values != {"release_claim_reconciled": "true", "plaintext_state_removed": "true"}:
                 raise RuntimeError("pre-state claim cleanup reply is unproven")
         elif inspection.get("decision") != "already_recovered":
