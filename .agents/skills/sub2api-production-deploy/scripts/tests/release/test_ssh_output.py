@@ -25,6 +25,7 @@ from release.ssh import (
     SSH_CONFIG,
     SSHResult,
     SSHRunner,
+    UnexpectedRemoteStderr,
     TRANSFER_MAX_ACTIVE_CONNECTIONS,
 )
 
@@ -574,8 +575,9 @@ class SSHOutputTest(unittest.TestCase):
             self.runner(b"health=pass\nsecret=value\n").run("vm", "true", {"health"})
 
     def test_rejects_any_stderr(self) -> None:
-        with self.assertRaisesRegex(RuntimeError, "unexpected stderr"):
+        with self.assertRaisesRegex(UnexpectedRemoteStderr, "unexpected stderr") as caught:
             self.runner(b"health=pass\n", b"token=secret\n").run("vm", "true", {"health"})
+        self.assertEqual(caught.exception.values, {"health": "pass"})
 
     def test_successful_remote_wrapper_does_not_promote_stderr_to_exit_97(self) -> None:
         runner = object.__new__(SSHRunner)

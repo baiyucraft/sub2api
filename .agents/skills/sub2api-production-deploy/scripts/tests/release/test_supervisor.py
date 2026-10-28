@@ -19,6 +19,7 @@ sys.path.insert(0, str(DEPLOY_ROOT))
 from release import supervisor, recovery_bundle
 from release.atomic import canonical_json
 from release_logging import EventContext, JSONLEventLogger
+from release.ssh import UnexpectedRemoteStderr
 
 
 class SupervisorTest(unittest.TestCase):
@@ -47,7 +48,26 @@ class SupervisorTest(unittest.TestCase):
         self.write(identifier, "manifest.json", {"release_id": identifier, "profile": "198", "commit_sha": "a" * 40, "deployment_mode": "blue-green"})
         self.write(identifier, "runner.json", {"status": "running", "pid": 123, "process_token": "token", "exit_code": None})
         self.write(identifier, "state.json", {"stage": "vm_validate", "status": "verified"})
+        self.write(identifier, "gate/gate.json", {"manifest": {"release_id": identifier}})
+        (path / "gate" / "gate.sig").write_bytes(b"signed-gate-signature")
         return path
+
+    @staticmethod
+    def recovered_proof(candidate: str) -> dict[str, str]:
+        return {
+            "recovery_marker_verified": "true",
+            "release_claim_reconciled": "true",
+            "plaintext_state_removed": "true",
+            "active_slot_verified": "true",
+            "application_health": "pass",
+            "nginx_active": "true",
+            "nginx_route_verified": "true",
+            "backup_service_inactive": "true",
+            "backup_timer_enabled": "true",
+            "backup_timer_active": "true",
+            "candidate_absent": "true",
+            "running_image_id": "sha256:" + "a" * 64 if candidate != "sha256:" + "a" * 64 else "sha256:" + "b" * 64,
+        }
 
     def test_release_id_rejects_path_traversal(self) -> None:
         with self.assertRaisesRegex(ValueError, "release ID"):
@@ -320,7 +340,10 @@ class SupervisorTest(unittest.TestCase):
         self.write(identifier, "runner.json", {"status": "recovered", "pid": 123, "process_token": "token", "exit_code": 1})
         self.write(identifier, "state.json", {"release_id": identifier, "stage": "vm_validate", "status": "verified"})
         self.write(identifier, "release-state.json", {"release_id": identifier, "stage": "production_release", "status": "recovered"})
-        evidence = {"release_claim_reconciled": "true", "plaintext_state_removed": "true"}
+        evidence = {
+            "release_claim_reconciled": "true", "plaintext_state_removed": "true",
+            "nginx_route_verified": "true", "backup_service_inactive": "true",
+        }
         if stage == "recovered_after_coordinated_restore":
             evidence.update({
                 "backup_units_restored": "true",
@@ -354,9 +377,12 @@ class SupervisorTest(unittest.TestCase):
         ssh.run.return_value.values = {
             "recovery_marker_verified": "true",
             "release_claim_reconciled": "true",
+            "plaintext_state_removed": "true",
             "active_slot_verified": "true",
             "application_health": "pass",
             "nginx_active": "true",
+            "nginx_route_verified": "true",
+            "backup_service_inactive": "true",
             "backup_timer_enabled": "true",
             "backup_timer_active": "true",
             "candidate_absent": "true",
@@ -379,7 +405,10 @@ class SupervisorTest(unittest.TestCase):
         self.assertIn('grep -Fxq release_id=198-aaaaaaaaaaaa-1-deadbeef "$recovered/marker"', script)
         self.assertIn("sha256sum -c CLAIM_SHA256SUMS", script)
         self.assertIn('test "$active_slot_image_id" = "$running_image_id"', script)
+        self.assertIn('test "$required_capture_running" = true', script)
         self.assertIn("systemctl is-active sub2api-backup.timer", script)
+        self.assertIn('grep -Fq "server 127.0.0.1:$active_port;"', script)
+        self.assertIn("systemctl is-active sub2api-backup.service", script)
         self.assertIn("running_image_id", ssh.run.call_args.args[2])
 
     def test_recovered_result_merges_prior_coordinated_restore_evidence(self) -> None:
@@ -399,9 +428,12 @@ class SupervisorTest(unittest.TestCase):
         ssh.run.return_value.values = {
             "recovery_marker_verified": "true",
             "release_claim_reconciled": "true",
+            "plaintext_state_removed": "true",
             "active_slot_verified": "true",
             "application_health": "pass",
             "nginx_active": "true",
+            "nginx_route_verified": "true",
+            "backup_service_inactive": "true",
             "backup_timer_enabled": "true",
             "backup_timer_active": "true",
             "candidate_absent": "true",
@@ -447,9 +479,12 @@ class SupervisorTest(unittest.TestCase):
         ssh.run.return_value.values = {
             "recovery_marker_verified": "true",
             "release_claim_reconciled": "true",
+            "plaintext_state_removed": "true",
             "active_slot_verified": "true",
             "application_health": "pass",
             "nginx_active": "true",
+            "nginx_route_verified": "true",
+            "backup_service_inactive": "true",
             "backup_timer_enabled": "true",
             "backup_timer_active": "true",
             "candidate_absent": "false",
@@ -475,6 +510,34 @@ class SupervisorTest(unittest.TestCase):
         self.assertEqual(value["decision"], "claim_only_recover")
         self.assertEqual(value["failure_code"], "caller_interrupted_after_claim")
 
+    def test_reconciliation_blocks_until_runner_exit_is_proven(self) -> None:
+        identifier = "198-aaaaaaaaaaaa-1-deadbeef"
+        self.minimum_release(identifier)
+        self.write(identifier, "runner.json", {
+            "status": "blocked_reconciliation", "pid": 123, "process_token": "token", "exit_code": 1,
+        })
+        self.write(identifier, "gate/production-result.json", {
+            "stage": "stage_assets_verified", "status": "blocked_reconciliation",
+            "history": [{"stage": "stage_assets_verified"}],
+        })
+        document = {"manifest": {"release_id": identifier}, "evidence": {"candidate_image_id": "sha256:" + "b" * 64}}
+        remote = {
+            "active_claim": "matching", "consumed": "false", "recovered": "false",
+            "state_present": "false", "app_health": "healthy", "nginx_active": "true",
+            "backup_timer_enabled": "true", "running_image_id": "sha256:" + "a" * 64,
+            "candidate_exists": "false", "candidate_health": "absent",
+        }
+        ssh = mock.Mock()
+        ssh.run.return_value.values = remote
+        with mock.patch.object(supervisor, "verify_gate", return_value=document), \
+             mock.patch.object(supervisor, "SSHRunner", return_value=ssh), \
+             mock.patch.object(supervisor, "_runner_alive", return_value=False), \
+             mock.patch.object(supervisor, "_process_token", return_value="token"):
+            value = supervisor._inspect_reconciliation(identifier)
+        self.assertEqual(value["decision"], "blocked")
+        self.assertEqual(value["failure_code"], "runner_exit_unproven")
+        self.assertFalse(value["runner_exit_proven"])
+
     def test_claim_only_recovery_rejects_unknown_running_image(self) -> None:
         identifier = "198-aaaaaaaaaaaa-1-deadbeef"
         self.minimum_release(identifier)
@@ -487,6 +550,108 @@ class SupervisorTest(unittest.TestCase):
         with mock.patch.object(supervisor, "verify_gate", return_value=document), mock.patch.object(supervisor, "SSHRunner", return_value=ssh), mock.patch.object(supervisor, "_runner_alive", return_value=False):
             value = supervisor._inspect_reconciliation(identifier)
         self.assertEqual(value["decision"], "blocked")
+
+    def test_reconcile_verifies_remote_state_after_stderr_without_repeating_mutation(self) -> None:
+        identifier = "198-aaaaaaaaaaaa-1-deadbeef"
+        run_dir = self.minimum_release(identifier)
+        candidate = "sha256:" + "b" * 64
+        self.write(identifier, "runner.json", {
+            "status": "blocked_reconciliation", "pid": 123, "process_token": "token", "exit_code": 1,
+        })
+        self.write(identifier, "gate/production-result.json", {
+            "stage": "blocked_reconciliation", "status": "blocked_reconciliation",
+            "history": [{"stage": "stage_assets_verified"}],
+        })
+        inspection = {
+            "decision": "claim_only_recover", "runner_alive": False,
+            "runner_exit_proven": True, "candidate_image_id": candidate,
+        }
+        remote = self.recovered_proof(candidate)
+        ssh = mock.Mock()
+        ssh.run.side_effect = [
+            UnexpectedRemoteStderr("racknerd returned unexpected stderr", {
+                "release_claim_reconciled": "true", "plaintext_state_removed": "true",
+            }),
+            mock.Mock(values=remote),
+        ]
+        state = mock.Mock()
+
+        def receipt(run_path, runner, raw):
+            saved = json.loads((Path(run_path) / "gate" / "production-result.json").read_text(encoding="utf-8"))
+            self.assertEqual(saved["status"], "recovered")
+            self.assertEqual(runner["status"], "recovered")
+
+        with mock.patch.object(supervisor, "_inspect_reconciliation", return_value=inspection), \
+             mock.patch.object(supervisor, "SSHRunner", return_value=ssh), \
+             mock.patch.object(supervisor.RunState, "create", return_value=state), \
+             mock.patch.object(supervisor, "publish_terminal_receipt", side_effect=receipt) as publish, \
+             mock.patch("builtins.print"):
+            supervisor.reconcile(argparse.Namespace(release_id=identifier, mode="interrupted"))
+
+        self.assertEqual(ssh.run.call_count, 2)
+        self.assertIn("cleanup-state.sh", ssh.run.call_args_list[0].args[1])
+        self.assertIn("CLAIM_SHA256SUMS", ssh.run.call_args_list[1].args[1])
+        self.assertNotIn("cleanup-state.sh", ssh.run.call_args_list[1].args[1])
+        saved = json.loads((run_dir / "gate" / "production-result.json").read_text(encoding="utf-8"))
+        self.assertEqual(saved["status"], "recovered")
+        self.assertEqual(saved["history"][-1]["evidence"]["release_claim_reconciled"], "true")
+        state.transition.assert_called_once()
+        publish.assert_called_once()
+
+    def test_reconcile_does_not_close_out_on_incomplete_recovery_proof(self) -> None:
+        identifier = "198-aaaaaaaaaaaa-1-deadbeef"
+        run_dir = self.minimum_release(identifier)
+        candidate = "sha256:" + "b" * 64
+        self.write(identifier, "runner.json", {
+            "status": "blocked_reconciliation", "pid": 123, "process_token": "token", "exit_code": 1,
+        })
+        original = {
+            "stage": "blocked_reconciliation", "status": "blocked_reconciliation",
+            "history": [{"stage": "stage_assets_verified"}],
+        }
+        self.write(identifier, "gate/production-result.json", original)
+        inspection = {
+            "decision": "already_recovered", "runner_alive": False,
+            "runner_exit_proven": True, "candidate_image_id": candidate,
+        }
+        remote = self.recovered_proof(candidate)
+        remote["candidate_absent"] = "false"
+        ssh = mock.Mock()
+        ssh.run.return_value.values = remote
+        with mock.patch.object(supervisor, "_inspect_reconciliation", return_value=inspection), \
+             mock.patch.object(supervisor, "SSHRunner", return_value=ssh), \
+             mock.patch.object(supervisor, "publish_terminal_receipt") as publish:
+            with self.assertRaisesRegex(RuntimeError, "remote recovery evidence is incomplete"):
+                supervisor.reconcile(argparse.Namespace(release_id=identifier, mode="interrupted"))
+        self.assertEqual(ssh.run.call_count, 1)
+        self.assertNotIn("reconcile.sh", ssh.run.call_args.args[1])
+        saved = json.loads((run_dir / "gate" / "production-result.json").read_text(encoding="utf-8"))
+        self.assertEqual(saved, original)
+        self.assertEqual(json.loads((run_dir / "runner.json").read_text(encoding="utf-8"))["status"], "blocked_reconciliation")
+        publish.assert_not_called()
+
+    def test_reconcile_does_not_probe_after_non_stderr_remote_failure(self) -> None:
+        identifier = "198-aaaaaaaaaaaa-1-deadbeef"
+        self.minimum_release(identifier)
+        candidate = "sha256:" + "b" * 64
+        self.write(identifier, "runner.json", {
+            "status": "blocked_reconciliation", "pid": 123, "process_token": "token", "exit_code": 1,
+        })
+        self.write(identifier, "gate/production-result.json", {
+            "stage": "blocked_reconciliation", "status": "blocked_reconciliation",
+            "history": [{"stage": "stage_assets_verified"}],
+        })
+        inspection = {
+            "decision": "claim_only_recover", "runner_alive": False,
+            "runner_exit_proven": True, "candidate_image_id": candidate,
+        }
+        ssh = mock.Mock()
+        ssh.run.side_effect = RuntimeError("racknerd stage failed with exit code 1; remote stderr withheld")
+        with mock.patch.object(supervisor, "_inspect_reconciliation", return_value=inspection), \
+             mock.patch.object(supervisor, "SSHRunner", return_value=ssh):
+            with self.assertRaisesRegex(RuntimeError, "exit code 1"):
+                supervisor.reconcile(argparse.Namespace(release_id=identifier, mode="interrupted"))
+        self.assertEqual(ssh.run.call_count, 1)
 
     def test_reconciliation_probe_handles_missing_active_container(self) -> None:
         identifier = "198-aaaaaaaaaaaa-1-deadbeef"
@@ -556,7 +721,7 @@ class SupervisorTest(unittest.TestCase):
                 self.assertIn("SHA256SUMS.files", probe)
                 self.assertIn("ingress_transaction", allowed_fields)
 
-    def test_foreground_release_without_runner_metadata_only_allows_coordinated_restore(self) -> None:
+    def test_reconciliation_without_runner_metadata_cannot_prove_worker_exit(self) -> None:
         identifier = "198-aaaaaaaaaaaa-1-deadbeef"
         run_dir = self.minimum_release(identifier)
         (run_dir / "runner.json").unlink()
@@ -569,7 +734,9 @@ class SupervisorTest(unittest.TestCase):
         with mock.patch.object(supervisor, "verify_gate", return_value=document), mock.patch.object(supervisor, "SSHRunner", return_value=ssh):
             value = supervisor._inspect_reconciliation(identifier)
 
-        self.assertEqual(value["decision"], "coordinated_restore_required")
+        self.assertEqual(value["decision"], "blocked")
+        self.assertEqual(value["failure_code"], "runner_exit_unproven")
+        self.assertFalse(value["runner_exit_proven"])
 
     def coordinated_recovery_fixture(self, decision: str = "coordinated_restore_required"):
         identifier = "198-aaaaaaaaaaaa-1-deadbeef"
@@ -588,7 +755,7 @@ class SupervisorTest(unittest.TestCase):
                     "evidence": {"vm_restore_verified": True, "integration_verified": True}}
         self.write(identifier, "gate/gate.json", document)
         assets = f"/opt/sub2api/releases/{identifier}/recovery-helpers/{bundle_sha}"
-        inspection = {"decision": decision, "runner_alive": False}
+        inspection = {"decision": decision, "runner_alive": False, "runner_exit_proven": True}
         ssh = mock.Mock()
         ssh.run.return_value.values = {"coordinated_restore": "verified", "restored_image_id": "sha256:" + "c" * 64,
                                        "application_health": "pass", "backup_units_restored": "true",

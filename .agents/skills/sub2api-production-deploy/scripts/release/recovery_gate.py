@@ -260,6 +260,29 @@ _DEPLOY_CONFIG_REVIEW_PATHS = frozenset({
         "release/vm_lifecycle.py", "release/vm_restore_probe_preserve.py",
     )
 })
+# Profile 276 wiring and the already-reviewed prepare policy are separate
+# exact object groups; neither permits later recovery, format or trust changes.
+_PROFILE276_COMPATIBILITY_REVIEW_PATHS = frozenset({
+    _SCRIPTS_PREFIX + suffix for suffix in (
+        "maintenance/181/mask-backup-units.sh", "maintenance/181/restore-backup-units.sh",
+        "maintenance/release/activity-reward-cost-postflight.sh", "maintenance/release/context.sh",
+        "maintenance/release/full-recovery-capture.sh", "maintenance/release/promote-backup.sh",
+        "maintenance/release/switch.sh", "release/baseline_candidate_load.py",
+        "release/bootstrap_backup_dr_assets.sh", "release/bootstrap_vm_signer.sh",
+        "release/gate.py", "release/manifest.py", "release/postrelease_baseline.py",
+        "release/production-recovery-retention-clean.sh", "release/production-space-clean.sh",
+        "release/production_cleanup.py", "release/production_recovery_retention.py",
+        "release/profiles.py", "release/promote-dr-baseline.sh", "release/recovery_drill.py",
+        "release/sign-dr-evidence.sh", "release/sign-gate.sh",
+        "release/stage-dr-baseline-candidate.sh", "release/vm-only-validate.sh", "release/vm-validate.sh",
+    )
+} | {
+    _SCRIPTS_PREFIX + f"maintenance/release/migration-{number}-assert.sh"
+    for number in (195, *range(232, 246), 254, 285, 297, 298, 299, 301)
+})
+_PREPARE_GATE_POLICY_REVIEW_PATHS = frozenset({
+    _SCRIPTS_PREFIX + "maintenance/release/prepare.sh",
+})
 _REVIEWED_SCOPED_TRANCHES = (
     (
         "aeb410bccc524164bdafbd3db865d4f5f588aced",
@@ -440,6 +463,18 @@ _REVIEWED_SCOPED_TRANCHES = (
         "76db7bbb1d1f421f7ea6a47408c7525f95fe557b",
         "reviewed_deploy_config_changed",
         _DEPLOY_CONFIG_REVIEW_PATHS,
+    ),
+    (
+        "f984872ebb536c84d1234bbe0d7b1de01d1401d5",
+        "3cbeebf3de3b79a1692f11ab2a2c557642c2624f",
+        "reviewed_profile_compatibility_changed",
+        _PROFILE276_COMPATIBILITY_REVIEW_PATHS,
+    ),
+    (
+        "f984872ebb536c84d1234bbe0d7b1de01d1401d5",
+        "3cbeebf3de3b79a1692f11ab2a2c557642c2624f",
+        "reviewed_prepare_gate_policy_changed",
+        _PREPARE_GATE_POLICY_REVIEW_PATHS,
     ),
 )
 _RELEASE_STATE_MACHINE_FILES = frozenset(

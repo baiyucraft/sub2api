@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import io
 import json
+import re
 import shlex
 import secrets
 import tarfile
@@ -12,14 +13,14 @@ from pathlib import Path
 
 from .atomic import atomic_write, canonical_json
 from .gate import verify_gate
-from .manifest import sha256_file
+from .manifest import sha256_file, validate_image_id
 from .migration_planner import HOOK_REGISTRY, plan_migrations
 from .production_snapshot import decode_snapshot, snapshot_script, snapshot_sha256
 from .paths import MAINTENANCE_ROOT, RELEASE_PACKAGE_ROOT, TRUSTED_VM_PUBLIC_KEY, UNIT_ROOT, WORKSPACE
 from .recovery_bundle import stage_recovery_bundle, recovery_command, RECOVERY_RESULT_FIELDS
 from .profiles import get_profile, get_release_profile
 from .recovery_gate import assert_release_allowed
-from .ssh import SSHRunner
+from .ssh import SSHRunner, UnexpectedRemoteStderr
 
 
 TRUSTED_KEY = TRUSTED_VM_PUBLIC_KEY
@@ -33,6 +34,116 @@ BACKUP_RESULT_RECONCILE_RETRY_DELAYS = (2, 5, 10, 20)
 BACKUP_GENERATION_UPLOAD_RETRY_DELAYS = (5, 15)
 STAGE_BUNDLE_UPLOAD_RETRY_DELAYS = (5, 15, 30)
 STAGE_BUNDLE_NAME = "stage-assets.tar"
+RECOVERED_CLAIM_FIELDS = {
+    "recovery_marker_verified", "release_claim_reconciled", "plaintext_state_removed",
+    "active_slot_verified", "application_health", "nginx_active", "backup_timer_enabled",
+    "nginx_route_verified", "backup_service_inactive", "backup_timer_active",
+    "candidate_absent", "running_image_id",
+}
+
+
+def recovered_claim_probe_script(
+    release_id: str, candidate_image_id: str, gate_sha256: str, gate_signature_sha256: str,
+) -> str:
+    validate_image_id(candidate_image_id)
+    if not re.fullmatch(r"[0-9a-f]{64}", gate_sha256) or not re.fullmatch(r"[0-9a-f]{64}", gate_signature_sha256):
+        raise ValueError("signed Gate digest is invalid")
+    release_dir = f"/opt/sub2api/releases/{release_id}"
+    candidate_name = f"sub2api-candidate-{release_id}"
+    return f"""set -Eeuo pipefail
+recovered={shlex.quote(release_dir + '/.recovered')}
+test -d "$recovered"
+test ! -L "$recovered"
+for file in marker plaintext-cleaned release_id gate.json gate.sig CLAIM_SHA256SUMS; do
+  test -f "$recovered/$file"
+  test ! -L "$recovered/$file"
+done
+grep -Fxq {shlex.quote(f'release_id={release_id}')} "$recovered/release_id"
+grep -Fxq {shlex.quote(f'release_id={release_id}')} "$recovered/marker"
+(cd "$recovered" && sha256sum -c CLAIM_SHA256SUMS >/dev/null)
+recovered_gate_sha256=$(sha256sum "$recovered/gate.json" | awk '{{print $1}}')
+test "$recovered_gate_sha256" = {shlex.quote(gate_sha256)}
+recovered_gate_signature_sha256=$(sha256sum "$recovered/gate.sig" | awk '{{print $1}}')
+test "$recovered_gate_signature_sha256" = {shlex.quote(gate_signature_sha256)}
+required_gate_release=$(jq -er '.manifest.release_id' "$recovered/gate.json") || exit $?
+test "$required_gate_release" = {shlex.quote(release_id)}
+required_gate_candidate=$(jq -er '.evidence.candidate_image_id' "$recovered/gate.json") || exit $?
+test "$required_gate_candidate" = {shlex.quote(candidate_image_id)}
+test ! -e /opt/sub2api/releases/.active-release
+test ! -L /opt/sub2api/releases/.active-release
+container_names=$(docker ps -a --format '{{{{.Names}}}}')
+if grep -Fxq -- {shlex.quote(candidate_name)} <<<"$container_names"; then
+  exit 1
+else
+  grep_code=$?
+  test "$grep_code" = 1 || exit "$grep_code"
+fi
+test -f /opt/sub2api/active-app
+test ! -L /opt/sub2api/active-app
+active_container=$(sed -n 's/^container=//p' /opt/sub2api/active-app)
+active_port=$(sed -n 's/^port=//p' /opt/sub2api/active-app)
+active_slot_image_id=$(sed -n 's/^image_id=//p' /opt/sub2api/active-app)
+test -n "$active_container"
+test -n "$active_port"
+test -n "$active_slot_image_id"
+if grep -Fxq -- "$active_container" <<<"$container_names"; then
+  :
+else
+  grep_code=$?
+  exit "$grep_code"
+fi
+required_health=$(docker inspect -f '{{{{.State.Health.Status}}}}' "$active_container") || exit $?
+test "$required_health" = healthy
+required_running=$(docker inspect -f '{{{{.State.Running}}}}' "$active_container") || exit $?
+test "$required_running" = true
+running_image_id=$(docker inspect -f '{{{{.Image}}}}' "$active_container") || exit $?
+test "$active_slot_image_id" = "$running_image_id"
+test "$running_image_id" != {shlex.quote(candidate_image_id)}
+required_nginx=$(systemctl is-active nginx) || exit $?
+test "$required_nginx" = active
+managed_upstream=${{NGINX_MANAGED_UPSTREAM:-/etc/nginx/conf.d/sub2api-release-upstream.conf}}
+test -f "$managed_upstream"
+test ! -L "$managed_upstream"
+grep -Fq "server 127.0.0.1:$active_port;" "$managed_upstream"
+backup_service_exit=0
+backup_service_state=$(systemctl is-active sub2api-backup.service 2>/dev/null) || backup_service_exit=$?
+test "$backup_service_state" = inactive
+test "$backup_service_exit" = 3
+required_timer_enabled=$(systemctl is-enabled sub2api-backup.timer) || exit $?
+test "$required_timer_enabled" = enabled
+required_timer_active=$(systemctl is-active sub2api-backup.timer) || exit $?
+test "$required_timer_active" = active
+printf 'recovery_marker_verified=true\\nrelease_claim_reconciled=true\\nplaintext_state_removed=true\\nactive_slot_verified=true\\napplication_health=pass\\nnginx_active=true\\nnginx_route_verified=true\\nbackup_service_inactive=true\\nbackup_timer_enabled=true\\nbackup_timer_active=true\\ncandidate_absent=true\\nrunning_image_id=%s\\n' "$running_image_id"
+"""
+
+
+def validate_recovered_claim_evidence(
+    values: dict[str, str], candidate_image_id: str, restored_image_id: str | None = None,
+) -> dict[str, str]:
+    expected = {
+        "recovery_marker_verified": "true",
+        "release_claim_reconciled": "true",
+        "plaintext_state_removed": "true",
+        "active_slot_verified": "true",
+        "application_health": "pass",
+        "nginx_active": "true",
+        "nginx_route_verified": "true",
+        "backup_service_inactive": "true",
+        "backup_timer_enabled": "true",
+        "backup_timer_active": "true",
+        "candidate_absent": "true",
+    }
+    missing = [key for key, value in expected.items() if values.get(key) != value]
+    running = values.get("running_image_id")
+    try:
+        validate_image_id(running)
+    except (TypeError, ValueError):
+        missing.append("running_image_id")
+    if running == candidate_image_id or (restored_image_id is not None and running != restored_image_id):
+        missing.append("running_image_id")
+    if missing:
+        raise RuntimeError(f"remote recovery evidence is incomplete:{','.join(sorted(set(missing)))}")
+    return values
 
 
 class BackupGenerationFailure(RuntimeError):
@@ -441,7 +552,11 @@ exit "$code"
             {"release_directory_created"},
         )
         self._remote_raw_logging_ready = True
-        env = quoted_env({"RELEASE_ID": self.release_id, "RELEASE_DIR": self.release_dir})
+        env = quoted_env({
+            "RELEASE_ID": self.release_id,
+            "RELEASE_DIR": self.release_dir,
+            "MINIMUM_FREE_BYTES": self.profile["minimum_rack_free_bytes"],
+        })
         prepared = self.run_remote(
             "racknerd",
             f"{env} {self.release_dir}/assets/prepare.sh",
@@ -1630,25 +1745,39 @@ printf 'switch_failure_substage=%s\\nswitch_failure_code=%s\\nswitch_failure_lin
             unit_values = self.restore_backup_units(restore_env)
             values.update(unit_values)
             self.units_masked = False
-        cleaned = self.run_remote(
-            "racknerd",
-            f"{quoted_env({'RELEASE_DIR': self.release_dir})} {self.active_assets}/cleanup-state.sh",
-            {"plaintext_state_removed", "state_cleanup"},
-        )
+        try:
+            cleaned = self.run_remote(
+                "racknerd",
+                f"{quoted_env({'RELEASE_DIR': self.release_dir})} {self.active_assets}/cleanup-state.sh",
+                {"plaintext_state_removed", "state_cleanup"},
+            )
+        except UnexpectedRemoteStderr as error:
+            if (
+                error.values.get("plaintext_state_removed") != "true"
+                or error.values.get("state_cleanup") not in {"removed", "recovery_point_preserved"}
+            ):
+                raise
+            cleaned = error.values
         values.update(cleaned)
         try:
-            reconciled = self.run_remote(
+            self.run_remote(
                 "racknerd",
                 f"{quoted_env({'RELEASE_DIR': self.release_dir})} {self.active_assets}/reconcile.sh",
                 {"release_claim_reconciled"},
             )
-        except BaseException:
-            reconciled = self.run_remote(
-                "racknerd",
-                f"slot=/opt/sub2api/active-app; active_container=$(sed -n 's/^container=//p' \"$slot\" 2>/dev/null); test -f {self.release_dir}/.recovered/marker && test -f {self.release_dir}/.recovered/plaintext-cleaned && test ! -e /opt/sub2api/releases/.active-release && test -n \"$active_container\" && {{ required_observed=$(docker inspect -f '{{{{.State.Health.Status}}}}' \"$active_container\") || exit 125; }} && test \"$required_observed\" = healthy && {{ required_observed=$(systemctl is-enabled sub2api-backup.timer) || exit 125; }} && test \"$required_observed\" = enabled && printf 'release_claim_reconciled=true\\n'",
-                {"release_claim_reconciled"},
-            )
-        values.update(reconciled)
+        except UnexpectedRemoteStderr:
+            pass
+        proof = self.run_remote(
+            "racknerd",
+            recovered_claim_probe_script(
+                self.release_id,
+                self.image_id,
+                sha256_file(self.gate_dir / "gate.json"),
+                sha256_file(self.gate_dir / "gate.sig"),
+            ),
+            RECOVERED_CLAIM_FIELDS,
+        )
+        values.update(validate_recovered_claim_evidence(proof, self.image_id))
         self.result["status"] = "recovered"
         self.stage("recovered", values)
 
