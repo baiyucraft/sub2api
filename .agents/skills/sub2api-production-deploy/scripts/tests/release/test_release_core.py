@@ -597,17 +597,22 @@ class ReleaseCoreTest(unittest.TestCase):
             "maintenance/release/context.sh",
             "maintenance/release/prepare.sh",
             "maintenance/release/promote-backup.sh",
+        ):
+            content = (DEPLOY_ROOT / relative_path).read_text(encoding="utf-8")
+            self.assertIn(expected_release_pattern, content, relative_path)
+        validator = (DEPLOY_ROOT / "release/vm-validate.sh").read_text(encoding="utf-8")
+        prepare = (DEPLOY_ROOT / "maintenance/release/prepare.sh").read_text(encoding="utf-8")
+        self.assertIn('[[ "$profile" == 280 ]]', validator)
+        self.assertIn('elif [[ "$profile" == 277 ]]; then', validator)
+        self.assertIn('[[ $profile == 280 ]]', prepare)
+        self.assertNotIn('[[ $profile == 277 ]]', prepare)
+
+        for relative_path in (
             "maintenance/181/mask-backup-units.sh",
             "maintenance/181/restore-backup-units.sh",
         ):
             content = (DEPLOY_ROOT / relative_path).read_text(encoding="utf-8")
-            self.assertIn(expected_release_pattern, content, relative_path)
-        for relative_path in (
-            "release/vm-validate.sh",
-            "maintenance/release/prepare.sh",
-        ):
-            content = (DEPLOY_ROOT / relative_path).read_text(encoding="utf-8")
-            self.assertIn(expected_profile_check, content, relative_path)
+            self.assertIn("base =~ ^[1-9][0-9]*-[0-9a-f]{12}-", content, relative_path)
 
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
         self.assertIn("drverify/[^/]+", validator)
