@@ -7,9 +7,31 @@ release_id=${RELEASE_ID:?RELEASE_ID is required}
 release_dir=${RELEASE_DIR:?RELEASE_DIR is required}
 minimum_free_bytes=${MINIMUM_FREE_BYTES:-10737418240}
 trust_key=${TRUST_KEY:-/opt/sub2api-release-trust/vm-gate-ed25519.pub}
+[[ $minimum_free_bytes =~ ^[1-9][0-9]{0,17}$ ]]
 [[ $release_id =~ ^(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273|274|275|276|277)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
 [[ $release_dir == "/opt/sub2api/releases/$release_id" ]]
 [[ -d $release_dir && ! -L $release_dir ]]
+
+# Keep import behind a conservative reservation; candidate.tar.gz is restored
+# to the release directory by the claim trap if the capacity check fails.
+load_candidate_with_capacity_guard() {
+  local archive=${1:?candidate archive is required}
+  local minimum=${2:?minimum free bytes are required}
+  local docker_root candidate_import_bytes free_bytes required_free_bytes
+  [[ $minimum =~ ^[1-9][0-9]{0,17}$ ]]
+  docker_root=$(docker info --format '{{.DockerRootDir}}')
+  [[ -n $docker_root && $docker_root == /* ]]
+  free_bytes=$(df -PB1 "$docker_root" | awk 'NR==2 {print $4}')
+  candidate_import_bytes=$(gzip -dc "$archive" | wc -c | tr -d '[:space:]')
+  [[ $free_bytes =~ ^[0-9]{1,18}$ && $candidate_import_bytes =~ ^[0-9]{1,18}$ ]]
+  required_free_bytes=$((candidate_import_bytes + minimum))
+  if (( free_bytes < required_free_bytes )); then
+    printf 'candidate import capacity is insufficient; archive retained for retry\n' >&2
+    false
+  fi
+  gzip -dc "$archive" | docker load >/dev/null
+}
+
 exec 9>/run/lock/sub2api-production-release.lock
 flock -n 9
 active_claim=/opt/sub2api/releases/.active-release
@@ -149,17 +171,7 @@ candidate_tag="sub2api:baiyu-$version-$commit"
 _required_11=$(sha256sum "$active_claim/candidate.tar.gz" | awk '{print $1}')
 [[ ${_required_11} == "$candidate_sha" ]]
 gzip -t "$active_claim/candidate.tar.gz"
-docker_root=$(docker info --format '{{.DockerRootDir}}')
-[[ -n $docker_root && $docker_root == /* ]]
-free_bytes=$(df -PB1 "$docker_root" | awk 'NR==2 {print $4}')
-candidate_import_bytes=$(gzip -dc "$active_claim/candidate.tar.gz" | wc -c | tr -d '[:space:]')
-[[ $free_bytes =~ ^[0-9]{1,18}$ && $candidate_import_bytes =~ ^[0-9]{1,18}$ ]]
-required_free_bytes=$((candidate_import_bytes + minimum_free_bytes))
-if (( free_bytes < required_free_bytes )); then
-  printf 'candidate import capacity is insufficient; archive retained for retry\n' >&2
-  false
-fi
-gzip -dc "$active_claim/candidate.tar.gz" | docker load >/dev/null
+load_candidate_with_capacity_guard "$active_claim/candidate.tar.gz" "$minimum_free_bytes"
 preserve_candidate_archive=false
 _required_12=$(docker image inspect -f '{{.Id}}' "$candidate_image_id")
 [[ ${_required_12} == "$candidate_image_id" ]]
