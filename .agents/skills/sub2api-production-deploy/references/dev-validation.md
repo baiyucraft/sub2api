@@ -101,18 +101,16 @@ VM 插件 Gate 不得使用真实生产账号采集。用户只要求查看 UI �
 
 历史 profile 的兼容镜像只能从其已验证 Candidate 归档恢复：先在本地独立验签并核对 archive、release assets、migration map、commit 和 image ID，再上传到 VM；不得修改历史 Gate、删除旧证据或把历史 Gate 直接当作当前 release Gate。
 
-空间不足时停止。Docker 所在文件系统可用空间低于动态峰值需求或 8 GiB 下限即视为不足。先清理过期 `/tmp` candidate 或经过引用检查的单个旧 Sub2API image；仍不足时只允许版本化清理器执行一次 `--all`、`max-used-space=1gb`、`reserved-space=1gb` 的容量有界 BuildKit GC。`--all` 必须与缓存上限和保留量同时使用；禁止 system prune、缺少容量边界的 builder prune、删卷、删数据库、删 Redis、删 data 或删 backup。清理只能执行一次。
+空间不足时停止。Docker 所在文件系统可用空间低于动态峰值需求或 8 GiB 下限即视为不足。本 VM 不扩容；先清理过期 `/tmp` candidate 或经过引用检查的单个旧 Sub2API image；仍不足时只允许版本化清理器执行一次 `--all`、`max-used-space=1gb`、`reserved-space=1gb` 的容量有界 BuildKit GC。退役 DR rootfs、临时输入和未被引用的 `vm-only-*` 镜像只能经独立精确计划处理，须先证明没有 runner、owner、容器/镜像引用或挂载，并保留当前/上一镜像、Gate、candidate、恢复点和失败证据。`--all` 必须与缓存上限和保留量同时使用；禁止 system prune、缺少容量边界的 builder prune、删卷、删数据库、删 Redis、删 data 或删 backup。清理只能执行一次，完成后重跑 doctor。
 
-## VM 空间与扩容
+## VM 空间与清理
 
 - 清理前后以 `df` 的真实可用块为准记录释放量；`du` 只用于分类占用，不能推断可回收物理空间。
 - Docker 使用 containerd snapshotter 时同时记录 `/var/lib/containerd` overlay snapshot 物理占用和 BuildKit record 数；Docker 逻辑共享大小不得与物理占用相加。
 - Snap 缓存可能与已安装 Snap 共享物理块；Docker `system df` 仅作观察，不是授权清理依据。
-- 需要扩盘时先保存 `sfdisk --dump` 及 checksum，确认目标分区是最后分区且空闲空间连续；不能在分区边界不明时操作。
-- 扩盘顺序固定为：扩展分区 -> `partprobe` -> 按文件系统执行 resize（本 VM 为 `resize2fs /dev/sda3`）-> 重新读取分区、文件系统和 `df`。
-- 内核无法重新读取分区，或文件系统增长未被验证时立即停止；不能继续构建、导入或恢复。
-- 扩盘完成后必须重新执行完整容量检查和 `doctor`，不能直接续跑中断的发布阶段。
-- 任何清理或扩容都不得触碰 Docker volume、PostgreSQL、Redis、`data-dev`、正式备份和当前验证容器。
+- 本 VM 不扩容。容量不足时按上文有界 cleaner 和精确退役资产计划收口；任何计划无法证明目标无引用、无活动 owner/runner 或无挂载时立即停止。
+- 清理后重新核验完整文件系统可用空间、inode、Docker/containerd 状态并运行 `doctor`；不能直接续跑此前中断的 Gate 阶段。
+- 任何清理都不得触碰 Docker volume、PostgreSQL、Redis、`data-dev`、正式备份和当前验证容器。
 
 ## 连接隔离门禁
 
