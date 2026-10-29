@@ -9,7 +9,7 @@ description: 面向 Sub2API fork 的构建、开发门禁、应用与独立插�
 
 ## 日常部署参数
 
-日常应用发布复用仓库中已验证的固定脚本，将 `schema/commit/profile/mode` 写入本地 `.release/deploy.local.json`，通过 `release.py doctor` 和 `release.py deploy-follow` 消费；显式完整参数优先。当前 profile `281` 为 `0.2.19-baiyu`、parent `280`、新增 `305_scoped_admin_api_keys.sql` 与 `306_group_image_count_billing.sql`，并沿用当前 `downtime` 发布约束；版本、父链和迁移仍取已登记的 profile。配置只补齐参数，原 Gate、备份、迁移、恢复及 `verify-result` 门禁照常执行，脚本字节变化仍按现有规则审阅和验证。
+日常应用发布复用仓库中已验证的固定脚本，将 `schema/commit/profile/mode` 写入本地 `.release/deploy.local.json`，通过 `release.py doctor` 和 `release.py deploy-follow` 消费；显式完整参数优先。当前 profile `281` 为 `0.2.19-baiyu`、parent `280`、新增 `305_scoped_admin_api_keys.sql` 与 `306_group_image_count_billing.sql`，并沿用当前 `downtime` 发布约束；版本、父链和迁移仍取已登记的 profile。配置只补齐参数，原 Gate、备份、迁移、恢复及 `verify-result` 门禁照常执行，脚本字节变化仍按现有规则审阅和验证。当前实现仍会在 deploy 中调用 VM validator/signer 安装校验流程，并在 VM 缺少 `jq` 时安装该依赖，因此“日常 deploy 只核验已安装工具”的目标尚未实现，不能按只读工具检查描述。
 
 连接及机器路径保留在 `.ssh.local`；`vm_lifecycle.shared_dir` 指向已有的规范物理共享目录，复用其中原 `lease.lock` 和 `owner.json`，不得因 checkout 不同新建发布所有权域。配置生成、支持命令与观察重连见 [本地部署参数](references/release-runner-lifecycle.md#本地部署参数)。
 
@@ -40,8 +40,7 @@ description: 面向 Sub2API fork 的构建、开发门禁、应用与独立插�
 - 生产镜像与 candidate 清理只能使用 `cleanup-production`：先 dry-run，再把原样 `plan_sha256` 传入 apply。候选包括满足保护条件的旧 `candidate.tar.gz` 归档，以及所有 tag 均为 full-SHA 发布 tag、或完全无 tag 的 dangling Sub2API layer。candidate 归档默认保留最近 3 天内全部文件；若窗口内不足 3 个则补足最近 3 个；当前 release、带恢复/协调标记和非单链接文件始终保护。只删没有任何容器引用、不属于运行镜像、pre-switch 或恢复点的旧镜像；退出的 migration 容器及其镜像作为 reconciliation 证据保留。生产 BuildKit GC 固定为 `max-used-space=2gb,reserved-space=2gb`，禁止扩大范围。生产 `release-state` 恢复点另用 `cleanup-production-recovery-points`：保留最近 3 天全部有效点，不足 3 个补足最近 3 个，当前/上一发布、reconciliation 和状态不明始终保护；同样必须 dry-run、原样 `plan_sha256` apply。
 - 备份机空间清理只能使用版本化 `backup-retention-clean.sh` 与 `backup-release-retention-clean.sh`：先 dry-run，再用同一 `plan_sha256` apply。daily 默认至少保留最新 1 组；release 默认只保留最高版本 profile 的最新 1 个恢复包，历史 profile 和同一 profile 的旧包进入候选，但 candidate/verified/recovery/baseline 等指针及恢复标记始终保护。清理后仍低于 5 GiB 时必须扩容或人工审核，禁止扩大删除范围。
 - 若备份目录已无早于 15 天的 daily 自动清理候选且仍至少保留最新 1 组，而宿主机 systemd journal 占用异常，可使用版本化 `backup-host-space-clean.sh`：只将 `/var/log/journal` 容量压到 1 GiB，apply 必须绑定 dry-run 的 `plan_sha256`，并要求清理后至少保留 `5 GiB + 512 MiB` 上传余量。该脚本禁止删除、遍历或改写 `/srv/sub2api-backups` 内任何备份资产。
-- VM 空间必须按 Docker/containerd、`/tmp`、源码、构建/恢复副本和回滚预留计算峰值；清理最多一次，不能用 `du` 或 Snap 缓存推断可回收空间。
-- VM 扩盘后必须完成分区、`partprobe`、文件系统 resize 和完整 `df`/inode 复核，并重新执行 `doctor`；不能续跑中断阶段。
+- VM 空间必须按 Docker/containerd、`/tmp`、源码、构建/恢复副本和回滚预留计算峰值；本 VM 不扩容。清理最多一次，不能用 `du` 或 Snap 缓存推断可回收空间。退役 DR rootfs、临时输入和未被引用的 `vm-only-*` 镜像须先证明没有 runner、owner、容器/镜像引用或挂载，再按精确清理计划执行；不得扩大版本化 cleaner 的目标范围，完成后重新执行 `doctor`。
 - 本地开发机的 Go 全量门禁默认使用 `-p 2 -parallel 2`，并与 Vitest、typecheck、前端生产构建串行执行；该限制不改变 VM 的正式镜像构建并行度。
 - signer 公钥、私钥派生公钥、production-node trust key、validator 和 Gate 中记录的 checksum 任一不一致，必须停止，不得通过 bootstrap 自动修复后继续发布。
 - validator 与 signer helper 必须作为同一版本单元暂存、验签自测后一次激活；不得单独升级其中一个，也不得在 Compose 闭包未验证前删除旧容器或恢复数据库。
@@ -506,6 +505,8 @@ Windows 既有目标采用 `ReplaceFileW` 安全替换并保留独占备份，�
 当前 profile `281` 为 `0.2.19-baiyu`、parent `280`，固定官方目标为 `a9240d5016c226b341242a8c54a01a8605cbbc72`，版本直接继承官方源码 `VERSION=0.2.19`。历史 280 的 `0.2.22-baiyu` 及全部旧 profile、SQL、checksum 与精确恢复审阅保持不变。官方 247/248 与本地既有迁移冲突，仅将新增 SQL 原始字节重编号为 `305_scoped_admin_api_keys.sql`、`306_group_image_count_billing.sql`，按此顺序纳入 `new_migrations`；不回写本地旧 247/248 或数据库记录。
 
 Python profile、VM validator、Gate/DR signer、自测 bootstrap、生产 prepare/context、祖先 297/298/299/301 manifest 断言、备份和清理入口同步接纳 281，未登记 282 继续拒绝。281 保留 downtime、旧写者退出及 coordinated_restore 合同；新增管理员作用域密钥和分组图片按张计费字段。登记与本地测试不证明 VM Gate、真实 PostgreSQL 升级、生产部署或线上行为；恢复敏感脚本变化仍按最终 blob/模式分类，既有精确审阅和豁免不扩张。
+
+2026-10-29 的 profile 281 验收已完成 VM Gate、停机生产发布、`verify-result` 和 post-deploy doctor；candidate image 与运行 image 一致，VM 未扩容。postrelease capture 及后续 restore/review/sign/promotion 仍未完成，不得把已验证的应用发布写成已验证的灾备基线。
 
 - `305_scoped_admin_api_keys.sql`：原始 SHA-256 `0c4c22f564f276fb305a54cf2d6c4b1a6179d748d5d8b74a3b99676282355bf6`；Gate strip checksum `03445774e2dfad32da9e23279193d1bca02953896bc3d3b8a87ba0b36b6ed577`。
 

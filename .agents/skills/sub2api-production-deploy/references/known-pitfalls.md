@@ -376,3 +376,17 @@
 - 验真合同：候选成功使用 `verify-result`；恢复旧版本使用 `verify-recovery-result`，两者不能互相替代或放宽。
 - 预防门禁：每次发布执行 `fast` 0–2 分钟；恢复相关改动执行 `specialized` 5–15 分钟和受影响边界的故障注入；`full` 20–60 分钟至少每 30 天执行一次，不阻塞普通发布，仅恢复算法、备份格式、信任链变化或真实恢复事故修复必须在生产前通过。精确审阅的 profile 兼容扩展不重复 Full DR；未知关键变化先阻断，不能用 VM Full 参数绕过。
 - 状态：本次已知四类缺陷已修复；长期文档已固化门禁和恢复边界，CLI 使用独立 `verify-recovery-result` 验真 recovered release。
+
+## Postrelease capture 失败的证据边界
+
+- 现象：capture dispatcher 因缺失 decoder API 失败；修正为调用官方 decoder 后仍只返回通用 `RuntimeError`。
+- 处理：在启动远端副作用前验证 dispatcher 使用的 API 符号与当前工具闭包一致，并让每个阶段持久化固定阶段名、退出码和稳定错误码。若失败目录仅有 `intent.json`，没有 source snapshot 和远端 namespace，则 capture 未完成。
+- 证据：保留两次失败的本地 intent 和原始摘要；第二次异常未给出可验证根因，必须标记为未知。失败 drill ID 不复用；修复后使用新 ID，并从只读预检开始。
+- 验收：生产 release 的 Gate/`verify-result`/doctor 通过与 postrelease baseline 完成是两个独立结论。只有 fresh capture、候选 staging、真实 candidate load/inspect、独立 review、签名和原子 promotion 全部完成，才可报告新基线 verified。
+
+## 日常 deploy 仍会触碰 VM 工具单元
+
+- 现象：即使应用输入只来自本地部署参数，普通 `deploy` 仍可能改变 VM 工具或依赖。
+- 根因：`release.cli.deploy` 每次都会调用 `install_vm_validator`；该路径准备 VM host（缺少 `jq` 时使用 `apt-get install --no-upgrade`），上传 validator、Gate signer、DR signer 和 bootstrap，再运行原子校验/安装。
+- 影响：当前入口不是“只核验已安装工具”的只读流程。普通应用提交不会自动变成发布工具版本，但仓库工具字节改变时，该流程可能将变化激活到 VM。
+- 后续边界：若要落实工具版本与应用发布解耦，需单独修改并验证代码，让日常 deploy 只校验已安装闭包，由显式维护入口负责安装；本轮文档更新没有改变该行为。
