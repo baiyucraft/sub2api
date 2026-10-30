@@ -389,7 +389,7 @@ class FinalizationTest(unittest.TestCase):
         from release.migration_planner import discover_migration_catalog
 
         catalog = discover_migration_catalog(finalization.WORKSPACE)
-        self.assertEqual(len(catalog), 357)
+        self.assertEqual(len(catalog), 358)
         self.assertTrue(any(row["filename"] == "305_scoped_admin_api_keys.sql" for row in catalog))
         self.assertTrue(any(row["filename"] == "306_group_image_count_billing.sql" for row in catalog))
         self.assertTrue(any(row["filename"] == "303_group_strip_optional_image_tools.sql" for row in catalog))

@@ -70,12 +70,13 @@ func UserFromServiceAdmin(u *service.User) *AdminUser {
 		return nil
 	}
 	return &AdminUser{
-		User:                 *base,
-		Notes:                u.Notes,
-		LastUsedAt:           u.LastUsedAt,
-		GroupRates:           u.GroupRates,
-		GroupRatePercents:    u.GroupRatePercents,
-		RestrictPublicGroups: u.RestrictPublicGroups,
+		User:                    *base,
+		Notes:                   u.Notes,
+		LastUsedAt:              u.LastUsedAt,
+		GroupRates:              u.GroupRates,
+		GroupRatePercents:       u.GroupRatePercents,
+		DefaultGroupRatePercent: u.DefaultGroupRatePercent,
+		RestrictPublicGroups:    u.RestrictPublicGroups,
 	}
 }
 

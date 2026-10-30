@@ -1146,7 +1146,20 @@ PROFILES["281"] = {
     },
 }
 
-CURRENT_RELEASE_PROFILE = "281"
+PROFILES["282"] = {
+    **{key: PROFILES["281"][key] for key in _PROFILE_V2_RUNTIME_KEYS},
+    "name": "282",
+    "version": "0.2.19-baiyu",
+    "parent": "281",
+    "new_migrations": ["307_user_default_group_rate_percent.sql"],
+    "gate_schema": 2,
+    "release_policy": {
+        "compatibility_image": "production_current",
+        "migration_source": "database_state",
+    },
+}
+
+CURRENT_RELEASE_PROFILE = "282"
 
 
 def get_profile(name: str) -> dict:

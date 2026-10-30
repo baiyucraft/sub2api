@@ -44,6 +44,9 @@ type User struct {
 	GroupRates map[int64]float64
 	// GroupRatePercents 用户专属分组倍率百分比真值。
 	GroupRatePercents map[int64]float64
+	// DefaultGroupRatePercent applies only when no explicit group override exists.
+	// nil means the ordinary group rate; zero remains an explicit free rate.
+	DefaultGroupRatePercent *float64
 
 	// TOTP 双因素认证字段
 	TotpSecretEncrypted *string    // AES-256-GCM 加密的 TOTP 密钥

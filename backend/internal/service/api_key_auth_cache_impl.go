@@ -105,7 +105,8 @@ func (s *APIKeyService) initAuthCache(cfg *config.Config) {
 // StartAuthCacheInvalidationSubscriber starts the Pub/Sub subscriber for L1 cache invalidation.
 // This should be called after the service is fully initialized.
 func (s *APIKeyService) StartAuthCacheInvalidationSubscriber(ctx context.Context) {
-	if s.cache == nil || (s.authCacheL1 == nil && s.authNegativeCacheL1 == nil) {
+	rateCache, supportsRateInvalidation := s.cache.(UserGroupRateInvalidationCache)
+	if s.cache == nil || (s.authCacheL1 == nil && s.authNegativeCacheL1 == nil && !supportsRateInvalidation) {
 		return
 	}
 	s.authInvalidationStart.Do(func() {
@@ -114,6 +115,10 @@ func (s *APIKeyService) StartAuthCacheInvalidationSubscriber(ctx context.Context
 			s.authInvalidationConnected.Store(true)
 		})
 		s.authInvalidationCancel = cancel
+		if supportsRateInvalidation {
+			s.authInvalidationWG.Add(1)
+			go s.runUserGroupRateInvalidationSubscriber(subscriberCtx, rateCache)
+		}
 		s.authInvalidationWG.Add(1)
 		go func() {
 			defer s.authInvalidationWG.Done()

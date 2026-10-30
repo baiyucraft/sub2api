@@ -72679,6 +72679,8 @@ type UserMutation struct {
 	last_login_at                 *time.Time
 	last_active_at                *time.Time
 	restrict_public_groups        *bool
+	default_group_rate_percent    *float64
+	adddefault_group_rate_percent *float64
 	balance_notify_enabled        *bool
 	balance_notify_threshold_type *string
 	balance_notify_threshold      *float64
@@ -73638,6 +73640,76 @@ func (m *UserMutation) OldRestrictPublicGroups(ctx context.Context) (v bool, err
 // ResetRestrictPublicGroups resets all changes to the "restrict_public_groups" field.
 func (m *UserMutation) ResetRestrictPublicGroups() {
 	m.restrict_public_groups = nil
+}
+
+// SetDefaultGroupRatePercent sets the "default_group_rate_percent" field.
+func (m *UserMutation) SetDefaultGroupRatePercent(f float64) {
+	m.default_group_rate_percent = &f
+	m.adddefault_group_rate_percent = nil
+}
+
+// DefaultGroupRatePercent returns the value of the "default_group_rate_percent" field in the mutation.
+func (m *UserMutation) DefaultGroupRatePercent() (r float64, exists bool) {
+	v := m.default_group_rate_percent
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldDefaultGroupRatePercent returns the old "default_group_rate_percent" field's value of the User entity.
+// If the User object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserMutation) OldDefaultGroupRatePercent(ctx context.Context) (v *float64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldDefaultGroupRatePercent is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldDefaultGroupRatePercent requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldDefaultGroupRatePercent: %w", err)
+	}
+	return oldValue.DefaultGroupRatePercent, nil
+}
+
+// AddDefaultGroupRatePercent adds f to the "default_group_rate_percent" field.
+func (m *UserMutation) AddDefaultGroupRatePercent(f float64) {
+	if m.adddefault_group_rate_percent != nil {
+		*m.adddefault_group_rate_percent += f
+	} else {
+		m.adddefault_group_rate_percent = &f
+	}
+}
+
+// AddedDefaultGroupRatePercent returns the value that was added to the "default_group_rate_percent" field in this mutation.
+func (m *UserMutation) AddedDefaultGroupRatePercent() (r float64, exists bool) {
+	v := m.adddefault_group_rate_percent
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearDefaultGroupRatePercent clears the value of the "default_group_rate_percent" field.
+func (m *UserMutation) ClearDefaultGroupRatePercent() {
+	m.default_group_rate_percent = nil
+	m.adddefault_group_rate_percent = nil
+	m.clearedFields[user.FieldDefaultGroupRatePercent] = struct{}{}
+}
+
+// DefaultGroupRatePercentCleared returns if the "default_group_rate_percent" field was cleared in this mutation.
+func (m *UserMutation) DefaultGroupRatePercentCleared() bool {
+	_, ok := m.clearedFields[user.FieldDefaultGroupRatePercent]
+	return ok
+}
+
+// ResetDefaultGroupRatePercent resets all changes to the "default_group_rate_percent" field.
+func (m *UserMutation) ResetDefaultGroupRatePercent() {
+	m.default_group_rate_percent = nil
+	m.adddefault_group_rate_percent = nil
+	delete(m.clearedFields, user.FieldDefaultGroupRatePercent)
 }
 
 // SetBalanceNotifyEnabled sets the "balance_notify_enabled" field.
@@ -74666,7 +74738,7 @@ func (m *UserMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *UserMutation) Fields() []string {
-	fields := make([]string, 0, 25)
+	fields := make([]string, 0, 26)
 	if m.created_at != nil {
 		fields = append(fields, user.FieldCreatedAt)
 	}
@@ -74723,6 +74795,9 @@ func (m *UserMutation) Fields() []string {
 	}
 	if m.restrict_public_groups != nil {
 		fields = append(fields, user.FieldRestrictPublicGroups)
+	}
+	if m.default_group_rate_percent != nil {
+		fields = append(fields, user.FieldDefaultGroupRatePercent)
 	}
 	if m.balance_notify_enabled != nil {
 		fields = append(fields, user.FieldBalanceNotifyEnabled)
@@ -74788,6 +74863,8 @@ func (m *UserMutation) Field(name string) (ent.Value, bool) {
 		return m.LastActiveAt()
 	case user.FieldRestrictPublicGroups:
 		return m.RestrictPublicGroups()
+	case user.FieldDefaultGroupRatePercent:
+		return m.DefaultGroupRatePercent()
 	case user.FieldBalanceNotifyEnabled:
 		return m.BalanceNotifyEnabled()
 	case user.FieldBalanceNotifyThresholdType:
@@ -74847,6 +74924,8 @@ func (m *UserMutation) OldField(ctx context.Context, name string) (ent.Value, er
 		return m.OldLastActiveAt(ctx)
 	case user.FieldRestrictPublicGroups:
 		return m.OldRestrictPublicGroups(ctx)
+	case user.FieldDefaultGroupRatePercent:
+		return m.OldDefaultGroupRatePercent(ctx)
 	case user.FieldBalanceNotifyEnabled:
 		return m.OldBalanceNotifyEnabled(ctx)
 	case user.FieldBalanceNotifyThresholdType:
@@ -75001,6 +75080,13 @@ func (m *UserMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetRestrictPublicGroups(v)
 		return nil
+	case user.FieldDefaultGroupRatePercent:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetDefaultGroupRatePercent(v)
+		return nil
 	case user.FieldBalanceNotifyEnabled:
 		v, ok := value.(bool)
 		if !ok {
@@ -75060,6 +75146,9 @@ func (m *UserMutation) AddedFields() []string {
 	if m.addconcurrency != nil {
 		fields = append(fields, user.FieldConcurrency)
 	}
+	if m.adddefault_group_rate_percent != nil {
+		fields = append(fields, user.FieldDefaultGroupRatePercent)
+	}
 	if m.addbalance_notify_threshold != nil {
 		fields = append(fields, user.FieldBalanceNotifyThreshold)
 	}
@@ -75083,6 +75172,8 @@ func (m *UserMutation) AddedField(name string) (ent.Value, bool) {
 		return m.AddedFrozenBalance()
 	case user.FieldConcurrency:
 		return m.AddedConcurrency()
+	case user.FieldDefaultGroupRatePercent:
+		return m.AddedDefaultGroupRatePercent()
 	case user.FieldBalanceNotifyThreshold:
 		return m.AddedBalanceNotifyThreshold()
 	case user.FieldTotalRecharged:
@@ -75118,6 +75209,13 @@ func (m *UserMutation) AddField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddConcurrency(v)
+		return nil
+	case user.FieldDefaultGroupRatePercent:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddDefaultGroupRatePercent(v)
 		return nil
 	case user.FieldBalanceNotifyThreshold:
 		v, ok := value.(float64)
@@ -75163,6 +75261,9 @@ func (m *UserMutation) ClearedFields() []string {
 	if m.FieldCleared(user.FieldLastActiveAt) {
 		fields = append(fields, user.FieldLastActiveAt)
 	}
+	if m.FieldCleared(user.FieldDefaultGroupRatePercent) {
+		fields = append(fields, user.FieldDefaultGroupRatePercent)
+	}
 	if m.FieldCleared(user.FieldBalanceNotifyThreshold) {
 		fields = append(fields, user.FieldBalanceNotifyThreshold)
 	}
@@ -75194,6 +75295,9 @@ func (m *UserMutation) ClearField(name string) error {
 		return nil
 	case user.FieldLastActiveAt:
 		m.ClearLastActiveAt()
+		return nil
+	case user.FieldDefaultGroupRatePercent:
+		m.ClearDefaultGroupRatePercent()
 		return nil
 	case user.FieldBalanceNotifyThreshold:
 		m.ClearBalanceNotifyThreshold()
@@ -75262,6 +75366,9 @@ func (m *UserMutation) ResetField(name string) error {
 		return nil
 	case user.FieldRestrictPublicGroups:
 		m.ResetRestrictPublicGroups()
+		return nil
+	case user.FieldDefaultGroupRatePercent:
+		m.ResetDefaultGroupRatePercent()
 		return nil
 	case user.FieldBalanceNotifyEnabled:
 		m.ResetBalanceNotifyEnabled()

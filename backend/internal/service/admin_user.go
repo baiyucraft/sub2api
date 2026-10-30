@@ -241,6 +241,12 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 	if input.GroupRates != nil && input.GroupRatePercents != nil {
 		return nil, infraerrors.BadRequest("AMBIGUOUS_USER_GROUP_RATE", "group_rates and group_rate_percents cannot be submitted together")
 	}
+	if input.DefaultGroupRatePercentSet && input.DefaultGroupRatePercent != nil {
+		percent := *input.DefaultGroupRatePercent
+		if percent < 0 || math.IsNaN(percent) || math.IsInf(percent, 0) {
+			return nil, infraerrors.BadRequest("INVALID_DEFAULT_GROUP_RATE_PERCENT", "default_group_rate_percent must be finite and >= 0")
+		}
+	}
 	// 校验用户专属分组倍率：允许显式 0（nil 合法，表示清除专属倍率）。
 	if input.GroupRates != nil {
 		for groupID, rate := range input.GroupRates {
@@ -340,8 +346,12 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 		user.RestrictPublicGroups = *input.RestrictPublicGroups
 		fields.RestrictPublicGroups = true
 	}
+	if input.DefaultGroupRatePercentSet {
+		user.DefaultGroupRatePercent = input.DefaultGroupRatePercent
+		fields.DefaultGroupRatePercent = true
+	}
 
-	if err := s.userRepo.Update(ctx, user, fields); err != nil {
+	if err := s.persistAdminUserGroupConfiguration(ctx, user, fields, input); err != nil {
 		return nil, err
 	}
 
@@ -351,39 +361,8 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 			input.ActorAdminID, user.ID, oldRole, user.Role)
 	}
 
-	// 同步用户专属分组倍率
-	if input.GroupRates != nil && s.userGroupRateRepo != nil {
-		if err := s.userGroupRateRepo.SyncUserGroupRates(ctx, user.ID, input.GroupRates); err != nil {
-			InvalidateUserGroupRateCachesByUser(user.ID)
-			if s.authCacheInvalidator != nil {
-				s.authCacheInvalidator.InvalidateAuthCacheByUserID(ctx, user.ID)
-			}
-			return nil, err
-		}
-		InvalidateUserGroupRateCachesByUser(user.ID)
-		if s.authCacheInvalidator != nil {
-			s.authCacheInvalidator.InvalidateAuthCacheByUserID(ctx, user.ID)
-		}
-	}
-	if input.GroupRatePercents != nil && s.userGroupRateRepo != nil {
-		percentWriter, ok := s.userGroupRateRepo.(UserGroupRatePercentWriter)
-		if !ok {
-			return nil, errors.New("user group rate percent storage is unavailable")
-		}
-		if err := percentWriter.SyncUserGroupRatePercents(ctx, user.ID, input.GroupRatePercents); err != nil {
-			InvalidateUserGroupRateCachesByUser(user.ID)
-			if s.authCacheInvalidator != nil {
-				s.authCacheInvalidator.InvalidateAuthCacheByUserID(ctx, user.ID)
-			}
-			return nil, err
-		}
-		InvalidateUserGroupRateCachesByUser(user.ID)
-		if s.authCacheInvalidator != nil {
-			s.authCacheInvalidator.InvalidateAuthCacheByUserID(ctx, user.ID)
-		}
-	}
-
-	if s.authCacheInvalidator != nil {
+	rateConfigurationChanged := input.DefaultGroupRatePercentSet || input.ResetGroupRatePercents || input.GroupRates != nil || input.GroupRatePercents != nil
+	if s.authCacheInvalidator != nil && !rateConfigurationChanged {
 		// RPMLimit 直接参与 billing_cache_service.checkRPM 的三级级联，
 		// allowed_groups 参与 API Key 专属分组授权判断；不失效缓存会让修改在一个 L2 TTL 内失去效果。
 		if user.Concurrency != oldConcurrency || !strings.EqualFold(strings.TrimSpace(user.Email), strings.TrimSpace(oldEmail)) || user.Status != oldStatus || user.Role != oldRole || user.RPMLimit != oldRPMLimit || user.RestrictPublicGroups != oldRestrictPublicGroups || !sameInt64Set(user.AllowedGroups, oldAllowedGroups) {

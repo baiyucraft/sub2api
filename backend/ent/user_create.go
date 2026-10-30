@@ -284,6 +284,20 @@ func (_c *UserCreate) SetNillableRestrictPublicGroups(v *bool) *UserCreate {
 	return _c
 }
 
+// SetDefaultGroupRatePercent sets the "default_group_rate_percent" field.
+func (_c *UserCreate) SetDefaultGroupRatePercent(v float64) *UserCreate {
+	_c.mutation.SetDefaultGroupRatePercent(v)
+	return _c
+}
+
+// SetNillableDefaultGroupRatePercent sets the "default_group_rate_percent" field if the given value is not nil.
+func (_c *UserCreate) SetNillableDefaultGroupRatePercent(v *float64) *UserCreate {
+	if v != nil {
+		_c.SetDefaultGroupRatePercent(*v)
+	}
+	return _c
+}
+
 // SetBalanceNotifyEnabled sets the "balance_notify_enabled" field.
 func (_c *UserCreate) SetBalanceNotifyEnabled(v bool) *UserCreate {
 	_c.mutation.SetBalanceNotifyEnabled(v)
@@ -751,6 +765,11 @@ func (_c *UserCreate) check() error {
 	if _, ok := _c.mutation.RestrictPublicGroups(); !ok {
 		return &ValidationError{Name: "restrict_public_groups", err: errors.New(`ent: missing required field "User.restrict_public_groups"`)}
 	}
+	if v, ok := _c.mutation.DefaultGroupRatePercent(); ok {
+		if err := user.DefaultGroupRatePercentValidator(v); err != nil {
+			return &ValidationError{Name: "default_group_rate_percent", err: fmt.Errorf(`ent: validator failed for field "User.default_group_rate_percent": %w`, err)}
+		}
+	}
 	if _, ok := _c.mutation.BalanceNotifyEnabled(); !ok {
 		return &ValidationError{Name: "balance_notify_enabled", err: errors.New(`ent: missing required field "User.balance_notify_enabled"`)}
 	}
@@ -868,6 +887,10 @@ func (_c *UserCreate) createSpec() (*User, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.RestrictPublicGroups(); ok {
 		_spec.SetField(user.FieldRestrictPublicGroups, field.TypeBool, value)
 		_node.RestrictPublicGroups = value
+	}
+	if value, ok := _c.mutation.DefaultGroupRatePercent(); ok {
+		_spec.SetField(user.FieldDefaultGroupRatePercent, field.TypeFloat64, value)
+		_node.DefaultGroupRatePercent = &value
 	}
 	if value, ok := _c.mutation.BalanceNotifyEnabled(); ok {
 		_spec.SetField(user.FieldBalanceNotifyEnabled, field.TypeBool, value)
@@ -1421,6 +1444,30 @@ func (u *UserUpsert) UpdateRestrictPublicGroups() *UserUpsert {
 	return u
 }
 
+// SetDefaultGroupRatePercent sets the "default_group_rate_percent" field.
+func (u *UserUpsert) SetDefaultGroupRatePercent(v float64) *UserUpsert {
+	u.Set(user.FieldDefaultGroupRatePercent, v)
+	return u
+}
+
+// UpdateDefaultGroupRatePercent sets the "default_group_rate_percent" field to the value that was provided on create.
+func (u *UserUpsert) UpdateDefaultGroupRatePercent() *UserUpsert {
+	u.SetExcluded(user.FieldDefaultGroupRatePercent)
+	return u
+}
+
+// AddDefaultGroupRatePercent adds v to the "default_group_rate_percent" field.
+func (u *UserUpsert) AddDefaultGroupRatePercent(v float64) *UserUpsert {
+	u.Add(user.FieldDefaultGroupRatePercent, v)
+	return u
+}
+
+// ClearDefaultGroupRatePercent clears the value of the "default_group_rate_percent" field.
+func (u *UserUpsert) ClearDefaultGroupRatePercent() *UserUpsert {
+	u.SetNull(user.FieldDefaultGroupRatePercent)
+	return u
+}
+
 // SetBalanceNotifyEnabled sets the "balance_notify_enabled" field.
 func (u *UserUpsert) SetBalanceNotifyEnabled(v bool) *UserUpsert {
 	u.Set(user.FieldBalanceNotifyEnabled, v)
@@ -1867,6 +1914,34 @@ func (u *UserUpsertOne) SetRestrictPublicGroups(v bool) *UserUpsertOne {
 func (u *UserUpsertOne) UpdateRestrictPublicGroups() *UserUpsertOne {
 	return u.Update(func(s *UserUpsert) {
 		s.UpdateRestrictPublicGroups()
+	})
+}
+
+// SetDefaultGroupRatePercent sets the "default_group_rate_percent" field.
+func (u *UserUpsertOne) SetDefaultGroupRatePercent(v float64) *UserUpsertOne {
+	return u.Update(func(s *UserUpsert) {
+		s.SetDefaultGroupRatePercent(v)
+	})
+}
+
+// AddDefaultGroupRatePercent adds v to the "default_group_rate_percent" field.
+func (u *UserUpsertOne) AddDefaultGroupRatePercent(v float64) *UserUpsertOne {
+	return u.Update(func(s *UserUpsert) {
+		s.AddDefaultGroupRatePercent(v)
+	})
+}
+
+// UpdateDefaultGroupRatePercent sets the "default_group_rate_percent" field to the value that was provided on create.
+func (u *UserUpsertOne) UpdateDefaultGroupRatePercent() *UserUpsertOne {
+	return u.Update(func(s *UserUpsert) {
+		s.UpdateDefaultGroupRatePercent()
+	})
+}
+
+// ClearDefaultGroupRatePercent clears the value of the "default_group_rate_percent" field.
+func (u *UserUpsertOne) ClearDefaultGroupRatePercent() *UserUpsertOne {
+	return u.Update(func(s *UserUpsert) {
+		s.ClearDefaultGroupRatePercent()
 	})
 }
 
@@ -2498,6 +2573,34 @@ func (u *UserUpsertBulk) SetRestrictPublicGroups(v bool) *UserUpsertBulk {
 func (u *UserUpsertBulk) UpdateRestrictPublicGroups() *UserUpsertBulk {
 	return u.Update(func(s *UserUpsert) {
 		s.UpdateRestrictPublicGroups()
+	})
+}
+
+// SetDefaultGroupRatePercent sets the "default_group_rate_percent" field.
+func (u *UserUpsertBulk) SetDefaultGroupRatePercent(v float64) *UserUpsertBulk {
+	return u.Update(func(s *UserUpsert) {
+		s.SetDefaultGroupRatePercent(v)
+	})
+}
+
+// AddDefaultGroupRatePercent adds v to the "default_group_rate_percent" field.
+func (u *UserUpsertBulk) AddDefaultGroupRatePercent(v float64) *UserUpsertBulk {
+	return u.Update(func(s *UserUpsert) {
+		s.AddDefaultGroupRatePercent(v)
+	})
+}
+
+// UpdateDefaultGroupRatePercent sets the "default_group_rate_percent" field to the value that was provided on create.
+func (u *UserUpsertBulk) UpdateDefaultGroupRatePercent() *UserUpsertBulk {
+	return u.Update(func(s *UserUpsert) {
+		s.UpdateDefaultGroupRatePercent()
+	})
+}
+
+// ClearDefaultGroupRatePercent clears the value of the "default_group_rate_percent" field.
+func (u *UserUpsertBulk) ClearDefaultGroupRatePercent() *UserUpsertBulk {
+	return u.Update(func(s *UserUpsert) {
+		s.ClearDefaultGroupRatePercent()
 	})
 }
 

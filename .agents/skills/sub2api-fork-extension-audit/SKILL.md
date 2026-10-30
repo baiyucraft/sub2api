@@ -173,8 +173,14 @@ python .agents/skills/sub2api-fork-extension-audit/scripts/audit_fork_extensions
 
 ## 官方 0.2.19 与 profile 281
 
-本轮官方目标固定为 `a9240d5016c226b341242a8c54a01a8605cbbc72`。当前 pending profile `281` 为 `0.2.19-baiyu`、parent `280`，仅新增 `305_scoped_admin_api_keys.sql` 与 `306_group_image_count_billing.sql`。两个文件分别由官方 `247_scoped_admin_api_keys.sql`、`248_group_image_count_billing.sql` 原字节重编号；fork 原有 247/248、profile 280 及以前的版本、parent、SQL 和 checksum 全部冻结。显示版本重新跟随目标官方源码，不删除此前 fork 功能；未知 282 拒绝。
+该轮官方目标固定为 `a9240d5016c226b341242a8c54a01a8605cbbc72`。历史 profile `281` 为 `0.2.19-baiyu`、parent `280`，仅新增 `305_scoped_admin_api_keys.sql` 与 `306_group_image_count_billing.sql`。两个文件分别由官方 `247_scoped_admin_api_keys.sql`、`248_group_image_count_billing.sql` 原字节重编号；fork 原有 247/248、profile 280 及以前的版本、parent、SQL 和 checksum 全部冻结。显示版本重新跟随目标官方源码，不删除此前 fork 功能；当时未知282拒绝，当前282见后续合同。
 
 305 引入限定作用域管理员密钥，未登记的 fork 管理路由仍默认拒绝；306 引入分组图片计数计费，继续独立保留可选图片工具剥离策略。账号受管模型同步、运行态字段白名单、缓存保护快照、监控 SSE/超时落库和 Sol 探针 deny 例外保持各自合同。所有 Python/Shell/signer、祖先 manifest、备份与清理入口同步支持 281；继续要求停机和祖先 301 的协调恢复，不新增恢复豁免。
 
 最低本地验证覆盖 `test_profile281_release_contract.py`、`profile_281_migrations_test.go`、管理员密钥权限、图片计费、受管账号编辑/模型同步、缓存保护、健康探针、共享流式转发和前端类型/构建。最终敏感 blob 仍须单独审阅，实际 PostgreSQL 升级、旧镜像兼容、签名 VM Gate 和生产发布必须另行验证，本地合并通过不表示已上线。
+
+## 用户默认分组倍率与 profile 282
+
+当前pending profile282为同版本0.2.19-baiyu、parent281，仅新增307_user_default_group_rate_percent.sql。审计 `user-default-group-rate` 的精确路径：单组百分比覆盖优先、用户默认次级回退、双NULL使用分组普通倍率；0明确免费，不覆盖旧单组行。默认值、覆盖和RPM保存必须原子化；默认或实际倍率变动在数据库事务内写独立outbox、经专用topic发布后按user/revision条件ack，identity序列不能在删除重建后复用，旧认证worker不消费新事件。RPM-only不发倍率事件，父删除不被级联触发器阻断，断线重连和迟到loader不得恢复陈旧缓存。
+
+历史281及以前profile/357旧SQL/checksum/精确审阅不变，执行闭包接纳282并拒绝未知283，正常prepare/VM validator只准当前282；downtime/301停旧写者/coordinated_restore保留，不新增恢复豁免。最低回归含profile282、Go迁移、真实隔离userdefaultpg、事务保存、resolver/有效倍率读取、outbox/Redis重连以及前端原子保存测试；缺隔离数据库配置不得skip冒称通过。当前登记不证明VM Gate或生产发布，最终敏感blob仍须独立分类。

@@ -55,6 +55,8 @@ type User struct {
 	LastActiveAt *time.Time `json:"last_active_at,omitempty"`
 	// RestrictPublicGroups holds the value of the "restrict_public_groups" field.
 	RestrictPublicGroups bool `json:"restrict_public_groups,omitempty"`
+	// DefaultGroupRatePercent holds the value of the "default_group_rate_percent" field.
+	DefaultGroupRatePercent *float64 `json:"default_group_rate_percent,omitempty"`
 	// BalanceNotifyEnabled holds the value of the "balance_notify_enabled" field.
 	BalanceNotifyEnabled bool `json:"balance_notify_enabled,omitempty"`
 	// BalanceNotifyThresholdType holds the value of the "balance_notify_threshold_type" field.
@@ -241,7 +243,7 @@ func (*User) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case user.FieldTotpEnabled, user.FieldRestrictPublicGroups, user.FieldBalanceNotifyEnabled:
 			values[i] = new(sql.NullBool)
-		case user.FieldBalance, user.FieldFrozenBalance, user.FieldBalanceNotifyThreshold, user.FieldTotalRecharged:
+		case user.FieldBalance, user.FieldFrozenBalance, user.FieldDefaultGroupRatePercent, user.FieldBalanceNotifyThreshold, user.FieldTotalRecharged:
 			values[i] = new(sql.NullFloat64)
 		case user.FieldID, user.FieldConcurrency, user.FieldRpmLimit:
 			values[i] = new(sql.NullInt64)
@@ -388,6 +390,13 @@ func (_m *User) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field restrict_public_groups", values[i])
 			} else if value.Valid {
 				_m.RestrictPublicGroups = value.Bool
+			}
+		case user.FieldDefaultGroupRatePercent:
+			if value, ok := values[i].(*sql.NullFloat64); !ok {
+				return fmt.Errorf("unexpected type %T for field default_group_rate_percent", values[i])
+			} else if value.Valid {
+				_m.DefaultGroupRatePercent = new(float64)
+				*_m.DefaultGroupRatePercent = value.Float64
 			}
 		case user.FieldBalanceNotifyEnabled:
 			if value, ok := values[i].(*sql.NullBool); !ok {
@@ -598,6 +607,11 @@ func (_m *User) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("restrict_public_groups=")
 	builder.WriteString(fmt.Sprintf("%v", _m.RestrictPublicGroups))
+	builder.WriteString(", ")
+	if v := _m.DefaultGroupRatePercent; v != nil {
+		builder.WriteString("default_group_rate_percent=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
 	builder.WriteString(", ")
 	builder.WriteString("balance_notify_enabled=")
 	builder.WriteString(fmt.Sprintf("%v", _m.BalanceNotifyEnabled))

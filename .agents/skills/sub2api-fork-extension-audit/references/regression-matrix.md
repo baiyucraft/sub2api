@@ -385,3 +385,14 @@ profile 280 为 parent 279、版本 `0.2.22-baiyu`，无新增 SQL migration，�
 - 账号与前端：受管目录sync回调、Grok诊断代次、编辑字段白名单、Key生命周期、Group表单图片计费、账号列表ETag/缓存未知/TTFT；类型检查和production build。
 - 转发和调度：共享buffered Responses的模型审计、TTFT和原始缓存证据；DeepSeek `prompt_cache_hit_tokens`字段存在性/显式零/类型错误/优先级；Gemini固定缓存账号重试和终态；缓存快照3秒后台预算与5/30秒合同不变；监控SSE兼容和超时结果落库、Sol deny例外回归。
 - 可信度登记核对：实际入口为 `LoadConfidenceFingerprints`；service的state/probe覆盖集中于 `upstream_confidence_fingerprint_test.go`，管理摘要/JSON/ETag覆盖为 `upstream_management_distribution_test.go`。仓储sqlmock/SQLite测试与真实隔离 `upstream_confidence_fingerprint_postgres_test.go` 分别执行，覆盖lease竞争、CAS、轮换与重启读取；不得把模拟数据库结果写作PostgreSQL通过。
+
+
+## 用户默认分组倍率与 profile 282
+
+| 范围 | 最低回归合同 |
+| --- | --- |
+| 倍率解析和旧认证快照 | `user_group_rate_repo_test.go`、`user_group_rate_resolver_test.go`、`api_key_service_effective_rates_test.go`：单组>用户默认>分组普通倍率；0明确免费、NULL层级回退；默认值变动无需清除全部组覆盖，旧认证快照不得覆盖当前数据库真值，原始配额计量/利润豁免不变 |
+| 管理员保存与界面 | `admin_user_group_configuration_test.go`、`user_default_group_rate_request_test.go`、`usersDefaultGroupRate.spec.ts`、`UserAllowedGroupsModal.spec.ts`：省略/NULL/0/小数、有限非负校验，用户字段+默认+倍率+分组授权单事务成功或全回滚；界面空值沿用、有效预览，重置保留RPM及权限，中文英文完整 |
+| 跨实例失效 | `user_group_rate_cache_test.go`、`user_group_rate_invalidation_outbox_repo_test.go`、`user_group_rate_invalidation_test.go`：专用topic、确认订阅后重连清理、迟到loader不回填；发布失败保留outbox、成功后按user/revision删除，有界批次、取消/停止；旧认证语法不变 |
+| 迁移真实语义 | `go test -tags userdefaultpg ./migrations -run TestUserDefaultRatePG -count=1`：独立随机schema执行277+307，307重复安全、存量不变、约束/NULL/0/95、同事务rollback、倍率与RPM触发范围、group shadow、父删除、identity不复用及真实锁屏障并发ack；必须显式隔离DSN，缺失直接失败 |
+| 发布历史与执行闭包 | `profile_282_migrations_test.go`、`test_profile282_release_contract.py`及历史profile/release专项：282同版本0.2.19-baiyu、parent281、只增307，357旧SQL与全部历史profile逐项冻结；current-only282、未知283拒绝；真实Bash/jq、planner checksum、祖先297/298/299/301、downtime/停旧写者/coordinated_restore。保留敏感blob审阅边界，登记不是VM Gate/生产通过证据 |

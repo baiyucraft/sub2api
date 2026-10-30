@@ -21,6 +21,47 @@
       </div>
 
       <div v-else class="space-y-6">
+        <section class="rounded-xl border border-gray-200 bg-gray-50 p-4 dark:border-dark-600 dark:bg-dark-800" aria-labelledby="default-group-rate-label">
+          <div class="flex flex-wrap items-start justify-between gap-4">
+            <div class="min-w-0 flex-1">
+              <label id="default-group-rate-label" for="default-group-rate-percent" class="text-sm font-semibold text-gray-800 dark:text-gray-200">
+                {{ t('admin.users.defaultGroupRatePercent') }}
+              </label>
+              <p class="mt-1 text-xs leading-relaxed text-gray-500 dark:text-gray-400">{{ t('admin.users.defaultGroupRatePercentHint') }}</p>
+            </div>
+            <div class="relative flex-shrink-0">
+              <input
+                id="default-group-rate-percent"
+                data-test="default-group-rate-percent"
+                type="number"
+                step="0.01"
+                min="0"
+                :value="defaultGroupRateInput"
+                @input="updateDefaultGroupRatePercent(($event.target as HTMLInputElement).value)"
+                :aria-invalid="defaultGroupRateInvalid"
+                :disabled="!loaded || submitting"
+                placeholder="100"
+                class="hide-spinner w-28 rounded-lg border border-gray-300 bg-white py-2 pl-3 pr-8 text-sm font-medium focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 disabled:opacity-50 dark:border-dark-500 dark:bg-dark-700"
+              />
+              <span class="pointer-events-none absolute right-3 top-2 text-sm text-gray-400">%</span>
+            </div>
+          </div>
+          <p v-if="defaultGroupRateInvalid" role="alert" class="mt-2 text-xs text-red-600 dark:text-red-400">{{ t('admin.users.defaultGroupRateInvalid') }}</p>
+          <div class="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-gray-200 pt-3 dark:border-dark-600">
+            <p data-test="group-rate-override-count" class="text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.users.groupRateOverrideCount', { count: groupRateOverrideCount }) }}
+            </p>
+            <button
+              type="button"
+              data-test="reset-group-rate-percents"
+              :disabled="!loaded || submitting || groupRateOverrideCount === 0"
+              @click="resetAllGroupRatePercents"
+              class="btn btn-secondary px-3 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+            >{{ t('admin.users.resetGroupRatePercents') }}</button>
+          </div>
+          <p v-if="resetGroupRatePercents" data-test="group-rate-reset-pending" class="mt-2 text-xs text-primary-600 dark:text-primary-400">{{ t('admin.users.resetGroupRatePercentsPending') }}</p>
+        </section>
+
         <!-- 专属分组区域 -->
         <div v-if="exclusiveGroups.length > 0">
           <div class="mb-3 flex items-center gap-2">
@@ -76,7 +117,7 @@
                 </div>
 
                 <!-- 专属倍率输入：实际值 + 相对普通倍率百分比 -->
-                <div class="flex flex-shrink-0 items-end gap-2">
+                <div class="flex flex-shrink-0 items-start gap-2">
                   <label class="text-xs font-medium text-gray-600 dark:text-gray-400">
                     <span class="mb-1 block">{{ t('admin.users.actualRate') }}</span>
                   <input
@@ -101,10 +142,11 @@
                       :value="config.customRatePercent ?? ''"
                       @input="updateCustomRatePercent(config.groupId, ($event.target as HTMLInputElement).value)"
                       :data-test="`group-rate-percent-${config.groupId}`"
-                      placeholder="100"
+                      :placeholder="String(effectiveDefaultGroupRatePercent)"
                       :title="t('admin.users.relativeRatePercentHint')"
                       class="hide-spinner w-24 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium transition-colors focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-dark-500 dark:bg-dark-700"
                     />
+                    <span v-if="config.customRatePercent === null" :data-test="`group-rate-inheritance-${config.groupId}`" class="mt-1 block text-xs font-normal text-gray-400">{{ t('admin.users.inheritGroupRatePercent', { percent: effectiveDefaultGroupRatePercent }) }}</span>
                   </label>
                 </div>
               </div>
@@ -175,7 +217,7 @@
                 </div>
 
                 <!-- 专属倍率输入：实际值 + 相对普通倍率百分比 -->
-                <div class="flex flex-shrink-0 items-end gap-2">
+                <div class="flex flex-shrink-0 items-start gap-2">
                   <label class="text-xs font-medium text-gray-600 dark:text-gray-400">
                     <span class="mb-1 block">{{ t('admin.users.actualRate') }}</span>
                   <input
@@ -200,10 +242,11 @@
                       :value="config.customRatePercent ?? ''"
                       @input="updateCustomRatePercent(config.groupId, ($event.target as HTMLInputElement).value)"
                       :data-test="`group-rate-percent-${config.groupId}`"
-                      placeholder="100"
+                      :placeholder="String(effectiveDefaultGroupRatePercent)"
                       :title="t('admin.users.relativeRatePercentHint')"
                       class="hide-spinner w-24 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium transition-colors focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-dark-500 dark:bg-dark-700"
                     />
+                    <span v-if="config.customRatePercent === null" :data-test="`group-rate-inheritance-${config.groupId}`" class="mt-1 block text-xs font-normal text-gray-400">{{ t('admin.users.inheritGroupRatePercent', { percent: effectiveDefaultGroupRatePercent }) }}</span>
                   </label>
                 </div>
               </div>
@@ -225,8 +268,8 @@
 
     <template #footer>
       <div class="flex justify-end gap-3">
-        <button @click="$emit('close')" class="btn btn-secondary px-5">{{ t('common.cancel') }}</button>
-        <button data-test="save-group-config" @click="handleSave" :disabled="submitting || !loaded" class="btn btn-primary px-6">
+        <button data-test="cancel-group-config" @click="$emit('close')" class="btn btn-secondary px-5">{{ t('common.cancel') }}</button>
+        <button data-test="save-group-config" @click="handleSave" :disabled="submitting || !loaded || defaultGroupRateInvalid" class="btn btn-primary px-6">
           <svg v-if="submitting" class="-ml-1 mr-2 h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -266,6 +309,13 @@ const appStore = useAppStore()
 const groups = ref<Group[]>([])
 const groupConfigs = ref<GroupRateConfig[]>([])
 const originalGroupRatePercents = ref<Record<number, number>>({}) // 记录原始专属比例，用于检测删除
+const originalGroupRateOverrideIds = ref<number[]>([])
+const originalAllowedGroups = ref<number[]>([])
+const defaultGroupRatePercent = ref<number | null>(null)
+const defaultGroupRateInput = ref('')
+const originalDefaultGroupRatePercent = ref<number | null>(null)
+const defaultGroupRateInvalid = ref(false)
+const resetGroupRatePercents = ref(false)
 const loading = ref(false)
 const loaded = ref(false)
 const submitting = ref(false)
@@ -277,6 +327,15 @@ const publicGroups = computed(() => groups.value.filter((g) => !g.is_exclusive))
 
 const exclusiveGroupConfigs = computed(() => groupConfigs.value.filter((c) => c.isExclusive))
 const publicGroupConfigs = computed(() => groupConfigs.value.filter((c) => !c.isExclusive))
+const effectiveDefaultGroupRatePercent = computed(() => defaultGroupRatePercent.value ?? 100)
+const groupRateOverrideCount = computed(() => {
+  const ids = new Set(resetGroupRatePercents.value ? [] : originalGroupRateOverrideIds.value)
+  for (const config of groupConfigs.value) {
+    if (config.customRatePercent !== null) ids.add(config.groupId)
+    else if (originalGroupRatePercents.value[config.groupId] !== undefined) ids.delete(config.groupId)
+  }
+  return ids.size
+})
 
 watch(
   () => props.show,
@@ -290,6 +349,8 @@ watch(
 const load = async () => {
   loaded.value = false
   loading.value = true
+  resetGroupRatePercents.value = false
+  defaultGroupRateInvalid.value = false
   try {
     const res = await adminAPI.groups.list(1, 1000)
     // 只显示标准类型且活跃的分组
@@ -299,6 +360,14 @@ const load = async () => {
     const userAllowedGroups = props.user?.allowed_groups || []
     const userGroupRatePercents = props.user?.group_rate_percents || {}
     const compatibilityGroupRates = props.user?.group_rates || {}
+    originalAllowedGroups.value = [...userAllowedGroups]
+    defaultGroupRatePercent.value = props.user?.default_group_rate_percent ?? null
+    defaultGroupRateInput.value = defaultGroupRatePercent.value === null ? '' : String(defaultGroupRatePercent.value)
+    originalDefaultGroupRatePercent.value = defaultGroupRatePercent.value
+    originalGroupRateOverrideIds.value = [...new Set([
+      ...Object.keys(userGroupRatePercents),
+      ...Object.keys(compatibilityGroupRates),
+    ].map(Number))]
     restrictPublicGroups.value = props.user?.restrict_public_groups ?? false
 
     // 百分比是规范状态；仅在旧响应缺少百分比时由兼容有效倍率反算。
@@ -368,7 +437,20 @@ const updateCustomRate = (groupId: number, value: string) => {
 }
 
 const getCustomRate = (config: GroupRateConfig) =>
-  percentToExclusiveRate(config.customRatePercent, config.defaultRate)
+  percentToExclusiveRate(config.customRatePercent ?? effectiveDefaultGroupRatePercent.value, config.defaultRate)
+
+const updateDefaultGroupRatePercent = (value: string) => {
+  defaultGroupRateInput.value = value
+  defaultGroupRatePercent.value = parseNonNegativeNumber(value)
+  defaultGroupRateInvalid.value = value.trim() !== '' && defaultGroupRatePercent.value === null
+}
+
+const resetAllGroupRatePercents = () => {
+  if (!loaded.value || submitting.value || groupRateOverrideCount.value === 0) return
+  if (!window.confirm(t('admin.users.resetGroupRatePercentsConfirm', { count: groupRateOverrideCount.value }))) return
+  resetGroupRatePercents.value = true
+  for (const config of groupConfigs.value) config.customRatePercent = null
+}
 
 const updateCustomRatePercent = (groupId: number, value: string) => {
   const config = groupConfigs.value.find((c) => c.groupId === groupId)
@@ -381,14 +463,17 @@ const updateCustomRatePercent = (groupId: number, value: string) => {
 }
 
 const handleSave = async () => {
-  if (!props.user || !loaded.value) return
+  if (!props.user || !loaded.value || defaultGroupRateInvalid.value || submitting.value) return
 
   // 只有新增或改成显式 0 时确认；已有 0 配置未发生变化不应重复打扰管理员。
-  const changedToZero = groupConfigs.value.some(
+  const defaultChangedToZero = defaultGroupRatePercent.value === 0 && (
+    originalDefaultGroupRatePercent.value !== 0 || (resetGroupRatePercents.value && originalGroupRateOverrideIds.value.length > 0)
+  )
+  const changedToZero = defaultChangedToZero || groupConfigs.value.some(
     (c) => c.customRatePercent === 0 && originalGroupRatePercents.value[c.groupId] !== 0,
   )
   if (changedToZero) {
-    const confirmed = window.confirm(t('admin.users.zeroRateConfirm'))
+    const confirmed = window.confirm(t(defaultChangedToZero ? 'admin.users.defaultGroupZeroRateConfirm' : 'admin.users.zeroRateConfirm'))
     if (!confirmed) return
   }
   submitting.value = true
@@ -396,9 +481,13 @@ const handleSave = async () => {
   try {
     // 构建 allowed_groups：专属分组中被勾选的，以及开启限制后被勾选的公开分组。
     // 未开启限制时不写入公开分组，保持该表"额外授予"的原有语义。
-    const allowedGroups = groupConfigs.value
-      .filter((c) => c.isSelected && (c.isExclusive || restrictPublicGroups.value))
-      .map((c) => c.groupId)
+    const visibleGroupIds = new Set(groupConfigs.value.map((c) => c.groupId))
+    const allowedGroups = [...new Set([
+      ...originalAllowedGroups.value.filter((id) => !visibleGroupIds.has(id)),
+      ...groupConfigs.value
+        .filter((c) => c.isSelected && (c.isExclusive || restrictPublicGroups.value))
+        .map((c) => c.groupId),
+    ])]
 
     // 构建 group_rate_percents
     // - 有新专属比例: 设置为该值
@@ -409,7 +498,7 @@ const handleSave = async () => {
 
       if (c.customRatePercent !== null) {
         groupRatePercents[c.groupId] = c.customRatePercent
-      } else if (hadOriginalRate) {
+      } else if (hadOriginalRate && !resetGroupRatePercents.value) {
         groupRatePercents[c.groupId] = null
       }
     }
@@ -418,6 +507,9 @@ const handleSave = async () => {
       allowed_groups: allowedGroups,
       restrict_public_groups: restrictPublicGroups.value,
       group_rate_percents: Object.keys(groupRatePercents).length > 0 ? groupRatePercents : undefined,
+      ...(defaultGroupRatePercent.value !== originalDefaultGroupRatePercent.value
+        ? { default_group_rate_percent: defaultGroupRatePercent.value } : {}),
+      ...(resetGroupRatePercents.value ? { reset_group_rate_percents: true } : {}),
     })
 
     appStore.showSuccess(t('admin.users.groupConfigUpdated'))
@@ -425,6 +517,7 @@ const handleSave = async () => {
     emit('close')
   } catch (error) {
     console.error('Failed to update user group config:', error)
+    appStore.showError(t('admin.users.failedToUpdateAllowedGroups'))
   } finally {
     submitting.value = false
   }

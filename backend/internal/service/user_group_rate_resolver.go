@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -18,7 +19,11 @@ type userGroupRateResolver struct {
 	cacheTTL     time.Duration
 	sf           *singleflight.Group
 	logComponent string
+	mu           sync.RWMutex
+	epoch        uint64
 }
+
+var errUserGroupRateLoadInvalidated = errors.New("user group rate changed during lookup")
 
 // cachedUserGroupRate caches the persisted percentage rather than an effective
 // multiplier. The effective value is recalculated from the caller's current
@@ -83,90 +88,120 @@ func (r *userGroupRateResolver) Resolve(ctx context.Context, userID, groupID int
 // reports whether the stored value was explicitly zero. Both values come from
 // the same cache/repository lookup so callers do not perform a second query.
 func (r *userGroupRateResolver) ResolveWithExplicitZero(ctx context.Context, userID, groupID int64, groupDefaultMultiplier float64) (float64, bool) {
+	return r.resolveWithExplicitZero(ctx, userID, groupID, groupDefaultMultiplier)
+}
+
+func (r *userGroupRateResolver) resolveWithExplicitZero(ctx context.Context, userID, groupID int64, groupDefaultMultiplier float64) (float64, bool) {
 	if r == nil || userID <= 0 || groupID <= 0 {
 		return groupDefaultMultiplier, false
 	}
 
-	key := fmt.Sprintf("%d:%d", userID, groupID)
-	if r.cache != nil {
-		if cached, ok := r.cache.Get(key); ok {
-			if entry, castOK := cached.(cachedUserGroupRate); castOK {
-				userGroupRateCacheHitTotal.Add(1)
-				return entry.resolve(groupDefaultMultiplier)
-			}
-			// Compatibility with entries written by older in-process code before
-			// the cache started preserving override presence.
-			if multiplier, castOK := cached.(float64); castOK {
-				userGroupRateCacheHitTotal.Add(1)
-				return multiplier, multiplier == 0
-			}
-		}
-	}
-	if r.repo == nil {
-		return groupDefaultMultiplier, false
-	}
-	userGroupRateCacheMissTotal.Add(1)
-
-	value, err, shared := r.sf.Do(key, func() (any, error) {
+	for {
+		key := fmt.Sprintf("%d:%d", userID, groupID)
+		// A generation separates post-invalidation lookups from an older in-flight
+		// singleflight, and the same lock makes cache fill atomic with invalidation.
+		r.mu.RLock()
+		epoch := r.epoch
 		if r.cache != nil {
 			if cached, ok := r.cache.Get(key); ok {
 				if entry, castOK := cached.(cachedUserGroupRate); castOK {
 					userGroupRateCacheHitTotal.Add(1)
-					return entry, nil
+					r.mu.RUnlock()
+					return entry.resolve(groupDefaultMultiplier)
 				}
+				// Compatibility with entries written by older in-process code before
+				// the cache started preserving override presence.
 				if multiplier, castOK := cached.(float64); castOK {
 					userGroupRateCacheHitTotal.Add(1)
-					return cachedUserGroupRate{
-						legacyMultiplier:     multiplier,
-						hasOverride:          true,
-						usesLegacyMultiplier: true,
-					}, nil
+					r.mu.RUnlock()
+					return multiplier, multiplier == 0
 				}
 			}
 		}
-
-		userGroupRateCacheLoadTotal.Add(1)
-		entry := cachedUserGroupRate{}
-		if percentReader, ok := r.repo.(UserGroupRatePercentReader); ok {
-			percent, repoErr := percentReader.GetPercentByUserAndGroup(ctx, userID, groupID)
-			if repoErr != nil {
-				return nil, repoErr
-			}
-			if percent != nil {
-				entry.percent = *percent
-				entry.hasOverride = true
-			}
-		} else {
-			userRate, repoErr := r.repo.GetByUserAndGroup(ctx, userID, groupID)
-			if repoErr != nil {
-				return nil, repoErr
-			}
-			if userRate != nil {
-				entry.legacyMultiplier = *userRate
-				entry.hasOverride = true
-				entry.usesLegacyMultiplier = true
-			}
+		r.mu.RUnlock()
+		if r.repo == nil {
+			return groupDefaultMultiplier, false
 		}
-		if r.cache != nil {
-			r.cache.Set(key, entry, r.cacheTTL)
-		}
-		return entry, nil
-	})
-	if shared {
-		userGroupRateCacheSFSharedTotal.Add(1)
-	}
-	if err != nil {
-		userGroupRateCacheFallbackTotal.Add(1)
-		logger.LegacyPrintf(r.logComponent, "get user group rate failed, fallback to group default: user=%d group=%d err=%v", userID, groupID, err)
-		return groupDefaultMultiplier, false
-	}
+		userGroupRateCacheMissTotal.Add(1)
 
-	entry, ok := value.(cachedUserGroupRate)
-	if !ok {
-		userGroupRateCacheFallbackTotal.Add(1)
-		return groupDefaultMultiplier, false
+		flightKey := fmt.Sprintf("%s@%d", key, epoch)
+		value, err, shared := r.sf.Do(flightKey, func() (any, error) {
+			r.mu.RLock()
+			if r.epoch != epoch {
+				r.mu.RUnlock()
+				return nil, errUserGroupRateLoadInvalidated
+			}
+			if r.cache != nil {
+				if cached, ok := r.cache.Get(key); ok {
+					if entry, castOK := cached.(cachedUserGroupRate); castOK {
+						userGroupRateCacheHitTotal.Add(1)
+						r.mu.RUnlock()
+						return entry, nil
+					}
+					if multiplier, castOK := cached.(float64); castOK {
+						userGroupRateCacheHitTotal.Add(1)
+						r.mu.RUnlock()
+						return cachedUserGroupRate{
+							legacyMultiplier:     multiplier,
+							hasOverride:          true,
+							usesLegacyMultiplier: true,
+						}, nil
+					}
+				}
+			}
+			r.mu.RUnlock()
+
+			userGroupRateCacheLoadTotal.Add(1)
+			entry := cachedUserGroupRate{}
+			if percentReader, ok := r.repo.(UserGroupRatePercentReader); ok {
+				percent, repoErr := percentReader.GetPercentByUserAndGroup(ctx, userID, groupID)
+				if repoErr != nil {
+					return nil, repoErr
+				}
+				if percent != nil {
+					entry.percent = *percent
+					entry.hasOverride = true
+				}
+			} else {
+				userRate, repoErr := r.repo.GetByUserAndGroup(ctx, userID, groupID)
+				if repoErr != nil {
+					return nil, repoErr
+				}
+				if userRate != nil {
+					entry.legacyMultiplier = *userRate
+					entry.hasOverride = true
+					entry.usesLegacyMultiplier = true
+				}
+			}
+			r.mu.RLock()
+			defer r.mu.RUnlock()
+			if r.epoch != epoch {
+				return nil, errUserGroupRateLoadInvalidated
+			}
+			if r.cache != nil {
+				r.cache.Set(key, entry, r.cacheTTL)
+			}
+			return entry, nil
+		})
+		if shared {
+			userGroupRateCacheSFSharedTotal.Add(1)
+		}
+		if errors.Is(err, errUserGroupRateLoadInvalidated) && ctx.Err() == nil {
+			continue
+		}
+		if err != nil {
+			userGroupRateCacheFallbackTotal.Add(1)
+			logger.LegacyPrintf(r.logComponent, "get user group rate failed, fallback to group default: user=%d group=%d err=%v", userID, groupID, err)
+			return groupDefaultMultiplier, false
+		}
+
+		entry, ok := value.(cachedUserGroupRate)
+		if !ok {
+			userGroupRateCacheFallbackTotal.Add(1)
+			return groupDefaultMultiplier, false
+		}
+		return entry.resolve(groupDefaultMultiplier)
 	}
-	return entry.resolve(groupDefaultMultiplier)
 }
 
 // IsExplicitZero reports whether a user has explicitly configured a zero rate
@@ -181,6 +216,9 @@ func (r *userGroupRateResolver) Invalidate(userID, groupID int64) {
 	if r == nil || r.cache == nil || userID <= 0 || groupID <= 0 {
 		return
 	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.epoch++
 	r.cache.Delete(fmt.Sprintf("%d:%d", userID, groupID))
 }
 
@@ -188,6 +226,9 @@ func (r *userGroupRateResolver) InvalidateUser(userID int64) {
 	if r == nil || r.cache == nil || userID <= 0 {
 		return
 	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.epoch++
 	for key := range r.cache.Items() {
 		if strings.HasPrefix(key, fmt.Sprintf("%d:", userID)) {
 			r.cache.Delete(key)
@@ -200,12 +241,29 @@ func (r *userGroupRateResolver) InvalidateGroup(groupID int64) {
 	if r == nil || r.cache == nil || groupID <= 0 {
 		return
 	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.epoch++
 	suffix := fmt.Sprintf(":%d", groupID)
 	for key := range r.cache.Items() {
 		if strings.HasSuffix(key, suffix) {
 			r.cache.Delete(key)
 		}
 	}
+}
+
+// InvalidateAllUserGroupRateCaches is also used after a subscriber reconnect:
+// Pub/Sub messages missed while disconnected must not survive in local caches.
+func InvalidateAllUserGroupRateCaches() {
+	userGroupRateResolverRegistry.Range(func(key, _ any) bool {
+		if resolver, ok := key.(*userGroupRateResolver); ok && resolver.cache != nil {
+			resolver.mu.Lock()
+			resolver.epoch++
+			resolver.cache.Flush()
+			resolver.mu.Unlock()
+		}
+		return true
+	})
 }
 
 // InvalidateUserGroupRateCaches invalidates one user/group pair in every

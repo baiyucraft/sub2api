@@ -2601,6 +2601,7 @@ var (
 		{Name: "last_login_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
 		{Name: "last_active_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
 		{Name: "restrict_public_groups", Type: field.TypeBool, Default: false},
+		{Name: "default_group_rate_percent", Type: field.TypeFloat64, Nullable: true, SchemaType: map[string]string{"postgres": "decimal(20,10)"}},
 		{Name: "balance_notify_enabled", Type: field.TypeBool, Default: true},
 		{Name: "balance_notify_threshold_type", Type: field.TypeString, Default: "fixed"},
 		{Name: "balance_notify_threshold", Type: field.TypeFloat64, Nullable: true, SchemaType: map[string]string{"postgres": "decimal(20,8)"}},

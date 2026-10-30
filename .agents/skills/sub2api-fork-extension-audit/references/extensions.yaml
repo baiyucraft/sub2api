@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "catalog_version": "2026-10-28",
+  "catalog_version": "2026-10-30",
   "version_contract": {
     "upstream_path": "backend/cmd/server/VERSION",
     "fork_suffix": "-baiyu",
@@ -152,17 +152,17 @@
         "compatibility_image": "production_current",
         "migration_source": "database_state"
       }
-    }
+    },
+    "281": {"version": "0.2.19-baiyu", "parent": "280", "gate_schema": 2, "new_migrations": ["305_scoped_admin_api_keys.sql", "306_group_image_count_billing.sql"], "release_policy": {"compatibility_image": "production_current", "migration_source": "database_state"}}
   },
   "current_profile": {
-    "id": "281",
+    "id": "282",
     "status": "pending",
     "version": "0.2.19-baiyu",
-    "parent": "280",
+    "parent": "281",
     "gate_schema": 2,
     "new_migrations": [
-      "305_scoped_admin_api_keys.sql",
-      "306_group_image_count_billing.sql"
+      "307_user_default_group_rate_percent.sql"
     ],
     "release_policy": {
       "compatibility_image": "production_current",
@@ -260,7 +260,8 @@
     "298_group_scheduling_protection_policies.sql": "97ccd6842138d835393d61e719e84b4b17bd169e95d92053416e62411989b568",
     "303_group_strip_optional_image_tools.sql": "fc1f8f42f2212341db0a4e235979ee3b729c094313a5112007f13270319bc915",
     "305_scoped_admin_api_keys.sql": "0c4c22f564f276fb305a54cf2d6c4b1a6179d748d5d8b74a3b99676282355bf6",
-    "306_group_image_count_billing.sql": "c91d6d31937658e71c68fa3af6a26fc47380f61243a681ac275aeb4706b242ab"
+    "306_group_image_count_billing.sql": "c91d6d31937658e71c68fa3af6a26fc47380f61243a681ac275aeb4706b242ab",
+    "307_user_default_group_rate_percent.sql": "43cc403117cc8971ee5e3e3b5eee60c1c927016e959f1cfb802658d644ba9237"
   },
   "migration_renames": {
     "official_246_enable_gemini_image_generation_groups": "302_enable_gemini_image_generation_groups.sql",
@@ -1935,7 +1936,23 @@
       ]
     },
     {
-      "id": "group-profit-control-display", "title": "分组利润控制与账号倍率上限展示", "description": "基于官方分组倍率、计费与利润控制链，fork 增加用户专属 rate_percent 真值、动态有效倍率、显式 0% 语义和管理端账号倍率上限预览；金额限额仍按分组原价计量。", "ownership": "fork", "risk_level": "high", "paths": ["backend/migrations/277_user_group_rate_percent.sql", "backend/internal/repository/user_group_rate_repo.go", "backend/internal/service/user_group_rate.go", "backend/internal/service/user_group_rate_resolver.go", "backend/internal/service/admin_group.go", "backend/internal/service/admin_user.go", "backend/internal/service/openai_profit_control.go", "backend/internal/service/gateway_profit_control.go", "backend/internal/service/billing_cache_service.go", "backend/internal/service/gateway_usage_billing.go", "backend/internal/service/openai_gateway_usage.go", "backend/internal/handler/admin/user_handler.go", "backend/internal/handler/dto/types.go", "backend/internal/handler/dto/mappers.go", "frontend/src/api/admin/groups.ts", "frontend/src/types/index.ts", "frontend/src/views/admin/GroupsView.vue", "frontend/src/views/admin/groupsProfitControl.ts", "frontend/src/components/admin/group/GroupRateMultipliersModal.vue", "frontend/src/components/admin/user/UserAllowedGroupsModal.vue", "frontend/src/i18n/locales/zh/admin/overview.ts", "frontend/src/i18n/locales/en/admin/overview.ts", "backend/internal/handler/gemini_cached_contents_handler.go", "backend/internal/service/gemini_cached_content_fork_billing_test.go", "backend/internal/handler/gemini_cached_contents_fork_billing_test.go"], "symbols": ["rate_percent", "SyncUserGroupRatePercents", "ResolveUserGroupRateMultiplier", "ResolveWithExplicitZero", "CheckBillingEligibility", "buildUsageBillingCommand", "calculateProfitControlMaxAccountRate", "formatProfitControlMaxAccountRate", "QuoteUsageCosts", "applyRecordUsageQuotaMeterCost", "QuotaMeterCostSet", "ReserveFixedChargeCosts"], "api_routes": ["/admin/users/:id", "/admin/groups/:id/rate-multipliers"], "settings_keys": [], "migration_files": ["277_user_group_rate_percent.sql"], "required_tests": ["backend/migrations/user_group_rate_percent_migration_test.go", "backend/internal/repository/user_group_rate_repo_test.go", "backend/internal/service/openai_profit_control_test.go", "backend/internal/service/openai_profit_control_pricing_test.go", "backend/internal/service/user_group_rate_resolver_test.go", "backend/internal/service/gateway_service_subscription_billing_test.go", "backend/internal/service/admin_service_group_rate_test.go", "backend/internal/service/admin_service_update_user_rpm_test.go", "frontend/src/api/admin/__tests__/groupsRateMultipliers.spec.ts", "frontend/src/components/admin/group/__tests__/GroupRateMultipliersModal.spec.ts", "frontend/src/components/admin/user/__tests__/UserAllowedGroupsModal.spec.ts", "frontend/src/views/admin/__tests__/groupsProfitControl.spec.ts", "backend/internal/service/gemini_cached_content_fork_billing_test.go", "backend/internal/handler/gemini_cached_contents_fork_billing_test.go"], "invariants": ["官方拥有基础分组倍率和利润控制，fork 只拥有 rate_percent、显式 0%、计费/配额分离与管理端预览扩展", "rate_percent 是用户专属倍率唯一业务真值，有效倍率始终等于分组普通倍率 × rate_percent ÷ 100", "分组普通倍率变化只刷新兼容 rate_multiplier 影子值和缓存，不得改写 rate_percent", "旧客户端提交 rate_multiplier 时服务端按当前普通倍率反算百分比；rate_percent 与 rate_multiplier 同时提交必须拒绝", "显式 0% 与 NULL 必须区分，NULL 表示回退分组默认倍率", "清空专属倍率不得删除同一用户分组关系上的 RPM override，批量替换必须事务化", "用户专属倍率显式 0 时 actual_cost/用户余额和订阅消费为 0，但 token、请求数、total_cost、原始成本、账号成本和统计保留", "API Key 配额、时间窗限速和用户×平台配额使用按分组原价计算的 quota_meter_cost", "显式 0 仅豁免当前用户-计费分组的利润控制，非 0 用户和其它分组继续执行利润门", "订阅高峰窗口内阈值叠加当前高峰因子", "管理端预览只读且向下保留四位", "未启用利润控制或配置无效时不展示伪造上限", "分组默认倍率仍必须大于 0", "Gemini缓存创建含输入费与存储token-hours，延期仅存储费；显式0%令actual_cost为0，但quota_meter_cost保留原分组计量，两种金额在报价、在途预留和落账中保持一致", "固定缓存费的余额与订阅额度按actual计算；订阅路径延续平台额度豁免，API Key额度/时间窗仍检查quota_meter，零actual不能跳过非订阅平台计量限制"]
+      "id": "group-profit-control-display", "title": "分组利润控制与账号倍率上限展示", "description": "基于官方分组倍率、计费与利润控制链，fork 增加用户专属 rate_percent 真值、动态有效倍率、显式 0% 语义和管理端账号倍率上限预览；金额限额仍按分组原价计量。 用户默认百分比作为单组NULL后的次级回退，未设置默认时保持原行为。", "ownership": "fork", "risk_level": "high", "paths": ["backend/migrations/277_user_group_rate_percent.sql", "backend/internal/repository/user_group_rate_repo.go", "backend/internal/service/user_group_rate.go", "backend/internal/service/user_group_rate_resolver.go", "backend/internal/service/admin_group.go", "backend/internal/service/admin_user.go", "backend/internal/service/openai_profit_control.go", "backend/internal/service/gateway_profit_control.go", "backend/internal/service/billing_cache_service.go", "backend/internal/service/gateway_usage_billing.go", "backend/internal/service/openai_gateway_usage.go", "backend/internal/handler/admin/user_handler.go", "backend/internal/handler/dto/types.go", "backend/internal/handler/dto/mappers.go", "frontend/src/api/admin/groups.ts", "frontend/src/types/index.ts", "frontend/src/views/admin/GroupsView.vue", "frontend/src/views/admin/groupsProfitControl.ts", "frontend/src/components/admin/group/GroupRateMultipliersModal.vue", "frontend/src/components/admin/user/UserAllowedGroupsModal.vue", "frontend/src/i18n/locales/zh/admin/overview.ts", "frontend/src/i18n/locales/en/admin/overview.ts", "backend/internal/handler/gemini_cached_contents_handler.go", "backend/internal/service/gemini_cached_content_fork_billing_test.go", "backend/internal/handler/gemini_cached_contents_fork_billing_test.go"], "symbols": ["rate_percent", "SyncUserGroupRatePercents", "ResolveUserGroupRateMultiplier", "ResolveWithExplicitZero", "CheckBillingEligibility", "buildUsageBillingCommand", "calculateProfitControlMaxAccountRate", "formatProfitControlMaxAccountRate", "QuoteUsageCosts", "applyRecordUsageQuotaMeterCost", "QuotaMeterCostSet", "ReserveFixedChargeCosts"], "api_routes": ["/admin/users/:id", "/admin/groups/:id/rate-multipliers"], "settings_keys": [], "migration_files": ["277_user_group_rate_percent.sql"], "required_tests": ["backend/migrations/user_group_rate_percent_migration_test.go", "backend/internal/repository/user_group_rate_repo_test.go", "backend/internal/service/openai_profit_control_test.go", "backend/internal/service/openai_profit_control_pricing_test.go", "backend/internal/service/user_group_rate_resolver_test.go", "backend/internal/service/gateway_service_subscription_billing_test.go", "backend/internal/service/admin_service_group_rate_test.go", "backend/internal/service/admin_service_update_user_rpm_test.go", "frontend/src/api/admin/__tests__/groupsRateMultipliers.spec.ts", "frontend/src/components/admin/group/__tests__/GroupRateMultipliersModal.spec.ts", "frontend/src/components/admin/user/__tests__/UserAllowedGroupsModal.spec.ts", "frontend/src/views/admin/__tests__/groupsProfitControl.spec.ts", "backend/internal/service/gemini_cached_content_fork_billing_test.go", "backend/internal/handler/gemini_cached_contents_fork_billing_test.go"], "invariants": [
+        "官方拥有基础分组倍率和利润控制，fork 只拥有 rate_percent、显式 0%、计费/配额分离与管理端预览扩展",
+        "rate_percent 是用户专属倍率唯一业务真值，存在单组覆盖时有效倍率等于分组普通倍率 × rate_percent ÷ 100；无单组覆盖先回退用户默认百分比，再回退分组普通倍率",
+        "分组普通倍率变化只刷新兼容 rate_multiplier 影子值和缓存，不得改写 rate_percent",
+        "旧客户端提交 rate_multiplier 时服务端按当前普通倍率反算百分比；rate_percent 与 rate_multiplier 同时提交必须拒绝",
+        "显式 0% 与 NULL 必须区分，单组NULL先回退用户默认百分比，用户默认亦NULL才回退分组普通倍率",
+        "清空专属倍率不得删除同一用户分组关系上的 RPM override，批量替换必须事务化",
+        "用户专属倍率显式 0 时 actual_cost/用户余额和订阅消费为 0，但 token、请求数、total_cost、原始成本、账号成本和统计保留",
+        "API Key 配额、时间窗限速和用户×平台配额使用按分组原价计算的 quota_meter_cost",
+        "显式 0 仅豁免当前用户-计费分组的利润控制，非 0 用户和其它分组继续执行利润门",
+        "订阅高峰窗口内阈值叠加当前高峰因子",
+        "管理端预览只读且向下保留四位",
+        "未启用利润控制或配置无效时不展示伪造上限",
+        "分组默认倍率仍必须大于 0",
+        "Gemini缓存创建含输入费与存储token-hours，延期仅存储费；显式0%令actual_cost为0，但quota_meter_cost保留原分组计量，两种金额在报价、在途预留和落账中保持一致",
+        "固定缓存费的余额与订阅额度按actual计算；订阅路径延续平台额度豁免，API Key额度/时间窗仍检查quota_meter，零actual不能跳过非订阅平台计量限制"
+      ]
     },
     {
       "id": "upstream-health-probes", "title": "三平台上游健康探针与趋势", "description": "OpenAI Responses、Anthropic Claude Code profile、Gemini 原生流式探针，保存健康证据、趋势和最近状态点；Grok 与 Antigravity 主动探针同样使用增量流式解析。 健康探针独立保留首字后生成 TPS 与历史观测，与用量页面的首字后 TPS 展示分别维护。", "ownership": "fork", "risk_level": "critical", "paths": ["backend/internal/service/upstream_health*.go", "backend/internal/service/upstream_health_probe_client.go", "backend/internal/service/ratelimit_service.go", "backend/internal/service/ratelimit_cn_providers.go", "backend/internal/service/antigravity_gateway_service.go", "backend/internal/repository/upstream_health*.go", "backend/internal/handler/admin/upstream_management_handler.go", "frontend/src/components/account/UpstreamHealth*.vue", "frontend/src/components/admin/account/UpstreamHealth*.vue", "frontend/src/components/charts/TrendChart.vue"], "symbols": ["response.output_text.delta", "content_block_delta", "streamGenerateContent", "parseOpenAIUpstreamHealthStream", "parseOpenAIChatCompletionsUpstreamHealthStream", "TestConnectionWithPromptStreaming", "upstream_health_observations", "HealthTrend", "shouldReportUpstreamHealthFailure", "calculateUpstreamHealthProbeOutputTPS", "setUpstreamHealthProbeOutputTPS", "output_tps"], "api_routes": ["/health-trend", "/upstream-management/keys"], "settings_keys": ["upstream_probe_models", "upstream_probe_interval_seconds"], "migration_files": ["233_upstream_management.sql"], "required_tests": ["backend/internal/service/upstream_health_probe_client_test.go", "backend/internal/service/upstream_health_service_test.go", "backend/internal/service/ratelimit_service_403_html_test.go", "backend/internal/service/ratelimit_service_cn_quota_403_test.go", "backend/internal/service/antigravity_gateway_service_test.go", "frontend/src/components/admin/account/__tests__/UpstreamHealthTrendChart.spec.ts"], "invariants": ["首 Token 只认首个非空文本", "活动探针以 SSE 增量解析并区分完整终端、空流、断流和网络错误", "Grok/Antigravity 流式主动探针不改变普通业务请求", "请求级 OpenAI HTML 403 不写账号或共享上游 Key 健康处罚", "国内 Coding Plan 配额耗尽与并发限制 403 只保留账号级可恢复冷却，不得把共享上游 Key 标记为认证失败或 suspended", "列表最多 24 点", "历史保留 35 天", "探针暂停后仍继续探测", "健康探针生成 TPS = output_tokens × 1000 / (duration_ms - first_token_ms)，仅输出 Token 为正、首字存在且总耗时大于首字时有效，否则为空；计算器属于探针，不再向用量 API 返回自定义 output_tps", "探针 output_tps 观测字段、历史数据与 migration 233 保持不变；删除用量自定义输出速率无需数据库迁移", "Gemini 健康探针保留官方 Vertex API Key Express 与项目端点；Service Account JSON 在构造 URL 前校验，缺失或无效凭据归为 probe_credentials_missing，非法区域仍归为 probe_request_invalid，配置失败不发送上游请求"]
@@ -2112,7 +2129,7 @@
     {
       "id": "migration-profile-contract",
       "title": "Migration、profile、版本与历史证据",
-      "description": "维护 fork migration、官方重编号、历史 profile 233–274 与 pending profile 275、版本、checksum 及兼容身份。",
+      "description": "维护fork迁移、官方重编号、历史profile233–281与pending profile282、版本、checksum及兼容身份。",
       "ownership": "fork",
       "risk_level": "critical",
       "paths": [
@@ -2130,7 +2147,11 @@
         "backend/migrations/306_group_image_count_billing.sql",
         "backend/migrations/profile_281_migrations_test.go",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile281_release_contract.py",
-        "backend/internal/repository/custom_admin_keys_postgres_test.go"
+        "backend/internal/repository/custom_admin_keys_postgres_test.go",
+        "backend/migrations/307_user_default_group_rate_percent.sql",
+        "backend/migrations/profile_282_migrations_test.go",
+        "backend/migrations/profile_282_postgres_test.go",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile282_release_contract.py"
       ],
       "symbols": [
         "PROFILES",
@@ -2223,7 +2244,8 @@
         "301_upstream_cache_guard_admissions.sql",
         "303_group_strip_optional_image_tools.sql",
         "305_scoped_admin_api_keys.sql",
-        "306_group_image_count_billing.sql"
+        "306_group_image_count_billing.sql",
+        "307_user_default_group_rate_percent.sql"
       ],
       "required_tests": [
         "backend/migrations/profile_275_migrations_test.go",
@@ -2288,7 +2310,10 @@
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile276_release_contract.py",
         "backend/migrations/profile_281_migrations_test.go",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile281_release_contract.py",
-        "backend/internal/repository/custom_admin_keys_postgres_test.go"
+        "backend/internal/repository/custom_admin_keys_postgres_test.go",
+        "backend/migrations/profile_282_migrations_test.go",
+        "backend/migrations/profile_282_postgres_test.go",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile282_release_contract.py"
       ],
       "recommended_tests": [
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_signer_assets.py",
@@ -2324,7 +2349,8 @@
         "profile270保持0.2.16-baiyu,parent269,只新增298_group_scheduling_protection_policies.sql；269及所有历史SQL/checksum不回写；298生产只读核验，VM隔离fixture绑定source与catalog checksum，四phase全部验真，未知271拒绝",
         "当前 profile 274 parent 273，同版本0.2.17-baiyu仅新增301；273及更早SQL/profile/checksum保持不可变，未知275拒绝。301要求停旧写者迁移并coordinated_restore，不能让旧镜像继续写入拆分后的会话。迁移断言生产只读，写入fixture仅在显式绑定的隔离库事务回滚；未新增恢复敏感blob豁免。",
         "历史 profile 278、279、280 的版本、parent、migration 与 checksum 保持不可变；当前 profile 281 为官方 0.2.19-baiyu、parent 280，仅新增原字节重编号的 305/306，未知 282 拒绝。显示版本从历史 fork 0.2.22-baiyu 重新跟随官方源码，不回退已有功能或改写历史 profile；305/306 不覆盖 fork 历史 247/248。Python、Shell、signer、祖先 migration 断言、备份和清理入口同步；最终敏感 blob 仍须重新审阅，不扩大历史豁免。",
-        "官方限定管理员密钥PostgreSQL回归只将迁移读取名改为305，原字节305/306与官方247/248一致，旧SQL不回写。"
+        "官方限定管理员密钥PostgreSQL回归只将迁移读取名改为305，原字节305/306与官方247/248一致，旧SQL不回写。",
+        "当前profile282为0.2.19-baiyu、parent281，仅新增307_user_default_group_rate_percent.sql；历史281及以前的profile/SQL/checksum/恢复审阅不变。全部执行入口接纳282并拒绝未知283，current-only仅282；保留downtime和301停旧写者/coordinated_restore，不新增恢复豁免。"
       ]
     },
     {
@@ -2990,6 +3016,96 @@
         "行为挑战与 distribution 共用原探针周期且单次请求只归属一个方法；失败消耗排程位置，不立即补发；当前128条有效分布窗口不得因策略更新而重置",
         "sampling policy 版本、序号、样本与在途 lease 兼容旧 JSON；有效旧 lease 按持久化 attempt 方法完成，方法不可由回退路径改写；最近协议证据独立于64条行为样本容量",
         "有效候选一致且总有效权重≥3才生成match/suspected；分布可独立达到3。无分布时必须数字和行为分别通过两轮并同候选（2+1），inference=true；单数字或单行为仅证据不足。不得以总分或方法原始分数充当身份概率"
+      ]
+    },
+    {
+      "id": "user-default-group-rate",
+      "title": "用户默认分组倍率与事务性跨实例失效",
+      "description": "增加用户级默认百分比；单组覆盖、用户默认、分组普通倍率依次回退，原管理员用户更新事务化保存默认值、单组倍率和RPM，使用独立outbox与专用Redis topic可靠失效。",
+      "ownership": "fork",
+      "risk_level": "high",
+      "paths": [
+        "backend/migrations/307_user_default_group_rate_percent.sql",
+        "backend/ent/schema/user.go",
+        "backend/ent/migrate/schema.go",
+        "backend/ent/mutation.go",
+        "backend/ent/runtime/runtime.go",
+        "backend/ent/user.go",
+        "backend/ent/user/user.go",
+        "backend/ent/user/where.go",
+        "backend/ent/user_create.go",
+        "backend/ent/user_update.go",
+        "backend/internal/handler/admin/user_handler.go",
+        "backend/internal/handler/dto/types.go",
+        "backend/internal/handler/dto/mappers.go",
+        "backend/internal/repository/user_repo.go",
+        "backend/internal/repository/api_key_repo.go",
+        "backend/internal/repository/user_group_rate_repo.go",
+        "backend/internal/repository/user_group_rate_cache.go",
+        "backend/internal/repository/user_group_rate_invalidation_outbox_repo.go",
+        "backend/internal/service/admin_service.go",
+        "backend/internal/service/admin_user.go",
+        "backend/internal/service/admin_user_group_configuration.go",
+        "backend/internal/service/user.go",
+        "backend/internal/service/user_service.go",
+        "backend/internal/service/api_key_service.go",
+        "backend/internal/service/api_key_auth_cache_impl.go",
+        "backend/internal/service/user_group_rate.go",
+        "backend/internal/service/user_group_rate_resolver.go",
+        "backend/internal/service/auth_cache_invalidation_outbox.go",
+        "backend/internal/service/user_group_rate_invalidation.go",
+        "frontend/src/components/admin/user/UserAllowedGroupsModal.vue",
+        "frontend/src/types/index.ts",
+        "frontend/src/i18n/locales/zh/admin/overview.ts",
+        "frontend/src/i18n/locales/en/admin/overview.ts"
+      ],
+      "symbols": [
+        "default_group_rate_percent",
+        "NullableFloat64Field",
+        "persistAdminUserGroupConfiguration",
+        "UserGroupEffectiveRatesReader",
+        "GetEffectiveByUserID",
+        "ResolveWithExplicitZero",
+        "user_group_rate_invalidation_outbox",
+        "enqueue_user_group_rate_invalidation",
+        "processUserGroupRateInvalidations",
+        "PublishUserGroupRateInvalidation",
+        "SubscribeUserGroupRateInvalidation",
+        "InvalidateUserGroupRateCachesByUser"
+      ],
+      "api_routes": [
+        "/admin/users/:id"
+      ],
+      "settings_keys": [],
+      "migration_files": [
+        "307_user_default_group_rate_percent.sql"
+      ],
+      "required_tests": [
+        "backend/migrations/profile_282_migrations_test.go",
+        "backend/migrations/profile_282_postgres_test.go",
+        "backend/internal/repository/user_group_rate_repo_test.go",
+        "backend/internal/repository/user_default_group_rate_mapping_test.go",
+        "backend/internal/repository/user_group_rate_cache_test.go",
+        "backend/internal/repository/user_group_rate_invalidation_outbox_repo_test.go",
+        "backend/internal/service/admin_user_group_configuration_test.go",
+        "backend/internal/service/api_key_service_effective_rates_test.go",
+        "backend/internal/service/user_group_rate_resolver_test.go",
+        "backend/internal/service/user_group_rate_invalidation_test.go",
+        "backend/internal/handler/admin/user_default_group_rate_request_test.go",
+        "frontend/src/api/admin/__tests__/usersDefaultGroupRate.spec.ts",
+        "frontend/src/components/admin/user/__tests__/UserAllowedGroupsModal.spec.ts",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile282_release_contract.py"
+      ],
+      "invariants": [
+        "单组rate_percent是该组覆盖真值，优先于users.default_group_rate_percent；两者均NULL才直接使用分组普通倍率。用户默认不回填或覆盖单组行。",
+        "默认百分比有限且非负，0是明确免费，NULL清空用户默认，缺省JSON字段保留原值；组权限与RPM不因默认倍率改变。",
+        "原管理员用户更新路径在同一事务保存默认值、单组倍率和RPM，失败全部回滚；有效倍率读取不受旧认证快照陈旧默认值影响。",
+        "默认或实际单组倍率变化通过数据库trigger在事务内写独立outbox；RPM-only不入队；用户删除级联不得被outbox外键阻断。",
+        "revision由identity序列生成，ack删除后重建不复用；专用user:group-rate:invalidate:v1发布成功才按user_id与revision条件删除，旧ack不能删掉新事件，发布失败保留重试。",
+        "跨实例订阅按用户失效，重连订阅确认后清理本实例全部倍率缓存；旧认证消息语法、topic和旧worker消费不变，迟到loader不得回填旧缓存。",
+        "显式0沿用既有actual_cost=0、quota_meter_cost按分组原价和原始统计保留语义，利润豁免仅对当前用户与计费分组。",
+        "profile282同版本0.2.19-baiyu、parent281且仅新增307；全部历史SQL/profile/checksum冻结，保留downtime/301旧写者退出/coordinated_restore，不新增恢复豁免。",
+        "本地测试、隔离PostgreSQL语义与登记不代表VM Gate、生产发布或真实模型流量验证。"
       ]
     }
   ]

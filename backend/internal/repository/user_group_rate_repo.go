@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"time"
 
+	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/lib/pq"
 )
@@ -18,7 +19,15 @@ func NewUserGroupRateRepository(sqlDB *sql.DB) service.UserGroupRateRepository {
 	return &userGroupRateRepository{sql: sqlDB}
 }
 
-func (r *userGroupRateRepository) withTransaction(ctx context.Context, fn func(*sql.Tx) error) error {
+type userGroupRateSQLExecutor interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
+func (r *userGroupRateRepository) withTransaction(ctx context.Context, fn func(userGroupRateSQLExecutor) error) error {
+	if tx := dbent.TxFromContext(ctx); tx != nil {
+		return fn(tx.Client())
+	}
 	tx, err := r.sql.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -28,6 +37,53 @@ func (r *userGroupRateRepository) withTransaction(ctx context.Context, fn func(*
 		return err
 	}
 	return tx.Commit()
+}
+
+// GetEffectiveByUserID is for public effective-rate displays. Administrative
+// GetByUserID/GetPercentByUserID intentionally continue returning explicit rows.
+func (r *userGroupRateRepository) GetEffectiveByUserID(ctx context.Context, userID int64) (map[int64]float64, error) {
+	rows, err := r.sql.QueryContext(ctx, `
+		SELECT g.id,
+		       CAST(COALESCE(g.rate_multiplier * ugr.rate_percent / 100.0,
+		                ugr.rate_multiplier,
+		                g.rate_multiplier * u.default_group_rate_percent / 100.0) AS double precision)
+		FROM users u
+		JOIN groups g ON TRUE
+		LEFT JOIN user_group_rate_multipliers ugr ON ugr.user_id = u.id AND ugr.group_id = g.id
+		WHERE u.id = $1 AND u.deleted_at IS NULL
+		  AND (
+		    ugr.rate_percent IS NOT NULL OR ugr.rate_multiplier IS NOT NULL
+		    OR (
+		      u.default_group_rate_percent IS NOT NULL
+		      AND g.deleted_at IS NULL AND g.status = 'active'
+		      AND CASE WHEN g.subscription_type = 'subscription' THEN EXISTS (
+		        SELECT 1 FROM user_subscriptions us
+		        WHERE us.user_id = u.id AND us.group_id = g.id
+		          AND us.deleted_at IS NULL AND us.status = 'active' AND us.expires_at > $2
+		      ) ELSE (
+		        (NOT g.is_exclusive AND NOT u.restrict_public_groups)
+		        OR EXISTS (
+		          SELECT 1 FROM user_allowed_groups uag
+		          WHERE uag.user_id = u.id AND uag.group_id = g.id
+		        )
+		      ) END
+		    )
+		  )
+	`, userID, time.Now())
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	rates := make(map[int64]float64)
+	for rows.Next() {
+		var groupID int64
+		var rate float64
+		if err := rows.Scan(&groupID, &rate); err != nil {
+			return nil, err
+		}
+		rates[groupID] = rate
+	}
+	return rates, rows.Err()
 }
 
 // GetByUserID 获取用户所有专属分组的当前有效倍率。
@@ -249,13 +305,17 @@ func (r *userGroupRateRepository) GetByGroupID(ctx context.Context, groupID int6
 	return result, nil
 }
 
-// GetByUserAndGroup 获取用户在特定分组的当前有效倍率（NULL 返回 nil）。
+// GetByUserAndGroup resolves an explicit group override, then the user's default.
+// Nil means neither is configured; callers retain their existing group fallback.
 func (r *userGroupRateRepository) GetByUserAndGroup(ctx context.Context, userID, groupID int64) (*float64, error) {
 	query := `
-		SELECT COALESCE(g.rate_multiplier * ugr.rate_percent / 100.0, ugr.rate_multiplier)::double precision
-		FROM user_group_rate_multipliers ugr
-		JOIN groups g ON g.id = ugr.group_id
-		WHERE ugr.user_id = $1 AND ugr.group_id = $2
+		SELECT COALESCE(g.rate_multiplier * ugr.rate_percent / 100.0,
+		                ugr.rate_multiplier,
+		                g.rate_multiplier * u.default_group_rate_percent / 100.0)::double precision
+		FROM users u
+		JOIN groups g ON g.id = $2 AND g.deleted_at IS NULL
+		LEFT JOIN user_group_rate_multipliers ugr ON ugr.user_id = u.id AND ugr.group_id = g.id
+		WHERE u.id = $1 AND u.deleted_at IS NULL
 	`
 	var rate sql.NullFloat64
 	err := scanSingleRow(ctx, r.sql, query, []any{userID, groupID}, &rate)
@@ -272,13 +332,18 @@ func (r *userGroupRateRepository) GetByUserAndGroup(ctx context.Context, userID,
 	return &v, nil
 }
 
-// GetPercentByUserAndGroup 获取用户在特定分组的专属百分比（NULL 返回 nil）。
+// GetPercentByUserAndGroup returns the explicit group percentage or inherited
+// user default. Administrative map readers intentionally remain explicit-only.
 func (r *userGroupRateRepository) GetPercentByUserAndGroup(ctx context.Context, userID, groupID int64) (*float64, error) {
 	query := `
-		SELECT COALESCE(ugr.rate_percent, ugr.rate_multiplier / g.rate_multiplier * 100.0)::double precision
-		FROM user_group_rate_multipliers ugr
-		JOIN groups g ON g.id = ugr.group_id
-		WHERE ugr.user_id = $1 AND ugr.group_id = $2
+		SELECT COALESCE(ugr.rate_percent,
+		                CASE WHEN ugr.rate_multiplier = 0 THEN 0
+		                     ELSE ugr.rate_multiplier / NULLIF(g.rate_multiplier, 0) * 100.0 END,
+		                u.default_group_rate_percent)::double precision
+		FROM users u
+		JOIN groups g ON g.id = $2 AND g.deleted_at IS NULL
+		LEFT JOIN user_group_rate_multipliers ugr ON ugr.user_id = u.id AND ugr.group_id = g.id
+		WHERE u.id = $1 AND u.deleted_at IS NULL
 	`
 	var percent sql.NullFloat64
 	err := scanSingleRow(ctx, r.sql, query, []any{userID, groupID}, &percent)
@@ -318,11 +383,11 @@ func (r *userGroupRateRepository) GetRPMOverrideByUserAndGroup(ctx context.Conte
 //   - 值为 nil：清空对应行的 rate_multiplier（保留 rpm_override）。
 //   - 值非 nil：upsert rate_multiplier（保留已有 rpm_override）。
 func (r *userGroupRateRepository) SyncUserGroupRates(ctx context.Context, userID int64, rates map[int64]*float64) error {
-	return r.withTransaction(ctx, func(tx *sql.Tx) error {
+	return r.withTransaction(ctx, func(tx userGroupRateSQLExecutor) error {
 		if len(rates) == 0 {
 			if _, err := tx.ExecContext(ctx, `
 			UPDATE user_group_rate_multipliers
-			SET rate_multiplier = NULL, updated_at = NOW()
+			SET rate_multiplier = NULL, rate_percent = NULL, updated_at = NOW()
 			WHERE user_id = $1
 		`, userID); err != nil {
 				return err
@@ -348,7 +413,7 @@ func (r *userGroupRateRepository) SyncUserGroupRates(ctx context.Context, userID
 		if len(clearGroupIDs) > 0 {
 			if _, err := tx.ExecContext(ctx, `
 			UPDATE user_group_rate_multipliers
-			SET rate_multiplier = NULL, updated_at = NOW()
+			SET rate_multiplier = NULL, rate_percent = NULL, updated_at = NOW()
 			WHERE user_id = $1 AND group_id = ANY($2)
 		`, userID, pq.Array(clearGroupIDs)); err != nil {
 				return err
@@ -388,11 +453,11 @@ func (r *userGroupRateRepository) SyncUserGroupRates(ctx context.Context, userID
 // SyncUserGroupRatePercents 同步用户的分组专属百分比。
 // nil 表示清除；非 nil 值由数据库触发器同步兼容 rate_multiplier 影子列。
 func (r *userGroupRateRepository) SyncUserGroupRatePercents(ctx context.Context, userID int64, percents map[int64]*float64) error {
-	return r.withTransaction(ctx, func(tx *sql.Tx) error {
+	return r.withTransaction(ctx, func(tx userGroupRateSQLExecutor) error {
 		if len(percents) == 0 {
 			if _, err := tx.ExecContext(ctx, `
 			UPDATE user_group_rate_multipliers
-			SET rate_percent = NULL, updated_at = NOW()
+			SET rate_percent = NULL, rate_multiplier = NULL, updated_at = NOW()
 			WHERE user_id = $1
 		`, userID); err != nil {
 				return err
@@ -418,7 +483,7 @@ func (r *userGroupRateRepository) SyncUserGroupRatePercents(ctx context.Context,
 		if len(clearGroupIDs) > 0 {
 			if _, err := tx.ExecContext(ctx, `
 			UPDATE user_group_rate_multipliers
-			SET rate_percent = NULL, updated_at = NOW()
+			SET rate_percent = NULL, rate_multiplier = NULL, updated_at = NOW()
 			WHERE user_id = $1 AND group_id = ANY($2)
 		`, userID, pq.Array(clearGroupIDs)); err != nil {
 				return err
@@ -460,7 +525,7 @@ func (r *userGroupRateRepository) SyncUserGroupRatePercents(ctx context.Context,
 //   - 未出现在 entries 中的用户行：rate_multiplier 归 NULL；若 rpm_override 也为 NULL 则整行删除。
 //   - 出现的用户行：upsert rate_multiplier。
 func (r *userGroupRateRepository) SyncGroupRateMultipliers(ctx context.Context, groupID int64, entries []service.GroupRateMultiplierInput) error {
-	return r.withTransaction(ctx, func(tx *sql.Tx) error {
+	return r.withTransaction(ctx, func(tx userGroupRateSQLExecutor) error {
 		keepUserIDs := make([]int64, 0, len(entries))
 		for _, e := range entries {
 			keepUserIDs = append(keepUserIDs, e.UserID)

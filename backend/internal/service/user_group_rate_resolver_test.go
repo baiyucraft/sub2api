@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -15,6 +17,77 @@ type userGroupRateResolverRepoStub struct {
 	percent *float64
 	err     error
 	calls   int
+}
+
+type blockedUserGroupRateRepo struct {
+	UserGroupRateRepository
+	calls   atomic.Int64
+	entered chan struct{}
+	release chan struct{}
+	first   *float64
+}
+
+func (s *blockedUserGroupRateRepo) GetPercentByUserID(context.Context, int64) (map[int64]float64, error) {
+	panic("unexpected map lookup")
+}
+
+func (s *blockedUserGroupRateRepo) GetPercentByUserAndGroup(ctx context.Context, _, _ int64) (*float64, error) {
+	if s.calls.Add(1) == 1 {
+		close(s.entered)
+		select {
+		case <-s.release:
+			return s.first, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	percent := 50.0
+	return &percent, nil
+}
+
+func TestUserGroupRateResolverInvalidationPreventsInflightStaleRefill(t *testing.T) {
+	for _, mode := range []string{"pair", "user", "group", "reconnect"} {
+		for _, missing := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/missing=%t", mode, missing), func(t *testing.T) {
+				old := 95.0
+				repo := &blockedUserGroupRateRepo{entered: make(chan struct{}), release: make(chan struct{}), first: &old}
+				if missing {
+					repo.first = nil
+				}
+				resolver := newUserGroupRateResolver(repo, nil, time.Minute, nil, "service.test")
+				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				defer cancel()
+				oldResult := make(chan float64, 1)
+				go func() { oldResult <- resolver.Resolve(ctx, 101, 202, 1) }()
+				select {
+				case <-repo.entered:
+				case <-ctx.Done():
+					t.Fatal("lookup did not reach barrier")
+				}
+				switch mode {
+				case "pair":
+					resolver.Invalidate(101, 202)
+				case "user":
+					resolver.InvalidateUser(101)
+				case "group":
+					resolver.InvalidateGroup(202)
+				case "reconnect":
+					InvalidateAllUserGroupRateCaches()
+				}
+				// This must not join the obsolete singleflight still at the barrier.
+				require.Equal(t, 0.5, resolver.Resolve(ctx, 101, 202, 1))
+				close(repo.release)
+				select {
+				case got := <-oldResult:
+					require.Equal(t, 0.5, got)
+				case <-ctx.Done():
+					t.Fatal("in-flight lookup did not finish")
+				}
+				require.Equal(t, int64(2), repo.calls.Load())
+				require.Equal(t, 1.0, resolver.Resolve(ctx, 101, 202, 2))
+			})
+		}
+	}
 }
 
 func (s *userGroupRateResolverRepoStub) GetPercentByUserID(context.Context, int64) (map[int64]float64, error) {
@@ -122,4 +195,40 @@ func TestUserGroupRateResolver_CachedPercentTracksCurrentGroupRate(t *testing.T)
 	require.Equal(t, 0.5, resolver.Resolve(context.Background(), 101, 202, 1.0))
 	require.Equal(t, 1.0, resolver.Resolve(context.Background(), 101, 202, 2.0))
 	require.Equal(t, 1, repo.calls)
+}
+
+func TestUserGroupRateInheritedDefaultPreservesMediaAndSubscriptionComposition(t *testing.T) {
+	for _, groupType := range []string{SubscriptionTypeStandard, SubscriptionTypeSubscription} {
+		for _, percent := range []float64{95, 0} {
+			t.Run(fmt.Sprintf("%s/%g", groupType, percent), func(t *testing.T) {
+				repo := &userGroupRateResolverRepoStub{percent: &percent}
+				resolver := newUserGroupRateResolver(repo, nil, time.Minute, nil, "service.test")
+				group := newPeakGroup(true, "14:00", "18:00", 3)
+				group.SubscriptionType = groupType
+				group.RateMultiplier = .2
+				group.ImageRateIndependent = true
+				group.ImageRateMultiplier = .5
+				group.VideoRateIndependent = true
+				group.VideoRateMultiplier = .7
+				base, explicitZero := resolver.ResolveWithExplicitZero(context.Background(), 135, 8, group.RateMultiplier)
+				text, image := computePeakAwareMultipliersForUser(&APIKey{Group: group}, base, at(15, 30), explicitZero)
+				video := resolveVideoRateMultiplierForUser(&APIKey{Group: group}, base, explicitZero)
+				if percent == 0 {
+					require.True(t, explicitZero)
+					require.Zero(t, text)
+					require.Zero(t, image)
+					require.Zero(t, video)
+				} else {
+					require.False(t, explicitZero)
+					require.Equal(t, .5, image)
+					require.Equal(t, .7, video)
+					peak := 1.0
+					if groupType == SubscriptionTypeSubscription {
+						peak = 3
+					}
+					require.InDelta(t, .19*peak, text, 1e-12)
+				}
+			})
+		}
+	}
 }
