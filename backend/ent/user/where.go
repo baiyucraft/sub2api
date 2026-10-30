@@ -150,6 +150,11 @@ func RestrictPublicGroups(v bool) predicate.User {
 	return predicate.User(sql.FieldEQ(FieldRestrictPublicGroups, v))
 }
 
+// DefaultGroupRatePercent applies equality check predicate on the "default_group_rate_percent" field. It's identical to DefaultGroupRatePercentEQ.
+func DefaultGroupRatePercent(v float64) predicate.User {
+	return predicate.User(sql.FieldEQ(FieldDefaultGroupRatePercent, v))
+}
+
 // BalanceNotifyEnabled applies equality check predicate on the "balance_notify_enabled" field. It's identical to BalanceNotifyEnabledEQ.
 func BalanceNotifyEnabled(v bool) predicate.User {
 	return predicate.User(sql.FieldEQ(FieldBalanceNotifyEnabled, v))
@@ -1128,6 +1133,56 @@ func RestrictPublicGroupsEQ(v bool) predicate.User {
 // RestrictPublicGroupsNEQ applies the NEQ predicate on the "restrict_public_groups" field.
 func RestrictPublicGroupsNEQ(v bool) predicate.User {
 	return predicate.User(sql.FieldNEQ(FieldRestrictPublicGroups, v))
+}
+
+// DefaultGroupRatePercentEQ applies the EQ predicate on the "default_group_rate_percent" field.
+func DefaultGroupRatePercentEQ(v float64) predicate.User {
+	return predicate.User(sql.FieldEQ(FieldDefaultGroupRatePercent, v))
+}
+
+// DefaultGroupRatePercentNEQ applies the NEQ predicate on the "default_group_rate_percent" field.
+func DefaultGroupRatePercentNEQ(v float64) predicate.User {
+	return predicate.User(sql.FieldNEQ(FieldDefaultGroupRatePercent, v))
+}
+
+// DefaultGroupRatePercentIn applies the In predicate on the "default_group_rate_percent" field.
+func DefaultGroupRatePercentIn(vs ...float64) predicate.User {
+	return predicate.User(sql.FieldIn(FieldDefaultGroupRatePercent, vs...))
+}
+
+// DefaultGroupRatePercentNotIn applies the NotIn predicate on the "default_group_rate_percent" field.
+func DefaultGroupRatePercentNotIn(vs ...float64) predicate.User {
+	return predicate.User(sql.FieldNotIn(FieldDefaultGroupRatePercent, vs...))
+}
+
+// DefaultGroupRatePercentGT applies the GT predicate on the "default_group_rate_percent" field.
+func DefaultGroupRatePercentGT(v float64) predicate.User {
+	return predicate.User(sql.FieldGT(FieldDefaultGroupRatePercent, v))
+}
+
+// DefaultGroupRatePercentGTE applies the GTE predicate on the "default_group_rate_percent" field.
+func DefaultGroupRatePercentGTE(v float64) predicate.User {
+	return predicate.User(sql.FieldGTE(FieldDefaultGroupRatePercent, v))
+}
+
+// DefaultGroupRatePercentLT applies the LT predicate on the "default_group_rate_percent" field.
+func DefaultGroupRatePercentLT(v float64) predicate.User {
+	return predicate.User(sql.FieldLT(FieldDefaultGroupRatePercent, v))
+}
+
+// DefaultGroupRatePercentLTE applies the LTE predicate on the "default_group_rate_percent" field.
+func DefaultGroupRatePercentLTE(v float64) predicate.User {
+	return predicate.User(sql.FieldLTE(FieldDefaultGroupRatePercent, v))
+}
+
+// DefaultGroupRatePercentIsNil applies the IsNil predicate on the "default_group_rate_percent" field.
+func DefaultGroupRatePercentIsNil() predicate.User {
+	return predicate.User(sql.FieldIsNull(FieldDefaultGroupRatePercent))
+}
+
+// DefaultGroupRatePercentNotNil applies the NotNil predicate on the "default_group_rate_percent" field.
+func DefaultGroupRatePercentNotNil() predicate.User {
+	return predicate.User(sql.FieldNotNull(FieldDefaultGroupRatePercent))
 }
 
 // BalanceNotifyEnabledEQ applies the EQ predicate on the "balance_notify_enabled" field.

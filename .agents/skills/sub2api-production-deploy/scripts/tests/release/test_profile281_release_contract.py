@@ -41,33 +41,33 @@ class Profile281ReleaseContractTest(unittest.TestCase):
         previous = {}
         exec(compile(git_blob(BASELINE, ".agents/skills/sub2api-production-deploy/scripts/release/profiles.py"),
                      "profile280-baseline", "exec"), previous)
-        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"281"})
+        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"281", "282"})
         for name, contract in previous["PROFILES"].items():
             self.assertEqual(get_profile(name), contract, name)
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "281")
-        profile = get_release_profile("281")
+        self.assertEqual(CURRENT_RELEASE_PROFILE, "282")
+        profile = get_profile("281")
         self.assertEqual((profile["version"], profile["parent"], profile["gate_schema"], profile["new_migrations"]),
                          ("0.2.19-baiyu", "280", 2, MIGRATIONS))
         with self.assertRaisesRegex(ValueError, "historical"):
             get_release_profile("280")
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 282"):
-            get_profile("282")
+        with self.assertRaisesRegex(ValueError, "unknown release profile: 283"):
+            get_profile("283")
         names = subprocess.run(["git", "ls-tree", "-r", "--name-only", BASELINE, "--", "backend/migrations"],
                                cwd=WORKSPACE, check=True, capture_output=True, text=True, timeout=30).stdout.splitlines()
         historical = [p for p in names if p.endswith(".sql")]
         self.assertEqual({p.name for p in (WORKSPACE / "backend/migrations").glob("*.sql")},
-                         {Path(p).name for p in historical} | set(MIGRATIONS))
+                         {Path(p).name for p in historical} | set(MIGRATIONS) | {"307_user_default_group_rate_percent.sql"})
         for path in historical:
             self.assertEqual((WORKSPACE / path).read_bytes(), git_blob(BASELINE, path), path)
         self.assertTrue(RELEASE_ID.fullmatch("280-aaaaaaaaaaaa-1-aaaaaaaa"))
         self.assertTrue(RELEASE_ID.fullmatch("281-aaaaaaaaaaaa-1-aaaaaaaa"))
-        self.assertFalse(RELEASE_ID.fullmatch("282-aaaaaaaaaaaa-1-aaaaaaaa"))
+        self.assertFalse(RELEASE_ID.fullmatch("283-aaaaaaaaaaaa-1-aaaaaaaa"))
 
     def test_official_raw_bytes_and_independent_checksums(self):
         registry = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(registry["current_profile"]["id"], "281")
+        self.assertEqual(registry["current_profile"]["id"], "282")
         for key in ("version", "parent", "new_migrations", "gate_schema", "release_policy"):
-            self.assertEqual(registry["current_profile"][key], get_profile("281")[key])
+            self.assertEqual(registry["historical_profiles"]["281"][key], get_profile("281")[key])
             self.assertEqual(registry["historical_profiles"]["280"][key], get_profile("280")[key])
         self.assertEqual((WORKSPACE / "backend/cmd/server/VERSION").read_text(encoding="utf-8").strip(), "0.2.19-baiyu")
         self.assertEqual(git_blob(UPSTREAM, "backend/cmd/server/VERSION").decode().strip(), "0.2.19")
@@ -166,9 +166,9 @@ jq() {
 
     def test_current_profile_guard_rejects_historical_unknown_and_malformed(self):
         validator = (ROOT / "release/vm-validate.sh").read_text(encoding="utf-8")
-        guard = next(line.strip() for line in validator.splitlines() if line.strip() == '[[ "$profile" == 281 ]]')
+        guard = next(line.strip() for line in validator.splitlines() if line.strip() == '[[ "$profile" == 282 ]]')
         prepare = (ROOT / "maintenance/release/prepare.sh").read_text(encoding="utf-8")
-        self.assertIn('[[ $profile == 281 ]]', prepare)
-        for value, allowed in (("281", True), ("280", False), ("282", False), ("0281", False), ("281;true", False)):
+        self.assertIn('[[ $profile == 282 ]]', prepare)
+        for value, allowed in (("282", True), ("281", False), ("280", False), ("283", False), ("0282", False), ("282;true", False)):
             result = self.execute('profile=$1\n' + guard, value)
             self.assertEqual(result.returncode == 0, allowed, (value, result.stderr))

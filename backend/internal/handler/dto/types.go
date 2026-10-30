@@ -47,8 +47,9 @@ type AdminUser struct {
 	LastUsedAt *time.Time `json:"last_used_at"`
 	// GroupRates 用户专属分组倍率配置
 	// map[groupID]rateMultiplier
-	GroupRates        map[int64]float64 `json:"group_rates,omitempty"`
-	GroupRatePercents map[int64]float64 `json:"group_rate_percents,omitempty"`
+	GroupRates              map[int64]float64 `json:"group_rates,omitempty"`
+	GroupRatePercents       map[int64]float64 `json:"group_rate_percents,omitempty"`
+	DefaultGroupRatePercent *float64          `json:"default_group_rate_percent"`
 	// RestrictPublicGroups 为 true 时，该用户仅可使用 allowed_groups 中列出的
 	// 公开分组。这是管理侧的权限开关，不下发给用户自身的接口。
 	RestrictPublicGroups bool `json:"restrict_public_groups"`
@@ -677,6 +678,26 @@ type AdminUserBalanceHistoryRecord struct {
 type NullableTimeField struct {
 	Set   bool
 	Value *time.Time
+}
+
+// NullableFloat64Field preserves omitted, null, and numeric patch values.
+type NullableFloat64Field struct {
+	Set   bool
+	Value *float64
+}
+
+func (f *NullableFloat64Field) UnmarshalJSON(data []byte) error {
+	f.Set = true
+	if bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
+		f.Value = nil
+		return nil
+	}
+	var value float64
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	f.Value = &value
+	return nil
 }
 
 func (f *NullableTimeField) UnmarshalJSON(data []byte) error {

@@ -2,6 +2,7 @@ package schema
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/Wei-Shaw/sub2api/ent/schema/mixins"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
@@ -100,6 +101,17 @@ func (User) Fields() []ent.Field {
 		// 为 true 时仅可绑定 user_allowed_groups 中列出的公开分组。
 		field.Bool("restrict_public_groups").
 			Default(false),
+		// 未配置单组专属比例时使用的用户默认比例；NULL 保持分组原倍率。
+		field.Float("default_group_rate_percent").
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,10)"}).
+			Optional().
+			Nillable().
+			Validate(func(value float64) error {
+				if value < 0 || math.IsNaN(value) || math.IsInf(value, 0) {
+					return fmt.Errorf("default_group_rate_percent must be finite and >= 0")
+				}
+				return nil
+			}),
 
 		// 余额不足通知
 		field.Bool("balance_notify_enabled").

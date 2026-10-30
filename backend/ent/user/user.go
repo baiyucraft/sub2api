@@ -53,6 +53,8 @@ const (
 	FieldLastActiveAt = "last_active_at"
 	// FieldRestrictPublicGroups holds the string denoting the restrict_public_groups field in the database.
 	FieldRestrictPublicGroups = "restrict_public_groups"
+	// FieldDefaultGroupRatePercent holds the string denoting the default_group_rate_percent field in the database.
+	FieldDefaultGroupRatePercent = "default_group_rate_percent"
 	// FieldBalanceNotifyEnabled holds the string denoting the balance_notify_enabled field in the database.
 	FieldBalanceNotifyEnabled = "balance_notify_enabled"
 	// FieldBalanceNotifyThresholdType holds the string denoting the balance_notify_threshold_type field in the database.
@@ -215,6 +217,7 @@ var Columns = []string{
 	FieldLastLoginAt,
 	FieldLastActiveAt,
 	FieldRestrictPublicGroups,
+	FieldDefaultGroupRatePercent,
 	FieldBalanceNotifyEnabled,
 	FieldBalanceNotifyThresholdType,
 	FieldBalanceNotifyThreshold,
@@ -285,6 +288,8 @@ var (
 	SignupSourceValidator func(string) error
 	// DefaultRestrictPublicGroups holds the default value on creation for the "restrict_public_groups" field.
 	DefaultRestrictPublicGroups bool
+	// DefaultGroupRatePercentValidator is a validator for the "default_group_rate_percent" field. It is called by the builders before save.
+	DefaultGroupRatePercentValidator func(float64) error
 	// DefaultBalanceNotifyEnabled holds the default value on creation for the "balance_notify_enabled" field.
 	DefaultBalanceNotifyEnabled bool
 	// DefaultBalanceNotifyThresholdType holds the default value on creation for the "balance_notify_threshold_type" field.
@@ -398,6 +403,11 @@ func ByLastActiveAt(opts ...sql.OrderTermOption) OrderOption {
 // ByRestrictPublicGroups orders the results by the restrict_public_groups field.
 func ByRestrictPublicGroups(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldRestrictPublicGroups, opts...).ToFunc()
+}
+
+// ByDefaultGroupRatePercent orders the results by the default_group_rate_percent field.
+func ByDefaultGroupRatePercent(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldDefaultGroupRatePercent, opts...).ToFunc()
 }
 
 // ByBalanceNotifyEnabled orders the results by the balance_notify_enabled field.

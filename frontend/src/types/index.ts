@@ -109,6 +109,8 @@ export interface AdminUser extends User {
   group_rates?: Record<number, number>
   // 用户专属分组比例真值（group_id -> rate_percent）
   group_rate_percents?: Record<number, number>
+  // 未单独配置比例的分组使用此默认值；null 表示 100%。
+  default_group_rate_percent?: number | null
   // 为 true 时该用户仅可使用 allowed_groups 中列出的公开分组。
   // 管理侧权限开关，普通用户接口不返回。
   restrict_public_groups?: boolean
@@ -2766,6 +2768,10 @@ export interface UpdateUserRequest {
   // 用户专属分组比例配置 (group_id -> rate_percent | null)，规范写入字段。
   // null 表示删除该分组的专属比例。
   group_rate_percents?: Record<number, number | null>
+  // 不提交不修改；null 恢复 100%；数字设置用户默认分组比例。
+  default_group_rate_percent?: number | null
+  // 先清除所有单组倍率覆盖（保留 RPM），再应用本次单组比例。
+  reset_group_rate_percents?: boolean
 }
 
 export interface ChangePasswordRequest {

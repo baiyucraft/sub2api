@@ -335,6 +335,33 @@ func (_u *UserUpdate) SetNillableRestrictPublicGroups(v *bool) *UserUpdate {
 	return _u
 }
 
+// SetDefaultGroupRatePercent sets the "default_group_rate_percent" field.
+func (_u *UserUpdate) SetDefaultGroupRatePercent(v float64) *UserUpdate {
+	_u.mutation.ResetDefaultGroupRatePercent()
+	_u.mutation.SetDefaultGroupRatePercent(v)
+	return _u
+}
+
+// SetNillableDefaultGroupRatePercent sets the "default_group_rate_percent" field if the given value is not nil.
+func (_u *UserUpdate) SetNillableDefaultGroupRatePercent(v *float64) *UserUpdate {
+	if v != nil {
+		_u.SetDefaultGroupRatePercent(*v)
+	}
+	return _u
+}
+
+// AddDefaultGroupRatePercent adds value to the "default_group_rate_percent" field.
+func (_u *UserUpdate) AddDefaultGroupRatePercent(v float64) *UserUpdate {
+	_u.mutation.AddDefaultGroupRatePercent(v)
+	return _u
+}
+
+// ClearDefaultGroupRatePercent clears the value of the "default_group_rate_percent" field.
+func (_u *UserUpdate) ClearDefaultGroupRatePercent() *UserUpdate {
+	_u.mutation.ClearDefaultGroupRatePercent()
+	return _u
+}
+
 // SetBalanceNotifyEnabled sets the "balance_notify_enabled" field.
 func (_u *UserUpdate) SetBalanceNotifyEnabled(v bool) *UserUpdate {
 	_u.mutation.SetBalanceNotifyEnabled(v)
@@ -993,6 +1020,11 @@ func (_u *UserUpdate) check() error {
 			return &ValidationError{Name: "signup_source", err: fmt.Errorf(`ent: validator failed for field "User.signup_source": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.DefaultGroupRatePercent(); ok {
+		if err := user.DefaultGroupRatePercentValidator(v); err != nil {
+			return &ValidationError{Name: "default_group_rate_percent", err: fmt.Errorf(`ent: validator failed for field "User.default_group_rate_percent": %w`, err)}
+		}
+	}
 	return nil
 }
 
@@ -1085,6 +1117,15 @@ func (_u *UserUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.RestrictPublicGroups(); ok {
 		_spec.SetField(user.FieldRestrictPublicGroups, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.DefaultGroupRatePercent(); ok {
+		_spec.SetField(user.FieldDefaultGroupRatePercent, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedDefaultGroupRatePercent(); ok {
+		_spec.AddField(user.FieldDefaultGroupRatePercent, field.TypeFloat64, value)
+	}
+	if _u.mutation.DefaultGroupRatePercentCleared() {
+		_spec.ClearField(user.FieldDefaultGroupRatePercent, field.TypeFloat64)
 	}
 	if value, ok := _u.mutation.BalanceNotifyEnabled(); ok {
 		_spec.SetField(user.FieldBalanceNotifyEnabled, field.TypeBool, value)
@@ -2028,6 +2069,33 @@ func (_u *UserUpdateOne) SetNillableRestrictPublicGroups(v *bool) *UserUpdateOne
 	return _u
 }
 
+// SetDefaultGroupRatePercent sets the "default_group_rate_percent" field.
+func (_u *UserUpdateOne) SetDefaultGroupRatePercent(v float64) *UserUpdateOne {
+	_u.mutation.ResetDefaultGroupRatePercent()
+	_u.mutation.SetDefaultGroupRatePercent(v)
+	return _u
+}
+
+// SetNillableDefaultGroupRatePercent sets the "default_group_rate_percent" field if the given value is not nil.
+func (_u *UserUpdateOne) SetNillableDefaultGroupRatePercent(v *float64) *UserUpdateOne {
+	if v != nil {
+		_u.SetDefaultGroupRatePercent(*v)
+	}
+	return _u
+}
+
+// AddDefaultGroupRatePercent adds value to the "default_group_rate_percent" field.
+func (_u *UserUpdateOne) AddDefaultGroupRatePercent(v float64) *UserUpdateOne {
+	_u.mutation.AddDefaultGroupRatePercent(v)
+	return _u
+}
+
+// ClearDefaultGroupRatePercent clears the value of the "default_group_rate_percent" field.
+func (_u *UserUpdateOne) ClearDefaultGroupRatePercent() *UserUpdateOne {
+	_u.mutation.ClearDefaultGroupRatePercent()
+	return _u
+}
+
 // SetBalanceNotifyEnabled sets the "balance_notify_enabled" field.
 func (_u *UserUpdateOne) SetBalanceNotifyEnabled(v bool) *UserUpdateOne {
 	_u.mutation.SetBalanceNotifyEnabled(v)
@@ -2699,6 +2767,11 @@ func (_u *UserUpdateOne) check() error {
 			return &ValidationError{Name: "signup_source", err: fmt.Errorf(`ent: validator failed for field "User.signup_source": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.DefaultGroupRatePercent(); ok {
+		if err := user.DefaultGroupRatePercentValidator(v); err != nil {
+			return &ValidationError{Name: "default_group_rate_percent", err: fmt.Errorf(`ent: validator failed for field "User.default_group_rate_percent": %w`, err)}
+		}
+	}
 	return nil
 }
 
@@ -2808,6 +2881,15 @@ func (_u *UserUpdateOne) sqlSave(ctx context.Context) (_node *User, err error) {
 	}
 	if value, ok := _u.mutation.RestrictPublicGroups(); ok {
 		_spec.SetField(user.FieldRestrictPublicGroups, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.DefaultGroupRatePercent(); ok {
+		_spec.SetField(user.FieldDefaultGroupRatePercent, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedDefaultGroupRatePercent(); ok {
+		_spec.AddField(user.FieldDefaultGroupRatePercent, field.TypeFloat64, value)
+	}
+	if _u.mutation.DefaultGroupRatePercentCleared() {
+		_spec.ClearField(user.FieldDefaultGroupRatePercent, field.TypeFloat64)
 	}
 	if value, ok := _u.mutation.BalanceNotifyEnabled(); ok {
 		_spec.SetField(user.FieldBalanceNotifyEnabled, field.TypeBool, value)

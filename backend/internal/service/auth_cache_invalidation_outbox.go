@@ -138,6 +138,9 @@ func (w *AuthCacheInvalidationWorker) run() {
 	ticker := time.NewTicker(authInvalidationPollInterval)
 	defer ticker.Stop()
 	for {
+		if err := w.processUserGroupRateInvalidations(w.ctx); err != nil && w.ctx.Err() == nil {
+			w.recordFailure(err)
+		}
 		if err := w.processBatch(w.ctx); err != nil && w.ctx.Err() == nil {
 			w.recordFailure(err)
 		}

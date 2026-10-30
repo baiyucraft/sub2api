@@ -26,8 +26,16 @@ type GroupRateMultiplierInput struct {
 // UserGroupRatePercentReader 暴露专属比例真值，供运行时缓存和管理端展示使用。
 // 保持为窄接口，避免破坏仍只实现旧有效倍率接口的测试或扩展仓储。
 type UserGroupRatePercentReader interface {
+	// GetPercentByUserID returns explicit group overrides only.
 	GetPercentByUserID(ctx context.Context, userID int64) (map[int64]float64, error)
+	// GetPercentByUserAndGroup includes an inherited user default.
 	GetPercentByUserAndGroup(ctx context.Context, userID, groupID int64) (*float64, error)
+}
+
+// UserGroupEffectiveRatesReader exposes runtime/display rates without turning
+// inherited defaults into explicit administrative group overrides.
+type UserGroupEffectiveRatesReader interface {
+	GetEffectiveByUserID(context.Context, int64) (map[int64]float64, error)
 }
 
 // UserGroupRatePercentWriter 使用百分比语义同步一个用户的专属倍率。
@@ -48,7 +56,8 @@ type UserGroupRateRepository interface {
 	// GetByUserID 获取用户所有专属分组 rate_multiplier（仅返回非 NULL 的条目）
 	GetByUserID(ctx context.Context, userID int64) (map[int64]float64, error)
 
-	// GetByUserAndGroup 获取用户在特定分组的专属 rate_multiplier（NULL 返回 nil）
+	// GetByUserAndGroup resolves a group override, then the user default; nil
+	// means neither is configured and the caller retains its group fallback.
 	GetByUserAndGroup(ctx context.Context, userID, groupID int64) (*float64, error)
 
 	// GetRPMOverrideByUserAndGroup 获取用户在特定分组的 rpm_override（NULL 返回 nil）
