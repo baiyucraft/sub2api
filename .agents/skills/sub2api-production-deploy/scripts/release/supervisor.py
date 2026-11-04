@@ -570,21 +570,43 @@ def reconcile_vm_preserve(args: argparse.Namespace, *, audit_fixture=None, audit
         manifest_sha256 = hashlib.sha256(manifest_raw).hexdigest()
         lease, lease_raw = lifecycle._state_snapshot(run_dir / "vm-lifecycle.json")
         owner, owner_raw = lifecycle._state_snapshot(shared / "owner.json")
+        snapshot_fields = ("production_current_image_id", "production_snapshot_sha256")
+        snapshot_presence = tuple(field in manifest for field in snapshot_fields)
+        pre_snapshot_init_failure = (
+            failed_stage == "pre-validator"
+            and state.get("stage") == "init"
+            and state.get("status") == "not_started"
+            and state.get("history") == []
+            and snapshot_presence == (False, False)
+        )
+        if failed_stage == "pre-validator":
+            if snapshot_presence == (True, True):
+                validate_image_id(manifest.get("production_current_image_id"))
+                snapshot_digest = manifest.get("production_snapshot_sha256")
+                if not isinstance(snapshot_digest, str) or not re.fullmatch(r"[0-9a-f]{64}", snapshot_digest):
+                    raise RuntimeError("vm_preserve_production_snapshot_unproven")
+            elif snapshot_presence != (False, False) or not pre_snapshot_init_failure:
+                raise RuntimeError("vm_preserve_production_snapshot_unproven")
+        else:
+            validate_image_id(manifest.get("production_current_image_id"))
+        track_local_evidence = failed_stage != "pre-validator" or pre_snapshot_init_failure
         local_evidence_bytes = dict(zip((
             run_dir / "manifest.json", run_dir / "runner.json", run_dir / "state.json",
             run_dir / "vm-lifecycle.json", shared / "owner.json",
-        ), (manifest_raw, runner_raw, state_raw, lease_raw, owner_raw))) if failed_stage != "pre-validator" else {}
+        ), (manifest_raw, runner_raw, state_raw, lease_raw, owner_raw))) if track_local_evidence else {}
         commit = manifest.get("commit_sha")
         if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}", commit):
             raise RuntimeError("vm_preserve_identity_mismatch")
-        validate_image_id(manifest.get("production_current_image_id"))
         if (
             manifest.get("schema") != 2 or manifest.get("release_id") != identifier
             or runner.get("schema") != 1 or runner.get("release_id") != identifier
             or runner.get("commit") != commit or runner.get("profile") != manifest.get("profile")
             or runner.get("status") != "failed" or type(runner.get("exit_code")) is not int or runner["exit_code"] == 0
             or state.get("schema") != 1 or state.get("release_id") != identifier
-            or state.get("status") != "failed" or state.get("stage") != "vm_validate"
+            or not (
+                (state.get("status") == "failed" and state.get("stage") == "vm_validate")
+                or pre_snapshot_init_failure
+            )
             or type(runner.get("pid")) is not int or not isinstance(runner.get("process_token"), str)
             or _process_token(runner["pid"]) == runner["process_token"]
         ):
@@ -679,7 +701,10 @@ printf 'production_not_started=verified\\n'
             if ssh.run("racknerd", production_script, {"production_not_started"}, timeout=60).values != {"production_not_started": "verified"}:
                 raise RuntimeError("vm_preserve_remote_production_unproven")
             production = ReleaseDoctor(str(manifest["profile"]), commit).run(("racknerd",), require_ingress_policy=False)
-            if production.get("racknerd_ready") != "true" or production.get("production_current_image_id") != manifest["production_current_image_id"]:
+            if production.get("racknerd_ready") != "true" or (
+                not pre_snapshot_init_failure
+                and production.get("production_current_image_id") != manifest["production_current_image_id"]
+            ):
                 raise RuntimeError("vm_preserve_production_identity_unproven")
             if not vm._running() or lifecycle._read_state(shared / "owner.json") != owner:
                 raise RuntimeError("vm_preserve_owner_changed")
@@ -688,7 +713,7 @@ printf 'production_not_started=verified\\n'
             for path in (run_dir / "gate", run_dir / "release-state.json"):
                 if path.exists() or path.is_symlink():
                     raise RuntimeError("vm_preserve_production_state_present")
-            if failed_stage != "pre-validator" and (
+            if track_local_evidence and (
                 hashlib.sha256(read_replaceable_bytes(run_dir / "manifest.json", max_bytes=MAX_JSON_BYTES)).hexdigest() != manifest_sha256
                 or any(read_replaceable_bytes(path, max_bytes=MAX_JSON_BYTES) != original for path, original in local_evidence_bytes.items())
                 or _read_json(run_dir / "manifest.json", required=True) != manifest
