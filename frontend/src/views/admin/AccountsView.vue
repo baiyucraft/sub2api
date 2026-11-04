@@ -904,7 +904,10 @@ const groupsByID = computed(() => new Map(groups.value.map(group => [group.id, g
 const accountGroupsForRow = (account: Pick<AccountListItem, 'group_ids'>): AdminGroup[] => {
   const groupIDs = account.group_ids ?? []
   if (groupIDs.length === 0) return []
-  return groupIDs.map(id => groupsByID.value.get(id)).filter((group): group is AdminGroup => Boolean(group))
+  return groupIDs
+    .map(id => groupsByID.value.get(id))
+    .filter((group): group is AdminGroup => Boolean(group))
+    .sort((left, right) => left.sort_order - right.sort_order || left.id - right.id)
 }
 const accountTableRef = ref<HTMLElement | null>(null)
 const dataTableRef = ref<InstanceType<typeof DataTable> | null>(null)

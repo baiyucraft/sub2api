@@ -81,8 +81,20 @@ const DataTableStub = defineComponent({
 })
 
 const AccountGroupsCellStub = defineComponent({
-  props: { groups: { type: Array, default: () => [] } },
-  template: '<span data-test="account-groups">{{ groups.map(group => group.name).join(",") }}</span>'
+  props: {
+    groups: { type: Array, default: () => [] },
+    preferredGroupIds: { type: Array, default: () => [] }
+  },
+  template: `
+    <span data-test="account-groups">{{ groups.map(group => group.name).join(",") }}
+      <span
+        v-for="group in groups"
+        :key="group.id"
+        :data-group-id="group.id"
+        :data-preferred="preferredGroupIds.includes(group.id)"
+      />
+    </span>
+  `
 })
 
 const EditAccountModalStub = defineComponent({
@@ -203,6 +215,32 @@ describe('admin AccountsView lite account list', () => {
     await flushPromises()
 
     expect(wrapper.get('[data-test="account-groups"]').text()).toBe('codex')
+    wrapper.unmount()
+  })
+
+  it('sorts displayed groups by catalog order and keeps preferred state attached to group ids', async () => {
+    const row = { ...listRow, group_ids: [9, 7, 3], preferred_group_ids: [9, 3] }
+    listAccounts.mockResolvedValue({
+      items: [row],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      pages: 1
+    })
+    getAllGroups.mockResolvedValue([
+      { id: 9, name: 'group-9', platform: 'openai', sort_order: 2 },
+      { id: 7, name: 'group-7', platform: 'openai', sort_order: 1 },
+      { id: 3, name: 'group-3', platform: 'openai', sort_order: 1 }
+    ])
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="account-groups"]').text()).toBe('group-3,group-7,group-9')
+    expect(wrapper.get('[data-group-id="3"]').attributes('data-preferred')).toBe('true')
+    expect(wrapper.get('[data-group-id="7"]').attributes('data-preferred')).toBe('false')
+    expect(wrapper.get('[data-group-id="9"]').attributes('data-preferred')).toBe('true')
+    expect(row.group_ids).toEqual([9, 7, 3])
+    expect(row.preferred_group_ids).toEqual([9, 3])
     wrapper.unmount()
   })
 
