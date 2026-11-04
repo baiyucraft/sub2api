@@ -50,6 +50,8 @@
               <div>{{ t(`admin.upstreamManagement.cacheGuard.modes.${effectiveCacheMode}`) }}</div>
               <div v-if="effectiveCacheMode !== 'disabled'">{{ t('admin.upstreamManagement.protection.cacheValues', { threshold: effectiveCacheThreshold, recovery: effectiveCacheRecovery, samples: effectiveCacheSamples }) }}</div>
               <div class="mt-1 border-t border-gray-200 pt-1 dark:border-dark-600">{{ t('admin.upstreamManagement.protection.cacheInherited', { window: policy.cache.window_minutes, cooldown: policy.cache.cooldown_minutes, trial: policy.cache.trial_percent }) }}</div>
+              <div data-test="protection-cache-global-recovery">{{ t('admin.upstreamManagement.protection.cacheGlobalRecovery', { sessions: policy.cache.recovery_min_sessions ?? 3 }) }}</div>
+              <div data-test="protection-cache-window-migration">{{ (policy.cache.session_window_migration_threshold_percent ?? effectiveCacheThreshold) === 0 ? t('admin.upstreamManagement.protection.cacheWindowMigrationDisabled') : t('admin.upstreamManagement.protection.cacheWindowMigration', { threshold: policy.cache.session_window_migration_threshold_percent ?? effectiveCacheThreshold }) }}</div>
             </div>
           </section>
         </div>

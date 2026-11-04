@@ -129,9 +129,13 @@ func (e *Engine) ordinaryGenerations(signature string) (string, string) {
 }
 
 func ordinaryRuleFingerprint(a AccountState, s Settings, policyGeneration string) string {
-	return digest(fmt.Sprintf("ordinary-cache-recovery-v1:%d:%d:%s:%d:%d:%d:%s:%s:%s", a.AccountID, a.UpstreamKeyID,
+	legacy := fmt.Sprintf("ordinary-cache-recovery-v1:%d:%d:%s:%d:%d:%d:%s:%s:%s", a.AccountID, a.UpstreamKeyID,
 		PolicySignature(s), s.WindowMinutes, s.CooldownMinutes, RecoveryLifetime,
-		a.DegradedAt.UTC().Format(time.RFC3339Nano), a.CooldownUntil.UTC().Format(time.RFC3339Nano), policyGeneration))
+		a.DegradedAt.UTC().Format(time.RFC3339Nano), a.CooldownUntil.UTC().Format(time.RFC3339Nano), policyGeneration)
+	if EffectiveRecoveryMinSessions(s) == 3 {
+		return digest(legacy)
+	}
+	return digest(fmt.Sprintf("ordinary-cache-recovery-v2:%s:%d", legacy, EffectiveRecoveryMinSessions(s)))
 }
 
 func opaqueRecoveryDigest(v string) bool {
@@ -182,7 +186,7 @@ func OrdinaryRecoveryStatusAt(a AccountState, s Settings, at time.Time) *Ordinar
 	if !protectedPhase(a.Phase) || s.Mode != Protect {
 		return nil
 	}
-	v := &OrdinaryRecoveryView{RequiredRequests: s.MinValidRequests + 1, RequiredSessions: MinRecoverySessions,
+	v := &OrdinaryRecoveryView{RequiredRequests: s.MinValidRequests + 1, RequiredSessions: EffectiveRecoveryMinSessions(s),
 		RequiredRatePercent: s.RecoveryThresholdPercent, Reason: "waiting_samples"}
 	if at.Before(a.CooldownUntil) {
 		v.Reason = "cooldown"
@@ -247,7 +251,7 @@ func ordinaryMetricsReason(count, sessions int, input, read, sharedInput, shared
 	if count <= s.MinValidRequests {
 		return "waiting_samples"
 	}
-	if sessions < MinRecoverySessions {
+	if sessions < EffectiveRecoveryMinSessions(s) {
 		return "waiting_sessions"
 	}
 	if input <= 0 || float64(read)/float64(input)*100 < s.RecoveryThresholdPercent {

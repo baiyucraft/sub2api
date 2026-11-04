@@ -9,6 +9,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type countingCacheGuardSettingRepo struct {
+	*upstreamManagementSettingRepoStub
+	setCalls int
+}
+
+func (r *countingCacheGuardSettingRepo) Get(ctx context.Context, key string) (*Setting, error) {
+	value, err := r.upstreamManagementSettingRepoStub.GetValue(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	return &Setting{Key: key, Value: value}, nil
+}
+
+func (r *countingCacheGuardSettingRepo) Set(ctx context.Context, key, value string) error {
+	r.setCalls++
+	return r.upstreamManagementSettingRepoStub.Set(ctx, key, value)
+}
+
 func TestUpstreamCacheGuardSettingsDefaultsAndOldClientPreservation(t *testing.T) {
 	repo := &upstreamManagementSettingRepoStub{values: map[string]string{}}
 	settings := NewSettingService(repo, nil)
@@ -38,7 +56,53 @@ func TestUpstreamCacheGuardSettingsOldJSONDefaultsEvidenceExpiry(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 15, got.ProtectionEvidenceExpiryMinutes)
 	require.Equal(t, upstreamcacheguard.Observe, got.Mode)
+	require.Equal(t, 3, got.RecoveryMinSessions)
 }
+
+func TestUpstreamCacheGuardSettingsNormalizeNewFieldsAndOwnPointer(t *testing.T) {
+	threshold := 61.5
+	settings := UpstreamCacheGuardSettings{ThresholdPercent: 75, RecoveryThresholdPercent: 80, RecoveryMinSessions: 0, SessionWindowMigrationThresholdPercent: &threshold}
+	normalizeUpstreamCacheGuardSettings(&settings, DefaultUpstreamCacheGuardSettings())
+	require.Equal(t, 3, settings.RecoveryMinSessions)
+	require.Equal(t, 61.5, upstreamcacheguard.EffectiveSessionWindowMigrationThreshold(settings))
+	threshold = 10
+	require.Equal(t, 61.5, *settings.SessionWindowMigrationThresholdPercent, "normalization must take ownership of the nullable setting")
+	settings.SessionWindowMigrationThresholdPercent = nil
+	settings.ThresholdPercent = 68
+	require.Equal(t, 68.0, upstreamcacheguard.EffectiveSessionWindowMigrationThreshold(settings), "null threshold follows the resolved group threshold")
+}
+
+func TestUpstreamCacheGuardSameValueSaveDoesNotAdvanceSetting(t *testing.T) {
+	repo := &countingCacheGuardSettingRepo{upstreamManagementSettingRepoStub: &upstreamManagementSettingRepoStub{values: map[string]string{}}}
+	settingsService := NewSettingService(repo, nil)
+	runner := &UpstreamCacheGuardRunner{engine: upstreamcacheguard.NewEngine(nil)}
+	previous := installedCacheGuardRunner.Swap(runner)
+	t.Cleanup(func() { installedCacheGuardRunner.Store(previous) })
+	settings := DefaultUpstreamCacheGuardSettings()
+	settings.Mode = upstreamcacheguard.Observe
+	require.NoError(t, settingsService.SetUpstreamCacheGuardSettings(context.Background(), settings))
+	require.Equal(t, 1, repo.setCalls)
+	first := repo.values[SettingKeyUpstreamCacheGuard]
+	revision := runner.localSettingsRevision.Load()
+	require.NoError(t, settingsService.SetUpstreamCacheGuardSettings(context.Background(), settings))
+	require.Equal(t, 1, repo.setCalls)
+	require.Equal(t, revision, runner.localSettingsRevision.Load(), "same-value save must not restart recovery qualification")
+	require.Equal(t, first, repo.values[SettingKeyUpstreamCacheGuard])
+}
+
+func TestUpstreamCacheGuardMissingDefaultSavePreservesRecoveryGeneration(t *testing.T) {
+	repo := &countingCacheGuardSettingRepo{upstreamManagementSettingRepoStub: &upstreamManagementSettingRepoStub{values: map[string]string{}}}
+	settings := NewSettingService(repo, nil)
+	ctx := context.Background()
+	before, err := settings.ordinaryRecoverySettingRevisions(ctx)
+	require.NoError(t, err)
+	require.NoError(t, settings.SetUpstreamCacheGuardSettings(ctx, DefaultUpstreamCacheGuardSettings()))
+	require.Zero(t, repo.setCalls, "a missing row already means the effective default")
+	after, err := settings.ordinaryRecoverySettingRevisions(ctx)
+	require.NoError(t, err)
+	require.Equal(t, before, after)
+}
+
 func TestUpstreamCacheGuardInvalidSettingsRejectBeforeAnyWrite(t *testing.T) {
 	repo := &upstreamManagementSettingRepoStub{values: map[string]string{}}
 	settings := NewSettingService(repo, nil)

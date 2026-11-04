@@ -545,9 +545,10 @@ func TestRecoveryCohortRequiresSessionsCountTimeAndFreshEvidence(t *testing.T) {
 	s := e.Settings()
 	var facts []Evidence
 	for i := 0; i < 21; i++ {
-		facts = append(facts, Evidence{Request: Request{GroupID: 1}, Admission: Admission{Sample: true, WarmAtStart: true, Trial: true, CohortID: "c", SessionKey: fmt.Sprint(i % 3)}, Success: true, RawUsage: RawUsage{Status: upstreamcacheusage.Known, TotalInputTokens: 100, CacheReadTokens: 85}, CompletedAt: testNow.Add(-time.Duration(21-i) * time.Second)})
+		r := Request{ID: fmt.Sprintf("recovery-%d", i), GroupID: 1, AccountID: 2, UpstreamKeyID: 3, StartedAt: testNow.Add(-time.Duration(22-i) * time.Second)}
+		facts = append(facts, Evidence{Request: r, Admission: Admission{RequestID: r.ID, AccountID: 2, UpstreamKeyID: 3, GroupID: 1, StartedAt: r.StartedAt, Sample: true, WarmAtStart: true, Trial: true, CohortID: "c", SessionKey: fmt.Sprint(i % 3)}, Success: true, RawUsage: RawUsage{Status: upstreamcacheusage.Known, TotalInputTokens: 100, CacheReadTokens: 85}, CompletedAt: testNow.Add(-time.Duration(21-i) * time.Second)})
 	}
-	a := AccountState{Phase: Trial, CohortID: "c", FirstTrialAt: testNow.Add(-9 * time.Minute)}
+	a := AccountState{AccountID: 2, UpstreamKeyID: 3, Phase: Trial, CohortID: "c", FirstTrialAt: testNow.Add(-9 * time.Minute)}
 	if err := RecomputeAccount(&a, facts, s, testNow, true); err != nil {
 		t.Fatal(err)
 	}
@@ -560,10 +561,17 @@ func TestRecoveryCohortRequiresSessionsCountTimeAndFreshEvidence(t *testing.T) {
 	if a.Phase != Trial {
 		t.Fatal("timer alone recovered")
 	}
-	facts = append(facts, Evidence{Request: facts[0].Request, Admission: facts[0].Admission, Success: true, RawUsage: facts[0].RawUsage, CompletedAt: testNow.Add(2 * time.Minute)})
+	current := facts[0]
+	current.ID, current.Request.ID = "recovery-new", "recovery-new"
+	current.Admission.RequestID = current.Request.ID
+	current.Request.StartedAt = testNow.Add(2*time.Minute - time.Second)
+	current.Admission.StartedAt = current.Request.StartedAt
+	current.CompletedAt = testNow.Add(2 * time.Minute)
+	facts = append(facts, current)
 	if err := RecomputeAccount(&a, facts, s, testNow.Add(2*time.Minute), true); err != nil {
 		t.Fatal(err)
 	}
+	advanceTrialCompletion(&a, s, current, testNow.Add(2*time.Minute))
 	if a.Phase != Healthy || a.ValidRequests != 0 || a.QualitySince.IsZero() {
 		t.Fatalf("recovery=%+v", a)
 	}

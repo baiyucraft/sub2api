@@ -144,6 +144,7 @@ func buildCacheGuardPreference(ctx context.Context, groupID *int64, sessionHash,
 		}
 		if _, ok := eligible[session.PreferredAccountID]; ok {
 			source := states[session.PreferredAccountID]
+			sourceAccount := eligible[session.PreferredAccountID]
 			if !snapshot.Fresh || !source.Fresh || !session.Fresh {
 				// A stale snapshot may preserve an existing session affinity, but
 				// must not create a new trial or migrate from old observations.
@@ -164,7 +165,7 @@ func buildCacheGuardPreference(ctx context.Context, groupID *int64, sessionHash,
 			for id := range eligible {
 				a := states[id]
 				target := eligible[id]
-				if a.Fresh && a.Phase != upstreamcacheguard.Unknown && id != session.PreferredAccountID && cacheGuardSamePool(&target, firstPool, groupID) && a.ValidRequests > s.MinValidRequests && a.CachePercent >= source.CachePercent+5 {
+				if a.Fresh && a.Phase != upstreamcacheguard.Unknown && id != session.PreferredAccountID && cacheGuardSamePool(&target, &sourceAccount, groupID) && a.ValidRequests > s.MinValidRequests && a.CachePercent >= source.CachePercent+5 {
 					better = append(better, id)
 				}
 			}

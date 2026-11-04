@@ -360,16 +360,35 @@ func TestCaptureOnlyBackgroundRefreshCannotRecoverInitialPolicyProjection(t *tes
 			if !available || got.Phase != phase || got.ValidRequests != len(facts) {
 				t.Fatalf("background replay changed recovery state: %+v, available=%v", got, available)
 			}
-			// A genuinely new ordinary warm completion still permits the normal
-			// recovery transition; initialization itself is not that trigger.
+			// An ordinary completion cannot finish a trial cohort from its prior
+			// aggregate; only a new completion in that cohort may do so.
 			ordinary := facts[0]
 			ordinary.ID, ordinary.CompletedAt = "ordinary-new", testNow
+			ordinary.Admission.Trial, ordinary.Admission.CohortID = false, ""
 			facts = append(facts, ordinary)
 			if err := e.recomputePoliciesWithRecovery(&state, facts, testNow, true, true); err != nil {
 				t.Fatal(err)
 			}
+			wantAfterOrdinary := phase
+			if wantAfterOrdinary == Unknown {
+				wantAfterOrdinary = Healthy
+			}
+			if state.Policies[sig].State.Phase != wantAfterOrdinary {
+				t.Fatalf("ordinary evidence changed recovery outcome: %+v", state.Policies[sig].State)
+			}
+			if state.Policies[sig].State.Phase != Trial {
+				return
+			}
+			trial := facts[1]
+			trial.ID, trial.CompletedAt = "trial-new", testNow
+			trial.Admission.RequestID, trial.Admission.Trial = trial.Request.ID, true
+			trial.Admission.CohortID = "initial-cohort"
+			trial.Request.ID = "trial-new"
+			projection := state.Policies[sig]
+			advanceTrialCompletion(&projection.State, settings, trial, testNow)
+			state.Policies[sig] = projection
 			if state.Policies[sig].State.Phase != Healthy {
-				t.Fatalf("new ordinary evidence lost recovery: %+v", state.Policies[sig].State)
+				t.Fatalf("new cohort evidence did not recover: %+v", state.Policies[sig].State)
 			}
 		})
 	}

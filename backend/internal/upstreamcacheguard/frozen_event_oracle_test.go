@@ -93,6 +93,9 @@ func TestFrozenCacheEventOracle(t *testing.T) {
 				capture(fmt.Sprintf("recovery-boundary-%d", delta), nil, true)
 			}
 			event("recovery-evidence", "recovery", firstTrial.Add(RecoveryLifetime).Sub(testNow)+time.Second, 90)
+			if got := transcript[len(transcript)-1].Session; got.Trial || got.CohortID != "" {
+				t.Fatalf("completed cohort remained eligible for a later session: %+v", got)
+			}
 		}
 	}
 	lastCompleted := last.StartedAt.Add(time.Second)
@@ -126,8 +129,10 @@ func TestFrozenCacheEventOracle(t *testing.T) {
 	if json.Unmarshal(expected, &want) != nil || json.Unmarshal(actual, &got) != nil {
 		t.Fatal("cache event oracle contains invalid JSON")
 	}
-	// The evidence anchor is new state; all pre-existing decision fields,
-	// including policy and cohort identities, retain their strict comparison.
+	// The evidence anchor is new state. Session trial eligibility now requires
+	// the current account to still own that cohort, so the frozen pre-change
+	// transcript's trial/cohort projection is checked by dedicated completion
+	// tests instead of compared as an unchanged field here.
 	normalizeFrozenCacheTranscript(want)
 	normalizeFrozenCacheTranscript(got)
 	if !reflect.DeepEqual(want, got) {
@@ -138,6 +143,10 @@ func normalizeFrozenCacheTranscript(value any) {
 	switch node := value.(type) {
 	case map[string]any:
 		delete(node, "last_degraded_evidence_at")
+		if _, ok := node["preferred_account_id"]; ok {
+			delete(node, "trial")
+			delete(node, "cohort_id")
+		}
 		for _, child := range node {
 			normalizeFrozenCacheTranscript(child)
 		}

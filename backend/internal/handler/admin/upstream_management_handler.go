@@ -2,6 +2,8 @@ package admin
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -18,7 +20,7 @@ type upstreamProbeModelsRequest struct {
 type upstreamManagementSettingsRequest struct {
 	SchedulingProtectionPlatforms *[]string                                `json:"scheduling_protection_platforms"`
 	SchedulingPriority            *string                                  `json:"scheduling_priority"`
-	CacheGuard                    *service.UpstreamCacheGuardSettings      `json:"cache_guard"`
+	CacheGuard                    json.RawMessage                          `json:"cache_guard"`
 	TTFTGuard                     service.OpenAITTFTGuardSettings          `json:"ttft_guard"`
 	ProbeModels                   service.UpstreamProbeModels              `json:"probe_models"`
 	ProbeIntervalSeconds          int                                      `json:"probe_interval_seconds"`
@@ -26,6 +28,28 @@ type upstreamManagementSettingsRequest struct {
 	ModelAliasRules               map[string]string                        `json:"model_alias_rules"`
 	ConfidenceProbe               *service.UpstreamConfidenceProbeSettings `json:"confidence_probe"`
 	PoolModeRetryStatusCodes      *[]int                                   `json:"pool_mode_retry_status_codes"`
+}
+
+func decodeUpstreamCacheGuardSettings(raw json.RawMessage) (*service.UpstreamCacheGuardSettings, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil, nil
+	}
+	var settings service.UpstreamCacheGuardSettings
+	if err := json.Unmarshal(raw, &settings); err != nil {
+		return nil, err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return nil, err
+	}
+	if value, ok := fields["recovery_min_sessions"]; ok {
+		var sessions int
+		if err := json.Unmarshal(value, &sessions); err != nil || sessions < 1 || sessions > 100 {
+			return nil, fmt.Errorf("recovery_min_sessions must be an integer between 1 and 100")
+		}
+		settings.RecoveryMinSessions = sessions
+	}
+	return &settings, nil
 }
 
 func (h *UpstreamConfigHandler) ListUpstreamHealthHistories(ctx context.Context, keyIDs []int64, limit int) (map[int64][]service.UpstreamHealthObservation, error) {
@@ -115,6 +139,11 @@ func (h *UpstreamConfigHandler) PutUpstreamManagementSettings(c *gin.Context) {
 		response.BadRequest(c, "invalid upstream management settings: "+err.Error())
 		return
 	}
+	cacheGuard, cacheErr := decodeUpstreamCacheGuardSettings(req.CacheGuard)
+	if cacheErr != nil {
+		response.BadRequest(c, cacheErr.Error())
+		return
+	}
 	currentSettings, err := h.service.GetManagementSettings(c.Request.Context())
 	if err != nil {
 		response.ErrorFrom(c, err)
@@ -136,7 +165,7 @@ func (h *UpstreamConfigHandler) PutUpstreamManagementSettings(c *gin.Context) {
 	if req.SchedulingPriority != nil {
 		priority = *req.SchedulingPriority
 	}
-	settings := service.UpstreamManagementSettings{SchedulingPriority: priority, CacheGuard: req.CacheGuard, TTFTGuard: req.TTFTGuard, ProbeModels: req.ProbeModels, ProbeIntervalSeconds: req.ProbeIntervalSeconds, ProbeGuard: probeGuard, ModelAliasRules: modelAliasRules, ConfidenceProbe: confidenceProbe}
+	settings := service.UpstreamManagementSettings{SchedulingPriority: priority, CacheGuard: cacheGuard, TTFTGuard: req.TTFTGuard, ProbeModels: req.ProbeModels, ProbeIntervalSeconds: req.ProbeIntervalSeconds, ProbeGuard: probeGuard, ModelAliasRules: modelAliasRules, ConfidenceProbe: confidenceProbe}
 	if req.SchedulingProtectionPlatforms != nil {
 		settings.SchedulingProtectionPlatforms = append([]string{}, (*req.SchedulingProtectionPlatforms)...)
 	}

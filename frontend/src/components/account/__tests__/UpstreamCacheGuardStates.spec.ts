@@ -49,9 +49,10 @@ describe('UpstreamCacheGuardStates', () => {
     const unknown = render(summary({ state: 'unavailable', rate_percent: null, reason: 'snapshot_unavailable' }))
     expect(unknown.get('[data-test="cache-guard-state"]').text()).toBe('Temporarily unavailable · Unknown')
     expect(unknown.text()).toContain('Shared state temporarily unavailable')
-    const recovery = render(summary({ state: 'recovering', rate_percent: 0, recovery_rate_percent: 82.5, recovery_valid_requests: 25, recovery_sessions: 3, recovery_started_at: '2026-10-13T02:00:00Z' }), [group({ state: 'recovering', trial_participant: true })])
+    const recovery = render(summary({ state: 'recovering', rate_percent: 0, recovery_rate_percent: 82.5, recovery_valid_requests: 25, recovery_sessions: 3, recovery_required_sessions: 4, recovery_started_at: '2026-10-13T02:00:00Z' }), [group({ state: 'recovering', trial_participant: true })])
     expect(recovery.get('[data-test="cache-guard-state"]').text()).toBe('Recovery trial · 0.0%')
     expect(recovery.text()).toContain('Current recovery continuation cache rate: 82.5%')
+    expect(recovery.text()).toContain('Current recovery sessions: 3/4')
     expect(recovery.text()).toContain('In this recovery trial')
   })
   it.each(['observing', 'protected', 'insufficient'] as const)('shows %s in a single badge', (state) => {

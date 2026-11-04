@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -176,6 +177,37 @@ func TestJointProtectionMigrationCombinesTriggersBeforePriorityFallback(t *testi
 				quality[3] = forkscheduling.TTFTQuality{Degraded: true, SampleCount: 5, EWMAms: 35000}
 				result = svc.jointSessionPreference(ctx, preference, 100, "gpt-test", "openai", accounts, quality, cfg, priority)
 				require.NotContains(t, result.Tiers, []int64{3}, "cache migration must not move to a known slow account in either mode")
+			})
+		}
+	}
+}
+
+func TestJointProtectionMigrationUsesSourcePoolForBothTriggers(t *testing.T) {
+	for _, priority := range []string{SchedulingPriorityCacheFirst, SchedulingPriorityTTFTFirst} {
+		for _, cacheMigration := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/cache_migration=%t", priority, cacheMigration), func(t *testing.T) {
+				svc, ctx, _, _ := cacheGuardSelectionFixture(t, false, []float64{40, 94, 99}, nil, false, time.Time{}, nil)
+				ctx = context.WithValue(ctx, cacheGuardLogicalSessionKey{}, "explicit:source-priority-pool")
+				accounts, err := svc.accountRepo.ListSchedulableByGroupID(ctx, 100)
+				require.NoError(t, err)
+				accounts[0].Priority, accounts[1].Priority, accounts[2].Priority = 3, 3, 1
+				cfg := enabledOpenAITTFTGuardConfig(20*time.Second, 5)
+				key, reliable := protectionSessionKey(ctx, 100, &accounts[0], "gpt-test", "openai")
+				require.True(t, reliable)
+				streak := svc.protectionSession(key, time.Now())
+				streak.slow, streak.threshold = 2, cfg.Threshold
+				quality := map[int64]forkscheduling.TTFTQuality{
+					1: {Degraded: true, SampleCount: 5, EWMAms: 35000},
+					2: {SampleCount: 5, EWMAms: 4000},
+					3: {SampleCount: 5, EWMAms: 1000},
+				}
+				preference := cacheGuardPreference{Active: true, KeepAccountID: 1, Migration: cacheMigration}
+				if cacheMigration {
+					preference.Tiers = [][]int64{{2}}
+				}
+				result := svc.jointSessionPreference(ctx, preference, 100, "gpt-test", "openai", accounts, quality, cfg, priority)
+				require.True(t, result.Migration)
+				require.Equal(t, [][]int64{{2}}, result.Tiers, "TTFT must keep the same source pool instead of reintroducing a faster outer-pool target")
 			})
 		}
 	}

@@ -754,7 +754,7 @@ func cloneAccountSnapshot(a AccountSnapshot) AccountSnapshot {
 		policies := make(map[string]PolicyProjection, len(a.Policies))
 		for sig, p := range a.Policies {
 			p.State = cloneAccountSnapshot(AccountSnapshot{AccountState: p.State}).AccountState
-			p.Settings.GroupIDs = append([]int64(nil), p.Settings.GroupIDs...)
+			p.Settings = cloneSettings(p.Settings)
 			policies[sig] = p
 		}
 		a.Policies = policies

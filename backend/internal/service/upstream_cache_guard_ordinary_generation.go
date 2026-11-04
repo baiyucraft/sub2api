@@ -59,6 +59,7 @@ func cacheGuardConfigurationIdentity(settings UpstreamCacheGuardSettings) string
 	if settings.ProtectionEvidenceExpiryMinutes == 0 {
 		settings.ProtectionEvidenceExpiryMinutes = 15
 	}
+	settings.RecoveryMinSessions = upstreamcacheguard.EffectiveRecoveryMinSessions(settings)
 	ids := append([]int64(nil), settings.GroupIDs...)
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 	settings.GroupIDs = nil

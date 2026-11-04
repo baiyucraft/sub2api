@@ -33,3 +33,20 @@ func TestAccountListETagTracksGuardOnlyChangesBothDirections(t *testing.T) {
 		})
 	}
 }
+
+func TestAccountListETagTracksCacheRecoveryRequirementOnlyChange(t *testing.T) {
+	for _, lite := range []bool{false, true} {
+		build := func(required int) string {
+			summary := &service.UpstreamCacheGuardSummary{State: "recovering", ValidRequests: 22, RecoverySessions: 2, RecoveryRequiredSessions: required}
+			states := []service.UpstreamCacheGuardState{{GroupID: 7, State: "recovering", RecoverySessions: 2, RecoveryRequiredSessions: required}}
+			if lite {
+				rows := []AccountListItemWithConcurrency{{AccountListItem: &dto.AccountListItem{ID: 101}, UpstreamCacheGuard: summary, UpstreamCacheGuardStates: states}}
+				return buildAccountsListETag(rows, 1, 1, 20, "", "", "", "", true)
+			}
+			rows := []AccountWithConcurrency{{Account: &dto.Account{ID: 101}, UpstreamCacheGuard: summary, UpstreamCacheGuardStates: states}}
+			return buildAccountsListETag(rows, 1, 1, 20, "", "", "", "", false)
+		}
+		require.NotEqual(t, build(3), build(4))
+		require.False(t, ifNoneMatchMatched(build(3), build(4)))
+	}
+}

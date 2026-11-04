@@ -155,7 +155,7 @@ describe('UpstreamManagementSettingsDialog', () => {
     await flushPromises()
     expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({
       scheduling_protection_platforms: ['openai'],
-      cache_guard: { mode: 'observe', group_ids: [], threshold_percent: 75, window_minutes: 60, min_valid_requests: 20, recovery_threshold_percent: 80, cooldown_minutes: 10, trial_percent: 10, protection_evidence_expiry_minutes: 15 },
+      cache_guard: { mode: 'observe', group_ids: [], threshold_percent: 75, window_minutes: 60, min_valid_requests: 20, recovery_threshold_percent: 80, cooldown_minutes: 10, trial_percent: 10, protection_evidence_expiry_minutes: 15, session_window_migration_threshold_percent: null, recovery_min_sessions: 3 },
       pool_mode_retry_status_codes: [401, 403, 429]
     }))
   })
@@ -410,5 +410,24 @@ describe('UpstreamManagementSettingsDialog', () => {
     await flushPromises()
     expect(wrapper.findAll('[data-test="select"]')[0]?.text()).toBe('gpt-6-astra')
     expect(updateProbeSettings).not.toHaveBeenCalled()
+  })
+
+  it('saves the configurable recovery session count and nullable window migration threshold', async () => {
+    const settings = await getSettings()
+    getSettings.mockResolvedValue({ ...settings, cache_guard: {
+      mode: 'protect', group_ids: [], threshold_percent: 75, window_minutes: 60,
+      min_valid_requests: 20, recovery_threshold_percent: 80, cooldown_minutes: 10,
+      trial_percent: 10, protection_evidence_expiry_minutes: 15,
+      session_window_migration_threshold_percent: 72.5, recovery_min_sessions: 4
+    } })
+    const wrapper = mountDialog()
+    await flushPromises()
+    expect(wrapper.get('[data-test="cache-guard-recovery_min_sessions"]').element).toHaveProperty('value', '4')
+    expect(wrapper.get('[data-test="cache-guard-session_window_migration_threshold_percent"]').element).toHaveProperty('value', '72.5')
+    await wrapper.get('[data-test="cache-guard-session_window_migration_threshold_percent"]').setValue('')
+    await wrapper.get('[data-test="cache-guard-recovery_min_sessions"]').setValue('5')
+    await wrapper.get('button.btn-primary').trigger('click')
+    await flushPromises()
+    expect(updateSettings.mock.calls[0]?.[0].cache_guard).toMatchObject({ recovery_min_sessions: 5, session_window_migration_threshold_percent: null })
   })
 })

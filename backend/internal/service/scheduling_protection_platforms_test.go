@@ -37,6 +37,33 @@ func TestSchedulingProtectionPlatformsDefaultsEmptyAndCanonicalPersistence(t *te
 	require.Equal(t, "[]", repo.values[SettingKeySchedulingProtectionPlatforms])
 }
 
+func TestSchedulingProtectionPlatformsSameValueSavePreservesRecoveryGeneration(t *testing.T) {
+	repo := &countingCacheGuardSettingRepo{upstreamManagementSettingRepoStub: &upstreamManagementSettingRepoStub{values: map[string]string{}}}
+	settings := NewSettingService(repo, nil)
+	ctx := context.Background()
+	require.NoError(t, settings.SetSchedulingProtectionPlatforms(ctx, []string{PlatformOpenAI, PlatformAnthropic}))
+	require.Equal(t, 1, repo.setCalls)
+	first := repo.values[SettingKeySchedulingProtectionPlatforms]
+	require.NoError(t, settings.SetSchedulingProtectionPlatforms(ctx, []string{" OPENAI ", PlatformAnthropic, PlatformOpenAI}))
+	require.Equal(t, 1, repo.setCalls)
+	require.Equal(t, first, repo.values[SettingKeySchedulingProtectionPlatforms])
+	require.Equal(t, []string{PlatformAnthropic, PlatformOpenAI}, settings.SchedulingProtectionPlatformsSnapshot())
+}
+
+func TestSchedulingProtectionPlatformsMissingDefaultSavePreservesRecoveryGeneration(t *testing.T) {
+	repo := &countingCacheGuardSettingRepo{upstreamManagementSettingRepoStub: &upstreamManagementSettingRepoStub{values: map[string]string{}}}
+	settings := NewSettingService(repo, nil)
+	ctx := context.Background()
+	before, err := settings.ordinaryRecoverySettingRevisions(ctx)
+	require.NoError(t, err)
+	require.NoError(t, settings.SetSchedulingProtectionPlatforms(ctx, []string{" OPENAI ", PlatformOpenAI}))
+	require.Zero(t, repo.setCalls)
+	after, err := settings.ordinaryRecoverySettingRevisions(ctx)
+	require.NoError(t, err)
+	require.Equal(t, before, after)
+	require.Equal(t, DefaultSchedulingProtectionPlatforms(), settings.SchedulingProtectionPlatformsSnapshot())
+}
+
 func TestSchedulingProtectionPlatformsInvalidPersistenceFailsClosed(t *testing.T) {
 	for _, raw := range []string{`null`, `invalid`, `["composite"]`, `["unknown"]`, `["openai","unknown"]`} {
 		t.Run(raw, func(t *testing.T) {
