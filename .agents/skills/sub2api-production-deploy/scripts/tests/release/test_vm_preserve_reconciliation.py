@@ -42,7 +42,7 @@ def fixture(tmp_path, monkeypatch):
     monkeypatch.setattr(s, "_process_token", lambda _: None)
     commit = "a" * 40
     docs = {
-        "manifest.json": {"schema": 2, "release_id": run_dir.name, "commit_sha": commit, "profile": "264", "production_current_image_id": "sha256:" + "b" * 64},
+        "manifest.json": {"schema": 2, "release_id": run_dir.name, "commit_sha": commit, "profile": "264", "production_current_image_id": "sha256:" + "b" * 64, "production_snapshot_sha256": "c" * 64},
         "runner.json": {"schema": 1, "release_id": run_dir.name, "commit": commit, "profile": "264", "status": "failed", "exit_code": 1, "pid": 42, "process_token": "dead-runner"},
         "state.json": {"schema": 1, "release_id": run_dir.name, "status": "failed", "stage": "vm_validate", "history": []},
         "vm-lifecycle.json": {"schema": 1, "vm_identity": "vm-id", "release_id": run_dir.name, "source_commit": commit, "pid": 42, "process_token": "dead-runner", "lease_token": "lease", "initially_running": True, "vm_started_by_release": False, "vm_boot_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", "lease_status": "retained", "vm_cleanup_status": "retained_failure"},
@@ -81,6 +81,101 @@ def test_verified_pre_validator_failure_releases_only_lease(fixture):
     assert "release-gates/264-failed" in f.calls[0][1]
     assert ".active-release" in f.calls[1][1]
     assert all("docker stop" not in c[1] and "rm " not in c[1] and "poweroff" not in c[1] for c in f.calls)
+
+
+def test_unbound_init_pre_validator_failure_releases_only_lease(fixture, monkeypatch):
+    f = fixture
+    manifest_path = f.run_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest.pop("production_current_image_id")
+    manifest.pop("production_snapshot_sha256")
+    manifest_path.write_text(json.dumps(manifest))
+    rewrite(f, "state.json", stage="init", status="not_started", history=[])
+    original_state = (f.run_dir / "state.json").read_bytes()
+    monkeypatch.setattr(
+        s,
+        "ReleaseDoctor",
+        lambda *_: SimpleNamespace(run=lambda *_args, **_kwargs: {
+            "racknerd_ready": "true", "production_current_image_id": "sha256:" + "d" * 64,
+        }),
+    )
+
+    result = s.reconcile_vm_preserve(f.args)
+
+    assert result["status"] == "preserved"
+    assert (f.run_dir / "state.json").read_bytes() == original_state
+    assert json.loads((f.shared / "owner.json").read_text())["lease_status"] == "released"
+    assert [call[0] for call in f.calls] == ["local_vm", "racknerd"]
+
+
+def test_unbound_init_pre_validator_rejects_evidence_drift_during_probes(fixture, monkeypatch):
+    f = fixture
+    manifest_path = f.run_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest.pop("production_current_image_id")
+    manifest.pop("production_snapshot_sha256")
+    manifest_path.write_text(json.dumps(manifest))
+    rewrite(f, "state.json", stage="init", status="not_started", history=[])
+    original_owner = (f.shared / "owner.json").read_bytes()
+    base_remote = s.SSHRunner().run
+
+    def mutate_after_vm_probe(node, script, fields, **kwargs):
+        result = base_remote(node, script, fields, **kwargs)
+        if node == "local_vm":
+            state_path = f.run_dir / "state.json"
+            state_path.write_bytes(state_path.read_bytes() + b"\n")
+        return result
+
+    monkeypatch.setattr(s, "SSHRunner", lambda: SimpleNamespace(run=mutate_after_vm_probe))
+
+    with pytest.raises(RuntimeError, match="local_evidence_changed"):
+        s.reconcile_vm_preserve(f.args)
+
+    assert (f.shared / "owner.json").read_bytes() == original_owner
+    assert not (f.run_dir / "vm-preserve-result.json").exists()
+
+
+@pytest.mark.parametrize("field", ["production_current_image_id", "production_snapshot_sha256"])
+def test_pre_validator_rejects_partial_production_snapshot(fixture, field):
+    f = fixture
+    manifest_path = f.run_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest.pop(field)
+    manifest_path.write_text(json.dumps(manifest))
+    original_owner = (f.shared / "owner.json").read_bytes()
+
+    with pytest.raises(RuntimeError, match="production_snapshot_unproven"):
+        s.reconcile_vm_preserve(f.args)
+
+    assert (f.shared / "owner.json").read_bytes() == original_owner
+    assert not (f.run_dir / "vm-preserve-result.json").exists()
+    assert f.calls == []
+
+
+@pytest.mark.parametrize(
+    ("stage", "status", "history"),
+    [
+        ("init", "failed", []),
+        ("vm_validate", "not_started", []),
+        ("init", "not_started", [{"stage": "vm_preflight"}]),
+    ],
+)
+def test_unbound_pre_validator_rejects_other_init_states(fixture, stage, status, history):
+    f = fixture
+    manifest_path = f.run_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest.pop("production_current_image_id")
+    manifest.pop("production_snapshot_sha256")
+    manifest_path.write_text(json.dumps(manifest))
+    rewrite(f, "state.json", stage=stage, status=status, history=history)
+    original_owner = (f.shared / "owner.json").read_bytes()
+
+    with pytest.raises(RuntimeError):
+        s.reconcile_vm_preserve(f.args)
+
+    assert (f.shared / "owner.json").read_bytes() == original_owner
+    assert not (f.run_dir / "vm-preserve-result.json").exists()
+    assert f.calls == []
 
 
 @pytest.mark.parametrize("name,changes", [
