@@ -172,14 +172,10 @@ func (s *OpenAIGatewayService) jointSessionPreference(ctx context.Context, p cac
 		return p
 	}
 	var source *Account
-	var first *Account
 	for i := range accounts {
 		a := &accounts[i]
 		if a.ID == p.KeepAccountID {
 			source = a
-		}
-		if first == nil || cacheGuardPoolBetter(a, first, &groupID) {
-			first = a
 		}
 	}
 	if source == nil {
@@ -206,7 +202,7 @@ func (s *OpenAIGatewayService) jointSessionPreference(ctx context.Context, p cac
 		for i := range accounts {
 			a := &accounts[i]
 			q, ok := quality[a.ID]
-			if schedulingProtectionAccountSelected(s.groupProtectionPolicyResolver, a) && a.ID != source.ID && canonicalOpenAIAccountSchedulingModel(a, model) == sourceModel && cacheGuardSamePool(a, first, &groupID) && ok && jointTTFTClass(a.ID, quality, cfg.MinSamples) == 0 && q.EWMAms > 0 && q.EWMAms < float64(cfg.Threshold.Milliseconds()) {
+			if schedulingProtectionAccountSelected(s.groupProtectionPolicyResolver, a) && a.ID != source.ID && canonicalOpenAIAccountSchedulingModel(a, model) == sourceModel && cacheGuardSamePool(a, source, &groupID) && ok && jointTTFTClass(a.ID, quality, cfg.MinSamples) == 0 && q.EWMAms > 0 && q.EWMAms < float64(cfg.Threshold.Milliseconds()) {
 				fast = append(fast, a.ID)
 			}
 		}

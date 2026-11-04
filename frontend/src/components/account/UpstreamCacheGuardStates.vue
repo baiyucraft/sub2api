@@ -18,7 +18,7 @@
     <template v-if="summary.state === 'recovering' || summary.recovery_started_at">
       <div class="mt-2 border-t border-white/10 pt-2">{{ t('admin.upstreamManagement.cacheGuard.recoveryRate') }}: {{ rateLabel(summary.recovery_rate_percent) }}</div>
       <div>{{ t('admin.upstreamManagement.cacheGuard.recoveryRequests') }}: {{ summary.recovery_valid_requests }}</div>
-      <div>{{ t('admin.upstreamManagement.cacheGuard.recoverySessions') }}: {{ summary.recovery_sessions }}</div>
+      <div>{{ t('admin.upstreamManagement.cacheGuard.recoverySessions') }}: {{ summary.recovery_sessions }}/{{ summary.recovery_required_sessions ?? 3 }}</div>
       <div>{{ t('admin.upstreamManagement.cacheGuard.recoveryStartedAt') }}: {{ dateLabel(summary.recovery_started_at) }}</div>
     </template>
     <div v-if="summary.cooldown_until">{{ t('admin.upstreamManagement.cacheGuard.cooldownUntil') }}: {{ dateLabel(summary.cooldown_until) }}</div>

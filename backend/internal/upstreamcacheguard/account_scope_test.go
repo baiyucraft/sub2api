@@ -292,7 +292,8 @@ func TestAccountRecoveryCombinesOnlyCurrentEnabledTrialCohort(t *testing.T) {
 	var facts []Evidence
 	for i := 0; i < 3; i++ {
 		g := int64(i%2 + 1)
-		facts = append(facts, Evidence{Request: Request{AccountID: 2, UpstreamKeyID: 3, GroupID: g}, Admission: Admission{Sample: true, WarmAtStart: true, Trial: true, CohortID: "current", SessionKey: fmt.Sprint(i)}, Success: true, CompletedAt: testNow.Add(-time.Second), RawUsage: RawUsage{Status: upstreamcacheusage.Known, TotalInputTokens: 100, CacheReadTokens: 90}})
+		r := Request{ID: fmt.Sprintf("cohort-%d", i), AccountID: 2, UpstreamKeyID: 3, GroupID: g, StartedAt: testNow.Add(-2 * time.Second)}
+		facts = append(facts, Evidence{Request: r, Admission: Admission{RequestID: r.ID, AccountID: 2, UpstreamKeyID: 3, GroupID: g, StartedAt: r.StartedAt, Sample: true, WarmAtStart: true, Trial: true, CohortID: "current", SessionKey: fmt.Sprint(i)}, Success: true, CompletedAt: testNow.Add(-time.Second), RawUsage: RawUsage{Status: upstreamcacheusage.Known, TotalInputTokens: 100, CacheReadTokens: 90}})
 	}
 	ordinary := facts[0]
 	ordinary.Request.GroupID = 3
@@ -303,6 +304,7 @@ func TestAccountRecoveryCombinesOnlyCurrentEnabledTrialCohort(t *testing.T) {
 	if err := RecomputeAccount(&a, facts, s, testNow, true); err != nil {
 		t.Fatal(err)
 	}
+	advanceTrialCompletion(&a, s, facts[2], testNow)
 	if a.Phase != Healthy {
 		t.Fatalf("cross-group recovery failed=%+v", a)
 	}
@@ -313,6 +315,7 @@ func TestAccountRecoveryCombinesOnlyCurrentEnabledTrialCohort(t *testing.T) {
 	if err := RecomputeAccount(&a, facts, s, testNow, true); err != nil {
 		t.Fatal(err)
 	}
+	advanceTrialCompletion(&a, s, facts[2], testNow)
 	if a.Phase != Trial || a.TrialValidRequests != 0 {
 		t.Fatal("old cohort restored account")
 	}

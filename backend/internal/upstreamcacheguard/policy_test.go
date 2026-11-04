@@ -139,6 +139,7 @@ func TestPolicyRecoveryKeepsSharedFactsAndOtherCohort(t *testing.T) {
 	if err := e.recomputePolicies(&a, facts, testNow, true); err != nil {
 		t.Fatal(err)
 	}
+	e.advanceTrialPolicies(&a, facts[2], testNow)
 	if a.Policies[strictSig].State.Phase != Healthy || a.Policies[customSig].State.Phase != Trial || a.Policies[customSig].State.TrialValidRequests != 0 || a.ValidRequests != 3 || a.CachePercent != 85 {
 		t.Fatalf("recovery contaminated shared/foreign state=%+v", a)
 	}

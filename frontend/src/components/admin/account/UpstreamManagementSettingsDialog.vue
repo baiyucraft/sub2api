@@ -81,9 +81,14 @@
             <span class="text-sm font-medium text-gray-700 dark:text-gray-200">{{ t(`admin.upstreamManagement.cacheGuard.${field.key}`) }}</span>
             <input v-model.number="draft.cache_guard[field.key]" :data-test="`cache-guard-${field.key}`" type="number" :min="field.min" :max="field.max" :step="field.step || 1" class="input" />
           </label>
+          <label class="space-y-1.5">
+            <span class="text-sm font-medium text-gray-700 dark:text-gray-200">{{ t('admin.upstreamManagement.cacheGuard.session_window_migration_threshold_percent') }}</span>
+            <input v-model.number="sessionWindowMigrationThreshold" data-test="cache-guard-session_window_migration_threshold_percent" type="number" min="0" max="100" step="0.1" :placeholder="t('admin.upstreamManagement.cacheGuard.sessionWindowThresholdPlaceholder')" class="input" />
+            <span class="block text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('admin.upstreamManagement.cacheGuard.sessionWindowThresholdHint') }}</span>
+          </label>
         </div>
         <p class="mt-3 text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('admin.upstreamManagement.cacheGuard.sampleHint', { count: draft.cache_guard.min_valid_requests }) }}</p>
-        <p class="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('admin.upstreamManagement.cacheGuard.recoveryHint') }}</p>
+        <p class="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('admin.upstreamManagement.cacheGuard.recoveryHint', { count: draft.cache_guard.recovery_min_sessions }) }}</p>
         <p class="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('admin.upstreamManagement.cacheGuard.evidenceExpiryHint') }}</p>
         <p class="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('admin.upstreamManagement.cacheGuard.sessionHint') }}</p>
         <p v-if="!cacheGuardValid" role="alert" class="mt-2 text-sm text-red-600 dark:text-red-400">{{ t('admin.upstreamManagement.cacheGuard.invalid') }}</p>
@@ -255,7 +260,7 @@ type SettingsDraft = UpstreamManagementSettings & { cache_guard: UpstreamCacheGu
 const defaults: SettingsDraft = {
   scheduling_priority: 'cache_first',
   scheduling_protection_platforms: ['openai'],
-  cache_guard: { mode: 'disabled', group_ids: [], threshold_percent: 75, window_minutes: 60, min_valid_requests: 20, recovery_threshold_percent: 80, cooldown_minutes: 10, trial_percent: 10, protection_evidence_expiry_minutes: 15 },
+  cache_guard: { mode: 'disabled', group_ids: [], threshold_percent: 75, window_minutes: 60, min_valid_requests: 20, recovery_threshold_percent: 80, cooldown_minutes: 10, trial_percent: 10, protection_evidence_expiry_minutes: 15, session_window_migration_threshold_percent: null, recovery_min_sessions: 3 },
   ttft_guard: { enabled: false, degradation_ttft_seconds: 20, min_samples: 5 },
   probe_guard: {
     enabled: true,
@@ -270,13 +275,18 @@ const defaults: SettingsDraft = {
   , pool_mode_retry_status_codes: [401, 403, 429]
 }
 const draft = reactive<SettingsDraft>(structuredClone(defaults))
-const cacheNumericFields: { key: Exclude<keyof UpstreamCacheGuardSettings, 'mode' | 'group_ids'>; min: number; max: number; step?: number }[] = [
+const sessionWindowMigrationThreshold = computed<number | ''>({
+  get: () => draft.cache_guard.session_window_migration_threshold_percent ?? '',
+  set: value => { draft.cache_guard.session_window_migration_threshold_percent = value === '' ? null : value }
+})
+const cacheNumericFields: { key: Exclude<keyof UpstreamCacheGuardSettings, 'mode' | 'group_ids' | 'session_window_migration_threshold_percent'>; min: number; max: number; step?: number }[] = [
   { key: 'threshold_percent', min: 0, max: 100, step: 0.1 },
   { key: 'window_minutes', min: 5, max: 1440 },
   { key: 'min_valid_requests', min: 1, max: 100000 },
   { key: 'recovery_threshold_percent', min: 0, max: 100, step: 0.1 },
   { key: 'cooldown_minutes', min: 1, max: 1440 },
   { key: 'trial_percent', min: 1, max: 100 },
+  { key: 'recovery_min_sessions', min: 1, max: 100 },
   { key: 'protection_evidence_expiry_minutes', min: 1, max: 1440 }
 ]
 const cacheGuardValid = computed(() => {
@@ -284,6 +294,7 @@ const cacheGuardValid = computed(() => {
   return ['disabled', 'observe', 'protect'].includes(guard.mode) &&
     guard.group_ids.every(id => Number.isInteger(id) && id > 0) &&
     cacheNumericFields.every(field => Number.isFinite(guard[field.key]) && guard[field.key] >= field.min && guard[field.key] <= field.max && (field.step === 0.1 || Number.isInteger(guard[field.key]))) &&
+    (guard.session_window_migration_threshold_percent == null || (Number.isFinite(guard.session_window_migration_threshold_percent) && guard.session_window_migration_threshold_percent >= 0 && guard.session_window_migration_threshold_percent <= 100)) &&
     guard.recovery_threshold_percent > guard.threshold_percent
 })
 const probeIntervalMinutes = ref(5)
@@ -350,6 +361,8 @@ async function load() {
     ])
     if (request !== loadGeneration || !props.show) return
     draft.cache_guard = { ...defaults.cache_guard, ...settings.cache_guard, group_ids: [...(settings.cache_guard?.group_ids || [])] }
+    draft.cache_guard.session_window_migration_threshold_percent = settings.cache_guard?.session_window_migration_threshold_percent ?? null
+    draft.cache_guard.recovery_min_sessions = settings.cache_guard?.recovery_min_sessions ?? defaults.cache_guard.recovery_min_sessions
     Object.assign(draft.ttft_guard, settings.ttft_guard)
     draft.scheduling_priority = settings.scheduling_priority ?? 'cache_first'
     draft.scheduling_protection_platforms = schedulingProtectionPlatforms(settings)
@@ -413,7 +426,7 @@ async function save() {
       probe_models: Object.fromEntries(Object.entries(draft.probe_models).map(([platform, model]) => [platform, model.trim()])),
       probe_interval_seconds: probeIntervalMinutes.value * 60,
       confidence_probe: { ...draft.confidence_probe, reasoning_effort: 'low', long_context_enabled: false, quality_degrade_threshold: 0, prompt_version: 'openai-sol-distribution-v1', model_selection_version: 1 },
-      ...(probeOnly.value ? {} : { pool_mode_retry_status_codes: retryStatusCodes, cache_guard: { ...draft.cache_guard, group_ids: [...new Set(draft.cache_guard.group_ids)].sort((a, b) => a - b) } })
+      ...(probeOnly.value ? {} : { pool_mode_retry_status_codes: retryStatusCodes, cache_guard: { ...draft.cache_guard, session_window_migration_threshold_percent: draft.cache_guard.session_window_migration_threshold_percent == null ? null : Number(draft.cache_guard.session_window_migration_threshold_percent), recovery_min_sessions: Number(draft.cache_guard.recovery_min_sessions), group_ids: [...new Set(draft.cache_guard.group_ids)].sort((a, b) => a - b) } })
     }
     const saved = probeOnly.value
       ? await upstreamManagementAPI.updateProbeSettings(payload)

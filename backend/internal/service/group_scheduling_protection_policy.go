@@ -59,22 +59,24 @@ type GroupSchedulingProtectionPolicyRepository interface {
 }
 
 type GroupCacheGuardPolicyView struct {
-	Mode                              string                  `json:"mode"`
-	ThresholdPercent                  *float64                `json:"threshold_percent"`
-	RecoveryThresholdPercent          *float64                `json:"recovery_threshold_percent"`
-	MinValidRequests                  *int                    `json:"min_valid_requests"`
-	EffectiveMode                     upstreamcacheguard.Mode `json:"effective_mode"`
-	EffectiveThresholdPercent         float64                 `json:"effective_threshold_percent"`
-	EffectiveRecoveryThresholdPercent float64                 `json:"effective_recovery_threshold_percent"`
-	EffectiveMinValidRequests         int                     `json:"effective_min_valid_requests"`
-	GlobalMode                        upstreamcacheguard.Mode `json:"global_mode"`
-	GlobalThresholdPercent            float64                 `json:"global_threshold_percent"`
-	GlobalRecoveryThresholdPercent    float64                 `json:"global_recovery_threshold_percent"`
-	GlobalMinValidRequests            int                     `json:"global_min_valid_requests"`
-	WindowMinutes                     int                     `json:"window_minutes"`
-	CooldownMinutes                   int                     `json:"cooldown_minutes"`
-	TrialPercent                      int                     `json:"trial_percent"`
-	Source                            string                  `json:"source"`
+	Mode                                   string                  `json:"mode"`
+	ThresholdPercent                       *float64                `json:"threshold_percent"`
+	RecoveryThresholdPercent               *float64                `json:"recovery_threshold_percent"`
+	MinValidRequests                       *int                    `json:"min_valid_requests"`
+	EffectiveMode                          upstreamcacheguard.Mode `json:"effective_mode"`
+	EffectiveThresholdPercent              float64                 `json:"effective_threshold_percent"`
+	EffectiveRecoveryThresholdPercent      float64                 `json:"effective_recovery_threshold_percent"`
+	EffectiveMinValidRequests              int                     `json:"effective_min_valid_requests"`
+	GlobalMode                             upstreamcacheguard.Mode `json:"global_mode"`
+	GlobalThresholdPercent                 float64                 `json:"global_threshold_percent"`
+	GlobalRecoveryThresholdPercent         float64                 `json:"global_recovery_threshold_percent"`
+	GlobalMinValidRequests                 int                     `json:"global_min_valid_requests"`
+	SessionWindowMigrationThresholdPercent float64                 `json:"session_window_migration_threshold_percent"`
+	RecoveryMinSessions                    int                     `json:"recovery_min_sessions"`
+	WindowMinutes                          int                     `json:"window_minutes"`
+	CooldownMinutes                        int                     `json:"cooldown_minutes"`
+	TrialPercent                           int                     `json:"trial_percent"`
+	Source                                 string                  `json:"source"`
 }
 
 type GroupSchedulingProtectionPolicyView struct {
@@ -105,13 +107,22 @@ type GroupSchedulingProtectionResolvedPolicy struct {
 
 // GroupSchedulingProtectionPolicySnapshot is immutable after publication. It
 // can be retained for one scheduling evaluation without copying every group.
-// Accessors return owned values, including the only slice in a policy.
+// Accessors return owned values, including slices and nullable setting pointers.
 type GroupSchedulingProtectionPolicySnapshot struct {
 	revision                    uint64
 	policies                    map[int64]GroupSchedulingProtectionResolvedPolicy
 	ordinaryRecoveryGenerations map[string]string
 	globalCache                 *UpstreamCacheGuardSettings
 	cachePolicies               map[int64]UpstreamCacheGuardSettings
+}
+
+func cloneUpstreamCacheGuardSettings(settings UpstreamCacheGuardSettings) UpstreamCacheGuardSettings {
+	settings.GroupIDs = append([]int64(nil), settings.GroupIDs...)
+	if settings.SessionWindowMigrationThresholdPercent != nil {
+		value := *settings.SessionWindowMigrationThresholdPercent
+		settings.SessionWindowMigrationThresholdPercent = &value
+	}
+	return settings
 }
 
 func (s *GroupSchedulingProtectionPolicySnapshot) Revision() uint64 {
@@ -122,7 +133,7 @@ func (s *GroupSchedulingProtectionPolicySnapshot) Revision() uint64 {
 }
 
 func cloneSchedulingProtectionPolicy(p GroupSchedulingProtectionResolvedPolicy) GroupSchedulingProtectionResolvedPolicy {
-	p.Cache.GroupIDs = append([]int64(nil), p.Cache.GroupIDs...)
+	p.Cache = cloneUpstreamCacheGuardSettings(p.Cache)
 	return p
 }
 
@@ -250,7 +261,7 @@ func normalizeSchedulingProtectionPolicy(record GroupSchedulingProtectionPolicyR
 	if err := validateGroupTTFTGuardMode(mode); err != nil {
 		return GroupSchedulingProtectionPolicyView{}, GroupSchedulingProtectionResolvedPolicy{}, err
 	}
-	cache := cacheGlobal
+	cache := cloneUpstreamCacheGuardSettings(cacheGlobal)
 	cache.GroupIDs = []int64{}
 	source := GroupTTFTGuardSourceGlobal
 	if mode == GroupTTFTGuardModeEnabled {
@@ -286,6 +297,7 @@ func normalizeSchedulingProtectionPolicy(record GroupSchedulingProtectionPolicyR
 		Cache: GroupCacheGuardPolicyView{Mode: mode, ThresholdPercent: record.ThresholdPercent, RecoveryThresholdPercent: record.RecoveryThresholdPercent, MinValidRequests: record.MinValidRequests,
 			EffectiveMode: cache.Mode, EffectiveThresholdPercent: cache.ThresholdPercent, EffectiveRecoveryThresholdPercent: cache.RecoveryThresholdPercent, EffectiveMinValidRequests: cache.MinValidRequests,
 			GlobalMode: cacheGlobal.Mode, GlobalThresholdPercent: cacheGlobal.ThresholdPercent, GlobalRecoveryThresholdPercent: cacheGlobal.RecoveryThresholdPercent, GlobalMinValidRequests: cacheGlobal.MinValidRequests,
+			SessionWindowMigrationThresholdPercent: upstreamcacheguard.EffectiveSessionWindowMigrationThreshold(cache), RecoveryMinSessions: upstreamcacheguard.EffectiveRecoveryMinSessions(cache),
 			WindowMinutes: cache.WindowMinutes, CooldownMinutes: cache.CooldownMinutes, TrialPercent: cache.TrialPercent, Source: source},
 		Priority: priority, EffectivePriority: effectivePriority, GlobalPriority: priorityGlobal, PrioritySource: prioritySource, UpdatedAt: record.UpdatedAt}
 	view.PlatformSelected = selected
@@ -332,11 +344,10 @@ func (s *GroupSchedulingProtectionPolicyService) RefreshProtectionPolicies(ctx c
 			revision = s.published.revision + 1
 		}
 		s.snapshot = next
-		global := cache
-		global.GroupIDs = append([]int64(nil), cache.GroupIDs...)
+		global := cloneUpstreamCacheGuardSettings(cache)
 		values := make(map[int64]UpstreamCacheGuardSettings, len(next))
 		for id, policy := range next {
-			values[id] = policy.Cache
+			values[id] = cloneUpstreamCacheGuardSettings(policy.Cache)
 		}
 		s.published = &GroupSchedulingProtectionPolicySnapshot{revision: revision, policies: next, ordinaryRecoveryGenerations: generations, globalCache: &global, cachePolicies: values}
 		s.platforms = platforms
@@ -397,7 +408,7 @@ func (s *GroupSchedulingProtectionPolicyService) CachePolicies() map[int64]Upstr
 	defer s.mu.RUnlock()
 	out := make(map[int64]UpstreamCacheGuardSettings, len(s.snapshot))
 	for id, policy := range s.snapshot {
-		policy.Cache.GroupIDs = append([]int64{}, policy.Cache.GroupIDs...)
+		policy.Cache = cloneUpstreamCacheGuardSettings(policy.Cache)
 		out[id] = policy.Cache
 	}
 	return out

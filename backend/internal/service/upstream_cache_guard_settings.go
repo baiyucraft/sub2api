@@ -33,12 +33,7 @@ func (s *SettingService) GetUpstreamCacheGuardSettings(ctx context.Context) (Ups
 	if json.Unmarshal([]byte(raw), &settings) != nil {
 		return defaults, nil
 	}
-	if settings.Priority == "" {
-		settings.Priority = "cache_first"
-	}
-	if settings.ProtectionEvidenceExpiryMinutes == 0 {
-		settings.ProtectionEvidenceExpiryMinutes = defaults.ProtectionEvidenceExpiryMinutes
-	}
+	normalizeUpstreamCacheGuardSettings(&settings, defaults)
 	if settings.Validate() != nil {
 		return defaults, nil
 	}
@@ -56,9 +51,8 @@ func validateUpstreamCacheGuardSettings(settings *UpstreamCacheGuardSettings) er
 }
 
 func (s *SettingService) SetUpstreamCacheGuardSettings(ctx context.Context, settings UpstreamCacheGuardSettings) error {
-	if settings.ProtectionEvidenceExpiryMinutes == 0 {
-		settings.ProtectionEvidenceExpiryMinutes = DefaultUpstreamCacheGuardSettings().ProtectionEvidenceExpiryMinutes
-	}
+	defaults := DefaultUpstreamCacheGuardSettings()
+	normalizeUpstreamCacheGuardSettings(&settings, defaults)
 	if err := validateUpstreamCacheGuardSettings(&settings); err != nil {
 		return err
 	}
@@ -69,6 +63,22 @@ func (s *SettingService) SetUpstreamCacheGuardSettings(ctx context.Context, sett
 	if err != nil {
 		return err
 	}
+	// A semantically identical save must not advance the setting revision. This
+	// keeps ordinary recovery validation stable when the management form is
+	// submitted without changing its values.
+	if current, readErr := s.settingRepo.Get(ctx, SettingKeyUpstreamCacheGuard); readErr == nil && current != nil {
+		var previous UpstreamCacheGuardSettings
+		if json.Unmarshal([]byte(current.Value), &previous) == nil {
+			normalizeUpstreamCacheGuardSettings(&previous, defaults)
+			if previous.Validate() == nil && cacheGuardConfigurationIdentity(previous) == cacheGuardConfigurationIdentity(settings) {
+				return nil
+			}
+		}
+	} else if errors.Is(readErr, ErrSettingNotFound) && cacheGuardConfigurationIdentity(defaults) == cacheGuardConfigurationIdentity(settings) {
+		return nil
+	} else if readErr != nil && !errors.Is(readErr, ErrSettingNotFound) {
+		return readErr
+	}
 	if err := s.settingRepo.Set(ctx, SettingKeyUpstreamCacheGuard, string(encoded)); err != nil {
 		return err
 	}
@@ -77,4 +87,24 @@ func (s *SettingService) SetUpstreamCacheGuardSettings(ctx context.Context, sett
 	}
 	_ = s.notifyOpenAITTFTGuardGlobalUpdate(ctx)
 	return nil
+}
+
+func normalizeUpstreamCacheGuardSettings(settings *UpstreamCacheGuardSettings, defaults UpstreamCacheGuardSettings) {
+	if settings == nil {
+		return
+	}
+	if settings.Priority == "" {
+		settings.Priority = defaults.Priority
+	}
+	if settings.ProtectionEvidenceExpiryMinutes == 0 {
+		settings.ProtectionEvidenceExpiryMinutes = defaults.ProtectionEvidenceExpiryMinutes
+	}
+	if settings.RecoveryMinSessions == 0 {
+		settings.RecoveryMinSessions = upstreamcacheguard.EffectiveRecoveryMinSessions(*settings)
+	}
+	settings.GroupIDs = append([]int64{}, settings.GroupIDs...)
+	if settings.SessionWindowMigrationThresholdPercent != nil {
+		value := *settings.SessionWindowMigrationThresholdPercent
+		settings.SessionWindowMigrationThresholdPercent = &value
+	}
 }

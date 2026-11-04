@@ -1452,6 +1452,7 @@ export interface UpstreamCacheGuardState {
   recovery_valid_requests: number
   recovery_rate_percent: number | null
   recovery_sessions: number
+  recovery_required_sessions?: number
   recovery_started_at: string | null
   cooldown_until: string | null
   updated_at: string | null
@@ -1486,6 +1487,7 @@ export interface UpstreamCacheGuardSummary {
   recovery_valid_requests: number
   recovery_rate_percent: number | null
   recovery_sessions: number
+  recovery_required_sessions?: number
   recovery_started_at: string | null
   cooldown_until: string | null
   updated_at: string | null
@@ -1503,6 +1505,7 @@ export interface UpstreamCacheGuardProtectionSource {
   recovery_valid_requests: number
   recovery_rate_percent: number | null
   recovery_sessions: number
+  recovery_required_sessions?: number
   recovery_started_at: string | null
   cooldown_until: string | null
   updated_at: string | null

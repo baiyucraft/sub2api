@@ -29,6 +29,29 @@ func TestGroupSchedulingProtectionCustomIndependentAndThresholdValidation(t *tes
 	require.Error(t, err)
 }
 
+func TestGroupWindowMigrationThresholdFallsBackToResolvedGroupThreshold(t *testing.T) {
+	mode := "enabled"
+	groupThreshold, recovery, samples := 62.5, 85.0, 8
+	global := DefaultUpstreamCacheGuardSettings()
+	global.RecoveryMinSessions = 6
+	record := GroupSchedulingProtectionPolicyRecord{
+		TTFT: GroupTTFTGuardPolicyRecord{GroupID: 7, GroupPlatform: PlatformOpenAI}, CacheMode: &mode,
+		ThresholdPercent: &groupThreshold, RecoveryThresholdPercent: &recovery, MinValidRequests: &samples,
+	}
+	view, resolved, err := normalizeSchedulingProtectionPolicy(record, DefaultOpenAITTFTGuardSettings(), global, SchedulingPriorityCacheFirst)
+	require.NoError(t, err)
+	require.Equal(t, 62.5, upstreamcacheguard.EffectiveSessionWindowMigrationThreshold(resolved.Cache))
+	require.Equal(t, 62.5, view.Cache.SessionWindowMigrationThresholdPercent)
+	require.Equal(t, 6, view.Cache.RecoveryMinSessions)
+
+	explicitZero := 0.0
+	global.SessionWindowMigrationThresholdPercent = &explicitZero
+	view, resolved, err = normalizeSchedulingProtectionPolicy(record, DefaultOpenAITTFTGuardSettings(), global, SchedulingPriorityCacheFirst)
+	require.NoError(t, err)
+	require.Zero(t, upstreamcacheguard.EffectiveSessionWindowMigrationThreshold(resolved.Cache))
+	require.Zero(t, view.Cache.SessionWindowMigrationThresholdPercent)
+}
+
 func TestGroupSchedulingProtectionInheritedAndUnsupportedTTFTProjection(t *testing.T) {
 	global := DefaultUpstreamCacheGuardSettings()
 	global.Mode = upstreamcacheguard.Observe
@@ -47,13 +70,20 @@ func TestGroupSchedulingProtectionInheritedAndUnsupportedTTFTProjection(t *testi
 func TestGroupSchedulingProtectionSnapshotsAreCopies(t *testing.T) {
 	cache := DefaultUpstreamCacheGuardSettings()
 	cache.GroupIDs = []int64{7}
+	threshold := 62.5
+	cache.SessionWindowMigrationThresholdPercent = &threshold
 	s := &GroupSchedulingProtectionPolicyService{snapshot: map[int64]GroupSchedulingProtectionResolvedPolicy{7: {GroupID: 7, Cache: cache}}}
 	// Prevent background refresh in this isolated snapshot ownership test.
 	s.loadedAt = time.Now()
 	policies := s.ProtectionPolicies()
 	policies[7].Cache.GroupIDs[0] = 99
+	*policies[7].Cache.SessionWindowMigrationThresholdPercent = 1
 	delete(policies, 7)
 	require.Equal(t, int64(7), s.ProtectionPolicies()[7].Cache.GroupIDs[0])
+	require.Equal(t, 62.5, *s.ProtectionPolicies()[7].Cache.SessionWindowMigrationThresholdPercent)
+	returned := s.CachePolicies()
+	*returned[7].SessionWindowMigrationThresholdPercent = 2
+	require.Equal(t, 62.5, *s.CachePolicies()[7].SessionWindowMigrationThresholdPercent)
 }
 
 func TestGroupSchedulingProtectionGlobalPriorityDefaultAndValidation(t *testing.T) {

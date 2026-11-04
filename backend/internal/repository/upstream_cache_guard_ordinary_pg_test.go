@@ -281,6 +281,98 @@ func TestCacheGuardOrdinaryPostgresPendingGapIsAccountScoped(t *testing.T) {
 	require.Len(t, view.Facts, 1)
 }
 
+func TestCacheGuardTrialPostgresFailureEndsCohortAndIgnoresLateCompletion(t *testing.T) {
+	db, ctx, store := ordinaryPGFixture(t)
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	s := ordinaryPGSettings()
+	s.RecoveryMinSessions = 100
+	sig := upstreamcacheguard.PolicySignature(s)
+	const cohort = "current-low-trial"
+	state := ordinaryPGProtectedState(s, now)
+	p := state.Policies[sig]
+	p.State.Phase, p.State.CohortID = upstreamcacheguard.Trial, cohort
+	p.State.DegradedAt, p.State.CooldownUntil = now.Add(-2*time.Minute), now.Add(-time.Minute)
+	p.State.FirstTrialAt, p.State.LastEvidenceAt = now.Add(-time.Minute), now.Add(-6*time.Second)
+	state.Policies[sig] = p
+	ordinaryPGWriteState(t, store, ctx, state)
+	for i := 0; i < 5; i++ {
+		f := ordinaryPGEvidence(1000+i, now.Add(time.Duration(i-10)*time.Second))
+		f.Admission.Trial, f.Admission.CohortID, f.Admission.PolicySignature = true, cohort, sig
+		f.Admission.ProtectedAtStart = true
+		f.RawUsage.CacheReadTokens = 0
+		ordinaryPGInsertFact(t, db, ctx, f, true)
+	}
+
+	current := ordinaryPGEvidence(1006, now.Add(-time.Second))
+	current.RawUsage.CacheReadTokens = 0
+	r := current.Request
+	// A durable current-cohort warm session provides real continuation
+	// admissions. Keep one request in flight while another ends its cohort.
+	lastSuccessful := now.Add(-5 * time.Second)
+	session := upstreamcacheguard.SessionState{Key: upstreamcacheguard.SessionKey(r), FirstSeenAt: now.Add(-time.Minute),
+		LastAccountID: r.AccountID, LastModel: r.Model, LastProtocol: r.Protocol, LastRouteKey: upstreamcacheguard.WarmRouteKey(r), LastCompletedAt: lastSuccessful,
+		TrialAccountID: r.AccountID, TrialModel: r.Model, TrialProtocol: r.Protocol, CohortID: cohort, PolicySignature: sig,
+		Routes: map[string]upstreamcacheguard.SessionRoute{upstreamcacheguard.WarmRouteKey(r): {PolicySignature: sig, AccountID: r.AccountID, UpstreamKeyID: r.UpstreamKeyID, LastSuccessfulAt: lastSuccessful}}}
+	require.NoError(t, store.TransactAccount(ctx, r.GroupID, r.AccountID, r.UpstreamKeyID, func(tx upstreamcacheguard.Tx) error {
+		_, err := tx.Write(upstreamcacheguard.SessionKind, session.Key, session)
+		return err
+	}))
+	e := ordinaryPGEngine(t, store, s)
+	pending := r
+	pending.ID, pending.StartedAt = "old-trial-inflight", now.Add(-4*time.Second)
+	oldAdmission, err := e.Admit(ctx, pending)
+	require.NoError(t, err)
+	require.True(t, oldAdmission.Trial)
+	require.True(t, oldAdmission.WarmAtStart)
+	require.Equal(t, cohort, oldAdmission.CohortID)
+	current.Admission, err = e.Admit(ctx, current.Request)
+	require.NoError(t, err)
+	require.True(t, current.Admission.Trial)
+	require.True(t, current.Admission.WarmAtStart)
+	before := ordinaryPGReadState(t, store, ctx).Policies[sig].State
+	require.Equal(t, upstreamcacheguard.Trial, before.Phase)
+	require.Equal(t, 5, before.TrialValidRequests, "the strict sample threshold must not end the trial early")
+
+	inserted, err := e.CompleteWithResult(ctx, current)
+	require.NoError(t, err)
+	require.True(t, inserted)
+	failed := ordinaryPGReadState(t, store, ctx).Policies[sig].State
+	require.Equal(t, upstreamcacheguard.Cooling, failed.Phase, "failure does not wait for 100 sessions or the recovery timer")
+	require.Empty(t, failed.CohortID)
+	require.True(t, failed.FirstTrialAt.IsZero())
+	require.Empty(t, failed.TrialGroupIDs)
+	require.Zero(t, failed.TrialValidRequests)
+	require.Zero(t, failed.TrialSessions)
+	require.Zero(t, failed.TrialCachePercent)
+	require.True(t, failed.CooldownUntil.After(now))
+
+	late := current
+	late.ID, late.Request, late.Admission, late.CompletedAt = "old-trial-completed-late", pending, oldAdmission, time.Now().UTC().Truncate(time.Microsecond)
+	inserted, err = e.CompleteWithResult(ctx, late)
+	require.NoError(t, err)
+	require.True(t, inserted)
+	afterLate := ordinaryPGReadState(t, store, ctx).Policies[sig].State
+	require.Equal(t, upstreamcacheguard.Cooling, afterLate.Phase)
+	require.Empty(t, afterLate.CohortID)
+	require.True(t, failed.CooldownUntil.Equal(afterLate.CooldownUntil), "old-cohort completion must not renew the cooldown")
+	inserted, err = e.CompleteWithResult(ctx, late)
+	require.NoError(t, err)
+	require.False(t, inserted)
+
+	next := r
+	next.ID, next.StartedAt = "after-trial-failure", time.Now().UTC().Truncate(time.Microsecond)
+	admission, err := e.Admit(ctx, next)
+	require.NoError(t, err)
+	require.False(t, admission.Trial, "the existing session must not inherit a finished trial")
+	require.Empty(t, admission.CohortID)
+	afterAdmit := ordinaryPGReadState(t, store, ctx).Policies[sig].State
+	require.Equal(t, upstreamcacheguard.Cooling, afterAdmit.Phase)
+	require.True(t, failed.CooldownUntil.Equal(afterAdmit.CooldownUntil))
+	var facts int
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM upstream_cache_guard_facts WHERE account_id=2 AND upstream_key_id=5 AND processed=TRUE`).Scan(&facts))
+	require.Equal(t, 7, facts, "five existing, one deciding and one late fact must persist exactly once")
+}
+
 func TestCacheGuardOrdinaryPostgresBoundedReadComparison(t *testing.T) {
 	db, ctx, store := ordinaryPGFixture(t)
 	now := time.Now().UTC().Truncate(time.Microsecond)

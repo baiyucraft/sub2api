@@ -18,6 +18,8 @@ export interface UpstreamCacheGuardSettings {
   cooldown_minutes: number
   trial_percent: number
   protection_evidence_expiry_minutes: number
+  session_window_migration_threshold_percent: number | null
+  recovery_min_sessions: number
 }
 
 export interface ProbeGuardSettings {

@@ -11,6 +11,7 @@ func TestUpstreamCacheGuardAccountViewsBatchIsolatedPerAccountAndKey(t *testing.
 	settings := DefaultUpstreamCacheGuardSettings()
 	settings.Mode = upstreamcacheguard.Protect
 	settings.GroupIDs = []int64{100}
+	settings.RecoveryMinSessions = 4
 	configID, keyA, keyB := int64(9), int64(11), int64(22)
 	accounts := []Account{
 		{ID: 1, UpstreamConfigID: &configID, UpstreamKeyID: &keyA, GroupIDs: []int64{100, 200}},
@@ -28,6 +29,8 @@ func TestUpstreamCacheGuardAccountViewsBatchIsolatedPerAccountAndKey(t *testing.
 	require.Equal(t, map[int64]int64{1: 11, 2: 22}, keys)
 	require.NotContains(t, views, int64(3))
 	require.Equal(t, 25.0, *views[1].Summary.RatePercent)
+	require.Equal(t, 4, views[1].Summary.RecoveryRequiredSessions)
+	require.Equal(t, 4, views[1].States[0].RecoveryRequiredSessions)
 	require.Equal(t, 50.0, *views[2].Summary.RatePercent)
 	require.Equal(t, "disabled", views[1].States[1].State)
 	rotated := int64(99)

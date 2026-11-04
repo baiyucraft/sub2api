@@ -67,6 +67,10 @@ export interface GroupCacheGuardPolicy {
   window_minutes: number
   cooldown_minutes: number
   trial_percent: number
+  /** Global recovery requirement; groups cannot override it. */
+  recovery_min_sessions?: number
+  /** Effective window migration threshold; zero disables this branch. */
+  session_window_migration_threshold_percent?: number
   source: GroupTTFTGuardPolicySource
 }
 export interface GroupUpstreamProtectionPolicy {

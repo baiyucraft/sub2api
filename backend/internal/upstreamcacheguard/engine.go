@@ -71,7 +71,8 @@ func normalizeEngineSettings(s Settings) (Settings, error) {
 		s.Priority = "cache_first"
 	}
 	s.ProtectionEvidenceExpiryMinutes = protectionEvidenceExpiryMinutes(s)
-	s.GroupIDs = append([]int64(nil), s.GroupIDs...)
+	s.RecoveryMinSessions = EffectiveRecoveryMinSessions(s)
+	s = cloneSettings(s)
 	sort.Slice(s.GroupIDs, func(i, j int) bool { return s.GroupIDs[i] < s.GroupIDs[j] })
 	ids := s.GroupIDs[:0]
 	for _, id := range s.GroupIDs {
@@ -111,9 +112,7 @@ func sameSettings(a, b Settings) bool {
 	return reflect.DeepEqual(a, b)
 }
 func (e *Engine) Settings() Settings {
-	s := *e.settings.Load()
-	s.GroupIDs = append([]int64{}, s.GroupIDs...)
-	return s
+	return cloneSettings(*e.settings.Load())
 }
 func (e *Engine) Close() {}
 
@@ -443,7 +442,7 @@ func (e *Engine) admit(ctx context.Context, r Request, existingOnly bool) (Admis
 					return err
 				}
 			}
-		} else if executing && session.TrialAccountID == r.AccountID && session.CohortID != "" && session.CohortID == selected.CohortID && (session.PolicySignature == signature || (session.PolicySignature == "" && signature == PolicySignature(e.Settings()))) {
+		} else if executing && selected.Phase == Trial && session.TrialAccountID == r.AccountID && session.CohortID != "" && session.CohortID == selected.CohortID && (session.PolicySignature == signature || (session.PolicySignature == "" && signature == PolicySignature(e.Settings()))) {
 			a.Trial = true
 			a.CohortID = session.CohortID
 		}
@@ -546,6 +545,12 @@ func (e *Engine) complete(ctx context.Context, v Evidence) (bool, error) {
 			return err
 		}
 		if !applyPolicy {
+			if v.ProtectionPaused || v.Admission.CaptureOnly {
+				if route, exists := session.Routes[WarmRouteKey(v.Request)]; exists {
+					route.LowWindow = nil
+					session.Routes[WarmRouteKey(v.Request)] = route
+				}
+			}
 			if v.ProtectionPaused {
 				if _, ok := tx.(RecoveryFactsTx); ok {
 					var account AccountState
@@ -578,6 +583,7 @@ func (e *Engine) complete(ctx context.Context, v Evidence) (bool, error) {
 			// interpretations of that fact under one effective quality rule.
 			route.HighCacheSeen, route.PendingLow, route.LowStreak = false, false, 0
 			route.PolicySignature = signature
+			route.LowWindow = nil
 		}
 		if v.Success && v.RawUsage.Known() && v.CompletedAt.After(route.LastSuccessfulAt) {
 			if !v.Admission.CaptureOnly && session.LastAccountID > 0 && session.LastAccountID != v.Request.AccountID && !v.CompletedAt.Before(session.LastCompletedAt) {
@@ -632,10 +638,12 @@ func (e *Engine) complete(ctx context.Context, v Evidence) (bool, error) {
 		if err = e.recomputePoliciesWithRecovery(&account, facts, reference, fresh, !v.Admission.CaptureOnly); err != nil {
 			return err
 		}
+		e.advanceTrialPolicies(&account, v, now)
 		if err = e.advanceOrdinaryPolicies(&account, facts, v, now, recoverySupported, pendingGap); err != nil {
 			return err
 		}
 		if v.Admission.CaptureOnly {
+			route.LowWindow = nil
 			session.Routes[routeKey] = route
 			if _, err = tx.(AccountTx).WriteAccount(v.Request.AccountID, v.Request.UpstreamKeyID, &account); err != nil {
 				return err
@@ -682,6 +690,18 @@ func (e *Engine) complete(ctx context.Context, v Evidence) (bool, error) {
 			route.LowStreak++
 		}
 		route.PendingLow = route.LowStreak >= 2
+		projection := account.Policies[signature]
+		_, generation := e.ordinaryGenerations(signature)
+		route.LowWindow = nil
+		// Failed, unknown, cold or old-cycle outcomes are not new evidence for
+		// a migration proof. Conservatively discard rather than extend one from
+		// historical facts as the clock advances.
+		if sessionLowWindowFactEligible(v, projection.State, s, v.Admission.SessionKey, routeKey, reference) {
+			route.LowWindow, err = sessionLowWindow(projection.State, s, generation, v.Admission.SessionKey, routeKey, own, reference)
+			if err != nil {
+				return err
+			}
+		}
 		session.Routes[routeKey] = route
 		if _, err = tx.(AccountTx).WriteAccount(v.Request.AccountID, v.Request.UpstreamKeyID, &account); err != nil {
 			return err
@@ -829,25 +849,8 @@ func recomputeAccountWithRecovery(a *AccountState, facts []Evidence, s Settings,
 		}
 		return nil
 	}
-	// No-data and wall-clock passage alone never restore an account.
-	if a.Phase != Trial || a.FirstTrialAt.IsZero() || now.Before(a.FirstTrialAt.Add(RecoveryLifetime)) || trialValid <= s.MinValidRequests || len(trialSessions) < MinRecoverySessions {
-		return nil
-	}
-	if allowRecovery && a.TrialCachePercent >= s.RecoveryThresholdPercent {
-		recoverAccount(a, now)
-		return nil
-	}
-	if a.TrialCachePercent < s.ThresholdPercent {
-		a.Phase = Cooling
-		if !newest.IsZero() {
-			x := newest
-			a.LastDegradedEvidenceAt = &x
-		}
-		a.CooldownUntil = now.Add(time.Duration(s.CooldownMinutes) * time.Minute)
-		a.CohortID = ""
-		a.TrialGroupIDs = nil
-		a.FirstTrialAt = time.Time{}
-	}
+	// Trial decisions require the actual newly inserted cohort completion.
+	// Aggregate reads, replays and unrelated ordinary facts cannot finish one.
 	return nil
 }
 
@@ -941,6 +944,7 @@ func (e *Engine) cachedSessionReadAtLocked(r Request, s Settings, at time.Time, 
 	}
 	read := SessionRead{Known: true, Fresh: snapshot.Fresh, PreferredAccountID: x.LastAccountID, ResidenceUntil: x.ResidenceUntil}
 	accountUnknown := false
+	var source AccountSnapshot
 	if r.AccountID == x.LastAccountID && r.UpstreamKeyID > 0 {
 		if route, ok := x.Routes[x.LastRouteKey]; !ok || route.UpstreamKeyID != r.UpstreamKeyID {
 			return SessionRead{}
@@ -949,6 +953,7 @@ func (e *Engine) cachedSessionReadAtLocked(r Request, s Settings, at time.Time, 
 	if route, ok := x.Routes[x.LastRouteKey]; ok && x.LastAccountID > 0 {
 		id := accountIdentity(x.LastAccountID, route.UpstreamKeyID)
 		account := projectAccountSnapshot(e.accountSnapshotAtLocked(id, e.accounts[id], at), s)
+		source = account
 		if !account.Available {
 			// Retain the known identity so scheduling cannot mistake an expired
 			// existing session for a natural new trial opportunity.
@@ -966,11 +971,14 @@ func (e *Engine) cachedSessionReadAtLocked(r Request, s Settings, at time.Time, 
 		read.LastSuccessfulAt = route.LastSuccessfulAt
 		read.WarmAtStart = routeWarm(route, r.StartedAt)
 		samePolicy := route.PolicySignature == PolicySignature(s) || (route.PolicySignature == "" && PolicySignature(s) == PolicySignature(e.Settings()))
-		read.PendingLow = samePolicy && route.PendingLow
-		read.Protected = read.WarmAtStart && ((samePolicy && route.HighCacheSeen && !route.PendingLow) || r.StartedAt.Before(x.ResidenceUntil))
+		_, generation := e.ordinaryGenerations(PolicySignature(s))
+		read.PendingLow = samePolicy && route.PendingLow || sessionLowWindowValid(route.LowWindow, source.AccountState, s, generation, at)
+		read.Protected = read.WarmAtStart && ((samePolicy && route.HighCacheSeen && !read.PendingLow) || r.StartedAt.Before(x.ResidenceUntil))
 	}
-	read.Trial = x.CohortID != "" && x.TrialAccountID == x.LastAccountID && x.TrialModel == r.Model && x.TrialProtocol == r.Protocol && (x.PolicySignature == PolicySignature(s) || (x.PolicySignature == "" && PolicySignature(s) == PolicySignature(e.Settings())))
-	read.CohortID = x.CohortID
+	read.Trial = source.Phase == Trial && source.CohortID != "" && source.CohortID == x.CohortID && x.TrialAccountID == x.LastAccountID && x.TrialModel == r.Model && x.TrialProtocol == r.Protocol && (x.PolicySignature == PolicySignature(s) || (x.PolicySignature == "" && PolicySignature(s) == PolicySignature(e.Settings())))
+	if read.Trial {
+		read.CohortID = x.CohortID
+	}
 	if accountUnknown {
 		// Keep physical warmness and durable identity, but never expose an old
 		// recovery cohort or migration preference after account evidence expires.

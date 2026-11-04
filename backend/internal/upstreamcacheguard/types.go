@@ -22,20 +22,46 @@ const (
 )
 
 type Settings struct {
-	Mode                            Mode    `json:"mode"`
-	GroupIDs                        []int64 `json:"group_ids"`
-	ThresholdPercent                float64 `json:"threshold_percent"`
-	WindowMinutes                   int     `json:"window_minutes"`
-	MinValidRequests                int     `json:"min_valid_requests"`
-	RecoveryThresholdPercent        float64 `json:"recovery_threshold_percent"`
-	CooldownMinutes                 int     `json:"cooldown_minutes"`
-	TrialPercent                    int     `json:"trial_percent"`
-	ProtectionEvidenceExpiryMinutes int     `json:"protection_evidence_expiry_minutes"`
-	Priority                        string  `json:"scheduling_priority,omitempty"`
+	Mode                                   Mode     `json:"mode"`
+	GroupIDs                               []int64  `json:"group_ids"`
+	ThresholdPercent                       float64  `json:"threshold_percent"`
+	WindowMinutes                          int      `json:"window_minutes"`
+	MinValidRequests                       int      `json:"min_valid_requests"`
+	RecoveryThresholdPercent               float64  `json:"recovery_threshold_percent"`
+	CooldownMinutes                        int      `json:"cooldown_minutes"`
+	TrialPercent                           int      `json:"trial_percent"`
+	ProtectionEvidenceExpiryMinutes        int      `json:"protection_evidence_expiry_minutes"`
+	Priority                               string   `json:"scheduling_priority,omitempty"`
+	SessionWindowMigrationThresholdPercent *float64 `json:"session_window_migration_threshold_percent"`
+	RecoveryMinSessions                    int      `json:"recovery_min_sessions"`
 }
 
 func DefaultSettings() Settings {
-	return Settings{Mode: Disabled, GroupIDs: []int64{}, ThresholdPercent: 75, WindowMinutes: 60, MinValidRequests: 20, RecoveryThresholdPercent: 80, CooldownMinutes: 10, TrialPercent: 10, ProtectionEvidenceExpiryMinutes: 15, Priority: "cache_first"}
+	return Settings{Mode: Disabled, GroupIDs: []int64{}, ThresholdPercent: 75, WindowMinutes: 60, MinValidRequests: 20, RecoveryThresholdPercent: 80, CooldownMinutes: 10, TrialPercent: 10, ProtectionEvidenceExpiryMinutes: 15, Priority: "cache_first", RecoveryMinSessions: 3}
+}
+
+// EffectiveRecoveryMinSessions preserves settings JSON written before this field existed.
+func EffectiveRecoveryMinSessions(s Settings) int {
+	if s.RecoveryMinSessions == 0 {
+		return 3
+	}
+	return s.RecoveryMinSessions
+}
+
+func EffectiveSessionWindowMigrationThreshold(s Settings) float64 {
+	if s.SessionWindowMigrationThresholdPercent != nil {
+		return *s.SessionWindowMigrationThresholdPercent
+	}
+	return s.ThresholdPercent
+}
+
+func cloneSettings(s Settings) Settings {
+	s.GroupIDs = append([]int64(nil), s.GroupIDs...)
+	if s.SessionWindowMigrationThresholdPercent != nil {
+		value := *s.SessionWindowMigrationThresholdPercent
+		s.SessionWindowMigrationThresholdPercent = &value
+	}
+	return s
 }
 
 // Rows written before this setting existed decode as zero. Interpret those
@@ -47,6 +73,12 @@ func protectionEvidenceExpiryMinutes(s Settings) int {
 	return s.ProtectionEvidenceExpiryMinutes
 }
 func (s Settings) Validate() error {
+	if s.RecoveryMinSessions < 0 || s.RecoveryMinSessions > 100 {
+		return errors.New("invalid cache guard recovery sessions")
+	}
+	if value := s.SessionWindowMigrationThresholdPercent; value != nil && (math.IsNaN(*value) || math.IsInf(*value, 0) || *value < 0 || *value > 100) {
+		return errors.New("invalid cache guard session migration threshold")
+	}
 	if s.Priority != "" && s.Priority != "cache_first" && s.Priority != "ttft_first" {
 		return errors.New("invalid scheduling protection priority")
 	}
@@ -186,14 +218,23 @@ type PolicyProjection struct {
 	State    AccountState `json:"state"`
 }
 type SessionRoute struct {
-	PolicySignature  string    `json:"policy_signature,omitempty"`
-	AccountID        int64     `json:"account_id"`
-	UpstreamKeyID    int64     `json:"upstream_key_id"`
-	LastSuccessfulAt time.Time `json:"last_successful_at"`
-	LastCachePercent float64   `json:"last_cache_percent"`
-	LowStreak        int       `json:"low_streak"`
-	PendingLow       bool      `json:"pending_low"`
-	HighCacheSeen    bool      `json:"high_cache_seen"`
+	LowWindow        *SessionLowWindow `json:"low_window,omitempty"`
+	PolicySignature  string            `json:"policy_signature,omitempty"`
+	AccountID        int64             `json:"account_id"`
+	UpstreamKeyID    int64             `json:"upstream_key_id"`
+	LastSuccessfulAt time.Time         `json:"last_successful_at"`
+	LastCachePercent float64           `json:"last_cache_percent"`
+	LowStreak        int               `json:"low_streak"`
+	PendingLow       bool              `json:"pending_low"`
+	HighCacheSeen    bool              `json:"high_cache_seen"`
+}
+
+// SessionLowWindow is a bounded proof, not a second mutable sample ledger.
+// Readers can only invalidate it; a new completion must establish a new proof.
+type SessionLowWindow struct {
+	RuleFingerprint string    `json:"rule_fingerprint"`
+	EvaluatedAt     time.Time `json:"evaluated_at"`
+	ValidUntil      time.Time `json:"valid_until"`
 }
 type SessionState struct {
 	PolicySignature        string                  `json:"policy_signature,omitempty"`

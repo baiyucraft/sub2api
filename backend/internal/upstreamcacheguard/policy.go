@@ -37,7 +37,8 @@ func normalizePolicySettings(values map[int64]Settings) (map[int64]Settings, err
 			s.Priority = "cache_first"
 		}
 		s.ProtectionEvidenceExpiryMinutes = protectionEvidenceExpiryMinutes(s)
-		s.GroupIDs = append([]int64(nil), s.GroupIDs...)
+		s.RecoveryMinSessions = EffectiveRecoveryMinSessions(s)
+		s = cloneSettings(s)
 		copy[id] = s
 	}
 	return copy, nil
@@ -69,8 +70,7 @@ func (e *Engine) ResolvedSettings(groupID int64) Settings {
 	s := e.Settings()
 	if values := e.policies.Load(); values != nil {
 		if override, ok := (*values)[groupID]; ok {
-			override.GroupIDs = append([]int64(nil), override.GroupIDs...)
-			return override
+			return cloneSettings(override)
 		}
 	}
 	if !s.ContainsGroup(groupID) {
@@ -195,7 +195,13 @@ func projectAccountSnapshot(a AccountSnapshot, s Settings) AccountSnapshot {
 		result.AccountState = p.State
 		result.GroupIDs = append([]int64(nil), a.GroupIDs...)
 		result.Policies = nil
-		return cloneAccountSnapshot(result)
+		result = cloneAccountSnapshot(result)
+		if EffectiveRecoveryMinSessions(p.Settings) != EffectiveRecoveryMinSessions(s) {
+			// Do not expose a prior rule's observation clock while waiting for a
+			// fresh completion to install the changed recovery requirement.
+			result.OrdinaryRecovery = nil
+		}
+		return result
 	}
 	if a.Policies != nil {
 		result.Available, result.Fresh = false, false

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"sort"
 	"strings"
 
@@ -92,6 +93,25 @@ func (s *SettingService) SetSchedulingProtectionPlatforms(ctx context.Context, p
 		return err
 	}
 	s.schedulingProtectionPlatformsMu.Lock()
+	// Saving the same effective scope must not advance the durable recovery
+	// generation merely because the management form was submitted again.
+	if current, readErr := s.settingRepo.GetValue(ctx, SettingKeySchedulingProtectionPlatforms); readErr == nil {
+		var previous []string
+		if json.Unmarshal([]byte(current), &previous) == nil && previous != nil {
+			if normalized, normalizeErr := normalizeSchedulingProtectionPlatforms(previous); normalizeErr == nil && slices.Equal(normalized, platforms) {
+				s.schedulingProtectionPlatformsCache.Store(&schedulingProtectionPlatformsSnapshot{platforms: append([]string{}, platforms...)})
+				s.schedulingProtectionPlatformsMu.Unlock()
+				return nil
+			}
+		}
+	} else if errors.Is(readErr, ErrSettingNotFound) && slices.Equal(DefaultSchedulingProtectionPlatforms(), platforms) {
+		s.schedulingProtectionPlatformsCache.Store(&schedulingProtectionPlatformsSnapshot{platforms: append([]string{}, platforms...)})
+		s.schedulingProtectionPlatformsMu.Unlock()
+		return nil
+	} else if !errors.Is(readErr, ErrSettingNotFound) {
+		s.schedulingProtectionPlatformsMu.Unlock()
+		return readErr
+	}
 	if err := s.settingRepo.Set(ctx, SettingKeySchedulingProtectionPlatforms, string(raw)); err != nil {
 		s.schedulingProtectionPlatformsMu.Unlock()
 		return err

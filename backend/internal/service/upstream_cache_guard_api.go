@@ -23,6 +23,7 @@ type UpstreamCacheGuardState struct {
 	RecoveryValidRequests    int                                      `json:"recovery_valid_requests"`
 	RecoveryRatePercent      *float64                                 `json:"recovery_rate_percent"`
 	RecoverySessions         int                                      `json:"recovery_sessions"`
+	RecoveryRequiredSessions int                                      `json:"recovery_required_sessions"`
 	RecoveryStartedAt        *time.Time                               `json:"recovery_started_at"`
 	CooldownUntil            *time.Time                               `json:"cooldown_until"`
 	UpdatedAt                *time.Time                               `json:"updated_at"`
@@ -34,18 +35,19 @@ type UpstreamCacheGuardState struct {
 }
 
 type UpstreamCacheGuardSummary struct {
-	ordinaryRecovery      *upstreamcacheguard.OrdinaryRecoveryView
-	State                 string     `json:"state"`
-	RatePercent           *float64   `json:"rate_percent"`
-	ValidRequests         int        `json:"valid_requests"`
-	WindowMinutes         int        `json:"window_minutes"`
-	Reason                string     `json:"reason"`
-	RecoveryValidRequests int        `json:"recovery_valid_requests"`
-	RecoveryRatePercent   *float64   `json:"recovery_rate_percent"`
-	RecoverySessions      int        `json:"recovery_sessions"`
-	RecoveryStartedAt     *time.Time `json:"recovery_started_at"`
-	CooldownUntil         *time.Time `json:"cooldown_until"`
-	UpdatedAt             *time.Time `json:"updated_at"`
+	ordinaryRecovery         *upstreamcacheguard.OrdinaryRecoveryView
+	State                    string     `json:"state"`
+	RatePercent              *float64   `json:"rate_percent"`
+	ValidRequests            int        `json:"valid_requests"`
+	WindowMinutes            int        `json:"window_minutes"`
+	Reason                   string     `json:"reason"`
+	RecoveryValidRequests    int        `json:"recovery_valid_requests"`
+	RecoveryRatePercent      *float64   `json:"recovery_rate_percent"`
+	RecoverySessions         int        `json:"recovery_sessions"`
+	RecoveryRequiredSessions int        `json:"recovery_required_sessions"`
+	RecoveryStartedAt        *time.Time `json:"recovery_started_at"`
+	CooldownUntil            *time.Time `json:"cooldown_until"`
+	UpdatedAt                *time.Time `json:"updated_at"`
 }
 
 type UpstreamCacheGuardAccountView struct {
@@ -72,6 +74,7 @@ type UpstreamCacheGuardProtectionSource struct {
 	RecoveryValidRequests    int        `json:"recovery_valid_requests"`
 	RecoveryRatePercent      *float64   `json:"recovery_rate_percent"`
 	RecoverySessions         int        `json:"recovery_sessions"`
+	RecoveryRequiredSessions int        `json:"recovery_required_sessions"`
 	RecoveryStartedAt        *time.Time `json:"recovery_started_at"`
 	CooldownUntil            *time.Time `json:"cooldown_until"`
 	UpdatedAt                *time.Time `json:"updated_at"`
@@ -209,6 +212,7 @@ func upstreamCacheGuardPolicyAccountViewsBatchAt(accounts []Account, settings Up
 			states[i].ThresholdPercent = groupSettings.ThresholdPercent
 			states[i].RecoveryThresholdPercent = groupSettings.RecoveryThresholdPercent
 			states[i].MinValidRequests = groupSettings.MinValidRequests
+			states[i].RecoveryRequiredSessions = upstreamcacheguard.EffectiveRecoveryMinSessions(groupSettings)
 			states[i].SchedulingPriority = groupSettings.Priority
 			states[i].PolicyMode, states[i].PolicySource = "inherit", "global"
 			if metadata != nil {
@@ -289,6 +293,7 @@ func applyCacheGuardGroupSummary(item *UpstreamCacheGuardState, summary Upstream
 	item.UpdatedAt, item.CooldownUntil = summary.UpdatedAt, summary.CooldownUntil
 	item.RecoveryStartedAt, item.RecoveryValidRequests = summary.RecoveryStartedAt, summary.RecoveryValidRequests
 	item.RecoveryRatePercent, item.RecoverySessions = summary.RecoveryRatePercent, summary.RecoverySessions
+	item.RecoveryRequiredSessions = summary.RecoveryRequiredSessions
 	item.OrdinaryRecovery = summary.ordinaryRecovery
 }
 
@@ -297,7 +302,7 @@ func upstreamCacheGuardSummary(a upstreamcacheguard.AccountSnapshot, fresh bool,
 }
 
 func upstreamCacheGuardSummaryAt(a upstreamcacheguard.AccountSnapshot, fresh bool, settings UpstreamCacheGuardSettings, at time.Time) UpstreamCacheGuardSummary {
-	item := UpstreamCacheGuardSummary{State: "insufficient", Reason: "insufficient_samples", WindowMinutes: settings.WindowMinutes}
+	item := UpstreamCacheGuardSummary{State: "insufficient", Reason: "insufficient_samples", WindowMinutes: settings.WindowMinutes, RecoveryRequiredSessions: upstreamcacheguard.EffectiveRecoveryMinSessions(settings)}
 	if !fresh {
 		item.State, item.Reason = "unavailable", "snapshot_unavailable"
 		return item
@@ -370,7 +375,7 @@ func upstreamCacheGuardGroupStates(account *Account, settings UpstreamCacheGuard
 	}
 	result := make([]UpstreamCacheGuardState, 0, len(groups))
 	for id, name := range groups {
-		item := UpstreamCacheGuardState{GroupID: id, GroupName: name, State: "disabled", Reason: "disabled"}
+		item := UpstreamCacheGuardState{GroupID: id, GroupName: name, State: "disabled", Reason: "disabled", RecoveryRequiredSessions: upstreamcacheguard.EffectiveRecoveryMinSessions(settings)}
 		if currentGroups[id] && settings.ContainsGroup(id) {
 			item.State, item.Reason = summary.State, summary.Reason
 			item.RatePercent, item.ValidRequests = summary.RatePercent, summary.ValidRequests
