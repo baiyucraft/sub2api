@@ -126,12 +126,12 @@ Windows 下 runner、Python、OpenSSL、Git Bash 和 Go 子进程统一走 `scri
 
 ```powershell
 $commit = (git rev-parse --verify 'HEAD^{commit}').Trim()
-$config = @{ schema = 1; commit = $commit; profile = '281'; mode = 'downtime' }
+$config = @{ schema = 1; commit = $commit; profile = '282'; mode = 'downtime' }
 New-Item -ItemType Directory -Force '.release' | Out-Null
 [IO.File]::WriteAllText((Join-Path $PWD '.release/deploy.local.json'), ($config | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
 ```
 
-配置只接受这四个字段：`schema` 为整数 `1`，`commit` 为完整 40 位小写 SHA，`profile` 为已登记字符串，`mode` 为 `blue-green` 或 `downtime`。当前 `281` 要求停机；配置不能改写 profile 的版本、父链、迁移或发布限制，也不能包含凭据、连接、命令或机器路径。重复键、未知字段和非法值在连接 SSH 前拒绝。
+配置只接受这四个字段：`schema` 为整数 `1`，`commit` 为完整 40 位小写 SHA，`profile` 为已登记字符串，`mode` 为 `blue-green` 或 `downtime`。当前 `282` 要求停机；配置不能改写 profile 的版本、父链、迁移或发布限制，也不能包含凭据、连接、命令或机器路径。重复键、未知字段和非法值在连接 SSH 前拒绝。
 
 使用已准备好的发布 Python 解释器运行：
 
@@ -163,6 +163,10 @@ python .agents/skills/sub2api-production-deploy/scripts/release.py verify-recove
 生产 runner 在远端 release 目录的 `logs/production.raw.log` 保存完整 stdout/stderr，并在最终接管脚本退出时追加稳定容器与临时候选容器最近 15 分钟的启动日志。目录权限固定为 `0700`、文件权限固定为 `0600`，只保留在生产机，不进入 Gate、备份 bundle、本地 `.tmp` 或报告。失败时先使用 `finalize_failure_phase`、行号、退出码和白名单错误分类定位；只有确需深入时才在生产机本地对原始日志做脱敏检索，禁止整文件回传。
 
 `wait --timeout` 到期只返回 `still_running`，绝不杀进程、重启发布或并发执行第二个 `deploy`。成功不能由退出码、健康接口或 Gate 单项推出；`verify-result` 必须重新验签并核对 VM 状态、production-result、双链路、备份 units、claim 和 signed candidate image。
+
+普通成功 runner 的 `verify-result` 分支核对本地签名 Gate、终态 production result 和完成收据，不主动重新查询线上；不能把该命令的执行时间当作生产最新巡检时间。生产当前状态由同次 post-deploy doctor 或额外字段白名单只读检查证明，并记录实际 `checked_at`。独立 `finalize-consumed` 分支另有远端复核合同，不能与普通分支混同。
+
+验收时同时确认 runner 已退出且 exit 0、完成收据绑定 terminal runner 原字节、candidate/running image 一致，以及必需的 postdoctor 与 VM 收尾通过。原本运行的 VM 应为 running/preserved 且 lease released；事件名 `vm_shutdown` 只是通用阶段名，不能据此报告关机。已 consumed 的应用只剩后置收尾失败时按 `finalize-consumed` 合同处理，不重发应用。
 
 蓝绿生产阶段会依次记录 `candidate_started`、`candidate_healthy`、`nginx_reloaded`、`old_slot_draining` 和 `old_slot_drained`。`old_slot_draining` 默认 deadline 为 3900 秒（含命令余量），实际连接排空上限为 3600 秒。该阶段长时间无控制台输出属于预期，必须用 `status`/`wait` 观察，不得启动第二个 runner。
 

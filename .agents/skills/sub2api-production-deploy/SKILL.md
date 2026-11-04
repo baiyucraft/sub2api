@@ -13,6 +13,8 @@ description: 面向 Sub2API fork 的构建、开发门禁、应用与独立插�
 
 连接及机器路径保留在 `.ssh.local`；`vm_lifecycle.shared_dir` 指向已有的规范物理共享目录，复用其中原 `lease.lock` 和 `owner.json`，不得因 checkout 不同新建发布所有权域。配置生成、支持命令与观察重连见 [本地部署参数](references/release-runner-lifecycle.md#本地部署参数)。
 
+日常只调整应用参数，复用现有入口；恢复门禁由最终 diff、生产基线和 pending migration 分类，不因上一轮执行了 full 就把后续普通应用发布都改为 Full DR。长构建、观察超时、完成验收与尚未修复的问题见 [本轮发布经验](references/known-pitfalls.md#profile-282-发布验收与耗时边界)。
+
 ## 不可违反的边界
 
 - 读取 `.ssh.local` 只能作为连接输入；禁止输出、提交或记录密码、私钥、token、`.env`、完整环境变量、展开后的 Compose 和原始连接资料。
@@ -521,3 +523,5 @@ Python/Shell/VM validator/Gate与DR signer/备份/清理/祖先297、298、299�
 - `307_user_default_group_rate_percent.sql` 原始SHA-256：`43cc403117cc8971ee5e3e3b5eee60c1c927016e959f1cfb802658d644ba9237`；Gate strip checksum：`abbbef25b457f932ef7b8b6bec29336214ae8cba1c5b3446b7ce7f0ce36f6abc`。
 - 静态迁移与profile测试核对历史bytes、planner、真实Bash/jq正反例与current-only边界；`userdefaultpg`真实隔离PostgreSQL测试必须提供 `SUB2API_USER_DEFAULT_RATE_TEST_DSN`、`SUB2API_USER_DEFAULT_RATE_TEST_ISOLATED=1`，且库名包含test。缺失或非隔离配置直接失败，不得skip冒充数据库验证。数据库测试覆盖0/NULL/非有限、事务rollback、RPM-only、legacy影子、条件ack/ABA/并发与父删除。
 - 登记及本地/隔离数据库测试不表示签名VM Gate、旧镜像兼容、生产部署或真实流量验证；恢复敏感最终blob仍需新分类，历史精确审阅不扩张。
+
+2026-11-05，profile 282 已完成 Full Gate、停机生产发布、`verify-result`、发布后 doctor 和完成收据校验；candidate 与运行 image 一致，claim consumed，共享 owner released，原本运行的 VM 保留 running/preserved。本轮 full 绑定同一目标与 helper 闭包的已签名真实加密恢复及中断续跑证据；不代表整套工具版本资格已完成，也不代表新 postrelease 灾备基线已晋升。阶段耗时与遗留项见上述发布经验。

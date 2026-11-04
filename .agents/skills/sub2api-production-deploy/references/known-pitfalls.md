@@ -390,3 +390,33 @@
 - 根因：`release.cli.deploy` 每次都会调用 `install_vm_validator`；该路径准备 VM host（缺少 `jq` 时使用 `apt-get install --no-upgrade`），上传 validator、Gate signer、DR signer 和 bootstrap，再运行原子校验/安装。
 - 影响：当前入口不是“只核验已安装工具”的只读流程。普通应用提交不会自动变成发布工具版本，但仓库工具字节改变时，该流程可能将变化激活到 VM。
 - 后续边界：若要落实工具版本与应用发布解耦，需单独修改并验证代码，让日常 deploy 只校验已安装闭包，由显式维护入口负责安装；本轮文档更新没有改变该行为。
+
+## Profile 282 发布验收与耗时边界
+
+2026-11-05，目标提交 `2ff3075bbb7f97957b3f6f752996f0bcf8615692` 的 profile 282 已完成 VM Gate、停机生产发布、`verify-result`、postdoctor 和完成收据校验；candidate/running image 一致，claim consumed，原本运行的 VM 保留 running/preserved，共享 lease released。单次 release、drill ID 和详细证据保留在对应 `.tmp/releases/` 与 `.tmp/full-dr-*` 目录，不作为未来发布可借用的 candidate、快照或恢复包。
+
+- 本轮签名 Gate v2 的 `recovery_gate.mode=full`，原因包括 migration、pending migration、需要审阅的恢复敏感变化和发布状态机变化；已绑定经独立审阅、签名验真的同目标/同 helper Full DR。不能把本轮 full 当成以后每次普通应用都做 Full DR 的要求，后续仍按最终 diff 和当前分类器决定。
+- 成功代真实加密恢复完成 PostgreSQL/Redis/Compose、8 个 checkpoint、中断续跑和清理，实测 RTO 为 **30 分 36.519 秒**，预算 60 分钟。失败代结果没有拼入成功代；该结论不代表完整工具资格矩阵或全量 release suite 通过。
+- 新 postrelease baseline 的 capture/restore/review/sign/promotion 尚未完成，应用发布成功与新灾备基线晋升分开报告。
+
+| 阶段 | 实测耗时 | 范围 |
+| --- | --- | --- |
+| 成功 runner | 85 分 12 秒 | 该次启动至终态完成 |
+| 构建依赖 proof | 8 分 29.575 秒 | metadata 与一次真实物化 |
+| VM validate | 41 分 56.358 秒 | 本轮对应事件区间，包含候选构建与验证 |
+| production release | 15 分 53.761 秒 | 生产阶段，含备份、迁移及切换 |
+
+Full DR 在成功 runner 之前独立执行；上述阶段不是互不重叠的总账，不能相加冒称端到端时长。freeze 到 services restored 为 10 分 59 秒，仅是阶段区间，未测得准确公网停机时长。
+
+## 长构建与观察截止不等于 worker 停止
+
+- 本轮 backend APK 下载是主要等待之一；依赖 proof 成功只证明五项 registry metadata 和一次 BuildKit 物化，不证明后续 APK/npm/Go 下载或编译持续可用。不要因 proof 通过就把后续等待当作 runner 死锁。
+- VM 构建网络与生产 SSH 的 DMIT HTTP CONNECT 是不同链路；先分别核对，不能凭下载慢就修改全局代理、daemon 或镜像源。本轮没有通过修改正式脚本、切源或重启构建解决等待。
+- `follow`、`wait` 或 VM 观察截止仅结束观察，不证明远端 candidate worker 已停止。当前候选构建缺少正式 stop/cancel 入口；这是未修复的工具缺口，不能用重启发布或手工 kill 替代。
+- 稀疏的 `vm_validate`、生产 `not_started` 或暂时没有 candidate 都不构成失败终态。重连同一个 release；确认失败后先使用适用的正式收口入口，原失败 release 不重跑、不覆盖，也不因切换 checkout 绕过 owner。
+
+## 备份 promotion 的失败与根因边界
+
+- 本轮生产备份 promotion 子调用先后两次 exit 1，runner 内后续尝试成功，最终发布完成；这是同一个 release 内的行为，没有另启 runner。
+- 当时只读容量检查仍有约 8.55 GiB 可用空间且 inode 充足，不能据此归因为磁盘满。具体失败原因尚未核实，不能把后续成功写成根因已修复。
+- 下次复现先在生产机对应 release 的 root-only 日志中按阶段和稳定错误码受控脱敏定位；不回传原始日志，不删除备份或现场，不先重发应用。
