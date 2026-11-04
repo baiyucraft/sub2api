@@ -35,6 +35,7 @@
 | Probe Guard | 默认 401/403、429/529、5xx、其他 4xx 规则；自定义错误码追加；阈值暂停、成功恢复、人工恢复与业务隔离 |
 | 健康趋势 | 列表 24 点、35 天保留、6h/24h/7d/30d 聚合、P50/P95、断点、Tooltip、中英文和暗色模式 |
 | 账号页运行态与渲染 | 普通账号页与上游管理页的隐藏列、排序、自动刷新配置、ETag、请求 generation 和静默窗口完全隔离；切换 scope 后旧响应不得覆盖；健康历史单 Tooltip；TTFT 全页单 ticker；DataTable 测量使用可取消的 rAF 合并 |
+| 账号列表分组展示顺序 | `AccountsView.lite.spec.ts` 与 `AccountGroupsCell.spec.ts`：分组列按分组 `sort_order`、ID 升序展示，绑定顺序和排序值相同场景稳定；优先池星标按原分组 ID 保留；不得改写 `group_ids`、`preferred_group_ids`、`account_groups.priority`、保存或调度行为 |
 | 成本与归因 | 倍率/Priority 独立、原始倍率不公开、余额与价格快照、usage/batch-image 归因不随后续解绑变化 |
 | Channel Monitor V2 | managed Key 生命周期、倍率趋势、分组权限、隐私默认值、错误分类和缓存/rollup |
 | 渠道监控 V1 SSE 探针 | OpenAI Responses 等流式探针允许超过旧 64 KiB 的完整事件；单次有界读取 1 MiB，超限报明确容量错误而非 JSON EOF；损坏 JSON 与未完成流仍分别报错，TTFT、challenge、重试和非流式 64 KiB 上限不回归 |
