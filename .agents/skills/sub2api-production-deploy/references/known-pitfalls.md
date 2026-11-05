@@ -431,6 +431,21 @@ Full DR 在成功 runner 之前独立执行；上述阶段不是互不重叠的�
 
 下次直接使用 [固定入口与环境预检](release-runner-lifecycle.md#固定入口与环境预检)。当前仍会在 deploy 中安装校验 VM 工具单元，缺少正式 candidate cancel 和无 boot 启动失败的通用收口，Git 同步错误也缺结构化原因；上述限制未因本次文档整理变成已修复。
 
+### 第二个应用提交的复用验收
+
+同日目标 `7819023c697976b531c6d76d894574aab3316b33` 只更新本地配置的应用 SHA，沿用 profile 282/downtime 和现有脚本；139 项工具资产摘要与前次 `af962…` 逐项相同。最终 SHA 的业务定向回归共 407 个顶层测试、996 项含子用例通过，0 失败、0 跳过；这不是整个项目或工具资格测试。新 release 一次通过 5/5 依赖 proof、`fast / ordinary_change`、签名 VM Gate、停机生产、`verify-result`、postdoctor 和完成收据；runner exit 0，claim consumed，lease released，VM running/preserved。
+
+| 本次 runner 阶段 | 耗时 |
+| --- | --- |
+| runner 启动至完成 | 21 分 50 秒 |
+| 构建依赖 proof | 1 分 29.689 秒 |
+| VM validate（含候选构建与验证） | 5 分 33.590 秒 |
+| production release | 11 分 37.493 秒 |
+
+这些事件区间不等同实测公网停机时长。本轮未改工具脚本，未执行额外代理或镜像源维护，未追加事故实现/工具审阅，也未重跑 Full DR 或整套工具测试。北京时间 18:02:18 的只读复核确认线上完整 SHA 为该目标，运行镜像与候选 `sha256:888915ff41219fe6549d1734aa85ddef89c4eb5dbc026bec785f06f83b04adf0` 一致，生产、relay-node、备份与代理协议检查通过。证据位于本地 `.tmp/releases/282-7819023c6979-1793871382-df7bc169/`、`.tmp/goal781-validation-summary.json` 和 `.tmp/goal781-postdeploy-verified.json`，不入库或跨发布借用。
+
+现有恢复 helper bundle 的 schema 1 文档仍包含应用 `commit_sha`，因此两个应用提交的 `recovery_helper_bundle_sha256` 不同；两者均按当前正式公式验真，工具文件摘要闭包相同。此差异不要求修改工具或补审阅，也不能以手工固定旧摘要消除。独立工具身份协议尚未实现，普通发布继续使用当前合同。
+
 ## 长构建与观察截止不等于 worker 停止
 
 - 本轮 backend APK 下载是主要等待之一；依赖 proof 成功只证明五项 registry metadata 和一次 BuildKit 物化，不证明后续 APK/npm/Go 下载或编译持续可用。不要因 proof 通过就把后续等待当作 runner 死锁。

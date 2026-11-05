@@ -15,7 +15,7 @@ description: 面向 Sub2API fork 的构建、开发门禁、应用与独立插�
 
 日常只调整应用参数，复用现有入口；恢复门禁由最终 diff、生产基线和 pending migration 分类，不因上一轮执行了 full 就把后续普通应用发布都改为 Full DR。长构建、观察超时、完成验收与尚未修复的问题见 [本轮发布经验](references/known-pitfalls.md#profile-282-发布验收与耗时边界)。
 
-2026-11-05 的后续普通后端发布已用相同工具字节通过 `fast / ordinary_change`、新 5/5 构建依赖 proof、VM Gate 和停机生产验收。下次按 [固定入口与环境预检](references/release-runner-lifecycle.md#固定入口与环境预检) 执行；VMware 服务、registry TLS/EOF 或 VM Git 对象缺失先按环境故障定位和维护，成功后用新 release 重做本次证据。具体分流与耗时见 [普通应用 fast 发布与环境故障](references/known-pitfalls.md#普通应用-fast-发布与环境故障)，不以故障名称新增发布实现分支。
+2026-11-05 的两个普通后端提交 `af962…`、`781902…` 已复用完全相同的 139 项工具资产，通过各自的 `fast / ordinary_change`、新 5/5 构建依赖 proof、签名 VM Gate 和停机生产验收。下次先完成最终 SHA 的适用业务回归并推送，只更新本地配置的 `commit`，再按 [固定入口与环境预检](references/release-runner-lifecycle.md#固定入口与环境预检) 启动一次 runner；不为普通应用提交新增 profile、重写工具或追加精确工具审阅。VMware 服务、registry TLS/EOF 或 VM Git 对象缺失按环境故障定位和维护，不以故障名称新增发布实现分支。耗时、恢复包身份与现有限制见 [普通应用 fast 发布与环境故障](references/known-pitfalls.md#普通应用-fast-发布与环境故障)。
 
 ## 不可违反的边界
 

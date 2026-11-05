@@ -2563,7 +2563,7 @@
         "备份 unit helper 只校验规范状态目录和严格 ID 格式，不复制应用 profile 白名单；未知 profile 仍在签名 Gate/context 拒绝。freeze 建快照前失败仅在 worker、claim、生产快照、旧镜像/迁移/路由/units 及无副作用均证明后，通过现有 reconcile 独立收口；原失败证据不回写，独立 proof/result 验真后 owner 最后释放，不能报应用部署成功。",
         "2026-11-05 profile282已通过本轮full Gate、真实加密恢复及中断续跑、停机生产发布、verify-result、postdoctor和terminal runner完成收据校验；candidate/running image一致、claim consumed、共享lease released、原本运行VM保持running/preserved。该验收不代表独立工具版本资格或新postrelease灾备基线晋升，历史profile/blob/mode/审阅登记不回写。",
         "门禁按最终diff与当前生产基线分类，本轮full不成为后续普通应用必跑Full DR的规则；观察器截止不停止远端worker，不重启或并发deploy。普通成功runner的verify-result核对本地签名与终态证据，线上最新状态另由postdoctor或白名单只读检查证明；vm_shutdown事件名不证明实际关机。候选取消入口缺失及备份promotion两次失败根因仍为未修复项，不能以发布成功或容量充足冒称根因已修复。",
-        "2026-11-05普通应用af962已在同一工具字节下以fast/ordinary_change通过VM Gate和停机生产发布；日常应用只提供schema/commit/profile/mode四字段，VM环境故障先预检及维护，不因网络故障修改发布脚本。此事实不扩宽profile、恢复能力或历史审阅边界。",
+        "2026-11-05普通应用af962、781902两次发布已复用完全相同139项工具资产，以各自新proof和fast/ordinary_change通过VM Gate、停机生产和最终验真；日常只更新四字段配置的应用commit，最终业务回归按app diff选择，工具未变不重跑整套工具测试或追加工具审阅。现有恢复bundle仍因schema1包含app commit而变化，按正式公式验真，不误判工具漂移、不手工沿用旧摘要；独立工具身份尚未实现。此事实不扩宽profile、恢复能力或历史审阅边界。",
         "early proof在validator启动前失败使用适用的pre-validator收口，validator内部proof失败使用build-dependencies合同，不按错误文本互换阶段。原失败release不重跑；完成正式收口后，相同工具与应用可用新release重新生成本次proof/candidate/Gate，不复用失败证据。启动失败缺少boot身份时既有CLI不覆盖，一次性维护不冒充通用支持。",
         "registry TLS跨客户端间歇故障属于环境诊断范围，不靠修改tool或切换mirror处理；临时使用既有Selector维护须精确记录原状态、限定作用范围并核验回滚，不把现场维护固化为发布工具自动行为。"
       ]
