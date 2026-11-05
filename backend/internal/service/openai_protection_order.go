@@ -24,6 +24,9 @@ func jointTTFTClass(id int64, quality map[int64]forkscheduling.TTFTQuality, min 
 	if ok && q.Degraded {
 		return 2
 	}
+	if ok && q.NeedsRevalidation {
+		return 1
+	}
 	if ok && q.State == "normal" {
 		return 0
 	}
@@ -31,6 +34,33 @@ func jointTTFTClass(id int64, quality map[int64]forkscheduling.TTFTQuality, min 
 		return 1
 	}
 	return 0
+}
+
+// Scheduling neutrality is distinct from migration/trial qualification. A new
+// account may compete before it has samples, but cannot prove a better target.
+func jointTTFTSchedulingClass(id int64, quality map[int64]forkscheduling.TTFTQuality, min int) int {
+	q, ok := quality[id]
+	if ok && q.Degraded {
+		return 2
+	}
+	if (ok && (q.NeedsRevalidation || q.State == "unavailable")) || quality == nil {
+		return 1
+	}
+	return 0
+}
+
+func jointTTFTLatencyEvidence(id int64, quality map[int64]forkscheduling.TTFTQuality, min int) (float64, cacheGuardLatencyEvidence) {
+	q, ok := quality[id]
+	if quality == nil || (ok && q.State == "unavailable") {
+		return 0, cacheGuardLatencyUnavailable
+	}
+	if !ok || (!q.Degraded && !q.NeedsRevalidation && q.State != "normal" && (q.State == "insufficient" || q.SampleCount < uint64(min))) {
+		return 0, cacheGuardLatencyCold
+	}
+	if q.SampleCount > 0 && q.EWMAms > 0 {
+		return q.EWMAms, cacheGuardLatencyKnown
+	}
+	return 0, cacheGuardLatencyUnavailable
 }
 
 func jointRecoveryTiers(tiers [][]int64, accounts []Account, groupID *int64, nominated []int64, first bool) [][]int64 {
@@ -66,7 +96,15 @@ func jointRecoveryTiers(tiers [][]int64, accounts []Account, groupID *int64, nom
 }
 
 func jointTTFTOrder(tiers [][]int64, accounts []Account, groupID *int64, quality map[int64]forkscheduling.TTFTQuality, min int, priority string) [][]int64 {
+	return jointTTFTOrderWithColdNeutrality(tiers, accounts, groupID, quality, min, priority, true)
+}
+
+func jointTTFTOrderWithColdNeutrality(tiers [][]int64, accounts []Account, groupID *int64, quality map[int64]forkscheduling.TTFTQuality, min int, priority string, coldNeutral bool) [][]int64 {
 	var out [][]int64
+	classify := jointTTFTSchedulingClass
+	if !coldNeutral {
+		classify = jointTTFTClass
+	}
 	// Quality state precedes account priorities. The original scheduler keeps
 	// preferred pools and priority/score ordering within each protection tier.
 	members := map[int64]bool{}
@@ -81,15 +119,24 @@ func jointTTFTOrder(tiers [][]int64, accounts []Account, groupID *int64, quality
 			id       int64
 			ewma     float64
 			known    bool
+			cold     bool
+			latency  int
 			tier     int
 			position int
 		}
 		var candidates []candidate
 		for tierIndex, tier := range tiers {
 			for position, id := range tier {
-				if members[id] && jointTTFTClass(id, quality, min) == class {
-					q, known := quality[id]
-					candidates = append(candidates, candidate{id: id, ewma: q.EWMAms, known: known && q.EWMAms > 0, tier: tierIndex, position: position})
+				if members[id] && classify(id, quality, min) == class {
+					ewma, evidence := jointTTFTLatencyEvidence(id, quality, min)
+					if !coldNeutral {
+						q, ok := quality[id]
+						ewma, evidence = q.EWMAms, cacheGuardLatencyUnavailable
+						if ok && ewma > 0 {
+							evidence = cacheGuardLatencyKnown
+						}
+					}
+					candidates = append(candidates, candidate{id: id, ewma: ewma, known: evidence == cacheGuardLatencyKnown, cold: evidence == cacheGuardLatencyCold, tier: tierIndex, position: position})
 				}
 			}
 		}
@@ -97,13 +144,33 @@ func jointTTFTOrder(tiers [][]int64, accounts []Account, groupID *int64, quality
 			continue
 		}
 		if priority == SchedulingPriorityTTFTFirst {
+			// Form latency bands from known evidence before merging neutral TTFT
+			// into the first band. Retain each candidate's cache band: neutrality
+			// on latency must not erase a known lower cache rate.
+			var measured []float64
+			for _, candidate := range candidates {
+				if candidate.known {
+					measured = append(measured, candidate.ewma)
+				}
+			}
+			sort.Float64s(measured)
+			ranks := map[float64]int{}
+			for _, value := range measured {
+				if _, exists := ranks[value]; !exists {
+					ranks[value] = len(ranks)
+				}
+			}
+			for i := range candidates {
+				if candidates[i].known {
+					candidates[i].latency = ranks[candidates[i].ewma]
+				} else if !candidates[i].cold {
+					candidates[i].latency = len(ranks) + 1
+				}
+			}
 			sort.SliceStable(candidates, func(i, j int) bool {
 				a, b := candidates[i], candidates[j]
-				if a.known != b.known {
-					return a.known
-				}
-				if a.known && a.ewma != b.ewma {
-					return a.ewma < b.ewma
+				if a.latency != b.latency {
+					return a.latency < b.latency
 				}
 				if a.tier != b.tier {
 					return a.tier < b.tier
@@ -115,7 +182,7 @@ func jointTTFTOrder(tiers [][]int64, accounts []Account, groupID *int64, quality
 			})
 			for start := 0; start < len(candidates); {
 				end := start + 1
-				for end < len(candidates) && candidates[end].known == candidates[start].known && candidates[end].tier == candidates[start].tier && (!candidates[start].known || candidates[end].ewma == candidates[start].ewma) {
+				for end < len(candidates) && candidates[end].latency == candidates[start].latency && candidates[end].tier == candidates[start].tier {
 					end++
 				}
 				ids := make([]int64, 0, end-start)
@@ -130,7 +197,7 @@ func jointTTFTOrder(tiers [][]int64, accounts []Account, groupID *int64, quality
 		for _, tier := range tiers {
 			var ids []int64
 			for _, id := range tier {
-				if members[id] && jointTTFTClass(id, quality, min) == class {
+				if members[id] && classify(id, quality, min) == class {
 					ids = append(ids, id)
 				}
 			}
@@ -264,6 +331,9 @@ func (s *OpenAIGatewayService) jointSessionPreference(ctx context.Context, p cac
 		p.Tiers = append(p.Tiers, fastOnlyTiers...)
 	}
 	p.Migration = len(p.Tiers) > 0
-	p.Tiers = jointTTFTOrder(p.Tiers, accounts, &groupID, quality, cfg.MinSamples, priority)
+	// A cache-proven migration target may still have unknown latency. Preserve
+	// the original preference for proven fast targets; cold neutrality grants
+	// natural new traffic, not a new reason to move an existing conversation.
+	p.Tiers = jointTTFTOrderWithColdNeutrality(p.Tiers, accounts, &groupID, quality, cfg.MinSamples, priority, false)
 	return p
 }

@@ -344,7 +344,11 @@ func TestOpenAITTFTGuard_TTLAndBoundedObservationState(t *testing.T) {
 
 	now = now.Add(15 * time.Minute)
 	require.LessOrEqual(t, guard.size(), 2, "expired revalidation tombstones remain bounded")
-	require.Empty(t, guard.quality([]openAITTFTGuardCandidate{{groupID: 100, accountID: 3, model: "gpt-test"}}, cfg), "expired observations cannot imply healthy or degraded current quality")
+	quality := guard.quality([]openAITTFTGuardCandidate{{groupID: 100, accountID: 3, model: "gpt-test"}}, cfg)[3]
+	require.Equal(t, "insufficient", quality.State, "expired observations cannot imply healthy or degraded current quality")
+	require.True(t, quality.NeedsRevalidation, "expired bad evidence retains its existing recovery boundary")
+	require.False(t, quality.Degraded)
+	require.Zero(t, quality.SampleCount)
 	now = now.Add(15 * time.Minute)
 	guard.size()
 	require.Empty(t, guard.observations, "even expired shared evidence must remain bounded in time")

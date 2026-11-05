@@ -113,7 +113,7 @@ func TestJointProtectionQualityPrecedesPriorityAndUnknownRemainsNeutral(t *testi
 	accounts := []Account{{ID: 1, Priority: 1}, {ID: 2, Priority: 1}, {ID: 3, Priority: 2}}
 	q := map[int64]forkscheduling.TTFTQuality{1: {Degraded: true, SampleCount: 5}, 3: {SampleCount: 5, EWMAms: 1000}}
 	tiers := jointTTFTOrder([][]int64{{1, 2}, {3}}, accounts, nil, q, 5, SchedulingPriorityTTFTFirst)
-	require.Equal(t, [][]int64{{3}, {2}, {1}}, tiers)
+	require.Equal(t, [][]int64{{2}, {3}, {1}}, tiers, "cold latency keeps its original higher cache band instead of ranking behind normal")
 	require.Equal(t, 1, jointTTFTClass(2, q, 5))
 	require.Equal(t, 0, jointTTFTClass(3, q, 5))
 }

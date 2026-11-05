@@ -834,7 +834,7 @@ func markCacheGuardSelectionUnknown(t *testing.T, ctx context.Context, runner *U
 		"fixture retains old window samples so only the Unknown phase excludes its rate")
 }
 
-func TestUpstreamCacheGuardUnknownEvidenceUsesUnknownCandidatePool(t *testing.T) {
+func TestUpstreamCacheGuardUnknownEvidenceJoinsFirstOrdinaryBand(t *testing.T) {
 	svc, ctx, runner, _ := cacheGuardSelectionFixture(t, true, []float64{90, 89}, nil, false, time.Time{}, nil)
 	markCacheGuardSelectionUnknown(t, ctx, runner, 1)
 	group := int64(100)
@@ -842,9 +842,8 @@ func TestUpstreamCacheGuardUnknownEvidenceUsesUnknownCandidatePool(t *testing.T)
 	require.NoError(t, err)
 	p := buildCacheGuardPreference(ctx, &group, "new-conversation", "gpt-test", "openai", accounts, nil)
 	require.True(t, p.Active)
-	require.Len(t, p.Tiers, 2, "expired 90%% must not share the healthy 89%% rate band")
-	require.ElementsMatch(t, [][]int64{{1}, {2}}, p.Tiers,
-		"Unknown keeps its ordinary unknown-pool opportunity, regardless of its old sample count")
+	require.Equal(t, [][]int64{{2, 1}}, p.Tiers,
+		"Unknown joins the first ordinary band without treating its expired 90%% as measured quality")
 	require.False(t, p.Migration)
 }
 

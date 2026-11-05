@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"hash/fnv"
 	"reflect"
 	"sort"
 	"time"
@@ -213,8 +212,8 @@ func buildCacheGuardPreference(ctx context.Context, groupID *int64, sessionHash,
 		}
 	}
 	// Protection quality is the outer boundary. The original scheduler applies
-	// preferred pools and account priorities within each tier. Unknown evidence
-	// keeps its deterministic natural-session opportunity, never a fabricated rate.
+	// preferred pools and account priorities within each tier. A fresh account
+	// without sufficient evidence is neutral, never a fabricated cache rate.
 	var known, unknown, protected []int64
 	for id := range eligible {
 		a := states[id]
@@ -226,23 +225,27 @@ func buildCacheGuardPreference(ctx context.Context, groupID *int64, sessionHash,
 			unknown = append(unknown, id)
 		}
 	}
-	sort.Slice(unknown, func(i, j int) bool { return unknown[i] < unknown[j] })
-	if len(known) == 0 && len(protected) == 0 {
-		p.Tiers = append(p.Tiers, unknown)
-		return p
-	}
-	h := fnv.New32a()
-	_, _ = h.Write([]byte(req.ID))
-	unknownFirst := len(unknown) > 0 && h.Sum32()%10 == 0
-	if unknownFirst {
-		p.Tiers = append(p.Tiers, unknown)
-	}
-	p.Tiers = append(p.Tiers, cacheGuardRateTiers(known, states, ttftExcluded)...)
-	if !unknownFirst && len(unknown) > 0 {
-		p.Tiers = append(p.Tiers, unknown)
-	}
+	p.Tiers = append(p.Tiers, cacheGuardOrdinaryRateTiers(known, unknown, states, ttftExcluded)...)
 	p.Tiers = append(p.Tiers, cacheGuardRateTiers(protected, states, ttftExcluded)...)
 	return p
+}
+
+// Build rate bands from measured evidence only. Neutral candidates join the
+// first ordinary band without changing the known bands or a recovery trial.
+// Keeping bands explicit avoids a non-transitive "unknown equals any rate"
+// comparator, and never assigns a made-up percentage to an unknown account.
+func cacheGuardOrdinaryRateTiers(known, cold []int64, states map[int64]upstreamcacheguard.AccountSnapshot, ttftExcluded map[int64]struct{}) [][]int64 {
+	tiers := cacheGuardRateTiers(known, states, ttftExcluded)
+	if len(cold) == 0 {
+		return tiers
+	}
+	cold = append([]int64(nil), cold...)
+	sort.Slice(cold, func(i, j int) bool { return cold[i] < cold[j] })
+	if len(tiers) == 0 {
+		return [][]int64{cold}
+	}
+	tiers[0] = append(tiers[0], cold...)
+	return tiers
 }
 
 func cacheGuardAccountProtected(account upstreamcacheguard.AccountSnapshot) bool {
@@ -294,30 +297,64 @@ func cacheGuardRateTiers(ids []int64, states map[int64]upstreamcacheguard.Accoun
 // Latency refines a cache/health band only when its candidates have real TTFT
 // evidence. An unknown latency keeps the original load selection in that band.
 func cacheGuardLatencyTiers(tiers [][]int64, latency func(int64) (float64, bool)) [][]int64 {
+	return cacheGuardLatencyEvidenceTiers(tiers, func(id int64) (float64, cacheGuardLatencyEvidence) {
+		value, known := latency(id)
+		if known {
+			return value, cacheGuardLatencyKnown
+		}
+		return 0, cacheGuardLatencyUnavailable
+	})
+}
+
+type cacheGuardLatencyEvidence uint8
+
+const (
+	cacheGuardLatencyUnavailable cacheGuardLatencyEvidence = iota
+	cacheGuardLatencyKnown
+	cacheGuardLatencyCold
+)
+
+// Cold TTFT is neutral inside its existing cache band. Inaccessible evidence
+// keeps the previous conservative no-refinement behavior instead of borrowing
+// the cold-start exception. Known-only bands retain their exact EWMA ordering.
+func cacheGuardLatencyEvidenceTiers(tiers [][]int64, latency func(int64) (float64, cacheGuardLatencyEvidence)) [][]int64 {
 	var result [][]int64
 	for _, tier := range tiers {
 		values := map[int64]float64{}
 		complete := true
+		var ordered, cold []int64
 		for _, id := range tier {
-			value, known := latency(id)
-			if !known {
+			value, evidence := latency(id)
+			if evidence == cacheGuardLatencyUnavailable {
 				complete = false
 				break
 			}
+			if evidence == cacheGuardLatencyCold {
+				cold = append(cold, id)
+				continue
+			}
+			ordered = append(ordered, id)
 			values[id] = value
 		}
 		if !complete || len(tier) < 2 {
 			result = append(result, tier)
 			continue
 		}
-		ordered := append([]int64(nil), tier...)
+		if len(ordered) == 0 {
+			result = append(result, tier)
+			continue
+		}
 		sort.SliceStable(ordered, func(i, j int) bool { return values[ordered[i]] < values[ordered[j]] })
 		for start := 0; start < len(ordered); {
 			end := start + 1
 			for end < len(ordered) && values[ordered[end]] == values[ordered[start]] {
 				end++
 			}
-			result = append(result, ordered[start:end])
+			part := ordered[start:end]
+			if start == 0 && len(cold) > 0 {
+				part = append(append([]int64(nil), part...), cold...)
+			}
+			result = append(result, part)
 			start = end
 		}
 	}
