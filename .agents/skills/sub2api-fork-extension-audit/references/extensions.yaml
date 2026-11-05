@@ -704,7 +704,7 @@
         "backend/internal/handler/openai_embeddings.go",
         "backend/internal/handler/openai_gateway_count_tokens.go",
         "backend/internal/handler/openai_images.go",
-        "backend/internal/service/protection_joint_oracle_test.go",
+        "backend/internal/service/protection_joint_oracle_test.go", "backend/internal/service/protection_cross_priority_integration_test.go",
         "backend/internal/service/testdata/protection_joint_preoptimization.json",
         "backend/internal/service/testdata/protection_joint_preoptimization.md",
         "backend/internal/handler/admin/account_protection_expiry_etag_test.go",
@@ -752,7 +752,7 @@
         "backend/internal/repository/account_repo_quality_candidates_test.go",
         "backend/internal/handler/admin/account_scheduling_protection_batch_test.go",
         "backend/internal/handler/admin/account_quality_candidates_test.go",
-        "backend/internal/service/protection_joint_oracle_test.go",
+        "backend/internal/service/protection_joint_oracle_test.go", "backend/internal/service/protection_cross_priority_integration_test.go",
         "backend/internal/handler/admin/account_protection_expiry_etag_test.go",
         "backend/internal/upstreamcacheguard/frozen_event_oracle_test.go",
         "backend/internal/upstreamcacheguard/session_residency_boundary_test.go",
@@ -776,7 +776,7 @@
     {
       "id": "upstream-cache-affinity-guard",
       "title": "上游有效续聊缓存保护",
-      "description": "默认关闭的上游账号与当前Key级有效续聊缓存保护；原始Token加权窗口共享，按质量策略投影phase/冷却/恢复cohort，原trial恢复之外增加可靠已有会话普通流量的独立验证与可过期低率窗口证明。组inherit/enabled/disabled与cache_first/ttft_first统一配置，自定义enabled独立protect；缓存与TTFT联合迁移按当前源账号优先池筛选目标，没有更好账号时保留原调度兜底，不改变计费或错误重试策略。",
+      "description": "默认关闭的上游账号与当前Key级有效续聊缓存保护；原始Token加权窗口共享，按质量策略投影phase/冷却/恢复cohort，原trial恢复之外增加可靠已有会话普通流量的独立验证与可过期低率窗口证明。组inherit/enabled/disabled与cache_first/ttft_first统一配置，自定义enabled独立protect；缓存与TTFT联合质量档跨优先池构建，利润合格后择优，档内沿用原优先级和高级调度，没有更好账号时保留原调度兜底，不改变计费或错误重试策略。",
       "ownership": "fork",
       "risk_level": "critical",
       "paths": [
@@ -1104,7 +1104,7 @@
         "统计固定account ID加当前upstream Key ID，所有组、模型、协议有效样本按Token加权合并，排除冷首轮和无效样本；Key轮换不继承旧证据，未知率不是零",
         "首次账号与当前Key仅在accounts、refreshVersions及accountPolicyEpoch均无记录且无采样gap/failure时，允许以最近成功refreshPolicyEpoch等于当前策略代次并满足原5秒新鲜条件进入同步准入；不生成缓存率或伪造有效样本，已有状态、旧策略及失败身份不走此例外，仍保留5秒/30秒边界。首次cold不计有效样本，后续合格warm才统计，不回填历史；最低回归bootstrap_snapshot_test.go及upstream_cache_guard_bootstrap_test.go。",
         "正常N严格超过20且缓存率低于75时保护，默认disabled、observe不改变调度；旧PUT省略配置保留已有值",
-        "保护给自然新会话让路；旧会话连续两次有效低率，或当前账号/Key/模型/协议/策略边界内足量有效温热事实的Token加权率低于迁移阈值后，才允许迁移至有效率高至少5个百分点且有实际容量的账号；缓存与TTFT联合迁移按当前源账号优先池筛选，迁移冷首轮不计、成功迁移最短驻留5分钟；没有更好账号时保留原账号和普通调度兜底",
+        "保护给自然新会话让路；旧会话连续两次有效低率，或当前账号/Key/模型/协议/策略边界内足量有效温热事实的Token加权率低于迁移阈值后，才允许迁移至有效率高至少5个百分点且有实际容量的账号；缓存与TTFT联合迁移不再要求同preferred/priority池，迁移冷首轮不计、成功迁移最短驻留5分钟；没有更好账号时保留原账号和普通调度兜底",
         "session_window_migration_threshold_percent可为空，缺省沿用分组最终有效threshold_percent，显式0只关闭新增窗口判据，连续两低仍用账号保护阈值；recovery_min_sessions默认3、管理PUT只允许整数1–100，trial与ordinary recovery共用，recovery_required_sessions向API说明trial恢复所需会话数；同值配置保存不重启普通恢复验证",
         "不可迁移previous_response和固定同账号重试保持原语义；不更改错误状态码重试配置",
         "全低仍在硬合法池按cache择优，差不超过5个百分点优先TTFT正常再负载，cache或TTFT软限制不新增拒绝，不撤caller失败排除及其他硬条件",
@@ -1821,7 +1821,7 @@
     {
       "id": "ttft-guard",
       "title": "OpenAI 分组级 TTFT Guard",
-      "description": "TTFT 业务观测按 account_id + 当前 UpstreamKey + canonical model 共享，三态与窗口坏证据独立；普通/试探真实完成按至少三次成功快请求和两次可靠会话恢复。预算group独立，同池质量先于缓存，进程内runtime权威。",
+      "description": "TTFT 业务观测按 account_id + 当前 UpstreamKey + canonical model 共享，三态与窗口坏证据独立；普通/试探真实完成按至少三次成功快请求和两次可靠会话恢复。预算group独立，联合质量跨优先池且档内保留原调度，进程内runtime权威。",
       "ownership": "fork",
       "risk_level": "critical",
       "paths": [
@@ -1922,7 +1922,7 @@
         "backend/internal/service/openai_protection_regression_test.go",
         "backend/internal/service/openai_protection_trial_test.go",
         "backend/internal/service/openai_protection_order_test.go",
-        "backend/internal/service/protection_joint_oracle_test.go"
+        "backend/internal/service/protection_joint_oracle_test.go", "backend/internal/service/protection_cross_priority_integration_test.go"
       ],
       "invariants": [
         "全局 scheduling_protection_platforms 默认仅 openai；仅选中具体平台的分组提供配置并执行保护，实际账号平台也须选中；composite 不支持；自定义不能绕过范围，空选全部停用，旧客户端省略保留，取消选择保留历史事实与组配置，状态明确 platform_not_selected",
@@ -1931,7 +1931,7 @@
         "组 TTFT/cache 各自 inherit/enabled/disabled；缓存自定义 enabled 独立 protect，只有阈值、恢复阈值、最小有效请求数自定义，时间和试用配额全局继承",
         "TTFT 保护渐出自然新会话；已有可靠会话连续两次超该组阈值才迁移，保留 previous_response 和同账号重试约束",
         "TTFT三态normal/protected/insufficient；按自身首Token/完成时间重建15分钟有效窗口，坏证据截止固定，快流量不续坏证据，过期无新证据待验证不自动健康；普通与试探终态均可恢复，连续至少3成功快attempt且TTFT<=0.6阈值、至少2可靠会话；已恢复normal不被冷启动min_samples=20降级；attempt及逻辑请求幂等，失败/取消/不完整/旧runtime或代次不恢复",
-        "cache_first/ttft_first在同一优先池都先TTFT质量再缓存收益，优先池外层约束保留，不加权；软保护不得新增无账号拒绝，硬合法与容量边界仍生效",
+        "利润及原硬约束先于跨preferred/priority池的联合质量档；cache_first/ttft_first均先TTFT质量再按原策略比较缓存与延迟，档内原优先级/高级调度不变且不加权；取消缓存firstPool和迁移samePool限制，试用配额/信用/cohort不变；软保护不得新增无账号拒绝，硬合法与容量边界仍生效",
         "TTFT试探预算按group_id+canonical model独立；20次真实合法新分配积最多1信用，sticky/查询/重复选号/未取得容量不耗机会，公平轮转protected与insufficient；同runtime账号+Key+model最多1在途，实际发送才消费、未发送取消退还；不得绕过缓存cohort与DB/范围/Key/model/利润准入",
         "TTFT权威限定service owner内存map+mutex，runtime_id和algorithm_version显式，票据绑定策略代次和projection generation；重启unknown、旧票不复活，不新增Redis/SQL同步或跨进程即时一致承诺；缓存继续原PG事实和cohort；本轮源码修订尚未部署",
         "deploy fast 分支在 schema 判断前初始化可选 pre_gate_input/rack_pre_gate_dir/vm_pre_gate_dir；fast 不准备恢复输入，specialized 仍准备并清理，Gate 失败不进入生产发布",
@@ -1944,7 +1944,7 @@
       ]
     },
     {
-      "id": "group-profit-control-display", "title": "分组利润控制与账号倍率上限展示", "description": "基于官方分组倍率、计费与利润控制链，fork 增加用户专属 rate_percent 真值、动态有效倍率、显式 0% 语义和管理端账号倍率上限预览；金额限额仍按分组原价计量。 用户默认百分比作为单组NULL后的次级回退，未设置默认时保持原行为。", "ownership": "fork", "risk_level": "high", "paths": ["backend/migrations/277_user_group_rate_percent.sql", "backend/internal/repository/user_group_rate_repo.go", "backend/internal/service/user_group_rate.go", "backend/internal/service/user_group_rate_resolver.go", "backend/internal/service/admin_group.go", "backend/internal/service/admin_user.go", "backend/internal/service/openai_profit_control.go", "backend/internal/service/gateway_profit_control.go", "backend/internal/service/billing_cache_service.go", "backend/internal/service/gateway_usage_billing.go", "backend/internal/service/openai_gateway_usage.go", "backend/internal/handler/admin/user_handler.go", "backend/internal/handler/dto/types.go", "backend/internal/handler/dto/mappers.go", "frontend/src/api/admin/groups.ts", "frontend/src/types/index.ts", "frontend/src/views/admin/GroupsView.vue", "frontend/src/views/admin/groupsProfitControl.ts", "frontend/src/components/admin/group/GroupRateMultipliersModal.vue", "frontend/src/components/admin/user/UserAllowedGroupsModal.vue", "frontend/src/i18n/locales/zh/admin/overview.ts", "frontend/src/i18n/locales/en/admin/overview.ts", "backend/internal/handler/gemini_cached_contents_handler.go", "backend/internal/service/gemini_cached_content_fork_billing_test.go", "backend/internal/handler/gemini_cached_contents_fork_billing_test.go"], "symbols": ["rate_percent", "SyncUserGroupRatePercents", "ResolveUserGroupRateMultiplier", "ResolveWithExplicitZero", "CheckBillingEligibility", "buildUsageBillingCommand", "calculateProfitControlMaxAccountRate", "formatProfitControlMaxAccountRate", "QuoteUsageCosts", "applyRecordUsageQuotaMeterCost", "QuotaMeterCostSet", "ReserveFixedChargeCosts"], "api_routes": ["/admin/users/:id", "/admin/groups/:id/rate-multipliers"], "settings_keys": [], "migration_files": ["277_user_group_rate_percent.sql"], "required_tests": ["backend/migrations/user_group_rate_percent_migration_test.go", "backend/internal/repository/user_group_rate_repo_test.go", "backend/internal/service/openai_profit_control_test.go", "backend/internal/service/openai_profit_control_pricing_test.go", "backend/internal/service/user_group_rate_resolver_test.go", "backend/internal/service/gateway_service_subscription_billing_test.go", "backend/internal/service/admin_service_group_rate_test.go", "backend/internal/service/admin_service_update_user_rpm_test.go", "frontend/src/api/admin/__tests__/groupsRateMultipliers.spec.ts", "frontend/src/components/admin/group/__tests__/GroupRateMultipliersModal.spec.ts", "frontend/src/components/admin/user/__tests__/UserAllowedGroupsModal.spec.ts", "frontend/src/views/admin/__tests__/groupsProfitControl.spec.ts", "backend/internal/service/gemini_cached_content_fork_billing_test.go", "backend/internal/handler/gemini_cached_contents_fork_billing_test.go"], "invariants": [
+      "id": "group-profit-control-display", "title": "分组利润控制与账号倍率上限展示", "description": "基于官方分组倍率、计费与利润控制链，fork 增加用户专属 rate_percent 真值、动态有效倍率、显式 0% 语义和管理端账号倍率上限预览；金额限额仍按分组原价计量。 用户默认百分比作为单组NULL后的次级回退，未设置默认时保持原行为。", "ownership": "fork", "risk_level": "high", "paths": ["backend/migrations/277_user_group_rate_percent.sql", "backend/internal/repository/user_group_rate_repo.go", "backend/internal/service/user_group_rate.go", "backend/internal/service/user_group_rate_resolver.go", "backend/internal/service/admin_group.go", "backend/internal/service/admin_user.go", "backend/internal/service/openai_profit_control.go", "backend/internal/service/openai_profit_control_eligibility_test.go", "backend/internal/service/gateway_profit_control.go", "backend/internal/service/billing_cache_service.go", "backend/internal/service/gateway_usage_billing.go", "backend/internal/service/openai_gateway_usage.go", "backend/internal/handler/admin/user_handler.go", "backend/internal/handler/dto/types.go", "backend/internal/handler/dto/mappers.go", "frontend/src/api/admin/groups.ts", "frontend/src/types/index.ts", "frontend/src/views/admin/GroupsView.vue", "frontend/src/views/admin/groupsProfitControl.ts", "frontend/src/components/admin/group/GroupRateMultipliersModal.vue", "frontend/src/components/admin/user/UserAllowedGroupsModal.vue", "frontend/src/i18n/locales/zh/admin/overview.ts", "frontend/src/i18n/locales/en/admin/overview.ts", "backend/internal/handler/gemini_cached_contents_handler.go", "backend/internal/service/gemini_cached_content_fork_billing_test.go", "backend/internal/handler/gemini_cached_contents_fork_billing_test.go"], "symbols": ["rate_percent", "SyncUserGroupRatePercents", "ResolveUserGroupRateMultiplier", "ResolveWithExplicitZero", "CheckBillingEligibility", "buildUsageBillingCommand", "calculateProfitControlMaxAccountRate", "formatProfitControlMaxAccountRate", "QuoteUsageCosts", "applyRecordUsageQuotaMeterCost", "QuotaMeterCostSet", "ReserveFixedChargeCosts"], "api_routes": ["/admin/users/:id", "/admin/groups/:id/rate-multipliers"], "settings_keys": [], "migration_files": ["277_user_group_rate_percent.sql"], "required_tests": ["backend/migrations/user_group_rate_percent_migration_test.go", "backend/internal/repository/user_group_rate_repo_test.go", "backend/internal/service/openai_profit_control_test.go", "backend/internal/service/openai_profit_control_pricing_test.go", "backend/internal/service/openai_profit_control_eligibility_test.go", "backend/internal/service/user_group_rate_resolver_test.go", "backend/internal/service/gateway_service_subscription_billing_test.go", "backend/internal/service/admin_service_group_rate_test.go", "backend/internal/service/admin_service_update_user_rpm_test.go", "frontend/src/api/admin/__tests__/groupsRateMultipliers.spec.ts", "frontend/src/components/admin/group/__tests__/GroupRateMultipliersModal.spec.ts", "frontend/src/components/admin/user/__tests__/UserAllowedGroupsModal.spec.ts", "frontend/src/views/admin/__tests__/groupsProfitControl.spec.ts", "backend/internal/service/gemini_cached_content_fork_billing_test.go", "backend/internal/handler/gemini_cached_contents_fork_billing_test.go"], "invariants": [
         "官方拥有基础分组倍率和利润控制，fork 只拥有 rate_percent、显式 0%、计费/配额分离与管理端预览扩展",
         "rate_percent 是用户专属倍率唯一业务真值，存在单组覆盖时有效倍率等于分组普通倍率 × rate_percent ÷ 100；无单组覆盖先回退用户默认百分比，再回退分组普通倍率",
         "分组普通倍率变化只刷新兼容 rate_multiplier 影子值和缓存，不得改写 rate_percent",
@@ -1956,7 +1956,7 @@
         "显式 0 仅豁免当前用户-计费分组的利润控制，非 0 用户和其它分组继续执行利润门",
         "订阅高峰窗口内阈值叠加当前高峰因子",
         "管理端预览只读且向下保留四位",
-        "未启用利润控制或配置无效时不展示伪造上限",
+        "未启用利润控制或配置无效时不展示伪造上限；文本公共调度入口在保护分档前装配实际组利润门，复用冻结pricingAt与计费父组；保护候选/试用纯预筛不记录veto，实际选号及发送终检保留原观测与故障政策，明确否决不能由回源复活",
         "分组默认倍率仍必须大于 0",
         "Gemini缓存创建含输入费与存储token-hours，延期仅存储费；显式0%令actual_cost为0，但quota_meter_cost保留原分组计量，两种金额在报价、在途预留和落账中保持一致",
         "固定缓存费的余额与订阅额度按actual计算；订阅路径延续平台额度豁免，API Key额度/时间窗仍检查quota_meter，零actual不能跳过非订阅平台计量限制"
@@ -2067,7 +2067,7 @@
         "账号编辑显式同时提交 group_ids 与 preferred_group_ids 时，preferred_group_ids 必须是已选分组子集，并在一个事务内精确覆盖分组顺序和星标状态；每次成功关系替换只发送一个 account_groups_changed outbox",
         "批量编辑仅在启用分组修改时提交 group_ids 与 preferred_group_ids；空星标集合清除最终分组全部优先状态，筛选目标与手选目标语义相同",
         "旧调用未提交 preferred_group_ids 时继续走 BindGroups：解绑删除优先标记，保留未解绑关系标记，新关系默认非优先；复制分组和复制账号不复制优先状态",
-        "优先池只在最终实际分组和模型路由候选交集内生效，并保留合法 previous_response/session 粘性",
+        "优先池只在最终实际分组和模型路由候选交集内生效；启用调度保护时只在当前联合质量档内生效，不能压过更好的保护档；保留合法不可迁移previous_response/session绑定，可迁移previous owner服从当前档排除集合",
         "健康、启用、模型/协议/能力、利润、并发、限额、熔断、429/503 临时保护仍是硬准入；优先账号满载立即尝试其它优先账号并回退普通池",
         "优先池内部使用全局 Priority、负载、LRU 等非倍率信号；普通池倍率、成本、Top-K、等待和重试算法保持不变",
         "scheduler outbox 提交后刷新对应分组桶及受影响账号快照，生产环境不在本 change 内自动部署",

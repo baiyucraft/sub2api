@@ -158,7 +158,7 @@ func TestTTFTQualityPrecedesCacheInBothModes(t *testing.T) {
 	accounts := []Account{{ID: 1, Priority: 1}, {ID: 2, Priority: 1}, {ID: 3, Priority: 1}, {ID: 4, Priority: 2}}
 	q := map[int64]forkscheduling.TTFTQuality{1: {State: "protected", Degraded: true, SampleCount: 5}, 2: {State: "insufficient", SampleCount: 10}, 3: {State: "normal", SampleCount: 5}, 4: {State: "normal", SampleCount: 5}}
 	for _, priority := range []string{SchedulingPriorityCacheFirst, SchedulingPriorityTTFTFirst} {
-		require.Equal(t, [][]int64{{3}, {2}, {1}, {4}}, jointTTFTOrder([][]int64{{1}, {2}, {3}, {4}}, accounts, nil, q, 5, priority))
+		require.Equal(t, [][]int64{{3}, {4}, {2}, {1}}, jointTTFTOrder([][]int64{{1}, {2}, {3}, {4}}, accounts, nil, q, 5, priority))
 	}
 }
 

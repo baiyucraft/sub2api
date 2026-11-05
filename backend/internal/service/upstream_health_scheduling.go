@@ -188,9 +188,13 @@ func (s *GatewayService) gatewayCacheGuardPreference(ctx context.Context, groupI
 	}
 	eligible := make([]Account, 0, len(accounts))
 	for _, account := range accounts {
-		if _, excluded := base[account.ID]; !excluded {
-			eligible = append(eligible, account)
+		if _, excluded := base[account.ID]; excluded {
+			continue
 		}
+		if vetoed, _ := openAIProfitControlEligibilityVetoReason(guardCtx, &account); vetoed {
+			continue
+		}
+		eligible = append(eligible, account)
 	}
 	protocol := "anthropic"
 	if platform == PlatformGemini || platform == PlatformAntigravity {

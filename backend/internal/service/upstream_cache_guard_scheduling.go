@@ -131,13 +131,6 @@ func buildCacheGuardPreference(ctx context.Context, groupID *int64, sessionHash,
 	if len(eligible) == 0 {
 		return cacheGuardPreference{}
 	}
-	var firstPool *Account
-	for i := range accounts {
-		a := &accounts[i]
-		if firstPool == nil || cacheGuardPoolBetter(a, firstPool, groupID) {
-			firstPool = a
-		}
-	}
 	if session.Known && session.PreferredAccountID > 0 {
 		if _, usable := eligible[session.PreferredAccountID]; !usable {
 			return cacheGuardPreference{}
@@ -145,6 +138,7 @@ func buildCacheGuardPreference(ctx context.Context, groupID *int64, sessionHash,
 		if _, ok := eligible[session.PreferredAccountID]; ok {
 			source := states[session.PreferredAccountID]
 			sourceAccount := eligible[session.PreferredAccountID]
+			sourceModel := canonicalOpenAIAccountSchedulingModel(&sourceAccount, model)
 			if !snapshot.Fresh || !source.Fresh || !session.Fresh {
 				// A stale snapshot may preserve an existing session affinity, but
 				// must not create a new trial or migrate from old observations.
@@ -165,7 +159,7 @@ func buildCacheGuardPreference(ctx context.Context, groupID *int64, sessionHash,
 			for id := range eligible {
 				a := states[id]
 				target := eligible[id]
-				if a.Fresh && a.Phase != upstreamcacheguard.Unknown && id != session.PreferredAccountID && cacheGuardSamePool(&target, &sourceAccount, groupID) && a.ValidRequests > s.MinValidRequests && a.CachePercent >= source.CachePercent+5 {
+				if a.Fresh && a.Phase != upstreamcacheguard.Unknown && id != session.PreferredAccountID && canonicalOpenAIAccountSchedulingModel(&target, model) == sourceModel && a.ValidRequests > s.MinValidRequests && a.CachePercent >= source.CachePercent+5 {
 					better = append(better, id)
 				}
 			}
@@ -208,8 +202,7 @@ func buildCacheGuardPreference(ctx context.Context, groupID *int64, sessionHash,
 		var recovery []int64
 		for id := range eligible {
 			a := states[id]
-			target := eligible[id]
-			if cacheGuardSamePool(&target, firstPool, groupID) && cacheGuardRecoveryReady(a, req.StartedAt) {
+			if cacheGuardRecoveryReady(a, req.StartedAt) {
 				recovery = append(recovery, id)
 			}
 		}
@@ -219,55 +212,36 @@ func buildCacheGuardPreference(ctx context.Context, groupID *int64, sessionHash,
 			p.Tiers = append(p.Tiers, []int64{recovery[index]})
 		}
 	}
-	// Account priorities remain the outer pool boundary. Unknown cache evidence
-	// gets a deterministic natural-session opportunity, never a fabricated rate.
-	type pool struct {
-		preferred bool
-		priority  int
+	// Protection quality is the outer boundary. The original scheduler applies
+	// preferred pools and account priorities within each tier. Unknown evidence
+	// keeps its deterministic natural-session opportunity, never a fabricated rate.
+	var known, unknown, protected []int64
+	for id := range eligible {
+		a := states[id]
+		if cacheGuardAccountProtected(a) {
+			protected = append(protected, id)
+		} else if a.Phase != upstreamcacheguard.Unknown && a.ValidRequests > s.MinValidRequests {
+			known = append(known, id)
+		} else {
+			unknown = append(unknown, id)
+		}
 	}
-	byPriority := map[pool][]int64{}
-	priorities := []pool{}
-	for id, a := range eligible {
-		priority := pool{isAccountPreferredForGroup(&a, groupID), openAIAccountSchedulingPriority(&a)}
-		if _, ok := byPriority[priority]; !ok {
-			priorities = append(priorities, priority)
-		}
-		byPriority[priority] = append(byPriority[priority], id)
+	sort.Slice(unknown, func(i, j int) bool { return unknown[i] < unknown[j] })
+	if len(known) == 0 && len(protected) == 0 {
+		p.Tiers = append(p.Tiers, unknown)
+		return p
 	}
-	sort.Slice(priorities, func(i, j int) bool {
-		if priorities[i].preferred != priorities[j].preferred {
-			return priorities[i].preferred
-		}
-		return priorities[i].priority < priorities[j].priority
-	})
-	for _, priority := range priorities {
-		var known, unknown, protected []int64
-		for _, id := range byPriority[priority] {
-			a := states[id]
-			if cacheGuardAccountProtected(a) {
-				protected = append(protected, id)
-			} else if a.Phase != upstreamcacheguard.Unknown && a.ValidRequests > s.MinValidRequests {
-				known = append(known, id)
-			} else {
-				unknown = append(unknown, id)
-			}
-		}
-		if len(known) == 0 && len(protected) == 0 {
-			p.Tiers = append(p.Tiers, byPriority[priority])
-			continue
-		}
-		h := fnv.New32a()
-		_, _ = h.Write([]byte(req.ID))
-		unknownFirst := len(unknown) > 0 && h.Sum32()%10 == 0
-		if unknownFirst {
-			p.Tiers = append(p.Tiers, unknown)
-		}
-		p.Tiers = append(p.Tiers, cacheGuardRateTiers(known, states, ttftExcluded)...)
-		if !unknownFirst && len(unknown) > 0 {
-			p.Tiers = append(p.Tiers, unknown)
-		}
-		p.Tiers = append(p.Tiers, cacheGuardRateTiers(protected, states, ttftExcluded)...)
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(req.ID))
+	unknownFirst := len(unknown) > 0 && h.Sum32()%10 == 0
+	if unknownFirst {
+		p.Tiers = append(p.Tiers, unknown)
 	}
+	p.Tiers = append(p.Tiers, cacheGuardRateTiers(known, states, ttftExcluded)...)
+	if !unknownFirst && len(unknown) > 0 {
+		p.Tiers = append(p.Tiers, unknown)
+	}
+	p.Tiers = append(p.Tiers, cacheGuardRateTiers(protected, states, ttftExcluded)...)
 	return p
 }
 
@@ -283,16 +257,6 @@ func cacheGuardRecoveryReady(account upstreamcacheguard.AccountSnapshot, at time
 	return false
 }
 
-func cacheGuardPoolBetter(a, b *Account, groupID *int64) bool {
-	pa, pb := isAccountPreferredForGroup(a, groupID), isAccountPreferredForGroup(b, groupID)
-	if pa != pb {
-		return pa
-	}
-	return openAIAccountSchedulingPriority(a) < openAIAccountSchedulingPriority(b)
-}
-func cacheGuardSamePool(a, b *Account, groupID *int64) bool {
-	return a != nil && b != nil && isAccountPreferredForGroup(a, groupID) == isAccountPreferredForGroup(b, groupID) && openAIAccountSchedulingPriority(a) == openAIAccountSchedulingPriority(b)
-}
 func cacheGuardRateTiers(ids []int64, states map[int64]upstreamcacheguard.AccountSnapshot, ttftExcluded map[int64]struct{}) [][]int64 {
 	ids = append([]int64(nil), ids...)
 	sort.SliceStable(ids, func(i, j int) bool {

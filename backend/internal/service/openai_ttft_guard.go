@@ -633,6 +633,11 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 	previousResponseCanMove bool,
 	useUpstreamTokenCost bool,
 ) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
+	// 在保护分档、迁移和试用提名之前装配实际调度分组的利润门。沿用 handler
+	// 已冻结的 pricingAt，同组 failover 复用同一门；独立媒体仍保持原跳门边界。
+	if requiredImageCapability == "" {
+		ctx = s.withOpenAIProfitControlGate(ctx, groupID)
+	}
 	if selection, decision, err, handled := s.selectWithCacheGuardPreference(ctx, groupID, previousResponseID, sessionHash, requestedModel, excludedIDs, requiredTransport, requiredCapability, requiredImageCapability, requireCompact, platform, previousResponseCanMove, useUpstreamTokenCost); handled {
 		return selection, decision, err
 	}

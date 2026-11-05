@@ -109,13 +109,34 @@ func TestJointProtectionSlowSessionMigratesDespiteHigherCacheAfterTwoSuccesses(t
 	}
 }
 
-func TestJointProtectionUnknownIsNeutralAndPoolsRemainOuter(t *testing.T) {
+func TestJointProtectionQualityPrecedesPriorityAndUnknownRemainsNeutral(t *testing.T) {
 	accounts := []Account{{ID: 1, Priority: 1}, {ID: 2, Priority: 1}, {ID: 3, Priority: 2}}
 	q := map[int64]forkscheduling.TTFTQuality{1: {Degraded: true, SampleCount: 5}, 3: {SampleCount: 5, EWMAms: 1000}}
 	tiers := jointTTFTOrder([][]int64{{1, 2}, {3}}, accounts, nil, q, 5, SchedulingPriorityTTFTFirst)
-	require.Equal(t, [][]int64{{2}, {1}, {3}}, tiers)
+	require.Equal(t, [][]int64{{3}, {2}, {1}}, tiers)
 	require.Equal(t, 1, jointTTFTClass(2, q, 5))
 	require.Equal(t, 0, jointTTFTClass(3, q, 5))
+}
+
+func TestJointProtectionTiersDoNotRecreatePriorityPools(t *testing.T) {
+	group := int64(100)
+	accounts := []Account{
+		{ID: 3, Priority: 8},
+		{ID: 1, Priority: 3, AccountGroups: []AccountGroup{{GroupID: group, SchedulerPreferred: true}}},
+		{ID: 2, Priority: 4},
+	}
+	tiers := jointTTFTOnlyTiers(accounts, &group)
+	require.Equal(t, [][]int64{{1, 2, 3}}, tiers)
+	quality := map[int64]forkscheduling.TTFTQuality{
+		1: {State: "normal", SampleCount: 5, EWMAms: 1000},
+		2: {State: "normal", SampleCount: 5, EWMAms: 1000},
+		3: {State: "normal", SampleCount: 5, EWMAms: 1000},
+	}
+	for _, priority := range []string{SchedulingPriorityCacheFirst, SchedulingPriorityTTFTFirst} {
+		require.Equal(t, tiers, jointTTFTOrder(tiers, accounts, &group, quality, 5, priority), "equal protection quality leaves priority and preferred handling to the original scheduler")
+	}
+	require.Equal(t, [][]int64{{3}, {1, 2, 3}}, jointRecoveryTiers(tiers, accounts, &group, []int64{3, 99}, true))
+	require.Equal(t, [][]int64{{1, 2, 3}, {3}}, jointRecoveryTiers(tiers, accounts, &group, []int64{3, 99}, false))
 }
 
 func TestJointProtectionPriorityOrdersOnlyWithinQualityState(t *testing.T) {
@@ -182,7 +203,7 @@ func TestJointProtectionMigrationCombinesTriggersBeforePriorityFallback(t *testi
 	}
 }
 
-func TestJointProtectionMigrationUsesSourcePoolForBothTriggers(t *testing.T) {
+func TestJointProtectionMigrationCrossesPriorityPoolsForBothTriggers(t *testing.T) {
 	for _, priority := range []string{SchedulingPriorityCacheFirst, SchedulingPriorityTTFTFirst} {
 		for _, cacheMigration := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/cache_migration=%t", priority, cacheMigration), func(t *testing.T) {
@@ -190,7 +211,7 @@ func TestJointProtectionMigrationUsesSourcePoolForBothTriggers(t *testing.T) {
 				ctx = context.WithValue(ctx, cacheGuardLogicalSessionKey{}, "explicit:source-priority-pool")
 				accounts, err := svc.accountRepo.ListSchedulableByGroupID(ctx, 100)
 				require.NoError(t, err)
-				accounts[0].Priority, accounts[1].Priority, accounts[2].Priority = 3, 3, 1
+				accounts[0].Priority, accounts[1].Priority, accounts[2].Priority = 3, 4, 8
 				cfg := enabledOpenAITTFTGuardConfig(20*time.Second, 5)
 				key, reliable := protectionSessionKey(ctx, 100, &accounts[0], "gpt-test", "openai")
 				require.True(t, reliable)
@@ -207,8 +228,101 @@ func TestJointProtectionMigrationUsesSourcePoolForBothTriggers(t *testing.T) {
 				}
 				result := svc.jointSessionPreference(ctx, preference, 100, "gpt-test", "openai", accounts, quality, cfg, priority)
 				require.True(t, result.Migration)
-				require.Equal(t, [][]int64{{2}}, result.Tiers, "TTFT must keep the same source pool instead of reintroducing a faster outer-pool target")
+				want := [][]int64{{3}, {2}}
+				if cacheMigration && priority == SchedulingPriorityCacheFirst {
+					want = [][]int64{{2}, {3}}
+				}
+				require.Equal(t, want, result.Tiers, "both migration triggers may use cross-pool targets while retaining their existing quality order")
 			})
+		}
+	}
+}
+
+func TestJointProtectionIntersectionKeepsExistingFastFirstOrder(t *testing.T) {
+	for _, priority := range []string{SchedulingPriorityCacheFirst, SchedulingPriorityTTFTFirst} {
+		for _, tc := range []struct {
+			name  string
+			tiers [][]int64
+			ms    []float64
+			want  [][]int64
+		}{
+			{"different_cache_bands", [][]int64{{2}, {3}, {4}}, []float64{12000, 4000, 8000}, [][]int64{{3}, {4}, {2}}},
+			{"same_cache_band_different_latency", [][]int64{{2, 3}, {4}}, []float64{12000, 4000, 8000}, [][]int64{{3}, {4}, {2}}},
+			{"different_cache_bands_equal_latency", [][]int64{{2}, {3}, {4}}, []float64{4000, 4000, 8000}, [][]int64{{2}, {3}, {4}}},
+			{"interleaved_equivalent_intersection", [][]int64{{2, 4}, {3}}, []float64{4000, 4000, 4000}, [][]int64{{2, 4}, {3}}},
+		} {
+			t.Run(priority+"/"+tc.name, func(t *testing.T) {
+				svc, ctx, _, _ := cacheGuardSelectionFixture(t, false, []float64{40, 99, 89, 79}, nil, false, time.Time{}, nil)
+				ctx = context.WithValue(ctx, cacheGuardLogicalSessionKey{}, "explicit:fixed-intersection-order")
+				repo := svc.accountRepo.(schedulerTestOpenAIAccountRepo)
+				cfg := enabledOpenAITTFTGuardConfig(20*time.Second, 5)
+				key, reliable := protectionSessionKey(ctx, 100, &repo.accounts[0], "gpt-test", "openai")
+				require.True(t, reliable)
+				streak := svc.protectionSession(key, time.Now())
+				streak.slow, streak.threshold = 2, cfg.Threshold
+				quality := map[int64]forkscheduling.TTFTQuality{1: {Degraded: true, SampleCount: 5, EWMAms: 35000}}
+				for i, ms := range tc.ms {
+					quality[int64(i+2)] = forkscheduling.TTFTQuality{State: "normal", SampleCount: 5, EWMAms: ms}
+				}
+				preference := cacheGuardPreference{Active: true, KeepAccountID: 1, Migration: true, Tiers: tc.tiers}
+				result := svc.jointSessionPreference(ctx, preference, 100, "gpt-test", "openai", repo.accounts, quality, cfg, priority)
+				require.True(t, result.Migration)
+				require.Equal(t, tc.want, result.Tiers, "intersection order follows the original EWMA/ID sequence; only identical cache-band/EWMA evidence is merged")
+			})
+		}
+	}
+}
+
+func TestJointProtectionEquivalentMigrationTargetsKeepBuiltInPriorityAndPreferred(t *testing.T) {
+	for _, advanced := range []bool{false, true} {
+		for _, priority := range []string{SchedulingPriorityCacheFirst, SchedulingPriorityTTFTFirst} {
+			for _, trigger := range []string{"cache", "ttft", "both"} {
+				for _, preferred := range []bool{false, true} {
+					t.Run(fmt.Sprintf("advanced=%t/%s/%s/preferred=%t", advanced, priority, trigger, preferred), func(t *testing.T) {
+						svc, ctx, _, _ := cacheGuardSelectionFixture(t, advanced, []float64{40, 90, 89}, nil, false, time.Time{}, nil)
+						ctx = context.WithValue(ctx, cacheGuardLogicalSessionKey{}, "explicit:equivalent-migration-targets")
+						repo := svc.accountRepo.(schedulerTestOpenAIAccountRepo)
+						repo.accounts[0].Priority, repo.accounts[1].Priority, repo.accounts[2].Priority = 1, 4, 3
+						if preferred {
+							repo.accounts[1].AccountGroups = []AccountGroup{{GroupID: 100, SchedulerPreferred: true}}
+						}
+						svc.accountRepo = repo
+						cfg := enabledOpenAITTFTGuardConfig(20*time.Second, 5)
+						key, reliable := protectionSessionKey(ctx, 100, &repo.accounts[0], "gpt-test", "openai")
+						require.True(t, reliable)
+						streak := svc.protectionSession(key, time.Now())
+						streak.slow, streak.threshold = 2, cfg.Threshold
+						quality := map[int64]forkscheduling.TTFTQuality{
+							1: {State: "normal", SampleCount: 5, EWMAms: 4000},
+							2: {State: "normal", SampleCount: 5, EWMAms: 4000},
+							3: {State: "normal", SampleCount: 5, EWMAms: 4000},
+						}
+						if trigger != "cache" {
+							quality[1] = forkscheduling.TTFTQuality{Degraded: true, SampleCount: 5, EWMAms: 35000}
+						}
+						preference := cacheGuardPreference{Active: true, KeepAccountID: 1, ScopeIDs: map[int64]struct{}{1: {}, 2: {}, 3: {}}}
+						if trigger != "ttft" {
+							preference.Migration, preference.Tiers = true, [][]int64{{2, 3}}
+						}
+						result := svc.jointSessionPreference(ctx, preference, 100, "gpt-test", "openai", repo.accounts, quality, cfg, priority)
+						require.True(t, result.Migration)
+						require.Equal(t, [][]int64{{2, 3}}, result.Tiers, "equal-TTFT targets must retain their shared cache band or fast-only tier")
+						group := int64(100)
+						excluded := result.exclusionsFor(result.Tiers[0], nil)
+						selection, _, err := svc.selectAccountWithSchedulerOnce(ctx, &group, "", "", "gpt-test", excluded, excluded, false, OpenAIUpstreamTransportAny, "", "", false, PlatformOpenAI, true, true)
+						require.NoError(t, err)
+						require.NotNil(t, selection)
+						want := int64(3)
+						if preferred {
+							want = 2
+						}
+						require.Equal(t, want, selection.Account.ID, "the built-in scheduler must choose priority/preferred within an equivalent protection tier")
+						if selection.ReleaseFunc != nil {
+							selection.ReleaseFunc()
+						}
+					})
+				}
+			}
 		}
 	}
 }

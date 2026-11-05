@@ -324,6 +324,17 @@ func ContextWithSelectionProfitGate(ctx context.Context, sel *AccountSelectionRe
 // openAIProfitControlVetoReason 报告利润门是否否决该账号。ctx 中没有门
 // （分组未启用利润控制或本请求跳门）或账号为 nil 时一律放行。
 func openAIProfitControlVetoReason(ctx context.Context, account *Account) (bool, string) {
+	vetoed, reason := openAIProfitControlEligibilityVetoReason(ctx, account)
+	if vetoed {
+		gate, _ := ctx.Value(openAIProfitControlGateCtxKey{}).(*openAIProfitControlGate)
+		openAIProfitControlObserverInstance.recordVeto(gate.groupID, gate.platform, gate.threshold, reason)
+	}
+	return vetoed, reason
+}
+
+// openAIProfitControlEligibilityVetoReason 只检查请求内已装配的利润门，不解析
+// 配置或记录否决。保护候选和试用提名可以复用它，实际选号与发送终检仍记录观测。
+func openAIProfitControlEligibilityVetoReason(ctx context.Context, account *Account) (bool, string) {
 	gate, _ := ctx.Value(openAIProfitControlGateCtxKey{}).(*openAIProfitControlGate)
 	if gate == nil || account == nil {
 		return false, ""
@@ -335,12 +346,10 @@ func openAIProfitControlVetoReason(ctx context.Context, account *Account) (bool,
 		math.IsNaN(*account.RateMultiplier) ||
 		math.IsInf(*account.RateMultiplier, 0) ||
 		*account.RateMultiplier < 0 {
-		openAIProfitControlObserverInstance.recordVeto(gate.groupID, gate.platform, gate.threshold, openAIProfitFilterReasonInvalidAccountRate)
 		return true, openAIProfitFilterReasonInvalidAccountRate
 	}
 	upstream := *account.RateMultiplier
 	if profitControlOverThreshold(upstream, gate.threshold) {
-		openAIProfitControlObserverInstance.recordVeto(gate.groupID, gate.platform, gate.threshold, openAIProfitFilterReasonThreshold)
 		return true, openAIProfitFilterReasonThreshold
 	}
 	return false, ""
