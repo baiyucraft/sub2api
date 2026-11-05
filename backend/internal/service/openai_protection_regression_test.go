@@ -309,7 +309,7 @@ func TestProtectionRegressionTrialSendRequiresFinalIdentity(t *testing.T) {
 	}
 }
 
-func TestProtectionRegressionTTFTTrialRespectsPriorityPools(t *testing.T) {
+func TestProtectionRegressionTTFTTrialNominationCrossesPriorityPools(t *testing.T) {
 	for _, advanced := range []bool{false, true} {
 		for _, firstPoolAvailable := range []bool{false, true} {
 			t.Run(fmt.Sprintf("advanced=%t/first_pool_available=%t", advanced, firstPoolAvailable), func(t *testing.T) {
@@ -333,16 +333,8 @@ func TestProtectionRegressionTTFTTrialRespectsPriorityPools(t *testing.T) {
 				require.NoError(t, err)
 				require.NotNil(t, result)
 				require.True(t, result.Acquired)
-				want := int64(2)
-				if firstPoolAvailable {
-					want = 1
-				}
-				require.Equal(t, want, result.Account.ID)
-				if firstPoolAvailable {
-					require.Nil(t, result.protection.trial, "a low-priority recovery nomination cannot take capacity ahead of a healthy preferred pool")
-				} else {
-					require.NotNil(t, result.protection.trial, "a recovery attempt is allowed after higher-priority capacity is exhausted")
-				}
+				require.Equal(t, int64(2), result.Account.ID)
+				require.NotNil(t, result.protection.trial, "a funded recovery nomination is not screened out by account priority")
 				if result.ReleaseFunc != nil {
 					result.ReleaseFunc()
 				}

@@ -70,6 +70,9 @@ func (s *OpenAIGatewayService) selectWithCacheGuardPreference(ctx context.Contex
 		if _, excluded := base[a.ID]; excluded {
 			continue
 		}
+		if veto, _ := openAIProfitControlEligibilityVetoReason(ctx, &a); veto {
+			continue
+		}
 		if a.IsSchedulable() && a.IsModelSupported(model) && accountSupportsOpenAICapabilities(&a, capability, imageCapability) && s.isOpenAIAccountTransportCompatible(&a, transport) {
 			eligible = append(eligible, a)
 			selectedAccountAvailable = selectedAccountAvailable || schedulingProtectionAccountSelected(s.groupProtectionPolicyResolver, &a)
@@ -145,8 +148,8 @@ func (s *OpenAIGatewayService) selectWithCacheGuardPreference(ctx context.Contex
 		}
 		trial = s.getOpenAITTFTGuard().reserveTrialOpportunity(ctx, *groupID, trialCandidates, model, cfg, qualities)
 		if trial != nil {
-			// A trial is a bounded sampling exception within its own priority
-			// pool. Cache cohorts still perform their ordinary send admission.
+			// A trial is one bounded sampling exception across priority pools.
+			// Cache cohorts still perform their ordinary send admission.
 			p.Tiers = jointRecoveryTiers(p.Tiers, eligible, groupID, []int64{trial.key.accountID}, true)
 		}
 	}
@@ -205,7 +208,7 @@ func (s *OpenAIGatewayService) selectWithCacheGuardPreference(ctx context.Contex
 		if keep {
 			trialCtx = context.WithValue(trialCtx, cacheGuardKeepKey{}, true)
 		}
-		result, decision, err := s.selectAccountWithSchedulerOnce(trialCtx, groupID, previousResponseID, sessionHash, model, tierExclusions(tier), callerExcluded, true, transport, capability, imageCapability, compact, platform, previousCanMove, useTokenCost)
+		result, decision, err := s.selectAccountWithSchedulerOnce(trialCtx, groupID, previousResponseID, sessionHash, model, tierExclusions(tier), callerExcluded, !previousCanMove, transport, capability, imageCapability, compact, platform, previousCanMove, useTokenCost)
 		if !protectionPolicyEvaluationCurrent(ctx) {
 			if result != nil && result.ReleaseFunc != nil {
 				result.ReleaseFunc()
@@ -247,7 +250,6 @@ func (s *OpenAIGatewayService) selectWithCacheGuardPreference(ctx context.Contex
 		oldCtx := s.withOpenAIQuotaAutoPauseContext(withCacheGuardTentativeSelection(ctx))
 		oldCtx = s.withOpenAISchedulingAdmission(oldCtx, model, false)
 		oldCtx = s.withOpenAIGroupPrivacyRequirement(oldCtx, groupID)
-		oldCtx = s.withOpenAIProfitControlGate(oldCtx, groupID)
 		scheduler := &defaultOpenAIAccountScheduler{service: s, stats: s.openaiAccountStats}
 		if scheduler.stats == nil {
 			scheduler.stats = newOpenAIAccountRuntimeStats()

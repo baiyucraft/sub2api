@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"os"
 	"sort"
+	"strings"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -15,9 +16,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The version-two contract intentionally makes quality precede cache benefit
-// in every priority mode. The pre-optimization trace remains in testdata for
-// historical provenance; the current trace runs in a fixed-clock synctest bubble.
+// Version three moves Priority/preferred below the protection layers. Historical
+// pre-optimization and quality-first-v2 traces remain frozen in testdata. The
+// explicit overlay below changes only scenarios whose old outer pool blocked a
+// better protection target; it does not derive expectations from the scheduler.
+// The current trace runs in a fixed-clock synctest bubble.
 // Account selection has a deterministic seed derived from the same session,
 // model and group. The scenario generator uses a separate fixed random source.
 // SUB2API_JOINT_ORACLE_OUTPUT exports an actual trace for an isolated comparison;
@@ -92,7 +95,7 @@ func (s *jointOracleStore) quota(t *testing.T) int64 {
 	return count
 }
 
-func TestJointProtectionMatchesQualityFirstV2Golden(t *testing.T) {
+func TestJointProtectionMatchesQualityFirstV3Contract(t *testing.T) {
 	var output jointOracleOutput
 	synctest.Test(t, func(t *testing.T) {
 		rng := rand.New(rand.NewSource(1017))
@@ -142,7 +145,7 @@ func TestJointProtectionMatchesQualityFirstV2Golden(t *testing.T) {
 								}
 							}
 							if scenario >= 6 {
-								accounts[2].Priority = 2 // a worse outer priority pool cannot win on quality.
+								accounts[2].Priority = 2 // Protection may choose 3 before the worse-cache priority-one account.
 								svc.accountRepo = schedulerTestOpenAIAccountRepo{accounts: accounts}
 							}
 							preference := buildCacheGuardPreference(ctx, &group, "conversation", "gpt-test", "openai", accounts, nil)
@@ -202,5 +205,68 @@ func TestJointProtectionMatchesQualityFirstV2Golden(t *testing.T) {
 	}
 	expected, err := os.ReadFile("testdata/protection_joint_quality_first_v2.json")
 	require.NoError(t, err)
-	require.JSONEq(t, string(expected), string(actual))
+	require.JSONEq(t, string(jointProtectionQualityFirstV3Expected(t, expected)), string(actual))
+}
+
+// The fixture fixes disjoint cache bands: account 2 is 85..92%, account 3 is
+// 70..77%, and account 1 is 55..62%. Scenario 6/9 therefore uses 2 -> 3 -> 1
+// regardless of account 3's Priority. In scenario 7/10 account 2 has degraded
+// TTFT, so an eligible low-cache source migrates to 3; when every slot is full it
+// retains source 1. All other scenarios (including residence, quota accounting,
+// and the final built-in ordinary fallback) retain the original frozen trace.
+func jointProtectionQualityFirstV3Expected(t *testing.T, frozenV2 []byte) []byte {
+	t.Helper()
+	var expected jointOracleOutput
+	require.NoError(t, json.Unmarshal(frozenV2, &expected))
+	changed := 0
+	for i := range expected.Selections {
+		trace := &expected.Selections[i]
+		crossNew := strings.Contains(trace.Name, "/scenario=6/") || strings.Contains(trace.Name, "/scenario=9/")
+		crossMigration := strings.Contains(trace.Name, "/scenario=7/") || strings.Contains(trace.Name, "/scenario=10/")
+		if !crossNew && !crossMigration {
+			continue
+		}
+		changed++
+		advanced := strings.HasPrefix(trace.Name, "advanced=true/")
+		allFull := strings.HasSuffix(trace.Name, "/all_full")
+		bestFull := strings.HasSuffix(trace.Name, "/best_full")
+		if crossNew {
+			require.Equal(t, [][]int64{{2}, {1}, {3}}, trace.CacheTiers, "the overlay must start from the frozen v2 outer-pool contract")
+			trace.CacheTiers = [][]int64{{2}, {3}, {1}}
+			if bestFull {
+				trace.AttemptOrder = []int64{2, 3}
+				if advanced {
+					trace.AttemptOrder = []int64{2, 2, 3}
+				}
+				trace.Account, trace.StickyAfter = 3, 3
+			} else if allFull {
+				if advanced {
+					// Only the first six capacity attempts change. Ordinary
+					// scheduling still uses its original priority and retry order.
+					require.GreaterOrEqual(t, len(trace.AttemptOrder), 6)
+					require.Equal(t, []int64{2, 2, 1, 1, 3, 3}, trace.AttemptOrder[:6])
+					trace.AttemptOrder = append([]int64{2, 2, 3, 3, 1, 1}, trace.AttemptOrder[6:]...)
+				} else {
+					require.Equal(t, []int64{2, 1, 3, 1}, trace.AttemptOrder)
+					trace.AttemptOrder = []int64{2, 3, 1, 1}
+				}
+			}
+			continue
+		}
+		require.Equal(t, [][]int64{{2}}, trace.CacheTiers)
+		trace.CacheTiers = [][]int64{{2}, {3}}
+		if allFull {
+			trace.AttemptOrder = []int64{3, 1}
+			if advanced {
+				trace.AttemptOrder = []int64{3, 3, 1}
+			}
+		} else {
+			trace.AttemptOrder = []int64{3}
+			trace.Account, trace.StickyAfter, trace.Migration = 3, 3, true
+		}
+	}
+	require.Equal(t, 48, changed, "two schedulers, two policies, four changed scenarios and three capacities")
+	raw, err := json.Marshal(expected)
+	require.NoError(t, err)
+	return raw
 }

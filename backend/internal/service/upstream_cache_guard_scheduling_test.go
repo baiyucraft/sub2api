@@ -397,21 +397,51 @@ func TestUpstreamCacheGuardMigrationCommitsOnlyAfterCapacityAndTerminalAdmission
 	}
 }
 
-func TestUpstreamCacheGuardMigrationUsesSourcePriorityPoolAndRetainsFallback(t *testing.T) {
+func TestUpstreamCacheGuardNewSessionProtectionPrecedesPriorityPools(t *testing.T) {
+	for _, advanced := range []bool{false, true} {
+		for _, sameBand := range []bool{false, true} {
+			t.Run(fmt.Sprintf("advanced=%t/same_band=%t", advanced, sameBand), func(t *testing.T) {
+				middleRate := float64(90)
+				if sameBand {
+					middleRate = 94
+				}
+				svc, ctx, _, _ := cacheGuardSelectionFixture(t, advanced, []float64{40, middleRate, 99}, map[int64]bool{1: true}, false, time.Time{}, nil)
+				repo := svc.accountRepo.(schedulerTestOpenAIAccountRepo)
+				repo.accounts[0].Priority, repo.accounts[1].Priority, repo.accounts[2].Priority = 3, 4, 8
+				repo.accounts[0].AccountGroups = []AccountGroup{{GroupID: 100, SchedulerPreferred: true}}
+				svc.accountRepo = repo
+				group := int64(100)
+				selection, _, err := svc.SelectAccountWithScheduler(ctx, &group, "", "new-conversation", "gpt-test", nil, OpenAIUpstreamTransportAny, false)
+				require.NoError(t, err)
+				require.NotNil(t, selection)
+				want := int64(3)
+				if sameBand {
+					want = 2
+				}
+				require.Equal(t, want, selection.Account.ID, "quality precedes preferred/priority pools; the original priority order remains inside a rate band")
+				if selection.ReleaseFunc != nil {
+					selection.ReleaseFunc()
+				}
+			})
+		}
+	}
+}
+
+func TestUpstreamCacheGuardMigrationCrossesPriorityPoolsAndRetainsFallback(t *testing.T) {
 	for _, advanced := range []bool{false, true} {
 		for _, targetAvailable := range []bool{false, true} {
 			t.Run(fmt.Sprintf("advanced=%t/target_available=%t", advanced, targetAvailable), func(t *testing.T) {
-				svc, ctx, _, cache := cacheGuardSelectionFixture(t, advanced, []float64{40, 94, 99}, map[int64]bool{1: true}, true, time.Time{}, map[int64]bool{1: true, 2: targetAvailable, 3: true})
+				svc, ctx, _, cache := cacheGuardSelectionFixture(t, advanced, []float64{40, 94, 99}, map[int64]bool{1: true}, true, time.Time{}, map[int64]bool{1: true, 2: targetAvailable, 3: targetAvailable})
 				repo := svc.accountRepo.(schedulerTestOpenAIAccountRepo)
 				repo.accounts[0].Priority = 3
-				repo.accounts[1].Priority = 3
-				repo.accounts[2].Priority = 1
+				repo.accounts[1].Priority = 4
+				repo.accounts[2].Priority = 8
 				svc.accountRepo = repo
 				group := int64(100)
 				preference := buildCacheGuardPreference(ctx, &group, "conversation", "gpt-test", "openai", repo.accounts, nil)
 				require.True(t, preference.Migration)
 				require.Equal(t, int64(1), preference.KeepAccountID)
-				require.Equal(t, [][]int64{{2}}, preference.Tiers, "a higher outer pool must not hide a healthy target in the existing source pool")
+				require.Equal(t, [][]int64{{3, 2}}, preference.Tiers, "better targets from every priority pool share the existing five-point rate band")
 				selection, _, err := svc.SelectAccountWithScheduler(ctx, &group, "", "conversation", "gpt-test", nil, OpenAIUpstreamTransportAny, false)
 				require.NoError(t, err)
 				require.NotNil(t, selection)
@@ -432,11 +462,34 @@ func TestUpstreamCacheGuardMigrationUsesSourcePriorityPoolAndRetainsFallback(t *
 func TestUpstreamCacheGuardMigrationKeepsImprovedProtectedTarget(t *testing.T) {
 	svc, ctx, _, _ := cacheGuardSelectionFixture(t, false, []float64{40, 60, 99}, map[int64]bool{1: true, 2: true}, true, time.Time{}, nil)
 	repo := svc.accountRepo.(schedulerTestOpenAIAccountRepo)
-	repo.accounts[0].Priority, repo.accounts[1].Priority, repo.accounts[2].Priority = 3, 3, 1
+	repo.accounts[0].Priority, repo.accounts[1].Priority, repo.accounts[2].Priority = 3, 4, 8
 	group := int64(100)
 	preference := buildCacheGuardPreference(ctx, &group, "conversation", "gpt-test", "openai", repo.accounts, nil)
 	require.True(t, preference.Migration)
-	require.Equal(t, [][]int64{{2}}, preference.Tiers, "an improved protected same-pool target remains a soft preference, not a hard rejection")
+	require.Equal(t, [][]int64{{3}, {2}}, preference.Tiers, "an improved protected cross-pool target remains eligible behind a better rate band")
+}
+
+func TestUpstreamCacheGuardMigrationRequiresSameActualModel(t *testing.T) {
+	for _, targetPriority := range []int{3, 4} {
+		for _, actualModel := range []string{"gpt-test", "other-model"} {
+			t.Run(fmt.Sprintf("priority=%d/model=%s", targetPriority, actualModel), func(t *testing.T) {
+				svc, ctx, _, _ := cacheGuardSelectionFixture(t, false, []float64{40, 95}, map[int64]bool{1: true}, true, time.Time{}, nil)
+				repo := svc.accountRepo.(schedulerTestOpenAIAccountRepo)
+				repo.accounts[0].Priority, repo.accounts[1].Priority = 3, targetPriority
+				repo.accounts[1].Credentials = map[string]any{"model_mapping": map[string]any{"gpt-test": actualModel}}
+				group := int64(100)
+				preference := buildCacheGuardPreference(ctx, &group, "conversation", "gpt-test", "openai", repo.accounts, nil)
+				require.Equal(t, int64(1), preference.KeepAccountID)
+				if actualModel == "gpt-test" {
+					require.True(t, preference.Migration)
+					require.Equal(t, [][]int64{{2}}, preference.Tiers)
+				} else {
+					require.False(t, preference.Migration, "a different mapped model cannot borrow the source model's migration evidence")
+					require.Empty(t, preference.Tiers)
+				}
+			})
+		}
+	}
 }
 
 func TestUpstreamCacheGuardResidenceAndFixedRetryKeepSource(t *testing.T) {
