@@ -204,12 +204,14 @@ type TTFTDegradationReader interface {
 }
 
 // TTFTQuality is real sample evidence, independent of recovery probe admission.
-// An absent account in Quality's result means that latency is unknown.
+// An absent account has no current sample evidence; this is not verified health.
+// State "unavailable" means its identity or request configuration could not be read.
 type TTFTQuality struct {
-	State       string
-	Degraded    bool
-	EWMAms      float64
-	SampleCount uint64
+	State             string
+	Degraded          bool
+	NeedsRevalidation bool
+	EWMAms            float64
+	SampleCount       uint64
 }
 
 // TTFTQualityReader is optional: the existing TTFTRuntime contract stays intact.

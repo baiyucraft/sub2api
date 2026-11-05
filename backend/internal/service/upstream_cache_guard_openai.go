@@ -191,12 +191,16 @@ func (s *OpenAIGatewayService) selectWithCacheGuardPreference(ctx context.Contex
 	// cache_first uses latency only to refine a cache band. ttft_first has
 	// already compared latency across cache bands within each quality state.
 	if priority == SchedulingPriorityCacheFirst {
-		p.Tiers = cacheGuardLatencyTiers(p.Tiers, func(id int64) (float64, bool) {
-			if quality, known := qualities[id]; known && quality.SampleCount > 0 {
-				return quality.EWMAms, true
-			}
-			return 0, false
-		})
+		if p.Migration {
+			p.Tiers = cacheGuardLatencyTiers(p.Tiers, func(id int64) (float64, bool) {
+				q, ok := qualities[id]
+				return q.EWMAms, ok && q.SampleCount > 0
+			})
+		} else {
+			p.Tiers = cacheGuardLatencyEvidenceTiers(p.Tiers, func(id int64) (float64, cacheGuardLatencyEvidence) {
+				return jointTTFTLatencyEvidence(id, qualities, cfg.MinSamples)
+			})
+		}
 	}
 	ctx = withProtectionCandidateScope(ctx, p.candidateScope())
 	tierExclusions := p.tierExclusions(base)

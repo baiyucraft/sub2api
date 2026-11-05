@@ -239,20 +239,25 @@ func (g *openAITTFTGuard) qualityAt(candidates []openAITTFTGuardCandidate, cfg O
 	defer g.mu.Unlock()
 	out := map[int64]forkscheduling.TTFTQuality{}
 	for _, c := range candidates {
-		if !g.acceptRequestConfigLocked(c.groupID, cfg) {
+		if _, ok := openAITTFTGuardScopeFor(c.groupID, cfg); !ok || !cfg.Enabled || !g.acceptRequestConfigLocked(c.groupID, cfg) {
+			out[c.accountID] = forkscheduling.TTFTQuality{State: "unavailable"}
 			continue
 		}
 		k, ok := g.sampleKeyLocked(c.accountID, c.upstreamKeyID, c.model)
 		if !ok {
+			out[c.accountID] = forkscheduling.TTFTQuality{State: "unavailable"}
 			continue
 		}
 		raw := g.observations[k]
-		if raw == nil || now.Sub(raw.lastSampleAt) >= g.ttl {
-			continue
-		}
+		hasCurrentSamples := raw != nil && now.Sub(raw.lastSampleAt) < g.ttl
 		if e := g.projectionAtLocked(k, c.groupID, cfg, now); e != nil {
 			state := e.stateAt(now, g.ttl)
-			out[c.accountID] = forkscheduling.TTFTQuality{State: state, Degraded: state == "protected", EWMAms: e.recentEWMA(), SampleCount: e.sampleCount}
+			// Bad evidence may expire while the bounded projection still requires
+			// actual recovery facts. Do not turn that tombstone into a cold account.
+			if !hasCurrentSamples && !e.needsRevalidation {
+				continue
+			}
+			out[c.accountID] = forkscheduling.TTFTQuality{State: state, Degraded: state == "protected", NeedsRevalidation: e.needsRevalidation, EWMAms: e.recentEWMA(), SampleCount: e.sampleCount}
 		}
 	}
 	return out

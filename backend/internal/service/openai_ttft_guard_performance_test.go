@@ -209,7 +209,7 @@ func TestTTFTManagedPolicyRejectsOlderRequestConfig(t *testing.T) {
 		g.reportForKey(1, 1, 10, "model", true, &ms, old)
 	}
 	candidates := []openAITTFTGuardCandidate{{groupID: 1, accountID: 1, upstreamKeyID: 10, model: "model"}}
-	require.Empty(t, g.qualityAt(candidates, old, now))
+	require.Equal(t, "unavailable", g.qualityAt(candidates, old, now)[1].State, "a policy mismatch must not look like cold start")
 	require.Empty(t, g.exclusionsAt(candidates, nil, old, now))
 	require.Nil(t, g.claimTrial(1, &Account{ID: 1}, "model", old))
 	require.Empty(t, g.groupProbes, "old request must not consume a recovery slot")
