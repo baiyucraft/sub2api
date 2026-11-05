@@ -2364,7 +2364,7 @@
     {
       "id": "release-operations-isolation",
       "title": "发布 skill 隔离、VM 电源所有权、日志与清理",
-      "description": "fork 专用发布资产隔离在 production-deploy skill，固定脚本读取本地四字段部署参数；生产 prepare 按签名恢复分类核对严格布尔，与 Python Gate 验真一致，普通应用不强制 full。沿用三层门禁、原子恢复 helper、幂等 checkpoint、独立恢复验真、可选 VM 自动启停、跨 checkout 身份锁和持久所有权；生产成功与 VM cleanup 分别验收，保留 8211 单实例展示合同。",
+      "description": "fork 专用发布资产隔离在 production-deploy skill，固定脚本读取本地四字段部署参数；生产 prepare 按签名恢复分类核对严格布尔，与 Python Gate 验真一致，普通应用不强制 full。沿用三层门禁、原子恢复 helper、幂等 checkpoint、独立恢复验真、可选 VM 自动启停、跨 checkout 身份锁和持久所有权；生产成功与 VM cleanup 分别验收，保留 8211 单实例展示合同。已验证普通应用可复用同一工具字节发布，环境维护与应用参数调整分别处理，不承诺未知场景无需代码变更。",
       "ownership": "fork-operations",
       "risk_level": "critical",
       "paths": [
@@ -2554,7 +2554,10 @@
         "269 exact recovery review binds production BASE c4d857235cecdc3458c21b5eec9411f1fd115674 to TARGET f14ca8f65e3526370bf24a2fa0bca3ec490448ab: disjoint 35 profile compatibility, 2 downtime reward-cost postflight, and 4 independent finalization/doctor paths; third group includes release/doctor.py rather than release/supervisor.py. All 41 identities require same-path BASE/TARGET Git blob and file mode; profile 268 registry stays frozen. Changed BASE/blob/mode, deletion, move, extra sensitive paths, and unknown review fail closed even with explicit full. Classification does not waive current-helper specialized real PostgreSQL/Redis/Compose restore, older-image compatibility, signed VM Gate, or production verification.",
         "备份 unit helper 只校验规范状态目录和严格 ID 格式，不复制应用 profile 白名单；未知 profile 仍在签名 Gate/context 拒绝。freeze 建快照前失败仅在 worker、claim、生产快照、旧镜像/迁移/路由/units 及无副作用均证明后，通过现有 reconcile 独立收口；原失败证据不回写，独立 proof/result 验真后 owner 最后释放，不能报应用部署成功。",
         "2026-11-05 profile282已通过本轮full Gate、真实加密恢复及中断续跑、停机生产发布、verify-result、postdoctor和terminal runner完成收据校验；candidate/running image一致、claim consumed、共享lease released、原本运行VM保持running/preserved。该验收不代表独立工具版本资格或新postrelease灾备基线晋升，历史profile/blob/mode/审阅登记不回写。",
-        "门禁按最终diff与当前生产基线分类，本轮full不成为后续普通应用必跑Full DR的规则；观察器截止不停止远端worker，不重启或并发deploy。普通成功runner的verify-result核对本地签名与终态证据，线上最新状态另由postdoctor或白名单只读检查证明；vm_shutdown事件名不证明实际关机。候选取消入口缺失及备份promotion两次失败根因仍为未修复项，不能以发布成功或容量充足冒称根因已修复。"
+        "门禁按最终diff与当前生产基线分类，本轮full不成为后续普通应用必跑Full DR的规则；观察器截止不停止远端worker，不重启或并发deploy。普通成功runner的verify-result核对本地签名与终态证据，线上最新状态另由postdoctor或白名单只读检查证明；vm_shutdown事件名不证明实际关机。候选取消入口缺失及备份promotion两次失败根因仍为未修复项，不能以发布成功或容量充足冒称根因已修复。",
+        "2026-11-05普通应用af962已在同一工具字节下以fast/ordinary_change通过VM Gate和停机生产发布；日常应用只提供schema/commit/profile/mode四字段，VM环境故障先预检及维护，不因网络故障修改发布脚本。此事实不扩宽profile、恢复能力或历史审阅边界。",
+        "early proof在validator启动前失败使用适用的pre-validator收口，validator内部proof失败使用build-dependencies合同，不按错误文本互换阶段。原失败release不重跑；完成正式收口后，相同工具与应用可用新release重新生成本次proof/candidate/Gate，不复用失败证据。启动失败缺少boot身份时既有CLI不覆盖，一次性维护不冒充通用支持。",
+        "registry TLS跨客户端间歇故障属于环境诊断范围，不靠修改tool或切换mirror处理；临时使用既有Selector维护须精确记录原状态、限定作用范围并核验回滚，不把现场维护固化为发布工具自动行为。"
       ]
     },
     {

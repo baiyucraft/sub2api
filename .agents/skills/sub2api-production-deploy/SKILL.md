@@ -9,11 +9,13 @@ description: 面向 Sub2API fork 的构建、开发门禁、应用与独立插�
 
 ## 日常部署参数
 
-日常应用发布复用仓库中已验证的固定脚本，将 `schema/commit/profile/mode` 写入本地 `.release/deploy.local.json`，通过 `release.py doctor` 和 `release.py deploy-follow` 消费；显式完整参数优先。历史 profile `281` 为 `0.2.19-baiyu`、parent `280`、新增 `305_scoped_admin_api_keys.sql` 与 `306_group_image_count_billing.sql`，并沿用当前 `downtime` 发布约束；版本、父链和迁移仍取已登记的 profile。配置只补齐参数，原 Gate、备份、迁移、恢复及 `verify-result` 门禁照常执行，脚本字节变化仍按现有规则审阅和验证。当前实现仍会在 deploy 中调用 VM validator/signer 安装校验流程，并在 VM 缺少 `jq` 时安装该依赖，因此“日常 deploy 只核验已安装工具”的目标尚未实现，不能按只读工具检查描述。
+日常应用发布复用仓库中已验证的固定脚本，将 `schema/commit/profile/mode` 写入本地 `.release/deploy.local.json`，通过 `release.py doctor --node local` 和 `release.py deploy-follow` 消费；显式完整参数优先。当前 profile `282` 为 `0.2.19-baiyu`、parent `281`、仅新增 `307_user_default_group_rate_percent.sql`，使用 `downtime`；版本、父链和迁移仍取已登记的 profile。普通应用提交只更新配置中的完整 SHA，沿用适用的 profile/mode；新增版本、迁移或工具能力属于单独的合同变更。配置只补齐参数，原 Gate、备份、迁移、恢复及 `verify-result` 门禁照常执行，脚本字节变化仍按现有规则审阅和验证。当前实现仍会在 deploy 中调用 VM validator/signer 安装校验流程，并在 VM 缺少 `jq` 时安装该依赖，因此“日常 deploy 只核验已安装工具”的目标尚未实现，不能按只读工具检查描述。
 
 连接及机器路径保留在 `.ssh.local`；`vm_lifecycle.shared_dir` 指向已有的规范物理共享目录，复用其中原 `lease.lock` 和 `owner.json`，不得因 checkout 不同新建发布所有权域。配置生成、支持命令与观察重连见 [本地部署参数](references/release-runner-lifecycle.md#本地部署参数)。
 
 日常只调整应用参数，复用现有入口；恢复门禁由最终 diff、生产基线和 pending migration 分类，不因上一轮执行了 full 就把后续普通应用发布都改为 Full DR。长构建、观察超时、完成验收与尚未修复的问题见 [本轮发布经验](references/known-pitfalls.md#profile-282-发布验收与耗时边界)。
+
+2026-11-05 的后续普通后端发布已用相同工具字节通过 `fast / ordinary_change`、新 5/5 构建依赖 proof、VM Gate 和停机生产验收。下次按 [固定入口与环境预检](references/release-runner-lifecycle.md#固定入口与环境预检) 执行；VMware 服务、registry TLS/EOF 或 VM Git 对象缺失先按环境故障定位和维护，成功后用新 release 重做本次证据。具体分流与耗时见 [普通应用 fast 发布与环境故障](references/known-pitfalls.md#普通应用-fast-发布与环境故障)，不以故障名称新增发布实现分支。
 
 ## 不可违反的边界
 
