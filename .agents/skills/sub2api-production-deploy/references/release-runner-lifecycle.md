@@ -136,7 +136,7 @@ New-Item -ItemType Directory -Force '.release' | Out-Null
 使用已准备好的发布 Python 解释器运行：
 
 ```text
-python -I -S -B .agents/skills/sub2api-production-deploy/scripts/release.py doctor
+python -I -S -B .agents/skills/sub2api-production-deploy/scripts/release.py doctor --node local
 python -I -S -B .agents/skills/sub2api-production-deploy/scripts/release.py deploy-follow --lang zh-CN
 ```
 
@@ -145,6 +145,23 @@ python -I -S -B .agents/skills/sub2api-production-deploy/scripts/release.py depl
 `doctor`、`recovery-review-scope`、`vm-only-validate` 读取 commit/profile；`vm-validate`、`deploy`、`deploy-start`、`deploy-follow` 再读取 mode，仍由原命令完成其各自门禁。配置不会安装依赖或修改脚本。Gate、candidate、生产快照、备份、迁移、恢复和生产验真继续按本 release 的完整身份生成与核验，脚本发生变化时仍执行原审阅和验证。
 
 发布启动一次后使用 `follow <release_id>` 重连，最后执行 `verify-result <release_id>` 和原后置 doctor。`status/follow/wait/verify-result/verify-recovery-result` 与内部 worker 不读取默认配置；这些入口不接受 `--config`，因此修改本地下一次发布参数不改变既有 release 的身份，也不授权重跑失败 release。
+
+### 固定入口与环境预检
+
+普通应用发布依次准备干净且已推送的完整 SHA、更新四字段配置、运行本地 doctor、启动一次 `deploy-follow`。当前 profile `282`/`downtime` 适用时继续复用；恢复层级由 `auto` 按最终 diff、生产基线与 pending migration 判断。`fast` 的恢复验证预算不包含候选编译、归档传输、每次生产备份和切换耗时，普通应用不重复整套工具资格或 Full DR。
+
+VM 未启动时先只读核对 `VMAuthdService` 是否运行，再交给 runner 的既有自动启停；普通 doctor 不启动 VM，因此起步使用 `--node local`，完整 VM/远端 doctor 由 runner 执行。服务停止、身份不明或旧 owner retained 时先处理环境/归属，避免创建必然失败的 release。机器路径和连接仍从 `.ssh.local` 读取，不写入应用参数或临时改发布脚本。
+
+| 现场 | 固定处理路径 |
+| --- | --- |
+| CLI 早期依赖失败，validator/Gate 尚未创建 | VM 须原本运行且非本 release 启动；核对 runner 已退出后，使用 `reconcile-vm-preserve <release_id> --failed-stage pre-validator`，入口继续证明同 boot/owner、远端无副作用及旧生产健康 |
+| validator 已启动并在依赖 proof 阶段失败 | 使用 `--failed-stage build-dependencies`，严格绑定该 validator 的失败证据；不能仅凭本地阶段同名选择此分支 |
+| 源码空间预检 exit 128，VM 缺目标 Git 对象 | 先只读核对对象、origin/main 和磁盘；若仍属 validator 启动前失败，走适用的 `pre-validator` 收口，再在原发布/VM 锁域下单独受控同步既有配置的 origin，并核对完整目标 SHA；不把 exit 128 直接认定为磁盘满 |
+| VM 启动命令失败，原 lifecycle 没有 boot ID | 当前正式 preserve CLI 不覆盖此形态；保留原失败证据，独立受审维护先证明 worker 退出、远端无副作用、当前资源归属，再落盘验真证明、最后释放 owner；不得补造旧 boot 或改原初始状态 |
+
+registry EOF 先核对失败 role/phase/method 和代理路由，用同 digest 的有界只读对照判断；单次 GET 成功不能替代完整 proof，不新建 release 碰运气。环境维护与发布分开；需要临时切换既有代理选择时绑定精确计划、保全原选择、复核成员与当前状态，完成后精确恢复，不改工具、镜像源或信任根。完整环境分流见 [普通应用 fast 发布与环境故障](known-pitfalls.md#普通应用-fast-发布与环境故障)。
+
+工具和应用字节均未改变、失败发生在 validator/候选/生产执行之前且正式收口通过时，可沿用同一应用 SHA 创建全新 release；proof、candidate、Gate 和生产快照全部重新生成。工具字节或应用变更则提交并推送新的完整 SHA，再按新 diff 验证。一次性启动失败维护辅助不是正式收口 CLI 的通用能力，不能复制事故 ID 到下一次发布。
 
 ## 标准命令
 

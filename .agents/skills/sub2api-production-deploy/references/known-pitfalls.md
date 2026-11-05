@@ -408,6 +408,29 @@
 
 Full DR 在成功 runner 之前独立执行；上述阶段不是互不重叠的总账，不能相加冒称端到端时长。freeze 到 services restored 为 10 分 59 秒，仅是阶段区间，未测得准确公网停机时长。
 
+## 普通应用 fast 发布与环境故障
+
+2026-11-05，后续普通后端目标 `af962388a0e87029d65f9e2a3c9cfc3a80edc77d` 使用相同发布工具字节和 profile 282/downtime，通过 `fast / ordinary_change`、新 5/5 依赖 proof（retry 0）、签名 VM Gate、停机生产发布、`verify-result` 和 postdoctor。runner exit 0、完成收据绑定原终态字节；candidate/running image 相同、claim consumed、共享 owner released、VM running/preserved。发布后额外只读检查在北京时间 12:30:05 确认生产完整 SHA/镜像与 Gate 一致，production-node、relay-node、备份检查通过。该结果证明当前环境的普通部署可复用脚本，不代表新增 profile/能力或任意环境故障都已通用化。
+
+| 成功 runner 阶段 | 耗时 |
+| --- | --- |
+| runner 启动至完成 | 21 分 48 秒 |
+| 构建依赖 proof | 44.639 秒 |
+| VM validate（含候选构建与验证） | 5 分 21.426 秒 |
+| production release | 12 分 34.534 秒 |
+| 其中生产 backup | 7 分 17 秒 |
+
+这些是成功代事件区间，排除了此前环境排障和失败代，不能作为全部尝试的总时长；fast 预算不包含构建、备份、传输或整次部署。freeze 至 services restored 为 10 分 2 秒，包含保留旧流量的备份准备，不能冒称公网停机时长。本轮没有重跑 Full DR 或整套工具资格。
+
+本轮环境问题按下列边界解决，正式发布脚本没有为这些故障修改：
+
+- VMware Authorization Service 停止导致启动命令失败；`vm_started_by_release=true` 当时只是已落盘意图，不能证明 VM 已启动。启动服务后由操作者启动 VM，原失败 runner、lifecycle 和日志保留；因旧记录无 boot ID，使用独立受审维护证明收口。该维护未纳入正式 CLI，下一次应在创建 release 前检查服务，不能套用旧事故证明。
+- 两个不同角色的官方 registry 子 manifest GET 遭遇间歇 TLS/EOF；VM Buildx、curl 和宿主请求均出现过失败，直连不可用，单次成功不能证明稳定。代理环境本身存在且被 Buildx 消费。受审临时维护将既有 Selector 切到其现有健康成员，保全原选择与未触碰的 URLTest 状态，7 项只读 metadata 检查后由新 release 生成完整 5/5 proof；候选交付后精确恢复原选择并验真。不得把本次临时选择固化到发布脚本、默认自动切节点、切镜像源或改 Docker daemon。
+- VM 源码空间预检返回 128，现场确认目标 commit 对象缺失、远端 main 正确、磁盘约 62 GB 可用；正式收口后，独立受控 fetch 及完整 SHA 核验通过。原 cleaner 丢弃了 fetch stderr，无法证明当时的具体 Git 错误；保留这个诊断缺口，不写成根因已由脚本修复。
+- CLI 的早期依赖检查尚未启动 validator，适用既有 `pre-validator` 分支；validator 内部 proof 失败才使用 `build-dependencies`。失败 release 不重跑；同工具/应用字节的环境恢复可使用同一应用 SHA、新 release 和整套新发布证据。
+
+下次直接使用 [固定入口与环境预检](release-runner-lifecycle.md#固定入口与环境预检)。当前仍会在 deploy 中安装校验 VM 工具单元，缺少正式 candidate cancel 和无 boot 启动失败的通用收口，Git 同步错误也缺结构化原因；上述限制未因本次文档整理变成已修复。
+
 ## 长构建与观察截止不等于 worker 停止
 
 - 本轮 backend APK 下载是主要等待之一；依赖 proof 成功只证明五项 registry metadata 和一次 BuildKit 物化，不证明后续 APK/npm/Go 下载或编译持续可用。不要因 proof 通过就把后续等待当作 runner 死锁。
