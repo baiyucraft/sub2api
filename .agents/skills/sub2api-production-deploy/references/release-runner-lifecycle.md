@@ -133,6 +133,8 @@ New-Item -ItemType Directory -Force '.release' | Out-Null
 
 配置只接受这四个字段：`schema` 为整数 `1`，`commit` 为完整 40 位小写 SHA，`profile` 为已登记字符串，`mode` 为 `blue-green` 或 `downtime`。当前 `282` 要求停机；配置不能改写 profile 的版本、父链、迁移或发布限制，也不能包含凭据、连接、命令或机器路径。重复键、未知字段和非法值在连接 SSH 前拒绝。
 
+已有有效配置且版本、迁移和部署限制未变时，下次只替换 `commit` 为 `git rev-parse --verify 'HEAD^{commit}'` 的完整输出，保留其他三个字段；无需改任何脚本、profile 或历史审阅登记。先确认工作区干净、适用业务回归绑定最终 SHA，且该 SHA 已推送到 `origin/main`，再执行下面两个入口。原有配置无效时停止处理，不能用整文件重建掩盖坏字段。
+
 使用已准备好的发布 Python 解释器运行：
 
 ```text
@@ -149,6 +151,8 @@ python -I -S -B .agents/skills/sub2api-production-deploy/scripts/release.py depl
 ### 固定入口与环境预检
 
 普通应用发布依次准备干净且已推送的完整 SHA、更新四字段配置、运行本地 doctor、启动一次 `deploy-follow`。当前 profile `282`/`downtime` 适用时继续复用；恢复层级由 `auto` 按最终 diff、生产基线与 pending migration 判断。`fast` 的恢复验证预算不包含候选编译、归档传输、每次生产备份和切换耗时，普通应用不重复整套工具资格或 Full DR。
+
+业务测试按最终改动选择；工具资产未变时复用既有工具验证，不因新应用 SHA 重跑完整工具测试。启动器先生成 manifest 和资产摘要再公告 release，首段暂时无输出或 manifest 尚未落盘不能当作 worker 失败；检查原启动进程，等待同一次调用完成启动，禁止再发 `deploy`。worker 启动后按原 release ID 观察。
 
 VM 未启动时先只读核对 `VMAuthdService` 是否运行，再交给 runner 的既有自动启停；普通 doctor 不启动 VM，因此起步使用 `--node local`，完整 VM/远端 doctor 由 runner 执行。服务停止、身份不明或旧 owner retained 时先处理环境/归属，避免创建必然失败的 release。机器路径和连接仍从 `.ssh.local` 读取，不写入应用参数或临时改发布脚本。
 
