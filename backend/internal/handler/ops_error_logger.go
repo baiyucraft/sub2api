@@ -1091,7 +1091,10 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 		c.Next()
 		w.finalizeCapture()
 
-		if _, rejected := middleware2.GetIngressRejectReason(c); rejected {
+		if reason, rejected := middleware2.GetIngressRejectReason(c); rejected {
+			if reason == middleware2.IngressRejectModelNotAllowed {
+				logOpsModelAllowlistRejection(c, ops)
+			}
 			return
 		}
 
@@ -1286,6 +1289,54 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 
 		enqueueOpsErrorLog(ops, entry)
 	}
+}
+
+// logOpsModelAllowlistRejection records only the trusted admission snapshot.
+// Ingress response capture remains disabled, including for this exception.
+func logOpsModelAllowlistRejection(c *gin.Context, ops *service.OpsService) {
+	const recordedKey = "ops_model_allowlist_rejection_recorded"
+	if c == nil || ops == nil || c.Request == nil || c.GetBool(recordedKey) {
+		return
+	}
+	rejection, ok := service.GetOpsModelAllowlistRejection(c)
+	if !ok || !ops.IsMonitoringEnabled(c.Request.Context()) {
+		return
+	}
+	requestType := int16(service.RequestTypeFromLegacy(rejection.Stream, rejection.WebSocket))
+	entry := &service.OpsInsertErrorLogInput{
+		Model: rejection.Model, RequestedModel: rejection.Model,
+		Platform: rejection.Platform, Stream: rejection.Stream,
+		InboundEndpoint: GetInboundEndpoint(c), RequestType: &requestType,
+		ErrorPhase: "request", ErrorType: service.OpsErrorReasonModelNotAllowed,
+		ErrorOwner: "client", ErrorSource: "client_request", Severity: "P3",
+		StatusCode: http.StatusNotFound, IsBusinessLimited: true,
+		IsCountTokens: isCountTokensRequest(c),
+		ErrorMessage:  "Model " + strconv.Quote(rejection.Model) + " is not available for this group",
+		CreatedAt:     rejection.RejectedAt,
+	}
+	// Do not copy account, upstream, latency or prior-turn error context here.
+	if rejection.APIKeyID > 0 {
+		entry.APIKeyID = &rejection.APIKeyID
+	}
+	if rejection.UserID > 0 {
+		entry.UserID = &rejection.UserID
+	}
+	if rejection.GroupID > 0 {
+		entry.GroupID = &rejection.GroupID
+	}
+	entry.RequestID, _ = c.Request.Context().Value(ctxkey.RequestID).(string)
+	entry.ClientRequestID, _ = c.Request.Context().Value(ctxkey.ClientRequestID).(string)
+	if entry.RequestID = strings.TrimSpace(entry.RequestID); entry.RequestID == "" {
+		entry.RequestID = c.Writer.Header().Get("X-Request-Id")
+	}
+	if c.Request.URL != nil {
+		entry.RequestPath = c.Request.URL.Path
+	}
+	if clientIP := strings.TrimSpace(ip.GetClientIP(c)); clientIP != "" {
+		entry.ClientIP = &clientIP
+	}
+	c.Set(recordedKey, true)
+	enqueueOpsErrorLog(ops, entry)
 }
 
 func logOpsRecoveredUpstream(c *gin.Context, ops *service.OpsService, finalStatus int) {

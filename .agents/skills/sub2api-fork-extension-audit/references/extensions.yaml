@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "catalog_version": "2026-10-30",
+  "catalog_version": "2026-11-08",
   "version_contract": {
     "upstream_path": "backend/cmd/server/VERSION",
     "fork_suffix": "-baiyu",
@@ -3200,6 +3200,70 @@
         "profile283为0.2.20-baiyu、parent282、new_migrations精确为[308_mcp_oauth.sql]；历史278的0.2.20-baiyu以及所有旧profile/SQL/checksum不可变。",
         "授权码、access和refresh仅存摘要，grant按用户级联；三表、索引和scope/kind CHECK保持官方原字节合同。",
         "本地合同测试与登记不代表VM Gate、生产发布或真实OAuth运行时验证。"
+      ]
+    },
+    {
+      "id": "group-model-allowlist-rejection-logs",
+      "title": "分组模型白名单拒绝明细与管理查询",
+      "description": "将明确的模型白名单拒绝写入既有业务拒绝日志，以请求当时的模型和分组查询；保留其他入口拒绝聚合与SLA、上游统计隔离。",
+      "ownership": "fork",
+      "risk_level": "high",
+      "paths": [
+        "backend/internal/service/ops_model_allowlist_rejection.go",
+        "backend/internal/service/ops_model_allowlist_rejection_test.go",
+        "backend/internal/service/ops_models.go",
+        "backend/internal/service/ops_user_error.go",
+        "backend/internal/service/ops_user_error_test.go",
+        "backend/internal/server/middleware/group_model_allowlist.go",
+        "backend/internal/handler/ops_error_logger.go",
+        "backend/internal/handler/ops_model_allowlist_rejection_test.go",
+        "backend/internal/handler/openai_gateway_handler.go",
+        "backend/internal/handler/openai_gateway_handler_test.go",
+        "backend/internal/handler/admin/ops_handler.go",
+        "backend/internal/handler/admin/ops_model_allowlist_reason_test.go",
+        "backend/internal/handler/admin/ops_ingress_reject_handler.go",
+        "backend/internal/repository/ops_repo.go",
+        "backend/internal/repository/ops_model_allowlist_reason_test.go",
+        "frontend/src/api/admin/ops.ts",
+        "frontend/src/api/admin/usage.ts",
+        "frontend/src/components/admin/usage/UsageFilters.vue",
+        "frontend/src/components/admin/usage/__tests__/UsageFilters.spec.ts",
+        "frontend/src/views/admin/UsageView.vue",
+        "frontend/src/views/admin/__tests__/UsageView.spec.ts",
+        "frontend/src/views/admin/ops/components/OpsErrorDetailsModal.vue",
+        "frontend/src/views/admin/ops/components/__tests__/OpsErrorDetailsModal.spec.ts",
+        "frontend/src/views/admin/ops/components/OpsErrorLogTable.vue",
+        "frontend/src/views/admin/ops/components/__tests__/OpsErrorLogTable.spec.ts",
+        "frontend/src/i18n/locales/zh/admin/ops.ts",
+        "frontend/src/i18n/locales/en/admin/ops.ts",
+        ".wiki/03-模块指南/01-后端请求链路.md",
+        ".wiki/03-模块指南/02-前端管理面板.md"
+      ],
+      "symbols": ["OpsErrorReasonModelNotAllowed", "MarkOpsModelAllowlistRejection", "logOpsModelAllowlistRejection"],
+      "api_routes": ["/request-errors", "/ingress-rejections"],
+      "settings_keys": [],
+      "migration_files": [],
+      "required_tests": [
+        "backend/internal/service/ops_model_allowlist_rejection_test.go",
+        "backend/internal/handler/ops_model_allowlist_rejection_test.go",
+        "backend/internal/handler/admin/ops_model_allowlist_reason_test.go",
+        "backend/internal/repository/ops_model_allowlist_reason_test.go",
+        "backend/internal/handler/ops_error_logger_test.go",
+        "backend/internal/handler/openai_gateway_ws_model_allowlist_test.go",
+        "backend/internal/server/middleware/group_model_allowlist_test.go",
+        "backend/internal/handler/admin/ops_ingress_reject_handler_test.go",
+        "frontend/src/components/admin/usage/__tests__/UsageFilters.spec.ts",
+        "frontend/src/views/admin/__tests__/UsageView.spec.ts",
+        "frontend/src/views/admin/ops/components/__tests__/OpsErrorDetailsModal.spec.ts",
+        "frontend/src/views/admin/ops/components/__tests__/OpsErrorLogTable.spec.ts"
+      ],
+      "invariants": [
+        "模型白名单仍按实际客户端候选模型校验并拒绝；仅model_not_allowed入口拒绝增加明细，其他入口拒绝保持原聚合路径。",
+        "HTTP与Responses WebSocket首帧和后续轮次在拒绝点保存有界安全元数据，记录实际校验分组和实际被拒模型；日志路径不额外读取或保存完整请求体、工具参数、提示词或完整凭据。",
+        "拒绝条目固定为request/client/client_request且is_business_limited=true；账号、上游模型和上游错误归因保持空，不沿用WS上一轮上下文。",
+        "只增加业务拒绝及总请求口径，SLA故障数及分母排除业务拒绝，上游错误要求provider归因；继续使用既有有界异步队列、丢弃监控和日志留存。",
+        "管理查询reason=model_not_allowed精确过滤，并在业务拒绝视图复用分组、客户端模型和时间筛选；中英文页面均可访问，默认故障视图保持原行为。",
+        "旧入口聚合没有请求模型和历史分组，不能猜补成逐请求明细；本扩展不新增迁移、profile或生产开关。"
       ]
     }
   ]

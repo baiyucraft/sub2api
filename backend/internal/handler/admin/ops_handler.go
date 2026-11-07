@@ -80,6 +80,16 @@ func applyOpsErrorSortParams(c *gin.Context, filter *service.OpsErrorLogFilter) 
 	filter.SetSort(c.Query("sort_by"), c.Query("sort_order"))
 }
 
+func applyOpsErrorReasonParam(c *gin.Context, filter *service.OpsErrorLogFilter) bool {
+	reason := strings.TrimSpace(c.Query("reason"))
+	if reason != "" && reason != service.OpsErrorReasonModelNotAllowed {
+		response.BadRequest(c, "Invalid reason")
+		return false
+	}
+	filter.Reason = reason
+	return true
+}
+
 // GET /api/v1/admin/ops/errors
 func (h *OpsHandler) GetErrorLogs(c *gin.Context) {
 	if h.opsService == nil {
@@ -104,6 +114,9 @@ func (h *OpsHandler) GetErrorLogs(c *gin.Context) {
 	}
 
 	filter := &service.OpsErrorLogFilter{Page: page, PageSize: pageSize}
+	if !applyOpsErrorReasonParam(c, filter) {
+		return
+	}
 
 	if !startTime.IsZero() {
 		filter.StartTime = &startTime
@@ -234,6 +247,9 @@ func (h *OpsHandler) ListRequestErrors(c *gin.Context) {
 	}
 
 	filter := &service.OpsErrorLogFilter{Page: page, PageSize: pageSize}
+	if !applyOpsErrorReasonParam(c, filter) {
+		return
+	}
 	if !startTime.IsZero() {
 		filter.StartTime = &startTime
 	}

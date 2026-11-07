@@ -265,6 +265,9 @@ function getTypeBadge(log: OpsErrorLog): { label: string; className: string } {
   if (isUpstreamRow(log)) {
     return { label: t('admin.ops.errorLog.typeUpstream'), className: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200' }
   }
+  if (log.type === 'model_not_allowed' && phase === 'request' && owner === 'client') {
+    return { label: t('admin.ops.errorDetails.modelAllowlistRejected'), className: 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200' }
+  }
   if (phase === 'request' && owner === 'client') {
     return { label: t('admin.ops.errorLog.typeRequest'), className: 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200' }
   }

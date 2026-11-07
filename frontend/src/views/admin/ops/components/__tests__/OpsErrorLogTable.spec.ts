@@ -45,6 +45,18 @@ function mountTable(row: Partial<OpsErrorLog>) {
 }
 
 describe('OpsErrorLogTable user/api-key/account columns', () => {
+  it('shows the requested model and group for a model allowlist rejection without an upstream account', () => {
+    const wrapper = mountTable({
+      phase: 'request', type: 'model_not_allowed', error_owner: 'client',
+      error_source: 'client_request', status_code: 404,
+      model: '', requested_model: 'blocked-client-model', upstream_model: '',
+      group_id: 22, group_name: 'gpt-official', account_id: undefined, account_name: '',
+    })
+    expect(wrapper.text()).toContain('blocked-client-model')
+    expect(wrapper.text()).toContain('gpt-official')
+    expect(wrapper.text()).toContain('admin.ops.errorDetails.modelAllowlistRejected')
+    wrapper.unmount()
+  })
   // 回归:上游错误行(phase=upstream, owner=provider)以前在单一「用户」列里只显示账号、
   // 丢失用户;现在用户/API Key/账号各占独立列,三者同时可见。
   it('renders user, api key and account in separate columns for an upstream row', () => {

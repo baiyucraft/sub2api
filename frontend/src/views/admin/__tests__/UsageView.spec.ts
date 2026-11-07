@@ -720,6 +720,52 @@ describe('admin UsageView errors tab filter forwarding', () => {
       group_id: 3,
     }))
   })
+
+  it('queries allowlist rejections as excluded with model/group/time filters and clears the reason on reset', async () => {
+    const wrapper = mount(UsageView, {
+      global: { stubs: {
+        AppLayout: AppLayoutStub, UsageStatsCards: true, UsageFilters: UsageFiltersStub,
+        UsageTable: true, UsageExportProgress: true, UsageCleanupDialog: true,
+        UserBalanceHistoryModal: true, AuditLogModal: true, Pagination: true, Select: true,
+        DateRangePicker: true, Icon: true, TokenUsageTrend: true,
+        ModelDistributionChart: true, GroupDistributionChart: true, EndpointDistributionChart: true,
+        UserTokenRanking: true, OpsErrorLogTable: true, OpsErrorDetailModal: true,
+      } },
+    })
+    vi.advanceTimersByTime(120)
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.filters.error_reason = 'model_not_allowed'
+    vm.filters.error_phase = 'request'
+    vm.filters.error_category = 'invalid_request'
+    vm.filters.status_code = 404
+    vm.filters.model = 'blocked-model'
+    vm.filters.group_id = 22
+    vm.filters.start_date = '2026-11-01'
+    vm.filters.end_date = '2026-11-07'
+    await wrapper.findAll('[data-testid="usage-detail-tab"]')[1].trigger('click')
+    await flushPromises()
+
+    expect(listErrorLogs).toHaveBeenLastCalledWith(expect.objectContaining({
+      view: 'excluded', reason: 'model_not_allowed', model: 'blocked-model', group_id: 22,
+      phase: 'request', category: 'invalid_request', status_codes: '404',
+      start_time: new Date('2026-11-01T00:00:00').toISOString(),
+      end_time: new Date('2026-11-07T23:59:59.999').toISOString(),
+    }))
+    vm.applyFilters()
+    await flushPromises()
+    for (const query of [list.mock.lastCall?.[0], getStats.mock.lastCall?.[0]]) {
+      expect(query).toMatchObject({ model: 'blocked-model', group_id: 22 })
+      for (const key of ['error_reason', 'error_phase', 'error_category', 'status_code']) {
+        expect(query).not.toHaveProperty(key)
+      }
+    }
+
+    vm.resetFilters()
+    await flushPromises()
+    expect(listErrorLogs).toHaveBeenLastCalledWith(expect.objectContaining({ view: 'all', reason: undefined }))
+    wrapper.unmount()
+  })
 })
 
 describe('admin UsageView ranking tab', () => {

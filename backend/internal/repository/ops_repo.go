@@ -952,6 +952,10 @@ func buildOpsErrorLogsWhere(filter *service.OpsErrorLogFilter) (string, []any) {
 			args = append(args, source)
 			clauses = append(clauses, "LOWER(COALESCE(e.error_source,'')) = $"+itoa(len(args)))
 		}
+		if reason := strings.TrimSpace(filter.Reason); reason != "" {
+			args = append(args, reason)
+			clauses = append(clauses, "e.error_type = $"+itoa(len(args)))
+		}
 	}
 	if resolvedFilter != nil {
 		args = append(args, *resolvedFilter)

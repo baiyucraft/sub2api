@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 
 import UsageFilters from '../UsageFilters.vue'
+import Select from '@/components/common/Select.vue'
 
 // --- i18n messages (only what UsageFilters needs) ---
 const messages: Record<string, string> = {
@@ -41,6 +42,10 @@ const messages: Record<string, string> = {
   'common.reset': 'Reset',
   'admin.usage.cleanup.button': 'Cleanup',
   'usage.exportExcel': 'Export',
+  'admin.ops.errorDetails.reasonFilter': 'Rejection reason',
+  'admin.ops.errorDetails.allReasons': 'All reasons',
+  'admin.ops.errorDetails.modelAllowlistRejected': 'Model allowlist rejection',
+  'admin.ops.errorDetails.filterModel': 'Filter model',
 }
 
 // Mock vue-i18n
@@ -303,5 +308,42 @@ describe('UsageFilters — native compaction filter', () => {
 
     expect(filters.native_compaction_v2).toBe(true)
     expect(wrapper.emitted('change')).toBeTruthy()
+  })
+})
+
+describe('UsageFilters — model allowlist rejections', () => {
+  it('offers an exact rejection filter and accepts a rejected model missing from usage options', async () => {
+    const filters = { ...defaultFilters(), error_reason: null as string | null }
+    const wrapper = mountFilters(filters)
+    await wrapper.setProps({ mode: 'errors' })
+    await flushPromises()
+
+    const reasonSelect = wrapper.findAllComponents(Select).find((select) =>
+      select.props('options').some((option) => option.value === 'model_not_allowed')
+    )
+    expect(reasonSelect?.props('options')).toEqual([
+      { value: null, label: 'All reasons' },
+      { value: 'model_not_allowed', label: 'Model allowlist rejection' },
+    ])
+    reasonSelect!.vm.$emit('update:modelValue', 'model_not_allowed')
+    reasonSelect!.vm.$emit('change')
+    await wrapper.vm.$nextTick()
+    expect(filters.error_reason).toBe('model_not_allowed')
+    expect(wrapper.emitted('change')).toBeTruthy()
+
+    const modelSelect = wrapper.findAllComponents(Select).find((select) =>
+      select.props('options').some((option) => option.label === 'All Models')
+    )
+    expect(modelSelect!.props('creatable')).toBe(true)
+    modelSelect!.vm.$emit('update:modelValue', 'blocked-model-not-in-usage')
+    await wrapper.vm.$nextTick()
+    expect(filters.model).toBe('blocked-model-not-in-usage')
+
+    await wrapper.setProps({ mode: 'usage' })
+    expect(modelSelect!.props('creatable')).toBe(false)
+    expect(wrapper.findAllComponents(Select).some((select) =>
+      select.props('options').some((option) => option.value === 'model_not_allowed')
+    )).toBe(false)
+    wrapper.unmount()
   })
 })

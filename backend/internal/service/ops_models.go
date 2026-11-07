@@ -114,9 +114,11 @@ type OpsErrorLogFilter struct {
 	Phase            string // Recovered provider rows bypass status>=400 only with the explicit opt-in below.
 	Owner            string
 	Source           string
-	Resolved         *bool
-	Query            string
-	UserQuery        string // Search by user email
+	// Reason is an exact, allowlisted admission reason, independent of category.
+	Reason    string
+	Resolved  *bool
+	Query     string
+	UserQuery string // Search by user email
 
 	// Optional correlation keys for exact matching.
 	RequestID       string

@@ -382,6 +382,16 @@ const onDateRangeChange = (range: { startDate: string; endDate: string; preset: 
   applyFilters()
 }
 
+const buildUsageFilters = () => {
+  const params = { ...filters.value }
+  // 错误请求专属条件不进入成功用量列表、导出和统计接口。
+  delete params.error_reason
+  delete params.error_phase
+  delete params.error_category
+  delete params.status_code
+  return params
+}
+
 const buildUsageListParams = (
   page: number,
   pageSize: number,
@@ -393,7 +403,7 @@ const buildUsageListParams = (
     page,
     page_size: pageSize,
     exact_total: exactTotal,
-    ...filters.value,
+    ...buildUsageFilters(),
     stream: legacyStream === null ? undefined : legacyStream,
     sort_by: sortState.sort_by,
     sort_order: sortState.sort_order
@@ -417,7 +427,7 @@ const loadStats = async (force = false) => {
     const requestType = filters.value.request_type
     const legacyStream = requestType ? requestTypeToLegacyStream(requestType) : filters.value.stream
     const s = await adminAPI.usage.getStats({
-      ...filters.value,
+      ...buildUsageFilters(),
       stream: legacyStream === null ? undefined : legacyStream,
       ...(force ? { nocache: 1 } : {}),
     })
@@ -833,7 +843,8 @@ const loadAdminErrors = async () => {
     const resp = await listErrorLogs({
       page: errPage.value,
       page_size: errPageSize.value,
-      view: 'all',
+      view: filters.value.error_reason === 'model_not_allowed' ? 'excluded' : 'all',
+      reason: filters.value.error_reason || undefined,
       start_time: toRFC3339(filters.value.start_date),
       end_time: toRFC3339(filters.value.end_date, true),
       user_id: filters.value.user_id ?? undefined,

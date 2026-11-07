@@ -1109,6 +1109,8 @@ export type OpsErrorListQueryParams = {
   phase?: string
   // 分类(用户侧粗分类码,如 auth/rate_limit/upstream),后端反查为 phase/type ANY 条件
   category?: string
+  // 精确筛选分组模型白名单拒绝，不通过响应文案搜索。
+  reason?: 'model_not_allowed'
   error_owner?: string
   error_source?: string
   resolved?: string

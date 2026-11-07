@@ -37,7 +37,7 @@ const q = ref('')
 const statusCode = ref<number | 'other' | null>(null)
 const phase = ref<string>('')
 const errorOwner = ref<string>('')
-const viewMode = ref<'errors' | 'excluded' | 'all'>('errors')
+const viewMode = ref<'errors' | 'excluded' | 'all' | 'model_not_allowed'>('errors')
 
 
 const modalTitle = computed(() => {
@@ -67,7 +67,10 @@ const viewModeSelectOptions = computed(() => {
   return [
     { value: 'errors', label: t('admin.ops.errorDetails.viewErrors') || 'errors' },
     { value: 'excluded', label: t('admin.ops.errorDetails.viewExcluded') || 'excluded' },
-    { value: 'all', label: t('common.all') }
+    { value: 'all', label: t('common.all') },
+    ...(props.errorType === 'request'
+      ? [{ value: 'model_not_allowed', label: t('admin.ops.errorDetails.modelAllowlistRejected') }]
+      : [])
   ]
 })
 
@@ -104,13 +107,15 @@ async function fetchErrorLogs() {
 
   loading.value = true
   try {
+    const modelAllowlistOnly = props.errorType === 'request' && viewMode.value === 'model_not_allowed'
     const params: Record<string, any> = {
       page: page.value,
       page_size: pageSize.value,
-      view: viewMode.value,
+      view: modelAllowlistOnly ? 'excluded' : viewMode.value === 'model_not_allowed' ? 'errors' : viewMode.value,
       sort_by: sortBy.value,
       sort_order: sortOrder.value
     }
+    if (modelAllowlistOnly) params.reason = 'model_not_allowed'
     Object.assign(params, buildOpsErrorTimeParams(props.timeRange, props.customStartTime, props.customEndTime))
 
     if (props.timeRange === 'custom') {

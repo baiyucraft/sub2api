@@ -296,6 +296,10 @@ export default {
         resolved: 'Resolved',
         viewErrors: 'Errors',
         viewExcluded: 'Excluded',
+        reasonFilter: 'Rejection reason',
+        allReasons: 'All reasons',
+        modelAllowlistRejected: 'Model allowlist rejection',
+        filterModel: 'Filter model',
         statusCodeOther: 'Other',
         owner: {
           provider: 'Provider',

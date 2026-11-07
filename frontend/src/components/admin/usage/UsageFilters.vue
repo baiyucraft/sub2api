@@ -81,7 +81,7 @@
         <!-- Model Filter -->
         <div class="w-full sm:w-auto sm:min-w-[220px]">
           <label class="input-label">{{ t('usage.model') }}</label>
-          <Select v-model="filters.model" :options="modelOptions" searchable @change="emitChange" />
+          <Select v-model="filters.model" :options="modelOptions" searchable :creatable="mode === 'errors'" :creatable-prefix="t('admin.ops.errorDetails.filterModel')" @change="emitChange" />
         </div>
 
         <!-- Account Filter -->
@@ -160,6 +160,12 @@
         <div v-if="mode === 'errors'" class="w-full sm:w-auto sm:min-w-[180px]">
           <label class="input-label">{{ t('usage.errors.category') }}</label>
           <Select v-model="filters.error_category" :options="errorCategoryOptions" @change="emitChange" />
+        </div>
+
+        <!-- Model allowlist rejection filter (errors only) -->
+        <div v-if="mode === 'errors'" class="w-full sm:w-auto sm:min-w-[220px]">
+          <label class="input-label">{{ t('admin.ops.errorDetails.reasonFilter') }}</label>
+          <Select v-model="filters.error_reason" :options="errorReasonOptions" @change="emitChange" />
         </div>
 
         <!-- Status Code Filter (errors only) -->
@@ -313,6 +319,11 @@ const errorCategoryOptions = computed<SelectOption[]>(() => [
 const statusCodeOptions = computed<SelectOption[]>(() => [
   { value: null, label: t('usage.errors.allStatuses') },
   ...COMMON_ERROR_STATUS_CODES.map((c) => ({ value: c, label: String(c) })),
+])
+
+const errorReasonOptions = computed<SelectOption[]>(() => [
+  { value: null, label: t('admin.ops.errorDetails.allReasons') },
+  { value: 'model_not_allowed', label: t('admin.ops.errorDetails.modelAllowlistRejected') },
 ])
 
 const billingModeOptions = ref<SelectOption[]>([

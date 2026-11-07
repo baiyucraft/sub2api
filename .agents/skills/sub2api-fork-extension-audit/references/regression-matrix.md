@@ -414,3 +414,13 @@ profile 280 为 parent 279、版本 `0.2.22-baiyu`，无新增 SQL migration，�
 | 认证合并边界 | `auth_registration_policy_merge_test.go` 及 Auth/OAuth-email/Gmail/blacklist 专项：新建预检只处理 Gmail 与精确黑名单，域名限量首账号语义不被严格白名单提前覆盖；普通注册及 OAuth 创建使用既有原子 guard，已有登录与邮箱绑定边界不变 |
 | 图片与流式合并边界 | 图片尺寸所有轮次先于 proxy quarantine fail-open，保留 fork image cost/known-only、fixed retry、capacity target 与保护 sticky；Anthropic native Chat/Responses 缺终止事件报告 incomplete，usage 结算与非 warm 证据分别保留 |
 | Responses 预检测量隔离 | `TestOpenAIResponsesOrphanPrecheckLargeEscapedContent` 在独立测试进程保留零分配断言，覆盖定向重复运行及完整 service unit；子进程超时和失败向父测试透传，不修改官方生产预检 |
+
+## 分组模型白名单拒绝明细
+
+| 范围 | 最低回归合同 |
+| --- | --- |
+| HTTP 准入与安全元数据 | 白名单关闭、命中和拒绝；JSON、路径、查询参数、multipart 与重复模型候选；记录实际被拒模型和当次校验分组；保留 404，模型长度和控制字符有界，不保存请求正文或凭据 |
+| WebSocket 轮次 | 首帧和后续轮次拒绝；此前成功或上游失败后拒绝不沿用账号、上游模型、状态、错误或延迟；使用定制后的实际分组，同一次拒绝只写一条 |
+| 日志和统计 | 明确 metadata 构造日志，不依赖被禁用的 ingress 响应捕获；仅 model_not_allowed 写入既有队列，其他入口拒绝保持跳过；request/client/client_request/business-limited 分类排除 SLA 与上游故障统计 |
+| 精确查询和页面 | reason=model_not_allowed 与 excluded 视图、分组、模型和时间组合；未知原因返回 400；默认错误视图不变；主错误请求页及运维明细入口可选、清除、翻页和加载，中英文键完整 |
+| 兼容边界 | 复用日志表和原队列、留存、丢弃监控，不新增 migration/profile；原入口聚合可按 model_not_allowed 筛选；历史聚合不猜补模型及分组；类型检查、相关 Vitest、前端生产构建，正式 VM Gate 与生产发布另行验证 |

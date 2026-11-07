@@ -296,6 +296,10 @@ export default {
         resolved: '已解决',
         viewErrors: '错误',
         viewExcluded: '排除项',
+        reasonFilter: '拒绝原因',
+        allReasons: '全部原因',
+        modelAllowlistRejected: '模型白名单拒绝',
+        filterModel: '筛选模型',
         statusCodeOther: '其他',
         owner: {
           provider: '服务商',
