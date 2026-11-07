@@ -2398,6 +2398,9 @@
       "ownership": "fork-operations",
       "risk_level": "critical",
       "paths": [
+        ".githooks/pre-push",
+        ".github/workflows/deployment-environment.yml",
+        ".ssh.local.example.yaml",
         ".agents/skills/sub2api-production-deploy/**",
         "deploy/maintenance/181/**",
         "backend/cmd/server/dashboard_cache_maintenance.go",
@@ -2526,6 +2529,7 @@
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_pre_state_claim_reconcile.py"
       ],
       "invariants": [
+        "本地部署信息保护使用仓库内固定位置的pre-push检查器和Linux/Windows CI回归；公开连接配置示例仅含脱敏占位值，真实连接信息保持本地，不以旧工作区脚本或扩大路径豁免绕过检查。",
         "本地.release/deploy.local.json只含schema=1、完整40位小写commit、已登记profile及mode；显式完整CLI参数优先，重复键/未知字段/非法值在SSH前拒绝。配置仅补齐原入口参数，不改变Gate、备份、迁移、恢复和验真；观察/验真及内部worker不读下一次发布默认配置，脚本变化仍按原合同审阅和验证",
         "机器连接与路径保存在.ssh.local；vm_lifecycle.shared_dir只复用已有规范物理目录中的原lease.lock和匹配VM身份的owner.json，缺失/冲突/在途owner继续阻断，禁止因checkout不同新建目录或替换原锁形成并行发布域",
         "Gate生产plan-before与隔离probe的plan-actual分离：fast生产必须零pending且VM先执行独立完整计划fixture bootstrap再运行verified语义hooks，不虚称生产迁移前置验证；specialized/full仍核对两源pending一致；hooks/apply只用probe计划，对外Gate只用生产snapshot计划",
