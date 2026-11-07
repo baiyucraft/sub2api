@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import shlex
@@ -13,8 +14,10 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from release.doctor import ReleaseDoctor
+from release.environment import load_deployment_environment
 from release.production import ProductionRelease, gate_consumption_probe_script
 from release.production_bootstrap import bootstrap_production
+from test_deployment_environment import fixture_config
 
 
 class RequiredShellGuardsTest(unittest.TestCase):
@@ -23,6 +26,11 @@ class RequiredShellGuardsTest(unittest.TestCase):
         self.bash = str(candidate) if candidate.is_file() else shutil.which('bash')
         if not self.bash:
             self.skipTest('Bash is required for inert failure injection')
+        temporary = tempfile.TemporaryDirectory(prefix='required-shell-environment-')
+        self.addCleanup(temporary.cleanup)
+        configuration = Path(temporary.name) / 'deployment-fixture.json'
+        configuration.write_text(json.dumps(fixture_config()), encoding='utf-8')
+        self.environment = load_deployment_environment(configuration)
 
     def run_bash(self, script, **kwargs):
         return subprocess.run([self.bash, '-c', script], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=15, **kwargs)
@@ -51,14 +59,17 @@ class RequiredShellGuardsTest(unittest.TestCase):
                 self.assertNotIn('operation_started=true', result.stdout)
 
     def test_doctor_required_prerequisites_fail_before_following_probe(self):
-        runner = mock.Mock()
+        runner = mock.Mock(deployment_environment=self.environment, assert_configuration_current=self.environment.assert_current)
         runner.run.return_value.values = {}
         doctor = ReleaseDoctor('273', runner=runner)
         doctor._run_racknerd_readonly = mock.Mock(return_value={})
         doctor.check_racknerd()
         rack = doctor._run_racknerd_readonly.call_args.args[0]
         doctor.check_backup()
-        backup = runner.run.call_args.args[1]
+        backups = [call.args[1] for call in runner.run.call_args_list
+                   if call.args[2] == {'backup_ready', 'backup_free_bytes'}]
+        self.assertEqual(len(backups), 1)
+        backup = backups[0]
         doctor.check_dmit()
         dmit = runner.run.call_args.args[1]
         for start, end in (
@@ -69,7 +80,7 @@ class RequiredShellGuardsTest(unittest.TestCase):
         ):
             self.assert_required_tests_stop(rack[rack.index(start):rack.index(end, rack.index(start))])
         self.assert_required_tests_stop(backup[backup.index('test -d /srv'):backup.index('free_bytes=')])
-        self.assert_required_tests_stop(dmit[dmit.index('test -n "$proxy_config"'):dmit.index("grep -Eq '^[[:space:]]*Listen")])
+        self.assert_required_tests_stop(dmit[dmit.index('test -n "$proxy_config"'):dmit.index('grep -Fqx "Listen')])
 
     def test_production_required_log_guards_stop_before_mutation(self):
         release = ProductionRelease.__new__(ProductionRelease)
@@ -164,24 +175,24 @@ export -f docker systemctl nginx curl install chmod stat
 
     def test_required_command_failure_cannot_be_hidden_by_expected_stdout(self):
         bootstrap, _ = self.bootstrap_scripts()
-        runner = mock.Mock()
+        runner = mock.Mock(deployment_environment=self.environment, assert_configuration_current=self.environment.assert_current)
         runner.run.return_value.values = {}
         doctor = ReleaseDoctor('273', runner=runner)
         doctor._run_racknerd_readonly = mock.Mock(return_value={})
         doctor.check_racknerd()
         scripts = [bootstrap, doctor._run_racknerd_readonly.call_args.args[0]]
         doctor.check_vm()
-        scripts.append(runner.run.call_args.args[1])
         doctor.check_dmit()
-        scripts.append(runner.run.call_args.args[1])
         doctor.check_backup()
-        scripts.append(runner.run.call_args.args[1])
+        scripts.extend(call.args[1] for call in runner.run.call_args_list)
         commands = sorted(set(re.findall(r'^ *required_value=\$\(.*\)$', '\n'.join(scripts), re.M)))
         self.assertGreater(len(commands), 10)
         stubs = '\n'.join(name + '() { builtin printf "healthy\\n"; return 17; }' for name in ('docker', 'systemctl', 'sha256sum', 'awk', 'stat', 'grep', 'curl', 'wc', 'ss'))
         for command in commands:
             with self.subTest(command=command):
-                result = self.run_bash('set -Eeuo pipefail\ntrust=x; active_slot=x; container=x; active_container=x; active_port=18080; site=x; managed_upstream=x; dropin=x; asset=x; unit_lock=x\n' + stubs + '\n' + command + '\nprintf "operation_started=true\\n"')
+                relay = self.environment.deployment['relay_probe']
+                relay_variables = 'RELAY_SERVICE=' + shlex.quote(relay['service']) + '; RELAY_LEGACY_PORT=' + str(relay['legacy_port'])
+                result = self.run_bash('set -Eeuo pipefail\ntrust=x; active_slot=x; container=x; active_container=x; active_port=18080; site=x; managed_upstream=x; dropin=x; asset=x; unit_lock=x; ' + relay_variables + '\n' + stubs + '\n' + command + '\nprintf "operation_started=true\\n"')
                 self.assertEqual(result.returncode, 17, result.stderr)
                 self.assertNotIn('operation_started=true', result.stdout)
 

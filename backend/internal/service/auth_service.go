@@ -88,6 +88,7 @@ type AuthService struct {
 	defaultSubAssigner    DefaultSubscriptionAssigner
 	userPlatformQuotaRepo UserPlatformQuotaRepository
 	authCacheInvalidator  APIKeyAuthCacheInvalidator
+	mcpGrantRevoker       MCPGrantRevoker
 }
 
 type CaptchaProof struct {
@@ -95,6 +96,11 @@ type CaptchaProof struct {
 	TurnstileToken string
 	TencentTicket  string
 	TencentRandstr string
+}
+
+// MCPGrantRevoker revokes MCP authorizations, which outlive browser sessions.
+type MCPGrantRevoker interface {
+	RevokeAllGrants(ctx context.Context, userID int64) error
 }
 
 type DefaultSubscriptionAssigner interface {
@@ -160,6 +166,10 @@ func (s *AuthService) SetAuthCacheInvalidator(authCacheInvalidator APIKeyAuthCac
 	s.authCacheInvalidator = authCacheInvalidator
 }
 
+func (s *AuthService) SetMCPGrantRevoker(revoker MCPGrantRevoker) {
+	s.mcpGrantRevoker = revoker
+}
+
 // Register 用户注册，返回token和用户
 func (s *AuthService) Register(ctx context.Context, email, password string) (string, *User, error) {
 	return s.RegisterWithVerification(ctx, email, password, "", "", "", "")
@@ -176,7 +186,7 @@ func (s *AuthService) RegisterWithVerification(ctx context.Context, email, passw
 	if isReservedEmail(email) {
 		return "", nil, ErrEmailReserved
 	}
-	if err := s.validateRegistrationGmailPolicy(ctx, email); err != nil {
+	if err := s.validateNewRegistrationEmailPolicy(ctx, email); err != nil {
 		return "", nil, err
 	}
 	// 检查是否需要邀请码
@@ -323,7 +333,7 @@ func (s *AuthService) SendVerifyCode(ctx context.Context, email string, locale .
 	if isReservedEmail(email) {
 		return ErrEmailReserved
 	}
-	if err := s.validateRegistrationGmailPolicy(ctx, email); err != nil {
+	if err := s.validateNewRegistrationEmailPolicy(ctx, email); err != nil {
 		return err
 	}
 	// 检查邮箱是否已存在（含 +别名 / Gmail 点号变体归一化，防止单个收件箱批量派生注册）
@@ -366,7 +376,7 @@ func (s *AuthService) SendVerifyCodeAsync(ctx context.Context, email string, loc
 	if isReservedEmail(email) {
 		return nil, ErrEmailReserved
 	}
-	if err := s.validateRegistrationGmailPolicy(ctx, email); err != nil {
+	if err := s.validateNewRegistrationEmailPolicy(ctx, email); err != nil {
 		return nil, err
 	}
 	// 检查邮箱是否已存在（含 +别名 / Gmail 点号变体归一化；在发信前拦截，避免批量脚本消耗发信配额）
@@ -605,7 +615,10 @@ func (s *AuthService) LoginOrRegisterOAuth(ctx context.Context, email, username 
 			if s.settingService == nil || !s.settingService.IsRegistrationEnabled(ctx) {
 				return "", nil, ErrRegDisabled
 			}
-			if err := s.validateRegistrationGmailPolicy(ctx, email); err != nil {
+			if err := s.validateNewRegistrationEmailPolicy(ctx, email); err != nil {
+				return "", nil, err
+			}
+			if err := s.validateRegistrationEmailQuota(ctx, email); err != nil {
 				return "", nil, err
 			}
 
@@ -638,7 +651,10 @@ func (s *AuthService) LoginOrRegisterOAuth(ctx context.Context, email, username 
 				SignupSource: signupSource,
 			}
 
-			if err := s.userRepo.Create(ctx, newUser); err != nil {
+			if err := s.createUserWithRegistrationEmailGuard(ctx, newUser); err != nil {
+				if errors.Is(err, ErrEmailDomainRegistrationLimit) || errors.Is(err, ErrEmailSuffixNotAllowed) {
+					return "", nil, err
+				}
 				if errors.Is(err, ErrEmailExists) {
 					// 并发场景：GetByEmail 与 Create 之间用户被创建。
 					user, err = s.userRepo.GetByEmail(ctx, email)
@@ -737,7 +753,10 @@ func (s *AuthService) loginOrRegisterOAuthWithTokenPair(ctx context.Context, ema
 			if s.settingService == nil || (!s.settingService.IsRegistrationEnabled(ctx) && !s.canBypassRegistrationDisabledForOAuth(ctx, signupSource)) {
 				return nil, nil, ErrRegDisabled
 			}
-			if err := s.validateRegistrationGmailPolicy(ctx, email); err != nil {
+			if err := s.validateNewRegistrationEmailPolicy(ctx, email); err != nil {
+				return nil, nil, err
+			}
+			if err := s.validateRegistrationEmailQuota(ctx, email); err != nil {
 				return nil, nil, err
 			}
 
@@ -799,7 +818,10 @@ func (s *AuthService) loginOrRegisterOAuthWithTokenPair(ctx context.Context, ema
 				defer func() { _ = tx.Rollback() }()
 				txCtx := dbent.NewTxContext(ctx, tx)
 
-				if err := s.userRepo.Create(txCtx, newUser); err != nil {
+				if err := s.createUserWithRegistrationEmailGuard(txCtx, newUser); err != nil {
+					if errors.Is(err, ErrEmailDomainRegistrationLimit) || errors.Is(err, ErrEmailSuffixNotAllowed) {
+						return nil, nil, err
+					}
 					if errors.Is(err, ErrEmailExists) {
 						user, err = s.userRepo.GetByEmail(ctx, email)
 						if err != nil {
@@ -827,7 +849,10 @@ func (s *AuthService) loginOrRegisterOAuthWithTokenPair(ctx context.Context, ema
 					s.bindOAuthAffiliate(ctx, user.ID, affiliateCode)
 				}
 			} else {
-				if err := s.userRepo.Create(ctx, newUser); err != nil {
+				if err := s.createUserWithRegistrationEmailGuard(ctx, newUser); err != nil {
+					if errors.Is(err, ErrEmailDomainRegistrationLimit) || errors.Is(err, ErrEmailSuffixNotAllowed) {
+						return nil, nil, err
+					}
 					if errors.Is(err, ErrEmailExists) {
 						user, err = s.userRepo.GetByEmail(ctx, email)
 						if err != nil {
@@ -1224,7 +1249,30 @@ func (s *AuthService) validateRegistrationGmailPolicy(ctx context.Context, email
 	return nil
 }
 
+func (s *AuthService) validateNewRegistrationEmailPolicy(ctx context.Context, email string) error {
+	if err := s.validateRegistrationGmailPolicy(ctx, email); err != nil {
+		return err
+	}
+	if s.settingService != nil && s.settingService.IsRegistrationEmailBlacklisted(ctx, email) {
+		return ErrEmailBlocked
+	}
+	// 域名白名单和首账号限量由 validateRegistrationEmailQuota 校验；不能在此提前严格拒绝。
+	return nil
+}
+
+// validateRegistrationEmailPolicy 校验邮箱能否用于新建账号或绑定为账号邮箱：精确黑名单与域名白名单。
 func (s *AuthService) validateRegistrationEmailPolicy(ctx context.Context, email string) error {
+	if s.settingService == nil {
+		return nil
+	}
+	if s.settingService.IsRegistrationEmailBlacklisted(ctx, email) {
+		return ErrEmailBlocked
+	}
+	return s.validateRegistrationEmailSuffixPolicy(ctx, email)
+}
+
+// validateRegistrationEmailSuffixPolicy 只校验域名白名单。
+func (s *AuthService) validateRegistrationEmailSuffixPolicy(ctx context.Context, email string) error {
 	if s.settingService == nil {
 		return nil
 	}
@@ -1235,12 +1283,15 @@ func (s *AuthService) validateRegistrationEmailPolicy(ctx context.Context, email
 	return nil
 }
 
-// validateRegistrationEmailQuota 保留白名单为空时的全放行行为；配置白名单后，
-// 非白名单域名默认直接拒绝（严格白名单模式）；仅当域名限量注册开关开启时，
+// validateRegistrationEmailQuota 精确黑名单命中直接拒绝；保留白名单为空时的全放行行为；
+// 配置白名单后，非白名单域名默认直接拒绝（严格白名单模式）；仅当域名限量注册开关开启时，
 // 非白名单域名每个最多允许一个账户。
 func (s *AuthService) validateRegistrationEmailQuota(ctx context.Context, email string) error {
 	if s.settingService == nil {
 		return nil
+	}
+	if s.settingService.IsRegistrationEmailBlacklisted(ctx, email) {
+		return ErrEmailBlocked
 	}
 	whitelist := s.settingService.GetRegistrationEmailSuffixWhitelist(ctx)
 	if !IsRegistrationEmailSuffixLimited(email, whitelist) {
@@ -1938,6 +1989,13 @@ func (s *AuthService) RevokeAllUserTokens(ctx context.Context, userID int64) err
 
 	if err := s.RevokeAllUserSessions(ctx, userID); err != nil {
 		logger.LegacyPrintf("service.auth", "[Auth] Failed to revoke refresh sessions after token invalidation for user %d: %v", userID, err)
+	}
+	// A browser JWT can mint a long-lived MCP grant, so revoking every session
+	// must also revoke those grants. Fail loudly: the caller can retry.
+	if s.mcpGrantRevoker != nil {
+		if err := s.mcpGrantRevoker.RevokeAllGrants(ctx, userID); err != nil {
+			return fmt.Errorf("revoke MCP grants: %w", err)
+		}
 	}
 	return nil
 }

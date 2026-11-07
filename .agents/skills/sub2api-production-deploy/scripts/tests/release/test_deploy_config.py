@@ -90,7 +90,7 @@ class DeployConfigTest(unittest.TestCase):
 
     def test_bad_sha_profile_and_mode_are_rejected_even_if_cli_overrides_them(self):
         cases = (("commit", "a" * 39), ("commit", "A" * 40), ("commit", "main"),
-                 ("profile", "283"), ("profile", 275), ("mode", "automatic"))
+                 ("profile", "284"), ("profile", 275), ("mode", "automatic"))
         for field, value in cases:
             with self.subTest(field=field, value=value), self.assertRaises(ValueError):
                 self.write_config({**DOCUMENT, field: value})
@@ -105,7 +105,7 @@ class DeployConfigTest(unittest.TestCase):
                 prepare_arguments(["doctor", *options], self.workspace)
 
     def test_bad_explicit_values_and_missing_values_fail_without_config(self):
-        for options in (["--commit", "main"], ["--profile=283"], ["--mode=unknown"],
+        for options in (["--commit", "main"], ["--profile=284"], ["--mode=unknown"],
                         ["--commit"], ["--profile", "--node", "all"], ["--mode="]):
             with self.subTest(options=options), self.assertRaises(ValueError):
                 prepare_arguments(["deploy", *options], self.workspace)
@@ -122,6 +122,7 @@ class DeployConfigTest(unittest.TestCase):
                              ["doctor", "--help"])
             read.assert_not_called()
 
+    @mock.patch.dict("os.environ")
     def test_original_cli_receives_resolved_values_without_unsupported_options(self):
         from release import cli, observer, supervisor
         self.write_config()

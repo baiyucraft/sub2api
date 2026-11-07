@@ -63,11 +63,11 @@ class Profile260MaintenanceContractTest(unittest.TestCase):
             raise unittest.SkipTest("bash is unavailable")
         paths = subprocess.check_output(
             ["git", "ls-tree", "-r", "--full-tree", "--name-only", HISTORICAL_COMMIT, "--", MAINTENANCE_PREFIX],
-            cwd=MAINTENANCE_ROOT,
+            cwd=MAINTENANCE_ROOT.parents[4],
         ).decode("utf-8").splitlines()
         cls.sources = {
             path.removeprefix(MAINTENANCE_PREFIX): subprocess.check_output(
-                ["git", "show", f"{HISTORICAL_COMMIT}:{path}"], cwd=MAINTENANCE_ROOT,
+                ["git", "show", f"{HISTORICAL_COMMIT}:{path}"], cwd=MAINTENANCE_ROOT.parents[4],
             ).decode("utf-8")
             for path in paths if path.endswith(".sh")
         }

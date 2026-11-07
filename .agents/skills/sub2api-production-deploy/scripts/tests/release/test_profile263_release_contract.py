@@ -32,27 +32,32 @@ class Profile263ReleaseContractTest(unittest.TestCase):
         previous = {}
         exec(compile(source, "historical-profiles", "exec"), previous)
         self.assertEqual(previous["CURRENT_RELEASE_PROFILE"], "262")
-        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"263", "264", "265", "266", "267", "268", "269", "270", "271", "272", "273", "274", "275", "276", "277", "278", "279", "280", "281", "282"})
+        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"263", "264", "265", "266", "267", "268", "269", "270", "271", "272", "273", "274", "275", "276", "277", "278", "279", "280", "281", "282", "283"})
+        # Deployment node metadata moved to local configuration; version contracts remain exact.
+        deployment_keys = {"public_domain", "rack_public_ip", "dmit_public_ip"}
+        self.assertTrue(deployment_keys.isdisjoint(get_profile(CURRENT_RELEASE_PROFILE)))
         for name, contract in previous["PROFILES"].items():
             with self.subTest(profile=name):
-                self.assertEqual(get_profile(name), contract)
+                actual = get_profile(name)
+                self.assertTrue(deployment_keys.isdisjoint(actual))
+                self.assertEqual(actual, {key: value for key, value in contract.items() if key not in deployment_keys})
                 with self.assertRaisesRegex(ValueError, "historical"):
                     get_release_profile(name)
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "282")
+        self.assertEqual(CURRENT_RELEASE_PROFILE, "283")
         current = get_profile("263")
         self.assertEqual(current["version"], "0.2.14-baiyu")
         self.assertEqual(current["parent"], "262")
         self.assertEqual(current["new_migrations"], [])
         self.assertEqual(current["gate_schema"], 2)
         self.assertEqual(current["release_policy"], get_profile("262")["release_policy"])
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 283"):
-            get_profile("283")
+        with self.assertRaisesRegex(ValueError, "unknown release profile: 284"):
+            get_profile("284")
         self.assertEqual(get_profile("276")["name"], "276")
-        self.assertEqual(get_release_profile("282")["name"], "282")
+        self.assertEqual(get_release_profile("283")["name"], "283")
 
     def test_registration_and_existing_database_replay(self) -> None:
         registration = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(registration["current_profile"]["id"], "282")
+        self.assertEqual(registration["current_profile"]["id"], "283")
         for field in ("version", "parent", "new_migrations", "gate_schema", "release_policy"):
             self.assertEqual(registration["historical_profiles"]["263"][field], get_profile("263")[field])
             self.assertEqual(registration["historical_profiles"]["262"][field], get_profile("262")[field])
@@ -96,7 +101,8 @@ class Profile263ReleaseContractTest(unittest.TestCase):
         self.assertIsNotNone(CLEANUP_RELEASE_ID.fullmatch("263-aaaaaaaaaaaa-1-aaaaaaaa"))
         self.assertIsNotNone(CLEANUP_RELEASE_ID.fullmatch("272-aaaaaaaaaaaa-1-aaaaaaaa"))
         self.assertIsNotNone(CLEANUP_RELEASE_ID.fullmatch("275-aaaaaaaaaaaa-1-aaaaaaaa"))
-        self.assertIsNone(CLEANUP_RELEASE_ID.fullmatch("283-aaaaaaaaaaaa-1-aaaaaaaa"))
+        self.assertIsNotNone(CLEANUP_RELEASE_ID.fullmatch("283-aaaaaaaaaaaa-1-aaaaaaaa"))
+        self.assertIsNone(CLEANUP_RELEASE_ID.fullmatch("284-aaaaaaaaaaaa-1-aaaaaaaa"))
 
 
 class Profile263BashContractTest(unittest.TestCase):
@@ -172,7 +178,7 @@ jq() {
             self.assertTrue(groups, relative)
             for group in groups:
                 with self.subTest(file=relative):
-                    cases = tuple((f"{profile}-aaaaaaaaaaaa-1-aaaaaaaa", allowed) for profile, allowed in (("261", True), ("262", True), ("263", True), ("264", True), ("265", True), ("266", True), ("267", True), ("268", True), ("269", True), ("270", True), ("271", True), ("272", True), ("273", True), ("274", True), ("275", True), ("276", True), ("277", True), ("278", True), ("279", True), ("280", True), ("281", True), ("282", True), ("283", False)))
+                    cases = tuple((f"{profile}-aaaaaaaaaaaa-1-aaaaaaaa", allowed) for profile, allowed in (("261", True), ("262", True), ("263", True), ("264", True), ("265", True), ("266", True), ("267", True), ("268", True), ("269", True), ("270", True), ("271", True), ("272", True), ("273", True), ("274", True), ("275", True), ("276", True), ("277", True), ("278", True), ("279", True), ("280", True), ("281", True), ("282", True), ("283", True), ("284", False)))
                     self.assert_guard_cases(f'[[ $release_id =~ ^{group}-[0-9a-f]{{12}}-[0-9]+-[0-9a-f]{{8}}$ ]]', "release_id", cases)
 
     def test_backup_unit_helpers_validate_path_syntax_without_owning_profile_admission(self) -> None:

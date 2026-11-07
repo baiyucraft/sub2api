@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import sys
+import json
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -14,6 +16,8 @@ from release.doctor import ReleaseDoctor
 from release.manifest import create_manifest, release_unit_relative_paths
 from release.paths import LAYOUT_SKILL_V1
 from release.profiles import get_profile
+from release.environment import load_deployment_environment
+from test_deployment_environment import fixture_config
 
 
 class SignerAssetTest(unittest.TestCase):
@@ -27,7 +31,7 @@ class SignerAssetTest(unittest.TestCase):
         self.assertIn("activation_complete != true", script)
         self.assertIn("previous-$asset", script)
         self.assertIn("SUB2API_TEST_FAIL_AFTER_VALIDATOR_ACTIVATION", script)
-        self.assertIn("for selftest_profile in 195 199 202 206 207 208 209 210 212 213 215 232 233 234 235 236 237 238 239 240 241 242 243 244 245 246 247 248 249 250 251 252 253 254 255 256 257 258 259 260 261 262 263 264 265 266 267 268 269 270 271 272 273 274 275 276 277 278 279 280 281 282; do", script)
+        self.assertIn("for selftest_profile in 195 199 202 206 207 208 209 210 212 213 215 232 233 234 235 236 237 238 239 240 241 242 243 244 245 246 247 248 249 250 251 252 253 254 255 256 257 258 259 260 261 262 263 264 265 266 267 268 269 270 271 272 273 274 275 276 277 278 279 280 281 282 283; do", script)
         self.assertIn("$test_parent == /opt/sub2api-deploy/release-input/$test_name", script)
         self.assertLess(script.index("sub2api-sign-dr-evidence\" \"$selftest_dr_dir"), script.index("mv -T -- \"$validator_target.new\""))
         self.assertLess(script.index('unit_lock="$target_libexec_dir/.sub2api-release-unit.lock"'), script.index('exec 9<>"$unit_lock"'))
@@ -69,20 +73,28 @@ class SignerAssetTest(unittest.TestCase):
         self.assertEqual(manifest["vm_gate_signer_sha256"], bootstrap.sha256_file(bootstrap.GATE_SIGNER))
         self.assertEqual(manifest["vm_dr_signer_sha256"], bootstrap.sha256_file(bootstrap.DR_SIGNER))
 
+    def vm_doctor_script(self) -> str:
+        with tempfile.TemporaryDirectory(prefix="signer-assets-environment-") as temporary:
+            configuration = Path(temporary) / "deployment-fixture.json"
+            configuration.write_text(json.dumps(fixture_config()), encoding="utf-8")
+            environment = load_deployment_environment(configuration)
+            runner = mock.Mock(
+                deployment_environment=environment,
+                assert_configuration_current=mock.Mock(wraps=environment.assert_current),
+            )
+            runner.run.return_value.values = {"vm_ready": "true"}
+            ReleaseDoctor("195", runner=runner).check_vm()
+            runner.assert_configuration_current.assert_called_once_with()
+            return runner.run.call_args.args[1]
+
     def test_doctor_checks_key_identity_and_complete_unit(self) -> None:
-        runner = mock.Mock()
-        runner.run.return_value.values = {"vm_ready": "true"}
-        ReleaseDoctor("195", runner=runner).check_vm()
-        script = runner.run.call_args.args[1]
+        script = self.vm_doctor_script()
         self.assertIn("openssl pkey -in /opt/sub2api-release-signer/vm-gate-ed25519.pem -pubout", script)
         self.assertIn("sub2api-sign-gate", script)
         self.assertIn("sub2api-sign-dr-evidence", script)
 
     def test_doctor_uses_the_vm_postgres_container_user_for_database_size(self) -> None:
-        runner = mock.Mock()
-        runner.run.return_value.values = {"vm_ready": "true"}
-        ReleaseDoctor("195", runner=runner).check_vm()
-        script = runner.run.call_args.args[1]
+        script = self.vm_doctor_script()
         self.assertIn('select(startswith("POSTGRES_USER="))', script)
         self.assertIn('ltrimstr("POSTGRES_USER=")', script)
         self.assertIn('if [[ ! $vm_pg_user =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then vm_pg_user=sub2api; fi', script)
@@ -92,7 +104,7 @@ class SignerAssetTest(unittest.TestCase):
 
     def test_dr_signer_contract_rejects_untrusted_shapes(self) -> None:
         script = (DEPLOY_ROOT / "release" / "sign-dr-evidence.sh").read_text(encoding="utf-8")
-        self.assertIn("(195|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273|274|275|276|277|278|279|280|281|282)", script)
+        self.assertIn("(195|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273|274|275|276|277|278|279|280|281|282|283)", script)
         self.assertIn("keys | sort", script)
         self.assertIn("temporary_material_destroyed == \"pass\"", script)
         self.assertIn("redis_backup_dbsize - .redis_restored_dbsize", script)
@@ -124,7 +136,7 @@ class SignerAssetTest(unittest.TestCase):
         self.assertIn("ea0b628532f8d85d0e57921b5b010c7f00ef8b0f9701da2b0d4ea31105553e08", promoter)
         self.assertIn('root="/srv/sub2api-backups/releases/$profile"', promoter)
         self.assertIn('jq -cS \'.manifest.migration_sha256\'', promoter)
-        supported = "(195|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273|274|275|276|277|278|279|280|281|282)"
+        supported = "(195|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273|274|275|276|277|278|279|280|281|282|283)"
         self.assertIn(f"[[ $release_id =~ ^{supported}-", promoter)
         self.assertIn(f"[[ $drill_id =~ ^dr-{supported}-", promoter)
         self.assertIn('candidate_link="$root/candidate"', promoter)
@@ -147,7 +159,7 @@ class SignerAssetTest(unittest.TestCase):
         self.assertIn("SUB2API_TEST_FAIL_AFTER_VERIFIER_ACTIVATION", bootstrap_script)
         self.assertIn("promoter_constant verifier_sha256", bootstrap_script)
         self.assertIn("promoter_constant trust_sha256", bootstrap_script)
-        self.assertIn("for profile in 195 199 202 206 207 208 209 210 212 213 215 232 233 234 235 236 237 238 239 240 241 242 243 244 245 246 247 248 249 250 251 252 253 254 255 256 257 258 259 260 261 262 263 264 265 266 267 268 269 270 271 272 273 274 275 276 277 278 279 280 281 282; do", bootstrap_script)
+        self.assertIn("for profile in 195 199 202 206 207 208 209 210 212 213 215 232 233 234 235 236 237 238 239 240 241 242 243 244 245 246 247 248 249 250 251 252 253 254 255 256 257 258 259 260 261 262 263 264 265 266 267 268 269 270 271 272 273 274 275 276 277 278 279 280 281 282 283; do", bootstrap_script)
         self.assertIn('promotion_root="$releases_root/$profile"', bootstrap_script)
         self.assertLess(bootstrap_script.index('asset_lock="$target_libexec_dir/.sub2api-dr-assets.lock"'), bootstrap_script.index('exec 9<>"$asset_lock"'))
 

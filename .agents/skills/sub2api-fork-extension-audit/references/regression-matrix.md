@@ -399,4 +399,18 @@ profile 280 为 parent 279、版本 `0.2.22-baiyu`，无新增 SQL migration，�
 | 管理员保存与界面 | `admin_user_group_configuration_test.go`、`user_default_group_rate_request_test.go`、`usersDefaultGroupRate.spec.ts`、`UserAllowedGroupsModal.spec.ts`：省略/NULL/0/小数、有限非负校验，用户字段+默认+倍率+分组授权单事务成功或全回滚；界面空值沿用、有效预览，重置保留RPM及权限，中文英文完整 |
 | 跨实例失效 | `user_group_rate_cache_test.go`、`user_group_rate_invalidation_outbox_repo_test.go`、`user_group_rate_invalidation_test.go`：专用topic、确认订阅后重连清理、迟到loader不回填；发布失败保留outbox、成功后按user/revision删除，有界批次、取消/停止；旧认证语法不变 |
 | 迁移真实语义 | `go test -tags userdefaultpg ./migrations -run TestUserDefaultRatePG -count=1`：独立随机schema执行277+307，307重复安全、存量不变、约束/NULL/0/95、同事务rollback、倍率与RPM触发范围、group shadow、父删除、identity不复用及真实锁屏障并发ack；必须显式隔离DSN，缺失直接失败 |
-| 发布历史与执行闭包 | `profile_282_migrations_test.go`、`test_profile282_release_contract.py`及历史profile/release专项：282同版本0.2.19-baiyu、parent281、只增307，357旧SQL与全部历史profile逐项冻结；current-only282、未知283拒绝；真实Bash/jq、planner checksum、祖先297/298/299/301、downtime/停旧写者/coordinated_restore。保留敏感blob审阅边界，登记不是VM Gate/生产通过证据 |
+| 发布历史与执行闭包 | `profile_282_migrations_test.go`、`test_profile282_release_contract.py`及历史profile/release专项：282同版本0.2.19-baiyu、parent281、只增307，357旧SQL与全部历史profile逐项冻结；历史282合同由283继承；current-only283、未知284拒绝；真实Bash/jq、planner checksum、祖先297/298/299/301、downtime/停旧写者/coordinated_restore。保留敏感blob审阅边界，登记不是VM Gate/生产通过证据 |
+
+
+## 官方 0.2.20 与 profile 283
+
+| 范围 | 最低回归合同 |
+| --- | --- |
+| 原字节重编号 | `profile_283_migrations_test.go`、`test_profile283_release_contract.py`：308原字节等于固定官方249 blob；raw SHA与strip checksum独立登记，旧SQL/profile/checksum逐项不变，fork历史249保留 |
+| 增量发布身份 | profile283为0.2.20-baiyu、parent282、唯一新迁移308；282转历史精确保留，历史278同版本不改，current-only仅283、未知284及畸形输入拒绝 |
+| 发布闭包 | 所有Python/Shell/VM/Gate/signer/备份/DR/cleanup枚举一致；祖先297/298/299/301真实jq接纳精确283且拒绝父级/迁移/schema/checksum漂移，保留downtime/停旧写者/coordinated_restore；变更Shell执行bash -n |
+| 既有扩展 | 保留用户默认倍率与独立outbox、管理员密钥、图片计费/可选图片工具、代理组、缓存保护和可信度摘要的已有专项；合并最终树执行完整release suite和应用定向回归，不以registry登记代替真实PostgreSQL/VM Gate/生产验真 |
+
+| 认证合并边界 | `auth_registration_policy_merge_test.go` 及 Auth/OAuth-email/Gmail/blacklist 专项：新建预检只处理 Gmail 与精确黑名单，域名限量首账号语义不被严格白名单提前覆盖；普通注册及 OAuth 创建使用既有原子 guard，已有登录与邮箱绑定边界不变 |
+| 图片与流式合并边界 | 图片尺寸所有轮次先于 proxy quarantine fail-open，保留 fork image cost/known-only、fixed retry、capacity target 与保护 sticky；Anthropic native Chat/Responses 缺终止事件报告 incomplete，usage 结算与非 warm 证据分别保留 |
+| Responses 预检测量隔离 | `TestOpenAIResponsesOrphanPrecheckLargeEscapedContent` 在独立测试进程保留零分配断言，覆盖定向重复运行及完整 service unit；子进程超时和失败向父测试透传，不修改官方生产预检 |

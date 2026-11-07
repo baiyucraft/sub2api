@@ -52,9 +52,14 @@ class Profile267ReleaseContractTest(unittest.TestCase):
         before = {}
         exec(compile(git_blob(BASELINE, ".agents/skills/sub2api-production-deploy/scripts/release/profiles.py"), "baseline", "exec"), before)
         self.assertEqual(before["CURRENT_RELEASE_PROFILE"], "266")
-        self.assertEqual(set(PROFILES), set(before["PROFILES"]) | {"267", "268", "269", "270", "271", "272", "273", "274", "275", "276", "277", "278", "279", "280", "281", "282"})
+        self.assertEqual(set(PROFILES), set(before["PROFILES"]) | {"267", "268", "269", "270", "271", "272", "273", "274", "275", "276", "277", "278", "279", "280", "281", "282", "283"})
+        # Deployment node metadata moved to local configuration; version contracts remain exact.
+        deployment_keys = {"public_domain", "rack_public_ip", "dmit_public_ip"}
+        self.assertTrue(deployment_keys.isdisjoint(get_profile(CURRENT_RELEASE_PROFILE)))
         for name, contract in before["PROFILES"].items():
-            self.assertEqual(get_profile(name), contract, name)
+            actual = get_profile(name)
+            self.assertTrue(deployment_keys.isdisjoint(actual))
+            self.assertEqual(actual, {key: value for key, value in contract.items() if key not in deployment_keys}, name)
             with self.assertRaisesRegex(ValueError, "historical"):
                 get_release_profile(name)
         tree = subprocess.run(
@@ -70,14 +75,14 @@ class Profile267ReleaseContractTest(unittest.TestCase):
             raw = (WORKSPACE / path).read_bytes()
             self.assertEqual(hashlib.sha1(f"blob {len(raw)}\0".encode() + raw).hexdigest(), blob, path)
         current = {p.relative_to(WORKSPACE).as_posix() for p in (WORKSPACE / "backend/migrations").glob("*.sql")}
-        self.assertEqual(current, set(historical) | {f"backend/migrations/{name}" for name in [*MIGRATIONS, *get_profile("268")["new_migrations"], *get_profile("269")["new_migrations"], *get_profile("270")["new_migrations"], *get_profile("271")["new_migrations"], *get_profile("273")["new_migrations"], *get_profile("274")["new_migrations"], *get_profile("275")["new_migrations"], *get_profile("276")["new_migrations"], *get_profile("277")["new_migrations"], *get_profile("281")["new_migrations"], *get_profile("282")["new_migrations"]]})
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "282")
+        self.assertEqual(current, set(historical) | {f"backend/migrations/{name}" for name in [*MIGRATIONS, *get_profile("268")["new_migrations"], *get_profile("269")["new_migrations"], *get_profile("270")["new_migrations"], *get_profile("271")["new_migrations"], *get_profile("273")["new_migrations"], *get_profile("274")["new_migrations"], *get_profile("275")["new_migrations"], *get_profile("276")["new_migrations"], *get_profile("277")["new_migrations"], *get_profile("281")["new_migrations"], *get_profile("282")["new_migrations"], *get_profile("283")["new_migrations"]]})
+        self.assertEqual(CURRENT_RELEASE_PROFILE, "283")
         profile = get_profile("267")
         self.assertEqual((profile["version"], profile["parent"], profile["gate_schema"]), ("0.2.16-baiyu", "266", 2))
         self.assertEqual(profile["new_migrations"], MIGRATIONS)
         self.assertEqual(profile["release_policy"], get_profile("266")["release_policy"])
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 283"):
-            get_profile("283")
+        with self.assertRaisesRegex(ValueError, "unknown release profile: 284"):
+            get_profile("284")
 
     def test_raw_upstream_blobs_registration_and_separate_checksums(self):
         registration = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
@@ -85,9 +90,9 @@ class Profile267ReleaseContractTest(unittest.TestCase):
         for name, historical in prior["historical_profiles"].items():
             self.assertEqual(registration["historical_profiles"][name], historical)
         for field in ("version", "parent", "gate_schema", "new_migrations", "release_policy"):
-            self.assertEqual(registration["current_profile"][field], get_profile("282")[field])
+            self.assertEqual(registration["current_profile"][field], get_profile("283")[field])
             self.assertEqual(registration["historical_profiles"]["266"][field], get_profile("266")[field])
-        self.assertEqual(registration["current_profile"]["id"], "282")
+        self.assertEqual(registration["current_profile"]["id"], "283")
         self.assertEqual(registration["current_profile"]["status"], "pending")
         self.assertEqual(git_blob(UPSTREAM, "backend/cmd/server/VERSION").decode().strip(), "0.2.16")
         self.assertEqual((WORKSPACE / "backend/cmd/server/VERSION").read_text().strip(), get_profile(CURRENT_RELEASE_PROFILE)["version"])
@@ -135,7 +140,8 @@ class Profile267ReleaseContractTest(unittest.TestCase):
             self.assertEqual(unknown["unknown"], [{"filename": official, "checksum": "a" * 64}])
         self.assertIsNotNone(RELEASE_ID.fullmatch("267-aaaaaaaaaaaa-1-aaaaaaaa"))
         self.assertIsNotNone(RELEASE_ID.fullmatch("272-aaaaaaaaaaaa-1-aaaaaaaa"))
-        self.assertIsNone(RELEASE_ID.fullmatch("283-aaaaaaaaaaaa-1-aaaaaaaa"))
+        self.assertIsNotNone(RELEASE_ID.fullmatch("283-aaaaaaaaaaaa-1-aaaaaaaa"))
+        self.assertIsNone(RELEASE_ID.fullmatch("284-aaaaaaaaaaaa-1-aaaaaaaa"))
 
     def test_manifest_binds_exact_profile_and_preserves_ancestor_evidence(self):
         profile = get_profile("267")

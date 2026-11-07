@@ -85,7 +85,8 @@ func (s *AuthService) loginOrRegisterVerifiedEmailOAuth(
 	if isReservedEmail(email) {
 		return nil, nil, ErrEmailReserved
 	}
-	if err := s.validateRegistrationEmailPolicy(ctx, email); err != nil {
+	// 精确黑名单只拦新建账号（见 createEmailOAuthUser），已有账号能否登录由账号状态决定。
+	if err := s.validateRegistrationEmailSuffixPolicy(ctx, email); err != nil {
 		return nil, nil, err
 	}
 
@@ -158,7 +159,10 @@ func (s *AuthService) createEmailOAuthUser(ctx context.Context, email, username,
 	if s.settingService == nil || !s.settingService.IsRegistrationEnabled(ctx) {
 		return nil, ErrRegDisabled
 	}
-	if err := s.validateRegistrationGmailPolicy(ctx, email); err != nil {
+	if err := s.validateNewRegistrationEmailPolicy(ctx, email); err != nil {
+		return nil, err
+	}
+	if err := s.validateRegistrationEmailQuota(ctx, email); err != nil {
 		return nil, err
 	}
 	invitationRedeemCode, err := s.validateOAuthRegistrationInvitation(ctx, invitationCode)
@@ -193,7 +197,10 @@ func (s *AuthService) createEmailOAuthUser(ctx context.Context, email, username,
 		Status:       StatusActive,
 		SignupSource: providerType,
 	}
-	if err := s.userRepo.Create(ctx, user); err != nil {
+	if err := s.createUserWithRegistrationEmailGuard(ctx, user); err != nil {
+		if errors.Is(err, ErrEmailDomainRegistrationLimit) || errors.Is(err, ErrEmailSuffixNotAllowed) {
+			return nil, err
+		}
 		if errors.Is(err, ErrEmailExists) {
 			existing, loadErr := s.userRepo.GetByEmail(ctx, email)
 			if loadErr != nil {

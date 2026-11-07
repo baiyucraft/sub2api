@@ -568,7 +568,7 @@ func (s *AntigravityGatewayService) TestConnectionWithPrompt(ctx context.Context
 	if shouldUseAntigravityGeminiTestRequest(modelID, mappedModel) {
 		requestBody, err = s.buildGeminiTestRequestWithPrompt(projectID, mappedModel, prompt)
 	} else {
-		requestBody, err = s.buildClaudeProbeRequest(projectID, mappedModel, prompt)
+		requestBody, err = s.buildClaudeTestRequest(projectID, mappedModel, prompt)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("构建请求失败: %w", err)
@@ -622,6 +622,28 @@ func (s *AntigravityGatewayService) buildGeminiTestRequest(projectID, model stri
 	return s.buildGeminiTestRequestWithPrompt(projectID, model, "")
 }
 
+// buildClaudeProbeRequest 保留健康探针的原始挑战与最小输出预算。
+func (s *AntigravityGatewayService) buildClaudeProbeRequest(projectID, mappedModel, prompt string) ([]byte, error) {
+	return s.buildClaudeProbeRequestWithStream(projectID, mappedModel, prompt, false)
+}
+
+func (s *AntigravityGatewayService) buildClaudeProbeRequestStreaming(projectID, mappedModel, prompt string) ([]byte, error) {
+	return s.buildClaudeProbeRequestWithStream(projectID, mappedModel, prompt, true)
+}
+
+func (s *AntigravityGatewayService) buildClaudeProbeRequestWithStream(projectID, mappedModel, prompt string, stream bool) ([]byte, error) {
+	claudeReq := &antigravity.ClaudeRequest{
+		Model: mappedModel,
+		Messages: []antigravity.ClaudeMessage{{
+			Role:    "user",
+			Content: json.RawMessage(strconv.Quote(prompt)),
+		}},
+		MaxTokens: 1,
+		Stream:    stream,
+	}
+	return antigravity.TransformClaudeToGemini(claudeReq, projectID, mappedModel)
+}
+
 // buildGeminiProbeRequest 保留 active probe 的文本请求构造路径。
 func (s *AntigravityGatewayService) buildGeminiProbeRequest(projectID, model, prompt string) ([]byte, error) {
 	payload := map[string]any{
@@ -649,34 +671,52 @@ func (s *AntigravityGatewayService) buildGeminiTestRequestWithPrompt(projectID, 
 		payloadBytes, _ := json.Marshal(payload)
 		return s.wrapV1InternalRequest(projectID, model, payloadBytes)
 	}
-	return s.buildGeminiProbeRequest(projectID, model, prompt)
+
+	payload := map[string]any{
+		"contents": []map[string]any{
+			{
+				"role": "user",
+				"parts": []map[string]any{
+					{"text": antigravityTestPrompt(prompt)},
+				},
+			},
+		},
+		// Antigravity 上游要求必须包含身份提示词
+		"systemInstruction": map[string]any{
+			"parts": []map[string]any{
+				{"text": antigravity.GetDefaultIdentityPatch()},
+			},
+		},
+		"generationConfig": map[string]any{
+			"maxOutputTokens": antigravityTestMaxOutputTokens,
+		},
+		"toolConfig": map[string]any{
+			"functionCallingConfig": map[string]any{
+				"mode": "VALIDATED",
+			},
+		},
+	}
+	payloadBytes, _ := json.Marshal(payload)
+	return s.wrapV1InternalRequest(projectID, model, payloadBytes)
 }
 
 // buildClaudeTestRequest 构建 Claude 格式测试请求并转换为 Gemini 格式
-// 使用最小 token 消耗：输入 "." + MaxTokens: 1
-func (s *AntigravityGatewayService) buildClaudeTestRequest(projectID, mappedModel string) ([]byte, error) {
-	return s.buildClaudeProbeRequest(projectID, mappedModel, ".")
-}
-
-func (s *AntigravityGatewayService) buildClaudeProbeRequest(projectID, mappedModel, prompt string) ([]byte, error) {
-	return s.buildClaudeProbeRequestWithStream(projectID, mappedModel, prompt, false)
-}
-
-func (s *AntigravityGatewayService) buildClaudeProbeRequestStreaming(projectID, mappedModel, prompt string) ([]byte, error) {
-	return s.buildClaudeProbeRequestWithStream(projectID, mappedModel, prompt, true)
-}
-
-func (s *AntigravityGatewayService) buildClaudeProbeRequestWithStream(projectID, mappedModel, prompt string, stream bool) ([]byte, error) {
+// 与其他平台一致：发送管理员输入的提示词（默认 "hi"），留出足够的输出 token 以便模型回答。
+func (s *AntigravityGatewayService) buildClaudeTestRequest(projectID, mappedModel, prompt string) ([]byte, error) {
+	content, err := json.Marshal(antigravityTestPrompt(prompt))
+	if err != nil {
+		return nil, err
+	}
 	claudeReq := &antigravity.ClaudeRequest{
 		Model: mappedModel,
 		Messages: []antigravity.ClaudeMessage{
 			{
 				Role:    "user",
-				Content: json.RawMessage(strconv.Quote(prompt)),
+				Content: json.RawMessage(content),
 			},
 		},
-		MaxTokens: 1,
-		Stream:    stream,
+		MaxTokens: antigravityTestMaxOutputTokens,
+		Stream:    false,
 	}
 	return antigravity.TransformClaudeToGemini(claudeReq, projectID, mappedModel)
 }
@@ -689,6 +729,18 @@ func (s *AntigravityGatewayService) getClaudeTransformOptions(ctx context.Contex
 	opts.EnableIdentityPatch = s.settingService.IsIdentityPatchEnabled(ctx)
 	opts.IdentityPatch = s.settingService.GetIdentityPatchPrompt(ctx)
 	return opts
+}
+
+// antigravityTestMaxOutputTokens leaves a thinking model room to think and still answer a short
+// test prompt. It was 1, so gemini-4-argon / gemini-3.8-flash returned no text at all.
+const antigravityTestMaxOutputTokens = 256
+
+// antigravityTestPrompt is the admin's test prompt, or "hi" like the other platforms' tests.
+func antigravityTestPrompt(prompt string) string {
+	if trimmed := strings.TrimSpace(prompt); trimmed != "" {
+		return trimmed
+	}
+	return defaultGeminiTextTestPrompt
 }
 
 // extractContentFromSSEResponse 从 SSE 流式响应中提取文本和内联图片
@@ -777,20 +829,32 @@ func injectIdentityPatchToGeminiRequest(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("解析 Gemini 请求失败: %w", err)
 	}
 
+	identityFound := false
+	systemChanged := false
 	// 检查现有 systemInstruction 是否已包含身份提示词
 	if sysInst, ok := request["systemInstruction"].(map[string]any); ok {
 		if parts, ok := sysInst["parts"].([]any); ok {
 			for _, part := range parts {
 				if partMap, ok := part.(map[string]any); ok {
 					if text, ok := partMap["text"].(string); ok {
-						if strings.Contains(text, "You are Antigravity") {
-							// 已包含身份提示词，直接返回原始请求
-							return body, nil
+						neutral := antigravity.NeutralizeSystemIdentity(text)
+						if neutral != text {
+							partMap["text"] = neutral
+							systemChanged = true
+						}
+						if strings.Contains(neutral, "You are Antigravity") {
+							identityFound = true
 						}
 					}
 				}
 			}
 		}
+	}
+	if identityFound {
+		if systemChanged {
+			return json.Marshal(request)
+		}
+		return body, nil
 	}
 
 	// 获取默认身份提示词

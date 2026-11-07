@@ -9,7 +9,7 @@ description: 面向 Sub2API fork 的构建、开发门禁、应用与独立插�
 
 ## 日常部署参数
 
-日常应用发布复用仓库中已验证的固定脚本，将 `schema/commit/profile/mode` 写入本地 `.release/deploy.local.json`，通过 `release.py doctor --node local` 和 `release.py deploy-follow` 消费；显式完整参数优先。当前 profile `282` 为 `0.2.19-baiyu`、parent `281`、仅新增 `307_user_default_group_rate_percent.sql`，使用 `downtime`；版本、父链和迁移仍取已登记的 profile。普通应用提交只更新配置中的完整 SHA，沿用适用的 profile/mode；新增版本、迁移或工具能力属于单独的合同变更。配置只补齐参数，原 Gate、备份、迁移、恢复及 `verify-result` 门禁照常执行，脚本字节变化仍按现有规则审阅和验证。当前实现仍会在 deploy 中调用 VM validator/signer 安装校验流程，并在 VM 缺少 `jq` 时安装该依赖，因此“日常 deploy 只核验已安装工具”的目标尚未实现，不能按只读工具检查描述。
+日常应用发布复用仓库中已验证的固定脚本，将 `schema/commit/profile/mode` 写入本地 `.release/deploy.local.json`，通过 `release.py doctor --node local` 和 `release.py deploy-follow` 消费；显式完整参数优先。当前 profile `283` 为 `0.2.20-baiyu`、parent `282`、仅新增 `308_mcp_oauth.sql`，使用 `downtime`；版本、父链和迁移仍取已登记的 profile。普通应用提交只更新配置中的完整 SHA，沿用适用的 profile/mode；新增版本、迁移或工具能力属于单独的合同变更。配置只补齐参数，原 Gate、备份、迁移、恢复及 `verify-result` 门禁照常执行，脚本字节变化仍按现有规则审阅和验证。当前实现仍会在 deploy 中调用 VM validator/signer 安装校验流程，并在 VM 缺少 `jq` 时安装该依赖，因此“日常 deploy 只核验已安装工具”的目标尚未实现，不能按只读工具检查描述。
 
 连接及机器路径保留在 `.ssh.local`；`vm_lifecycle.shared_dir` 指向已有的规范物理共享目录，复用其中原 `lease.lock` 和 `owner.json`，不得因 checkout 不同新建发布所有权域。配置生成、支持命令与观察重连见 [本地部署参数](references/release-runner-lifecycle.md#本地部署参数)。
 
@@ -500,7 +500,7 @@ Windows 既有目标采用 `ReplaceFileW` 安全替换并保留独占备份，�
 历史 profile `276` 使用版本 `0.2.18-baiyu`、parent `275`，仅新增 `303_group_strip_optional_image_tools.sql`。新字段默认 false；禁图组自动清可选声明，允许组由 strip_optional_image_tools 控制，明确图片请求仍校验。旧 275 及更早 profile、SQL、checksum 与精确恢复审阅不可变；profile 276 继续保留 downtime 和祖先 migration 301 的旧写者退出与 coordinated_restore 合同，全 Python/Shell/signer/备份/清理入口一致，回归 `test_profile276_release_contract.py`。profile 278 为 `0.2.20-baiyu`、parent 277、无新增 migration，保留为历史；profile 279 为 `0.2.21-baiyu`、parent 278、无新增 migration，保留为历史；历史 profile 280 为 `0.2.22-baiyu`、parent 279、无新增 migration；历史 profile 281 为 `0.2.19-baiyu`、parent 280，新增 305/306；未知 282 拒绝。最终敏感 blob 必须新审阅，未分类仍阻断，不以历史豁免或本地单测代替真实隔离恢复与签名 VM Gate。
 
 
-统一可信度摘要保留历史 profile `280`：`0.2.22-baiyu`、parent `279`、`new_migrations=[]`。历史 279 的版本、parent、Gate、SQL 和checksum不回写；当时的 Python/Shell/signer/备份/清理入口接纳280并拒绝未登记281；历史281合同见后续说明；当前282见末节。对外摘要与前后端协调切换，旧后台采样写者停止后启用新版；本地定向检查不证明VM Gate或生产发布。
+统一可信度摘要保留历史 profile `280`：`0.2.22-baiyu`、parent `279`、`new_migrations=[]`。历史 279 的版本、parent、Gate、SQL 和checksum不回写；当时的 Python/Shell/signer/备份/清理入口接纳280并拒绝未登记281；历史281合同见后续说明；当前283见末节。对外摘要与前后端协调切换，旧后台采样写者停止后启用新版；本地定向检查不证明VM Gate或生产发布。
 
 
 ## Profile 281 官方同步合同
@@ -517,12 +517,21 @@ Python profile、VM validator、Gate/DR signer、自测 bootstrap、生产 prepa
 
 ## Profile 282 用户默认分组倍率合同
 
-当前 profile `282` 使用同版本 `0.2.19-baiyu`、parent `281`，`new_migrations` 精确为 `["307_user_default_group_rate_percent.sql"]`。307增加可空的 `users.default_group_rate_percent DECIMAL(20,10)` 与独立的 `user_group_rate_invalidation_outbox`；百分比有限且非负，NULL无默认、0明确免费，单组覆盖优先。旧profile、357份既有SQL、checksum及恢复审阅不回写；历史281仍为parent280和305/306。
+历史 profile `282` 使用同版本 `0.2.19-baiyu`、parent `281`，`new_migrations` 精确为 `["307_user_default_group_rate_percent.sql"]`。307增加可空的 `users.default_group_rate_percent DECIMAL(20,10)` 与独立的 `user_group_rate_invalidation_outbox`；百分比有限且非负，NULL无默认、0明确免费，单组覆盖优先。旧profile、357份既有SQL、checksum及恢复审阅不回写；历史281仍为parent280和305/306。
 
-Python/Shell/VM validator/Gate与DR signer/备份/清理/祖先297、298、299、301断言同步接纳282，未知283拒绝；正常prepare和VM验证仅接受当前282。保留downtime、旧写者退出及coordinated_restore，307的独立outbox避免旧认证worker吞新事件，identity revision防止旧ack删除重建事件；不新增恢复放行或通配豁免。候选仍用Go1.27.3，源码版本不因数据库迁移另增应用版本。
+Python/Shell/VM validator/Gate与DR signer/备份/清理/祖先297、298、299、301断言当时同步接纳282，拒绝当时未登记的283；该历史合同由profile283继续保留。保留downtime、旧写者退出及coordinated_restore，307的独立outbox避免旧认证worker吞新事件，identity revision防止旧ack删除重建事件；不新增恢复放行或通配豁免。候选仍用Go1.27.3，源码版本不因数据库迁移另增应用版本。
 
 - `307_user_default_group_rate_percent.sql` 原始SHA-256：`43cc403117cc8971ee5e3e3b5eee60c1c927016e959f1cfb802658d644ba9237`；Gate strip checksum：`abbbef25b457f932ef7b8b6bec29336214ae8cba1c5b3446b7ce7f0ce36f6abc`。
 - 静态迁移与profile测试核对历史bytes、planner、真实Bash/jq正反例与current-only边界；`userdefaultpg`真实隔离PostgreSQL测试必须提供 `SUB2API_USER_DEFAULT_RATE_TEST_DSN`、`SUB2API_USER_DEFAULT_RATE_TEST_ISOLATED=1`，且库名包含test。缺失或非隔离配置直接失败，不得skip冒充数据库验证。数据库测试覆盖0/NULL/非有限、事务rollback、RPM-only、legacy影子、条件ack/ABA/并发与父删除。
 - 登记及本地/隔离数据库测试不表示签名VM Gate、旧镜像兼容、生产部署或真实流量验证；恢复敏感最终blob仍需新分类，历史精确审阅不扩张。
 
 2026-11-05，profile 282 已完成 Full Gate、停机生产发布、`verify-result`、发布后 doctor 和完成收据校验；candidate 与运行 image 一致，claim consumed，共享 owner released，原本运行的 VM 保留 running/preserved。本轮 full 绑定同一目标与 helper 闭包的已签名真实加密恢复及中断续跑证据；不代表整套工具版本资格已完成，也不代表新 postrelease 灾备基线已晋升。阶段耗时与遗留项见上述发布经验。
+
+
+## 官方 0.2.20 与 profile 283
+
+固定官方目标 `6b4b37db43443b5e88e424fe3c69602cc3810dfb` 的源码版本为 `0.2.20`；当前 profile `283` 为 `0.2.20-baiyu`、parent `282`，仅新增 `308_mcp_oauth.sql`。该文件只对官方 `249_mcp_oauth.sql` 重编号，原始字节与 Git blob `8ba1595a7f61a4f4fc71535862692be84d0ef9b9` 相同；不覆盖 fork 历史249，也不重写历史278的同版本、282的307或任何历史profile/SQL/checksum。
+
+308创建MCP OAuth grants、codes、credentials三表及索引，授权码和访问/刷新凭据仅存摘要；结构与CHECK保持官方SQL原字节。raw SHA-256为 `881ff2e8ecf430202c593c699b1441db1d2196ac2c312d8a3849acb6c97609e5`；Gate strip checksum为 `751a1dcee6108afcecbd580b6e3140cca3480853fecd2174861b02f3a71e54a1`，不得混用。
+
+Python/Shell/VM/Gate/signer/备份/DR/清理和祖先297/298/299/301合同接纳283，current-only仅283、未知284拒绝；继续downtime、旧写者退出与coordinated_restore，不增加恢复审阅豁免。最低合同回归为 `test_profile283_release_contract.py` 和 `profile_283_migrations_test.go`，真实jq/Bash及最终release suite在合并树执行；本地测试不代表VM Gate或生产发布。

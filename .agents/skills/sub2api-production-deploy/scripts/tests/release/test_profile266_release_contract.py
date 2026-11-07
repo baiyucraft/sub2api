@@ -30,9 +30,14 @@ class Profile266ReleaseContractTest(unittest.TestCase):
         baseline = {}
         exec(compile(source, "historical-profiles", "exec"), baseline)
         self.assertEqual(baseline["CURRENT_RELEASE_PROFILE"], "265")
-        self.assertEqual(set(PROFILES), set(baseline["PROFILES"]) | {"266", "267", "268", "269", "270", "271", "272", "273", "274", "275", "276", "277", "278", "279", "280", "281", "282"})
+        self.assertEqual(set(PROFILES), set(baseline["PROFILES"]) | {"266", "267", "268", "269", "270", "271", "272", "273", "274", "275", "276", "277", "278", "279", "280", "281", "282", "283"})
+        # Deployment node metadata moved to local configuration; version contracts remain exact.
+        deployment_keys = {"public_domain", "rack_public_ip", "dmit_public_ip"}
+        self.assertTrue(deployment_keys.isdisjoint(get_profile(CURRENT_RELEASE_PROFILE)))
         for name, contract in baseline["PROFILES"].items():
-            self.assertEqual(get_profile(name), contract, name)
+            actual = get_profile(name)
+            self.assertTrue(deployment_keys.isdisjoint(actual))
+            self.assertEqual(actual, {key: value for key, value in contract.items() if key not in deployment_keys}, name)
             with self.assertRaisesRegex(ValueError, "historical"):
                 get_release_profile(name)
         historical = subprocess.run(["git", "ls-tree", "-r", BASELINE, "backend/migrations"], cwd=WORKSPACE, check=True, capture_output=True, text=True, timeout=10).stdout
@@ -45,23 +50,23 @@ class Profile266ReleaseContractTest(unittest.TestCase):
             content = (WORKSPACE / path).read_bytes()
             self.assertEqual(hashlib.sha1(f"blob {len(content)}\0".encode() + content).hexdigest(), blob, path)
         current_sql = {p.relative_to(WORKSPACE).as_posix() for p in (WORKSPACE / "backend/migrations").glob("*.sql")}
-        self.assertEqual(current_sql, set(old_sql) | {f"backend/migrations/{name}" for name in [MIGRATION, *get_profile("267")["new_migrations"], *get_profile("268")["new_migrations"], *get_profile("269")["new_migrations"], *get_profile("270")["new_migrations"], *get_profile("271")["new_migrations"], *get_profile("273")["new_migrations"], *get_profile("274")["new_migrations"], *get_profile("275")["new_migrations"], *get_profile("276")["new_migrations"], *get_profile("277")["new_migrations"], *get_profile("278")["new_migrations"], *get_profile("281")["new_migrations"], *get_profile("282")["new_migrations"]]})
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "282")
+        self.assertEqual(current_sql, set(old_sql) | {f"backend/migrations/{name}" for name in [MIGRATION, *get_profile("267")["new_migrations"], *get_profile("268")["new_migrations"], *get_profile("269")["new_migrations"], *get_profile("270")["new_migrations"], *get_profile("271")["new_migrations"], *get_profile("273")["new_migrations"], *get_profile("274")["new_migrations"], *get_profile("275")["new_migrations"], *get_profile("276")["new_migrations"], *get_profile("277")["new_migrations"], *get_profile("278")["new_migrations"], *get_profile("281")["new_migrations"], *get_profile("282")["new_migrations"], *get_profile("283")["new_migrations"]]})
+        self.assertEqual(CURRENT_RELEASE_PROFILE, "283")
         current = get_profile("266")
         with self.assertRaisesRegex(ValueError, "historical"):
             get_release_profile("266")
         self.assertEqual((current["version"], current["parent"], current["gate_schema"]), ("0.2.15-baiyu", "265", 2))
         self.assertEqual(current["new_migrations"], [MIGRATION])
         self.assertEqual(current["release_policy"], get_profile("265")["release_policy"])
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 283"):
-            get_profile("283")
+        with self.assertRaisesRegex(ValueError, "unknown release profile: 284"):
+            get_profile("284")
 
     def test_registration_and_distinct_checksum_contracts(self):
         registration = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
         for field in ("version", "parent", "gate_schema", "new_migrations", "release_policy"):
             self.assertEqual(registration["historical_profiles"]["266"][field], get_profile("266")[field])
             self.assertEqual(registration["historical_profiles"]["265"][field], get_profile("265")[field])
-        self.assertEqual(registration["current_profile"]["id"], "282")
+        self.assertEqual(registration["current_profile"]["id"], "283")
         self.assertEqual(registration["current_profile"]["status"], "pending")
         raw = (WORKSPACE / "backend/migrations" / MIGRATION).read_bytes()
         self.assertEqual(hashlib.sha256(raw).hexdigest(), RAW_SHA256)
@@ -89,7 +94,8 @@ class Profile266ReleaseContractTest(unittest.TestCase):
         self.assertTrue(plan_migrations(catalog, snapshot)["conflicts"])
         self.assertIsNotNone(RELEASE_ID.fullmatch("266-aaaaaaaaaaaa-1-aaaaaaaa"))
         self.assertIsNotNone(RELEASE_ID.fullmatch("272-aaaaaaaaaaaa-1-aaaaaaaa"))
-        self.assertIsNone(RELEASE_ID.fullmatch("283-aaaaaaaaaaaa-1-aaaaaaaa"))
+        self.assertIsNotNone(RELEASE_ID.fullmatch("283-aaaaaaaaaaaa-1-aaaaaaaa"))
+        self.assertIsNone(RELEASE_ID.fullmatch("284-aaaaaaaaaaaa-1-aaaaaaaa"))
 
     def test_manifest_binds_identity_and_retains_ancestor_evidence(self):
         profile = get_profile("266")
