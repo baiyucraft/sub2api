@@ -3,9 +3,14 @@ from __future__ import annotations
 import importlib.util
 import io
 import sys
+import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
+
+import yaml
 
 
 SCRIPT_PATH = Path(__file__).with_name("racknerd_readonly_status.py")
@@ -40,6 +45,10 @@ def valid_document() -> dict[str, object]:
             "other": {"ignored": True},
         }
     }
+
+
+def deployment_document() -> dict:
+    return yaml.safe_load((SCRIPT_PATH.parents[4] / ".ssh.local.example.yaml").read_text(encoding="utf-8"))
 
 
 class ConfigTests(unittest.TestCase):
@@ -102,9 +111,108 @@ class ConfigTests(unittest.TestCase):
 
     def test_rejects_wrong_relay_proxy_endpoint(self) -> None:
         document = valid_document()
-        document["servers"]["racknerd"]["proxy"] = "192.0.2.1:8888"
+        document["servers"]["racknerd"]["proxy"] = "192.0.2.1:70000"
         with self.assertRaisesRegex(MODULE.StatusCheckError, "proxy_config_unsupported"):
             MODULE.parse_config_document(document)
+
+    def test_relay_proxy_port_is_explicit_configuration(self) -> None:
+        document = valid_document()
+        document["servers"]["racknerd"]["proxy"] = "192.0.2.1:3128"
+        self.assertEqual(MODULE.parse_config_document(document).proxy_port, 3128)
+
+    def test_public_deployment_example_resolves_configured_roles(self) -> None:
+        document = deployment_document()
+        config = MODULE.parse_config_document(document)
+        self.assertEqual(config.host, document["servers"]["app-node"]["host"])
+        self.assertEqual(config.relay.host, document["servers"]["relay-node"]["host"])
+        self.assertEqual(config.proxy_host, document["deployment"]["relay_probe"]["listen_address"])
+        self.assertEqual(config.proxy_port, document["deployment"]["relay_probe"]["listen_port"])
+
+    def test_deployment_config_uses_nondefault_proxy_endpoint(self) -> None:
+        document = deployment_document()
+        document["servers"]["app-node"]["proxy"] = "198.51.100.9:3128"
+        document["deployment"]["relay_probe"]["listen_address"] = "198.51.100.9"
+        document["deployment"]["relay_probe"]["listen_port"] = 3128
+        config = MODULE.parse_config_document(document)
+        self.assertEqual((config.proxy_host, config.proxy_port), ("198.51.100.9", 3128))
+
+    def test_deployment_config_supports_explicit_direct_connection(self) -> None:
+        document = deployment_document()
+        app = document["servers"]["app-node"]
+        app["connection"] = "direct"
+        app.pop("proxy")
+        app.pop("proxy_via")
+        config = MODULE.parse_config_document(document)
+        self.assertIsNone(config.relay)
+        self.assertIsNone(config.proxy_host)
+
+    def test_deployment_roles_ignore_unreferenced_legacy_entry(self) -> None:
+        document = deployment_document()
+        document["servers"]["racknerd"] = {"host": "old.example.test", "user": "old", "port": 22}
+        self.assertEqual(MODULE.parse_config_document(document).host, document["servers"]["app-node"]["host"])
+
+    def test_deployment_alias_ambiguity_is_rejected_by_shared_validator(self) -> None:
+        document = deployment_document()
+        document["servers"]["racknerd"] = {"host": "old.example.test", "user": "old", "port": 22}
+        document["deployment"]["health_routes"]["relay"]["observer"] = "racknerd"
+        with self.assertRaisesRegex(MODULE.StatusCheckError, "config_invalid"):
+            MODULE.parse_config_document(document)
+
+    def test_drift_is_blocked_before_creating_a_connection(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "config.yaml"
+            path.write_text(yaml.safe_dump(deployment_document()), encoding="utf-8")
+            config = MODULE.load_config(path, yaml)
+            path.write_text(path.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+            paramiko = SimpleNamespace(SSHClient=mock.Mock())
+            with self.assertRaisesRegex(MODULE.StatusCheckError, "config_changed"):
+                MODULE.connect_and_check(config, paramiko, mock.Mock())
+            paramiko.SSHClient.assert_not_called()
+
+    def test_drift_after_relay_connect_blocks_target_connection(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "config.yaml"
+            path.write_text(yaml.safe_dump(deployment_document()), encoding="utf-8")
+            config = MODULE.load_config(path, yaml)
+            client, relay, transport = mock.Mock(), mock.Mock(), mock.Mock()
+            relay.get_transport.return_value = transport
+            relay.connect.side_effect = lambda **kwargs: path.write_text(path.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+            ssh_error = type("SSHError", (Exception,), {})
+            paramiko = SimpleNamespace(
+                SSHClient=mock.Mock(side_effect=[client, relay]), RejectPolicy=mock.Mock(),
+                BadHostKeyException=ssh_error, hostkeys=SimpleNamespace(InvalidHostKey=ssh_error),
+                AuthenticationException=ssh_error, SSHException=ssh_error,
+            )
+            with self.assertRaisesRegex(MODULE.StatusCheckError, "config_changed"):
+                MODULE.connect_and_check(config, paramiko, mock.Mock())
+            transport.open_channel.assert_not_called()
+            client.connect.assert_not_called()
+            relay.close.assert_called_once()
+
+    def test_drift_during_final_check_cannot_report_success(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "config.yaml"
+            document = deployment_document()
+            app = document["servers"]["app-node"]
+            app["connection"] = "direct"
+            app.pop("proxy")
+            app.pop("proxy_via")
+            path.write_text(yaml.safe_dump(document), encoding="utf-8")
+            config = MODULE.load_config(path, yaml)
+            client = mock.Mock()
+            ssh_error = type("SSHError", (Exception,), {})
+            paramiko = SimpleNamespace(
+                SSHClient=mock.Mock(return_value=client), RejectPolicy=mock.Mock(),
+                BadHostKeyException=ssh_error, hostkeys=SimpleNamespace(InvalidHostKey=ssh_error),
+                AuthenticationException=ssh_error, SSHException=ssh_error,
+            )
+            def checked(*args):
+                path.write_text(path.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+                return {"checked_at": "2026-11-07T00:00:00Z"}
+            with mock.patch.object(MODULE, "CHECKS", MODULE.CHECKS[:1]), mock.patch.object(MODULE, "run_remote_check", side_effect=checked):
+                with self.assertRaisesRegex(MODULE.StatusCheckError, "config_changed"):
+                    MODULE.connect_and_check(config, paramiko, mock.Mock())
+            self.assertNotIn("sock", client.connect.call_args.kwargs)
 
     def test_rejects_non_direct_relay(self) -> None:
         document = valid_document()

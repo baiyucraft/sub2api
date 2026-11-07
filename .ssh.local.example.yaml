@@ -1,6 +1,7 @@
 servers:
   app-node:
     host: 203.0.113.10
+    port: 22
     user: deploy
     private_key: /home/example/.ssh/sub2api-deploy
     connection: http_connect_via_ssh
@@ -8,19 +9,23 @@ servers:
     proxy: 192.0.2.10:1080
   relay-node:
     host: relay.example.test
+    port: 22
     user: deploy
     private_key: /home/example/.ssh/sub2api-deploy
     connection: direct
   backup-node:
     host: 198.51.100.20
+    port: 22
     user: backup
     private_key: /home/example/.ssh/sub2api-deploy
   upload-node:
     host: upload.example.test
+    port: 22
     user: deploy
     private_key: /home/example/.ssh/sub2api-deploy
-  vm-node:
+  local_vm:
     host: vm.example.test
+    port: 22
     user: deploy
     private_key: /home/example/.ssh/sub2api-deploy
 
@@ -52,4 +57,4 @@ deployment:
     connect_port: 1030
   vm_health:
     address: 127.0.0.1
-    port: 18080
+    port: 8211
