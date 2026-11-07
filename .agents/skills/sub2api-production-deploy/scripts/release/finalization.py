@@ -38,13 +38,13 @@ DOCTOR_FIELDS = {
     "racknerd_ready", "racknerd_free_bytes", "backup_protocol_ready", "nginx_ingress_policy",
     "production_migration_status", "production_current_image_id", "production_current_commit_sha",
     "dmit_ready", "proxy_v2_ready", "release_proxy_ready", "legacy_proxy_disabled",
-    "backup_ready", "backup_free_bytes", "dmit_external_health",
+    "backup_ready", "backup_free_bytes", "relay_external_health",
 }
 DOCTOR_REQUIRED = {
     "local_ready": "true", "host_keys_ready": "true", "vm_ready": "true", "vm_release_unit_status": "verified",
     "racknerd_ready": "true", "backup_protocol_ready": "true", "nginx_ingress_policy": "ready",
     "production_migration_status": "verified", "dmit_ready": "true", "proxy_v2_ready": "true",
-    "release_proxy_ready": "true", "legacy_proxy_disabled": "true", "backup_ready": "true", "dmit_external_health": "pass",
+    "release_proxy_ready": "true", "legacy_proxy_disabled": "true", "backup_ready": "true", "relay_external_health": "pass",
 }
 REMOTE_REQUIRED = {
     "consumed_marker_verified": "true", "active_claim": "absent", "application_health": "pass",

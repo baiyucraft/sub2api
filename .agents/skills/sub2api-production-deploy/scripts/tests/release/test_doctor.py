@@ -289,7 +289,9 @@ class DoctorTest(unittest.TestCase):
             mock.Mock(values={"backup_ready": "true", "backup_free_bytes": "1024"}),
             mock.Mock(values={"relay_external_health": "pass"}),
         ]
-        self.doctor(runner=runner).check_backup()
+        values = self.doctor(runner=runner).check_backup()
+        self.assertEqual(values, {"backup_ready": "true", "backup_free_bytes": "1024", "relay_external_health": "pass"})
+        self.assertEqual(runner.run.call_args_list[1].args[2], {"relay_external_health"})
         self.assertEqual(runner.run.call_args_list[0].args[0], "upload")
         self.assertEqual(runner.run.call_args_list[1].args[0], "backup")
         self.assertIn("--resolve sub2api.example.test:443:198.51.100.20", runner.run.call_args_list[1].args[1])

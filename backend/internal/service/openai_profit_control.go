@@ -386,10 +386,10 @@ func (s *OpenAIGatewayService) bindOpenAIStickySessionDuringSelection(ctx contex
 
 // BindStickySessionAfterProfitAdmission records the terminally admitted
 // account. Without a profit gate it preserves the pre-existing eager binding
-// behavior at the handler bind points. With a gate it never overwrites a
-// different binding that already exists, so a temporarily ineligible account
-// remains sticky and becomes eligible again automatically after its rate
-// recovers.
+// behavior at the handler bind points. With a gate it preserves a different
+// existing binding unless a protection migration or idle-affinity reallocation
+// was terminally admitted, so a temporarily ineligible account otherwise remains
+// sticky and becomes eligible again automatically after its rate recovers.
 func (s *OpenAIGatewayService) BindStickySessionAfterProfitAdmission(ctx context.Context, groupID *int64, sessionHash string, accountID int64) error {
 	if sessionHash == "" || accountID <= 0 {
 		return nil
@@ -405,6 +405,11 @@ func (s *OpenAIGatewayService) BindStickySessionAfterProfitAdmission(ctx context
 		return err
 	}
 	if !gatewayProfitControlGateActive(ctx) {
+		return s.BindStickySession(ctx, groupID, sessionHash, accountID)
+	}
+	// An idle session may have been terminally admitted to a different account.
+	// Its old soft binding must not veto that committed routing decision.
+	if selection, _ := ctx.Value(protectionSelectionKey{}).(*protectionSelection); selection != nil && selection.affinityReallocation && selection.allocationAccountID == accountID {
 		return s.BindStickySession(ctx, groupID, sessionHash, accountID)
 	}
 	existingAccountID, err := s.getStickySessionAccountID(ctx, groupID, sessionHash)

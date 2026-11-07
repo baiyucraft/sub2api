@@ -24,6 +24,7 @@ const RecoveryLifetime = 10 * time.Minute
 const MaxActiveSessions = 65536
 
 type Engine struct {
+	sessionAffinityTTL         atomic.Int64
 	ordinaryConfigMu           sync.RWMutex
 	ordinaryIdentityGeneration atomic.Pointer[string]
 	ordinaryPolicyGenerations  atomic.Pointer[map[string]string]
@@ -285,6 +286,9 @@ func (e *Engine) CaptureOnly(ctx context.Context, r Request) (Admission, error) 
 			a = old
 			return nil
 		}
+		e.resetExpiredSessionAffinity(&session, r)
+		a.AffinityGeneration = session.AffinityGeneration
+		a.RouteGeneration = session.RouteGeneration
 		if s.Mode != Disabled && s.ContainsGroup(r.GroupID) {
 			plan, err := planInTx(tx, r, &session, s)
 			if err != nil {
@@ -358,8 +362,8 @@ func (e *Engine) admit(ctx context.Context, r Request, existingOnly bool) (Admis
 			return err
 		}
 		if existingOnly {
-			route, ok := session.Routes[session.LastRouteKey]
-			if session.FirstSeenAt.IsZero() || session.LastAccountID != r.AccountID || !ok || route.UpstreamKeyID != r.UpstreamKeyID {
+			routeKey, route, _, _ := sessionPreferredRoute(session)
+			if session.FirstSeenAt.IsZero() || route.AccountID != r.AccountID || route.UpstreamKeyID != r.UpstreamKeyID || routeKey != WarmRouteKey(r) {
 				return ErrUnavailable
 			}
 		}
@@ -374,6 +378,8 @@ func (e *Engine) admit(ctx context.Context, r Request, existingOnly bool) (Admis
 			a = old
 			return nil
 		}
+		e.resetExpiredSessionAffinity(&session, r)
+		a.AffinityGeneration = session.AffinityGeneration
 		var plan TrialPlan
 		if executing && !existingOnly {
 			plan, err = planInTx(tx, r, &session, s)
@@ -409,9 +415,25 @@ func (e *Engine) admit(ctx context.Context, r Request, existingOnly bool) (Admis
 		a.NaturalNew = plan.NaturalNew
 		a.Sample = true
 		a.RouteKey = WarmRouteKey(r)
+		// Admissions are serialized by the existing session lock. The accepted
+		// route, rather than response completion order, fences session affinity.
+		// A successful completion must still prove this generation's owner.
+		// Keep this separate from idle expiry so switching accounts never clears
+		// physical warmness, trial cohorts or the route's migration evidence.
+		if session.RouteGeneration == 0 || session.AcceptedRouteKey != a.RouteKey {
+			if session.RouteGeneration == ^uint64(0) {
+				return errors.New("cache guard route generation exhausted")
+			}
+			session.RouteGeneration++
+			session.AcceptedRouteKey = a.RouteKey
+		}
+		a.RouteGeneration = session.RouteGeneration
 		if session.Routes == nil {
 			session.Routes = map[string]SessionRoute{}
 		}
+		route := session.Routes[a.RouteKey]
+		route.AccountID, route.UpstreamKeyID, route.Model, route.Protocol = r.AccountID, r.UpstreamKeyID, r.Model, r.Protocol
+		session.Routes[a.RouteKey] = route
 		a.WarmAtStart = routeWarm(session.Routes[WarmRouteKey(r)], r.StartedAt)
 		a.ProtectedAtStart = executing && selected.Phase != "" && selected.Phase != Healthy && selected.Phase != Unknown
 		if executing && plan.NaturalNew && session.NaturalAccountID == 0 && !session.NaturalTrialSuppressed {
@@ -539,13 +561,14 @@ func (e *Engine) complete(ctx context.Context, v Evidence) (bool, error) {
 			session.Key = v.Admission.SessionKey
 			session.FirstSeenAt = v.Request.StartedAt
 		}
+		applyAffinity := v.Admission.AffinityGeneration == session.AffinityGeneration
 		completed := v.Admission
 		completed.Completed = true
 		if err := saveAdmission(tx, &session, v.Request, completed); err != nil {
 			return err
 		}
 		if !applyPolicy {
-			if v.ProtectionPaused || v.Admission.CaptureOnly {
+			if applyAffinity && (v.ProtectionPaused || v.Admission.CaptureOnly) {
 				if route, exists := session.Routes[WarmRouteKey(v.Request)]; exists {
 					route.LowWindow = nil
 					session.Routes[WarmRouteKey(v.Request)] = route
@@ -577,27 +600,44 @@ func (e *Engine) complete(ctx context.Context, v Evidence) (bool, error) {
 		}
 		routeKey := WarmRouteKey(v.Request)
 		route := session.Routes[routeKey]
+		// Zero retains old JSON behavior only until a new real admission has
+		// established the fence. An old response can remain a physical warm
+		// fact, but cannot reclaim a newer admitted route or extend its stay.
+		applyOwner := applyAffinity && !v.Admission.CaptureOnly &&
+			((session.RouteGeneration == 0 && v.Admission.RouteGeneration == 0) ||
+				(session.RouteGeneration > 0 && v.Admission.RouteGeneration == session.RouteGeneration && session.AcceptedRouteKey == routeKey))
 		signature := PolicySignature(s)
-		if !v.Admission.CaptureOnly && route.PolicySignature != signature {
+		if applyAffinity && !v.Admission.CaptureOnly && route.PolicySignature != signature {
 			// Warmness is a physical fact. Affinity and pending migration are
 			// interpretations of that fact under one effective quality rule.
 			route.HighCacheSeen, route.PendingLow, route.LowStreak = false, false, 0
 			route.PolicySignature = signature
 			route.LowWindow = nil
 		}
-		if v.Success && v.RawUsage.Known() && v.CompletedAt.After(route.LastSuccessfulAt) {
-			if !v.Admission.CaptureOnly && session.LastAccountID > 0 && session.LastAccountID != v.Request.AccountID && !v.CompletedAt.Before(session.LastCompletedAt) {
-				session.ResidenceUntil = v.CompletedAt.Add(ResidenceLifetime)
-			}
+		if applyAffinity && v.Success && v.RawUsage.Known() && v.CompletedAt.After(route.LastSuccessfulAt) {
 			rate, _ := v.RawUsage.Rate()
 			route.AccountID = v.Request.AccountID
 			route.UpstreamKeyID = v.Request.UpstreamKeyID
+			if !v.Admission.CaptureOnly {
+				route.Model, route.Protocol = v.Request.Model, v.Request.Protocol
+			}
 			route.LastSuccessfulAt = v.CompletedAt
 			route.LastCachePercent = rate
 			if !v.Admission.CaptureOnly && rate >= s.ThresholdPercent {
 				route.HighCacheSeen = true
 			}
-			if !v.Admission.CaptureOnly && !v.CompletedAt.Before(session.LastCompletedAt) {
+		}
+		// A later physical completion from an older generation may already have
+		// warmed this route. It must not suppress this accepted generation's
+		// independent owner update when legally returning to the same account.
+		if applyOwner && v.Success && v.RawUsage.Known() {
+			// This is proof of the current accepted generation, independent of
+			// historical physical warmth or a wall-clock rollback on the route.
+			session.OwnerRouteGeneration = session.RouteGeneration
+			if session.LastRouteKey != routeKey || !v.CompletedAt.Before(session.LastCompletedAt) {
+				if session.LastAccountID > 0 && session.LastAccountID != v.Request.AccountID {
+					session.ResidenceUntil = v.CompletedAt.Add(ResidenceLifetime)
+				}
 				session.LastAccountID = v.Request.AccountID
 				session.LastModel = v.Request.Model
 				session.LastProtocol = v.Request.Protocol
@@ -642,6 +682,15 @@ func (e *Engine) complete(ctx context.Context, v Evidence) (bool, error) {
 		if err = e.advanceOrdinaryPolicies(&account, facts, v, now, recoverySupported, pendingGap); err != nil {
 			return err
 		}
+		if !applyAffinity {
+			// A pre-expiry completion remains a raw account fact, but cannot
+			// restore the discarded route or change a newer session preference.
+			if _, err = tx.(AccountTx).WriteAccount(v.Request.AccountID, v.Request.UpstreamKeyID, &account); err != nil {
+				return err
+			}
+			_, err = tx.Write(SessionKind, v.Admission.SessionKey, &session)
+			return err
+		}
 		if v.Admission.CaptureOnly {
 			route.LowWindow = nil
 			session.Routes[routeKey] = route
@@ -654,7 +703,7 @@ func (e *Engine) complete(ctx context.Context, v Evidence) (bool, error) {
 		// Recompute the last two valid warm outcomes, including out-of-order facts.
 		var own []Evidence
 		for _, f := range facts {
-			if f.Admission.SessionKey == v.Admission.SessionKey && WarmRouteKey(f.Request) == routeKey && !f.CompletedAt.Before(now.Add(-historyWindow)) {
+			if f.Admission.SessionKey == v.Admission.SessionKey && f.Admission.AffinityGeneration == session.AffinityGeneration && WarmRouteKey(f.Request) == routeKey && !f.CompletedAt.Before(now.Add(-historyWindow)) {
 				own = append(own, f)
 				if f.ValidSample() && !f.Admission.CaptureOnly {
 					if rate, ok := f.RawUsage.Rate(); ok && rate >= s.ThresholdPercent {
@@ -670,6 +719,9 @@ func (e *Engine) complete(ctx context.Context, v Evidence) (bool, error) {
 			return err
 		}
 		for _, a := range pending {
+			if a.AffinityGeneration != session.AffinityGeneration {
+				continue
+			}
 			own = append(own, Evidence{ID: a.RequestID, Request: Request{StartedAt: a.StartedAt}})
 		}
 		sort.Slice(own, func(i, j int) bool {
@@ -942,7 +994,23 @@ func (e *Engine) cachedSessionReadAtLocked(r Request, s Settings, at time.Time, 
 	if !ok {
 		return SessionRead{}
 	}
-	read := SessionRead{Known: true, Fresh: snapshot.Fresh, PreferredAccountID: x.LastAccountID, ResidenceUntil: x.ResidenceUntil}
+	read := SessionRead{Known: true, Fresh: snapshot.Fresh, ResidenceUntil: x.ResidenceUntil}
+	if e.sessionAffinityExpired(x, r.Protocol, at) {
+		read.AffinityExpired = true
+		read.PreferredAccountID = 0
+		read.ResidenceUntil = time.Time{}
+		return read
+	}
+	// Pending admissions cannot prove that terminal qualification and the sticky
+	// callback succeeded. Keep the session known without projecting either the
+	// unconfirmed target or its former owner; callers retain their sticky fallback.
+	ownerRoute, owner, ownerModel, ownerProtocol := sessionPreferredRoute(x)
+	if owner.AccountID == 0 {
+		read.ResidenceUntil = time.Time{}
+		return read
+	}
+	x.LastAccountID, x.LastRouteKey, x.LastModel, x.LastProtocol = owner.AccountID, ownerRoute, ownerModel, ownerProtocol
+	read.PreferredAccountID = owner.AccountID
 	accountUnknown := false
 	var source AccountSnapshot
 	if r.AccountID == x.LastAccountID && r.UpstreamKeyID > 0 {

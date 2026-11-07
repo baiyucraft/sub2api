@@ -24,7 +24,7 @@ def fixture_config() -> dict:
             "relay-node": {"host": "relay.example.test", "user": "root"},
             "backup-node": {"host": "backup.example.test", "user": "root"},
             "upload-node": {"host": "upload.example.test", "user": "root"},
-            "vm-node": {"host": "vm.example.test", "user": "root"},
+            "local_vm": {"host": "vm.example.test", "user": "root"},
         },
         "deployment": {
             "schema": 1,
@@ -87,6 +87,51 @@ class DeploymentEnvironmentTest(unittest.TestCase):
         self.write(document)
         environment = load_deployment_environment(self.config_path)
         self.assertEqual(environment.node_for_role("racknerd"), "app-node")
+
+    def test_public_example_supports_fixed_vm_role_and_port(self) -> None:
+        environment = load_deployment_environment(DEPLOY_ROOT.parents[3] / ".ssh.local.example.yaml")
+        self.assertIn(environment.node_for_role("local_vm"), environment.servers)
+        self.assertEqual(environment.deployment["vm_health"]["port"], 8211)
+        self.assertTrue(all(server["port"] == 22 for server in environment.servers.values()))
+        for role in ("racknerd", "dmit", "backup"):
+            node = environment.node_for_role(role)
+            self.assertEqual(environment.node_for_role(node), node)
+
+    def test_missing_fixed_vm_node_is_rejected_clearly(self) -> None:
+        document = fixture_config()
+        document["servers"]["vm-node"] = document["servers"].pop("local_vm")
+        self.write(document)
+        with self.assertRaisesRegex(RuntimeError, "requires the local_vm SSH node"):
+            load_deployment_environment(self.config_path)
+
+    def test_role_target_cannot_be_an_alias_for_another_node(self) -> None:
+        document = fixture_config()
+        document["servers"]["backup"] = document["servers"].pop("app-node")
+        for route in document["deployment"]["health_routes"].values():
+            for key in ("observer", "target_node"):
+                if route[key] == "app-node":
+                    route[key] = "backup"
+        self.write(document)
+        with self.assertRaisesRegex(RuntimeError, "reserved role"):
+            load_deployment_environment(self.config_path)
+
+    def test_exact_node_references_cannot_silently_resolve_to_roles(self) -> None:
+        for reference in ("observer", "proxy_via", "backup_upload", "relay_probe"):
+            with self.subTest(reference=reference):
+                document = fixture_config()
+                document["servers"]["racknerd"] = {"host": "old.example.test", "user": "root"}
+                document["servers"]["dmit"] = {"host": "old-relay.example.test", "user": "root"}
+                if reference == "observer":
+                    document["deployment"]["health_routes"]["relay"]["observer"] = "racknerd"
+                elif reference == "proxy_via":
+                    document["servers"]["app-node"]["proxy_via"] = "dmit"
+                elif reference == "backup_upload":
+                    document["deployment"]["backup_upload"]["node"] = "racknerd"
+                else:
+                    document["deployment"]["relay_probe"]["node"] = "racknerd"
+                self.write(document)
+                with self.assertRaisesRegex(RuntimeError, "reserved role"):
+                    load_deployment_environment(self.config_path)
 
     def test_pinned_configuration_drift_is_rejected(self) -> None:
         with mock.patch.dict(os.environ, {}, clear=False):

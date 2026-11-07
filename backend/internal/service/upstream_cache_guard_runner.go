@@ -162,6 +162,7 @@ func currentUpstreamCacheGuardRunner() *UpstreamCacheGuardRunner {
 
 func ProvideUpstreamCacheGuardRunner(store upstreamcacheguard.Store, settings *SettingService, cfg *config.Config, policies *GroupSchedulingProtectionPolicyService) *UpstreamCacheGuardRunner {
 	r := &UpstreamCacheGuardRunner{engine: NewUpstreamCacheGuardRuntime(store), store: store, owner: newCacheGuardID(), settings: settings, queue: make(chan upstreamcacheguard.Evidence, 16384), wake: make(chan struct{}, 1), stop: make(chan struct{}), done: make(chan struct{})}
+	r.engine.SetSessionAffinityTTL(openAIConfiguredSessionStickyTTL(cfg))
 	if cfg != nil {
 		r.secret = []byte(cfg.JWT.Secret)
 	}
@@ -676,7 +677,7 @@ func beginUpstreamCacheGuardRequest(ctx context.Context, apiKeyID int64, groupID
 		return nil, schedulingProtectionScopeChangedError()
 	}
 	selection, _ := ctx.Value(protectionSelectionKey{}).(*protectionSelection)
-	newDecision := cacheGuardAdmittedMigration(ctx, account.ID) || (selection != nil && (selection.trial != nil || selection.newAllocation))
+	newDecision := cacheGuardAdmittedMigration(ctx, account.ID) || (selection != nil && (selection.trial != nil || selection.newAllocation || selection.affinityReallocation))
 	if strict && cacheProtectionRequired && (captureOnly || (stale && newDecision)) {
 		r.diagnostics.record("selection_snapshot_fallback", req.GroupID, req.AccountID, req.UpstreamKeyID)
 		return nil, protectionSnapshotFallbackError(ctx)

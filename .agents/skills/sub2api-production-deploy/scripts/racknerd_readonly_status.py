@@ -4,13 +4,14 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib
 import importlib.metadata
 import ipaddress
 import re
 import socket
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path, PureWindowsPath
 from typing import Any, Callable
 
@@ -35,7 +36,7 @@ CONFIG_FIELDS = {
 REQUIRED_FIELDS = {"host", "port", "user", "proxy"}
 STRING_FIELDS = CONFIG_FIELDS - {"port"}
 PROXY_ENDPOINT_RE = re.compile(r"^(127\.0\.0\.1|localhost):([0-9]{1,5})$")
-RELAY_PROXY_ENDPOINT_RE = re.compile(r"^((?:[0-9]{1,3}\.){3}[0-9]{1,3}):1080$")
+RELAY_PROXY_ENDPOINT_RE = re.compile(r"^((?:[0-9]{1,3}\.){3}[0-9]{1,3}):([0-9]{1,5})$")
 PROXY_COMMAND_RE = re.compile(
     r"^(?:\"(?P<quoted_exe>[A-Za-z]:[\\/][^\r\n\"]*[\\/]connect\.exe)\""
     r"|(?P<plain_exe>[A-Za-z]:[\\/][^\r\n\"]*[\\/]connect\.exe))"
@@ -84,9 +85,23 @@ class RackNerdConfig:
     user: str
     password: str | None
     private_key: str | None
-    proxy_host: str
-    proxy_port: int
+    proxy_host: str | None
+    proxy_port: int | None
     relay: "RelayConfig | None"
+    source_path: Path | None = None
+    source_sha256: str | None = None
+
+    def assert_current(self) -> None:
+        if self.source_path is None:
+            return
+        from release.environment import _read_configuration
+
+        try:
+            raw, _ = _read_configuration(self.source_path)
+        except RuntimeError as exc:
+            raise StatusCheckError("config_changed") from exc
+        if hashlib.sha256(raw).hexdigest() != self.source_sha256:
+            raise StatusCheckError("config_changed")
 
 
 @dataclass(frozen=True)
@@ -163,14 +178,27 @@ def parse_proxy_command(proxy_value: str, proxy_command: str) -> tuple[str, int]
 
 
 def parse_config_document(document: Any) -> RackNerdConfig:
-    if not isinstance(document, dict) or set(document) != {"servers"}:
+    if not isinstance(document, dict):
         raise StatusCheckError("config_invalid")
-    servers = document["servers"]
-    if not isinstance(servers, dict) or not isinstance(servers.get("racknerd"), dict):
-        raise StatusCheckError("config_invalid")
+    environment_config = "deployment" in document
+    if environment_config:
+        from release.environment import _validate, deployment_role_nodes
 
-    racknerd = servers["racknerd"]
-    if not REQUIRED_FIELDS.issubset(racknerd) or set(racknerd) - CONFIG_FIELDS:
+        try:
+            servers, deployment = _validate(document)
+        except RuntimeError as exc:
+            raise StatusCheckError("config_invalid") from exc
+        target_name = deployment_role_nodes(deployment)["racknerd"]
+    else:
+        if set(document) != {"servers"}:
+            raise StatusCheckError("config_invalid")
+        servers = document["servers"]
+        target_name = "racknerd"
+    if not isinstance(servers, dict) or not isinstance(servers.get(target_name), dict):
+        raise StatusCheckError("config_invalid")
+    racknerd = servers[target_name]
+    required = REQUIRED_FIELDS - {"proxy"} if environment_config else REQUIRED_FIELDS
+    if not required.issubset(racknerd) or set(racknerd) - CONFIG_FIELDS:
         raise StatusCheckError("config_invalid")
     for field in STRING_FIELDS & set(racknerd):
         if racknerd[field] is not None and not isinstance(racknerd[field], str):
@@ -182,15 +210,20 @@ def parse_config_document(document: Any) -> RackNerdConfig:
 
     host = _required_nonempty_string(racknerd, "host")
     user = _required_nonempty_string(racknerd, "user")
-    proxy_value = _required_nonempty_string(racknerd, "proxy")
+    proxy_value = racknerd.get("proxy")
     password = _optional_credential(racknerd, "password")
     private_key = _optional_credential(racknerd, "private_key")
     if (password is None) == (private_key is None):
         raise StatusCheckError("config_invalid")
 
     relay = None
+    proxy_host = proxy_port = None
     if racknerd.get("connection") == "http_connect_via_ssh":
-        if racknerd.get("proxy_command") not in {None, ""} or racknerd.get("proxy_via") != "dmit":
+        proxy_value = _required_nonempty_string(racknerd, "proxy")
+        relay_name = racknerd.get("proxy_via")
+        if (racknerd.get("proxy_command") not in {None, ""}
+                or not isinstance(relay_name, str)
+                or (not environment_config and relay_name != "dmit")):
             raise StatusCheckError("proxy_config_unsupported")
         relay_match = RELAY_PROXY_ENDPOINT_RE.fullmatch(proxy_value)
         if relay_match is not None:
@@ -198,8 +231,13 @@ def parse_config_document(document: Any) -> RackNerdConfig:
                 ipaddress.IPv4Address(relay_match.group(1))
             except ipaddress.AddressValueError:
                 relay_match = None
-        dmit = servers.get("dmit")
-        if relay_match is None or not isinstance(dmit, dict) or dmit.get("connection") != "direct":
+        dmit = servers.get(relay_name)
+        if (relay_match is None or not isinstance(dmit, dict)
+                or dmit.get("connection") not in {None, "direct"}
+                or dmit.get("proxy") or dmit.get("proxy_via")):
+            raise StatusCheckError("proxy_config_unsupported")
+        proxy_port = int(relay_match.group(2))
+        if not 1 <= proxy_port <= 65535:
             raise StatusCheckError("proxy_config_unsupported")
         relay_port = dmit.get("port")
         if isinstance(relay_port, bool) or not isinstance(relay_port, int) or not 1 <= relay_port <= 65535:
@@ -215,8 +253,12 @@ def parse_config_document(document: Any) -> RackNerdConfig:
             password=relay_password,
             private_key=relay_private_key,
         )
-        proxy_host, proxy_port = relay_match.group(1), 1080
+        proxy_host = relay_match.group(1)
+    elif environment_config and racknerd.get("connection") in {None, "direct"} and not proxy_value:
+        if racknerd.get("proxy_via") or racknerd.get("proxy_command"):
+            raise StatusCheckError("proxy_config_unsupported")
     else:
+        proxy_value = _required_nonempty_string(racknerd, "proxy")
         proxy_command = _required_nonempty_string(racknerd, "proxy_command")
         if racknerd.get("proxy_via") not in {None, ""}:
             raise StatusCheckError("proxy_config_unsupported")
@@ -234,12 +276,13 @@ def parse_config_document(document: Any) -> RackNerdConfig:
 
 
 def load_config(config_path: Path, yaml_module: Any) -> RackNerdConfig:
+    from release.environment import _read_configuration
+
     try:
-        raw_text = config_path.read_text(encoding="utf-8")
-        document = yaml_module.safe_load(raw_text)
-    except (OSError, UnicodeError, yaml_module.YAMLError) as exc:
+        raw, document = _read_configuration(config_path)
+    except RuntimeError as exc:
         raise StatusCheckError("config_invalid") from exc
-    return parse_config_document(document)
+    return replace(parse_config_document(document), source_path=config_path.absolute(), source_sha256=hashlib.sha256(raw).hexdigest())
 
 
 def parse_checked_at(value: str) -> dict[str, str]:
@@ -371,6 +414,7 @@ def establish_http_connect(channel: Any, target_host: str, target_port: int) -> 
 
 
 def connect_and_check(config: RackNerdConfig, paramiko_module: Any, socks_module: Any) -> dict[str, str]:
+    config.assert_current()
     proxy_socket = None
     relay_client = None
     client = paramiko_module.SSHClient()
@@ -397,27 +441,29 @@ def connect_and_check(config: RackNerdConfig, paramiko_module: Any, socks_module
                 relay_kwargs["password"] = config.relay.password
             else:
                 relay_kwargs["key_filename"] = config.relay.private_key
+            config.assert_current()
             relay_client.connect(**relay_kwargs)
             transport = relay_client.get_transport()
             if transport is None:
                 raise StatusCheckError("proxy_or_connection_failed")
+            config.assert_current()
             proxy_socket = transport.open_channel(
                 "direct-tcpip", (config.proxy_host, config.proxy_port), ("127.0.0.1", 0),
                 timeout=SOCKET_TIMEOUT_SECONDS,
             )
             proxy_socket.settimeout(SOCKET_TIMEOUT_SECONDS)
             establish_http_connect(proxy_socket, config.host, config.port)
-        else:
+        elif config.proxy_host is not None:
             proxy_socket = socks_module.socksocket()
             proxy_socket.set_proxy(socks_module.SOCKS5, config.proxy_host, config.proxy_port, rdns=True)
             proxy_socket.settimeout(SOCKET_TIMEOUT_SECONDS)
+            config.assert_current()
             proxy_socket.connect((config.host, config.port))
 
         connect_kwargs: dict[str, Any] = {
             "hostname": config.host,
             "port": config.port,
             "username": config.user,
-            "sock": proxy_socket,
             "timeout": SOCKET_TIMEOUT_SECONDS,
             "banner_timeout": SOCKET_TIMEOUT_SECONDS,
             "auth_timeout": SOCKET_TIMEOUT_SECONDS,
@@ -425,15 +471,20 @@ def connect_and_check(config: RackNerdConfig, paramiko_module: Any, socks_module
             "allow_agent": False,
             "look_for_keys": False,
         }
+        if proxy_socket is not None:
+            connect_kwargs["sock"] = proxy_socket
         if config.password is not None:
             connect_kwargs["password"] = config.password
         else:
             connect_kwargs["key_filename"] = config.private_key
 
+        config.assert_current()
         client.connect(**connect_kwargs)
         result: dict[str, str] = {}
         for check in CHECKS:
+            config.assert_current()
             result.update(run_remote_check(client, check))
+        config.assert_current()
         return result
     except paramiko_module.BadHostKeyException as exc:
         raise StatusCheckError("host_key_mismatch") from exc

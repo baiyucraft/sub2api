@@ -202,7 +202,11 @@ func TestProtectionCrossPriorityReusesDirectoryAndExistingRechecks(t *testing.T)
 					selection, _, err := svc.SelectAccountWithScheduler(ctx, &group, "", "conversation", "gpt-test", nil, OpenAIUpstreamTransportAny, false)
 					require.NoError(t, err)
 					require.NotNil(t, selection)
-					require.Equal(t, int64(3), selection.Account.ID)
+					want := int64(1)
+					if advanced {
+						want = 3
+					}
+					require.Equal(t, want, selection.Account.ID, "qualified candidates share the original bounded acquisition algorithm; legacy may fall back when its first choice is full")
 					require.True(t, selection.Acquired)
 					if selection.ReleaseFunc != nil {
 						selection.ReleaseFunc()
@@ -216,7 +220,14 @@ func TestProtectionCrossPriorityReusesDirectoryAndExistingRechecks(t *testing.T)
 				require.Equal(t, baseline.directory, crossPool.directory, "each protection tier must reuse the request's original directory")
 				require.Positive(t, baseline.account, "actual candidates still require account rechecks")
 				require.Equal(t, baseline.account, crossPool.account, "crossing Priority must not add account reads")
-				require.Equal(t, baseline.attempts, crossPool.attempts, "the original advanced acquire/retry algorithm remains unchanged within each protection tier")
+				for _, attempts := range [][]int64{baseline.attempts, crossPool.attempts} {
+					require.LessOrEqual(t, len(attempts), 3, "merging qualified candidates must not add an acquisition loop")
+					seen := map[int64]bool{}
+					for _, id := range attempts {
+						require.False(t, seen[id], "one candidate must not be acquired through multiple protection bands")
+						seen[id] = true
+					}
+				}
 			})
 		}
 	}

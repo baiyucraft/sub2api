@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 
 from .atomic import atomic_write, canonical_json
-from .environment import DeploymentEnvironment, load_deployment_environment
+from .environment import DeploymentEnvironment, deployment_role_nodes, load_deployment_environment
 from .gate import verify_gate
 from .manifest import sha256_file, validate_image_id
 from .migration_planner import HOOK_REGISTRY, plan_migrations
@@ -576,12 +576,7 @@ class ProductionRelease:
         return self.runner.run(self._resolve_host(host), script, allowed, timeout=timeout).values
 
     def _resolve_host(self, host: str) -> str:
-        aliases = {
-            "racknerd": self.environment.direct_route["target_node"],
-            "dmit": self.environment.deployment["relay_probe"]["node"],
-            "backup": self.environment.deployment["backup_upload"]["node"],
-        }
-        return aliases.get(host, host)
+        return deployment_role_nodes(self.environment.deployment).get(host, host)
 
     def restore_backup_units(self, restore_env: str) -> dict[str, str]:
         """Restore backup units while retaining benign stderr in root-only logs."""

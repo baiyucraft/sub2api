@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/upstreamcacheusage"
 	"github.com/Wei-Shaw/sub2api/internal/upstreamcacheguard"
 	"github.com/stretchr/testify/require"
 )
@@ -17,6 +19,34 @@ type budgetContractStore struct {
 	*cacheGuardSelectionStore
 	slow  bool
 	reads int
+}
+
+// Unlike runner queue-only tests, binding lifecycle tests must expose their
+// durable session rows to refresh instead of dropping the in-memory read view.
+type protectionBindingLifecycleStore struct {
+	*runnerTestStore
+	groupID              int64
+	planningTransactions int
+}
+
+func (s *protectionBindingLifecycleStore) Transact(ctx context.Context, groupID int64, fn func(upstreamcacheguard.Tx) error) error {
+	s.planningTransactions++
+	return s.runnerTestStore.Transact(ctx, groupID, fn)
+}
+
+func (s *protectionBindingLifecycleStore) Rows(ctx context.Context, _ []int64) ([]upstreamcacheguard.RuntimeRow, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var rows []upstreamcacheguard.RuntimeRow
+	for key, raw := range s.rows {
+		for _, kind := range []string{upstreamcacheguard.SessionKind, upstreamcacheguard.GroupKind} {
+			prefix := kind + ":"
+			if len(key) >= len(prefix) && key[:len(prefix)] == prefix {
+				rows = append(rows, upstreamcacheguard.RuntimeRow{GroupID: s.groupID, Kind: kind, Key: key[len(prefix):], Version: 1, Payload: append(json.RawMessage(nil), raw...), UpdatedAt: time.Now()})
+			}
+		}
+	}
+	return rows, ctx.Err()
 }
 
 func (s *budgetContractStore) TransactAccount(ctx context.Context, group, account, key int64, fn func(upstreamcacheguard.Tx) error) error {
@@ -154,13 +184,37 @@ func TestProtectionBindingFailureCompletesAdmissionWithoutValidSample(t *testing
 	store := newRunnerTestStore()
 	runner := testRunner(t, store)
 	runner.secret = []byte("test-only-binding-failure")
+	settings := runner.engine.Settings()
+	lifecycleStore := &protectionBindingLifecycleStore{runnerTestStore: store, groupID: 1}
+	runner.store, runner.engine = lifecycleStore, upstreamcacheguard.NewEngine(lifecycleStore)
+	require.NoError(t, runner.engine.ApplySettings(settings))
 	// Seed the account independently from the request whose binding will fail.
 	testRunnerAdmission(t, runner)
-	require.NoError(t, runner.engine.Refresh(context.Background()))
 	group, key, configID := int64(1), int64(3), int64(1)
-	account := &Account{ID: 2, Platform: PlatformOpenAI, UpstreamConfigID: &configID, UpstreamKeyID: &key}
+	rate, sourceRate, sourceKey := .10, .20, int64(1)
+	account := &Account{ID: 2, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 10, RateMultiplier: &rate, GroupIDs: []int64{group}, UpstreamConfigID: &configID, UpstreamKeyID: &key, UpstreamConcurrencyLimit: 1}
+	sourceAccount := &Account{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 20, RateMultiplier: &sourceRate, GroupIDs: []int64{group}, UpstreamConfigID: &configID, UpstreamKeyID: &sourceKey, UpstreamConcurrencyLimit: 1}
 	ctx := WithUpstreamCacheGuardScheduling(context.Background(), 1)
-	ctx = ContextWithSelectionProfitGate(ctx, &AccountSelectionResult{Account: account, cacheGuardProtectedSelection: true, cacheGuardDeferredBinding: true})
+	previous, ok := runner.logicalRequest(ctx, &group, "binding-failure", "gpt-test", "openai")
+	require.True(t, ok)
+	previous.ID, previous.AccountID, previous.UpstreamKeyID, previous.StartedAt = "established-owner", sourceAccount.ID, sourceKey, time.Now().Add(-time.Minute)
+	priorAdmission, err := runner.engine.Admit(ctx, previous)
+	require.NoError(t, err)
+	require.NoError(t, runner.engine.Complete(ctx, upstreamcacheguard.Evidence{ID: "established-owner-completion", Request: previous, Admission: priorAdmission, Success: true, RawUsage: upstreamcacheguard.RawUsage{Status: upstreamcacheusage.Known, TotalInputTokens: 100, CacheReadTokens: 95}, CompletedAt: previous.StartedAt.Add(time.Second)}))
+	require.NoError(t, runner.engine.Refresh(ctx))
+	sticky := &schedulerTestGatewayCache{sessionBindings: map[string]int64{}}
+	svc := &OpenAIGatewayService{accountRepo: schedulerTestOpenAIAccountRepo{accounts: []Account{*sourceAccount, *account}}, cache: sticky, cfg: &config.Config{}, rateLimitService: newOpenAIAdvancedSchedulerRateLimitService("false"), concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{}), openaiAccountStats: newOpenAIAccountRuntimeStats()}
+	svc.SetOpenAITTFTGuardConfigProvider(openAITTFTGuardConfigProviderFunc(func() OpenAITTFTGuardConfigSnapshot { return enabledOpenAITTFTGuardConfig(20*time.Second, 5) }))
+	sticky.sessionBindings[svc.openAISessionCacheKey("binding-failure")] = sourceAccount.ID
+	selected, _, err := svc.SelectAccountWithScheduler(ctx, &group, "", "binding-failure", "gpt-test", nil, OpenAIUpstreamTransportAny, false)
+	require.NoError(t, err)
+	require.NotNil(t, selected)
+	require.Equal(t, account.ID, selected.Account.ID, "exercise a real cheaper-target selection before rejecting its send")
+	require.True(t, selected.IsSchedulingProtectionMigration())
+	if selected.ReleaseFunc != nil {
+		defer selected.ReleaseFunc()
+	}
+	ctx = ContextWithSelectionProfitGate(ctx, selected)
 	ctx = WithUpstreamCacheGuardAttempt(ctx, 1, &group, "binding-failure", true)
 	bindErr := errors.New("sticky storage failed")
 	ctx = WithSchedulingProtectionBeforeSend(ctx, account.ID, func(context.Context) error { return bindErr })
@@ -177,13 +231,49 @@ func TestProtectionBindingFailureCompletesAdmissionWithoutValidSample(t *testing
 		_, err := tx.Read(upstreamcacheguard.SessionKind, attempt.admission.Admission.SessionKey, &session)
 		return err
 	}))
-	require.Len(t, session.Admissions, 1)
+	require.Len(t, session.Admissions, 2)
 	for _, admission := range session.Admissions {
 		require.True(t, admission.Completed, "a pre-send failure cannot strand its synchronous admission")
 	}
-	require.Len(t, store.events, 1, "finishing twice must enqueue one completion")
+	require.Len(t, store.events, 2, "finishing twice must enqueue only one new completion")
 	for id, fact := range store.events {
 		require.True(t, store.processed[id])
 		require.False(t, fact.ValidSample(), "no upstream send must not create cache or recovery evidence")
 	}
+	require.Equal(t, sourceAccount.ID, sticky.sessionBindings[svc.openAISessionCacheKey("binding-failure")])
+	require.Equal(t, sourceAccount.ID, session.LastAccountID, "a rejected target cannot become a completed owner")
+	read := runner.engine.CachedSessionRead(previous)
+	require.True(t, read.Known)
+	require.Zero(t, read.PreferredAccountID, "a tentative admission must defer to the unchanged native binding")
+	nextCtx := WithUpstreamCacheGuardScheduling(context.Background(), 1)
+	next, _, err := svc.SelectAccountWithScheduler(nextCtx, &group, "", "binding-failure", "gpt-test", nil, OpenAIUpstreamTransportAny, false)
+	require.NoError(t, err)
+	require.NotNil(t, next)
+	require.Equal(t, sourceAccount.ID, next.Account.ID, "failed terminal binding must not leak the unsent target into the next selection")
+	if next.ReleaseFunc != nil {
+		next.ReleaseFunc()
+	}
+	// The converse must also hold: after a successful terminal callback, the
+	// native binding already owns routing before the target's first completion.
+	retryCtx := WithUpstreamCacheGuardScheduling(context.Background(), 1)
+	retryCtx = ContextWithSelectionProfitGate(retryCtx, selected)
+	retryCtx = WithUpstreamCacheGuardAttempt(retryCtx, 1, &group, "binding-failure", true)
+	retryCtx = WithSchedulingProtectionBeforeSend(retryCtx, account.ID, func(sendCtx context.Context) error {
+		return svc.BindStickySessionAfterProfitAdmission(sendCtx, &group, "binding-failure", account.ID)
+	})
+	PrepareOpenAIUpstreamCacheGuardSend(retryCtx, account, "gpt-test", "openai")
+	require.NoError(t, runSchedulingProtectionBeforeSend(retryCtx, account, "gpt-test"))
+	require.Equal(t, account.ID, sticky.sessionBindings[svc.openAISessionCacheKey("binding-failure")])
+	read = runner.engine.CachedSessionRead(previous)
+	require.True(t, read.Known)
+	require.Zero(t, read.PreferredAccountID, "uncompleted classification itself is not an owner confirmation")
+	pendingCtx := WithUpstreamCacheGuardScheduling(context.Background(), 1)
+	pending, _, err := svc.SelectAccountWithScheduler(pendingCtx, &group, "", "binding-failure", "gpt-test", nil, OpenAIUpstreamTransportAny, false)
+	require.NoError(t, err)
+	require.NotNil(t, pending)
+	require.Equal(t, account.ID, pending.Account.ID, "successful terminal binding must apply before the first completion")
+	if pending.ReleaseFunc != nil {
+		pending.ReleaseFunc()
+	}
+	require.Zero(t, lifecycleStore.planningTransactions, "known pending sessions must not add a trial-planning SQL transaction")
 }

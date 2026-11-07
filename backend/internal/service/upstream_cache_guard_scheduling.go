@@ -10,13 +10,22 @@ import (
 )
 
 type cacheGuardPreference struct {
-	Active          bool
-	KeepAccountID   int64
-	Migration       bool
-	Tiers           [][]int64
-	ScopeIDs        map[int64]struct{}
-	CandidateIDs    []int64
-	CandidateKeyIDs map[int64]int64
+	Active               bool
+	ExistingSession      bool
+	AffinityExpired      bool
+	KeepAccountID        int64
+	Migration            bool
+	PriorityReallocation bool
+	PriorityTargetIDs    map[int64]struct{}
+	Tiers                [][]int64
+	ScopeIDs             map[int64]struct{}
+	CandidateIDs         []int64
+	CandidateKeyIDs      map[int64]int64
+	// QualifiedIDs are fresh, unprotected cache candidates. They may share one
+	// native scheduling pool even when their measured cache percentages differ.
+	QualifiedIDs                []int64
+	TrialAccountID              int64
+	PriorityReallocationAllowed bool
 }
 type cacheGuardTentativeKey struct{}
 type cacheGuardMigrationKey struct{}
@@ -43,11 +52,19 @@ func buildCacheGuardPreference(ctx context.Context, groupID *int64, sessionHash,
 		return p
 	}
 	epoch := r.engine.PolicyVersion()
+	var existingSession, affinityExpired bool
 	defer func() {
 		// Metadata, candidates and a cold session read can straddle a policy
 		// publication. Never return a decision assembled from different epochs.
 		if r.engine.PolicyVersion() != epoch || !protectionPolicyEvaluationCurrent(ctx) {
 			preference = cacheGuardPreference{}
+			return
+		}
+		// Ordinary fallbacks must not rehydrate an already expired soft binding.
+		preference.ExistingSession = existingSession
+		preference.AffinityExpired = affinityExpired
+		if affinityExpired && groupID != nil {
+			rememberExpiredProtectionAffinity(ctx, *groupID)
 		}
 	}()
 	guard := forkCacheGuardReader()
@@ -100,6 +117,7 @@ func buildCacheGuardPreference(ctx context.Context, groupID *int64, sessionHash,
 		}
 	}
 	s, snapshot, session := view.Settings, view.Snapshot, view.Session
+	existingSession, affinityExpired = session.Known, session.AffinityExpired
 	if policy, ok := protectionPolicyForEvaluation(ctx, *groupID); ok && !reflect.DeepEqual(policy.Cache, s) {
 		return p
 	}
@@ -130,7 +148,15 @@ func buildCacheGuardPreference(ctx context.Context, groupID *int64, sessionHash,
 	if len(eligible) == 0 {
 		return cacheGuardPreference{}
 	}
-	if session.Known && session.PreferredAccountID > 0 {
+	if snapshot.Fresh {
+		for id := range eligible {
+			if states[id].Fresh && !cacheGuardAccountProtected(states[id]) {
+				p.QualifiedIDs = append(p.QualifiedIDs, id)
+			}
+		}
+		sort.Slice(p.QualifiedIDs, func(i, j int) bool { return p.QualifiedIDs[i] < p.QualifiedIDs[j] })
+	}
+	if session.Known && !session.AffinityExpired && session.PreferredAccountID > 0 {
 		if _, usable := eligible[session.PreferredAccountID]; !usable {
 			return cacheGuardPreference{}
 		}
@@ -138,6 +164,7 @@ func buildCacheGuardPreference(ctx context.Context, groupID *int64, sessionHash,
 			source := states[session.PreferredAccountID]
 			sourceAccount := eligible[session.PreferredAccountID]
 			sourceModel := canonicalOpenAIAccountSchedulingModel(&sourceAccount, model)
+			p.PriorityReallocationAllowed = snapshot.Fresh && source.Fresh && session.Fresh && !req.StartedAt.Before(session.ResidenceUntil)
 			if !snapshot.Fresh || !source.Fresh || !session.Fresh {
 				// A stale snapshot may preserve an existing session affinity, but
 				// must not create a new trial or migrate from old observations.
@@ -191,11 +218,18 @@ func buildCacheGuardPreference(ctx context.Context, groupID *int64, sessionHash,
 	}
 	// Admission assigns a shared ordinal once per logical natural new session.
 	// A later round, model switch or migration can never acquire a new trial slot.
-	dbCtx, cancel := cacheGuardDatabaseContextForStage(ctx, "trial_plan")
-	trial, err := guard.PlanTrial(dbCtx, req)
-	cancel()
-	if err != nil || !protectionPolicyEvaluationCurrent(ctx) {
-		return cacheGuardPreference{}
+	var trial upstreamcacheguard.TrialPlan
+	// A known session without a confirmed owner may be waiting for a terminal
+	// binding callback or its first completion. Its natural plan already exists;
+	// neither pending-owner reads nor retries need another planning transaction.
+	if !session.AffinityExpired && !session.Known {
+		dbCtx, cancel := cacheGuardDatabaseContextForStage(ctx, "trial_plan")
+		var err error
+		trial, err = guard.PlanTrial(dbCtx, req)
+		cancel()
+		if err != nil || !protectionPolicyEvaluationCurrent(ctx) {
+			return cacheGuardPreference{}
+		}
 	}
 	if trial.TrialSlot {
 		var recovery []int64
@@ -208,6 +242,7 @@ func buildCacheGuardPreference(ctx context.Context, groupID *int64, sessionHash,
 		sort.Slice(recovery, func(i, j int) bool { return recovery[i] < recovery[j] })
 		if len(recovery) > 0 {
 			index := int(trial.TrialOrdinal % int64(len(recovery)))
+			p.TrialAccountID = recovery[index]
 			p.Tiers = append(p.Tiers, []int64{recovery[index]})
 		}
 	}

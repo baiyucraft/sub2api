@@ -17,6 +17,7 @@ sys.path.insert(0, str(DEPLOY_ROOT))
 
 from release import finalization, supervisor
 from release.atomic import canonical_json
+from release.doctor import ReleaseDoctor
 
 REMOTE_CONSUMED = finalization._remote_consumed
 DOCTOR_CHECKS = finalization._doctor_checks
@@ -44,7 +45,15 @@ class FinalizationTest(unittest.TestCase):
         self.write("gate/gate.json", {"manifest": self.manifest, "evidence": {"candidate_image_id": self.candidate}})
         self.original = {"release_id": self.identifier, "status": "verified", "candidate_image_id": self.candidate, "running_image_id": self.candidate, "claim_final_state": "consumed"}
         self.production = {**finalization.REMOTE_REQUIRED, "running_image_id": self.candidate}
-        self.doctor = {**finalization.DOCTOR_REQUIRED, "production_current_image_id": self.candidate, "production_current_commit_sha": "a" * 40}
+        # Keep this producer contract independent of the consumer's constants.
+        self.doctor = {
+            "local_ready": "true", "host_keys_ready": "true", "vm_ready": "true", "vm_release_unit_status": "verified",
+            "racknerd_ready": "true", "backup_protocol_ready": "true", "nginx_ingress_policy": "ready",
+            "production_migration_status": "verified", "dmit_ready": "true", "proxy_v2_ready": "true",
+            "release_proxy_ready": "true", "legacy_proxy_disabled": "true", "backup_ready": "true",
+            "relay_external_health": "pass", "production_current_image_id": self.candidate,
+            "production_current_commit_sha": "a" * 40,
+        }
         self.lease = mock.MagicMock()
         self.lease.record = {"vm_boot_id": "00000000-0000-0000-0000-000000000001"}
         self.lease.__enter__.return_value = self.lease
@@ -235,6 +244,75 @@ class FinalizationTest(unittest.TestCase):
         self.assertNotIn("production_snapshot_b64", values)
         self.assertNotIn("backup_public_ip", values)
         self.assertEqual(values["migration_catalog_verified"], "true")
+
+    def test_doctor_consumes_real_backup_relay_health_producer(self):
+        environment = SimpleNamespace(
+            public_domain="sub2api.example.test",
+            relay_route={"address": "198.51.100.20", "observer": "relay-observer"},
+            deployment={"backup_upload": {"node": "backup-uploader"}},
+            profile_values=lambda: {}, assert_current=lambda: None,
+        )
+        producer_runner = SimpleNamespace(
+            deployment_environment=environment, assert_configuration_current=lambda: None,
+            run=mock.Mock(side_effect=[
+                SimpleNamespace(values={"backup_ready": "true", "backup_free_bytes": "9000000000"}),
+                SimpleNamespace(values={"relay_external_health": "pass"}),
+            ]),
+        )
+        produced = ReleaseDoctor("265", runner=producer_runner, environment=environment).check_backup()
+        self.assertEqual(produced, {"backup_ready": "true", "backup_free_bytes": "9000000000", "relay_external_health": "pass"})
+        self.assertEqual(producer_runner.run.call_args.args[0], "relay-observer")
+        self.assertEqual(producer_runner.run.call_args.args[2], {"relay_external_health"})
+        remote = {key: value for key, value in self.doctor.items() if key not in {"backup_ready", "relay_external_health"}}
+        remote.update(produced)
+        for include_vm in (True, False):
+            with self.subTest(include_vm=include_vm):
+                doctor = mock.Mock()
+                doctor.run.side_effect = [{"local_ready": "true", "host_keys_ready": "true"}, remote]
+                with mock.patch.object(finalization, "ReleaseDoctor", return_value=doctor):
+                    checked = DOCTOR_CHECKS(self.manifest, self.helper, mock.Mock(), include_vm=include_vm)
+                self.assertEqual(checked["relay_external_health"], "pass")
+                self.assertNotIn("dmit_external_health", checked)
+
+    def test_relay_health_or_application_drift_blocks_completion_before_owner_release(self):
+        before = {name: (self.run / name).read_bytes() for name in finalization.ORIGINAL_FILES}
+        for drift in ("missing", "failed", "legacy_only", "image", "application_commit"):
+            with self.subTest(drift=drift):
+                remote = dict(self.doctor)
+                if drift in {"missing", "legacy_only"}:
+                    remote.pop("relay_external_health")
+                if drift == "legacy_only":
+                    remote["dmit_external_health"] = "pass"
+                elif drift == "failed":
+                    remote["relay_external_health"] = "fail"
+                elif drift == "image":
+                    remote["production_current_image_id"] = "sha256:" + "e" * 64
+                elif drift == "application_commit":
+                    remote["production_current_commit_sha"] = "e" * 40
+                doctor = mock.Mock()
+                doctor.run.side_effect = lambda nodes: {"local_ready": "true", "host_keys_ready": "true"} if nodes == ("local",) else remote
+                with mock.patch.object(finalization, "ReleaseDoctor", return_value=doctor), mock.patch.object(finalization, "_doctor_checks", side_effect=DOCTOR_CHECKS):
+                    with self.assertRaisesRegex(RuntimeError, "doctor evidence is incomplete|different application identity"):
+                        self.finalize(preserve=True)
+                self.lease.complete.assert_not_called()
+                finalization._cleanup_vm_tasks.assert_not_called()
+                for name in ("finalization-checks.json", "vm-finalization.json", "finalization-result.json"):
+                    self.assertFalse((self.run / name).exists())
+                self.assertEqual(before, {name: (self.run / name).read_bytes() for name in finalization.ORIGINAL_FILES})
+
+    def test_recorded_doctor_accepts_relay_and_rejects_legacy_external_health_field(self):
+        self.finalize(preserve=True)
+        checks = json.loads((self.run / "finalization-checks.json").read_bytes())
+        originals = finalization._original_hashes(self.run)
+        finalization._validate_checks(self.run, checks, self.manifest, self.helper, originals)
+        self.assertEqual(checks["doctor"]["relay_external_health"], "pass")
+        for retain_relay in (True, False):
+            with self.subTest(retain_relay=retain_relay):
+                doctor = {**checks["doctor"], "dmit_external_health": "pass"}
+                if not retain_relay:
+                    doctor.pop("relay_external_health")
+                with self.assertRaisesRegex(RuntimeError, "field allowlist differs"):
+                    finalization._validate_checks(self.run, {**checks, "doctor": doctor}, self.manifest, self.helper, originals)
 
     def test_retained_encrypted_recovery_binds_signed_baseline_and_original_backup(self):
         backup = {"pre_switch_image_id": "sha256:" + "c" * 64, "artifact": "fixture.tar.age", "transport_artifact": "transport.tar.age", "artifact_size": "1", "artifact_sha256": "d" * 64, "release_sha256": "d" * 64, "traffic_preserved": "true", "redis_backup_mode": "rdb", "no_restart_path_proven": "true", "local_restore_point_ready": "true"}

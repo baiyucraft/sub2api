@@ -143,6 +143,9 @@ func normalizeFrozenCacheTranscript(value any) {
 	switch node := value.(type) {
 	case map[string]any:
 		delete(node, "last_degraded_evidence_at")
+		// Route generations are internal owner-write fencing metadata, covered
+		// by dedicated route-ordering tests rather than the old scoring oracle.
+		delete(node, "route_generation")
 		if _, ok := node["preferred_account_id"]; ok {
 			delete(node, "trial")
 			delete(node, "cohort_id")

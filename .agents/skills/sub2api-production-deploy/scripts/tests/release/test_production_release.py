@@ -201,6 +201,7 @@ class ProductionRecoveryTest(unittest.TestCase):
             relay_route={"address": "192.0.2.2", "observer": "backup-node", "target_node": "prod-node"},
             servers={"backup-node": {"host": "backup.example.test"}},
             deployment={
+                "health_routes": {"direct": {"target_node": "prod-node"}},
                 "backup_upload": {"node": "backup-node", "user": "fixture", "key_path": "/tmp/fixture-key", "port": 2202},
                 "relay_probe": {"node": "relay-node"},
             },
@@ -241,6 +242,7 @@ class ProductionRecoveryTest(unittest.TestCase):
             servers={"racknerd": {}, "dmit": {}, "backup": {}, "production-node": {}},
             direct_route={"target_node": "production-node"},
             deployment={
+                "health_routes": {"direct": {"target_node": "production-node"}},
                 "relay_probe": {"node": "relay-node"},
                 "backup_upload": {"node": "backup-node"},
             },

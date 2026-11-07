@@ -16,6 +16,14 @@ DEPLOYMENT_FIELDS = frozenset({"schema", "public_domain", "health_routes", "back
 ROUTE_FIELDS = frozenset({"address", "observer", "target_node"})
 
 
+def deployment_role_nodes(deployment: dict[str, Any]) -> dict[str, str]:
+    return {
+        "racknerd": deployment["health_routes"]["direct"]["target_node"],
+        "dmit": deployment["relay_probe"]["node"],
+        "backup": deployment["backup_upload"]["node"],
+    }
+
+
 def _mapping(value: Any, fields: frozenset[str], message: str) -> dict[str, Any]:
     if not isinstance(value, dict) or set(value) != fields:
         raise RuntimeError(message)
@@ -114,6 +122,14 @@ def _validate(document: Any) -> tuple[dict[str, Any], dict[str, Any]]:
     vm = _mapping(deployment["vm_health"], frozenset({"address", "port"}), "local VM health configuration is invalid")
     if not _address(vm["address"]) or not _port(vm["port"]):
         raise RuntimeError("local VM health endpoint is invalid")
+    if "local_vm" not in servers:
+        raise RuntimeError("local deployment configuration requires the local_vm SSH node")
+    aliases = deployment_role_nodes(deployment)
+    node_references = [backup["node"], probe["node"]]
+    node_references.extend(route[key] for route in routes.values() for key in ("observer", "target_node"))
+    node_references.extend(config["proxy_via"] for config in servers.values() if config.get("proxy_via") is not None)
+    if any(aliases.get(node, node) != node for node in node_references):
+        raise RuntimeError("local deployment node reference conflicts with a reserved role")
     return servers, deployment
 
 
@@ -185,12 +201,7 @@ class DeploymentEnvironment:
         }
 
     def node_for_role(self, role: str) -> str:
-        aliases = {
-            "racknerd": self.direct_route["target_node"],
-            "dmit": self.deployment["relay_probe"]["node"],
-            "backup": self.deployment["backup_upload"]["node"],
-        }
-        return aliases.get(role, role)
+        return deployment_role_nodes(self.deployment).get(role, role)
 
     def assert_current(self) -> None:
         raw, _ = _read_configuration(self.config_path)
