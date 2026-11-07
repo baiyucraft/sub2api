@@ -11,6 +11,8 @@ import (
 
 type cacheGuardPreference struct {
 	Active          bool
+	ExistingSession bool
+	AffinityExpired bool
 	KeepAccountID   int64
 	Migration       bool
 	Tiers           [][]int64
@@ -43,11 +45,19 @@ func buildCacheGuardPreference(ctx context.Context, groupID *int64, sessionHash,
 		return p
 	}
 	epoch := r.engine.PolicyVersion()
+	var existingSession, affinityExpired bool
 	defer func() {
 		// Metadata, candidates and a cold session read can straddle a policy
 		// publication. Never return a decision assembled from different epochs.
 		if r.engine.PolicyVersion() != epoch || !protectionPolicyEvaluationCurrent(ctx) {
 			preference = cacheGuardPreference{}
+			return
+		}
+		// Ordinary fallbacks must not rehydrate an already expired soft binding.
+		preference.ExistingSession = existingSession
+		preference.AffinityExpired = affinityExpired
+		if affinityExpired && groupID != nil {
+			rememberExpiredProtectionAffinity(ctx, *groupID)
 		}
 	}()
 	guard := forkCacheGuardReader()
@@ -100,6 +110,7 @@ func buildCacheGuardPreference(ctx context.Context, groupID *int64, sessionHash,
 		}
 	}
 	s, snapshot, session := view.Settings, view.Snapshot, view.Session
+	existingSession, affinityExpired = session.Known, session.AffinityExpired
 	if policy, ok := protectionPolicyForEvaluation(ctx, *groupID); ok && !reflect.DeepEqual(policy.Cache, s) {
 		return p
 	}
@@ -130,7 +141,7 @@ func buildCacheGuardPreference(ctx context.Context, groupID *int64, sessionHash,
 	if len(eligible) == 0 {
 		return cacheGuardPreference{}
 	}
-	if session.Known && session.PreferredAccountID > 0 {
+	if session.Known && !session.AffinityExpired && session.PreferredAccountID > 0 {
 		if _, usable := eligible[session.PreferredAccountID]; !usable {
 			return cacheGuardPreference{}
 		}
@@ -191,11 +202,15 @@ func buildCacheGuardPreference(ctx context.Context, groupID *int64, sessionHash,
 	}
 	// Admission assigns a shared ordinal once per logical natural new session.
 	// A later round, model switch or migration can never acquire a new trial slot.
-	dbCtx, cancel := cacheGuardDatabaseContextForStage(ctx, "trial_plan")
-	trial, err := guard.PlanTrial(dbCtx, req)
-	cancel()
-	if err != nil || !protectionPolicyEvaluationCurrent(ctx) {
-		return cacheGuardPreference{}
+	var trial upstreamcacheguard.TrialPlan
+	if !session.AffinityExpired {
+		dbCtx, cancel := cacheGuardDatabaseContextForStage(ctx, "trial_plan")
+		var err error
+		trial, err = guard.PlanTrial(dbCtx, req)
+		cancel()
+		if err != nil || !protectionPolicyEvaluationCurrent(ctx) {
+			return cacheGuardPreference{}
+		}
 	}
 	if trial.TrialSlot {
 		var recovery []int64

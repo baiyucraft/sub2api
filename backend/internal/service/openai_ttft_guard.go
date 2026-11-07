@@ -641,9 +641,28 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 	if selection, decision, err, handled := s.selectWithCacheGuardPreference(ctx, groupID, previousResponseID, sessionHash, requestedModel, excludedIDs, requiredTransport, requiredCapability, requiredImageCapability, requireCompact, platform, previousResponseCanMove, useUpstreamTokenCost); handled {
 		return selection, decision, err
 	}
+	// A pre-send snapshot/budget rejection retries through this ordinary path.
+	// Do not let its soft sticky lookups revive an expiry already observed by
+	// this same logical request. Hard owners and guardian lineage remain intact.
+	_, guardianAffinity := openAIGuardianParentAffinityFromContext(ctx)
+	reallocateIdle := groupID != nil && !requireCompact && requiredImageCapability == "" &&
+		protectionAffinityExpiredForRequest(ctx, derefGroupID(groupID)) &&
+		openAIFixedRetryAccountID(ctx) == 0 && !guardianAffinity
+	if reallocateIdle {
+		sessionHash = ""
+		if previousResponseCanMove {
+			previousResponseID = ""
+		}
+	}
+	finish := func(selection *AccountSelectionResult, decision OpenAIAccountScheduleDecision, err error) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
+		if reallocateIdle && !(decision.StickyPreviousHit && !previousResponseCanMove) {
+			s.attachExpiredAffinityReallocation(selection, *groupID, requestedModel)
+		}
+		return selection, decision, err
+	}
 	guardExcludedIDs := s.openAITTFTGuardExclusions(ctx, groupID, platform, requestedModel, requiredTransport, requiredCapability, requiredImageCapability, requireCompact, excludedIDs)
 	if len(guardExcludedIDs) == 0 {
-		return s.selectAccountWithSchedulerOnce(ctx, groupID, previousResponseID, sessionHash, requestedModel, excludedIDs, excludedIDs, false, requiredTransport, requiredCapability, requiredImageCapability, requireCompact, platform, previousResponseCanMove, useUpstreamTokenCost)
+		return finish(s.selectAccountWithSchedulerOnce(ctx, groupID, previousResponseID, sessionHash, requestedModel, excludedIDs, excludedIDs, false, requiredTransport, requiredCapability, requiredImageCapability, requireCompact, platform, previousResponseCanMove, useUpstreamTokenCost))
 	}
 
 	guardCtx := withOpenAITTFTGuardExcludedIDs(ctx, guardExcludedIDs)
@@ -653,9 +672,9 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 	// resolve, ordinary fallback scheduling uses the Guard exclusions.
 	selection, decision, err := s.selectAccountWithSchedulerOnce(guardCtx, groupID, previousResponseID, sessionHash, requestedModel, effectiveExcludedIDs, excludedIDs, true, requiredTransport, requiredCapability, requiredImageCapability, requireCompact, platform, previousResponseCanMove, useUpstreamTokenCost)
 	if !openAITTFTGuardShouldFailOpen(selection, err) {
-		return selection, decision, err
+		return finish(selection, decision, err)
 	}
-	return s.selectAccountWithSchedulerOnce(ctx, groupID, previousResponseID, sessionHash, requestedModel, excludedIDs, excludedIDs, false, requiredTransport, requiredCapability, requiredImageCapability, requireCompact, platform, previousResponseCanMove, useUpstreamTokenCost)
+	return finish(s.selectAccountWithSchedulerOnce(ctx, groupID, previousResponseID, sessionHash, requestedModel, excludedIDs, excludedIDs, false, requiredTransport, requiredCapability, requiredImageCapability, requireCompact, platform, previousResponseCanMove, useUpstreamTokenCost))
 }
 
 type imageCostRoutingContextKey struct{}

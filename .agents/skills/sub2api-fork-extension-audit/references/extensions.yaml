@@ -776,7 +776,7 @@
     {
       "id": "upstream-cache-affinity-guard",
       "title": "上游有效续聊缓存保护",
-      "description": "默认关闭的上游账号与当前Key级有效续聊缓存保护；原始Token加权窗口共享，按质量策略投影phase/冷却/恢复cohort，原trial恢复之外增加可靠已有会话普通流量的独立验证与可过期低率窗口证明。组inherit/enabled/disabled与cache_first/ttft_first统一配置，自定义enabled独立protect；缓存与TTFT联合质量档跨优先池构建，无坏证据的未知候选中性合入普通档，利润合格后择优，档内沿用原优先级和高级调度，没有更好账号时保留原调度兜底，不改变计费或错误重试策略。",
+      "description": "默认关闭的上游账号与当前Key级有效续聊缓存保护；原始Token加权窗口共享，按质量策略投影phase/冷却/恢复cohort，原trial恢复之外增加可靠已有会话普通流量的独立验证与可过期低率窗口证明。组inherit/enabled/disabled与cache_first/ttft_first统一配置，自定义enabled独立protect；缓存与TTFT联合质量档跨优先池构建，无坏证据的未知候选中性合入普通档，利润合格后择优，档内沿用原优先级和高级调度，没有更好账号时保留原调度兜底，不改变计费或错误重试策略。OpenAI普通软会话偏好复用原生sticky空闲配置，到期重新择优，事务内绑定代次防止失败或迟到完成复活旧偏好。",
       "ownership": "fork",
       "risk_level": "critical",
       "paths": [
@@ -947,7 +947,11 @@
         "backend/internal/upstreamcacheguard/ordinary_recovery.go",
         "backend/internal/service/upstream_cache_guard_ordinary_generation.go",
         "backend/internal/repository/upstream_cache_guard_ordinary_recovery.go",
-        "frontend/src/utils/upstreamTTFTSummary.ts"
+        "frontend/src/utils/upstreamTTFTSummary.ts",
+        "backend/internal/upstreamcacheguard/session_affinity.go",
+        "backend/internal/upstreamcacheguard/session_affinity_test.go",
+        "backend/internal/service/protection_session_affinity_integration_test.go",
+        "backend/internal/repository/upstream_cache_guard_json_compatibility_test.go"
       ],
       "symbols": [
         "SettingKeyUpstreamCacheGuard",
@@ -985,7 +989,13 @@
         "OrdinaryRecoveryFactEligible",
         "AccountRecoveryFacts",
         "ApplyRecoveryConfiguration",
-        "summarizeTTFTGroups"
+        "summarizeTTFTGroups",
+        "SetSessionAffinityTTL",
+        "openAIConfiguredSessionStickyTTL",
+        "BindStickySessionAfterProfitAdmission",
+        "rememberExpiredProtectionAffinity",
+        "protectionAffinityExpiredForRequest",
+        "attachExpiredAffinityReallocation"
       ],
       "api_routes": [
         "/admin/upstream-management/settings",
@@ -1097,7 +1107,9 @@
         "backend/internal/repository/upstream_cache_guard_ordinary_pg_test.go",
         "backend/internal/repository/upstream_cache_guard_ordinary_bench_pg_test.go",
         "frontend/src/utils/__tests__/upstreamTTFTSummary.spec.ts",
-        "frontend/src/components/account/__tests__/UpstreamProtectionStatus.spec.ts"
+        "frontend/src/components/account/__tests__/UpstreamProtectionStatus.spec.ts",
+        "backend/internal/upstreamcacheguard/session_affinity_test.go",
+        "backend/internal/service/protection_session_affinity_integration_test.go"
       ],
       "invariants": [
         "账号窗口汇总在同一当前账号/Key范围内复用窄标量事实，账号与策略分别集合聚合，保持原17列、有效样本JSON类型、quality_since严格边界、trial与ordinary不同去重口径、空策略零指标及NextBoundary；不得用策略连接倍增账号指标或放宽恢复条件。",
@@ -1147,7 +1159,10 @@
         "普通进度按相同策略跨组共享、不同策略独立；qualified_until逐批同timestamp过期计算首个真实失格边界，受原保护证据期限限制，不简单取最老样本，支持5分钟窗持续10分钟验证。间隙失格、迟到坏事实、回拨、采样失败和本账号Key严格超过5秒完成积压均重置；正常在途与短排队不算gap。管理GET/刷新仅投影、不推进或自动健康，5秒/30秒快照及原有效样本/缓存率/硬约束保持。",
         "普通进度使用算法版本/规则指纹/持久策略代次/身份代次；配置与代次整套原子发布，完成读取配置的锁覆盖COMMIT，不能跨切换写旧健康。Key/启停/有效规则或身份密钥变化后重验，不改既有PolicySignature或trial cohort。完成在原账号锁内合并有界事实与gap的一次SQL读取，不扩窗口、无新增请求前SQL或轮询。",
         "分组可选ordinary_recovery与旧trial recovery_*分离，返回门槛/样本/会话/率/开始及最早完成时间/原因，rate达标仍受保护显示等待恢复验证；恢复字段及时间边界原因参与完整响应后ETag。TTFT仅展示按后端模型身份跨组保守去重，保护优先，区分部分不足/全部不足/待复核/不可用/停用/平台未选；样本是近期滑动窗口，采样及调度不变。",
-        "本普通恢复扩展沿用现有表及JSON，无新增SQL迁移或profile；旧binary重写会丢新增身份与进度，未来必须协调切换admission writers与completion consumers，禁止混版本混写混消费；回退放弃普通进度重新验证。本地测试与微基准不代表生产恢复或性能达标。"
+        "本普通恢复扩展沿用现有表及JSON，无新增SQL迁移或profile；旧binary重写会丢新增身份与进度，未来必须协调切换admission writers与completion consumers，禁止混版本混写混消费；回退放弃普通进度重新验证。本地测试与微基准不代表生产恢复或性能达标。",
+        "OpenAI普通软会话偏好复用gateway.openai_ws.sticky_session_ttl_seconds默认3600秒，空闲达到期限即失效；使用选号前已有业务开始/完成时间，管理GET、后台刷新、纯选号与等待容量不续期。15分钟暖上下文和5分钟迁移驻留不替代该期限，持续业务不因绑定总时长强制换号。",
+        "空闲到期保留逻辑会话与自然试用历史，不重新发放cache或TTFT自然试用资格；本次保护档与普通fallback统一跳过持久偏好、原生sticky和可迁移previous owner优先捷径，真实请求身份及转发内容保留。请求内已观测的空闲过期事实按实际调度分组隔离，快照失效或预算降级后的外层重选仍撤软优先，不跨请求或跨组继承，无额外SQL。原账号仍可按利润硬约束、联合质量档与档内Priority正常入选或兜底，不因到期加入硬排除；不可迁移previous、固定重试、guardian、现有WS连接和已在途请求保留原义。",
+        "过期软偏好在现有发送准入事务中撤销并推进内部AffinityGeneration，Admission冻结代次；重选失败或旧代次迟到完成不得复活旧偏好，同时间戳并发不依赖完成时间代替代次。旧JSON缺字段以初始代次兼容，事实统计与计费原义保留；只有实际发送准入及原利润检查成功后才覆盖过期Redis绑定；不新增配置、公开API、SQL迁移、额外数据库往返或后台任务，发布须协调writer/consumer切换，禁止旧binary丢字段混写。"
       ]
     },
     {

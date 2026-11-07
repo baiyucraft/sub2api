@@ -3117,8 +3117,16 @@ func (s *OpenAIGatewayService) SnapshotOpenAIAccountSchedulerMetrics() OpenAIAcc
 }
 
 func (s *OpenAIGatewayService) openAIWSSessionStickyTTL() time.Duration {
-	if s != nil && s.cfg != nil && s.cfg.Gateway.OpenAIWS.StickySessionTTLSeconds > 0 {
-		return time.Duration(s.cfg.Gateway.OpenAIWS.StickySessionTTLSeconds) * time.Second
+	if s != nil {
+		return openAIConfiguredSessionStickyTTL(s.cfg)
+	}
+	return openAIConfiguredSessionStickyTTL(nil)
+}
+
+// The original sticky binding and cache-protection affinity share one idle TTL.
+func openAIConfiguredSessionStickyTTL(cfg *config.Config) time.Duration {
+	if cfg != nil && cfg.Gateway.OpenAIWS.StickySessionTTLSeconds > 0 {
+		return time.Duration(cfg.Gateway.OpenAIWS.StickySessionTTLSeconds) * time.Second
 	}
 	return openaiStickySessionTTL
 }

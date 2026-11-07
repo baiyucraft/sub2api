@@ -24,6 +24,7 @@ const RecoveryLifetime = 10 * time.Minute
 const MaxActiveSessions = 65536
 
 type Engine struct {
+	sessionAffinityTTL         atomic.Int64
 	ordinaryConfigMu           sync.RWMutex
 	ordinaryIdentityGeneration atomic.Pointer[string]
 	ordinaryPolicyGenerations  atomic.Pointer[map[string]string]
@@ -285,6 +286,8 @@ func (e *Engine) CaptureOnly(ctx context.Context, r Request) (Admission, error) 
 			a = old
 			return nil
 		}
+		e.resetExpiredSessionAffinity(&session, r)
+		a.AffinityGeneration = session.AffinityGeneration
 		if s.Mode != Disabled && s.ContainsGroup(r.GroupID) {
 			plan, err := planInTx(tx, r, &session, s)
 			if err != nil {
@@ -374,6 +377,8 @@ func (e *Engine) admit(ctx context.Context, r Request, existingOnly bool) (Admis
 			a = old
 			return nil
 		}
+		e.resetExpiredSessionAffinity(&session, r)
+		a.AffinityGeneration = session.AffinityGeneration
 		var plan TrialPlan
 		if executing && !existingOnly {
 			plan, err = planInTx(tx, r, &session, s)
@@ -539,13 +544,14 @@ func (e *Engine) complete(ctx context.Context, v Evidence) (bool, error) {
 			session.Key = v.Admission.SessionKey
 			session.FirstSeenAt = v.Request.StartedAt
 		}
+		applyAffinity := v.Admission.AffinityGeneration == session.AffinityGeneration
 		completed := v.Admission
 		completed.Completed = true
 		if err := saveAdmission(tx, &session, v.Request, completed); err != nil {
 			return err
 		}
 		if !applyPolicy {
-			if v.ProtectionPaused || v.Admission.CaptureOnly {
+			if applyAffinity && (v.ProtectionPaused || v.Admission.CaptureOnly) {
 				if route, exists := session.Routes[WarmRouteKey(v.Request)]; exists {
 					route.LowWindow = nil
 					session.Routes[WarmRouteKey(v.Request)] = route
@@ -578,14 +584,14 @@ func (e *Engine) complete(ctx context.Context, v Evidence) (bool, error) {
 		routeKey := WarmRouteKey(v.Request)
 		route := session.Routes[routeKey]
 		signature := PolicySignature(s)
-		if !v.Admission.CaptureOnly && route.PolicySignature != signature {
+		if applyAffinity && !v.Admission.CaptureOnly && route.PolicySignature != signature {
 			// Warmness is a physical fact. Affinity and pending migration are
 			// interpretations of that fact under one effective quality rule.
 			route.HighCacheSeen, route.PendingLow, route.LowStreak = false, false, 0
 			route.PolicySignature = signature
 			route.LowWindow = nil
 		}
-		if v.Success && v.RawUsage.Known() && v.CompletedAt.After(route.LastSuccessfulAt) {
+		if applyAffinity && v.Success && v.RawUsage.Known() && v.CompletedAt.After(route.LastSuccessfulAt) {
 			if !v.Admission.CaptureOnly && session.LastAccountID > 0 && session.LastAccountID != v.Request.AccountID && !v.CompletedAt.Before(session.LastCompletedAt) {
 				session.ResidenceUntil = v.CompletedAt.Add(ResidenceLifetime)
 			}
@@ -642,6 +648,15 @@ func (e *Engine) complete(ctx context.Context, v Evidence) (bool, error) {
 		if err = e.advanceOrdinaryPolicies(&account, facts, v, now, recoverySupported, pendingGap); err != nil {
 			return err
 		}
+		if !applyAffinity {
+			// A pre-expiry completion remains a raw account fact, but cannot
+			// restore the discarded route or change a newer session preference.
+			if _, err = tx.(AccountTx).WriteAccount(v.Request.AccountID, v.Request.UpstreamKeyID, &account); err != nil {
+				return err
+			}
+			_, err = tx.Write(SessionKind, v.Admission.SessionKey, &session)
+			return err
+		}
 		if v.Admission.CaptureOnly {
 			route.LowWindow = nil
 			session.Routes[routeKey] = route
@@ -654,7 +669,7 @@ func (e *Engine) complete(ctx context.Context, v Evidence) (bool, error) {
 		// Recompute the last two valid warm outcomes, including out-of-order facts.
 		var own []Evidence
 		for _, f := range facts {
-			if f.Admission.SessionKey == v.Admission.SessionKey && WarmRouteKey(f.Request) == routeKey && !f.CompletedAt.Before(now.Add(-historyWindow)) {
+			if f.Admission.SessionKey == v.Admission.SessionKey && f.Admission.AffinityGeneration == session.AffinityGeneration && WarmRouteKey(f.Request) == routeKey && !f.CompletedAt.Before(now.Add(-historyWindow)) {
 				own = append(own, f)
 				if f.ValidSample() && !f.Admission.CaptureOnly {
 					if rate, ok := f.RawUsage.Rate(); ok && rate >= s.ThresholdPercent {
@@ -670,6 +685,9 @@ func (e *Engine) complete(ctx context.Context, v Evidence) (bool, error) {
 			return err
 		}
 		for _, a := range pending {
+			if a.AffinityGeneration != session.AffinityGeneration {
+				continue
+			}
 			own = append(own, Evidence{ID: a.RequestID, Request: Request{StartedAt: a.StartedAt}})
 		}
 		sort.Slice(own, func(i, j int) bool {
@@ -943,6 +961,12 @@ func (e *Engine) cachedSessionReadAtLocked(r Request, s Settings, at time.Time, 
 		return SessionRead{}
 	}
 	read := SessionRead{Known: true, Fresh: snapshot.Fresh, PreferredAccountID: x.LastAccountID, ResidenceUntil: x.ResidenceUntil}
+	if e.sessionAffinityExpired(x, r.Protocol, at) {
+		read.AffinityExpired = true
+		read.PreferredAccountID = 0
+		read.ResidenceUntil = time.Time{}
+		return read
+	}
 	accountUnknown := false
 	var source AccountSnapshot
 	if r.AccountID == x.LastAccountID && r.UpstreamKeyID > 0 {

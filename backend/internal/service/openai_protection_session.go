@@ -25,7 +25,10 @@ type protectionSelection struct {
 	fallbackReason string
 	// newAllocation is committed at the real transport boundary. Selection
 	// itself may be cancelled or retried before any upstream bytes are sent.
-	newAllocation           bool
+	newAllocation bool
+	// Reallocating an idle logical session is a fresh routing decision, but is
+	// not a natural-new TTFT opportunity and must not earn recovery credit.
+	affinityReallocation    bool
 	allocationAccountID     int64
 	allocationUpstreamKeyID int64
 	allocationModel         string
@@ -126,4 +129,21 @@ func (s *OpenAIGatewayService) attachProtectionSelection(result *AccountSelectio
 		trial = trials[0]
 	}
 	result.protection = &protectionSelection{service: s, threshold: cfg.Threshold, groupID: groupID, trial: trial}
+}
+
+func (s *OpenAIGatewayService) attachExpiredAffinityReallocation(result *AccountSelectionResult, groupID int64, model string) {
+	if result == nil || result.Account == nil {
+		return
+	}
+	if result.protection == nil {
+		s.attachProtectionSelection(result, groupID, model, OpenAITTFTGuardConfigSnapshot{Source: "disabled"})
+	}
+	if result.protection == nil {
+		return
+	}
+	result.cacheGuardDeferredBinding = true
+	result.protection.affinityReallocation = true
+	result.protection.allocationAccountID = result.Account.ID
+	result.protection.allocationUpstreamKeyID = accountUpstreamKeyID(result.Account)
+	result.protection.allocationModel = normalizeOpenAIAccountModelTransientModel(canonicalOpenAIAccountSchedulingModel(result.Account, model))
 }

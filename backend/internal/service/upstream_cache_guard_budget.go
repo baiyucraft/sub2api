@@ -24,11 +24,14 @@ type cacheGuardRequestBudget struct {
 	exhausted          atomic.Bool
 	ordinary           atomic.Bool
 	selectionFallback  atomic.Bool
-	stages             map[string]time.Duration
-	activeElapsed      time.Duration
-	groupID            int64
-	accountID          int64
-	upstreamKeyID      int64
+	// An observed idle expiry survives ordinary retries of this logical
+	// request, without allowing a composite-group retry to borrow it.
+	expiredAffinityGroups map[int64]struct{}
+	stages                map[string]time.Duration
+	activeElapsed         time.Duration
+	groupID               int64
+	accountID             int64
+	upstreamKeyID         int64
 }
 
 func cacheGuardDatabaseContext(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -123,6 +126,32 @@ func cacheGuardDatabaseContextForStage(ctx context.Context, operation string) (c
 func protectionOrdinaryFallback(ctx context.Context) bool {
 	identity, _ := ctx.Value(cacheGuardSchedulingKey{}).(cacheGuardSchedulingIdentity)
 	return identity.budget != nil && (identity.budget.ordinary.Load() || identity.budget.selectionFallback.Load())
+}
+
+func rememberExpiredProtectionAffinity(ctx context.Context, groupID int64) {
+	identity, _ := ctx.Value(cacheGuardSchedulingKey{}).(cacheGuardSchedulingIdentity)
+	if identity.budget == nil || groupID <= 0 {
+		return
+	}
+	b := identity.budget
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.expiredAffinityGroups == nil {
+		b.expiredAffinityGroups = map[int64]struct{}{}
+	}
+	b.expiredAffinityGroups[groupID] = struct{}{}
+}
+
+func protectionAffinityExpiredForRequest(ctx context.Context, groupID int64) bool {
+	identity, _ := ctx.Value(cacheGuardSchedulingKey{}).(cacheGuardSchedulingIdentity)
+	if identity.budget == nil || groupID <= 0 {
+		return false
+	}
+	b := identity.budget
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	_, expired := b.expiredAffinityGroups[groupID]
+	return expired
 }
 
 // Disable stale protection decisions without spending the remaining capture

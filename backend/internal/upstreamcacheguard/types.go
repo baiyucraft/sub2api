@@ -130,6 +130,7 @@ type Request struct {
 	StartedAt                          time.Time `json:"started_at"`
 }
 type Admission struct {
+	AffinityGeneration                 uint64    `json:"affinity_generation,omitempty"`
 	OrdinaryRecoverySessionID          string    `json:"ordinary_recovery_session_id,omitempty"`
 	OrdinaryRecoveryIdentityGeneration string    `json:"ordinary_recovery_identity_generation,omitempty"`
 	PolicySignature                    string    `json:"policy_signature,omitempty"`
@@ -237,6 +238,7 @@ type SessionLowWindow struct {
 	ValidUntil      time.Time `json:"valid_until"`
 }
 type SessionState struct {
+	AffinityGeneration     uint64                  `json:"affinity_generation,omitempty"`
 	PolicySignature        string                  `json:"policy_signature,omitempty"`
 	Key                    string                  `json:"key"`
 	FirstSeenAt            time.Time               `json:"first_seen_at"`
@@ -285,6 +287,7 @@ type Snapshot struct {
 	SamplingGap     bool              `json:"sampling_gap"`
 }
 type SessionRead struct {
+	AffinityExpired    bool      `json:"-"`
 	Known              bool      `json:"known"`
 	Fresh              bool      `json:"fresh"`
 	PreferredAccountID int64     `json:"preferred_account_id"`

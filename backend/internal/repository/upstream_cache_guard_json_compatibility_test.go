@@ -13,10 +13,15 @@ import (
 
 func TestCacheGuardAdmissionRepositoryReadsCaptureOnlyAndLegacyJSON(t *testing.T) {
 	for _, tc := range []struct {
-		name    string
-		raw     string
-		capture bool
-	}{{"legacy", `{"request_id":"r","sample":true,"warm_at_start":true}`, false}, {"capture", `{"request_id":"r","sample":true,"warm_at_start":true,"capture_only":true}`, true}} {
+		name       string
+		raw        string
+		capture    bool
+		generation uint64
+	}{
+		{"legacy", `{"request_id":"r","sample":true,"warm_at_start":true}`, false, 0},
+		{"capture", `{"request_id":"r","sample":true,"warm_at_start":true,"capture_only":true}`, true, 0},
+		{"affinity_reset", `{"request_id":"r","sample":true,"warm_at_start":true,"affinity_generation":4}`, false, 4},
+	} {
 		t.Run(tc.name, func(t *testing.T) {
 			db, mock, err := sqlmock.New()
 			require.NoError(t, err)
@@ -32,6 +37,7 @@ func TestCacheGuardAdmissionRepositoryReadsCaptureOnlyAndLegacyJSON(t *testing.T
 				require.True(t, a.Sample)
 				require.True(t, a.WarmAtStart)
 				require.Equal(t, tc.capture, a.CaptureOnly)
+				require.Equal(t, tc.generation, a.AffinityGeneration)
 				return nil
 			})
 			require.NoError(t, err)
@@ -41,10 +47,11 @@ func TestCacheGuardAdmissionRepositoryReadsCaptureOnlyAndLegacyJSON(t *testing.T
 }
 
 func TestCacheGuardSessionRepositoryMarshalRetainsTrialSuppressionAndLegacyDefaults(t *testing.T) {
-	for _, raw := range []string{`{"key":"session","natural_trial_ordinal":7}`, `{"key":"session","natural_trial_ordinal":7,"natural_trial_suppressed":true}`} {
+	for _, raw := range []string{`{"key":"session","natural_trial_ordinal":7}`, `{"key":"session","natural_trial_ordinal":7,"natural_trial_suppressed":true}`, `{"key":"session","natural_trial_ordinal":7,"affinity_generation":4}`} {
 		var session upstreamcacheguard.SessionState
 		require.NoError(t, json.Unmarshal([]byte(raw), &session))
 		suppressed := session.NaturalTrialSuppressed
+		generation := session.AffinityGeneration
 		session.Admissions = map[string]upstreamcacheguard.Admission{"r": {CaptureOnly: true}}
 		encoded, err := marshalCacheGuardRuntime(upstreamcacheguard.SessionKind, &session)
 		require.NoError(t, err)
@@ -52,6 +59,7 @@ func TestCacheGuardSessionRepositoryMarshalRetainsTrialSuppressionAndLegacyDefau
 		require.NoError(t, json.Unmarshal(encoded, &decoded))
 		require.Equal(t, suppressed, decoded.NaturalTrialSuppressed)
 		require.Equal(t, int64(7), decoded.NaturalTrialOrdinal)
+		require.Equal(t, generation, decoded.AffinityGeneration)
 		require.Nil(t, decoded.Admissions)
 		require.True(t, session.Admissions["r"].CaptureOnly, "marshaling must not mutate caller admissions")
 	}
@@ -62,7 +70,7 @@ func TestCacheGuardOutboxRepositoryPreservesCompletionReasonAndLegacyJSON(t *tes
 	require.NoError(t, err)
 	defer db.Close()
 	at := time.Date(2026, 10, 23, 0, 0, 0, 0, time.UTC)
-	evidence := upstreamcacheguard.Evidence{ID: "new", Request: upstreamcacheguard.Request{GroupID: 9, AccountID: 2, UpstreamKeyID: 5}, Admission: upstreamcacheguard.Admission{CaptureOnly: true, Sample: true}, CompletionReason: "usage_absent", CompletedAt: at}
+	evidence := upstreamcacheguard.Evidence{ID: "new", Request: upstreamcacheguard.Request{GroupID: 9, AccountID: 2, UpstreamKeyID: 5}, Admission: upstreamcacheguard.Admission{CaptureOnly: true, Sample: true, AffinityGeneration: 4}, CompletionReason: "usage_absent", CompletedAt: at}
 	raw, err := json.Marshal(evidence)
 	require.NoError(t, err)
 	mock.ExpectExec(`INSERT INTO upstream_cache_guard_facts.*FALSE.*DO NOTHING`).WithArgs(int64(9), "new", int64(2), int64(5), at, false, string(raw)).WillReturnResult(sqlmock.NewResult(0, 1))
@@ -74,7 +82,9 @@ func TestCacheGuardOutboxRepositoryPreservesCompletionReasonAndLegacyJSON(t *tes
 	require.Len(t, got, 2)
 	require.Equal(t, "usage_absent", got[0].CompletionReason)
 	require.True(t, got[0].Admission.CaptureOnly)
+	require.EqualValues(t, 4, got[0].Admission.AffinityGeneration)
 	require.Empty(t, got[1].CompletionReason)
 	require.False(t, got[1].Admission.CaptureOnly)
+	require.Zero(t, got[1].Admission.AffinityGeneration)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
