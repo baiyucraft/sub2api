@@ -131,6 +131,7 @@ type Request struct {
 }
 type Admission struct {
 	AffinityGeneration                 uint64    `json:"affinity_generation,omitempty"`
+	RouteGeneration                    uint64    `json:"route_generation,omitempty"`
 	OrdinaryRecoverySessionID          string    `json:"ordinary_recovery_session_id,omitempty"`
 	OrdinaryRecoveryIdentityGeneration string    `json:"ordinary_recovery_identity_generation,omitempty"`
 	PolicySignature                    string    `json:"policy_signature,omitempty"`
@@ -223,6 +224,8 @@ type SessionRoute struct {
 	PolicySignature  string            `json:"policy_signature,omitempty"`
 	AccountID        int64             `json:"account_id"`
 	UpstreamKeyID    int64             `json:"upstream_key_id"`
+	Model            string            `json:"model,omitempty"`
+	Protocol         string            `json:"protocol,omitempty"`
 	LastSuccessfulAt time.Time         `json:"last_successful_at"`
 	LastCachePercent float64           `json:"last_cache_percent"`
 	LowStreak        int               `json:"low_streak"`
@@ -239,6 +242,9 @@ type SessionLowWindow struct {
 }
 type SessionState struct {
 	AffinityGeneration     uint64                  `json:"affinity_generation,omitempty"`
+	RouteGeneration        uint64                  `json:"route_generation,omitempty"`
+	OwnerRouteGeneration   uint64                  `json:"owner_route_generation,omitempty"`
+	AcceptedRouteKey       string                  `json:"accepted_route_key,omitempty"`
 	PolicySignature        string                  `json:"policy_signature,omitempty"`
 	Key                    string                  `json:"key"`
 	FirstSeenAt            time.Time               `json:"first_seen_at"`

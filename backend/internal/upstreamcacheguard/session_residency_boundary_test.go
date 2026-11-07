@@ -73,8 +73,9 @@ func TestLowCacheResidenceStrictBoundary(t *testing.T) {
 			session := engine.sessions[key]
 			session.LastAccountID, session.LastModel, session.LastProtocol = r.AccountID, r.Model, r.Protocol
 			session.LastRouteKey = WarmRouteKey(r)
+			session.OwnerRouteGeneration = session.RouteGeneration
 			session.ResidenceUntil = testNow.Add(ResidenceLifetime)
-			session.Routes = map[string]SessionRoute{session.LastRouteKey: {AccountID: r.AccountID, UpstreamKeyID: r.UpstreamKeyID, LastSuccessfulAt: testNow, LastCachePercent: 20, PendingLow: true}}
+			session.Routes = map[string]SessionRoute{session.LastRouteKey: {AccountID: r.AccountID, UpstreamKeyID: r.UpstreamKeyID, Model: r.Model, Protocol: r.Protocol, LastSuccessfulAt: testNow, LastCachePercent: 20, PendingLow: true}}
 			engine.sessions[key] = session
 			at := session.ResidenceUntil.Add(offset)
 			// Refresh snapshot verification at the same fixed instant while keeping

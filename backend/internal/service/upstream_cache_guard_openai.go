@@ -120,12 +120,16 @@ func (s *OpenAIGatewayService) selectWithCacheGuardPreference(ctx context.Contex
 			if schedulingProtectionAccountSelected(s.groupProtectionPolicyResolver, a) && s.ttftGuardEligibleAccount(a) {
 				p.CandidateIDs = append(p.CandidateIDs, a.ID)
 				p.ScopeIDs[a.ID] = struct{}{}
+				if !cacheActive {
+					p.QualifiedIDs = append(p.QualifiedIDs, a.ID)
+				}
 			}
 		}
 		p.Tiers = jointTTFTOnlyTiers(eligible, groupID)
 		if sessionHash != "" && !p.AffinityExpired {
 			p.KeepAccountID, _ = s.getStickySessionAccountID(ctx, groupID, sessionHash)
 		}
+		p.PriorityReallocationAllowed = !cacheActive
 	}
 	// Cache preferences alone may not have a durable session record yet. The
 	// official binding is authoritative, including when cache is disabled.
@@ -205,11 +209,17 @@ func (s *OpenAIGatewayService) selectWithCacheGuardPreference(ctx context.Contex
 			})
 		}
 	}
+	trialAccountID := int64(0)
+	if trial != nil {
+		trialAccountID = trial.key.accountID
+	}
+	p.Tiers = jointQualifiedProtectionTiers(p.Tiers, p.QualifiedIDs, qualities, cfg, p.TrialAccountID, trialAccountID)
+	p = s.preferCheaperQualifiedAccount(ctx, p, *groupID, model, cacheGuardOpenAIProtocol(transport), eligible, qualities, cfg)
 	ctx = withProtectionCandidateScope(ctx, p.candidateScope())
 	// Expiry releases only soft routing preference. Keep the original identity
 	// for admission, completion and the terminal binding after real capacity.
 	schedulerSessionHash, schedulerPreviousResponseID := sessionHash, previousResponseID
-	if p.AffinityExpired {
+	if p.AffinityExpired || p.PriorityReallocation {
 		schedulerSessionHash = ""
 		if previousCanMove {
 			schedulerPreviousResponseID = ""
@@ -241,7 +251,19 @@ func (s *OpenAIGatewayService) selectWithCacheGuardPreference(ctx context.Contex
 				observed := &eligible[i]
 				if observed.ID == result.Account.ID {
 					identityMatches = schedulingProtectionAccountSelected(s.groupProtectionPolicyResolver, result.Account) && accountUpstreamKeyID(observed) == accountUpstreamKeyID(result.Account) && canonicalOpenAIAccountSchedulingModel(observed, model) == canonicalOpenAIAccountSchedulingModel(result.Account, model)
+					if _, cheaperTarget := p.PriorityTargetIDs[result.Account.ID]; cheaperTarget {
+						observedModel := canonicalOpenAIAccountSchedulingModel(observed, model)
+						identityMatches = identityMatches && cacheGuardAccountProtocol(ctx, observed, observedModel, cacheGuardOpenAIProtocol(transport)) == cacheGuardAccountProtocol(ctx, result.Account, observedModel, cacheGuardOpenAIProtocol(transport))
+					}
 					break
+				}
+			}
+			if _, cheaperTarget := p.PriorityTargetIDs[result.Account.ID]; cheaperTarget {
+				for i := range eligible {
+					if eligible[i].ID == p.KeepAccountID {
+						identityMatches = identityMatches && cheaperProtectionTarget(&eligible[i], result.Account)
+						break
+					}
 				}
 			}
 			// The original scheduler may see a newer candidate snapshot. A newly
@@ -309,6 +331,9 @@ func (s *OpenAIGatewayService) selectWithCacheGuardPreference(ctx context.Contex
 				result.cacheGuardDeferredBinding = true
 			}
 			attachAllocation(result)
+			if _, cheaperTarget := p.PriorityTargetIDs[result.Account.ID]; cheaperTarget && result.protection != nil {
+				result.protection.selectionPath = "priority_reallocation"
+			}
 			return result, decision, nil, true
 		}
 		if result != nil && result.ReleaseFunc != nil {

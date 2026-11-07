@@ -16,10 +16,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Version three moves Priority/preferred below the protection layers. Historical
-// pre-optimization and quality-first-v2 traces remain frozen in testdata. The
-// explicit overlay below changes only scenarios whose old outer pool blocked a
-// better protection target; it does not derive expectations from the scheduler.
+// Historical pre-optimization and quality-first-v2 traces stay frozen. Version
+// four admits all qualified ordinary accounts to one native pool. For those
+// deliberately changed cases an independent call to the unwrapped scheduler is
+// the reference for its existing bounded acquisition/priority behavior. All
+// unchanged routing, trial and recovery fields still use the historical oracle.
 // The current trace runs in a fixed-clock synctest bubble.
 // Account selection has a deterministic seed derived from the same session,
 // model and group. The scenario generator uses a separate fixed random source.
@@ -95,8 +96,9 @@ func (s *jointOracleStore) quota(t *testing.T) int64 {
 	return count
 }
 
-func TestJointProtectionMatchesQualityFirstV3Contract(t *testing.T) {
+func TestJointProtectionMatchesQualifiedPoolV4Contract(t *testing.T) {
 	var output jointOracleOutput
+	nativeQualified := map[string]jointOracleTrace{}
 	synctest.Test(t, func(t *testing.T) {
 		rng := rand.New(rand.NewSource(1017))
 		for _, advanced := range []bool{false, true} {
@@ -150,6 +152,26 @@ func TestJointProtectionMatchesQualityFirstV3Contract(t *testing.T) {
 							}
 							preference := buildCacheGuardPreference(ctx, &group, "conversation", "gpt-test", "openai", accounts, nil)
 							trace := jointOracleTrace{Name: name, CacheTiers: preference.Tiers, Keep: preference.KeepAccountID, MigrationPlan: preference.Migration, StickyBefore: sticky.sessionBindings[svc.openAISessionCacheKey("conversation")]}
+							if scenario%3 != 2 {
+								// The fixture has 21 valid requests per account and a 75%
+								// protection threshold: account 1 is always protected,
+								// account 2 never is, and account 3 is qualified only at
+								// 75% or higher. Account 2 has bad TTFT in pending cases
+								// from scenario 4 onwards. Build this finite contract
+								// independently of the production classification helpers.
+								require.Equal(t, float64(75), settings.ThresholdPercent)
+								require.Equal(t, 20, settings.MinValidRequests)
+								tiers := [][]int64{{2}, {3}}
+								if pending && scenario >= 3 {
+									tiers = [][]int64{{3}}
+								} else if rates[2] >= 75 {
+									tiers = [][]int64{{2, 3}}
+								}
+								if !pending {
+									tiers = append(tiers, []int64{1})
+								}
+								nativeQualified[name] = jointOracleNativeQualifiedReference(t, svc, ctx, group, capacity, sticky, tiers, pending)
+							}
 							attempted := []int64{}
 							svc.concurrencyService = NewConcurrencyService(schedulerTestConcurrencyCache{acquireResults: capacity, acquiredIDs: &attempted})
 							selection, _, err := svc.SelectAccountWithScheduler(ctx, &group, "", "conversation", "gpt-test", nil, OpenAIUpstreamTransportAny, false)
@@ -201,11 +223,82 @@ func TestJointProtectionMatchesQualityFirstV3Contract(t *testing.T) {
 	require.NoError(t, err)
 	if path := os.Getenv("SUB2API_JOINT_ORACLE_OUTPUT"); path != "" {
 		require.NoError(t, os.WriteFile(path, append(actual, '\n'), 0600))
-		return
 	}
 	expected, err := os.ReadFile("testdata/protection_joint_quality_first_v2.json")
 	require.NoError(t, err)
-	require.JSONEq(t, string(jointProtectionQualityFirstV3Expected(t, expected)), string(actual))
+	var contract jointOracleOutput
+	require.NoError(t, json.Unmarshal(jointProtectionQualityFirstV3Expected(t, expected), &contract))
+	for i := range contract.Selections {
+		trace := &contract.Selections[i]
+		if native, changed := nativeQualified[trace.Name]; changed {
+			trace.AttemptOrder, trace.Account, trace.Acquired = native.AttemptOrder, native.Account, native.Acquired
+			trace.StickyAfter, trace.Migration = native.StickyAfter, native.Migration
+		}
+	}
+	require.Len(t, nativeQualified, 96, "two schedulers, two policies, eight non-resident cases, three capacities")
+	want, err := json.Marshal(contract)
+	require.NoError(t, err)
+	if path := os.Getenv("SUB2API_JOINT_ORACLE_OUTPUT"); path != "" {
+		require.NoError(t, os.WriteFile(path+".expected.json", want, 0600))
+	}
+	require.JSONEq(t, string(want), string(actual))
+}
+
+func jointOracleNativeQualifiedReference(t *testing.T, svc *OpenAIGatewayService, ctx context.Context, group int64, capacity map[int64]bool, sticky *schedulerTestGatewayCache, tiers [][]int64, migrating bool) jointOracleTrace {
+	t.Helper()
+	oldConcurrency := svc.concurrencyService
+	attempts := []int64{}
+	svc.concurrencyService = NewConcurrencyService(schedulerTestConcurrencyCache{acquireResults: capacity, acquiredIDs: &attempts})
+	cacheKey := svc.openAISessionCacheKey("conversation")
+	oldBinding, existed := sticky.sessionBindings[cacheKey]
+	defer func() {
+		svc.concurrencyService = oldConcurrency
+		if existed {
+			sticky.sessionBindings[cacheKey] = oldBinding
+		} else {
+			delete(sticky.sessionBindings, cacheKey)
+		}
+	}()
+	var result *AccountSelectionResult
+	for _, tier := range tiers {
+		excluded := map[int64]struct{}{1: {}, 2: {}, 3: {}}
+		for _, id := range tier {
+			delete(excluded, id)
+		}
+		var err error
+		result, _, err = svc.selectAccountWithSchedulerOnce(withCacheGuardTentativeSelection(ctx), &group, "", "conversation", "gpt-test", excluded, nil, true, OpenAIUpstreamTransportAny, "", "", false, PlatformOpenAI, false, true)
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		if result.ReleaseFunc != nil {
+			result.ReleaseFunc()
+		}
+		if result.Acquired {
+			break
+		}
+	}
+	if !result.Acquired {
+		if migrating {
+			// The original owner is a legal capacity fallback, independently of
+			// the native algorithm used to select the migration candidates.
+			scheduler := &defaultOpenAIAccountScheduler{service: svc, stats: svc.openaiAccountStats}
+			var err error
+			result, _, err = scheduler.selectBySessionHash(withCacheGuardTentativeSelection(ctx), OpenAIAccountScheduleRequest{GroupID: &group, Platform: PlatformOpenAI, SessionHash: "conversation", StickyAccountID: 1, PreserveStickyBinding: true, DisableStickyEscape: true, RequestedModel: "gpt-test", RequiredTransport: OpenAIUpstreamTransportAny})
+			require.NoError(t, err)
+		} else {
+			var err error
+			result, _, err = svc.selectAccountWithSchedulerOnce(ctx, &group, "", "conversation", "gpt-test", nil, nil, true, OpenAIUpstreamTransportAny, "", "", false, PlatformOpenAI, false, true)
+			require.NoError(t, err)
+		}
+		require.NotNil(t, result)
+		if result.ReleaseFunc != nil {
+			result.ReleaseFunc()
+		}
+	}
+	trace := jointOracleTrace{Account: result.Account.ID, Acquired: result.Acquired, AttemptOrder: attempts, StickyAfter: sticky.sessionBindings[cacheKey], Migration: migrating && result.Acquired && result.Account.ID != 1}
+	if result.Acquired {
+		trace.StickyAfter = result.Account.ID
+	}
+	return trace
 }
 
 // The fixture fixes disjoint cache bands: account 2 is 85..92%, account 3 is

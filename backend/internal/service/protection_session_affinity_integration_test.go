@@ -17,7 +17,9 @@ func idleAffinitySelectionFixture(t *testing.T, advanced, weighted bool, idle, t
 	crossPriorityAdvancedMode(svc, advanced, weighted)
 	accounts := crossPriorityConfigureAccounts(t, svc, 10, 15)
 	for i := range accounts {
-		rate := float64(accounts[i].Priority) / 100
+		// Equal rates isolate idle expiry from the independent cheaper-target
+		// reallocation path. Active cost replacement has its own entry tests.
+		rate := 0.15
 		accounts[i].RateMultiplier = &rate
 	}
 	svc.accountRepo = schedulerTestOpenAIAccountRepo{accounts: accounts}

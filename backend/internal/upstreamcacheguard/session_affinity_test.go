@@ -114,8 +114,8 @@ func TestSessionAffinityFailureDoesNotReviveOldRoute(t *testing.T) {
 	}
 	next := request("after-failed-continuation", "idle-affinity", testNow.Add(time.Second))
 	read := e.CachedSessionReadAt(next, testNow)
-	if !read.Known || !read.AffinityExpired || read.PreferredAccountID != 0 {
-		t.Fatalf("failed new request renewed old affinity: %+v", read)
+	if !read.Known || read.AffinityExpired || read.PreferredAccountID != 0 || read.WarmAtStart || read.Protected {
+		t.Fatalf("failed pending route resurrected an owner or invented successful evidence: %+v", read)
 	}
 	// A real successful continuation can establish the newly selected route.
 	next.AccountID, next.UpstreamKeyID = 6, 7

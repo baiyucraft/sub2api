@@ -776,7 +776,7 @@
     {
       "id": "upstream-cache-affinity-guard",
       "title": "上游有效续聊缓存保护",
-      "description": "默认关闭的上游账号与当前Key级有效续聊缓存保护；原始Token加权窗口共享，按质量策略投影phase/冷却/恢复cohort，原trial恢复之外增加可靠已有会话普通流量的独立验证与可过期低率窗口证明。组inherit/enabled/disabled与cache_first/ttft_first统一配置，自定义enabled独立protect；缓存与TTFT联合质量档跨优先池构建，无坏证据的未知候选中性合入普通档，利润合格后择优，档内沿用原优先级和高级调度，没有更好账号时保留原调度兜底，不改变计费或错误重试策略。OpenAI普通软会话偏好复用原生sticky空闲配置，到期重新择优，事务内绑定代次防止失败或迟到完成复活旧偏好。",
+      "description": "默认关闭的上游账号与当前Key级有效续聊缓存保护；原始Token加权窗口共享，按质量策略投影phase/冷却/恢复cohort，保留独立普通恢复与有效低率窗口证明。OpenAI利润及原硬约束先行，未被cache/TTFT保护或待复核的normal与真正unknown合并主候选，取消主池内缓存率与延迟细档，原优先级与高级调度统一选号；保护及试用后备不变。严格更低Priority且实际倍率更低的保护合格同模型账号可接管活跃普通软绑定，同Priority不切，驻留及硬绑定不变；只有真实容量和发送终检成功才提交，失败保留合法原号和原兜底。",
       "ownership": "fork",
       "risk_level": "critical",
       "paths": [
@@ -908,6 +908,7 @@
         "backend/internal/service/upstream_cache_guard_scheduling_test.go",
         "backend/internal/service/protection_cold_candidate_integration_test.go",
         "backend/internal/service/protection_cold_candidate_order_test.go",
+        "backend/internal/service/protection_qualified_pool_test.go",
         "backend/internal/service/openai_protection_order_test.go",
         "backend/internal/service/upstream_cache_usage_lifecycle_test.go",
         "backend/internal/service/upstream_cache_usage_stream_writer.go",
@@ -950,6 +951,7 @@
         "frontend/src/utils/upstreamTTFTSummary.ts",
         "backend/internal/upstreamcacheguard/session_affinity.go",
         "backend/internal/upstreamcacheguard/session_affinity_test.go",
+        "backend/internal/upstreamcacheguard/session_route_fence_test.go",
         "backend/internal/service/protection_session_affinity_integration_test.go",
         "backend/internal/repository/upstream_cache_guard_json_compatibility_test.go"
       ],
@@ -1067,6 +1069,7 @@
         "backend/internal/service/upstream_cache_guard_scheduling_test.go",
         "backend/internal/service/protection_cold_candidate_integration_test.go",
         "backend/internal/service/protection_cold_candidate_order_test.go",
+        "backend/internal/service/protection_qualified_pool_test.go",
         "backend/internal/service/upstream_cache_usage_lifecycle_test.go",
         "backend/internal/service/upstream_cache_usage_gemini_completion_test.go",
         "backend/internal/service/upstream_cache_guard_anthropic_lifecycle_test.go",
@@ -1109,6 +1112,7 @@
         "frontend/src/utils/__tests__/upstreamTTFTSummary.spec.ts",
         "frontend/src/components/account/__tests__/UpstreamProtectionStatus.spec.ts",
         "backend/internal/upstreamcacheguard/session_affinity_test.go",
+        "backend/internal/upstreamcacheguard/session_route_fence_test.go",
         "backend/internal/service/protection_session_affinity_integration_test.go"
       ],
       "invariants": [
@@ -1120,11 +1124,11 @@
         "统计固定account ID加当前upstream Key ID，所有组、模型、协议有效样本按Token加权合并，排除冷首轮和无效样本；Key轮换不继承旧证据，未知率不是零",
         "首次账号与当前Key仅在accounts、refreshVersions及accountPolicyEpoch均无记录且无采样gap/failure时，允许以最近成功refreshPolicyEpoch等于当前策略代次并满足原5秒新鲜条件进入同步准入；不生成缓存率或伪造有效样本，已有状态、旧策略及失败身份不走此例外，仍保留5秒/30秒边界。首次cold不计有效样本，后续合格warm才统计，不回填历史；最低回归bootstrap_snapshot_test.go及upstream_cache_guard_bootstrap_test.go。",
         "正常N严格超过20且缓存率低于75时保护，默认disabled、observe不改变调度；旧PUT省略配置保留已有值",
-        "保护给自然新会话让路；旧会话连续两次有效低率，或当前账号/Key/模型/协议/策略边界内足量有效温热事实的Token加权率低于迁移阈值后，才允许迁移至有效率高至少5个百分点且有实际容量的账号；缓存与TTFT联合迁移不再要求同preferred/priority池，迁移冷首轮不计、成功迁移最短驻留5分钟；没有更好账号时保留原账号和普通调度兜底",
+        "保护给自然新会话让路；旧会话连续两次有效低率，或当前账号/Key/模型/协议/策略边界内足量有效温热事实的Token加权率低于迁移阈值后，可迁移至同实际模型、足量且有效率高至少5个百分点并有实际容量的目标。通过资格的普通目标合并交原调度，不仅按更高缓存率前置；缓存与TTFT联合迁移不要求同preferred/priority池，原保护后备范围保持。迁移冷首轮不计、成功迁移最短驻留5分钟；没有更好账号时保留原账号和普通调度兜底。",
         "session_window_migration_threshold_percent可为空，缺省沿用分组最终有效threshold_percent，显式0只关闭新增窗口判据，连续两低仍用账号保护阈值；recovery_min_sessions默认3、管理PUT只允许整数1–100，trial与ordinary recovery共用，recovery_required_sessions向API说明trial恢复所需会话数；同值配置保存不重启普通恢复验证",
         "不可迁移previous_response和固定同账号重试保持原语义；不更改错误状态码重试配置",
         "全低仍在硬合法池按cache择优，差不超过5个百分点优先TTFT正常再负载，cache或TTFT软限制不新增拒绝，不撤caller失败排除及其他硬条件",
-        "自然新会话普通缓存档先按已知率生成原5个百分点档，非保护的Unknown或样本不足候选中性合入首普通档；无已知时组成一个普通档，移除未知约10%机会前排分支，不伪造缓存率、不重复候选、不混入显式trial档。cache_first/ttft_first各维度分别合档，一维未知不能抹去另一维已知劣势；全已知档序保持，档内沿用原Priority/倍率/高级调度，不强制轮遍。未知不提供旧会话迁移证明，原绑定/利润/容量/恢复名额及5秒30秒规则不变，无新增SQL、历史扫描或刷新请求。",
+        "OpenAI利润及原硬约束后，未被cache/TTFT保护、待复核或不可用的normal与真正Unknown/普通不足合并主候选池；主池取消缓存5个百分点档与TTFT延迟细分，由原preferred/Priority/倍率/高级调度统一选择。更高缓存率或更低延迟不能单独压过主池Priority；一个维度未知不抹去另一维保护或待复核，策略失配/读取异常不冒充冷启动。保护/待复核后备、cache_first/ttft_first在保留后备及迁移中的规则、原trial配额/信用/cohort和5秒30秒保持；不伪造率、不强制轮遍、不新增SQL/历史扫描/上游请求/刷新。",
         "冷却10分钟后分组总体10%自然新会话试用并固定账号，多个恢复账号轮转分配，不解释为每账号或每请求10%",
         "trial新处理的有效完成一旦使样本数严格超过min_valid_requests且缓存率低于保护threshold_percent，立即结束失败cohort并重新冷却；失败判定不等待recovery_min_sessions或10分钟成功观察期，重复/无效完成不触发",
         "原trial恢复cohort统一收集各启用组的有效试用样本；保留原配额、分类与恢复门槛。新增独立普通恢复按账号/当前Key/策略记录，非trial的可靠已有会话样本可验证，原始窗口、自然新会话序号及cohort不被挪用；任一路径通过共用健康收尾。",
@@ -1160,9 +1164,11 @@
         "普通进度使用算法版本/规则指纹/持久策略代次/身份代次；配置与代次整套原子发布，完成读取配置的锁覆盖COMMIT，不能跨切换写旧健康。Key/启停/有效规则或身份密钥变化后重验，不改既有PolicySignature或trial cohort。完成在原账号锁内合并有界事实与gap的一次SQL读取，不扩窗口、无新增请求前SQL或轮询。",
         "分组可选ordinary_recovery与旧trial recovery_*分离，返回门槛/样本/会话/率/开始及最早完成时间/原因，rate达标仍受保护显示等待恢复验证；恢复字段及时间边界原因参与完整响应后ETag。TTFT仅展示按后端模型身份跨组保守去重，保护优先，区分部分不足/全部不足/待复核/不可用/停用/平台未选；样本是近期滑动窗口，采样及调度不变。",
         "本普通恢复扩展沿用现有表及JSON，无新增SQL迁移或profile；旧binary重写会丢新增身份与进度，未来必须协调切换admission writers与completion consumers，禁止混版本混写混消费；回退放弃普通进度重新验证。本地测试与微基准不代表生产恢复或性能达标。",
-        "OpenAI普通软会话偏好复用gateway.openai_ws.sticky_session_ttl_seconds默认3600秒，空闲达到期限即失效；使用选号前已有业务开始/完成时间，管理GET、后台刷新、纯选号与等待容量不续期。15分钟暖上下文和5分钟迁移驻留不替代该期限，持续业务不因绑定总时长强制换号。",
-        "空闲到期保留逻辑会话与自然试用历史，不重新发放cache或TTFT自然试用资格；本次保护档与普通fallback统一跳过持久偏好、原生sticky和可迁移previous owner优先捷径，真实请求身份及转发内容保留。请求内已观测的空闲过期事实按实际调度分组隔离，快照失效或预算降级后的外层重选仍撤软优先，不跨请求或跨组继承，无额外SQL。原账号仍可按利润硬约束、联合质量档与档内Priority正常入选或兜底，不因到期加入硬排除；不可迁移previous、固定重试、guardian、现有WS连接和已在途请求保留原义。",
-        "过期软偏好在现有发送准入事务中撤销并推进内部AffinityGeneration，Admission冻结代次；重选失败或旧代次迟到完成不得复活旧偏好，同时间戳并发不依赖完成时间代替代次。旧JSON缺字段以初始代次兼容，事实统计与计费原义保留；只有实际发送准入及原利润检查成功后才覆盖过期Redis绑定；不新增配置、公开API、SQL迁移、额外数据库往返或后台任务，发布须协调writer/consumer切换，禁止旧binary丢字段混写。"
+        "OpenAI普通软会话偏好复用gateway.openai_ws.sticky_session_ttl_seconds默认3600秒，空闲达到期限即失效；使用选号前已有业务开始/完成时间，管理GET、后台刷新、纯选号与等待容量不续期。活跃未过期普通绑定可让位给严格更低Priority且实际倍率更低、利润/保护均合格的同模型目标，同Priority不切；迁移驻留期、不可迁移previous、固定重试、guardian、现有WS和在途保持，只有真实容量与最终发送准入通过才改绑定，失败回合法原号/原兜底，不新增自然试用资格。15分钟暖上下文与5分钟驻留不替代空闲期限。",
+        "空闲到期保留逻辑会话与自然试用历史，不重新发放cache或TTFT自然试用资格；本次保护选择与普通fallback统一跳过持久偏好、原生sticky和可迁移previous owner优先捷径，真实请求身份及转发内容保留。请求内已观测空闲过期事实按实际组隔离，快照失效或预算降级后外层重选仍撤软优先，不跨请求/组继承，无额外SQL。原账号仍可按利润硬约束、保护资格及主池原调度正常入选或兜底，不因到期硬排除；不可迁移previous、固定重试、guardian、现有WS连接和在途原义保持。",
+        "过期软偏好在现有发送准入事务中撤销并推进内部AffinityGeneration，Admission冻结代次；重选失败或旧代次迟到完成不得复活旧偏好，同时间戳并发不依赖完成时间代替代次。旧JSON缺字段以初始代次兼容，事实统计与计费原义保留；只有实际发送准入及原利润检查成功后才覆盖过期Redis绑定；不新增配置、公开API、SQL迁移、额外数据库往返或后台任务，发布须协调writer/consumer切换，禁止旧binary丢字段混写。",
+        "普通迁移及成本择优使用Session JSON的独立RouteGeneration/AcceptedRouteKey写栅栏，Admit只推进accepted route，Admission冻结代次与路线身份；只有当前accepted route及代次的真实成功且已知用量完成才确认OwnerRouteGeneration并更新owner/驻留。pending SessionRead仅Known=true、Preferred=0且无驻留资格，复用原生Redis sticky回填：终态callback失败仍原号，成功后首完成前读已提交新号，不将未实际完成准入当owner；AdmitExisting拒绝pending并沿既有降级，不追加SQL。旧完成仍更新真实暖事实与账号统计，CaptureOnly不创建决定；不改idle AffinityGeneration、不清cohort/份额/暖事实，无新增SQL/迁移。session_route_fence_test.go覆盖callback与乱序边界，repository JSON roundtrip核对三个新增字段及旧数据缺省，成绩另记；writer/consumer协调切换，禁止旧binary丢字段混写。",
+        "成本目标须来自新鲜保护视图且与源实际模型/协议一致；取得容量后的刷新账号重新核对Key/实际模型/协议及严格更低Priority和实际倍率，旧身份不得借用资格。真正unknown成本目标满载或失去资格时保留已有足量改善证据的质量迁移目标回退，候选不重复尝试，再回合法原号/普通兜底。TestJointProtectionMatchesQualifiedPoolV4Contract按有限fixture独立构造资格主池并调用原生scheduler作为参照，仅覆盖有意变更的选号/绑定/容量字段，trial/配额及其他未变字段仍对照冻结golden，历史资产不重生成。"
       ]
     },
     {
@@ -1841,7 +1847,7 @@
     {
       "id": "ttft-guard",
       "title": "OpenAI 分组级 TTFT Guard",
-      "description": "TTFT 业务观测按 account_id + 当前 UpstreamKey + canonical model 共享，三态与窗口坏证据独立；排序区分无坏证据冷启动与待复核，普通/试探真实完成按至少三次成功快请求和两次可靠会话恢复。预算group独立，联合质量跨优先池且档内保留原调度，进程内runtime权威。",
+      "description": "TTFT 业务观测按 account_id + 当前 UpstreamKey + canonical model 共享，三态与窗口坏证据独立；区分无坏证据冷启动与待复核，普通/试探完成按原门槛恢复。OpenAI正常与真正未知且cache合格的候选合并主池，不再以延迟细档压过原Priority/高级调度；保护和待复核后备、迁移改善资格及group独立预算保持，进程内runtime权威。",
       "ownership": "fork",
       "risk_level": "critical",
       "paths": [
@@ -1944,7 +1950,8 @@
         "backend/internal/service/openai_protection_trial_test.go",
         "backend/internal/service/openai_protection_order_test.go",
         "backend/internal/service/protection_joint_oracle_test.go", "backend/internal/service/protection_cross_priority_integration_test.go",
-        "backend/internal/service/protection_cold_candidate_integration_test.go", "backend/internal/service/protection_cold_candidate_order_test.go"
+        "backend/internal/service/protection_cold_candidate_integration_test.go", "backend/internal/service/protection_cold_candidate_order_test.go",
+        "backend/internal/service/protection_qualified_pool_test.go"
       ],
       "invariants": [
         "全局 scheduling_protection_platforms 默认仅 openai；仅选中具体平台的分组提供配置并执行保护，实际账号平台也须选中；composite 不支持；自定义不能绕过范围，空选全部停用，旧客户端省略保留，取消选择保留历史事实与组配置，状态明确 platform_not_selected",
@@ -1953,7 +1960,7 @@
         "组 TTFT/cache 各自 inherit/enabled/disabled；缓存自定义 enabled 独立 protect，只有阈值、恢复阈值、最小有效请求数自定义，时间和试用配额全局继承",
         "TTFT 保护渐出自然新会话；已有可靠会话连续两次超该组阈值才迁移，保留 previous_response 和同账号重试约束",
         "TTFT三态normal/protected/insufficient；按自身首Token/完成时间重建15分钟有效窗口，坏证据截止固定，快流量不续坏证据，过期无新证据待验证不自动健康；普通与试探终态均可恢复，连续至少3成功快attempt且TTFT<=0.6阈值、至少2可靠会话；已恢复normal不被冷启动min_samples=20降级；attempt及逻辑请求幂等，失败/取消/不完整/旧runtime或代次不恢复",
-        "利润及原硬约束先于跨preferred/priority池的联合质量档；TTFT排序将normal与无坏证据的无记录/普通不足/正常证据自然过期合入普通层，待复核与protected保留相应层序，接口三态不变、不将未知标为normal。cache_first在原缓存档内细分可靠TTFT并将TTFT未知合首延迟档；ttft_first先合普通延迟档再保留各自缓存档。一维未知不抹去另一维已知劣势，不足样本不参与精确EWMA拆档；全已知档列表与原实现一致，档内原优先级/高级调度不变且不加权。取消缓存firstPool和迁移samePool限制，试用配额/信用/cohort不变；软保护不得新增无账号拒绝，硬合法与容量边界仍生效",
+        "OpenAI利润及原硬约束先于跨preferred/priority池的保护资格；TTFT normal与无坏证据的无记录/普通不足/正常证据自然过期，在cache亦合格时合并主池，取消主池缓存率及TTFT延迟细分，由原preferred/Priority/倍率/高级调度统一选择。待复核与protected保留相应后备层序，接口三态不变、不把unknown标为normal；未知不抹去另一维保护。原cache_first/ttft_first后备及迁移边界、试用配额/信用/cohort保持；软保护不得新增无账号拒绝，硬合法与容量边界生效。",
         "内部TTFTQuality.NeedsRevalidation直接投影当前身份和策略既有恢复状态，原始样本过期也保留已有待复核标记；仅对当前候选有界lookup，不新增SQL或全账号扫描。排序分类与迁移/试用资格分开，未知不能作为已证明更快的迁移目标；配置失配或读取异常不冒充冷启动，管理GET/读取不推进恢复或续期。",
         "TTFT试探预算按group_id+canonical model独立；20次真实合法新分配积最多1信用，sticky/查询/重复选号/未取得容量不耗机会，公平轮转protected与insufficient；同runtime账号+Key+model最多1在途，实际发送才消费、未发送取消退还；不得绕过缓存cohort与DB/范围/Key/model/利润准入",
         "TTFT权威限定service owner内存map+mutex，runtime_id和algorithm_version显式，票据绑定策略代次和projection generation；重启unknown、旧票不复活，不新增Redis/SQL同步或跨进程即时一致承诺；缓存继续原PG事实和cohort；本轮源码修订尚未部署",

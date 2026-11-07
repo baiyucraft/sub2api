@@ -51,7 +51,27 @@ func (e *Engine) sessionAffinityIdle(session SessionState, protocol string, at t
 
 func (e *Engine) sessionAffinityExpired(session SessionState, protocol string, at time.Time) bool {
 	return openAISessionAffinity(protocol) && (e.sessionAffinityIdle(session, protocol, at) ||
-		(session.AffinityGeneration > 0 && session.LastAccountID == 0))
+		(session.AffinityGeneration > 0 && session.LastAccountID == 0 && session.AcceptedRouteKey == ""))
+}
+
+// A serialized admission fences older completions but is not proof that the
+// terminal before-send checks and sticky binding succeeded. Until this route
+// generation has a real successful completion, leave owner resolution to the
+// caller's existing sticky binding. Older rows retain their successful identity.
+func sessionPreferredRoute(session SessionState) (string, SessionRoute, string, string) {
+	if session.RouteGeneration > 0 && session.AcceptedRouteKey != "" {
+		if session.OwnerRouteGeneration != session.RouteGeneration {
+			return "", SessionRoute{}, "", ""
+		}
+		route := session.Routes[session.AcceptedRouteKey]
+		return session.AcceptedRouteKey, route, route.Model, route.Protocol
+	}
+	route := session.Routes[session.LastRouteKey]
+	// Legacy route JSON did not always repeat the session-level owner ID.
+	if route.AccountID == 0 {
+		route.AccountID = session.LastAccountID
+	}
+	return session.LastRouteKey, route, session.LastModel, session.LastProtocol
 }
 
 // Only a new, real admission advances the fence. Reads and trial planning leave
@@ -64,6 +84,7 @@ func (e *Engine) resetExpiredSessionAffinity(session *SessionState, r Request) {
 	session.AffinityGeneration++
 	session.LastAccountID = 0
 	session.LastModel, session.LastProtocol, session.LastRouteKey = "", "", ""
+	session.AcceptedRouteKey = ""
 	session.LastCompletedAt = time.Time{}
 	session.ResidenceUntil = time.Time{}
 	for key, route := range session.Routes {

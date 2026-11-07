@@ -346,7 +346,18 @@ func TestUpstreamCacheGuardRealSchedulersPrioritizeCacheAndFailOpen(t *testing.T
 					selection, _, err := svc.SelectAccountWithScheduler(ctx, &group, "", "conversation", "gpt-test", nil, OpenAIUpstreamTransportAny, false)
 					require.NoError(t, err)
 					require.NotNil(t, selection)
-					require.Equal(t, tc.want, selection.Account.ID)
+					want := tc.want
+					if !advanced && tc.name == "best_full_use_other_capacity" {
+						// Both accounts share one qualified pool. The legacy native
+						// scheduler keeps its bounded choice and ordinary WaitPlan;
+						// protection does not add a second search within that pool.
+						want = 1
+						require.False(t, selection.Acquired)
+						require.NotNil(t, selection.WaitPlan)
+					} else {
+						require.True(t, selection.Acquired)
+					}
+					require.Equal(t, want, selection.Account.ID)
 					if selection.ReleaseFunc != nil {
 						selection.ReleaseFunc()
 					}
@@ -414,11 +425,7 @@ func TestUpstreamCacheGuardNewSessionProtectionPrecedesPriorityPools(t *testing.
 				selection, _, err := svc.SelectAccountWithScheduler(ctx, &group, "", "new-conversation", "gpt-test", nil, OpenAIUpstreamTransportAny, false)
 				require.NoError(t, err)
 				require.NotNil(t, selection)
-				want := int64(3)
-				if sameBand {
-					want = 2
-				}
-				require.Equal(t, want, selection.Account.ID, "quality precedes preferred/priority pools; the original priority order remains inside a rate band")
+				require.Equal(t, int64(2), selection.Account.ID, "protected accounts yield; all qualified accounts share native priority ordering across cache bands")
 				if selection.ReleaseFunc != nil {
 					selection.ReleaseFunc()
 				}

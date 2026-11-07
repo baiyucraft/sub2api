@@ -63,6 +63,129 @@ func jointTTFTLatencyEvidence(id int64, quality map[int64]forkscheduling.TTFTQua
 	return 0, cacheGuardLatencyUnavailable
 }
 
+// Once both protections admit ordinary traffic, percentage/latency differences
+// must not hide cheaper candidates from the native scheduler. Keep recovery
+// nominations and non-qualified fallback layers, without changing their quota.
+func jointQualifiedProtectionTiers(tiers [][]int64, qualified []int64, quality map[int64]forkscheduling.TTFTQuality, cfg OpenAITTFTGuardConfigSnapshot, nominations ...int64) [][]int64 {
+	allowed := make(map[int64]bool, len(qualified))
+	for _, id := range qualified {
+		if !cfg.Enabled || jointTTFTSchedulingClass(id, quality, cfg.MinSamples) == 0 {
+			allowed[id] = true
+		}
+	}
+	members := map[int64]bool{}
+	for _, tier := range tiers {
+		for _, id := range tier {
+			members[id] = true
+		}
+	}
+	seen := map[int64]bool{}
+	var out [][]int64
+	for _, id := range nominations {
+		if id > 0 && members[id] && !seen[id] {
+			out = append(out, []int64{id})
+			seen[id] = true
+		}
+	}
+	var ordinary []int64
+	for id := range members {
+		if allowed[id] && !seen[id] {
+			ordinary = append(ordinary, id)
+			seen[id] = true
+		}
+	}
+	sort.Slice(ordinary, func(i, j int) bool { return ordinary[i] < ordinary[j] })
+	if len(ordinary) > 0 {
+		out = append(out, ordinary)
+	}
+	for _, tier := range tiers {
+		var fallback []int64
+		for _, id := range tier {
+			if !seen[id] {
+				fallback = append(fallback, id)
+				seen[id] = true
+			}
+		}
+		if len(fallback) > 0 {
+			out = append(out, fallback)
+		}
+	}
+	return out
+}
+
+// A healthy active affinity is soft: a strictly cheaper, lower-priority-value
+// ordinary target can replace it. Equal-priority traffic keeps its warm owner.
+// This is separate from the cache/TTFT evidence required for quality migration.
+func (s *OpenAIGatewayService) preferCheaperQualifiedAccount(ctx context.Context, p cacheGuardPreference, groupID int64, model, protocol string, accounts []Account, quality map[int64]forkscheduling.TTFTQuality, cfg OpenAITTFTGuardConfigSnapshot) cacheGuardPreference {
+	if p.KeepAccountID <= 0 || !p.PriorityReallocationAllowed || p.AffinityExpired || protocol == "openai_ws" || s.protectionSessionResident(ctx, groupID) {
+		return p
+	}
+	var source *Account
+	for i := range accounts {
+		if accounts[i].ID == p.KeepAccountID {
+			source = &accounts[i]
+			break
+		}
+	}
+	if source == nil || !schedulingProtectionAccountSelected(s.groupProtectionPolicyResolver, source) {
+		return p
+	}
+	sourceModel := canonicalOpenAIAccountSchedulingModel(source, model)
+	sourceProtocol := cacheGuardAccountProtocol(ctx, source, sourceModel, protocol)
+	qualified := map[int64]bool{}
+	for _, id := range p.QualifiedIDs {
+		qualified[id] = true
+	}
+	var cheaper []int64
+	for i := range accounts {
+		a := &accounts[i]
+		if !qualified[a.ID] || !cheaperProtectionTarget(source, a) {
+			continue
+		}
+		if cfg.Enabled && jointTTFTSchedulingClass(a.ID, quality, cfg.MinSamples) != 0 {
+			continue
+		}
+		actualModel := canonicalOpenAIAccountSchedulingModel(a, model)
+		if actualModel != sourceModel || cacheGuardAccountProtocol(ctx, a, actualModel, protocol) != sourceProtocol {
+			continue
+		}
+		cheaper = append(cheaper, a.ID)
+	}
+	if len(cheaper) > 0 {
+		sort.Slice(cheaper, func(i, j int) bool { return cheaper[i] < cheaper[j] })
+		p.Migration, p.PriorityReallocation = true, true
+		p.PriorityTargetIDs = make(map[int64]struct{}, len(cheaper))
+		for _, id := range cheaper {
+			p.PriorityTargetIDs[id] = struct{}{}
+		}
+		// Preserve proven quality-migration targets if every cheaper target is
+		// unavailable, but never retry a candidate in two protection layers.
+		tiers := [][]int64{cheaper}
+		for _, tier := range p.Tiers {
+			var remaining []int64
+			for _, id := range tier {
+				if _, used := p.PriorityTargetIDs[id]; !used {
+					remaining = append(remaining, id)
+				}
+			}
+			if len(remaining) > 0 {
+				tiers = append(tiers, remaining)
+			}
+		}
+		p.Tiers = tiers
+	}
+	return p
+}
+
+func cheaperProtectionTarget(source, target *Account) bool {
+	if source == nil || target == nil || source.ID == target.ID || target.Priority >= source.Priority {
+		return false
+	}
+	sourceRate, sourceKnown := upstreamSourceSchedulingRate(source)
+	targetRate, targetKnown := upstreamSourceSchedulingRate(target)
+	return sourceKnown && targetKnown && targetRate < sourceRate
+}
+
 func jointRecoveryTiers(tiers [][]int64, accounts []Account, groupID *int64, nominated []int64, first bool) [][]int64 {
 	var out [][]int64
 	members := map[int64]bool{}
