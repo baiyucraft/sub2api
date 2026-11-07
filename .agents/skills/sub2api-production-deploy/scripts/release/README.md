@@ -12,7 +12,7 @@ Fork 版本号默认使用官方源码 `VERSION` 并追加 `-baiyu`，不补写�
 
 ```sh
 git config --local sub2api.sshConfig "<absolute path to .ssh.local>"
-git config --local core.hooksPath .githooks
+git config --local core.hooksPath "$(git rev-parse --show-toplevel)/.githooks"
 ```
 
 `.ssh.local` 只保存在工作区外或本机忽略文件中；不要复制到 VM、candidate 或构建上下文。
