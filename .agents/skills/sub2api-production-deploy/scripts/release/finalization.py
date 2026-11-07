@@ -24,7 +24,6 @@ from .migration_planner import plan_migrations
 from .paths import WORKSPACE
 from .production_snapshot import decode_snapshot
 from .process import process_identity
-from .profiles import get_profile
 from .ssh import SSHRunner
 from .state import RunLock
 from .vm_lifecycle import FINALIZATION_PRESERVE, FINALIZATION_SHUTDOWN, RetainedVMFinalization, finalization_mode, verify_retained_finalization
@@ -228,7 +227,13 @@ assert_health_headers() {{
 
 def _remote_consumed(ssh: SSHRunner, manifest: dict[str, Any], candidate: str, originals: dict[str, str], *, backup_evidence: dict[str, Any] | None = None) -> dict[str, str]:
     identifier = manifest["release_id"]
-    profile = get_profile(manifest["profile"])
+    environment = ssh.deployment_environment
+    if environment is None:
+        raise RuntimeError("local deployment configuration is required for finalization")
+    environment.assert_current()
+    direct_route = environment.direct_route
+    relay_route = environment.relay_route
+    domain = shlex.quote(environment.public_domain)
     consumed = f"/opt/sub2api/releases/{identifier}/.consumed"
     asset_checksums = {}
     for path, digest in manifest["release_asset_sha256"].items():
@@ -321,9 +326,6 @@ test "$required_capture_37" = healthy
 required_capture_38=$(curl -sS --max-time 15 -D "$health_headers" -o /dev/null -w '%{{http_code}}' http://127.0.0.1:$port/health) || exit $?
 test "$required_capture_38" = 200
 assert_health_headers
-required_capture_39=$(curl -sS --resolve {profile['public_domain']}:443:{profile['rack_public_ip']} --max-time 15 -D "$health_headers" -o /dev/null -w '%{{http_code}}' https://{profile['public_domain']}/health) || exit $?
-test "$required_capture_39" = 200
-assert_health_headers
 grep -Fq "server 127.0.0.1:$port;" /etc/nginx/conf.d/sub2api-release-upstream.conf
 required_capture_40=$(systemctl is-active nginx) || exit $?
 test "$required_capture_40" = active
@@ -338,21 +340,33 @@ else
 fi
 test "$backup_service_code" = 3
 test "$backup_service_state" = inactive
-printf 'consumed_marker_verified=true\\nactive_claim=absent\\napplication_health=pass\\ndirect_health=pass\\nbackup_units_restored=true\\nplaintext_state_removed=true\\nrunning_image_id=%s\\n' {shlex.quote(candidate)}
+printf 'consumed_marker_verified=true\\nactive_claim=absent\\napplication_health=pass\\nbackup_units_restored=true\\nplaintext_state_removed=true\\nrunning_image_id=%s\\n' {shlex.quote(candidate)}
 """
-    rack_required = {key: value for key, value in REMOTE_REQUIRED.items() if key != "dmit_route_health"}
-    values = ssh.run("racknerd", script, {*rack_required, "running_image_id"}, timeout=300).values
+    route_fields = {"direct_health", "dmit_route_health"}
+    rack_required = {key: value for key, value in REMOTE_REQUIRED.items() if key not in route_fields}
+    values = ssh.run(direct_route["target_node"], script, {*rack_required, "running_image_id"}, timeout=300).values
     if any(values.get(key) != expected for key, expected in rack_required.items()) or values.get("running_image_id") != candidate:
         raise RuntimeError("consumed release remote evidence is incomplete")
+    direct_script = f"""set -Eeuo pipefail
+{_health_header_script(identifier)}
+required_capture_39=$(curl -sS --resolve {domain}:443:{shlex.quote(direct_route['address'])} --max-time 15 -D "$health_headers" -o /dev/null -w '%{{http_code}}' https://{domain}/health) || exit $?
+test "$required_capture_39" = 200
+assert_health_headers
+printf 'direct_health=pass\\n'
+"""
+    direct = ssh.run(direct_route["observer"], direct_script, {"direct_health"}, timeout=60).values
+    if direct.get("direct_health") != "pass":
+        raise RuntimeError("consumed release direct health evidence is incomplete")
     dmit_script = f"""set -Eeuo pipefail
 {_health_header_script(identifier)}
-required_capture_43=$(curl -sS --resolve {profile['public_domain']}:443:{profile['dmit_public_ip']} --max-time 15 -D "$health_headers" -o /dev/null -w '%{{http_code}}' https://{profile['public_domain']}/health) || exit $?
+required_capture_43=$(curl -sS --resolve {domain}:443:{shlex.quote(relay_route['address'])} --max-time 15 -D "$health_headers" -o /dev/null -w '%{{http_code}}' https://{domain}/health) || exit $?
 test "$required_capture_43" = 200
 assert_health_headers
 printf 'dmit_route_health=pass\\n'
 """
-    dmit = ssh.run("backup", dmit_script, {"dmit_route_health"}, timeout=60).values
+    dmit = ssh.run(relay_route["observer"], dmit_script, {"dmit_route_health"}, timeout=60).values
     values = {key: value for key, value in values.items() if key in {*rack_required, "running_image_id"}}
+    values["direct_health"] = direct.get("direct_health", "unknown")
     values["dmit_route_health"] = dmit.get("dmit_route_health", "unknown")
     if any(values.get(key) != expected for key, expected in REMOTE_REQUIRED.items()) or values.get("running_image_id") != candidate:
         raise RuntimeError("consumed release remote evidence is incomplete")
@@ -516,7 +530,7 @@ def finalized_result_view(identifier: str, *, check_live: bool = True) -> dict[s
     if finalization_mode(vm) != mode:
         raise RuntimeError("finalization VM mode mismatch")
     if check_live:
-        ssh = SSHRunner()
+        ssh = SSHRunner(require_environment=True)
         _doctor_checks(manifest, helper, ssh, include_vm=mode == FINALIZATION_PRESERVE)
         _remote_consumed(ssh, manifest, original["candidate_image_id"], originals)
     return {
@@ -551,7 +565,7 @@ def finalize_consumed(args: argparse.Namespace) -> None:
                 if finalization_mode(existing_checks) != mode:
                     raise RuntimeError("finalization mode mismatch")
                 _validate_checks(run_dir, existing_checks, manifest, helper, originals)
-            ssh = SSHRunner()
+            ssh = SSHRunner(require_environment=True)
             # Local commit checks happen before any VM or production operation.
             ReleaseDoctor(manifest["profile"], helper["commit_sha"], runner=ssh).run(("local",))
             with RetainedVMFinalization(run_dir, identifier, manifest["commit_sha"], runner, process_identity=_process_identity, ssh=ssh, preserve_running_vm=preserve) as lease:

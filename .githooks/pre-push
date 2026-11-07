@@ -1,0 +1,10 @@
+#!/usr/bin/env sh
+set -eu
+
+repo_root=$(git rev-parse --show-toplevel)
+checker="$repo_root/.agents/skills/sub2api-production-deploy/scripts/check_local_deployment_disclosure.py"
+if ssh_config=$(git config --path sub2api.sshConfig 2>/dev/null); then
+  SUB2API_SSH_CONFIG="$ssh_config" python "$checker" --pre-push
+else
+  python "$checker" --pre-push
+fi

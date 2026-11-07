@@ -15,7 +15,7 @@
 - **未跟踪的 Wiki/Spec/Skill 资产不是失败理由，也不能偷偷带入发布**：doctor 要求 clean worktree 时，先区分用户资产与本次代码。`.wiki/`、`.spec/`、`.agents/skills/wiki-*` 等未跟踪路径若不属于本次 release，可临时移到 worktree 外并原样恢复；禁止删除、加入提交或用忽略规则掩盖。恢复后重新核对 `git status`。
 - **8211 只保留一个持久实例**：VM 展示固定使用 `sub2api-dev` 和 `8211`；不创建或保留 `sub2api-preview-*`、`18211`、`18220`、临时代理或第二套页面服务。candidate 切换必须先核对 image ID、`/health`、页面/API，再清理临时容器；release 目录清理只能使用有边界的版本化 cleaner，保留 active、candidate、旧镜像和回滚证据，禁止宽泛删除。
 - **失败先 reconciliation，再决定是否重试**：SSH 超时、远端命令非零、迁移失败、健康检查失败或输出解析异常，都先核对 committed marker、migration 记录、active claim、容器/image、PG/Redis、Nginx 和备份状态。不能因为“可能没提交”就再次 deploy，也不能删除 `.active-release`、`.consumed`、`.recovered` 后重跑。
-- **健康不是模型能力证明**：容器 health、应用 `/health`、Nginx/DMIT 路由和登录/API smoke 只能证明服务链路启动；不要把它们写成模型可用、账号可用或 upstream 探针通过。
+- **健康不是模型能力证明**：容器 health、应用 `/health`、Nginx/中继节点 路由和登录/API smoke 只能证明服务链路启动；不要把它们写成模型可用、账号可用或 upstream 探针通过。
 
 预防测试至少覆盖：SHA 单值传递、静默 runner 重连、VM/生产状态分离、缺失 image 的 fail-closed、migration 状态三分法、未跟踪资产恢复、8211 单实例收口和重复 runner 拒绝。
 
@@ -64,7 +64,7 @@
 
 ## Doctor 早期失败没有节点原始日志
 
-- 现象：`deploy-start` 在 VM Gate 和生产阶段前以 `doctor.backup failed` 退出，只能看到远端 exit code，无法判断是目录、空间、relay-node 健康还是公网 IP 检查失败。
+- 现象：`deploy-start` 在 VM Gate 和生产阶段前以 `doctor.backup failed` 退出，只能看到远端 exit code，无法判断是目录、空间、中继节点 健康还是公网 IP 检查失败。
 - 根因：原始日志包装只在生产 release 目录完成 staging 后启用；doctor、trust、临时目录和资产 staging 等更早的 SSH 命令仍只返回结构化 stdout，并隐藏远端 stderr。
 - 证据：release `235-ada768cae453-1786735969-9712b65e` 在 `production_status=not_started` 时失败；拆分后的白名单检查确认只有备份机空间门禁失败，可用空间约 `4.90 GiB`，要求为 `5.00 GiB`。
 - 修复：release 上下文中的所有 SSH 命令从第一条开始写节点本地 root-only `remote.raw.log`，同时保持 stdout allowlist 和 stderr 失败语义；使用稳定的独立日志根，避免预创建正式 release/Gate 目录。空间恢复只删除三个经过 inode/mtime/size 计划 SHA 绑定、无 release 引用且超过 7 天的 DR 临时目录，不触碰 daily、baseline、releases 或 verified 指针。
@@ -111,7 +111,7 @@
 
 - 现象：镜像 HEALTHCHECK 已改为 IPv4 且候选应用持续监听新槽位，但停机发布仍在 `candidate_started -> candidate_healthy` 失败；Docker health 连续失败，手工从同一镜像访问当前健康端点却成功。
 - 根因：生产 Compose 自己定义了 healthcheck。Compose 在合并候选 override 前，先使用当前 `.env` 的 `SERVER_PORT` 展开基础 healthcheck，因此候选服务环境虽然是新槽位，容器 healthcheck 仍固定访问旧槽位。停机模式已停止旧应用后，该检查必然失败。
-- 证据：release `235-a60e3895f1b1-1786720374-ab9a4857` 的候选监听 `18081` 达 184 秒且无 panic、fatal、OOM 或 bind 错误；镜像健康命令的 IPv4 对照通过，但生产 Compose 的解析结果仍指向旧槽位 `18080`。
+- 证据：候选在备用 slot 持续启动且无 panic、fatal、OOM 或 bind 错误；镜像健康命令的 IPv4 对照通过，但生产 Compose 的解析结果仍指向旧槽位。
 - 修复：候选 override 显式写入绑定 `candidate_port` 的 IPv4 healthcheck；最终 active override 同样显式绑定最终槽位端口。Compose config 在启动容器前断言 healthcheck URL、服务监听端口和目标槽位完全一致。
 - 预防测试：候选/最终 override 的端口绑定合同、Compose healthcheck 断言、候选失败时将 Docker health log 原样保存在生产机 root-only 日志。
 - 状态：修复中，需通过完整 release suite、新 full-SHA Gate 和生产停机发布验证。
@@ -121,12 +121,12 @@
 - 现象：已选择简单停机更新，脚本仍创建相反端口的临时候选、切换 Nginx、等待旧槽排空、再回原端口重建；旧容器已经停止时，排空检查返回 `unknown`，导致候选健康也无法收口。
 - 根因：`downtime` 只在前置阶段停止服务，后续仍复用了蓝绿的 candidate/expose/finalize 状态机；恢复判断又只检查当前 active 是否健康，没有核对运行镜像是否仍为 `pre-image-id`。
 - 修复：停机模式固定使用原 `active_port` 和正式 `sub2api` 容器，迁移后直接 `compose up --force-recreate`，后台任务激活后只启动一次 Nginx；finalize 不排空、不二次切流。恢复判断同时核对运行镜像与 `pre-image-id`，清理器禁止删除正式容器。
-- 预防测试：分别以 `18080/18081` 为 active 覆盖停机成功、迁移前后失败、健康失败、Nginx 启动失败和恢复；Shell/Python 阶段枚举必须一致。
+- 预防测试：分别以每个受管 slot 为 active 覆盖停机成功、迁移前后失败、健康失败、ingress 启动失败和恢复；Shell/Python 阶段枚举必须一致。
 - 状态：代码已修复，等待完整 VM Gate 和生产停机发布验证。
 
 ## Host 与 Bridge 混淆宿主槽位和容器端口
 
-- 现象：Bridge Compose 的宿主端口为 `18080/18081`、容器内应用端口为 `8080`，但最终 override 或恢复脚本把宿主端口写入容器内 healthcheck，导致正确的 Bridge 配置在重建后变为 unhealthy。
+- 现象：Bridge Compose 的宿主 slot 端口与容器内应用端口不同，但最终 override 或恢复脚本把宿主端口写入容器内 healthcheck，导致正确的 Bridge 配置在重建后变为 unhealthy。
 - 根因：脚本在多个位置分别拼接监听环境、发布端口和 healthcheck，没有共享网络合同；预检还使用 `join | test` 子串判断，可能放行额外参数、`CMD-SHELL` 或错误 URL。
 - 修复：新增共享 Compose/runtime 合同。Host 固定 `127.0.0.1:<slot>`，Bridge 固定容器内 `0.0.0.0:8080`、宿主 `127.0.0.1:<slot>` 和 healthcheck `127.0.0.1:8080`；完整命令数组精确比较，候选、finalize、resume-old 和 coordinated restore 全部复用。
 - 预防测试：VM Gate 对 Host/Bridge 与两个槽位执行 JSON/runtime 合同，明确拒绝 `CMD-SHELL`、多余参数、错误路径和错误发布端口。
@@ -134,23 +134,23 @@
 
 ## 只读巡检硬编码默认活动端口
 
-- 现象：正式应用和 Nginx 均健康，但只读巡检在活动槽为 `18081` 时仍固定请求 `18080`，产生内部健康假故障。
-- 根因：发布、恢复和 doctor 已以 `/opt/sub2api/active-app` 为活动槽事实源，较早的独立只读巡检仍保留初始端口常量。
-- 修复：只读巡检先验证 `active-app` 是普通文件且只有一个合法 `port` 字段，再仅允许 `18080/18081` 并请求对应 loopback 健康端点。
-- 预防测试：拒绝硬编码 `127.0.0.1:18080/health`，验证动态端口命令、非法端口 fail-closed，并在脚本复查中统一搜索固定槽位 URL。
+- 现象：正式应用和 ingress 均健康，但只读巡检仍固定请求非活动 slot，产生内部健康假故障。
+- 根因：发布、恢复和 doctor 已以 `${PRODUCTION_ROOT}/active-app` 为活动槽事实源，较早的独立只读巡检仍保留初始端口常量。
+- 修复：只读巡检先验证 active-slot 状态是普通文件且只有一个合法 `port` 字段，再仅允许已登记的 loopback slot 并请求对应健康端点。
+- 预防测试：拒绝硬编码 loopback slot/health URL，验证动态端口命令、非法端口 fail-closed，并在脚本复查中统一搜索固定槽位 URL。
 - 状态：已修复，等待下一次只读巡检与 VM Gate 验证。
 
 ## VM release unit 更新晚于 doctor
 
 - 现象：仓库中的 `vm-validate` 更新后，`deploy-start` 在 VM doctor 阶段因 checksum 不一致停止；真正负责原子更新 validator 的 VM Gate 尚未开始，形成顺序死锁。
 - 根因：编排先执行完整 local/VM doctor，随后才创建 VM Gate；`install_vm_validator` 位于 Gate 内部，无法在 doctor 前生效。
-- 修复：先执行本地 Git、origin 和完整 SHA doctor，再使用已有 signer key 原子更新 validator、Gate signer、DR signer 同一版本单元；更新成功后才执行 VM、relay-node、备份机和生产 doctor。
-- 预防测试：验证本地 doctor 失败时不写 VM；release unit 更新失败时不进入远端 doctor、Gate 或生产；成功路径严格保持 `local doctor -> release unit update -> VM/external doctor -> production bootstrap -> RackNerd doctor -> VM Gate`。
+- 修复：先执行本地 Git、origin 和完整 SHA doctor，再使用已有 signer key 原子更新 validator、Gate signer、DR signer 同一版本单元；更新成功后才执行 VM、中继节点、备份机和生产 doctor。
+- 预防测试：验证本地 doctor 失败时不写 VM；release unit 更新失败时不进入远端 doctor、Gate 或生产；成功路径严格保持 `local doctor -> release unit update -> VM/external doctor -> production bootstrap -> 生产节点 doctor -> VM Gate`。
 - 状态：已修复，等待新提交的实际 deploy-start 验证。
 
 ## VM fetch 只更新 FETCH_HEAD 未更新 origin/main
 
-- 现象：VM 能通过 `ls-remote` 看到远端最新 `main`，但 Gate 在 `preflight` 立即退出；`/opt/sub2api-src` 的 `HEAD`、`origin/main` 和 `FETCH_HEAD` 仍停在上一次候选提交。
+- 现象：VM 能通过 `ls-remote` 看到远端最新 `main`，但 Gate 在 `preflight` 立即退出；`${APP_SOURCE_DIR}` 的 `HEAD`、`origin/main` 和 `FETCH_HEAD` 仍停在上一次候选提交。
 - 根因：validator 以 `origin/main` 作为发布事实源，但 VM 上该引用可能与远端发生非快进分叉；普通 fetch/refspec 会因拒绝更新而返回非零，原始 stderr 又不能混入结构化接口，最终只留下模糊的 `preflight` 失败。
 - 证据：失败 release `237-de98543d0cb6-1786821227-4c0efd38` 的 `git ls-remote origin refs/heads/main` 已返回新 SHA，而跟踪引用仍为旧 SHA；受控分类结果为 `ref_update_rejected`。
 - 修复：validator 仅对本地远端跟踪引用执行显式强制更新 `git fetch origin +main:refs/remotes/origin/main`，随后继续用完整 SHA 严格核对并 `reset --hard`；不修改远端分支、不放宽 origin、工作树、asset checksum 或 commit 合同。
@@ -316,7 +316,7 @@
 - 现象：VM Gate 失败后，`release.py logs <release_id> --node vm` 返回 `event log unavailable: KeyError`，只能人工投影本地事件和 VM failure marker。
 - 根因：CLI 对外节点名是 `vm`，`.ssh.local` 与 `SSHRunner` 的连接键是 `local_vm`；日志查询把展示名直接交给连接器。
 - 证据：同一失败 release 的 VM Gate 目录和 root-only 日志存在，直接使用 `local_vm` 可读取固定字段，但 `logs --node vm` 在连接配置索引前抛出 KeyError。
-- 修复：日志查询保留输出标签 `vm`，连接时显式映射为 `local_vm`；production-node、relay-node 和 backup 名称不变。
+- 修复：日志查询保留输出标签 `vm`，连接时显式映射为 `local_vm`；生产节点、中继节点 和 backup 名称不变。
 - 预防测试：使用内存中的 VM JSONL 事件验证查询结果仍标记为 `vm`，并断言 SSH 调用使用 `local_vm`。
 - 状态：代码已修复，等待随新发布资产验证。
 
@@ -334,7 +334,7 @@
 - 现象：生产 Docker 升级被“账号池不可用”、Canary 凭据缺失或 upstream/model 探针失败阻塞；或者 Gate 通过了 `/health` 却被误报为模型能力已验证。
 - 根因：历史 profile 的发布链曾把 API key、Canary、模型请求和能力探针混在候选健康或生产切换流程中；`probe_*` 命名又容易把隔离容器检查误解为 upstream 探针。
 - 证据：profile 242 Gate v2 只允许容器 health、应用 `/health` 200、迁移/备份/恢复/镜像与数据库/Redis 隔离合同；Gate 的 `release_policy.canary_verified` 固定为 `not_checked`，生产 `streaming`、`usage_attribution` 和真实客户端 IP 按合同记录为 `not_checked`。现有回归测试禁止 `/api/v1/`、`/v1/`、`Authorization: Bearer`、Canary request、Canary key 和 profile 242 的 `canary_api_key_id`。
-- 修复：升级路径不读取账号池或 Canary/API key，不发送模型/upstream 请求，不生成 usage attribution；direct/DMIT `/health` 只证明容器启动和路由可达。隔离数据库、Redis、候选容器和旧镜像检查可以继续使用 `probe_*` 变量，但必须保持本地隔离语义并在 Gate 结束清理。
+- 修复：升级路径不读取账号池或 Canary/API key，不发送模型/upstream 请求，不生成 usage attribution；direct/中继节点 `/health` 只证明容器启动和路由可达。隔离数据库、Redis、候选容器和旧镜像检查可以继续使用 `probe_*` 变量，但必须保持本地隔离语义并在 Gate 结束清理。
 - 预防测试：每次修改 Gate、production、doctor、profiles 或 release references 后，搜索上述凭据、路径和请求符号，并运行 profile 242 定向测试与完整 release suite；没有可用账号时仍不得阻塞 Docker 镜像升级。
 - 状态：已修复并由 profile 242 VM Gate、停机生产 release、`verify-result` 和 post-deploy `doctor` 验证。
 
@@ -410,7 +410,7 @@ Full DR 在成功 runner 之前独立执行；上述阶段不是互不重叠的�
 
 ## 普通应用 fast 发布与环境故障
 
-2026-11-05，后续普通后端目标 `af962388a0e87029d65f9e2a3c9cfc3a80edc77d` 使用相同发布工具字节和 profile 282/downtime，通过 `fast / ordinary_change`、新 5/5 依赖 proof（retry 0）、签名 VM Gate、停机生产发布、`verify-result` 和 postdoctor。runner exit 0、完成收据绑定原终态字节；candidate/running image 相同、claim consumed、共享 owner released、VM running/preserved。发布后额外只读检查在北京时间 12:30:05 确认生产完整 SHA/镜像与 Gate 一致，production-node、relay-node、备份检查通过。该结果证明当前环境的普通部署可复用脚本，不代表新增 profile/能力或任意环境故障都已通用化。
+2026-11-05，后续普通后端目标 `af962388a0e87029d65f9e2a3c9cfc3a80edc77d` 使用相同发布工具字节和 profile 282/downtime，通过 `fast / ordinary_change`、新 5/5 依赖 proof（retry 0）、签名 VM Gate、停机生产发布、`verify-result` 和 postdoctor。runner exit 0、完成收据绑定原终态字节；candidate/running image 相同、claim consumed、共享 owner released、VM running/preserved。发布后额外只读检查在北京时间 12:30:05 确认生产完整 SHA/镜像与 Gate 一致，生产节点、中继节点、备份检查通过。该结果证明当前环境的普通部署可复用脚本，不代表新增 profile/能力或任意环境故障都已通用化。
 
 | 成功 runner 阶段 | 耗时 |
 | --- | --- |
@@ -442,14 +442,14 @@ Full DR 在成功 runner 之前独立执行；上述阶段不是互不重叠的�
 | VM validate（含候选构建与验证） | 5 分 33.590 秒 |
 | production release | 11 分 37.493 秒 |
 
-这些事件区间不等同实测公网停机时长。本轮未改工具脚本，未执行额外代理或镜像源维护，未追加事故实现/工具审阅，也未重跑 Full DR 或整套工具测试。北京时间 18:02:18 的只读复核确认线上完整 SHA 为该目标，运行镜像与候选 `sha256:888915ff41219fe6549d1734aa85ddef89c4eb5dbc026bec785f06f83b04adf0` 一致，生产、relay-node、备份与代理协议检查通过。证据位于本地 `.tmp/releases/282-7819023c6979-1793871382-df7bc169/`、`.tmp/goal781-validation-summary.json` 和 `.tmp/goal781-postdeploy-verified.json`，不入库或跨发布借用。
+这些事件区间不等同实测公网停机时长。本轮未改工具脚本，未执行额外代理或镜像源维护，未追加事故实现/工具审阅，也未重跑 Full DR 或整套工具测试。北京时间 18:02:18 的只读复核确认线上完整 SHA 为该目标，运行镜像与候选 `sha256:888915ff41219fe6549d1734aa85ddef89c4eb5dbc026bec785f06f83b04adf0` 一致，生产、中继节点、备份与代理协议检查通过。证据位于本地 `.tmp/releases/282-7819023c6979-1793871382-df7bc169/`、`.tmp/goal781-validation-summary.json` 和 `.tmp/goal781-postdeploy-verified.json`，不入库或跨发布借用。
 
 现有恢复 helper bundle 的 schema 1 文档仍包含应用 `commit_sha`，因此两个应用提交的 `recovery_helper_bundle_sha256` 不同；两者均按当前正式公式验真，工具文件摘要闭包相同。此差异不要求修改工具或补审阅，也不能以手工固定旧摘要消除。独立工具身份协议尚未实现，普通发布继续使用当前合同。
 
 ## 长构建与观察截止不等于 worker 停止
 
 - 本轮 backend APK 下载是主要等待之一；依赖 proof 成功只证明五项 registry metadata 和一次 BuildKit 物化，不证明后续 APK/npm/Go 下载或编译持续可用。不要因 proof 通过就把后续等待当作 runner 死锁。
-- VM 构建网络与生产 SSH 的 relay-node HTTP CONNECT 是不同链路；先分别核对，不能凭下载慢就修改全局代理、daemon 或镜像源。本轮没有通过修改正式脚本、切源或重启构建解决等待。
+- VM 构建网络与生产 SSH 的 中继节点 HTTP CONNECT 是不同链路；先分别核对，不能凭下载慢就修改全局代理、daemon 或镜像源。本轮没有通过修改正式脚本、切源或重启构建解决等待。
 - `follow`、`wait` 或 VM 观察截止仅结束观察，不证明远端 candidate worker 已停止。当前候选构建缺少正式 stop/cancel 入口；这是未修复的工具缺口，不能用重启发布或手工 kill 替代。
 - 稀疏的 `vm_validate`、生产 `not_started` 或暂时没有 candidate 都不构成失败终态。重连同一个 release；确认失败后先使用适用的正式收口入口，原失败 release 不重跑、不覆盖，也不因切换 checkout 绕过 owner。
 

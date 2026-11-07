@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import ipaddress
 import secrets
 import shlex
 import subprocess
@@ -103,7 +104,21 @@ def vm_only_switch(args: argparse.Namespace, *, runner: SSHRunner | None = None)
     document = verify_vm_only_gate(gate_dir, TRUSTED_VM_PUBLIC_KEY, args.profile)
     manifest = document["manifest"]
     identifier = manifest["release_id"]
-    ssh = runner or SSHRunner()
+    ssh = runner or SSHRunner(require_environment=True)
+    environment = getattr(ssh, "deployment_environment", None)
+    if environment is None:
+        raise RuntimeError("validated local deployment environment is required for VM-only switch")
+    vm_health = environment.deployment["vm_health"]
+    vm_port = vm_health["port"]
+    if vm_port != manifest["vm_port"]:
+        raise RuntimeError("configured VM health port does not match the Gate manifest")
+    vm_host = vm_health["address"].strip("[]")
+    try:
+        if ipaddress.ip_address(vm_host).version == 6:
+            vm_host = f"[{vm_host}]"
+    except ValueError:
+        pass
+    vm_health_url = f"http://{vm_host}:{vm_port}"
     remote_root = ssh.create_temp_dir("local_vm", "/opt/sub2api-deploy/release-input", "vm-switch")
     remote_gate = f"/opt/sub2api-deploy/release-gates/{identifier}/output"
     remote_archive = f"{remote_root}/candidate.tar.gz"
@@ -113,12 +128,12 @@ def vm_only_switch(args: argparse.Namespace, *, runner: SSHRunner | None = None)
         ssh.upload_file("local_vm", VM_ONLY_SWITCH, remote_switch, 0o700)
         result = ssh.run(
             "local_vm",
-            f"{shlex.quote(remote_switch)} {shlex.quote(remote_gate)} {shlex.quote(remote_archive)} {shlex.quote(document['evidence']['candidate_image_id'])} {shlex.quote(identifier)}",
+            f"{shlex.quote(remote_switch)} {shlex.quote(remote_gate)} {shlex.quote(remote_archive)} {shlex.quote(document['evidence']['candidate_image_id'])} {shlex.quote(identifier)} {shlex.quote(vm_health_url)}",
             {"switch", "old_image_id", "candidate_image_id", "port", "health", "page"},
             timeout=300,
         ).values
-        if result["switch"] != "verified" or result["port"] != "8211" or result["health"] != "200" or result["page"] != "200":
-            raise RuntimeError("VM-only switch did not satisfy the 8211 acceptance contract")
+        if result["switch"] != "verified" or result["port"] != str(vm_port) or result["health"] != "200" or result["page"] != "200":
+            raise RuntimeError("VM-only switch did not satisfy the configured health contract")
     finally:
         ssh.run("local_vm", f"rm -rf -- {shlex.quote(remote_root)} && printf 'input_removed=true\\n'", {"input_removed"})
 

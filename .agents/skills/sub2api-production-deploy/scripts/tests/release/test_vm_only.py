@@ -10,6 +10,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 
@@ -20,6 +21,7 @@ from release.atomic import canonical_json
 from release.gate import verify_gate_v2, verify_vm_only_gate
 from release.manifest import create_vm_only_manifest
 from release.profiles import CURRENT_RELEASE_PROFILE, get_profile
+from release.vm_only import vm_only_switch
 
 
 class VMOnlyGateTest(unittest.TestCase):
@@ -123,6 +125,33 @@ class VMOnlyGateTest(unittest.TestCase):
             script = (DEPLOY_ROOT / "release" / name).read_text(encoding="utf-8")
             self.assertIn("ss -H -ltn | awk '$4 ~ /:8211$/", script)
             self.assertNotIn("SERVER_PORT=8211')", script)
+
+    def test_vm_only_switch_uses_configured_health_url_and_gate_port(self) -> None:
+        gate = self._bundle()
+        environment = SimpleNamespace(deployment={"vm_health": {"address": "192.0.2.17", "port": 8211}})
+        runner = mock.Mock(deployment_environment=environment)
+        runner.create_temp_dir.return_value = "/tmp/vm-only"
+        runner.run.side_effect = [
+            SimpleNamespace(values={"switch": "verified", "port": "8211", "health": "200", "page": "200"}),
+            SimpleNamespace(values={"input_removed": "true"}),
+        ]
+        with mock.patch("release.vm_only.verify_vm_only_gate", return_value={"manifest": {"release_id": "255-aaaaaaaaaaaa-1-aaaaaaaa", "vm_port": 8211}, "evidence": {"candidate_image_id": "sha256:" + "e" * 64}}):
+            vm_only_switch(SimpleNamespace(gate=str(gate), profile=CURRENT_RELEASE_PROFILE), runner=runner)
+        command = runner.run.call_args_list[0].args[1]
+        self.assertIn("http://192.0.2.17:8211", command)
+        script = (DEPLOY_ROOT / "release" / "vm-only-switch.sh").read_text(encoding="utf-8")
+        self.assertNotIn("127.0.0.1:8211", script)
+        self.assertIn("vm_health_url=${5:?", script)
+
+    def test_vm_only_switch_rejects_config_gate_port_conflict_before_upload(self) -> None:
+        gate = self._bundle()
+        environment = SimpleNamespace(deployment={"vm_health": {"address": "192.0.2.17", "port": 9000}})
+        runner = mock.Mock(deployment_environment=environment)
+        with mock.patch("release.vm_only.verify_vm_only_gate", return_value={"manifest": {"release_id": "255-aaaaaaaaaaaa-1-aaaaaaaa", "vm_port": 8211}, "evidence": {"candidate_image_id": "sha256:" + "e" * 64}}):
+            with self.assertRaisesRegex(RuntimeError, "does not match the Gate manifest"):
+                vm_only_switch(SimpleNamespace(gate=str(gate), profile=CURRENT_RELEASE_PROFILE), runner=runner)
+        runner.create_temp_dir.assert_not_called()
+        runner.upload_file.assert_not_called()
 
     def test_vm_only_gate_uses_the_manifest_profile_identity(self) -> None:
         script = (DEPLOY_ROOT / "release" / "vm-only-validate.sh").read_text(encoding="utf-8")

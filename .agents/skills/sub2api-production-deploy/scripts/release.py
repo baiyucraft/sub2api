@@ -27,9 +27,10 @@ def main() -> None:
     scripts = Path(__file__).resolve().parent
     _maintenance_imports(scripts)
     from release.deploy_config import prepare_arguments
+    from release.paths import APP_ROOT
 
     try:
-        sys.argv[1:] = prepare_arguments(sys.argv[1:], scripts.parents[3])
+        sys.argv[1:] = prepare_arguments(sys.argv[1:], APP_ROOT)
     except (OSError, ValueError) as error:
         raise SystemExit(f"deploy config: {error}") from None
     from release.cli import main as release_main

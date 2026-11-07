@@ -6,6 +6,7 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 
@@ -18,10 +19,44 @@ from release.process import run_hidden
 
 
 class DoctorTest(unittest.TestCase):
+    @staticmethod
+    def environment():
+        return SimpleNamespace(
+            public_domain="sub2api.example.test",
+            direct_route={"address": "198.51.100.10", "observer": "app", "target_node": "app"},
+            relay_route={"address": "198.51.100.20", "observer": "backup", "target_node": "app"},
+            servers={"upload": {"host": "upload.example.test"}},
+            deployment={
+                "backup_upload": {"node": "upload", "user": "fixture", "key_path": "/tmp/fixture-key", "port": 2202},
+                "relay_probe": {
+                    "node": "relay", "service": "sub2api-relay.service", "listen_address": "192.0.2.10",
+                    "allowed_sources": ["192.0.2.0/24"], "listen_port": 1080,
+                    "legacy_port": 8888, "connect_port": 1030,
+                },
+                "vm_health": {"address": "127.0.0.1", "port": 18080},
+            },
+            profile_values=lambda: {
+                "public_domain": "sub2api.example.test",
+                "direct_public_ip": "198.51.100.10",
+                "relay_public_ip": "198.51.100.20",
+            },
+            assert_current=mock.Mock(),
+        )
+
+    def doctor(self, profile="182", *, runner=None, commit=None):
+        runner_adapter = None
+        if runner is not None:
+            runner_adapter = SimpleNamespace(
+                run=runner.run,
+                assert_configuration_current=lambda: None,
+                deployment_environment=None,
+            )
+        return ReleaseDoctor(profile, commit=commit, runner=runner_adapter, environment=self.environment())
+
     def vm_script(self):
         runner = mock.Mock()
         runner.run.return_value.values = {"vm_ready": "true", "vm_free_bytes": str(20 * 1024 ** 3), "vm_database_bytes": "0", "vm_release_unit_status": "verified"}
-        ReleaseDoctor("268", runner=runner).check_vm()
+        self.doctor("268", runner=runner).check_vm()
         return runner.run.call_args.args[1]
 
     def bash(self):
@@ -113,13 +148,14 @@ class DoctorTest(unittest.TestCase):
             "release_proxy_ready": "true",
             "legacy_proxy_disabled": "true",
         }
-        ReleaseDoctor("182", runner=runner).check_dmit()
+        self.doctor(runner=runner).check_dmit()
         script = runner.run.call_args.args[1]
         allowed = runner.run.call_args.args[2]
-        self.assertIn("sub2api-tinyproxy.service", script)
-        self.assertIn("sport = :1080", script)
-        self.assertIn("sport = :8888", script)
-        self.assertIn("ConnectPort[[:space:]]+1030", script)
+        self.assertIn("tinyproxy.service", script)
+        self.assertIn('systemctl is-active "$RELAY_SERVICE"', script)
+        self.assertIn('sport = :"$RELAY_LISTEN_PORT"', script)
+        self.assertIn('sport = :"$RELAY_LEGACY_PORT"', script)
+        self.assertIn('grep -Fqx "ConnectPort $RELAY_CONNECT_PORT"', script)
         self.assertIn("release_proxy_ready", allowed)
         self.assertIn("legacy_proxy_disabled", allowed)
 
@@ -152,21 +188,21 @@ class DoctorTest(unittest.TestCase):
             mock.patch("release.doctor._git_output", side_effect=outputs) as git_output,
         ):
             self.assertEqual(
-                ReleaseDoctor("182", commit=commit, runner=mock.Mock()).check_local(),
+                self.doctor(commit=commit, runner=mock.Mock()).check_local(),
                 {"local_ready": "true", "host_keys_ready": "true"},
             )
         self.assertEqual(git_output.call_count, 4)
         self.assertEqual(git_output.call_args_list[-1].args[0][1:3], ["merge-base", "--is-ancestor"])
 
     def test_requested_nodes_only_are_checked(self) -> None:
-        doctor = ReleaseDoctor("182", runner=mock.Mock())
+        doctor = self.doctor(runner=mock.Mock())
         doctor.check_vm = mock.Mock(return_value={"vm_ready": "true"})
         doctor.check_backup = mock.Mock(return_value={"backup_ready": "true"})
         result = doctor.run(("vm", "backup"))
         self.assertEqual(result, {"vm_ready": "true", "backup_ready": "true"})
 
     def test_failure_stops_later_nodes(self) -> None:
-        doctor = ReleaseDoctor("182", runner=mock.Mock())
+        doctor = self.doctor(runner=mock.Mock())
         doctor.check_vm = mock.Mock(side_effect=RuntimeError("vm failed"))
         doctor.check_backup = mock.Mock()
         with self.assertRaisesRegex(RuntimeError, "doctor.vm failed"):
@@ -200,7 +236,7 @@ class DoctorTest(unittest.TestCase):
     def test_racknerd_doctor_requires_managed_ingress_policy(self) -> None:
         runner = mock.Mock()
         runner.run.return_value.values = {"racknerd_ready": "true"}
-        ReleaseDoctor("182", runner=runner).check_racknerd()
+        self.doctor(runner=runner).check_racknerd()
         script = runner.run.call_args.args[1]
         allowed = runner.run.call_args.args[2]
         self.assertIn("require_ingress_policy=true", script)
@@ -216,7 +252,7 @@ class DoctorTest(unittest.TestCase):
     def test_racknerd_pre_gate_doctor_allows_ingress_update(self) -> None:
         runner = mock.Mock()
         runner.run.return_value.values = {"racknerd_ready": "true"}
-        ReleaseDoctor("182", runner=runner).check_racknerd(require_ingress_policy=False)
+        self.doctor(runner=runner).check_racknerd(require_ingress_policy=False)
         script = runner.run.call_args.args[1]
         self.assertIn("require_ingress_policy=false", script)
         self.assertIn("nginx_ingress_policy=needs_update", script)
@@ -224,7 +260,7 @@ class DoctorTest(unittest.TestCase):
     def test_racknerd_snapshot_allowlists_verified_production_commit(self) -> None:
         runner = mock.Mock()
         runner.run.return_value.values = {"racknerd_ready": "true"}
-        ReleaseDoctor("182", runner=runner).check_racknerd(require_ingress_policy=False)
+        self.doctor(runner=runner).check_racknerd(require_ingress_policy=False)
         script = runner.run.call_args.args[1]
         allowed = runner.run.call_args.args[2]
         self.assertIn("active_image_ref=$(docker inspect -f '{{.Config.Image}}'", script)
@@ -236,23 +272,35 @@ class DoctorTest(unittest.TestCase):
         self.assertIn("production_current_commit_sha", allowed)
 
     def test_run_forwards_ingress_policy_mode_only_to_racknerd(self) -> None:
-        doctor = ReleaseDoctor("182", runner=mock.Mock())
+        doctor = self.doctor(runner=mock.Mock())
         doctor.check_racknerd = mock.Mock(return_value={"racknerd_ready": "true"})
         doctor.check_backup = mock.Mock(return_value={"backup_ready": "true"})
         doctor.run(("racknerd", "backup"), require_ingress_policy=False)
         doctor.check_racknerd.assert_called_once_with(require_ingress_policy=False)
         doctor.check_backup.assert_called_once_with()
 
+    def test_backup_health_route_uses_configured_observer_and_upload_node(self) -> None:
+        runner = mock.Mock()
+        runner.run.side_effect = [
+            mock.Mock(values={"backup_ready": "true", "backup_free_bytes": "1024"}),
+            mock.Mock(values={"relay_external_health": "pass"}),
+        ]
+        self.doctor(runner=runner).check_backup()
+        self.assertEqual(runner.run.call_args_list[0].args[0], "upload")
+        self.assertEqual(runner.run.call_args_list[1].args[0], "backup")
+        self.assertIn("--resolve sub2api.example.test:443:198.51.100.20", runner.run.call_args_list[1].args[1])
+
     def test_remote_scripts_do_not_contain_control_characters(self) -> None:
         runner = mock.Mock()
         runner.run.return_value.values = {"racknerd_ready": "true"}
-        ReleaseDoctor("182", runner=runner).check_racknerd()
+        self.doctor(runner=runner).check_racknerd()
         script = runner.run.call_args.args[1]
         self.assertTrue(all(character in "\n\t" or ord(character) >= 32 for character in script))
         self.assertIn("production_migration_status=verified", script)
         self.assertIn("production_migration_status=absent", script)
-        self.assertIn("if ssh -i /home/example/.ssh/local-key", script)
-        self.assertNotIn("set +e\nssh -i /home/example/.ssh/local-key", script)
+        self.assertIn("if ssh -i /tmp/fixture-key -p 2202", script)
+        self.assertIn("fixture@upload.example.test doctor-probe", script)
+        self.assertNotIn("192.0.2.29/32", script)
 
         bootstrap_runner = mock.Mock()
         bootstrap_runner.run.return_value.values = {"production_bootstrap": "true"}
@@ -264,7 +312,7 @@ class DoctorTest(unittest.TestCase):
         runner = mock.Mock()
         success = mock.Mock(values={"racknerd_ready": "true"})
         runner.run.side_effect = [RuntimeError("racknerd stage failed with exit code -1; remote stderr withheld"), success]
-        doctor = ReleaseDoctor("182", runner=runner)
+        doctor = self.doctor(runner=runner)
         with mock.patch("release.doctor.time.sleep") as sleep:
             result = doctor._run_racknerd_readonly("printf ok", {"racknerd_ready"}, timeout=300)
         self.assertEqual(result, {"racknerd_ready": "true"})
@@ -274,7 +322,7 @@ class DoctorTest(unittest.TestCase):
     def test_racknerd_readonly_probe_does_not_retry_remote_failure(self) -> None:
         runner = mock.Mock()
         runner.run.side_effect = RuntimeError("racknerd stage failed with exit code 1; remote stderr withheld")
-        doctor = ReleaseDoctor("182", runner=runner)
+        doctor = self.doctor(runner=runner)
         with self.assertRaisesRegex(RuntimeError, "exit code 1"):
             doctor._run_racknerd_readonly("false", {"racknerd_ready"}, timeout=300)
         runner.run.assert_called_once()

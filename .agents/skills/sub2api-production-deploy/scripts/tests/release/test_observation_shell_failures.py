@@ -36,7 +36,7 @@ class ObservationShellFailuresTest(unittest.TestCase):
     def test_actual_generated_required_comparisons_reject_failed_producers(self):
         source = Path(sys.modules[ProductionRelease.__module__].__file__).read_text()
         context = {
-            'self': SimpleNamespace(release_dir='/tmp/release', state_dir='/tmp/state', profile={'public_domain': 'fixture.invalid', 'dmit_public_ip': '127.0.0.1'}),
+            'self': SimpleNamespace(release_dir='/tmp/release', state_dir='/tmp/state', profile={'public_domain': 'fixture.invalid', 'relay_public_ip': '127.0.0.1'}),
             'shlex': shlex, 'trust_sha': 'a' * 64, 'bundle_sha256': 'b' * 64,
             'stage_dir': '/tmp/stage', 'remote_bundle': '/tmp/stage/bundle', 'attempt_id': 'fixture',
             'profile_name': '273',

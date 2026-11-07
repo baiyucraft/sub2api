@@ -1,0 +1,55 @@
+servers:
+  app-node:
+    host: 203.0.113.10
+    user: deploy
+    private_key: /home/example/.ssh/sub2api-deploy
+    connection: http_connect_via_ssh
+    proxy_via: relay-node
+    proxy: 192.0.2.10:1080
+  relay-node:
+    host: relay.example.test
+    user: deploy
+    private_key: /home/example/.ssh/sub2api-deploy
+    connection: direct
+  backup-node:
+    host: 198.51.100.20
+    user: backup
+    private_key: /home/example/.ssh/sub2api-deploy
+  upload-node:
+    host: upload.example.test
+    user: deploy
+    private_key: /home/example/.ssh/sub2api-deploy
+  vm-node:
+    host: vm.example.test
+    user: deploy
+    private_key: /home/example/.ssh/sub2api-deploy
+
+deployment:
+  schema: 1
+  public_domain: sub2api.example.test
+  health_routes:
+    direct:
+      address: 203.0.113.10
+      observer: app-node
+      target_node: app-node
+    relay:
+      address: 198.51.100.20
+      observer: backup-node
+      target_node: app-node
+  backup_upload:
+    node: upload-node
+    user: example-upload
+    key_path: /home/example/.ssh/example-upload
+    port: 2222
+  relay_probe:
+    node: relay-node
+    service: sub2api-relay.service
+    listen_address: 192.0.2.10
+    allowed_sources:
+      - 192.0.2.0/24
+    listen_port: 1080
+    legacy_port: 8888
+    connect_port: 1030
+  vm_health:
+    address: 127.0.0.1
+    port: 18080

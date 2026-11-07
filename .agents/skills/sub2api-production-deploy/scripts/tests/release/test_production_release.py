@@ -11,6 +11,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 
@@ -192,8 +193,19 @@ class ProductionRecoveryTest(unittest.TestCase):
         instance.route_switched = False
         instance.migration_started = False
         instance.state_dir = "/opt/sub2api/backups/release-state/182-aaaaaaaaaaaa-1-aaaaaaaa"
-        instance.profile = {"public_domain": "example.test", "rack_public_ip": "192.0.2.1",
+        instance.profile = {"public_domain": "example.test", "direct_public_ip": "192.0.2.1",
                             "minimum_rack_free_bytes": 10737418240}
+        instance.environment = SimpleNamespace(
+            public_domain="example.test",
+            direct_route={"address": "192.0.2.1", "observer": "prod-node", "target_node": "prod-node"},
+            relay_route={"address": "192.0.2.2", "observer": "backup-node", "target_node": "prod-node"},
+            servers={"backup-node": {"host": "backup.example.test"}},
+            deployment={
+                "backup_upload": {"node": "backup-node", "user": "fixture", "key_path": "/tmp/fixture-key", "port": 2202},
+                "relay_probe": {"node": "relay-node"},
+            },
+            assert_current=mock.Mock(),
+        )
         instance.release_id = "182-aaaaaaaaaaaa-1-aaaaaaaa"
         instance.release_dir = "/opt/sub2api/releases/" + instance.release_id
         instance.runner = mock.Mock()
@@ -222,6 +234,22 @@ class ProductionRecoveryTest(unittest.TestCase):
             recovered_claim_values(instance.image_id),
         ])
         return instance
+
+    def test_role_resolution_prefers_configured_target_over_legacy_server_name(self) -> None:
+        release = object.__new__(ProductionRelease)
+        release.environment = SimpleNamespace(
+            servers={"racknerd": {}, "dmit": {}, "backup": {}, "production-node": {}},
+            direct_route={"target_node": "production-node"},
+            deployment={
+                "relay_probe": {"node": "relay-node"},
+                "backup_upload": {"node": "backup-node"},
+            },
+        )
+
+        self.assertEqual(release._resolve_host("racknerd"), "production-node")
+        self.assertEqual(release._resolve_host("dmit"), "relay-node")
+        self.assertEqual(release._resolve_host("backup"), "backup-node")
+        self.assertEqual(release._resolve_host("production-node"), "production-node")
 
     def test_pre_migration_failure_resumes_old_application(self) -> None:
         release = self.release()
@@ -1138,9 +1166,14 @@ class PublicHealthOnlyTest(unittest.TestCase):
         release = object.__new__(ProductionRelease)
         release.profile = {
             "public_domain": "example.test",
-            "rack_public_ip": "192.0.2.1",
-            "dmit_public_ip": "192.0.2.2",
+            "direct_public_ip": "192.0.2.1",
+            "relay_public_ip": "192.0.2.2",
         }
+        release.environment = SimpleNamespace(
+            public_domain="example.test",
+            direct_route={"address": "192.0.2.1", "observer": "direct-observer", "target_node": "app"},
+            relay_route={"address": "192.0.2.2", "observer": "relay-observer", "target_node": "app"},
+        )
         release.stage = mock.Mock()
         release.run_remote = mock.Mock(side_effect=[
             {"route_health": "pass", "http_code": "200", "curl_exit": "0", "attempts": "1", "streaming": "not_checked"},
@@ -1154,6 +1187,8 @@ class PublicHealthOnlyTest(unittest.TestCase):
         self.assertEqual(dmit["streaming"], "not_checked")
         release.run_remote_with_input.assert_not_called()
         self.assertEqual(release.run_remote.call_count, 2)
+        self.assertEqual(release.run_remote.call_args_list[0].args[0], "direct-observer")
+        self.assertEqual(release.run_remote.call_args_list[1].args[0], "relay-observer")
         direct_script = release.run_remote.call_args_list[0].args[1]
         dmit_script = release.run_remote.call_args_list[1].args[1]
         for script in (direct_script, dmit_script):
@@ -1170,9 +1205,14 @@ class PublicHealthOnlyTest(unittest.TestCase):
         release = object.__new__(ProductionRelease)
         release.profile = {
             "public_domain": "example.test",
-            "rack_public_ip": "192.0.2.1",
-            "dmit_public_ip": "192.0.2.2",
+            "direct_public_ip": "192.0.2.1",
+            "relay_public_ip": "192.0.2.2",
         }
+        release.environment = SimpleNamespace(
+            public_domain="example.test",
+            direct_route={"address": "192.0.2.1", "observer": "direct-observer", "target_node": "app"},
+            relay_route={"address": "192.0.2.2", "observer": "relay-observer", "target_node": "app"},
+        )
         release.stage = mock.Mock()
         release.run_remote = mock.Mock(side_effect=[
             {"route_health": "pass", "http_code": "200", "curl_exit": "0", "attempts": "1", "streaming": "not_checked"},

@@ -1,11 +1,20 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+upload_host=${BACKUP_UPLOAD_HOST:?BACKUP_UPLOAD_HOST is required}
+upload_user=${BACKUP_UPLOAD_USER:?BACKUP_UPLOAD_USER is required}
+upload_key=${BACKUP_UPLOAD_KEY:?BACKUP_UPLOAD_KEY is required}
+upload_port=${BACKUP_UPLOAD_PORT:?BACKUP_UPLOAD_PORT is required}
+[[ $upload_host =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ || $upload_host =~ ^\[?[A-Fa-f0-9:]+\]?$ ]]
+[[ $upload_user =~ ^[A-Za-z_][A-Za-z0-9_-]{0,31}$ ]]
+[[ $upload_key == /* && $upload_key != *$'\n'* && $upload_key != *$'\r'* ]]
+[[ $upload_port =~ ^[0-9]{1,5}$ ]]
+(( upload_port >= 1 && upload_port <= 65535 ))
+upload_target="${upload_user}@${upload_host}"
+
 deploy_dir=${DEPLOY_DIR:-/opt/sub2api}
 backup_root=${BACKUP_ROOT:-$deploy_dir/backups/automated}
 recipient_file=${AGE_RECIPIENT_FILE:-/root/.config/sub2api-backup/age-recipient.txt}
-upload_key=${BACKUP_UPLOAD_KEY:-/home/example/.ssh/local-key}
-upload_target=${BACKUP_UPLOAD_TARGET:-sub2api-backup@192.0.2.29}
 release_commit=${RELEASE_COMMIT:?RELEASE_COMMIT is required}
 release_version=${RELEASE_VERSION:?RELEASE_VERSION is required}
 candidate_image_id=${CANDIDATE_IMAGE_ID:?CANDIDATE_IMAGE_ID is required}
@@ -153,7 +162,7 @@ printf 'restore_point_utc=%s\nrelease=181\napplication_commit=%s\napplication_ve
 tar -C "$work_dir" -cf "$plain_archive" .
 age -R "$recipient_file" -o "$encrypted_archive" "$plain_archive"
 archive_sha=$(sha256sum "$encrypted_archive" | awk '{print $1}')
-remote_result=$(ssh -i "$upload_key" -o BatchMode=yes -o StrictHostKeyChecking=yes "$upload_target" "upload daily $transport_name $archive_sha" < "$encrypted_archive")
+remote_result=$(ssh -i "$upload_key" -p "$upload_port" -o BatchMode=yes -o StrictHostKeyChecking=yes "$upload_target" "upload daily $transport_name $archive_sha" < "$encrypted_archive")
 grep -Fq "OK $transport_name $archive_sha" <<<"$remote_result"
 [[ $(docker inspect -f '{{.State.Status}}' sub2api 2>/dev/null || true) != running ]]
 

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import pathlib
+import os
+import shlex
 import subprocess
 import time
 from pathlib import Path
@@ -10,10 +12,11 @@ import yaml
 
 from .manifest import _git_output, migration_checksums, sha256_file, validate_commit
 from .migration_planner import discover_migration_catalog
-from .paths import RELEASE_PACKAGE_ROOT, TRUSTED_VM_PUBLIC_KEY, WORKSPACE
+from .environment import DeploymentEnvironment, load_deployment_environment
+from .paths import RELEASE_PACKAGE_ROOT, SSH_CONFIG, TRUSTED_VM_PUBLIC_KEY, WORKSPACE
 from .profiles import get_profile
 from .production_snapshot import runtime_commit_script
-from .ssh import KNOWN_HOSTS, SSH_CONFIG, SSHRunner
+from .ssh import KNOWN_HOSTS, SSHRunner
 
 
 ROOT = WORKSPACE
@@ -25,14 +28,16 @@ NODES = ("local", "vm", "racknerd", "dmit", "backup")
 RACKNERD_READONLY_RETRY_DELAYS = (0, 2, 5)
 
 
-def import_trusted_host_keys() -> None:
-    document = yaml.safe_load(SSH_CONFIG.read_text(encoding="utf-8"))
+def import_trusted_host_keys(servers: dict | None = None) -> None:
+    if servers is None:
+        document = yaml.safe_load(SSH_CONFIG.read_text(encoding="utf-8"))
+        servers = document["servers"]
     private_hosts = paramiko.HostKeys()
     if KNOWN_HOSTS.exists():
         private_hosts.load(str(KNOWN_HOSTS))
 
     missing = []
-    for config in document["servers"].values():
+    for config in servers.values():
         host = str(config["host"])
         port = int(config.get("port", 22))
         candidates = [host] if port == 22 else [f"[{host}]:{port}", host]
@@ -55,15 +60,30 @@ def import_trusted_host_keys() -> None:
 
 
 class ReleaseDoctor:
-    def __init__(self, profile_name: str, commit: str | None = None, runner: SSHRunner | None = None) -> None:
+    def __init__(
+        self,
+        profile_name: str,
+        commit: str | None = None,
+        runner: SSHRunner | None = None,
+        environment: DeploymentEnvironment | None = None,
+    ) -> None:
         self.profile = get_profile(profile_name)
         self.commit = validate_commit(commit) if commit else None
         self.runner = runner
+        self.environment = environment or (runner.deployment_environment if runner else None)
+        if self.environment is None and os.environ.get("SUB2API_DEPLOYMENT_CONFIG_SHA256"):
+            self.environment = load_deployment_environment(SSH_CONFIG)
+        elif self.environment is None and SSH_CONFIG.is_file():
+            _, self.environment = DeploymentEnvironment.from_file(SSH_CONFIG, required=False)
+        if self.environment is not None:
+            self.environment.assert_current()
+            self.profile.update(self.environment.profile_values())
 
     def check_local(self) -> dict[str, str]:
-        if not SSH_CONFIG.is_file() or not TRUSTED_KEY.is_file():
+        if self.environment is None or not SSH_CONFIG.is_file() or not TRUSTED_KEY.is_file():
             raise RuntimeError("release SSH config or VM trust key is missing")
-        import_trusted_host_keys()
+        self.environment.assert_current()
+        import_trusted_host_keys(self.environment.servers)
         status = _git_output(["git", "status", "--porcelain"], cwd=ROOT, text=True)
         if status.strip():
             raise RuntimeError("tracked workspace changes must be committed before deployment")
@@ -79,18 +99,21 @@ class ReleaseDoctor:
 
     def _ssh(self) -> SSHRunner:
         if self.runner is None:
-            self.runner = SSHRunner()
+            self.runner = SSHRunner(require_environment=self.environment is not None)
+        self.runner.assert_configuration_current()
         return self.runner
 
     def _run_racknerd_readonly(self, script: str, allowed: set[str], timeout: int) -> dict[str, str]:
-        """Retry only the idempotent RackNerd doctor probe after transport loss."""
+        """Retry only the idempotent production-node probe after transport loss."""
 
         last_error: BaseException | None = None
         for delay in RACKNERD_READONLY_RETRY_DELAYS:
             if delay:
                 time.sleep(delay)
             try:
-                return self._ssh().run("racknerd", script, allowed, timeout=timeout).values
+                if self.environment is None:
+                    raise RuntimeError("local deployment configuration is required")
+                return self._ssh().run(self.environment.direct_route["target_node"], script, allowed, timeout=timeout).values
             except (EOFError, OSError, paramiko.SSHException) as error:
                 last_error = error
             except RuntimeError as error:
@@ -103,7 +126,11 @@ class ReleaseDoctor:
         raise last_error
 
     def check_vm(self) -> dict[str, str]:
+        if self.environment is None:
+            raise RuntimeError("local deployment configuration is required")
         profile = self.profile
+        vm_health = self.environment.deployment["vm_health"]
+        vm_health_url = shlex.quote(f"http://{vm_health['address']}:{vm_health['port']}/health")
         trust_sha = sha256_file(TRUSTED_KEY)
         validator_sha = sha256_file(VALIDATOR)
         gate_signer_sha = sha256_file(GATE_SIGNER)
@@ -159,11 +186,18 @@ free_bytes=$(df -PB1 /var/lib/docker 2>/dev/null | awk 'NR==2{{print $4}}' || df
 vm_pg_user=$(docker inspect sub2api-postgres | jq -r '.[0].Config.Env[]? | select(startswith("POSTGRES_USER=")) | ltrimstr("POSTGRES_USER=")' | head -n1)
 if [[ ! $vm_pg_user =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then vm_pg_user=sub2api; fi
 db_bytes=$(docker exec sub2api-postgres psql -X -A -t -U "$vm_pg_user" -d postgres -c "SELECT pg_database_size('sub2api_dev')" | tr -d '[:space:]')
+vm_health_code=$(curl -sS --max-time 10 -o /dev/null -w '%{{http_code}}' {vm_health_url})
+test "$vm_health_code" = 200
 printf 'vm_ready=true\nvm_free_bytes=%s\nvm_database_bytes=%s\nvm_release_unit_status=verified\n' "$free_bytes" "$db_bytes"
 """
         return self._ssh().run("local_vm", script, {"vm_ready", "vm_free_bytes", "vm_database_bytes", "vm_release_unit_status"}).values
 
     def check_racknerd(self, require_ingress_policy: bool = True) -> dict[str, str]:
+        if self.environment is None:
+            raise RuntimeError("local deployment configuration is required")
+        upload = self.environment.deployment["backup_upload"]
+        upload_target = shlex.quote(upload["user"] + "@" + self.environment.servers[upload["node"]]["host"])
+        upload_key = shlex.quote(upload["key_path"])
         profile = self.profile
         trust_sha = sha256_file(TRUSTED_KEY)
         snapshot_query = r'''snapshot_rows=$(docker exec sub2api-postgres psql -X -A -t -U sub2api -d sub2api -c "SELECT COALESCE(json_agg(json_build_object('filename',filename,'checksum',checksum) ORDER BY filename),'[]'::json) FROM schema_migrations" | tr -d '\r\n')
@@ -301,9 +335,9 @@ production_migration_status=verified
 {migration_checks}
 test -r /etc/nginx/nginx.conf
 test -r /etc/letsencrypt/live/{profile['public_domain']}/fullchain.pem
-test -f /home/example/.ssh/local-key
-test ! -L /home/example/.ssh/local-key
-if ssh -i /home/example/.ssh/local-key -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=15 -o LogLevel=ERROR sub2api-backup@192.0.2.29 doctor-probe </dev/null >/dev/null 2>&1; then
+test -f {upload_key}
+test ! -L {upload_key}
+if ssh -i {upload_key} -p {upload['port']} -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=15 -o LogLevel=ERROR {upload_target} doctor-probe </dev/null >/dev/null 2>&1; then
   backup_ssh_code=0
 else
   backup_ssh_code=$?
@@ -320,7 +354,11 @@ printf 'racknerd_ready=true\nracknerd_free_bytes=%s\nbackup_protocol_ready=true\
         )
 
     def check_dmit(self) -> dict[str, str]:
-        script = """
+        if self.environment is None:
+            raise RuntimeError("local deployment configuration is required")
+        probe = self.environment.deployment["relay_probe"]
+        allowed_sources = " ".join(probe["allowed_sources"])
+        script = f"""RELAY_SERVICE={shlex.quote(probe['service'])} RELAY_LISTEN_ADDRESS={shlex.quote(probe['listen_address'])} RELAY_ALLOWED_SOURCES={shlex.quote(allowed_sources)} RELAY_LISTEN_PORT={probe['listen_port']} RELAY_LEGACY_PORT={probe['legacy_port']} RELAY_CONNECT_PORT={probe['connect_port']} bash -s <<'SUB2API_DOCTOR'
 set -Eeuo pipefail
 command -v haproxy >/dev/null
 required_value=$(systemctl is-active haproxy)
@@ -328,9 +366,9 @@ test "$required_value" = active
 haproxy -c -f /etc/haproxy/haproxy.cfg >/dev/null
 ss -H -ltn sport = :443 | grep -q .
 grep -Eq 'send-proxy-v2|send-proxy' /etc/haproxy/haproxy.cfg
-required_value=$(systemctl is-active sub2api-tinyproxy.service)
+required_value=$(systemctl is-active "$RELAY_SERVICE")
 test "$required_value" = active
-required_value=$(systemctl is-enabled sub2api-tinyproxy.service)
+required_value=$(systemctl is-enabled "$RELAY_SERVICE")
 test "$required_value" = enabled
 tinyproxy_code=0
 tinyproxy_state=$(systemctl is-active tinyproxy.service) || tinyproxy_code=$?
@@ -338,34 +376,38 @@ test "$tinyproxy_state:$tinyproxy_code" = inactive:3
 tinyproxy_code=0
 tinyproxy_state=$(systemctl is-enabled tinyproxy.service) || tinyproxy_code=$?
 test "$tinyproxy_state:$tinyproxy_code" = disabled:1
-ss -H -ltn sport = :1080 | grep -q .
-required_value=$(ss -H -ltn sport = :8888)
+ss -H -ltn sport = :"$RELAY_LISTEN_PORT" | grep -q .
+required_value=$(ss -H -ltn sport = :"$RELAY_LEGACY_PORT")
 test -z "$required_value"
-proxy_pid=$(systemctl show -p MainPID --value sub2api-tinyproxy.service)
+proxy_pid=$(systemctl show -p MainPID --value "$RELAY_SERVICE")
 test "$proxy_pid" -gt 1
 proxy_config=''
 want_proxy_config=false
 while IFS= read -r arg; do
   if [ "$want_proxy_config" = true ]; then proxy_config=$arg; want_proxy_config=false; continue; fi
-  case "$arg" in -c) want_proxy_config=true;; -c*) proxy_config=${arg#-c};; esac
+  case "$arg" in -c) want_proxy_config=true;; -c*) proxy_config=${{arg#-c}};; esac
 done < <(tr '\\0' '\\n' < "/proc/$proxy_pid/cmdline")
 test -n "$proxy_config"
 test -f "$proxy_config"
 test ! -L "$proxy_config"
-grep -Eq '^[[:space:]]*Listen[[:space:]]+10\.77\.0\.1([[:space:]]|$)' "$proxy_config"
-grep -Eq '^[[:space:]]*Allow[[:space:]]+10\.77\.0\.1([[:space:]]|$)' "$proxy_config"
-grep -Eq '^[[:space:]]*Allow[[:space:]]+10\.77\.0\.2([[:space:]]|$)' "$proxy_config"
-grep -Eq '^[[:space:]]*ConnectPort[[:space:]]+1030([[:space:]]|$)' "$proxy_config"
-printf 'dmit_ready=true\nproxy_v2_ready=true\nrelease_proxy_ready=true\nlegacy_proxy_disabled=true\n'
+grep -Fqx "Listen $RELAY_LISTEN_ADDRESS" "$proxy_config"
+for allowed_source in $RELAY_ALLOWED_SOURCES; do grep -Fqx "Allow $allowed_source" "$proxy_config"; done
+grep -Fqx "ConnectPort $RELAY_CONNECT_PORT" "$proxy_config"
+printf 'dmit_ready=true\\nproxy_v2_ready=true\\nrelease_proxy_ready=true\\nlegacy_proxy_disabled=true\\n'
+SUB2API_DOCTOR
 """
         return self._ssh().run(
-            "dmit",
+            probe["node"],
             script,
             {"dmit_ready", "proxy_v2_ready", "release_proxy_ready", "legacy_proxy_disabled"},
         ).values
 
     def check_backup(self) -> dict[str, str]:
+        if self.environment is None:
+            raise RuntimeError("local deployment configuration is required")
         profile = self.profile
+        route = self.environment.relay_route
+        upload = self.environment.deployment["backup_upload"]
         script = f"""
 set -Eeuo pipefail
 test -d /srv/sub2api-backups
@@ -373,14 +415,23 @@ test ! -L /srv/sub2api-backups
 test -w /srv/sub2api-backups
 free_bytes=$(df -PB1 /srv/sub2api-backups | awk 'NR==2{{print $4}}')
 test "$free_bytes" -ge {profile['minimum_backup_free_bytes']}
-required_value=$(curl -sS --resolve {profile['public_domain']}:443:{profile['dmit_public_ip']} --max-time 15 -o /dev/null -w '%{{http_code}}' https://{profile['public_domain']}/health)
-test "$required_value" = 200
-public_ip=$(curl -fsS --max-time 15 https://api.ipify.org)
-[[ $public_ip =~ ^[0-9a-fA-F:.]+$ ]]
-printf 'backup_ready=true\nbackup_free_bytes=%s\ndmit_external_health=pass\nbackup_public_ip=%s\n' "$free_bytes" "$public_ip"
+printf 'backup_ready=true\\nbackup_free_bytes=%s\\n' "$free_bytes"
 """
-        return self._ssh().run("backup", script, {"backup_ready", "backup_free_bytes", "dmit_external_health", "backup_public_ip"}).values
-
+        values = self._ssh().run(
+            upload["node"],
+            script,
+            {"backup_ready", "backup_free_bytes"},
+        ).values
+        domain = shlex.quote(self.environment.public_domain)
+        address = shlex.quote(route["address"])
+        health_script = f"""
+set -Eeuo pipefail
+required_value=$(curl -sS --resolve {domain}:443:{address} --max-time 15 -o /dev/null -w '%{{http_code}}' https://{domain}/health)
+test "$required_value" = 200
+printf 'relay_external_health=pass\\n'
+"""
+        health = self._ssh().run(route["observer"], health_script, {"relay_external_health"}).values
+        return {**values, **health}
     def run(self, nodes: tuple[str, ...] = NODES, *, require_ingress_policy: bool = True) -> dict[str, str]:
         evidence: dict[str, str] = {}
         for node in nodes:

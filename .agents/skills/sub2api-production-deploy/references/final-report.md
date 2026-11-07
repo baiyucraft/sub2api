@@ -84,7 +84,7 @@ image_tag: full-SHA tag | not_applicable
 candidate_image_id: sha256:... | not_applicable
 pre_switch_image_id: sha256:... | not_applicable
 older_fallback_image_id: sha256:... | not_available | not_applicable
-build_host: racknerd | vm | not_applicable
+build_host: 生产节点 | vm | not_applicable
 source_worktree: 固定逻辑路径 | not_applicable
 build_started_at: value | not_applicable
 build_finished_at: value | not_applicable
@@ -199,7 +199,7 @@ log_gate_status: pass | fail | not_checked
 signer_identity_status: pass | fail | not_checked
 repo_trust_key_sha256:
 vm_signer_public_key_sha256:
-racknerd_trust_key_sha256:
+生产节点_trust_key_sha256:
 vm_validator_sha256:
 gate_signer_binding_status: pass | fail | not_checked
 ```
@@ -240,8 +240,8 @@ rendered_compose_image_id:
 compose_restore_contract_status: pass | fail | not_applicable | not_checked
 running_image_after_switch: value | not_applicable
 application_health: pass | fail | not_checked
-racknerd_direct_health: pass | fail | not_checked
-dmit_health: pass | fail | not_checked
+生产节点_direct_health: pass | fail | not_checked
+中继节点_health: pass | fail | not_checked
 auth: pass | fail | not_checked
 streaming: pass | fail | not_checked
 underscore_headers: pass | fail | not_checked
@@ -259,7 +259,7 @@ recovery_checkpoint_status: complete | partial | inconsistent | not_applicable |
 recovery_last_checkpoint: postgres_restored | redis_restored | compose_restored | app_healthy | nginx_restored | backup_units_restored | claim_reconciled | state_cleanup | not_applicable | not_checked
 ```
 
-如果 direct 通过但 relay-node 未通过，整体不能写 `success`。
+如果 direct 通过但 中继节点 未通过，整体不能写 `success`。
 
 ## 业务语义验收
 

@@ -23,7 +23,7 @@
 
 ### Nginx ingress policy 模式
 
-普通 doctor 和 post-deploy doctor 对生产 ingress 使用严格模式：受管站点必须在每个 `sub2api_release_backend` proxy 前加载 `/etc/nginx/snippets/sub2api-release-ingress.conf`，并由 `nginx -T` 证明请求缓冲开启、响应缓冲关闭及专用 upstream 日志实际生效。为了避免在签名 Gate 和恢复点之前修改生产，`deploy` 与 `vm-validate` 的 pre-Gate production-node 快照使用宽松模式；旧配置健康时返回 `nginx_ingress_policy=needs_update`，而不是提前写入 Nginx。
+普通 doctor 和 post-deploy doctor 对生产 ingress 使用严格模式：受管站点必须在每个 `sub2api_release_backend` proxy 前加载 `/etc/nginx/snippets/sub2api-release-ingress.conf`，并由 `nginx -T` 证明请求缓冲开启、响应缓冲关闭及专用 upstream 日志实际生效。为了避免在签名 Gate 和恢复点之前修改生产，`deploy` 与 `vm-validate` 的 pre-Gate 生产节点 快照使用宽松模式；旧配置健康时返回 `nginx_ingress_policy=needs_update`，而不是提前写入 Nginx。
 
 ingress 事务在 release state 中保存目标文件、历史 stale backup 和 checksum。Gate 消费前失败时优先恢复该事务；回滚失败写入 root-only `rollback-failure` 证据并进入 reconciliation。该失败不能阻止停机模式的协调恢复，也不能阻止已公开 candidate 的路由回退。
 
@@ -41,9 +41,9 @@ runner 崩溃或 SSH 回包不确定时，必须先读取并校验 ingress trans
 `rollback_failed` 和 `unsafe` 不得因 runner 已退出、旧容器健康或 Nginx active 就被解释为
 “未发生变更”。
 
-蓝绿发布的权威运行态不是固定容器名 `sub2api`，而是 `/opt/sub2api/active-app` 中唯一的 `container`、`port` 与 `image_id`。doctor 必须验证该容器健康、端口仅为 `18080/18081`、镜像 ID 与容器一致，并确认 `/etc/nginx/conf.d/sub2api-release-upstream.conf` 指向同一端口。第一次 bootstrap 可从稳定 `sub2api:18080` 建立该状态；后续发布不得退回固定名称判断。
+蓝绿发布的权威运行态不是固定容器名，而是受管 active-slot 状态中的唯一 `container`、`port` 与 `image_id`。doctor 必须验证该容器健康、镜像 ID 与容器一致，并确认受管 ingress 指向同一 slot。后续发布不得退回固定名称判断。
 
-对已提供 profile 的 production-node 应用发布，固定使用：
+对已提供 profile 的 生产节点 应用发布，固定使用：
 
 ```text
 python .agents/skills/sub2api-production-deploy/scripts/release.py bootstrap-production --profile <profile>
@@ -111,15 +111,15 @@ Compose 快照使用真实 Docker Compose JSON 解析 `env_file/configs/secrets`
   pre-Gate 检查继续进入签名 Gate、停写、恢复点和 ingress apply；严格 `doctor` 放在
   `verify-result` 之后，作为发布后的独立复核。普通发布若没有待修复的 ingress policy，仍可
   在发布前单独运行 strict `doctor`。
-- `doctor` 只读检查本地、VM、production-node、relay-node 和异地节点，输出字段白名单；不自动开关 VM。VM 已停止时 Guest 检查会失败；需要 VM 的检查由已授权发布 worker 在启动后重新执行，其失败禁止进入生产。
+- `doctor` 只读检查本地、VM、生产节点、中继节点 和异地节点，输出字段白名单；不自动开关 VM。VM 已停止时 Guest 检查会失败；需要 VM 的检查由已授权发布 worker 在启动后重新执行，其失败禁止进入生产。
 - `bootstrap-production` 只创建缺失的状态目录，并核验信任根、现有应用健康、Nginx 和备份全局锁；不检查账号池或 Canary 凭据，不修改 systemd、不构建、不迁移、不切换应用。已有资产内容不一致时停止。
-- `deploy-start` 是日常一键入口：预分配 release ID 后启动独立 worker；worker 先完成本地输入/配置检查并取得全局锁。启用 `.ssh.local` 顶层 `vm_lifecycle` 时，在首次 VM 连接前取得跨 checkout VM 身份锁、核对持久所有权并检查电源，按需无界面启动，再检查 VM 与外部节点、幂等 bootstrap production-node 和检查 production-node，随后完成 VM Gate、生产恢复点、迁移、切换和分节点验收。未配置保持旧行为，配置错误 fail-closed；配置与锁合同见 [release-runner-lifecycle.md](release-runner-lifecycle.md)。
-- worker 在停写前不读取账号池或 Canary 凭据，不发送模型请求，也不产生 usage marker。任何模型或 upstream 探针都不得成为 Docker 镜像升级条件；流式模型请求统一记录为 `not_checked`，没有可用账号不得阻塞升级。direct/DMIT `/health` 与 candidate health 仅确认容器启动和路由可达，并非模型探针；候选公开后仍必须验证迁移、备份和恢复合同。
+- `deploy-start` 是日常一键入口：预分配 release ID 后启动独立 worker；worker 先完成本地输入/配置检查并取得全局锁。启用 `.ssh.local` 顶层 `vm_lifecycle` 时，在首次 VM 连接前取得跨 checkout VM 身份锁、核对持久所有权并检查电源，按需无界面启动，再检查 VM 与外部节点、幂等 bootstrap 生产节点 和检查 生产节点，随后完成 VM Gate、生产恢复点、迁移、切换和分节点验收。未配置保持旧行为，配置错误 fail-closed；配置与锁合同见 [release-runner-lifecycle.md](release-runner-lifecycle.md)。
+- worker 在停写前不读取账号池或 Canary 凭据，不发送模型请求，也不产生 usage marker。任何模型或 upstream 探针都不得成为 Docker 镜像升级条件；流式模型请求统一记录为 `not_checked`，没有可用账号不得阻塞升级。direct/中继节点 `/health` 与 candidate health 仅确认容器启动和路由可达，并非模型探针；候选公开后仍必须验证迁移、备份和恢复合同。
 - 信任根首次安装仍单独使用 `bootstrap-trust`，人工核验公钥指纹；普通 bootstrap 和 deploy 不得创建或替换信任根。
 
 ### Claim 前资产阶段与瞬时 SSH 故障
 
-- `bootstrap-production`、`stage_assets` 失败时，先对 production-node 做只读现场核验：release 目录、`.prepared`、`.active-release`、当前应用 image/health、Nginx 和 backup timer。不能仅凭本地退出码判断“生产未变化”。
+- `bootstrap-production`、`stage_assets` 失败时，先对 生产节点 做只读现场核验：release 目录、`.prepared`、`.active-release`、当前应用 image/health、Nginx 和 backup timer。不能仅凭本地退出码判断“生产未变化”。
 - 只有 release 目录和 `.active-release` 均明确不存在、旧应用健康且没有 freeze/migration marker 时，才允许使用新的完整 commit、新 Gate 和新 release ID 重试；已创建的失败 release 目录和证据必须保留。
 - SSH 建连阶段的 banner/EOF/transport 瞬时错误可由 `SSHRunner` 做有限退避重试；SFTP 上传、远程 shell 已执行或返回内容不完整时禁止盲重试，必须按 marker/checksum/claim 做 reconciliation。
 - VM 清理器运行早于 validator fetch 时，必须先同步目标 `origin/main` 再解析 profile 兼容提交。目标 commit、兼容提交或 full-SHA 兼容 tag 任一无法证明时停止清理；不得删除兼容回滚镜像。
@@ -303,14 +303,14 @@ signed image/迁移/业务不变量
 6. 无论继续候选还是恢复旧版，都要恢复 backup units；成功候选还要恢复自动同步。
 7. 最终必须由当前 commit 中已实现、经过测试并有明确命令/参数的 runner/reconciliation 入口原子 consume/reconcile active claim 并更新结构化状态。禁止手工改 JSON、删除 marker 或伪造 `verified`。不满足 claim-only 条件时保持 `blocked_reconciliation`，先完成现场审计，不用一次性脚本代替。
 
-人工 reconciliation 完成发布至少要求：运行 image 等于 signed candidate、迁移与业务不变量通过、生产开关符合计划、direct/DMIT health 通过、streaming 与 usage attribution 明确记录 `not_checked`、backup timer 与自动同步恢复、claim 已消费且 post-deploy doctor 通过。若真实隔离恢复未完成，整体仍报告 `partial: production healthy, disaster-recovery baseline incomplete`。
+人工 reconciliation 完成发布至少要求：运行 image 等于 signed candidate、迁移与业务不变量通过、生产开关符合计划、direct/中继节点 health 通过、streaming 与 usage attribution 明确记录 `not_checked`、backup timer 与自动同步恢复、claim 已消费且 post-deploy doctor 通过。若真实隔离恢复未完成，整体仍报告 `partial: production healthy, disaster-recovery baseline incomplete`。
 
 ## 故障预检表
 
 | 症状 | 根因 | doctor 字段或检查 | 处理 |
 | --- | --- | --- | --- |
-| SSH 代理可用但发布连接失败 | 仓库私有 `known_hosts` 缺目标记录，用户可信文件已有记录 | `vm_hostkey_trusted`、`racknerd_hostkey_trusted`、`dmit_hostkey_trusted`、`backup_hostkey_trusted` | 只导入用户已信任的精确记录；禁止 `ssh-keyscan`、TOFU 或自动接受 |
-| VM Gate 无法提交或生产拒绝 Gate | production-node 缺 VM Gate 公钥或三方信任根不一致 | `vm_gate_trust_ready` | 运行独立 `bootstrap-trust` 并人工核验指纹 |
+| SSH 代理可用但发布连接失败 | 仓库私有 `known_hosts` 缺目标记录，用户可信文件已有记录 | `vm_hostkey_trusted`、`生产节点_hostkey_trusted`、`中继节点_hostkey_trusted`、`backup_hostkey_trusted` | 只导入用户已信任的精确记录；禁止 `ssh-keyscan`、TOFU 或自动接受 |
+| VM Gate 无法提交或生产拒绝 Gate | 生产节点 缺 VM Gate 公钥或三方信任根不一致 | `vm_gate_trust_ready` | 运行独立 `bootstrap-trust` 并人工核验指纹 |
 | 流式能力未验证 | 发布策略不发送模型请求 | `streaming=not_checked`、`usage attribution=not_checked` | 不阻塞镜像升级；依靠 health、迁移、备份和恢复合同判断发布安全 |
 | 迁移后协调恢复无法解密 | 生产只配置 recipient，`restore.sh` 却依赖本机 age identity | `local_restore_point_ready` | 迁移前生成并校验 root-only 临时恢复 tar；缺失时停止迁移，禁止把解密私钥补到生产机 |
 | 远端动作成功但本地报 undeclared/missing field | SSH allowlist 与脚本 stdout 合同不同步 | committed marker、目标状态、输出字段集合 | 先核验动作是否已提交；同步 allowlist 与测试后再继续，不重复远端写操作 |
@@ -320,7 +320,7 @@ signed image/迁移/业务不变量
 | freeze 最早期失败 | release-state 根目录未初始化 | `release_state_root_ready` | bootstrap 创建并核验 owner、权限和挂载边界 |
 | Redis 备份认证失败 | 密码只存在于容器启动参数 `--requirepass`，没有环境变量 | `redis_auth_source`、`redis_ping`、`redis_info`、`redis_bgsave_precheck` | 从启动参数安全解析，通过 stdin 传给客户端；不得写入 argv、stdout 或状态文件 |
 | Compose stop/start 被判失败 | 正常进度输出写入 stderr，严格 SSH 将其视为错误 | `compose_control_precheck` | 远端脚本静默正常进度，仅保留结构化白名单结果 |
-| production-node 内访问 relay-node TLS 失败，外部访问正常 | production-node 到 relay-node 公网地址的 hairpin 路径不成立 | `direct_health`、`dmit_external_health` | direct 在 production-node 验；relay-node 必须从异地节点验 |
+| 生产节点 内访问 中继节点 TLS 失败，外部访问正常 | 生产节点 到 中继节点 公网地址的 hairpin 路径不成立 | `direct_health`、`中继节点_external_health` | direct 在 生产节点 验；中继节点 必须从异地节点验 |
 | VM Gate 前空间不足 | candidate、旧测试容器或归档累积 | `vm_free_bytes`、`vm_required_bytes`、`vm_cleanup_candidate_bytes` | 仅执行下方白名单清理一次，随后重新预检；仍不足则停止 |
 | signer/validator 漂移 | VM signer helper 与 validator 版本不一致，或信任公钥不一致 | `signer_identity_status`、`vm_validator_sha256`、`gate_signer_binding_status` | 停止；普通 bootstrap 不得自动生成密钥或替换信任根 |
 | 生产迁移前置不满足 | VM fixture 通过但生产历史数据缺少可证明来源 | `migration_preflight_status`、`migration_unproven_rows` | 停止停写/迁移，先修订数据计划和 Gate |
@@ -335,7 +335,7 @@ doctor 还必须核验 Git clean、完整 SHA 与远端一致、应用/PG/Redis 
 VM validator 和 signer helper 是同一版本化发布单元。更新时必须先暂存两者，执行 shell/profile 兼容性检查和临时 Gate 签名验签自测，再一次激活；中途失败不得留下混合版本。普通 `bootstrap-production` 和 `deploy` 必须设置 `REQUIRE_EXISTING_SIGNER_KEYS=true`，要求已有 signer 私钥/公钥，不得创建、替换或自动修复信任根。发布前必须验证：
 
 1. signer 私钥派生公钥等于 VM signer 公钥。
-2. VM signer 公钥等于仓库信任公钥，且 production-node trust key 也相等。
+2. VM signer 公钥等于仓库信任公钥，且 生产节点 trust key 也相等。
 3. signer 文件不是 symlink，owner 和权限符合固定要求。
 4. validator 支持当前 profile，validator、runner、signer public key checksum 都绑定进 Gate。
 
@@ -379,13 +379,13 @@ switch failure
 ## 分节点验收
 
 ```text
-RackNerd  -> direct /health、应用日志
-异地节点 -> DMIT /health
+生产节点  -> direct /health、应用日志
+异地节点 -> 中继节点 /health
 结果     -> streaming、usage attribution、真实 IP 归因均为 not_checked
 ```
 
-- 禁止从 production-node 回连 relay-node 公网入口作为 relay-node 验收证据。
-- direct 与 relay-node 任一路径未通过，都不能报告生产完全健康。
+- 禁止从 生产节点 回连 中继节点 公网入口作为 中继节点 验收证据。
+- direct 与 中继节点 任一路径未通过，都不能报告生产完全健康。
 
 ## VM 白名单清理
 

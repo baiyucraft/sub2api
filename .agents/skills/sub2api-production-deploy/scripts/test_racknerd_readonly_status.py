@@ -34,7 +34,7 @@ def valid_document() -> dict[str, object]:
                 "user": "operator",
                 "password": "secret",
                 "connection": "http_connect_via_ssh",
-                "proxy": "192.0.2.33:1080",
+                "proxy": "192.0.2.1:1080",
                 "proxy_via": "dmit",
             },
             "other": {"ignored": True},
@@ -45,7 +45,7 @@ def valid_document() -> dict[str, object]:
 class ConfigTests(unittest.TestCase):
     def test_valid_config(self) -> None:
         config = MODULE.parse_config_document(valid_document())
-        self.assertEqual(config.proxy_host, "192.0.2.33")
+        self.assertEqual(config.proxy_host, "192.0.2.1")
         self.assertEqual(config.proxy_port, 1080)
         self.assertEqual(config.relay.host, "relay.invalid")
 
@@ -102,7 +102,7 @@ class ConfigTests(unittest.TestCase):
 
     def test_rejects_wrong_relay_proxy_endpoint(self) -> None:
         document = valid_document()
-        document["servers"]["racknerd"]["proxy"] = "192.0.2.33:8888"
+        document["servers"]["racknerd"]["proxy"] = "192.0.2.1:8888"
         with self.assertRaisesRegex(MODULE.StatusCheckError, "proxy_config_unsupported"):
             MODULE.parse_config_document(document)
 

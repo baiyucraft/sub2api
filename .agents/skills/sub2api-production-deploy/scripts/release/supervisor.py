@@ -1250,20 +1250,26 @@ def _prove_pre_state_claim(run_dir: Path, document: dict, *, recovered: bool = F
 def _prove_pre_state_runtime(document: dict) -> dict:
     """Use the formal host checks and both real HTTPS routes before owner release."""
     manifest, evidence = document["manifest"], document["evidence"]
-    profile = get_profile(str(manifest["profile"]))
-    doctor = ReleaseDoctor(str(manifest["profile"]), manifest["commit_sha"]).run(("racknerd", "dmit"), require_ingress_policy=False)
+    ssh = SSHRunner(require_environment=True)
+    environment = ssh.deployment_environment
+    if environment is None:
+        raise RuntimeError("local deployment configuration is required for pre-state recovery")
+    environment.assert_current()
+    doctor = ReleaseDoctor(
+        str(manifest["profile"]), manifest["commit_sha"], runner=ssh, environment=environment,
+    ).run(("racknerd", "dmit"), require_ingress_policy=False)
     if (doctor.get("racknerd_ready") != "true" or doctor.get("dmit_ready") != "true"
             or doctor.get("production_current_image_id") != evidence["production_current_image_id"]):
         raise RuntimeError("pre-state claim production doctor is unproven")
-    ssh = SSHRunner()
-    for host, address in (("racknerd", profile["rack_public_ip"]), ("backup", profile["dmit_public_ip"])):
-        domain = shlex.quote(profile["public_domain"])
+    for route in (environment.direct_route, environment.relay_route):
+        environment.assert_current()
+        domain = shlex.quote(environment.public_domain)
         script = f'''set -Eeuo pipefail
-http_code=$(curl -fsS --connect-timeout 3 --max-time 15 --resolve {domain}:443:{shlex.quote(address)} -o /dev/null -w '%{{http_code}}' https://{domain}/health)
+http_code=$(curl -fsS --connect-timeout 3 --max-time 15 --resolve {domain}:443:{shlex.quote(route["address"])} -o /dev/null -w '%{{http_code}}' https://{domain}/health)
 test "$http_code" = 200
 printf 'public_health=pass\\n'
 '''
-        if ssh.run(host, script, {"public_health"}, timeout=30).values != {"public_health": "pass"}:
+        if ssh.run(route["observer"], script, {"public_health"}, timeout=30).values != {"public_health": "pass"}:
             raise RuntimeError("pre-state claim public route is unproven")
     return {"production_doctor": "verified", "direct_route_health": "pass", "dmit_route_health": "pass"}
 
