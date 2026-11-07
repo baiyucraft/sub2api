@@ -300,7 +300,7 @@ class DoctorTest(unittest.TestCase):
         self.assertIn("production_migration_status=absent", script)
         self.assertIn("if ssh -i /tmp/fixture-key -p 2202", script)
         self.assertIn("fixture@upload.example.test doctor-probe", script)
-        self.assertNotIn("192.0.2.29/32", script)
+        self.assertNotIn("192.0.2.29", script)
 
         bootstrap_runner = mock.Mock()
         bootstrap_runner.run.return_value.values = {"production_bootstrap": "true"}
