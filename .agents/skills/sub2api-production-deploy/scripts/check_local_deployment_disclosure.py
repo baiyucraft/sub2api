@@ -44,11 +44,15 @@ def deployment_disclosure_values(document: object) -> set[bytes]:
     if not isinstance(document, dict):
         raise RuntimeError("local SSH configuration is invalid")
     values: set[str] = set()
+    private_values: set[str] = set()
     deployment = document.get("deployment")
     if isinstance(deployment, dict):
         domain = deployment.get("public_domain")
         if isinstance(domain, str):
             values.add(domain)
+            labels = domain.strip('.').split('.')
+            if len(labels) > 2:
+                values.add('.'.join(labels[-2:]))
         routes = deployment.get("health_routes")
         if isinstance(routes, dict):
             for route in routes.values():
@@ -65,8 +69,8 @@ def deployment_disclosure_values(document: object) -> set[bytes]:
         if isinstance(backup, dict):
             for key in ("key_path",):
                 value = backup.get(key)
-                if isinstance(value, str) and value:
-                    values.add(value)
+                if isinstance(value, str) and value and not value.startswith('/home/example/'):
+                    private_values.add(value)
     servers = document.get("servers")
     if isinstance(servers, dict):
         for server in servers.values():
@@ -80,15 +84,16 @@ def deployment_disclosure_values(document: object) -> set[bytes]:
                 values.add(proxy.rsplit(":", 1)[0].strip("[]"))
             for key in ("private_key", "identity_file", "password", "passphrase"):
                 value = server.get(key)
-                if isinstance(value, str) and value and "example" not in value.lower():
-                    values.add(value)
+                if isinstance(value, str) and value and not (
+                    key in {"private_key", "identity_file"} and value.startswith('/home/example/')
+                ):
+                    private_values.add(value)
     return {
         value.strip().lower().encode("utf-8")
         for value in values
         if len(value.strip()) >= 7
-        and "example" not in value.lower()
         and not _is_fictional_host(value)
-    }
+    } | {value.strip().lower().encode("utf-8") for value in private_values if len(value.strip()) >= 7}
 
 
 def _private_config_path(root: Path) -> Path:

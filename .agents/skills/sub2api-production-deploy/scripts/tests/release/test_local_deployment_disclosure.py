@@ -38,7 +38,7 @@ class LocalDeploymentDisclosureTest(unittest.TestCase):
                 "app": {
                     "host": "203.0.113.10",
                     "private_key": "/srv/private/deploy-key",
-                    "password": "synthetic-private-password",
+                    "password": "synthetic-private.example.test",
                 },
             },
             "deployment": {
@@ -50,7 +50,7 @@ class LocalDeploymentDisclosureTest(unittest.TestCase):
         })
         self.assertEqual(values, {
             b"/srv/private/deploy-key",
-            b"synthetic-private-password",
+            b"synthetic-private.example.test",
             b"/srv/private/backup-key",
         })
 
