@@ -9,6 +9,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+import yaml
+
 
 DEPLOY_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(DEPLOY_ROOT))
@@ -16,6 +18,8 @@ sys.path.insert(0, str(DEPLOY_ROOT))
 from release.doctor import ReleaseDoctor, import_trusted_host_keys
 from release.production_bootstrap import bootstrap_production
 from release.process import run_hidden
+from release.environment import load_deployment_environment
+from test_deployment_environment import fixture_config
 
 
 class DoctorTest(unittest.TestCase):
@@ -289,6 +293,37 @@ class DoctorTest(unittest.TestCase):
         self.assertEqual(runner.run.call_args_list[0].args[0], "upload")
         self.assertEqual(runner.run.call_args_list[1].args[0], "backup")
         self.assertIn("--resolve sub2api.example.test:443:198.51.100.20", runner.run.call_args_list[1].args[1])
+
+    def test_two_environment_files_drive_the_same_doctor_code(self) -> None:
+        for index in (1, 2):
+            with self.subTest(environment=index), tempfile.TemporaryDirectory() as temporary:
+                document = fixture_config()
+                deployment = document["deployment"]
+                deployment["public_domain"] = f"app-{index}.example.test"
+                deployment["health_routes"]["relay"]["address"] = f"203.0.113.{index}"
+                deployment["backup_upload"]["user"] = f"fixture{index}"
+                deployment["backup_upload"]["key_path"] = f"/tmp/fixture-{index}-key"
+                deployment["backup_upload"]["port"] = 2200 + index
+                document["servers"]["upload-node"]["host"] = f"upload-{index}.example.test"
+                deployment["relay_probe"]["service"] = f"relay-{index}.service"
+                deployment["relay_probe"]["listen_address"] = f"192.0.2.{index}"
+                deployment["vm_health"] = {"address": f"198.51.100.{index}", "port": 8200 + index}
+                path = Path(temporary) / ".ssh.local"
+                path.write_text(yaml.safe_dump(document), encoding="utf-8")
+                environment = load_deployment_environment(path)
+                run = mock.Mock(return_value=mock.Mock(values={}))
+                runner = SimpleNamespace(run=run, assert_configuration_current=lambda: None)
+                doctor = ReleaseDoctor("182", runner=runner, environment=environment)
+                doctor.check_backup()
+                doctor.check_dmit()
+                doctor.check_vm()
+                doctor.check_racknerd()
+                scripts = "\n".join(call.args[1] for call in run.call_args_list)
+                self.assertIn(f"app-{index}.example.test:443:203.0.113.{index}", scripts)
+                self.assertIn(f"fixture{index}@upload-{index}.example.test", scripts)
+                self.assertIn(f"/tmp/fixture-{index}-key -p {2200 + index}", scripts)
+                self.assertIn(f"RELAY_SERVICE=relay-{index}.service", scripts)
+                self.assertIn(f"http://198.51.100.{index}:{8200 + index}/health", scripts)
 
     def test_remote_scripts_do_not_contain_control_characters(self) -> None:
         runner = mock.Mock()
