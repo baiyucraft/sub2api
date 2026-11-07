@@ -23,7 +23,7 @@ func TestAPIKeyAuthSnapshotOptionalImageToolsRoundtrip(t *testing.T) {
 	require.NoError(t, err)
 	var cached APIKeyAuthCacheEntry
 	require.NoError(t, json.Unmarshal(payload, &cached))
-	require.Equal(t, 26, cached.Snapshot.Version)
+	require.Equal(t, 28, cached.Snapshot.Version)
 	materialized, used, err := svc.applyAuthCacheEntry(apiKey.Key, &cached)
 	require.NoError(t, err)
 	require.True(t, used)

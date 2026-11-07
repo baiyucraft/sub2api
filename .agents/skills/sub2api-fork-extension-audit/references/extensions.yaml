@@ -153,16 +153,17 @@
         "migration_source": "database_state"
       }
     },
-    "281": {"version": "0.2.19-baiyu", "parent": "280", "gate_schema": 2, "new_migrations": ["305_scoped_admin_api_keys.sql", "306_group_image_count_billing.sql"], "release_policy": {"compatibility_image": "production_current", "migration_source": "database_state"}}
+    "281": {"version": "0.2.19-baiyu", "parent": "280", "gate_schema": 2, "new_migrations": ["305_scoped_admin_api_keys.sql", "306_group_image_count_billing.sql"], "release_policy": {"compatibility_image": "production_current", "migration_source": "database_state"}},
+    "282": {"version": "0.2.19-baiyu", "parent": "281", "gate_schema": 2, "new_migrations": ["307_user_default_group_rate_percent.sql"], "release_policy": {"compatibility_image": "production_current", "migration_source": "database_state"}}
   },
   "current_profile": {
-    "id": "282",
+    "id": "283",
     "status": "pending",
-    "version": "0.2.19-baiyu",
-    "parent": "281",
+    "version": "0.2.20-baiyu",
+    "parent": "282",
     "gate_schema": 2,
     "new_migrations": [
-      "307_user_default_group_rate_percent.sql"
+      "308_mcp_oauth.sql"
     ],
     "release_policy": {
       "compatibility_image": "production_current",
@@ -261,7 +262,8 @@
     "303_group_strip_optional_image_tools.sql": "fc1f8f42f2212341db0a4e235979ee3b729c094313a5112007f13270319bc915",
     "305_scoped_admin_api_keys.sql": "0c4c22f564f276fb305a54cf2d6c4b1a6179d748d5d8b74a3b99676282355bf6",
     "306_group_image_count_billing.sql": "c91d6d31937658e71c68fa3af6a26fc47380f61243a681ac275aeb4706b242ab",
-    "307_user_default_group_rate_percent.sql": "43cc403117cc8971ee5e3e3b5eee60c1c927016e959f1cfb802658d644ba9237"
+    "307_user_default_group_rate_percent.sql": "43cc403117cc8971ee5e3e3b5eee60c1c927016e959f1cfb802658d644ba9237",
+    "308_mcp_oauth.sql": "881ff2e8ecf430202c593c699b1441db1d2196ac2c312d8a3849acb6c97609e5"
   },
   "migration_renames": {
     "official_246_enable_gemini_image_generation_groups": "302_enable_gemini_image_generation_groups.sql",
@@ -293,9 +295,11 @@
     "official_238_opencode_go_platform": "274_opencode_go_platform.sql",
     "official_238_purge_unlimited_user_platform_quotas": "275_purge_unlimited_user_platform_quotas.sql",
     "official_247_scoped_admin_api_keys": "305_scoped_admin_api_keys.sql",
-    "official_248_group_image_count_billing": "306_group_image_count_billing.sql"
+    "official_248_group_image_count_billing": "306_group_image_count_billing.sql",
+    "official_249_mcp_oauth": "308_mcp_oauth.sql"
   },
   "migration_assertions": {
+    "backend/migrations/308_mcp_oauth.sql": ["CREATE TABLE IF NOT EXISTS mcp_oauth_grants", "CREATE TABLE IF NOT EXISTS mcp_oauth_codes", "CREATE TABLE IF NOT EXISTS mcp_oauth_credentials", "kind IN ('access', 'refresh')"],
     "backend/migrations/302_enable_gemini_image_generation_groups.sql": ["UPDATE groups", "allow_image_generation = true", "platform IN ('gemini', 'antigravity')", "allow_image_generation = false"],
     "backend/migrations/301_upstream_cache_guard_admissions.sql": ["CREATE TABLE upstream_cache_guard_admissions", "PRIMARY KEY (group_id, session_key, admission_key)", "state_json=state_json-'admissions'", "idx_cache_guard_admission_pending_age", "idx_cache_guard_admission_acknowledgement"],
     "backend/migrations/300_upstream_health_history_index.sql": [
@@ -2167,7 +2171,7 @@
     {
       "id": "migration-profile-contract",
       "title": "Migration、profile、版本与历史证据",
-      "description": "维护fork迁移、官方重编号、历史profile233–281与pending profile282、版本、checksum及兼容身份。",
+      "description": "维护fork迁移、官方重编号、历史profile233–282与pending profile283、版本、checksum及兼容身份。",
       "ownership": "fork",
       "risk_level": "critical",
       "paths": [
@@ -2189,7 +2193,10 @@
         "backend/migrations/307_user_default_group_rate_percent.sql",
         "backend/migrations/profile_282_migrations_test.go",
         "backend/migrations/profile_282_postgres_test.go",
-        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile282_release_contract.py"
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile282_release_contract.py",
+        "backend/migrations/308_mcp_oauth.sql",
+        "backend/migrations/profile_283_migrations_test.go",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile283_release_contract.py"
       ],
       "symbols": [
         "PROFILES",
@@ -2215,7 +2222,8 @@
         "0.2.14-baiyu",
         "0.2.15-baiyu",
         "0.2.16-baiyu",
-        "0.2.19-baiyu"
+        "0.2.19-baiyu",
+        "0.2.20-baiyu"
       ],
       "api_routes": [],
       "settings_keys": [],
@@ -2283,7 +2291,8 @@
         "303_group_strip_optional_image_tools.sql",
         "305_scoped_admin_api_keys.sql",
         "306_group_image_count_billing.sql",
-        "307_user_default_group_rate_percent.sql"
+        "307_user_default_group_rate_percent.sql",
+        "308_mcp_oauth.sql"
       ],
       "required_tests": [
         "backend/migrations/profile_275_migrations_test.go",
@@ -2351,7 +2360,9 @@
         "backend/internal/repository/custom_admin_keys_postgres_test.go",
         "backend/migrations/profile_282_migrations_test.go",
         "backend/migrations/profile_282_postgres_test.go",
-        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile282_release_contract.py"
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile282_release_contract.py",
+        "backend/migrations/profile_283_migrations_test.go",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile283_release_contract.py"
       ],
       "recommended_tests": [
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_signer_assets.py",
@@ -2388,7 +2399,7 @@
         "当前 profile 274 parent 273，同版本0.2.17-baiyu仅新增301；273及更早SQL/profile/checksum保持不可变，未知275拒绝。301要求停旧写者迁移并coordinated_restore，不能让旧镜像继续写入拆分后的会话。迁移断言生产只读，写入fixture仅在显式绑定的隔离库事务回滚；未新增恢复敏感blob豁免。",
         "历史 profile 278、279、280 的版本、parent、migration 与 checksum 保持不可变；当前 profile 281 为官方 0.2.19-baiyu、parent 280，仅新增原字节重编号的 305/306，未知 282 拒绝。显示版本从历史 fork 0.2.22-baiyu 重新跟随官方源码，不回退已有功能或改写历史 profile；305/306 不覆盖 fork 历史 247/248。Python、Shell、signer、祖先 migration 断言、备份和清理入口同步；最终敏感 blob 仍须重新审阅，不扩大历史豁免。",
         "官方限定管理员密钥PostgreSQL回归只将迁移读取名改为305，原字节305/306与官方247/248一致，旧SQL不回写。",
-        "当前profile282为0.2.19-baiyu、parent281，仅新增307_user_default_group_rate_percent.sql；历史281及以前的profile/SQL/checksum/恢复审阅不变。全部执行入口接纳282并拒绝未知283，current-only仅282；保留downtime和301停旧写者/coordinated_restore，不新增恢复豁免。"
+        "profile282现为历史profile，保持0.2.19-baiyu、parent281、仅新增307_user_default_group_rate_percent.sql；原始profile/SQL/checksum/恢复审阅不变。profile283为0.2.20-baiyu、parent282，仅新增原字节重编号的308_mcp_oauth.sql；目标官方249_mcp_oauth SQL原字节相同。全部入口接纳283并拒绝未知284，current-only仅283；保留downtime和301停旧写者/coordinated_restore，不新增恢复豁免。"
       ]
     },
     {
@@ -2684,8 +2695,8 @@
     },
     {
       "id": "registration-email-abuse-guard", "title": "注册邮箱别名与 Gmail 普通地址限制", "description": "基于官方注册、验证码、OAuth 建号与邮箱白名单基座，fork 增加收件箱身份归一化去重，并在白名单显式包含 Gmail 家族时限制为字母数字普通地址。", "ownership": "fork", "risk_level": "high",
-      "paths": ["backend/internal/service/registration_email_alias.go", "backend/internal/service/registration_email_policy.go", "backend/internal/service/auth_service.go", "backend/internal/service/auth_email_oauth_auto.go", "backend/internal/repository/user_repo.go", "frontend/src/utils/registrationEmailPolicy.ts", "frontend/src/views/auth/RegisterView.vue", "frontend/src/views/auth/EmailVerifyView.vue", "frontend/src/i18n/locales/zh/common.ts", "frontend/src/i18n/locales/en/common.ts", "frontend/src/i18n/locales/zh/admin/settings.ts", "frontend/src/i18n/locales/en/admin/settings.ts"],
-      "symbols": ["NormalizeEmailForAliasDedup", "IsStrictGmailRegistrationEnabled", "IsSimpleGmailRegistrationAddress", "ErrGmailAliasNotAllowed", "isRegistrationGmailAddressAllowed"], "api_routes": ["/auth/register", "/auth/send-verify-code"], "settings_keys": ["registration_email_suffix_whitelist"], "migration_files": [], "required_tests": ["backend/internal/service/registration_email_policy_test.go", "backend/internal/service/registration_email_alias_test.go", "backend/internal/repository/user_repo_email_alias_test.go", "frontend/src/utils/__tests__/registrationEmailPolicy.spec.ts", "frontend/src/views/auth/__tests__/RegisterView.spec.ts", "frontend/src/views/auth/__tests__/EmailVerifyView.spec.ts"], "invariants": ["官方拥有注册、验证码和 OAuth 建号主链，fork 只拥有 Gmail 普通地址限制与收件箱别名防重复规则", "白名单显式包含 @gmail.com 或 @googlemail.com 时 Gmail 家族新注册本地部分只允许 ASCII 字母数字", "点号、+tag 和其它符号 Gmail 地址在发验证码、普通注册和 OAuth 首次建号前拒绝，错误码固定为 GMAIL_ALIAS_NOT_ALLOWED 且不回显邮箱", "白名单为空或不含 Gmail 家族时不新增严格 Gmail 限制；QQ 和其它域名保持现有语义", "已有账号登录不受严格 Gmail 注册限制；邮箱绑定不在该限制范围", "现有 +suffix、Gmail 点号、gmail.com/Googlemail.com 收件箱归一化查重继续作为重复账号并发防线", "不新增数据库字段、migration、第三方邮箱信誉依赖或临时邮箱域名黑名单"]
+      "paths": ["backend/internal/service/registration_email_alias.go", "backend/internal/service/registration_email_policy.go", "backend/internal/service/auth_service.go", "backend/internal/service/auth_email_oauth_auto.go", "backend/internal/service/auth_registration_policy_merge_test.go", "backend/internal/repository/user_repo.go", "frontend/src/utils/registrationEmailPolicy.ts", "frontend/src/views/auth/RegisterView.vue", "frontend/src/views/auth/EmailVerifyView.vue", "frontend/src/i18n/locales/zh/common.ts", "frontend/src/i18n/locales/en/common.ts", "frontend/src/i18n/locales/zh/admin/settings.ts", "frontend/src/i18n/locales/en/admin/settings.ts"],
+      "symbols": ["NormalizeEmailForAliasDedup", "IsStrictGmailRegistrationEnabled", "IsSimpleGmailRegistrationAddress", "ErrGmailAliasNotAllowed", "isRegistrationGmailAddressAllowed"], "api_routes": ["/auth/register", "/auth/send-verify-code"], "settings_keys": ["registration_email_suffix_whitelist"], "migration_files": [], "required_tests": ["backend/internal/service/auth_registration_policy_merge_test.go", "backend/internal/service/registration_email_policy_test.go", "backend/internal/service/registration_email_alias_test.go", "backend/internal/repository/user_repo_email_alias_test.go", "frontend/src/utils/__tests__/registrationEmailPolicy.spec.ts", "frontend/src/views/auth/__tests__/RegisterView.spec.ts", "frontend/src/views/auth/__tests__/EmailVerifyView.spec.ts"], "invariants": ["官方拥有注册、验证码和 OAuth 建号主链，fork 只拥有 Gmail 普通地址限制与收件箱别名防重复规则", "白名单显式包含 @gmail.com 或 @googlemail.com 时 Gmail 家族新注册本地部分只允许 ASCII 字母数字", "点号、+tag 和其它符号 Gmail 地址在发验证码、普通注册和 OAuth 首次建号前拒绝，错误码固定为 GMAIL_ALIAS_NOT_ALLOWED 且不回显邮箱", "白名单为空或不含 Gmail 家族时不新增严格 Gmail 限制；QQ 和其它域名保持现有语义", "已有账号登录不受严格 Gmail 注册限制；邮箱绑定不在该限制范围", "现有 +suffix、Gmail 点号、gmail.com/Googlemail.com 收件箱归一化查重继续作为重复账号并发防线", "不新增数据库字段、migration、第三方邮箱信誉依赖或临时邮箱域名黑名单", "官方精确邮箱黑名单只阻止新建账号；Gmail与黑名单预检不得抢先严格拒绝域名限量模式允许的首账号，OAuth新建与普通注册均通过既有域名配额及原子收件箱防重复写入；邮箱绑定仍遵守严格白名单。"]
     },
     {
       "id": "user-recharge-store", "title": "用户固定充值商城入口", "description": "在用户与管理员个人菜单中提供固定充值商城页，原样内嵌 catfk 商城并保留外部打开兜底；与原生购买入口并存，第三方页面不接收 Sub2API 身份或来源上下文。", "ownership": "fork", "risk_level": "high",
@@ -3153,6 +3164,42 @@
         "显式0沿用既有actual_cost=0、quota_meter_cost按分组原价和原始统计保留语义，利润豁免仅对当前用户与计费分组。",
         "profile282同版本0.2.19-baiyu、parent281且仅新增307；全部历史SQL/profile/checksum冻结，保留downtime/301旧写者退出/coordinated_restore，不新增恢复豁免。",
         "本地测试、隔离PostgreSQL语义与登记不代表VM Gate、生产发布或真实模型流量验证。"
+      ]
+    },
+    {
+      "id": "responses-orphan-precheck-test-isolation",
+      "title": "Responses 预检零分配测试隔离",
+      "description": "只将官方预检的零分配测量放在独立测试进程，避免完整 service 套件后台任务污染全进程分配计数。",
+      "ownership": "fork",
+      "risk_level": "low",
+      "paths": ["backend/internal/service/openai_responses_orphan_precheck_test.go"],
+      "symbols": ["TestOpenAIResponsesOrphanPrecheckLargeEscapedContent"],
+      "api_routes": [],
+      "settings_keys": [],
+      "migration_files": [],
+      "required_tests": ["backend/internal/service/openai_responses_orphan_precheck_test.go"],
+      "invariants": [
+        "仅隔离 AllocsPerRun 的进程级测量，保留官方零分配断言、输入与行为检查；不改预检生产实现或降低性能要求。",
+        "子进程只运行精确指定的测试，以专用环境标记防止递归，并具有独立超时；子进程失败必须传递到父测试。"
+      ]
+    },
+    {
+      "id": "mcp-oauth-migration",
+      "title": "官方 MCP OAuth 迁移重编号合同",
+      "description": "将固定官方目标249_mcp_oauth.sql按原始字节重编号为fork 308，保持历史profile和SQL不变。",
+      "ownership": "fork",
+      "risk_level": "high",
+      "paths": ["backend/migrations/308_mcp_oauth.sql", "backend/migrations/profile_283_migrations_test.go", ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile283_release_contract.py"],
+      "symbols": ["mcp_oauth_grants", "mcp_oauth_codes", "mcp_oauth_credentials"],
+      "api_routes": [],
+      "settings_keys": [],
+      "migration_files": ["308_mcp_oauth.sql"],
+      "required_tests": ["backend/migrations/profile_283_migrations_test.go", ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile283_release_contract.py"],
+      "invariants": [
+        "官方目标6b4b37db43443b5e88e424fe3c69602cc3810dfb的249_mcp_oauth.sql原字节仅重编号为308，不覆盖fork历史249_upstream_confidence_juice_reset.sql；Git blob为8ba1595a7f61a4f4fc71535862692be84d0ef9b9。",
+        "profile283为0.2.20-baiyu、parent282、new_migrations精确为[308_mcp_oauth.sql]；历史278的0.2.20-baiyu以及所有旧profile/SQL/checksum不可变。",
+        "授权码、access和refresh仅存摘要，grant按用户级联；三表、索引和scope/kind CHECK保持官方原字节合同。",
+        "本地合同测试与登记不代表VM Gate、生产发布或真实OAuth运行时验证。"
       ]
     }
   ]

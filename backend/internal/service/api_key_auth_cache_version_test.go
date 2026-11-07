@@ -2,6 +2,12 @@ package service
 
 import "testing"
 
+func TestAPIKeyAuthSnapshotVersionIncludesImageAndPrivacyPolicies(t *testing.T) {
+	if apiKeyAuthSnapshotVersion != 28 {
+		t.Fatalf("expected snapshot version 28 after adding image and privacy policies, got %d", apiKeyAuthSnapshotVersion)
+	}
+}
+
 func TestAPIKeyService_RejectsV10AuthSnapshotWithoutModelAllowlist(t *testing.T) {
 	groupID := int64(9)
 	svc := &APIKeyService{}

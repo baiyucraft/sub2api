@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import ast
 import os
 import re
@@ -16,6 +17,8 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from release.doctor import ReleaseDoctor
+from release.environment import load_deployment_environment
+from test_deployment_environment import fixture_config
 from release.manifest import canonical_json
 from release.production import ProductionRelease, gate_consumption_probe_script, recovered_claim_probe_script
 from release.production_bootstrap import bootstrap_production
@@ -27,6 +30,14 @@ class ObservationShellFailuresTest(unittest.TestCase):
         self.bash = str(candidate) if candidate.is_file() else shutil.which('bash')
         if not self.bash:
             self.skipTest('Bash is required for inert observation fixtures')
+        temporary = tempfile.TemporaryDirectory(prefix='observation-environment-')
+        self.addCleanup(temporary.cleanup)
+        configuration = Path(temporary.name) / 'deployment-fixture.json'
+        document = fixture_config()
+        document['deployment']['public_domain'] = 'fixture.invalid'
+        document['deployment']['health_routes']['relay']['address'] = '127.0.0.1'
+        configuration.write_text(json.dumps(document), encoding='utf-8')
+        self.environment = load_deployment_environment(configuration)
 
     def shell(self, script, environment=None):
         env = {key: value for key, value in os.environ.items() if key not in {'BASH_ENV', 'ENV', 'SHELLOPTS'}}
@@ -36,19 +47,37 @@ class ObservationShellFailuresTest(unittest.TestCase):
     def test_actual_generated_required_comparisons_reject_failed_producers(self):
         source = Path(sys.modules[ProductionRelease.__module__].__file__).read_text()
         context = {
-            'self': SimpleNamespace(release_dir='/tmp/release', state_dir='/tmp/state', profile={'public_domain': 'fixture.invalid', 'relay_public_ip': '127.0.0.1'}),
+            'self': SimpleNamespace(release_dir='/tmp/release', state_dir='/tmp/state', profile={'public_domain': 'fixture.invalid', 'relay_public_ip': '127.0.0.1'}, environment=self.environment),
+            'relay_route': self.environment.relay_route,
             'shlex': shlex, 'trust_sha': 'a' * 64, 'bundle_sha256': 'b' * 64,
             'stage_dir': '/tmp/stage', 'remote_bundle': '/tmp/stage/bundle', 'attempt_id': 'fixture',
             'profile_name': '273',
         }
         guards = []
-        for node in ast.walk(ast.parse(source)):
+        source_tree = ast.parse(source)
+        parents = {child: parent for parent in ast.walk(source_tree) for child in ast.iter_child_nodes(parent)}
+        for node in ast.walk(source_tree):
             if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute) or node.func.attr != 'run_remote' or len(node.args) < 2:
                 continue
-            expression = ast.get_source_segment(source, node.args[1]) or ''
+            expression_node = node.args[1]
+            if isinstance(expression_node, ast.Name) and expression_node.id == 'relay_health':
+                owner = node
+                while not isinstance(owner, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    owner = parents[owner]
+                assignments = [assignment for assignment in ast.walk(owner)
+                               if isinstance(assignment, ast.Assign)
+                               and any(isinstance(target, ast.Name) and target.id == expression_node.id
+                                       for target in assignment.targets)]
+                self.assertEqual(len(assignments), 1)
+                assignment = assignments[0]
+                self.assertIs(parents[assignment], owner)
+                self.assertIs(parents[parents[node]], owner)
+                self.assertLess(assignment.lineno, node.lineno)
+                expression_node = assignment.value
+            expression = ast.get_source_segment(source, expression_node) or ''
             if 'required_observed' not in expression:
                 continue
-            script = eval(compile(ast.Expression(node.args[1]), '<generated-script>', 'eval'), context)
+            script = eval(compile(ast.Expression(expression_node), '<generated-script>', 'eval'), context)
             syntax = self.shell('bash -n -c ' + shlex.quote(script))
             self.assertEqual(syntax.returncode, 0, syntax.stderr)
             guards.extend(re.findall(r'\{ required_observed=\$\(.*?\) \|\| exit 125; \} && test "\$required_observed" = (?:\'[^\']*\'|[^\s;&]+)', script))
@@ -137,7 +166,7 @@ class ObservationShellFailuresTest(unittest.TestCase):
                     self.assertEqual('comparison_accepted=true' in result.stdout, accepted)
 
     def test_actual_inactive_checks_require_known_exit_status(self):
-        runner = mock.Mock()
+        runner = mock.Mock(deployment_environment=self.environment, assert_configuration_current=self.environment.assert_current)
         runner.run.return_value.values = {}
         bootstrap_production('273', runner)
         scripts = [runner.run.call_args.args[1]]
@@ -209,7 +238,7 @@ export -f jq
                 self.assertEqual(result.stdout, 'gate_consumed=' + ('false' if case == 'pass' else 'unknown') + '\n', result.stderr)
 
     def test_actual_doctor_ingress_conditional_propagates_every_producer_error(self):
-        runner = mock.Mock()
+        runner = mock.Mock(deployment_environment=self.environment, assert_configuration_current=self.environment.assert_current)
         doctor = ReleaseDoctor('273', runner=runner)
         doctor._run_racknerd_readonly = mock.Mock(return_value={})
         doctor.check_racknerd()

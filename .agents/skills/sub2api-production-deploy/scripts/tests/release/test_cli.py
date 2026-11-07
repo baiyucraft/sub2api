@@ -122,6 +122,7 @@ class DeployCommandTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("release_id", result.stdout)
 
+    @mock.patch.dict("os.environ")
     def test_verify_recovery_result_command_dispatches_to_supervisor(self) -> None:
         from release import supervisor
 
@@ -133,6 +134,7 @@ class DeployCommandTest(unittest.TestCase):
         verify.assert_called_once()
         self.assertEqual(verify.call_args.args[0].release_id, "release-123")
 
+    @mock.patch.dict("os.environ")
     def test_consumed_finalization_preserve_is_explicit_and_default_stays_shutdown(self) -> None:
         from release import finalization
 

@@ -7,6 +7,7 @@ remote connection, application lifecycle or production asset is touched.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import shutil
 import sys
@@ -18,6 +19,8 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from release import finalization
+from release.environment import load_deployment_environment
+from test_deployment_environment import fixture_config
 from release.process import run_hidden
 
 
@@ -77,8 +80,19 @@ class FinalizationShellTest(unittest.TestCase):
         self.upstream.parent.mkdir(parents=True)
         self.upstream.write_bytes(b"upstream sub2api_release_backend { server 127.0.0.1:18080; }\n")
         captured = []
+        document = fixture_config()
+        document["servers"]["racknerd"] = document["servers"].pop("app-node")
+        document["servers"]["backup"] = document["servers"].pop("backup-node")
+        document["deployment"]["health_routes"]["direct"].update(observer="racknerd", target_node="racknerd")
+        document["deployment"]["health_routes"]["relay"].update(observer="backup", target_node="racknerd")
+        document["deployment"]["backup_upload"]["node"] = "backup"
+        configuration = self.root / "deployment-fixture.json"
+        configuration.write_text(json.dumps(document), encoding="utf-8")
+        environment = load_deployment_environment(configuration)
 
         class Capture:
+            deployment_environment = environment
+
             def run(_self, node, script, allowed, **kwargs):
                 assert node in {"racknerd", "backup"}
                 captured.append((node, script))

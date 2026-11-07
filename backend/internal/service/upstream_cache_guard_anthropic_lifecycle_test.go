@@ -53,13 +53,13 @@ func TestCacheGuardAnthropicConvertersRequireSuccessfulCompleteStream(t *testing
 			FinishGatewayUpstreamCacheGuardAttempt(c.Request.Context(), result, err)
 			return cacheGuardAnthropicConvertedResult{result.Usage.InputTokens, result.Usage.OutputTokens, result.Usage.CacheReadInputTokens, result.CacheUsageEvidence, result.ClientDisconnect}, err
 		}},
-		{"native_chat", 100, false, false, func(t *testing.T, c *gin.Context, resp *http.Response) (cacheGuardAnthropicConvertedResult, error) {
+		{"native_chat", 100, true, false, func(t *testing.T, c *gin.Context, resp *http.Response) (cacheGuardAnthropicConvertedResult, error) {
 			result, err := (&OpenAIGatewayService{}).handleCCStreamingFromNativeAnthropic(resp, c, "claude-test", "claude-test", "claude-test", nil, time.Now())
 			require.NotNil(t, result)
 			FinishOpenAIUpstreamCacheGuardAttempt(c.Request.Context(), result, err)
 			return cacheGuardAnthropicConvertedResult{result.Usage.InputTokens, result.Usage.OutputTokens, result.Usage.CacheReadInputTokens, result.Usage.CacheUsageEvidence, result.ClientDisconnect}, err
 		}},
-		{"native_responses", 100, false, false, func(t *testing.T, c *gin.Context, resp *http.Response) (cacheGuardAnthropicConvertedResult, error) {
+		{"native_responses", 100, true, false, func(t *testing.T, c *gin.Context, resp *http.Response) (cacheGuardAnthropicConvertedResult, error) {
 			result, err := (&OpenAIGatewayService{}).handleResponsesStreamingFromNativeAnthropic(resp, c, "claude-test", "claude-test", "claude-test", nil, time.Now(), apicompat.ResponsesClientToolMapping{})
 			require.NotNil(t, result)
 			FinishOpenAIUpstreamCacheGuardAttempt(c.Request.Context(), result, err)
