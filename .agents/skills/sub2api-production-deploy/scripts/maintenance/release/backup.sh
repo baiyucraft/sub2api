@@ -4,6 +4,8 @@ set -Eeuo pipefail
 deploy_dir=${DEPLOY_DIR:-/opt/sub2api}
 release_dir=${RELEASE_DIR:?RELEASE_DIR is required}
 backup_attempt_id=${BACKUP_ATTEMPT_ID:?BACKUP_ATTEMPT_ID is required}
+source /opt/sub2api/releases/.active-release/assets/backup-upload.sh
+backup_upload_init
 source /opt/sub2api/releases/.active-release/assets/context.sh
 source "$assets_dir/nginx-ingress-contract.sh"
 source "$assets_dir/recovery-compose.sh"
@@ -31,8 +33,6 @@ PY
 )
   [[ $observed_recipient == "$approved_recipient" ]]
 fi
-upload_key=${BACKUP_UPLOAD_KEY:-example.invalid}
-upload_target=${BACKUP_UPLOAD_TARGET:-sub2api-backup@example.invalid}
 timestamp=$(date -u +%Y%m%dT%H%M%SZ)
 umask 077
 work="$backup_root/.release-$release_id-$timestamp"
@@ -223,7 +223,7 @@ backup_stage=encrypt
 age -R "$recipient_file" -o "$encrypted" "$plain"
 artifact_sha=$(sha256sum "$encrypted" | awk '{print $1}')
 backup_stage=upload
-remote_result=$(ssh -i "$upload_key" -o BatchMode=yes -o StrictHostKeyChecking=yes "$upload_target" "upload daily $transport $artifact_sha" < "$encrypted")
+remote_result=$(backup_upload_send "$transport" "$artifact_sha" < "$encrypted")
 grep -Fq "OK $transport $artifact_sha" <<<"$remote_result"
 _required_23=$(docker inspect -f '{{.State.Health.Status}}' "$active_container")
 [[ ${_required_23} == healthy ]]

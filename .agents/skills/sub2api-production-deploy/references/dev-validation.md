@@ -59,9 +59,9 @@ VM 插件 Gate 不得使用真实生产账号采集。用户只要求查看 UI �
 
 固定资源：
 
-- 源码：`/opt/sub2api-src`
-- 部署：`/opt/sub2api-deploy`
-- 应用数据：`/opt/sub2api-deploy/data-dev`
+- 源码：`${APP_SOURCE_DIR}`
+- 部署：`${VM_DEPLOY_ROOT}`
+- 应用数据：`${VM_DEPLOY_ROOT}/data-dev`
 - 应用容器：`sub2api-dev`
 - PostgreSQL：VM 本地 `postgres` 服务或 `127.0.0.1:5432`
 - Redis：VM 本地 `redis` 服务或 `127.0.0.1:6379`
@@ -116,10 +116,10 @@ VM 插件 Gate 不得使用真实生产账号采集。用户只要求查看 UI �
 
 只采集 allowlist 字段，不输出完整环境。必须从实际容器设置和网络目标确认：
 
-- PostgreSQL 目标是 VM 本地服务，不是 RackNerd 地址。
-- Redis 目标是 VM 本地服务，不是 RackNerd 地址。
+- PostgreSQL 目标是 VM 本地服务，不是 生产节点 地址。
+- Redis 目标是 VM 本地服务，不是 生产节点 地址。
 - 没有生产数据库主机、生产 Redis、生产 SSH 隧道端口。
-- 容器使用 `/opt/sub2api-deploy/data-dev` 或其明确的开发挂载。
+- 容器使用 `${VM_DEPLOY_ROOT}/data-dev` 或其明确的开发挂载。
 - 没有挂载生产 `.env`、生产 data 或生产配置目录。
 - `sub2api-dev` 是待验证容器，而不是生产 `sub2api` 的别名。
 
@@ -142,7 +142,7 @@ VM 插件 Gate 不得使用真实生产账号采集。用户只要求查看 UI �
 - 恢复 VM 开发数据库。
 - 恢复旧 dev image。
 - 重新验证旧容器 health。
-- 停止生产发布，禁止把失败状态带入 RackNerd。
+- 停止生产发布，禁止把失败状态带入 生产节点。
 
 ## 候选启动
 

@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import io
 import json
+import os
 import re
 import shlex
 import secrets
@@ -12,11 +13,12 @@ import time
 from pathlib import Path
 
 from .atomic import atomic_write, canonical_json
+from .environment import DeploymentEnvironment, load_deployment_environment
 from .gate import verify_gate
 from .manifest import sha256_file, validate_image_id
 from .migration_planner import HOOK_REGISTRY, plan_migrations
 from .production_snapshot import decode_snapshot, snapshot_script, snapshot_sha256
-from .paths import MAINTENANCE_ROOT, RELEASE_PACKAGE_ROOT, TRUSTED_VM_PUBLIC_KEY, UNIT_ROOT, WORKSPACE
+from .paths import MAINTENANCE_ROOT, RELEASE_PACKAGE_ROOT, SSH_CONFIG, TRUSTED_VM_PUBLIC_KEY, UNIT_ROOT, WORKSPACE
 from .recovery_bundle import stage_recovery_bundle, recovery_command, RECOVERY_RESULT_FIELDS
 from .profiles import get_profile, get_release_profile
 from .recovery_gate import assert_release_allowed
@@ -451,12 +453,19 @@ class ProductionRelease:
         atomic_write(path, (recipient + "\n").encode("ascii"), mode=0o400)
         return path
 
-    def __init__(self, gate_dir: Path, profile_name: str) -> None:
+    def __init__(self, gate_dir: Path, profile_name: str, environment: DeploymentEnvironment | None = None) -> None:
         self.gate_dir = gate_dir
         self.profile = get_release_profile(profile_name)
         self.document = verify_gate(gate_dir, TRUSTED_KEY, profile_name, accepted_schemas=frozenset({2}))
         self.manifest = self.document["manifest"]
         assert_release_allowed(self.manifest.get("recovery_gate"))
+        self.environment = environment or load_deployment_environment(SSH_CONFIG)
+        self.environment.assert_current()
+        expected_config_sha = os.environ.get("SUB2API_DEPLOYMENT_CONFIG_SHA256")
+        if expected_config_sha is not None and expected_config_sha != self.environment.sha256:
+            raise RuntimeError("local deployment configuration drifted during the release")
+        os.environ["SUB2API_DEPLOYMENT_CONFIG_SHA256"] = self.environment.sha256
+        self.profile.update(self.environment.profile_values())
         self.evidence = self.document["evidence"]
         self.migration_plan: dict[str, object] | None = None
         self.deployment_mode = str(self.manifest.get("deployment_mode", ""))
@@ -469,7 +478,7 @@ class ProductionRelease:
         self.release_dir = f"/opt/sub2api/releases/{self.release_id}"
         self.active_assets = "/opt/sub2api/releases/.active-release/assets"
         self.state_dir = f"/opt/sub2api/backups/release-state/{self.release_id}"
-        self.runner = SSHRunner()
+        self.runner = SSHRunner(require_environment=True)
         self.migration_started = False
         self.frozen = False
         self.units_masked = False
@@ -560,9 +569,19 @@ class ProductionRelease:
         emit_progress(f"release_id={self.release_id} stage={name} status={self.result['status']}")
 
     def run_remote(self, host: str, script: str, allowed: set[str], timeout: int = 300) -> dict[str, str]:
+        self.environment.assert_current()
+        self.runner.assert_configuration_current()
         if host == "racknerd" and self._remote_raw_logging_ready:
             script = self._wrap_remote_logging(script)
-        return self.runner.run(host, script, allowed, timeout=timeout).values
+        return self.runner.run(self._resolve_host(host), script, allowed, timeout=timeout).values
+
+    def _resolve_host(self, host: str) -> str:
+        aliases = {
+            "racknerd": self.environment.direct_route["target_node"],
+            "dmit": self.environment.deployment["relay_probe"]["node"],
+            "backup": self.environment.deployment["backup_upload"]["node"],
+        }
+        return aliases.get(host, host)
 
     def restore_backup_units(self, restore_env: str) -> dict[str, str]:
         """Restore backup units while retaining benign stderr in root-only logs."""
@@ -583,9 +602,11 @@ printf 'backup_units_restored=true\\n'
         return self.run_remote("racknerd", script, {"backup_units_restored"})
 
     def run_remote_with_input(self, host: str, script: str, allowed: set[str], data: bytes, timeout: int = 300) -> dict[str, str]:
+        self.environment.assert_current()
+        self.runner.assert_configuration_current()
         if host == "racknerd" and self._remote_raw_logging_ready:
             script = self._wrap_remote_logging(script)
-        return self.runner.run_with_input(host, script, allowed, data, timeout=timeout).values
+        return self.runner.run_with_input(self._resolve_host(host), script, allowed, data, timeout=timeout).values
 
     def _wrap_remote_logging(self, script: str) -> str:
         self._remote_log_sequence += 1
@@ -926,6 +947,8 @@ exit "$code"
         not overstate coverage.
         """
         self.stage(f"{phase}_public_health_preflight", timeout=1500)
+        direct_route = self.environment.direct_route
+        relay_route = self.environment.relay_route
         def health_script(route_ip: str) -> str:
             domain = shlex.quote(self.profile["public_domain"])
             ip = shlex.quote(route_ip)
@@ -946,13 +969,13 @@ exit "$code"
             )
 
         direct = self.run_remote(
-            "racknerd",
-            health_script(self.profile["rack_public_ip"]),
+            direct_route["observer"],
+            health_script(direct_route["address"]),
             {"route_health", "http_code", "curl_exit", "attempts", "streaming"},
         )
         dmit = self.run_remote(
-            "backup",
-            health_script(self.profile["dmit_public_ip"]),
+            relay_route["observer"],
+            health_script(relay_route["address"]),
             {"route_health", "http_code", "curl_exit", "attempts", "streaming"},
         )
         route_evidence = {
@@ -1006,6 +1029,13 @@ exit "$code"
     def _generate_backup(self, attempt: int) -> dict[str, str]:
         attempt_id = f"{self.release_id}-{attempt}"
         backup_values = {"RELEASE_DIR": self.release_dir, "BACKUP_ATTEMPT_ID": attempt_id}
+        upload = self.environment.deployment["backup_upload"]
+        backup_values.update({
+            "BACKUP_UPLOAD_HOST": self.environment.servers[upload["node"]]["host"],
+            "BACKUP_UPLOAD_USER": upload["user"],
+            "BACKUP_UPLOAD_KEY": upload["key_path"],
+            "BACKUP_UPLOAD_PORT": upload["port"],
+        })
         if self.manifest.get("recovery_gate", {}).get("schema") == 2:
             backup_values["AGE_RECIPIENT_FILE"] = f"{self.release_dir}/backup-recipient.txt"
         backup_env = quoted_env(backup_values)
@@ -1719,7 +1749,7 @@ printf 'switch_failure_substage=%s\\nswitch_failure_code=%s\\nswitch_failure_lin
             "RELEASE_DIR": self.release_dir,
             "DEPLOYMENT_MODE": deployment_mode,
             "PUBLIC_DOMAIN": self.profile["public_domain"],
-            "DIRECT_IP": self.profile["rack_public_ip"],
+            "DIRECT_IP": self.profile["direct_public_ip"],
         })
         self.route_switch_attempted = True
         exposed = self.run_remote(
@@ -1734,7 +1764,7 @@ printf 'switch_failure_substage=%s\\nswitch_failure_code=%s\\nswitch_failure_lin
             {
                 "RELEASE_DIR": self.release_dir,
                 "PUBLIC_DOMAIN": self.profile["public_domain"],
-                "DIRECT_IP": self.profile["rack_public_ip"],
+                "DIRECT_IP": self.profile["direct_public_ip"],
             }
         )
         verified = self.run_remote(
@@ -1757,7 +1787,7 @@ printf 'switch_failure_substage=%s\\nswitch_failure_code=%s\\nswitch_failure_lin
             {
                 "RELEASE_DIR": self.release_dir,
                 "PUBLIC_DOMAIN": self.profile["public_domain"],
-                "DIRECT_IP": self.profile["rack_public_ip"],
+                "DIRECT_IP": self.profile["direct_public_ip"],
             }
         )
         finalize_stage = "downtime_finalizing" if deployment_mode == "downtime" else "old_slot_draining"
@@ -1797,11 +1827,14 @@ printf 'switch_failure_substage=%s\\nswitch_failure_code=%s\\nswitch_failure_lin
             raise RuntimeError(f"old application slot did not drain: {final['drain_status']}")
         completed_stage = "downtime_finalized" if deployment_mode == "downtime" else "old_slot_drained"
         self.stage(completed_stage, final)
-        external_final = self.run_remote(
-            "backup",
-            f"{{ required_observed=$(curl -sS --resolve {self.profile['public_domain']}:443:{self.profile['dmit_public_ip']} --max-time 15 -o /dev/null -w '%{{http_code}}' https://{self.profile['public_domain']}/health) || exit 125; }} && test \"$required_observed\" = 200 && printf 'dmit_final_health=pass\\n'",
-            {"dmit_final_health"},
+        relay_route = self.environment.relay_route
+        relay_health = (
+            f"{{ required_observed=$(curl -sS --resolve {shlex.quote(self.environment.public_domain)}:443:"
+            f"{shlex.quote(relay_route['address'])} --max-time 15 -o /dev/null -w '%{{http_code}}' "
+            f"https://{shlex.quote(self.environment.public_domain)}/health) || exit 125; }} && "
+            "test \"$required_observed\" = 200 && printf 'dmit_final_health=pass\\n'"
         )
+        external_final = self.run_remote(relay_route["observer"], relay_health, {"dmit_final_health"})
         restore_env = quoted_env({"STATE_ROOT": "/opt/sub2api/backups/release-state", "STATE_DIR": self.state_dir})
         backup_units = self.restore_backup_units(restore_env)
         self.units_masked = False
@@ -2140,7 +2173,7 @@ if test -f {self.state_dir}/masked.committed && test ! -L {self.state_dir}/maske
         consumed = f"{self.release_dir}/.consumed"
         values = self.run_remote(
             "racknerd",
-            f"claim={claim}; if test ! -d \"$claim\" && test -d {consumed}; then claim={consumed}; fi; {quoted_env({'RELEASE_DIR': self.release_dir, 'PUBLIC_DOMAIN': self.profile['public_domain'], 'DIRECT_IP': self.profile['rack_public_ip']})} ACTIVE_CLAIM=\"$claim\" \"$claim/assets/rollback-route.sh\"",
+            f"claim={claim}; if test ! -d \"$claim\" && test -d {consumed}; then claim={consumed}; fi; {quoted_env({'RELEASE_DIR': self.release_dir, 'PUBLIC_DOMAIN': self.profile['public_domain'], 'DIRECT_IP': self.profile['direct_public_ip']})} ACTIVE_CLAIM=\"$claim\" \"$claim/assets/rollback-route.sh\"",
             {"route_rollback", "nginx_reload", "active_container", "active_port", "candidate_preserved"},
         )
         self.route_switched = False

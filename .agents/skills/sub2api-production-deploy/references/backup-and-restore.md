@@ -34,35 +34,35 @@ Compose 备份必须保存完整的文件引用闭包：基础 Compose、`.env` 
 ## 三机分工
 
 ```text
-RackNerd
+生产节点
   ├─ 生产 PostgreSQL / Redis / Sub2API
   ├─ 生成本地加密 daily 包
   ├─ 生成发布 recovery point 和版本基线 candidate
   └─ 受限上传 artifact + checksum
              |
              v
-example.invalid
+${deployment.backup_upload.node}
   ├─ 接收加密 daily 包和版本基线
   ├─ 校验文件名、checksum、空间和保留策略
   ├─ 保存 candidate / verified 指针
   └─ 只向外部隔离恢复环境提供密文，不解密、不承载生产
 
-DMIT
+中继节点
   └─ 做 HAProxy/ACME 线路转发，并可作为发布 SSH/加密产物的受限传输中继；不接收、不保存、不恢复备份
 
 本地 VM
   └─ 可做 sub2api-dev 验证或一次性隔离恢复，不是生产备份副本
 ```
 
-生产三机不是三份热数据库副本。RackNerd 是生产数据源，备份机是加密 artifact 存储，DMIT 是线路机。
+生产三机不是三份热数据库副本。生产节点 是生产数据源，备份机是加密 artifact 存储，中继节点 是线路机。
 
-解密和真实恢复必须发生在本地 VM 或另一个批准的一次性隔离环境。解密私钥、明文配置、临时 PostgreSQL 和 Redis 都不得进入 example.invalid。
+解密和真实恢复必须发生在本地 VM 或另一个批准的一次性隔离环境。解密私钥、明文配置、临时 PostgreSQL 和 Redis 都不得进入 ${deployment.backup_upload.node}。
 
 ## 三类恢复资产
 
 ### 每日加密包
 
-由 RackNerd 的 `sub2api-backup.service` 生成并上传备份机。用于日常数据保护和常态 RPO 观测。
+由 生产节点 的 `sub2api-backup.service` 生成并上传备份机。用于日常数据保护和常态 RPO 观测。
 
 ### 发布恢复点
 
@@ -81,14 +81,14 @@ DMIT
 1. 记录 gate 起始时间。
 2. 确认 `sub2api-backup.service` 未运行，timer 未正在激活。
 3. 启动服务并要求 exit code 为 0。
-4. 要求最新 RackNerd 加密包 mtime 晚于 gate 起始时间。
+4. 要求最新 生产节点 加密包 mtime 晚于 gate 起始时间。
 5. 要求备份机存在同名 `.age` 包和 checksum 文件。
 6. 比较本地和远端加密包 SHA-256。
 7. 要求备份机至少保留 `5 GiB` 可用空间。
 8. 记录包文件名、大小、mtime、checksum 和状态，不记录明文内容。
 9. 如果 `/etc/sub2api-backup.env` 没有 Healthchecks URL，报告：`backup completed, external alerting incomplete`。
 
-旧的 `backups/latest` 流程已经废弃，不得重新引入。DMIT 不参与备份生成、保存、校验或恢复；它只可作为到 RackNerd 的加密传输中继。
+旧的 `backups/latest` 流程已经废弃，不得重新引入。中继节点 不参与备份生成、保存、校验或恢复；它只可作为到 生产节点 的加密传输中继。
 
 ## 不兼容迁移恢复点
 
@@ -244,10 +244,10 @@ candidate-created
 
 执行要求：
 
-1. 在 RackNerd 创建唯一命名的加密 candidate。
+1. 在 生产节点 创建唯一命名的加密 candidate。
 2. manifest 必须包含 `candidate_image_id`、恢复点引用、版本和 SHA-256。
 3. 上传到备份机的 `candidate` 名称，不覆盖当前 `verified`。
-4. 在本地 VM 或另一个批准的非生产、非 DMIT、非备份机的一次性隔离环境拉取并解密 candidate。
+4. 在本地 VM 或另一个批准的非生产、非 中继节点、非备份机的一次性隔离环境拉取并解密 candidate。
 5. 加载镜像，loaded image ID 必须等于 `candidate_image_id`。
 6. 把配置恢复到临时目录，逐项验证 manifest checksum。
 7. 使用版本匹配的临时 PostgreSQL 创建空库，执行 `pg_restore --exit-on-error`，按需恢复 globals/owners，并要求零错误。
@@ -331,7 +331,7 @@ daily、release recovery point、candidate、verified 和 previous verified 的�
 
 ### 生产恢复点 retention
 
-生产 `/opt/sub2api/backups/release-state` 的恢复点不再无限期保留。只能使用版本化入口：
+生产 `${PRODUCTION_ROOT}/backups/release-state` 的恢复点不再无限期保留。只能使用版本化入口：
 
 ```text
 python .agents/skills/sub2api-production-deploy/scripts/release.py cleanup-production-recovery-points --mode dry-run
@@ -359,7 +359,7 @@ python .agents/skills/sub2api-production-deploy/scripts/release.py cleanup-produ
 
 固定策略：
 
-- 只检查 `/srv/sub2api-backups/daily`；默认清理文件名时间早于 15 天的 daily 包，同时至少保留最新 1 组完整 daily 包及其 `.sha256` 文件。策略可通过 `RETENTION_DAYS` 调整，但不得低于 1 天；`MINIMUM_KEEP_DAILY` 不得低于 1 组。
+- 只检查 `${BACKUP_ROOT}/daily`；默认清理文件名时间早于 15 天的 daily 包，同时至少保留最新 1 组完整 daily 包及其 `.sha256` 文件。策略可通过 `RETENTION_DAYS` 调整，但不得低于 1 天；`MINIMUM_KEEP_DAILY` 不得低于 1 组。
 - 不删除 `baseline`、`releases`、`candidate`、`verified`、`recovery`、`release-logs` 或备份机上的 profile 恢复包。生产机恢复点使用上方独立 retention 入口。
 - 只接受 root 所有、非 symlink、单硬链接且 checksum 匹配的成对 daily 文件。
 - dry-run 生成候选文件、大小、mtime、checksum 和 `plan_sha256`；apply 必须携带同一 checksum，候选漂移即停止。
@@ -390,7 +390,7 @@ backup-retention-clean.sh dry-run
 
 - 只执行 `journalctl --rotate` 和容量有界的 `journalctl --vacuum-size=1G`。
 - `journalctl` 的 stdout/stderr 原文只追加到备份机 root-only `release-logs/maintenance/backup-host-space-clean.raw.log`，结构化 stdout 不混入进度文本。
-- 不读取日志内容，不删除 `/var/log` 其他文件，不触碰 `/srv/sub2api-backups` 中的 daily、baseline、release、candidate、verified、恢复包或 release 日志。
+- 不读取日志内容，不删除 `/var/log` 其他文件，不触碰 `${BACKUP_ROOT}` 中的 daily、baseline、release、candidate、verified、恢复包或 release 日志。
 - dry-run 绑定根文件系统设备、1 GiB journal 上限、5 GiB 最低余量和 512 MiB 上传预留，生成 `plan_sha256`；apply 必须使用同一 checksum。
 - apply 同时获取备份晋升、daily retention 和宿主清理锁；任一锁忙、路径为 symlink、设备不一致或计划漂移均停止。
 - 清理后必须同时满足 journal 容量上限容差，以及备份文件系统至少 `5 GiB + 512 MiB` 可用空间。
@@ -409,7 +409,7 @@ backup-host-space-clean.sh dry-run
 
 ### 备份机 release 证据清理合同
 
-`/srv/sub2api-backups/releases` 保存发布 bundle、manifest、checksum 和恢复证据，不能使用 `rm -rf` 或按目录大小直接删除。需要整理历史 release 时，只能使用版本化脚本：
+`${BACKUP_ROOT}/releases` 保存发布 bundle、manifest、checksum 和恢复证据，不能使用 `rm -rf` 或按目录大小直接删除。需要整理历史 release 时，只能使用版本化脚本：
 
 ```text
 .agents/skills/sub2api-production-deploy/scripts/release/backup-release-retention-clean.sh dry-run
@@ -429,7 +429,7 @@ backup-host-space-clean.sh dry-run
 - 只接受结构完整、manifest 与 bundle checksum 一致、非 symlink、单硬链接的 bundle；
 - dry-run 输出候选 release ID、容量和 `plan_sha256`；apply 必须同时提供同一 checksum 和逐个明确批准的 release ID；
 - apply 使用独立 retention 锁和 release promotion 锁，逐个复核 mtime、大小、checksum 后只删除 bundle 内四个文件，再删除空目录；
-- 脚本不得遍历或删除 `/srv/sub2api-backups` 的其他目录，不触碰 daily、release-logs、candidate、verified、恢复包或项目外文件。
+- 脚本不得遍历或删除 `${BACKUP_ROOT}` 的其他目录，不触碰 daily、release-logs、candidate、verified、恢复包或项目外文件。
 
 如果 dry-run 没有候选，或候选不足以满足发布上传余量，应扩容备份机或进行人工审核，不得扩大自动删除范围。
 
@@ -452,7 +452,7 @@ backup-host-space-clean.sh dry-run
 ### 生成、保管与新资产绑定
 
 1. 私钥在工作区外、当前用户独占的持久安全目录生成并保存；Linux 目录 `0700`、私钥文件 `0600` 且 owner 为执行身份，Windows 使用仅当前用户和必要系统管理主体可访问的显式 ACL，不能把 `chmod` 当作 Windows ACL 验证。拒绝 symlink、reparse point、硬链接及不安全父目录，采用独占创建，禁止覆盖现有 key。
-2. 生成前选定与一次性 Guest、Gate 临时目录及单台 VM 生命周期分离的安全保管位置；需要向隔离恢复环境传入私钥时使用受控副本并单独验证其权限。私钥不得进入 Git、工作区 `.tmp`、日志、终端输出、生产机、DMIT 或异地备份机，也不得作为命令行参数或完整环境输出。
+2. 生成前选定与一次性 Guest、Gate 临时目录及单台 VM 生命周期分离的安全保管位置；需要向隔离恢复环境传入私钥时使用受控副本并单独验证其权限。私钥不得进入 Git、工作区 `.tmp`、日志、终端输出、生产机、中继节点 或异地备份机，也不得作为命令行参数或完整环境输出。
 3. 登记 key 版本、生成时间、recipient 与 identity 的 SHA-256、权限检查结果和私有存储引用。公开报告和演练证据只保留版本、指纹、布尔状态及时间，不暴露私钥或存储连接资料；私有引用用于后续自动定位，不能只依靠当前进程记忆。
 4. 使用新 key 做一次小型临时加密/解密自检并核对字节，随后销毁测试明文和隔离环境中的临时私钥副本。自检只证明 key 可用，不能作为真实 PostgreSQL/Redis 恢复、full DR 或版本基线通过的证据。
 5. 只将公开 recipient 传给新建备份的受控加密步骤，使用唯一资产身份，并将 key 版本与 recipient 指纹绑定到新资产来源证据；现有已签 manifest 不回写。新资产须绑定当前生产 image、完整 Compose/config 闭包与一致的 PostgreSQL/Redis 快照，再进入真实隔离恢复、独立审阅、受信签名和原子晋升。生成 key 不代表这些入口已实现或门禁已通过。

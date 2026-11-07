@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import importlib
 import importlib.metadata
+import ipaddress
 import re
 import socket
 import sys
@@ -34,7 +35,7 @@ CONFIG_FIELDS = {
 REQUIRED_FIELDS = {"host", "port", "user", "proxy"}
 STRING_FIELDS = CONFIG_FIELDS - {"port"}
 PROXY_ENDPOINT_RE = re.compile(r"^(127\.0\.0\.1|localhost):([0-9]{1,5})$")
-RELAY_PROXY_ENDPOINT_RE = re.compile(r"^(10\.77\.0\.1):1080$")
+RELAY_PROXY_ENDPOINT_RE = re.compile(r"^((?:[0-9]{1,3}\.){3}[0-9]{1,3}):1080$")
 PROXY_COMMAND_RE = re.compile(
     r"^(?:\"(?P<quoted_exe>[A-Za-z]:[\\/][^\r\n\"]*[\\/]connect\.exe)\""
     r"|(?P<plain_exe>[A-Za-z]:[\\/][^\r\n\"]*[\\/]connect\.exe))"
@@ -192,6 +193,11 @@ def parse_config_document(document: Any) -> RackNerdConfig:
         if racknerd.get("proxy_command") not in {None, ""} or racknerd.get("proxy_via") != "dmit":
             raise StatusCheckError("proxy_config_unsupported")
         relay_match = RELAY_PROXY_ENDPOINT_RE.fullmatch(proxy_value)
+        if relay_match is not None:
+            try:
+                ipaddress.IPv4Address(relay_match.group(1))
+            except ipaddress.AddressValueError:
+                relay_match = None
         dmit = servers.get("dmit")
         if relay_match is None or not isinstance(dmit, dict) or dmit.get("connection") != "direct":
             raise StatusCheckError("proxy_config_unsupported")

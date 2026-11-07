@@ -376,7 +376,7 @@ class SSHOutputTest(unittest.TestCase):
             "dmit": {"host": "relay.test", "user": "root", "password": "secret", "connection": "direct"},
             "racknerd": {
                 "host": "rack.test", "user": "root", "password": "secret",
-                "connection": "http_connect_via_ssh", "proxy_via": "dmit", "proxy": "example.invalid:1080",
+                "connection": "http_connect_via_ssh", "proxy_via": "dmit", "proxy": "192.0.2.30/32:1080",
             },
         }
         runner._validate_proxy_routes()
@@ -386,11 +386,11 @@ class SSHOutputTest(unittest.TestCase):
         runner.servers = {
             "dmit": {
                 "host": "relay.test", "user": "root", "password": "secret", "connection": "http_connect_via_ssh",
-                "proxy_via": "racknerd", "proxy": "example.invalid:1080",
+                "proxy_via": "racknerd", "proxy": "192.0.2.30/32:1080",
             },
             "racknerd": {
                 "host": "rack.test", "user": "root", "password": "secret", "connection": "http_connect_via_ssh",
-                "proxy_via": "dmit", "proxy": "example.invalid:1080",
+                "proxy_via": "dmit", "proxy": "192.0.2.30/32:1080",
             },
         }
         with self.assertRaisesRegex(RuntimeError, "relay"):

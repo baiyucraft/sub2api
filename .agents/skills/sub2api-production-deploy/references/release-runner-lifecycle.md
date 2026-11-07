@@ -32,7 +32,7 @@ Windows 共享读取必须与原生安全替换配套；单独调整轮询间隔
 
 新增收口 helper 的测试及现场结果不能冒充新应用 Gate，也不自动豁免未来发布中的恢复敏感 blob 分类。
 
-现场验收沿用正式 consume/verify 合同：internal、direct 公网及异地到 DMIT 的 `/health` 都核对唯一实例响应头和 Background-Ready，并核对 managed upstream 端口。生产清理后可以保留加密恢复点，按固定五文件（及格式受限的可选 backup-failure）、原备份结果、baseline image、权限和 checksum 只读验证；不能要求整个目录不存在，也不能删除正常保留的恢复证据。
+现场验收沿用正式 consume/verify 合同：internal、direct 公网及异地到 中继节点 的 `/health` 都核对唯一实例响应头和 Background-Ready，并核对 managed upstream 端口。生产清理后可以保留加密恢复点，按固定五文件（及格式受限的可选 backup-failure）、原备份结果、baseline image、权限和 checksum 只读验证；不能要求整个目录不存在，也不能删除正常保留的恢复证据。
 
 当前验真严格要求执行 checkout 的 helper 完整 SHA/资产等于收口记录；后续 HEAD 改动后验旧结果应回到对应 helper 提交，不能拿其他代码静默复用历史完成记录。status/follow 保留原 failed runner，并单列 finalization verified；VM cleanup 结果不覆盖事故退出码。
 

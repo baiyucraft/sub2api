@@ -5,7 +5,7 @@
 - [运维原则](#运维原则)
 - [状态记录格式](#状态记录格式)
 - [白名单采集](#白名单采集)
-- [Windows 经 DMIT 发布 SSH](#windows-经-dmit-发布-ssh)
+- [Windows 经 中继节点 发布 SSH](#windows-经-中继节点-发布-ssh)
 - [日常检查矩阵](#日常检查矩阵)
 - [发布前巡检](#发布前巡检)
 - [发布中巡检](#发布中巡检)
@@ -26,7 +26,7 @@
 
 ```text
 component: 组件或节点角色
-environment: racknerd | dmit | backup | vm
+environment: 生产节点 | 中继节点 | backup | vm
 assertion: 具体断言
 result: pass | fail | not_checked
 status: healthy | degraded | failed | unknown | not_checked
@@ -56,22 +56,22 @@ freshness: fresh | stale | unknown
 - 完整容器 environment、完整 `docker inspect`、展开后的 Compose。
 - `systemctl cat` 原始内容、宽泛日志和可能含凭据的请求体。
 
-## Windows 经 DMIT 发布 SSH
+## Windows 经 中继节点 发布 SSH
 
-RackNerd 的 Windows 巡检和生产发布统一使用 DMIT 中继。固定脚本为：
+生产节点 的 Windows 巡检和生产发布统一使用 中继节点 中继。固定脚本为：
 
 ```text
-python .agents/skills/sub2api-production-deploy/scripts/racknerd_readonly_status.py --config .ssh.local
+python .agents/skills/sub2api-production-deploy/scripts/生产节点_readonly_status.py --config .ssh.local
 ```
 
 运行约束：
 
 - 依赖必须与 `scripts/requirements-readonly-status.txt` 精确一致；缺失或不一致时停止。只允许在获批的本地受控环境预装，生产巡检期间禁止临时联网安装。
-- 当前配置固定为 `connection=http_connect_via_ssh`、`proxy_via=dmit`、`proxy=example.invalid:1080`。发布器先校验并直连 DMIT SSH，再由该 SSH transport 打开到 1080 的通道，执行 HTTP CONNECT 到 RackNerd 管理端口。
-- RackNerd 命令、SFTP 上传下载、恢复包和镜像传输都复用同一 `SSHRunner.connect` 路由；不得只给 doctor 走代理而让写操作直连。
-- 旧本机 `connect.exe` SOCKS 配置仅保留解析兼容，不是当前生产发布路径；当前路由禁止回退到本机代理、直连或 DMIT 8888。
-- 使用 PySocks socket 后，SSH host key 仍按 RackNerd 原始 `host:port` 从用户 `known_hosts` 校验；未知或不匹配立即停止，禁止 `AutoAddPolicy`。
-- 禁止直连 fallback。DMIT SSH、1080 或 HTTP CONNECT 任一失败均写 `unknown/failed` 并停止发布；不得用公网健康掩盖发布通道失败。
+- 路由由 `.ssh.local.servers` 与 `.ssh.local.deployment` 决定。发布器先验证配置的 observer 和 target node，再按 `deployment.relay_probe.listen_address`、`listen_port` 及 server 连接信息建立 SSH/HTTP CONNECT；配置漂移或任一路由失败都必须停止。
+- 生产节点 命令、SFTP 上传下载、恢复包和镜像传输都复用同一 `SSHRunner.connect` 路由；不得只给 doctor 走代理而让写操作直连。
+- 旧本机 `connect.exe` SOCKS 配置仅保留解析兼容，不是当前生产发布路径；当前路由禁止回退到本机代理、直连或 中继节点 8888。
+- 使用 PySocks socket 后，SSH host key 仍按 生产节点 原始 `host:port` 从用户 `known_hosts` 校验；未知或不匹配立即停止，禁止 `AutoAddPolicy`。
+- 禁止直连 fallback。中继节点 SSH、1080 或 HTTP CONNECT 任一失败均写 `unknown/failed` 并停止发布；不得用公网健康掩盖发布通道失败。
 - 脚本只输出固定枚举、HTTP code 和 image ID。任何 stderr、异常详情、host、user、代理 endpoint、密钥路径或原始远端输出都不得进入报告。
 
 代理连接、SSH 认证、内部应用检查和公网 HTTPS 是不同层。某层失败只报告该层，不能用公网 200 掩盖内部未知，也不能用 SSH 客户端错误宣告业务下线。
@@ -80,25 +80,25 @@ python .agents/skills/sub2api-production-deploy/scripts/racknerd_readonly_status
 
 ## 日常检查矩阵
 
-### RackNerd
+### 生产节点
 
 - Sub2API 容器 health 和实际 image ID。
 - PostgreSQL、Redis health 和可连接性。
-- Nginx active、证书有效期、`443` 和内部 `18443` 监听。
+- Nginx active、证书有效期、`443` 和内部 `configured relay target port` 监听。
 - 根文件系统、Docker Root Dir、构建缓存和生产 data 空间。
 - `sub2api-backup.service` 与 timer 状态。
 - 最近本地加密 artifact 的文件名、mtime、大小和 checksum。
 
-### DMIT
+### 中继节点
 
 - HAProxy active/enabled 和版本。
-- `sub2api-tinyproxy.service` active/enabled，1080 监听在 WireGuard 地址，允许 DMIT/RackNerd WireGuard 对端，并允许 CONNECT 到 RackNerd 管理端口；旧 `tinyproxy.service` disabled/inactive 且 8888 不监听。
+- `sub2api-tinyproxy.service` active/enabled，configured listener 监听在 WireGuard 地址，允许 中继节点/生产节点 WireGuard 对端，并允许 CONNECT 到 生产节点 管理端口；旧 `tinyproxy.service` disabled/inactive 且 legacy proxy port 不监听。
 - `80/443/1030` 监听。
-- 从外部或允许的检查点验证 DMIT HTTPS `/health`。
+- 从外部或允许的检查点验证 中继节点 HTTPS `/health`。
 - 确认它没有数据库、Sub2API 容器或备份 artifact。
-- 正常发布不修改 DMIT 配置；只在单独获批的运维控制变更中维护 1080 中继。
+- 正常发布不修改 中继节点 配置；只在单独获批的运维控制变更中维护 configured relay listener。
 
-### example.invalid
+### 备份节点
 
 - 最近加密 artifact 和 checksum 是否成对存在。
 - 本地/远端 SHA-256 是否一致。
@@ -111,8 +111,8 @@ python .agents/skills/sub2api-production-deploy/scripts/racknerd_readonly_status
 
 - `sub2api-dev` health、实际 image ID 和版本。
 - VM 本地 PostgreSQL/Redis 健康。
-- `/opt/sub2api-deploy/data-dev` 存在且没有生产挂载。
-- 没有 RackNerd 地址、生产 DSN 或生产 SSH 隧道端口。
+- `${VM_DEPLOY_ROOT}/data-dev` 存在且没有生产挂载。
+- 没有 生产节点 地址、生产 DSN 或生产 SSH 隧道端口。
 - Docker Root Dir 在构建/导入前后满足空间门禁。
 - 同时检查 Docker Root Dir、containerd 根目录、`/tmp`、源码目录的 `df` 可用空间和 inode；按构建峰值而不是单一镜像大小判断。
 - 记录构建缓存、镜像、容器和临时 archive 的分类大小；`du` 和 `docker system df` 仅用于观察。
@@ -123,7 +123,7 @@ python .agents/skills/sub2api-production-deploy/scripts/racknerd_readonly_status
 发布前重新检查：
 
 1. Git 状态、完整 SHA、fork 推送和最终 diff 分类。
-2. 应用产物发布检查 RackNerd/VM fixed worktree marker、origin、clean 状态；运维资产按分类写 `not_applicable`。
+2. 应用产物发布检查 生产节点/VM fixed worktree marker、origin、clean 状态；运维资产按分类写 `not_applicable`。
 3. 应用产物发布记录当前生产 `pre_switch_image_id` 和可用的 `older_fallback_image_id`；运维资产不伪造镜像字段。
 4. PostgreSQL、Redis、应用和入口 health。
 5. 备份 service/timer、远端 checksum 和空间。
@@ -173,8 +173,8 @@ allowlist 合同修复必须同时更新远端脚本 stdout、Python allowed set
 逐项记录：
 
 - 应用运行 image ID 和 health。
-- RackNerd direct `/health`。
-- DMIT `/health`。
+- 生产节点 direct `/health`。
+- 中继节点 `/health`。
 - login/auth 不泄露 token。
 - Codex streaming 未被 Nginx buffer。
 - underscore headers。
@@ -208,7 +208,7 @@ candidate 已上传不等于 verified。
 
 | 现象 | 状态表达 | 处理原则 |
 | --- | --- | --- |
-| RackNerd direct 通过，DMIT 未测或失败 | 线路降级或未知 | 不报告生产完全健康，先修复/核验 DMIT |
+| 生产节点 direct 通过，中继节点 未测或失败 | 线路降级或未知 | 不报告生产完全健康，先修复/核验 中继节点 |
 | 生产健康，baseline 恢复失败 | `partial` | 保留旧 verified，停止灾备晋升 |
 | 备份成功但无 Healthchecks | 外部告警不完整 | 如实报告，不伪装成完整监控 |
 | 旧快照健康但本次无法连接 | `unknown/stale` | 重新建立观测，不继承旧结论 |
@@ -224,7 +224,7 @@ candidate 已上传不等于 verified。
 
 - 证书检查只记录域名、SAN、到期时间和链验证结果，不记录私钥。
 - Nginx 检查 `underscores_in_headers on;`、SSE 不缓冲和长超时是否生效。
-- DMIT 检查 HAProxy PROXY v2 到 RackNerd `18443` 的连通性。
+- 中继节点 检查 HAProxy PROXY v2 到 生产节点 `configured relay target port` 的连通性。
 - 生产、VM 和备份机磁盘检查都记录文件系统、总量、可用量和时间。
 - 同时记录 Docker Root Dir、containerd 根目录、`/tmp` 的总量、可用量、inode、清理前后 `df` 差值和扩盘状态。
 - Docker cache 同时观测大小、创建/最近使用时间和是否可复用；containerd snapshotter 下逻辑共享大小不能当作物理可释放量。发布流程仅允许版本化清理器在空间不足时执行一次 `--all`、`max-used-space=1gb`、`reserved-space=1gb` 的容量有界 BuildKit GC，禁止缺少缓存上限或保留量的无界 prune。

@@ -21,10 +21,25 @@ addresses.
    ```bash
    systemctl stop nginx
    docker compose stop -t 30 sub2api
-   export STATE_DIR="/opt/sub2api/backups/release181-state-$(date -u +%Y%m%dT%H%M%SZ)"
+   export DEPLOY_ROOT='<configured deployment root>'
+   export STATE_DIR="${DEPLOY_ROOT}/backups/release181-state-$(date -u +%Y%m%dT%H%M%SZ)"
    ./mask-backup-units.sh
    ```
-4. Run `maintenance-backup.sh` with the installed backup recipient and restricted
+4. Map the restricted upload identity from the operator's local `.ssh.local`
+   configuration into the four environment variables below, then pass them
+   explicitly when running `maintenance-backup.sh`. Do not copy `.ssh.local` to
+   the server. The script rejects missing or malformed values before creating
+   the backup. For example, prepare these variables in the local deployment
+   shell from the validated local configuration:
+
+   ```bash
+   export BACKUP_UPLOAD_HOST='<configured backup host>'
+   export BACKUP_UPLOAD_USER='<restricted upload user>'
+   export BACKUP_UPLOAD_KEY='<installed private-key path>'
+   export BACKUP_UPLOAD_PORT='<configured SSH port>'
+   ```
+
+   Run `maintenance-backup.sh` with the installed backup recipient and restricted
    upload identity. It creates and verifies the coordinated PostgreSQL, Redis,
    configuration, Compose, image, and encrypted off-site recovery point without
    ever starting the application. Keep the application stopped.
@@ -68,11 +83,12 @@ addresses.
      SUB2API_RELEASE_IMAGE="$candidate_full_sha_tag" \
      BIND_HOST=127.0.0.1 UPSTREAM_SYNC_AUTO_ENABLED=false \
      docker compose up -d --no-deps --force-recreate sub2api
-   ss -ltn | grep -E '127\.0\.0\.1:18080'
-   ! ss -ltn | grep -E '(0\.0\.0\.0|\[::\]):18080'
+   export APP_LOOPBACK_PORT='<active port from the installed runtime state>'
+   ss -ltn | grep -F "127.0.0.1:${APP_LOOPBACK_PORT}"
+   ! ss -ltn | grep -E "(0\\.0\\.0\\.0|\\[::\\]):${APP_LOOPBACK_PORT}"
    ```
 
-   From DMIT and an independent external client, require the public `/health`
+   From the observer configured by `.ssh.local.deployment.health_routes.relay` and an independent external client, require the configured public health route
    request to fail while Nginx is stopped. Through the SSH tunnel, require the
    loopback `/health` request to succeed before any admin operation.
 8. Locate the SunAI and Dao configs by their normalized `site_url`. Run the normal

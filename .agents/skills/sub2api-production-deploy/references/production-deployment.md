@@ -27,7 +27,7 @@
 1. 检查本地 Git 状态，保留无关改动。
 2. 记录完整 40 位 commit SHA，并推送到用户 fork。
 3. 记录 change class、是否需要 VM gate；应用产物记录构建主机和 `candidate_image_id`，运维资产明确记录 `not_applicable`。
-4. 检查 RackNerd 与 VM 的固定 worktree、marker、origin 和 clean 状态。
+4. 检查 生产节点 与 VM 的固定 worktree、marker、origin 和 clean 状态。
 5. 记录当前生产 image 为 `pre_switch_image_id`。
 6. 记录可用的更早稳定镜像为 `older_fallback_image_id`。
 7. 保存当前 Compose 文件并计算 SHA-256。
@@ -76,7 +76,7 @@ plugin_admin:
     api_key: 生产接受的管理员 API Key
 ```
 
-插件自动发布不接受命令行密码、JWT、TOTP 或 API Key 参数。管理员 API Key 只从未提交的 `.ssh.local` 读取并经 SSH stdin 传给 loopback helper；宿主只为插件包 `upload`、`upgrade` 和 VM 首次安装回收所需 `delete` 放行该机器凭据，其他插件写接口继续要求真人会话 step-up。生产 loopback 必须先从 `/opt/sub2api/active-app` 读取并校验当前 `18080/18081` active port，再把另一个槽位仅作为连接失败后的只读核验回退；禁止固定命中 `18080` 或优先操作正在排空的旧槽位。任何上传或升级响应丢失都先进入 `blocked_reconciliation`，不得直接重传。
+插件自动发布不接受命令行密码、JWT、TOTP 或 API Key 参数。管理员 API Key 只从未提交的 `.ssh.local` 读取并经 SSH stdin 传给 loopback helper；宿主只为插件包 `upload`、`upgrade` 和 VM 首次安装回收所需 `delete` 放行该机器凭据，其他插件写接口继续要求真人会话 step-up。生产 loopback 必须先从受管 active-slot 状态读取并校验当前 active port，再把另一个槽位仅作为连接失败后的只读核验回退；禁止固定命中某个槽位或优先操作正在排空的旧槽位。任何上传或升级响应丢失都先进入 `blocked_reconciliation`，不得直接重传。
 
 ### 首次安装
 
@@ -135,13 +135,13 @@ bash .agents/skills/sub2api-production-deploy/scripts/release/backfill-activity-
 1. 记录 release gate 起始时间。
 2. 确认 `sub2api-backup.service` 未运行，timer 未正在激活。
 3. 启动已安装备份服务并要求 exit code 为 0。
-4. 要求 RackNerd 新加密包 mtime 晚于 gate 起始时间。
+4. 要求 生产节点 新加密包 mtime 晚于 gate 起始时间。
 5. 要求备份机存在同名 artifact 和 checksum 文件。
 6. 比较本地和远端加密包 SHA-256。
 7. 要求备份机至少有 `5 GiB` 可用空间。
 8. 若 `/etc/sub2api-backup.env` 没有 Healthchecks 配置，报告 `backup completed, external alerting incomplete`。
 
-旧的 `backups/latest` 工作流已经废弃，不能重新引入。DMIT 不参与备份数据处理；本地到 RackNerd 的发布控制和加密产物传输经 DMIT 1080 中继。
+旧的 `backups/latest` 工作流已经废弃，不能重新引入。中继节点 不参与备份数据处理；本地到 生产节点 的发布控制和加密产物传输经 中继节点 configured relay listener。
 
 ## 生产迁移前置校验
 
@@ -183,12 +183,12 @@ preflight 或 postflight 任一不通过，禁止部分迁移和继续启动；�
 切换前重新确认：
 
 - full-SHA tag 指向已验证的 `candidate_image_id`。
-- 普通 dev-gated 的 RackNerd candidate 与 VM loaded image ID 相同。
-- build-chain 的 VM validated image 与 RackNerd loaded image ID 相同。
+- 普通 dev-gated 的 生产节点 candidate 与 VM loaded image ID 相同。
+- build-chain 的 VM validated image 与 生产节点 loaded image ID 相同。
 - Compose 备份 SHA-256 未变化。
 - PostgreSQL 和 Redis 健康。
 
-正常应用发布使用两个固定 loopback 端口 `18080/18081`。当前 active slot 从 `/opt/sub2api/active-app` 读取，candidate 总是在相反端口启动。候选通过内部 health、实例身份和 migration postflight 后，发布器原子替换受管 Nginx upstream，执行 `nginx -t && systemctl reload nginx`。Nginx graceful reload 保留旧 worker 的既有 SSE/WebSocket 连接，新请求进入 candidate。
+正常应用发布使用两个受管 loopback slot。当前 active slot 从已验证的运行状态读取，candidate 在备用 slot 启动。候选通过内部 health、实例身份和 migration postflight 后，发布器原子替换受管 ingress upstream 并执行配置验证与 graceful reload。旧 worker 保留既有 SSE/WebSocket 连接，新请求进入 candidate。
 
 切流后旧容器最长排空 3600 秒；只有能确认旧容器 ESTABLISHED 连接为零时才停止并删除。超时或连接状态无法读取时不强杀旧容器，而是尝试 reload 回旧 upstream，并保持 release 为待 reconciliation。候选成为 active 后不进行第二次容器重建，只持久化 image override、active slot 与后台 activation marker。除批准的 migration 方案外，不重启 PostgreSQL 或 Redis。
 
@@ -240,8 +240,8 @@ checksum、实际文件集合漂移或校验失败统一归类为 `unsafe`。
 
 - 运行容器 image ID 等于 `candidate_image_id`。
 - 应用容器 healthy。
-- RackNerd direct HTTPS `/health` 返回 200。
-- DMIT HTTPS `/health` 返回 200。
+- 生产节点 direct HTTPS `/health` 返回 200。
+- 中继节点 HTTPS `/health` 返回 200。
 - 登录和 auth 成功，不暴露 token。
 - Codex streaming 正常，Nginx 没有缓冲响应。
 - 下划线请求头可用，Nginx `http {}` 中保持 `underscores_in_headers on;`。
@@ -268,9 +268,9 @@ checksum、实际文件集合漂移或校验失败统一归类为 `unsafe`。
 - 升级期间 strict、在途排空和失败恢复状态符合预期；已可能发送到上游的请求没有自动重放。
 - 不执行真实账号或模型探针，除非发布计划另行明确授权；默认写 `real_collection_performed=false`。
 
-只通过 direct 而未通过 DMIT，不能报告“生产完全健康”。
+只通过 direct 而未通过 中继节点，不能报告“生产完全健康”。
 
-当前 production runner 不执行、也不得把任何账号池、Canary、模型调用或 upstream 探针作为升级条件；流式响应、usage attribution 和真实 IP 归因必须明确记录 `not_checked`，没有可用账号不得阻塞 Docker 镜像升级。direct/DMIT `/health` 与 candidate container health 只确认容器已启动、公开路由可达，不是模型探针，也不能被表述为流式能力通过。迁移、备份、配置不变量和恢复合同仍然适用。
+当前 production runner 不执行、也不得把任何账号池、Canary、模型调用或 upstream 探针作为升级条件；流式响应、usage attribution 和真实 IP 归因必须明确记录 `not_checked`，没有可用账号不得阻塞 Docker 镜像升级。direct/中继节点 `/health` 与 candidate container health 只确认容器已启动、公开路由可达，不是模型探针，也不能被表述为流式能力通过。迁移、备份、配置不变量和恢复合同仍然适用。
 
 ## 业务语义验收
 
@@ -284,9 +284,9 @@ checksum、实际文件集合漂移或校验失败统一归类为 `unsafe`。
 
 断言必须输出字段白名单中的布尔值、计数、状态或 checksum，不输出账号名、Key、凭据、原始行或完整响应。只有发布计划已包含写操作并获得确认时，才允许为验收主动触发同步或写入；否则报告 `not_checked`，不能暗中制造测试数据。
 
-不兼容 migration 的 schema、数据重算、绑定、倍率、scheduler 和 outbox 不变量必须在保持停写、公开流量尚未恢复时验证；失败可直接进入既定协调恢复。恢复流量后的断言只覆盖 direct/DMIT `/health`、后台任务和最新同步等运行态行为；模型与 upstream 能力保持 `not_checked`。
+不兼容 migration 的 schema、数据重算、绑定、倍率、scheduler 和 outbox 不变量必须在保持停写、公开流量尚未恢复时验证；失败可直接进入既定协调恢复。恢复流量后的断言只覆盖 direct/中继节点 `/health`、后台任务和最新同步等运行态行为；模型与 upstream 能力保持 `not_checked`。
 
-恢复流量后的业务断言失败时，先立即重新停写并统计恢复流量后产生的新写入，再判断是当前发布回归、既有数据异常还是验收查询错误。此时禁止直接恢复迁移前数据库；必须明确选择前向修复，或制定包含新增写入核对、保留或补偿的数据恢复方案。无法证明来源时保持停写并报告 `blocked_reconciliation`。全部业务断言通过后再次运行同 profile、同完整 commit 的 `doctor`，要求 migration 状态、备份协议、VM/RackNerd/DMIT 和外部路径仍通过。
+恢复流量后的业务断言失败时，先立即重新停写并统计恢复流量后产生的新写入，再判断是当前发布回归、既有数据异常还是验收查询错误。此时禁止直接恢复迁移前数据库；必须明确选择前向修复，或制定包含新增写入核对、保留或补偿的数据恢复方案。无法证明来源时保持停写并报告 `blocked_reconciliation`。全部业务断言通过后再次运行同 profile、同完整 commit 的 `doctor`，要求 migration 状态、备份协议、VM/生产节点/中继节点 和外部路径仍通过。
 
 公开后进入 `blocked_reconciliation` 时禁止重新执行完整 `deploy`。只允许在同一 release ID、signed candidate 和 active claim 下继续剩余验收，或执行协调恢复；必须恢复 backup timer/自动同步并原子 consume/reconcile claim。当前仓库提供 `reconcile-inspect` 和受限的 `reconcile --mode recover`：后者只接受切换前 claim-only 条件，迁移、停写或公开流量已开始时保持 blocked，不用一次性脚本或手工编辑状态文件冒充正式收口。
 
@@ -311,8 +311,8 @@ SSH 中断或脚本报错时，先从远端重新读取 committed marker、`.env
 ### 无 migration
 
 1. 若旧 slot 尚存且健康，原子恢复 pre-release Nginx upstream 并 graceful reload，写回 active slot；不停止 Nginx。
-2. 停止未使用的 candidate，重新验证应用健康、认证、RackNerd/DMIT 双路径和日志。
-3. 只有旧 slot 已不可用时，才恢复 Compose image reference 到 `pre_switch_image_id` 并 targeted recreate 稳定 `sub2api:18080`。
+2. 停止未使用的 candidate，重新验证应用健康、认证、生产节点/中继节点 双路径和日志。
+3. 只有旧 slot 已不可用时，才恢复 Compose image reference 到 `pre_switch_image_id` 并 targeted recreate 稳定应用容器。
 
 ### Backward-compatible migration
 

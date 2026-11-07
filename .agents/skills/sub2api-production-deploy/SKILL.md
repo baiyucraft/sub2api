@@ -5,7 +5,7 @@ description: 面向 Sub2API fork 的构建、开发门禁、应用与独立插�
 
 # Sub2API 部署与运维
 
-使用本技能时用中文沟通。它描述本项目当前的 RackNerd、DMIT、异地备份机和本地 `sub2api-dev` 链路。主文件只负责决策和路由，详细步骤必须读取对应 reference。
+使用本技能时用中文沟通。它描述本项目当前的 生产节点、中继节点、异地备份机和本地 `sub2api-dev` 链路。主文件只负责决策和路由，详细步骤必须读取对应 reference。
 
 ## 日常部署参数
 
@@ -21,7 +21,7 @@ description: 面向 Sub2API fork 的构建、开发门禁、应用与独立插�
 
 - 读取 `.ssh.local` 只能作为连接输入；禁止输出、提交或记录密码、私钥、token、`.env`、完整环境变量、展开后的 Compose 和原始连接资料。
 - 用户已授权发布或恢复演练时，所需的新备份加密 identity 由执行器自行准备：优先复用权限合格且可证明匹配的专用 identity；缺失时自动生成唯一的新 age X25519 identity，用其公开 recipient 加密新建备份，不再询问用户是否生成、要求用户提供私钥或指定存放路径。私钥持久保存在工作区外的用户专属安全存储，隔离恢复环境仅使用受控副本；生成、权限、持久保管、加解密自检及新资产真实恢复均需验证。新 key 不能解密旧密文；本次未取得旧资产匹配 key 时保留旧资产并报告其恢复验证未完成，当前发布采用新建备份继续验证。普通停机回退使用已校验的临时明文恢复包，无需提供解密私钥。备份 key 与 VM Gate/DR Ed25519 签名信任根分别管理，本条不授权替换签名信任根、改写旧证据或绕过门禁。完整规则见 [备份密钥自动准备](references/backup-and-restore.md#备份密钥自动准备)。
-- RackNerd 的发布命令、状态检查、镜像与恢复包传输必须使用 `.ssh.local` 的 `http_connect_via_ssh` 路由，经 DMIT SSH 和仅监听 WireGuard 的 `example.invalid:1080` HTTP CONNECT 代理到达 RackNerd；禁止静默回退到本机 SOCKS、旧 `8888` 或直连。DMIT 中继或 1080 失败时发布必须停止。
+- 生产节点的发布命令、状态检查、镜像与恢复包传输必须使用 `.ssh.local` 中配置的 SSH 路由；当配置指定 SSH 中继时，必须使用其中登记的 relay observer、listen address 和端口。禁止静默回退到本机 SOCKS、legacy relay 或直连；配置不完整或路由失败时必须停止。
 - 任何远程写操作前先给出方案并获得用户确认；只读核验也必须采用字段白名单。
 - 生产旧容器在 candidate 构建、传输和验证完成前保持运行。
 - 正常应用发布使用 active/candidate 双槽：候选先在备用 loopback 端口启动，Nginx 通过原子 upstream 文件和 graceful reload 切流，旧容器最长排空 60 分钟后再停止。排空超时或连接状态不确定时优先把路由 reload 回旧槽，禁止强杀旧长连接。协调数据恢复仍允许停机。
@@ -43,10 +43,10 @@ description: 面向 Sub2API fork 的构建、开发门禁、应用与独立插�
 - 禁止 `docker system prune`、缺少缓存上限或保留量的 builder prune、删除卷、数据库、Redis、`data` 或备份目录。VM 空间低于 8 GiB 时只允许执行仓库版本化清理器中的一次容量有界 BuildKit GC：按 LRU 将可回收私有缓存压到 1 GB，并保留至少 1 GB 私有 BuildKit 缓存；不得手工扩大范围。
 - 生产镜像与 candidate 清理只能使用 `cleanup-production`：先 dry-run，再把原样 `plan_sha256` 传入 apply。候选包括满足保护条件的旧 `candidate.tar.gz` 归档，以及所有 tag 均为 full-SHA 发布 tag、或完全无 tag 的 dangling Sub2API layer。candidate 归档默认保留最近 3 天内全部文件；若窗口内不足 3 个则补足最近 3 个；当前 release、带恢复/协调标记和非单链接文件始终保护。只删没有任何容器引用、不属于运行镜像、pre-switch 或恢复点的旧镜像；退出的 migration 容器及其镜像作为 reconciliation 证据保留。生产 BuildKit GC 固定为 `max-used-space=2gb,reserved-space=2gb`，禁止扩大范围。生产 `release-state` 恢复点另用 `cleanup-production-recovery-points`：保留最近 3 天全部有效点，不足 3 个补足最近 3 个，当前/上一发布、reconciliation 和状态不明始终保护；同样必须 dry-run、原样 `plan_sha256` apply。
 - 备份机空间清理只能使用版本化 `backup-retention-clean.sh` 与 `backup-release-retention-clean.sh`：先 dry-run，再用同一 `plan_sha256` apply。daily 默认至少保留最新 1 组；release 默认只保留最高版本 profile 的最新 1 个恢复包，历史 profile 和同一 profile 的旧包进入候选，但 candidate/verified/recovery/baseline 等指针及恢复标记始终保护。清理后仍低于 5 GiB 时必须扩容或人工审核，禁止扩大删除范围。
-- 若备份目录已无早于 15 天的 daily 自动清理候选且仍至少保留最新 1 组，而宿主机 systemd journal 占用异常，可使用版本化 `backup-host-space-clean.sh`：只将 `/var/log/journal` 容量压到 1 GiB，apply 必须绑定 dry-run 的 `plan_sha256`，并要求清理后至少保留 `5 GiB + 512 MiB` 上传余量。该脚本禁止删除、遍历或改写 `/srv/sub2api-backups` 内任何备份资产。
+- 若备份目录已无早于 15 天的 daily 自动清理候选且仍至少保留最新 1 组，而宿主机 systemd journal 占用异常，可使用版本化 `backup-host-space-clean.sh`：只将 `/var/log/journal` 容量压到 1 GiB，apply 必须绑定 dry-run 的 `plan_sha256`，并要求清理后至少保留 `5 GiB + 512 MiB` 上传余量。该脚本禁止删除、遍历或改写 `${BACKUP_ROOT}` 内任何备份资产。
 - VM 空间必须按 Docker/containerd、`/tmp`、源码、构建/恢复副本和回滚预留计算峰值；本 VM 不扩容。清理最多一次，不能用 `du` 或 Snap 缓存推断可回收空间。退役 DR rootfs、临时输入和未被引用的 `vm-only-*` 镜像须先证明没有 runner、owner、容器/镜像引用或挂载，再按精确清理计划执行；不得扩大版本化 cleaner 的目标范围，完成后重新执行 `doctor`。
 - 本地开发机的 Go 全量门禁默认使用 `-p 2 -parallel 2`，并与 Vitest、typecheck、前端生产构建串行执行；该限制不改变 VM 的正式镜像构建并行度。
-- signer 公钥、私钥派生公钥、RackNerd trust key、validator 和 Gate 中记录的 checksum 任一不一致，必须停止，不得通过 bootstrap 自动修复后继续发布。
+- signer 公钥、私钥派生公钥、生产节点 trust key、validator 和 Gate 中记录的 checksum 任一不一致，必须停止，不得通过 bootstrap 自动修复后继续发布。
 - validator 与 signer helper 必须作为同一版本单元暂存、验签自测后一次激活；不得单独升级其中一个，也不得在 Compose 闭包未验证前删除旧容器或恢复数据库。
 - 一个 release 只允许一个 runner、一个 active claim 和一个 candidate；runner 返回异常、SSH 超时或测试断言失败后，必须先按 committed marker 和结构化状态做 reconciliation，禁止并发或重复启动第二个 `deploy`。
 - 本次精确冻结的 `273-1396fc89fe73-1792295582-80609bce` 在生产未开始前失败，仅可用 `reconcile-vm-failed-preserve` 和 `verify-vm-failed-preserve` 收口：保留原失败文件与运行 VM，核验同 boot、无 worker/probe/生产 claim，独立证明持久化后最后释放共享 owner。它不是重新部署或关机，不能套用到其他事故；见 [runner 生命周期](references/release-runner-lifecycle.md)。
@@ -110,16 +110,15 @@ Profile 271 保持 `0.2.16-baiyu`，parent 为 270，仅新增 `299_upstream_cac
 ## 当前链路摘要
 
 ```text
-海外/默认 -> RackNerd:443 -> Nginx -> active slot:18080/18081
-国内      -> DMIT:443 -> HAProxy(PROXY v2)
-                         -> RackNerd:18443 -> Nginx -> active slot:18080/18081
+外部客户端 -> 配置的直连健康路由 -> 生产入口 -> active slot
+经中继客户端 -> 配置的 relay health route -> 生产入口 -> active slot
 
 发布控制/传输
-  本地 -> SSH DMIT:1030 -> DMIT HTTP CONNECT example.invalid:1080
-       -> RackNerd:1030
+  本地 -> `.ssh.local` 中登记的 observer SSH -> 配置的 relay listener
+       -> `.ssh.local` 中登记的 target node SSH
 
-RackNerd -> PostgreSQL + Redis + 加密备份源
-         -> example.invalid（只保存和校验密文）
+生产节点 -> PostgreSQL + Redis + 加密备份源
+         -> `.ssh.local` 中配置的 backup node（只保存和校验密文）
 
 本地 VM -> sub2api-dev -> VM 本地 PostgreSQL + Redis + data-dev
 ```
@@ -149,9 +148,9 @@ RackNerd -> PostgreSQL + Redis + 加密备份源
   ├─ 纯 skill/固定只读巡检 -> ops-readonly-assets -> 不构建、不切换
   ├─ 纯维护/服务控制资产   -> ops-control-assets -> 操作门禁，不切应用镜像
   ├─ 仅独立插件包          -> plugin-package -> 双架构签名包 + VM 插件 Gate -> 管理 API 安装/升级
-  ├─ 严格纯 frontend UI   -> 本地前端检查 + Vite 代理 VM Gate smoke -> RackNerd 完整构建 -> 生产切换
-  ├─ build-chain          -> VM 完整构建与验证 -> 同一镜像 -> RackNerd
-  └─ 其他/不确定           -> RackNerd 构建 -> 同一镜像 -> VM 验证 -> RackNerd
+  ├─ 严格纯 frontend UI   -> 本地前端检查 + Vite 代理 VM Gate smoke -> 生产节点 完整构建 -> 生产切换
+  ├─ build-chain          -> VM 完整构建与验证 -> 同一镜像 -> 生产节点
+  └─ 其他/不确定           -> 生产节点 构建 -> 同一镜像 -> VM 验证 -> 生产节点
 ```
 
 详细分类和构建规则见 [change-classification-and-build.md](references/change-classification-and-build.md)。VM 的连接隔离和测试清单见 [dev-validation.md](references/dev-validation.md)。
@@ -190,7 +189,7 @@ Profile 265 的兼容审阅绑定 `aeb410bccc524164bdafbd3db865d4f5f588aced` →
 3. 应用产物类别复用固定源码目录和依赖缓存，构建并记录 `candidate_image_id`；运维资产类别明确记录镜像字段 `not_applicable`。
 4. 对需要 VM 门禁的改动，导入同一镜像、验证 VM 本地数据边界和容器行为；前后端混合改动的真实浏览器联调直接使用 VM Gate，不启动本机后端。
 5. 后端/数据库/fork/配置发布前执行生产备份门禁；不兼容迁移使用不会自动恢复写入的维护备份路径。
-6. 应用发布只切换 `sub2api` 容器；运维资产只执行获批的目标操作。两者都按适用范围完成 RackNerd 直连和 DMIT PROXY v2 验收。
+6. 应用发布只切换 `sub2api` 容器；运维资产只执行获批的目标操作。两者都按适用范围完成 生产节点 直连和 中继节点 PROXY v2 验收。
 7. 适用的应用发布在生产通过后处理版本基线：`candidate -> 实际 PostgreSQL/Redis 隔离恢复 -> verified`。`ops-readonly-assets` 和不涉及应用/恢复点的 `ops-control-assets` 明确记录 `not_applicable`。
 8. 按 [final-report.md](references/final-report.md) 输出脱敏结果；基线失败时只能报告 `partial`。
 
@@ -219,7 +218,7 @@ Profile 265 的兼容审阅绑定 `aeb410bccc524164bdafbd3db865d4f5f588aced` →
 
 不兼容 migration 还必须在生产停写后完成数据 preflight、migration plan checksum 和 postflight 语义校验。VM fixture 通过不能替代生产数据证据；没有可证明来源的历史行必须停止。
 
-## RackNerd 一键发布入口
+## 生产节点 一键发布入口
 
 对于已经提供 skill 发布入口 profile 的 `build-chain + incompatible migration`，正式入口固定为：
 
@@ -234,7 +233,7 @@ python .agents/skills/sub2api-production-deploy/scripts/release.py wait <release
 python .agents/skills/sub2api-production-deploy/scripts/release.py verify-result <release_id>
 ```
 
-`doctor` 和 `bootstrap-production` 可独立用于诊断和首次初始化；日常只执行 `deploy-start`。它启动的 worker 必须先检查本地、VM 与外部节点，再幂等 bootstrap RackNerd，最后检查 RackNerd；通过后才在 VM 唯一构建 candidate。`fast` 使用 VM 本地隔离 PostgreSQL、Redis 和 `data-dev` 完成候选检查，不准备或恢复生产恢复包；`specialized` 与显式 `full` 才传输真实生产恢复包和旧生产镜像，并执行 PostgreSQL/Redis 恢复及旧镜像兼容检查。只有 VM 签名 Gate 验证通过后，才允许向 RackNerd 传输同一 candidate image ID。RackNerd 不得重新构建 candidate。
+`doctor` 和 `bootstrap-production` 可独立用于诊断和首次初始化；日常只执行 `deploy-start`。它启动的 worker 必须先检查本地、VM 与外部节点，再幂等 bootstrap 生产节点，最后检查 生产节点；通过后才在 VM 唯一构建 candidate。`fast` 使用 VM 本地隔离 PostgreSQL、Redis 和 `data-dev` 完成候选检查，不准备或恢复生产恢复包；`specialized` 与显式 `full` 才传输真实生产恢复包和旧生产镜像，并执行 PostgreSQL/Redis 恢复及旧镜像兼容检查。只有 VM 签名 Gate 验证通过后，才允许向 生产节点 传输同一 candidate image ID。生产节点 不得重新构建 candidate。
 
 独立插件包使用同一入口文件下的插件专属命令，不复用宿主 `deploy-*` 状态或 image Gate：
 
@@ -255,7 +254,7 @@ python .agents/skills/sub2api-production-deploy/scripts/release.py plugin-rollba
 
 以下远端标记任一存在冲突时停止并人工 reconciliation，禁止删除后重试：
 
-- RackNerd `/opt/sub2api/releases/.active-release`
+- 生产节点 `${PRODUCTION_ROOT}/releases/.active-release`
 - release 目录中的 `.consumed` 或 `.recovered`
 
 `migration_started`、迁移容器存在或 SSH 异常都不能证明迁移已提交；只能以远端 committed marker 与数据库 migration 记录共同确认。恢复时不得继承调用者的 `COMPOSE_FILE`、`COMPOSE_PROFILES` 等环境覆盖。
@@ -264,7 +263,7 @@ python .agents/skills/sub2api-production-deploy/scripts/release.py plugin-rollba
 
 runner 长时间没有控制台输出时不得重复启动或凭沉默判定卡死。先按 [release-doctor-and-recovery.md](references/release-doctor-and-recovery.md) 的“长时间无输出诊断”只读检查进程和结构化状态文件。最终成功必须同时满足签名 Gate 已验证，`production-result.json` 的 `stage` 为 `production_verified` 或 `production_verified_after_reconciliation` 且顶层 `status=verified`，并且 `verify-result` 通过。正式 `reconcile --mode recover` 当前只覆盖切换前 claim-only 恢复；其他分支必须保持 `blocked_reconciliation`。
 
-前台工具超时不等于 runner 退出。`deploy-start` 使用独立后台进程，在 `.tmp/` 原子记录 PID 启动 token、release ID、stdout/stderr 相对路径和 runner checksum；后续只跟踪该 PID 和结构化状态，禁止再次执行 `deploy`。生产升级不需要、也不得依赖账号池、Canary、模型调用或任何 upstream 探针：不读取 Canary 凭据，不发送模型请求，不生成 usage attribution，流式能力统一记录为 `not_checked`，即使没有可用账号也不得因此阻塞 Docker 镜像升级。direct/DMIT `/health` 与容器 health 仅用于确认 Docker 容器已启动、路由可达；它们不是模型探针，也不表示模型能力已验证。迁移、备份、镜像完整性和协调恢复合同仍然适用。`blocked_reconciliation` 必须按恢复 reference 分层诊断。完整生命周期见 [release-runner-lifecycle.md](references/release-runner-lifecycle.md)。
+前台工具超时不等于 runner 退出。`deploy-start` 使用独立后台进程，在 `.tmp/` 原子记录 PID 启动 token、release ID、stdout/stderr 相对路径和 runner checksum；后续只跟踪该 PID 和结构化状态，禁止再次执行 `deploy`。生产升级不需要、也不得依赖账号池、Canary、模型调用或任何 upstream 探针：不读取 Canary 凭据，不发送模型请求，不生成 usage attribution，流式能力统一记录为 `not_checked`，即使没有可用账号也不得因此阻塞 Docker 镜像升级。direct/中继节点 `/health` 与容器 health 仅用于确认 Docker 容器已启动、路由可达；它们不是模型探针，也不表示模型能力已验证。迁移、备份、镜像完整性和协调恢复合同仍然适用。`blocked_reconciliation` 必须按恢复 reference 分层诊断。完整生命周期见 [release-runner-lifecycle.md](references/release-runner-lifecycle.md)。
 
 Gate 必须绑定 commit、origin、VM identity、validator、runner、发布资产、migration checksum、candidate archive checksum 和 image ID。生产端必须再次验签并从 Gate 派生镜像身份，禁止用环境变量覆盖。
 
@@ -295,7 +294,7 @@ Gate 必须绑定 commit、origin、VM identity、validator、runner、发布资
 - 生产 profile 可能处于混合状态，例如旧 migration 已记录而新 migration 缺失。先独立读取整体 migration 状态和关键 migration 状态，按有序 manifest 逐项处理；不能用“profile 不完整”推断所有 migration 都需要重跑。
 - 生产恢复使用正式 recovery/reconciliation 入口。即使远端动作可能已经提交、但调用端只收到非零退出码或测试断言失败，也必须先读取 committed marker、数据库迁移记录、运行 image、active claim 和 backup unit，再决定继续候选或协调恢复。
 - Redis 恢复必须证明认证来源、RDB/AOF 可读性和 TTL 对账；仅 `PING`、`DBSIZE` 或容器健康不能单独把恢复点晋升为 `verified`。恢复后必须重新执行 `doctor`，并以 Gate、production-result、Git 和线上运行 image 四类证据共同收口。
-- VM 空间清理器在解析 profile 兼容镜像前，必须先确认目标完整 commit 已存在于 `/opt/sub2api-src`；不存在时只允许同步 `origin/main` 后再解析。源码落后导致兼容 commit 无法证明时，必须保护性停止，不能把兼容镜像当作普通旧镜像清理。
+- VM 空间清理器在解析 profile 兼容镜像前，必须先确认目标完整 commit 已存在于 `${APP_SOURCE_DIR}`；不存在时只允许同步 `origin/main` 后再解析。源码落后导致兼容 commit 无法证明时，必须保护性停止，不能把兼容镜像当作普通旧镜像清理。
 - 历史兼容 Candidate 导入只能用于恢复 VM 回滚验证，必须独立校验历史 Gate 签名、归档 SHA-256、profile、commit、版本、release asset 和 migration map；不能修改历史 Gate JSON、重签名或用当前 runner 的校验失败强行放行生产。
 - SSH 只允许在建立会话、尚未执行远程命令时对 `EOF/banner/transport` 类瞬时错误做有限退避重试。远程命令已经开始或返回不确定时不得自动重试写操作，必须回到 committed marker、claim 和目标目录核验。
 - `stage_assets`、bootstrap 等 claim 前失败，只有在远端 release 目录和 `.active-release` 都明确不存在时才可创建新的 release ID；任一状态未知或已落地，必须停止并进入 reconciliation。失败 release 不得复用、覆盖或删除证据。

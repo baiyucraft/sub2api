@@ -87,6 +87,6 @@ CLAUDE.md
 # Local agent/deploy scratch files
 .codex/
 .playwright-cli/
-.ssh.local
+.ssh.local*
 .tmp/
 AGENTS.md

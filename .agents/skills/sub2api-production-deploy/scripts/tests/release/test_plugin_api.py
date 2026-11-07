@@ -28,7 +28,7 @@ class FakeRunner:
     def __init__(self, values: dict[str, str]) -> None:
         self.values = values
         self.servers = {
-            "local_vm": {"host": "example.invalid"},
+            "local_vm": {"host": "192.0.2.27/32"},
         }
         self.uploads: list[tuple[str, Path, str, int]] = []
         self.remote_files: dict[str, bytes] = {}
@@ -151,11 +151,11 @@ class PluginAPIContractTest(unittest.TestCase):
 
         self.assertEqual(
             client._base_urls("local_vm"),
-            ["http://example.invalid:8211/api/v1"],
+            ["http://192.0.2.27/32:8211/api/v1"],
         )
         self.assertEqual(
             client._base_urls("vm"),
-            ["http://example.invalid:8211/api/v1"],
+            ["http://192.0.2.27/32:8211/api/v1"],
         )
 
     def test_racknerd_slot_check_preserves_sed_backreference(self) -> None:

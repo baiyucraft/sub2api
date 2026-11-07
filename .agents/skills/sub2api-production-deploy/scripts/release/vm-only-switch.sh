@@ -5,6 +5,10 @@ gate_dir=${1:?gate directory is required}
 candidate_archive=${2:?candidate archive is required}
 candidate_image_id=${3:?candidate image ID is required}
 release_id=${4:?release ID is required}
+vm_health_url=${5:?configured VM health URL is required}
+[[ $vm_health_url =~ ^http://(\[[0-9A-Fa-f:]+\]|[A-Za-z0-9.-]+):([0-9]{1,5})$ ]]
+vm_health_port=${BASH_REMATCH[2]}
+(( vm_health_port >= 1 && vm_health_port <= 65535 ))
 deploy_dir=/opt/sub2api-deploy
 compose_file="$deploy_dir/docker-compose.local.yml"
 unit_lock=/usr/local/libexec/.sub2api-release-unit.lock
@@ -42,6 +46,8 @@ openssl pkeyutl -verify -pubin -inkey "$public_key" -rawin -in "$gate_dir/gate.j
 {
   required_query_4=$(jq -er '.manifest.release_id' "$gate_dir/gate.json")
   [[ ${required_query_4} == "$release_id" ]]
+  required_query_5=$(jq -er '.manifest.vm_port' "$gate_dir/gate.json")
+  [[ $required_query_5 == "$vm_health_port" ]]
 }
 {
   required_query_5=$(jq -er '.evidence.candidate_image_id' "$gate_dir/gate.json")
@@ -146,18 +152,18 @@ done
   [[ ${required_query_16} == healthy ]]
 }
 {
-  required_query_17=$(curl -fsS --max-time 10 -o /dev/null -w '%{http_code}' http://example.invalid:8211/health)
+  required_query_17=$(curl -fsS --max-time 10 -o /dev/null -w '%{http_code}' "${vm_health_url}/health")
   [[ ${required_query_17} == 200 ]]
 }
 {
-  required_query_18=$(curl -fsS --max-time 10 -o /dev/null -w '%{http_code}' http://example.invalid:8211/)
+  required_query_18=$(curl -fsS --max-time 10 -o /dev/null -w '%{http_code}' "$vm_health_url/")
   [[ ${required_query_18} == 200 ]]
 }
 {
   required_query_19=$(docker ps -a --format '{{.Names}}' | grep -Fc 'sub2api-dev')
   [[ ${required_query_19} == 1 ]]
 }
-printf 'switch=verified\nold_image_id=%s\ncandidate_image_id=%s\nport=8211\nhealth=200\npage=200\n' "$old_image_id" "$candidate_image_id" >"$result"
+printf 'switch=verified\nold_image_id=%s\ncandidate_image_id=%s\nport=%s\nhealth=200\npage=200\n' "$old_image_id" "$candidate_image_id" "$vm_health_port" >"$result"
 trap - EXIT
 rm -f -- "$override"
-printf 'switch=verified\nold_image_id=%s\ncandidate_image_id=%s\nport=8211\nhealth=200\npage=200\n' "$old_image_id" "$candidate_image_id"
+printf 'switch=verified\nold_image_id=%s\ncandidate_image_id=%s\nport=%s\nhealth=200\npage=200\n' "$old_image_id" "$candidate_image_id" "$vm_health_port"

@@ -21,7 +21,8 @@ import paramiko
 import socks
 import yaml
 
-from .paths import WORKSPACE
+from .environment import DeploymentEnvironment
+from .paths import SSH_CONFIG, WORKSPACE
 
 
 LOGGING_ROOT = pathlib.Path(__file__).resolve().parents[1] / "logging"
@@ -32,7 +33,6 @@ from release_logging import EventContext, JSONLEventLogger  # noqa: E402
 
 
 ROOT = WORKSPACE
-SSH_CONFIG = ROOT / ".ssh.local"
 KNOWN_HOSTS = ROOT / ".tmp" / "known_hosts"
 RELEASE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.-]{0,127}$")
 MAX_EVENT_LOG_BYTES = 16 * 1024 * 1024
@@ -86,14 +86,27 @@ class UnexpectedRemoteStderr(RuntimeError):
 
 
 class SSHRunner:
-    def __init__(self) -> None:
-        document = yaml.safe_load(SSH_CONFIG.read_text(encoding="utf-8"))
+    def __init__(self, *, require_environment: bool = False) -> None:
+        document, self.deployment_environment = DeploymentEnvironment.from_file(SSH_CONFIG, required=require_environment)
         self.servers = document["servers"]
         self._validate_proxy_routes()
         self.temp_dirs: set[tuple[str, str]] = set()
         self.event_log_path = os.environ.get("SUB2API_EVENT_LOG")
         self.release_id = os.environ.get("SUB2API_RELEASE_ID")
         self.deployment_mode = os.environ.get("SUB2API_DEPLOYMENT_MODE")
+
+    def assert_configuration_current(self) -> None:
+        environment = getattr(self, "deployment_environment", None)
+        if environment is not None:
+            environment.assert_current()
+        elif os.environ.get("SUB2API_DEPLOYMENT_CONFIG_SHA256"):
+            raise RuntimeError("local deployment configuration is missing")
+
+    def resolve_server_name(self, role: str) -> str:
+        environment = getattr(self, "deployment_environment", None)
+        if environment is None:
+            return role
+        return environment.node_for_role(role)
 
     @staticmethod
     def _parse_proxy_endpoint(value: str) -> tuple[str, int]:
@@ -246,7 +259,8 @@ exit "$code"
             raise RuntimeError("SFTP path is outside a registered remote temporary directory")
 
     def connect(self, name: str, command_id: str | None = None) -> paramiko.SSHClient:
-        config = self.servers[name]
+        self.assert_configuration_current()
+        config = self.servers[self.resolve_server_name(name)]
         last_error: BaseException | None = None
         identifier = command_id or secrets.token_hex(8)
         for attempt in range(1, 4):

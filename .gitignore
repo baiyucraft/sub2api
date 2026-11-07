@@ -193,3 +193,6 @@ issues/
 !astrbot/tests/
 !astrbot/tests/test_plugin.py
 /.release/deploy.local.json
+/.ssh.local
+/.ssh.local.*
+!/.ssh.local.example.yaml

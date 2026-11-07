@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 
@@ -212,6 +213,12 @@ class FinalizationTest(unittest.TestCase):
         manifest = {**self.manifest, "release_asset_sha256": {".agents/skills/sub2api-production-deploy/scripts/maintenance/release/context.sh": "e" * 64}}
         ssh = mock.Mock()
         ssh.run.return_value.values = self.production
+        ssh.deployment_environment = SimpleNamespace(
+            public_domain="sub2api.example.test",
+            direct_route={"address": "198.51.100.10", "observer": "direct-observer", "target_node": "app-node"},
+            relay_route={"address": "198.51.100.20", "observer": "relay-observer", "target_node": "app-node"},
+            assert_current=mock.Mock(),
+        )
         backup = {"pre_switch_image_id": "sha256:" + "c" * 64, "artifact": "fixture.tar.age", "transport_artifact": "transport.tar.age", "artifact_size": "1", "artifact_sha256": "d" * 64, "release_sha256": "d" * 64, "traffic_preserved": "true", "redis_backup_mode": "rdb", "no_restart_path_proven": "true", "local_restore_point_ready": "true"}
         REMOTE_CONSUMED(ssh, manifest, self.candidate, finalization._original_hashes(self.run), backup_evidence=backup)
         script = ssh.run.call_args_list[0].args[1]

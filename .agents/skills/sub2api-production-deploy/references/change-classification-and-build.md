@@ -57,7 +57,7 @@
 ```text
 frontend-direct:
   本地前端检查 + Vite 代理 VM Gate smoke
-    -> RackNerd 完整构建 -> RackNerd 生产切换
+    -> 生产节点 完整构建 -> 生产节点 生产切换
 
 ops-readonly-assets:
   本地验证 -> review -> commit/push -> 固定字段只读巡检
@@ -71,12 +71,12 @@ plugin-package:
     -> 逐实例恢复与 Health 核验
 
 普通 dev-gated:
-  RackNerd 完整构建 -> 按 image ID 传 VM -> sub2api-dev 验证
-                     -> VM Gate 浏览器/接口验收 -> 使用同一 image ID 切换 RackNerd
+  生产节点 完整构建 -> 按 image ID 传 VM -> sub2api-dev 验证
+                     -> VM Gate 浏览器/接口验收 -> 使用同一 image ID 切换 生产节点
 
 build-chain:
-  VM 完整构建 -> sub2api-dev 验证 -> 按 image ID 传 RackNerd
-              -> VM Gate 浏览器/接口验收 -> RackNerd 使用同一 image ID 切换
+  VM 完整构建 -> sub2api-dev 验证 -> 按 image ID 传 生产节点
+              -> VM Gate 浏览器/接口验收 -> 生产节点 使用同一 image ID 切换
 ```
 
 禁止为了“重新构建”而破坏同一镜像身份；验证通过的镜像就是生产候选。同一 commit 重新构建也可能得到不同 image ID，same commit 不等于 same candidate；只有同一 release 的 Gate、归档和 image ID 三者同时匹配，才可称为复用 candidate。
@@ -219,7 +219,7 @@ postflight 两条只扩展 269 的停机奖励成本钩子条件，仍在旧写�
 
 即使是纯前端，也必须：
 
-1. 在 RackNerd `/opt/sub2api-src` 用完整根 `Dockerfile` 构建。
+1. 在 生产节点 `${APP_SOURCE_DIR}` 用完整根 `Dockerfile` 构建。
 2. 执行类型检查和相关前端测试。
 3. 记录 `candidate_image_id`、`pre_switch_image_id` 和可用的 `older_fallback_image_id`。
 4. 在生产切换前用本地 Vite 加载页面，但将 `VITE_DEV_PROXY_TARGET` 指向 VM Gate；验证登录、变更页面、静态资源、关键 API 和浏览器 console。
@@ -239,14 +239,14 @@ postflight 两条只扩展 269 的停机奖励成本钩子条件，仍在旧写�
 
 VM 构建规则：
 
-- 使用 VM `/opt/sub2api-src` 固定工作树。
+- 使用 VM `${APP_SOURCE_DIR}` 固定工作树。
 - 构建完成后必须在 `sub2api-dev` 完成完整验证。
-- 从 VM 导出已经验证的 `candidate_image_id`，传到 RackNerd。
-- 若 profile 已接入 skill 发布入口，使用 `python .agents/skills/sub2api-production-deploy/scripts/release.py deploy-start --profile <profile> --commit <full SHA> --mode blue-green|downtime`，再用 `status/wait/verify-result` 收口；候选只在 VM 构建，RackNerd 只验签、导入和核对 image ID。
-- RackNerd 不得重新构建同一个候选。
-- VM 空间或依赖无法安全满足时停止，不得退回 RackNerd 未验证构建。
+- 从 VM 导出已经验证的 `candidate_image_id`，传到 生产节点。
+- 若 profile 已接入 skill 发布入口，使用 `python .agents/skills/sub2api-production-deploy/scripts/release.py deploy-start --profile <profile> --commit <full SHA> --mode blue-green|downtime`，再用 `status/wait/verify-result` 收口；候选只在 VM 构建，生产节点 只验签、导入和核对 image ID。
+- 生产节点 不得重新构建同一个候选。
+- VM 空间或依赖无法安全满足时停止，不得退回 生产节点 未验证构建。
 - 构建链在 VM 至少执行五次空间门禁：构建前、构建后、导出前、导入前、导入后；同时检查 Docker Root Dir、containerd、`/tmp` 和传输临时目录。
-- 构建峰值必须包含镜像层、解压空间、压缩归档、缓存增长、开发数据库恢复副本、migration 临时空间和旧镜像回滚预留。任一空间不足时停止，禁止自动重建或改到 RackNerd 构建。
+- 构建峰值必须包含镜像层、解压空间、压缩归档、缓存增长、开发数据库恢复副本、migration 临时空间和旧镜像回滚预留。任一空间不足时停止，禁止自动重建或改到 生产节点 构建。
 
 ## 开发门禁改动
 
@@ -259,7 +259,7 @@ VM 构建规则：
 
 统一代理绑定从旧双字段迁移到 `accounts.proxy_id -> proxy_bindings.id` 时，属于 migration 加跨 API 契约变更，必须执行 specialized 数据门禁与 VM Gate。迁移 `284_unified_proxy_bindings.sql` 已纳入 pending profile 257 的 `new_migrations`；当前 SQL 原始字节 SHA-256 已登记为 `de0adde07c5dd930aa1cccf9e68d6c55958fd7ea16323d746019c7c97481afe3`，修改 SQL 必须重算；测试和 Gate 未通过前不得误称已发布。历史 `279_proxy_ip_groups.sql` 不可修改。已检查的本地、VM、生产与备份目录未见 256 资产，但不能证明从未签名或发布；保守保留 256 原合同，当前 profile 257 的 parent 为 256。
 
-不触及构建链的普通 `dev-gated` 可以在 RackNerd 构建一次，生产继续运行旧镜像，然后按确切 image ID 传给 VM 验证。验证通过后，生产只使用 RackNerd 已构建的同一镜像。
+不触及构建链的普通 `dev-gated` 可以在 生产节点 构建一次，生产继续运行旧镜像，然后按确切 image ID 传给 VM 验证。验证通过后，生产只使用 生产节点 已构建的同一镜像。
 
 开发联调阶段直接使用 VM Gate 的 candidate 服务验证前后端契约。允许在本机执行 Go、TypeScript、Vitest 等静态/unit 门禁，但禁止启动本地后端来替代 VM Gate；前端页面也不应指向一个不存在的本地 API。
 
@@ -376,7 +376,7 @@ VM Gate v2、历史 Gate v1 与 VM-only 三个构建入口共用 `vm-build-commo
 
 发布进程身份与构建依赖前置修复另经独立审阅，精确绑定生产 BASE `5deebb2929c2a694145cc2726e895f01c43d28c1` 到实现 TARGET `1a6271af98027b67e63dfb24915aaf11ab395974`。`_PROCESS_BUILD_PREFLIGHT_REVIEW_PATHS` 仅登记 `release/{cli.py,finalization.py,observer.py,plugin_supervisor.py,process.py,supervisor.py,vm-build-common.sh,vm-only-validate.sh,vm-validate.sh,vm_build.py,vm_validate.py}` 十一条同路径旧/新 Git blob 与模式，理由为 `reviewed_process_build_preflight_changed`。两项新 helper 的旧状态必须不存在；历史 48 条 profile274 登记原样保留，其中两个 validator 因新字节不再命中旧登记。当前净敏感闭包为 57 条：旧登记仍匹配 46 条，本批精确匹配 11 条。未来 blob、模式、删除、改名、额外路径和生产基线漂移继续阻断。该登记只允许当前实现进入 specialized 真实专项恢复与新签名 Gate，不证明构建、Gate、生产发布或完整灾备基线通过。
 
-固定路径以 [architecture-and-current-state.md](architecture-and-current-state.md) 为唯一事实源。构建任务必须先读取该文档，再使用其中定义的 RackNerd/VM 源码、部署和 `data-dev` 路径；本文件不单独维护第二份路径表。
+固定路径以 [architecture-and-current-state.md](architecture-and-current-state.md) 为唯一事实源。构建任务必须先读取该文档，再使用其中定义的 生产节点/VM 源码、部署和 `data-dev` 路径；本文件不单独维护第二份路径表。
 
 构建前确认：
 
