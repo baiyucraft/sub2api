@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 
 from .atomic import atomic_write, canonical_json
+from .backup_maintenance import ensure_backup_capacity
 from .environment import DeploymentEnvironment, deployment_role_nodes, load_deployment_environment
 from .gate import verify_gate
 from .manifest import sha256_file, validate_image_id
@@ -2236,6 +2237,10 @@ if test -f {self.state_dir}/masked.committed && test ! -L {self.state_dir}/maske
 
     def execute(self) -> None:
         try:
+            ensure_backup_capacity(
+                self.runner, self.environment, self.profile["minimum_backup_free_bytes"],
+                self.gate_dir.parent, self.release_id,
+            )
             self.upload_assets()
             self.preflight()
             self.verify_public_health_routes("pre_switch")

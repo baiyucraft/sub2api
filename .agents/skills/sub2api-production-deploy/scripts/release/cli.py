@@ -16,6 +16,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from .bootstrap import bootstrap_trust, install_vm_validator
+from .backup_maintenance import ensure_backup_capacity
 from .atomic import atomic_write, canonical_json, read_replaceable_text
 from .doctor import NODES, ReleaseDoctor
 from .environment import pin_deployment_environment
@@ -426,6 +427,7 @@ def vm_validate(args: argparse.Namespace) -> None:
             doctor.run(("local",))
             runner = doctor._ssh()
             install_vm_validator(runner)
+            ensure_backup_capacity(runner, doctor.environment, profile["minimum_backup_free_bytes"], run_dir, identifier)
             doctor.run(("vm", "dmit", "backup"))
             bootstrap_production(args.profile, runner)
             production_doctor = doctor.run(("racknerd",), require_ingress_policy=False)
@@ -543,6 +545,7 @@ def deploy(args: argparse.Namespace, acquire_lock: bool = True) -> None:
                 stage="vm_release_unit", script="release.cli", event="stage_finished",
                 message="Existing VM release unit updated atomically", exit_code=0,
             )
+        ensure_backup_capacity(runner, doctor.environment, get_profile(args.profile)["minimum_backup_free_bytes"], RUN_ROOT / identifier, identifier)
         doctor.run(("vm", "dmit", "backup"))
         if logger:
             logger.emit(stage="doctor", script="release.cli", event="nodes_verified", message="Local, VM, DMIT and backup checks verified")

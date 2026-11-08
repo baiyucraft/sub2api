@@ -433,6 +433,14 @@ backup-host-space-clean.sh dry-run
 
 如果 dry-run 没有候选，或候选不足以满足发布上传余量，应扩容备份机或进行人工审核，不得扩大自动删除范围。
 
+### 发布前自动容量维护
+
+发布授权包含上述固定 release 保留策略下的自动维护。`vm-validate` 与 `deploy` 在备份节点 doctor 前调用 `release/backup_maintenance.py`；独立生产执行在上传资产、claim 和停写前再次核验。`doctor` 本身仍只读。
+
+先轻量检查 `/srv/sub2api-backups` 的实际余量；达到 profile 的最小容量加 512 MiB 上传余量时不扫描或删除历史包。余量不足时只运行既有 `backup-release-retention-clean.sh`：先 dry-run，严格核对策略、计划摘要、唯一候选 ID、数量和容量，再用原样计划摘要和该确切 ID 集合 apply 一次。当前 release 不能进入候选，所有指针、恢复标记及完整性保护继续优先。
+
+每个 release 的本地运行目录保存 `backup-maintenance.json`，先记录计划和 apply 意图，再保存清理收据与实际容量复核。多入口复查保留既有 plan/apply 证据，只检查容量；`planned`、`applying` 或 `blocked` 收据必须先对账，不能自动重跑。候选不足、计划变化、配置变化、删除结果不明或清理后仍未达上传余量时阻断，禁止循环清理、放宽容量门槛或改删 daily/journal。
+
 ## 密钥与告警
 
 - 加密私钥不得与密文包同库存放，不得进入 Git、日志、manifest 明文或最终报告。

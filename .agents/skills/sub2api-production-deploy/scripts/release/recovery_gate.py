@@ -565,7 +565,7 @@ _RECOVERY_RUNTIME_FILES = frozenset(
         "production-recovery-retention-clean.sh", "production-space-clean.sh",
         "promote-dr-baseline.sh", "sign-dr-evidence.sh", "sign-gate.sh",
         "vm-only-validate.sh", "vm-validate.sh", "vm-probe-config.py", "vm-space-clean.sh", "vm-build-common.sh", "bootstrap.py", "production_bootstrap.py",
-        "production_cleanup.py", "production_recovery_retention.py", "profiles.py",
+        "production_cleanup.py", "production_recovery_retention.py", "backup_maintenance.py", "profiles.py",
         "paths.py", "atomic.py", "migration_planner.py",
         # These collectors, signing domains and baseline publishers can alter
         # which recovery evidence is accepted or promoted. A future change to

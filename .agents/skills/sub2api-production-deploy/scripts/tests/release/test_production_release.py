@@ -58,6 +58,25 @@ def _assert_required_capture(source, producer, assertion, failure):
 
 
 class ProductionRecoveryTest(unittest.TestCase):
+    def setUp(self) -> None:
+        maintenance = mock.patch("release.production.ensure_backup_capacity")
+        self.maintenance = maintenance.start()
+        self.addCleanup(maintenance.stop)
+
+    def test_backup_capacity_failure_precedes_assets_claim_and_freeze(self) -> None:
+        release = self.release()
+        release.claimed = False
+        release.remote_gate_claimed = mock.Mock(return_value=False)
+        release.remote_active_claim_exists = mock.Mock(return_value=False)
+        release.upload_assets = mock.Mock()
+        release.freeze = mock.Mock()
+        self.maintenance.side_effect = RuntimeError("backup capacity fixture")
+        with self.assertRaisesRegex(RuntimeError, "backup capacity fixture"):
+            release.execute()
+        release.upload_assets.assert_not_called()
+        release.freeze.assert_not_called()
+        self.assertEqual(release.result["status"], "failed")
+
     def test_direct_production_module_rejects_blocked_gate_before_ssh_is_created(self) -> None:
         for reason in ("production_commit_unproven", "recovery_change_requires_review"):
             with self.subTest(reason=reason), mock.patch("release.production.verify_gate", return_value={
@@ -194,7 +213,7 @@ class ProductionRecoveryTest(unittest.TestCase):
         instance.migration_started = False
         instance.state_dir = "/opt/sub2api/backups/release-state/182-aaaaaaaaaaaa-1-aaaaaaaa"
         instance.profile = {"public_domain": "example.test", "direct_public_ip": "192.0.2.1",
-                            "minimum_rack_free_bytes": 10737418240}
+                            "minimum_rack_free_bytes": 10737418240, "minimum_backup_free_bytes": 5368709120}
         instance.environment = SimpleNamespace(
             public_domain="example.test",
             direct_route={"address": "192.0.2.1", "observer": "prod-node", "target_node": "prod-node"},

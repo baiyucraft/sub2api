@@ -32,6 +32,20 @@ promotion_lock="$backup_root/.release-promotion.lock"
 observed=$(stat -c '%h' "$promotion_lock")
 [[ $observed == 1 ]]
 
+# Apply must rebuild the inventory and protection set while holding both
+# maintenance locks.  Taking them only after planning could delete a bundle
+# that became protected between the scan and the deletion.
+if [[ $mode == apply ]]; then
+  retention_lock="$backup_root/.backup-release-retention.lock"
+  [[ ! -e $retention_lock || ! -L $retention_lock ]]
+  exec 9>"$retention_lock"
+  observed=$(stat -c '%h' "$retention_lock")
+  [[ $observed == 1 ]]
+  flock -n 9
+  exec 8<"$promotion_lock"
+  flock -n 8
+fi
+
 work=$(mktemp -d /tmp/sub2api-backup-release-retention.XXXXXX)
 cleanup() { rm -f -- "$work"/* 2>/dev/null || true; rmdir -- "$work" 2>/dev/null || true; }
 trap cleanup EXIT
@@ -170,15 +184,6 @@ for release_id in "$@"; do
   approved[$release_id]=1
   grep -Fxq "$release_id" "$candidate_ids"
 done
-retention_lock="$backup_root/.backup-release-retention.lock"
-[[ ! -e $retention_lock || ! -L $retention_lock ]]
-exec 9>"$retention_lock"
-observed=$(stat -c '%h' "$retention_lock")
-[[ $observed == 1 ]]
-flock -n 9
-exec 8<"$promotion_lock"
-flock -n 8
-
 deleted=0
 deleted_bytes=0
 while IFS=$'\t' read -r release_id bundle bundle_mtime bundle_bytes bundle_digest release_epoch; do

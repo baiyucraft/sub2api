@@ -232,6 +232,22 @@ class RecoveryGateTest(unittest.TestCase):
         )
         self.assertEqual(report["estimated_extra_seconds"], 2400)
 
+    def test_backup_maintenance_addition_and_edit_require_review(self) -> None:
+        relative = SCRIPTS_PREFIX + "release/backup_maintenance.py"
+        base = self.base
+        for operation in ("addition", "edit"):
+            with self.subTest(operation=operation):
+                self.write(relative, operation + "\n")
+                self.git("add", "-A")
+                self.git("commit", "-m", operation)
+                target = self.git("rev-parse", "HEAD")
+                report = classify(self.root, base, target)
+                self.assertEqual(report["mode"], "full")
+                self.assertIn("recovery_change_requires_review", report["reason_codes"])
+                with self.assertRaisesRegex(RuntimeError, "recovery changes require review"):
+                    recovery_gate.assert_release_allowed(report)
+                base = target
+
     def test_finalization_addition_and_single_file_edit_require_independent_review(self) -> None:
         relative = SCRIPTS_PREFIX + "release/finalization.py"
         base = self.base

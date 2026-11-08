@@ -20,6 +20,14 @@ from release import cli
 
 class DeployCommandTest(unittest.TestCase):
     def setUp(self) -> None:
+        run_directory = tempfile.TemporaryDirectory(prefix="sub2api-cli-test-")
+        self.addCleanup(run_directory.cleanup)
+        run_root = mock.patch.object(cli, "RUN_ROOT", Path(run_directory.name))
+        run_root.start()
+        self.addCleanup(run_root.stop)
+        maintenance = mock.patch.object(cli, "ensure_backup_capacity")
+        self.maintenance = maintenance.start()
+        self.addCleanup(maintenance.stop)
         patch = mock.patch("release.vm_lifecycle.load_settings", return_value=None)
         patch.start()
         self.addCleanup(patch.stop)
@@ -29,6 +37,18 @@ class DeployCommandTest(unittest.TestCase):
         binding = mock.patch.object(cli, "_bind_preflight_snapshot", side_effect=lambda manifest, snapshot, *args: (manifest, snapshot))
         binding.start()
         self.addCleanup(binding.stop)
+
+    def test_backup_capacity_failure_stops_before_remote_doctor_and_gate(self) -> None:
+        args = argparse.Namespace(profile="182", commit="a" * 40, deployment_mode="blue-green")
+        self.maintenance.side_effect = RuntimeError("backup capacity fixture")
+        with mock.patch.object(cli, "ReleaseDoctor") as doctor, mock.patch.object(cli, "install_vm_validator"), \
+                mock.patch.object(cli, "bootstrap_production") as bootstrap, mock.patch.object(cli, "create_vm_gate") as gate:
+            with self.assertRaisesRegex(RuntimeError, "backup capacity fixture"):
+                cli.deploy(args)
+        self.assertEqual(doctor.return_value.run.call_args_list, [mock.call(("local",))])
+        self.maintenance.assert_called_once()
+        bootstrap.assert_not_called()
+        gate.assert_not_called()
 
     def test_direct_gate_consumption_rejects_blocked_signed_classification_before_state_write(self) -> None:
         for reason in ("production_commit_unproven", "recovery_change_requires_review"):
@@ -289,7 +309,7 @@ class DeployCommandTest(unittest.TestCase):
             ]
             with (
                 mock.patch.object(cli, "RUN_ROOT", root),
-                mock.patch.object(cli, "get_profile", return_value={"name": "242", "gate_schema": 2}),
+                mock.patch.object(cli, "get_profile", return_value={"name": "242", "gate_schema": 2, "minimum_backup_free_bytes": 5368709120}),
                 mock.patch.object(cli, "create_manifest", return_value={"release_id": "placeholder"}),
                 mock.patch.object(cli, "release_id", return_value="242-aaaaaaaaaaaa-1-deadbeef"),
                 mock.patch.object(cli, "ReleaseDoctor", return_value=doctor_instance),
@@ -381,7 +401,7 @@ class DeployCommandTest(unittest.TestCase):
             ]
             with (
                 mock.patch.object(cli, "RUN_ROOT", root),
-                mock.patch.object(cli, "get_profile", return_value={"name": "242", "gate_schema": 2}),
+                mock.patch.object(cli, "get_profile", return_value={"name": "242", "gate_schema": 2, "minimum_backup_free_bytes": 5368709120}),
                 mock.patch.object(cli, "create_manifest", return_value={"release_id": "placeholder"}),
                 mock.patch.object(cli, "release_id", return_value="242-aaaaaaaaaaaa-1-deadbeef"),
                 mock.patch.object(cli, "ReleaseDoctor", return_value=doctor_instance),
@@ -433,7 +453,7 @@ class DeployCommandTest(unittest.TestCase):
 
             with (
                 mock.patch.object(cli, "RUN_ROOT", root),
-                mock.patch.object(cli, "get_profile", return_value={"name": "242", "gate_schema": 2}),
+                mock.patch.object(cli, "get_profile", return_value={"name": "242", "gate_schema": 2, "minimum_backup_free_bytes": 5368709120}),
                 mock.patch.object(cli, "create_manifest", return_value={"release_id": identifier}),
                 mock.patch.object(cli, "release_id", return_value=identifier),
                 mock.patch.object(cli, "ReleaseDoctor", return_value=doctor_instance),
@@ -500,7 +520,7 @@ class DeployCommandTest(unittest.TestCase):
             (run_dir / "manifest.json").write_text(json.dumps({"migration_catalog": []}), encoding="utf-8")
             with (
                 mock.patch.object(cli, "RUN_ROOT", root),
-                mock.patch.object(cli, "get_profile", return_value={"name": "273", "gate_schema": 2}),
+                mock.patch.object(cli, "get_profile", return_value={"name": "273", "gate_schema": 2, "minimum_backup_free_bytes": 5368709120}),
                 mock.patch.object(cli, "ReleaseDoctor", return_value=doctor_instance),
                 mock.patch.object(cli, "install_vm_validator"),
                 mock.patch.object(cli, "bootstrap_production"),
