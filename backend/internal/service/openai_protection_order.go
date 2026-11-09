@@ -113,10 +113,11 @@ func jointQualifiedProtectionTiers(tiers [][]int64, qualified []int64, quality m
 	return out
 }
 
-// A healthy active affinity is soft: a strictly cheaper, lower-priority-value
-// ordinary target can replace it. Equal-priority traffic keeps its warm owner.
-// This is separate from the cache/TTFT evidence required for quality migration.
-func (s *OpenAIGatewayService) preferCheaperQualifiedAccount(ctx context.Context, p cacheGuardPreference, groupID int64, model, protocol string, accounts []Account, quality map[int64]forkscheduling.TTFTQuality, cfg OpenAITTFTGuardConfigSnapshot) cacheGuardPreference {
+// Low-cache evidence releases the source's soft preference: all qualified
+// ordinary targets compete, including cold targets above the source's price.
+// Without that trigger, replacement still requires a strictly cheaper target
+// with a lower priority value. Missing samples never create a migration trigger.
+func (s *OpenAIGatewayService) preferQualifiedSessionAccount(ctx context.Context, p cacheGuardPreference, groupID int64, model, protocol string, accounts []Account, quality map[int64]forkscheduling.TTFTQuality, cfg OpenAITTFTGuardConfigSnapshot) cacheGuardPreference {
 	if p.KeepAccountID <= 0 || !p.PriorityReallocationAllowed || p.AffinityExpired || protocol == "openai_ws" || s.protectionSessionResident(ctx, groupID) {
 		return p
 	}
@@ -136,10 +137,10 @@ func (s *OpenAIGatewayService) preferCheaperQualifiedAccount(ctx context.Context
 	for _, id := range p.QualifiedIDs {
 		qualified[id] = true
 	}
-	var cheaper []int64
+	var ordinary []int64
 	for i := range accounts {
 		a := &accounts[i]
-		if !qualified[a.ID] || !cheaperProtectionTarget(source, a) {
+		if !qualified[a.ID] || a.ID == source.ID || (!p.CacheMigrationTriggered && !cheaperProtectionTarget(source, a)) {
 			continue
 		}
 		if cfg.Enabled && jointTTFTSchedulingClass(a.ID, quality, cfg.MinSamples) != 0 {
@@ -149,22 +150,26 @@ func (s *OpenAIGatewayService) preferCheaperQualifiedAccount(ctx context.Context
 		if actualModel != sourceModel || cacheGuardAccountProtocol(ctx, a, actualModel, protocol) != sourceProtocol {
 			continue
 		}
-		cheaper = append(cheaper, a.ID)
+		ordinary = append(ordinary, a.ID)
 	}
-	if len(cheaper) > 0 {
-		sort.Slice(cheaper, func(i, j int) bool { return cheaper[i] < cheaper[j] })
-		p.Migration, p.PriorityReallocation = true, true
-		p.PriorityTargetIDs = make(map[int64]struct{}, len(cheaper))
-		for _, id := range cheaper {
-			p.PriorityTargetIDs[id] = struct{}{}
+	if len(ordinary) > 0 {
+		sort.Slice(ordinary, func(i, j int) bool { return ordinary[i] < ordinary[j] })
+		p.Migration = true
+		p.PriorityReallocation = !p.CacheMigrationTriggered
+		targets := make(map[int64]struct{}, len(ordinary))
+		for _, id := range ordinary {
+			targets[id] = struct{}{}
 		}
-		// Preserve proven quality-migration targets if every cheaper target is
+		if p.PriorityReallocation {
+			p.PriorityTargetIDs = targets
+		}
+		// Preserve proven quality-migration targets if every ordinary target is
 		// unavailable, but never retry a candidate in two protection layers.
-		tiers := [][]int64{cheaper}
+		tiers := [][]int64{ordinary}
 		for _, tier := range p.Tiers {
 			var remaining []int64
 			for _, id := range tier {
-				if _, used := p.PriorityTargetIDs[id]; !used {
+				if _, used := targets[id]; !used {
 					remaining = append(remaining, id)
 				}
 			}

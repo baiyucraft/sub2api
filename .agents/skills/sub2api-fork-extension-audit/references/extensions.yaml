@@ -780,7 +780,7 @@
     {
       "id": "upstream-cache-affinity-guard",
       "title": "上游有效续聊缓存保护",
-      "description": "默认关闭的上游账号与当前Key级有效续聊缓存保护；原始Token加权窗口共享，按质量策略投影phase/冷却/恢复cohort，保留独立普通恢复与有效低率窗口证明。OpenAI利润及原硬约束先行，未被cache/TTFT保护或待复核的normal与真正unknown合并主候选，取消主池内缓存率与延迟细档，原优先级与高级调度统一选号；保护及试用后备不变。严格更低Priority且实际倍率更低的保护合格同模型账号可接管活跃普通软绑定，同Priority不切，驻留及硬绑定不变；只有真实容量和发送终检成功才提交，失败保留合法原号和原兜底。",
+      "description": "默认关闭的上游账号与当前Key级有效续聊缓存保护；原始Token加权窗口共享，按质量策略投影phase/冷却/恢复cohort，保留独立普通恢复与有效低率窗口证明。OpenAI利润及原硬约束先行，未被cache/TTFT保护或待复核的normal与真正unknown合并主候选，取消主池内缓存率与延迟细档，原优先级与高级调度统一选号；旧会话低缓存坏证据触发迁移后，同模型/协议、新鲜且双保护普通合格的normal与真正unknown同池择优，不要求比坏源便宜或先有已知改善目标，原受保护改善后备和试用不变。无低缓存触发时，严格更低Priority且实际倍率更低的保护合格同模型账号可接管活跃普通软绑定，同Priority不切，驻留及硬绑定不变；只有真实容量和发送终检成功才提交，失败保留合法原号和原兜底。",
       "ownership": "fork",
       "risk_level": "critical",
       "paths": [
@@ -913,6 +913,7 @@
         "backend/internal/service/protection_cold_candidate_integration_test.go",
         "backend/internal/service/protection_cold_candidate_order_test.go",
         "backend/internal/service/protection_qualified_pool_test.go",
+        "backend/internal/service/protection_cache_migration_pool_test.go",
         "backend/internal/service/openai_protection_order_test.go",
         "backend/internal/service/upstream_cache_usage_lifecycle_test.go",
         "backend/internal/service/upstream_cache_usage_stream_writer.go",
@@ -1074,6 +1075,7 @@
         "backend/internal/service/protection_cold_candidate_integration_test.go",
         "backend/internal/service/protection_cold_candidate_order_test.go",
         "backend/internal/service/protection_qualified_pool_test.go",
+        "backend/internal/service/protection_cache_migration_pool_test.go",
         "backend/internal/service/upstream_cache_usage_lifecycle_test.go",
         "backend/internal/service/upstream_cache_usage_gemini_completion_test.go",
         "backend/internal/service/upstream_cache_guard_anthropic_lifecycle_test.go",
@@ -1128,7 +1130,7 @@
         "统计固定account ID加当前upstream Key ID，所有组、模型、协议有效样本按Token加权合并，排除冷首轮和无效样本；Key轮换不继承旧证据，未知率不是零",
         "首次账号与当前Key仅在accounts、refreshVersions及accountPolicyEpoch均无记录且无采样gap/failure时，允许以最近成功refreshPolicyEpoch等于当前策略代次并满足原5秒新鲜条件进入同步准入；不生成缓存率或伪造有效样本，已有状态、旧策略及失败身份不走此例外，仍保留5秒/30秒边界。首次cold不计有效样本，后续合格warm才统计，不回填历史；最低回归bootstrap_snapshot_test.go及upstream_cache_guard_bootstrap_test.go。",
         "正常N严格超过20且缓存率低于75时保护，默认disabled、observe不改变调度；旧PUT省略配置保留已有值",
-        "保护给自然新会话让路；旧会话连续两次有效低率，或当前账号/Key/模型/协议/策略边界内足量有效温热事实的Token加权率低于迁移阈值后，可迁移至同实际模型、足量且有效率高至少5个百分点并有实际容量的目标。通过资格的普通目标合并交原调度，不仅按更高缓存率前置；缓存与TTFT联合迁移不要求同preferred/priority池，原保护后备范围保持。迁移冷首轮不计、成功迁移最短驻留5分钟；没有更好账号时保留原账号和普通调度兜底。",
+        "保护给自然新会话让路；旧会话连续两次有效低率，或当前账号/Key/模型/协议/策略边界内足量有效温热事实的Token加权率低于迁移阈值，且源仍保护、视图新鲜、源样本足量及驻留结束后，OpenAI同实际模型/协议、新鲜且双保护普通合格的normal与真正缺样本目标合并主池交原调度择优，不要求目标比坏源便宜、样本足量或先有5pp已知改善目标。缺样本不能独立触发迁移，保护/待复核/不可用不得借未知进入普通池；原受保护改善后备仍要求足量、同模型及缓存至少高5个百分点。TTFT单独触发迁移的证据与改善资格保持；跨preferred/priority池、真实容量、最终发送准入、冷首轮不计及成功迁移最短驻留5分钟保持，主池失败保留改善后备及合法原账号/普通兜底。",
         "session_window_migration_threshold_percent可为空，缺省沿用分组最终有效threshold_percent，显式0只关闭新增窗口判据，连续两低仍用账号保护阈值；recovery_min_sessions默认3、管理PUT只允许整数1–100，trial与ordinary recovery共用，recovery_required_sessions向API说明trial恢复所需会话数；同值配置保存不重启普通恢复验证",
         "不可迁移previous_response和固定同账号重试保持原语义；不更改错误状态码重试配置",
         "全低仍在硬合法池按cache择优，差不超过5个百分点优先TTFT正常再负载，cache或TTFT软限制不新增拒绝，不撤caller失败排除及其他硬条件",
@@ -1172,7 +1174,7 @@
         "空闲到期保留逻辑会话与自然试用历史，不重新发放cache或TTFT自然试用资格；本次保护选择与普通fallback统一跳过持久偏好、原生sticky和可迁移previous owner优先捷径，真实请求身份及转发内容保留。请求内已观测空闲过期事实按实际组隔离，快照失效或预算降级后外层重选仍撤软优先，不跨请求/组继承，无额外SQL。原账号仍可按利润硬约束、保护资格及主池原调度正常入选或兜底，不因到期硬排除；不可迁移previous、固定重试、guardian、现有WS连接和在途原义保持。",
         "过期软偏好在现有发送准入事务中撤销并推进内部AffinityGeneration，Admission冻结代次；重选失败或旧代次迟到完成不得复活旧偏好，同时间戳并发不依赖完成时间代替代次。旧JSON缺字段以初始代次兼容，事实统计与计费原义保留；只有实际发送准入及原利润检查成功后才覆盖过期Redis绑定；不新增配置、公开API、SQL迁移、额外数据库往返或后台任务，发布须协调writer/consumer切换，禁止旧binary丢字段混写。",
         "普通迁移及成本择优使用Session JSON的独立RouteGeneration/AcceptedRouteKey写栅栏，Admit只推进accepted route，Admission冻结代次与路线身份；只有当前accepted route及代次的真实成功且已知用量完成才确认OwnerRouteGeneration并更新owner/驻留。pending SessionRead仅Known=true、Preferred=0且无驻留资格，复用原生Redis sticky回填：终态callback失败仍原号，成功后首完成前读已提交新号，不将未实际完成准入当owner；AdmitExisting拒绝pending并沿既有降级，不追加SQL。旧完成仍更新真实暖事实与账号统计，CaptureOnly不创建决定；不改idle AffinityGeneration、不清cohort/份额/暖事实，无新增SQL/迁移。session_route_fence_test.go覆盖callback与乱序边界，repository JSON roundtrip核对三个新增字段及旧数据缺省，成绩另记；writer/consumer协调切换，禁止旧binary丢字段混写。",
-        "成本目标须来自新鲜保护视图且与源实际模型/协议一致；取得容量后的刷新账号重新核对Key/实际模型/协议及严格更低Priority和实际倍率，旧身份不得借用资格。真正unknown成本目标满载或失去资格时保留已有足量改善证据的质量迁移目标回退，候选不重复尝试，再回合法原号/普通兜底。TestJointProtectionMatchesQualifiedPoolV4Contract按有限fixture独立构造资格主池并调用原生scheduler作为参照，仅覆盖有意变更的选号/绑定/容量字段，trial/配额及其他未变字段仍对照冻结golden，历史资产不重生成。"
+        "无低缓存触发的成本目标须来自新鲜保护视图且与源实际模型/协议一致；取得容量后的刷新账号重新核对Key/实际模型/协议及严格更低Priority和实际倍率，旧身份不得借用资格。已触发低缓存迁移的普通目标不受旧源价格限制，但仍复核Key/实际模型/协议；normal与真正unknown目标同属普通主池，容量选择复用原调度器有界搜索；高级调度可选同池其他目标，普通调度仅返回低价目标WaitPlan时可回合法原源，不承诺遍历同池已知好目标，也不另建其后备层。主池失败保留不属于该主池且仍通过原5pp等资格的受保护改善后备，再回合法原号/普通兜底，候选不重复尝试。TestProtectionQualifiedPoolColdTargetSharesOrdinaryPoolWithProvenTarget覆盖同池及该容量边界。protection_cache_migration_pool_test.go覆盖坏源.07、冷目标.08、已知好.20及仅冷目标、无坏触发、保护/待复核/不可用、利润/身份/容量/驻留/硬绑定边界；目录读取与自然试用不增加。TestJointProtectionMatchesQualifiedPoolV4Contract按有限fixture独立构造资格主池并调用原生scheduler作为参照，仅覆盖有意变更的选号/绑定/容量字段，trial/配额及其他未变字段仍对照冻结golden，历史资产不重生成。"
       ]
     },
     {

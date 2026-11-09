@@ -336,15 +336,15 @@ func TestProtectionQualifiedPoolRefreshedTargetCannotBorrowCostQualification(t *
 	}
 }
 
-func TestProtectionQualifiedPoolColdCostTargetPrecedesProvenQualityFallback(t *testing.T) {
+func TestProtectionQualifiedPoolColdTargetSharesOrdinaryPoolWithProvenTarget(t *testing.T) {
 	for _, advanced := range []bool{false, true} {
 		for _, weighted := range []bool{false, true} {
 			for _, priority := range []string{SchedulingPriorityCacheFirst, SchedulingPriorityTTFTFirst} {
 				for _, targetAvailable := range []bool{false, true} {
 					t.Run(fmt.Sprintf("advanced=%t/weighted=%t/%s/cold_available=%t", advanced, weighted, priority, targetAvailable), func(t *testing.T) {
-						// Source 1 is bad at .20; account 2 is the proven quality
-						// target at .30. Account 3 is cheaper but genuinely cold,
-						// eligible only through the separate cost-reallocation rule.
+						// The low-cache trigger releases source 1 at .20. Ordinary
+						// targets 2 (.30, proven) and 3 (.10, cold) share one native
+						// pool; missing samples do not move account 3 behind 2.
 						svc, ctx, runner, sticky := cacheGuardSelectionFixture(t, advanced, []float64{20, 99, 95}, map[int64]bool{1: true}, true, time.Time{}, map[int64]bool{1: true, 2: true, 3: targetAvailable})
 						crossPriorityAdvancedMode(svc, advanced, weighted)
 						accounts := crossPriorityConfigureAccounts(t, svc, 20, 30, 10)
@@ -370,12 +370,16 @@ func TestProtectionQualifiedPoolColdCostTargetPrecedesProvenQualityFallback(t *t
 						require.NoError(t, err)
 						require.NotNil(t, result)
 						require.True(t, result.Acquired)
-						want := int64(2)
-						if targetAvailable {
-							want = 3
+						want := int64(3)
+						if !targetAvailable {
+							want = 2
+							if !advanced {
+								// Keep the native bounded WaitPlan/fallback behavior.
+								want = 1
+							}
 						}
-						require.Equal(t, want, result.Account.ID, "a full cold cost target must leave the established quality-migration fallback intact")
-						require.True(t, result.IsSchedulingProtectionMigration())
+						require.Equal(t, want, result.Account.ID, "ordinary targets share the original scheduler's priority and bounded capacity selection")
+						require.Equal(t, want != 1, result.IsSchedulingProtectionMigration())
 						require.Equal(t, int64(1), counted.directoryReads.Load())
 						require.Equal(t, int64(1), sticky.sessionBindings[svc.openAISessionCacheKey("conversation")], "neither path commits the new owner before send admission")
 						require.Zero(t, runner.store.(*cacheGuardSelectionStore).trialPlans)

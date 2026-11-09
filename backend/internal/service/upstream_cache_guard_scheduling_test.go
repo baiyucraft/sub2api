@@ -854,7 +854,7 @@ func TestUpstreamCacheGuardUnknownEvidenceJoinsFirstOrdinaryBand(t *testing.T) {
 	require.False(t, p.Migration)
 }
 
-func TestUpstreamCacheGuardUnknownTargetCannotTriggerMigration(t *testing.T) {
+func TestUpstreamCacheGuardUnknownTargetDoesNotSupplyQualityProof(t *testing.T) {
 	svc, ctx, runner, _ := cacheGuardSelectionFixture(t, true, []float64{60, 90}, map[int64]bool{1: true}, true, time.Time{}, nil)
 	markCacheGuardSelectionUnknown(t, ctx, runner, 2)
 	group := int64(100)
@@ -863,6 +863,7 @@ func TestUpstreamCacheGuardUnknownTargetCannotTriggerMigration(t *testing.T) {
 	p := buildCacheGuardPreference(ctx, &group, "conversation", "gpt-test", "openai", accounts, nil)
 	require.True(t, p.Active)
 	require.Equal(t, int64(1), p.KeepAccountID)
-	require.False(t, p.Migration, "expired target evidence cannot justify migrating an existing session")
+	require.True(t, p.CacheMigrationTriggered, "source bad evidence is independent of target sample counts")
+	require.False(t, p.Migration, "the cache-only builder must not claim the target proves higher cache quality; joint ordinary admission can still select it")
 	require.Empty(t, p.Tiers)
 }

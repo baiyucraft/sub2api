@@ -214,7 +214,7 @@ func (s *OpenAIGatewayService) selectWithCacheGuardPreference(ctx context.Contex
 		trialAccountID = trial.key.accountID
 	}
 	p.Tiers = jointQualifiedProtectionTiers(p.Tiers, p.QualifiedIDs, qualities, cfg, p.TrialAccountID, trialAccountID)
-	p = s.preferCheaperQualifiedAccount(ctx, p, *groupID, model, cacheGuardOpenAIProtocol(transport), eligible, qualities, cfg)
+	p = s.preferQualifiedSessionAccount(ctx, p, *groupID, model, cacheGuardOpenAIProtocol(transport), eligible, qualities, cfg)
 	ctx = withProtectionCandidateScope(ctx, p.candidateScope())
 	// Expiry releases only soft routing preference. Keep the original identity
 	// for admission, completion and the terminal binding after real capacity.
@@ -251,7 +251,7 @@ func (s *OpenAIGatewayService) selectWithCacheGuardPreference(ctx context.Contex
 				observed := &eligible[i]
 				if observed.ID == result.Account.ID {
 					identityMatches = schedulingProtectionAccountSelected(s.groupProtectionPolicyResolver, result.Account) && accountUpstreamKeyID(observed) == accountUpstreamKeyID(result.Account) && canonicalOpenAIAccountSchedulingModel(observed, model) == canonicalOpenAIAccountSchedulingModel(result.Account, model)
-					if _, cheaperTarget := p.PriorityTargetIDs[result.Account.ID]; cheaperTarget {
+					if _, cheaperTarget := p.PriorityTargetIDs[result.Account.ID]; p.CacheMigrationTriggered || cheaperTarget {
 						observedModel := canonicalOpenAIAccountSchedulingModel(observed, model)
 						identityMatches = identityMatches && cacheGuardAccountProtocol(ctx, observed, observedModel, cacheGuardOpenAIProtocol(transport)) == cacheGuardAccountProtocol(ctx, result.Account, observedModel, cacheGuardOpenAIProtocol(transport))
 					}

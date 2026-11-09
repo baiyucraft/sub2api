@@ -10,17 +10,20 @@ import (
 )
 
 type cacheGuardPreference struct {
-	Active               bool
-	ExistingSession      bool
-	AffinityExpired      bool
-	KeepAccountID        int64
-	Migration            bool
-	PriorityReallocation bool
-	PriorityTargetIDs    map[int64]struct{}
-	Tiers                [][]int64
-	ScopeIDs             map[int64]struct{}
-	CandidateIDs         []int64
-	CandidateKeyIDs      map[int64]int64
+	Active          bool
+	ExistingSession bool
+	AffinityExpired bool
+	KeepAccountID   int64
+	Migration       bool
+	// CacheMigrationTriggered records the source's low-cache evidence even if
+	// no target has enough samples to prove a five-point improvement.
+	CacheMigrationTriggered bool
+	PriorityReallocation    bool
+	PriorityTargetIDs       map[int64]struct{}
+	Tiers                   [][]int64
+	ScopeIDs                map[int64]struct{}
+	CandidateIDs            []int64
+	CandidateKeyIDs         map[int64]int64
 	// QualifiedIDs are fresh, unprotected cache candidates. They may share one
 	// native scheduling pool even when their measured cache percentages differ.
 	QualifiedIDs                []int64
@@ -181,6 +184,7 @@ func buildCacheGuardPreference(ctx context.Context, groupID *int64, sessionHash,
 				p.KeepAccountID = session.PreferredAccountID
 				return p
 			}
+			p.CacheMigrationTriggered = true
 			var better []int64
 			for id := range eligible {
 				a := states[id]

@@ -111,10 +111,10 @@ func TestProtectionColdCandidateRealSchedulersUseOriginalPriority(t *testing.T) 
 func TestProtectionColdCandidateRealSchedulersKeepBadEvidenceAndFallbacks(t *testing.T) {
 	for _, advanced := range []bool{false, true} {
 		for _, priority := range []string{SchedulingPriorityCacheFirst, SchedulingPriorityTTFTFirst} {
-			for _, scenario := range []string{"full", "profit_veto", "cache_protected", "ttft_protected", "ttft_revalidation", "healthy_binding", "migration_needs_proof"} {
+			for _, scenario := range []string{"full", "profit_veto", "cache_protected", "ttft_protected", "ttft_revalidation", "healthy_binding", "cache_migration_to_cold"} {
 				t.Run(fmt.Sprintf("advanced=%t/%s/%s", advanced, priority, scenario), func(t *testing.T) {
 					protected := map[int64]bool{}
-					pending := scenario == "migration_needs_proof"
+					pending := scenario == "cache_migration_to_cold"
 					if scenario == "cache_protected" || pending {
 						protected[1] = true
 					}
@@ -159,8 +159,6 @@ func TestProtectionColdCandidateRealSchedulersKeepBadEvidenceAndFallbacks(t *tes
 						guard.now = time.Now
 					case "healthy_binding":
 						sticky.sessionBindings[svc.openAISessionCacheKey("conversation")] = 2
-					case "migration_needs_proof":
-						want = 1
 					}
 					if scenario == "ttft_revalidation" || scenario == "ttft_protected" {
 						quality := svc.getOpenAITTFTGuard().quality([]openAITTFTGuardCandidate{{groupID: group, accountID: 1, upstreamKeyID: 1, model: "gpt-test"}}, cfg)
@@ -172,7 +170,7 @@ func TestProtectionColdCandidateRealSchedulersKeepBadEvidenceAndFallbacks(t *tes
 					require.NotNil(t, result)
 					require.True(t, result.Acquired)
 					require.Equal(t, want, result.Account.ID)
-					require.False(t, result.IsSchedulingProtectionMigration())
+					require.Equal(t, pending, result.IsSchedulingProtectionMigration(), "a source with sufficient bad evidence may migrate to a qualified cold target")
 					if scenario == "profit_veto" {
 						require.True(t, result.ProfitGateActive())
 					}
