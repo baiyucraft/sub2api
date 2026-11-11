@@ -561,9 +561,9 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertEqual(catalog["historical_profiles"]["277"]["new_migrations"], ["304_upstream_confidence_fingerprint.sql"])
         self.assertEqual(catalog["current_profile"]["id"], "284")
         self.assertEqual(catalog["current_profile"]["status"], "pending")
-        self.assertEqual(catalog["current_profile"]["version"], "0.2.20-baiyu")
-        self.assertEqual(catalog["current_profile"]["parent"], "282")
-        self.assertEqual(catalog["current_profile"]["new_migrations"], ["308_mcp_oauth.sql"])
+        self.assertEqual(catalog["current_profile"]["version"], "0.2.21-baiyu")
+        self.assertEqual(catalog["current_profile"]["parent"], "283")
+        self.assertEqual(catalog["current_profile"]["new_migrations"], ["309_add_usage_logs_api_key_cost_index_notx.sql", "310_openai_cache_write_ttl.sql"])
         self.assertTrue(catalog["migration_assertions"]["backend/migrations/283_affiliate_ledger_operation_id.sql"])
         for migration_name in migration_names:
             migration_path = WORKSPACE / "backend" / "migrations" / migration_name
