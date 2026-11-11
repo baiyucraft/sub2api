@@ -11,6 +11,8 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from release import cli
+from release.environment import load_deployment_environment
+from release.paths import WORKSPACE
 from test_vm_build_proof import DOCKERFILE_BYTES, proof_case, verified_case
 
 
@@ -19,11 +21,13 @@ REPORT = verified_case(proof_case()[1]).report
 
 class BuildDependencyOrderingTest(unittest.TestCase):
     def _run(self, command, dependency_error=None):
+        profile = cli.get_profile("274")
         manifest, proof = proof_case()
         manifest["migration_catalog"] = []
         identifier = manifest["release_id"]
         order = []
         doctor = mock.Mock()
+        doctor.environment = load_deployment_environment(WORKSPACE / ".ssh.local.example.yaml")
         doctor.run.side_effect = [{}, {}, {
             "production_current_image_id": "sha256:" + "b" * 64,
             "production_snapshot_b64": "encoded",
@@ -51,12 +55,12 @@ class BuildDependencyOrderingTest(unittest.TestCase):
                 (run_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
             with (
                 mock.patch.object(cli, "RUN_ROOT", root),
-                mock.patch.object(cli, "get_profile", return_value={"name": "274", "gate_schema": 2}),
+                mock.patch.object(cli, "get_profile", return_value=profile),
                 mock.patch.object(cli, "create_manifest", return_value=manifest),
                 mock.patch.object(cli, "release_id", return_value=identifier),
                 mock.patch.object(cli, "ReleaseDoctor", return_value=doctor),
                 mock.patch.object(cli, "install_vm_validator"),
-                mock.patch.object(cli, "bootstrap_production"),
+                mock.patch.multiple(cli, bootstrap_production=mock.DEFAULT, ensure_backup_capacity=mock.DEFAULT) as preparation,
                 mock.patch.object(cli, "decode_snapshot", return_value={"schema_migrations": []}),
                 mock.patch.object(cli, "_recovery_gate_report", return_value={"mode": "specialized"}),
                 mock.patch.object(cli, "ensure_vm_build_dependencies", side_effect=check),
@@ -79,6 +83,9 @@ class BuildDependencyOrderingTest(unittest.TestCase):
                         cli.vm_validate(args)
                 except Exception as caught:
                     error = caught
+                preparation["ensure_backup_capacity"].assert_called_once_with(
+                    mock.ANY, doctor.environment, profile["minimum_backup_free_bytes"], run_dir, identifier,
+                )
                 report = json.loads((run_dir / "build-dependencies.json").read_text(encoding="utf-8"))
                 state = json.loads((run_dir / "state.json").read_text(encoding="utf-8"))
                 if dependency_error:
