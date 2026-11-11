@@ -240,3 +240,34 @@ func TestTTFTAttemptFirstTokenPhaseProtectsBeforeTerminalWithoutDoubleSampling(t
 	require.EqualValues(t, 1, after[0].SampleCount, "terminal merge must not duplicate the latency sample")
 	require.Equal(t, "protected", after[0].State)
 }
+
+func TestTTFTAttemptSemanticWebSocketTimingDoesNotCreateVisibleSample(t *testing.T) {
+	svc, cfg, account, group := ttftAttemptService()
+	ctx := ttftAttemptContext(svc, group, "explicit:ws-semantic-only")
+	markOpenAITTFTGuardSend(ctx, account, "gpt-test", "openai_ws")
+	misleadingSemanticTTFT := 225000
+	FinishOpenAIUpstreamCacheGuardAttempt(ctx, &OpenAIForwardResult{FirstTokenMs: &misleadingSemanticTTFT}, nil)
+
+	for _, view := range svc.TTFTProtectionSnapshots(account.ID, 0, group, cfg) {
+		require.Zero(t, view.SampleCount, "semantic relay timing must not manufacture a visible-output protection sample")
+	}
+}
+
+func TestTTFTAttemptVisibleWrapperTimingWinsOverRelayTiming(t *testing.T) {
+	svc, cfg, account, group := ttftAttemptService()
+	ctx := ttftAttemptContext(svc, group, "explicit:ws-visible")
+	markOpenAITTFTGuardSend(ctx, account, "gpt-test", "openai_ws")
+	a := ctx.Value(openAITTFTAttemptKey{}).(*openAITTFTAttempt)
+	a.mu.Lock()
+	a.sentAt = time.Now().Add(-time.Second)
+	a.mu.Unlock()
+	markOpenAITTFTGuardFirstToken(ctx)
+	visibleAt := a.firstTokenAt
+	misleadingSemanticTTFT := 225000
+	FinishOpenAIUpstreamCacheGuardAttempt(ctx, &OpenAIForwardResult{FirstTokenMs: &misleadingSemanticTTFT}, nil)
+
+	view := svc.TTFTProtectionSnapshots(account.ID, 0, group, cfg)
+	require.Len(t, view, 1)
+	require.EqualValues(t, visibleAt.Sub(a.sentAt).Milliseconds(), view[0].LastTTFTMs)
+	require.Less(t, view[0].LastTTFTMs, int64(misleadingSemanticTTFT))
+}

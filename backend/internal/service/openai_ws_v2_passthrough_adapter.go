@@ -1232,6 +1232,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		Options: openaiwsv2.RelayOptions{
 			WriteTimeout:       s.openAIWSWriteTimeout(),
 			FirstTurnStartedAt: firstTurnStartedAt,
+			IsFirstTokenEvent:  openAIWSFirstTokenEventFunc(s.openAITTFTMode(ctx)),
 			TakeNextTurnStartedAt: func() time.Time {
 				startedAt := acceptedTurnStartedAt.Swap(nil)
 				if startedAt == nil {
@@ -1287,9 +1288,10 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 					Duration:                      turn.Duration,
 					FirstTokenMs:                  turn.FirstTokenMs,
 				}
-				if turn.FirstTokenMs != nil && !turn.StartedAt.IsZero() {
-					turnResult.FirstTokenAt = turn.StartedAt.Add(time.Duration(*turn.FirstTokenMs) * time.Millisecond)
-				}
+				// FirstTokenMs follows the configured user-facing TTFT mode for logs.
+				// Cache protection uses the independent visible-output mark from the
+				// frame wrapper; synthesizing FirstTokenAt here could turn a semantic
+				// reasoning event into a protection sample with no visible output.
 				cacheTurns.finish(turnNo, turnResult, nil)
 				logOpenAIWSV2Passthrough(
 					"relay_turn_completed account_id=%d turn=%d request_id=%s terminal_event=%s turn_requested_model=%s turn_upstream_model=%s duration_ms=%d first_token_ms=%d input_tokens=%d output_tokens=%d cache_read_tokens=%d",
@@ -1646,6 +1648,18 @@ func relayErrorText(err error) string {
 		return ""
 	}
 	return err.Error()
+}
+
+// openAIWSFirstTokenEventFunc applies the configured TTFT mode to WebSocket
+// events so they report first-token time on the same basis as SSE streams.
+// codex.* frames are WebSocket-only out-of-band events, not model output.
+func openAIWSFirstTokenEventFunc(mode string) func(eventType string, message []byte) bool {
+	return func(eventType string, message []byte) bool {
+		if strings.HasPrefix(strings.TrimSpace(eventType), "codex.") {
+			return false
+		}
+		return openAIStreamDataStartsTTFT(string(message), eventType, false, mode)
+	}
 }
 
 func openAIWSFirstTokenMsForLog(firstTokenMs *int) int {

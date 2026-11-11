@@ -31,7 +31,7 @@ class Profile272ReleaseContractTest(unittest.TestCase):
         ).stdout
         exec(compile(source, "profile271-baseline", "exec"), previous)
         self.assertEqual(previous["CURRENT_RELEASE_PROFILE"], "271")
-        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"272", "273", "274", "275", "276", "277", "278", "279", "280", "281", "282", "283"})
+        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"272", "273", "274", "275", "276", "277", "278", "279", "280", "281", "282", "283", "284"})
         # Deployment node metadata moved to local configuration; version contracts remain exact.
         deployment_keys = {"public_domain", "rack_public_ip", "dmit_public_ip"}
         self.assertTrue(deployment_keys.isdisjoint(get_profile(CURRENT_RELEASE_PROFILE)))
@@ -40,15 +40,15 @@ class Profile272ReleaseContractTest(unittest.TestCase):
                 actual = PROFILES[name]
                 self.assertTrue(deployment_keys.isdisjoint(actual))
                 self.assertEqual(actual, {key: value for key, value in contract.items() if key not in deployment_keys})
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "283")
+        self.assertEqual(CURRENT_RELEASE_PROFILE, "284")
         profile = get_profile("272")
         self.assertEqual((profile["version"], profile["parent"], profile["gate_schema"], profile["new_migrations"]),
                          ("0.2.17-baiyu", "271", 2, []))
         catalog = discover_migration_catalog(WORKSPACE)
         snapshot = {row["filename"]: row["checksum"] for row in catalog}
         self.assertEqual(plan_migrations(catalog, snapshot)["pending"], [])
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 284"):
-            get_profile("284")
+        with self.assertRaisesRegex(ValueError, "unknown release profile: 285"):
+            get_profile("285")
 
     @unittest.skipUnless(JQ, "jq unavailable; set SUB2API_TEST_JQ for real filter validation")
     def test_inherited_hooks_validate_real_manifest_filters(self):

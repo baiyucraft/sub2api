@@ -154,16 +154,18 @@
       }
     },
     "281": {"version": "0.2.19-baiyu", "parent": "280", "gate_schema": 2, "new_migrations": ["305_scoped_admin_api_keys.sql", "306_group_image_count_billing.sql"], "release_policy": {"compatibility_image": "production_current", "migration_source": "database_state"}},
-    "282": {"version": "0.2.19-baiyu", "parent": "281", "gate_schema": 2, "new_migrations": ["307_user_default_group_rate_percent.sql"], "release_policy": {"compatibility_image": "production_current", "migration_source": "database_state"}}
+    "282": {"version": "0.2.19-baiyu", "parent": "281", "gate_schema": 2, "new_migrations": ["307_user_default_group_rate_percent.sql"], "release_policy": {"compatibility_image": "production_current", "migration_source": "database_state"}},
+    "283": {"version": "0.2.20-baiyu", "parent": "282", "gate_schema": 2, "new_migrations": ["308_mcp_oauth.sql"], "release_policy": {"compatibility_image": "production_current", "migration_source": "database_state"}}
   },
   "current_profile": {
-    "id": "283",
+    "id": "284",
     "status": "pending",
-    "version": "0.2.20-baiyu",
-    "parent": "282",
+    "version": "0.2.21-baiyu",
+    "parent": "283",
     "gate_schema": 2,
     "new_migrations": [
-      "308_mcp_oauth.sql"
+      "309_add_usage_logs_api_key_cost_index_notx.sql",
+      "310_openai_cache_write_ttl.sql"
     ],
     "release_policy": {
       "compatibility_image": "production_current",
@@ -263,9 +265,13 @@
     "305_scoped_admin_api_keys.sql": "0c4c22f564f276fb305a54cf2d6c4b1a6179d748d5d8b74a3b99676282355bf6",
     "306_group_image_count_billing.sql": "c91d6d31937658e71c68fa3af6a26fc47380f61243a681ac275aeb4706b242ab",
     "307_user_default_group_rate_percent.sql": "43cc403117cc8971ee5e3e3b5eee60c1c927016e959f1cfb802658d644ba9237",
-    "308_mcp_oauth.sql": "881ff2e8ecf430202c593c699b1441db1d2196ac2c312d8a3849acb6c97609e5"
+    "308_mcp_oauth.sql": "881ff2e8ecf430202c593c699b1441db1d2196ac2c312d8a3849acb6c97609e5",
+    "309_add_usage_logs_api_key_cost_index_notx.sql": "789d4d5a5c186531cb6edd65ea2ecc07f5e488272f7876c6f46240e2fed0c30b",
+    "310_openai_cache_write_ttl.sql": "c470116c49042425f5663c421f0aea2a6aa6eae75b7e489dc95c12fc303562b2"
   },
   "migration_renames": {
+    "official_249_add_usage_logs_api_key_cost_index_notx": "309_add_usage_logs_api_key_cost_index_notx.sql",
+    "official_250_openai_cache_write_ttl": "310_openai_cache_write_ttl.sql",
     "official_246_enable_gemini_image_generation_groups": "302_enable_gemini_image_generation_groups.sql",
     "official_242_group_i18n": "292_group_i18n.sql",
     "official_243_gemini_cached_contents": "293_gemini_cached_contents.sql",
@@ -299,6 +305,8 @@
     "official_249_mcp_oauth": "308_mcp_oauth.sql"
   },
   "migration_assertions": {
+    "backend/migrations/309_add_usage_logs_api_key_cost_index_notx.sql": ["CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_usage_logs_api_key_created_cost", "INCLUDE (actual_cost)"],
+    "backend/migrations/310_openai_cache_write_ttl.sql": ["cache_creation_30m_tokens INTEGER NOT NULL DEFAULT 0", "cache_creation_12h_tokens INTEGER NOT NULL DEFAULT 0", "cache_write_12h_price NUMERIC(20,12)"],
     "backend/migrations/308_mcp_oauth.sql": ["CREATE TABLE IF NOT EXISTS mcp_oauth_grants", "CREATE TABLE IF NOT EXISTS mcp_oauth_codes", "CREATE TABLE IF NOT EXISTS mcp_oauth_credentials", "kind IN ('access', 'refresh')"],
     "backend/migrations/302_enable_gemini_image_generation_groups.sql": ["UPDATE groups", "allow_image_generation = true", "platform IN ('gemini', 'antigravity')", "allow_image_generation = false"],
     "backend/migrations/301_upstream_cache_guard_admissions.sql": ["CREATE TABLE upstream_cache_guard_admissions", "PRIMARY KEY (group_id, session_key, admission_key)", "state_json=state_json-'admissions'", "idx_cache_guard_admission_pending_age", "idx_cache_guard_admission_acknowledgement"],
@@ -2173,7 +2181,7 @@
     {
       "id": "migration-profile-contract",
       "title": "Migration、profile、版本与历史证据",
-      "description": "维护fork迁移、官方重编号、历史profile233–282与pending profile283、版本、checksum及兼容身份。",
+      "description": "维护fork迁移、官方重编号、历史profile233–283与pending profile284、版本、checksum及兼容身份。",
       "ownership": "fork",
       "risk_level": "critical",
       "paths": [
@@ -2198,7 +2206,11 @@
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile282_release_contract.py",
         "backend/migrations/308_mcp_oauth.sql",
         "backend/migrations/profile_283_migrations_test.go",
-        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile283_release_contract.py"
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile283_release_contract.py",
+        "backend/migrations/309_add_usage_logs_api_key_cost_index_notx.sql",
+        "backend/migrations/310_openai_cache_write_ttl.sql",
+        "backend/migrations/profile_284_migrations_test.go",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile284_release_contract.py"
       ],
       "symbols": [
         "PROFILES",
@@ -2294,7 +2306,9 @@
         "305_scoped_admin_api_keys.sql",
         "306_group_image_count_billing.sql",
         "307_user_default_group_rate_percent.sql",
-        "308_mcp_oauth.sql"
+        "308_mcp_oauth.sql",
+        "309_add_usage_logs_api_key_cost_index_notx.sql",
+        "310_openai_cache_write_ttl.sql"
       ],
       "required_tests": [
         "backend/migrations/profile_275_migrations_test.go",
@@ -2364,7 +2378,9 @@
         "backend/migrations/profile_282_postgres_test.go",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile282_release_contract.py",
         "backend/migrations/profile_283_migrations_test.go",
-        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile283_release_contract.py"
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile283_release_contract.py",
+        "backend/migrations/profile_284_migrations_test.go",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile284_release_contract.py"
       ],
       "recommended_tests": [
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_signer_assets.py",
@@ -3178,18 +3194,23 @@
     {
       "id": "responses-orphan-precheck-test-isolation",
       "title": "Responses 预检零分配测试隔离",
-      "description": "只将官方预检的零分配测量放在独立测试进程，避免完整 service 套件后台任务污染全进程分配计数。",
-      "ownership": "fork",
+      "description": "历史fork进程隔离测试现由固定官方目标中的2273a5d63完整覆盖，维护归属归回upstream，保留原提交历史；不再保留重复fork隔离实现。",
+      "ownership": "upstream",
       "risk_level": "low",
-      "paths": ["backend/internal/service/openai_responses_orphan_precheck_test.go"],
-      "symbols": ["TestOpenAIResponsesOrphanPrecheckLargeEscapedContent"],
+      "paths": [
+        "backend/internal/service/openai_responses_orphan_precheck_test.go"
+      ],
+      "symbols": [
+        "TestOpenAIResponsesOrphanPrecheckLargeEscapedContent"
+      ],
       "api_routes": [],
       "settings_keys": [],
       "migration_files": [],
-      "required_tests": ["backend/internal/service/openai_responses_orphan_precheck_test.go"],
+      "required_tests": [
+        "backend/internal/service/openai_responses_orphan_precheck_test.go"
+      ],
       "invariants": [
-        "仅隔离 AllocsPerRun 的进程级测量，保留官方零分配断言、输入与行为检查；不改预检生产实现或降低性能要求。",
-        "子进程只运行精确指定的测试，以专用环境标记防止递归，并具有独立超时；子进程失败必须传递到父测试。"
+        "官方2273a5d63已包含同故障域完整修复，本轮沿用官方测试，不以文件同名或相邻修改推断覆盖其他fork行为。"
       ]
     },
     {
@@ -3273,6 +3294,45 @@
         "只增加业务拒绝及总请求口径，SLA故障数及分母排除业务拒绝，上游错误要求provider归因；继续使用既有有界异步队列、丢弃监控和日志留存。",
         "管理查询reason=model_not_allowed精确过滤，并在业务拒绝视图复用分组、客户端模型和时间筛选；中英文页面均可访问，默认故障视图保持原行为。",
         "旧入口聚合没有请求模型和历史分组，不能猜补成逐请求明细；本扩展不新增迁移、profile或生产开关。"
+      ]
+    },
+    {
+      "id": "official-0221-cache-ttl-migrations",
+      "title": "官方0.2.21索引与缓存TTL迁移重编号",
+      "description": "官方249/250原字节重编号为fork309/310，新profile284继承283；历史SQL与profile冻结。",
+      "ownership": "fork",
+      "risk_level": "high",
+      "paths": [
+        "backend/migrations/309_add_usage_logs_api_key_cost_index_notx.sql",
+        "backend/migrations/310_openai_cache_write_ttl.sql",
+        "backend/migrations/profile_284_migrations_test.go",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile284_release_contract.py"
+      ],
+      "symbols": [
+        "idx_usage_logs_api_key_created_cost",
+        "cache_creation_30m_tokens",
+        "cache_creation_12h_tokens",
+        "cache_write_12h_price"
+      ],
+      "api_routes": [],
+      "settings_keys": [],
+      "migration_files": [
+        "309_add_usage_logs_api_key_cost_index_notx.sql",
+        "310_openai_cache_write_ttl.sql"
+      ],
+      "required_tests": [
+        "backend/migrations/profile_284_migrations_test.go",
+        "backend/migrations/usage_log_api_key_cost_index_test.go",
+        "backend/internal/repository/migrations_runner_api_key_cost_index_test.go",
+        "backend/internal/repository/openai_cache_write_ttl_integration_test.go",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_profile284_release_contract.py"
+      ],
+      "invariants": [
+        "profile284=0.2.21-baiyu、parent283、gate_schema2，仅新增309/310；历史70个profile、359份SQL与checksum及精确恢复审阅不变，未知285拒绝，current-only仅284。",
+        "官方530c5e3a4f9c73ca2b0881191d0ef8e0d82c5484的249/250只重编号；309保留_notx.sql和无效索引重试清理，历史264 request-ID索引名称保持。",
+        "310保留30m/12h缓存写入计数与四个定价表nullable12h单价，计费、实际使用和展示使用同一TTL口径；不改fork独立缓存保护成功证据。",
+        "保留downtime、migration301旧写者退出与coordinated_restore；本地测试不代表真实数据库升级、VM Gate或生产发布，不新增恢复豁免。",
+        "官方OpenAI缓存写入30m/12h分桶与fork CacheUsageEvidence、上游归属及显式用户0%计费/配额边界组合保留。WS官方IsFirstTokenEvent按配置semantic/visible填FirstTokenMs供用户日志；保护FirstTokenAt只来自真实visible frame wrapper，不由配置TTFT反推，reasoning-only成功终止不能制造保护样本。"
       ]
     }
   ]

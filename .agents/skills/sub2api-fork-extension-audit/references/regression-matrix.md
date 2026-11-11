@@ -424,3 +424,13 @@ profile 280 为 parent 279、版本 `0.2.22-baiyu`，无新增 SQL migration，�
 | 日志和统计 | 明确 metadata 构造日志，不依赖被禁用的 ingress 响应捕获；仅 model_not_allowed 写入既有队列，其他入口拒绝保持跳过；request/client/client_request/business-limited 分类排除 SLA 与上游故障统计 |
 | 精确查询和页面 | reason=model_not_allowed 与 excluded 视图、分组、模型和时间组合；未知原因返回 400；默认错误视图不变；主错误请求页及运维明细入口可选、清除、翻页和加载，中英文键完整 |
 | 兼容边界 | 复用日志表和原队列、留存、丢弃监控，不新增 migration/profile；原入口聚合可按 model_not_allowed 筛选；历史聚合不猜补模型及分组；类型检查、相关 Vitest、前端生产构建，正式 VM Gate 与生产发布另行验证 |
+
+## 官方 0.2.21 与 profile 284
+
+固定官方目标为 `530c5e3a4f9c73ca2b0881191d0ef8e0d82c5484`，fork 版本 `0.2.21-baiyu`。新增 current pending profile `284`，parent `283`，Gate schema 2，`new_migrations` 精确为 `309_add_usage_logs_api_key_cost_index_notx.sql`、`310_openai_cache_write_ttl.sql`。官方 249/250 原字节仅重编号；309 保留非事务后缀与无效索引重试清理，310 增加 OpenAI 30m/12h 缓存写入 token 和四个定价表的 nullable 12h 单价。
+
+历史 283 及此前全部 70 个 profile、359 份 SQL、checksum 和精确恢复审阅保持不变；不得复用旧 279 的同名版本合同。所有 Python/Shell/签名/备份/清理入口追加 284、拒绝未知 285，正常 prepare/VM validator 仅允许当前 284。保留 downtime、migration 301 停止旧写者与 coordinated_restore，不增加恢复豁免。最终敏感 blob 仍需重新分类，本地合同测试不代表真实数据库升级、VM Gate 或生产发布。
+
+最低回归包括 `test_profile284_release_contract.py`、`profile_284_migrations_test.go`、migration runner 非事务/无效索引清理、缓存 TTL 写入与定价 roundtrip、真实 jq 祖先断言和完整 release suite。历史 Responses orphan 分配测量隔离已由目标内官方 `2273a5d63` 完整覆盖，测试归官方维护，保留原 fork 提交历史。
+
+本轮WS回归须区分官方semantic/visible TTFT用户统计与保护可见输出证据：adapter不从FirstTokenMs反推FirstTokenAt，仅frame wrapper的visible mark可生成保护首字；reasoning-only成功终止不产生保护样本。OpenAI 30m/12h缓存分桶仍组合保留CacheUsageEvidence、上游归属及显式用户0%计费与配额边界。

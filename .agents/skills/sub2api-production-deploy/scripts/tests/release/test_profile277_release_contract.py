@@ -26,7 +26,7 @@ class Profile277ReleaseContractTest(unittest.TestCase):
     def test_profile_identity_and_immutable_history(self):
         previous = {}
         exec(compile(predecessor.git_blob(BASELINE, ".agents/skills/sub2api-production-deploy/scripts/release/profiles.py"), "profile275-baseline", "exec"), previous)
-        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"276", "277", "278", "279", "280", "281", "282", "283"})
+        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"276", "277", "278", "279", "280", "281", "282", "283", "284"})
         # Deployment node metadata moved to local configuration; version contracts remain exact.
         deployment_keys = {"public_domain", "rack_public_ip", "dmit_public_ip"}
         self.assertTrue(deployment_keys.isdisjoint(get_profile(CURRENT_RELEASE_PROFILE)))
@@ -34,7 +34,7 @@ class Profile277ReleaseContractTest(unittest.TestCase):
             actual = get_profile(name)
             self.assertTrue(deployment_keys.isdisjoint(actual))
             self.assertEqual(actual, {key: value for key, value in profile.items() if key not in deployment_keys}, name)
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "283")
+        self.assertEqual(CURRENT_RELEASE_PROFILE, "284")
         self.assertEqual((get_profile("276")["version"], get_profile("276")["parent"], get_profile("276")["new_migrations"]),
                          ("0.2.18-baiyu", "275", ["303_group_strip_optional_image_tools.sql"]))
         profile = get_profile("277")
@@ -53,10 +53,10 @@ class Profile277ReleaseContractTest(unittest.TestCase):
 
     def test_catalog_checksum_and_pending_migration(self):
         registry = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(registry["current_profile"]["id"], "283")
+        self.assertEqual(registry["current_profile"]["id"], "284")
         for key in ("version", "parent", "new_migrations", "gate_schema", "release_policy"):
-            self.assertEqual(registry["current_profile"][key], get_profile("283")[key])
-        self.assertEqual(registry["current_profile"]["new_migrations"], ["308_mcp_oauth.sql"])
+            self.assertEqual(registry["current_profile"][key], get_profile("284")[key])
+        self.assertEqual(registry["current_profile"]["new_migrations"], ["309_add_usage_logs_api_key_cost_index_notx.sql", "310_openai_cache_write_ttl.sql"])
         raw = (WORKSPACE / "backend/migrations" / MIGRATION).read_bytes()
         self.assertEqual(registry["migration_contracts"][MIGRATION], hashlib.sha256(raw).hexdigest())
         catalog = discover_migration_catalog(WORKSPACE)
@@ -68,15 +68,15 @@ class Profile277ReleaseContractTest(unittest.TestCase):
     def test_shell_context_and_vm_manifest_contract(self):
         context = (ROOT / "maintenance/release/context.sh").read_text(encoding="utf-8")
         validator = (ROOT / "release/vm-validate.sh").read_text(encoding="utf-8")
-        self.assertIn("|277|278|279|280|281|282|283)", context)
+        self.assertIn("|277|278|279|280|281|282|283|284)", context)
         schema_two_profile_guard = next(
             line for line in validator.splitlines()
-            if line.lstrip().startswith('[[ "$profile" == 283')
+            if line.lstrip().startswith('[[ "$profile" == 284')
         )
-        self.assertEqual(schema_two_profile_guard.strip(), '[[ "$profile" == 283 ]]')
+        self.assertEqual(schema_two_profile_guard.strip(), '[[ "$profile" == 284 ]]')
         self.assertIn('elif [[ "$profile" == 277 ]]; then', validator)
         self.assertIn('0.2.19-baiyu', validator)
-        self.assertIn('elif [[ "$profile" == 283 ]]; then', validator)
+        self.assertIn('elif [[ "$profile" == 284 ]]; then', validator)
         self.assertIn('0.2.20-baiyu', validator)
         self.assertIn('0.2.21-baiyu', validator)
         self.assertIn(MIGRATION, validator)
@@ -91,13 +91,13 @@ class Profile277ReleaseContractTest(unittest.TestCase):
         prepare = (ROOT / 'maintenance/release/prepare.sh').read_text(encoding='utf-8')
         guards = [
             ('release_dir', next(line for line in context.splitlines() if '$release_dir =~' in line).strip().split(' || return')[0], 'history'),
-            ('profile', next(line for line in validator.splitlines() if line.lstrip().startswith('[[ "$profile" == 283')).strip(), 'current'),
+            ('profile', next(line for line in validator.splitlines() if line.lstrip().startswith('[[ "$profile" == 284')).strip(), 'current'),
             ('profile', next(line for line in prepare.splitlines() if line.lstrip().startswith('[[ $profile ==')).strip(), 'current'),
         ]
         env = {key: value for key, value in os.environ.items() if key not in {'BASH_ENV', 'ENV', 'SHELLOPTS'}}
         for variable, guard, scope in guards:
-            cases = (('278', True), ('277', True), ('279', True), ('280', True), ('281', True), ('282', True), ('283', True), ('284', False), ('0282', False), ('282;true', False)) if scope == 'history' else (
-                ('283', True), ('282', False), ('281', False), ('280', False), ('284', False), ('279', False), ('278', False), ('277', False), ('0282', False), ('282;true', False)
+            cases = (('278', True), ('277', True), ('279', True), ('280', True), ('281', True), ('282', True), ('283', True), ('284', True), ('285', False), ('0282', False), ('282;true', False)) if scope == 'history' else (
+                ('284', True), ('283', False), ('282', False), ('281', False), ('280', False), ('285', False), ('279', False), ('278', False), ('277', False), ('0282', False), ('282;true', False)
             )
             for profile, accepted in cases:
                 value = '/opt/sub2api/releases/' + profile + '-aaaaaaaaaaaa-1-aaaaaaaa' if variable == 'release_dir' else profile

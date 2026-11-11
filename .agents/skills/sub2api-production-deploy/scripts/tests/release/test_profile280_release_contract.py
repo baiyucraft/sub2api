@@ -14,8 +14,8 @@ from release.production_cleanup import RELEASE_ID
 
 
 def test_profile_280_is_additive_and_inherits_279_without_migration():
-    assert CURRENT_RELEASE_PROFILE == "283"
-    assert list(PROFILES)[-1] == "283"
+    assert CURRENT_RELEASE_PROFILE == "284"
+    assert list(PROFILES)[-1] == "284"
     assert (get_profile("279")["version"], get_profile("279")["parent"], get_profile("279")["new_migrations"]) == (
         "0.2.21-baiyu", "278", []
     )
@@ -23,18 +23,18 @@ def test_profile_280_is_additive_and_inherits_279_without_migration():
     assert (profile["version"], profile["parent"], profile["new_migrations"], profile["gate_schema"]) == (
         "0.2.22-baiyu", "279", [], 2
     )
-    assert get_release_profile("283")["name"] == "283"
+    assert get_release_profile("284")["name"] == "284"
     assert RELEASE_ID.fullmatch("279-aaaaaaaaaaaa-1-aaaaaaaa")
     assert RELEASE_ID.fullmatch("280-aaaaaaaaaaaa-1-aaaaaaaa")
     assert RELEASE_ID.fullmatch("283-aaaaaaaaaaaa-1-aaaaaaaa")
-    assert not RELEASE_ID.fullmatch("284-aaaaaaaaaaaa-1-aaaaaaaa")
+    assert not RELEASE_ID.fullmatch("285-aaaaaaaaaaaa-1-aaaaaaaa")
 
 
 def test_profile_280_registry_and_current_only_admission_are_consistent():
     registry = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
     current = registry["current_profile"]
-    profile = get_profile("283")
-    assert current["id"] == "283"
+    profile = get_profile("284")
+    assert current["id"] == "284"
     for key in ("version", "parent", "new_migrations", "gate_schema", "release_policy"):
         assert current[key] == profile[key]
     assert (WORKSPACE / "backend/cmd/server/VERSION").read_text(encoding="utf-8").strip() == get_profile(CURRENT_RELEASE_PROFILE)["version"]
@@ -44,14 +44,14 @@ def test_profile_280_registry_and_current_only_admission_are_consistent():
     signer = (ROOT / "release/sign-gate.sh").read_text(encoding="utf-8")
     prepare = (ROOT / "maintenance/release/prepare.sh").read_text(encoding="utf-8")
     release_path_guard = next(line for line in signer.splitlines() if line.startswith("[[ $gate =~"))
-    assert "|279|280|281|282|283)" in release_path_guard
-    assert re.search(r"\|279\|280\|281\|282\|283\)", context)
-    schema_two_profile_guard = next(line for line in validator.splitlines() if line.lstrip().startswith('[[ "$profile" == 283'))
-    assert schema_two_profile_guard.strip() == '[[ "$profile" == 283 ]]'
+    assert "|279|280|281|282|283|284)" in release_path_guard
+    assert re.search(r"\|279\|280\|281\|282\|283\|284\)", context)
+    schema_two_profile_guard = next(line for line in validator.splitlines() if line.lstrip().startswith('[[ "$profile" == 284'))
+    assert schema_two_profile_guard.strip() == '[[ "$profile" == 284 ]]'
     assert 'elif [[ "$profile" == 279 ]]; then' in validator
-    assert 'elif [[ "$profile" == 283 ]]; then' in validator
+    assert 'elif [[ "$profile" == 284 ]]; then' in validator
     assert '"$version" == 0.2.22-baiyu' in validator
-    assert '[[ $profile == 283' in prepare
+    assert '[[ $profile == 284' in prepare
     gate_v2_guard = next(line for line in signer.splitlines() if line.startswith("if [[ $gate_profile == 242"))
     assert "$gate_profile == 280" in gate_v2_guard
 
@@ -60,7 +60,7 @@ def test_profile_280_migration_compatibility_is_inherited():
     validator = (ROOT / "release/vm-validate.sh").read_text(encoding="utf-8")
     signer_bootstrap = (ROOT / "release/bootstrap_vm_signer.sh").read_text(encoding="utf-8")
     backup_bootstrap = (ROOT / "release/bootstrap_backup_dr_assets.sh").read_text(encoding="utf-8")
-    assert '[[ "$profile" == 283 ]]' in validator
+    assert '[[ "$profile" == 284 ]]' in validator
     assert "280" in signer_bootstrap
     assert "selftest_profile == 280" in signer_bootstrap
-    assert "279 280 281 282 283; do" in backup_bootstrap
+    assert "279 280 281 282 283 284; do" in backup_bootstrap

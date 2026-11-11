@@ -1211,6 +1211,23 @@ describe('admin AccountsView upstream management mode', () => {
     wrapper.unmount()
   })
 
+  it('keeps existing rows interactive while a background refresh is pending', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    const cell = wrapper.get('[data-test="usage-cell"]').element
+    const pending = deferred()
+    upstreamListWithEtag.mockReturnValueOnce(pending.promise)
+
+    const refresh = (wrapper.vm as any).$.setupState.refreshAccountsIncrementally()
+    await flushPromises()
+    expect(wrapper.get('[data-test="usage-cell"]').element).toBe(cell)
+    expect(wrapper.get('[aria-busy]').attributes('aria-busy')).toBe('false')
+    expect(wrapper.get('[aria-busy]').attributes()).not.toHaveProperty('inert')
+    pending.resolve({ notModified: true, etag: 'unchanged', data: null })
+    await refresh
+    wrapper.unmount()
+  })
+
   it('keeps the same row object for unchanged snapshots and retains it when a background refresh fails', async () => {
     const wrapper = mountView()
     await flushPromises()

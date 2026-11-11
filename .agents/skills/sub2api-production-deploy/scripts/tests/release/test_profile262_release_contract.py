@@ -33,7 +33,7 @@ class Profile262ReleaseContractTest(unittest.TestCase):
         previous = {}
         exec(compile(source, "historical-profiles", "exec"), previous)
         self.assertEqual(previous["CURRENT_RELEASE_PROFILE"], "261")
-        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"262", "263", "264", "265", "266", "267", "268", "269", "270", "271", "272", "273", "274", "275", "276", "277", "278", "279", "280", "281", "282", "283"})
+        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"262", "263", "264", "265", "266", "267", "268", "269", "270", "271", "272", "273", "274", "275", "276", "277", "278", "279", "280", "281", "282", "283", "284"})
         # Deployment node metadata moved to local configuration; version contracts remain exact.
         deployment_keys = {"public_domain", "rack_public_ip", "dmit_public_ip"}
         self.assertTrue(deployment_keys.isdisjoint(get_profile(CURRENT_RELEASE_PROFILE)))
@@ -42,7 +42,7 @@ class Profile262ReleaseContractTest(unittest.TestCase):
                 actual = get_profile(profile)
                 self.assertTrue(deployment_keys.isdisjoint(actual))
                 self.assertEqual(actual, {key: value for key, value in contract.items() if key not in deployment_keys})
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "283")
+        self.assertEqual(CURRENT_RELEASE_PROFILE, "284")
         current = get_profile("262")
         self.assertEqual(current["version"], "0.2.13-baiyu")
         self.assertEqual(current["parent"], "261")
@@ -53,12 +53,12 @@ class Profile262ReleaseContractTest(unittest.TestCase):
             get_release_profile("261")
         with self.assertRaisesRegex(ValueError, "historical"):
             get_release_profile("262")
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 284"):
-            get_profile("284")
+        with self.assertRaisesRegex(ValueError, "unknown release profile: 285"):
+            get_profile("285")
 
     def test_registration_and_both_checksum_contracts(self) -> None:
         registration = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(registration["current_profile"]["id"], "283")
+        self.assertEqual(registration["current_profile"]["id"], "284")
         self.assertEqual(registration["current_profile"]["status"], "pending")
         for field in ("version", "parent", "new_migrations", "gate_schema", "release_policy"):
             self.assertEqual(registration["historical_profiles"]["262"][field], get_profile("262")[field])

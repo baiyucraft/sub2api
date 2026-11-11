@@ -41,7 +41,7 @@ class Profile275ReleaseContractTest(unittest.TestCase):
         previous = {}
         exec(compile(git_blob(BASELINE, ".agents/skills/sub2api-production-deploy/scripts/release/profiles.py"),
                      "profile274-baseline", "exec"), previous)
-        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"275", "276", "277", "278", "279", "280", "281", "282", "283"})
+        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"275", "276", "277", "278", "279", "280", "281", "282", "283", "284"})
         # Deployment node metadata moved to local configuration; version contracts remain exact.
         deployment_keys = {"public_domain", "rack_public_ip", "dmit_public_ip"}
         self.assertTrue(deployment_keys.isdisjoint(get_profile(CURRENT_RELEASE_PROFILE)))
@@ -49,14 +49,14 @@ class Profile275ReleaseContractTest(unittest.TestCase):
             actual = get_profile(name)
             self.assertTrue(deployment_keys.isdisjoint(actual))
             self.assertEqual(actual, {key: value for key, value in contract.items() if key not in deployment_keys}, name)
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "283")
+        self.assertEqual(CURRENT_RELEASE_PROFILE, "284")
         current = get_profile("275")
         self.assertEqual((current["version"], current["parent"], current["gate_schema"], current["new_migrations"]),
                          ("0.2.18-baiyu", "274", 2, [MIGRATION]))
         with self.assertRaisesRegex(ValueError, "historical"):
             get_release_profile("274")
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 284"):
-            get_profile("284")
+        with self.assertRaisesRegex(ValueError, "unknown release profile: 285"):
+            get_profile("285")
         names = subprocess.run(["git", "ls-tree", "-r", "--name-only", BASELINE, "--", "backend/migrations"],
                                cwd=WORKSPACE, check=True, capture_output=True, text=True, timeout=30).stdout.splitlines()
         changed = subprocess.run(["git", "diff", "--name-only", BASELINE, "--", "backend/migrations/*.sql"],
@@ -69,17 +69,19 @@ class Profile275ReleaseContractTest(unittest.TestCase):
             "backend/migrations/306_group_image_count_billing.sql",
             "backend/migrations/307_user_default_group_rate_percent.sql",
             "backend/migrations/308_mcp_oauth.sql",
+            "backend/migrations/309_add_usage_logs_api_key_cost_index_notx.sql",
+            "backend/migrations/310_openai_cache_write_ttl.sql",
         })
         current_names = {p.name for p in (WORKSPACE / "backend/migrations").glob("*.sql")}
         self.assertEqual(current_names, {
             Path(p).name for p in names if p.endswith(".sql")
-        } | {MIGRATION, "303_group_strip_optional_image_tools.sql", "304_upstream_confidence_fingerprint.sql", "305_scoped_admin_api_keys.sql", "306_group_image_count_billing.sql", "307_user_default_group_rate_percent.sql", "308_mcp_oauth.sql"})
+        } | {MIGRATION, "303_group_strip_optional_image_tools.sql", "304_upstream_confidence_fingerprint.sql", "305_scoped_admin_api_keys.sql", "306_group_image_count_billing.sql", "307_user_default_group_rate_percent.sql", "308_mcp_oauth.sql", "309_add_usage_logs_api_key_cost_index_notx.sql", "310_openai_cache_write_ttl.sql", "309_add_usage_logs_api_key_cost_index_notx.sql", "310_openai_cache_write_ttl.sql"})
         self.assertIsNotNone(RELEASE_ID.fullmatch("275-aaaaaaaaaaaa-1-aaaaaaaa"))
         self.assertIsNotNone(RELEASE_ID.fullmatch("277-aaaaaaaaaaaa-1-aaaaaaaa"))
         self.assertIsNotNone(RELEASE_ID.fullmatch("278-aaaaaaaaaaaa-1-aaaaaaaa"))
         self.assertIsNotNone(RELEASE_ID.fullmatch("279-aaaaaaaaaaaa-1-aaaaaaaa"))
         self.assertIsNotNone(RELEASE_ID.fullmatch("283-aaaaaaaaaaaa-1-aaaaaaaa"))
-        self.assertIsNone(RELEASE_ID.fullmatch("284-aaaaaaaaaaaa-1-aaaaaaaa"))
+        self.assertIsNone(RELEASE_ID.fullmatch("285-aaaaaaaaaaaa-1-aaaaaaaa"))
 
     def test_official_bytes_and_independent_checksum_contracts(self):
         raw = (WORKSPACE / "backend/migrations" / MIGRATION).read_bytes()
@@ -88,9 +90,9 @@ class Profile275ReleaseContractTest(unittest.TestCase):
         self.assertEqual(migration_checksum(raw), CATALOG_SHA256)
         self.assertFalse((WORKSPACE / "backend/migrations" / OFFICIAL).exists())
         registry = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(registry["current_profile"]["id"], "283")
+        self.assertEqual(registry["current_profile"]["id"], "284")
         for key in ("version", "parent", "new_migrations", "gate_schema", "release_policy"):
-            self.assertEqual(registry["current_profile"][key], get_profile("283")[key])
+            self.assertEqual(registry["current_profile"][key], get_profile("284")[key])
             self.assertEqual(registry["historical_profiles"]["274"][key], get_profile("274")[key])
         self.assertEqual(registry["migration_contracts"][MIGRATION], RAW_SHA256)
         self.assertIn(MIGRATION, next(e for e in registry["extensions"] if e["id"] == "migration-profile-contract")["migration_files"])

@@ -29,7 +29,7 @@ class Profile276ReleaseContractTest(unittest.TestCase):
     def test_frozen_history_and_current_release_identity(self):
         previous = {}
         exec(compile(predecessor.git_blob(BASELINE, ".agents/skills/sub2api-production-deploy/scripts/release/profiles.py"), "profile275-baseline", "exec"), previous)
-        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"276", "277", "278", "279", "280", "281", "282", "283"})
+        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"276", "277", "278", "279", "280", "281", "282", "283", "284"})
         # Deployment node metadata moved to local configuration; version contracts remain exact.
         deployment_keys = {"public_domain", "rack_public_ip", "dmit_public_ip"}
         self.assertTrue(deployment_keys.isdisjoint(get_profile(CURRENT_RELEASE_PROFILE)))
@@ -37,7 +37,7 @@ class Profile276ReleaseContractTest(unittest.TestCase):
             actual = get_profile(name)
             self.assertTrue(deployment_keys.isdisjoint(actual))
             self.assertEqual(actual, {key: value for key, value in profile.items() if key not in deployment_keys}, name)
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "283")
+        self.assertEqual(CURRENT_RELEASE_PROFILE, "284")
         profile = get_profile("276")
         self.assertEqual((profile["version"], profile["parent"], profile["new_migrations"], profile["gate_schema"]),
                          ("0.2.18-baiyu", "275", [MIGRATION], 2))
@@ -47,7 +47,7 @@ class Profile276ReleaseContractTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "historical"):
             get_release_profile("277")
         self.assertEqual(get_profile("278")["name"], "278")
-        self.assertEqual(get_release_profile("283")["name"], "283")
+        self.assertEqual(get_release_profile("284")["name"], "284")
         self.assertIsNotNone(RELEASE_ID.fullmatch("276-aaaaaaaaaaaa-1-aaaaaaaa"))
         self.assertIsNotNone(RELEASE_ID.fullmatch("277-aaaaaaaaaaaa-1-aaaaaaaa"))
         names = subprocess.run(["git", "ls-tree", "-r", "--name-only", BASELINE, "--", "backend/migrations"], cwd=WORKSPACE, check=True, capture_output=True, text=True).stdout.splitlines()
@@ -55,7 +55,7 @@ class Profile276ReleaseContractTest(unittest.TestCase):
             if name.endswith(".sql"):
                 self.assertEqual((WORKSPACE / name).read_bytes(), predecessor.git_blob(BASELINE, name), name)
         self.assertEqual({p.name for p in (WORKSPACE / "backend/migrations").glob("*.sql")},
-                         {Path(name).name for name in names if name.endswith(".sql")} | {MIGRATION, "304_upstream_confidence_fingerprint.sql", "305_scoped_admin_api_keys.sql", "306_group_image_count_billing.sql", "307_user_default_group_rate_percent.sql", "308_mcp_oauth.sql"})
+                         {Path(name).name for name in names if name.endswith(".sql")} | {MIGRATION, "304_upstream_confidence_fingerprint.sql", "305_scoped_admin_api_keys.sql", "306_group_image_count_billing.sql", "307_user_default_group_rate_percent.sql", "308_mcp_oauth.sql", "309_add_usage_logs_api_key_cost_index_notx.sql", "310_openai_cache_write_ttl.sql", "309_add_usage_logs_api_key_cost_index_notx.sql", "310_openai_cache_write_ttl.sql"})
 
     def test_registry_checksums_and_pending_migration(self):
         registry = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))

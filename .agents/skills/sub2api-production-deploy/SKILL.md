@@ -9,7 +9,7 @@ description: 面向 Sub2API fork 的构建、开发门禁、应用与独立插�
 
 ## 日常部署参数
 
-日常应用发布复用仓库中已验证的固定脚本，将 `schema/commit/profile/mode` 写入本地 `.release/deploy.local.json`，通过 `release.py doctor --node local` 和 `release.py deploy-follow` 消费；显式完整参数优先。当前 profile `283` 为 `0.2.20-baiyu`、parent `282`、仅新增 `308_mcp_oauth.sql`，使用 `downtime`；版本、父链和迁移仍取已登记的 profile。普通应用提交只更新配置中的完整 SHA，沿用适用的 profile/mode；新增版本、迁移或工具能力属于单独的合同变更。配置只补齐参数，原 Gate、备份、迁移、恢复及 `verify-result` 门禁照常执行，脚本字节变化仍按现有规则审阅和验证。当前实现仍会在 deploy 中调用 VM validator/signer 安装校验流程，并在 VM 缺少 `jq` 时安装该依赖，因此“日常 deploy 只核验已安装工具”的目标尚未实现，不能按只读工具检查描述。
+日常应用发布复用仓库中已验证的固定脚本，将 `schema/commit/profile/mode` 写入本地 `.release/deploy.local.json`，通过 `release.py doctor --node local` 和 `release.py deploy-follow` 消费；显式完整参数优先。当前 profile `284` 为 `0.2.21-baiyu`、parent `283`、仅新增 `309_add_usage_logs_api_key_cost_index_notx.sql` 和 `310_openai_cache_write_ttl.sql`，使用 `downtime`；版本、父链和迁移仍取已登记的 profile。普通应用提交只更新配置中的完整 SHA，沿用适用的 profile/mode；新增版本、迁移或工具能力属于单独的合同变更。配置只补齐参数，原 Gate、备份、迁移、恢复及 `verify-result` 门禁照常执行，脚本字节变化仍按现有规则审阅和验证。当前实现仍会在 deploy 中调用 VM validator/signer 安装校验流程，并在 VM 缺少 `jq` 时安装该依赖，因此“日常 deploy 只核验已安装工具”的目标尚未实现，不能按只读工具检查描述。
 
 连接及机器路径保留在 `.ssh.local`；`vm_lifecycle.shared_dir` 指向已有的规范物理共享目录，复用其中原 `lease.lock` 和 `owner.json`，不得因 checkout 不同新建发布所有权域。配置生成、支持命令与观察重连见 [本地部署参数](references/release-runner-lifecycle.md#本地部署参数)。
 
@@ -537,3 +537,11 @@ Python/Shell/VM validator/Gate与DR signer/备份/清理/祖先297、298、299�
 308创建MCP OAuth grants、codes、credentials三表及索引，授权码和访问/刷新凭据仅存摘要；结构与CHECK保持官方SQL原字节。raw SHA-256为 `881ff2e8ecf430202c593c699b1441db1d2196ac2c312d8a3849acb6c97609e5`；Gate strip checksum为 `751a1dcee6108afcecbd580b6e3140cca3480853fecd2174861b02f3a71e54a1`，不得混用。
 
 Python/Shell/VM/Gate/signer/备份/DR/清理和祖先297/298/299/301合同接纳283，current-only仅283、未知284拒绝；继续downtime、旧写者退出与coordinated_restore，不增加恢复审阅豁免。最低合同回归为 `test_profile283_release_contract.py` 和 `profile_283_migrations_test.go`，真实jq/Bash及最终release suite在合并树执行；本地测试不代表VM Gate或生产发布。
+
+## 官方 0.2.21 与 profile 284
+
+固定官方目标为 `530c5e3a4f9c73ca2b0881191d0ef8e0d82c5484`，fork 版本 `0.2.21-baiyu`。新增 current pending profile `284`，parent `283`，Gate schema 2，`new_migrations` 精确为 `309_add_usage_logs_api_key_cost_index_notx.sql`、`310_openai_cache_write_ttl.sql`。官方 249/250 原字节仅重编号；309 保留非事务后缀与无效索引重试清理，310 增加 OpenAI 30m/12h 缓存写入 token 和四个定价表的 nullable 12h 单价。
+
+历史 283 及此前全部 70 个 profile、359 份 SQL、checksum 和精确恢复审阅保持不变；不得复用旧 279 的同名版本合同。所有 Python/Shell/签名/备份/清理入口追加 284、拒绝未知 285，正常 prepare/VM validator 仅允许当前 284。保留 downtime、migration 301 停止旧写者与 coordinated_restore，不增加恢复豁免。最终敏感 blob 仍需重新分类，本地合同测试不代表真实数据库升级、VM Gate 或生产发布。
+
+最低回归包括 `test_profile284_release_contract.py`、`profile_284_migrations_test.go`、migration runner 非事务/无效索引清理、缓存 TTL 写入与定价 roundtrip、真实 jq 祖先断言和完整 release suite。历史 Responses orphan 分配测量隔离已由目标内官方 `2273a5d63` 完整覆盖，测试归官方维护，保留原 fork 提交历史。

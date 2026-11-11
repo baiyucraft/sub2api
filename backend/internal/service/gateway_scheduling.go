@@ -1770,6 +1770,7 @@ func (s *GatewayService) newSelectionResult(ctx context.Context, account *Accoun
 		err = ErrNoAvailableAccounts
 	}
 	if err != nil {
+		// release only the slot actually acquired by this selection when hydration fails.
 		if acquired && release != nil {
 			release()
 		}

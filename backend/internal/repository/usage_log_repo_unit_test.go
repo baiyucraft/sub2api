@@ -51,20 +51,22 @@ func TestBuildUsageLogBatchInsertQuery_UsesConflictDoNothing(t *testing.T) {
 	currency := "CNY"
 	toCNYRate := 1.0
 	log := &service.UsageLog{
-		UserID:                1,
-		APIKeyID:              2,
-		AccountID:             3,
-		UpstreamConfigID:      &upstreamConfigID,
-		UpstreamKeyID:         &upstreamKeyID,
-		UpstreamCostCurrency:  &currency,
-		UpstreamCostToCNYRate: &toCNYRate,
-		RequestID:             "req-batch-no-update",
-		Model:                 "gpt-5",
-		InputTokens:           10,
-		OutputTokens:          5,
-		TotalCost:             1.2,
-		ActualCost:            1.2,
-		CreatedAt:             time.Now().UTC(),
+		UserID:                 1,
+		APIKeyID:               2,
+		AccountID:              3,
+		UpstreamConfigID:       &upstreamConfigID,
+		UpstreamKeyID:          &upstreamKeyID,
+		UpstreamCostCurrency:   &currency,
+		UpstreamCostToCNYRate:  &toCNYRate,
+		RequestID:              "req-batch-no-update",
+		Model:                  "gpt-5",
+		InputTokens:            10,
+		OutputTokens:           5,
+		CacheCreation30mTokens: 37,
+		CacheCreation12hTokens: 83,
+		TotalCost:              1.2,
+		ActualCost:             1.2,
+		CreatedAt:              time.Now().UTC(),
 	}
 	prepared := prepareUsageLogInsert(log)
 
@@ -83,6 +85,9 @@ func TestBuildUsageLogBatchInsertQuery_UsesConflictDoNothing(t *testing.T) {
 	require.Equal(t, sql.NullInt64{Int64: upstreamKeyID, Valid: true}, prepared.args[4])
 	require.Equal(t, sql.NullString{String: currency, Valid: true}, prepared.args[31])
 	require.Equal(t, &toCNYRate, prepared.args[32])
+	require.Equal(t, 37, prepared.args[65])
+	require.Equal(t, 83, prepared.args[66])
+	require.Equal(t, log.CreatedAt, prepared.args[67])
 	require.Equal(t, 3, strings.Count(query, "upstream_config_id"))
 	require.Equal(t, 3, strings.Count(query, "upstream_key_id"))
 	require.Equal(t, 3, strings.Count(query, "upstream_cost_currency"))

@@ -184,3 +184,11 @@ python .agents/skills/sub2api-fork-extension-audit/scripts/audit_fork_extensions
 当前pending profile282为同版本0.2.19-baiyu、parent281，仅新增307_user_default_group_rate_percent.sql。审计 `user-default-group-rate` 的精确路径：单组百分比覆盖优先、用户默认次级回退、双NULL使用分组普通倍率；0明确免费，不覆盖旧单组行。默认值、覆盖和RPM保存必须原子化；默认或实际倍率变动在数据库事务内写独立outbox、经专用topic发布后按user/revision条件ack，identity序列不能在删除重建后复用，旧认证worker不消费新事件。RPM-only不发倍率事件，父删除不被级联触发器阻断，断线重连和迟到loader不得恢复陈旧缓存。
 
 历史281及以前profile/357旧SQL/checksum/精确审阅不变，执行闭包接纳282并拒绝未知283，正常prepare/VM validator只准当前282；downtime/301停旧写者/coordinated_restore保留，不新增恢复豁免。最低回归含profile282、Go迁移、真实隔离userdefaultpg、事务保存、resolver/有效倍率读取、outbox/Redis重连以及前端原子保存测试；缺隔离数据库配置不得skip冒称通过。当前登记不证明VM Gate或生产发布，最终敏感blob仍须独立分类。
+
+## 官方 0.2.21 与 profile 284
+
+固定官方目标为 `530c5e3a4f9c73ca2b0881191d0ef8e0d82c5484`，fork 版本 `0.2.21-baiyu`。新增 current pending profile `284`，parent `283`，Gate schema 2，`new_migrations` 精确为 `309_add_usage_logs_api_key_cost_index_notx.sql`、`310_openai_cache_write_ttl.sql`。官方 249/250 原字节仅重编号；309 保留非事务后缀与无效索引重试清理，310 增加 OpenAI 30m/12h 缓存写入 token 和四个定价表的 nullable 12h 单价。
+
+历史 283 及此前全部 70 个 profile、359 份 SQL、checksum 和精确恢复审阅保持不变；不得复用旧 279 的同名版本合同。所有 Python/Shell/签名/备份/清理入口追加 284、拒绝未知 285，正常 prepare/VM validator 仅允许当前 284。保留 downtime、migration 301 停止旧写者与 coordinated_restore，不增加恢复豁免。最终敏感 blob 仍需重新分类，本地合同测试不代表真实数据库升级、VM Gate 或生产发布。
+
+最低回归包括 `test_profile284_release_contract.py`、`profile_284_migrations_test.go`、migration runner 非事务/无效索引清理、缓存 TTL 写入与定价 roundtrip、真实 jq 祖先断言和完整 release suite。历史 Responses orphan 分配测量隔离已由目标内官方 `2273a5d63` 完整覆盖，测试归官方维护，保留原 fork 提交历史。
