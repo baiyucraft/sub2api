@@ -489,3 +489,25 @@ Full DR 先于正式 runner，表中含有父子阶段，不能逐行相加。�
 - 本轮生产备份 promotion 子调用先后两次 exit 1，runner 内后续尝试成功，最终发布完成；这是同一个 release 内的行为，没有另启 runner。
 - 当时只读容量检查仍有约 8.55 GiB 可用空间且 inode 充足，不能据此归因为磁盘满。具体失败原因尚未核实，不能把后续成功写成根因已修复。
 - 下次复现先在生产机对应 release 的 root-only 日志中按阶段和稳定错误码受控脱敏定位；不回传原始日志，不删除备份或现场，不先重发应用。
+
+## 配置复用与当前缺口
+
+下次普通应用发布只更新 `.release/deploy.local.json` 的完整 `commit`，保留仍适用的 profile/mode，通过本地 doctor 后启动一次 `deploy-follow --recovery-gate-mode auto`；连接和实际拓扑由 `.ssh.local` 提供。当前登记 profile 为 `284/downtime`，历史 `283` 的验收不能作为继续选择旧 profile 或宣告当前目标已部署的依据。启动后只用同一 release 的 `status/follow/wait` 观察，成功以签名 Gate、`verify-result`、postdoctor 和完成收据为准。
+
+- 只需改配置：同版本、同迁移合同的应用 SHA；已有配置字段覆盖的连接、健康路由、上传身份及 VM 路径。配置整体校验失败或运行中漂移时停止，不临时改脚本或回退路由。
+- 属于环境维护：VMware 服务、网络/registry、Git 对象、容量不足。先用现有预检和有界维护处理，保留失败证据；生产尚未开始的失败在收口后新建 release。已上线且 consumed 的发布只补后验与收口，不重发应用。
+- 仍需合同或工具改动：新版本/profile/迁移、新的迁移语义断言或工具能力。当前 profile 合同仍复制在 Python、Shell、validator、signer、备份和清理入口，新增 profile 尚不能只靠一份契约完成；历史 profile、审阅和签名不回写。
+
+当前 Full DR 的端到端调度仍依赖每代准备并独审的临时 driver，尚无固定命令完整消费当代 target、source 和授权；不能复制旧 approval 或替换旧证据中的 SHA。日常 deploy 也仍会安装校验 VM 工具单元并在缺少 `jq` 时安装依赖，恢复 bundle 身份仍包含应用 commit。以上均为现有缺口，本次文档更新没有实现独立工具版本协议、通用 profile 加载或固定 Full DR 调度；实际发布与演练结果另按独立证据记录。
+
+Full DR scope 较大时，不把完整 scope 嵌进 SSH command 参数。Linux 单参数上限在本机隔离 VM 的 4096-byte page 下为 131072 bytes；Shell 引号展开还会增加长度，连接 reset 不代表签名执行失败或成功。现有 `SSHRunner.run_with_input` 可通过短命令 `bash -s` 的 stdin 传递冻结脚本，原 script SHA、输入摘要、独占输出、签名锁和原生验签保持不变。旧调用结果不明时，先确认原 worker 退出、同 boot/owner、远端没有请求/签名/日志且收据未变，再由独审的独立适配器续送；保留原 intent，不重跑原 driver。此处记录的是已确认的传输边界，正式调度器尚未自动覆盖它。
+
+## Profile 284 生产完成后的容量收口
+
+2026-11-11，profile `284` 的应用 `0113be8f` 已达到 `production_verified`，claim 已 consumed，但后置 doctor 的 `disk` 检查失败，不能据此报告 runner 全部成功，也不能重新部署已完成切换的应用。原失败 runner 和证据保留，使用既有后置收口流程，不增加事故专用实现；本次未改正式工具字节。
+
+`cleanup-production` 绑定签名 Gate 和生产终态，允许在这一 runner 失败状态下生成受保护清理计划。此次 dry-run 与 apply 使用同一 `plan_sha256`，删除 5 个符合保护规则的旧 image 和 2 个旧 candidate archive，并执行既有有界 BuildKit 清理；回收 `2442698752` bytes，可用空间由 `8770949120` 增至 `11213647872` bytes，超过 `10737418240` bytes 门槛。备份节点自动容量维护不覆盖生产磁盘；下次发布前还应预留 candidate、备份及临时资产的增长余量，空间维护继续使用既有计划与收据，不临场改脚本或扩大删除范围。
+
+后置恢复使用 `finalize-consumed --preserve-running-vm` 并已验真：应用与运行镜像一致，claim 仍为 consumed，VM 保持原本 running/preserved，owner 已释放；原 runner 的 `exit=1` 保留为历史事实。后续发布应分别记录 application、verify-result、postdoctor、runner 和 finalization 状态，不能把其中一项替代全部成功。
+
+复盘文档过早写入工作区，也会使后验的本地 doctor 报 dirty；文档不在工具资产闭包不代表可以在验真中途修改。下次将草稿放 Git 忽略的 `.tmp`，等 `finalize-consumed` 及其 `verify-result` 返回后再应用。正常发布的完整操作顺序、生产清理命令与两条验收分支统一见 [固定入口与环境预检](release-runner-lifecycle.md#固定入口与环境预检)。

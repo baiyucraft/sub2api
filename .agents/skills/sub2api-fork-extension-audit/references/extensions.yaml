@@ -2627,7 +2627,10 @@
         "early proof在validator启动前失败使用适用的pre-validator收口，validator内部proof失败使用build-dependencies合同，不按错误文本互换阶段。原失败release不重跑；完成正式收口后，相同工具与应用可用新release重新生成本次proof/candidate/Gate，不复用失败证据。启动失败缺少boot身份时既有CLI不覆盖，一次性维护不冒充通用支持。",
         "registry TLS跨客户端间歇故障属于环境诊断范围，不靠修改tool或切换mirror处理；临时使用既有Selector维护须精确记录原状态、限定作用范围并核验回滚，不把现场维护固化为发布工具自动行为。",
         "2026-11-09 profile283已在未改正式发布脚本的情况下完成同目标真实加密Full DR、独审签名、VM Gate、停机生产、verify-result、postdoctor及terminal收据验真；candidate/running一致、claim consumed、owner released、原本运行VM preserved。此次full由生产旧基线到目标的恢复敏感/状态机变化触发，后续普通应用只更新本地commit并按新生产base的实际diff自动分类，不继承本轮full要求。",
-        "Skill/references/Wiki与扩展说明不属于当前142项执行资产闭包，发布复盘优先更新说明；本代.tmp Full DR driver/reviewer仍绑定具体目标/授权/输入，不能视为正式通用入口或复制旧approval。独立工具版本安装/资格协议、app commit与bundle身份解耦和新postrelease基线晋升尚未交付。"
+        "Skill/references/Wiki与扩展说明不属于当前执行资产闭包，发布复盘优先更新说明；Full DR driver仍要求冻结HEAD和干净工作区，执行中复盘先在隔离目录准备。本代.tmp Full DR driver/reviewer仍绑定具体目标/授权/输入，不能视为正式通用入口或复制旧approval。独立工具版本安装/资格协议、app commit与bundle身份解耦和新postrelease基线晋升尚未交付。",
+        "当前合同为284/downtime、0.2.21-baiyu、parent283及309/310迁移；目标是否已部署以该release独立验真为准。既有合同内普通应用只更新本地commit，连接和拓扑只改.ssh.local，按实际生产base与目标auto分类，不从历史案例复制283或full要求。新增profile/迁移仍需同步Python/Shell/签名/备份与必要断言，未实现配置单点合同；当前deploy仍可能安装VM工具/jq，不能宣称独立工具版本已交付。",
+        "2026-11-11 profile284完成同目标真实Full DR、VM Gate及停机生产验真；原runner在生产verified/consumed后因容量doctor失败，现有cleanup-production按同hash计划清理旧image/archive及有界BuildKit，再由finalize-consumed preserve-running分支独立验真、保留VM并释放owner。原失败runner不回写，应用不重发；备份自动容量维护不冒称生产自动容量维护。",
+        "下次复用现有入口：runner前只读检查生产容量，必要时绑定当前已上线且consumed release按dry-run同hash计划维护并预留新资产余量；后验和verify-result完成前保持checkout干净，复盘草稿留在Git忽略目录。finalization验旧结果使用记录helper SHA的干净checkout；正常runner成功与consumed后独立收口分别验真，不为消除原exit1重发应用。"
       ]
     },
     {

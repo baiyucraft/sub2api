@@ -126,12 +126,12 @@ Windows 下 runner、Python、OpenSSL、Git Bash 和 Go 子进程统一走 `scri
 
 ```powershell
 $commit = (git rev-parse --verify 'HEAD^{commit}').Trim()
-$config = @{ schema = 1; commit = $commit; profile = '283'; mode = 'downtime' }
+$config = @{ schema = 1; commit = $commit; profile = '284'; mode = 'downtime' }
 New-Item -ItemType Directory -Force '.release' | Out-Null
 [IO.File]::WriteAllText((Join-Path $PWD '.release/deploy.local.json'), ($config | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
 ```
 
-配置只接受这四个字段：`schema` 为整数 `1`，`commit` 为完整 40 位小写 SHA，`profile` 为已登记字符串，`mode` 为 `blue-green` 或 `downtime`。当前 `283` 要求停机；配置不能改写 profile 的版本、父链、迁移或发布限制，也不能包含凭据、连接、命令或机器路径。重复键、未知字段和非法值在连接 SSH 前拒绝。
+配置只接受这四个字段：`schema` 为整数 `1`，`commit` 为完整 40 位小写 SHA，`profile` 为已登记字符串，`mode` 为 `blue-green` 或 `downtime`。当前合同为 `284`（`0.2.21-baiyu`、parent `283`、新增迁移 `309/310`），要求停机；目标是否已部署以该 release 的独立验真为准。配置不能改写 profile 的版本、父链、迁移或发布限制，也不能包含凭据、连接、命令或机器路径。重复键、未知字段和非法值在连接 SSH 前拒绝。
 
 已有有效配置且版本、迁移和部署限制未变时，下次只替换 `commit` 为 `git rev-parse --verify 'HEAD^{commit}'` 的完整输出，保留其他三个字段；无需改任何脚本、profile 或历史审阅登记。先确认工作区干净、适用业务回归绑定最终 SHA，且该 SHA 已推送到 `origin/main`，再执行下面两个入口。原有配置无效时停止处理，不能用整文件重建掩盖坏字段。
 
@@ -144,13 +144,13 @@ python -I -S -B .agents/skills/sub2api-production-deploy/scripts/release.py depl
 
 默认配置取入口所在仓库的 `.release/deploy.local.json`；也可显式传入 `--config <文件路径>`。显式完整的 `--commit/--profile/--mode` 优先于配置，文件不存在时仍可沿用完整 CLI 参数；显式指定的文件缺失或损坏则停止。配置必须整体有效，不能靠 CLI 覆盖掩盖坏字段；重复 CLI 参数及参数缩写也拒绝。
 
-`doctor`、`recovery-review-scope`、`vm-only-validate` 读取 commit/profile；`vm-validate`、`deploy`、`deploy-start`、`deploy-follow` 再读取 mode，仍由原命令完成其各自门禁。配置不会安装依赖或修改脚本。Gate、candidate、生产快照、备份、迁移、恢复和生产验真继续按本 release 的完整身份生成与核验，脚本发生变化时仍执行原审阅和验证。
+`doctor`、`recovery-review-scope`、`vm-only-validate` 读取 commit/profile；`vm-validate`、`deploy`、`deploy-start`、`deploy-follow` 再读取 mode，仍由原命令完成其各自门禁。配置加载器只补齐参数；当前 deploy 后续仍可能校验或安装 VM validator/signer 和缺失的 `jq`，尚未实现独立工具安装。Gate、candidate、生产快照、备份、迁移、恢复和生产验真继续按本 release 的完整身份生成与核验，脚本发生变化时仍执行原审阅和验证。
 
 发布启动一次后使用 `follow <release_id>` 重连，最后执行 `verify-result <release_id>` 和原后置 doctor。`status/follow/wait/verify-result/verify-recovery-result` 与内部 worker 不读取默认配置；这些入口不接受 `--config`，因此修改本地下一次发布参数不改变既有 release 的身份，也不授权重跑失败 release。
 
 ### 固定入口与环境预检
 
-普通应用发布依次准备干净且已推送的完整 SHA、更新四字段配置、运行本地 doctor、启动一次 `deploy-follow`。当前 profile `283`/`downtime` 适用时继续复用；恢复层级由 `auto` 按最终 diff、生产基线与 pending migration 判断。`fast` 的恢复验证预算不包含候选编译、归档传输、每次生产备份和切换耗时，普通应用不重复整套工具资格或 Full DR。
+普通应用发布依次准备干净且已推送的完整 SHA、更新四字段配置、运行本地 doctor、只读核对生产容量、启动一次 `deploy-follow`。生产预检使用同一入口的 `doctor --node racknerd`；VM 尚未启动不影响这个独立生产检查。当前目标使用 `284/downtime`，版本和迁移不变的后续应用提交继续沿用；不能从历史成功案例复制 `283`。恢复层级由 `auto` 按最终 diff、生产基线与 pending migration 判断。`fast` 的恢复验证预算不包含候选编译、归档传输、每次生产备份和切换耗时，普通应用不重复整套工具资格或 Full DR。
 
 ### 下次发布只调整输入
 
@@ -158,14 +158,25 @@ python -I -S -B .agents/skills/sub2api-production-deploy/scripts/release.py depl
 | --- | --- |
 | 同版本普通应用代码，无新增迁移或恢复敏感变化 | 只更新 `.release/deploy.local.json` 的完整 `commit`；沿用适用的 `profile/mode`，使用上述固定入口 |
 | 地址、健康路由、备份上传或 VM 路径变化 | 修改本地 `.ssh.local` 的对应环境配置并核验；应用四字段配置不保存连接信息 |
-| 新版本或新增迁移 | 按已有合同登记新 profile、父链与迁移；不能只改配置字符串或改写历史 profile |
+| 新版本或新增迁移 | 当前仍须同步 Python profile、Shell/签名/备份入口及必要断言，再做对应合同回归；尚不能仅新增一份配置，不能改写历史 profile |
 | 工具、恢复算法、备份格式、信任或状态机变化 | 作为工具变更单独审阅和验证，再按最终分类提供所需的新恢复证据 |
 
-`auto` 每次重新比较真实生产基线和目标；上一轮 `full` 不会变成下一轮的默认要求。2026-11-09 的发布已将本轮备份容量维护等工具变化纳入生产基线，后续普通应用 diff 不再重复包含该批变化。若新 diff 再触及敏感能力或存在 pending migration，仍由原分类器升级，不能强制改成 fast。
+`auto` 每次重新比较真实生产基线和目标；上一轮 `full` 不会变成下一轮的默认要求。分类以本次读取的生产快照、实际 diff 和 pending migration 为准，不能只凭 profile 编号或历史成功推断。若新 diff 再触及敏感能力或存在 pending migration，仍由原分类器升级，不能强制改成 fast。
+
+备份节点和 VM 分别复用已有自动容量维护；生产磁盘由独立维护入口处理，doctor 始终只读。runner 启动前为新 candidate、镜像、恢复点及临时文件预留增长余量；刚超过生产 doctor 的 10 GiB 门槛不能证明发布后仍满足门槛。需要生产空间维护时，绑定当前已上线、生产结果 verified 且 Gate consumed 的 release，使用同一次计划摘要：
+
+```text
+python -I -S -B .agents/skills/sub2api-production-deploy/scripts/release.py cleanup-production <当前已上线release_id> --mode dry-run
+python -I -S -B .agents/skills/sub2api-production-deploy/scripts/release.py cleanup-production <同一release_id> --mode apply --plan-sha256 <dry-run原样输出的plan_sha256>
+```
+
+清理后重新执行生产 doctor 并核对余量；新 release 尚未完成生产验真时不能用其 ID 授权清理。当前/切换前和容器、恢复点引用的镜像均受保护，备份、恢复点与在用 Guest 不在这个清理入口的删除范围。空间仍不足就保留阻断结果，不扩大计划、删除保护资产或修改门槛。服务器、代理或磁盘问题按环境维护处理，普通应用发布不因此重写脚本。
 
 普通发布不携带上一轮的 `--full-recovery-evidence`，也不调用 `.tmp/full-dr-*` 中的临时 driver。实际分类要求 full 时，先按 [Full DR 调度依赖](backup-and-restore.md#full-dr-与发布后基线的可重跑调度串) 完成当前目标、当前 helper 和新真实恢复资产的独审与受信签名，再将验真的新证据传给同一 `deploy-follow`；本次临时调度器仍绑定本代输入，尚不是可直接替换配置复用的正式入口。
 
-Skill、references、Wiki 和扩展审计说明不在当前执行资产闭包内；普通复盘只更新这些说明即可。不要为记录发布结果修改执行脚本、追加事故 ID 分支或补写历史审阅。当前恢复 bundle 仍含应用 commit，应用 SHA 改变时摘要可随正式公式变化；按实际工具文件摘要判断工具是否变化，不能手工沿用旧 bundle 摘要。
+Full DR 的大 scope/签名脚本通过短命令和 stdin 传输，保留原脚本摘要；不要把完整 scope 作为 SSH/Shell 的单个参数。参数超限及不确定调用的收口边界见 [配置复用与当前缺口](known-pitfalls.md#配置复用与当前缺口)。
+
+Skill、references、Wiki 和扩展审计说明不在当前执行资产闭包内；普通复盘只更新这些说明即可。发布、后置收口和验真全部完成前，复盘草稿先放 `.tmp` 等 Git 忽略的隔离目录。Full DR 临时 driver、runner 的 postdoctor，以及 `finalize-consumed` 和其 `verify-result` 分支均要求本地 checkout 干净；后者还绑定记录中的 helper 完整 SHA。文档虽不改变执行闭包，也会触发 dirty 阻断。旧结果使用对应 helper 的干净 checkout 验真，不在检查中途应用文档、修改 HEAD 或绕过检查。不要为记录结果修改执行脚本、追加事故 ID 分支或补写历史审阅。当前恢复 bundle 仍含应用 commit，应用 SHA 改变时摘要可随正式公式变化；按实际工具文件摘要判断工具是否变化，不能手工沿用旧 bundle 摘要。
 
 业务测试按最终改动选择；工具资产未变时复用既有工具验证，不因新应用 SHA 重跑完整工具测试。启动器先生成 manifest 和资产摘要再公告 release，首段暂时无输出或 manifest 尚未落盘不能当作 worker 失败；检查原启动进程，等待同一次调用完成启动，禁止再发 `deploy`。worker 启动后按原 release ID 观察。
 
@@ -198,11 +209,18 @@ python .agents/skills/sub2api-production-deploy/scripts/release.py verify-recove
 
 生产 runner 在远端 release 目录的 `logs/production.raw.log` 保存完整 stdout/stderr，并在最终接管脚本退出时追加稳定容器与临时候选容器最近 15 分钟的启动日志。目录权限固定为 `0700`、文件权限固定为 `0600`，只保留在生产机，不进入 Gate、备份 bundle、本地 `.tmp` 或报告。失败时先使用 `finalize_failure_phase`、行号、退出码和白名单错误分类定位；只有确需深入时才在生产机本地对原始日志做脱敏检索，禁止整文件回传。
 
-`wait --timeout` 到期只返回 `still_running`，绝不杀进程、重启发布或并发执行第二个 `deploy`。成功不能由退出码、健康接口或 Gate 单项推出；`verify-result` 必须重新验签并核对 VM 状态、production-result、双链路、备份 units、claim 和 signed candidate image。
+`wait --timeout` 到期只返回 `still_running`，绝不杀进程、重启发布或并发执行第二个 `deploy`。成功不能由退出码、健康接口或 Gate 单项推出；`verify-result` 必须重新验签并核对持久化的 VM 状态、production-result、双链路、备份 units、claim 和 signed candidate image 证据。
 
 普通成功 runner 的 `verify-result` 分支核对本地签名 Gate、终态 production result 和完成收据，不主动重新查询线上；不能把该命令的执行时间当作生产最新巡检时间。生产当前状态由同次 post-deploy doctor 或额外字段白名单只读检查证明，并记录实际 `checked_at`。独立 `finalize-consumed` 分支另有远端复核合同，不能与普通分支混同。
 
-验收时同时确认 runner 已退出且 exit 0、完成收据绑定 terminal runner 原字节、candidate/running image 一致，以及必需的 postdoctor 与 VM 收尾通过。原本运行的 VM 应为 running/preserved 且 lease released；事件名 `vm_shutdown` 只是通用阶段名，不能据此报告关机。已 consumed 的应用只剩后置收尾失败时按 `finalize-consumed` 合同处理，不重发应用。
+验收按原 runner 与独立收口两条路径记录：
+
+- 正常 runner：已退出、terminal verified、exit 0，完成收据绑定 terminal runner 原字节，candidate/running image 一致，必需的 postdoctor 与 VM 收尾通过。
+- 生产已 verified 且 claim consumed、原 runner 后验失败：先证明原 worker 已退出并处理失败原因，再执行 `finalize-consumed <release_id>`；原本运行的 VM 必须加 `--preserve-running-vm`。随后执行 `verify-result <release_id>`，同时核对原签名应用证据与独立 finalization、postdoctor、VM 和 owner 收口。保留原 failed/exit 1，不重发应用或重跑迁移。
+
+原本运行的 VM 应为 running/preserved 且 lease released；事件名 `vm_shutdown` 只是通用阶段名，不能据此报告关机。未满足以上路径的失败，按其已发生的阶段使用本页对应的 VM 保留入口或 `reconcile-inspect`，身份或副作用不明时保持阻断。
+
+`production_verified` 后仍会复验完整签名证据、工具资产和 candidate 归档摘要，再执行全节点 postdoctor 与 VM 收口；这一段可能暂时没有新的阶段事件。runner 仍存活时继续观察同一 release，不能把生产阶段完成当作 runner 终态，也不能另开一次部署或并发后验。
 
 蓝绿生产阶段会依次记录 `candidate_started`、`candidate_healthy`、`nginx_reloaded`、`old_slot_draining` 和 `old_slot_drained`。`old_slot_draining` 默认 deadline 为 3900 秒（含命令余量），实际连接排空上限为 3600 秒。该阶段长时间无控制台输出属于预期，必须用 `status`/`wait` 观察，不得启动第二个 runner。
 
