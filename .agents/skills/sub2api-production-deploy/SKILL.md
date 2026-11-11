@@ -13,7 +13,9 @@ description: 面向 Sub2API fork 的构建、开发门禁、应用与独立插�
 
 连接及机器路径保留在 `.ssh.local`；`vm_lifecycle.shared_dir` 指向已有的规范物理共享目录，复用其中原 `lease.lock` 和 `owner.json`，不得因 checkout 不同新建发布所有权域。配置生成、支持命令与观察重连见 [本地部署参数](references/release-runner-lifecycle.md#本地部署参数)。
 
-日常只调整应用参数，复用现有入口；恢复门禁由最终 diff、生产基线和 pending migration 分类，不因上一轮执行了 full 就把后续普通应用发布都改为 Full DR。长构建、观察超时、完成验收与尚未修复的问题见 [本轮发布经验](references/known-pitfalls.md#profile-282-发布验收与耗时边界)。
+日常只调整应用参数，复用现有入口；恢复门禁由最终 diff、生产基线和 pending migration 分类，不因上一轮执行了 full 就把后续普通应用发布都改为 Full DR。长构建、观察超时、完成验收与尚未修复的问题见 [本轮发布经验](references/known-pitfalls.md#profile-283-发布与下次复用)。
+
+2026-11-09，当前 profile `283` 的 `4e25ee74d4ca6b167b759911354da6dbb0db7f2a` 已完成受信签名 Full DR、VM Gate、停机生产发布、`verify-result`、postdoctor 和完成收据验收，执行中未修改正式发布脚本。下次同版本普通应用只更新本地配置的完整 `commit`，沿用 `283/downtime`，由 `auto` 对实际生产基线到目标提交分类；本次 full 的触发原因和临时调度限制见 [Profile 283 发布与下次复用](references/known-pitfalls.md#profile-283-发布与下次复用)。日常入口和参数边界以 [固定入口与环境预检](references/release-runner-lifecycle.md#固定入口与环境预检) 为准。
 
 2026-11-05 的两个普通后端提交 `af962…`、`781902…` 已复用完全相同的 139 项工具资产，通过各自的 `fast / ordinary_change`、新 5/5 构建依赖 proof、签名 VM Gate 和停机生产验收。下次先完成最终 SHA 的适用业务回归并推送，只更新本地配置的 `commit`，再按 [固定入口与环境预检](references/release-runner-lifecycle.md#固定入口与环境预检) 启动一次 runner；不为普通应用提交新增 profile、重写工具或追加精确工具审阅。VMware 服务、registry TLS/EOF 或 VM Git 对象缺失按环境故障定位和维护，不以故障名称新增发布实现分支。耗时、恢复包身份与现有限制见 [普通应用 fast 发布与环境故障](references/known-pitfalls.md#普通应用-fast-发布与环境故障)。
 
@@ -22,7 +24,7 @@ description: 面向 Sub2API fork 的构建、开发门禁、应用与独立插�
 - 读取 `.ssh.local` 只能作为连接输入；禁止输出、提交或记录密码、私钥、token、`.env`、完整环境变量、展开后的 Compose 和原始连接资料。
 - 用户已授权发布或恢复演练时，所需的新备份加密 identity 由执行器自行准备：优先复用权限合格且可证明匹配的专用 identity；缺失时自动生成唯一的新 age X25519 identity，用其公开 recipient 加密新建备份，不再询问用户是否生成、要求用户提供私钥或指定存放路径。私钥持久保存在工作区外的用户专属安全存储，隔离恢复环境仅使用受控副本；生成、权限、持久保管、加解密自检及新资产真实恢复均需验证。新 key 不能解密旧密文；本次未取得旧资产匹配 key 时保留旧资产并报告其恢复验证未完成，当前发布采用新建备份继续验证。普通停机回退使用已校验的临时明文恢复包，无需提供解密私钥。备份 key 与 VM Gate/DR Ed25519 签名信任根分别管理，本条不授权替换签名信任根、改写旧证据或绕过门禁。完整规则见 [备份密钥自动准备](references/backup-and-restore.md#备份密钥自动准备)。
 - 生产节点的发布命令、状态检查、镜像与恢复包传输必须使用 `.ssh.local` 中配置的 SSH 路由；当配置指定 SSH 中继时，必须使用其中登记的 relay observer、listen address 和端口。禁止静默回退到本机 SOCKS、legacy relay 或直连；配置不完整或路由失败时必须停止。
-- 任何远程写操作前先给出方案并获得用户确认；只读核验也必须采用字段白名单。
+- 远程写操作须在用户已授权的范围内执行；用户已明确授权部署或恢复演练时，必要的准备、门禁、切换和收口连续执行，不逐阶段重复询问。新增范围的写操作另行授权；只读核验采用字段白名单。
 - 生产旧容器在 candidate 构建、传输和验证完成前保持运行。
 - 正常应用发布使用 active/candidate 双槽：候选先在备用 loopback 端口启动，Nginx 通过原子 upstream 文件和 graceful reload 切流，旧容器最长排空 60 分钟后再停止。排空超时或连接状态不确定时优先把路由 reload 回旧槽，禁止强杀旧长连接。协调数据恢复仍允许停机。
 - 应用发布身份必须是完整 40 位 commit SHA、唯一 full-SHA tag 和不可变 `candidate_image_id`；运维资产至少记录完整 commit SHA。禁止用 `latest`、`main` 或短版本作为应用身份。

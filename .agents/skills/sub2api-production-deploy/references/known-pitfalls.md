@@ -446,6 +446,37 @@ Full DR 在成功 runner 之前独立执行；上述阶段不是互不重叠的�
 
 现有恢复 helper bundle 的 schema 1 文档仍包含应用 `commit_sha`，因此两个应用提交的 `recovery_helper_bundle_sha256` 不同；两者均按当前正式公式验真，工具文件摘要闭包相同。此差异不要求修改工具或补审阅，也不能以手工固定旧摘要消除。独立工具身份协议尚未实现，普通发布继续使用当前合同。
 
+## Profile 283 发布与下次复用
+
+2026-11-09，目标 `4e25ee74d4ca6b167b759911354da6dbb0db7f2a`（profile `283`、`downtime`）已完成真实加密 Full DR、独立审阅及受信签名、签名 VM Gate、生产发布、`verify-result`、全节点 postdoctor 和 terminal runner 完成收据验真。candidate 与生产运行 image 完全一致，claim consumed、owner released，原本运行的 VM 保持 running/preserved。正式 runner 退出 0；执行期间没有修改正式发布脚本。
+
+本轮生产基线 `0e283cf4bc2d786426fd72ee1474e590cd70bdb2` 到目标含备份容量维护等发布控制代码变化，分类原因精确为 `recovery_change_requires_review`、`release_state_machine_changed`。所需 Full DR 已基于同一目标/helper、新加密资产实际恢复 PostgreSQL/Redis/Compose，8 个 checkpoint 各应用一次，真实中断续跑和清理验真通过；独立后置审阅 46/46 通过。后续普通应用基于已部署的新生产基线重新分类，不因本次 full 重做整轮演练。
+
+| 阶段 | 实测耗时 |
+| --- | --- |
+| Gate 前加密 source capture | 5 分 31.770 秒 |
+| 密文下载及本地验真 | 2 分 38.363 秒 |
+| Full DR RTO，含恢复、中断续跑及 Guest 清理 | 31 分 44.883 秒，预算 120 分钟 |
+| 后置独审及批准 | 10.443 秒 |
+| DR 签名及本地验真 | 17 秒 |
+| 正式 runner 启动至完成 | 36 分 07 秒 |
+| runner 内预检及恢复输入准备 | 9 分 21.339 秒 |
+| 其中本次构建依赖 proof | 47.437 秒 |
+| VM validate，含 candidate 构建和恢复/迁移验证 | 10 分 58.284 秒 |
+| production release | 12 分 52.674 秒 |
+| 其中生产备份，保持旧流量 | 7 分 10 秒 |
+
+Full DR 先于正式 runner，表中含有父子阶段，不能逐行相加。切换阶段到恢复公网入口的日志窗口为 89 秒；没有精确旧进程停止时戳，不能写成实测停写时长。生产于北京时间 17:49:13 验真，runner 于 17:50:24 完成。单次 release/drill ID、签名和原始收据保留在本地 `.tmp` 与相应远端受控证据目录。
+
+下次直接按 [下次发布只调整输入](release-runner-lifecycle.md#下次发布只调整输入) 更新应用 SHA 并启动唯一 runner。本轮同时确认以下操作边界：
+
+- 控制台心跳中的 `not_started` 可能指生产尚未开始；当 `runner_alive=true`、`vm_status=running` 时，仍须跟踪当前任务。VM 构建、恢复输入生成与传输不会持续打印全部进度，先看结构化阶段和只读进程/字节变化，不启动第二个发布。
+- Full DR 续跑会重新做已完成 PostgreSQL 检查点的数据摘要复核；真实大表查询会产生较大的临时文件。本轮最低可用空间约 6.4 GiB，CPU/I/O 持续推进，查询结束后空间自动释放。单次空间下降不是可手工删库、删卷或清理在用文件的依据；容量维护沿用既有清理器和保护规则。
+- `full-dr-*` 临时 driver/reviewer 包含本代 target、授权、source、摘要和隔离 runtime 输入。此次临时审阅器的调整经过独立审阅；这不等于 Full DR 端到端调度已产品化。普通 fast 不需要这些 driver；下一次确需 full 时仍须新建并审阅当前输入，不能复制旧 approval 或仅替换旧证据中的 SHA。
+- 本次正常调用了已提交的自动备份容量检查，空间足够时返回 `not_needed`。这验证了无需临场改脚本的正常路径，不代表本次真的执行了容量删除，也没有修复所有历史 promotion 故障。
+
+本轮没有完成新的 postrelease 灾备基线晋升，也没有交付独立工具版本的安装/lock/资格协议；恢复 bundle 身份仍按当前含应用 commit 的合同计算。上述边界不能因应用发布成功而改写。
+
 ## 长构建与观察截止不等于 worker 停止
 
 - 本轮 backend APK 下载是主要等待之一；依赖 proof 成功只证明五项 registry metadata 和一次 BuildKit 物化，不证明后续 APK/npm/Go 下载或编译持续可用。不要因 proof 通过就把后续等待当作 runner 死锁。

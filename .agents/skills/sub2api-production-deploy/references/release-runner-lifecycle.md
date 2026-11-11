@@ -126,12 +126,12 @@ Windows 下 runner、Python、OpenSSL、Git Bash 和 Go 子进程统一走 `scri
 
 ```powershell
 $commit = (git rev-parse --verify 'HEAD^{commit}').Trim()
-$config = @{ schema = 1; commit = $commit; profile = '282'; mode = 'downtime' }
+$config = @{ schema = 1; commit = $commit; profile = '283'; mode = 'downtime' }
 New-Item -ItemType Directory -Force '.release' | Out-Null
 [IO.File]::WriteAllText((Join-Path $PWD '.release/deploy.local.json'), ($config | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
 ```
 
-配置只接受这四个字段：`schema` 为整数 `1`，`commit` 为完整 40 位小写 SHA，`profile` 为已登记字符串，`mode` 为 `blue-green` 或 `downtime`。当前 `282` 要求停机；配置不能改写 profile 的版本、父链、迁移或发布限制，也不能包含凭据、连接、命令或机器路径。重复键、未知字段和非法值在连接 SSH 前拒绝。
+配置只接受这四个字段：`schema` 为整数 `1`，`commit` 为完整 40 位小写 SHA，`profile` 为已登记字符串，`mode` 为 `blue-green` 或 `downtime`。当前 `283` 要求停机；配置不能改写 profile 的版本、父链、迁移或发布限制，也不能包含凭据、连接、命令或机器路径。重复键、未知字段和非法值在连接 SSH 前拒绝。
 
 已有有效配置且版本、迁移和部署限制未变时，下次只替换 `commit` 为 `git rev-parse --verify 'HEAD^{commit}'` 的完整输出，保留其他三个字段；无需改任何脚本、profile 或历史审阅登记。先确认工作区干净、适用业务回归绑定最终 SHA，且该 SHA 已推送到 `origin/main`，再执行下面两个入口。原有配置无效时停止处理，不能用整文件重建掩盖坏字段。
 
@@ -139,7 +139,7 @@ New-Item -ItemType Directory -Force '.release' | Out-Null
 
 ```text
 python -I -S -B .agents/skills/sub2api-production-deploy/scripts/release.py doctor --node local
-python -I -S -B .agents/skills/sub2api-production-deploy/scripts/release.py deploy-follow --lang zh-CN
+python -I -S -B .agents/skills/sub2api-production-deploy/scripts/release.py deploy-follow --recovery-gate-mode auto --lang zh-CN --heartbeat 60
 ```
 
 默认配置取入口所在仓库的 `.release/deploy.local.json`；也可显式传入 `--config <文件路径>`。显式完整的 `--commit/--profile/--mode` 优先于配置，文件不存在时仍可沿用完整 CLI 参数；显式指定的文件缺失或损坏则停止。配置必须整体有效，不能靠 CLI 覆盖掩盖坏字段；重复 CLI 参数及参数缩写也拒绝。
@@ -150,7 +150,22 @@ python -I -S -B .agents/skills/sub2api-production-deploy/scripts/release.py depl
 
 ### 固定入口与环境预检
 
-普通应用发布依次准备干净且已推送的完整 SHA、更新四字段配置、运行本地 doctor、启动一次 `deploy-follow`。当前 profile `282`/`downtime` 适用时继续复用；恢复层级由 `auto` 按最终 diff、生产基线与 pending migration 判断。`fast` 的恢复验证预算不包含候选编译、归档传输、每次生产备份和切换耗时，普通应用不重复整套工具资格或 Full DR。
+普通应用发布依次准备干净且已推送的完整 SHA、更新四字段配置、运行本地 doctor、启动一次 `deploy-follow`。当前 profile `283`/`downtime` 适用时继续复用；恢复层级由 `auto` 按最终 diff、生产基线与 pending migration 判断。`fast` 的恢复验证预算不包含候选编译、归档传输、每次生产备份和切换耗时，普通应用不重复整套工具资格或 Full DR。
+
+### 下次发布只调整输入
+
+| 本次变化 | 调整位置与执行方式 |
+| --- | --- |
+| 同版本普通应用代码，无新增迁移或恢复敏感变化 | 只更新 `.release/deploy.local.json` 的完整 `commit`；沿用适用的 `profile/mode`，使用上述固定入口 |
+| 地址、健康路由、备份上传或 VM 路径变化 | 修改本地 `.ssh.local` 的对应环境配置并核验；应用四字段配置不保存连接信息 |
+| 新版本或新增迁移 | 按已有合同登记新 profile、父链与迁移；不能只改配置字符串或改写历史 profile |
+| 工具、恢复算法、备份格式、信任或状态机变化 | 作为工具变更单独审阅和验证，再按最终分类提供所需的新恢复证据 |
+
+`auto` 每次重新比较真实生产基线和目标；上一轮 `full` 不会变成下一轮的默认要求。2026-11-09 的发布已将本轮备份容量维护等工具变化纳入生产基线，后续普通应用 diff 不再重复包含该批变化。若新 diff 再触及敏感能力或存在 pending migration，仍由原分类器升级，不能强制改成 fast。
+
+普通发布不携带上一轮的 `--full-recovery-evidence`，也不调用 `.tmp/full-dr-*` 中的临时 driver。实际分类要求 full 时，先按 [Full DR 调度依赖](backup-and-restore.md#full-dr-与发布后基线的可重跑调度串) 完成当前目标、当前 helper 和新真实恢复资产的独审与受信签名，再将验真的新证据传给同一 `deploy-follow`；本次临时调度器仍绑定本代输入，尚不是可直接替换配置复用的正式入口。
+
+Skill、references、Wiki 和扩展审计说明不在当前执行资产闭包内；普通复盘只更新这些说明即可。不要为记录发布结果修改执行脚本、追加事故 ID 分支或补写历史审阅。当前恢复 bundle 仍含应用 commit，应用 SHA 改变时摘要可随正式公式变化；按实际工具文件摘要判断工具是否变化，不能手工沿用旧 bundle 摘要。
 
 业务测试按最终改动选择；工具资产未变时复用既有工具验证，不因新应用 SHA 重跑完整工具测试。启动器先生成 manifest 和资产摘要再公告 release，首段暂时无输出或 manifest 尚未落盘不能当作 worker 失败；检查原启动进程，等待同一次调用完成启动，禁止再发 `deploy`。worker 启动后按原 release ID 观察。
 
