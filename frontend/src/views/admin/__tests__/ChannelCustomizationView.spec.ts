@@ -101,7 +101,7 @@ describe('ChannelCustomizationView', () => {
     await flushPromises()
     await wrapper.get('[data-testid="customization-rule-0"] button[title="admin.customization.edit"]').trigger('click')
     await wrapper.get('[data-testid="customization-message-match-mode"]').setValue('regex')
-    await wrapper.get('[data-testid="customization-rule-form"] input.font-mono').setValue('^hi$')
+    await wrapper.get('[data-testid="customization-message-text"]').setValue('^hi$')
     await wrapper.get('[data-testid="customization-rule-form"]').trigger('submit')
     await wrapper.get('header button.btn-primary').trigger('click')
     expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({
@@ -152,6 +152,34 @@ describe('ChannelCustomizationView', () => {
     await wrapper.get('[data-testid="customization-rule-0"] button[title="admin.customization.edit"]').trigger('click')
     expect((wrapper.get('[data-testid="customization-action-select"]').element as HTMLSelectElement).value).toBe('local_response')
     expect(wrapper.get('[data-testid="customization-local-response-fields"]').exists()).toBe(true)
+  })
+
+  it('preserves long multiline exact text through editing and saving', async () => {
+    const message = `First line\n${'完整题目'.repeat(100)}\nLast line`
+    getSettings.mockResolvedValueOnce({ observer: { enabled: false }, rules: [{ ...rule, request_message_match_mode: 'exact', request_message_text: message }] })
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('[data-testid="customization-rule-0"] button[title="admin.customization.edit"]').trigger('click')
+
+    expect((wrapper.get('[data-testid="customization-message-text"]').element as HTMLTextAreaElement).value).toBe(message)
+    await wrapper.get('[data-testid="customization-rule-form"]').trigger('submit')
+    await wrapper.get('header button.btn-primary').trigger('click')
+
+    expect(showError).not.toHaveBeenCalled()
+    expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({ rules: [expect.objectContaining({ request_message_match_mode: 'exact', request_message_text: message, response_body: '{}', status_code: 200, content_type: 'application/json' })] }))
+  })
+
+  it.each([
+    { mode: 'exact', text: '题'.repeat(5462) },
+    { mode: 'regex', text: '题'.repeat(86) }
+  ])('rejects oversized UTF-8 $mode message text without sending settings', async ({ mode, text }) => {
+    getSettings.mockResolvedValueOnce({ observer: { enabled: false }, rules: [{ ...rule, request_message_match_mode: mode, request_message_text: text }] })
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('header button.btn-primary').trigger('click')
+
+    expect(showError).toHaveBeenCalled()
+    expect(updateSettings).not.toHaveBeenCalled()
   })
 
   it('shows active target groups and saves a group mapping action', async () => {

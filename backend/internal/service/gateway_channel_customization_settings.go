@@ -15,11 +15,12 @@ import (
 )
 
 const (
-	gatewayChannelCustomizationMaxRules       = 100
-	gatewayChannelCustomizationMaxTargets     = 100
-	gatewayChannelCustomizationMaxStringBytes = 256
-	gatewayChannelCustomizationMaxBodyBytes   = 64 * 1024
-	gatewayChannelCustomizationMaxDelayMs     = 10000
+	gatewayChannelCustomizationMaxRules             = 100
+	gatewayChannelCustomizationMaxTargets           = 100
+	gatewayChannelCustomizationMaxStringBytes       = 256
+	gatewayChannelCustomizationMaxExactMessageBytes = 16 * 1024
+	gatewayChannelCustomizationMaxBodyBytes         = 64 * 1024
+	gatewayChannelCustomizationMaxDelayMs           = 10000
 )
 
 const (
@@ -174,8 +175,12 @@ func normalizeAndValidateGatewayCustomizationRule(rule *GatewayChannelCustomizat
 	if err := validateCustomizationStringList(rule.UserAgentContains, index, "user agent conditions"); err != nil {
 		return err
 	}
-	if !validUTF8AndMax(rule.RequestMessageText, gatewayChannelCustomizationMaxStringBytes) {
-		return infraerrors.BadRequest("INVALID_GATEWAY_CHANNEL_CUSTOMIZATION_CONDITION", fmt.Sprintf("rule %d request message text is too long or invalid", index+1))
+	messageLimit := gatewayChannelCustomizationMaxStringBytes
+	if rule.RequestMessageMatchMode == GatewayChannelCustomizationRequestMessageMatchModeExact {
+		messageLimit = gatewayChannelCustomizationMaxExactMessageBytes
+	}
+	if !validUTF8AndMax(rule.RequestMessageText, messageLimit) {
+		return infraerrors.BadRequest("INVALID_GATEWAY_CHANNEL_CUSTOMIZATION_CONDITION", fmt.Sprintf("rule %d request message text must be valid UTF-8 and at most %d bytes", index+1, messageLimit))
 	}
 	if rule.RequestMessageMatchMode == GatewayChannelCustomizationRequestMessageMatchModeRegex && rule.RequestMessageText != "" {
 		if _, err := regexp.Compile(rule.RequestMessageText); err != nil {
