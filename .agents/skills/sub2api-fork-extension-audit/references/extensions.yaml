@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "catalog_version": "2026-11-11",
+  "catalog_version": "2026-11-12",
   "version_contract": {
     "upstream_path": "backend/cmd/server/VERSION",
     "fork_suffix": "-baiyu",
@@ -3297,6 +3297,38 @@
         "只增加业务拒绝及总请求口径，SLA故障数及分母排除业务拒绝，上游错误要求provider归因；继续使用既有有界异步队列、丢弃监控和日志留存。",
         "管理查询reason=model_not_allowed精确过滤，并在业务拒绝视图复用分组、客户端模型和时间筛选；中英文页面均可访问，默认故障视图保持原行为。",
         "旧入口聚合没有请求模型和历史分组，不能猜补成逐请求明细；本扩展不新增迁移、profile或生产开关。"
+      ]
+    },
+    {
+      "id": "account-stats-cache-ttl-breakdown",
+      "title": "账号成本统计保留缓存时长分项",
+      "description": "对齐官方PR #8010所述兼容修复，在Anthropic账号成本重算入口保留有效5m/1h缓存写入分项，避免已知1h写入回退到5m价格。",
+      "ownership": "fork",
+      "risk_level": "high",
+      "paths": [
+        "backend/internal/service/gateway_usage_billing.go",
+        "backend/internal/service/gateway_account_stats_cache_ttl_test.go"
+      ],
+      "symbols": [
+        "recordUsageCore",
+        "applyAccountStatsCost",
+        "CacheCreation5mTokens",
+        "CacheCreation1hTokens"
+      ],
+      "api_routes": [],
+      "settings_keys": [],
+      "migration_files": [],
+      "required_tests": [
+        "backend/internal/service/gateway_account_stats_cache_ttl_test.go",
+        "backend/internal/service/account_stats_pricing_test.go",
+        "backend/internal/service/billing_service_test.go"
+      ],
+      "invariants": [
+        "recordUsageCore给applyAccountStatsCost传递与用户计费同次请求的有效5m/1h缓存写入分项，保留已应用的账号TTL覆盖；模型默认价格和自定义账号统计规则均按各时长计算，不把已知1h写入当作缺失明细。",
+        "用户销售定价、实际扣费、账号倍率快照和账号额度计量沿用既有口径；账号统计成本与供应商实际账单分别解释，不强制任意价卡下成本等于用户费用乘账号倍率。",
+        "纯5m与真正缺失分项的聚合用量保持既有普通/5m价格回退，渠道应用售价到账号统计的开关及自定义规则优先级不变。",
+        "TestGatewayServiceRecordUsage_AccountStatsPreservesCacheTTLBreakdown从RecordUsage入口覆盖默认/自定义价卡与纯1h、混合5m/1h、纯5m、聚合和强制1h覆盖，同时断言用户扣费与账号倍率；TestGatewayServiceRecordUsage_AccountStatsOneHourCacheCost固定销售与账号成本不同倍率下的一小时写入费用。",
+        "不新增配置、数据库迁移或发布profile，不修改已持久化历史成本；历史回算另行授权验证。本地回归不表示VM Gate或生产部署；未来官方合并同义修复时重新核对覆盖，避免重复实现。"
       ]
     },
     {

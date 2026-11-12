@@ -40,6 +40,7 @@
 | 账号页运行态与渲染 | 普通账号页与上游管理页的隐藏列、排序、自动刷新配置、ETag、请求 generation 和静默窗口完全隔离；切换 scope 后旧响应不得覆盖；健康历史单 Tooltip；TTFT 全页单 ticker；DataTable 测量使用可取消的 rAF 合并 |
 | 账号列表分组展示顺序 | `AccountsView.lite.spec.ts` 与 `AccountGroupsCell.spec.ts`：分组列按分组 `sort_order`、ID 升序展示，绑定顺序和排序值相同场景稳定；优先池星标按原分组 ID 保留；不得改写 `group_ids`、`preferred_group_ids`、`account_groups.priority`、保存或调度行为 |
 | 成本与归因 | 倍率/Priority 独立、原始倍率不公开、余额与价格快照、usage/batch-image 归因不随后续解绑变化 |
+| 账号成本缓存时长明细 | `gateway_account_stats_cache_ttl_test.go` 的 `TestGatewayServiceRecordUsage_AccountStatsPreservesCacheTTLBreakdown` 从 `RecordUsage` 入口覆盖模型默认价格/自定义账号统计规则与纯1h、混合5m/1h、纯5m、仅聚合和强制1h覆盖；核对成本时长价格、用户扣费不变与账号倍率快照。`TestGatewayServiceRecordUsage_AccountStatsOneHourCacheCost` 固定不同销售/账号倍率下的一小时写入费用。关联 `account_stats_pricing_test.go`、`billing_service_test.go` 回归价卡优先级及缺失明细5m回退；历史成本不回写，无新增迁移/profile。本地结果不代表VM Gate或上线 |
 | Channel Monitor V2 | managed Key 生命周期、倍率趋势、分组权限、隐私默认值、错误分类和缓存/rollup |
 | 渠道监控 V1 SSE 探针 | OpenAI Responses 等流式探针允许超过旧 64 KiB 的完整事件；单次有界读取 1 MiB，超限报明确容量错误而非 JSON EOF；损坏 JSON 与未完成流仍分别报错，TTFT、challenge、重试和非流式 64 KiB 上限不回归 |
 | 渠道监控 SSE 兼容与超时落库 | `channel_monitor_sse_test.go`、`channel_monitor_persistence_test.go`、`channel_monitor_retry_test.go`：标准多行/连续对象/独立DONE、字符串DONE与相同delta、帧原子提交、终止后坏尾部/协议错误/新文本拒绝、TTFT保留与1MiB边界；子deadline过期父任务活仍写失败历史，父预取消/写库中取消/历史后取消、history失败不MarkChecked、MarkChecked失败保留历史、manual取消和共用5秒预算；全部使用离线fixture与尊重ctx的repository桩 |
