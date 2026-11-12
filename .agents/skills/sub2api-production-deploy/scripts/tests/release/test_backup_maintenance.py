@@ -224,3 +224,72 @@ def test_corrupt_verified_receipt_is_not_reported_as_success(tmp_path, invalid):
         call(tmp_path, runner2, environment2)
     runner2.run.assert_not_called()
     runner2.run_with_input.assert_not_called()
+
+
+def test_uploaded_transport_requires_space_for_promotion_copy(tmp_path):
+    # This previously skipped cleanup, then consumed the doctor minimum when
+    # promotion copied the same encrypted artifact into the release directory.
+    artifact_size = 1_500_000_000
+    runner, environment = context(REQUIRED + 400_000_000)
+    first = call(tmp_path, runner, environment)
+    assert first["status"] == "not_needed"
+    required = REQUIRED + artifact_size
+    runner2, environment2 = context()
+    result_values = applied(); result_values["free_after"] = str(required + 100)
+    runner2.run.side_effect = [
+        SimpleNamespace(values={"backup_free_bytes": str(MINIMUM - 1)}),
+        SimpleNamespace(values={"backup_free_bytes": str(required + 50)}),
+    ]
+    runner2.run_with_input.side_effect = [SimpleNamespace(values=plan()), SimpleNamespace(values=result_values)]
+    result = ensure_backup_capacity(runner2, environment2, MINIMUM, tmp_path, CURRENT,
+                                    pending_write_bytes=artifact_size)
+    assert result["status"] == "verified"
+    assert result["required_free_bytes"] == first["required_free_bytes"] == REQUIRED
+    assert result["last_required_free_bytes"] == required
+    assert result["pending_write_bytes"] == artifact_size
+    assert result["free_after"] - artifact_size >= REQUIRED
+    assert runner2.run_with_input.call_count == 2
+
+
+@pytest.mark.parametrize("invalid", [-1, True, "100", 1.5, 2 ** 63])
+def test_invalid_pending_write_size_never_connects_or_writes_receipt(tmp_path, invalid):
+    runner, environment = context()
+    with pytest.raises(ValueError, match="pending write"):
+        ensure_backup_capacity(runner, environment, MINIMUM, tmp_path, CURRENT,
+                               pending_write_bytes=invalid)
+    runner.run.assert_not_called()
+    assert not (tmp_path / "backup-maintenance.json").exists()
+
+
+def test_larger_promotion_requirement_never_repeats_completed_cleanup(tmp_path):
+    runner, environment = context()
+    first = call(tmp_path, runner, environment)
+    runner2, environment2 = context(REQUIRED + 50)
+    with pytest.raises(RuntimeError, match="drifted"):
+        ensure_backup_capacity(runner2, environment2, MINIMUM, tmp_path, CURRENT,
+                               pending_write_bytes=100)
+    result = receipt(tmp_path)
+    assert result["status"] == "blocked"
+    assert result["plan"] == first["plan"] and result["apply"] == first["apply"]
+    runner2.run_with_input.assert_not_called()
+
+
+def test_successful_promotion_capacity_recheck_preserves_original_cleanup(tmp_path):
+    runner, environment = context()
+    first = call(tmp_path, runner, environment)
+    runner2, environment2 = context(REQUIRED + 500)
+    result = ensure_backup_capacity(runner2, environment2, MINIMUM, tmp_path, CURRENT,
+                                    pending_write_bytes=100)
+    assert result["status"] == "verified"
+    assert result["plan"] == first["plan"] and result["apply"] == first["apply"]
+    assert result["last_required_free_bytes"] == REQUIRED + 100
+    runner2.run_with_input.assert_not_called()
+
+
+def test_pending_copy_cannot_use_an_insufficient_cleanup_projection(tmp_path):
+    runner, environment = context()
+    with pytest.raises(RuntimeError, match="eligible backup bundles"):
+        ensure_backup_capacity(runner, environment, MINIMUM, tmp_path, CURRENT,
+                               pending_write_bytes=2 * 1024 ** 3)
+    assert runner.run_with_input.call_count == 1
+    assert receipt(tmp_path)["status"] == "blocked"

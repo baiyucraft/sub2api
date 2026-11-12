@@ -83,6 +83,8 @@ def ensure_backup_capacity(
     minimum_free_bytes: int,
     run_dir: Path,
     release_id: str,
+    *,
+    pending_write_bytes: int = 0,
 ) -> dict[str, Any]:
     """Perform one bounded, receipt-backed release-bundle cleanup if needed.
 
@@ -91,16 +93,22 @@ def ensure_backup_capacity(
     """
     if not RELEASE_ID.fullmatch(release_id) or type(minimum_free_bytes) is not int or minimum_free_bytes <= 0:
         raise ValueError("backup maintenance context is invalid")
+    base_required = minimum_free_bytes + UPLOAD_RESERVE_BYTES
+    if (type(pending_write_bytes) is not int or pending_write_bytes < 0
+            or base_required + pending_write_bytes >= 2 ** 63):
+        raise ValueError("backup pending write size is invalid")
     if run_dir.is_symlink():
         raise RuntimeError("backup maintenance receipt directory is unsafe")
     run_dir.mkdir(parents=True, exist_ok=True)
     receipt_path = run_dir / "backup-maintenance.json"
-    required = minimum_free_bytes + UPLOAD_RESERVE_BYTES
-    receipt: dict[str, Any] = {"schema": 1, "release_id": release_id, "required_free_bytes": required}
+    required = base_required + pending_write_bytes
+    # Keep the schema-1 identity stable across the early check and promotion.
+    # The latter knows the exact size of the additional encrypted copy.
+    receipt: dict[str, Any] = {"schema": 1, "release_id": release_id, "required_free_bytes": base_required}
     if receipt_path.exists() or receipt_path.is_symlink():
         prior = json.loads(read_replaceable_text(receipt_path))
         if (not isinstance(prior, dict) or type(prior.get("schema")) is not int or prior.get("schema") != 1
-                or prior.get("release_id") != release_id or prior.get("required_free_bytes") != required
+                or prior.get("release_id") != release_id or prior.get("required_free_bytes") != base_required
                 or prior.get("status") not in {"not_needed", "verified", "planned", "applying", "blocked"}):
             raise RuntimeError("existing backup maintenance receipt is invalid")
         if prior["status"] in {"planned", "applying", "blocked"}:
@@ -109,9 +117,11 @@ def ensure_backup_capacity(
             if not isinstance(prior.get("plan"), dict) or not isinstance(prior.get("apply"), dict):
                 raise RuntimeError("verified backup maintenance receipt is incomplete")
             _verified_apply(prior["apply"], prior["plan"], _plan(prior["plan"], release_id))
-            if _number(prior["apply"], "free_after") < required:
+            if _number(prior["apply"], "free_after") < base_required:
                 raise RuntimeError("verified backup maintenance receipt has insufficient capacity")
         receipt = prior
+    receipt["pending_write_bytes"] = pending_write_bytes
+    receipt["last_required_free_bytes"] = required
 
     def save(status: str) -> None:
         receipt["status"] = status

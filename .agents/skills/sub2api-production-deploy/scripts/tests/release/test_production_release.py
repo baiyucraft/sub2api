@@ -361,6 +361,61 @@ class ProductionRecoveryTest(unittest.TestCase):
         self.assertFalse(release.frozen)
         self.assertFalse(release.units_masked)
 
+    def test_backup_reserves_exact_promotion_copy_before_staging(self) -> None:
+        release = self.release()
+        release._generate_backup = mock.Mock(return_value={
+            "artifact_size": "1500000000", "artifact_sha256": "digest",
+            "transport_artifact": "transport", "local_restore_point_ready": "true",
+        })
+        release.runner.create_temp_dir.return_value = "/tmp/release-promote.test"
+        release.run_remote = mock.Mock(side_effect=[
+            {"release_sha256": "digest", "release_free_bytes": str(6 * 1024 ** 3)},
+            {"cleanup": "true"},
+        ])
+        def reserve(*args, **kwargs):
+            release.runner.create_temp_dir.assert_not_called()
+            self.assertEqual(kwargs["pending_write_bytes"], 1_500_000_000)
+        self.maintenance.side_effect = reserve
+        release.backup()
+        self.assertEqual(release.stage.call_args_list[-1].args[0], "backup_verified")
+
+    def test_backup_capacity_shortfall_never_stages_or_promotes(self) -> None:
+        release = self.release()
+        release._generate_backup = mock.Mock(return_value={
+            "artifact_size": "1500000000", "local_restore_point_ready": "true",
+        })
+        self.maintenance.side_effect = RuntimeError("insufficient promotion capacity")
+        with self.assertRaisesRegex(RuntimeError, "insufficient promotion capacity"):
+            release.backup()
+        release.runner.create_temp_dir.assert_not_called()
+        release.run_remote.assert_not_called()
+
+    def test_backup_rejects_invalid_artifact_size_before_promotion(self) -> None:
+        for size in ("0", "-1", "01", True, "nan", "9" * 20):
+            with self.subTest(size=size):
+                release = self.release()
+                release._generate_backup = mock.Mock(return_value={
+                    "artifact_size": size, "local_restore_point_ready": "true",
+                })
+                with self.assertRaisesRegex(RuntimeError, "artifact size"):
+                    release.backup()
+                release.runner.create_temp_dir.assert_not_called()
+
+    def test_backup_rejects_insufficient_actual_post_promotion_capacity(self) -> None:
+        release = self.release()
+        release._generate_backup = mock.Mock(return_value={
+            "artifact_size": "1500000000", "artifact_sha256": "digest",
+            "transport_artifact": "transport", "local_restore_point_ready": "true",
+        })
+        release.runner.create_temp_dir.return_value = "/tmp/release-promote.test"
+        release.run_remote = mock.Mock(side_effect=[
+            {"release_sha256": "digest", "release_free_bytes": "1"},
+            {"cleanup": "true"},
+        ])
+        with self.assertRaisesRegex(RuntimeError, "insufficient backup capacity"):
+            release.backup()
+        self.assertNotIn("backup_verified", [call.args[0] for call in release.stage.call_args_list])
+
     def test_backup_promotion_retries_with_bounded_backoff(self) -> None:
         release = self.release()
         release.profile = {"minimum_backup_free_bytes": 1}

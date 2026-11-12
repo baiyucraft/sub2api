@@ -6,6 +6,7 @@ release_id=${RELEASE_ID:?RELEASE_ID is required}
 transport_name=${TRANSPORT_ARTIFACT_NAME:?TRANSPORT_ARTIFACT_NAME is required}
 artifact_sha=${ARTIFACT_SHA256:?ARTIFACT_SHA256 is required}
 minimum_free_bytes=${MINIMUM_FREE_BYTES:-5368709120}
+[[ $minimum_free_bytes =~ ^[1-9][0-9]{0,17}$ ]]
 [[ $release_id =~ ^(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273|274|275|276|277|278|279|280|281|282|283|284)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
 [[ $transport_name =~ ^sub2api-[0-9]{8}T[0-9]{6}Z\.tar\.age$ ]]
 [[ $artifact_sha =~ ^[0-9a-f]{64}$ ]]
@@ -27,7 +28,13 @@ source_checksum="$source_artifact.sha256"
 grep -Eq "^${artifact_sha}[[:space:]]+\*?${transport_name}$" "$source_checksum"
 _required_2=$(sha256sum "$source_artifact" | awk '{print $1}')
 [[ ${_required_2} == "$artifact_sha" ]]
-free_bytes=$(df -PB1 "$backup_root" | awk 'NR==2{print $4}')
+read_free_bytes() {
+  local observed
+  observed=$(df -PB1 "$backup_root" | awk 'NR==2{print $4}') || return $?
+  [[ $observed =~ ^(0|[1-9][0-9]{0,17})$ ]] || return 1
+  printf '%s\n' "$observed"
+}
+free_bytes=$(read_free_bytes)
 (( free_bytes >= minimum_free_bytes ))
 profile=${release_id%%-*}
 release_root="$backup_root/releases/$profile"
@@ -68,6 +75,8 @@ verify_bundle() {
 
 if [[ -d $target && ! -L $target ]]; then
   verify_bundle "$target"
+  free_bytes=$(read_free_bytes)
+  (( free_bytes >= minimum_free_bytes ))
   printf 'backup_promotion=verified\n'
   printf 'release_artifact=%s\n' "$release_id"
   printf 'release_sha256=%s\n' "$artifact_sha"
@@ -75,6 +84,10 @@ if [[ -d $target && ! -L $target ]]; then
   exit 0
 fi
 [[ ! -e $target && ! -L $target && ! -e $staging && ! -L $staging ]]
+artifact_size=$(stat -c '%s' "$source_artifact")
+[[ $artifact_size =~ ^[1-9][0-9]{0,17}$ ]]
+# The transport file remains present while its release copy is installed.
+(( free_bytes >= minimum_free_bytes + artifact_size ))
 install -d -m 700 "$staging"
 cleanup() { rm -rf "$staging"; }
 trap cleanup EXIT
@@ -83,6 +96,8 @@ printf '%s  artifact.tar.age\n' "$artifact_sha" > "$staging/artifact.tar.age.sha
 printf 'release_id=%s\ntransport_artifact=%s\nsha256=%s\n' "$release_id" "$transport_name" "$artifact_sha" > "$staging/manifest"
 (cd "$staging" && sha256sum artifact.tar.age artifact.tar.age.sha256 manifest > bundle.sha256)
 verify_bundle "$staging"
+free_bytes=$(read_free_bytes)
+(( free_bytes >= minimum_free_bytes ))
 mv -T -- "$staging" "$target"
 trap - EXIT
 printf 'backup_promotion=verified\n'

@@ -1113,6 +1113,15 @@ exit "$code"
         self.backup_values = values
         if values.get("local_restore_point_ready") != "true":
             raise RuntimeError("local coordinated restore point is not ready")
+        artifact_size = values.get("artifact_size", "")
+        if not isinstance(artifact_size, str) or not re.fullmatch(r"[1-9][0-9]{0,18}", artifact_size):
+            raise RuntimeError("backup artifact size is invalid")
+        # The transport copy is already uploaded. Promotion writes another
+        # complete encrypted copy, so reserve its exact size before proceeding.
+        ensure_backup_capacity(
+            self.runner, self.environment, self.profile["minimum_backup_free_bytes"],
+            self.gate_dir.parent, self.release_id, pending_write_bytes=int(artifact_size),
+        )
         promotion_script = MAINTENANCE_ROOT / "promote-backup.sh"
         temp_dir: str | None = None
         staging_error: BaseException | None = None
@@ -1162,6 +1171,10 @@ exit "$code"
             self.run_remote("backup", f"rm -rf {temp_dir} && printf 'cleanup=true\\n'", {"cleanup"})
         if promoted["release_sha256"] != values["artifact_sha256"]:
             raise RuntimeError("promoted recovery point checksum differs from RackNerd")
+        free_bytes = promoted.get("release_free_bytes", "")
+        if (not isinstance(free_bytes, str) or not re.fullmatch(r"0|[1-9][0-9]{0,18}", free_bytes)
+                or int(free_bytes) < self.profile["minimum_backup_free_bytes"]):
+            raise RuntimeError("promoted recovery point has insufficient backup capacity")
         self.stage("backup_verified", {**values, **promoted})
 
     def apply_nginx_ingress(self) -> None:
