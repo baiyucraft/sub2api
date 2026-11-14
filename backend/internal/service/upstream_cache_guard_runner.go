@@ -293,6 +293,7 @@ func (r *UpstreamCacheGuardRunner) refresh() {
 	started := time.Now()
 	timings := newCacheGuardRefreshTimings()
 	ctx = upstreamcacheguard.WithStageObserver(ctx, timings.observe)
+	ctx = upstreamcacheguard.WithStageCounter(ctx, timings.observeCount)
 	var refreshErr error
 	var refreshFinished time.Time
 	reportRefresh := false
@@ -301,7 +302,7 @@ func (r *UpstreamCacheGuardRunner) refresh() {
 			if refreshFinished.IsZero() {
 				refreshFinished = time.Now()
 			}
-			r.refreshDiagnostics.recordAt(time.Now(), "refresh", refreshErr, refreshFinished.Sub(started), cacheGuardRefreshBudget, timings.snapshot())
+			r.refreshDiagnostics.recordAt(time.Now(), "refresh", refreshErr, refreshFinished.Sub(started), cacheGuardRefreshBudget, timings.snapshot(), timings.countsSnapshot())
 		}
 	}()
 	if ctx.Err() != nil {

@@ -55,10 +55,27 @@ func cacheGuardRefreshStage(ctx context.Context, stage string, run func() error)
 type cacheGuardRefreshTimings struct {
 	mu     sync.Mutex
 	stages map[string]float64
+	counts map[string]int64
 }
 
 func newCacheGuardRefreshTimings() *cacheGuardRefreshTimings {
-	return &cacheGuardRefreshTimings{stages: map[string]float64{}}
+	return &cacheGuardRefreshTimings{stages: map[string]float64{}, counts: map[string]int64{}}
+}
+
+func (t *cacheGuardRefreshTimings) observeCount(name string, value int64) {
+	t.mu.Lock()
+	t.counts[name] += value
+	t.mu.Unlock()
+}
+
+func (t *cacheGuardRefreshTimings) countsSnapshot() map[string]int64 {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	counts := make(map[string]int64, len(t.counts))
+	for name, value := range t.counts {
+		counts[name] = value
+	}
+	return counts
 }
 
 func (t *cacheGuardRefreshTimings) observe(stage string, elapsed time.Duration) {
@@ -92,7 +109,7 @@ func (d *cacheGuardRefreshDiagnostics) record(source string, err error, started 
 	d.recordAt(time.Now(), source, err, time.Since(started), budget, timings)
 }
 
-func (d *cacheGuardRefreshDiagnostics) recordAt(now time.Time, source string, err error, elapsed, budget time.Duration, timings map[string]float64) {
+func (d *cacheGuardRefreshDiagnostics) recordAt(now time.Time, source string, err error, elapsed, budget time.Duration, timings map[string]float64, counts ...map[string]int64) {
 	stage, reason := source, "database_error"
 	var failedStage *upstreamcacheguard.RefreshStageError
 	if errors.As(err, &failedStage) {
@@ -143,6 +160,9 @@ func (d *cacheGuardRefreshDiagnostics) recordAt(now time.Time, source string, er
 		age = now.Sub(lastSuccess).Milliseconds()
 	}
 	attrs := []any{"source", source, "stage", stage, "elapsed_ms", float64(elapsed) / float64(time.Millisecond), "budget_ms", budget.Milliseconds(), "consecutive_failures", failures, "last_success_age_ms", age, "stage_elapsed_ms", timings}
+	if len(counts) > 0 && len(counts[0]) > 0 {
+		attrs = append(attrs, "stage_counts", counts[0])
+	}
 	if recovered {
 		slog.Info("upstream_cache_guard_refresh_recovered", append(attrs, "reason", "recovered")...)
 	} else {
