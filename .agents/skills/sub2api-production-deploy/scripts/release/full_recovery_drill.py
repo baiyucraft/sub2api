@@ -1,6 +1,6 @@
 """Real encrypted baseline recovery runner; synthetic recovery_drill is unchanged."""
 from __future__ import annotations
-import argparse, base64, hashlib, importlib, json, os, re, shutil, stat, subprocess, sys, threading, time, uuid
+import argparse, base64, errno, hashlib, importlib, json, os, re, shutil, stat, subprocess, sys, threading, time, uuid
 from collections import Counter
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -122,6 +122,10 @@ def run(argv,env=None,timeout=1800): return subprocess.run(argv,capture_output=T
 def vals(argv,env,raw):
     r=run(argv,env)
     with open(raw,"ab") as stream: stream.write(r.stdout+r.stderr)
+    # Shell helpers return an exit status, not an OSError. Preserve the primary
+    # storage category before an expected-interruption assertion hides it.
+    if r.returncode not in (0,79) and b"no space left on device" in (r.stdout+r.stderr).lower():
+        raise FullDrillBlocked("storage_exhausted")
     out={}; events=[]
     for line in r.stdout.decode("utf8","replace").splitlines():
         m=re.fullmatch(r"recovery_checkpoint=([a-z_]+) status=(completed|reverified)",line)
@@ -156,13 +160,17 @@ def private_write(path,data,mode=0o400):
 
 def _failure_reason_code(error: BaseException) -> str:
     """Return a bounded, non-secret category for root-only drill diagnostics."""
+    if isinstance(error,OSError) and error.errno in (errno.ENOSPC,errno.EDQUOT): return "storage_exhausted"
+    if isinstance(error,subprocess.TimeoutExpired): return "command_timeout"
     text = str(error).lower()
+    if text == "storage_exhausted": return text
     if re.fullmatch(r"redis_delay_[a-z_]+",text): return text
     categories = (
         ("redis_boundary_probe_failed", ("redis boundary",)),
         ("redis_source_observation_failed", ("redis source",)),
         ("redis_lazy_expiry_unavailable", ("redis natural lazy expiry unavailable", "redis lua counts missing")),
         ("redis_lazy_observation_failed", ("redis lazy observation failed",)),
+        ("postgres_restore_failed", ("actual pre-app interruption missing", "actual postgresql restore differs", "actual postgresql count")),
         ("application_restore_failed", ("actual app interruption missing", "formal restore resume failed", "completed restore live re-verification failed")),
         ("recovery_cleanup_failed", ("actual cleanup interruption missing", "formal finish resume failed", "final finish re-verification failed", "formal cleanup incomplete")),
         ("redis_delay", ("redis_delay_",)),

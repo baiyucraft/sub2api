@@ -2,6 +2,7 @@
 from __future__ import annotations
 from copy import deepcopy
 import configparser
+import errno
 import hashlib
 import json
 import os
@@ -229,6 +230,34 @@ class FullRecoveryDrillTests(unittest.TestCase):
             self.assertEqual(values["redis_backup_dbsize"],"3")
             self.assertNotIn("secret_value",values)
             self.assertIn(b"private stderr",raw.read_bytes())
+
+    def test_helper_storage_failure_preserves_private_log_and_stable_category(self):
+        private=b'ERROR: could not write file "base/pgsql_tmp/private-fixture": No space left on device\n'
+        for code in (1,125):
+            with self.subTest(code=code),tempfile.TemporaryDirectory() as temp,mock.patch.object(drill,"run",return_value=subprocess.CompletedProcess([],code,b"",private)):
+                raw=Path(temp)/"raw.log"
+                with self.assertRaises(drill.FullDrillBlocked) as failure:
+                    drill.vals(["bash"],{},raw)
+                self.assertEqual(drill._failure_reason_code(failure.exception),"storage_exhausted")
+                self.assertEqual(str(failure.exception),"storage_exhausted")
+                self.assertEqual(raw.read_bytes(),private)
+
+    def test_failure_markers_classify_storage_postgres_and_timeout_without_details(self):
+        cases=(
+            (OSError(errno.ENOSPC,"private path"),"storage_exhausted"),
+            (OSError(errno.EDQUOT,"private quota"),"storage_exhausted"),
+            (subprocess.TimeoutExpired(["private command"],30,stderr=b"private output"),"command_timeout"),
+            (drill.FullDrillBlocked("actual pre-app interruption missing"),"postgres_restore_failed"),
+            (drill.FullDrillBlocked("actual PostgreSQL restore differs"),"postgres_restore_failed"),
+            (RuntimeError("private unknown error"),"unclassified"),
+        )
+        for error,expected in cases:
+            with self.subTest(expected=expected),mock.patch.object(drill,"private_write") as write:
+                drill._write_failure_marker(Path('/private'),"guest_restore_phases",error)
+                marker=json.loads(write.call_args.args[1])
+                self.assertEqual(marker['reason_code'],expected)
+                self.assertEqual(marker['status'],'blocked')
+                self.assertNotIn('private',json.dumps(marker))
 
     def test_receipt_identity_failure_is_before_any_destroy(self):
         with mock.patch.object(drill.shutil,"rmtree") as destroy,self.assertRaises(RuntimeError):

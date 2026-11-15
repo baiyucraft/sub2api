@@ -317,14 +317,16 @@ postgres_metadata() {
 postgres_fingerprint() (
   set -Eeuo pipefail
   # Hash the actual restored rows, never the traffic-time observability digest.
-  # Data values stay inside this pipe; only the final SHA is persisted.
+  # Sort only fixed-size row hashes: sorting full JSON spills wide rows to disk.
+  # Keep duplicates so this remains a fingerprint of the complete multiset.
+  # Data values stay in PostgreSQL; only hashes enter the pipe or checkpoint.
   local tables schema table digest
   tables=$(docker exec sub2api-postgres psql -X -v ON_ERROR_STOP=1 -A -t -U sub2api -d sub2api -c "SELECT schemaname||'|'||tablename FROM pg_tables WHERE schemaname='public' ORDER BY schemaname,tablename") || return 1
   [[ -n $tables ]] || return 1
   {
     while IFS='|' read -r schema table; do
       [[ $schema =~ ^[A-Za-z_][A-Za-z0-9_]*$ && $table =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || return 1
-      digest=$(docker exec sub2api-postgres psql -X -v ON_ERROR_STOP=1 -U sub2api -d sub2api -c "COPY (SELECT row_to_json(t)::text FROM \"$schema\".\"$table\" t ORDER BY row_to_json(t)::text COLLATE \"C\") TO STDOUT" | sha256sum | awk '{print $1}') || return 1
+      digest=$(docker exec sub2api-postgres psql -X -v ON_ERROR_STOP=1 -U sub2api -d sub2api -c "COPY (SELECT encode(sha256(convert_to(row_to_json(t)::text,'UTF8')),'hex') COLLATE \"C\" AS row_sha256 FROM \"$schema\".\"$table\" t ORDER BY row_sha256) TO STDOUT" | sha256sum | awk '{print $1}') || return 1
       [[ $digest =~ ^[0-9a-f]{64}$ ]] || return 1
       printf '%s|%s|%s\n' "$schema" "$table" "$digest" || return 1
     done <<<"$tables"
