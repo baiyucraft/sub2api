@@ -16,6 +16,7 @@ DEPLOY_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(DEPLOY_ROOT))
 
 from release.doctor import ReleaseDoctor, import_trusted_host_keys
+from release.worker_errors import DoctorFailure, failure_details
 from release.production_bootstrap import bootstrap_production
 from release.process import run_hidden
 from release.environment import load_deployment_environment
@@ -287,11 +288,11 @@ class DoctorTest(unittest.TestCase):
         runner = mock.Mock()
         runner.run.side_effect = [
             mock.Mock(values={"backup_ready": "true", "backup_free_bytes": "1024"}),
-            mock.Mock(values={"relay_external_health": "pass"}),
+            mock.Mock(values={"relay_external_health": "pass", "relay_health_curl_exit": "0", "relay_health_http_code": "200", "relay_health_attempts": "1"}),
         ]
         values = self.doctor(runner=runner).check_backup()
         self.assertEqual(values, {"backup_ready": "true", "backup_free_bytes": "1024", "relay_external_health": "pass"})
-        self.assertEqual(runner.run.call_args_list[1].args[2], {"relay_external_health"})
+        self.assertEqual(runner.run.call_args_list[1].args[2], {"relay_external_health", "relay_health_curl_exit", "relay_health_http_code", "relay_health_attempts"})
         self.assertEqual(runner.run.call_args_list[0].args[0], "upload")
         self.assertEqual(runner.run.call_args_list[1].args[0], "backup")
         self.assertIn("--resolve sub2api.example.test:443:198.51.100.20", runner.run.call_args_list[1].args[1])
@@ -313,7 +314,7 @@ class DoctorTest(unittest.TestCase):
                 path = Path(temporary) / ".ssh.local"
                 path.write_text(yaml.safe_dump(document), encoding="utf-8")
                 environment = load_deployment_environment(path)
-                run = mock.Mock(return_value=mock.Mock(values={}))
+                run = mock.Mock(return_value=mock.Mock(values={"relay_external_health": "pass", "relay_health_curl_exit": "0", "relay_health_http_code": "200", "relay_health_attempts": "1"}))
                 runner = SimpleNamespace(run=run, assert_configuration_current=lambda: None)
                 doctor = ReleaseDoctor("182", runner=runner, environment=environment)
                 doctor.check_backup()
@@ -363,6 +364,72 @@ class DoctorTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "exit code 1"):
             doctor._run_racknerd_readonly("false", {"racknerd_ready"}, timeout=300)
         runner.run.assert_called_once()
+
+    def test_backup_health_retries_only_bounded_transport_failures(self):
+        cases = (
+            ([(35, "000"), (0, "200")], ["1"], None),
+            ([(28, "000")] * 3, ["1", "2"], "transport"),
+            ([(60, "000")], [], "tls"),
+            ([(0, "503")], [], "http"),
+            ([(35, "000"), (60, "000")], ["1"], "tls"),
+        )
+        for responses, delays, failure in cases:
+            with self.subTest(responses=responses), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                fixture = root / "responses"
+                calls = root / "calls"
+                sleeps = root / "sleeps"
+                fixture.write_text("".join(f"{code} {http}\n" for code, http in responses), encoding="utf-8")
+                environment = {**os.environ, "RESPONSES": fixture.as_posix(), "CALLS": calls.as_posix(), "SLEEPS": sleeps.as_posix()}
+                environment.pop("BASH_ENV", None)
+                environment.pop("ENV", None)
+                stubs = '''curl() {
+  printf x >> "$CALLS"
+  count=$(wc -c < "$CALLS")
+  read -r code http < <(sed -n "${count}p" "$RESPONSES")
+  printf 'fixture secret' >&2
+  printf '%s' "$http"
+  return "$code"
+}
+sleep() { printf '%s\\n' "$1" >> "$SLEEPS"; }
+'''
+                runner = mock.Mock()
+                def run(node, script, allowed):
+                    if node == "upload":
+                        return SimpleNamespace(values={"backup_ready": "true", "backup_free_bytes": "1024"})
+                    self.assertIn("--resolve sub2api.example.test:443:198.51.100.20", script)
+                    self.assertNotIn("--insecure", script)
+                    self.assertNotIn(" -k", script)
+                    result = run_hidden([self.bash(), "--noprofile", "--norc", "-s"], input=stubs + script, env=environment,
+                                        text=True, capture_output=True, timeout=10)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stderr, "")
+                    self.assertNotIn("secret", result.stdout)
+                    return SimpleNamespace(values=dict(line.split("=", 1) for line in result.stdout.splitlines()))
+                runner.run.side_effect = run
+                doctor = self.doctor(runner=runner)
+                if failure:
+                    with self.assertRaises(DoctorFailure) as caught:
+                        doctor.run(("backup",))
+                    self.assertEqual(failure_details(caught.exception)["doctor_failure_code"], f"doctor_backup_health_{failure}_failed")
+                else:
+                    self.assertEqual(doctor.check_backup()["relay_external_health"], "pass")
+                self.assertEqual(calls.read_text(), "x" * len(responses))
+                self.assertEqual(sleeps.read_text().splitlines() if sleeps.exists() else [], delays)
+
+    def test_doctor_wraps_unknown_failures_with_fixed_node_code(self):
+        doctor = self.doctor(runner=mock.Mock())
+        doctor.check_vm = mock.Mock(side_effect=RuntimeError("secret"))
+        doctor.check_backup = mock.Mock()
+        with self.assertRaises(DoctorFailure) as caught:
+            doctor.run(("vm", "backup"))
+        self.assertEqual(failure_details(caught.exception), {"error_type": "DoctorFailure", "doctor_failure_code": "doctor_vm_failed"})
+        doctor.check_backup.assert_not_called()
+
+    def test_failure_details_rejects_forged_doctor_code(self):
+        error = RuntimeError("secret")
+        error.doctor_failure_code = "doctor_backup_failed secret"
+        self.assertEqual(failure_details(error), {"error_type": "RuntimeError"})
 
 
 if __name__ == "__main__":

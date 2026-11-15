@@ -492,6 +492,8 @@ Full DR 先于正式 runner，表中含有父子阶段，不能逐行相加。�
 
 ## 配置复用与当前缺口
 
+外部健康预检只对 curl 超时（28）与 TLS 握手连接错误（35）进行最多三次只读尝试，间隔 1、2 秒；每次仍使用配置的 observer、目标地址与域名，并校验证书。HTTP 非 200、证书校验失败及其他错误立即阻断，不回退路由。失败以固定 doctor 错误码进入结构化事件与观察器，不回传 curl 原始错误或连接资料。重试耗尽不构成恢复通过，失败 release 仍须核定副作用及 VM owner 后收口，不能重跑。
+
 下次普通应用发布只更新 `.release/deploy.local.json` 的完整 `commit`，保留仍适用的 profile/mode，通过本地 doctor 后启动一次 `deploy-follow --recovery-gate-mode auto`；连接和实际拓扑由 `.ssh.local` 提供。当前登记 profile 为 `284/downtime`，历史 `283` 的验收不能作为继续选择旧 profile 或宣告当前目标已部署的依据。启动后只用同一 release 的 `status/follow/wait` 观察，成功以签名 Gate、`verify-result`、postdoctor 和完成收据为准。
 
 - 只需改配置：同版本、同迁移合同的应用 SHA；已有配置字段覆盖的连接、健康路由、上传身份及 VM 路径。配置整体校验失败或运行中漂移时停止，不临时改脚本或回退路由。

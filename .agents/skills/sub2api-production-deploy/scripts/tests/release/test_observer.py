@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -76,6 +78,37 @@ class ReleaseObserverTest(unittest.TestCase):
         start.assert_called_once_with(args, announce=False)
         follow.assert_called_once_with(args)
         self.assertEqual(args.release_id, "240-aaaaaaaaaaaa-1-deadbeef")
+
+    def test_failure_hint_reads_only_allowlisted_doctor_failure_events(self):
+        identifier = self.args().release_id
+        event = {
+            "schema": 1, "release_id": identifier, "node": "local", "stream": "event", "level": "error",
+            "event": "worker_failed", "script": "release.supervisor", "stage": "runner",
+            "details": {"doctor_failure_code": "doctor_backup_health_transport_failed"},
+            "message": "raw secret must not appear",
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "logs").mkdir()
+            path = root / "logs" / "events.jsonl"
+            with mock.patch.object(observer, "_run_dir", return_value=root):
+                for mutation in ({}, {"event": "deploy_failed", "script": "release.cli", "stage": "orchestration"}):
+                    path.write_text(json.dumps({**event, **mutation}) + "\n", encoding="utf-8")
+                    self.assertEqual(observer._failure_hint(identifier), "doctor_backup_health_transport_failed")
+                # A malformed trailing event must not hide a prior valid failure.
+                deep = '[' * 2000 + '0' + ']' * 2000
+                path.write_text(json.dumps(event) + "\n" + deep + "\n", encoding="utf-8")
+                self.assertEqual(observer._failure_hint(identifier), "doctor_backup_health_transport_failed")
+                path.write_text(deep + "\n" + json.dumps(event) + "\n", encoding="utf-8")
+                self.assertEqual(observer._failure_hint(identifier), "doctor_backup_health_transport_failed")
+                for mutation in (
+                    {"release_id": "other"}, {"node": "backup"}, {"stream": "stderr"}, {"level": "info"},
+                    {"event": "command_failed"}, {"script": "other"}, {"stage": "ssh_command"},
+                    {"event": []}, {"schema": True}, {"schema": {}},
+                    {"details": {"doctor_failure_code": "secret"}}, {"doctor_failure_code": "doctor_vm_failed", "details": {}},
+                ):
+                    path.write_text(json.dumps({**event, **mutation}) + "\n", encoding="utf-8")
+                    self.assertEqual(observer._failure_hint(identifier), "unknown", mutation)
 
 
 if __name__ == "__main__":

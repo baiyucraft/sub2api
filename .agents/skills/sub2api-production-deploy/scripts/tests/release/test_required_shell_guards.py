@@ -60,7 +60,7 @@ class RequiredShellGuardsTest(unittest.TestCase):
 
     def test_doctor_required_prerequisites_fail_before_following_probe(self):
         runner = mock.Mock(deployment_environment=self.environment, assert_configuration_current=self.environment.assert_current)
-        runner.run.return_value.values = {}
+        runner.run.return_value.values = {"relay_external_health": "pass", "relay_health_curl_exit": "0", "relay_health_http_code": "200", "relay_health_attempts": "1"}
         doctor = ReleaseDoctor('273', runner=runner)
         doctor._run_racknerd_readonly = mock.Mock(return_value={})
         doctor.check_racknerd()
@@ -176,7 +176,7 @@ export -f docker systemctl nginx curl install chmod stat
     def test_required_command_failure_cannot_be_hidden_by_expected_stdout(self):
         bootstrap, _ = self.bootstrap_scripts()
         runner = mock.Mock(deployment_environment=self.environment, assert_configuration_current=self.environment.assert_current)
-        runner.run.return_value.values = {}
+        runner.run.return_value.values = {"relay_external_health": "pass", "relay_health_curl_exit": "0", "relay_health_http_code": "200", "relay_health_attempts": "1"}
         doctor = ReleaseDoctor('273', runner=runner)
         doctor._run_racknerd_readonly = mock.Mock(return_value={})
         doctor.check_racknerd()

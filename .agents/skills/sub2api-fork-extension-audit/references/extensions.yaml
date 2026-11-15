@@ -2532,6 +2532,7 @@
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_recovery_gate.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_production_space_clean.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_doctor.py",
+        ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_observer.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_ssh_output.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_backup_retention_clean.py",
         ".agents/skills/sub2api-production-deploy/scripts/tests/release/test_release_core.py",
@@ -2600,6 +2601,7 @@
       ],
       "invariants": [
         "本地部署信息保护使用仓库内固定位置的pre-push检查器和Linux/Windows CI回归；公开连接配置示例仅含脱敏占位值，真实连接信息保持本地，不以旧工作区脚本或扩大路径豁免绕过检查。",
+        "外部HTTPS健康预检仅对curl28/35的超时或握手连接失败最多尝试三次、间隔1/2秒，固定配置observer/address/domain且保留证书校验；HTTP非200、证书及其他错误即时阻断，重试耗尽不报pass、不改路由。固定doctor码经allowlist结构化事件传到观察器，读取有界且忽略损坏或深层JSON，不展示远端原始错误；失败release不重跑，副作用与owner仍独立收口。",
         "备份上传前固定预检最低容量加512MiB；transport已上传、release晋升复制前按准确artifact_size预留最低容量加512MiB加待写字节，复制后重读真实余量。仅按既有release保留规则dry-run及同摘要/确切ID集合apply一次；当前release和保护指针不删，plan/apply意图及验真收据持久化，原最低容量身份兼容，已清理成功只复核、不追加删除；结果未知或容量不足在生产切换前阻断，不动daily/journal，独立doctor只读。",
         "本地.release/deploy.local.json只含schema=1、完整40位小写commit、已登记profile及mode；显式完整CLI参数优先，重复键/未知字段/非法值在SSH前拒绝。配置仅补齐原入口参数，不改变Gate、备份、迁移、恢复和验真；观察/验真及内部worker不读下一次发布默认配置，脚本变化仍按原合同审阅和验证",
         "机器连接与路径保存在.ssh.local；vm_lifecycle.shared_dir只复用已有规范物理目录中的原lease.lock和匹配VM身份的owner.json，缺失/冲突/在途owner继续阻断，禁止因checkout不同新建目录或替换原锁形成并行发布域",

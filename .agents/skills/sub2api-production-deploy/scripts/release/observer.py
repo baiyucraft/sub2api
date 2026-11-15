@@ -7,12 +7,14 @@ directory and never starts a second runner or reads raw production logs.
 from __future__ import annotations
 
 import argparse
+import json
 import time
 from datetime import datetime
 from typing import Any
 
 from .supervisor import _read_json, _run_dir, start, status_view, verified_result_view
 from .vm_build import BUILD_FAILURE_CODES
+from .worker_errors import DOCTOR_FAILURE_CODES
 
 
 _STAGE_TEXT = {
@@ -59,6 +61,9 @@ def _failure_hint(identifier: str) -> str:
         code = report.get("build_failure_code")
         if isinstance(code, str) and code != "none" and code in BUILD_FAILURE_CODES:
             return code
+    code = _doctor_failure_hint(identifier)
+    if code:
+        return code
     try:
         production = _read_json(_run_dir(identifier) / "gate" / "production-result.json") or {}
     except (OSError, RuntimeError):
@@ -83,6 +88,47 @@ def _failure_hint(identifier: str) -> str:
             if isinstance(value, str) and value and value not in {"none", "absent", "unknown"}:
                 return value
     return "unknown"
+
+
+def _doctor_failure_hint(identifier: str) -> str | None:
+    """Read only a bounded tail of structured local failure events."""
+    path = _run_dir(identifier) / "logs" / "events.jsonl"
+    try:
+        if path.is_symlink() or path.parent.is_symlink():
+            return None
+        with path.open("rb") as stream:
+            stream.seek(0, 2)
+            offset = max(0, stream.tell() - 256 * 1024)
+            stream.seek(offset)
+            lines = stream.read(256 * 1024).splitlines()
+        if offset:
+            lines = lines[1:]
+    except OSError:
+        return None
+    origins = {
+        ("worker_failed", "release.supervisor", "runner"),
+        ("deploy_failed", "release.cli", "orchestration"),
+    }
+    for line in reversed(lines[-512:]):
+        if len(line) > 32768:
+            continue
+        try:
+            event = json.loads(line)
+        except (ValueError, UnicodeError, RecursionError):
+            continue
+        if not isinstance(event, dict):
+            continue
+        origin = tuple(event.get(key) for key in ("event", "script", "stage"))
+        if (type(event.get("schema")) is not int or event.get("schema") != 1 or event.get("release_id") != identifier
+                or event.get("node") != "local" or event.get("stream") != "event"
+                or event.get("level") != "error"
+                or not all(isinstance(value, str) for value in origin) or origin not in origins):
+            continue
+        details = event.get("details")
+        code = details.get("doctor_failure_code") if isinstance(details, dict) else None
+        if isinstance(code, str) and code in DOCTOR_FAILURE_CODES:
+            return code
+    return None
 
 
 def _status_fingerprint(value: dict[str, Any]) -> tuple[Any, ...]:

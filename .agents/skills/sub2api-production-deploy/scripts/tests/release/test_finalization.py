@@ -256,13 +256,13 @@ class FinalizationTest(unittest.TestCase):
             deployment_environment=environment, assert_configuration_current=lambda: None,
             run=mock.Mock(side_effect=[
                 SimpleNamespace(values={"backup_ready": "true", "backup_free_bytes": "9000000000"}),
-                SimpleNamespace(values={"relay_external_health": "pass"}),
+                SimpleNamespace(values={"relay_external_health": "pass", "relay_health_curl_exit": "0", "relay_health_http_code": "200", "relay_health_attempts": "1"}),
             ]),
         )
         produced = ReleaseDoctor("265", runner=producer_runner, environment=environment).check_backup()
         self.assertEqual(produced, {"backup_ready": "true", "backup_free_bytes": "9000000000", "relay_external_health": "pass"})
         self.assertEqual(producer_runner.run.call_args.args[0], "relay-observer")
-        self.assertEqual(producer_runner.run.call_args.args[2], {"relay_external_health"})
+        self.assertEqual(producer_runner.run.call_args.args[2], {"relay_external_health", "relay_health_curl_exit", "relay_health_http_code", "relay_health_attempts"})
         remote = {key: value for key, value in self.doctor.items() if key not in {"backup_ready", "relay_external_health"}}
         remote.update(produced)
         for include_vm in (True, False):

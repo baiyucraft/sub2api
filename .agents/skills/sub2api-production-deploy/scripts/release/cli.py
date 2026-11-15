@@ -33,6 +33,7 @@ from .recovery_gate import assert_release_allowed, require_full, require_special
 from .state import TERMINAL_STATES, RunLock, RunState
 from .vm_lifecycle import vm_guard
 from .vm_build import VMCandidateBuildError, bind_build_dependencies, ensure_vm_build_dependencies, validate_build_dependency_report
+from .worker_errors import failure_details
 
 
 LOGGING_ROOT = SCRIPTS_ROOT / "logging"
@@ -592,7 +593,7 @@ def deploy(args: argparse.Namespace, acquire_lock: bool = True) -> None:
         if "logger" in locals() and logger:
             logger.emit(
                 stage="orchestration", script="release.cli", event="deploy_failed", message="Release orchestration failed",
-                level="error", exit_code=getattr(error, "returncode", 1), details={"error_type": type(error).__name__},
+                level="error", exit_code=getattr(error, "returncode", 1), details=failure_details(error),
             )
         raise
     finally:

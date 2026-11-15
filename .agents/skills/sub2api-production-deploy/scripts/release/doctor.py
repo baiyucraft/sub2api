@@ -17,6 +17,7 @@ from .paths import RELEASE_PACKAGE_ROOT, SSH_CONFIG, TRUSTED_VM_PUBLIC_KEY, WORK
 from .profiles import get_profile
 from .production_snapshot import runtime_commit_script
 from .ssh import KNOWN_HOSTS, SSHRunner
+from .worker_errors import DoctorFailure
 
 
 ROOT = WORKSPACE
@@ -426,15 +427,44 @@ printf 'backup_ready=true\\nbackup_free_bytes=%s\\n' "$free_bytes"
         address = shlex.quote(route["address"])
         health_script = f"""
 set -Eeuo pipefail
-required_value=$(curl -sS --resolve {domain}:443:{address} --max-time 15 -o /dev/null -w '%{{http_code}}' https://{domain}/health)
-test "$required_value" = 200
-printf 'relay_external_health=pass\\n'
+health=fail
+for attempt in 1 2 3; do
+  curl_exit=0
+  required_value=$(curl -sS --resolve {domain}:443:{address} --max-time 15 -o /dev/null -w '%{{http_code}}' https://{domain}/health 2>/dev/null) || curl_exit=$?
+  if [ "$curl_exit" -eq 0 ]; then
+    if [ "$required_value" = 200 ]; then health=pass; fi
+    break
+  fi
+  if [ "$required_value" != 000 ] && [ "$required_value" != 200 ]; then break; fi
+  case "$curl_exit" in
+    28|35) if [ "$attempt" -lt 3 ]; then sleep "$attempt"; else break; fi ;;
+    *) break ;;
+  esac
+done
+printf 'relay_external_health=%s\\nrelay_health_curl_exit=%s\\nrelay_health_http_code=%s\\nrelay_health_attempts=%s\\n' "$health" "$curl_exit" "$required_value" "$attempt"
 """
-        health = self._ssh().run(route["observer"], health_script, {"relay_external_health"}).values
-        return {**values, **health}
+        health = self._ssh().run(route["observer"], health_script, {
+            "relay_external_health", "relay_health_curl_exit", "relay_health_http_code", "relay_health_attempts",
+        }).values
+        curl_exit = health.get("relay_health_curl_exit", "")
+        http_code = health.get("relay_health_http_code", "")
+        if (health.get("relay_health_attempts") not in {"1", "2", "3"}
+                or not curl_exit.isascii() or not curl_exit.isdecimal()
+                or not http_code.isascii() or not http_code.isdecimal() or len(http_code) != 3):
+            raise DoctorFailure("doctor_backup_health_probe_failed")
+        if curl_exit != "0":
+            category = "transport" if curl_exit in {"28", "35"} else "tls" if curl_exit in {"51", "58", "59", "60", "77", "82", "83", "90", "91"} else "probe"
+            raise DoctorFailure(f"doctor_backup_health_{category}_failed")
+        if http_code != "200":
+            raise DoctorFailure("doctor_backup_health_http_failed")
+        if health.get("relay_external_health") != "pass":
+            raise DoctorFailure("doctor_backup_health_probe_failed")
+        return {**values, "relay_external_health": "pass"}
     def run(self, nodes: tuple[str, ...] = NODES, *, require_ingress_policy: bool = True) -> dict[str, str]:
         evidence: dict[str, str] = {}
         for node in nodes:
+            if node not in NODES:
+                raise DoctorFailure("doctor_unknown_failed")
             method = getattr(self, f"check_{node}")
             try:
                 if node == "racknerd":
@@ -442,5 +472,7 @@ printf 'relay_external_health=pass\\n'
                 else:
                     evidence.update(method())
             except BaseException as error:
-                raise RuntimeError(f"doctor.{node} failed") from error
+                if isinstance(error, DoctorFailure):
+                    raise
+                raise DoctorFailure(f"doctor_{node}_failed", f"doctor.{node} failed") from error
         return evidence
