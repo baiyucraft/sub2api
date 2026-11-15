@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log"
 	"strings"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/upstreamcacheusage"
 )
 
 // BlockType 内容块类型
@@ -23,17 +25,18 @@ type UsageMapHook func(usageMap map[string]any)
 
 // StreamingProcessor 流式响应处理器
 type StreamingProcessor struct {
-	blockType         BlockType
-	blockIndex        int
-	messageStartSent  bool
-	messageStopSent   bool
-	usedTool          bool
-	pendingSignature  string
-	trailingSignature string
-	originalModel     string
-	webSearchQueries  []string
-	groundingChunks   []GeminiGroundingChunk
-	usageMapHook      UsageMapHook
+	blockType          BlockType
+	blockIndex         int
+	messageStartSent   bool
+	messageStopSent    bool
+	usedTool           bool
+	pendingSignature   string
+	trailingSignature  string
+	originalModel      string
+	webSearchQueries   []string
+	groundingChunks    []GeminiGroundingChunk
+	usageMapHook       UsageMapHook
+	cacheUsageEvidence *upstreamcacheusage.Evidence
 
 	// 累计 usage
 	inputTokens       int
@@ -93,6 +96,7 @@ func (p *StreamingProcessor) ProcessLine(line string) []byte {
 	if err := json.Unmarshal([]byte(data), &envelope); err != nil {
 		return nil
 	}
+	p.cacheUsageEvidence = ObserveGeminiCacheUsage([]byte(data), p.cacheUsageEvidence)
 	if len(envelope.Response) == 0 {
 		// A direct response also unmarshals into V1InternalResponse without
 		// an error, but leaves Response empty. Select the shape explicitly.
@@ -163,6 +167,7 @@ func (p *StreamingProcessor) ProcessLine(line string) []byte {
 // 则不补发任何结束事件，防止客户端收到没有 message_start 的残缺流。
 func (p *StreamingProcessor) Finish() ([]byte, *ClaudeUsage) {
 	usage := &ClaudeUsage{
+		CacheUsageEvidence:   p.cacheUsageEvidence,
 		InputTokens:          p.inputTokens,
 		OutputTokens:         p.outputTokens,
 		CacheReadInputTokens: p.cacheReadTokens,

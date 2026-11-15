@@ -535,9 +535,11 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 
 		stream.observe(&event, payload)
 		if stream.upstreamErrType != "" {
+			freezeUpstreamCacheGuardCompletion(cacheGuardRequestContext(c), nil, false, false)
 			break
 		}
 		processAnthropicEvent(&event)
+		freezeUpstreamCacheGuardCompletion(cacheGuardRequestContext(c), usage.CacheUsageEvidence, stream.cacheUsageComplete(), !stream.clientDisconnected)
 	}
 
 	if failure := stream.failure(); failure != nil {

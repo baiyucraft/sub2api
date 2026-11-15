@@ -1013,7 +1013,9 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 				firstTokenMsValue,
 				clientDisconnected,
 			)
-			return resultWithUsage(), nil
+			result := resultWithUsage()
+			freezeOpenAIWSCacheGuardCompletion(ctx, result)
+			return result, nil
 		}
 	}
 	if bareErrorPending {

@@ -134,3 +134,41 @@ func TestUpstreamCacheGuardPolicyViewsExpiredEvidenceClearsSharedRate(t *testing
 		require.Nil(t, state.RatePercent)
 	}
 }
+
+func TestUpstreamCacheGuardDisabledGroupsDoNotBorrowSharedExecution(t *testing.T) {
+	settings := DefaultUpstreamCacheGuardSettings()
+	settings.Mode, settings.GroupIDs = upstreamcacheguard.Protect, []int64{99}
+	configID, keyID := int64(1), int64(2)
+	account := Account{ID: 3, UpstreamConfigID: &configID, UpstreamKeyID: &keyID, GroupIDs: []int64{10, 20}}
+	snapshot := upstreamcacheguard.AccountSnapshot{AccountState: upstreamcacheguard.AccountState{
+		Phase: upstreamcacheguard.Trial, ValidRequests: 21, CachePercent: 50,
+		TrialValidRequests: 7, TrialSessions: 3, TrialCachePercent: 90,
+	}}
+	for _, resolved := range []bool{false, true} {
+		var resolve func(int64) UpstreamCacheGuardSettings
+		if resolved {
+			resolve = func(int64) UpstreamCacheGuardSettings {
+				disabled := settings
+				disabled.Mode = upstreamcacheguard.Disabled
+				return disabled
+			}
+		}
+		for _, fresh := range []bool{false, true} {
+			view := upstreamCacheGuardPolicyAccountViewsBatch([]Account{account}, settings, true,
+				func(_, _ int64) (upstreamcacheguard.AccountSnapshot, bool) { return snapshot, fresh }, resolve, nil)[account.ID]
+			require.Equal(t, "disabled", view.Summary.State)
+			require.Equal(t, "disabled", view.Summary.Reason)
+			require.Zero(t, view.Summary.RecoveryValidRequests)
+			require.Zero(t, view.Summary.RecoverySessions)
+			require.Nil(t, view.Summary.RecoveryRatePercent)
+			if fresh {
+				require.Equal(t, 50.0, *view.Summary.RatePercent, "retained shared observations are separate from execution")
+			} else {
+				require.Nil(t, view.Summary.RatePercent)
+			}
+			for _, state := range view.States {
+				require.Equal(t, "disabled", state.State)
+			}
+		}
+	}
+}

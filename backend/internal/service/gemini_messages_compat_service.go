@@ -2333,6 +2333,7 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 		if fr := extractGeminiFinishReason(geminiResp); fr != "" {
 			finishReason = fr
 		}
+		cacheReadFailed = cacheReadFailed || cacheGuardGeminiResponseFailed(unwrappedBytes)
 
 		parts := extractGeminiParts(geminiResp)
 		for _, part := range parts {
@@ -2342,7 +2343,7 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 					continue
 				}
 				if openToolIndex >= 0 {
-					writeSSE(c.Writer, "content_block_stop", map[string]any{
+					writeSSE(cacheWriter, "content_block_stop", map[string]any{
 						"type":  "content_block_stop",
 						"index": openToolIndex,
 					})
@@ -2352,7 +2353,7 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 				}
 				if openBlockType != "thinking" {
 					if openBlockIndex >= 0 {
-						writeSSE(c.Writer, "content_block_stop", map[string]any{
+						writeSSE(cacheWriter, "content_block_stop", map[string]any{
 							"type":  "content_block_stop",
 							"index": openBlockIndex,
 						})
@@ -2360,7 +2361,7 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 					openBlockType = "thinking"
 					openBlockIndex = nextBlockIndex
 					nextBlockIndex++
-					writeSSE(c.Writer, "content_block_start", map[string]any{
+					writeSSE(cacheWriter, "content_block_start", map[string]any{
 						"type":  "content_block_start",
 						"index": openBlockIndex,
 						"content_block": map[string]any{
@@ -2374,7 +2375,7 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 					ms := int(time.Since(startTime).Milliseconds())
 					firstTokenMs = &ms
 				}
-				writeSSE(c.Writer, "content_block_delta", map[string]any{
+				writeSSE(cacheWriter, "content_block_delta", map[string]any{
 					"type":  "content_block_delta",
 					"index": openBlockIndex,
 					"delta": map[string]any{
@@ -2520,6 +2521,7 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 		}
 
 		if u := extractGeminiUsage(unwrappedBytes); u != nil {
+			u.CacheUsageEvidence = observeGeminiCacheUsageEvidence(unwrappedBytes, usage.CacheUsageEvidence)
 			usage = *u
 		}
 
@@ -2565,6 +2567,8 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 		"type": "message_stop",
 	})
 	flusher.Flush()
+	freezeUpstreamCacheGuardCompletion(cacheGuardRequestContext(c), usage.CacheUsageEvidence,
+		cacheGuardGeminiTerminalSucceeded(finishReason) && !cacheReadFailed, !cacheWriter.failed)
 
 	return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, nil
 }
@@ -3021,10 +3025,14 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Conte
 					if finishReason := gjson.GetBytes(rawBytes, "candidates.0.finishReason").String(); finishReason != "" {
 						cacheTerminalSuccess = cacheGuardGeminiTerminalSucceeded(finishReason)
 					}
+					if cacheGuardGeminiResponseFailed(rawBytes) {
+						cacheTerminalSuccess = false
+					}
 					if sig, ok := detectGeminiResponseSignal(rawBytes); ok && sig.Kind > best.Kind {
 						best = sig
 					}
 					if u := extractGeminiUsage(rawBytes); u != nil {
+						u.CacheUsageEvidence = observeGeminiCacheUsageEvidence(rawBytes, usage.CacheUsageEvidence)
 						usage = u
 					}
 					observer.ObserveGemini(rawBytes)
@@ -3047,6 +3055,9 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Conte
 						_, _ = io.WriteString(cacheWriter, line)
 					}
 					flusher.Flush()
+					// Native Gemini delivers its terminal in this frame. A later
+					// usage-only frame may complete the evidence before EOF.
+					freezeUpstreamCacheGuardCompletion(cacheGuardRequestContext(c), usage.CacheUsageEvidence, cacheTerminalSuccess, isOAuth && !cacheWriter.failed)
 				}
 			} else {
 				if !sawDataEvent {
@@ -3057,6 +3068,9 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Conte
 			}
 		}
 
+		if strings.TrimSpace(line) == "" {
+			freezeUpstreamCacheGuardCompletion(cacheGuardRequestContext(c), usage.CacheUsageEvidence, cacheTerminalSuccess, !cacheWriter.failed)
+		}
 		if errors.Is(err, io.EOF) {
 			break
 		}

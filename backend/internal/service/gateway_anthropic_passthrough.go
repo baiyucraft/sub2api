@@ -419,6 +419,7 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 	var firstTokenMs *int
 	clientDisconnected := false
 	sawTerminalEvent := false
+	cacheStreamFailed := false
 
 	scanner := bufio.NewScanner(resp.Body)
 	maxLineSize := defaultMaxLineSize
@@ -549,6 +550,7 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 			line := ev.line
 			if data, ok := extractAnthropicSSEDataLine(line); ok {
 				trimmed := strings.TrimSpace(data)
+				cacheStreamFailed = cacheStreamFailed || gjson.Get(trimmed, "type").String() == "error"
 				observer.ObserveAnthropic([]byte(trimmed))
 				if anthropicStreamEventIsTerminal("", trimmed) {
 					sawTerminalEvent = true
@@ -578,6 +580,8 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 					flusher.Flush()
 					lastDataAt = time.Now()
 					resetKeepaliveTimer()
+					usage.CacheUsageEvidence = cacheUsageWithStreamCompletion(usage.CacheUsageEvidence, !cacheStreamFailed)
+					freezeUpstreamCacheGuardCompletion(ctx, usage.CacheUsageEvidence, sawTerminalEvent, !clientDisconnected)
 					inPartialEvent = false
 				} else {
 					inPartialEvent = true

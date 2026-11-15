@@ -447,6 +447,8 @@ func populateOpenAIUsageFromResponseJSON(body []byte, usage *OpenAIUsage) {
 		return
 	}
 	if parsed, ok := extractOpenAIUsageFromJSONBytes(body); ok {
+		status := strings.TrimSpace(gjson.GetBytes(body, "status").String())
+		parsed.CacheUsageEvidence = cacheUsageWithStreamCompletion(parsed.CacheUsageEvidence, status == "" || status == "completed")
 		*usage = parsed
 	}
 }

@@ -311,6 +311,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 			forwardBody = h.gatewayService.ReplaceModelInBody(body, channelMapping.MappedModel)
 		}
 		cacheAttemptCtx := admissionCtx
+		cacheAttemptCtx = service.WithUpstreamCacheGuardSamplingDiagnostics(cacheAttemptCtx, apiKey.GroupID, c, body, reqStream)
 		if reqStream && service.UpstreamCacheGuardTextRequest(c.Request.URL.Path, body) {
 			cacheAttemptCtx = service.WithUpstreamCacheGuardAttempt(cacheAttemptCtx, apiKey.ID, apiKey.GroupID, selectionSessionHash, true)
 		}

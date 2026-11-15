@@ -656,7 +656,9 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 						if fr := extractGeminiFinishReason(geminiResp); fr != "" {
 							finishReason = fr
 						}
+						cacheReadFailed = cacheReadFailed || cacheGuardGeminiResponseFailed(rawBytes)
 						if u := extractGeminiUsage(rawBytes); u != nil {
+							u.CacheUsageEvidence = observeGeminiCacheUsageEvidence(rawBytes, usage.CacheUsageEvidence)
 							usage = *u
 						}
 
@@ -861,6 +863,8 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 
 	_, _ = io.WriteString(cacheWriter, "data: [DONE]\n\n")
 	flusher.Flush()
+	freezeUpstreamCacheGuardCompletion(cacheGuardRequestContext(c), usage.CacheUsageEvidence,
+		cacheGuardGeminiTerminalSucceeded(finishReason) && !cacheReadFailed, !cacheWriter.failed && !clientDisconnect)
 
 	return streamResult(), nil
 }

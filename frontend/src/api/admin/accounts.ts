@@ -1197,7 +1197,36 @@ export async function refreshOpenCodeGoUsage(id: number): Promise<OpenCodeGoUsag
   return data
 }
 
+export interface UpstreamCacheGuardSamplingDiagnostics {
+  process_id: string
+  account_id: number
+  upstream_key_id: number
+  runner_installed: boolean
+  runner_closed: boolean
+  ready: boolean
+  observed_at: string
+  count_scope: string
+  complete_history: boolean
+  capacity: number
+  evictions: number
+  counters: {
+    group_id: number
+    account_id: number
+    upstream_key_id: number
+    counter_epoch: number
+    observed_from: string
+    observed_at: string
+    counts: Record<string, number>
+  }[]
+}
+
+export async function getCacheGuardDiagnostics(id: number, signal?: AbortSignal): Promise<UpstreamCacheGuardSamplingDiagnostics> {
+  const { data } = await apiClient.get<UpstreamCacheGuardSamplingDiagnostics>(`/admin/accounts/${id}/cache-guard-diagnostics`, { signal })
+  return data
+}
+
 export const accountsAPI = {
+  getCacheGuardDiagnostics,
   list,
   listWithEtag,
   getUpstreamBillingRatesWithEtag,

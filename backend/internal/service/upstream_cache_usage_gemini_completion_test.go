@@ -46,7 +46,7 @@ func (r *cacheGuardGeminiCanceledReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-func TestCacheGuardGeminiCanceledReadAfterTerminalPreservesBillingWithoutWarmSample(t *testing.T) {
+func TestCacheGuardGeminiCanceledReadAfterTerminalPreservesDeliveredCompletion(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	for _, route := range []string{"native", "messages", "chat"} {
 		t.Run(route, func(t *testing.T) {
@@ -83,7 +83,9 @@ func TestCacheGuardGeminiCanceledReadAfterTerminalPreservesBillingWithoutWarmSam
 			require.True(t, usage.CacheUsageEvidence.StreamIncomplete)
 			FinishGatewayUpstreamCacheGuardAttempt(ctx, &ForwardResult{Usage: *usage, Stream: true}, nil)
 			require.Len(t, store.events, 1)
-			require.False(t, store.events[0].ValidSample())
+			// Native output has already delivered the real terminal. Messages
+			// and Chat still require their synthesized downstream terminal.
+			require.Equal(t, route == "native", store.events[0].ValidSample())
 		})
 	}
 }

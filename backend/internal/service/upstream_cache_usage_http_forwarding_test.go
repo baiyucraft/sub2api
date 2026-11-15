@@ -21,7 +21,7 @@ func TestCacheGuardHTTPForwardingOutcomeMatrix(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	for _, route := range []string{"responses_native", "responses_passthrough", "responses_to_cc", "responses_to_messages", "cc_native", "cc_to_responses", "cc_to_messages"} {
 		responses := strings.HasPrefix(route, "responses_")
-		cases := []string{"success", "missing_terminal", "missing_cache", "zero_usage", "invalid_cache", "writer_failure", "cancel_before_finish"}
+		cases := []string{"success", "missing_terminal", "missing_cache", "zero_usage", "invalid_cache", "writer_failure", "cancel_after_terminal"}
 		if responses {
 			cases = append(cases, "missing_usage", "response.incomplete", "response.cancelled", "response.canceled", "response.failed", "completed_incomplete_status")
 		} else {
@@ -50,7 +50,7 @@ func TestCacheGuardHTTPForwardingOutcomeMatrix(t *testing.T) {
 					raw = result.Usage.CacheUsageEvidence
 				}
 				require.NotNil(t, raw, "typed billing copies must retain the raw same-frame evidence")
-				wantValid := outcome == "success" || outcome == "length"
+				wantValid := outcome == "success" || outcome == "length" || outcome == "cancel_after_terminal"
 				if wantValid {
 					require.NoError(t, err)
 					require.True(t, raw.Known())
@@ -84,9 +84,9 @@ func TestCacheGuardHTTPForwardingOutcomeMatrix(t *testing.T) {
 					require.Zero(t, result.Usage.OutputTokens)
 					require.Zero(t, result.Usage.CacheReadInputTokens)
 				}
-				if outcome == "cancel_before_finish" {
-					// Cancellation at the observer handoff must invalidate even a
-					// fully read upstream terminal with otherwise known usage.
+				if outcome == "cancel_after_terminal" {
+					// The physical path already confirmed terminal delivery. Later
+					// handler cancellation must preserve that completed fact.
 					cancel()
 				}
 				FinishOpenAIUpstreamCacheGuardAttempt(ctx, result, err)

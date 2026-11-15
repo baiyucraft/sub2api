@@ -884,6 +884,7 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 		}
 
 		if eventName == "error" {
+			freezeUpstreamCacheGuardCompletion(ctx, nil, false, false)
 			return nil, dataLine, nil, &sseStreamErrorEventError{RawData: dataLine}
 		}
 
@@ -913,7 +914,12 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 		}
 
 		eventType, _ := event["type"].(string)
+		if eventType == "error" {
+			freezeUpstreamCacheGuardCompletion(ctx, nil, false, false)
+			return nil, dataLine, nil, &sseStreamErrorEventError{RawData: dataLine}
+		}
 		observer.ObserveAnthropic([]byte(dataLine))
+		observeAnthropicCacheUsageEvent(dataLine, usage)
 		if eventName == "" {
 			eventName = eventType
 		}
@@ -1125,6 +1131,7 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 						}
 					}
 				}
+				freezeUpstreamCacheGuardCompletion(ctx, usage.CacheUsageEvidence, sawTerminalEvent, !clientDisconnected)
 				continue
 			}
 

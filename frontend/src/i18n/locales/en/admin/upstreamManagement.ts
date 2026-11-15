@@ -137,8 +137,18 @@ export default {
       linkedObserveReason: 'Low-cache observations for the same upstream account in another group',
       sourcePhases: { healthy: 'Healthy', degraded: 'Low-cache protection', cooling: 'Cooling down', trial: 'Recovery trial' },
       metricHint: 'Valid samples for the current account and Key are shared across groups and weighted by input tokens. Cold starts and invalid samples are excluded. Unknown is not 0%. Each group applies its own effective thresholds and recovery criteria.',
-      states: { disabled: 'Off', observing: 'Observing', insufficient: 'Insufficient samples', normal: 'Normal', protected: 'Protected', recovering: 'Recovery trial', expired: 'Expired data', unavailable: 'Temporarily unavailable' },
-      reasons: { disabled: 'Protection is off', collecting_samples: 'Collecting valid samples', insufficient_samples: 'Insufficient valid continuation samples', low_cache_rate: 'Below protection threshold', below_threshold: 'Below protection threshold', cooldown: 'Waiting for cooldown', waiting_recovery_samples: 'Waiting for recovery samples and observation time', waiting_recovery_validation: 'Waiting for independent recovery validation', recovery_verified: 'Recovery verified', healthy: 'Normal window cache performance', unavailable: 'State temporarily unavailable', snapshot_unavailable: 'Shared state temporarily unavailable', evidence_expired: 'Protection evidence expired; waiting for new valid samples', linked_group_protection: 'The same upstream account is protected by another group' }
+      samplingRequirementsHint: 'This is the protection warm-sample rate, which differs from the billing cache rate. Valid samples require streaming text, a reliable session, a warm context before sending, full success and raw cache usage. Cached business traffic does not establish qualifying protection samples.',
+      diagnosticsTitle: 'Entry exclusion diagnostics',
+      diagnosticsHint: 'These are retained entry counters for the current process, account and Key, not complete history or a total of protection facts. Off, insufficient samples and unavailable data are separate states.',
+      diagnosticsLoading: 'Loading entry diagnostics…',
+      diagnosticsUnavailable: 'Entry diagnostics unavailable',
+      diagnosticsEmpty: 'No entry observations in the retained window yet. This does not establish that no business requests occurred.',
+      diagnosticsNonStreaming: 'Non-streaming, excluded from warm samples: {count}',
+      diagnosticsMissingSession: 'No reliable session, excluded from warm samples: {count}',
+      diagnosticsWindow: 'Retained observations: {start} to {end} · counter epoch {epoch}',
+      diagnosticsCapacity: 'Up to {capacity} group/account/Key identities retained; {evictions} process-wide evictions. Counters restart after process restart or eviction.',
+      states: { disabled: 'Off', observing: 'Observing', insufficient: 'Insufficient samples', normal: 'Normal', protected: 'Protected', recovering: 'Recovery trial', expired: 'Expired data', unavailable: 'Temporarily unavailable', platform_not_selected: 'Platform outside scope' },
+      reasons: { disabled: 'Protection is off', platform_not_selected: 'Platform outside protection scope', collecting_samples: 'Collecting valid samples', insufficient_samples: 'Insufficient valid continuation samples', low_cache_rate: 'Below protection threshold', below_threshold: 'Below protection threshold', cooldown: 'Waiting for cooldown', waiting_recovery_samples: 'Waiting for recovery samples and observation time', waiting_recovery_validation: 'Waiting for independent recovery validation', recovery_verified: 'Recovery verified', healthy: 'Normal window cache performance', unavailable: 'State temporarily unavailable', snapshot_unavailable: 'Shared state temporarily unavailable', evidence_expired: 'Protection evidence expired; waiting for new valid samples', linked_group_protection: 'The same upstream account is protected by another group' }
     },
     retryStatusCodes: {
       title: 'Same-account retry status codes',

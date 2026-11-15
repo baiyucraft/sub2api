@@ -18,6 +18,14 @@ func parseGeminiCacheUsageEvidence(usage gjson.Result) *UpstreamCacheUsageEviden
 	return upstreamcacheusage.ParseGemini(usage)
 }
 
+func observeGeminiCacheUsageEvidence(raw []byte, previous *UpstreamCacheUsageEvidence) *UpstreamCacheUsageEvidence {
+	usage := gjson.GetBytes(raw, "usageMetadata")
+	if previous != nil && (!usage.Exists() || usage.IsObject() && !usage.Get("promptTokenCount").Exists() && !usage.Get("cachedContentTokenCount").Exists()) {
+		return previous
+	}
+	return parseGeminiCacheUsageEvidence(usage)
+}
+
 func parseAnthropicCacheUsageEvidenceResult(usage gjson.Result) *UpstreamCacheUsageEvidence {
 	return upstreamcacheusage.ParseAnthropic(usage)
 }
@@ -34,6 +42,15 @@ func cacheGuardGeminiTerminalSucceeded(reason string) bool {
 	return reason == "STOP" || reason == "MAX_TOKENS"
 }
 
+func cacheGuardGeminiResponseFailed(raw []byte) bool {
+	root := gjson.ParseBytes(raw)
+	if root.Get("response").IsObject() {
+		root = root.Get("response")
+	}
+	err := root.Get("error")
+	return err.Exists() && err.Type != gjson.Null
+}
+
 // Anthropic reports input/cache usage in message_start and output totals in
 // message_delta. Output-only deltas do not invalidate the native input fact.
 func observeAnthropicCacheUsageEvent(payload string, usage *ClaudeUsage) {
@@ -46,7 +63,9 @@ func observeAnthropicCacheUsageEvent(payload string, usage *ClaudeUsage) {
 		usage.CacheUsageEvidence = parseAnthropicCacheUsageEvidenceResult(root.Get("message.usage"))
 	case "message_delta":
 		node := root.Get("usage")
-		if node.Get("input_tokens").Exists() || node.Get("prompt_tokens").Exists() || node.Get("cache_read_input_tokens").Exists() {
+		// Output-only deltas do not revise the input snapshot. An explicit
+		// malformed usage or partial input revision must not inherit stale cache.
+		if (node.Exists() && !node.IsObject()) || node.Get("input_tokens").Exists() || node.Get("prompt_tokens").Exists() || node.Get("cache_read_input_tokens").Exists() || node.Get("cache_creation_input_tokens").Exists() || node.Get("cached_tokens").Exists() || node.Get("prompt_tokens_details").Exists() || node.Get("prompt_cache_hit_tokens").Exists() {
 			usage.CacheUsageEvidence = parseAnthropicCacheUsageEvidenceResult(node)
 		}
 	}

@@ -267,6 +267,7 @@ func mergeAntigravityCompatUsage(dst *ClaudeUsage, src *antigravity.ClaudeUsage)
 	if dst == nil || src == nil {
 		return
 	}
+	dst.CacheUsageEvidence = src.CacheUsageEvidence
 	dst.InputTokens = src.InputTokens
 	dst.OutputTokens = src.OutputTokens
 	dst.CacheCreationInputTokens = src.CacheCreationInputTokens
@@ -288,7 +289,9 @@ func (s *AntigravityGatewayService) handleAntigravityCompatStream(
 func (s *AntigravityGatewayService) handleAntigravityCompatStreamWithKeepaliveInterval(
 	c *gin.Context, resp *http.Response, startTime time.Time, originalModel string,
 	adapter antigravityCompatStreamAdapter, prefix string, interval, maxPreContentWait time.Duration,
-) (*antigravityStreamResult, error) {
+) (result *antigravityStreamResult, resultErr error) {
+	var cacheCompletion antigravityCacheCompletion
+	defer func() { cacheCompletion.finish(result, resultErr) }()
 	flusher, ok := c.Writer.(http.Flusher)
 	if !ok {
 		return nil, errors.New("streaming not supported")
@@ -357,7 +360,9 @@ func (s *AntigravityGatewayService) handleAntigravityCompatStreamWithKeepaliveIn
 			}
 			resetAntigravityCompatTimer(timeoutTimer, timeout)
 			s.observeAntigravityGeminiSSELine(c, event.line)
+			cacheCompletion.observeLine(event.line)
 			session.consume(event.line)
+			cacheCompletion.delivered(cacheGuardRequestContext(c), !writer.Disconnected() && session.hasMeaningfulData())
 
 		case <-timeoutCh:
 			if writer.Disconnected() {
@@ -512,6 +517,7 @@ func writeAntigravityCompatStreamError(
 	writer *antigravityClientWriter,
 	reason string,
 ) {
+	freezeUpstreamCacheGuardCompletion(cacheGuardRequestContext(c), nil, false, false)
 	adapter.WriteError(writer, reason)
 	MarkResponseCommitted(c)
 }

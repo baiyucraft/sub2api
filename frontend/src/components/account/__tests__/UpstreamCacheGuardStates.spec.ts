@@ -58,4 +58,9 @@ describe('UpstreamCacheGuardStates', () => {
   it.each(['observing', 'protected', 'insufficient'] as const)('shows %s in a single badge', (state) => {
     expect(render(summary({ state, rate_percent: null })).get('[data-test="cache-guard-state"]').text()).toContain('Unknown')
   })
+  it.each(['disabled', 'platform_not_selected'] as const)('preserves %s without presenting it as an unknown cache rate', state => {
+    const wrapper = render(summary({ state, rate_percent: null, reason: state }))
+    expect(wrapper.get('[data-test="cache-guard-state"]').text()).toBe(state === 'disabled' ? 'Off' : 'Platform outside scope')
+    expect(wrapper.text()).toContain('differs from the billing cache rate')
+  })
 })

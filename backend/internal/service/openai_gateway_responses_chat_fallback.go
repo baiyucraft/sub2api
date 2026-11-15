@@ -291,6 +291,8 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 	if !scan.SawDone {
 		logCCStreamMissingDoneSentinel("openai responses chat fallback", requestID)
 	}
+	freezeUpstreamCacheGuardCompletion(c.Request.Context(), scan.Usage.CacheUsageEvidence,
+		scan.SawDone || scan.SawFinishReason, !clientDisconnected)
 
 	return &OpenAIForwardResult{
 		RequestID:                   requestID,

@@ -763,6 +763,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		// 5) forward (根据平台分流)
 		var result *service.ForwardResult
 		requestCtx := admissionCtx
+		requestCtx = service.WithUpstreamCacheGuardSamplingDiagnostics(requestCtx, apiKey.GroupID, c, body, stream)
 		if stream && service.UpstreamCacheGuardTextRequest(c.Request.URL.Path, body) {
 			requestCtx = service.WithUpstreamCacheGuardAttempt(requestCtx, apiKey.ID, apiKey.GroupID, sessionKey, true)
 		}

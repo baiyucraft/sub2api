@@ -460,6 +460,7 @@ func (s *OpenAIGatewayService) handleCCStreamingFromNativeAnthropic(
 		if len(responsesEvents) > 0 {
 			c.Writer.Flush()
 		}
+		freezeUpstreamCacheGuardCompletion(cacheGuardRequestContext(c), usage.CacheUsageEvidence, cacheTerminalComplete && !cacheReadFailed, !clientDisconnected)
 		return false
 	}
 
@@ -505,6 +506,7 @@ func (s *OpenAIGatewayService) handleCCStreamingFromNativeAnthropic(
 
 		streamStatus.observe(&event, payload)
 		if streamStatus.upstreamErrType != "" {
+			freezeUpstreamCacheGuardCompletion(cacheGuardRequestContext(c), nil, false, false)
 			cacheReadFailed = true
 			break
 		}

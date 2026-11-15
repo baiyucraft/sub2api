@@ -389,6 +389,8 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 			if !clientDisconnected && clientOutputStarted {
 				c.Writer.Flush()
 			}
+			freezeUpstreamCacheGuardCompletion(cacheGuardRequestContext(c), usage.CacheUsageEvidence,
+				(terminal.sawDone || terminal.sawFinishReason) && !cacheStreamFailed, !clientDisconnected && clientOutputStarted)
 			continue
 		}
 		if !clientDisconnected && clientOutputStarted {
@@ -482,6 +484,8 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 		}
 	}
 
+	freezeUpstreamCacheGuardCompletion(cacheGuardRequestContext(c), usage.CacheUsageEvidence,
+		(terminal.sawDone || terminal.sawFinishReason) && !cacheStreamFailed, !clientDisconnected && clientOutputStarted)
 	return resultWithUsage(), nil
 }
 

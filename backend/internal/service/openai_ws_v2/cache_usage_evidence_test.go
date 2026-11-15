@@ -1,7 +1,10 @@
 package openai_ws_v2
 
 import (
+	"context"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/upstreamcacheusage"
+	coderws "github.com/coder/websocket"
+	"github.com/stretchr/testify/require"
 	"testing"
 )
 
@@ -20,5 +23,35 @@ func TestCacheGuardWSParserKeepsTerminalPresencePerTurn(t *testing.T) {
 	}
 	if first.CacheUsageEvidence.Status != upstreamcacheusage.Absent {
 		t.Fatalf("next turn changed prior evidence")
+	}
+}
+
+func TestCacheGuardWSRelayPreservesExplicitIncompleteStatusWithoutChangingBilling(t *testing.T) {
+	for _, eventType := range []string{"response.completed", "response.done"} {
+		for _, status := range []string{"", "completed", "incomplete", "canceled", "failed"} {
+			t.Run(eventType+"/"+status, func(t *testing.T) {
+				statusField := ""
+				if status != "" {
+					statusField = `"status":"` + status + `",`
+				}
+				payload := []byte(`{"type":"` + eventType + `","response":{"id":"resp_cache_status",` + statusField + `"usage":{"input_tokens":100,"output_tokens":7,"input_tokens_details":{"cached_tokens":80}}}}`)
+				var turns []RelayTurnResult
+				_, relayExit := RunEntry(EntryInput{
+					Ctx: context.Background(), ClientConn: newPassthroughTestFrameConn(nil, false),
+					UpstreamConn:       newPassthroughTestFrameConn([]passthroughTestFrame{{msgType: coderws.MessageText, payload: payload}}, true),
+					FirstClientMessage: []byte(`{"type":"response.create","model":"gpt-4o","input":[]}`),
+					Options:            RelayOptions{OnTurnComplete: func(turn RelayTurnResult) { turns = append(turns, turn) }},
+				})
+				require.Nil(t, relayExit)
+				require.Len(t, turns, 1)
+				usage := turns[0].Usage
+				require.Equal(t, 100, usage.InputTokens)
+				require.Equal(t, 7, usage.OutputTokens)
+				require.Equal(t, 80, usage.CacheReadInputTokens)
+				require.NotNil(t, usage.CacheUsageEvidence)
+				require.True(t, usage.CacheUsageEvidence.Known())
+				require.Equal(t, status != "" && status != "completed", usage.CacheUsageEvidence.StreamIncomplete)
+			})
+		}
 	}
 }

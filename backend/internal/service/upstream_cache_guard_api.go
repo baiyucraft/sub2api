@@ -235,15 +235,17 @@ func upstreamCacheGuardPolicyAccountViewsBatchAt(accounts []Account, settings Up
 				states[i].OrdinaryRecovery = nil
 			}
 		}
-		if resolve != nil {
-			if selected := mostSevereUpstreamCacheGuardState(states); selected != nil {
-				summary.State, summary.Reason = selected.State, selected.Reason
-				if selected.Reason == "evidence_expired" {
-					// The shared raw window can outlive a policy's evidence. Do
-					// not present its old rate as a currently usable decision.
-					summary.RatePercent, summary.ValidRequests = nil, 0
-				}
+		// Execution is determined only by current applicable groups. Shared
+		// observations can remain available after every group disables execution.
+		if selected := mostSevereUpstreamCacheGuardState(states); selected != nil {
+			summary.State, summary.Reason = selected.State, selected.Reason
+			if selected.Reason == "evidence_expired" {
+				// The shared raw window can outlive a policy's evidence. Do
+				// not present its old rate as a currently usable decision.
+				summary.RatePercent, summary.ValidRequests = nil, 0
 			}
+		}
+		if resolve != nil || summary.State == "disabled" {
 			// Recovery cohorts can differ across strategies; their progress is
 			// intentionally shown only in the corresponding group detail.
 			summary.RecoveryValidRequests, summary.RecoverySessions = 0, 0

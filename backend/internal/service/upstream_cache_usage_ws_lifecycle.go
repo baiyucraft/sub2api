@@ -30,6 +30,7 @@ func (t *upstreamCacheGuardWSTurns) turnContext(turn int, payload []byte) contex
 		return ctx
 	}
 	ctx := WithUpstreamCacheGuardTurn(t.seed, payload, turn == 1)
+	ctx = withCacheGuardWSTurnEntryDiagnostics(ctx, payload)
 	t.pending[turn] = ctx
 	if turn > t.started {
 		t.started = turn
@@ -60,6 +61,28 @@ func (t *upstreamCacheGuardWSTurns) finish(turn int, result *OpenAIForwardResult
 	if ctx != nil {
 		FinishOpenAIUpstreamCacheGuardAttempt(ctx, result, err)
 	}
+}
+
+func freezeOpenAIWSCacheGuardCompletion(ctx context.Context, result *OpenAIForwardResult) {
+	if result == nil {
+		return
+	}
+	evidence := result.CacheUsageEvidence
+	if evidence == nil {
+		evidence = result.Usage.CacheUsageEvidence
+	}
+	terminal := result.UpstreamTerminalEvent == "response.completed" || result.UpstreamTerminalEvent == "response.done"
+	text := result.ImageCount == 0 && result.Usage.ImageOutputTokens == 0 && result.VideoCount == 0 && result.AudioUsage == nil && result.WebSearchCalls == 0
+	freezeUpstreamCacheGuardCompletion(ctx, evidence, terminal && text, !result.ClientDisconnect)
+}
+
+// The relay callback runs after the terminal client write and before releasing
+// the turn. Freeze there rather than at the later connection cleanup.
+func (t *upstreamCacheGuardWSTurns) freezeCompletion(turn int, result *OpenAIForwardResult) {
+	t.mu.Lock()
+	ctx := t.pending[turn]
+	t.mu.Unlock()
+	freezeOpenAIWSCacheGuardCompletion(ctx, result)
 }
 
 func (t *upstreamCacheGuardWSTurns) finishRemaining() {

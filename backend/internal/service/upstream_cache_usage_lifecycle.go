@@ -7,10 +7,18 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/upstreamcacheusage"
+	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 )
 
 type cacheUsageAttemptContextKey struct{}
+
+func cacheGuardRequestContext(c *gin.Context) context.Context {
+	if c == nil || c.Request == nil {
+		return nil
+	}
+	return c.Request.Context()
+}
 
 // One holder belongs to one physical-account attempt, not an entire retry chain
 // or WebSocket connection. Probes never install this request metadata.
@@ -28,6 +36,44 @@ type cacheUsageAttempt struct {
 	model              string
 	protocol           string
 	sendAttempts       uint64
+	completedEvidence  *UpstreamCacheUsageEvidence
+	completedAt        time.Time
+}
+
+// Freeze only after a successful terminal and its complete raw usage have been
+// delivered. Later request cancellation must not rewrite that physical outcome.
+// Keeping the copy on the account attempt also isolates retries and WS turns.
+func freezeUpstreamCacheGuardCompletion(ctx context.Context, evidence *UpstreamCacheUsageEvidence, terminalSucceeded, downstreamDelivered bool) {
+	if ctx == nil {
+		return
+	}
+	a, _ := ctx.Value(cacheUsageAttemptContextKey{}).(*cacheUsageAttempt)
+	if a == nil {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.finished {
+		return
+	}
+	// A later explicit usage revision or failure terminal is authoritative.
+	// Read errors/cancellation alone do not constitute an evidence revision.
+	if !terminalSucceeded || evidence != nil && (!evidence.Known() || evidence.StreamIncomplete) {
+		a.completedEvidence, a.completedAt = nil, time.Time{}
+		return
+	}
+	if evidence == nil {
+		return
+	}
+	if a.completedEvidence != nil && *a.completedEvidence == *evidence {
+		return
+	}
+	if ctx.Err() != nil || !downstreamDelivered {
+		a.completedEvidence, a.completedAt = nil, time.Time{}
+		return
+	}
+	copy := *evidence
+	a.completedEvidence, a.completedAt = &copy, time.Now()
 }
 
 func WithUpstreamCacheGuardAttempt(ctx context.Context, apiKeyID int64, groupID *int64, sessionHash string, stream bool) context.Context {
@@ -48,6 +94,7 @@ func BeginUpstreamCacheGuardSend(ctx context.Context, account *Account, model, p
 	if ctx == nil {
 		return nil
 	}
+	prepareCacheGuardEntryDiagnostics(ctx, account, model, protocol)
 	if protocol == "openai_ws" {
 		PrepareOpenAIUpstreamCacheGuardSend(ctx, account, model, protocol)
 		if err := runSchedulingProtectionBeforeSend(ctx, account, model); err != nil {
@@ -74,6 +121,7 @@ func PrepareOpenAIUpstreamCacheGuardSend(ctx context.Context, account *Account, 
 	if ctx == nil {
 		return
 	}
+	prepareCacheGuardEntryDiagnostics(ctx, account, model, protocol)
 	if fact, _ := ctx.Value(openAITTFTAttemptKey{}).(*openAITTFTAttempt); fact != nil {
 		fact.mu.Lock()
 		fact.preparedModel, fact.preparedProtocol = model, protocol
@@ -132,6 +180,7 @@ func finishUpstreamCacheGuardAttempt(ctx context.Context, evidence *UpstreamCach
 	a.finished = true
 	admission := a.admission
 	account, groupID, sends, begun := a.account, a.groupID, a.sendAttempts, a.begun
+	frozenEvidence, frozenAt := a.completedEvidence, a.completedAt
 	a.mu.Unlock()
 	if admission == nil {
 		if r := currentUpstreamCacheGuardRunner(); r != nil && account != nil && groupID != nil {
@@ -143,9 +192,13 @@ func finishUpstreamCacheGuardAttempt(ctx context.Context, evidence *UpstreamCach
 		}
 		return
 	}
+	frozen := frozenEvidence != nil && reason != "non_text_output"
+	if frozen {
+		evidence, success, reason, completedAt = frozenEvidence, true, "", frozenAt
+	}
 	if reason == "" {
 		switch {
-		case ctx.Err() != nil:
+		case ctx.Err() != nil && !frozen:
 			reason = "canceled"
 		case evidence != nil && evidence.StreamIncomplete:
 			reason = "stream_incomplete"
@@ -181,6 +234,7 @@ func markUpstreamCacheGuardSend(ctx context.Context, account *Account) {
 	if ctx == nil || account == nil {
 		return
 	}
+	recordCacheGuardEntryDiagnostics(ctx, account)
 	a, _ := ctx.Value(cacheUsageAttemptContextKey{}).(*cacheUsageAttempt)
 	if a == nil {
 		return
@@ -316,11 +370,11 @@ func FinishOpenAIUpstreamCacheGuardAttempt(ctx context.Context, result *OpenAIFo
 		if evidence == nil {
 			evidence = result.Usage.CacheUsageEvidence
 		}
-		if result.ImageCount > 0 || result.VideoCount > 0 || result.AudioUsage != nil || result.WebSearchCalls > 0 {
+		if result.ImageCount > 0 || result.Usage.ImageOutputTokens > 0 || result.VideoCount > 0 || result.AudioUsage != nil || result.WebSearchCalls > 0 {
 			success = false
 			reason = "non_text_output"
 		}
-		if result.ClientDisconnect {
+		if result.ClientDisconnect && reason == "" {
 			reason = "client_disconnected"
 		}
 	}
@@ -386,7 +440,7 @@ func FinishGatewayUpstreamCacheGuardAttempt(ctx context.Context, result *Forward
 			success = false
 			reason = "non_text_output"
 		}
-		if result.ClientDisconnect {
+		if result.ClientDisconnect && reason == "" {
 			reason = "client_disconnected"
 		}
 	}

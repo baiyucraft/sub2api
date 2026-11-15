@@ -1280,6 +1280,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 					result.ImageOutputSizes = imageCounter.Sizes()
 					result.BillingModel = imageBillingModel
 				}
+				freezeOpenAIWSCacheGuardCompletion(turnCtx, result)
 				return result, nil
 			}
 		}

@@ -18,17 +18,24 @@ import (
 func TestCacheGuardWSTerminalPresenceThroughNativeAndBridge(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	for _, eventType := range []string{"response.completed", "response.done"} {
-		for _, zeroUsage := range []bool{false, true} {
+		for _, outcome := range []string{"missing_usage", "zero_usage", "incomplete_status"} {
 			name := eventType + "/missing_usage"
 			terminalUsage := ""
 			wantStatus := upstreamcacheusage.Absent
-			if zeroUsage {
+			responseStatus := "completed"
+			if outcome == "zero_usage" {
 				name = eventType + "/zero_usage"
 				terminalUsage = `,"usage":{"input_tokens":0,"output_tokens":0,"input_tokens_details":{"cached_tokens":0}}`
 				wantStatus = upstreamcacheusage.Known
 			}
+			if outcome == "incomplete_status" {
+				name = eventType + "/incomplete_status"
+				terminalUsage = `,"usage":{"input_tokens":100,"output_tokens":7,"input_tokens_details":{"cached_tokens":80}}`
+				wantStatus = upstreamcacheusage.Known
+				responseStatus = "incomplete"
+			}
 			progressive := []byte(`{"type":"response.in_progress","response":{"id":"resp_cache_terminal","model":"gpt-5.1","usage":{"input_tokens":100,"output_tokens":7,"input_tokens_details":{"cached_tokens":80}}}}`)
-			terminal := []byte(`{"type":"` + eventType + `","response":{"id":"resp_cache_terminal","model":"gpt-5.1","status":"completed","output":[]` + terminalUsage + `}}`)
+			terminal := []byte(`{"type":"` + eventType + `","response":{"id":"resp_cache_terminal","model":"gpt-5.1","status":"` + responseStatus + `","output":[]` + terminalUsage + `}}`)
 			for _, bridge := range []bool{false, true} {
 				transport := "native"
 				if bridge {
@@ -84,8 +91,14 @@ func TestCacheGuardWSTerminalPresenceThroughNativeAndBridge(t *testing.T) {
 					require.Equal(t, 80, result.Usage.CacheReadInputTokens)
 					require.NotNil(t, result.CacheUsageEvidence)
 					require.Equal(t, wantStatus, result.CacheUsageEvidence.Status)
-					require.Zero(t, result.CacheUsageEvidence.TotalInputTokens)
-					require.False(t, result.CacheUsageEvidence.Known())
+					if outcome == "incomplete_status" {
+						require.EqualValues(t, 100, result.CacheUsageEvidence.TotalInputTokens)
+						require.True(t, result.CacheUsageEvidence.Known())
+						require.True(t, result.CacheUsageEvidence.StreamIncomplete)
+					} else {
+						require.Zero(t, result.CacheUsageEvidence.TotalInputTokens)
+						require.False(t, result.CacheUsageEvidence.Known())
+					}
 					FinishOpenAIUpstreamCacheGuardAttempt(ctx, result, err)
 					require.Len(t, store.events, 1)
 					require.False(t, store.events[0].ValidSample(), "progressive high cache is not final evidence")

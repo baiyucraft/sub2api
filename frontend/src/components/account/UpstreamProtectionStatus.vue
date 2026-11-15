@@ -28,6 +28,24 @@
             <div class="text-xs leading-6 text-gray-600 dark:text-gray-300"><p>{{ t('admin.upstreamManagement.cacheGuard.windowMinutes', { count: cache.window_minutes }) }}</p><p>{{ t('admin.upstreamManagement.cacheGuard.updatedAt') }}: {{ dateLabel(cache.updated_at) }}</p></div>
           </div>
           <p class="mt-3 text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('admin.upstreamManagement.cacheGuard.metricHint') }}</p>
+          <p class="mt-2 text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('admin.upstreamManagement.cacheGuard.samplingRequirementsHint') }}</p>
+        </section>
+        <section v-if="account.upstream_key_id" class="rounded-xl border border-gray-200 p-4 text-xs dark:border-dark-600" data-test="protection-cache-diagnostics">
+          <h4 class="text-sm font-semibold text-gray-900 dark:text-white">{{ t('admin.upstreamManagement.cacheGuard.diagnosticsTitle') }}</h4>
+          <p class="mt-2 leading-5 text-gray-500 dark:text-gray-400">{{ t('admin.upstreamManagement.cacheGuard.diagnosticsHint') }}</p>
+          <p v-if="diagnosticsLoading" class="mt-2">{{ t('admin.upstreamManagement.cacheGuard.diagnosticsLoading') }}</p>
+          <p v-else-if="diagnosticsFailed" class="mt-2">{{ t('admin.upstreamManagement.cacheGuard.diagnosticsUnavailable') }}</p>
+          <template v-else-if="diagnostics">
+            <p v-if="!diagnostics.runner_installed || diagnostics.runner_closed" class="mt-2">{{ t('admin.upstreamManagement.cacheGuard.diagnosticsUnavailable') }}</p>
+            <p v-else-if="!diagnosticRows.length" class="mt-2">{{ t('admin.upstreamManagement.cacheGuard.diagnosticsEmpty') }}</p>
+            <div v-for="row in diagnosticRows" :key="row.group_id" class="mt-3 border-t border-gray-100 pt-2 leading-6 dark:border-dark-700" :data-diagnostics-group="row.group_id">
+              <p class="font-medium">{{ groupLabel({ group_id: row.group_id }) }}</p>
+              <p>{{ t('admin.upstreamManagement.cacheGuard.diagnosticsNonStreaming', { count: row.counts.skipped_non_streaming ?? 0 }) }}</p>
+              <p>{{ t('admin.upstreamManagement.cacheGuard.diagnosticsMissingSession', { count: row.counts.skipped_missing_reliable_session ?? 0 }) }}</p>
+              <p class="text-gray-500 dark:text-gray-400">{{ t('admin.upstreamManagement.cacheGuard.diagnosticsWindow', { start: dateLabel(row.observed_from), end: dateLabel(row.observed_at), epoch: row.counter_epoch }) }}</p>
+            </div>
+            <p class="mt-3 text-gray-500 dark:text-gray-400">{{ t('admin.upstreamManagement.cacheGuard.diagnosticsCapacity', { capacity: diagnostics.capacity, evictions: diagnostics.evictions }) }}</p>
+          </template>
         </section>
         <section>
           <h4 class="mb-3 text-sm font-semibold text-gray-900 dark:text-white">{{ t('admin.upstreamManagement.protection.models') }}</h4>
@@ -118,17 +136,49 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { Account, UpstreamProtectionDisplayState, UpstreamProtectionGroupState, UpstreamTTFTExecution, UpstreamTTFTModelObservation } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { formatDateTime } from '@/utils/format'
 import { summarizeTTFTGroups, ttftGroupDisplay, ttftModelDisplay } from '@/utils/upstreamTTFTSummary'
+import { getCacheGuardDiagnostics, type UpstreamCacheGuardSamplingDiagnostics } from '@/api/admin/accounts'
 
 const props = defineProps<{ account: Account }>()
 const { t, te } = useI18n()
 const show = ref(false)
+const diagnostics = ref<UpstreamCacheGuardSamplingDiagnostics | null>(null)
+const diagnosticsLoading = ref(false)
+const diagnosticsFailed = ref(false)
+const diagnosticRows = computed(() => diagnostics.value?.counters.filter(row => row.account_id === props.account.id && row.upstream_key_id === props.account.upstream_key_id) ?? [])
+let diagnosticsRequest = 0
+let diagnosticsController: AbortController | undefined
+watch([show, () => props.account.id, () => props.account.upstream_key_id], async ([opened, id, key]) => {
+  const request = ++diagnosticsRequest
+  diagnosticsController?.abort()
+  diagnostics.value = null
+  diagnosticsFailed.value = false
+  diagnosticsLoading.value = false
+  if (!opened || !id || !key) return
+  const controller = new AbortController()
+  diagnosticsController = controller
+  diagnosticsLoading.value = true
+  try {
+    const value = await getCacheGuardDiagnostics(id, controller.signal)
+    if (request !== diagnosticsRequest) return
+    if (value.account_id !== id || value.upstream_key_id !== key) {
+      diagnosticsFailed.value = true
+      return
+    }
+    diagnostics.value = value
+  } catch {
+    if (request === diagnosticsRequest && !controller.signal.aborted) diagnosticsFailed.value = true
+  } finally {
+    if (request === diagnosticsRequest) diagnosticsLoading.value = false
+  }
+})
+onBeforeUnmount(() => { diagnosticsRequest++; diagnosticsController?.abort() })
 const protection = computed(() => props.account.upstream_protection)
 const platformExcluded = computed(() => protection.value?.platform_selected === false)
 const cache = computed(() => protection.value?.cache ?? props.account.upstream_cache_guard)
@@ -147,8 +197,12 @@ function displayState(state: string, current?: UpstreamProtectionDisplayState): 
   if (isProtected(state)) return 'protected'
   return state === 'normal' || state === 'healthy' ? 'normal' : 'insufficient'
 }
-type CachePresentationState = UpstreamProtectionDisplayState | 'unavailable' | 'partial_unavailable'
-const cacheDisplayStateFor = (item: UpstreamProtectionGroupState): CachePresentationState => item.cache.state === 'unavailable' ? 'unavailable' : displayState(item.cache.state, item.cache.display_state)
+type CachePresentationState = UpstreamProtectionDisplayState | 'unavailable' | 'partial_unavailable' | 'disabled' | 'platform_not_selected'
+function cacheState(state: string, current?: UpstreamProtectionDisplayState): CachePresentationState {
+  if (state === 'unavailable' || state === 'disabled' || state === 'platform_not_selected') return state
+  return displayState(state, current)
+}
+const cacheDisplayStateFor = (item: UpstreamProtectionGroupState): CachePresentationState => cacheState(item.cache.state, item.cache.display_state)
 const ttftDisplayStateFor = ttftGroupDisplay
 function aggregateState(states: CachePresentationState[]): CachePresentationState {
   if (states.length && states.every(state => state === 'unavailable')) return 'unavailable'
@@ -156,12 +210,18 @@ function aggregateState(states: CachePresentationState[]): CachePresentationStat
   if (states.includes('protected')) return 'protected'
   return states.length && states.every(state => state === 'normal') ? 'normal' : 'insufficient'
 }
-const cacheDisplayState = computed(() => aggregateState(groups.value.length ? activeGroups.value.map(cacheDisplayStateFor) : cache.value ? [cache.value.state === 'unavailable' ? 'unavailable' : displayState(cache.value.state)] : []))
+const cacheDisplayState = computed<CachePresentationState>(() => {
+  if (!groups.value.length) return cache.value ? cacheState(cache.value.state) : 'insufficient'
+  if (!activeGroups.value.length) return 'platform_not_selected'
+  const enabled = activeGroups.value.filter(item => item.cache.state !== 'disabled')
+  return enabled.length ? aggregateState(enabled.map(cacheDisplayStateFor)) : 'disabled'
+})
 const ttftPresentation = computed(() => summarizeTTFTGroups(groups.value))
 const ttftModelTotal = computed(() => Object.values(ttftPresentation.value.counts).reduce((total, count) => total + count, 0))
 const ttftDisplayState = computed(() => !protection.value && legacyTTFT.value.length ? 'protected' : ttftPresentation.value.state)
 const cacheSummary = computed(() => {
   const state = cacheDisplayState.value
+  if (state === 'disabled' || state === 'platform_not_selected') return `${t('admin.upstreamManagement.protection.cache')} · ${stateLabel(state)}`
   const unavailable = state === 'unavailable' || state === 'partial_unavailable'
   const status = cacheProtectedGroups.value ? t('admin.upstreamManagement.protection.protectedGroups', { count: cacheProtectedGroups.value }) : stateLabel(state)
   const availability = cacheProtectedGroups.value && unavailable ? ` · ${stateLabel(state)}` : ''

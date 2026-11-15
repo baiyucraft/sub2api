@@ -1938,6 +1938,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 	sawBareError := false
 	sawResponseFailed := false
 	terminalEventType := ""
+	cacheTerminalSucceeded := false
 	semanticOutputSeen := false
 	capacityFailoverSuppressedLogged := false
 	failedMessage := ""
@@ -2048,7 +2049,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 
 	needModelReplace := strings.TrimSpace(originalModel) != "" && strings.TrimSpace(mappedModel) != "" && strings.TrimSpace(originalModel) != strings.TrimSpace(mappedModel)
 	resultWithUsage := func() *openaiStreamingResultPassthrough {
-		if !cacheGuardResponsesTerminalSucceeded(nil, terminalEventType) || clientDisconnected {
+		if !cacheTerminalSucceeded || clientDisconnected {
 			usage.CacheUsageEvidence = cacheUsageWithStreamCompletion(usage.CacheUsageEvidence, false)
 		}
 		return &openaiStreamingResultPassthrough{
@@ -2207,6 +2208,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			}
 			if openAIStreamEventIsTerminalWithType(trimmedData, eventType) {
 				sawTerminalEvent = true
+				cacheTerminalSucceeded = cacheGuardResponsesTerminalSucceeded(dataBytes, eventType)
 				if trimmedData != "[DONE]" {
 					terminalEventType = eventType
 				}
@@ -2287,6 +2289,10 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 		if line == "" && responseFailedPending {
 			responseFailedPending = false
 			failureDelivered = true
+		}
+		if line == "" {
+			freezeUpstreamCacheGuardCompletion(ctx, usage.CacheUsageEvidence,
+				cacheTerminalSucceeded && !sawFailedEvent, !clientDisconnected && clientOutputStarted && !flushPending)
 		}
 		// Terminal 事件（response.completed / [DONE] 等）随空行完整刷出后不再等上游
 		// EOF：上游在 keep-alive/HTTP2 复用连接上可能拖延关闭连接（观测到 8~46s 不等），

@@ -1292,6 +1292,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 				// Cache protection uses the independent visible-output mark from the
 				// frame wrapper; synthesizing FirstTokenAt here could turn a semantic
 				// reasoning event into a protection sample with no visible output.
+				cacheTurns.freezeCompletion(turnNo, turnResult)
 				cacheTurns.finish(turnNo, turnResult, nil)
 				logOpenAIWSV2Passthrough(
 					"relay_turn_completed account_id=%d turn=%d request_id=%s terminal_event=%s turn_requested_model=%s turn_upstream_model=%s duration_ms=%d first_token_ms=%d input_tokens=%d output_tokens=%d cache_read_tokens=%d",

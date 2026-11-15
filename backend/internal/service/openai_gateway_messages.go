@@ -1038,6 +1038,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 	var streamFailoverErr error
 	var streamNonFailoverErr error
 	terminalEventType := ""
+	cacheTerminalSucceeded := false
 	searchCount := 0
 	streamSearchSeen := make(map[string]struct{})
 	countSearch := account != nil && account.IsGrok()
@@ -1116,6 +1117,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 		isTerminalEvent := isOpenAICompatResponsesTerminalEvent(eventType) || isBareErrorEvent
 		if isTerminalEvent {
 			terminalEventType = eventType
+			cacheTerminalSucceeded = cacheGuardResponsesTerminalSucceeded([]byte(payload), eventType)
 			if event.Response != nil {
 				if id := strings.TrimSpace(event.Response.ID); id != "" {
 					responseID = id
@@ -1251,6 +1253,8 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 				c.Writer.Flush()
 			}
 		}
+		freezeUpstreamCacheGuardCompletion(c.Request.Context(), usage.CacheUsageEvidence,
+			cacheTerminalSucceeded, !clientDisconnected && clientOutputStarted)
 		logOpenAISuccessMissingUsage(c.Request.Context(), c, account, resp, &usage, terminalEventType, clientDisconnected)
 		return resultWithUsage(), nil
 	}

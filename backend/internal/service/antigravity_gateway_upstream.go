@@ -14,6 +14,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 )
 
 // ForwardUpstream 使用 base_url + /v1/messages + 双 header 认证透传上游 Claude 请求
@@ -154,6 +155,7 @@ func (s *AntigravityGatewayService) ForwardUpstream(ctx context.Context, c *gin.
 		ClientDisconnect:              clientDisconnect,
 		UpstreamHeaders:               resp.Header,
 		Usage: ClaudeUsage{
+			CacheUsageEvidence:       usage.CacheUsageEvidence,
 			InputTokens:              usage.InputTokens,
 			OutputTokens:             usage.OutputTokens,
 			CacheReadInputTokens:     usage.CacheReadInputTokens,
@@ -318,6 +320,9 @@ func (s *AntigravityGatewayService) streamUpstreamResponse(c *gin.Context, resp 
 // 仅读取顶层 event.usage 会漏掉 message_start 的输入侧字段，导致流式透传请求落库的
 // usage_logs 记录 input_tokens=0。
 func (s *AntigravityGatewayService) extractSSEUsage(line string, usage *ClaudeUsage) {
+	if data, ok := extractAnthropicSSEDataLine(line); ok {
+		observeAnthropicCacheUsageEvent(data, usage)
+	}
 	if !strings.HasPrefix(line, "data: ") {
 		return
 	}
@@ -363,6 +368,7 @@ func (s *AntigravityGatewayService) extractSSEUsage(line string, usage *ClaudeUs
 // extractClaudeUsage 从非流式 Claude 响应提取 usage
 func (s *AntigravityGatewayService) extractClaudeUsage(body []byte) *ClaudeUsage {
 	usage := &ClaudeUsage{}
+	usage.CacheUsageEvidence = parseAnthropicCacheUsageEvidenceResult(gjson.GetBytes(body, "usage"))
 	var resp map[string]any
 	if json.Unmarshal(body, &resp) != nil {
 		return usage

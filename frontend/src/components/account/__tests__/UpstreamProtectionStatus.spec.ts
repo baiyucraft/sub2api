@@ -1,9 +1,13 @@
 import { flushPromises, mount } from '@vue/test-utils'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import UpstreamProtectionStatus from '../UpstreamProtectionStatus.vue'
 import locale from '@/i18n/locales/zh/admin/upstreamManagement'
 import enLocale from '@/i18n/locales/en/admin/upstreamManagement'
 import type { Account, AccountTTFTGuardDegradation, UpstreamProtectionGroupState, UpstreamProtectionSummary, UpstreamTTFTModelObservation } from '@/types'
+import type { UpstreamCacheGuardSamplingDiagnostics } from '@/api/admin/accounts'
+
+const { getCacheGuardDiagnostics } = vi.hoisted(() => ({ getCacheGuardDiagnostics: vi.fn() }))
+vi.mock('@/api/admin/accounts', () => ({ getCacheGuardDiagnostics }))
 
 vi.mock('vue-i18n', async () => ({ ...await vi.importActual<typeof import('vue-i18n')>('vue-i18n'), useI18n: () => ({
   t: (key: string, params: Record<string, unknown> = {}) => {
@@ -28,6 +32,15 @@ const protection = (): UpstreamProtectionSummary => ({
   ttft_models: [model()], groups: [group(1), group(2)]
 })
 const wrappers: ReturnType<typeof mount>[] = []
+const diagnostics = (id = 1, key = 2): UpstreamCacheGuardSamplingDiagnostics => ({
+  process_id: 'process', account_id: id, upstream_key_id: key, runner_installed: true,
+  runner_closed: false, ready: true, observed_at: '2026-11-15T11:30:00Z',
+  count_scope: 'process_account_window', complete_history: false, capacity: 4096, evictions: 8,
+  counters: [{ group_id: 1, account_id: id, upstream_key_id: key, counter_epoch: 3,
+    observed_from: '2026-11-15T11:00:00Z', observed_at: '2026-11-15T11:29:00Z',
+    counts: { skipped_non_streaming: 12, skipped_missing_reliable_session: 7 } }]
+})
+beforeEach(() => { getCacheGuardDiagnostics.mockReset(); getCacheGuardDiagnostics.mockResolvedValue(diagnostics()) })
 function render(value: UpstreamProtectionSummary) {
   const wrapper = mount(UpstreamProtectionStatus, {
     props: { account: { id: 1, name: '上游账号', upstream_protection: value } as Account },
@@ -40,6 +53,90 @@ function render(value: UpstreamProtectionSummary) {
 afterEach(() => { wrappers.forEach(wrapper => wrapper.unmount()); wrappers.length = 0; document.body.innerHTML = '' })
 
 describe('UpstreamProtectionStatus', () => {
+  it('shows disabled cache execution without inventing an unknown rate or hiding shared observations', async () => {
+    const value = protection()
+    value.groups.forEach(item => Object.assign(item.cache, { state: 'disabled', display_state: 'insufficient', reason: 'disabled' }))
+    const wrapper = render(value)
+    expect(wrapper.get('[data-test="protection-cache-summary"]').text()).toBe('缓存 · 已关闭')
+    await wrapper.get('[data-test="protection-cache-summary"]').trigger('click')
+    expect(wrapper.get('[data-test="protection-cache-metrics"]').text()).toContain('82.6%')
+    expect(wrapper.get('[data-test="protection-cache-metrics"]').text()).toContain('业务账单缓存率口径不同')
+    expect(wrapper.get('[data-protection-group="1"] [data-test="protection-group-cache"] .state-badge').text()).toBe('已关闭')
+  })
+
+  it('does not let disabled cache groups turn an enabled normal group into insufficient samples', () => {
+    const value = protection()
+    Object.assign(value.groups[0].cache, { state: 'normal', display_state: 'normal' })
+    Object.assign(value.groups[1].cache, { state: 'disabled', display_state: 'insufficient' })
+    expect(render(value).get('[data-test="protection-cache-summary"]').text()).toBe('缓存 82.6% · 正常')
+  })
+
+  it('preserves disabled and excluded cache summary states without group projections', () => {
+    for (const state of ['disabled', 'platform_not_selected'] as const) {
+      const value = protection()
+      value.groups = []
+      value.cache!.state = state
+      const text = render(value).get('[data-test="protection-cache-summary"]').text()
+      expect(text).toBe(state === 'disabled' ? '缓存 · 已关闭' : '缓存 · 未纳入平台范围')
+    }
+  })
+
+  it('loads bounded entry exclusions only when details open and keeps them separate from protection facts', async () => {
+    const wrapper = render(protection())
+    await wrapper.setProps({ account: { id: 1, name: '上游账号', upstream_key_id: 2, upstream_protection: protection() } as Account })
+    expect(getCacheGuardDiagnostics).not.toHaveBeenCalled()
+    await wrapper.get('[data-test="protection-cache-summary"]').trigger('click')
+    await flushPromises()
+    expect(getCacheGuardDiagnostics).toHaveBeenCalledTimes(1)
+    const details = wrapper.get('[data-test="protection-cache-diagnostics"]').text()
+    expect(details).toContain('非流式，未参与暖样本：12 次')
+    expect(details).toContain('缺可靠会话，未参与暖样本：7 次')
+    expect(details).toContain('不是完整历史或保护事实总数')
+    expect(details).toContain('计数代次 3')
+    expect(details).toContain('4096')
+    expect(details).toContain('累计淘汰 8 次')
+    await wrapper.setProps({ account: { id: 1, name: '更新后的账号', upstream_key_id: 2, upstream_protection: protection() } as Account })
+    await flushPromises()
+    expect(getCacheGuardDiagnostics).toHaveBeenCalledTimes(1)
+  })
+
+  it('aborts and ignores stale diagnostics when the account or current Key changes', async () => {
+    const pending: ((value: UpstreamCacheGuardSamplingDiagnostics) => void)[] = []
+    getCacheGuardDiagnostics.mockImplementation(() => new Promise(resolve => pending.push(resolve)))
+    const wrapper = render(protection())
+    await wrapper.setProps({ account: { id: 1, name: '账号1', upstream_key_id: 2, upstream_protection: protection() } as Account })
+    await wrapper.get('[data-test="protection-cache-summary"]').trigger('click')
+    const firstSignal = getCacheGuardDiagnostics.mock.calls[0][1] as AbortSignal
+    await wrapper.setProps({ account: { id: 9, name: '账号9', upstream_key_id: 3, upstream_protection: protection() } as Account })
+    expect(firstSignal.aborted).toBe(true)
+    expect(getCacheGuardDiagnostics).toHaveBeenCalledTimes(2)
+    pending[0](diagnostics())
+    await flushPromises()
+    expect(wrapper.get('[data-test="protection-cache-diagnostics"]').text()).not.toContain('12 次')
+    const latest = diagnostics(9, 3)
+    latest.counters[0].counts.skipped_non_streaming = 24
+    pending[1](latest)
+    await flushPromises()
+    expect(wrapper.get('[data-test="protection-cache-diagnostics"]').text()).toContain('24 次')
+    const signal = getCacheGuardDiagnostics.mock.calls[1][1] as AbortSignal
+    wrapper.unmount()
+    expect(signal.aborted).toBe(true)
+  })
+
+  it('shows unavailable entry diagnostics rather than zero exclusions after a read failure or Key mismatch', async () => {
+    getCacheGuardDiagnostics.mockRejectedValueOnce(new Error('unavailable'))
+    const wrapper = render(protection())
+    await wrapper.setProps({ account: { id: 1, name: '账号', upstream_key_id: 2, upstream_protection: protection() } as Account })
+    await wrapper.get('[data-test="protection-cache-summary"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-test="protection-cache-diagnostics"]').text()).toContain('入口诊断暂不可用')
+    getCacheGuardDiagnostics.mockResolvedValueOnce(diagnostics(1, 99))
+    await wrapper.setProps({ account: { id: 1, name: '账号', upstream_key_id: 3, upstream_protection: protection() } as Account })
+    await flushPromises()
+    expect(wrapper.get('[data-test="protection-cache-diagnostics"]').text()).toContain('入口诊断暂不可用')
+    expect(wrapper.find('[data-diagnostics-group]').exists()).toBe(false)
+  })
+
   it('shows an excluded account scope over retained facts and historical protection progress', async () => {
     const value = protection()
     value.platform_selected = false

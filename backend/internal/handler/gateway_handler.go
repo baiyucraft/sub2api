@@ -513,6 +513,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			// 转发请求 - 根据账号平台分流
 			var result *service.ForwardResult
 			requestCtx := admissionCtx
+			requestCtx = service.WithUpstreamCacheGuardSamplingDiagnostics(requestCtx, apiKey.GroupID, c, body, reqStream)
 			if reqStream && service.UpstreamCacheGuardTextRequest(c.Request.URL.Path, body) {
 				requestCtx = service.WithUpstreamCacheGuardAttempt(requestCtx, apiKey.ID, apiKey.GroupID, sessionKey, true)
 			}
@@ -935,6 +936,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			c.Set("parsed_request", attemptParsedReq)
 			var result *service.ForwardResult
 			requestCtx := admissionCtx
+			requestCtx = service.WithUpstreamCacheGuardSamplingDiagnostics(requestCtx, apiKey.GroupID, c, body, reqStream)
 			if reqStream && service.UpstreamCacheGuardTextRequest(c.Request.URL.Path, body) {
 				requestCtx = service.WithUpstreamCacheGuardAttempt(requestCtx, apiKey.ID, apiKey.GroupID, sessionKey, true)
 			}

@@ -310,6 +310,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 		}
 		writerSizeBeforeForward := c.Writer.Size()
 		cacheAttemptCtx := h.withSchedulingProtectionSendAdmission(service.ContextWithSelectionProfitGate(c.Request.Context(), selection), apiKey.GroupID, sessionHash, selection)
+		cacheAttemptCtx = service.WithUpstreamCacheGuardSamplingDiagnostics(cacheAttemptCtx, apiKey.GroupID, c, body, reqStream)
 		if reqStream && service.UpstreamCacheGuardTextRequest(c.Request.URL.Path, body) {
 			cacheAttemptCtx = service.WithUpstreamCacheGuardAttempt(cacheAttemptCtx, apiKey.ID, apiKey.GroupID, sessionHash, true)
 		}

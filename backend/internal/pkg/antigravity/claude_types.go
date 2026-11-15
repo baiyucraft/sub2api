@@ -3,6 +3,8 @@ package antigravity
 import (
 	"encoding/json"
 	"strings"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/upstreamcacheusage"
 )
 
 // Claude 请求/响应类型定义
@@ -138,11 +140,12 @@ func (c ClaudeContentItem) MarshalJSON() ([]byte, error) {
 
 // ClaudeUsage Claude 用量统计
 type ClaudeUsage struct {
-	InputTokens              int `json:"input_tokens"`
-	OutputTokens             int `json:"output_tokens"`
-	CacheCreationInputTokens int `json:"cache_creation_input_tokens,omitempty"`
-	CacheReadInputTokens     int `json:"cache_read_input_tokens,omitempty"`
-	ImageOutputTokens        int `json:"image_output_tokens,omitempty"`
+	CacheUsageEvidence       *upstreamcacheusage.Evidence `json:"-"`
+	InputTokens              int                          `json:"input_tokens"`
+	OutputTokens             int                          `json:"output_tokens"`
+	CacheCreationInputTokens int                          `json:"cache_creation_input_tokens,omitempty"`
+	CacheReadInputTokens     int                          `json:"cache_read_input_tokens,omitempty"`
+	ImageOutputTokens        int                          `json:"image_output_tokens,omitempty"`
 }
 
 // ClaudeError Claude 错误响应

@@ -720,9 +720,11 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 
 		stream.observe(&event, payload)
 		if stream.upstreamErrType != "" {
+			freezeUpstreamCacheGuardCompletion(cacheGuardRequestContext(c), nil, false, false)
 			break
 		}
 		processEvent(&event)
+		freezeUpstreamCacheGuardCompletion(cacheGuardRequestContext(c), usage.CacheUsageEvidence, stream.cacheUsageComplete(), !stream.clientDisconnected)
 	}
 
 	return finalizeStream()

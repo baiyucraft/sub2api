@@ -44,6 +44,7 @@ func TransformGeminiToClaude(geminiResp []byte, originalModel string) ([]byte, *
 	// 使用处理器转换
 	processor := NewNonStreamingProcessor()
 	claudeResp := processor.Process(&v1Resp.Response, v1Resp.ResponseID, originalModel)
+	claudeResp.Usage.CacheUsageEvidence = ObserveGeminiCacheUsage(geminiResp, nil)
 
 	// 序列化
 	respBytes, err := json.Marshal(claudeResp)

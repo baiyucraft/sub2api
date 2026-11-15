@@ -1145,6 +1145,8 @@ func parseUsageAndAccumulate(
 	}
 	rawCacheEvidence := upstreamcacheusage.ParseOpenAI(usageResult)
 	if isTerminalEvent(strings.TrimSpace(eventType)) {
+		status := strings.TrimSpace(gjson.GetBytes(message, "response.status").String())
+		rawCacheEvidence.StreamIncomplete = status != "" && status != "completed"
 		state.turnUsage.CacheUsageEvidence = rawCacheEvidence
 	}
 	usageRaw := strings.TrimSpace(usageResult.Raw)

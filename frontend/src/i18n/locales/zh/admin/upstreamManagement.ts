@@ -137,8 +137,18 @@ export default {
       linkedObserveReason: '同一上游账号在其他分组出现低缓存观察结果',
       sourcePhases: { healthy: '正常', degraded: '低缓存保护', cooling: '冷却中', trial: '恢复试用' },
       metricHint: '当前账号与 Key 的所有分组有效样本按输入 Token 加权合并，冷启动和无效样本不计。未知不等于 0%。各组按自己的生效阈值判定和恢复。',
-      states: { disabled: '关闭', observing: '观察中', insufficient: '样本不足', normal: '正常', protected: '保护中', recovering: '恢复试用', expired: '数据过期', unavailable: '状态暂不可用' },
-      reasons: { disabled: '保护已关闭', collecting_samples: '收集有效样本', insufficient_samples: '有效续聊样本不足', low_cache_rate: '缓存率低于保护阈值', below_threshold: '低于保护阈值', cooldown: '等待冷却结束', waiting_recovery_samples: '等待恢复样本与观察时间', waiting_recovery_validation: '等待恢复验证', recovery_verified: '恢复判定通过', healthy: '正常窗口缓存表现', unavailable: '状态暂不可用', snapshot_unavailable: '共享状态暂不可用', evidence_expired: '保护证据已过期，等待新有效样本', linked_group_protection: '同一上游账号受到其他分组联动保护' }
+      samplingRequirementsHint: '这里展示保护暖样本率，与业务账单缓存率口径不同。有效样本要求流式文本、可靠会话、发送前已有暖上下文、完整成功及原始缓存用量；业务有缓存不代表已有合格保护样本。',
+      diagnosticsTitle: '入口排除诊断',
+      diagnosticsHint: '只展示当前进程保留的账号与 Key 入口计数，不是完整历史或保护事实总数。关闭、缺样本和数据不可用是不同状态。',
+      diagnosticsLoading: '正在读取入口诊断…',
+      diagnosticsUnavailable: '入口诊断暂不可用',
+      diagnosticsEmpty: '当前保留窗口尚无入口观测；不能据此认定没有业务请求。',
+      diagnosticsNonStreaming: '非流式，未参与暖样本：{count} 次',
+      diagnosticsMissingSession: '缺可靠会话，未参与暖样本：{count} 次',
+      diagnosticsWindow: '保留观测：{start} 至 {end} · 计数代次 {epoch}',
+      diagnosticsCapacity: '最多保留 {capacity} 个分组／账号／Key 身份；进程内累计淘汰 {evictions} 次。重启或淘汰后计数重新开始。',
+      states: { disabled: '关闭', observing: '观察中', insufficient: '样本不足', normal: '正常', protected: '保护中', recovering: '恢复试用', expired: '数据过期', unavailable: '状态暂不可用', platform_not_selected: '未纳入平台范围' },
+      reasons: { disabled: '保护已关闭', platform_not_selected: '平台未纳入保护范围', collecting_samples: '收集有效样本', insufficient_samples: '有效续聊样本不足', low_cache_rate: '缓存率低于保护阈值', below_threshold: '低于保护阈值', cooldown: '等待冷却结束', waiting_recovery_samples: '等待恢复样本与观察时间', waiting_recovery_validation: '等待恢复验证', recovery_verified: '恢复判定通过', healthy: '正常窗口缓存表现', unavailable: '状态暂不可用', snapshot_unavailable: '共享状态暂不可用', evidence_expired: '保护证据已过期，等待新有效样本', linked_group_protection: '同一上游账号受到其他分组联动保护' }
     },
     retryStatusCodes: {
       title: '同账号重试状态码',

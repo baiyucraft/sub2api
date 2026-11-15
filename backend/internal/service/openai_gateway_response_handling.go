@@ -250,6 +250,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 	sawBareError := false
 	sawResponseFailed := false
 	terminalEventType := ""
+	cacheTerminalSucceeded := false
 	responsesSemanticOutputSeen := false
 	capacityFailoverSuppressedLogged := false
 	failedMessage := ""
@@ -352,7 +353,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 	// both list the same call_id — counting both would ~2× the surcharge).
 	streamSearchSeen := make(map[string]struct{})
 	resultWithUsage := func() *openaiStreamingResult {
-		if !cacheGuardResponsesTerminalSucceeded(nil, terminalEventType) || clientDisconnected {
+		if !cacheTerminalSucceeded || clientDisconnected {
 			usage.CacheUsageEvidence = cacheUsageWithStreamCompletion(usage.CacheUsageEvidence, false)
 		}
 		return &openaiStreamingResult{
@@ -407,6 +408,8 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			)
 		}
 		flushPending("Client disconnected during final flush, returning collected usage")
+		freezeUpstreamCacheGuardCompletion(ctx, usage.CacheUsageEvidence,
+			cacheTerminalSucceeded && !sawFailedEvent, !clientDisconnected && pendingBytes() == 0)
 		if !sawTerminalEvent {
 			if openAIStreamClientOutputStarted(c, clientOutputStarted) && !clientDisconnected {
 				s.recordOpenAIProxyStreamDisconnect(account, errors.New("stream ended before terminal event"), upstreamRequestID)
@@ -521,6 +524,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			if openAIStreamEventIsTerminalWithType(data, eventType) {
 				sawTerminalEvent = true
 				terminalEventType = eventType
+				cacheTerminalSucceeded = cacheGuardResponsesTerminalSucceeded(dataBytes, eventType)
 				if strings.TrimSpace(data) == "[DONE]" {
 					terminalEventType = "[DONE]"
 				}
@@ -785,6 +789,8 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			}
 			if streamEarlyErr == nil {
 				completeGuardedEvent(queueDrained)
+				freezeUpstreamCacheGuardCompletion(ctx, usage.CacheUsageEvidence,
+					cacheTerminalSucceeded && !sawFailedEvent, !clientDisconnected && pendingBytes() == 0)
 			}
 			if terminalFailurePending && streamEarlyErr == nil {
 				terminalFailurePending = false
@@ -831,6 +837,10 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				terminalFailurePending = false
 				failureDelivered = true
 			}
+		}
+		if line == "" {
+			freezeUpstreamCacheGuardCompletion(ctx, usage.CacheUsageEvidence,
+				cacheTerminalSucceeded && !sawFailedEvent, !clientDisconnected && pendingBytes() == 0)
 		}
 	}
 

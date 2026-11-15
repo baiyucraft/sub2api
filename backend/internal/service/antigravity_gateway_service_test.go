@@ -1821,7 +1821,11 @@ func TestExtractSSEUsage(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			usage := &ClaudeUsage{}
 			svc.extractSSEUsage(tt.line, usage)
-			require.Equal(t, tt.expected, *usage)
+			// This table checks billing compatibility; raw presence is covered by
+			// TestAnthropicRawEvidenceDeltaAuthority and real forwarding tests.
+			billable := *usage
+			billable.CacheUsageEvidence = nil
+			require.Equal(t, tt.expected, billable)
 		})
 	}
 }

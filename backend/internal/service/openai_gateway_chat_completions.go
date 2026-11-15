@@ -860,6 +860,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 	var streamFailoverErr *UpstreamFailoverError
 	var streamNonFailoverErr error
 	terminalEventType := ""
+	cacheTerminalSucceeded := false
 	// Grok chat bridge reuses Responses SSE; count native search tools for surcharge.
 	searchCount := 0
 	streamSearchSeen := make(map[string]struct{})
@@ -935,6 +936,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 		isTerminalEvent := isOpenAICompatResponsesTerminalEvent(event.Type)
 		if isTerminalEvent {
 			terminalEventType = strings.TrimSpace(event.Type)
+			cacheTerminalSucceeded = cacheGuardResponsesTerminalSucceeded([]byte(payload), terminalEventType)
 			if event.Usage != nil {
 				usage = copyOpenAIResponsesBillingUsagePreservingCache(usage, event.Usage)
 			}
@@ -1149,6 +1151,8 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 		if !clientDisconnected {
 			c.Writer.Flush()
 		}
+		freezeUpstreamCacheGuardCompletion(c.Request.Context(), usage.CacheUsageEvidence,
+			cacheTerminalSucceeded, !clientDisconnected && clientOutputStarted)
 		logOpenAISuccessMissingUsage(c.Request.Context(), c, account, resp, &usage, terminalEventType, clientDisconnected)
 		return resultWithUsage(), nil
 	}

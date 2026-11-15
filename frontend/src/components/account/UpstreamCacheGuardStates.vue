@@ -7,7 +7,7 @@
         :data-cache-guard-state="summary.state"
         :class="['inline-flex max-w-full items-center rounded-md px-2 py-1 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500', stateClass(summary.state)]"
       >
-        <span class="truncate">{{ t(`admin.upstreamManagement.cacheGuard.states.${summary.state}`) }} · {{ rateLabel(summary.rate_percent) }}</span>
+        <span class="truncate">{{ t(`admin.upstreamManagement.cacheGuard.states.${summary.state}`) }}<template v-if="!['disabled', 'platform_not_selected'].includes(summary.state)"> · {{ rateLabel(summary.rate_percent) }}</template></span>
       </button>
     </template>
     <div class="mb-1 font-medium">{{ t('admin.upstreamManagement.cacheGuard.accountSummary') }}</div>
@@ -30,6 +30,7 @@
       <span v-if="item.trial_participant">· {{ t('admin.upstreamManagement.cacheGuard.trialParticipant') }}</span>
     </div>
     <p class="mt-2 text-gray-300">{{ t('admin.upstreamManagement.cacheGuard.metricHint') }}</p>
+    <p class="mt-1 text-gray-300">{{ t('admin.upstreamManagement.cacheGuard.samplingRequirementsHint') }}</p>
   </HelpTooltip>
 </template>
 

@@ -943,6 +943,7 @@ readLoop:
 	} else {
 		flushStreamWriter(true)
 	}
+	freezeOpenAIWSCacheGuardCompletion(ctx, resultWithUsage())
 
 	if responseID != "" && stateStore != nil {
 		ttl := s.openAIWSResponseStickyTTL()

@@ -228,6 +228,7 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 			return
 		}
 		errorEventSent = true
+		freezeUpstreamCacheGuardCompletion(cacheGuardRequestContext(c), nil, false, false)
 		_, _ = fmt.Fprintf(c.Writer, "event: error\ndata: {\"error\":\"%s\"}\n\n", reason)
 		flusher.Flush()
 	}
@@ -273,9 +274,11 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 				}
 
 				// 解析 usage
+				rawEvidence := antigravity.ObserveGeminiCacheUsage(inner, usage.CacheUsageEvidence)
 				if u := extractGeminiUsage(inner); u != nil {
 					usage = u
 				}
+				usage.CacheUsageEvidence = rawEvidence
 				var parsed map[string]any
 				if json.Unmarshal(inner, &parsed) == nil {
 					// Check for MALFORMED_FUNCTION_CALL
@@ -466,9 +469,11 @@ func (s *AntigravityGatewayService) handleGeminiStreamToNonStreaming(c *gin.Cont
 			last = parsed
 
 			// 提取 usage
+			rawEvidence := antigravity.ObserveGeminiCacheUsage(inner, usage.CacheUsageEvidence)
 			if u := extractGeminiUsage(inner); u != nil {
 				usage = u
 			}
+			usage.CacheUsageEvidence = rawEvidence
 
 			// Check for MALFORMED_FUNCTION_CALL
 			if candidates, ok := parsed["candidates"].([]any); ok && len(candidates) > 0 {
@@ -777,6 +782,7 @@ func (s *AntigravityGatewayService) collectClaudeStreamResponse(c *gin.Context, 
 	scanner.Split(newBoundedSSESplit(s.settingService.cfg, maxLineSize, nil))
 
 	var firstTokenMs *int
+	var cacheUsageEvidence *UpstreamCacheUsageEvidence
 	var last map[string]any
 	var lastWithParts map[string]any
 	var collectedParts []map[string]any // 收集所有 parts（包括 text、thinking、functionCall、inlineData 等）
@@ -871,6 +877,7 @@ func (s *AntigravityGatewayService) collectClaudeStreamResponse(c *gin.Context, 
 				continue
 			}
 			upstreamResponseModelObserverFromContext(c).ObserveGemini(inner)
+			cacheUsageEvidence = antigravity.ObserveGeminiCacheUsage(inner, cacheUsageEvidence)
 
 			var parsed map[string]any
 			if err := json.Unmarshal(inner, &parsed); err != nil {
@@ -944,6 +951,7 @@ returnResponse:
 
 	// 转换为 service.ClaudeUsage
 	usage := &ClaudeUsage{
+		CacheUsageEvidence:       cacheUsageEvidence,
 		InputTokens:              agUsage.InputTokens,
 		OutputTokens:             agUsage.OutputTokens,
 		CacheCreationInputTokens: agUsage.CacheCreationInputTokens,
@@ -985,7 +993,9 @@ func (s *AntigravityGatewayService) handleClaudeStreamToNonStreaming(c *gin.Cont
 }
 
 // handleClaudeStreamingResponse 处理 Claude 流式响应（Gemini SSE → Claude SSE 转换）
-func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context, resp *http.Response, startTime time.Time, originalModel string) (*antigravityStreamResult, error) {
+func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context, resp *http.Response, startTime time.Time, originalModel string) (result *antigravityStreamResult, resultErr error) {
+	var cacheCompletion antigravityCacheCompletion
+	defer func() { cacheCompletion.finish(result, resultErr) }()
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
@@ -1015,6 +1025,7 @@ func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context
 			return &ClaudeUsage{}
 		}
 		return &ClaudeUsage{
+			CacheUsageEvidence:       agUsage.CacheUsageEvidence,
 			InputTokens:              agUsage.InputTokens,
 			OutputTokens:             agUsage.OutputTokens,
 			CacheCreationInputTokens: agUsage.CacheCreationInputTokens,
@@ -1098,6 +1109,7 @@ func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context
 			return
 		}
 		errorEventSent = true
+		freezeUpstreamCacheGuardCompletion(cacheGuardRequestContext(c), nil, false, false)
 		_, _ = fmt.Fprintf(c.Writer, "event: error\ndata: {\"error\":\"%s\"}\n\n", reason)
 		flusher.Flush()
 	}
@@ -1148,6 +1160,7 @@ func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context
 			s.observeAntigravityGeminiSSELine(c, ev.line)
 
 			// 处理 SSE 行，转换为 Claude 格式
+			cacheCompletion.observeLine(ev.line)
 			claudeEvents := processor.ProcessLine(strings.TrimRight(ev.line, "\r\n"))
 			if len(claudeEvents) > 0 {
 				if firstTokenMs == nil {
@@ -1156,6 +1169,7 @@ func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context
 				}
 				cw.Write(claudeEvents)
 			}
+			cacheCompletion.delivered(cacheGuardRequestContext(c), !cw.Disconnected() && processor.HasContent())
 
 		case <-intervalCh:
 			lastRead := time.Unix(0, atomic.LoadInt64(&lastReadAt))

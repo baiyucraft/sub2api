@@ -922,6 +922,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		// reasoning item（含耦合的 id/summary），避免非透传上游 400 拒绝 Kiro reasoning 形态。
 		attemptBody := h.deriveOpenAIForwardAttemptBody(reqLog, forwardBody, account, &passthroughFailoverState)
 		cacheAttemptCtx := h.withSchedulingProtectionSendAdmission(service.ContextWithSelectionProfitGate(c.Request.Context(), selection), apiKey.GroupID, sessionHash, selection)
+		cacheAttemptCtx = service.WithUpstreamCacheGuardSamplingDiagnostics(cacheAttemptCtx, apiKey.GroupID, c, body, reqStream)
 		if reqStream && service.UpstreamCacheGuardTextRequest(c.Request.URL.Path, body) {
 			cacheAttemptCtx = service.WithUpstreamCacheGuardAttempt(cacheAttemptCtx, apiKey.ID, apiKey.GroupID, sessionHash, true)
 		}
@@ -1607,6 +1608,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		forwardBody := mappedBodyForMessages(channelMappingMsg.Mapped, channelMappingMsg.MappedModel)
 		writerSizeBeforeForward := c.Writer.Size()
 		cacheAttemptCtx := h.withSchedulingProtectionSendAdmission(service.ContextWithSelectionProfitGate(c.Request.Context(), selection), apiKey.GroupID, sessionHash, selection)
+		cacheAttemptCtx = service.WithUpstreamCacheGuardSamplingDiagnostics(cacheAttemptCtx, apiKey.GroupID, c, body, reqStream)
 		if reqStream && service.UpstreamCacheGuardTextRequest(c.Request.URL.Path, body) {
 			cacheAttemptCtx = service.WithUpstreamCacheGuardAttempt(cacheAttemptCtx, apiKey.ID, apiKey.GroupID, sessionHash, true)
 		}
@@ -4078,6 +4080,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 
 		for {
 			cacheConnectionCtx := service.WithUpstreamCacheGuardAttempt(ctx, apiKey.ID, apiKey.GroupID, sessionHash, service.UpstreamCacheGuardTextRequest(c.Request.URL.Path, wsFirstMessage))
+			cacheConnectionCtx = service.WithUpstreamCacheGuardSamplingDiagnostics(cacheConnectionCtx, apiKey.GroupID, c, wsFirstMessage, true)
 			if service.UpstreamCacheGuardTextRequest(c.Request.URL.Path, wsFirstMessage) {
 				cacheConnectionCtx = service.WithOpenAITTFTGuardAttempt(cacheConnectionCtx, h.gatewayService, apiKey.ID, apiKey.GroupID)
 			}
