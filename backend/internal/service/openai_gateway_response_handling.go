@@ -27,15 +27,19 @@ import (
 
 // openaiStreamingResult streaming response result
 type openaiStreamingResult struct {
-	usage            *OpenAIUsage
-	firstTokenMs     *int
-	responseID       string
-	imageCount       int
-	imageOutputSizes []string
-	searchCount      int
+	upstreamIncomplete bool
+	clientDisconnect   bool
+	usage              *OpenAIUsage
+	firstTokenMs       *int
+	responseID         string
+	imageCount         int
+	imageOutputSizes   []string
+	searchCount        int
 }
 
 type openaiNonStreamingResult struct {
+	upstreamIncomplete bool
+	clientDisconnect   bool
 	*OpenAIUsage
 	usage            *OpenAIUsage
 	responseID       string
@@ -251,6 +255,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 	sawResponseFailed := false
 	terminalEventType := ""
 	cacheTerminalSucceeded := false
+	upstreamTerminalSucceeded := false
 	responsesSemanticOutputSeen := false
 	capacityFailoverSuppressedLogged := false
 	failedMessage := ""
@@ -357,12 +362,14 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			usage.CacheUsageEvidence = cacheUsageWithStreamCompletion(usage.CacheUsageEvidence, false)
 		}
 		return &openaiStreamingResult{
-			usage:            usage,
-			firstTokenMs:     firstTokenMs,
-			responseID:       responseID,
-			imageCount:       imageCounter.Count(),
-			imageOutputSizes: imageCounter.Sizes(),
-			searchCount:      searchCounter,
+			upstreamIncomplete: !upstreamTerminalSucceeded,
+			clientDisconnect:   clientDisconnected,
+			usage:              usage,
+			firstTokenMs:       firstTokenMs,
+			responseID:         responseID,
+			imageCount:         imageCounter.Count(),
+			imageOutputSizes:   imageCounter.Sizes(),
+			searchCount:        searchCounter,
 		}
 	}
 	flushPending := func(disconnectMessage string) {
@@ -522,6 +529,11 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			observer.ObserveOpenAI(dataBytes, eventType)
 			// 初始上游 data 的 type 只解析一次：原始值保持终止事件的精确匹配，规范化值供后续分支复用。
 			if openAIStreamEventIsTerminalWithType(data, eventType) {
+				if strings.TrimSpace(data) != "[DONE]" {
+					upstreamTerminalSucceeded = cacheGuardResponsesTerminalSucceeded(dataBytes, eventType)
+				} else if !sawTerminalEvent {
+					upstreamTerminalSucceeded = true
+				}
 				sawTerminalEvent = true
 				terminalEventType = eventType
 				cacheTerminalSucceeded = cacheGuardResponsesTerminalSucceeded(dataBytes, eventType)
@@ -1782,18 +1794,17 @@ func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, r
 		}
 	}
 
-	if !writeOpenAICompactSSEBridge(c, resp.StatusCode, body) {
-		markOpenAITTFTGuardFirstTokenForRequest(c)
-		c.Data(resp.StatusCode, contentType, body)
-	}
+	delivered := writeOpenAINonStreamingBody(c, resp.StatusCode, contentType, body)
 
 	return &openaiNonStreamingResult{
-		OpenAIUsage:      usage,
-		usage:            usage,
-		responseID:       extractOpenAIResponseIDFromJSONBytes(body),
-		imageCount:       countOpenAIResponseImageOutputsFromJSONBytes(body),
-		imageOutputSizes: collectOpenAIResponseImageOutputSizesFromJSONBytes(body),
-		searchCount:      countGrokNativeSearchCallsFromJSONBytes(body),
+		upstreamIncomplete: openAIResponseStatusIncomplete(body),
+		clientDisconnect:   !delivered,
+		OpenAIUsage:        usage,
+		usage:              usage,
+		responseID:         extractOpenAIResponseIDFromJSONBytes(body),
+		imageCount:         countOpenAIResponseImageOutputsFromJSONBytes(body),
+		imageOutputSizes:   collectOpenAIResponseImageOutputSizesFromJSONBytes(body),
+		searchCount:        countGrokNativeSearchCallsFromJSONBytes(body),
 	}, nil
 }
 
@@ -1895,20 +1906,33 @@ func (s *OpenAIGatewayService) handleSSEToJSON(resp *http.Response, c *gin.Conte
 			contentType = "text/event-stream"
 		}
 	}
-	if !writeOpenAICompactSSEBridge(c, resp.StatusCode, body) {
-		markOpenAITTFTGuardFirstTokenForRequest(c)
-		c.Writer.Header().Set("Content-Type", contentType)
-		c.Data(resp.StatusCode, contentType, body)
-	}
+	delivered := writeOpenAINonStreamingBody(c, resp.StatusCode, contentType, body)
 
 	return &openaiNonStreamingResult{
-		OpenAIUsage:      usage,
-		usage:            usage,
-		responseID:       extractOpenAIResponseIDFromJSONBytes(body),
-		imageCount:       countOpenAIImageOutputsFromSSEBody(bodyText),
-		imageOutputSizes: collectOpenAIImageOutputSizesFromSSEBody(bodyText),
-		searchCount:      countGrokNativeSearchCallsFromSSEBody(bodyText),
+		upstreamIncomplete: !terminalOK || !cacheGuardResponsesTerminalSucceeded(terminalPayload, terminalType),
+		clientDisconnect:   !delivered,
+		OpenAIUsage:        usage,
+		usage:              usage,
+		responseID:         extractOpenAIResponseIDFromJSONBytes(body),
+		imageCount:         countOpenAIImageOutputsFromSSEBody(bodyText),
+		imageOutputSizes:   collectOpenAIImageOutputSizesFromSSEBody(bodyText),
+		searchCount:        countGrokNativeSearchCallsFromSSEBody(bodyText),
 	}, nil
+}
+
+// Keep billing independent of whether the final response reached the client.
+func writeOpenAINonStreamingBody(c *gin.Context, status int, contentType string, body []byte) bool {
+	if handled, delivered := writeOpenAICompactSSEBridgeWithDelivery(c, status, body); handled {
+		return delivered
+	}
+	markOpenAITTFTGuardFirstTokenForRequest(c)
+	if c.Writer.Header().Get("Content-Type") == "" {
+		c.Writer.Header().Set("Content-Type", contentType)
+	}
+	c.Status(status)
+	deliverable := c.Request.Context().Err() == nil
+	n, err := c.Writer.Write(body)
+	return deliverable && err == nil && n == len(body)
 }
 
 func extractOpenAISSETerminalEvent(body string) (string, []byte, bool) {

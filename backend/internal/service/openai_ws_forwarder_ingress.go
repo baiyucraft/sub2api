@@ -1259,6 +1259,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 					Stream:                        reqStream,
 					OpenAIWSMode:                  true,
 					UpstreamTerminalEvent:         terminalEvent,
+					UpstreamIncomplete:            openAIWSTerminalIncomplete(upstreamMessage),
 					ClientDisconnect:              clientDisconnected,
 					ResponseHeaders:               lease.HandshakeHeaders(),
 					Duration:                      time.Since(turnStart),

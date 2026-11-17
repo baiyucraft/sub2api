@@ -208,6 +208,7 @@ func (s *OpenAIGatewayService) forwardGrokResponses(
 	s.updateGrokUsageFromResponse(stateCtx, account, resp.Header, resp.StatusCode)
 
 	var usage *OpenAIUsage
+	var upstreamIncomplete, clientDisconnect bool
 	var firstTokenMs *int
 	responseID := ""
 	searchCount := 0
@@ -227,6 +228,7 @@ func (s *OpenAIGatewayService) forwardGrokResponses(
 			return nil, err
 		}
 		usage = streamResult.usage
+		upstreamIncomplete, clientDisconnect = streamResult.upstreamIncomplete, streamResult.clientDisconnect
 		firstTokenMs = streamResult.firstTokenMs
 		responseID = strings.TrimSpace(streamResult.responseID)
 		searchCount = streamResult.searchCount
@@ -238,6 +240,7 @@ func (s *OpenAIGatewayService) forwardGrokResponses(
 			return nil, err
 		}
 		usage = nonStreamResult.usage
+		upstreamIncomplete, clientDisconnect = nonStreamResult.upstreamIncomplete, nonStreamResult.clientDisconnect
 		responseID = strings.TrimSpace(nonStreamResult.responseID)
 		searchCount = nonStreamResult.searchCount
 		imageCount = nonStreamResult.imageCount
@@ -249,6 +252,8 @@ func (s *OpenAIGatewayService) forwardGrokResponses(
 	}
 	reasoningEffort := extractOpenAIReasoningEffortFromBody(patchedBody, originalModel)
 	result := &OpenAIForwardResult{
+		UpstreamIncomplete:            upstreamIncomplete,
+		ClientDisconnect:              clientDisconnect,
 		RequestID:                     firstNonEmpty(resp.Header.Get("x-request-id"), resp.Header.Get("xai-request-id")),
 		UpstreamHeaders:               resp.Header,
 		ResponseID:                    responseID,

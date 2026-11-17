@@ -17,6 +17,7 @@ import (
 )
 
 type antigravityStreamResult struct {
+	succeeded        bool // Actual successful upstream terminal and downstream delivery, independent of usage.
 	usage            *ClaudeUsage
 	firstTokenMs     *int
 	clientDisconnect bool // 客户端是否在流式传输过程中断开
@@ -114,7 +115,9 @@ func handleStreamReadError(err error, clientDisconnected bool, prefix string) (d
 	return false, false
 }
 
-func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context, resp *http.Response, startTime time.Time) (*antigravityStreamResult, error) {
+func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context, resp *http.Response, startTime time.Time) (result *antigravityStreamResult, resultErr error) {
+	var completion antigravityCacheCompletion
+	defer func() { completion.finish(result, resultErr) }()
 	if upstreamResponseModelObserverFromContext(c) == nil {
 		beginUpstreamResponseModelObservation(c)
 	}
@@ -259,6 +262,7 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 
 			line := ev.line
 			s.observeAntigravityGeminiSSELine(c, line)
+			completion.observeLine(line)
 			trimmed := strings.TrimRight(line, "\r\n")
 			if strings.HasPrefix(trimmed, "data:") {
 				payload := strings.TrimSpace(strings.TrimPrefix(trimmed, "data:"))
@@ -302,6 +306,7 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 				}
 
 				cw.Fprintf("data: %s\n\n", payload)
+				completion.delivered(cacheGuardRequestContext(c), !cw.Disconnected())
 				continue
 			}
 
@@ -347,6 +352,7 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 // handleGeminiStreamToNonStreaming 读取上游流式响应，合并为非流式响应返回给客户端
 // Gemini 流式响应是增量的，需要累积所有 chunk 的内容
 func (s *AntigravityGatewayService) handleGeminiStreamToNonStreaming(c *gin.Context, resp *http.Response, startTime time.Time) (*antigravityStreamResult, error) {
+	var completion antigravityCacheCompletion
 	if upstreamResponseModelObserverFromContext(c) == nil {
 		beginUpstreamResponseModelObservation(c)
 	}
@@ -438,6 +444,7 @@ func (s *AntigravityGatewayService) handleGeminiStreamToNonStreaming(c *gin.Cont
 
 			line := ev.line
 			s.observeAntigravityGeminiSSELine(c, line)
+			completion.observeLine(line)
 			trimmed := strings.TrimRight(line, "\r\n")
 
 			if !strings.HasPrefix(trimmed, "data:") {
@@ -528,9 +535,9 @@ returnResponse:
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal response: %w", err)
 	}
-	c.Data(http.StatusOK, "application/json", respBody)
+	delivered := antigravityWriteJSONBytes(c, respBody)
 
-	return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs}, nil
+	return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs, succeeded: completion.terminalSucceeded && delivered}, nil
 }
 
 // getOrCreateGeminiParts 获取 Gemini 响应的 parts 结构，返回深拷贝和更新回调
@@ -781,6 +788,7 @@ func (s *AntigravityGatewayService) collectClaudeStreamResponse(c *gin.Context, 
 	scanner.Buffer(scanBuf[:0], maxLineSize)
 	scanner.Split(newBoundedSSESplit(s.settingService.cfg, maxLineSize, nil))
 
+	var completion antigravityCacheCompletion
 	var firstTokenMs *int
 	var cacheUsageEvidence *UpstreamCacheUsageEvidence
 	var last map[string]any
@@ -860,6 +868,7 @@ func (s *AntigravityGatewayService) collectClaudeStreamResponse(c *gin.Context, 
 			}
 
 			line := ev.line
+			completion.observeLine(line)
 			trimmed := strings.TrimRight(line, "\r\n")
 
 			if !strings.HasPrefix(trimmed, "data:") {
@@ -959,7 +968,7 @@ returnResponse:
 		ImageOutputTokens:        agUsage.ImageOutputTokens,
 	}
 
-	return claudeResp, &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs}, nil
+	return claudeResp, &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs, succeeded: completion.terminalSucceeded}, nil
 }
 
 // handleClaudeStreamToNonStreaming 收集上游流式响应，转换为 Claude 非流式格式返回
@@ -988,7 +997,7 @@ func (s *AntigravityGatewayService) handleClaudeStreamToNonStreaming(c *gin.Cont
 
 		return nil, s.writeClaudeError(c, http.StatusBadGateway, errType, errMsg)
 	}
-	c.Data(http.StatusOK, "application/json", claudeResp)
+	streamRes.succeeded = antigravityWriteJSONBytes(c, claudeResp) && streamRes.succeeded
 	return streamRes, nil
 }
 

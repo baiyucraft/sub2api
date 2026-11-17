@@ -21,6 +21,8 @@ import (
 
 // OpenAIRecordUsageInput input for recording usage
 type OpenAIRecordUsageInput struct {
+	// ForwardFailed preserves the forwarding outcome for partial-usage billing.
+	ForwardFailed      bool
 	Result             *OpenAIForwardResult
 	APIKey             *APIKey
 	User               *User
@@ -179,7 +181,8 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	if account != nil {
 		MaybeAutoDisableOpenAIOAuthModel(ctx, s.settingService, s.accountRepo, account, result.Model, upstreamSentModel(result.Model, result.UpstreamModel), result.UpstreamResponseModel, result.UpstreamResponseModelConflict)
 	}
-	if !input.CyberBlocked {
+	if !input.CyberBlocked && !input.ForwardFailed && !result.ClientDisconnect && !result.UpstreamIncomplete &&
+		result.SucceededForScheduling() && (!result.OpenAIWSMode || result.UpstreamTerminalEvent != "") {
 		ReportUpstreamTrafficSuccess(ctx, account, http.StatusOK)
 	}
 	billingAccount, err := resolveCredentialAccount(ctx, s.accountRepo, account)

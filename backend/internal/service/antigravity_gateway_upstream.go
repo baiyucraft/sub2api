@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -104,7 +105,8 @@ func (s *AntigravityGatewayService) ForwardUpstream(ctx context.Context, c *gin.
 		_, _ = c.Writer.Write(respBody)
 
 		return &ForwardResult{
-			Model: originalModel,
+			Model:              originalModel,
+			UpstreamIncomplete: true,
 		}, nil
 	}
 
@@ -112,6 +114,7 @@ func (s *AntigravityGatewayService) ForwardUpstream(ctx context.Context, c *gin.
 	var usage *ClaudeUsage
 	var firstTokenMs *int
 	var clientDisconnect bool
+	var succeeded bool
 
 	if claudeReq.Stream {
 		// 流式响应：透传
@@ -125,6 +128,7 @@ func (s *AntigravityGatewayService) ForwardUpstream(ctx context.Context, c *gin.
 		usage = streamRes.usage
 		firstTokenMs = streamRes.firstTokenMs
 		clientDisconnect = streamRes.clientDisconnect
+		succeeded = streamRes.succeeded
 	} else {
 		// 非流式响应：直接透传
 		respBody, err := ReadUpstreamResponseBody(resp.Body, s.antigravitySSEConfig(), c, anthropicTooLargeError)
@@ -138,7 +142,9 @@ func (s *AntigravityGatewayService) ForwardUpstream(ctx context.Context, c *gin.
 
 		c.Header("Content-Type", resp.Header.Get("Content-Type"))
 		c.Status(http.StatusOK)
-		_, _ = c.Writer.Write(respBody)
+		deliverable := c.Request.Context().Err() == nil
+		n, writeErr := c.Writer.Write(respBody)
+		succeeded = deliverable && writeErr == nil && n == len(respBody) && !antigravityAnthropicResponseFailed(respBody)
 	}
 
 	// 构建计费结果
@@ -153,6 +159,8 @@ func (s *AntigravityGatewayService) ForwardUpstream(ctx context.Context, c *gin.
 		Duration:                      duration,
 		FirstTokenMs:                  firstTokenMs,
 		ClientDisconnect:              clientDisconnect,
+		UpstreamCompleted:             succeeded,
+		UpstreamIncomplete:            !succeeded,
 		UpstreamHeaders:               resp.Header,
 		Usage: ClaudeUsage{
 			CacheUsageEvidence:       usage.CacheUsageEvidence,
@@ -165,7 +173,13 @@ func (s *AntigravityGatewayService) ForwardUpstream(ctx context.Context, c *gin.
 }
 
 // streamUpstreamResponse 透传上游 SSE 流并提取 Claude usage
-func (s *AntigravityGatewayService) streamUpstreamResponse(c *gin.Context, resp *http.Response, startTime time.Time) *antigravityStreamResult {
+func (s *AntigravityGatewayService) streamUpstreamResponse(c *gin.Context, resp *http.Response, startTime time.Time) (result *antigravityStreamResult) {
+	terminalPending, terminalDelivered, streamFailed := false, false, false
+	defer func() {
+		if result != nil {
+			result.succeeded = terminalDelivered && !streamFailed
+		}
+	}()
 	usage := &ClaudeUsage{}
 	var firstTokenMs *int
 
@@ -255,6 +269,11 @@ func (s *AntigravityGatewayService) streamUpstreamResponse(c *gin.Context, resp 
 				return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: cw.Disconnected()}
 			}
 			if ev.err != nil {
+				// Preserve the successful delivery snapshot if cancellation is only
+				// observed while draining after the terminal event.
+				if !terminalDelivered || (!errors.Is(ev.err, context.Canceled) && !errors.Is(ev.err, context.DeadlineExceeded)) {
+					streamFailed = true
+				}
 				if disconnect, handled := handleStreamReadError(ev.err, cw.Disconnected(), "antigravity upstream"); handled {
 					return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: disconnect}
 				}
@@ -267,6 +286,13 @@ func (s *AntigravityGatewayService) streamUpstreamResponse(c *gin.Context, resp 
 			line := ev.line
 			if data, ok := extractAnthropicSSEDataLine(line); ok {
 				upstreamResponseModelObserverFromContext(c).ObserveAnthropic([]byte(strings.TrimSpace(data)))
+				payload := []byte(strings.TrimSpace(data))
+				if antigravityAnthropicResponseFailed(payload) {
+					streamFailed = true
+				}
+				if gjson.GetBytes(payload, "type").String() == "message_stop" {
+					terminalPending = true
+				}
 			}
 
 			// 记录首 token 时间
@@ -279,7 +305,10 @@ func (s *AntigravityGatewayService) streamUpstreamResponse(c *gin.Context, resp 
 			s.extractSSEUsage(line, usage)
 
 			// 透传行
-			cw.Fprintf("%s\n", line)
+			written := cw.Fprintf("%s\n", line)
+			if terminalPending && strings.TrimSpace(line) == "" && written && !cw.Disconnected() && c.Request.Context().Err() == nil {
+				terminalDelivered = true
+			}
 
 		case <-intervalCh:
 			lastRead := time.Unix(0, atomic.LoadInt64(&lastReadAt))
@@ -290,6 +319,7 @@ func (s *AntigravityGatewayService) streamUpstreamResponse(c *gin.Context, resp 
 				logger.LegacyPrintf("service.antigravity_gateway", "Upstream timeout after client disconnect (antigravity upstream), returning collected usage")
 				return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: true}
 			}
+			streamFailed = true
 			logger.LegacyPrintf("service.antigravity_gateway", "Stream data interval timeout (antigravity upstream)")
 			return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs}
 

@@ -236,6 +236,8 @@ type OpenAIUsage struct {
 
 // OpenAIForwardResult represents the result of forwarding
 type OpenAIForwardResult struct {
+	// UpstreamIncomplete records missing or unsuccessful completion independently of usage.
+	UpstreamIncomplete bool                        `json:"-"`
 	CacheUsageEvidence *UpstreamCacheUsageEvidence `json:"-"`
 	RequestID          string
 	ResponseID         string
@@ -313,6 +315,9 @@ type OpenAIForwardResult struct {
 // that may clear model-scoped transient state. The zero value remains a success
 // for existing non-WS callers.
 func (r *OpenAIForwardResult) SucceededForScheduling() bool {
+	if r != nil && r.UpstreamIncomplete {
+		return false
+	}
 	if r == nil || !r.OpenAIWSMode || r.UpstreamTerminalEvent == "" {
 		return true
 	}

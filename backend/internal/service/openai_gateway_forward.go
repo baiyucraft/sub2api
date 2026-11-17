@@ -1310,6 +1310,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 
 		// Handle normal response
 		var usage *OpenAIUsage
+		var upstreamIncomplete, clientDisconnect bool
 		var firstTokenMs *int
 		responseID := ""
 		imageCount := 0
@@ -1359,6 +1360,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 				return nil, err
 			}
 			usage = streamResult.usage
+			upstreamIncomplete, clientDisconnect = streamResult.upstreamIncomplete, streamResult.clientDisconnect
 			firstTokenMs = streamResult.firstTokenMs
 			responseID = strings.TrimSpace(streamResult.responseID)
 			imageCount = streamResult.imageCount
@@ -1385,6 +1387,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 				return nil, err
 			}
 			usage = nonStreamResult.usage
+			upstreamIncomplete, clientDisconnect = nonStreamResult.upstreamIncomplete, nonStreamResult.clientDisconnect
 			responseID = strings.TrimSpace(nonStreamResult.responseID)
 			imageCount = nonStreamResult.imageCount
 			imageOutputSizes = nonStreamResult.imageOutputSizes
@@ -1407,6 +1410,8 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		}
 
 		forwardResult := &OpenAIForwardResult{
+			UpstreamIncomplete:            upstreamIncomplete,
+			ClientDisconnect:              clientDisconnect,
 			RequestID:                     resp.Header.Get("x-request-id"),
 			UpstreamHeaders:               resp.Header,
 			ResponseID:                    responseID,

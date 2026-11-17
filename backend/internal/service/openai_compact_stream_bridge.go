@@ -56,8 +56,13 @@ func openAICompactClientWantsStream(c *gin.Context) bool {
 // 必须接管一切写回：非 2xx 或不可合成的响应降级为 response.failed 终止事件，
 // 不能再返回 false（否则调用方的 JSON 写回会与已提交的 SSE 流交错）。
 func writeOpenAICompactSSEBridge(c *gin.Context, statusCode int, finalResponse []byte) bool {
+	handled, _ := writeOpenAICompactSSEBridgeWithDelivery(c, statusCode, finalResponse)
+	return handled
+}
+
+func writeOpenAICompactSSEBridgeWithDelivery(c *gin.Context, statusCode int, finalResponse []byte) (bool, bool) {
 	if c == nil || !openAICompactClientWantsStream(c) {
-		return false
+		return false, false
 	}
 	// 先停心跳再写回，避免注释行与最终事件交错；停止后经互斥锁与心跳
 	// goroutine 建立 happens-before，可安全接管 ResponseWriter。
@@ -65,17 +70,17 @@ func writeOpenAICompactSSEBridge(c *gin.Context, statusCode int, finalResponse [
 	if statusCode < 200 || statusCode >= 300 {
 		if committed {
 			writeOpenAICompactSSEFailure(c, statusCode, finalResponse)
-			return true
+			return true, false
 		}
-		return false
+		return false, false
 	}
 	payload, ok := buildOpenAICompactSSEPayload(finalResponse)
 	if !ok {
 		if committed {
 			writeOpenAICompactSSEFailure(c, http.StatusBadGateway, finalResponse)
-			return true
+			return true, false
 		}
-		return false
+		return false, false
 	}
 	if !committed {
 		header := c.Writer.Header()
@@ -85,9 +90,10 @@ func writeOpenAICompactSSEBridge(c *gin.Context, statusCode int, finalResponse [
 		header.Set("X-Accel-Buffering", "no")
 		c.Writer.WriteHeader(statusCode)
 	}
-	_, _ = c.Writer.Write(payload)
+	deliverable := c.Request.Context().Err() == nil
+	n, err := c.Writer.Write(payload)
 	c.Writer.Flush()
-	return true
+	return true, deliverable && err == nil && n == len(payload)
 }
 
 // writeOpenAICompactSSEFailure 从上游错误 body 提取错误消息后，以

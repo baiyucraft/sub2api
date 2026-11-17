@@ -86,6 +86,7 @@ func TestCacheGuardWSTerminalPresenceThroughNativeAndBridge(t *testing.T) {
 					require.NoError(t, err)
 					require.NotNil(t, result)
 					require.Equal(t, eventType, result.UpstreamTerminalEvent)
+					require.Equal(t, responseStatus != "" && responseStatus != "completed", result.UpstreamIncomplete)
 					require.Equal(t, 100, result.Usage.InputTokens, "existing billing fallback must survive")
 					require.Equal(t, 7, result.Usage.OutputTokens)
 					require.Equal(t, 80, result.Usage.CacheReadInputTokens)

@@ -45,6 +45,8 @@ func (s *GatewayService) ResolveUserGroupRateMultiplier(ctx context.Context, use
 // RecordUsageInput 记录使用量的输入参数。
 // 异步 worker 只接收计费所需快照，不能持有 ParsedRequest/RequestBodyRef 这类大请求体引用。
 type RecordUsageInput struct {
+	// ForwardFailed preserves the forwarding outcome for partial-usage billing.
+	ForwardFailed      bool
 	Result             *ForwardResult
 	APIKey             *APIKey
 	User               *User
@@ -685,6 +687,7 @@ func (s *GatewayService) RecordUsage(ctx context.Context, input *RecordUsageInpu
 	billingSubscription := ChannelCustomizationBillingSubscription(ctx, input.Subscription)
 	return s.recordUsageCore(ctx, &recordUsageCoreInput{
 		Result:             input.Result,
+		ForwardFailed:      input.ForwardFailed,
 		APIKey:             billingAPIKey,
 		User:               input.User,
 		Account:            input.Account,
@@ -705,6 +708,7 @@ func (s *GatewayService) RecordUsage(ctx context.Context, input *RecordUsageInpu
 
 // recordUsageCoreInput 是 recordUsageCore 的公共输入字段，从两种输入结构体中提取。
 type recordUsageCoreInput struct {
+	ForwardFailed      bool
 	Result             *ForwardResult
 	APIKey             *APIKey
 	User               *User
@@ -807,7 +811,9 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	if account != nil && result != nil {
 		MaybeAutoDisableOpenAIOAuthModel(ctx, s.settingService, s.accountRepo, account, result.Model, upstreamSentModel(result.Model, result.UpstreamModel), result.UpstreamResponseModel, result.UpstreamResponseModelConflict)
 	}
-	ReportUpstreamTrafficSuccess(ctx, account, http.StatusOK)
+	if !input.ForwardFailed && result != nil && (!result.ClientDisconnect || result.UpstreamCompleted) && !result.UpstreamIncomplete {
+		ReportUpstreamTrafficSuccess(ctx, account, http.StatusOK)
+	}
 	ApplyForwardImageBillingResolution(result)
 	logServiceTierBillingDowngrade("service.gateway", account, result.RequestID, ApplyForwardServiceTierBillingResolution(result))
 

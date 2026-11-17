@@ -959,6 +959,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		}
 		// #5148 对齐：错误返回携带的部分 result（流中断前上游已计量的 usage）照常
 		// 入账；failover 错误恒定 result=nil，不会重复计费。
+		forwardFailed := err != nil
 		submitResponsesUsage := func(res *service.OpenAIForwardResult) {
 			if res == nil {
 				return
@@ -976,6 +977,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			h.submitOpenAIUsageRecordTask(c.Request.Context(), res, func(ctx context.Context) {
 				if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
 					Result:             res,
+					ForwardFailed:      forwardFailed,
 					APIKey:             apiKey,
 					User:               apiKey.User,
 					Account:            account,
@@ -1643,6 +1645,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		// Forward 与错误一起返回的部分结果：流中断/客户端断开排水前上游已计量的
 		// usage 照常入账，避免上游已产生消耗的请求完全漏记（#5148，对齐 anthropic
 		// 网关同名修复）。failover 错误恒定 result=nil，不会重复计费。
+		forwardFailed := err != nil
 		submitMessagesUsage := func(res *service.OpenAIForwardResult) {
 			if res == nil {
 				return
@@ -1660,6 +1663,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			h.submitOpenAIUsageRecordTask(c.Request.Context(), res, func(ctx context.Context) {
 				if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
 					Result:             res,
+					ForwardFailed:      forwardFailed,
 					APIKey:             apiKey,
 					User:               apiKey.User,
 					Account:            account,
@@ -4032,6 +4036,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				h.submitOpenAIUsageRecordTask(turnUsageContext, result, func(taskCtx context.Context) {
 					if err := h.gatewayService.RecordUsage(taskCtx, &service.OpenAIRecordUsageInput{
 						Result:             result,
+						ForwardFailed:      turnErr != nil,
 						APIKey:             turnBillingAPIKey,
 						User:               apiKey.User,
 						Account:            account,
@@ -4079,7 +4084,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		}
 
 		for {
-			cacheConnectionCtx := service.WithUpstreamCacheGuardAttempt(ctx, apiKey.ID, apiKey.GroupID, sessionHash, service.UpstreamCacheGuardTextRequest(c.Request.URL.Path, wsFirstMessage))
+			cacheConnectionCtx := service.WithUpstreamCacheGuardWSConnectionSeed(ctx, apiKey.ID, apiKey.GroupID, sessionHash, c)
 			cacheConnectionCtx = service.WithUpstreamCacheGuardSamplingDiagnostics(cacheConnectionCtx, apiKey.GroupID, c, wsFirstMessage, true)
 			if service.UpstreamCacheGuardTextRequest(c.Request.URL.Path, wsFirstMessage) {
 				cacheConnectionCtx = service.WithOpenAITTFTGuardAttempt(cacheConnectionCtx, h.gatewayService, apiKey.ID, apiKey.GroupID)

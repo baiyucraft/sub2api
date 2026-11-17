@@ -463,6 +463,8 @@ func (s *AntigravityGatewayService) consumeAntigravityCompatResponse(
 		FirstTokenMs:                  streamResult.firstTokenMs,
 		ReasoningEffort:               call.request.reasoningEffort,
 		ClientDisconnect:              streamResult.clientDisconnect,
+		UpstreamCompleted:             streamResult.succeeded,
+		UpstreamIncomplete:            !streamResult.succeeded,
 	}, nil
 }
 
@@ -620,7 +622,10 @@ func (s *AntigravityGatewayService) handleChatCompletionsNonStreamingFromAntigra
 		return nil, s.writeAntigravityCompatError(c, http.StatusBadGateway, "upstream_error", "Failed to parse upstream response")
 	}
 	responsesResponse := apicompat.AnthropicToResponsesResponse(&anthropicResponse)
+	beforeErrors := len(c.Errors)
+	deliverable := c.Request.Context().Err() == nil
 	c.JSON(http.StatusOK, apicompat.ResponsesToChatCompletions(responsesResponse, originalModel))
+	result.succeeded = result.succeeded && deliverable && len(c.Errors) == beforeErrors
 	return result, nil
 }
 
@@ -638,7 +643,10 @@ func (s *AntigravityGatewayService) handleResponsesNonStreamingFromAntigravity(
 	if json.Unmarshal(claudeResponse, &anthropicResponse) != nil {
 		return nil, s.writeAntigravityCompatError(c, http.StatusBadGateway, "upstream_error", "Failed to parse upstream response")
 	}
+	beforeErrors := len(c.Errors)
+	deliverable := c.Request.Context().Err() == nil
 	c.JSON(http.StatusOK, apicompat.AnthropicToResponsesResponse(&anthropicResponse))
+	result.succeeded = result.succeeded && deliverable && len(c.Errors) == beforeErrors
 	return result, nil
 }
 
