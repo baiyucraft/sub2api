@@ -44,6 +44,7 @@ func TestCacheGuardWSRelayPreservesExplicitIncompleteStatusWithoutChangingBillin
 				})
 				require.Nil(t, relayExit)
 				require.Len(t, turns, 1)
+				require.Equal(t, status != "" && status != "completed", turns[0].UpstreamIncomplete)
 				usage := turns[0].Usage
 				require.Equal(t, 100, usage.InputTokens)
 				require.Equal(t, 7, usage.OutputTokens)

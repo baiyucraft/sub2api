@@ -712,6 +712,10 @@ type AudioUsage struct {
 }
 
 type ForwardResult struct {
+	// UpstreamIncomplete separates unsuccessful upstream completion from billable usage.
+	UpstreamIncomplete bool `json:"-"`
+	// UpstreamCompleted freezes a successful terminal delivered before a later disconnect.
+	UpstreamCompleted  bool                        `json:"-"`
 	CacheUsageEvidence *UpstreamCacheUsageEvidence `json:"-"`
 	RequestID          string
 	// UpstreamHeaders 是直接上游的响应头，用于按账户配置解析上游请求标识。

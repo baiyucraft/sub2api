@@ -37,6 +37,20 @@ type compatStreamUsageBillingRepo struct {
 	commands []*service.UsageBillingCommand
 }
 
+type compatStreamUsageHealthRecorder struct {
+	mu        sync.Mutex
+	successes int
+}
+
+func (r *compatStreamUsageHealthRecorder) RecordUpstreamTrafficSuccess(context.Context, *service.Account, int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.successes++
+}
+
+func (*compatStreamUsageHealthRecorder) RecordUpstreamTrafficFailure(context.Context, *service.Account, int) {
+}
+
 func (r *compatStreamUsageBillingRepo) Apply(ctx context.Context, cmd *service.UsageBillingCommand) (*service.UsageBillingApplyResult, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -143,18 +157,23 @@ func TestGatewayCompatibilityHandlers_StreamUsageRecordedOnceWithTerminalEvent(t
 			name       string
 			completion string
 			wantOutput int
+			closeEarly bool
 		}{
 			{name: "complete", completion: compatStreamUsageCompletion, wantOutput: 7},
 			{name: "idle_before_message_stop", wantOutput: 1},
+			{name: "eof_before_message_stop", wantOutput: 1, closeEarly: true},
 		} {
 			t.Run(endpoint+"/"+tc.name, func(t *testing.T) {
+				health := &compatStreamUsageHealthRecorder{}
+				service.SetGlobalUpstreamHealthEvidenceRecorder(health)
+				t.Cleanup(func() { service.SetGlobalUpstreamHealthEvidenceRecorder(nil) })
 				successMarker, failureMarker := compatStreamUsageMarkers(endpoint)
 				wantMarker, denyMarker := successMarker, failureMarker
 				if tc.completion == "" {
 					wantMarker, denyMarker = failureMarker, successMarker
 				}
 
-				run := runCompatStreamUsageHandler(t, endpoint, compatStreamUsagePartialStream+tc.completion, tc.completion != "")
+				run := runCompatStreamUsageHandler(t, endpoint, compatStreamUsagePartialStream+tc.completion, tc.completion != "" || tc.closeEarly)
 
 				require.Equal(t, 1, run.upstream.calls)
 				out := run.rec.Body.String()
@@ -163,9 +182,16 @@ func TestGatewayCompatibilityHandlers_StreamUsageRecordedOnceWithTerminalEvent(t
 				require.NotContains(t, out, denyMarker)
 				require.Equal(t, 1, strings.Count(out, wantMarker), "exactly one terminal event")
 				require.NotContains(t, out, `data: {"type":"error"`, "the handler must not append a fallback frame")
-				if tc.completion == "" {
+				if tc.completion == "" && !tc.closeEarly {
 					require.Contains(t, out, "stream_timeout")
 				}
+				health.mu.Lock()
+				wantSuccesses := 0
+				if tc.completion != "" {
+					wantSuccesses = 1
+				}
+				require.Equal(t, wantSuccesses, health.successes, "partial usage must not recover upstream health")
+				health.mu.Unlock()
 
 				run.billingRepo.mu.Lock()
 				defer run.billingRepo.mu.Unlock()

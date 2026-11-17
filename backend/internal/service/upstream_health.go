@@ -441,16 +441,20 @@ func (r *UpstreamHealthRegistry) recordProbeFailureWithGuard(keyID int64, status
 	}
 	if !countFailure {
 		item.ConsecutiveFails = 0
-		item.Status = UpstreamHealthDegraded
-		item.SuspensionSource = ""
 	} else {
 		item.ConsecutiveFails++
-		if authFailure || item.ConsecutiveFails >= settings.SuspendAfterFailures {
-			item.Status = UpstreamHealthSuspended
-			item.SuspensionSource = "probe"
-		} else {
-			item.Status = UpstreamHealthDegraded
-		}
+	}
+	if previous.Status == UpstreamHealthSuspended || previous.Status == UpstreamHealthRecovering {
+		// Failure invalidates recovery progress; it cannot make an already
+		// isolated key schedulable or transfer ownership to the probe guard.
+		item.Status = UpstreamHealthSuspended
+		item.SuspensionSource = previous.SuspensionSource
+	} else if countFailure && (authFailure || item.ConsecutiveFails >= settings.SuspendAfterFailures) {
+		item.Status = UpstreamHealthSuspended
+		item.SuspensionSource = "probe"
+	} else {
+		item.Status = UpstreamHealthDegraded
+		item.SuspensionSource = ""
 	}
 	item = normalizeUpstreamHealthSnapshot(item)
 	r.items[keyID] = item
@@ -703,20 +707,25 @@ func (r *UpstreamHealthRegistry) recordFailureTransition(keyID int64, status, re
 	item.LastFailureClass = upstreamProbeFailureClass(status, reason)
 	if item.Reason == "capacity_limited" {
 		// Provider-wide capacity signals are useful observations but do not prove
-		// that this key is invalid. Keep the key degraded without accumulating
-		// toward a global key suspension.
+		// that this key is invalid. Do not create a suspension from them, but
+		// also do not clear a suspension established by earlier evidence.
 		item.ConsecutiveFails = 0
-		item.Status = UpstreamHealthDegraded
 	} else {
 		item.ConsecutiveFails++
 	}
-	if status == "401" || status == "403" || item.ConsecutiveFails >= 3 {
+	if previous.Status == UpstreamHealthSuspended || previous.Status == UpstreamHealthRecovering {
+		item.Status = UpstreamHealthSuspended
+		item.SuspensionSource = previous.SuspensionSource
+		// Independent business evidence must survive a later probe-policy reset.
+		// A neutral or below-threshold failure does not take over ownership.
+		if !probe && (status == "401" || status == "403" || item.ConsecutiveFails >= 3) {
+			item.SuspensionSource = "traffic"
+		}
+	} else if status == "401" || status == "403" || item.ConsecutiveFails >= 3 {
 		item.Status = UpstreamHealthSuspended
 		item.SuspensionSource = item.LastFailureSource
-	} else if item.Status != UpstreamHealthDegraded {
+	} else {
 		item.Status = UpstreamHealthDegraded
-	}
-	if item.Status != UpstreamHealthSuspended && item.Status != UpstreamHealthRecovering {
 		item.SuspensionSource = ""
 	}
 	item = normalizeUpstreamHealthSnapshot(item)

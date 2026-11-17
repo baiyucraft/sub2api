@@ -972,6 +972,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 
 			// 提交 usage 记录。成功路径与"流中断但 Forward 已观测到 usage 的部分结果"
 			// 错误路径共用：后者若不入账，上游已计量的请求会完全漏记漏计费（#5148）。
+			forwardFailed := err != nil
 			submitForwardUsage := func(result *service.ForwardResult) {
 				// 捕获请求信息（用于异步记录，避免在 goroutine 中访问 gin.Context）
 				userAgent := c.GetHeader("User-Agent")
@@ -1003,6 +1004,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
 					if err := h.gatewayService.RecordUsage(ctx, &service.RecordUsageInput{
 						Result:             result,
+						ForwardFailed:      forwardFailed,
 						QuotaPlatform:      quotaPlatform,
 						APIKey:             currentAPIKey,
 						User:               currentAPIKey.User,

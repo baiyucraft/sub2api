@@ -45,6 +45,7 @@ type RelayResult struct {
 	Usage                   Usage
 	RequestID               string
 	TerminalEventType       string
+	UpstreamIncomplete      bool
 	ClientDisconnected      bool
 	FirstTokenMs            *int
 	Duration                time.Duration
@@ -61,6 +62,7 @@ type RelayTurnResult struct {
 	Usage                 Usage
 	RequestID             string
 	TerminalEventType     string
+	UpstreamIncomplete    bool
 	// Terminal usage remains billable after a failed delivery or client drain,
 	// but it must not become successful cache-quality evidence.
 	ClientDisconnected bool
@@ -122,6 +124,7 @@ type relayState struct {
 	lastResponseServiceTier string
 	responseConflict        bool
 	terminalEventType       string
+	upstreamIncomplete      bool
 	firstTokenMs            *int
 	turnTimingByID          map[string]*relayTurnTiming
 	activeTurn              *relayTurnTiming
@@ -137,6 +140,7 @@ type relayExitSignal struct {
 }
 
 type observedUpstreamEvent struct {
+	upstreamIncomplete  bool
 	terminal            bool
 	eventType           string
 	responseID          string
@@ -838,6 +842,9 @@ func observeUpstreamMessage(
 		return observed
 	}
 	observeRelayTurnResponseServiceTier(turnTiming, firstRelayResponseServiceTier(message))
+	status := strings.TrimSpace(gjson.GetBytes(message, "response.status").String())
+	observed.upstreamIncomplete = status != "" && status != "completed"
+	state.upstreamIncomplete = observed.upstreamIncomplete
 	state.terminalEventType = eventType
 	if eventType == "error" {
 		// Some Responses servers emit error immediately before response.failed.
@@ -947,6 +954,7 @@ func emitTurnComplete(
 		Usage:                 usage,
 		RequestID:             responseID,
 		TerminalEventType:     observed.eventType,
+		UpstreamIncomplete:    observed.upstreamIncomplete,
 		ClientDisconnected:    clientDisconnected,
 		StartedAt:             observed.startedAt,
 		Duration:              observed.duration,
@@ -1330,6 +1338,7 @@ func enrichResult(result *RelayResult, state *relayState, duration time.Duration
 	result.Usage = state.usage
 	result.RequestID = state.lastResponseID
 	result.TerminalEventType = state.terminalEventType
+	result.UpstreamIncomplete = state.upstreamIncomplete
 	result.ClientDisconnected = state.clientDisconnected.Load()
 	result.FirstTokenMs = state.firstTokenMs
 }

@@ -35,8 +35,8 @@
 | 管理代理混合目录与统一绑定 | 统一合同要求既有 `/admin/proxies`、`/admin/proxies/all` 默认返回真实代理和代理组绑定行；二者均使用正数绑定 ID，`binding_type=proxy|proxy_ip_group` 是唯一类型依据；代理组摘要可带管理用 `proxy_ip_group_id`，但账号只持久化 `proxy_bindings.id`；旧负数 `proxy_id` 与旧 `proxy_ip_group_id` 只在请求归一化阶段兼容，`proxy_id=0` 清空；绑定 ID 由真实代理和代理组共享的持久序列分配且永不复用；绑定行不得进入真实代理操作；迁移 `284_unified_proxy_bindings.sql` 已登记到保留 profile 257，原始 SHA-256 已入 catalog；回填 group accounts 前必须先移除旧 proxy_id FK 与互斥 CHECK，发布前验证 |
 | 账号级 STATE 与代理组 | STATE 所有权固定为 account_id + outbound_model + revision + ChatGPT identity，不包含代理 ID/URL/组成员；动态代理采集后依次使用组内可用代表复验，任一成功发布账号级 active/ready；更换代理或成员不失效，ChatGPT 身份变化必须失效；组无可用出口时 strict 阻断，不创建每代理票据槽 |
 | 导入复制代理协议残留 | `account-import-copy-proxies` 为 deprecated/protocol-reject-only；管理端不再提供复制入口，非空 `copy_proxy_ids` 固定返回 `COPY_PROXY_IMPORT_DEPRECATED`；新导入每源账号只创建一条并可统一绑定代理组；旧共享指纹字段不再参与身份派生，历史副本不自动合并、停用或删除 |
-| 健康探针 | OpenAI Responses、Anthropic Claude Code profile、Gemini 原生流；首文本、终止事件、challenge、截断流、超时和非 2xx 分类 |
-| Probe Guard | 默认 401/403、429/529、5xx、其他 4xx 规则；自定义错误码追加；阈值暂停、成功恢复、人工恢复与业务隔离 |
+| 健康探针 | OpenAI Responses、Anthropic Claude Code profile、Gemini 原生流；首文本、终止事件、challenge、截断流、超时和非 2xx 分类；`usage_health_completion_test.go`、`gateway_compat_stream_usage_test.go` 验证部分用量继续计费但失败/断流/未完成终态不推进健康成功；`openai_http_health_completion_test.go`、`antigravity_health_completion_test.go`、`gemini_nonstream_health_completion_test.go` 覆盖 HTTP 原生/透传、协议转换及流聚合为 JSON 的真实终态与交付事实，本地 countTokens 不授予上游成功；完整成功不依赖缓存字段，完成后取消不追溯撤销 |
+| Probe Guard | 默认 401/403、429/529、5xx、其他 4xx 规则；自定义错误码追加；阈值暂停、成功恢复、人工恢复与业务隔离；`upstream_health_recovery_isolation_test.go` 验证挂起/恢复中失败保留隔离并重置恢复序列、默认容量信号不解除隔离、业务阈值接管来源与显式解除边界 |
 | 健康趋势 | 列表 24 点、35 天保留、6h/24h/7d/30d 聚合、P50/P95、断点、Tooltip、中英文和暗色模式 |
 | 账号页运行态与渲染 | 普通账号页与上游管理页的隐藏列、排序、自动刷新配置、ETag、请求 generation 和静默窗口完全隔离；切换 scope 后旧响应不得覆盖；健康历史单 Tooltip；TTFT 全页单 ticker；DataTable 测量使用可取消的 rAF 合并 |
 | 账号列表分组展示顺序 | `AccountsView.lite.spec.ts` 与 `AccountGroupsCell.spec.ts`：分组列按分组 `sort_order`、ID 升序展示，绑定顺序和排序值相同场景稳定；优先池星标按原分组 ID 保留；不得改写 `group_ids`、`preferred_group_ids`、`account_groups.priority`、保存或调度行为 |
@@ -453,3 +453,5 @@ profile 280 为 parent 279、版本 `0.2.22-baiyu`，无新增 SQL migration，�
 - 统计清理与倍率：`dashboard_aggregation_group_usage_test.go`覆盖非阻塞分组汇总与独立用户覆盖门、全分区覆盖不足拒绝DROP、覆盖状态先于分区取锁及任一锁失败不DROP；`user_group_rate_repo_test.go`与`user_group_rate_repo_sync_test.go`覆盖百分比/RPM独立清除、失败回滚、去重和调用方Ent事务。
 
 - Windows cgroup路径测试：目录穿越始终验证，仅创建符号链接返回权限错误1314时跳过链接子用例；Linux原断言保持，不能将Windows跳过解释为Linux已验证。
+
+缓存 WS 逐轮入口执行 `upstream_cache_usage_ws_seed_test.go`：首帧缺可靠会话或非文本后，后续合格文本轮次须在真实 frame write 前取得 admission 并记录一次完成；覆盖嵌套 response 图片资格、握手头优先、正文会话不跨轮泄漏、同轮重试身份与换桥 failover 继承、后续 trial/newAllocation 清理。保留既有 WS 完成冻结、独立轮次诊断和保护预算回归。

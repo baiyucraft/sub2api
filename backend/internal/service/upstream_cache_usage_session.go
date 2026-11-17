@@ -8,6 +8,33 @@ import (
 
 type cacheGuardLogicalSessionKey struct{}
 type cacheGuardLogicalSessionHeaderKey struct{}
+type cacheGuardWSConnectionKey struct{}
+
+// Connection metadata survives an ineligible first frame, but never grants
+// sampling eligibility by itself. Each response.create supplies its own marker.
+type cacheGuardWSConnectionSeed struct {
+	apiKeyID      int64
+	groupID       int64
+	sessionHash   string
+	headerSession string
+	firstSession  string
+}
+
+func WithUpstreamCacheGuardWSConnectionSeed(ctx context.Context, apiKeyID int64, groupID *int64, sessionHash string, c *gin.Context) context.Context {
+	if ctx == nil || apiKeyID <= 0 || groupID == nil {
+		return ctx
+	}
+	seed := cacheGuardWSConnectionSeed{apiKeyID: apiKeyID, groupID: *groupID, sessionHash: sessionHash}
+	if header := ExtractClientSessionID(c); header != "" {
+		seed.headerSession = "explicit:" + header
+	}
+	// The first physical turn can be a replacement bridge for an already
+	// identified turn. Preserve that current-turn identity across failover only.
+	if identity, ok := ctx.Value(cacheGuardSchedulingKey{}).(cacheGuardSchedulingIdentity); ok && identity.APIKeyID == apiKeyID && identity.RequestID != "" {
+		seed.firstSession, _ = ctx.Value(cacheGuardLogicalSessionKey{}).(string)
+	}
+	return context.WithValue(ctx, cacheGuardWSConnectionKey{}, seed)
+}
 
 // The routing hash may include the entire prompt or model. Cache protection
 // needs an independently stable conversation identity across rounds/models.

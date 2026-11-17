@@ -1078,6 +1078,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 	var firstTokenMs *int
 	clientDisconnect := false
 	streamFinished := false
+	streamSucceeded := false
 	if req.Stream {
 		streamRes, err := s.handleStreamingResponse(c, resp, startTime, originalModel)
 		if err != nil {
@@ -1087,9 +1088,10 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		firstTokenMs = streamRes.firstTokenMs
 		clientDisconnect = streamRes.clientDisconnect
 		streamFinished = streamRes.finished
+		streamSucceeded = streamRes.succeeded
 	} else {
 		if useUpstreamStream {
-			collected, usageObj, err := collectGeminiSSE(s.cfg, resp.Body, true)
+			collected, usageObj, stats, err := collectGeminiSSEObserved(s.cfg, resp.Body, true, nil)
 			if err != nil {
 				return nil, s.writeClaudeError(c, http.StatusBadGateway, "upstream_error", "Failed to read upstream stream")
 			}
@@ -1097,13 +1099,13 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 			upstreamResponseModelObserverFromContext(c).ObserveGemini(collectedBytes)
 			observeGeminiImageOutputs(c, collectedBytes)
 			claudeResp, usageObj2 := convertGeminiToClaudeMessage(collected, originalModel, collectedBytes, false)
-			c.JSON(http.StatusOK, claudeResp)
+			streamSucceeded = writeGeminiNonStreamingJSON(c, http.StatusOK, claudeResp) && stats.succeeded
 			usage = usageObj2
 			if usageObj != nil && (usageObj.InputTokens > 0 || usageObj.OutputTokens > 0) {
 				usage = usageObj
 			}
 		} else {
-			usage, err = s.handleNonStreamingResponse(c, resp, originalModel)
+			usage, streamSucceeded, err = s.handleNonStreamingResponseWithCompletion(c, resp, originalModel)
 			if err != nil {
 				return nil, err
 			}
@@ -1129,6 +1131,8 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		UpstreamResponseModel:         observedUpstreamResponseModel(c),
 		UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
 		Stream:                        req.Stream,
+		UpstreamIncomplete:            !streamSucceeded,
+		UpstreamCompleted:             streamSucceeded,
 		Duration:                      time.Since(startTime),
 		FirstTokenMs:                  firstTokenMs,
 		ReasoningEffort:               extractGeminiReasoningEffortFromBody(geminiReq),
@@ -1363,13 +1367,14 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 				estimated := estimateGeminiCountTokens(body)
 				c.JSON(http.StatusOK, map[string]any{"totalTokens": estimated})
 				return &ForwardResult{
-					RequestID:     "",
-					Usage:         ClaudeUsage{},
-					Model:         originalModel,
-					UpstreamModel: mappedModel,
-					Stream:        false,
-					Duration:      time.Since(startTime),
-					FirstTokenMs:  nil,
+					UpstreamIncomplete: true, // Local token estimation cannot recover upstream health.
+					RequestID:          "",
+					Usage:              ClaudeUsage{},
+					Model:              originalModel,
+					UpstreamModel:      mappedModel,
+					Stream:             false,
+					Duration:           time.Since(startTime),
+					FirstTokenMs:       nil,
 				}, nil
 			}
 			return nil, transportErr
@@ -1443,13 +1448,14 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 				estimated := estimateGeminiCountTokens(body)
 				c.JSON(http.StatusOK, map[string]any{"totalTokens": estimated})
 				return &ForwardResult{
-					RequestID:     "",
-					Usage:         ClaudeUsage{},
-					Model:         originalModel,
-					UpstreamModel: mappedModel,
-					Stream:        false,
-					Duration:      time.Since(startTime),
-					FirstTokenMs:  nil,
+					UpstreamIncomplete: true, // Local token estimation cannot recover upstream health.
+					RequestID:          "",
+					Usage:              ClaudeUsage{},
+					Model:              originalModel,
+					UpstreamModel:      mappedModel,
+					Stream:             false,
+					Duration:           time.Since(startTime),
+					FirstTokenMs:       nil,
 				}, nil
 			}
 			// Final attempt: surface the upstream error body (passed through below) instead of a generic retry error.
@@ -1492,14 +1498,15 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 			estimated := estimateGeminiCountTokens(body)
 			c.JSON(http.StatusOK, map[string]any{"totalTokens": estimated})
 			return &ForwardResult{
-				RequestID:       requestID,
-				UpstreamHeaders: resp.Header,
-				Usage:           ClaudeUsage{},
-				Model:           originalModel,
-				UpstreamModel:   mappedModel,
-				Stream:          false,
-				Duration:        time.Since(startTime),
-				FirstTokenMs:    nil,
+				UpstreamIncomplete: true, // Local token estimation cannot recover upstream health.
+				RequestID:          requestID,
+				UpstreamHeaders:    resp.Header,
+				Usage:              ClaudeUsage{},
+				Model:              originalModel,
+				UpstreamModel:      mappedModel,
+				Stream:             false,
+				Duration:           time.Since(startTime),
+				FirstTokenMs:       nil,
 			}, nil
 		}
 
@@ -1615,6 +1622,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 	var firstTokenMs *int
 	clientDisconnect := false
 	streamFinished := false
+	streamSucceeded := false
 
 	if stream {
 		streamRes, err := s.handleNativeStreamingResponse(c, resp, startTime, isOAuth, account, requestID)
@@ -1625,6 +1633,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 		firstTokenMs = streamRes.firstTokenMs
 		clientDisconnect = streamRes.clientDisconnect
 		streamFinished = streamRes.finished
+		streamSucceeded = streamRes.succeeded
 	} else {
 		if useUpstreamStream {
 			var best geminiResponseSignal
@@ -1640,14 +1649,15 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 			b, _ := json.Marshal(collected)
 			upstreamResponseModelObserverFromContext(c).ObserveGemini(b)
 			observeGeminiImageOutputs(c, b)
-			c.Data(http.StatusOK, "application/json", b)
+			streamSucceeded = writeGeminiNonStreamingBody(c, http.StatusOK, "application/json", b) && stats.succeeded
 			usage = usageObj
 		} else {
-			usageResp, err := s.handleNativeNonStreamingResponse(c, resp, isOAuth, account, requestID)
+			usageResp, succeeded, err := s.handleNativeNonStreamingResponseWithCompletion(c, resp, isOAuth, account, requestID)
 			if err != nil {
 				return nil, err
 			}
 			usage = usageResp
+			streamSucceeded = succeeded
 		}
 	}
 
@@ -1674,6 +1684,8 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 		UpstreamResponseModel:         observedUpstreamResponseModel(c),
 		UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
 		Stream:                        stream,
+		UpstreamIncomplete:            !streamSucceeded,
+		UpstreamCompleted:             streamSucceeded,
 		ReasoningEffort:               extractGeminiReasoningEffortFromBody(body),
 		Duration:                      time.Since(startTime),
 		FirstTokenMs:                  firstTokenMs,
@@ -2201,6 +2213,7 @@ func mapGeminiStatusToClaudeErrorType(status string) string {
 }
 
 type geminiStreamResult struct {
+	succeeded        bool // Successful terminal delivered without read/write failures.
 	usage            *ClaudeUsage
 	firstTokenMs     *int
 	clientDisconnect bool // 客户端在流式传输中途断开，结果为断开前已收集的部分
@@ -2208,14 +2221,19 @@ type geminiStreamResult struct {
 }
 
 func (s *GeminiMessagesCompatService) handleNonStreamingResponse(c *gin.Context, resp *http.Response, originalModel string) (*ClaudeUsage, error) {
+	usage, _, err := s.handleNonStreamingResponseWithCompletion(c, resp, originalModel)
+	return usage, err
+}
+
+func (s *GeminiMessagesCompatService) handleNonStreamingResponseWithCompletion(c *gin.Context, resp *http.Response, originalModel string) (*ClaudeUsage, bool, error) {
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	if err != nil {
-		return nil, s.writeClaudeError(c, http.StatusBadGateway, "upstream_error", "Failed to read upstream response")
+		return nil, false, s.writeClaudeError(c, http.StatusBadGateway, "upstream_error", "Failed to read upstream response")
 	}
 
 	unwrappedBody, err := unwrapGeminiResponse(body)
 	if err != nil {
-		return nil, s.writeClaudeError(c, http.StatusBadGateway, "upstream_error", "Failed to parse upstream response")
+		return nil, false, s.writeClaudeError(c, http.StatusBadGateway, "upstream_error", "Failed to parse upstream response")
 	}
 	observer := upstreamResponseModelObserverFromContext(c)
 	if observer == nil {
@@ -2226,13 +2244,12 @@ func (s *GeminiMessagesCompatService) handleNonStreamingResponse(c *gin.Context,
 
 	var geminiResp map[string]any
 	if err := json.Unmarshal(unwrappedBody, &geminiResp); err != nil {
-		return nil, s.writeClaudeError(c, http.StatusBadGateway, "upstream_error", "Failed to parse upstream response")
+		return nil, false, s.writeClaudeError(c, http.StatusBadGateway, "upstream_error", "Failed to parse upstream response")
 	}
 
 	claudeResp, usage := convertGeminiToClaudeMessage(geminiResp, originalModel, unwrappedBody, false)
-	c.JSON(http.StatusOK, claudeResp)
-
-	return usage, nil
+	delivered := writeGeminiNonStreamingJSON(c, http.StatusOK, claudeResp)
+	return usage, delivered && geminiNonStreamingResponseSucceeded(unwrappedBody), nil
 }
 
 func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, resp *http.Response, startTime time.Time, originalModel string) (*geminiStreamResult, error) {
@@ -2566,7 +2583,7 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 	freezeUpstreamCacheGuardCompletion(cacheGuardRequestContext(c), usage.CacheUsageEvidence,
 		cacheGuardGeminiTerminalSucceeded(finishReason) && !cacheReadFailed, !cacheWriter.failed)
 
-	return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, nil
+	return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs, succeeded: cacheGuardGeminiTerminalSucceeded(finishReason) && !cacheReadFailed && !cacheWriter.failed}, nil
 }
 
 func writeSSE(w io.Writer, event string, data any) {
@@ -2639,6 +2656,7 @@ func collectGeminiSSE(cfg *config.Config, body io.Reader, isOAuth bool) (map[str
 type geminiSSECollectStats struct {
 	dataEvents int
 	fallback   *geminiSSEFallbackBody
+	succeeded  bool
 }
 
 // collectGeminiSSEObserved 在聚合的同时把每个解包后的事件原文交给 observe（可为 nil）。
@@ -2680,6 +2698,12 @@ func collectGeminiSSEObserved(cfg *config.Config, body io.Reader, isOAuth bool, 
 						_ = json.Unmarshal(rawBytes, &parsed)
 					}
 					if len(rawBytes) > 0 {
+						if reason := gjson.GetBytes(rawBytes, "candidates.0.finishReason").String(); parsed != nil && reason != "" {
+							stats.succeeded = cacheGuardGeminiTerminalSucceeded(reason)
+						}
+						if parsed == nil || cacheGuardGeminiResponseFailed(rawBytes) {
+							stats.succeeded = false
+						}
 						stats.dataEvents++
 						if observe != nil {
 							observe(rawBytes)
@@ -2803,6 +2827,7 @@ func mergeCollectedTextParts(response map[string]any, textParts []string) map[st
 }
 
 type geminiNativeStreamResult struct {
+	succeeded        bool // Successful terminal delivered without read/write failures.
 	usage            *ClaudeUsage
 	firstTokenMs     *int
 	clientDisconnect bool // 客户端在流式传输中途断开，结果为断开前已收集的部分
@@ -2895,6 +2920,11 @@ type UpstreamHTTPResult struct {
 }
 
 func (s *GeminiMessagesCompatService) handleNativeNonStreamingResponse(c *gin.Context, resp *http.Response, isOAuth bool, account *Account, upstreamRequestID string) (*ClaudeUsage, error) {
+	usage, _, err := s.handleNativeNonStreamingResponseWithCompletion(c, resp, isOAuth, account, upstreamRequestID)
+	return usage, err
+}
+
+func (s *GeminiMessagesCompatService) handleNativeNonStreamingResponseWithCompletion(c *gin.Context, resp *http.Response, isOAuth bool, account *Account, upstreamRequestID string) (*ClaudeUsage, bool, error) {
 	if s.cfg != nil && s.cfg.Gateway.GeminiDebugResponseHeaders {
 		logger.LegacyPrintf("service.gemini_messages_compat", "[GeminiAPI] ========== Response Headers ==========")
 		for key, values := range resp.Header {
@@ -2907,7 +2937,7 @@ func (s *GeminiMessagesCompatService) handleNativeNonStreamingResponse(c *gin.Co
 
 	respBody, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	if isOAuth {
@@ -2934,12 +2964,46 @@ func (s *GeminiMessagesCompatService) handleNativeNonStreamingResponse(c *gin.Co
 	if contentType == "" {
 		contentType = "application/json"
 	}
-	c.Data(resp.StatusCode, contentType, respBody)
+	delivered := writeGeminiNonStreamingBody(c, resp.StatusCode, contentType, respBody)
+	succeeded := delivered && geminiNonStreamingResponseSucceeded(respBody)
 
 	if u := extractGeminiUsage(respBody); u != nil {
-		return u, nil
+		return u, succeeded, nil
 	}
-	return &ClaudeUsage{}, nil
+	return &ClaudeUsage{}, succeeded, nil
+}
+
+func geminiNonStreamingResponseSucceeded(body []byte) bool {
+	if !gjson.ValidBytes(body) || !gjson.ParseBytes(body).IsObject() || cacheGuardGeminiResponseFailed(body) {
+		return false
+	}
+	// countTokens is a real upstream operation with no generation terminal.
+	if total := gjson.GetBytes(body, "totalTokens"); total.Type == gjson.Number && total.Int() >= 0 {
+		return true
+	}
+	return cacheGuardGeminiTerminalSucceeded(gjson.GetBytes(body, "candidates.0.finishReason").String())
+}
+
+func writeGeminiNonStreamingJSON(c *gin.Context, status int, value any) bool {
+	body, err := json.Marshal(value)
+	if err != nil {
+		_ = c.Error(err)
+		return false
+	}
+	return writeGeminiNonStreamingBody(c, status, "application/json; charset=utf-8", body)
+}
+
+func writeGeminiNonStreamingBody(c *gin.Context, status int, contentType string, body []byte) bool {
+	if c.Writer.Header().Get("Content-Type") == "" {
+		c.Writer.Header().Set("Content-Type", contentType)
+	}
+	c.Status(status)
+	deliverable := c.Request.Context().Err() == nil
+	n, err := c.Writer.Write(body)
+	if err != nil {
+		_ = c.Error(err)
+	}
+	return deliverable && err == nil && n == len(body)
 }
 
 func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Context, resp *http.Response, startTime time.Time, isOAuth bool, account *Account, upstreamRequestID string) (*geminiNativeStreamResult, error) {
@@ -2983,6 +3047,7 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Conte
 	var best geminiResponseSignal
 	sawDataEvent := false
 	cacheTerminalSuccess := false
+	healthTerminalDelivered, healthCompletedBeforeCancel := false, false
 	fallback := &geminiSSEFallbackBody{}
 	cacheWriter := &cacheUsageStreamWriter{writer: c.Writer}
 	defer func() {
@@ -3054,6 +3119,9 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Conte
 					// Native Gemini delivers its terminal in this frame. A later
 					// usage-only frame may complete the evidence before EOF.
 					freezeUpstreamCacheGuardCompletion(cacheGuardRequestContext(c), usage.CacheUsageEvidence, cacheTerminalSuccess, isOAuth && !cacheWriter.failed)
+					if isOAuth && cacheTerminalSuccess && !cacheWriter.failed && c.Request.Context().Err() == nil {
+						healthTerminalDelivered = true
+					}
 				}
 			} else {
 				if !sawDataEvent {
@@ -3066,11 +3134,16 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Conte
 
 		if strings.TrimSpace(line) == "" {
 			freezeUpstreamCacheGuardCompletion(cacheGuardRequestContext(c), usage.CacheUsageEvidence, cacheTerminalSuccess, !cacheWriter.failed)
+			if cacheTerminalSuccess && !cacheWriter.failed && c.Request.Context().Err() == nil {
+				healthTerminalDelivered = true
+			}
 		}
 		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
+			healthCompletedBeforeCancel = healthTerminalDelivered && cacheTerminalSuccess && !cacheWriter.failed &&
+				(errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded))
 			cacheTerminalSuccess = false
 			if !geminiStreamAbortedWithBillableOutput(c, err, usage) {
 				return nil, err
@@ -3083,7 +3156,7 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Conte
 
 	s.finalizeGeminiSSESignal(c, account, true, upstreamRequestID, best, sawDataEvent, fallback)
 
-	return &geminiNativeStreamResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: clientDisconnect, finished: finished}, nil
+	return &geminiNativeStreamResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: clientDisconnect, finished: finished, succeeded: healthCompletedBeforeCancel || healthTerminalDelivered && cacheTerminalSuccess && !cacheWriter.failed}, nil
 }
 
 // unwrapGeminiResponse 解包 Gemini OAuth 响应中的 response 字段

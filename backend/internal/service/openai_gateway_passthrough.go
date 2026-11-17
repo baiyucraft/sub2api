@@ -365,6 +365,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 	rejectedFieldRetryState := openAIResponsesRejectedFieldRetryStateForRequest(c, body)
 	var resp *http.Response
 	var usage *OpenAIUsage
+	var upstreamIncomplete, clientDisconnect bool
 	var firstTokenMs *int
 	responseID := ""
 	imageCount := 0
@@ -480,6 +481,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 				return nil, handleErr
 			}
 			usage = result.usage
+			upstreamIncomplete, clientDisconnect = result.upstreamIncomplete, result.clientDisconnect
 			firstTokenMs = result.firstTokenMs
 			responseID = strings.TrimSpace(result.responseID)
 			imageCount = result.imageCount
@@ -509,6 +511,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 				return nil, handleErr
 			}
 			usage = result.usage
+			upstreamIncomplete, clientDisconnect = result.upstreamIncomplete, result.clientDisconnect
 			responseID = strings.TrimSpace(result.responseID)
 			imageCount = result.imageCount
 			imageOutputSizes = result.imageOutputSizes
@@ -533,6 +536,8 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 	}
 
 	forwardResult := &OpenAIForwardResult{
+		UpstreamIncomplete:            upstreamIncomplete,
+		ClientDisconnect:              clientDisconnect,
 		RequestID:                     resp.Header.Get("x-request-id"),
 		UpstreamHeaders:               resp.Header,
 		ResponseID:                    responseID,
@@ -1027,14 +1032,18 @@ func collectOpenAIPassthroughTimeoutHeaders(h http.Header) []string {
 }
 
 type openaiStreamingResultPassthrough struct {
-	usage            *OpenAIUsage
-	firstTokenMs     *int
-	responseID       string
-	imageCount       int
-	imageOutputSizes []string
+	upstreamIncomplete bool
+	clientDisconnect   bool
+	usage              *OpenAIUsage
+	firstTokenMs       *int
+	responseID         string
+	imageCount         int
+	imageOutputSizes   []string
 }
 
 type openaiNonStreamingResultPassthrough struct {
+	upstreamIncomplete bool
+	clientDisconnect   bool
 	*OpenAIUsage
 	usage            *OpenAIUsage
 	responseID       string
@@ -1969,6 +1978,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 	sawResponseFailed := false
 	terminalEventType := ""
 	cacheTerminalSucceeded := false
+	upstreamTerminalSucceeded := false
 	semanticOutputSeen := false
 	capacityFailoverSuppressedLogged := false
 	failedMessage := ""
@@ -2083,11 +2093,13 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			usage.CacheUsageEvidence = cacheUsageWithStreamCompletion(usage.CacheUsageEvidence, false)
 		}
 		return &openaiStreamingResultPassthrough{
-			usage:            usage,
-			firstTokenMs:     firstTokenMs,
-			responseID:       responseID,
-			imageCount:       imageCounter.Count(),
-			imageOutputSizes: imageCounter.Sizes(),
+			upstreamIncomplete: !upstreamTerminalSucceeded,
+			clientDisconnect:   clientDisconnected,
+			usage:              usage,
+			firstTokenMs:       firstTokenMs,
+			responseID:         responseID,
+			imageCount:         imageCounter.Count(),
+			imageOutputSizes:   imageCounter.Sizes(),
 		}
 	}
 
@@ -2237,6 +2249,11 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 				terminalEventType = "[DONE]"
 			}
 			if openAIStreamEventIsTerminalWithType(trimmedData, eventType) {
+				if trimmedData != "[DONE]" {
+					upstreamTerminalSucceeded = cacheGuardResponsesTerminalSucceeded(dataBytes, eventType)
+				} else if !sawTerminalEvent {
+					upstreamTerminalSucceeded = true
+				}
 				sawTerminalEvent = true
 				cacheTerminalSucceeded = cacheGuardResponsesTerminalSucceeded(dataBytes, eventType)
 				if trimmedData != "[DONE]" {
@@ -2459,16 +2476,15 @@ func (s *OpenAIGatewayService) handleNonStreamingResponsePassthrough(
 	if err != nil {
 		return nil, fmt.Errorf("restore OpenAI Responses client tools: %w", err)
 	}
-	if !writeOpenAICompactSSEBridge(c, resp.StatusCode, body) {
-		markOpenAITTFTGuardFirstTokenForRequest(c)
-		c.Data(resp.StatusCode, contentType, body)
-	}
+	delivered := writeOpenAINonStreamingBody(c, resp.StatusCode, contentType, body)
 	return &openaiNonStreamingResultPassthrough{
-		OpenAIUsage:      usage,
-		usage:            usage,
-		responseID:       extractOpenAIResponseIDFromJSONBytes(body),
-		imageCount:       countOpenAIResponseImageOutputsFromJSONBytes(body),
-		imageOutputSizes: collectOpenAIResponseImageOutputSizesFromJSONBytes(body),
+		upstreamIncomplete: openAIResponseStatusIncomplete(body),
+		clientDisconnect:   !delivered,
+		OpenAIUsage:        usage,
+		usage:              usage,
+		responseID:         extractOpenAIResponseIDFromJSONBytes(body),
+		imageCount:         countOpenAIResponseImageOutputsFromJSONBytes(body),
+		imageOutputSizes:   collectOpenAIResponseImageOutputSizesFromJSONBytes(body),
 	}, nil
 }
 
@@ -2542,18 +2558,16 @@ func (s *OpenAIGatewayService) handlePassthroughSSEToJSON(resp *http.Response, c
 			contentType = "text/event-stream"
 		}
 	}
-	if !writeOpenAICompactSSEBridge(c, resp.StatusCode, body) {
-		markOpenAITTFTGuardFirstTokenForRequest(c)
-		c.Writer.Header().Set("Content-Type", contentType)
-		c.Data(resp.StatusCode, contentType, body)
-	}
+	delivered := writeOpenAINonStreamingBody(c, resp.StatusCode, contentType, body)
 
 	return &openaiNonStreamingResultPassthrough{
-		OpenAIUsage:      usage,
-		usage:            usage,
-		responseID:       extractOpenAIResponseIDFromJSONBytes(body),
-		imageCount:       countOpenAIImageOutputsFromSSEBody(bodyText),
-		imageOutputSizes: collectOpenAIImageOutputSizesFromSSEBody(bodyText),
+		upstreamIncomplete: !terminalOK || !cacheGuardResponsesTerminalSucceeded(terminalPayload, terminalType),
+		clientDisconnect:   !delivered,
+		OpenAIUsage:        usage,
+		usage:              usage,
+		responseID:         extractOpenAIResponseIDFromJSONBytes(body),
+		imageCount:         countOpenAIImageOutputsFromSSEBody(bodyText),
+		imageOutputSizes:   collectOpenAIImageOutputSizesFromSSEBody(bodyText),
 	}, nil
 }
 

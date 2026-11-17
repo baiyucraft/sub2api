@@ -887,3 +887,13 @@ func (s *OpenAIGatewayService) clearOpenAIWSFallbackCooling(accountID int64) {
 	}
 	s.openaiWSFallbackUntil.Delete(accountID)
 }
+
+// openAIWSTerminalIncomplete reads terminal status independently of cache/usage fields.
+func openAIWSTerminalIncomplete(payload []byte) bool {
+	return openAIResponseStatusIncomplete([]byte(gjson.GetBytes(payload, "response").Raw))
+}
+
+func openAIResponseStatusIncomplete(payload []byte) bool {
+	status := strings.TrimSpace(gjson.GetBytes(payload, "status").String())
+	return status != "" && status != "completed"
+}

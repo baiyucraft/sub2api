@@ -8,7 +8,6 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/upstreamcacheusage"
 	"github.com/gin-gonic/gin"
-	"github.com/tidwall/gjson"
 )
 
 type cacheUsageAttemptContextKey struct{}
@@ -270,7 +269,7 @@ func upstreamCacheGuardTextRequestReason(path string, body []byte) (bool, cacheG
 	if strings.Contains(path, "compact") || strings.Contains(path, "/images") || strings.Contains(path, "/audio") || strings.Contains(path, "/video") || strings.Contains(path, "web_search") || strings.Contains(path, "count_tokens") {
 		return false, cacheGuardEligibilityPath
 	}
-	root := gjson.ParseBytes(body)
+	root := openAIRequestPayloadView(body)
 	model := strings.ToLower(root.Get("model").String())
 	if strings.Contains(model, "image") || strings.Contains(model, "video") || strings.Contains(model, "tts") || strings.Contains(model, "transcribe") || strings.Contains(model, "audio") {
 		return false, cacheGuardEligibilityModel
@@ -310,53 +309,69 @@ func (r cacheGuardEligibilityReason) String() string {
 // WithUpstreamCacheGuardTurn derives an independent logical request from the
 // authenticated connection metadata. Same-turn transport retries retain it.
 func WithUpstreamCacheGuardTurn(ctx context.Context, body []byte, first bool) context.Context {
+	if ctx == nil {
+		return nil
+	}
 	if !first {
 		ctx = context.WithValue(ctx, cacheGuardProtectedSelectionKey{}, false)
+		if selection, _ := ctx.Value(protectionSelectionKey{}).(*protectionSelection); selection != nil {
+			next := *selection
+			next.trial = nil
+			// A later WS turn is an existing logical binding, not a new
+			// allocation funded by the first turn's selection or trial.
+			next.newAllocation = false
+			next.selectionPath = "session_binding"
+			ctx = context.WithValue(ctx, protectionSelectionKey{}, &next)
+		}
 	}
 	a, _ := ctx.Value(cacheUsageAttemptContextKey{}).(*cacheUsageAttempt)
 	ttft, _ := ctx.Value(openAITTFTAttemptKey{}).(*openAITTFTAttempt)
+	seed, hasSeed := ctx.Value(cacheGuardWSConnectionKey{}).(cacheGuardWSConnectionSeed)
+	text := UpstreamCacheGuardTextRequest("/v1/responses", body)
+	// Body markers belong to this frame. A missing marker on a later frame
+	// must not inherit the first frame's conversation; handshake headers do.
+	session := UpstreamCacheGuardLogicalSession(nil, body)
+	headerFixed, _ := ctx.Value(cacheGuardLogicalSessionHeaderKey{}).(bool)
+	if hasSeed {
+		if seed.headerSession != "" {
+			session = seed.headerSession
+		} else if first && session == "" {
+			session = seed.firstSession
+		}
+		ctx = context.WithValue(ctx, cacheGuardLogicalSessionKey{}, session)
+		ctx = context.WithValue(ctx, cacheGuardLogicalSessionHeaderKey{}, seed.headerSession != "")
+	} else if !headerFixed && (!first || session != "") {
+		ctx = context.WithValue(ctx, cacheGuardLogicalSessionKey{}, session)
+	}
 	if ttft != nil {
 		if !first {
 			ctx = context.WithValue(ctx, cacheGuardSchedulingKey{}, cacheGuardSchedulingIdentity{})
 			ctx = WithUpstreamCacheGuardScheduling(ctx, ttft.apiKeyID)
 		}
-		if fixed, _ := ctx.Value(cacheGuardLogicalSessionHeaderKey{}).(bool); !fixed {
-			if session := UpstreamCacheGuardLogicalSession(nil, body); session != "" {
-				ctx = context.WithValue(ctx, cacheGuardLogicalSessionKey{}, session)
-			}
-		}
-		if UpstreamCacheGuardTextRequest("/v1/responses", body) {
+		if text {
 			ctx = WithOpenAITTFTGuardAttempt(ctx, ttft.service, ttft.apiKeyID, &ttft.groupID)
 		} else {
 			ctx = context.WithValue(ctx, openAITTFTAttemptKey{}, (*openAITTFTAttempt)(nil))
 		}
-		if !first {
-			if selection, _ := ctx.Value(protectionSelectionKey{}).(*protectionSelection); selection != nil {
-				next := *selection
-				next.trial = nil
-				// A later WS turn is an existing logical binding. It must not
-				// inherit the first turn's "new allocation" funding marker.
-				next.newAllocation = false
-				next.selectionPath = "session_binding"
-				ctx = context.WithValue(ctx, protectionSelectionKey{}, &next)
-			}
-		}
 	}
-	if a == nil || !UpstreamCacheGuardTextRequest("/v1/responses", body) {
+	if hasSeed {
+		ctx = context.WithValue(ctx, cacheUsageAttemptContextKey{}, (*cacheUsageAttempt)(nil))
+		if !text || session == "" {
+			return ctx
+		}
+		if !first && ttft == nil {
+			ctx = context.WithValue(ctx, cacheGuardSchedulingKey{}, cacheGuardSchedulingIdentity{})
+		}
+		ctx = WithUpstreamCacheGuardScheduling(ctx, seed.apiKeyID)
+		return WithUpstreamCacheGuardAttempt(ctx, seed.apiKeyID, &seed.groupID, seed.sessionHash, true)
+	}
+	if a == nil || !text {
 		return context.WithValue(ctx, cacheUsageAttemptContextKey{}, (*cacheUsageAttempt)(nil))
 	}
 	if !first && ttft == nil {
 		ctx = context.WithValue(ctx, cacheGuardProtectedSelectionKey{}, false)
 		ctx = context.WithValue(ctx, cacheGuardSchedulingKey{}, cacheGuardSchedulingIdentity{})
 		ctx = WithUpstreamCacheGuardScheduling(ctx, a.apiKeyID)
-	}
-	// Explicit frame markers can start another logical conversation on the
-	// same connection. A handshake session header remains the stronger signal.
-	headerFixed, _ := ctx.Value(cacheGuardLogicalSessionHeaderKey{}).(bool)
-	if !headerFixed {
-		if session := UpstreamCacheGuardLogicalSession(nil, body); session != "" {
-			ctx = context.WithValue(ctx, cacheGuardLogicalSessionKey{}, session)
-		}
 	}
 	return WithUpstreamCacheGuardAttempt(ctx, a.apiKeyID, a.groupID, a.sessionHash, true)
 }

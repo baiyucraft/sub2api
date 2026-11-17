@@ -63,5 +63,6 @@ func TestCacheGuardEntryDiagnosticsFreezeActualSendAndResetForWSTurn(t *testing.
 	markUpstreamCacheGuardSend(second, account)
 	rows, _ = currentUpstreamCacheGuardRunner().diagnostics.snapshot(account.ID, keyID)
 	require.Len(t, rows, 1)
-	require.Equal(t, uint64(2), rows[0].Counts["eligible_text_request"])
+	require.Equal(t, uint64(1), rows[0].Counts["eligible_text_request"])
+	require.Equal(t, uint64(1), rows[0].Counts["skipped_missing_reliable_session"], "later turns cannot borrow the first body's session")
 }

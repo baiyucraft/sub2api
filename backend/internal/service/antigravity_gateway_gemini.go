@@ -75,12 +75,13 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 		// 直接返回空值，不透传上游
 		c.JSON(http.StatusOK, map[string]any{"totalTokens": 0})
 		return &ForwardResult{
-			RequestID:    "",
-			Usage:        ClaudeUsage{},
-			Model:        originalModel,
-			Stream:       false,
-			Duration:     time.Since(startTime),
-			FirstTokenMs: nil,
+			UpstreamIncomplete: true, // Local response is not successful upstream evidence.
+			RequestID:          "",
+			Usage:              ClaudeUsage{},
+			Model:              originalModel,
+			Stream:             false,
+			Duration:           time.Since(startTime),
+			FirstTokenMs:       nil,
 		}, nil
 	default:
 		return nil, s.writeGoogleError(c, http.StatusNotFound, "Unsupported action: "+action)
@@ -424,6 +425,7 @@ handleSuccess:
 	var usage *ClaudeUsage
 	var firstTokenMs *int
 	var clientDisconnect bool
+	var succeeded bool
 
 	if stream {
 		// 客户端要求流式，直接透传
@@ -435,6 +437,7 @@ handleSuccess:
 		usage = streamRes.usage
 		firstTokenMs = streamRes.firstTokenMs
 		clientDisconnect = streamRes.clientDisconnect
+		succeeded = streamRes.succeeded
 	} else {
 		// 客户端要求非流式，收集流式响应后返回
 		streamRes, err := s.handleGeminiStreamToNonStreaming(c, resp, startTime)
@@ -444,6 +447,7 @@ handleSuccess:
 		}
 		usage = streamRes.usage
 		firstTokenMs = streamRes.firstTokenMs
+		succeeded = streamRes.succeeded
 	}
 
 	if usage == nil {
@@ -470,6 +474,8 @@ handleSuccess:
 		Duration:                      time.Since(startTime),
 		FirstTokenMs:                  firstTokenMs,
 		ClientDisconnect:              clientDisconnect,
+		UpstreamCompleted:             succeeded,
+		UpstreamIncomplete:            !succeeded,
 		ImageEndpoint:                 imageCount > 0,
 		ImageCount:                    imageCount,
 		ImageSize:                     imageSize,

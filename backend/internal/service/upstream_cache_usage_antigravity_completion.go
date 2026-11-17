@@ -2,7 +2,11 @@ package service
 
 import (
 	"context"
+	"errors"
+	"net/http"
 	"strings"
+
+	"github.com/gin-gonic/gin"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/tidwall/gjson"
@@ -39,6 +43,9 @@ func (s *antigravityCacheCompletion) observeLine(line string) {
 }
 
 func (s *antigravityCacheCompletion) delivered(ctx context.Context, ok bool) {
+	if ctx != nil && ctx.Err() != nil {
+		ok = false
+	}
 	if s.terminalSucceeded && ok {
 		s.terminalDelivered = true
 	}
@@ -46,8 +53,29 @@ func (s *antigravityCacheCompletion) delivered(ctx context.Context, ok bool) {
 }
 
 func (s *antigravityCacheCompletion) finish(result *antigravityStreamResult, err error) {
+	if result != nil {
+		// A read cancellation after the successful terminal reached the client
+		// cannot rewrite that completed outcome. Keep disconnect separately for
+		// the existing billing and response consumers.
+		result.succeeded = s.terminalSucceeded && s.terminalDelivered &&
+			(err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded))
+	}
 	if result != nil && result.usage != nil {
 		result.usage.CacheUsageEvidence = cacheUsageWithStreamCompletion(result.usage.CacheUsageEvidence,
 			s.terminalSucceeded && s.terminalDelivered && err == nil && !result.clientDisconnect)
 	}
+}
+
+// Preserve the existing response while retaining its physical write outcome.
+func antigravityWriteJSONBytes(c *gin.Context, body []byte) bool {
+	deliverable := c.Request.Context().Err() == nil
+	c.Header("Content-Type", "application/json")
+	c.Status(http.StatusOK)
+	n, err := c.Writer.Write(body)
+	return deliverable && err == nil && n == len(body)
+}
+
+func antigravityAnthropicResponseFailed(payload []byte) bool {
+	root := gjson.ParseBytes(payload)
+	return !root.IsObject() || root.Get("type").String() == "error" || root.Get("error").Exists()
 }
