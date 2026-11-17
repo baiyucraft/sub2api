@@ -80,6 +80,10 @@ func (r *schedulerUpgradeAccountRepo) ListSchedulableUngroupedByPlatforms(_ cont
 	return r.record(0, platforms[0])
 }
 
+func (r *schedulerUpgradeAccountRepo) ListModelAvailabilityCandidates(_ context.Context, groupID *int64, platforms []string, _ bool) ([]Account, error) {
+	return r.record(derefGroupID(groupID), platforms[0])
+}
+
 func TestRunInitialRebuildUsesLegacyBucketsOnlyAsTopology(t *testing.T) {
 	legacyBucket := SchedulerBucket{GroupID: 12, Platform: PlatformOpenAI, Mode: SchedulerModeSingle}
 	dbAccount := Account{ID: 501, Platform: PlatformOpenAI, Name: "from-db"}

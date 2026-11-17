@@ -36,6 +36,7 @@ const EDITABLE_EXTRA_KEYS = new Set([
   'openai_compact_mode',
   'openai_long_context_billing_enabled',
   'openai_passthrough',
+  'openai_passthrough_model_filter',
   'openai_responses_mode',
   'quota_daily_limit',
   'quota_daily_reset_hour',

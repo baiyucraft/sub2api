@@ -445,12 +445,24 @@ func createGroupUsageRollupTriggerTestSchema(t *testing.T, ctx context.Context, 
 	_, err = tx.ExecContext(ctx, `
 		CREATE TABLE users (id BIGINT PRIMARY KEY);
 		CREATE TABLE groups (id BIGINT PRIMARY KEY);
+
+        -- Fork retention requires permanent per-user aggregate coverage before raw deletion.
+        CREATE TABLE usage_dashboard_user_backfill_state (
+            id integer PRIMARY KEY,
+            status text NOT NULL,
+            coverage_start timestamptz,
+            coverage_end timestamptz,
+            target_end timestamptz
+        );
+        INSERT INTO usage_dashboard_user_backfill_state
+            VALUES (1,'available',TIMESTAMPTZ '1970-01-01 00:00:00+00',TIMESTAMPTZ '2100-01-01 00:00:00+00',NULL);
 	`+usageLogsDDL)
 	require.NoError(t, err)
 
 	for _, migrationName := range []string{
-		"222_group_usage_daily_rollups.sql",
-		"223_group_usage_rollup_timezone.sql",
+		"235_group_usage_daily_rollups.sql",
+		"236_group_usage_rollup_timezone.sql",
+		"312_group_usage_rollup_nonblocking_build.sql",
 	} {
 		migrationSQL, readErr := migrations.FS.ReadFile(migrationName)
 		require.NoError(t, readErr)

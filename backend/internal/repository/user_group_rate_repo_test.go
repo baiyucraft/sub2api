@@ -250,3 +250,48 @@ func TestUserGroupRateRepositorySyncUserGroupRatePercentsRollsBackOnUpsertFailur
 	require.EqualError(t, err, "write failed")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
+
+func TestUserGroupRateRepositoryGroupReplacementsUseCallerTransaction(t *testing.T) {
+	for _, rpm := range []bool{false, true} {
+		t.Run(fmt.Sprintf("rpm=%t", rpm), func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			require.NoError(t, err)
+			client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, db)))
+			t.Cleanup(func() { _ = client.Close() })
+			mock.ExpectBegin()
+			tx, err := client.Tx(context.Background())
+			require.NoError(t, err)
+			repo := &userGroupRateRepository{}
+			mock.ExpectExec(`UPDATE user_group_rate_multipliers`).WithArgs(int64(42), sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
+			mock.ExpectExec(`DELETE FROM user_group_rate_multipliers[\s\S]+rate_percent IS NULL AND rate_multiplier IS NULL AND rpm_override IS NULL`).WithArgs(int64(42)).WillReturnResult(sqlmock.NewResult(0, 0))
+			mock.ExpectExec(`INSERT INTO user_group_rate_multipliers`).WithArgs(int64(42), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
+			ctx := dbent.NewTxContext(context.Background(), tx)
+			if rpm {
+				value := 5
+				err = repo.SyncGroupRPMOverrides(ctx, 42, []service.GroupRPMOverrideInput{{UserID: 7, RPMOverride: &value}})
+			} else {
+				value := 95.0
+				err = repo.SyncGroupRateMultipliers(ctx, 42, []service.GroupRateMultiplierInput{{UserID: 7, RatePercent: &value}})
+			}
+			require.NoError(t, err)
+			mock.ExpectRollback()
+			require.NoError(t, tx.Rollback())
+			require.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
+}
+
+func TestUserGroupRateRepositoryRPMDuplicateLastNilClearsWithoutUpsert(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	repo := NewUserGroupRateRepository(db)
+	value := 5
+	mock.ExpectBegin()
+	mock.ExpectExec(`UPDATE user_group_rate_multipliers[\s\S]+user_id <> ALL`).WithArgs(int64(42), sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`UPDATE user_group_rate_multipliers[\s\S]+user_id = ANY`).WithArgs(int64(42), sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`DELETE FROM user_group_rate_multipliers[\s\S]+rate_percent IS NULL AND rate_multiplier IS NULL AND rpm_override IS NULL`).WithArgs(int64(42)).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectCommit()
+	require.NoError(t, repo.SyncGroupRPMOverrides(context.Background(), 42, []service.GroupRPMOverrideInput{{UserID: 7, RPMOverride: &value}, {UserID: 7, RPMOverride: nil}}))
+	require.NoError(t, mock.ExpectationsWereMet())
+}

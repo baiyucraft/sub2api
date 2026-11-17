@@ -1160,7 +1160,20 @@ PROFILES["284"] = {
     },
 }
 
-CURRENT_RELEASE_PROFILE = "284"
+PROFILES["285"] = {
+    **{key: PROFILES["284"][key] for key in _PROFILE_V2_RUNTIME_KEYS},
+    "name": "285",
+    "version": "0.2.22-baiyu",
+    "parent": "284",
+    "new_migrations": ["311_group_force_openai_ultrafast.sql", "312_group_usage_rollup_nonblocking_build.sql"],
+    "gate_schema": 2,
+    "release_policy": {
+        "compatibility_image": "production_current",
+        "migration_source": "database_state",
+    },
+}
+
+CURRENT_RELEASE_PROFILE = "285"
 
 
 def get_profile(name: str) -> dict:

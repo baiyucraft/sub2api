@@ -179,8 +179,8 @@ func TestSelectAccountForModelsEndpoints_QueryAndHydrationErrorsKeepHealthExclus
 	for _, failure := range []string{"query", "hydration"} {
 		t.Run(failure, func(t *testing.T) {
 			groupID, excludedKeyID := int64(8), int64(991073)
-			excluded := Account{ID: 991073, Platform: PlatformGemini, Type: AccountTypeAPIKey, Priority: 0, UpstreamKeyID: &excludedKeyID, Credentials: map[string]any{"api_key": "test"}}
-			healthy := Account{ID: 991074, Platform: PlatformGemini, Type: AccountTypeAPIKey, Priority: 1, Credentials: map[string]any{"api_key": "test"}}
+			excluded := Account{ID: 991073, Platform: PlatformGemini, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Priority: 0, UpstreamKeyID: &excludedKeyID, Credentials: map[string]any{"api_key": "test"}}
+			healthy := Account{ID: 991074, Platform: PlatformGemini, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Priority: 1, Credentials: map[string]any{"api_key": "test"}}
 			registry := GlobalUpstreamHealthRegistry()
 			registry.Forget(excludedKeyID)
 			t.Cleanup(func() { registry.Forget(excludedKeyID) })
@@ -352,4 +352,27 @@ func TestForwardListModels_ResponseOverReadLimitFails(t *testing.T) {
 
 	_, err := svc.ForwardListModels(context.Background(), account)
 	require.ErrorContains(t, err, "exceeds 16 bytes")
+}
+
+// Scenario: 多区域账号查单个模型与列模型都读 global 发布方列表。
+func TestForwardModels_VertexMultiRegionAccountReadsGlobalList(t *testing.T) {
+	account := vertexModelSyncTestAccount(map[string]any{"location": "us"})
+	listBody := `{"publisherModels":[{"name":"publishers/google/models/gemini-3.6-flash"},{"name":"publishers/google/models/gemini-3.1-pro-preview"}]}`
+	const globalList = "https://aiplatform.googleapis.com/v1beta1/publishers/google/models?pageSize=300"
+
+	for _, model := range []string{"gemini-3.6-flash", "gemini-3.1-pro-preview"} {
+		upstream := &httpUpstreamRecorder{resp: vertexModelsJSONResponse(http.StatusOK, listBody)}
+		svc := newGeminiModelsEndpointsTestService(nil, upstream)
+		res, err := svc.ForwardGetModel(context.Background(), account, model)
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, res.StatusCode, model)
+		require.Equal(t, globalList, upstream.lastReq.URL.String())
+	}
+
+	upstream := &httpUpstreamRecorder{resp: vertexModelsJSONResponse(http.StatusOK, listBody)}
+	svc := newGeminiModelsEndpointsTestService(nil, upstream)
+	res, err := svc.ForwardListModels(context.Background(), account)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, res.StatusCode)
+	require.Equal(t, globalList, upstream.lastReq.URL.String())
 }

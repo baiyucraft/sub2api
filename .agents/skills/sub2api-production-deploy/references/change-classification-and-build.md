@@ -503,3 +503,11 @@ Python/Shell/VM validator/Gate与DR signer/备份/清理/祖先297、298、299�
 - `307_user_default_group_rate_percent.sql` 原始SHA-256：`43cc403117cc8971ee5e3e3b5eee60c1c927016e959f1cfb802658d644ba9237`；Gate strip checksum：`abbbef25b457f932ef7b8b6bec29336214ae8cba1c5b3446b7ce7f0ce36f6abc`。
 - 静态迁移与profile测试核对历史bytes、planner、真实Bash/jq正反例与current-only边界；`userdefaultpg`真实隔离PostgreSQL测试必须提供 `SUB2API_USER_DEFAULT_RATE_TEST_DSN`、`SUB2API_USER_DEFAULT_RATE_TEST_ISOLATED=1`，且库名包含test。缺失或非隔离配置直接失败，不得skip冒充数据库验证。数据库测试覆盖0/NULL/非有限、事务rollback、RPM-only、legacy影子、条件ack/ABA/并发与父删除。
 - 登记及本地/隔离数据库测试不表示签名VM Gate、旧镜像兼容、生产部署或真实流量验证；恢复敏感最终blob仍需新分类，历史精确审阅不扩张。
+
+## 官方 0.2.22 与 Profile 285
+
+本轮固定官方目标为 `15871f904056f548dd874a1d069ffc6cdf777b78`，fork 版本为 `0.2.22-baiyu`。当前 pending Profile `285` 的 parent 为 `284`、Gate schema 为 2，新增迁移严格按顺序为 `311_group_force_openai_ultrafast.sql`、`312_group_usage_rollup_nonblocking_build.sql`。官方两份 `251_*` 仅原字节重编号；311增加按模型能力门控的强制 Ultra Fast 开关，312使分组日汇总重建登记与发布短锁化，保留无效化水位和过期下界。
+
+全部71个旧 Profile、361份旧SQL、既有checksum与精确恢复审阅保持冻结；历史284仍为 `0.2.21-baiyu`、parent283、只新增309/310。Python、Shell、VM validator、Gate/DR signer、备份和清理入口同步接纳285、拒绝未知286，普通prepare与VM验证仅允许当前285。保留downtime、迁移301停止旧写者与coordinated_restore合同，不新增恢复审阅豁免。Go构建及fork VM依赖pin随官方统一为 `1.27.4`。
+
+最低回归包括 `test_profile285_release_contract.py`、`profile_285_migrations_test.go`、Ultrafast与分组日汇总回归、真实Bash/jq祖先manifest正反例、完整release suite与修改Shell的 `bash -n`。本地回归及登记不代表真实PostgreSQL升级、旧镜像兼容、签名VM Gate或生产部署已完成；未来发布仍按最终blob/模式重新分类。

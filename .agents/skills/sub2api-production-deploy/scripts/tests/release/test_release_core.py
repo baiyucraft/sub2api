@@ -481,7 +481,7 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertEqual(current["version"], "0.2.11-baiyu")
         self.assertEqual(current["parent"], "259")
         self.assertEqual(current["new_migrations"], ["285_upstream_null_rate_lifecycle.sql"])
-        self.assertEqual(profiles.CURRENT_RELEASE_PROFILE, "284")
+        self.assertEqual(profiles.CURRENT_RELEASE_PROFILE, "285")
         successor = get_profile("261")
         self.assertEqual(successor["version"], "0.2.13-baiyu")
         self.assertEqual(successor["parent"], "260")
@@ -559,11 +559,11 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertEqual(catalog["historical_profiles"]["277"]["version"], "0.2.19-baiyu")
         self.assertEqual(catalog["historical_profiles"]["277"]["parent"], "276")
         self.assertEqual(catalog["historical_profiles"]["277"]["new_migrations"], ["304_upstream_confidence_fingerprint.sql"])
-        self.assertEqual(catalog["current_profile"]["id"], "284")
+        self.assertEqual(catalog["current_profile"]["id"], "285")
         self.assertEqual(catalog["current_profile"]["status"], "pending")
-        self.assertEqual(catalog["current_profile"]["version"], "0.2.21-baiyu")
-        self.assertEqual(catalog["current_profile"]["parent"], "283")
-        self.assertEqual(catalog["current_profile"]["new_migrations"], ["309_add_usage_logs_api_key_cost_index_notx.sql", "310_openai_cache_write_ttl.sql"])
+        self.assertEqual(catalog["current_profile"]["version"], "0.2.22-baiyu")
+        self.assertEqual(catalog["current_profile"]["parent"], "284")
+        self.assertEqual(catalog["current_profile"]["new_migrations"], ["311_group_force_openai_ultrafast.sql", "312_group_usage_rollup_nonblocking_build.sql"])
         self.assertTrue(catalog["migration_assertions"]["backend/migrations/283_affiliate_ledger_operation_id.sql"])
         for migration_name in migration_names:
             migration_path = WORKSPACE / "backend" / "migrations" / migration_name
@@ -589,7 +589,7 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn('--build-arg COMMIT="$commit" --build-arg VERSION="$version"', validator)
 
     def test_current_profiles_are_allowed_by_release_entrypoints(self) -> None:
-        expected_release_pattern = "(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273|274|275|276|277|278|279|280|281|282|283|284)"
+        expected_release_pattern = "(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273|274|275|276|277|278|279|280|281|282|283|284|285)"
         for relative_path in (
             "release/vm-validate.sh",
             "release/sign-gate.sh",
@@ -602,9 +602,9 @@ class ReleaseCoreTest(unittest.TestCase):
             self.assertIn(expected_release_pattern, content, relative_path)
         validator = (DEPLOY_ROOT / "release/vm-validate.sh").read_text(encoding="utf-8")
         prepare = (DEPLOY_ROOT / "maintenance/release/prepare.sh").read_text(encoding="utf-8")
-        self.assertIn('[[ "$profile" == 284 ]]', validator)
+        self.assertIn('[[ "$profile" == 285 ]]', validator)
         self.assertIn('elif [[ "$profile" == 277 ]]; then', validator)
-        self.assertIn('[[ $profile == 284 ]]', prepare)
+        self.assertIn('[[ $profile == 285 ]]', prepare)
         self.assertNotIn('[[ $profile == 277 ]]', prepare)
 
         for relative_path in (
@@ -621,7 +621,7 @@ class ReleaseCoreTest(unittest.TestCase):
         helper = (DEPLOY_ROOT / "release" / "vm-build-common.sh").read_text(encoding="utf-8")
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
         vm_only = (DEPLOY_ROOT / "release" / "vm-only-validate.sh").read_text(encoding="utf-8")
-        self.assertEqual(helper.count("docker.io/library/golang:1.27.3-alpine"), 1)
+        self.assertEqual(helper.count("docker.io/library/golang:1.27.4-alpine"), 1)
         self.assertIn('--build-arg "GOLANG_IMAGE=$(jq -r .roles.golang.pinned_ref "$proof")"', helper)
         self.assertIn('vm_build_docker buildx build --builder "$VM_BUILD_BUILDER" --platform "$VM_BUILD_PLATFORM" --load', helper)
         self.assertIn('--network=host --progress=plain "${VM_BUILD_IMAGE_ARGS[@]}" "${candidate_args[@]}"', helper)
@@ -1240,7 +1240,7 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn('self.profile["name"] not in {"195", "197", "198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241", "242", "243", "244", "245"}', production)
         assertion_allowlist = next(line for line in assertion.splitlines() if line.startswith("# Legacy profile assertion allowlist"))
         self.assertIn("$profile == 195", assertion_allowlist)
-        self.assertIn("$profile == 284 ]]", assertion_allowlist)
+        self.assertIn("$profile == 284 || $profile == 285 ]]", assertion_allowlist)
         self.assertIn('expected_profile in {"198", "199", "202", "206", "207", "208", "209", "210", "212", "213", "215", "232", "233", "234", "235", "236", "237", "238", "239", "240", "241"}', gate)
         self.assertIn("managed monitor key-name evidence", gate)
 

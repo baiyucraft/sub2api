@@ -474,7 +474,9 @@ class FinalizationTest(unittest.TestCase):
         from release.migration_planner import discover_migration_catalog
 
         catalog = discover_migration_catalog(finalization.WORKSPACE)
-        self.assertEqual(len(catalog), 361)
+        self.assertEqual(len(catalog), 363)
+        self.assertTrue(any(row["filename"] == "311_group_force_openai_ultrafast.sql" for row in catalog))
+        self.assertTrue(any(row["filename"] == "312_group_usage_rollup_nonblocking_build.sql" for row in catalog))
         self.assertTrue(any(row["filename"] == "305_scoped_admin_api_keys.sql" for row in catalog))
         self.assertTrue(any(row["filename"] == "306_group_image_count_billing.sql" for row in catalog))
         self.assertTrue(any(row["filename"] == "303_group_strip_optional_image_tools.sql" for row in catalog))

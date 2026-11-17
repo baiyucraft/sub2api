@@ -879,6 +879,95 @@ describe('EditAccountModal', () => {
 
   afterEach(() => vi.useRealTimers())
 
+  it.each(['apikey', 'oauth'])('can opt a passthrough %s account into model filtering without changing groups', async (type) => {
+    const account = buildAccount()
+    account.type = type
+    account.extra = { openai_passthrough: true }
+    account.group_ids = [17]
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+
+    expect(wrapper.findComponent(ModelWhitelistSelectorStub).exists()).toBe(false)
+    await wrapper.get('[data-testid="edit-openai-passthrough-model-filter"]').setValue(true)
+    await wrapper.get('[data-testid="rewrite-to-snapshot"]').trigger('click')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    const payload = updateAccountMock.mock.calls[0]?.[1]
+    expect(payload.extra.openai_passthrough).toBe(true)
+    expect(payload.extra.openai_passthrough_model_filter).toBe(true)
+    expect(payload.credentials.model_mapping).toEqual({ 'gpt-5.2-2025-12-11': 'gpt-5.2-2025-12-11' })
+    expect(payload.group_ids).toEqual([17])
+    wrapper.unmount()
+  })
+
+  it('loads the saved model filter and removes it when passthrough is disabled', async () => {
+    const account = buildAccount()
+    account.extra = { openai_passthrough: true, openai_passthrough_model_filter: true }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+
+    expect(wrapper.get<HTMLInputElement>('[data-testid="edit-openai-passthrough-model-filter"]').element.checked).toBe(true)
+    expect(wrapper.findComponent(ModelWhitelistSelectorStub).exists()).toBe(true)
+    await wrapper.get('[data-testid="edit-openai-passthrough-toggle"]').trigger('click')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra).not.toHaveProperty('openai_passthrough_model_filter')
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials.model_mapping).toEqual(account.credentials.model_mapping)
+    wrapper.unmount()
+  })
+
+  it.each(['ordinary', 'upstream'] as const)('saves passthrough model filtering through the bound-account whitelist in %s mode', async (mode) => {
+    authIsSimpleMode.value = false
+    const account = buildUpstreamBoundAccount()
+    account.extra = {
+      openai_passthrough: true,
+      openai_passthrough_model_filter: mode === 'ordinary',
+      auto_reset_credit_enabled: true,
+      codex_auto_reset_credit_state: { status: 'success' },
+      upstream_model_sync_snapshot: { models: ['gpt-5.2'] }
+    }
+    updateAccountMock.mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account, { mode })
+    await flushPromises()
+
+    if (mode === 'upstream') {
+      await wrapper.get('[data-testid="edit-openai-passthrough-model-filter"]').setValue(true)
+      await wrapper.get('[data-testid="rewrite-to-snapshot"]').trigger('click')
+    } else {
+      expect(wrapper.find('[data-testid="edit-openai-passthrough-model-filter"]').exists()).toBe(false)
+    }
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    const payload = updateAccountMock.mock.calls[0]?.[1]
+    expect(payload.extra).toMatchObject({
+      openai_passthrough: true,
+      openai_passthrough_model_filter: true
+    })
+    expect(payload.credentials.model_mapping).toEqual(mode === 'upstream'
+      ? { 'gpt-5.2-2025-12-11': 'gpt-5.2-2025-12-11' }
+      : account.credentials.model_mapping)
+    expect(payload.credentials).not.toHaveProperty('api_key')
+    expect(payload.credentials).not.toHaveProperty('base_url')
+    for (const field of ['auto_reset_credit_enabled', 'codex_auto_reset_credit_state', 'upstream_model_sync_snapshot']) {
+      expect(payload.extra).not.toHaveProperty(field)
+    }
+
+    if (mode === 'upstream') {
+      updateAccountMock.mockClear()
+      await wrapper.get('[data-testid="edit-openai-passthrough-model-filter"]').setValue(false)
+      await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+      await flushPromises()
+      expect(updateAccountMock).toHaveBeenCalledTimes(1)
+      expect(updateAccountMock.mock.calls[0]?.[1]?.extra).toMatchObject({ openai_passthrough: true })
+      expect(updateAccountMock.mock.calls[0]?.[1]?.extra).not.toHaveProperty('openai_passthrough_model_filter')
+    }
+    wrapper.unmount()
+  })
+
   it('passes existing non-identity mappings to the whitelist selector and preserves them on save', async () => {
     const account = buildAccount()
     account.credentials.model_mapping = { 'gpt-5.2': 'gpt-5.2', 'gpt-latest': 'deepseek-chat' }

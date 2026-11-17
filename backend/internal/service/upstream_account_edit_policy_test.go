@@ -21,6 +21,7 @@ func TestValidateUpstreamAccountEditableUpdate(t *testing.T) {
 				"images_url_to_b64_json":              true,
 				"upstream_request_id_header":          "X-Upstream-Request-ID",
 				"openai_passthrough":                  true,
+				"openai_passthrough_model_filter":     true,
 				"openai_long_context_billing_enabled": true,
 				"quota_limit":                         float64(100),
 			},
@@ -47,11 +48,12 @@ func TestValidateUpstreamAccountEditableUpdate(t *testing.T) {
 func TestMergeUpstreamAccountEditableExtraPreservesRuntimeState(t *testing.T) {
 	merged := mergeUpstreamAccountEditableExtra(
 		map[string]any{
-			"images_url_to_b64_json":     true,
-			"upstream_request_id_header": "X-Upstream-Request-ID",
-			"openai_passthrough":         true,
-			UpstreamBillingProbeExtraKey: map[string]any{"status": "ok"},
-			"quota_used":                 float64(12),
+			"images_url_to_b64_json":          true,
+			"upstream_request_id_header":      "X-Upstream-Request-ID",
+			"openai_passthrough":              true,
+			"openai_passthrough_model_filter": true,
+			UpstreamBillingProbeExtraKey:      map[string]any{"status": "ok"},
+			"quota_used":                      float64(12),
 		},
 		map[string]any{"quota_limit": float64(100)},
 	)
@@ -59,9 +61,23 @@ func TestMergeUpstreamAccountEditableExtraPreservesRuntimeState(t *testing.T) {
 	require.NotContains(t, merged, "images_url_to_b64_json")
 	require.NotContains(t, merged, "upstream_request_id_header")
 	require.NotContains(t, merged, "openai_passthrough")
+	require.NotContains(t, merged, "openai_passthrough_model_filter")
 	require.Equal(t, float64(100), merged["quota_limit"])
 	require.Contains(t, merged, UpstreamBillingProbeExtraKey)
 	require.Equal(t, float64(12), merged["quota_used"])
+}
+
+func TestMergeUpstreamAccountEditableExtraKeepsPassthroughModelFilter(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		incoming := map[string]any{
+			"openai_passthrough":              true,
+			"openai_passthrough_model_filter": enabled,
+		}
+		require.NoError(t, validateUpstreamAccountEditableUpdate(&UpdateAccountInput{Extra: incoming}))
+		merged := mergeUpstreamAccountEditableExtra(map[string]any{"quota_used": float64(12)}, incoming)
+		require.Equal(t, enabled, merged["openai_passthrough_model_filter"])
+		require.Equal(t, float64(12), merged["quota_used"])
+	}
 }
 
 func TestMergeUpstreamAccountEditableExtraCanonicalImagePolicyClearsLegacy(t *testing.T) {

@@ -436,3 +436,20 @@ profile 280 为 parent 279、版本 `0.2.22-baiyu`，无新增 SQL migration，�
 最低回归包括 `test_profile284_release_contract.py`、`profile_284_migrations_test.go`、migration runner 非事务/无效索引清理、缓存 TTL 写入与定价 roundtrip、真实 jq 祖先断言和完整 release suite。历史 Responses orphan 分配测量隔离已由目标内官方 `2273a5d63` 完整覆盖，测试归官方维护，保留原 fork 提交历史。
 
 本轮WS回归须区分官方semantic/visible TTFT用户统计与保护可见输出证据：adapter不从FirstTokenMs反推FirstTokenAt，仅frame wrapper的visible mark可生成保护首字；reasoning-only成功终止不产生保护样本。OpenAI 30m/12h缓存分桶仍组合保留CacheUsageEvidence、上游归属及显式用户0%计费与配额边界。
+
+## 官方 0.2.22 与 Profile 285
+
+本轮固定官方目标为 `15871f904056f548dd874a1d069ffc6cdf777b78`，fork 版本为 `0.2.22-baiyu`。当前 pending Profile `285` 的 parent 为 `284`、Gate schema 为 2，新增迁移严格按顺序为 `311_group_force_openai_ultrafast.sql`、`312_group_usage_rollup_nonblocking_build.sql`。官方两份 `251_*` 仅原字节重编号；311增加按模型能力门控的强制 Ultra Fast 开关，312使分组日汇总重建登记与发布短锁化，保留无效化水位和过期下界。
+
+全部71个旧 Profile、361份旧SQL、既有checksum与精确恢复审阅保持冻结；历史284仍为 `0.2.21-baiyu`、parent283、只新增309/310。Python、Shell、VM validator、Gate/DR signer、备份和清理入口同步接纳285、拒绝未知286，普通prepare与VM验证仅允许当前285。保留downtime、迁移301停止旧写者与coordinated_restore合同，不新增恢复审阅豁免。Go构建及fork VM依赖pin随官方统一为 `1.27.4`。
+
+最低回归包括 `test_profile285_release_contract.py`、`profile_285_migrations_test.go`、Ultrafast与分组日汇总回归、真实Bash/jq祖先manifest正反例、完整release suite与修改Shell的 `bash -n`。本地回归及登记不代表真实PostgreSQL升级、旧镜像兼容、签名VM Gate或生产部署已完成；未来发布仍按最终blob/模式重新分类。
+
+### 0.2.22 语义合并回归
+
+- 上游编辑：`upstream_account_edit_policy_test.go` 与 `EditAccountModal.spec.ts`覆盖透传模型过滤在上游入口编辑与清除、普通入口保存其他字段时保留既有只读配置，继承凭据和运行态继续排除。
+- 调度与认证：`scheduler_snapshot_group_lifecycle_test.go`覆盖新值快照路径的父上游权威开关及查库失败关断；认证快照版本同时覆盖UltraFast及fork图像/隐私字段，旧版本失效。
+- 计费与缓存：保留显式0%、quota_meter_cost、上游成本和缓存TTL；CacheGuard/证据冻结专项覆盖成功终止和可见输出，官方keepalive不生成虚假warm证据。
+- 统计清理与倍率：`dashboard_aggregation_group_usage_test.go`覆盖非阻塞分组汇总与独立用户覆盖门、全分区覆盖不足拒绝DROP、覆盖状态先于分区取锁及任一锁失败不DROP；`user_group_rate_repo_test.go`与`user_group_rate_repo_sync_test.go`覆盖百分比/RPM独立清除、失败回滚、去重和调用方Ent事务。
+
+- Windows cgroup路径测试：目录穿越始终验证，仅创建符号链接返回权限错误1314时跳过链接子用例；Linux原断言保持，不能将Windows跳过解释为Linux已验证。

@@ -3,8 +3,17 @@ package service
 import "testing"
 
 func TestAPIKeyAuthSnapshotVersionIncludesImageAndPrivacyPolicies(t *testing.T) {
-	if apiKeyAuthSnapshotVersion != 28 {
-		t.Fatalf("expected snapshot version 28 after adding image and privacy policies, got %d", apiKeyAuthSnapshotVersion)
+	if apiKeyAuthSnapshotVersion != 29 {
+		t.Fatalf("expected snapshot version 29 after merging image, privacy and ultrafast policies, got %d", apiKeyAuthSnapshotVersion)
+	}
+}
+
+func TestAPIKeyServiceRejectsV28AuthSnapshotBeforeMergedPolicies(t *testing.T) {
+	apiKey, used, err := (&APIKeyService{}).applyAuthCacheEntry("legacy-v28", &APIKeyAuthCacheEntry{
+		Snapshot: &APIKeyAuthSnapshot{Version: 28},
+	})
+	if err != nil || used || apiKey != nil {
+		t.Fatalf("expected ambiguous pre-merge v28 snapshot to be reloaded, got key=%v used=%v err=%v", apiKey, used, err)
 	}
 }
 

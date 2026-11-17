@@ -24,6 +24,40 @@ func (c *upstreamGateTestCache) GetAccount(_ context.Context, accountID int64) (
 	return c.accounts[accountID], nil
 }
 
+type upstreamGateValuesTestCache struct {
+	*upstreamGateTestCache
+}
+
+func (c *upstreamGateValuesTestCache) GetSnapshotValues(context.Context, SchedulerBucket) ([]Account, bool, error) {
+	accounts := make([]Account, len(c.snapshot))
+	for i, account := range c.snapshot {
+		accounts[i] = *account
+	}
+	return accounts, true, nil
+}
+
+func TestSchedulerSnapshotValuesKeepAuthoritativeUpstreamGate(t *testing.T) {
+	upstreamID := int64(10)
+	cache := &upstreamGateValuesTestCache{&upstreamGateTestCache{snapshot: []*Account{
+		activeSnapshotAccount(1, &upstreamID),
+		activeSnapshotAccount(2, nil),
+	}}}
+	for _, queryErr := range []error{nil, errors.New("gate unavailable")} {
+		repo := &upstreamGateTestRepo{err: queryErr}
+		snapshot := NewSchedulerSnapshotService(cache, nil, repo, nil, nil)
+		accounts, _, err := snapshot.ListSchedulableAccounts(context.Background(), nil, PlatformAnthropic, true)
+		if queryErr != nil {
+			require.ErrorContains(t, err, "verify upstream scheduling gate")
+			require.Nil(t, accounts)
+		} else {
+			require.NoError(t, err)
+			require.Len(t, accounts, 1)
+			require.Equal(t, int64(2), accounts[0].ID)
+		}
+		require.Equal(t, [][]int64{{1}}, repo.calls)
+	}
+}
+
 type upstreamGateTestRepo struct {
 	AccountRepository
 	allowedIDs []int64

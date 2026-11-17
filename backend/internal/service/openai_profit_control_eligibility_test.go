@@ -83,6 +83,12 @@ func (r profitControlSelectionReadRepo) ListSchedulableByGroupID(ctx context.Con
 	return r.schedulerTestOpenAIAccountRepo.ListSchedulableByGroupID(ctx, groupID)
 }
 
+func (r profitControlSelectionReadRepo) ListModelAvailabilityCandidates(ctx context.Context, groupID *int64, platforms []string, includeGrouped bool) ([]Account, error) {
+	// Snapshot fallback reads the configured pool through this entry point.
+	r.onList(ctx, derefGroupID(groupID))
+	return r.schedulerTestOpenAIAccountRepo.ListModelAvailabilityCandidates(ctx, groupID, platforms, includeGrouped)
+}
+
 func (r profitControlSelectionReadRepo) ListUpstreamSchedulingEnabledAccountIDs(_ context.Context, accountIDs []int64) ([]int64, error) {
 	return append([]int64(nil), accountIDs...), nil
 }
