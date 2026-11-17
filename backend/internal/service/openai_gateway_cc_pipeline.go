@@ -274,6 +274,9 @@ type ccStreamScanState struct {
 	// SawDone 表示上游发出了 [DONE] 哨兵。
 	SawDone         bool
 	SawFinishReason bool
+	// Succeeded 只记录协议完成事实，不要求原始缓存用量字段齐全。
+	// 失败终态或读取错误不能由后续 [DONE] / finish_reason 覆盖。
+	Succeeded bool
 	// Err 为 scanner 读错误（客户端 context 取消不属于此类，会原样带出）。
 	// 非 nil 时调用方必须跳过 finalize 并返回 usage-incomplete 错误，避免
 	// 把上游截断伪装成正常收尾。
@@ -293,7 +296,7 @@ func (s *OpenAIGatewayService) scanCCStream(
 	emit func(*apicompat.ChatCompletionsChunk),
 ) ccStreamScanState {
 	var st ccStreamScanState
-	cacheStreamFailed := false
+	streamFailed := false
 
 	scanner := s.newUpstreamSSEScanner(resp.Body)
 	for scanner.Scan() {
@@ -320,7 +323,7 @@ func (s *OpenAIGatewayService) scanCCStream(
 		if u := extractCCStreamUsage(payload); u != nil {
 			st.Usage = *u
 		}
-		cacheStreamFailed = cacheStreamFailed || cacheGuardCCChunkFailed(payload)
+		streamFailed = streamFailed || cacheGuardCCChunkFailed(payload)
 
 		var chunk apicompat.ChatCompletionsChunk
 		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
@@ -354,7 +357,8 @@ func (s *OpenAIGatewayService) scanCCStream(
 		}
 		st.Err = err
 	}
-	st.Usage.CacheUsageEvidence = cacheUsageWithStreamCompletion(st.Usage.CacheUsageEvidence, st.Err == nil && (st.SawDone || st.SawFinishReason) && !cacheStreamFailed)
+	st.Succeeded = st.Err == nil && (st.SawDone || st.SawFinishReason) && !streamFailed
+	st.Usage.CacheUsageEvidence = cacheUsageWithStreamCompletion(st.Usage.CacheUsageEvidence, st.Succeeded)
 	return st
 }
 

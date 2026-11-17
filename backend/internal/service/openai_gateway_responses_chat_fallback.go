@@ -245,6 +245,7 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 
 	if scan.Err != nil {
 		return &OpenAIForwardResult{
+			UpstreamIncomplete:            true,
 			RequestID:                     requestID,
 			UpstreamHeaders:               resp.Header,
 			Usage:                         scan.Usage,
@@ -264,6 +265,7 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 	}
 	if err := state.ValidateToolCallArguments(); err != nil {
 		return &OpenAIForwardResult{
+			UpstreamIncomplete:            true,
 			RequestID:                     requestID,
 			UpstreamHeaders:               resp.Header,
 			Usage:                         scan.Usage,
@@ -298,9 +300,10 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 		logCCStreamMissingDoneSentinel("openai responses chat fallback", requestID)
 	}
 	freezeUpstreamCacheGuardCompletion(c.Request.Context(), scan.Usage.CacheUsageEvidence,
-		scan.SawDone || scan.SawFinishReason, !clientDisconnected)
+		scan.Succeeded, !clientDisconnected)
 
 	return &OpenAIForwardResult{
+		UpstreamIncomplete:            !scan.Succeeded,
 		RequestID:                     requestID,
 		UpstreamHeaders:               resp.Header,
 		Usage:                         scan.Usage,

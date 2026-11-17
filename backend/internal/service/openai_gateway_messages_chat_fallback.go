@@ -244,6 +244,7 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsAnthropic(
 		// masks the truncation, and surface the error to flag usage incomplete
 		// (mirrors forwardResponsesViaRawChatCompletions).
 		return &OpenAIForwardResult{
+			UpstreamIncomplete:            true,
 			RequestID:                     requestID,
 			UpstreamHeaders:               resp.Header,
 			CacheUsageEvidence:            usage.CacheUsageEvidence,
@@ -283,9 +284,10 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsAnthropic(
 		logCCStreamMissingDoneSentinel("openai messages chat fallback", requestID)
 	}
 	freezeUpstreamCacheGuardCompletion(c.Request.Context(), usage.CacheUsageEvidence,
-		scan.SawDone || scan.SawFinishReason, !clientDisconnected)
+		scan.Succeeded, !clientDisconnected)
 
 	return &OpenAIForwardResult{
+		UpstreamIncomplete:            !scan.Succeeded,
 		RequestID:                     requestID,
 		UpstreamHeaders:               resp.Header,
 		CacheUsageEvidence:            usage.CacheUsageEvidence,
