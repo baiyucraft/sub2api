@@ -370,7 +370,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		mappedModel := account.GetMappedModel(requestModel)
 		upstreamModel := normalizeOpenAIModelForUpstream(account, mappedModel)
 		if account.IsOpenAI() {
-			next, _, err := normalizeGPT62RequestEffort(normalized, mappedModel, "reasoning.effort")
+			next, _, err := normalizeGPT62RequestEffortWithPolicy(withOpenAIWSReasoningEffortPolicy(ctx, hooks), normalized, mappedModel, "reasoning.effort")
 			if err != nil {
 				return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, err.Error(), err)
 			}

@@ -98,6 +98,10 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	// 2. Model mapping
 	billingModel := resolveOpenAIForwardModel(account, normalizedModel, defaultMappedModel)
 	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
+	ctx, body, err := restoreGPT62MessagesEffort(ctx, &anthropicReq, body, billingModel)
+	if err != nil {
+		return nil, err
+	}
 	if err := validateGPT61RawEffort(body, upstreamModel); err != nil {
 		writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, err
@@ -306,7 +310,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		}
 	}
 	if account.Platform == PlatformOpenAI {
-		policyBody, changed, policyErr := ApplyOpenAIReasoningEffortPolicyFromContext(ctx, responsesBody)
+		policyBody, changed, policyErr := ApplyOpenAIReasoningEffortPolicyFromContext(openAIMessageSuffixPolicyContext(ctx, body, billingModel), responsesBody)
 		if policyErr != nil {
 			if IsReasoningEffortPolicyDenied(policyErr) {
 				MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalPolicyDenied)

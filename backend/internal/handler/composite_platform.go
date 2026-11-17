@@ -139,6 +139,9 @@ func applyOpenAIReasoningEffortPolicyForRequest(c *gin.Context, apiKey *service.
 	if !ok {
 		return body, false, nil
 	}
+	if c != nil && c.Request != nil && effectiveAPIKeyPlatform(c, apiKey) == service.PlatformOpenAI {
+		c.Request = c.Request.WithContext(service.WithOpenAIReasoningEffortPolicy(c.Request.Context(), maxEffort, mappings, overLimit))
+	}
 	return service.ApplyOpenAIReasoningEffortPolicy(body, maxEffort, mappings, overLimit)
 }
 

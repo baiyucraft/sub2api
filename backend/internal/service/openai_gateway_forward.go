@@ -240,7 +240,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 				model = mapped
 			}
 		}
-		normalized, changed, effortErr := normalizeGPT62RequestEffort(body, model, "reasoning.effort")
+		normalized, changed, effortErr := normalizeGPT62RequestEffortWithPolicy(ctx, body, model, "reasoning.effort")
 		if effortErr != nil {
 			writeOpenAIResponsesFallbackError(c, http.StatusBadRequest, "invalid_request_error", effortErr.Error())
 			return nil, effortErr

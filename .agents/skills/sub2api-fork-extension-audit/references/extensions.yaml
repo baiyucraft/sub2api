@@ -3460,6 +3460,8 @@
       "ownership": "fork",
       "risk_level": "high",
       "paths": [
+        "backend/internal/handler/composite_platform.go",
+        "backend/internal/handler/openai_gateway_handler.go",
         "backend/internal/pkg/openai/constants.go",
         "backend/internal/pkg/openai/constants_test.go",
         "backend/internal/service/openai_codex_models_service.go",
@@ -3468,6 +3470,7 @@
         "backend/internal/service/openai_gpt62_catalog_test.go",
         "backend/internal/service/openai_gpt62_request_test.go",
         "backend/internal/service/openai_gpt62_pricing_test.go",
+        "backend/internal/service/openai_reasoning_effort_policy.go",
         "backend/internal/service/openai_model_alias.go",
         "backend/internal/service/openai_codex_transform.go",
         "backend/internal/service/openai_compat_model.go",
@@ -3515,6 +3518,7 @@
       ],
       "invariants": [
         "6.2 Sol参考6.1 Sol、6.2 Astra参考6 Astra，独立身份不重映射旧型号；不是完整官方descriptor快照。",
+        "6.2模型后缀及账户映射后派生effort服从现有分组上限、reject/clamp和单次映射；显式effort优先，不改变旧模型语义。",
         "生成目录默认low、low/medium/high/xhigh/max/ultra，Ultra只作客户端委派；API明确none/minimal及raw ultra拒绝，max不降级。",
         "Sol默认500000、Astra默认272000、最大1050000，图文输入；账户及原始来源显式元数据仍优先。",
         "自定义API Key禁用Responses Lite；两款工具调用要求Responses；HTTP和WS按实际映射模型校验。",

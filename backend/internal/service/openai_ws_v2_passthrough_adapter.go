@@ -756,7 +756,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	}
 	firstMessageResponsesLite := isOpenAIResponsesLiteWebSocketPayload(firstClientMessage)
 	if account.IsOpenAI() {
-		next, _, err := normalizeGPT62RequestEffort(firstClientMessage, capturedSessionModel, "reasoning.effort")
+		next, _, err := normalizeGPT62RequestEffortWithPolicy(withOpenAIWSReasoningEffortPolicy(ctx, hooks), firstClientMessage, capturedSessionModel, "reasoning.effort")
 		if err != nil {
 			return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, err.Error(), err)
 		}
@@ -1164,7 +1164,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 				payload = s.ReplaceModelInBody(payload, model)
 			}
 			if isResponseCreate && account.IsOpenAI() {
-				next, _, err := normalizeGPT62RequestEffort(payload, model, "reasoning.effort")
+				next, _, err := normalizeGPT62RequestEffortWithPolicy(withOpenAIWSReasoningEffortPolicy(ctx, hooks), payload, model, "reasoning.effort")
 				if err != nil {
 					return payload, nil, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, err.Error(), err)
 				}

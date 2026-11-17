@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -47,6 +49,8 @@ func isReasoningEffortMappingDeny(raw string) bool {
 }
 
 type openAIReasoningEffortPolicyContextKey struct{}
+type openAIMessageSuffixPolicyContextKey struct{}
+type originalOpenAIMessagesEffortContextKey struct{}
 type requestedReasoningEffortContextKey struct{}
 
 type openAIReasoningEffortPolicy struct {
@@ -450,6 +454,9 @@ func WithOpenAIReasoningEffortPolicy(ctx context.Context, maxEffort string, mapp
 // WithOpenAIReasoningEffortPolicyForMessages preserves ordinary bridge defaults,
 // but retains ceilings and none mappings for explicitly disabled thinking.
 func WithOpenAIReasoningEffortPolicyForMessages(ctx context.Context, body []byte, maxEffort string, mappings []ReasoningEffortMapping, overLimit string) context.Context {
+	ctx = WithOpenAIReasoningEffortPolicy(ctx, maxEffort, mappings, overLimit)
+	full := ctx.Value(openAIReasoningEffortPolicyContextKey{}).(openAIReasoningEffortPolicy)
+	ctx = context.WithValue(ctx, openAIMessageSuffixPolicyContextKey{}, full)
 	effort := gjson.GetBytes(body, "output_config.effort")
 	if effort.Type != gjson.String || strings.TrimSpace(effort.String()) == "" {
 		if gjson.GetBytes(body, "thinking.type").String() != "disabled" {
@@ -466,6 +473,53 @@ func WithOpenAIReasoningEffortPolicyForMessages(ctx context.Context, body []byte
 	return WithOpenAIReasoningEffortPolicy(ctx, maxEffort, mappings, overLimit)
 }
 
+func openAIMessageSuffixPolicyContext(ctx context.Context, body []byte, mappedModel string) context.Context {
+	if ctx == nil || strings.TrimSpace(gjson.GetBytes(body, "output_config.effort").String()) != "" || gjson.GetBytes(body, "thinking.type").String() == "disabled" {
+		return ctx
+	}
+	if gpt62ModelEffortSuffix(gjson.GetBytes(body, "model").String()) == "" && gpt62ModelEffortSuffix(mappedModel) == "" {
+		return ctx
+	}
+	if full, ok := ctx.Value(openAIMessageSuffixPolicyContextKey{}).(openAIReasoningEffortPolicy); ok {
+		return context.WithValue(ctx, openAIReasoningEffortPolicyContextKey{}, full)
+	}
+	return ctx
+}
+
+// WithOriginalOpenAIMessagesEffort preserves the client value across the legacy
+// handler rewrite until the gateway has selected the actual upstream model.
+func WithOriginalOpenAIMessagesEffort(ctx context.Context, body []byte) context.Context {
+	effort := gjson.GetBytes(body, "output_config.effort")
+	return context.WithValue(ctx, originalOpenAIMessagesEffortContextKey{}, effort)
+}
+
+func restoreGPT62MessagesEffort(ctx context.Context, req *apicompat.AnthropicRequest, body []byte, mappedModel string) (context.Context, []byte, error) {
+	if !openai.IsGPT62ModelSpelling(mappedModel) || ctx == nil {
+		return ctx, body, nil
+	}
+	original, ok := ctx.Value(originalOpenAIMessagesEffortContextKey{}).(gjson.Result)
+	if !ok {
+		return ctx, body, nil
+	}
+	const path = "output_config.effort"
+	var err error
+	if original.Exists() {
+		body, err = sjson.SetRawBytes(body, path, []byte(original.Raw))
+	} else {
+		body, err = sjson.DeleteBytes(body, path)
+	}
+	if err != nil {
+		return ctx, body, err
+	}
+	if req.OutputConfig != nil {
+		req.OutputConfig.Effort = original.String()
+	}
+	if full, ok := ctx.Value(openAIMessageSuffixPolicyContextKey{}).(openAIReasoningEffortPolicy); ok {
+		ctx = WithOpenAIReasoningEffortPolicyForMessages(ctx, body, full.maxEffort, full.mappings, full.overLimit)
+	}
+	return ctx, body, nil
+}
+
 // ApplyOpenAIReasoningEffortPolicyFromContext applies a policy previously bound
 // to the request. An unbound request is returned byte-for-byte unchanged.
 func ApplyOpenAIReasoningEffortPolicyFromContext(ctx context.Context, body []byte) ([]byte, bool, error) {
@@ -477,6 +531,13 @@ func ApplyOpenAIReasoningEffortPolicyFromContext(ctx context.Context, body []byt
 		return body, false, nil
 	}
 	return ApplyOpenAIReasoningEffortPolicy(body, policy.maxEffort, policy.mappings, policy.overLimit)
+}
+
+func withOpenAIWSReasoningEffortPolicy(ctx context.Context, hooks *OpenAIWSIngressHooks) context.Context {
+	if hooks == nil || (hooks.MaxReasoningEffort == "" && len(hooks.ReasoningEffortMappings) == 0) {
+		return ctx
+	}
+	return WithOpenAIReasoningEffortPolicy(ctx, hooks.MaxReasoningEffort, hooks.ReasoningEffortMappings, hooks.MaxReasoningEffortOverLimit)
 }
 
 func mapReasoningEffort(raw string, mappings []ReasoningEffortMapping, requestModel string) (string, bool) {
@@ -591,6 +652,9 @@ func applyOpenAIWSReasoningEffortPolicy(payload []byte, hooks *OpenAIWSIngressHo
 // The bridge defaults omitted output_config.effort to medium and maps max to
 // xhigh, so both the explicit field and model suffix must be considered.
 func ApplyAnthropicOpenAIReasoningEffortPolicy(body []byte, maxEffort string, mappings []ReasoningEffortMapping) ([]byte, bool) {
+	if openai.IsGPT62ModelSpelling(gjson.GetBytes(body, "model").String()) {
+		return body, false
+	}
 	maxRank, hasMax := reasoningEffortRank(maxEffort)
 	if len(body) == 0 || (!hasMax && len(mappings) == 0) {
 		return body, false
@@ -634,5 +698,29 @@ func ApplyAnthropicOpenAIReasoningEffortPolicy(body []byte, maxEffort string, ma
 
 // ApplyOpenAIReasoningEffortPolicy is retained for OpenAI forwarding callers.
 func ApplyOpenAIReasoningEffortPolicy(body []byte, maxEffort string, mappings []ReasoningEffortMapping, overLimit string) ([]byte, bool, error) {
-	return ApplyReasoningEffortPolicy(body, maxEffort, mappings, overLimit)
+	_, hasMax := reasoningEffortRank(maxEffort)
+	if !hasMax && len(mappings) == 0 {
+		return body, false, nil
+	}
+	for _, path := range []string{"reasoning.effort", "reasoning_effort", "output_config.effort"} {
+		if strings.TrimSpace(gjson.GetBytes(body, path).String()) != "" {
+			return ApplyReasoningEffortPolicy(body, maxEffort, mappings, overLimit)
+		}
+	}
+	model := gjson.GetBytes(body, "model").String()
+	effort := gpt62ModelEffortSuffix(model)
+	switch effort {
+	case "low", "medium", "high", "xhigh", "max":
+		derived, err := sjson.SetBytes(body, "reasoning_effort", effort)
+		if err != nil {
+			return body, false, err
+		}
+		effective, _, err := ApplyReasoningEffortPolicy(derived, maxEffort, mappings, overLimit)
+		if err != nil {
+			return body, false, err
+		}
+		return effective, true, nil
+	default:
+		return body, false, nil
+	}
 }

@@ -1375,6 +1375,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	}
 	if apiKey.Group != nil && apiKey.Group.Platform == service.PlatformOpenAI {
 		if cappedBody, changed := service.ApplyAnthropicOpenAIReasoningEffortPolicy(body, apiKey.Group.MaxReasoningEffort, apiKey.Group.ReasoningEffortMappings); changed {
+			c.Request = c.Request.WithContext(service.WithOriginalOpenAIMessagesEffort(c.Request.Context(), body))
 			body = cappedBody
 		}
 	}

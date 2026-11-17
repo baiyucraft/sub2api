@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,6 +16,46 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
+
+func TestGPT62SuffixReasoningEffortPolicy(t *testing.T) {
+	suffix := []byte(`{"model":"gpt-6.2-sol-max"}`)
+	_, _, err := ApplyOpenAIReasoningEffortPolicy(suffix, "high", nil, ReasoningEffortOverLimitDeny)
+	require.True(t, IsReasoningEffortPolicyDenied(err))
+	wire, changed, err := ApplyOpenAIReasoningEffortPolicy(suffix, "high", nil, "")
+	require.NoError(t, err)
+	require.True(t, changed)
+	final, _, err := normalizeGPT62RequestEffort(wire, "gpt-6.2-sol", "reasoning.effort")
+	require.NoError(t, err)
+	require.Equal(t, "high", gjson.GetBytes(final, "reasoning.effort").String())
+	_, err = applyOpenAIWSReasoningEffortPolicy(suffix, &OpenAIWSIngressHooks{
+		MaxReasoningEffort: "high", MaxReasoningEffortOverLimit: ReasoningEffortOverLimitDeny,
+	})
+	require.True(t, IsReasoningEffortPolicyDenied(err))
+
+	explicit := []byte(`{"model":"gpt-6.2-sol-max","reasoning":{"effort":"low"}}`)
+	final, changed, err = ApplyOpenAIReasoningEffortPolicy(explicit, "high", nil, ReasoningEffortOverLimitDeny)
+	require.NoError(t, err)
+	require.False(t, changed)
+	require.Equal(t, explicit, final)
+
+	alias := []byte(`{"model":"public"}`)
+	denyCtx := WithOpenAIReasoningEffortPolicy(context.Background(), "high", nil, ReasoningEffortOverLimitDeny)
+	_, _, err = normalizeGPT62RequestEffortWithPolicy(denyCtx, alias, "gpt-6.2-astra-max", "reasoning.effort")
+	require.True(t, IsReasoningEffortPolicyDenied(err))
+	maps := []ReasoningEffortMapping{{From: "max", To: "high"}, {From: "high", To: "low"}}
+	ctx := WithOpenAIReasoningEffortPolicy(context.Background(), "high", maps, "")
+	final, _, err = normalizeGPT62RequestEffortWithPolicy(ctx, alias, "gpt-6.2-astra-max", "reasoning_effort")
+	require.NoError(t, err)
+	require.Equal(t, "high", gjson.GetBytes(final, "reasoning_effort").String())
+	final, _, err = normalizeGPT62RequestEffortWithPolicy(ctx, final, "gpt-6.2-astra-max", "reasoning_effort")
+	require.NoError(t, err)
+	require.Equal(t, "high", gjson.GetBytes(final, "reasoning_effort").String())
+	legacy := []byte(`{"model":"gpt-6.1-sol-max"}`)
+	final, changed, err = ApplyOpenAIReasoningEffortPolicy(legacy, "high", nil, ReasoningEffortOverLimitDeny)
+	require.NoError(t, err)
+	require.False(t, changed)
+	require.Equal(t, legacy, final)
+}
 
 func TestGPT62RequestEffort(t *testing.T) {
 	for _, model := range []string{"gpt-6.2-sol", "gpt-6.2-astra"} {
@@ -110,6 +151,45 @@ func TestGPT62RequestNativeResponses(t *testing.T) {
 				require.False(t, gjson.GetBytes(upstream.lastBody, field).Exists(), field)
 			}
 			require.JSONEq(t, `["reasoning.encrypted_content"]`, gjson.GetBytes(upstream.lastBody, "include").Raw)
+		}
+	}
+}
+
+func TestGPT62RequestMessagesAppliesGroupPolicyOnce(t *testing.T) {
+	mappings := []ReasoningEffortMapping{{From: "high", To: "low"}, {From: "low", To: "medium"}, {From: "max", To: "high"}, {From: "xhigh", To: "deny"}, {From: "medium", To: "low"}}
+	for _, tc := range []struct{ requested, mapped, want string }{
+		{"gpt-6.2-sol-high", "gpt-6.2-sol", "low"},
+		{"gpt-6.2-sol-max", "gpt-6.2-sol", "high"},
+		{"public", "gpt-6.2-sol-max", "high"},
+	} {
+		for _, raw := range []bool{false, true} {
+			body := []byte(`{"model":"` + tc.requested + `","max_tokens":100,"messages":[{"role":"user","content":"hi"}]}`)
+			ctx := context.Background()
+			if legacy, changed := ApplyAnthropicOpenAIReasoningEffortPolicy(body, "", mappings); changed {
+				require.Equal(t, "public", tc.requested)
+				ctx = WithOriginalOpenAIMessagesEffort(ctx, body)
+				body = legacy
+			} else {
+				require.NotEqual(t, "public", tc.requested)
+			}
+			ctx = WithOpenAIReasoningEffortPolicyForMessages(ctx, body, "", mappings, "")
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(string(body)))
+			upstream := &httpUpstreamRecorder{resp: openAICompatSSECompletedResponse("resp_gpt62", "gpt-6.2-sol")}
+			svc := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+			account := rawGPT56ResponsesAPIKeyAccount(NormalizeOpenAICompatRequestedModel(tc.requested), tc.mapped)
+			var err error
+			path := "reasoning.effort"
+			if raw {
+				upstream.resp = &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"id":"chatcmpl_gpt62","object":"chat.completion","model":"gpt-6.2-sol","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`))}
+				_, err = svc.forwardAnthropicViaRawChatCompletions(ctx, c, account, body, "")
+				path = "reasoning_effort"
+			} else {
+				_, err = svc.ForwardAsAnthropic(ctx, c, account, body, "", "")
+			}
+			require.NoError(t, err, "%s raw=%v", tc.requested, raw)
+			require.Equal(t, "gpt-6.2-sol", gjson.GetBytes(upstream.lastBody, "model").String())
+			require.Equal(t, tc.want, gjson.GetBytes(upstream.lastBody, path).String(), "%s raw=%v", tc.requested, raw)
 		}
 	}
 }

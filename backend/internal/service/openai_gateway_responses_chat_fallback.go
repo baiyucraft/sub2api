@@ -75,7 +75,7 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 		writeOpenAIResponsesFallbackError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, err
 	}
-	if normalized, changed, err := normalizeGPT62RequestEffort(body, billingModel, "reasoning.effort"); err != nil {
+	if normalized, changed, err := normalizeGPT62RequestEffortWithPolicy(ctx, body, billingModel, "reasoning.effort"); err != nil {
 		writeOpenAIResponsesFallbackError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, err
 	} else if changed {

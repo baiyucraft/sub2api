@@ -2845,6 +2845,10 @@ func gpt62ModelEffortSuffix(model string) string {
 // normalizeGPT62RequestEffort validates the fields before any protocol conversion
 // drops them, then uses a model suffix only when no effort was supplied.
 func normalizeGPT62RequestEffort(body []byte, model, effortPath string) ([]byte, bool, error) {
+	return normalizeGPT62RequestEffortWithPolicy(nil, body, model, effortPath)
+}
+
+func normalizeGPT62RequestEffortWithPolicy(ctx context.Context, body []byte, model, effortPath string) ([]byte, bool, error) {
 	if !openai.IsGPT62ModelSpelling(model) {
 		return body, false, nil
 	}
@@ -2857,6 +2861,20 @@ func normalizeGPT62RequestEffort(body []byte, model, effortPath string) ([]byte,
 	}
 	if effort == "" {
 		effort = firstNonEmpty(gpt62ModelEffortSuffix(gjson.GetBytes(body, "model").String()), gpt62ModelEffortSuffix(model))
+		if effort != "" {
+			derived, err := sjson.SetBytes(body, effortPath, effort)
+			if err != nil {
+				return body, false, err
+			}
+			capped, _, err := ApplyOpenAIReasoningEffortPolicyFromContext(ctx, derived)
+			if err != nil {
+				return body, false, err
+			}
+			effort = gjson.GetBytes(capped, effortPath).String()
+			if err := openai.ValidateModelReasoningEffort(model, effort); err != nil {
+				return body, false, err
+			}
+		}
 	}
 	flatPresent := effortPath == "reasoning.effort" && gjson.GetBytes(body, "reasoning_effort").Exists()
 	if effort == "" || (effort == gjson.GetBytes(body, effortPath).String() && !flatPresent) {
