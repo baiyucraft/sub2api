@@ -3452,6 +3452,75 @@
       "invariants": [
         "仅Windows错误1314允许跳过链接子用例，其他链接错误仍失败；目录穿越断言始终执行，Linux生产代码不变。"
       ]
+    },
+    {
+      "id": "gpt62-codex-compatibility",
+      "title": "GPT-6.2 Sol与Astra目录及思考等级兼容",
+      "description": "以6.1 Sol和6 Astra现有合同衍生6.2兼容模板，保留明确上游能力优先；修复通用none回退。",
+      "ownership": "fork",
+      "risk_level": "high",
+      "paths": [
+        "backend/internal/pkg/openai/constants.go",
+        "backend/internal/pkg/openai/constants_test.go",
+        "backend/internal/service/openai_codex_models_service.go",
+        "backend/internal/service/openai_codex_models_pinned.go",
+        "backend/internal/service/openai_codex_model_metadata.go",
+        "backend/internal/service/openai_gpt62_catalog_test.go",
+        "backend/internal/service/openai_gpt62_request_test.go",
+        "backend/internal/service/openai_gpt62_pricing_test.go",
+        "backend/internal/service/openai_model_alias.go",
+        "backend/internal/service/openai_codex_transform.go",
+        "backend/internal/service/openai_compat_model.go",
+        "backend/internal/service/openai_gateway_request_body.go",
+        "backend/internal/service/openai_gateway_forward.go",
+        "backend/internal/service/openai_gateway_passthrough.go",
+        "backend/internal/service/openai_gateway_chat_completions.go",
+        "backend/internal/service/openai_gateway_chat_completions_raw.go",
+        "backend/internal/service/openai_gateway_responses_chat_fallback.go",
+        "backend/internal/service/openai_gateway_messages.go",
+        "backend/internal/service/openai_gateway_messages_chat_fallback.go",
+        "backend/internal/service/openai_ws_forwarder_ingress.go",
+        "backend/internal/service/openai_ws_v2_passthrough_adapter.go",
+        "backend/internal/pkg/apicompat/anthropic_to_responses.go",
+        "backend/internal/pkg/apicompat/chatcompletions_to_responses.go",
+        "backend/internal/service/pricing_service.go",
+        "backend/internal/service/billing_service.go",
+        "backend/resources/model-pricing/model_prices_and_context_window.json",
+        "frontend/src/composables/useModelWhitelist.ts",
+        "frontend/src/composables/__tests__/useModelWhitelist.spec.ts",
+        "frontend/src/components/keys/UseKeyModal.vue",
+        "frontend/src/components/keys/__tests__/UseKeyModal.spec.ts"
+      ],
+      "symbols": [
+        "GPT62ModelBase",
+        "IsGPT62ModelSpelling",
+        "ValidateModelReasoningEffort"
+      ],
+      "api_routes": [
+        "/v1/models",
+        "/backend-api/codex/models",
+        "/v1/responses",
+        "/v1/chat/completions",
+        "/v1/messages"
+      ],
+      "settings_keys": [],
+      "migration_files": [],
+      "required_tests": [
+        "backend/internal/pkg/openai/constants_test.go",
+        "backend/internal/service/openai_gpt62_catalog_test.go",
+        "backend/internal/service/openai_gpt62_request_test.go",
+        "backend/internal/service/openai_gpt62_pricing_test.go",
+        "frontend/src/components/keys/__tests__/UseKeyModal.spec.ts",
+        "frontend/src/composables/__tests__/useModelWhitelist.spec.ts"
+      ],
+      "invariants": [
+        "6.2 Sol参考6.1 Sol、6.2 Astra参考6 Astra，独立身份不重映射旧型号；不是完整官方descriptor快照。",
+        "生成目录默认low、low/medium/high/xhigh/max/ultra，Ultra只作客户端委派；API明确none/minimal及raw ultra拒绝，max不降级。",
+        "Sol默认500000、Astra默认272000、最大1050000，图文输入；账户及原始来源显式元数据仍优先。",
+        "自定义API Key禁用Responses Lite；两款工具调用要求Responses；HTTP和WS按实际映射模型校验。",
+        "精确现有价卡优先，新增6.2标准/Fast/Batch静态兜底及长上下文阈值，不改用户规则或历史账单。",
+        "没有新增迁移、profile或恢复豁免，本地回归不证明生产部署完成。"
+      ]
     }
   ]
 }

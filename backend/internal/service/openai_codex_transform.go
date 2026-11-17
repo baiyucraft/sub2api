@@ -1247,6 +1247,11 @@ func normalizeOpenAIModelForUpstream(account *Account, model string) string {
 		return normalizeCodexModel(model)
 	}
 	model = strings.TrimSpace(model)
+	if account.IsOpenAI() {
+		if base := openai.GPT62ModelBase(model); base != "" && gpt62ModelEffortSuffix(model) != "" {
+			return base
+		}
+	}
 	if account.Platform == PlatformDeepseek {
 		// DeepSeek 走 OpenAI 兼容入口，不经 Anthropic 入站的 [1m] 后缀归一
 		// （parseGatewayRequestCurrentBody 仅处理 PlatformAnthropic 协议）。

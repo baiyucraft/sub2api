@@ -75,6 +75,13 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 		writeOpenAIResponsesFallbackError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, err
 	}
+	if normalized, changed, err := normalizeGPT62RequestEffort(body, billingModel, "reasoning.effort"); err != nil {
+		writeOpenAIResponsesFallbackError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return nil, err
+	} else if changed {
+		body = normalized
+		chatReq.ReasoningEffort = gjson.GetBytes(body, "reasoning.effort").String()
+	}
 	if openai.RequiresResponsesForToolCalls(upstreamModel) && len(effectiveTools) > 0 {
 		err := fmt.Errorf("%s requires Responses for tool calls; this account only supports Chat Completions", normalizeKnownOpenAICodexModel(upstreamModel))
 		writeOpenAIResponsesFallbackError(c, http.StatusBadRequest, "invalid_request_error", err.Error())

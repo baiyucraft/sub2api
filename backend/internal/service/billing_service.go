@@ -618,6 +618,26 @@ func (s *BillingService) initFallbackPricing() {
 		LongContextOutputMultiplier:        1.5,
 	}
 
+	for model, price := range map[string]*LiteLLMModelPricing{
+		"gpt-6.2-sol":   openAIGPT62SolFallbackPricing,
+		"gpt-6.2-astra": openAIGPT62AstraFallbackPricing,
+	} {
+		s.fallbackPrices[model] = &ModelPricing{
+			InputPricePerToken:                 price.InputCostPerToken,
+			InputPricePerTokenPriority:         price.InputCostPerTokenPriority,
+			OutputPricePerToken:                price.OutputCostPerToken,
+			OutputPricePerTokenPriority:        price.OutputCostPerTokenPriority,
+			CacheCreationPricePerToken:         price.CacheCreationInputTokenCost,
+			CacheCreationPricePerTokenPriority: price.CacheCreationInputTokenCostPriority,
+			CacheCreation12hPricePerToken:      price.CacheCreationInputTokenCost12h,
+			CacheReadPricePerToken:             price.CacheReadInputTokenCost,
+			CacheReadPricePerTokenPriority:     price.CacheReadInputTokenCostPriority,
+			LongContextInputThreshold:          price.LongContextInputTokenThreshold,
+			LongContextInputMultiplier:         price.LongContextInputCostMultiplier,
+			LongContextOutputMultiplier:        price.LongContextOutputCostMultiplier,
+		}
+	}
+
 	// GPT-6.1 Terra official rates, 2026-10-26.
 	s.fallbackPrices["gpt-6.1-terra"] = &ModelPricing{
 		InputPricePerToken:                 1e-6,
@@ -1139,6 +1159,9 @@ func (s *BillingService) initFallbackPricing() {
 // getFallbackPricing 根据模型系列获取回退价格
 func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 	modelLower := normalizeAntigravityClaudeTierAlias(strings.ToLower(model))
+	if base := openai.GPT62ModelBase(openAIModelDatePattern.ReplaceAllString(modelLower, "")); base != "" {
+		return s.fallbackPrices[base]
+	}
 	if modelLower == "gpt-image-2.6-flare" || modelLower == "gpt-image-2.6-sunburst" {
 		p := openAIGPTImage25FallbackPricing
 		return &ModelPricing{
@@ -1570,6 +1593,7 @@ func (s *BillingService) getModelPricingAt(model string, pricingAt time.Time) (*
 				CacheCreationPriceExplicit:         (openai.IsGPT6SolOrLunaModelSpelling(model) || openai.IsGPT61SolModelSpelling(model) || openai.IsGPT61TerraModelSpelling(model)) && litellmPricing.CacheCreationInputTokenCostExplicit,
 				CacheCreationPricePerToken:         litellmPricing.CacheCreationInputTokenCost,
 				CacheCreationPricePerTokenPriority: litellmPricing.CacheCreationInputTokenCostPriority,
+				CacheCreation12hPricePerToken:      litellmPricing.CacheCreationInputTokenCost12h,
 				CacheReadPricePerToken:             litellmPricing.CacheReadInputTokenCost,
 				CacheReadPricePerTokenPriority:     litellmPricing.CacheReadInputTokenCostPriority,
 				CacheCreation5mPrice:               price5m,

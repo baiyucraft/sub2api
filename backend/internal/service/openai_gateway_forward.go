@@ -28,11 +28,13 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
 		SetActualOpenAIUpstreamEndpoint(c, "/v1/chat/completions")
 	}
-	filteredBody, filterErr := filterOpenAIResponsesNoneReasoningEffortForAccount(account, body)
-	if filterErr != nil {
-		return nil, filterErr
+	if account == nil || !account.IsOpenAI() || !openai.IsGPT62ModelSpelling(resolveOpenAIAccountUpstreamModelForRequest(account, gjson.GetBytes(body, "model").String(), isOpenAIResponsesCompactPath(c))) {
+		filteredBody, filterErr := filterOpenAIResponsesNoneReasoningEffortForAccount(account, body)
+		if filterErr != nil {
+			return nil, filterErr
+		}
+		body = filteredBody
 	}
-	body = filteredBody
 	clearGrokResponsesClientToolMapping(c)
 	clearOpenAIResponsesClientToolMapping(c)
 	clearOpenAIResponsesNamespaceNames(c)
@@ -231,6 +233,24 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		return nil, writeOpenCodeUnsupportedModelError(c, false, routingModel)
 	}
 	upstreamProtocol := s.resolveUpstreamProtocolFor(ctx, account, APIProtocolResponses, routingModel)
+	if account.IsOpenAI() && upstreamProtocol == APIProtocolResponses {
+		model := resolveOpenAIAccountUpstreamModelForRequest(account, reqModel, compactPath)
+		if !passthroughEnabled && !compactPath {
+			if mapped := resolveOpenAIForwardModel(account, reqModel, ""); openai.IsGPT62ModelSpelling(mapped) {
+				model = mapped
+			}
+		}
+		normalized, changed, effortErr := normalizeGPT62RequestEffort(body, model, "reasoning.effort")
+		if effortErr != nil {
+			writeOpenAIResponsesFallbackError(c, http.StatusBadRequest, "invalid_request_error", effortErr.Error())
+			return nil, effortErr
+		}
+		if changed {
+			body = normalized
+			originalBody = normalized
+			requestView = newOpenAIRequestView(body)
+		}
+	}
 	if upstreamProtocol != APIProtocolResponses {
 		if err := CheckOpenAIImageRequestPermission(ctx, DescribeOpenAIImageRequest(imageRequest.Endpoint, account.GetMappedModel(reqModel), body, isCodexCLI), account); err != nil {
 			return nil, err

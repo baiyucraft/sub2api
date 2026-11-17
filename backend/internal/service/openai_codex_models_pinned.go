@@ -53,7 +53,7 @@ func mergeCodexModelsManifestBodies(bodies [][]byte) ([]byte, error) {
 	}
 
 	mergedModels := make([]json.RawMessage, 0, len(bodies)*8)
-	seenSlug := make(map[string]struct{})
+	seenSlug := make(map[string]int)
 	seenSlugLess := make(map[string]struct{})
 	for _, body := range bodies {
 		var envelope map[string]json.RawMessage
@@ -77,10 +77,13 @@ func mergeCodexModelsManifestBodies(bodies [][]byte) ([]byte, error) {
 				slug = strings.TrimSpace(model.Slug)
 			}
 			if slug != "" {
-				if _, exists := seenSlug[slug]; exists {
+				if index, exists := seenSlug[slug]; exists {
+					if isLegacyGPT62CodexFallback(mergedModels[index]) && !isLegacyGPT62CodexFallback(raw) {
+						mergedModels[index] = raw
+					}
 					continue
 				}
-				seenSlug[slug] = struct{}{}
+				seenSlug[slug] = len(mergedModels)
 			} else {
 				fingerprint := string(bytes.TrimSpace(raw))
 				if _, exists := seenSlugLess[fingerprint]; exists {
@@ -90,6 +93,13 @@ func mergeCodexModelsManifestBodies(bodies [][]byte) ([]byte, error) {
 			}
 			mergedModels = append(mergedModels, raw)
 		}
+	}
+	for slug, index := range seenSlug {
+		updated, err := refreshLegacyGPT62CodexFallback(mergedModels[index], slug)
+		if err != nil {
+			return nil, err
+		}
+		mergedModels[index] = updated
 	}
 
 	if len(bodies) == 1 {

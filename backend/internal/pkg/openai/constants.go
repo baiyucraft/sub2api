@@ -25,6 +25,8 @@ var DefaultModels = []Model{
 	{ID: "gpt-5.6", Object: "model", Created: 1780876800, OwnedBy: "openai", Type: "model", DisplayName: "GPT-5.6 (Sol)"},
 	{ID: "gpt-5.6-terra", Object: "model", Created: 1780876800, OwnedBy: "openai", Type: "model", DisplayName: "GPT-5.6 Terra"},
 	{ID: "gpt-5.6-luna", Object: "model", Created: 1780876800, OwnedBy: "openai", Type: "model", DisplayName: "GPT-5.6 Luna"},
+	{ID: "gpt-6.2-sol", Object: "model", Created: 1794873600, OwnedBy: "openai", Type: "model", DisplayName: "GPT-6.2 Sol"},
+	{ID: "gpt-6.2-astra", Object: "model", Created: 1794873600, OwnedBy: "openai", Type: "model", DisplayName: "GPT-6.2 Astra"},
 	{ID: "gpt-6.1-terra", Object: "model", Created: 1792972800, OwnedBy: "openai", Type: "model", DisplayName: "GPT-6.1 Terra"},
 	{ID: "gpt-6.1-sol", Object: "model", Created: 1790640000, OwnedBy: "openai", Type: "model", DisplayName: "GPT-6.1 Sol"},
 	{ID: "gpt-6-sol", Object: "model", Created: 1790035200, OwnedBy: "openai", Type: "model", DisplayName: "GPT-6 Sol"},
@@ -173,6 +175,10 @@ func CanonicalizeOpenAIModelAliasSpelling(model string) string {
 func CodexBaseInstructionsForModel(model string) string {
 	canonical := CanonicalizeOpenAIModelAliasSpelling(model)
 	switch {
+	case IsGPT62ModelSpelling(canonical):
+		// The published 6.2 catalog is account-delivered. Reuse the generic
+		// GPT-6 agent instructions, not a fabricated official 6.2 snapshot.
+		return instructionsGPT6Astra
 	case IsGPT61SolModelSpelling(canonical):
 		return codexInstructionsTemplate(CodexGPT61SolMetadata)
 	case IsGPT61TerraModelSpelling(canonical):
@@ -256,7 +262,45 @@ func IsGPT61TerraModelSpelling(model string) bool {
 // RequiresResponsesForToolCalls reports models whose tool calls are only
 // available through the Responses API.
 func RequiresResponsesForToolCalls(model string) bool {
-	return IsGPT61SolModelSpelling(model) || IsGPT61TerraModelSpelling(model)
+	return IsGPT62ModelSpelling(model) || IsGPT61SolModelSpelling(model) || IsGPT61TerraModelSpelling(model)
+}
+
+// GPT62ModelBase recognizes only the two published IDs and local effort/compact
+// aliases. Invalid effort aliases remain identifiable so validation cannot lose
+// an explicit request to disable reasoning during model normalization.
+func GPT62ModelBase(model string) string {
+	canonical := CanonicalizeOpenAIModelAliasSpelling(model)
+	for _, base := range []string{"gpt-6.2-sol", "gpt-6.2-astra"} {
+		if canonical == base {
+			return base
+		}
+		if suffix, ok := strings.CutPrefix(canonical, base+"-"); ok {
+			switch suffix {
+			case "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra", "openai-compact":
+				return base
+			}
+		}
+	}
+	return ""
+}
+
+func IsGPT62ModelSpelling(model string) bool {
+	return GPT62ModelBase(model) != ""
+}
+
+// ValidateModelReasoningEffort preserves existing models' behavior and prevents
+// explicit disabled reasoning on GPT-6.2. Ultra is a Codex orchestration option,
+// not an API effort. Future upstream levels are not inferred from fallback UI.
+func ValidateModelReasoningEffort(model, effort string) error {
+	if base := GPT62ModelBase(model); base != "" {
+		switch strings.ToLower(strings.TrimSpace(effort)) {
+		case "none", "minimal":
+			return fmt.Errorf("%s does not support reasoning effort %q; use low, medium, high, xhigh or max", base, effort)
+		case "ultra":
+			return fmt.Errorf("%s requires client-side orchestration for ultra; it is not an API reasoning effort", base)
+		}
+	}
+	return ValidateGPT61ReasoningEffort(model, effort)
 }
 
 // ValidateGPT61SolReasoningEffort rejects disabled reasoning instead of silently

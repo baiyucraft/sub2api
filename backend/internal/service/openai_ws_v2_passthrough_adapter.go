@@ -755,6 +755,17 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		firstClientMessage = s.ReplaceModelInBody(firstClientMessage, capturedSessionModel)
 	}
 	firstMessageResponsesLite := isOpenAIResponsesLiteWebSocketPayload(firstClientMessage)
+	if account.IsOpenAI() {
+		next, _, err := normalizeGPT62RequestEffort(firstClientMessage, capturedSessionModel, "reasoning.effort")
+		if err != nil {
+			return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, err.Error(), err)
+		}
+		firstClientMessage = next
+		if gpt62ModelEffortSuffix(capturedSessionModel) != "" {
+			capturedSessionModel = normalizeKnownOpenAICodexModel(capturedSessionModel)
+			firstClientMessage = s.ReplaceModelInBody(firstClientMessage, capturedSessionModel)
+		}
+	}
 	if normalized, compatibilityChanged, normalizeErr := normalizeOpenAIResponsesWebSocketCompatibilityBodyWithConfig(s.cfg, firstClientMessage, account, firstMessageResponsesLite); normalizeErr != nil {
 		return fmt.Errorf("normalize first websocket response.create: %w", normalizeErr)
 	} else if compatibilityChanged {
@@ -1151,6 +1162,17 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			}
 			if isResponseCreate && model != "" && model != strings.TrimSpace(gjson.GetBytes(payload, "model").String()) {
 				payload = s.ReplaceModelInBody(payload, model)
+			}
+			if isResponseCreate && account.IsOpenAI() {
+				next, _, err := normalizeGPT62RequestEffort(payload, model, "reasoning.effort")
+				if err != nil {
+					return payload, nil, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, err.Error(), err)
+				}
+				payload = next
+				if gpt62ModelEffortSuffix(model) != "" {
+					model = normalizeKnownOpenAICodexModel(model)
+					payload = s.ReplaceModelInBody(payload, model)
+				}
 			}
 			out, blocked, policyErr := s.applyOpenAIFastPolicyToWSResponseCreate(ctx, account, model, payload)
 			// 多轮 passthrough usage：仅在成功（non-block / non-err）

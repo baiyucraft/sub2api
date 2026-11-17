@@ -1538,7 +1538,7 @@ func normalizeOpenAIOAuthResponsesCompatibilityBody(body []byte) ([]byte, bool, 
 }
 
 func normalizeGPT6ResponsesSampling(body []byte, model string) ([]byte, bool, error) {
-	if (!openai.IsGPT6SolOrLunaModelSpelling(model) && !openai.IsGPT61SolModelSpelling(model)) || gjson.GetBytes(body, "reasoning.effort").String() == "none" {
+	if (!openai.IsGPT62ModelSpelling(model) && !openai.IsGPT6SolOrLunaModelSpelling(model) && !openai.IsGPT61SolModelSpelling(model)) || gjson.GetBytes(body, "reasoning.effort").String() == "none" {
 		return body, false, nil
 	}
 	out := body
@@ -2830,6 +2830,54 @@ func supportsOpenAIReasoningEffortMax(model string) bool {
 	}
 }
 
+func gpt62ModelEffortSuffix(model string) string {
+	base := openai.GPT62ModelBase(model)
+	if base == "" {
+		return ""
+	}
+	effort, ok := strings.CutPrefix(openai.CanonicalizeOpenAIModelAliasSpelling(model), base+"-")
+	if !ok || effort == "openai-compact" {
+		return ""
+	}
+	return effort
+}
+
+// normalizeGPT62RequestEffort validates the fields before any protocol conversion
+// drops them, then uses a model suffix only when no effort was supplied.
+func normalizeGPT62RequestEffort(body []byte, model, effortPath string) ([]byte, bool, error) {
+	if !openai.IsGPT62ModelSpelling(model) {
+		return body, false, nil
+	}
+	if err := validateGPT61CompatRequest(body, model); err != nil {
+		return body, false, err
+	}
+	effort := strings.TrimSpace(gjson.GetBytes(body, effortPath).String())
+	if effort == "" && effortPath == "reasoning.effort" {
+		effort = strings.TrimSpace(gjson.GetBytes(body, "reasoning_effort").String())
+	}
+	if effort == "" {
+		effort = firstNonEmpty(gpt62ModelEffortSuffix(gjson.GetBytes(body, "model").String()), gpt62ModelEffortSuffix(model))
+	}
+	flatPresent := effortPath == "reasoning.effort" && gjson.GetBytes(body, "reasoning_effort").Exists()
+	if effort == "" || (effort == gjson.GetBytes(body, effortPath).String() && !flatPresent) {
+		if effortPath == "reasoning.effort" {
+			return normalizeGPT6ResponsesSampling(body, model)
+		}
+		return body, false, nil
+	}
+	normalized, err := sjson.SetBytes(body, effortPath, effort)
+	if err != nil {
+		return body, false, err
+	}
+	if effortPath == "reasoning.effort" {
+		normalized, err = sjson.DeleteBytes(normalized, "reasoning_effort")
+		if err == nil {
+			normalized, _, err = normalizeGPT6ResponsesSampling(normalized, model)
+		}
+	}
+	return normalized, err == nil, err
+}
+
 // validateGPT61CompatRequest validates the converted request after model
 // mapping and reasoning effort policy application.
 func validateGPT61CompatRequest(body []byte, model string) error {
@@ -2837,24 +2885,30 @@ func validateGPT61CompatRequest(body []byte, model string) error {
 		return err
 	}
 	if gjson.GetBytes(body, "thinking.type").String() == "disabled" {
-		return openai.ValidateGPT61ReasoningEffort(model, "none")
+		return openai.ValidateModelReasoningEffort(model, "none")
 	}
 	return nil
 }
 
 func validateGPT61RawEffort(body []byte, model string) error {
-	if !openai.IsGPT61SolModelSpelling(model) && !openai.IsGPT61TerraModelSpelling(model) {
+	if !openai.IsGPT62ModelSpelling(model) && !openai.IsGPT61SolModelSpelling(model) && !openai.IsGPT61TerraModelSpelling(model) {
 		return nil
 	}
 	for _, path := range []string{"reasoning.effort", "reasoning_effort", "output_config.effort"} {
-		if err := openai.ValidateGPT61ReasoningEffort(model, gjson.GetBytes(body, path).String()); err != nil {
+		if err := openai.ValidateModelReasoningEffort(model, gjson.GetBytes(body, path).String()); err != nil {
 			return err
 		}
 	}
 	requestedModel := openai.CanonicalizeOpenAIModelAliasSpelling(gjson.GetBytes(body, "model").String())
+	if openai.IsGPT62ModelSpelling(model) {
+		if err := openai.ValidateModelReasoningEffort(model, gpt62ModelEffortSuffix(requestedModel)); err != nil {
+			return err
+		}
+		return openai.ValidateModelReasoningEffort(model, gpt62ModelEffortSuffix(model))
+	}
 	for _, effort := range []string{"none", "minimal"} {
 		if strings.HasSuffix(strings.ToLower(requestedModel), "-"+effort) {
-			return openai.ValidateGPT61ReasoningEffort(model, effort)
+			return openai.ValidateModelReasoningEffort(model, effort)
 		}
 	}
 	return nil

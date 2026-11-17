@@ -88,6 +88,12 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletionsWithStartTime(
 		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, err
 	}
+	if normalized, changed, err := normalizeGPT62RequestEffort(body, billingModel, "reasoning_effort"); err != nil {
+		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return nil, err
+	} else if changed {
+		body = normalized
+	}
 	SetOpsUpstreamModel(c, upstreamModel)
 	grokCacheIdentity := ""
 	if account.Platform == PlatformGrok {
