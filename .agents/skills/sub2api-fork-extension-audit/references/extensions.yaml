@@ -65,7 +65,7 @@
       "status": "adopted_unreleased",
       "base_commit": "881f3202694c6bc932446931a30c27d9675178b9",
       "tip_commit": "efe9aab1e4ec89a42ba45e8dac20e882c5409a6a",
-      "merge_commit": "f501d6ee9461b86077a376002f0048d94e16cd61",
+      "merge_commit": "b71c5b22d568525a795169ab2d440b99d1763e1a",
       "official_version_at_adoption": "0.2.5",
       "fork_version_at_adoption": "0.2.5-baiyu",
       "commit_count": 52,
