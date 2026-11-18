@@ -37,6 +37,7 @@ jq -e --arg filename "$filename" --arg checksum "$catalog_checksum" '
    ($m.profile == "283" and $m.parent_profile == "282" and $m.new_migrations == ["308_mcp_oauth.sql"]) or
    ($m.profile == "284" and $m.parent_profile == "283" and $m.new_migrations == ["309_add_usage_logs_api_key_cost_index_notx.sql", "310_openai_cache_write_ttl.sql"]) or
    ($m.profile == "285" and $m.parent_profile == "284" and $m.new_migrations == ["311_group_force_openai_ultrafast.sql", "312_group_usage_rollup_nonblocking_build.sql"]) or
+   ($m.profile == "286" and $m.parent_profile == "285" and $m.new_migrations == ["313_channel_pricing_ultrafast_multiplier.sql"])) and
   ([$m.migration_catalog[] | select(.filename == $filename)] | length) == 1 and
   ([$m.migration_catalog[] | select(.filename == $filename)][0].checksum == $checksum)
 ' "$document" >/dev/null 2>&1 || fail manifest_contract
