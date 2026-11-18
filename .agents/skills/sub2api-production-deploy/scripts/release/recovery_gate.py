@@ -319,7 +319,48 @@ _PROFILE276_COMPATIBILITY_REVIEW_PATHS = frozenset({
 _PREPARE_GATE_POLICY_REVIEW_PATHS = frozenset({
     _SCRIPTS_PREFIX + "maintenance/release/prepare.sh",
 })
+_PROFILE286_COMPATIBILITY_REVIEW_PATHS = frozenset(
+    {
+        _SCRIPTS_PREFIX + path
+        for path in (
+            "maintenance/release/activity-reward-cost-postflight.sh",
+            "maintenance/release/context.sh",
+            "maintenance/release/full-recovery-capture.sh",
+            "maintenance/release/prepare.sh",
+            "maintenance/release/promote-backup.sh",
+            "maintenance/release/switch.sh",
+            "release/baseline_candidate_load.py",
+            "release/bootstrap_backup_dr_assets.sh",
+            "release/bootstrap_vm_signer.sh",
+            "release/gate.py",
+            "release/manifest.py",
+            "release/postrelease_baseline.py",
+            "release/production-recovery-retention-clean.sh",
+            "release/production-space-clean.sh",
+            "release/production_cleanup.py",
+            "release/production_recovery_retention.py",
+            "release/profiles.py",
+            "release/promote-dr-baseline.sh",
+            "release/recovery_drill.py",
+            "release/sign-dr-evidence.sh",
+            "release/sign-gate.sh",
+            "release/stage-dr-baseline-candidate.sh",
+            "release/vm-only-validate.sh",
+            "release/vm-validate.sh",
+        )
+    }
+    | {
+        _SCRIPTS_PREFIX + f"maintenance/release/migration-{number}-assert.sh"
+        for number in (195, *range(232, 246), 254, 285, 297, 298, 299, 301)
+    }
+)
 _REVIEWED_SCOPED_TRANCHES = (
+    (
+        "19ec27a4d2895101622424dfa1356870004c6de9",
+        "6fab0a01de746a4554dead67811c0247ebed644f",
+        "reviewed_profile_compatibility_changed",
+        _PROFILE286_COMPATIBILITY_REVIEW_PATHS,
+    ),
     (
         "aeb410bccc524164bdafbd3db865d4f5f588aced",
         "6f5daaaed6e0cbfae2011cfa55b47688f33634eb",
@@ -574,6 +615,7 @@ _RECOVERY_RUNTIME_FILES = frozenset(
         "backup_keys.py", "baseline.py", "postrelease_baseline.py", "baseline_candidate_load.py",
         "full_recovery_authorization.py", "full_recovery_drill_authorization.py",
         "full_recovery_drill.py", "full_recovery_guest.py", "full_recovery_source.py",
+        "full_recovery_cleanup.py", "full_recovery_session.py",
         "sign-full-recovery-review.sh", "stage-dr-baseline-candidate.sh",
         "recovery-compose-drill.sh",
     }
