@@ -12,21 +12,22 @@ import (
 
 func TestGPT62GeneratedCatalog(t *testing.T) {
 	for _, tc := range []struct {
-		model  string
-		window int64
-		name   string
+		model      string
+		window     int64
+		name       string
+		modalities []string
 	}{
-		{"gpt-6.2-sol", 500000, "GPT-6.2 Sol"},
-		{"gpt-6.2-astra", 272000, "GPT-6.2 Astra"},
+		{"gpt-6.2-sol", 500000, "GPT-6.2-Sol", []string{"text", "image", "audio"}},
+		{"gpt-6.2-astra", 272000, "GPT-6.2-Astra", []string{"text", "image"}},
 	} {
 		t.Run(tc.model, func(t *testing.T) {
 			d := newConfiguredCodexModelDescriptor(tc.model)
 			require.Equal(t, tc.name, d.DisplayName)
 			require.Equal(t, "low", *d.DefaultReasoningLevel)
 			require.Equal(t, tc.window, d.ContextWindow)
-			require.EqualValues(t, 1050000, d.MaxContextWindow)
-			require.Equal(t, []string{"text", "image"}, d.InputModalities)
-			require.False(t, d.UseResponsesLite)
+			require.EqualValues(t, 872000, d.MaxContextWindow)
+			require.Equal(t, tc.modalities, d.InputModalities)
+			require.True(t, d.UseResponsesLite)
 			require.Equal(t, "xhigh", *d.MultiAgentReasoningEffort)
 			require.Equal(t, "v2", d.MultiAgentVersion)
 			body, err := json.Marshal(map[string]any{"models": []configuredCodexModelDescriptor{d}})
@@ -127,5 +128,5 @@ func TestGPT62OfficialAPIKeyPreservesExplicitImageFields(t *testing.T) {
 	require.Equal(t, []any{"text"}, models[0]["input_modalities"])
 	require.Equal(t, false, models[0]["supports_image_detail_original"])
 	require.Equal(t, []any{"text", "image"}, models[1]["input_modalities"])
-	require.Equal(t, false, models[1]["supports_image_detail_original"])
+	require.Equal(t, true, models[1]["supports_image_detail_original"])
 }

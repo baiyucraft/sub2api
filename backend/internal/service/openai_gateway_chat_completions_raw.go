@@ -321,12 +321,27 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 	}
 	requestID := resp.Header.Get("x-request-id")
 	writeStreamHeaders := s.newStreamHeaderWriter(c, resp.Header)
-	scanner := s.newUpstreamSSEScanner(resp.Body)
 
 	var usage OpenAIUsage
 	var firstTokenMs *int
 	clientDisconnected := false
 	clientOutputStarted := false
+	flushPending := false
+	var completionEvidence *UpstreamCacheUsageEvidence
+	completionPending := false
+	completionSucceeded := false
+	flushToClient := func() {
+		if flushPending && !clientDisconnected && clientOutputStarted {
+			c.Writer.Flush()
+		}
+		flushPending = false
+		if completionPending {
+			freezeUpstreamCacheGuardCompletion(cacheGuardRequestContext(c), completionEvidence,
+				completionSucceeded, !clientDisconnected && clientOutputStarted)
+			completionPending = false
+		}
+	}
+	scanner := s.newUpstreamSSEScanner(&flushBeforeUpstreamRead{r: resp.Body, flush: flushToClient})
 	pendingLines := make([]string, 0, 8)
 	refusalDetector := newOpenAIChatSilentRefusalDetector(requestBodyLen)
 	var terminal openAIRawStreamTerminalState
@@ -391,18 +406,15 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 
 		line = s.replaceModelInSSELine(line, upstreamModel, originalModel)
 		writeLine(line)
+		// 不逐行 flush：scanner 下次向上游读取前统一 flush（见 flushBeforeUpstreamRead）。
+		flushPending = true
 		if line == "" {
-			if !clientDisconnected && clientOutputStarted {
-				c.Writer.Flush()
-			}
-			freezeUpstreamCacheGuardCompletion(cacheGuardRequestContext(c), usage.CacheUsageEvidence,
-				(terminal.sawDone || terminal.sawFinishReason) && !cacheStreamFailed, !clientDisconnected && clientOutputStarted)
-			continue
-		}
-		if !clientDisconnected && clientOutputStarted {
-			c.Writer.Flush()
+			completionEvidence = usage.CacheUsageEvidence
+			completionSucceeded = (terminal.sawDone || terminal.sawFinishReason) && !cacheStreamFailed
+			completionPending = true
 		}
 	}
+	flushToClient()
 
 	resultWithUsage := func() *OpenAIForwardResult {
 		usage.CacheUsageEvidence = cacheUsageWithStreamCompletion(usage.CacheUsageEvidence,

@@ -28,7 +28,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
 		SetActualOpenAIUpstreamEndpoint(c, "/v1/chat/completions")
 	}
-	if account == nil || !account.IsOpenAI() || !openai.IsGPT62ModelSpelling(resolveOpenAIAccountUpstreamModelForRequest(account, gjson.GetBytes(body, "model").String(), isOpenAIResponsesCompactPath(c))) {
+	if account == nil || !account.IsOpenAI() || openai.GPT62ModelID(resolveOpenAIAccountUpstreamModelForRequest(account, gjson.GetBytes(body, "model").String(), isOpenAIResponsesCompactPath(c))) == "" {
 		filteredBody, filterErr := filterOpenAIResponsesNoneReasoningEffortForAccount(account, body)
 		if filterErr != nil {
 			return nil, filterErr
@@ -236,7 +236,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	if account.IsOpenAI() && upstreamProtocol == APIProtocolResponses {
 		model := resolveOpenAIAccountUpstreamModelForRequest(account, reqModel, compactPath)
 		if !passthroughEnabled && !compactPath {
-			if mapped := resolveOpenAIForwardModel(account, reqModel, ""); openai.IsGPT62ModelSpelling(mapped) {
+			if mapped := resolveOpenAIForwardModel(account, reqModel, ""); openai.GPT62ModelID(mapped) != "" {
 				model = mapped
 			}
 		}

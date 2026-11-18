@@ -35,7 +35,7 @@ class Profile282ReleaseContractTest(unittest.TestCase):
         previous = {}
         exec(compile(git_blob(BASELINE, ".agents/skills/sub2api-production-deploy/scripts/release/profiles.py"),
                      "profile281-baseline", "exec"), previous)
-        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"282", "283", "284", "285"})
+        self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"282", "283", "284", "285", "286"})
         # Deployment node metadata moved to local configuration; version contracts remain exact.
         deployment_keys = {"public_domain", "rack_public_ip", "dmit_public_ip"}
         self.assertTrue(deployment_keys.isdisjoint(get_profile(CURRENT_RELEASE_PROFILE)))
@@ -43,33 +43,33 @@ class Profile282ReleaseContractTest(unittest.TestCase):
             actual = get_profile(name)
             self.assertTrue(deployment_keys.isdisjoint(actual))
             self.assertEqual(actual, {key: value for key, value in contract.items() if key not in deployment_keys}, name)
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "285")
+        self.assertEqual(CURRENT_RELEASE_PROFILE, "286")
         profile = get_profile("282")
         self.assertEqual((profile["version"], profile["parent"], profile["gate_schema"], profile["new_migrations"]),
                          ("0.2.19-baiyu", "281", 2, [MIGRATION]))
         with self.assertRaisesRegex(ValueError, "historical"):
             get_release_profile("281")
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 286"):
-            get_profile("286")
+        with self.assertRaisesRegex(ValueError, "unknown release profile: 287"):
+            get_profile("287")
         historical = subprocess.run(["git", "ls-tree", "-r", "--name-only", BASELINE, "--", "backend/migrations"],
                                    cwd=WORKSPACE, check=True, capture_output=True, text=True, timeout=30).stdout.splitlines()
         historical = [path for path in historical if path.endswith(".sql")]
         self.assertEqual(len(historical), 357)
         self.assertEqual({p.name for p in (WORKSPACE / "backend/migrations").glob("*.sql")},
-                         {Path(p).name for p in historical} | {MIGRATION, "308_mcp_oauth.sql", "309_add_usage_logs_api_key_cost_index_notx.sql", "310_openai_cache_write_ttl.sql", "311_group_force_openai_ultrafast.sql", "312_group_usage_rollup_nonblocking_build.sql"})
+                         {Path(p).name for p in historical} | {MIGRATION, "308_mcp_oauth.sql", "309_add_usage_logs_api_key_cost_index_notx.sql", "310_openai_cache_write_ttl.sql", "311_group_force_openai_ultrafast.sql", "312_group_usage_rollup_nonblocking_build.sql", "313_channel_pricing_ultrafast_multiplier.sql"})
         for path in historical:
             self.assertEqual((WORKSPACE / path).read_bytes(), git_blob(BASELINE, path), path)
         self.assertTrue(RELEASE_ID.fullmatch("281-aaaaaaaaaaaa-1-aaaaaaaa"))
         self.assertTrue(RELEASE_ID.fullmatch("282-aaaaaaaaaaaa-1-aaaaaaaa"))
         self.assertTrue(RELEASE_ID.fullmatch("283-aaaaaaaaaaaa-1-aaaaaaaa"))
-        self.assertFalse(RELEASE_ID.fullmatch("286-aaaaaaaaaaaa-1-aaaaaaaa"))
+        self.assertFalse(RELEASE_ID.fullmatch("287-aaaaaaaaaaaa-1-aaaaaaaa"))
         protected = ".agents/skills/sub2api-production-deploy/scripts/release/recovery_gate.py"
         # The merge baseline already contains reviewed backup-maintenance wiring; SQL/profile BASELINE stays frozen.
         self.assertEqual((WORKSPACE / protected).read_bytes(), git_blob("a92c84a3f0d9d23a305044a67341374fc8b8b253", protected))
 
     def test_registry_and_migration_have_independent_checksums(self):
         registry = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(registry["current_profile"]["id"], "285")
+        self.assertEqual(registry["current_profile"]["id"], "286")
         for key in ("version", "parent", "new_migrations", "gate_schema", "release_policy"):
             self.assertEqual(registry["historical_profiles"]["282"][key], get_profile("282")[key])
             self.assertEqual(registry["historical_profiles"]["281"][key], get_profile("281")[key])
@@ -165,9 +165,9 @@ jq() {
 
     def test_current_only_guard_rejects_history_unknown_and_malformed(self):
         validator = (ROOT / "release/vm-validate.sh").read_text(encoding="utf-8")
-        guard = next(line.strip() for line in validator.splitlines() if line.strip() == '[[ "$profile" == 285 ]]')
+        guard = next(line.strip() for line in validator.splitlines() if line.strip() == '[[ "$profile" == 286 ]]')
         prepare = (ROOT / "maintenance/release/prepare.sh").read_text(encoding="utf-8")
-        self.assertIn('[[ $profile == 285 ]]', prepare)
-        for value, allowed in (("285", True), ("284", False), ("282", False), ("281", False), ("283", False), ("286", False), ("0282", False), ("282;true", False)):
+        self.assertIn('[[ $profile == 286 ]]', prepare)
+        for value, allowed in (("286", True), ("285", False), ("284", False), ("282", False), ("281", False), ("283", False), ("287", False), ("0282", False), ("282;true", False)):
             result = self.execute('profile=$1\n' + guard, value)
             self.assertEqual(result.returncode == 0, allowed, (value, result.stderr))

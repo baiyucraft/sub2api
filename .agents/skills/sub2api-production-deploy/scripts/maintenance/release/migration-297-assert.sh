@@ -6,7 +6,7 @@ migration_status=${MIGRATION_STATUS:-absent}
 context_file=${ASSERT_CONTEXT_FILE:-/opt/sub2api/releases/.active-release/assets/context.sh}
 [[ -f $context_file && ! -L $context_file ]] || exit 1
 source "$context_file"
-[[ $profile == 269 || $profile == 270 || $profile == 271 || $profile == 272 || $profile == 273 || $profile == 274 || $profile == 275 || $profile == 276 || $profile == 277 || $profile == 278 || $profile == 279 || $profile == 280 || $profile == 281 || $profile == 282 || $profile == 283 || $profile == 284 || $profile == 285 ]] || exit 1
+[[ $profile == 269 || $profile == 270 || $profile == 271 || $profile == 272 || $profile == 273 || $profile == 274 || $profile == 275 || $profile == 276 || $profile == 277 || $profile == 278 || $profile == 279 || $profile == 280 || $profile == 281 || $profile == 282 || $profile == 283 || $profile == 284 || $profile == 285 || $profile == 286 ]] || exit 1
 [[ $phase == preflight || $phase == postflight || $phase == verified_replay || $phase == vm_semantics ]] || exit 1
 [[ $migration_status == absent || $migration_status == verified ]] || exit 1
 [[ $phase == preflight || $migration_status == verified ]] || exit 1
@@ -48,7 +48,7 @@ verify_manifest() {
    ($m.profile == "282" and $m.parent_profile == "281" and $m.new_migrations == ["307_user_default_group_rate_percent.sql"]) or
    ($m.profile == "283" and $m.parent_profile == "282" and $m.new_migrations == ["308_mcp_oauth.sql"]) or
    ($m.profile == "284" and $m.parent_profile == "283" and $m.new_migrations == ["309_add_usage_logs_api_key_cost_index_notx.sql", "310_openai_cache_write_ttl.sql"]) or
-   ($m.profile == "285" and $m.parent_profile == "284" and $m.new_migrations == ["311_group_force_openai_ultrafast.sql", "312_group_usage_rollup_nonblocking_build.sql"])) and
+   ($m.profile == "285" and $m.parent_profile == "284" and $m.new_migrations == ["311_group_force_openai_ultrafast.sql", "312_group_usage_rollup_nonblocking_build.sql"]) or
     ([$m.migration_catalog[] | select(.filename == $filename)] | length) == 1 and
     ([$m.migration_catalog[] | select(.filename == $filename)][0].checksum == $checksum)
   ' "$document" >/dev/null 2>&1 || fail manifest_contract

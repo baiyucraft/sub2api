@@ -543,6 +543,22 @@ func newConfiguredCodexModelDescriptor(modelID string) configuredCodexModelDescr
 		// The October 12, 2026 Codex/Work default increased to 500k after
 		// the bundled official snapshot. Explicit upstream metadata still wins.
 		descriptor.ContextWindow = 500_000
+		// The two 6.2 descriptors now occupy the first two slots.
+		descriptor.Priority = 3
+	}
+	var metadata json.RawMessage
+	switch openai.GPT62ModelID(modelID) {
+	case "gpt-6.2-sol":
+		metadata = openai.CodexGPT62SolMetadata
+	case "gpt-6.2-astra":
+		metadata = openai.CodexGPT62AstraMetadata
+	}
+	if len(metadata) > 0 {
+		if err := json.Unmarshal(metadata, &descriptor); err != nil {
+			panic(err)
+		}
+		descriptor.Slug = modelID
+		descriptor.officialMetadata = metadata
 	}
 	if openai.IsGPT61TerraModelSpelling(modelID) {
 		// The Codex descriptor differs from the API model page: Codex offers
@@ -552,39 +568,6 @@ func newConfiguredCodexModelDescriptor(modelID string) configuredCodexModelDescr
 		}
 		descriptor.Slug = modelID
 		descriptor.officialMetadata = openai.CodexGPT61TerraMetadata
-	}
-	if base := openai.GPT62ModelBase(modelID); base != "" {
-		// A documented compatibility descriptor, not an official catalog dump.
-		// learn.chatgpt.com/docs/models (2026-11-18) and its model switcher
-		// publish default low and distinct Codex windows. Max/Ultra follow the
-		// existing 6.1 Sol / 6 Astra compatibility contract until live metadata
-		// supplies the account-specific descriptor. Ultra is client orchestration.
-		template := "gpt-6-astra"
-		if base == "gpt-6.2-sol" {
-			template = "gpt-6.1-sol"
-		}
-		descriptor = newConfiguredCodexModelDescriptor(template)
-		descriptor.officialMetadata = nil
-		descriptor.Slug = modelID
-		descriptor.DisplayName = openaiCodexDisplayName(base)
-		descriptor.Description = "GPT-6.2 reasoning and coding model routed through Sub2API."
-		descriptor.AvailabilityNUX = nil
-		descriptor.Upgrade = nil
-		descriptor.SupportedReasoningLevels = configuredCodexGPTReasoningLevels(modelID)
-		defaultEffort := "low"
-		descriptor.DefaultReasoningLevel = &defaultEffort
-		multiAgentEffort := "xhigh"
-		descriptor.MultiAgentReasoningEffort = &multiAgentEffort
-		descriptor.MultiAgentVersion = "v2"
-		descriptor.ContextWindow = configuredCodexFallbackContext
-		if base == "gpt-6.2-sol" {
-			descriptor.ContextWindow = 500_000
-		}
-		// API pages give a 1,050,000-token total window with 128k output.
-		// Explicit account/source metadata continues to override this fallback.
-		descriptor.MaxContextWindow = 1_050_000
-		descriptor.InputModalities = []string{"text", "image"}
-		descriptor.UseResponsesLite = false
 	}
 	return descriptor
 }
@@ -685,7 +668,7 @@ func configuredCodexGPTReasoningLevels(modelID string) []configuredCodexReasonin
 			Description: "Maximum reasoning depth for complex tasks",
 		})
 	}
-	if openai.IsGPT62ModelSpelling(modelID) || isOpenAIGPT6AstraModel(modelID) || openai.IsGPT61SolModelSpelling(modelID) || normalized == "gpt-5.6-sol" || normalized == "gpt-5.6-terra" {
+	if isOpenAIGPT6AstraModel(modelID) || openai.IsGPT61SolModelSpelling(modelID) || normalized == "gpt-5.6-sol" || normalized == "gpt-5.6-terra" {
 		levels = append(levels, configuredCodexReasoningLevel{
 			Effort:      "ultra",
 			Description: "Maximum reasoning with automatic task delegation",
@@ -1406,7 +1389,7 @@ func BuildDeepSeekCodexModelsManifest(modelIDs []string) ([]byte, error) {
 
 func isLegacyGPT62CodexFallback(raw json.RawMessage) bool {
 	var d configuredCodexModelDescriptor
-	return json.Unmarshal(raw, &d) == nil && openai.IsGPT62ModelSpelling(d.Slug) &&
+	return json.Unmarshal(raw, &d) == nil && openai.GPT62ModelID(d.Slug) != "" &&
 		d.Description == "OpenAI GPT coding model routed through Sub2API." &&
 		d.DefaultReasoningLevel != nil && *d.DefaultReasoningLevel == "none" &&
 		len(d.SupportedReasoningLevels) == 1 && d.SupportedReasoningLevels[0].Effort == "none" &&
@@ -2196,7 +2179,7 @@ func adjustAPIKeyCodexModelsManifest(body []byte, account *Account) ([]byte, err
 		if account != nil {
 			target = account.GetMappedModel(slug)
 		}
-		if base := openai.GPT62ModelBase(target); base != "" {
+		if base := openai.GPT62ModelID(target); base != "" {
 			target = base
 		}
 		if isOpenAIGPT6AstraModel(target) {
@@ -2556,7 +2539,7 @@ func completeAPIKeyCodexModelsManifestMetadata(body []byte, completeAll bool, ac
 		}
 
 		completeDescriptor := completeAll || isDeepSeekCodexModel(slug)
-		forceOfficialImage := officialOpenAI && isOpenAICodexImageInputModel(slug) && !openai.IsGPT62ModelSpelling(slug)
+		forceOfficialImage := officialOpenAI && isOpenAICodexImageInputModel(slug) && openai.GPT62ModelID(slug) == ""
 		if !completeDescriptor && !forceOfficialImage {
 			continue
 		}

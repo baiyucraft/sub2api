@@ -1330,7 +1330,7 @@ func (s *PricingService) GetModelPricing(modelName string) *LiteLLMModelPricing 
 	model := lookupCandidates[0]
 	// New GPT-6.2 variants must have a price card before they can be billed.
 	if model == "gpt-6.2" || strings.HasPrefix(model, "gpt-6.2-") {
-		base := openai.GPT62ModelBase(s.extractBaseName(model))
+		base := openai.GPT62ModelID(s.extractBaseName(model))
 		if pricing := s.pricingData[base]; pricing != nil {
 			return pricing
 		}
@@ -1719,6 +1719,15 @@ func (s *PricingService) matchOpenAIModel(model string) *LiteLLMModelPricing {
 			return pricing
 		}
 		return openAIGPT61TerraFallbackPricing
+	}
+	if base := openai.GPT62ModelID(model); base != "" {
+		if pricing, ok := s.pricingData[base]; ok {
+			return pricing
+		}
+		if base == "gpt-6.2-sol" {
+			return openAIGPT62SolFallbackPricing
+		}
+		return openAIGPT62AstraFallbackPricing
 	}
 	if openai.IsGPT61SolModelSpelling(model) {
 		if pricing, ok := s.pricingData["gpt-6.1-sol"]; ok {

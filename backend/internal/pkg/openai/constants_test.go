@@ -67,23 +67,24 @@ func TestGPT61SolIdentityAndEffort(t *testing.T) {
 func TestGPT62IdentityAndReasoning(t *testing.T) {
 	for _, base := range []string{"gpt-6.2-sol", "gpt-6.2-astra"} {
 		require.Contains(t, DefaultModelIDs(), base)
-		for _, suffix := range []string{"", "-low", "-max", "-none", "-minimal", "-ultra", "-openai-compact"} {
+		for _, suffix := range []string{"", "-low", "-max", "-none", "-minimal", "-openai-compact"} {
 			model := "openai/" + base + suffix
-			require.Equal(t, base, GPT62ModelBase(model))
+			require.Equal(t, base, GPT62ModelID(model))
 			require.True(t, RequiresResponsesForToolCalls(model))
 		}
+		require.Empty(t, GPT62ModelID(base+"-ultra"))
 		for _, effort := range []string{"", "low", "medium", "high", "xhigh", "max"} {
-			require.NoError(t, ValidateModelReasoningEffort(base, effort))
+			require.NoError(t, ValidateGPT61ReasoningEffort(base, effort))
 		}
 		for _, effort := range []string{"none", "minimal", "ultra", " NONE "} {
-			require.Error(t, ValidateModelReasoningEffort(base, effort))
+			require.Error(t, ValidateGPT61ReasoningEffort(base, effort))
 		}
 		require.Contains(t, CodexBaseInstructionsForModel(base), "based on GPT-6")
 	}
 	for _, model := range []string{"gpt-6.2", "gpt-6.2-solitude", "gpt-6.2-sol-preview", "gpt-6.2-astra-pro", "gpt-6-astra", "gpt-6.1-sol"} {
-		require.Empty(t, GPT62ModelBase(model), model)
+		require.Empty(t, GPT62ModelID(model), model)
 	}
-	require.Error(t, ValidateModelReasoningEffort("gpt-6.1-sol", "none"))
-	require.NoError(t, ValidateModelReasoningEffort("gpt-6.1-terra", "none"))
-	require.NoError(t, ValidateModelReasoningEffort("custom-model", "none"))
+	require.Error(t, ValidateGPT61ReasoningEffort("gpt-6.1-sol", "none"))
+	require.NoError(t, ValidateGPT61ReasoningEffort("gpt-6.1-terra", "none"))
+	require.NoError(t, ValidateGPT61ReasoningEffort("custom-model", "none"))
 }

@@ -1538,7 +1538,7 @@ func normalizeOpenAIOAuthResponsesCompatibilityBody(body []byte) ([]byte, bool, 
 }
 
 func normalizeGPT6ResponsesSampling(body []byte, model string) ([]byte, bool, error) {
-	if (!openai.IsGPT62ModelSpelling(model) && !openai.IsGPT6SolOrLunaModelSpelling(model) && !openai.IsGPT61SolModelSpelling(model)) || gjson.GetBytes(body, "reasoning.effort").String() == "none" {
+	if (!openai.IsGPT6SolOrLunaModelSpelling(model) && !openai.IsGPT61SolModelSpelling(model) && openai.GPT62ModelID(model) == "") || gjson.GetBytes(body, "reasoning.effort").String() == "none" {
 		return body, false, nil
 	}
 	out := body
@@ -2236,12 +2236,12 @@ func openAIFastPolicySettingsFromContext(ctx context.Context) *OpenAIFastPolicyS
 }
 
 // openAIModelSupportsUltrafast reports whether OpenAI offers the Ultrafast
-// service tier for the model: GPT-6 Astra and GPT-6.1 Sol only. It is the single
-// source for both the group-forced tier gate and the 6x Ultrafast billing
+// service tier for the model. It is the single
+// source for both the group-forced tier gate and the Ultrafast billing
 // multiplier, so a model can never be forced onto Ultrafast yet billed below it.
 func openAIModelSupportsUltrafast(model string) bool {
 	normalized := normalizeKnownOpenAICodexModel(model)
-	return isOpenAIGPT6AstraModel(normalized) || normalized == "gpt-6.1-sol"
+	return isOpenAIGPT6AstraModel(normalized) || normalized == "gpt-6.1-sol" || normalized == "gpt-6.2-sol" || normalized == "gpt-6.2-astra"
 }
 
 // openAIGroupForcedServiceTier returns the service_tier that the trusted request
@@ -2263,14 +2263,24 @@ func openAIGroupForcedServiceTier(ctx context.Context, account *Account, model s
 	if !IsGroupContextValid(group) || !groupSupportsOpenAIFast(group.Platform) {
 		return ""
 	}
-	switch {
-	case group.ForceOpenAIUltrafast && openAIModelSupportsUltrafast(model):
-		return OpenAIFastTierUltrafast
-	case group.ForceOpenAIFast:
-		return OpenAIFastTierPriority
-	default:
-		return ""
+	if group.ForceOpenAIUltrafast && openAIModelSupportsUltrafast(model) {
+		// Resolve the published Pro entitlement first, then account-specific grants.
+		if base := openai.GPT62ModelID(model); base != "" && account.IsOpenAIOAuthLike() {
+			if gpt62PlanIncludesUltrafast(account, base) {
+				return OpenAIFastTierUltrafast
+			}
+			metadata, ok := account.GetUpstreamModelMetadata(base)
+			if ok && gjson.GetBytes(metadata.CodexToolCapabilities["service_tiers"], `#(id=="ultrafast")`).Exists() {
+				return OpenAIFastTierUltrafast
+			}
+		} else {
+			return OpenAIFastTierUltrafast
+		}
 	}
+	if group.ForceOpenAIFast {
+		return OpenAIFastTierPriority
+	}
+	return ""
 }
 
 // applyOpenAIFastPolicyToBody applies the OpenAI fast policy to a raw request
@@ -2831,7 +2841,7 @@ func supportsOpenAIReasoningEffortMax(model string) bool {
 }
 
 func gpt62ModelEffortSuffix(model string) string {
-	base := openai.GPT62ModelBase(model)
+	base := openai.GPT62ModelID(model)
 	if base == "" {
 		return ""
 	}
@@ -2849,7 +2859,7 @@ func normalizeGPT62RequestEffort(body []byte, model, effortPath string) ([]byte,
 }
 
 func normalizeGPT62RequestEffortWithPolicy(ctx context.Context, body []byte, model, effortPath string) ([]byte, bool, error) {
-	if !openai.IsGPT62ModelSpelling(model) {
+	if openai.GPT62ModelID(model) == "" {
 		return body, false, nil
 	}
 	if err := validateGPT61CompatRequest(body, model); err != nil {
@@ -2871,7 +2881,7 @@ func normalizeGPT62RequestEffortWithPolicy(ctx context.Context, body []byte, mod
 				return body, false, err
 			}
 			effort = gjson.GetBytes(capped, effortPath).String()
-			if err := openai.ValidateModelReasoningEffort(model, effort); err != nil {
+			if err := openai.ValidateGPT61ReasoningEffort(model, effort); err != nil {
 				return body, false, err
 			}
 		}
@@ -2903,30 +2913,30 @@ func validateGPT61CompatRequest(body []byte, model string) error {
 		return err
 	}
 	if gjson.GetBytes(body, "thinking.type").String() == "disabled" {
-		return openai.ValidateModelReasoningEffort(model, "none")
+		return openai.ValidateGPT61ReasoningEffort(model, "none")
 	}
 	return nil
 }
 
 func validateGPT61RawEffort(body []byte, model string) error {
-	if !openai.IsGPT62ModelSpelling(model) && !openai.IsGPT61SolModelSpelling(model) && !openai.IsGPT61TerraModelSpelling(model) {
+	if !openai.IsGPT61SolModelSpelling(model) && !openai.IsGPT61TerraModelSpelling(model) && openai.GPT62ModelID(model) == "" {
 		return nil
 	}
 	for _, path := range []string{"reasoning.effort", "reasoning_effort", "output_config.effort"} {
-		if err := openai.ValidateModelReasoningEffort(model, gjson.GetBytes(body, path).String()); err != nil {
+		if err := openai.ValidateGPT61ReasoningEffort(model, gjson.GetBytes(body, path).String()); err != nil {
 			return err
 		}
 	}
 	requestedModel := openai.CanonicalizeOpenAIModelAliasSpelling(gjson.GetBytes(body, "model").String())
-	if openai.IsGPT62ModelSpelling(model) {
-		if err := openai.ValidateModelReasoningEffort(model, gpt62ModelEffortSuffix(requestedModel)); err != nil {
+	if openai.GPT62ModelID(model) != "" {
+		if err := openai.ValidateGPT61ReasoningEffort(model, gpt62ModelEffortSuffix(requestedModel)); err != nil {
 			return err
 		}
-		return openai.ValidateModelReasoningEffort(model, gpt62ModelEffortSuffix(model))
+		return openai.ValidateGPT61ReasoningEffort(model, gpt62ModelEffortSuffix(model))
 	}
 	for _, effort := range []string{"none", "minimal"} {
 		if strings.HasSuffix(strings.ToLower(requestedModel), "-"+effort) {
-			return openai.ValidateModelReasoningEffort(model, effort)
+			return openai.ValidateGPT61ReasoningEffort(model, effort)
 		}
 	}
 	return nil

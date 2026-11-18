@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 trap 'rc=$?; printf "vm_validate_failure_line=%s status=%s\\n" "$LINENO" "$rc"; exit "$rc"' ERR
-# Legacy Gate v1 profile allowlist; Gate v2 current profile is 285 and 242-284 remain historical.
+# Legacy Gate v1 profile allowlist; Gate v2 current profile is 286 and 242-285 remain historical.
 
 required_commands=(awk chmod cp curl date df diff docker find flock git grep gzip head id install jq ln mkdir mv python3 rm sed seq sha256sum sleep sort ss stat tar tr xargs)
 for command_name in "${required_commands[@]}"; do
@@ -253,8 +253,8 @@ test_tag="sub2api:vm-test-$commit"
 profile=$(jq -er '.profile' "$manifest")
 manifest_schema=$(jq -er '.schema' "$manifest")
 if [[ "$manifest_schema" == 2 ]]; then
-  [[ "$profile" == 285 ]]
-  [[ "$release_id" =~ ^(254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273|274|275|276|277|278|279|280|281|282|283|284|285)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
+  [[ "$profile" == 286 ]]
+  [[ "$release_id" =~ ^(254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273|274|275|276|277|278|279|280|281|282|283|284|285|286)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
   {
     required_query_4=$(jq -er '.release_asset_layout' "$manifest") || exit $?
     [[ ${required_query_4} == skill-v1 ]]
@@ -479,6 +479,11 @@ if [[ "$manifest_schema" == 2 ]]; then
     required_parent_285=$(jq -er '.parent_profile' "$manifest") || exit $?
     [[ $required_parent_285 == 284 ]]
     jq -e '.new_migrations == ["311_group_force_openai_ultrafast.sql", "312_group_usage_rollup_nonblocking_build.sql"] and .deployment_mode == "downtime"' "$manifest" >/dev/null
+  elif [[ "$profile" == 286 ]]; then
+    [[ "$version" == 0.2.23-baiyu ]]
+    required_parent_286=$(jq -er '.parent_profile' "$manifest") || exit $?
+    [[ $required_parent_286 == 285 ]]
+    jq -e '.new_migrations == ["313_channel_pricing_ultrafast_multiplier.sql"] and .deployment_mode == "downtime"' "$manifest" >/dev/null
   else
     exit 1
   fi
@@ -1132,7 +1137,7 @@ if [[ "$manifest_schema" == 2 ]]; then
     old_probe_app_created=false
   fi
   mark_v2_stage candidate_health
-  if [[ "$profile" == 264 || "$profile" == 265 || "$profile" == 266 || "$profile" == 267 || "$profile" == 268 || "$profile" == 269 || "$profile" == 270 || "$profile" == 271 || $profile == 272 || $profile == 273 || $profile == 274 || $profile == 275 || $profile == 276 || $profile == 277 || $profile == 278 || $profile == 279 || $profile == 280 || $profile == 281 || $profile == 282 || $profile == 283 || $profile == 284 || $profile == 285 ]]; then
+  if [[ "$profile" == 264 || "$profile" == 265 || "$profile" == 266 || "$profile" == 267 || "$profile" == 268 || "$profile" == 269 || "$profile" == 270 || "$profile" == 271 || $profile == 272 || $profile == 273 || $profile == 274 || $profile == 275 || $profile == 276 || $profile == 277 || $profile == 278 || $profile == 279 || $profile == 280 || $profile == 281 || $profile == 282 || $profile == 283 || $profile == 284 || $profile == 285 || $profile == 286 ]]; then
     # Exercise the maintenance mode against the restored isolated Redis before
     # starting any new application process. Never touch the production cache.
     sentinel="sub2api:release-cache-sentinel:$release_id"
@@ -1239,8 +1244,8 @@ if [[ "$manifest_schema" == 2 ]]; then
   fi
   exit 0
 fi
-[[ $release_id =~ ^(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273|274|275|276|277|278|279|280|281|282|283|284|285)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
-[[ $profile == 182 || $profile == 187 || $profile == 191 || $profile == 192 || $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 || $profile == 240 || $profile == 241 || $profile == 242 || $profile == 243 || $profile == 244 || $profile == 245 || $profile == 246 || $profile == 247 || $profile == 248 || $profile == 249 || $profile == 250 || $profile == 251 || $profile == 252 || $profile == 253 || $profile == 254 || $profile == 255 || $profile == 256 || $profile == 257 || $profile == 258 || $profile == 259 || $profile == 260 || $profile == 261 || $profile == 262 || $profile == 263 || $profile == 264 || $profile == 265 || $profile == 266 || $profile == 267 || $profile == 268 || $profile == 269 || $profile == 270 || $profile == 271 || $profile == 272 || $profile == 273 || $profile == 274 || $profile == 275 || $profile == 276 || $profile == 277 || $profile == 278 || $profile == 279 || $profile == 280 || $profile == 281 || $profile == 282 || $profile == 283 || $profile == 284 || $profile == 285 ]]
+[[ $release_id =~ ^(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273|274|275|276|277|278|279|280|281|282|283|284|285|286)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
+[[ $profile == 182 || $profile == 187 || $profile == 191 || $profile == 192 || $profile == 194 || $profile == 195 || $profile == 197 || $profile == 198 || $profile == 199 || $profile == 202 || $profile == 206 || $profile == 207 || $profile == 208 || $profile == 209 || $profile == 210 || $profile == 212 || $profile == 213 || $profile == 215 || $profile == 232 || $profile == 233 || $profile == 234 || $profile == 235 || $profile == 236 || $profile == 237 || $profile == 238 || $profile == 239 || $profile == 240 || $profile == 241 || $profile == 242 || $profile == 243 || $profile == 244 || $profile == 245 || $profile == 246 || $profile == 247 || $profile == 248 || $profile == 249 || $profile == 250 || $profile == 251 || $profile == 252 || $profile == 253 || $profile == 254 || $profile == 255 || $profile == 256 || $profile == 257 || $profile == 258 || $profile == 259 || $profile == 260 || $profile == 261 || $profile == 262 || $profile == 263 || $profile == 264 || $profile == 265 || $profile == 266 || $profile == 267 || $profile == 268 || $profile == 269 || $profile == 270 || $profile == 271 || $profile == 272 || $profile == 273 || $profile == 274 || $profile == 275 || $profile == 276 || $profile == 277 || $profile == 278 || $profile == 279 || $profile == 280 || $profile == 281 || $profile == 282 || $profile == 283 || $profile == 284 || $profile == 285 || $profile == 286 ]]
 [[ $release_id == "$profile-${commit:0:12}-"* ]]
 {
   required_query_65=$(jq -er '.schema' "$manifest")

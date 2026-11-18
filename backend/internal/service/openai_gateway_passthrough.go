@@ -153,7 +153,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 	if account != nil && account.IsOpenAI() {
 		wireModel := gjson.GetBytes(body, "model").String()
 		if gpt62ModelEffortSuffix(wireModel) != "" {
-			upstreamPassthroughModel = openai.GPT62ModelBase(wireModel)
+			upstreamPassthroughModel = openai.GPT62ModelID(wireModel)
 			body = s.ReplaceModelInBody(body, upstreamPassthroughModel)
 		}
 	}

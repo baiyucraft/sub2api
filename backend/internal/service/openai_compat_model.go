@@ -8,7 +8,7 @@ import (
 )
 
 func NormalizeOpenAICompatRequestedModel(model string) string {
-	if base := openai.GPT62ModelBase(model); base != "" {
+	if base := openai.GPT62ModelID(model); base != "" {
 		return base
 	}
 	if openai.IsGPT61TerraModelSpelling(model) {
@@ -30,7 +30,7 @@ func NormalizeOpenAICompatRequestedModel(model string) string {
 }
 
 func applyOpenAICompatModelNormalization(req *apicompat.AnthropicRequest) {
-	if req != nil && (openai.IsGPT62ModelSpelling(req.Model) || openai.IsGPT61SolModelSpelling(req.Model) || openai.IsGPT61TerraModelSpelling(req.Model)) {
+	if req != nil && (openai.GPT62ModelID(req.Model) != "" || openai.IsGPT61SolModelSpelling(req.Model) || openai.IsGPT61TerraModelSpelling(req.Model)) {
 		canonical := openai.CanonicalizeOpenAIModelAliasSpelling(req.Model)
 		baseModel := NormalizeOpenAICompatRequestedModel(req.Model)
 		if effort, ok := strings.CutPrefix(canonical, baseModel+"-"); ok && effort != "openai-compact" {
@@ -75,7 +75,7 @@ func applyOpenAICompatModelNormalization(req *apicompat.AnthropicRequest) {
 }
 
 func splitOpenAICompatReasoningModel(model string) (normalizedModel string, reasoningEffort string, ok bool) {
-	if base := openai.GPT62ModelBase(model); base != "" {
+	if base := openai.GPT62ModelID(model); base != "" {
 		effort := gpt62ModelEffortSuffix(model)
 		return base, effort, effort != ""
 	}
@@ -136,7 +136,7 @@ func applyGPT62MappedAnthropicEffort(req *apicompat.AnthropicRequest, mappedMode
 	if effort == "" {
 		return nil
 	}
-	if err := openai.ValidateModelReasoningEffort(mappedModel, effort); err != nil {
+	if err := openai.ValidateGPT61ReasoningEffort(mappedModel, effort); err != nil {
 		return err
 	}
 	if req.OutputConfig == nil {

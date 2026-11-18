@@ -494,7 +494,7 @@ func WithOriginalOpenAIMessagesEffort(ctx context.Context, body []byte) context.
 }
 
 func restoreGPT62MessagesEffort(ctx context.Context, req *apicompat.AnthropicRequest, body []byte, mappedModel string) (context.Context, []byte, error) {
-	if !openai.IsGPT62ModelSpelling(mappedModel) || ctx == nil {
+	if openai.GPT62ModelID(mappedModel) == "" || ctx == nil {
 		return ctx, body, nil
 	}
 	original, ok := ctx.Value(originalOpenAIMessagesEffortContextKey{}).(gjson.Result)
@@ -652,7 +652,7 @@ func applyOpenAIWSReasoningEffortPolicy(payload []byte, hooks *OpenAIWSIngressHo
 // The bridge defaults omitted output_config.effort to medium and maps max to
 // xhigh, so both the explicit field and model suffix must be considered.
 func ApplyAnthropicOpenAIReasoningEffortPolicy(body []byte, maxEffort string, mappings []ReasoningEffortMapping) ([]byte, bool) {
-	if openai.IsGPT62ModelSpelling(gjson.GetBytes(body, "model").String()) {
+	if openai.GPT62ModelID(gjson.GetBytes(body, "model").String()) != "" {
 		return body, false
 	}
 	maxRank, hasMax := reasoningEffortRank(maxEffort)

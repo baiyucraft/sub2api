@@ -14,8 +14,8 @@ from release.production_cleanup import RELEASE_ID
 
 
 def test_profile_278_is_additive_and_has_no_migration():
-    assert CURRENT_RELEASE_PROFILE == "285"
-    assert list(PROFILES)[-7:] == ["279", "280", "281", "282", "283", "284", "285"]
+    assert CURRENT_RELEASE_PROFILE == "286"
+    assert list(PROFILES)[-8:] == ["279", "280", "281", "282", "283", "284", "285", "286"]
     profile = get_profile("278")
     assert (profile["version"], profile["parent"], profile["new_migrations"], profile["gate_schema"]) == (
         "0.2.20-baiyu", "277", [], 2
@@ -24,7 +24,7 @@ def test_profile_278_is_additive_and_has_no_migration():
         "0.2.19-baiyu", "276", ["304_upstream_confidence_fingerprint.sql"]
     )
     assert get_profile("278")["name"] == "278"
-    assert get_release_profile("285")["name"] == "285"
+    assert get_release_profile("286")["name"] == "286"
     assert RELEASE_ID.fullmatch("278-aaaaaaaaaaaa-1-aaaaaaaa")
     assert RELEASE_ID.fullmatch("279-aaaaaaaaaaaa-1-aaaaaaaa")
 
@@ -32,11 +32,11 @@ def test_profile_278_is_additive_and_has_no_migration():
 def test_profile_278_registry_and_vm_admission_are_consistent():
     registry = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
     current = registry["current_profile"]
-    profile = get_profile("285")
-    assert current["id"] == "285"
+    profile = get_profile("286")
+    assert current["id"] == "286"
     for key in ("version", "parent", "new_migrations", "gate_schema", "release_policy"):
         assert current[key] == profile[key]
-    assert current["new_migrations"] == ["311_group_force_openai_ultrafast.sql", "312_group_usage_rollup_nonblocking_build.sql"]
+    assert current["new_migrations"] == ["313_channel_pricing_ultrafast_multiplier.sql"]
     assert "304_upstream_confidence_fingerprint.sql" in registry["migration_contracts"]
 
     context = (ROOT / "maintenance/release/context.sh").read_text(encoding="utf-8")
@@ -44,14 +44,14 @@ def test_profile_278_registry_and_vm_admission_are_consistent():
     signer = (ROOT / "release/sign-gate.sh").read_text(encoding="utf-8")
     prepare = (ROOT / "maintenance/release/prepare.sh").read_text(encoding="utf-8")
     release_path_guard = next(line for line in signer.splitlines() if line.startswith("[[ $gate =~"))
-    assert "|278|279|280|281|282|283|284|285)" in release_path_guard
-    assert re.search(r"\|277\|278\|279\|280\|281\|282\|283\|284\|285\)", context)
-    schema_two_profile_guard = next(line for line in validator.splitlines() if line.lstrip().startswith('[[ "$profile" == 285'))
-    assert schema_two_profile_guard.strip() == '[[ "$profile" == 285 ]]'
+    assert "|278|279|280|281|282|283|284|285|286)" in release_path_guard
+    assert re.search(r"\|277\|278\|279\|280\|281\|282\|283\|284\|285\|286\)", context)
+    schema_two_profile_guard = next(line for line in validator.splitlines() if line.lstrip().startswith('[[ "$profile" == 286'))
+    assert schema_two_profile_guard.strip() == '[[ "$profile" == 286 ]]'
     assert 'elif [[ "$profile" == 278 ]]; then' in validator
-    assert 'elif [[ "$profile" == 285 ]]; then' in validator
+    assert 'elif [[ "$profile" == 286 ]]; then' in validator
     assert '"$version" == 0.2.21-baiyu' in validator
     assert '"$profile" == 277' in validator
     gate_v2_guard = next(line for line in signer.splitlines() if line.startswith("if [[ $gate_profile == 242"))
     assert "$gate_profile == 279" in gate_v2_guard
-    assert '[[ $profile == 285' in prepare
+    assert '[[ $profile == 286' in prepare
