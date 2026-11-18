@@ -16,6 +16,8 @@ Windows 共享读取必须与原生安全替换配套；单独调整轮询间隔
 
 另一个精确冻结的 `273-1396fc89fe73-1792295582-80609bce` 第 681 行计划比较事故由独立 `reconcile-vm-failed-preserve` 收口：仅此事故允许本 release 启动的 retained VM 显式保留运行，原四文件及远端 Gate 事故证据不改。当前已提交推送 helper、原 worker 退出、同 boot/owner、双远端锁、probe 已清理及生产尚未开始均重复证明后，先写独立 checks/result，最后释放 shared owner。`verify-vm-failed-preserve` 只读重验；原 `reconcile-vm-preserve` 不扩宽。下一次发布使用新 commit、new release ID、新 candidate 和新签名 Gate；修改 validator/helper 后旧 manifest/Gate 资产 checksum 不再代表新字节，不得复用失败发布或覆写其事故目录。
 
+通用 `reconcile-vm-pre-gate-preserve <release_id>` 收口在 Gate 前以 `init/not_started`、空 history 退出的失败 release。若 VM 由该 release 启动且仍在运行，入口持有原发布锁和 VM 身份锁，在原 worker 退出、boot/owner 精确匹配后重复只读核对任何 Gate、VM 隔离资源、生产 claim、状态及候选资源均不存在。生产镜像、迁移清单和 active route 取自实测观测，核对健康及两次观测一致。原失败证据保留，先验真独立 checks/result，再释放 shared owner。`verify-vm-pre-gate-preserve` 只重验已经提交的收口。VM 保持运行，后续发布使用新 release ID。
+
 ## 已消费发布的后置完成
 
 生产已 `production_verified` 且 claim 已 consumed、原 worker 仅后置检查失败退出时，使用正式 `finalize-consumed <release_id>` 入口。它属于独立 `ops-control-assets` 收口，不重发应用、不重新消费 claim、不恢复数据；原 runner 非零退出及原 manifest、Gate、production result、VM 生命周期事故记录保持原样。
