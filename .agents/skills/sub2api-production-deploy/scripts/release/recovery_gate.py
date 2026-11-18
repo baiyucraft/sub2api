@@ -354,13 +354,11 @@ _PROFILE286_COMPATIBILITY_REVIEW_PATHS = frozenset(
         for number in (195, *range(232, 246), 254, 285, 297, 298, 299, 301)
     }
 )
+_FAILED_RELEASE_CLOSURE_REVIEW_PATHS = frozenset(
+    _SCRIPTS_PREFIX + "release/" + name
+    for name in ("cli.py", "vm_pre_gate_preserve.py", "full_recovery_cleanup.py", "full_recovery_session.py")
+)
 _REVIEWED_SCOPED_TRANCHES = (
-    (
-        "19ec27a4d2895101622424dfa1356870004c6de9",
-        "6fab0a01de746a4554dead67811c0247ebed644f",
-        "reviewed_profile_compatibility_changed",
-        _PROFILE286_COMPATIBILITY_REVIEW_PATHS,
-    ),
     (
         "aeb410bccc524164bdafbd3db865d4f5f588aced",
         "6f5daaaed6e0cbfae2011cfa55b47688f33634eb",
@@ -570,6 +568,18 @@ _REVIEWED_SCOPED_TRANCHES = (
         "3cbeebf3de3b79a1692f11ab2a2c557642c2624f",
         "reviewed_prepare_gate_policy_changed",
         _PREPARE_GATE_POLICY_REVIEW_PATHS,
+    ),
+    (
+        "19ec27a4d2895101622424dfa1356870004c6de9",
+        "6fab0a01de746a4554dead67811c0247ebed644f",
+        "reviewed_profile_compatibility_changed",
+        _PROFILE286_COMPATIBILITY_REVIEW_PATHS,
+    ),
+    (
+        "19ec27a4d2895101622424dfa1356870004c6de9",
+        "f966171623f8ace8ad1594169d97070e60ba525f",
+        "reviewed_failed_release_closure_changed",
+        _FAILED_RELEASE_CLOSURE_REVIEW_PATHS,
     ),
 )
 _RELEASE_STATE_MACHINE_FILES = frozenset(

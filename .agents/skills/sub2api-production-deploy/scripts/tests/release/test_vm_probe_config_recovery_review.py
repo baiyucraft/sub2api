@@ -17,8 +17,6 @@ BASE = "c88f06e57a829438595263d524e02219aa2f5a2e"
 IMPLEMENTATION_PARENT = "12d4cf67d1c666a661458d282fd2284fa3d543eb"
 TARGET = "91a13c6c64558f5d78ae8b75979af0e6a24b60b2"
 REGISTRY = "3637415ab083105e1533dc17915319eeba9f6f46"
-# Freeze the reviewed backup-maintenance marker already present before this merge.
-CURRENT_REGISTRY = "a92c84a3f0d9d23a305044a67341374fc8b8b253"
 PREFIX = ".agents/skills/sub2api-production-deploy/scripts/release/"
 CONFIG = PREFIX + "vm-probe-config.py"
 PRESERVE = PREFIX + "vm_restore_probe_preserve.py"
@@ -78,11 +76,8 @@ def test_prior_registry_is_frozen_and_current_ast_only_appends_this_tranche():
         if name.startswith("_") and name.endswith("_PATHS"):
             assert getattr(gate, name) == value
 
-    # Freeze the complete live module to the pre-merge registry, including its
-    # later reviewed tranches, while auditing this incident at its original
-    # immutable registration. Neither check admits arbitrary new tail entries.
-    live = ast.parse(Path(gate.__file__).read_text(encoding="utf-8"))
-    assert ast.dump(live, include_attributes=False) == ast.dump(ast.parse(source_at(CURRENT_REGISTRY)), include_attributes=False)
+    # This incident is audited at its immutable registration. The profile 286
+    # regression checks the complete live AST against the pre-profile-286 registry.
     current = ast.parse(source_at(REGISTRY))
     retained, removed, appended = [], 0, 0
     for node in current.body:

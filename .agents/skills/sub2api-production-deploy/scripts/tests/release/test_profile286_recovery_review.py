@@ -1,6 +1,7 @@
 """Profile 286 wiring keeps the real Specialized restore and binds exact Git objects."""
 from __future__ import annotations
 
+import ast
 import json
 import re
 import shutil
@@ -14,6 +15,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from release import recovery_gate as gate
 from release.paths import WORKSPACE
+from release.process import check_output_hidden
 
 BASE = "19ec27a4d2895101622424dfa1356870004c6de9"
 TARGET = "6fab0a01de746a4554dead67811c0247ebed644f"
@@ -69,8 +71,50 @@ PATHS = frozenset(PREFIX + path for path in OBJECTS)
 TRANCHE = (BASE, TARGET, "reviewed_profile_compatibility_changed", PATHS)
 PRE_GATE = {PREFIX + "release/" + name for name in ("cli.py", "vm_pre_gate_preserve.py")}
 NEW_CLEANUP = tuple(PREFIX + "release/" + name for name in ("full_recovery_session.py", "full_recovery_cleanup.py"))
+CLOSURE_TARGET = "f966171623f8ace8ad1594169d97070e60ba525f"
+CLOSURE_OBJECTS = {
+    PREFIX + "release/cli.py": ("100644:3e40fc8ac2a16a6868bc972e229ad89645134096", "100644:7427b1c7ec1459afd4750dac8a6de13dd57137fc"),
+    PREFIX + "release/vm_pre_gate_preserve.py": (None, "100644:1b41daac8061f35f022eb032ca5e80561768da96"),
+    PREFIX + "release/full_recovery_cleanup.py": (None, "100644:0ab2ce78b2baf11385b3b29e3d803256637979fd"),
+    PREFIX + "release/full_recovery_session.py": (None, "100644:989b061ca781ddb1f0c0da9a589f8bc186e2f0b1"),
+}
+CLOSURE_TRANCHE = (BASE, CLOSURE_TARGET, "reviewed_failed_release_closure_changed", frozenset(CLOSURE_OBJECTS))
 MIGRATION = "backend/migrations/313_channel_pricing_ultrafast_multiplier.sql"
 MIGRATION_NAME = MIGRATION.rsplit("/", 1)[1]
+
+
+def test_live_registry_only_adds_two_reviewed_groups_and_three_sensitive_markers():
+    prior = check_output_hidden(
+        ["git", "show", "a92c84a3f0d9d23a305044a67341374fc8b8b253:" + PREFIX + "release/recovery_gate.py"],
+        cwd=WORKSPACE,
+    ).decode("utf-8")
+    live = ast.parse(Path(gate.__file__).read_text(encoding="utf-8"))
+    new_groups = ("_PROFILE286_COMPATIBILITY_REVIEW_PATHS", "_FAILED_RELEASE_CLOSURE_REVIEW_PATHS")
+    sensitive = {
+        "_RELEASE_STATE_MACHINE_FILES": {PREFIX + "release/vm_pre_gate_preserve.py"},
+        "_RECOVERY_RUNTIME_FILES": {"full_recovery_cleanup.py", "full_recovery_session.py"},
+    }
+    retained, removed = [], set()
+    for node in live.body:
+        names = {target.id for target in node.targets if isinstance(target, ast.Name)} if isinstance(node, ast.Assign) else set()
+        if names & set(new_groups):
+            removed.update(names)
+            continue
+        if "_REVIEWED_SCOPED_TRANCHES" in names:
+            for review, group in reversed(tuple(zip((TRANCHE, CLOSURE_TRANCHE), new_groups))):
+                arguments = ", ".join((*map(repr, review[:3]), group))
+                expected = ast.parse(f"({arguments})", mode="eval").body
+                assert ast.dump(node.value.elts.pop()) == ast.dump(expected)
+        for name in names & sensitive.keys():
+            values = node.value.args[0].elts
+            found = [value for value in values if isinstance(value, ast.Constant) and value.value in sensitive[name]]
+            assert {value.value for value in found} == sensitive[name] and len(found) == len(sensitive[name])
+            for value in found:
+                values.remove(value)
+        retained.append(node)
+    assert removed == set(new_groups)
+    live.body = retained
+    assert ast.dump(live) == ast.dump(ast.parse(prior))
 
 
 def test_real_git_objects_are_exact_and_exclude_reconciliation():
@@ -81,10 +125,73 @@ def test_real_git_objects_are_exact_and_exclude_reconciliation():
     assert {path: (old.get(path), new.get(path)) for path in PATHS} == expected
     assert {path for path in gate._changed_paths(WORKSPACE, BASE, TARGET)
             if gate._is_recovery_sensitive_path(path)} == PATHS | PRE_GATE
-    assert gate._reviewed_compatibility_paths(WORKSPACE, BASE, TARGET) == dict.fromkeys(PATHS, TRANCHE[2])
+    assert gate._reviewed_compatibility_paths(WORKSPACE, BASE, TARGET) == (
+        dict.fromkeys(PATHS, TRANCHE[2]) | {PREFIX + "release/vm_pre_gate_preserve.py": CLOSURE_TRANCHE[2]}
+    )
     report = gate.classify(WORKSPACE, BASE, TARGET)
     assert report["mode"] == "full"
     assert "recovery_change_requires_review" in report["reason_codes"]
+
+
+def test_real_git_failure_closure_review_is_separate_and_stays_specialized():
+    old, new = gate._tree_blobs(WORKSPACE, BASE), gate._tree_blobs(WORKSPACE, CLOSURE_TARGET)
+    assert CLOSURE_TRANCHE in gate._REVIEWED_SCOPED_TRANCHES
+    assert set(CLOSURE_OBJECTS) == PRE_GATE | set(NEW_CLEANUP)
+    assert not PATHS & CLOSURE_OBJECTS.keys()
+    assert {path: (old.get(path), new.get(path)) for path in CLOSURE_OBJECTS} == CLOSURE_OBJECTS
+    assert {path for path in gate._changed_paths(WORKSPACE, BASE, CLOSURE_TARGET)
+            if gate._is_recovery_sensitive_path(path)} == PATHS | CLOSURE_OBJECTS.keys()
+    assert gate._reviewed_compatibility_paths(WORKSPACE, BASE, CLOSURE_TARGET) == (
+        dict.fromkeys(PATHS, TRANCHE[2]) | dict.fromkeys(CLOSURE_OBJECTS, CLOSURE_TRANCHE[2])
+    )
+    report = gate.classify(WORKSPACE, BASE, CLOSURE_TARGET)
+    assert report["mode"] == "specialized"
+    assert {TRANCHE[2], CLOSURE_TRANCHE[2], "migration_changed"} <= set(report["reason_codes"])
+    gate.assert_release_allowed(report)
+    with mock.patch.object(gate, "_REVIEWED_SCOPED_TRANCHES", (TRANCHE,)):
+        assert gate.classify(WORKSPACE, BASE, CLOSURE_TARGET)["mode"] == "full"
+
+
+def test_failure_closure_review_rejects_any_unknown_control_change():
+    frozen_old = {path: pair[0] for path, pair in CLOSURE_OBJECTS.items() if pair[0] is not None}
+    frozen_new = {path: pair[1] for path, pair in CLOSURE_OBJECTS.items()}
+    base, target = "a" * 40, "b" * 40
+    old, new = frozen_old.copy(), frozen_new.copy()
+
+    def reject():
+        paths = [path for path in old.keys() | new.keys() if old.get(path) != new.get(path)]
+        with mock.patch.object(gate, "_changed_paths", return_value=paths):
+            report = gate.classify(WORKSPACE, base, target)
+        assert report["mode"] == "full"
+        with pytest.raises(RuntimeError, match="independent full DR"):
+            gate.assert_release_allowed(report)
+
+    trees = {BASE: frozen_old, CLOSURE_TARGET: frozen_new, base: old, target: new}
+    with (
+        mock.patch.object(gate, "_tree_blobs", side_effect=lambda _, sha: trees[sha]),
+        mock.patch.object(gate, "_commit_exists", side_effect=lambda _, sha: sha in trees),
+        mock.patch.object(gate, "_is_ancestor", return_value=True),
+    ):
+        for path, oid in frozen_new.items():
+            new[path] = "100644:" + "0" * 40
+            reject()
+            new[path] = "100755" + oid[6:]
+            reject()
+            del new[path]
+            if path in old:
+                reject()
+            new[PREFIX + "release/trust/relocated"] = oid
+            reject()
+            del new[PREFIX + "release/trust/relocated"]
+            new[path] = oid
+            old[path] = "100644:" + "0" * 40
+            reject()
+            if path in frozen_old:
+                old[path] = frozen_old[path]
+            else:
+                del old[path]
+        new[PREFIX + "release/trust/unknown"] = "100644:" + "0" * 40
+        reject()
 
 
 def test_exact_wiring_and_migration_stay_specialized_and_drift_remains_full():
