@@ -35,7 +35,7 @@ def report(mode: str = "dry-run") -> dict[str, str]:
 
 
 class ProductionRecoveryRetentionTest(unittest.TestCase):
-    def test_shell_and_python_accept_current_and_historical_profiles_only(self) -> None:
+    def test_historical_ids_and_configured_profile_authorization(self) -> None:
         script = (DEPLOY_ROOT / "release" / "production-recovery-retention-clean.sh").read_text(encoding="utf-8")
         pattern = re.search(r"^release_id_pattern='([^']+)'$", script, re.MULTILINE)[1]
         profiles = (182, 187, 191, 192, 194, 195, 197, 198, 199, 202, 206, 207,
@@ -46,7 +46,16 @@ class ProductionRecoveryRetentionTest(unittest.TestCase):
                 values["candidate_ids"] = f"{profile}-aaaaaaaaaaaa-1-deadbeef"
                 self.assertIsNotNone(re.fullmatch(pattern, values["candidate_ids"]))
                 _validate(values, "dry-run", None)
-        for candidate in ("287-aaaaaaaaaaaa-1-deadbeef", "0259-aaaaaaaaaaaa-1-deadbeef",
+        unregistered = "999999999-aaaaaaaaaaaa-1-deadbeef"
+        self.assertIsNotNone(re.fullmatch(pattern, unregistered))
+        self.assertIn('verify_configured_retention_gate "$release_id" "$release_dir/.consumed" || return 1', script)
+        self.assertIn('verify_configured_retention_gate "$release_id" "$release_dir/.recovered" || return 1', script)
+        self.assertIn('openssl pkeyutl -verify', script)
+        values = report()
+        values["candidate_ids"] = unregistered
+        with self.assertRaisesRegex(RuntimeError, "invalid candidate ID"):
+            _validate(values, "dry-run", None)
+        for candidate in ("0259-aaaaaaaaaaaa-1-deadbeef",
                           "259-aaaaaaaaaaaa-1-deadbeef/../outside"):
             with self.subTest(candidate=candidate):
                 values = report()

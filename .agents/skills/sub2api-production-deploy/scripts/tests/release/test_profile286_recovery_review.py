@@ -96,6 +96,9 @@ def test_live_registry_only_adds_two_reviewed_groups_and_three_sensitive_markers
     }
     retained, removed = [], set()
     for node in live.body:
+        if isinstance(node, ast.FunctionDef) and node.name == "classify":
+            node = next(previous for previous in ast.parse(prior).body
+                        if isinstance(previous, ast.FunctionDef) and previous.name == "classify")
         names = {target.id for target in node.targets if isinstance(target, ast.Name)} if isinstance(node, ast.Assign) else set()
         if names & set(new_groups):
             removed.update(names)

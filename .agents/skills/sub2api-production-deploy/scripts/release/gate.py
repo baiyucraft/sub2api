@@ -13,6 +13,7 @@ from typing import Any
 from .atomic import atomic_write, canonical_json
 from .manifest import (
     manifest_release_asset_layout,
+    profile_contract_digest,
     release_asset_checksums,
     release_unit_relative_paths,
     runner_checksum,
@@ -22,7 +23,7 @@ from .manifest import (
     validate_manifest_profile_contract,
 )
 from .paths import LAYOUT_DEPLOY_V1, RELEASE_PACKAGE_ROOT
-from .profiles import CURRENT_RELEASE_PROFILE, get_profile
+from .profiles import CURRENT_RELEASE_PROFILE, get_profile, requires_profile
 from .process import run_hidden
 from .migration_planner import CHECKSUM_POLICY_VERSION, HOOK_REGISTRY, catalog_sha256, checksum_policy_sha256
 from .vm_build import validate_build_dependency_binding
@@ -266,7 +267,7 @@ def _validate_v2_pending(manifest: dict[str, Any], evidence: dict[str, Any]) -> 
         (item for item in catalog if isinstance(item, dict) and item.get("filename") == lifecycle_filename),
         None,
     )
-    if manifest.get("profile") in {"260", "261", "262", "263", "264", "265", "266", "267", "268", "269", "270", "271", "272", "273", "274", "275", "276", "277", "278", "279", "280", "281", "282", "283", "284", "285", "286"} and lifecycle_catalog is None:
+    if requires_profile(manifest.get("profile"), 260) and lifecycle_catalog is None:
         raise RuntimeError("Gate v2 lacks migration 285 catalog entry")
     if lifecycle_catalog is not None:
         required_fields.add("migration_285")
@@ -274,22 +275,22 @@ def _validate_v2_pending(manifest: dict[str, Any], evidence: dict[str, Any]) -> 
         (item for item in catalog if isinstance(item, dict) and item.get("filename") == "297_upstream_cache_guard_account_scope.sql"),
         None,
     )
-    if manifest.get("profile") in {"269", "270", "271", "272", "273", "274", "275", "276", "277", "278", "279", "280", "281", "282", "283", "284", "285", "286"} and account_scope_catalog is None:
+    if requires_profile(manifest.get("profile"), 269) and account_scope_catalog is None:
         raise RuntimeError("Gate v2 lacks migration 297 catalog entry")
     if account_scope_catalog is not None:
         required_fields.add("migration_297")
     protection_catalog = next((item for item in catalog if isinstance(item, dict) and item.get("filename") == "298_group_scheduling_protection_policies.sql"), None)
-    if manifest.get("profile") in {"270", "271", "272", "273", "274", "275", "276", "277", "278", "279", "280", "281", "282", "283", "284", "285", "286"} and protection_catalog is None:
+    if requires_profile(manifest.get("profile"), 270) and protection_catalog is None:
         raise RuntimeError("Gate v2 lacks migration 298 catalog entry")
     if protection_catalog is not None:
         required_fields.add("migration_298")
     revisions_catalog = next((item for item in catalog if isinstance(item, dict) and item.get("filename") == "299_upstream_cache_guard_revisions.sql"), None)
-    if manifest.get("profile") in {"271", "272", "273", "274", "275", "276", "277", "278", "279", "280", "281", "282", "283", "284", "285", "286"} and revisions_catalog is None:
+    if requires_profile(manifest.get("profile"), 271) and revisions_catalog is None:
         raise RuntimeError("Gate v2 lacks migration 299 catalog entry")
     if revisions_catalog is not None:
         required_fields.add("migration_299")
     admissions_catalog = next((item for item in catalog if isinstance(item, dict) and item.get("filename") == "301_upstream_cache_guard_admissions.sql"), None)
-    if manifest.get("profile") in {"274", "275", "276", "277", "278", "279", "280", "281", "282", "283", "284", "285", "286"} and admissions_catalog is None:
+    if requires_profile(manifest.get("profile"), 274) and admissions_catalog is None:
         raise RuntimeError("Gate v2 lacks migration 301 catalog entry")
     if admissions_catalog is not None:
         required_fields.add("migration_301")
@@ -546,12 +547,21 @@ def verify_vm_only_gate(
     if expected_profile != CURRENT_RELEASE_PROFILE or profile.get("gate_schema") != 2:
         raise RuntimeError("VM-only Gate only accepts the current Gate v2 profile")
     optional_build_fields = {name for name in ("build_dependency_contract", "build_dependencies", "build_dependencies_sha256") if name in manifest}
+    commit = validate_commit(str(manifest.get("commit_sha", "")))
+    contract_digest = profile_contract_digest(commit, profile)
+    contract_fields = {"parent_profile", "new_migrations", "profile_contract_sha256"} if contract_digest is not None else set()
     if set(manifest) != {
         "schema", "vm_only_schema", "scope", "release_id", "created_at", "expires_at", "commit_sha", "origin",
         "profile", "version", "vm_identity", "vm_port", "vm_data", "source_tree_sha256",
         "vm_only_validator_sha256", "vm_only_switch_sha256",
-    } | optional_build_fields:
+    } | optional_build_fields | contract_fields:
         raise RuntimeError("VM-only manifest contains unknown or missing fields")
+    if contract_digest is not None and (
+        manifest["parent_profile"] != profile["parent"]
+        or manifest["new_migrations"] != profile["new_migrations"]
+        or manifest["profile_contract_sha256"] != contract_digest
+    ):
+        raise RuntimeError("VM-only profile contract does not match the target commit")
     if manifest.get("schema") != 2 or manifest.get("vm_only_schema") != 1 or manifest.get("scope") != "vm-only":
         raise RuntimeError("VM-only manifest scope is invalid")
     if manifest.get("profile") != expected_profile or manifest.get("version") != profile["version"]:
@@ -560,7 +570,6 @@ def verify_vm_only_gate(
         raise RuntimeError("VM-only manifest origin or identity is invalid")
     if manifest.get("vm_port") != 8211 or manifest.get("vm_data") != "/opt/sub2api-deploy/data-dev":
         raise RuntimeError("VM-only display target is invalid")
-    validate_commit(str(manifest.get("commit_sha", "")))
     if not re.fullmatch(r"[0-9a-f]{40}", str(manifest.get("source_tree_sha256", ""))):
         raise RuntimeError("VM-only source tree checksum is invalid")
     for field in ("vm_only_validator_sha256", "vm_only_switch_sha256"):

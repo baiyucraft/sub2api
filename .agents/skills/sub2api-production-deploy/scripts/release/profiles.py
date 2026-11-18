@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+import json
+import re
+from copy import deepcopy
+
+from .atomic import read_replaceable_bytes
+from .paths import WORKSPACE
+
 
 PROFILES = {
     "182": {
@@ -1186,17 +1193,92 @@ PROFILES["286"] = {
     },
 }
 
-CURRENT_RELEASE_PROFILE = "286"
+PROFILE_CONTRACT_PATH = ".release/contract.json"
+LEGACY_CURRENT_PROFILE = "286"
+_MAX_CONTRACT_BYTES = 128 * 1024
+_VERSION = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)-baiyu")
+_MIGRATION = re.compile(r"([0-9]{3})_[a-z0-9_]+\.sql")
+
+
+def _unique_json_fields(pairs: list[tuple[str, object]]) -> dict:
+    fields = {}
+    for key, value in pairs:
+        if key in fields:
+            raise ValueError(f"duplicate profile contract field: {key}")
+        fields[key] = value
+    return fields
+
+
+def parse_profile_contract(raw: bytes) -> dict[str, dict]:
+    """Read only additive profiles that inherit the frozen downtime contract."""
+    if len(raw) > _MAX_CONTRACT_BYTES:
+        raise ValueError("release profile contract is too large")
+    data = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_json_fields)
+    if (
+        not isinstance(data, dict)
+        or set(data) != {"schema", "profiles"}
+        or type(data["schema"]) is not int
+        or data["schema"] != 1
+        or not isinstance(data["profiles"], list)
+    ):
+        raise ValueError("invalid release profile contract")
+
+    profiles = {}
+    parent = LEGACY_CURRENT_PROFILE
+    migration_number = 313
+    for entry in data["profiles"]:
+        if not isinstance(entry, dict) or set(entry) != {"profile", "parent", "version", "new_migrations"}:
+            raise ValueError("invalid release profile fields")
+        name = str(int(parent) + 1)
+        if entry["profile"] != name or entry["parent"] != parent:
+            raise ValueError("release profile chain must extend its immediate parent")
+        if not isinstance(entry["version"], str) or not _VERSION.fullmatch(entry["version"]):
+            raise ValueError("invalid release profile version")
+        migrations = entry["new_migrations"]
+        if not isinstance(migrations, list):
+            raise ValueError("release profile migrations must be a list")
+        for filename in migrations:
+            match = _MIGRATION.fullmatch(filename) if isinstance(filename, str) else None
+            if match is None or int(match[1]) <= migration_number:
+                raise ValueError("release profile migration numbers must increase beyond the parent")
+            migration_number = int(match[1])
+        profiles[name] = {
+            **PROFILES[LEGACY_CURRENT_PROFILE],
+            "name": name,
+            "parent": parent,
+            "version": entry["version"],
+            "new_migrations": migrations,
+        }
+        parent = name
+    return profiles
+
+
+def requires_profile(profile: object, minimum: int) -> bool:
+    """Apply an inherited requirement on the existing continuous Gate v2 chain."""
+    return isinstance(profile, str) and profile.isascii() and profile.isdecimal() and int(profile) >= minimum
+
+
+def _workspace_profiles() -> dict[str, dict]:
+    try:
+        raw = read_replaceable_bytes(WORKSPACE / PROFILE_CONTRACT_PATH, _MAX_CONTRACT_BYTES)
+    except FileNotFoundError:
+        return {}
+    return parse_profile_contract(raw)
+
+
+_CONFIGURED_PROFILES = _workspace_profiles()
+CURRENT_RELEASE_PROFILE = next(reversed(_CONFIGURED_PROFILES), LEGACY_CURRENT_PROFILE)
 
 
 def get_profile(name: str) -> dict:
     try:
-        return dict(PROFILES[name])
+        return deepcopy(PROFILES[name] if name in PROFILES else _CONFIGURED_PROFILES[name])
     except KeyError as error:
         raise ValueError(f"unknown release profile: {name}") from error
 
 
 def get_release_profile(name: str) -> dict:
     if name != CURRENT_RELEASE_PROFILE:
+        get_profile(name)
         raise ValueError(f"profile {name} is historical and cannot create a new release")
     return get_profile(name)

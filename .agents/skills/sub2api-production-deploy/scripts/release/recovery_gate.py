@@ -838,6 +838,18 @@ def classify(workspace: Path, base_commit: str | None, target_commit: str) -> di
         return _unproven_report(target_commit, base_commit)
 
     paths = _changed_paths(workspace, base_commit, target_commit)
+    from .manifest import read_committed_profile_contract
+    from .profiles import PROFILE_CONTRACT_PATH, parse_profile_contract
+
+    if PROFILE_CONTRACT_PATH in paths:
+        before_raw = read_committed_profile_contract(base_commit, workspace=workspace)
+        after_raw = read_committed_profile_contract(target_commit, workspace=workspace)
+        if after_raw is None:
+            raise RuntimeError("the committed release profile contract cannot be removed")
+        before = parse_profile_contract(before_raw) if before_raw is not None else {}
+        after = parse_profile_contract(after_raw)
+        if list(after.items())[:len(before)] != list(before.items()):
+            raise RuntimeError("previously published release profiles cannot be rewritten")
     sensitive_paths = {path for path in paths if _is_recovery_sensitive_path(path)}
     reviewed = _reviewed_compatibility_paths(workspace, base_commit, target_commit) if sensitive_paths else {}
     reasons: set[str] = set()

@@ -5,9 +5,11 @@ import re
 import shlex
 import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 
-from .manifest import sha256_file, validate_image_id
+from .manifest import profile_contract_digest, sha256_file, validate_image_id
 from .atomic import read_replaceable_text
+from .profiles import get_profile
 from .paths import RELEASE_PACKAGE_ROOT, RUN_ROOT, TRUSTED_VM_PUBLIC_KEY, WORKSPACE
 from .ssh import SSHRunner
 from .state import RunLock
@@ -15,7 +17,7 @@ from .process import run_hidden
 
 
 PRODUCTION_SPACE_CLEANER = RELEASE_PACKAGE_ROOT / "production-space-clean.sh"
-RELEASE_ID = re.compile(r"^(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273|274|275|276|277|278|279|280|281|282|283|284|285|286)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$")
+RELEASE_ID = re.compile(r"^([1-9][0-9]{0,8})-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$")
 FINAL_STAGES = {"production_verified", "production_verified_after_reconciliation"}
 PRODUCTION_CLEAN_FIELDS = {
     "cleanup_mode",
@@ -149,6 +151,7 @@ def validate_cleanup_evidence(
 def load_cleanup_identity(release_id: str, run_root: Path = RUN_ROOT) -> CleanupIdentity:
     if not RELEASE_ID.fullmatch(release_id):
         raise ValueError("release ID is invalid")
+    profile = get_profile(release_id.split("-", 1)[0])
     run_dir = run_root / release_id
     gate_dir = run_dir / "gate"
     if not run_dir.is_dir() or run_dir.is_symlink() or not gate_dir.is_dir() or gate_dir.is_symlink():
@@ -179,8 +182,13 @@ def load_cleanup_identity(release_id: str, run_root: Path = RUN_ROOT) -> Cleanup
     )
     gate = json.loads(gate_path.read_text(encoding="utf-8"))
     result = json.loads(read_replaceable_text(result_path))
-    if gate.get("manifest", {}).get("release_id") != release_id:
+    manifest = gate.get("manifest", {})
+    if manifest.get("release_id") != release_id:
         raise RuntimeError("signed Gate release identity does not match")
+    if int(profile["name"]) > 286:
+        digest = profile_contract_digest(manifest.get("commit_sha", ""), profile)
+        if manifest.get("profile") != profile["name"] or manifest.get("profile_contract_sha256") != digest:
+            raise RuntimeError("signed Gate profile contract differs")
     current_image_id = validate_image_id(gate.get("evidence", {}).get("candidate_image_id", ""))
     if result.get("release_id") != release_id or result.get("status") != "verified" or result.get("stage") not in FINAL_STAGES:
         raise RuntimeError("production result is not terminal verified evidence")

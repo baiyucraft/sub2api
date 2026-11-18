@@ -11,7 +11,7 @@ input=${2:?private staging directory required}
 expected_artifact=${3:?encrypted artifact SHA-256 required}
 {
   required_query_1=$(id -u)
-  [[ ${required_query_1} == 0 && $release_id =~ ^(271|272|273|274|275|276|277|278|279|280|281|282|283|284|285|286)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ && $expected_artifact =~ ^[0-9a-f]{64}$ ]]
+  [[ ${required_query_1} == 0 && $release_id =~ ^(271|272|273|274|275|276|277|278|279|280|281|282|283|284|285|286|28[7-9]|29[0-9]|[3-9][0-9]{2}|[1-9][0-9]{3,8})-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ && $expected_artifact =~ ^[0-9a-f]{64}$ ]]
 }
 [[ $input =~ ^/srv/sub2api-backups/dr-baseline-stage\.[A-Za-z0-9]{8}$ ]]
 {
@@ -20,6 +20,7 @@ expected_artifact=${3:?encrypted artifact SHA-256 required}
   [[ -d $input && ! -L $input && ${required_query_2} == "$input" && ${required_query_3} == root:root:700 ]]
 }
 baseline_profile=${release_id%%-*}
+(( baseline_profile >= 271 ))
 root="/srv/sub2api-backups/releases/$baseline_profile"
 trust=/opt/sub2api-dr-trust/vm-gate-ed25519.pub
 verifier=/usr/local/libexec/sub2api-verify-dr-evidence
@@ -39,13 +40,6 @@ verifier=/usr/local/libexec/sub2api-verify-dr-evidence
   required_query_7=$(sha256sum "$verifier" | awk '{print $1}')
   [[ ${required_query_7} == f43b10ae4e9d52b970a9395487a3cf31ae2ccb0d869b5d0a5ee134fd0ca81d89 ]]
 }
-for directory in "$root"; do
-  {
-    required_query_8=$(realpath -e "$directory")
-    required_query_9=$(stat -c '%U:%G:%a' "$directory")
-    [[ -d $directory && ! -L $directory && ${required_query_8} == "$directory" && ${required_query_9} == root:root:700 ]]
-  }
-done
 {
   required_query_10=$(find "$input" -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort)
   [[ ${required_query_10} == $'artifact.tar.age\ncandidate.tar.gz\ncapture-receipt.json\ngate.json\ngate.sig' ]]
@@ -80,6 +74,21 @@ candidate_sha=$(jq -er '.evidence.candidate_archive_sha256' "$input/gate.json")
   (.captured_at|test("^[0-9]{8}T[0-9]{6}Z$")) and .cross_store_writes_frozen==false
 ' "$input/capture-receipt.json"
 } >/dev/null
+releases_root=${root%/*}
+[[ -d $releases_root && ! -L $releases_root ]]
+required_query_8=$(realpath -e "$releases_root")
+required_query_9=$(stat -c '%U:%G:%a' "$releases_root")
+[[ ${required_query_8} == "$releases_root" && ${required_query_9} == root:root:700 ]]
+if (( baseline_profile > 286 )); then
+  jq -e '.manifest.profile_contract_sha256 | type == "string" and test("^[0-9a-f]{64}$")' "$input/gate.json" >/dev/null
+  if [[ ! -e $root && ! -L $root ]]; then
+    mkdir -m 700 "$root" || [[ -d $root && ! -L $root ]]
+  fi
+fi
+[[ -d $root && ! -L $root ]]
+required_query_8=$(realpath -e "$root")
+required_query_9=$(stat -c '%U:%G:%a' "$root")
+[[ ${required_query_8} == "$root" && ${required_query_9} == root:root:700 ]]
 artifact_name="sub2api-$(jq -er '.captured_at' "$input/capture-receipt.json").tar.age"
 {
   required_query_15=$(df -PB1 "$root" | awk 'NR==2{print $4}')

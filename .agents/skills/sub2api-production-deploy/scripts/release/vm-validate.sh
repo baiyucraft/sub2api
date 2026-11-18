@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 trap 'rc=$?; printf "vm_validate_failure_line=%s status=%s\\n" "$LINENO" "$rc"; exit "$rc"' ERR
-# Legacy Gate v1 profile allowlist; Gate v2 current profile is 286 and 242-285 remain historical.
+# Legacy Gate profile allowlists are retained for historical releases.
 
 required_commands=(awk chmod cp curl date df diff docker find flock git grep gzip head id install jq ln mkdir mv python3 rm sed seq sha256sum sleep sort ss stat tar tr xargs)
 for command_name in "${required_commands[@]}"; do
@@ -253,8 +253,15 @@ test_tag="sub2api:vm-test-$commit"
 profile=$(jq -er '.profile' "$manifest")
 manifest_schema=$(jq -er '.schema' "$manifest")
 if [[ "$manifest_schema" == 2 ]]; then
-  [[ "$profile" == 286 ]]
-  [[ "$release_id" =~ ^(254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273|274|275|276|277|278|279|280|281|282|283|284|285|286)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
+  configured_profile=false
+  if [[ "$profile" =~ ^[1-9][0-9]{2,8}$ ]] && (( profile > 286 )); then
+    configured_profile=true
+    [[ "$release_id" =~ ^[1-9][0-9]{2,8}-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
+  else
+    [[ "$profile" == 286 ]]
+    [[ "$release_id" =~ ^286-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
+  fi
+  [[ "$release_id" == "$profile-${commit:0:12}-"* ]]
   {
     required_query_4=$(jq -er '.release_asset_layout' "$manifest") || exit $?
     [[ ${required_query_4} == skill-v1 ]]
@@ -485,7 +492,7 @@ if [[ "$manifest_schema" == 2 ]]; then
     [[ $required_parent_286 == 285 ]]
     jq -e '.new_migrations == ["313_channel_pricing_ultrafast_multiplier.sql"] and .deployment_mode == "downtime"' "$manifest" >/dev/null
   else
-    exit 1
+    [[ "$configured_profile" == true ]]
   fi
   recovery_gate_mode=$(jq -er '.recovery_gate.mode' "$manifest")
   [[ "$recovery_gate_mode" == fast || "$recovery_gate_mode" == specialized || "$recovery_gate_mode" == full ]]
@@ -614,6 +621,8 @@ if [[ "$manifest_schema" == 2 ]]; then
   trap on_v2_failure ERR INT TERM
   cd "$source_dir"
   [[ -f .sub2api-deploy-worktree ]]
+  source_origin=$(git remote get-url origin)
+  [[ "$source_origin" == https://github.com/baiyucraft/sub2api.git ]]
   # Preserve the VM's verified Git egress environment. The remote-tracking
   # refspec is explicit and forced so a stale local origin/main cannot block
   # synchronization without changing the remote branch.
@@ -628,6 +637,32 @@ if [[ "$manifest_schema" == 2 ]]; then
     required_query_40=$(git rev-parse HEAD)
     [[ ${required_query_40} == "$commit" ]]
   }
+  contract_path=.release/contract.json
+  contract_entry=$(git ls-tree "$commit" -- "$contract_path")
+  verified_profile_contract=
+  if [[ -n "$contract_entry" ]]; then
+    [[ "$contract_entry" == "100644 blob "*$'\t'"$contract_path" ]]
+    contract_helper_relative=.agents/skills/sub2api-production-deploy/scripts/maintenance/release/profile-contract.sh
+    contract_helper="$source_dir/$contract_helper_relative"
+    contract_helper_entry=$(git ls-tree "$commit" -- "$contract_helper_relative")
+    [[ "$contract_helper_entry" == "100644 blob "*$'\t'"$contract_helper_relative" ]]
+    [[ -f "$contract_helper" && ! -L "$contract_helper" ]]
+    contract_helper_git=$(git show "$commit:$contract_helper_relative" | sha256sum)
+    contract_helper_sha=$(sha256sum "$contract_helper")
+    [[ "${contract_helper_git%% *}" == "${contract_helper_sha%% *}" ]]
+    source "$contract_helper"
+    verified_profile_contract="$state_dir/profile-contract.json"
+    (umask 077; set -o noclobber; git show "$commit:$contract_path" > "$verified_profile_contract")
+    chmod 400 "$verified_profile_contract"
+    if [[ "$configured_profile" == true ]]; then
+      validate_release_profile_contract "$manifest" "$verified_profile_contract" "$profile"
+    else
+      validate_release_profile_contract_file "$verified_profile_contract"
+      jq -e '.profiles == []' "$verified_profile_contract" >/dev/null
+    fi
+  else
+    [[ "$configured_profile" == false ]]
+  fi
   # The manifest catalog is derived from Git blobs. Rehydrate migrations from
   # the same commit so a stale CRLF working tree cannot change embedded checksums.
   git clean -fdx -- backend/migrations >/dev/null
@@ -926,6 +961,7 @@ if [[ "$manifest_schema" == 2 ]]; then
     printf '%s\n' "$status" > "$state_dir/migration-hook-status"
     chmod 400 "$state_dir/migration-hook-filename" "$state_dir/migration-hook-phase" "$state_dir/migration-hook-status"
     if ! ASSERT_CONTEXT_FILE="$hook_context" ASSERT_CONFIG_FILE="$probe_dir/config.yaml" ASSERT_MANIFEST_FILE="$manifest" \
+      ASSERT_PROFILE_CONTRACT_FILE="$verified_profile_contract" \
       ASSERT_DB_CONTAINER=sub2api-postgres ASSERT_DB_USER="$database_owner" ASSERT_DB_NAME="$probe_db" \
       ASSERT_VM_ISOLATED_DB="$probe_db" ASSERT_MIGRATION_FILE="$source_dir/backend/migrations/$filename" \
       ASSERT_REDIS_CONTAINER="$probe_redis" MIGRATION_STATUS="$status" RELEASE_DIR="$state_dir" \
@@ -1137,7 +1173,7 @@ if [[ "$manifest_schema" == 2 ]]; then
     old_probe_app_created=false
   fi
   mark_v2_stage candidate_health
-  if [[ "$profile" == 264 || "$profile" == 265 || "$profile" == 266 || "$profile" == 267 || "$profile" == 268 || "$profile" == 269 || "$profile" == 270 || "$profile" == 271 || $profile == 272 || $profile == 273 || $profile == 274 || $profile == 275 || $profile == 276 || $profile == 277 || $profile == 278 || $profile == 279 || $profile == 280 || $profile == 281 || $profile == 282 || $profile == 283 || $profile == 284 || $profile == 285 || $profile == 286 ]]; then
+  if [[ "$configured_profile" == true || "$profile" == 264 || "$profile" == 265 || "$profile" == 266 || "$profile" == 267 || "$profile" == 268 || "$profile" == 269 || "$profile" == 270 || "$profile" == 271 || $profile == 272 || $profile == 273 || $profile == 274 || $profile == 275 || $profile == 276 || $profile == 277 || $profile == 278 || $profile == 279 || $profile == 280 || $profile == 281 || $profile == 282 || $profile == 283 || $profile == 284 || $profile == 285 || $profile == 286 ]]; then
     # Exercise the maintenance mode against the restored isolated Redis before
     # starting any new application process. Never touch the production cache.
     sentinel="sub2api:release-cache-sentinel:$release_id"
@@ -1234,6 +1270,11 @@ if [[ "$manifest_schema" == 2 ]]; then
   } > "$output_dir/gate.json"
   chmod 400 "$output_dir/gate.json"
   install -m 400 "$candidate_archive" "$output_dir/candidate.tar.gz"
+  if [[ "$configured_profile" == true ]]; then
+    gate_digest=$(sha256sum "$output_dir/gate.json")
+    (umask 077; set -o noclobber; printf '%s\n' "${gate_digest%% *}" > "$state_dir/gate-contract-authorization")
+    chmod 400 "$state_dir/gate-contract-authorization"
+  fi
   /usr/local/libexec/sub2api-sign-gate "$output_dir/gate.json" "$output_dir/gate.sig"
   sha256sum "$output_dir/gate.json" "$output_dir/gate.sig" "$output_dir/candidate.tar.gz" > "$output_dir/SHA256SUMS"
   chmod 400 "$output_dir/gate.sig" "$candidate_archive" "$output_dir/SHA256SUMS"

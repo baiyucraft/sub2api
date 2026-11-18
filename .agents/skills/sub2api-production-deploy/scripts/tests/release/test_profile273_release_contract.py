@@ -67,7 +67,7 @@ class Profile273ReleaseContractTest(unittest.TestCase):
         self.assertNotIn("UNIQUE", raw.decode())
         self.assertIsNotNone(RELEASE_ID.fullmatch("273-aaaaaaaaaaaa-1-aaaaaaaa"))
         self.assertIsNotNone(RELEASE_ID.fullmatch("283-aaaaaaaaaaaa-1-aaaaaaaa"))
-        self.assertIsNone(RELEASE_ID.fullmatch("287-aaaaaaaaaaaa-1-aaaaaaaa"))
+        self.assertIsNotNone(RELEASE_ID.fullmatch("287-aaaaaaaaaaaa-1-aaaaaaaa"))
 
 
 class Profile273BashContractTest(unittest.TestCase):

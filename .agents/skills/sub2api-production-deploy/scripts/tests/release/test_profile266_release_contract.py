@@ -95,7 +95,7 @@ class Profile266ReleaseContractTest(unittest.TestCase):
         self.assertIsNotNone(RELEASE_ID.fullmatch("266-aaaaaaaaaaaa-1-aaaaaaaa"))
         self.assertIsNotNone(RELEASE_ID.fullmatch("272-aaaaaaaaaaaa-1-aaaaaaaa"))
         self.assertIsNotNone(RELEASE_ID.fullmatch("283-aaaaaaaaaaaa-1-aaaaaaaa"))
-        self.assertIsNone(RELEASE_ID.fullmatch("287-aaaaaaaaaaaa-1-aaaaaaaa"))
+        self.assertIsNotNone(RELEASE_ID.fullmatch("287-aaaaaaaaaaaa-1-aaaaaaaa"))
 
     def test_manifest_binds_identity_and_retains_ancestor_evidence(self):
         profile = get_profile("266")

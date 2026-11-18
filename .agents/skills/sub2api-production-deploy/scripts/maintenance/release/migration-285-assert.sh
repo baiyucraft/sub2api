@@ -6,7 +6,10 @@ migration_status=${MIGRATION_STATUS:-absent}
 context_file=${ASSERT_CONTEXT_FILE:-/opt/sub2api/releases/.active-release/assets/context.sh}
 [[ -f $context_file && ! -L $context_file ]] || exit 1
 source "$context_file"
-[[ $profile == 260 || $profile == 261 || $profile == 262 || $profile == 263 || $profile == 264 || $profile == 265 || $profile == 266 || $profile == 267 || $profile == 268 || $profile == 269 || $profile == 270 || $profile == 271 || $profile == 272 || $profile == 273 || $profile == 274 || $profile == 275 || $profile == 276 || $profile == 277 || $profile == 278 || $profile == 279 || $profile == 280 || $profile == 281 || $profile == 282 || $profile == 283 || $profile == 284 || $profile == 285 || $profile == 286 ]] || exit 1
+if ! [[ $profile == 260 || $profile == 261 || $profile == 262 || $profile == 263 || $profile == 264 || $profile == 265 || $profile == 266 || $profile == 267 || $profile == 268 || $profile == 269 || $profile == 270 || $profile == 271 || $profile == 272 || $profile == 273 || $profile == 274 || $profile == 275 || $profile == 276 || $profile == 277 || $profile == 278 || $profile == 279 || $profile == 280 || $profile == 281 || $profile == 282 || $profile == 283 || $profile == 284 || $profile == 285 || $profile == 286 ]]; then
+  source "$(dirname -- "${BASH_SOURCE[0]}")/profile-contract.sh"
+  validate_migration_hook_profile "$profile" || exit 1
+fi
 [[ $phase == preflight || $phase == postflight || $phase == verified_replay || $phase == vm_semantics ]] || exit 1
 [[ $migration_status == absent || $migration_status == verified ]] || exit 1
 [[ $phase == preflight || $migration_status == verified ]] || exit 1

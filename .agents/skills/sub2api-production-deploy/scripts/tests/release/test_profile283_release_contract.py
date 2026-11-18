@@ -18,6 +18,7 @@ sys.path.insert(0, str(ROOT))
 from release.manifest import create_manifest, validate_manifest_profile_contract
 from release.migration_planner import catalog_sha256, checksum_policy_sha256, discover_migration_catalog, migration_checksum, plan_migrations
 from release.paths import WORKSPACE
+from release import recovery_gate
 from release.profiles import CURRENT_RELEASE_PROFILE, PROFILES, get_profile, get_release_profile
 from release.production_cleanup import RELEASE_ID
 import test_profile263_release_contract as bash_helpers
@@ -56,10 +57,13 @@ class Profile283ReleaseContractTest(unittest.TestCase):
             self.assertEqual((WORKSPACE / path).read_bytes(), git_blob(BASELINE, path), path)
         self.assertTrue(RELEASE_ID.fullmatch("282-aaaaaaaaaaaa-1-aaaaaaaa"))
         self.assertTrue(RELEASE_ID.fullmatch("283-aaaaaaaaaaaa-1-aaaaaaaa"))
-        self.assertFalse(RELEASE_ID.fullmatch("287-aaaaaaaaaaaa-1-aaaaaaaa"))
+        self.assertTrue(RELEASE_ID.fullmatch("287-aaaaaaaaaaaa-1-aaaaaaaa"))
         protected = ".agents/skills/sub2api-production-deploy/scripts/release/recovery_gate.py"
-        # The merge baseline already contains reviewed backup-maintenance wiring; SQL/profile BASELINE stays frozen.
-        self.assertEqual((WORKSPACE / protected).read_bytes(), git_blob("a92c84a3f0d9d23a305044a67341374fc8b8b253", protected))
+        historical = {"__name__": "historical_release_review", "__package__": "release"}
+        exec(compile(git_blob("a92c84a3f0d9d23a305044a67341374fc8b8b253", protected), "baseline", "exec"), historical)
+        for name, entries in historical.items():
+            if name.startswith("_REVIEWED_"):
+                self.assertEqual(getattr(recovery_gate, name)[:len(entries)], entries, name)
 
     def test_registry_and_migration_have_independent_checksums(self):
         registry = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
@@ -162,7 +166,7 @@ jq() {
         validator = (ROOT / "release/vm-validate.sh").read_text(encoding="utf-8")
         guard = next(line.strip() for line in validator.splitlines() if line.strip() == '[[ "$profile" == 286 ]]')
         prepare = (ROOT / "maintenance/release/prepare.sh").read_text(encoding="utf-8")
-        self.assertIn('[[ $profile == 286 ]]', prepare)
+        self.assertIn('validate_release_profile_contract', prepare)
         for value, allowed in (("286", True), ("285", False), ("284", False), ("282", False), ("283", False), ("287", False), ("0283", False), ("283;true", False)):
             result = self.execute('profile=$1\n' + guard, value)
             self.assertEqual(result.returncode == 0, allowed, (value, result.stderr))

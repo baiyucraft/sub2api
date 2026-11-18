@@ -14,7 +14,7 @@ else
   [[ $requested_cutoff_epoch == - ]]
 fi
 
-required_commands=(awk date df find flock grep mktemp ps rmdir rm sha256sum sort stat tr wc)
+required_commands=(awk date df find flock grep jq mktemp openssl ps rmdir rm sha256sum sort stat tr wc)
 for command_name in "${required_commands[@]}"; do
   command -v "$command_name" >/dev/null 2>&1 || exit 127
 done
@@ -41,7 +41,7 @@ work_dir=$(mktemp -d /tmp/sub2api-recovery-retention.XXXXXXXX)
 cleanup() { rm -rf -- "$work_dir"; }
 trap cleanup EXIT
 
-release_id_pattern='^(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273|274|275|276|277|278|279|280|281|282|283|284|285|286)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$'
+release_id_pattern='^(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273|274|275|276|277|278|279|280|281|282|283|284|285|286|28[7-9]|29[0-9]|[3-9][0-9]{2}|[1-9][0-9]{3,8})-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$'
 records=$work_dir/records
 valid_records=$work_dir/valid-records
 protected_records=$work_dir/protected-records
@@ -60,15 +60,34 @@ assert_idle() {
   }
 }
 
+verify_configured_retention_gate() {
+  local release=$1 directory=$2 gate="$2/gate.json" signature="$2/gate.sig"
+  local trust=/opt/sub2api-release-trust/vm-gate-ed25519.pub
+  [[ -d $directory && ! -L $directory && -f $trust && ! -L $trust &&
+     -f $gate && ! -L $gate && -f $signature && ! -L $signature ]] || return 1
+  openssl pkeyutl -verify -pubin -inkey "$trust" -rawin -in "$gate" -sigfile "$signature" >/dev/null 2>&1 || return 1
+  jq -e --arg release "$release" '
+    .manifest.schema == 2 and .manifest.release_id == $release and
+    .manifest.profile == ($release | split("-")[0]) and
+    (.manifest.profile_contract_sha256 | type == "string" and test("^[0-9a-f]{64}$"))
+  ' "$gate" >/dev/null
+}
+
 read_terminal_state() {
   local release_id=$1 release_dir="$release_root/$1"
   if [[ -e $release_dir/.reconciliation || -L $release_dir/.reconciliation ]]; then
     printf 'protected_reconciliation\n'
   elif [[ -d $release_dir/.consumed && ! -L $release_dir/.consumed && -f $release_dir/.consumed/marker && ! -L $release_dir/.consumed/marker ]]; then
     grep -Fxq "release_id=$release_id" "$release_dir/.consumed/marker" || return 1
+    if (( ${release_id%%-*} > 286 )); then
+      verify_configured_retention_gate "$release_id" "$release_dir/.consumed" || return 1
+    fi
     printf 'consumed\n'
   elif [[ -d $release_dir/.recovered && ! -L $release_dir/.recovered && -f $release_dir/.recovered/release_id && ! -L $release_dir/.recovered/release_id ]]; then
     grep -Fxq "release_id=$release_id" "$release_dir/.recovered/release_id" || return 1
+    if (( ${release_id%%-*} > 286 )); then
+      verify_configured_retention_gate "$release_id" "$release_dir/.recovered" || return 1
+    fi
     printf 'recovered\n'
   else
     return 1

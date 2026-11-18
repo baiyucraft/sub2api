@@ -53,7 +53,7 @@ class PrepareGatePolicyTest(unittest.TestCase):
     def _openssl(self, *args: str) -> None:
         subprocess.run(["openssl", *args], check=True, capture_output=True, timeout=15)
 
-    def _document(self, mode="fast", *, schema=2, profile="276", suffix="aaaaaaaa") -> dict:
+    def _document(self, mode="fast", *, schema=2, profile="286", suffix="aaaaaaaa") -> dict:
         restored = mode != "fast"
         document = {
             "manifest": {
@@ -61,7 +61,7 @@ class PrepareGatePolicyTest(unittest.TestCase):
                 "profile": profile, "origin": "https://github.com/baiyucraft/sub2api.git",
                 "vm_identity": "sub2api-dev", "expires_at": int(time.time()) + 600,
                 "release_asset_layout": "skill-v1", "release_asset_sha256": {},
-                "commit_sha": "b" * 40, "version": "0.2.18-baiyu",
+                "commit_sha": "b" * 40, "version": "0.2.23-baiyu",
                 "recovery_gate": {"mode": mode},
             },
             "evidence": {
@@ -80,7 +80,7 @@ class PrepareGatePolicyTest(unittest.TestCase):
         return document
 
     def _prepare(self, document: dict, *, accepted: bool, bad_signature=False, free_bytes=1000000000000,
-                 preserve_candidate_on_failure=False) -> None:
+                 preserve_candidate_on_failure=False, contract: bytes | None = None) -> None:
         # Every run gets its own releases/lock tree; no host path is touched.
         sandbox = self.root / str(len(list(self.root.iterdir())))
         sandbox.mkdir()
@@ -93,6 +93,16 @@ class PrepareGatePolicyTest(unittest.TestCase):
         document = copy.deepcopy(document)
         source = ".agents/skills/sub2api-production-deploy/scripts/maintenance/release/context.sh"
         document["manifest"]["release_asset_sha256"][source] = hashlib.sha256(asset.read_bytes()).hexdigest()
+        names = ["gate.json", "gate.sig", "candidate.tar.gz", "assets/context.sh"]
+        if contract is not None:
+            (release / "profile-contract.json").write_bytes(contract)
+            helper = release / "assets/profile-contract.sh"
+            shutil.copyfile(SCRIPTS / "maintenance/release/profile-contract.sh", helper)
+            helper_path = "assets/profile-contract.sh"
+            document["manifest"]["release_asset_sha256"][source.replace("context.sh", "profile-contract.sh")] = (
+                hashlib.sha256(helper.read_bytes()).hexdigest()
+            )
+            names.extend((helper_path, "profile-contract.json"))
         gate = release / "gate.json"
         gate.write_text(json.dumps(document, sort_keys=True), encoding="utf-8")
         signature = release / "gate.sig"
@@ -100,10 +110,9 @@ class PrepareGatePolicyTest(unittest.TestCase):
         if bad_signature:
             signature.write_bytes(b"bad signature")
         (release / "candidate.tar.gz").write_bytes(self.archive)
-        names = ("gate.json", "gate.sig", "candidate.tar.gz", "assets/context.sh")
         (release / "ASSET_SHA256SUMS").write_text("".join(
             f"{hashlib.sha256((release / name).read_bytes()).hexdigest()}  {name}\n" for name in names
-        ), encoding="utf-8")
+        ), encoding="utf-8", newline="\n")
         source = self.source.replace("/opt/sub2api/releases", releases.as_posix()).replace(
             "/run/lock/sub2api-production-release.lock", (sandbox / "release.lock").as_posix()
         )
@@ -136,6 +145,10 @@ exec bash "$1"
             self.assertIn("prepared=true", result.stdout)
             self.assertIn("load", docker_calls.read_text())
             self.assertTrue((releases / ".active-release/candidate.tar.gz").is_file())
+            if contract is not None:
+                claim = releases / ".active-release"
+                self.assertEqual((claim / "profile-contract.json").read_bytes(), contract)
+                self.assertIn("profile-contract.json", (claim / "CLAIM_SHA256SUMS").read_text())
         else:
             self.assertNotEqual(result.returncode, 0, result.stdout)
             self.assertFalse((release / ".prepared").exists())
@@ -143,13 +156,42 @@ exec bash "$1"
             self.assertNotIn("load\n", docker_calls.read_text() if docker_calls.exists() else "",
                              "rejected Gate reached docker load")
             self.assertFalse((releases / ".active-release").exists(), "failed claim was retained")
+            self.assertFalse(list(releases.glob(".prepare.*")), "temporary claim was retained")
             if preserve_candidate_on_failure:
                 self.assertEqual((release / "candidate.tar.gz").read_bytes(), self.archive)
 
     def test_signed_fast_gate_prepares_for_two_profiles_and_release_ids(self):
-        for profile, suffix in (("276", "aaaaaaaa"), ("273", "bbbbbbbb")):
+        self._prepare(self._document(), accepted=True)
+        for profile, suffix in (("287", "aaaaaaaa"), ("288", "bbbbbbbb")):
             with self.subTest(profile=profile):
-                self._prepare(self._document(profile=profile, suffix=suffix), accepted=True)
+                document, contract = self._configured_document(profile, suffix)
+                self._prepare(document, accepted=True, contract=contract)
+
+    def _configured_document(self, profile="287", suffix="aaaaaaaa") -> tuple[dict, bytes]:
+        document = self._document(profile=profile, suffix=suffix)
+        profiles = [
+            {"profile": str(number), "parent": str(number - 1), "version": "0.2.24-baiyu",
+             "new_migrations": []}
+            for number in range(287, int(profile) + 1)
+        ]
+        contract = json.dumps({"schema": 1, "profiles": profiles}).encode()
+        fields = {name: profiles[-1][name] for name in ("version", "new_migrations")}
+        document["manifest"].update(
+            fields, parent_profile=profiles[-1]["parent"], deployment_mode="downtime",
+            profile_contract_sha256=hashlib.sha256(contract).hexdigest(),
+        )
+        return document, contract
+
+    def test_contract_mismatch_stops_before_claim_and_retains_candidate(self):
+        document, contract = self._configured_document()
+        self._prepare(document, accepted=False, preserve_candidate_on_failure=True)
+        self._prepare(document, accepted=False, contract=contract + b"\n", preserve_candidate_on_failure=True)
+        wrong_parent = copy.deepcopy(document)
+        wrong_parent["manifest"]["parent_profile"] = "285"
+        self._prepare(wrong_parent, accepted=False, contract=contract, preserve_candidate_on_failure=True)
+        wrong_mode = copy.deepcopy(document)
+        wrong_mode["manifest"]["deployment_mode"] = "blue-green"
+        self._prepare(wrong_mode, accepted=False, contract=contract, preserve_candidate_on_failure=True)
 
     def test_signed_restore_modes_and_legacy_gates_still_prepare(self):
         for mode in ("specialized", "full"):

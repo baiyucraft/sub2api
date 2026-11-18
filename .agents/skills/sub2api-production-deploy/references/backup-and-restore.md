@@ -226,8 +226,9 @@ candidate；不会更新 `verified`。随后使用 `full_recovery_drill.py` 在�
 再输出旧 signer 要求的 schema 1 证据；不能使用 Gate 前的另一个 capture 冒充
 发布后的资产恢复。若旧晋升器要求的 Redis TTL 差值等式不成立，保留旧 verified，
 不得把当前永久键下界不等式强行映射成旧合同成功。完成后用该模块的
-`sign-promote` 子命令调用既有 signer 和 `promote-dr-baseline.sh`；签名存在时先验真
-续跑。生成 key、candidate staging、单元测试或来源解密本身均不是基线晋升证明。
+`sign-promote` 子命令调用既有 signer 和 `promote-dr-baseline.sh`，签名存在时先验真再续跑。
+配置型 profile 签名前须保留该 release 在 VM `/opt/sub2api-deploy/release-gates/<release-id>/output`
+的 `gate.json` 和 `gate.sig`。签名器在签署 DR 证据前核对 Gate 签名、候选镜像、归档和迁移摘要。生成 key、candidate staging、单元测试或来源解密本身均不是基线晋升证明。
 
 ```text
 candidate-created

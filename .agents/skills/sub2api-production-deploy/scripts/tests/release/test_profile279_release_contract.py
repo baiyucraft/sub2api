@@ -5,12 +5,13 @@ import json
 import re
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from release.paths import WORKSPACE
 from release.profiles import CURRENT_RELEASE_PROFILE, PROFILES, get_profile, get_release_profile
-from release.production_cleanup import RELEASE_ID
+from release.production_cleanup import RELEASE_ID, load_cleanup_identity
 
 
 def test_profile_279_is_additive_and_inherits_278_without_migration():
@@ -27,7 +28,14 @@ def test_profile_279_is_additive_and_inherits_278_without_migration():
     assert RELEASE_ID.fullmatch("278-aaaaaaaaaaaa-1-aaaaaaaa")
     assert RELEASE_ID.fullmatch("279-aaaaaaaaaaaa-1-aaaaaaaa")
     assert RELEASE_ID.fullmatch("283-aaaaaaaaaaaa-1-aaaaaaaa")
-    assert not RELEASE_ID.fullmatch("287-aaaaaaaaaaaa-1-aaaaaaaa")
+    assert RELEASE_ID.fullmatch("287-aaaaaaaaaaaa-1-aaaaaaaa")
+    with patch("release.profiles._CONFIGURED_PROFILES", {}):
+        try:
+            load_cleanup_identity("287-aaaaaaaaaaaa-1-aaaaaaaa", Path("/unused"))
+        except ValueError as error:
+            assert str(error) == "unknown release profile: 287"
+        else:
+            raise AssertionError("cleanup accepted an unregistered release profile")
 
 
 def test_profile_279_registry_and_current_only_admission_are_consistent():
@@ -43,7 +51,7 @@ def test_profile_279_registry_and_current_only_admission_are_consistent():
     validator = (ROOT / "release/vm-validate.sh").read_text(encoding="utf-8")
     signer = (ROOT / "release/sign-gate.sh").read_text(encoding="utf-8")
     prepare = (ROOT / "maintenance/release/prepare.sh").read_text(encoding="utf-8")
-    release_path_guard = next(line for line in signer.splitlines() if line.startswith("[[ $gate =~"))
+    release_path_guard = next(line for line in signer.splitlines() if line.startswith("if [[ $gate =~"))
     assert "|278|279|280|281|282|283|284|285|286)" in release_path_guard
     assert re.search(r"\|278\|279\|280\|281\|282\|283\|284\|285\|286\)", context)
     schema_two_profile_guard = next(line for line in validator.splitlines() if line.lstrip().startswith('[[ "$profile" == 286'))
@@ -51,7 +59,7 @@ def test_profile_279_registry_and_current_only_admission_are_consistent():
     assert 'elif [[ "$profile" == 278 ]]; then' in validator
     assert 'elif [[ "$profile" == 286 ]]; then' in validator
     assert '"$version" == 0.2.21-baiyu' in validator
-    assert '[[ $profile == 286' in prepare
+    assert 'validate_release_profile_contract' in prepare
     gate_v2_guard = next(line for line in signer.splitlines() if line.startswith("if [[ $gate_profile == 242"))
     assert "$gate_profile == 279" in gate_v2_guard
 

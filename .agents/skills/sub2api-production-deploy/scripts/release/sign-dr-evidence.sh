@@ -31,7 +31,7 @@ exec 8<>"$unit_lock"
   [[ ${required_query_5} == root:root:600:1 ]]
 }
 flock -s 8
-[[ $evidence =~ ^$evidence_root/((195|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273|274|275|276|277|278|279|280|281|282|283|284|285|286)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8})/(dr-(195|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273|274|275|276|277|278|279|280|281|282|283|284|285|286)-[0-9]{8}T[0-9]{6}Z)/evidence\.json$ ]]
+[[ $evidence =~ ^$evidence_root/((195|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273|274|275|276|277|278|279|280|281|282|283|284|285|286|28[7-9]|29[0-9]|[3-9][0-9]{2}|[1-9][0-9]{3,8})-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8})/(dr-(195|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273|274|275|276|277|278|279|280|281|282|283|284|285|286|28[7-9]|29[0-9]|[3-9][0-9]{2}|[1-9][0-9]{3,8})-[0-9]{8}T[0-9]{6}Z)/evidence\.json$ ]]
 path_release_id=${BASH_REMATCH[1]}
 path_profile=${BASH_REMATCH[2]}
 path_drill_id=${BASH_REMATCH[3]}
@@ -122,6 +122,30 @@ jq -e \
     .redis_backup_expiring_keys >= .redis_restored_expiring_keys and
     (.redis_backup_dbsize - .redis_restored_dbsize) == (.redis_backup_expiring_keys - .redis_restored_expiring_keys)
   ' "$evidence" >/dev/null
+
+if (( path_profile > 286 )); then
+  gate_output="/opt/sub2api-deploy/release-gates/$path_release_id/output"
+  public_key=/opt/sub2api-release-signer/vm-gate-ed25519.pub
+  [[ -f $public_key && ! -L $public_key && $(realpath -e -- "$public_key") == "$public_key" ]]
+  [[ $(stat -c '%U:%G:%a:%h' "$public_key") == root:root:644:1 ]]
+  for path in "$gate_output/gate.json" "$gate_output/gate.sig"; do
+    [[ -f $path && ! -L $path && $(realpath -e -- "$path") == "$path" ]]
+    [[ $(stat -c '%U:%G:%a:%h' "$path") == root:root:400:1 ]]
+  done
+  openssl pkeyutl -verify -pubin -inkey "$public_key" -rawin \
+    -in "$gate_output/gate.json" -sigfile "$gate_output/gate.sig" >/dev/null
+  gate_migration=$(jq -ecS '{catalog_sha256:.manifest.catalog_sha256,checksum_policy_sha256:.manifest.checksum_policy_sha256,pending:.evidence.migration_evidence.pending}' "$gate_output/gate.json" | tr -d '\n' | sha256sum)
+  jq -es --arg release "$path_release_id" --arg profile "$path_profile" \
+    --arg migration "${gate_migration%% *}" --slurpfile evidence "$evidence" '
+    length == 1 and (.[0] |
+      .gate_version == 2 and .profile_id == ($profile | tonumber) and
+      .manifest.schema == 2 and .manifest.release_id == $release and .manifest.profile == $profile and
+      (.manifest.profile_contract_sha256 | type == "string" and test("^[0-9a-f]{64}$")) and
+      $evidence[0].migration_checksum == $migration and
+      .evidence.candidate_image_id == $evidence[0].candidate_image_id and
+      .evidence.candidate_archive_sha256 == $evidence[0].candidate_archive_sha256)
+  ' "$gate_output/gate.json" >/dev/null
+fi
 
 signature_tmp="$signature.tmp.$$"
 trap 'rm -f -- "$signature_tmp"' EXIT

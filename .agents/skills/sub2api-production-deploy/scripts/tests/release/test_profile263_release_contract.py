@@ -102,7 +102,7 @@ class Profile263ReleaseContractTest(unittest.TestCase):
         self.assertIsNotNone(CLEANUP_RELEASE_ID.fullmatch("272-aaaaaaaaaaaa-1-aaaaaaaa"))
         self.assertIsNotNone(CLEANUP_RELEASE_ID.fullmatch("275-aaaaaaaaaaaa-1-aaaaaaaa"))
         self.assertIsNotNone(CLEANUP_RELEASE_ID.fullmatch("283-aaaaaaaaaaaa-1-aaaaaaaa"))
-        self.assertIsNone(CLEANUP_RELEASE_ID.fullmatch("287-aaaaaaaaaaaa-1-aaaaaaaa"))
+        self.assertIsNotNone(CLEANUP_RELEASE_ID.fullmatch("287-aaaaaaaaaaaa-1-aaaaaaaa"))
 
 
 class Profile263BashContractTest(unittest.TestCase):

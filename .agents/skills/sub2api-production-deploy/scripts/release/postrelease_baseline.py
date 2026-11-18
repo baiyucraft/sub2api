@@ -18,6 +18,7 @@ from typing import Any
 
 from .atomic import canonical_json
 from .gate import verify_gate
+from .profiles import get_profile
 from .manifest import sha256_file
 from .paths import TRUSTED_VM_PUBLIC_KEY, WORKSPACE
 from .recovery_evidence import read_regular_bytes, strict_json, verify_full_recovery_evidence
@@ -130,7 +131,12 @@ def sign_and_promote(*, release_id: str, drill_id: str, evidence_sha256: str, ru
     read or transported by this controller. A signed result already present is
     reverified instead of signing it twice after a transport interruption.
     """
-    need(re.fullmatch(r"(?:270|271|272|273|274|275|276|277|278|279|280|281|282|283|284|285|286)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}", release_id) is not None and re.fullmatch(r"dr-(?:270|271|272|273|274|275|276|277|278|279|280|281|282|283|284|285|286)-[0-9]{8}T[0-9]{6}Z", drill_id) is not None and release_id.split("-",1)[0] == drill_id.split("-",2)[1] and SHA.fullmatch(evidence_sha256) is not None, "promotion identity")
+    release_match = re.fullmatch(r"([1-9][0-9]{0,8})-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}", release_id)
+    need(release_match is not None and int(release_match[1]) >= 270, "promotion identity")
+    profile = release_match[1]
+    get_profile(profile)
+    need(re.fullmatch(rf"dr-{profile}-[0-9]{{8}}T[0-9]{{6}}Z", drill_id) is not None
+         and SHA.fullmatch(evidence_sha256) is not None, "promotion identity")
     client = runner or SSHRunner()
     evidence = "/opt/sub2api-deploy/dr-evidence/" + release_id + "/" + drill_id + "/evidence.json"
     signature = evidence.removesuffix("evidence.json") + "evidence.sig"
@@ -159,7 +165,7 @@ printf 'evidence_sha256=%s\\nsignature_sha256=%s\\n' "$observed_evidence_sha256"
     signed = client.run("local_vm", signing, {"evidence_sha256", "signature_sha256"}, timeout=120).values
     need(signed["evidence_sha256"] == evidence_sha256 and SHA.fullmatch(signed["signature_sha256"]) is not None, "signed evidence identity differs")
     source_temp = client.create_temp_dir("local_vm", "/opt/sub2api-deploy/release-input", "baseline-evidence")
-    target_temp = client.create_temp_dir("backup", f"/srv/sub2api-backups/releases/{release_id.split('-',1)[0]}/promotion-input", release_id + "--" + drill_id)
+    target_temp = client.create_temp_dir("backup", f"/srv/sub2api-backups/releases/{profile}/promotion-input", release_id + "--" + drill_id)
     # Preserve both stage directories on failure for reconciliation. They hold
     # safe signed evidence only. Successful promotion may remove our source
     # staging copy; backup's input remains an auditable immutable submission.

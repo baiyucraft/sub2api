@@ -67,7 +67,7 @@ class Profile274ReleaseContractTest(unittest.TestCase):
             self.assertIn(MIGRATION, next(e for e in registry["extensions"] if e["id"] == owner)["migration_files"])
         self.assertIsNotNone(RELEASE_ID.fullmatch("274-aaaaaaaaaaaa-1-aaaaaaaa"))
         self.assertIsNotNone(RELEASE_ID.fullmatch("283-aaaaaaaaaaaa-1-aaaaaaaa"))
-        self.assertIsNone(RELEASE_ID.fullmatch("287-aaaaaaaaaaaa-1-aaaaaaaa"))
+        self.assertIsNotNone(RELEASE_ID.fullmatch("287-aaaaaaaaaaaa-1-aaaaaaaa"))
 
     def test_profile_requires_downtime_before_manifest_or_side_effects(self):
         profile = get_profile("274")

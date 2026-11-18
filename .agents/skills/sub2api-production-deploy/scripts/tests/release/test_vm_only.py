@@ -20,7 +20,7 @@ sys.path.insert(0, str(DEPLOY_ROOT))
 from release.atomic import canonical_json
 from release.gate import verify_gate_v2, verify_vm_only_gate
 from release.manifest import create_vm_only_manifest
-from release.profiles import CURRENT_RELEASE_PROFILE, get_profile
+from release.profiles import CURRENT_RELEASE_PROFILE, get_profile, parse_profile_contract
 from release.vm_only import vm_only_switch
 
 
@@ -36,26 +36,28 @@ class VMOnlyGateTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp.cleanup()
 
-    def _bundle(self) -> Path:
+    def _bundle(self, profile=None, **contract_fields) -> Path:
+        profile = profile or get_profile(CURRENT_RELEASE_PROFILE)
         archive = b"candidate"
         (self.root / "candidate.tar.gz").write_bytes(archive)
         manifest = {
             "schema": 2,
             "vm_only_schema": 1,
             "scope": "vm-only",
-            "release_id": "255-aaaaaaaaaaaa-1-aaaaaaaa",
+            "release_id": f"{profile['name']}-aaaaaaaaaaaa-1-aaaaaaaa",
             "created_at": int(time.time()),
             "expires_at": int(time.time()) + 3600,
             "commit_sha": "a" * 40,
             "origin": "https://github.com/baiyucraft/sub2api.git",
-            "profile": CURRENT_RELEASE_PROFILE,
-            "version": get_profile(CURRENT_RELEASE_PROFILE)["version"],
+            "profile": profile["name"],
+            "version": profile["version"],
             "vm_identity": "sub2api-dev",
             "vm_port": 8211,
             "vm_data": "/opt/sub2api-deploy/data-dev",
             "source_tree_sha256": "b" * 40,
             "vm_only_validator_sha256": "c" * 64,
             "vm_only_switch_sha256": "d" * 64,
+            **contract_fields,
         }
         evidence = {
             "candidate_image_id": "sha256:" + "e" * 64,
@@ -68,15 +70,38 @@ class VMOnlyGateTest(unittest.TestCase):
             "vm_redis_boundary": True,
             "data_dev_boundary": True,
         }
-        document = {"gate_version": 2, "profile_id": int(CURRENT_RELEASE_PROFILE), "manifest": manifest, "evidence": evidence}
+        document = {"gate_version": 2, "profile_id": int(profile["name"]), "manifest": manifest, "evidence": evidence}
         (self.root / "gate.json").write_bytes(canonical_json(document) + b"\n")
         subprocess.run(["openssl", "pkeyutl", "-sign", "-inkey", str(self.private_key), "-rawin", "-in", str(self.root / "gate.json"), "-out", str(self.root / "gate.sig")], check=True, capture_output=True)
         return self.root
 
     def test_vm_only_gate_is_verified_by_separate_contract(self) -> None:
         bundle = self._bundle()
-        with mock.patch("release.gate.get_profile", return_value={"gate_schema": 2, "version": get_profile(CURRENT_RELEASE_PROFILE)["version"], "origin": "https://github.com/baiyucraft/sub2api.git"}):
-            self.assertEqual(verify_vm_only_gate(bundle, self.public_key, CURRENT_RELEASE_PROFILE)["manifest"]["scope"], "vm-only")
+        self.assertEqual(verify_vm_only_gate(bundle, self.public_key, CURRENT_RELEASE_PROFILE)["manifest"]["scope"], "vm-only")
+
+    def test_vm_only_configured_profile_binds_exact_contract(self) -> None:
+        contract = canonical_json({
+            "schema": 1,
+            "profiles": [{"profile": "287", "parent": "286", "version": "0.2.24-baiyu", "new_migrations": []}],
+        })
+        profile = parse_profile_contract(contract)["287"]
+        digest = hashlib.sha256(contract).hexdigest()
+        with (
+            mock.patch("release.gate.CURRENT_RELEASE_PROFILE", "287"),
+            mock.patch("release.gate.get_profile", return_value=profile),
+            mock.patch("release.manifest.committed_profile_contract", return_value=contract),
+        ):
+            bundle = self._bundle(profile, parent_profile="286", new_migrations=[], profile_contract_sha256=digest)
+            self.assertEqual(verify_vm_only_gate(bundle, self.public_key, "287")["manifest"]["profile"], "287")
+            for fields in (
+                {"parent_profile": "285", "new_migrations": [], "profile_contract_sha256": digest},
+                {"parent_profile": "286", "new_migrations": ["314_example.sql"], "profile_contract_sha256": digest},
+                {"parent_profile": "286", "new_migrations": [], "profile_contract_sha256": "f" * 64},
+            ):
+                with self.subTest(fields=fields):
+                    bundle = self._bundle(profile, **fields)
+                    with self.assertRaisesRegex(RuntimeError, "profile contract does not match"):
+                        verify_vm_only_gate(bundle, self.public_key, "287")
 
     def test_historical_vm_only_gate_is_rejected(self) -> None:
         bundle = self._bundle()
@@ -108,7 +133,10 @@ class VMOnlyGateTest(unittest.TestCase):
             "origin": "https://github.com/baiyucraft/sub2api.git",
             "gate_ttl_seconds": 3600,
         }
-        with mock.patch("release.manifest.check_output_hidden", return_value="https://github.com/baiyucraft/sub2api.git"):
+        with (
+            mock.patch("release.manifest.check_output_hidden", return_value="https://github.com/baiyucraft/sub2api.git"),
+            mock.patch("release.manifest.read_committed_profile_contract", return_value=None),
+        ):
             manifest = create_vm_only_manifest("a" * 40, profile, f"{CURRENT_RELEASE_PROFILE}-aaaaaaaaaaaa-1-aaaaaaaa", "b" * 40, "c" * 64, "d" * 64)
         self.assertNotIn("production_current_image_id", manifest)
         self.assertNotIn("production_snapshot_sha256", manifest)
@@ -160,7 +188,7 @@ class VMOnlyGateTest(unittest.TestCase):
 
     def test_vm_only_shell_guard_accepts_registered_profiles_and_rejects_unknown(self) -> None:
         script = (DEPLOY_ROOT / "release" / "vm-only-validate.sh").read_text(encoding="utf-8")
-        guard = next(line for line in script.splitlines() if line.startswith("[[ $scope == vm-only"))
+        guard = next(line.strip() for line in script.splitlines() if line.lstrip().startswith("[[ $scope == vm-only && ("))
         self.assertEqual(re.findall(r"\$profile == ([0-9]+)", guard), ["255", "256", "257", "258", "259", "260", "261", "262", "263", "264", "265", "266", "267", "268", "269", "270", "271", "272", "273", "274", "275", "276", "277", "278", "279", "280", "281", "282", "283", "284", "285", "286"])
         bash = shutil.which("bash")
         if bash is None:

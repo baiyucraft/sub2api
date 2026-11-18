@@ -8,7 +8,9 @@ release_dir=${RELEASE_DIR:?RELEASE_DIR is required}
 minimum_free_bytes=${MINIMUM_FREE_BYTES:-10737418240}
 trust_key=${TRUST_KEY:-/opt/sub2api-release-trust/vm-gate-ed25519.pub}
 [[ $minimum_free_bytes =~ ^[1-9][0-9]{0,17}$ ]]
-[[ $release_id =~ ^(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273|274|275|276|277|278|279|280|281|282|283|284|285|286)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
+[[ $release_id =~ ^([1-9][0-9]{2,8})-([0-9a-f]{12})-[0-9]+-[0-9a-f]{8}$ ]]
+release_profile=${BASH_REMATCH[1]}
+release_commit_prefix=${BASH_REMATCH[2]}
 [[ $release_dir == "/opt/sub2api/releases/$release_id" ]]
 [[ -d $release_dir && ! -L $release_dir ]]
 
@@ -34,10 +36,9 @@ load_candidate_with_capacity_guard() {
 
 exec 9>/run/lock/sub2api-production-release.lock
 flock -n 9
-active_claim=/opt/sub2api/releases/.active-release
-[[ ! -e $active_claim && ! -L $active_claim ]]
-mkdir "$active_claim"
-chmod 700 "$active_claim"
+claim_path=/opt/sub2api/releases/.active-release
+[[ ! -e $claim_path && ! -L $claim_path ]]
+active_claim=$(mktemp -d /opt/sub2api/releases/.prepare.XXXXXXXX)
 preserve_candidate_archive=false
 cleanup_claim() {
   local status=$?
@@ -65,24 +66,19 @@ _required_1=$(stat -c '%h' "$release_dir/candidate.tar.gz")
 (cd "$release_dir" && sha256sum -c ASSET_SHA256SUMS >/dev/null)
 install -m 400 "$release_dir/gate.json" "$active_claim/gate.json"
 install -m 400 "$release_dir/gate.sig" "$active_claim/gate.sig"
-chmod 400 "$release_dir/candidate.tar.gz"
-mv -T -- "$release_dir/candidate.tar.gz" "$active_claim/candidate.tar.gz"
-preserve_candidate_archive=true
 install -d -m 700 "$active_claim/assets"
 for path in "$release_dir"/assets/*; do
   [[ -f $path && ! -L $path ]]
   _required_arg_1=$(basename -- "$path")
   install -m 500 "$path" "$active_claim/assets/${_required_arg_1}"
 done
-(cd "$active_claim" && find gate.json gate.sig candidate.tar.gz assets -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum > CLAIM_SHA256SUMS && sha256sum -c CLAIM_SHA256SUMS >/dev/null)
-chmod 400 "$active_claim/CLAIM_SHA256SUMS"
 openssl pkeyutl -verify -pubin -inkey "$trust_key" -rawin \
   -in "$active_claim/gate.json" -sigfile "$active_claim/gate.sig" >/dev/null
 gate="$active_claim/gate.json"
 _required_2=$(jq -er '.manifest.release_id' "$gate")
 [[ ${_required_2} == "$release_id" ]]
 profile=$(jq -er '.manifest.profile' "$gate")
-[[ $profile == 286 ]]
+[[ $profile == "$release_profile" ]]
 _required_3=$(jq -er '.manifest.origin' "$gate")
 [[ ${_required_3} == https://github.com/baiyucraft/sub2api.git ]]
 _required_4=$(jq -er '.manifest.vm_identity' "$gate")
@@ -161,6 +157,17 @@ while IFS=$'\t' read -r source expected; do
   _required_10=$(sha256sum "$active_claim/assets/$name" | awk '{print $1}')
   [[ ${_required_10} == "$expected" ]]
 done <<<"$_required_inventory_1"
+claim_files=(gate.json gate.sig candidate.tar.gz assets)
+if [[ $profile == 286 ]]; then
+  jq -e '.manifest | has("profile_contract_sha256") | not' "$gate" >/dev/null
+else
+  [[ -f $active_claim/assets/profile-contract.sh && ! -L $active_claim/assets/profile-contract.sh ]]
+  source "$active_claim/assets/profile-contract.sh"
+  [[ -f $release_dir/profile-contract.json && ! -L $release_dir/profile-contract.json ]]
+  install -m 400 "$release_dir/profile-contract.json" "$active_claim/profile-contract.json"
+  validate_release_profile_contract "$gate" "$active_claim/profile-contract.json" "$profile"
+  claim_files+=(profile-contract.json)
+fi
 candidate_image_id=$(jq -er '.evidence.candidate_image_id' "$gate")
 candidate_sha=$(jq -er '.evidence.candidate_archive_sha256' "$gate")
 commit=$(jq -er '.manifest.commit_sha' "$gate")
@@ -168,6 +175,19 @@ version=$(jq -er '.manifest.version' "$gate")
 candidate_tag="sub2api:baiyu-$version-$commit"
 [[ $candidate_image_id =~ ^sha256:[0-9a-f]{64}$ ]]
 [[ $candidate_sha =~ ^[0-9a-f]{64}$ ]]
+[[ $commit =~ ^[0-9a-f]{40}$ && $commit == "$release_commit_prefix"* ]]
+[[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+-baiyu$ ]]
+[[ ! -e $release_dir/.prepared && ! -L $release_dir/.prepared ]]
+[[ ! -e $release_dir/.consumed && ! -L $release_dir/.consumed ]]
+[[ ! -e $release_dir/.recovered && ! -L $release_dir/.recovered ]]
+mv -Tn -- "$active_claim" "$claim_path"
+[[ ! -e $active_claim && -d $claim_path && ! -L $claim_path ]]
+active_claim=$claim_path
+chmod 400 "$release_dir/candidate.tar.gz"
+mv -T -- "$release_dir/candidate.tar.gz" "$active_claim/candidate.tar.gz"
+preserve_candidate_archive=true
+(cd "$active_claim" && find "${claim_files[@]}" -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum > CLAIM_SHA256SUMS && sha256sum -c CLAIM_SHA256SUMS >/dev/null)
+chmod 400 "$active_claim/CLAIM_SHA256SUMS"
 _required_11=$(sha256sum "$active_claim/candidate.tar.gz" | awk '{print $1}')
 [[ ${_required_11} == "$candidate_sha" ]]
 gzip -t "$active_claim/candidate.tar.gz"

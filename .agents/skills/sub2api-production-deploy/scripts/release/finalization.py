@@ -246,6 +246,13 @@ def _remote_consumed(ssh: SSHRunner, manifest: dict[str, Any], candidate: str, o
         raise RuntimeError("finalization signed claim asset inventory is missing")
     claim_checksums = {f"assets/{name}": digest for name, digest in asset_checksums.items()}
     claim_checksums.update({name: originals[f"gate/{name}"] for name in ("gate.json", "gate.sig", "candidate.tar.gz")})
+    extra_claim_file = ""
+    if "profile_contract_sha256" in manifest:
+        digest = manifest["profile_contract_sha256"]
+        if not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise RuntimeError("finalization profile contract checksum is invalid")
+        claim_checksums["profile-contract.json"] = digest
+        extra_claim_file = " profile-contract.json"
     expected_checksums = "\n".join(f"{digest}  {name}" for name, digest in sorted(claim_checksums.items()))
     expected_files = "\n".join(sorted(claim_checksums))
     if backup_evidence is None:
@@ -271,7 +278,7 @@ test ! -L /opt/sub2api/releases/.active-release
 test ! -e {shlex.quote(consumed.rsplit('/', 1)[0] + '/.recovered')}
 test ! -L {shlex.quote(consumed.rsplit('/', 1)[0] + '/.recovered')}
 {retained_recovery}
-for file in marker release_id gate.json gate.sig candidate.tar.gz CLAIM_SHA256SUMS plaintext-cleaned; do
+for file in marker release_id gate.json gate.sig candidate.tar.gz CLAIM_SHA256SUMS plaintext-cleaned{extra_claim_file}; do
   test -f "$claim/$file"
   test ! -L "$claim/$file"
   required_capture_25=$(stat -c '%U:%G:%a:%h' "$claim/$file") || exit $?
@@ -285,7 +292,7 @@ required_capture_27=$(find "$claim/assets" -mindepth 1 ! -type f -print -quit) |
 test -z "$required_capture_27"
 required_capture_28=$(cat "$claim/CLAIM_SHA256SUMS") || exit $?
 test "$required_capture_28" = {shlex.quote(expected_checksums)}
-claim_files=$(cd "$claim" && find gate.json gate.sig candidate.tar.gz assets -type f -print | LC_ALL=C sort) || exit $?
+claim_files=$(cd "$claim" && find gate.json gate.sig candidate.tar.gz assets{extra_claim_file} -type f -print | LC_ALL=C sort) || exit $?
 test "$claim_files" = {shlex.quote(expected_files)}
 for file in "$claim/assets"/*; do
   required_capture_29=$(stat -c '%U:%G:%a:%h' "$file") || exit $?

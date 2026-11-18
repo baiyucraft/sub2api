@@ -162,7 +162,7 @@ python -I -S -B .agents/skills/sub2api-production-deploy/scripts/release.py depl
 | --- | --- |
 | 同版本普通应用代码，无新增迁移或恢复敏感变化 | 只更新 `.release/deploy.local.json` 的完整 `commit`；沿用适用的 `profile/mode`，使用上述固定入口 |
 | 地址、健康路由、备份上传或 VM 路径变化 | 修改本地 `.ssh.local` 的对应环境配置并核验；应用四字段配置不保存连接信息 |
-| 新版本或新增迁移 | 当前仍须同步 Python profile、Shell/签名/备份入口及必要断言，再做对应合同回归；尚不能仅新增一份配置，不能改写历史 profile |
+| 新版本或新增迁移 | 在 `.release/contract.json` 追加记录，提交必要 SQL 和迁移断言，更新本地部署 profile，再执行应用及迁移回归。历史 profile 和证据保持冻结 |
 | 工具、恢复算法、备份格式、信任或状态机变化 | 作为工具变更单独审阅和验证，再按最终分类提供所需的新恢复证据 |
 
 `auto` 每次重新比较真实生产基线和目标；上一轮 `full` 不会变成下一轮的默认要求。分类以本次读取的生产快照、实际 diff 和 pending migration 为准，不能只凭 profile 编号或历史成功推断。若新 diff 再触及敏感能力或存在 pending migration，仍由原分类器升级，不能强制改成 fast。

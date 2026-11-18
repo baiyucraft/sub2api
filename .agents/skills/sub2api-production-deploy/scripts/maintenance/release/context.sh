@@ -3,8 +3,16 @@ set -Eeuo pipefail
 # Release profile allowlist: (182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273|274|275|276|277|278|279|280|281|282|283|284|285|286)
 
 release_dir=${RELEASE_DIR:?RELEASE_DIR is required}
-[[ $release_dir =~ ^/opt/sub2api/releases/((182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273|274|275|276|277|278|279|280|281|282|283|284|285|286)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8})$ ]] || return 1
+[[ $release_dir =~ ^/opt/sub2api/releases/(([1-9][0-9]{2,8})-([0-9a-f]{12})-[0-9]+-[0-9a-f]{8})$ ]] || return 1
 release_id=${BASH_REMATCH[1]}
+context_profile=${BASH_REMATCH[2]}
+context_commit_prefix=${BASH_REMATCH[3]}
+if (( context_profile <= 286 )); then
+  case "$context_profile" in
+    182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273|274|275|276|277|278|279|280|281|282|283|284|285|286) ;;
+    *) return 1 ;;
+  esac
+fi
 [[ -d $release_dir && ! -L $release_dir ]] || return 1
 [[ -f $release_dir/.prepared && ! -L $release_dir/.prepared ]] || return 1
 active_claim=${ACTIVE_CLAIM:-/opt/sub2api/releases/.active-release}
@@ -12,7 +20,7 @@ active_claim=${ACTIVE_CLAIM:-/opt/sub2api/releases/.active-release}
    ($active_claim == "$release_dir/.recovered" && -n ${RECOVERY_ASSETS_DIR:-}) ]] || return 1
 [[ -d $active_claim && ! -L $active_claim ]] || return 1
 grep -Fxq "release_id=$release_id" "$active_claim/release_id" || return 1
-unset recovery_drill_context_verified
+unset recovery_drill_context_verified release_profile_contract_verified
 if [[ -n ${RECOVERY_DRILL_AUTHORIZATION:-} ]]; then
   [[ -n ${RECOVERY_ASSETS_DIR:-} && ${RECOVERY_DRILL_MODE:-} == 1 ]] || return 1
   [[ ! -e $active_claim/gate.json && ! -L $active_claim/gate.json ]] || return 1
@@ -129,6 +137,13 @@ version=$(jq -er '.manifest.version' "$active_claim/gate.json") || return 1
 deployment_mode=${DEPLOYMENT_MODE:-$(jq -er '.manifest.deployment_mode' "$active_claim/gate.json")} || return 1
 [[ $deployment_mode == blue-green || $deployment_mode == downtime ]] || return 1
 manifest_schema=$(jq -er '.manifest.schema' "$active_claim/gate.json") || return 1
+if (( context_profile > 286 )); then
+  [[ $profile == "$context_profile" && $commit == "$context_commit_prefix"* && $deployment_mode == downtime ]] || return 1
+  jq -e --arg id "$release_id" '.manifest.release_id == $id' "$active_claim/gate.json" >/dev/null || return 1
+  source "$active_claim/assets/profile-contract.sh" || return 1
+  validate_release_profile_contract "$active_claim/gate.json" "$active_claim/profile-contract.json" "$profile" || return 1
+  release_profile_contract_verified=1
+fi
 if [[ $manifest_schema == 2 ]]; then
   migration_inventory=$(jq -r '.evidence.migration_evidence.pending[]?.filename' "$active_claim/gate.json") || return 1
   migrations=()

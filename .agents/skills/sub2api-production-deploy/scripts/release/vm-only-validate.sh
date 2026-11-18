@@ -47,15 +47,27 @@ exec 8<>"$unit_lock"
 flock -s 8
 [[ -f $manifest && ! -L $manifest ]]
 [[ $output_dir =~ ^/opt/sub2api-deploy/release-gates/[0-9]+-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}/output$ ]]
-install -d -m 700 "${output_dir%/output}" "$output_dir"
 
 scope=$(jq -er '.scope' "$manifest")
 profile=$(jq -er '.profile' "$manifest")
 commit=$(jq -er '.commit_sha' "$manifest")
 version=$(jq -er '.version' "$manifest")
 release_id=$(jq -er '.release_id' "$manifest")
-[[ $scope == vm-only && ( $profile == 255 || $profile == 256 || $profile == 257 || $profile == 258 || $profile == 259 || $profile == 260 || $profile == 261 || $profile == 262 || $profile == 263 || $profile == 264 || $profile == 265 || $profile == 266 || $profile == 267 || $profile == 268 || $profile == 269 || $profile == 270 || $profile == 271 || $profile == 272 || $profile == 273 || $profile == 274 || $profile == 275 || $profile == 276 || $profile == 277 || $profile == 278 || $profile == 279 || $profile == 280 || $profile == 281 || $profile == 282 || $profile == 283 || $profile == 284 || $profile == 285 || $profile == 286 ) && $release_id == "${profile}-${commit:0:12}-"* ]]
+configured_profile=false
+if [[ $profile =~ ^[1-9][0-9]{2,8}$ ]] && (( profile > 286 )); then
+  configured_profile=true
+  [[ $scope == vm-only && $release_id == "$profile-${commit:0:12}-"* ]]
+else
+  [[ $scope == vm-only && ( $profile == 255 || $profile == 256 || $profile == 257 || $profile == 258 || $profile == 259 || $profile == 260 || $profile == 261 || $profile == 262 || $profile == 263 || $profile == 264 || $profile == 265 || $profile == 266 || $profile == 267 || $profile == 268 || $profile == 269 || $profile == 270 || $profile == 271 || $profile == 272 || $profile == 273 || $profile == 274 || $profile == 275 || $profile == 276 || $profile == 277 || $profile == 278 || $profile == 279 || $profile == 280 || $profile == 281 || $profile == 282 || $profile == 283 || $profile == 284 || $profile == 285 || $profile == 286 ) && $release_id == "${profile}-${commit:0:12}-"* ]]
+fi
 [[ $commit =~ ^[0-9a-f]{40}$ ]]
+[[ $output_dir == "$deploy_dir/release-gates/$release_id/output" ]]
+state_dir="${output_dir%/output}"
+if [[ "$configured_profile" == true ]]; then
+  [[ ! -e "$state_dir" && ! -L "$state_dir" ]]
+  [[ $(stat -c '%u:%g:%a:%h' "$manifest") == 0:0:400:1 ]]
+fi
+install -d -m 700 "$deploy_dir/release-gates" "$state_dir" "$output_dir"
 {
   required_query_3=$(jq -er '.vm_identity' "$manifest")
   [[ ${required_query_3} == sub2api-dev ]]
@@ -94,6 +106,35 @@ source_tree_sha256=$(git rev-parse "$commit^{tree}")
   required_query_10=$(jq -er '.source_tree_sha256' "$manifest")
   [[ $source_tree_sha256 == "${required_query_10}" ]]
 }
+
+if [[ "$configured_profile" == true || "$profile" == 286 ]]; then
+  contract_path=.release/contract.json
+  contract_entry=$(git ls-tree "$commit" -- "$contract_path")
+  verified_profile_contract=
+  if [[ -n "$contract_entry" ]]; then
+    [[ "$contract_entry" == "100644 blob "*$'\t'"$contract_path" ]]
+    contract_helper_relative=.agents/skills/sub2api-production-deploy/scripts/maintenance/release/profile-contract.sh
+    contract_helper="$source_dir/$contract_helper_relative"
+    contract_helper_entry=$(git ls-tree "$commit" -- "$contract_helper_relative")
+    [[ "$contract_helper_entry" == "100644 blob "*$'\t'"$contract_helper_relative" ]]
+    [[ -f "$contract_helper" && ! -L "$contract_helper" ]]
+    contract_helper_git=$(git show "$commit:$contract_helper_relative" | sha256sum)
+    contract_helper_sha=$(sha256sum "$contract_helper")
+    [[ "${contract_helper_git%% *}" == "${contract_helper_sha%% *}" ]]
+    source "$contract_helper"
+    verified_profile_contract="$state_dir/profile-contract.json"
+    (umask 077; set -o noclobber; git show "$commit:$contract_path" > "$verified_profile_contract")
+    chmod 400 "$verified_profile_contract"
+    if [[ "$configured_profile" == true ]]; then
+      validate_release_profile_contract "$manifest" "$verified_profile_contract" "$profile" vm-only
+    else
+      validate_release_profile_contract_file "$verified_profile_contract"
+      jq -e '.profiles == []' "$verified_profile_contract" >/dev/null
+    fi
+  else
+    [[ "$configured_profile" == false ]]
+  fi
+fi
 
 {
   required_query_11=$(docker inspect -f '{{.State.Health.Status}}' sub2api-dev)
@@ -196,6 +237,11 @@ jq -cnS \
   --argjson candidate_size "$candidate_size" \
   '{gate_version:2,profile_id:($profile|tonumber),manifest:$manifest,evidence:{candidate_image_id:$candidate_image_id,candidate_archive_sha256:$candidate_archive_sha256,candidate_size:$candidate_size,candidate_identity_verified:true,candidate_health:"pass",existing_app_health:"pass",vm_database_boundary:true,vm_redis_boundary:true,data_dev_boundary:true}}' >"$output_dir/gate.json"
 chmod 400 "$output_dir/gate.json"
+if [[ "$configured_profile" == true ]]; then
+  gate_digest=$(sha256sum "$output_dir/gate.json")
+  (umask 077; set -o noclobber; printf '%s\n' "${gate_digest%% *}" > "$state_dir/gate-contract-authorization")
+  chmod 400 "$state_dir/gate-contract-authorization"
+fi
 /usr/local/libexec/sub2api-sign-gate "$output_dir/gate.json" "$output_dir/gate.sig"
 sha256sum "$output_dir/gate.json" "$output_dir/gate.sig" "$candidate_archive" >"$output_dir/SHA256SUMS"
 chmod 400 "$output_dir/SHA256SUMS"

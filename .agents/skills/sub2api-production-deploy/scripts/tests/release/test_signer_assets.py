@@ -64,6 +64,7 @@ class SignerAssetTest(unittest.TestCase):
         }
         with (
             mock.patch("release.manifest.validate_commit", side_effect=lambda value: value),
+            mock.patch("release.manifest.read_committed_profile_contract", return_value=None),
             mock.patch("release.process.subprocess.check_output", side_effect=[profile["origin"], "a" * 40]),
             mock.patch("release.manifest.runner_checksum", return_value="runner"),
             mock.patch("release.manifest.release_asset_checksums", return_value=release_assets),
@@ -104,7 +105,6 @@ class SignerAssetTest(unittest.TestCase):
 
     def test_dr_signer_contract_rejects_untrusted_shapes(self) -> None:
         script = (DEPLOY_ROOT / "release" / "sign-dr-evidence.sh").read_text(encoding="utf-8")
-        self.assertIn("(195|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273|274|275|276|277|278|279|280|281|282|283|284|285|286)", script)
         self.assertIn("keys | sort", script)
         self.assertIn("temporary_material_destroyed == \"pass\"", script)
         self.assertIn("redis_backup_dbsize - .redis_restored_dbsize", script)
@@ -115,7 +115,11 @@ class SignerAssetTest(unittest.TestCase):
         self.assertIn("[[ ! -e $signature && ! -L $signature ]]", script)
         self.assertIn('required_query_6=$(realpath -e -- "$evidence")', script)
         self.assertIn('[[ ${required_query_6} == "$evidence" ]]', script)
-        self.assertNotIn("release-gates", script)
+        self.assertIn('gate_output="/opt/sub2api-deploy/release-gates/$path_release_id/output"', script)
+        self.assertIn('root:root:644:1', script)
+        self.assertIn('.manifest.profile_contract_sha256', script)
+        self.assertIn('$evidence[0].migration_checksum == $migration', script)
+        self.assertLess(script.index('openssl pkeyutl -verify'), script.index('openssl pkeyutl -sign'))
 
     def test_signer_helpers_share_a_non_symlink_lock_contract(self) -> None:
         for name in ("sign-gate.sh", "sign-dr-evidence.sh"):
@@ -136,9 +140,8 @@ class SignerAssetTest(unittest.TestCase):
         self.assertIn("ea0b628532f8d85d0e57921b5b010c7f00ef8b0f9701da2b0d4ea31105553e08", promoter)
         self.assertIn('root="/srv/sub2api-backups/releases/$profile"', promoter)
         self.assertIn('jq -cS \'.manifest.migration_sha256\'', promoter)
-        supported = "(195|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273|274|275|276|277|278|279|280|281|282|283|284|285|286)"
-        self.assertIn(f"[[ $release_id =~ ^{supported}-", promoter)
-        self.assertIn(f"[[ $drill_id =~ ^dr-{supported}-", promoter)
+        self.assertIn('.manifest.profile_contract_sha256', promoter)
+        self.assertIn('.migration_checksum == $migration_sha', promoter)
         self.assertIn('candidate_link="$root/candidate"', promoter)
         self.assertIn('"$verifier" "$trust_key" "$staging/evidence.json" "$staging/evidence.sig"', promoter)
         self.assertIn("verified-bundles/$target_name", promoter)

@@ -589,7 +589,7 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertIn('--build-arg COMMIT="$commit" --build-arg VERSION="$version"', validator)
 
     def test_current_profiles_are_allowed_by_release_entrypoints(self) -> None:
-        expected_release_pattern = "(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273|274|275|276|277|278|279|280|281|282|283|284|285|286)"
+        expected_release_pattern = "(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273|274|275|276|277|278|279|280|281|282|283|284|285|286"
         for relative_path in (
             "release/vm-validate.sh",
             "release/sign-gate.sh",
@@ -604,7 +604,7 @@ class ReleaseCoreTest(unittest.TestCase):
         prepare = (DEPLOY_ROOT / "maintenance/release/prepare.sh").read_text(encoding="utf-8")
         self.assertIn('[[ "$profile" == 286 ]]', validator)
         self.assertIn('elif [[ "$profile" == 277 ]]; then', validator)
-        self.assertIn('[[ $profile == 286 ]]', prepare)
+        self.assertIn('validate_release_profile_contract', prepare)
         self.assertNotIn('[[ $profile == 277 ]]', prepare)
 
         for relative_path in (

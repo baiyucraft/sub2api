@@ -2242,10 +2242,11 @@
     {
       "id": "migration-profile-contract",
       "title": "Migration、profile、版本与历史证据",
-      "description": "维护fork迁移、官方重编号、历史profile233–285与pending profile286、版本与checksum门禁。",
+      "description": "维护 fork 迁移、官方重编号、应用发布契约和历史 profile、版本与 checksum 门禁。",
       "ownership": "fork",
       "risk_level": "critical",
       "paths": [
+        ".release/contract.json",
         "backend/migrations/**",
         ".agents/skills/sub2api-production-deploy/scripts/release/profiles.py",
         ".agents/skills/sub2api-production-deploy/scripts/release/manifest.py",
@@ -2284,6 +2285,7 @@
       "symbols": [
         "PROFILES",
         "CURRENT_RELEASE_PROFILE",
+        "parse_profile_contract",
         "HOOK_REGISTRY",
         "migration_sha256",
         "compatibility_commit",
@@ -2670,7 +2672,7 @@
         "真实Guest离线镜像引用重建使用Docker unit绑定的system containerd Unix socket与moby namespace，通过content get校验捕获OCI index/amd64 manifest/config的SHA链，不把ctr inspect人类文本当JSON，不用当前tag猜测历史镜像，重建后仍核对原Compose引用image ID。Nginx mime.types来自已批准rootfs运行数据并绑定固定字节数/SHA与root0644单链接权限，stage及Guest系统准备均先验；不改生产主配置隐藏缺依赖，runtime前置不证明完整恢复",
         "285 的 VM 临时表语义、生产只读函数原文指纹/trigger 和 verified replay 均绑定 signed Gate；精确审阅仅覆盖五条迁移门禁路径、完整 before/after SHA 与 Git blob/模式，不豁免恢复算法",
         "doctor、生产快照与 Shell preflight 共用签名 runtime-identity.sh；digest 运行镜像仅在唯一 full-SHA 发布标签时归因，快照一致性与标签冲突回归在 VM 实际执行",
-        "新增 profile 成套覆盖 Python 与 Shell 验证、签名、生产、恢复、备份和清理入口；当前 profile 正向、历史 profile 不变与未登记 profile 拒绝测试共同通过",
+        "现有能力范围内，新增 profile 只需登记应用发布契约及必要的迁移文件和断言。覆盖当前 profile 正向、历史 profile 不变、父链与部署限制校验、未登记 profile 拒绝",
         "迁移298的cache_mode/priority具名CHECK只接受原始数组整体text[] cast或实测dump/restore逐元素text cast两个精确定义，列映射/词集及所有其他约束属性不放宽；真实PG覆盖fresh、连续restore及词集/列/运算符漂移拒绝，历史SQL/profile/checksum不变",
         "reconcile-vm-preserve显式migration-preflight只接受冻结profile273提交及validator/assertion字节的298前置误判，绑定原manifest与失败/hook/一致before-actual计划、无apply/after/Gate/archive且probe全部清理；发布和VM身份锁、远端双锁与FD inode/owner/mode/单链接、无在途进程、同boot/owner/死worker和旧生产/备份健康/无claim均二次复验后，仅独立证明和最后released owner提交，原failed和VM电源不改；其他源/阶段拒绝，修复后新commit/Gate/release及最终字节恢复验证",
         "Redis 在途余额缓存 billing_inflight_cache.go 精准触发 specialized/redis_changed，不扩大整个后端目录",

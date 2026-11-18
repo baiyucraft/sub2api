@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-# Release profile allowlist for cleanup/recovery assets; 242 and 243 are Gate v2 profiles.
+# Historical profiles keep their original authorization. Configured profiles require a signed terminal Gate.
 
 mode=${1:?cleanup mode is required}
 release_id=${2:?release ID is required}
@@ -8,7 +8,7 @@ expected_current_image=${3:?current image ID is required}
 pre_switch_image=${4:?pre-switch image ID is required}
 expected_plan_sha256=${5:--}
 [[ $mode == dry-run || $mode == apply ]]
-[[ $release_id =~ ^(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273|274|275|276|277|278|279|280|281|282|283|284|285|286)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
+[[ $release_id =~ ^(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273|274|275|276|277|278|279|280|281|282|283|284|285|286|28[7-9]|29[0-9]|[3-9][0-9]{2}|[1-9][0-9]{3,8})-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]]
 [[ $expected_current_image =~ ^sha256:[0-9a-f]{64}$ ]]
 [[ $pre_switch_image =~ ^sha256:[0-9a-f]{64}$ ]]
 [[ $expected_current_image != "$pre_switch_image" ]]
@@ -18,7 +18,7 @@ else
   [[ $expected_plan_sha256 == - ]]
 fi
 
-required_commands=(awk curl cut date df docker find flock grep mktemp ps rm sha256sum sort stat systemctl tr wc)
+required_commands=(awk curl cut date df docker find flock grep jq mktemp openssl ps rm sha256sum sort stat systemctl tr wc)
 for command_name in "${required_commands[@]}"; do
   command -v "$command_name" >/dev/null 2>&1 || exit 127
 done
@@ -78,6 +78,19 @@ assert_release_idle() {
   [[ $required_value == 0 ]]
 }
 
+verify_configured_cleanup_gate() {
+  local release=$1 directory=$2 gate="$2/gate.json" signature="$2/gate.sig"
+  local trust=/opt/sub2api-release-trust/vm-gate-ed25519.pub
+  [[ -d $directory && ! -L $directory && -f $trust && ! -L $trust &&
+     -f $gate && ! -L $gate && -f $signature && ! -L $signature ]] || return 1
+  openssl pkeyutl -verify -pubin -inkey "$trust" -rawin -in "$gate" -sigfile "$signature" >/dev/null 2>&1 || return 1
+  jq -e --arg release "$release" '
+    .manifest.schema == 2 and .manifest.release_id == $release and
+    .manifest.profile == ($release | split("-")[0]) and
+    (.manifest.profile_contract_sha256 | type == "string" and test("^[0-9a-f]{64}$"))
+  ' "$gate" >/dev/null
+}
+
 assert_release_marker() {
   [[ -d $release_dir && ! -L $release_dir ]]
   [[ -f $release_dir/.prepared && ! -L $release_dir/.prepared ]]
@@ -89,6 +102,9 @@ assert_release_marker() {
   grep -Fxq "release_id=$release_id" "$release_dir/.prepared"
   grep -Fxq "candidate_image_id=$expected_current_image" "$release_dir/.prepared"
   grep -Fxq "release_id=$release_id" "$consumed_dir/marker"
+  if (( ${release_id%%-*} > 286 )); then
+    verify_configured_cleanup_gate "$release_id" "$consumed_dir" || return 1
+  fi
   grep -Fxq "candidate_image_id=$expected_current_image" "$consumed_dir/marker"
   [[ -d $release_state_dir && ! -L $release_state_dir ]]
   [[ -f $release_state_dir/pre-image-id && ! -L $release_state_dir/pre-image-id ]]
@@ -156,7 +172,13 @@ write_candidate_archive_records() {
     [[ $evidence_path == .consumed ]] || continue
     release_dir="$release_root/$candidate_release"
     [[ -d $release_dir && ! -L $release_dir ]] || continue
-    [[ $candidate_release =~ ^(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273|274|275|276|277|278|279|280|281|282|283|284|285|286)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]] || continue
+    [[ $candidate_release =~ ^(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273|274|275|276|277|278|279|280|281|282|283|284|285|286|28[7-9]|29[0-9]|[3-9][0-9]{2}|[1-9][0-9]{3,8})-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}$ ]] || continue
+    [[ -d "$release_dir/.consumed" && ! -L "$release_dir/.consumed" ]] || continue
+    if (( ${candidate_release%%-*} > 286 )); then
+      [[ -f "$release_dir/.consumed/marker" && ! -L "$release_dir/.consumed/marker" ]] || continue
+      grep -Fxq "release_id=$candidate_release" "$release_dir/.consumed/marker" || continue
+      verify_configured_cleanup_gate "$candidate_release" "$release_dir/.consumed" || continue
+    fi
     mtime=$(stat -c '%Y' "$path") || return 1
     size=$(stat -c '%s' "$path") || return 1
     links=$(stat -c '%h' "$path") || return 1
@@ -208,6 +230,9 @@ remove_candidate_archives() {
     assert_release_idle
     assert_release_marker
     assert_services
+    if (( ${candidate_release%%-*} > 286 )); then
+      verify_configured_cleanup_gate "$candidate_release" "$release_root/$candidate_release/.consumed" || exit 1
+    fi
     rm -f -- "$path"
     [[ ! -e $path && ! -L $path ]] || exit 1
     removed=$((removed + 1))

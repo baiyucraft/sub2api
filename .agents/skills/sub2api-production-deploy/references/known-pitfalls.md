@@ -494,13 +494,13 @@ Full DR 先于正式 runner，表中含有父子阶段，不能逐行相加。�
 
 外部健康预检只对 curl 超时（28）与 TLS 握手连接错误（35）进行最多三次只读尝试，间隔 1、2 秒；每次仍使用配置的 observer、目标地址与域名，并校验证书。HTTP 非 200、证书校验失败及其他错误立即阻断，不回退路由。失败以固定 doctor 错误码进入结构化事件与观察器，不回传 curl 原始错误或连接资料。重试耗尽不构成恢复通过，失败 release 仍须核定副作用及 VM owner 后收口，不能重跑。
 
-下次普通应用发布只更新 `.release/deploy.local.json` 的完整 `commit`，保留仍适用的 profile/mode，通过本地 doctor 后启动一次 `deploy-follow --recovery-gate-mode auto`；连接和实际拓扑由 `.ssh.local` 提供。当前登记 profile 为 `284/downtime`，历史 `283` 的验收不能作为继续选择旧 profile 或宣告当前目标已部署的依据。启动后只用同一 release 的 `status/follow/wait` 观察，成功以签名 Gate、`verify-result`、postdoctor 和完成收据为准。
+下次普通应用发布只更新 `.release/deploy.local.json` 的完整 `commit`，保留仍适用的 profile/mode，通过本地 doctor 后启动一次 `deploy-follow --recovery-gate-mode auto`；连接和实际拓扑由 `.ssh.local` 提供。选择目标提交已登记的 profile；发布状态以本次验收为准。启动后只用同一 release 的 `status/follow/wait` 观察，成功以签名 Gate、`verify-result`、postdoctor 和完成收据为准。
 
 - 只需改配置：同版本、同迁移合同的应用 SHA；已有配置字段覆盖的连接、健康路由、上传身份及 VM 路径。配置整体校验失败或运行中漂移时停止，不临时改脚本或回退路由。
 - 属于环境维护：VMware 服务、网络/registry、Git 对象、容量不足。先用现有预检和有界维护处理，保留失败证据；生产尚未开始的失败在收口后新建 release。已上线且 consumed 的发布只补后验与收口，不重发应用。
-- 仍需合同或工具改动：新版本/profile/迁移、新的迁移语义断言或工具能力。当前 profile 合同仍复制在 Python、Shell、validator、signer、备份和清理入口，新增 profile 尚不能只靠一份契约完成；历史 profile、审阅和签名不回写。
+- 新增版本/profile/迁移：在 `.release/contract.json` 的 `profiles` 数组末尾登记，新增迁移提交相应 SQL 和必要断言。新增工具能力须单独修改并验证工具。历史 profile、审阅和签名保持冻结。
 
-当前 Full DR 的端到端调度仍依赖每代准备并独审的临时 driver，尚无固定命令完整消费当代 target、source 和授权；不能复制旧 approval 或替换旧证据中的 SHA。日常 deploy 也仍会安装校验 VM 工具单元并在缺少 `jq` 时安装依赖，恢复 bundle 身份仍包含应用 commit。以上均为现有缺口，本次文档更新没有实现独立工具版本协议、通用 profile 加载或固定 Full DR 调度；实际发布与演练结果另按独立证据记录。
+当前 Full DR 的端到端调度仍依赖每代准备并独审的临时 driver，尚无固定命令完整消费当代 target、source 和授权；不能复制旧 approval 或替换旧证据中的 SHA。日常 deploy 也仍会安装校验 VM 工具单元并在缺少 `jq` 时安装依赖，恢复 bundle 身份仍包含应用 commit。独立工具版本和固定 Full DR 调度仍待交付。实际发布与演练结果以各自证据为准。
 
 Full DR scope 较大时，不把完整 scope 嵌进 SSH command 参数。Linux 单参数上限在本机隔离 VM 的 4096-byte page 下为 131072 bytes；Shell 引号展开还会增加长度，连接 reset 不代表签名执行失败或成功。现有 `SSHRunner.run_with_input` 可通过短命令 `bash -s` 的 stdin 传递冻结脚本，原 script SHA、输入摘要、独占输出、签名锁和原生验签保持不变。旧调用结果不明时，先确认原 worker 退出、同 boot/owner、远端没有请求/签名/日志且收据未变，再由独审的独立适配器续送；保留原 intent，不重跑原 driver。此处记录的是已确认的传输边界，正式调度器尚未自动覆盖它。
 

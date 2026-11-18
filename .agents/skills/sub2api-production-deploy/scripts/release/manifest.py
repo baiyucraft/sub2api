@@ -29,7 +29,13 @@ from .paths import (
     deploy_asset_path,
     skill_asset_path,
 )
-from .profiles import CURRENT_RELEASE_PROFILE, get_profile
+from .profiles import (
+    CURRENT_RELEASE_PROFILE,
+    PROFILE_CONTRACT_PATH,
+    get_profile,
+    parse_profile_contract,
+    requires_profile,
+)
 from .recovery_bundle import PREFIX as RECOVERY_BUNDLE_PREFIX, recovery_bundle_document, recovery_bundle_sha256
 from .recovery_gate import unproven_report, validate_report
 
@@ -60,6 +66,8 @@ _SKILL_LOGGING_FILE = re.compile(
 _SKILL_WINDOWS_FILE = re.compile(
     r"^\.agents/skills/sub2api-production-deploy/scripts/windows/[^/]+$"
 )
+# The frozen application revision includes the complete migration catalog through 313.
+_PROFILE_286_CATALOG_COMMIT = "9de2b0ea37cd790d00322f2a7e9fe6232df4530a"
 _UNIT_ASSET_NAMES = ("mask-backup-units.sh", "restore-backup-units.sh")
 
 
@@ -248,6 +256,48 @@ def _git_output(args: list[str], *, cwd: Path, text: bool = False) -> bytes | st
     raise AssertionError("unreachable git read retry state")
 
 
+def read_committed_profile_contract(commit: str, *, workspace: Path | None = None) -> bytes | None:
+    root = workspace if workspace is not None else workspace_root()
+    entry = _git_output(["git", "ls-tree", commit, "--", PROFILE_CONTRACT_PATH], cwd=root)
+    if not entry:
+        return None
+    if not entry.startswith(b"100644 blob "):
+        raise RuntimeError("committed release profile contract is not a regular file")
+    return _git_output(["git", "show", f"{commit}:{PROFILE_CONTRACT_PATH}"], cwd=root)
+
+
+def committed_profile_contract(commit: str) -> bytes:
+    raw = read_committed_profile_contract(validate_commit(commit))
+    if raw is None:
+        raise RuntimeError("committed release profile contract is missing")
+    return raw
+
+
+def _match_committed_profile(raw: bytes, profile: dict[str, Any]) -> dict[str, dict]:
+    configured = parse_profile_contract(raw)
+    name = profile["name"]
+    if not configured or next(reversed(configured)) != name or configured[name] != profile:
+        raise RuntimeError("profile does not match the current contract in the target commit")
+    return configured
+
+
+def profile_contract_digest(commit: str, profile: dict[str, Any]) -> str | None:
+    if not requires_profile(profile["name"], 287):
+        return None
+    raw = committed_profile_contract(commit)
+    _match_committed_profile(raw, profile)
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _new_profile_contract_digest(commit: str, profile: dict[str, Any]) -> str | None:
+    if not requires_profile(profile["name"], 287):
+        raw = read_committed_profile_contract(commit)
+        if raw is not None and parse_profile_contract(raw):
+            raise RuntimeError("target commit requires its configured release profile")
+        return None
+    return profile_contract_digest(commit, profile)
+
+
 def git_blob_sha256(commit: str, relative_path: str) -> str:
     root = workspace_root()
     blob = _git_output(
@@ -291,13 +341,25 @@ def validate_manifest_profile_contract(manifest: dict[str, Any], profile: dict[s
         raise RuntimeError("manifest schema does not match")
     layout = manifest_release_asset_layout(manifest)
     deployment_mode = manifest.get("deployment_mode")
-    if profile["name"] in {"274", "275", "276", "277", "278", "279", "280", "281", "282", "283", "284", "285", "286"} and deployment_mode != "downtime":
+    if requires_profile(profile["name"], 274) and deployment_mode != "downtime":
         raise RuntimeError(f"profile {profile['name']} admission migration requires downtime")
     if layout == LAYOUT_SKILL_V1 and deployment_mode not in {"blue-green", "downtime"}:
         raise RuntimeError("manifest deployment mode is invalid")
     if layout == LAYOUT_DEPLOY_V1 and deployment_mode is not None and deployment_mode not in {"blue-green", "downtime"}:
         raise RuntimeError("historical manifest deployment mode is invalid")
     commit = validate_commit(str(manifest.get("commit_sha", "")))
+    configured = None
+    if requires_profile(profile["name"], 287):
+        raw_contract = committed_profile_contract(commit)
+        configured = _match_committed_profile(raw_contract, profile)
+        contract_digest = hashlib.sha256(raw_contract).hexdigest()
+    else:
+        contract_digest = None
+    if contract_digest is None:
+        if "profile_contract_sha256" in manifest:
+            raise RuntimeError("legacy manifest cannot carry a profile contract")
+    elif schema != 2 or manifest.get("profile_contract_sha256") != contract_digest:
+        raise RuntimeError("manifest profile contract binding differs from target commit")
     assets = manifest.get("release_asset_sha256", {})
     bundle_helper = RECOVERY_BUNDLE_PREFIX + "release/recovery_bundle.py"
     if bundle_helper in assets or "recovery_helper_bundle_sha256" in manifest:
@@ -319,6 +381,15 @@ def validate_manifest_profile_contract(manifest: dict[str, Any], profile: dict[s
         catalog = discover_migration_catalog(workspace_root(), commit)
         if manifest.get("migration_catalog") != catalog:
             raise RuntimeError("manifest migration catalog does not match commit")
+        if configured is not None:
+            baseline_tree = _git_output(
+                ["git", "ls-tree", "-z", "--name-only", _PROFILE_286_CATALOG_COMMIT + ":backend/migrations"],
+                cwd=workspace_root(),
+            )
+            baseline = {item.decode("utf-8") for item in baseline_tree.split(b"\0") if item.endswith(b".sql")}
+            declared = {filename for entry in configured.values() for filename in entry["new_migrations"]}
+            if {item["filename"] for item in catalog} != baseline | declared:
+                raise RuntimeError("committed migration catalog does not match the profile chain")
         if manifest.get("catalog_sha256") != catalog_sha256(catalog):
             raise RuntimeError("manifest migration catalog checksum does not match")
         if manifest.get("checksum_policy_sha256") != checksum_policy_sha256():
@@ -341,19 +412,19 @@ def validate_manifest_profile_contract(manifest: dict[str, Any], profile: dict[s
             raise RuntimeError("manifest parent profile does not match")
         if manifest.get("new_migrations") != profile.get("new_migrations"):
             raise RuntimeError("manifest new migrations do not match profile")
-        if profile["name"] in {"269", "270", "271", "272", "273", "274", "275", "276", "277", "278", "279", "280", "281", "282", "283", "284", "285", "286"}:
+        if requires_profile(profile["name"], 269):
             helper = skill_asset_path("maintenance/release/migration-297-assert.sh")
             if not re.fullmatch(r"[0-9a-f]{64}", str(manifest.get("release_asset_sha256", {}).get(helper, ""))):
                 raise RuntimeError("manifest migration 297 assertion asset is missing")
-        if profile["name"] in {"270", "271", "272", "273", "274", "275", "276", "277", "278", "279", "280", "281", "282", "283", "284", "285", "286"}:
+        if requires_profile(profile["name"], 270):
             helper = skill_asset_path("maintenance/release/migration-298-assert.sh")
             if not re.fullmatch(r"[0-9a-f]{64}", str(manifest.get("release_asset_sha256", {}).get(helper, ""))):
                 raise RuntimeError("manifest migration 298 assertion asset is missing")
-        if profile["name"] in {"271", "272", "273", "274", "275", "276", "277", "278", "279", "280", "281", "282", "283", "284", "285", "286"}:
+        if requires_profile(profile["name"], 271):
             helper = skill_asset_path("maintenance/release/migration-299-assert.sh")
             if not re.fullmatch(r"[0-9a-f]{64}", str(manifest.get("release_asset_sha256", {}).get(helper, ""))):
                 raise RuntimeError("manifest migration 299 assertion asset is missing")
-        if profile["name"] in {"274", "275", "276", "277", "278", "279", "280", "281", "282", "283", "284", "285", "286"}:
+        if requires_profile(profile["name"], 274):
             helper = skill_asset_path("maintenance/release/migration-301-assert.sh")
             if not re.fullmatch(r"[0-9a-f]{64}", str(manifest.get("release_asset_sha256", {}).get(helper, ""))):
                 raise RuntimeError("manifest migration 301 assertion asset is missing")
@@ -382,7 +453,7 @@ def create_manifest(commit: str, profile: dict[str, Any], release_id: str, deplo
     commit = validate_commit(commit)
     if deployment_mode not in {"blue-green", "downtime"}:
         raise ValueError("deployment mode must be blue-green or downtime")
-    if profile["name"] in {"274", "275", "276", "277", "278", "279", "280", "281", "282", "283", "284", "285", "286"} and deployment_mode != "downtime":
+    if requires_profile(profile["name"], 274) and deployment_mode != "downtime":
         raise ValueError(f"profile {profile['name']} admission migration requires downtime")
     root = workspace_root()
     origin = check_output_hidden(["git", "remote", "get-url", "origin"], cwd=root, text=True).strip()
@@ -414,6 +485,8 @@ def create_manifest(commit: str, profile: dict[str, Any], release_id: str, deplo
         "release_asset_sha256": asset_checksums,
         "vm_identity": profile["vm_identity"],
     }
+    if (contract_digest := _new_profile_contract_digest(commit, profile)) is not None:
+        manifest["profile_contract_sha256"] = contract_digest
     if RECOVERY_BUNDLE_PREFIX + "release/recovery_bundle.py" in asset_checksums:
         manifest["recovery_helper_bundle_sha256"] = recovery_bundle_sha256(recovery_bundle_document(commit, asset_checksums))
     if schema == 2:
@@ -473,7 +546,7 @@ def create_vm_only_manifest(
     origin = check_output_hidden(["git", "remote", "get-url", "origin"], cwd=WORKSPACE, text=True).strip()
     if origin != profile["origin"]:
         raise RuntimeError("local origin does not match the release profile")
-    return {
+    manifest = {
         "schema": 2,
         "vm_only_schema": 1,
         "build_dependency_contract": "buildkit-dependencies-v1",
@@ -492,6 +565,13 @@ def create_vm_only_manifest(
         "vm_only_validator_sha256": validator_sha256,
         "vm_only_switch_sha256": switch_sha256,
     }
+    if (contract_digest := _new_profile_contract_digest(commit, profile)) is not None:
+        manifest.update({
+            "parent_profile": profile["parent"],
+            "new_migrations": profile["new_migrations"],
+            "profile_contract_sha256": contract_digest,
+        })
+    return manifest
 
 
 def bind_production_snapshot(

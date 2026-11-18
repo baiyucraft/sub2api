@@ -6,7 +6,12 @@ migration_status=${MIGRATION_STATUS:-absent}
 context_file=${ASSERT_CONTEXT_FILE:-/opt/sub2api/releases/.active-release/assets/context.sh}
 [[ -f $context_file && ! -L $context_file ]] || exit 1
 source "$context_file"
-[[ $profile == 269 || $profile == 270 || $profile == 271 || $profile == 272 || $profile == 273 || $profile == 274 || $profile == 275 || $profile == 276 || $profile == 277 || $profile == 278 || $profile == 279 || $profile == 280 || $profile == 281 || $profile == 282 || $profile == 283 || $profile == 284 || $profile == 285 || $profile == 286 ]] || exit 1
+configured_profile=false
+if ! [[ $profile == 269 || $profile == 270 || $profile == 271 || $profile == 272 || $profile == 273 || $profile == 274 || $profile == 275 || $profile == 276 || $profile == 277 || $profile == 278 || $profile == 279 || $profile == 280 || $profile == 281 || $profile == 282 || $profile == 283 || $profile == 284 || $profile == 285 || $profile == 286 ]]; then
+  source "$(dirname -- "${BASH_SOURCE[0]}")/profile-contract.sh"
+  validate_migration_hook_profile "$profile" || exit 1
+  configured_profile=true
+fi
 [[ $phase == preflight || $phase == postflight || $phase == verified_replay || $phase == vm_semantics ]] || exit 1
 [[ $migration_status == absent || $migration_status == verified ]] || exit 1
 [[ $phase == preflight || $migration_status == verified ]] || exit 1
@@ -31,10 +36,13 @@ query() {
 
 verify_manifest() {
   local document=${ASSERT_MANIFEST_FILE:-${active_claim:-/opt/sub2api/releases/.active-release}/gate.json}
+  if [[ $configured_profile == true && ${release_profile_contract_verified:-} == 1 ]]; then
+    document="$active_claim/gate.json"
+  fi
   [[ -f $document && ! -L $document ]] || fail manifest_missing
-  jq -e --arg filename "$filename" --arg checksum "$catalog_checksum" '
+  jq -e --arg filename "$filename" --arg checksum "$catalog_checksum" --arg profile "$profile" --argjson configured "$configured_profile" '
     (if has("manifest") then .manifest else . end) as $m |
-    $m.schema == 2 and (($m.profile == "269" and $m.parent_profile == "268" and $m.new_migrations == [$filename]) or
+    $m.schema == 2 and (($configured and $m.profile == $profile) or ($m.profile == "269" and $m.parent_profile == "268" and $m.new_migrations == [$filename]) or
       ($m.profile == "270" and $m.parent_profile == "269" and $m.new_migrations == ["298_group_scheduling_protection_policies.sql"]) or
       ($m.profile == "271" and $m.parent_profile == "270" and $m.new_migrations == ["299_upstream_cache_guard_revisions.sql"]) or
       ($m.profile == "272" and $m.parent_profile == "271" and $m.new_migrations == []) or

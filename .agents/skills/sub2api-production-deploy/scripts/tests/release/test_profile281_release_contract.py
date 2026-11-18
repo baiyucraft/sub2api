@@ -67,7 +67,7 @@ class Profile281ReleaseContractTest(unittest.TestCase):
         self.assertTrue(RELEASE_ID.fullmatch("280-aaaaaaaaaaaa-1-aaaaaaaa"))
         self.assertTrue(RELEASE_ID.fullmatch("281-aaaaaaaaaaaa-1-aaaaaaaa"))
         self.assertTrue(RELEASE_ID.fullmatch("283-aaaaaaaaaaaa-1-aaaaaaaa"))
-        self.assertFalse(RELEASE_ID.fullmatch("287-aaaaaaaaaaaa-1-aaaaaaaa"))
+        self.assertTrue(RELEASE_ID.fullmatch("287-aaaaaaaaaaaa-1-aaaaaaaa"))
 
     def test_official_raw_bytes_and_independent_checksums(self):
         registry = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
@@ -174,7 +174,7 @@ jq() {
         validator = (ROOT / "release/vm-validate.sh").read_text(encoding="utf-8")
         guard = next(line.strip() for line in validator.splitlines() if line.strip() == '[[ "$profile" == 286 ]]')
         prepare = (ROOT / "maintenance/release/prepare.sh").read_text(encoding="utf-8")
-        self.assertIn('[[ $profile == 286 ]]', prepare)
+        self.assertIn('validate_release_profile_contract', prepare)
         for value, allowed in (("286", True), ("285", False), ("284", False), ("282", False), ("281", False), ("280", False), ("283", False), ("287", False), ("0282", False), ("282;true", False)):
             result = self.execute('profile=$1\n' + guard, value)
             self.assertEqual(result.returncode == 0, allowed, (value, result.stderr))

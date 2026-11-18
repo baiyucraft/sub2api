@@ -32,10 +32,45 @@ exec 8<>"$unit_lock"
   [[ ${required_query_5} == root:root:600:1 ]]
 }
 flock -s 8
-[[ $gate =~ ^/opt/sub2api-deploy/release-gates/(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273|274|275|276|277|278|279|280|281|282|283|284|285|286)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}/output/gate\.json$ ]]
+configured_profile=false
+if [[ $gate =~ ^/opt/sub2api-deploy/release-gates/(182|187|191|192|194|195|197|198|199|202|206|207|208|209|210|212|213|215|232|233|234|235|236|237|238|239|240|241|242|243|244|245|246|247|248|249|250|251|252|253|254|255|256|257|258|259|260|261|262|263|264|265|266|267|268|269|270|271|272|273|274|275|276|277|278|279|280|281|282|283|284|285|286)-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}/output/gate\.json$ ]]; then
+  :
+elif [[ $gate =~ ^/opt/sub2api-deploy/release-gates/([1-9][0-9]{2,8})-[0-9a-f]{12}-[0-9]+-[0-9a-f]{8}/output/gate\.json$ ]] && (( BASH_REMATCH[1] > 286 )); then
+  configured_profile=true
+else
+  exit 1
+fi
 gate_release_dir=${gate%/output/gate.json}
 gate_release_id=${gate_release_dir##*/}
 gate_profile=${gate_release_id%%-*}
+if [[ $configured_profile == true ]]; then
+  gate_output_dir=${gate%/gate.json}
+  # The validator writes this receipt after checking the committed contract and
+  # completing its Gate. Only root may write either input to the signing step.
+  authorization="$gate_release_dir/gate-contract-authorization"
+  for directory in "$gate_release_dir" "$gate_output_dir"; do
+    [[ -d $directory && ! -L $directory ]]
+    directory_identity=$(stat -c '%u:%g:%a' "$directory")
+    [[ $directory_identity == 0:0:700 ]]
+  done
+  for path in "$gate" "$authorization"; do
+    [[ -f $path && ! -L $path ]]
+    canonical_path=$(realpath -e -- "$path")
+    file_identity=$(stat -c '%u:%g:%a:%h' "$path")
+    [[ $canonical_path == "$path" && $file_identity == 0:0:400:1 ]]
+  done
+  gate_digest=$(sha256sum "$gate")
+  authorization_digest=$(cat "$authorization")
+  [[ $authorization_digest =~ ^[0-9a-f]{64}$ && ${gate_digest%% *} == "$authorization_digest" ]]
+  jq -es --arg release_id "$gate_release_id" --arg profile "$gate_profile" '
+    length == 1 and (.[0] |
+      .gate_version == 2 and .profile_id == ($profile | tonumber) and
+      .manifest.schema == 2 and .manifest.profile == $profile and .manifest.release_id == $release_id and
+      (.manifest.profile_contract_sha256 | type == "string" and test("\\A[0-9a-f]{64}\\z")) and
+      (.manifest.commit_sha | type == "string" and test("\\A[0-9a-f]{40}\\z")) and
+      (.manifest.commit_sha[0:12] as $prefix | $release_id | startswith($profile + "-" + $prefix + "-")))
+  ' "$gate" >/dev/null
+fi
 {
   required_query_6=$(jq -er '.manifest.release_id' "$gate")
   [[ ${required_query_6} == "$gate_release_id" ]]
@@ -55,7 +90,7 @@ if [[ $gate_profile == 242 || $gate_profile == 243 || $gate_profile == 244 || $g
     required_query_9=$(jq -er '.profile_id' "$gate") || exit $?
     [[ ${required_query_9} == "$gate_profile" ]]
   }
-else
+elif [[ $configured_profile == false ]]; then
   [[ $gate_schema == 1 ]]
 fi
 expected_signature=${gate%/gate.json}/gate.sig

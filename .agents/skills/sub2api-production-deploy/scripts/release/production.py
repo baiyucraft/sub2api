@@ -16,7 +16,7 @@ from .atomic import atomic_write, canonical_json
 from .backup_maintenance import ensure_backup_capacity
 from .environment import DeploymentEnvironment, deployment_role_nodes, load_deployment_environment
 from .gate import verify_gate
-from .manifest import sha256_file, validate_image_id
+from .manifest import committed_profile_contract, sha256_file, validate_image_id
 from .migration_planner import HOOK_REGISTRY, plan_migrations
 from .production_snapshot import decode_snapshot, snapshot_script, snapshot_sha256
 from .paths import MAINTENANCE_ROOT, RELEASE_PACKAGE_ROOT, SSH_CONFIG, TRUSTED_VM_PUBLIC_KEY, UNIT_ROOT, WORKSPACE
@@ -261,7 +261,13 @@ def pre_state_claim_probe_script(document: dict, gate_dir: Path, trusted_key: Pa
             assets[basename] = digest
     if not {"context.sh", "cleanup-state.sh", "reconcile.sh"}.issubset(assets):
         raise RuntimeError("pre-state claim helper closure is incomplete")
-    checks = "\n".join(f"{digest}  assets/{name}" for name, digest in sorted(assets.items()))
+    claim_checksums = {f"assets/{name}": digest for name, digest in assets.items()}
+    if "profile_contract_sha256" in manifest:
+        contract_digest = manifest["profile_contract_sha256"]
+        if not re.fullmatch(r"[0-9a-f]{64}", str(contract_digest)):
+            raise RuntimeError("pre-state claim profile contract digest is invalid")
+        claim_checksums["profile-contract.json"] = contract_digest
+    checks = "\n".join(f"{digest}  {name}" for name, digest in sorted(claim_checksums.items()))
     expected_names = "\n".join(sorted(assets))
     release_dir = f"/opt/sub2api/releases/{identifier}"
     state_dir = f"/opt/sub2api/backups/release-state/{identifier}"
@@ -305,7 +311,7 @@ for file in "$active/assets/"*; do
   test -f "$file"; test ! -L "$file"
   metadata=$(stat -c '%u:%g:%a:%h' "$file"); test "$metadata" = 0:0:500:1
 done
-for file in release_id gate.json gate.sig CLAIM_SHA256SUMS; do
+for file in release_id gate.json gate.sig CLAIM_SHA256SUMS{' profile-contract.json' if 'profile-contract.json' in claim_checksums else ''}; do
   test -f "$active/$file"
   test ! -L "$active/$file"
   metadata=$(stat -c '%u:%g:%a:%h' "$active/$file")
@@ -670,6 +676,13 @@ exit "$code"
             "gate.sig": self.gate_dir / "gate.sig",
             "candidate.tar.gz": self.gate_dir / "candidate.tar.gz",
         }
+        if "profile_contract_sha256" in self.manifest:
+            contract = committed_profile_contract(self.manifest["commit_sha"])
+            if hashlib.sha256(contract).hexdigest() != self.manifest["profile_contract_sha256"]:
+                raise RuntimeError("production profile contract differs from signed Gate")
+            contract_path = self.gate_dir.parent / "profile-contract.json"
+            atomic_write(contract_path, contract, 0o400)
+            files[contract_path.name] = contract_path
         recipient_asset = self._backup_recipient_asset()
         if recipient_asset is not None:
             files["backup-recipient.txt"] = recipient_asset
