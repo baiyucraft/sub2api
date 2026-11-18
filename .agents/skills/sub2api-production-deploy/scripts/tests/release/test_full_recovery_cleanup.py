@@ -104,7 +104,7 @@ def test_verified_remote_receipt_is_preserved_before_normalizing(remote_cleanup)
     value, root, receipt = remote_cleanup
     observed = value.cleanup(root)
     assert observed == {'schema': 1, 'rootfs': root, 'status': 'deleted',
-                        'remote_receipt_sha256': hashlib.sha256(cleanup.canonical_json(receipt) + b'\n').hexdigest()}
+                        'remote_receipt_sha256': hashlib.sha256(cleanup.canonical_json(receipt)).hexdigest()}
     value._call.assert_called_once_with('cleanup', rootfs=root, diagnostics=value.expected_diagnostics)
     assert json.loads((value.directory / 'failed-closure-remote-receipt.json').read_bytes()) == receipt
 

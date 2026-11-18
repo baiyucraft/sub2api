@@ -403,7 +403,7 @@ print('fingerprint='+hashlib.sha256(raw).hexdigest())
                 or not all(re.fullmatch('[0-9a-f]{64}', receipt[key]) for key in ('archive_sha256', 'foreign_before_sha256', 'foreign_after_sha256'))
                 or receipt['foreign_before_sha256'] != receipt['foreign_after_sha256']):
             raise RuntimeError('full_dr_remote_cleanup_receipt_invalid')
-        raw = canonical_json(receipt) + b'\n'
+        raw = canonical_json(receipt)
         path = self.directory / 'failed-closure-remote-receipt.json'
         if path.exists():
             if read_replaceable_bytes(path) != raw:
