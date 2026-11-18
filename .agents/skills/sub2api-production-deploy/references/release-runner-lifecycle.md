@@ -18,6 +18,8 @@ Windows 共享读取必须与原生安全替换配套；单独调整轮询间隔
 
 通用 `reconcile-vm-pre-gate-preserve <release_id>` 收口在 Gate 前以 `init/not_started`、空 history 退出的失败 release。若 VM 由该 release 启动且仍在运行，入口持有原发布锁和 VM 身份锁，在原 worker 退出、boot/owner 精确匹配后重复只读核对任何 Gate、VM 隔离资源、生产 claim、状态及候选资源均不存在。生产镜像、迁移清单和 active route 取自实测观测，核对健康及两次观测一致。原失败证据保留，先验真独立 checks/result，再释放 shared owner。`verify-vm-pre-gate-preserve` 只重验已经提交的收口。VM 保持运行，后续发布使用新 release ID。
 
+Full DR 的隔离 Guest 若在 `guest_restore_phases` 报 `storage_exhausted`，且原本地 holder、VM holder 与 Guest worker 都已退出，使用 `reconcile-full-dr-failure --directory <session_directory>` 生成精确清理计划。默认只预览：重新取得原全局发布锁、VM 身份锁和 VM 两把锁，复核 boot、owner、Guest 身份及挂载和进程引用，核对生产基线和外部资源指纹，将有界诊断存入工作区外私有目录。只有原样传入该计划的 `--plan-sha256` 才能应用；应用只移除计划绑定的失败 Guest rootfs，先保留诊断并读回验真，复查结果并写独立收据，最后释放 shared owner。未知失败类型、身份或资源漂移、结果不确定都阻断。该命令不签名、不恢复数据、不关闭 VM、不执行生产发布，也不重跑失败的演练。
+
 ## 已消费发布的后置完成
 
 生产已 `production_verified` 且 claim 已 consumed、原 worker 仅后置检查失败退出时，使用正式 `finalize-consumed <release_id>` 入口。它属于独立 `ops-control-assets` 收口，不重发应用、不重新消费 claim、不恢复数据；原 runner 非零退出及原 manifest、Gate、production result、VM 生命周期事故记录保持原样。
@@ -164,6 +166,8 @@ python -I -S -B .agents/skills/sub2api-production-deploy/scripts/release.py depl
 | 工具、恢复算法、备份格式、信任或状态机变化 | 作为工具变更单独审阅和验证，再按最终分类提供所需的新恢复证据 |
 
 `auto` 每次重新比较真实生产基线和目标；上一轮 `full` 不会变成下一轮的默认要求。分类以本次读取的生产快照、实际 diff 和 pending migration 为准，不能只凭 profile 编号或历史成功推断。若新 diff 再触及敏感能力或存在 pending migration，仍由原分类器升级，不能强制改成 fast。
+
+停机只是部署模式，合入上游只是提交来源，两者本身都不要求 Full DR。profile 或版本接线可按明确的生产基线、前后 blob 和文件模式单独审阅；当剩余变更仅需针对性恢复验证（如存在 pending migration）时，走 `specialized`，仍须当前候选镜像、适用的真实隔离恢复和新签名 VM Gate。恢复算法、备份格式、信任链或其他未审敏感变化仍按原门禁判定。
 
 备份节点和 VM 分别复用已有自动容量维护；生产磁盘由独立维护入口处理，doctor 始终只读。runner 启动前为新 candidate、镜像、恢复点及临时文件预留增长余量；刚超过生产 doctor 的 10 GiB 门槛不能证明发布后仍满足门槛。需要生产空间维护时，绑定当前已上线、生产结果 verified 且 Gate consumed 的 release，使用同一次计划摘要：
 
