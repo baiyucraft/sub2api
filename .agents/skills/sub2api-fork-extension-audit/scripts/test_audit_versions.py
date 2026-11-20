@@ -91,6 +91,16 @@ def test_profiles_use_contract_from_audited_checkout(tmp_path, monkeypatch, pare
     codes = [finding["code"] for finding in audit.findings]
     if parent == "286":
         assert codes == ["historical_profile_contract", "current_profile_contract"]
+        legacy_migration = "backend/migrations/183_add_usage_log_long_context_billing.sql"
+        unregistered = "backend/migrations/314_unregistered.sql"
+        audit.catalog["registered_support_paths"] = [legacy_migration, unregistered]
+        audit.diff_paths = [legacy_migration, unregistered]
+        audit.diff_status = {path: "A" for path in audit.diff_paths}
+
+        audit.check_unregistered_paths()
+
+        assert audit.findings[-1]["code"] == "unregistered_migrations"
+        assert audit.findings[-1]["details"]["migrations"] == [unregistered]
     else:
         assert codes == ["profile_source_unreadable"]
         assert "immediate parent" in audit.findings[0]["details"]["error"]

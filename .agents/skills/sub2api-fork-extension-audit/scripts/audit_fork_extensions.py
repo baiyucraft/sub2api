@@ -10,6 +10,7 @@ import os
 import re
 import subprocess
 import sys
+from functools import cached_property
 from pathlib import Path
 from typing import Any
 
@@ -45,10 +46,10 @@ from pathlib import Path
 source = Path(sys.argv[1])
 if sys.argv[2] == "package":
     sys.path.insert(0, str(source.parent.parent))
-    from release.profiles import CURRENT_RELEASE_PROFILE, get_profile
+    from release.profiles import CURRENT_RELEASE_PROFILE, PROFILES, get_profile
 
-    profiles = {}
-    for name in sys.argv[3:]:
+    profiles = dict(PROFILES)
+    for name in set(sys.argv[3:]).difference(profiles):
         try:
             profiles[name] = get_profile(name)
         except ValueError:
@@ -569,20 +570,6 @@ class Audit:
             else:
                 self.add("pass", "extension_catalog_entry", f"扩展 {eid} 的路径、标记和最低测试已发现", extension_id=eid)
 
-    def all_profile_migrations(self) -> set[str]:
-        result: set[str] = set()
-        source = self.root / self.catalog.get("profile_source", "")
-        if not source.is_file():
-            return result
-        try:
-            namespace: dict[str, Any] = {}
-            exec(compile(source.read_text(encoding="utf-8"), str(source), "exec"), namespace)
-            for profile in namespace.get("PROFILES", {}).values():
-                result.update(profile.get("migrations", []))
-        except Exception as exc:
-            self.add("blocker", "profile_source_unreadable", "无法读取 profile manifest 源", error=str(exc))
-        return result
-
     def check_migrations(self) -> None:
         contracts = self.catalog.get("migration_contracts", {})
         for filename, expected in sorted(contracts.items()):
@@ -596,11 +583,12 @@ class Audit:
         if contracts:
             self.add("pass", "migration_checksums", "登记迁移 checksum 已核验", count=len(contracts))
 
-    def check_profiles(self) -> None:
+    @cached_property
+    def profile_data(self) -> dict[str, Any] | None:
         source = self.root / self.catalog.get("profile_source", "")
         if not source.is_file():
             self.add("blocker", "profile_source_missing", "profile manifest 源不存在", path=str(source.relative_to(self.root)))
-            return
+            return None
         historical = self.catalog.get("historical_profiles", {})
         current = self.catalog.get("current_profile")
         names = set(historical)
@@ -621,11 +609,17 @@ class Audit:
             if result.returncode:
                 error = result.stderr.strip().splitlines()
                 raise RuntimeError(error[-1] if error else f"profile reader exited with status {result.returncode}")
-            data = json.loads(result.stdout)
-            profiles = data["profiles"]
+            return json.loads(result.stdout)
         except Exception as exc:
             self.add("blocker", "profile_source_unreadable", "无法读取发布 profile 合同", error=str(exc))
+            return None
+
+    def check_profiles(self) -> None:
+        data = self.profile_data
+        if data is None:
             return
+        profiles = data["profiles"]
+        historical = self.catalog.get("historical_profiles", {})
         for name, expected in sorted(historical.items()):
             profile = profiles.get(name)
             if not profile:
@@ -672,7 +666,7 @@ class Audit:
             else:
                 self.add("pass", "historical_profile_contract", "历史 profile 合同保持不变", profile=name)
 
-        expected = current
+        expected = self.catalog.get("current_profile")
         if not expected:
             return
         name = str(expected.get("id", ""))
@@ -763,8 +757,6 @@ class Audit:
             and not any(fnmatch.fnmatch(path, pattern) for pattern in all_patterns)
             and path not in self.provisional_adopted_paths
         ]
-        migrations = self.all_profile_migrations() | set(self.catalog.get("migration_contracts", {}))
-        new_migrations = [path for path in self.diff_paths if self.diff_status.get(path, "")[0] != "D" and path.startswith("backend/migrations/") and path.endswith(".sql") and Path(path).name not in migrations]
         if unknown:
             self.add("catalog_update_required", "unregistered_fork_paths", "发现未登记的 fork-only 路径", paths=unknown)
         else:
@@ -775,6 +767,13 @@ class Audit:
                 count=len(self.diff_paths),
                 provisional_adopted_path_count=len(self.provisional_adopted_paths),
             )
+        data = self.profile_data
+        if data is None:
+            return
+        migrations = set(self.catalog.get("migration_contracts", {}))
+        for profile in data["profiles"].values():
+            migrations.update(profile.get("migrations", []))
+        new_migrations = [path for path in self.diff_paths if self.diff_status.get(path, "")[0] != "D" and path.startswith("backend/migrations/") and path.endswith(".sql") and Path(path).name not in migrations]
         if new_migrations:
             self.add("catalog_update_required", "unregistered_migrations", "发现未登记的新增 migration", migrations=new_migrations)
 
