@@ -697,7 +697,7 @@ def test_real_catalog_registers_unreleased_adopted_upstream_tranche() -> None:
 
     assert tranche["base_commit"] == "881f3202694c6bc932446931a30c27d9675178b9"
     assert tranche["tip_commit"] == "efe9aab1e4ec89a42ba45e8dac20e882c5409a6a"
-    assert tranche["merge_commit"] == "f501d6ee9461b86077a376002f0048d94e16cd61"
+    assert tranche["merge_commit"] == "b71c5b22d568525a795169ab2d440b99d1763e1a"
     assert tranche["official_version_at_adoption"] == "0.2.5"
     assert tranche["fork_version_at_adoption"] == "0.2.5-baiyu"
     assert tranche["commit_count"] == 52

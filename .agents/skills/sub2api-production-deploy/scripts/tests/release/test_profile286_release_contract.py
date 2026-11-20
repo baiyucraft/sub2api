@@ -9,7 +9,7 @@ from test_profile281_release_contract import git_blob
 from release.manifest import create_manifest, validate_manifest_profile_contract
 from release.migration_planner import catalog_sha256, checksum_policy_sha256, discover_migration_catalog, plan_migrations
 from release.paths import WORKSPACE
-from release.profiles import get_release_profile
+from release.profiles import get_profile
 
 UPSTREAM = "2af3f1e15c98c893a89255a037f551046883b8c0"
 MIGRATION = "313_channel_pricing_ultrafast_multiplier.sql"
@@ -28,7 +28,7 @@ class Profile286ReleaseContractTest(unittest.TestCase):
         self.assertFalse(plan_migrations(catalog, {**snapshot, MIGRATION: "0" * 64})["existing_checksums_verified"])
 
     def test_manifest_requires_downtime_new_migration_and_ancestor_assets(self):
-        profile = get_release_profile("286")
+        profile = get_profile("286")
         self.assertEqual((profile["version"], profile["parent"], profile["gate_schema"], profile["new_migrations"]),
                          ("0.2.23-baiyu", "285", 2, [MIGRATION]))
         with self.assertRaisesRegex(ValueError, "requires downtime"):

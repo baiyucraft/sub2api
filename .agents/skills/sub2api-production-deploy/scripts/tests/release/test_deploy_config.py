@@ -13,6 +13,7 @@ from unittest import mock
 
 
 SCRIPTS = Path(__file__).resolve().parents[2]
+WORKSPACE = SCRIPTS.parents[3]
 sys.path.insert(0, str(SCRIPTS))
 from release.deploy_config import load_config, prepare_arguments
 
@@ -90,7 +91,7 @@ class DeployConfigTest(unittest.TestCase):
 
     def test_bad_sha_profile_and_mode_are_rejected_even_if_cli_overrides_them(self):
         cases = (("commit", "a" * 39), ("commit", "A" * 40), ("commit", "main"),
-                 ("profile", "287"), ("profile", 275), ("mode", "automatic"))
+                 ("profile", "999"), ("profile", 275), ("mode", "automatic"))
         for field, value in cases:
             with self.subTest(field=field, value=value), self.assertRaises(ValueError):
                 self.write_config({**DOCUMENT, field: value})
@@ -105,7 +106,7 @@ class DeployConfigTest(unittest.TestCase):
                 prepare_arguments(["doctor", *options], self.workspace)
 
     def test_bad_explicit_values_and_missing_values_fail_without_config(self):
-        for options in (["--commit", "main"], ["--profile=287"], ["--mode=unknown"],
+        for options in (["--commit", "main"], ["--profile=999"], ["--mode=unknown"],
                         ["--commit"], ["--profile", "--node", "all"], ["--mode="]):
             with self.subTest(options=options), self.assertRaises(ValueError):
                 prepare_arguments(["deploy", *options], self.workspace)
@@ -143,6 +144,7 @@ class DeployConfigTest(unittest.TestCase):
         self.write_config({**DOCUMENT, "password": "do-not-print-this-value"})
         result = subprocess.run([sys.executable, "-I", "-S", "-B", str(SCRIPTS / "release.py"),
                                  "doctor", "--config", str(self.config)], cwd=self.workspace,
+                                env=dict(os.environ, SUB2API_APP_ROOT=str(WORKSPACE)),
                                 capture_output=True, text=True, timeout=30)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("deploy config requires exactly", result.stderr)
@@ -154,7 +156,7 @@ class DeployConfigTest(unittest.TestCase):
         poison = self.workspace / "poison" / "release"
         poison.mkdir(parents=True)
         (poison / "__init__.py").write_text('raise RuntimeError("caller_path_loaded")', encoding="utf-8")
-        environment = dict(os.environ, PYTHONPATH=str(poison.parent))
+        environment = dict(os.environ, PYTHONPATH=str(poison.parent), SUB2API_APP_ROOT=str(WORKSPACE))
         entrypoint = str(SCRIPTS / "release.py")
         help_result = subprocess.run([sys.executable, "-I", "-S", "-B", entrypoint, "--help"],
                                      cwd=self.workspace, env=environment, capture_output=True, text=True, timeout=30)

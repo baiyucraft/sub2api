@@ -50,7 +50,7 @@ class Profile269ReleaseContractTest(unittest.TestCase):
         for path in historical:
             self.assertEqual((WORKSPACE / path).read_bytes(), git_blob(path), path)
         current = {path.relative_to(WORKSPACE).as_posix() for path in (WORKSPACE / "backend/migrations").glob("*.sql")}
-        self.assertEqual(current, historical | {f"backend/migrations/{MIGRATION}", "backend/migrations/298_group_scheduling_protection_policies.sql", "backend/migrations/299_upstream_cache_guard_revisions.sql", "backend/migrations/300_upstream_health_history_index.sql", "backend/migrations/301_upstream_cache_guard_admissions.sql", "backend/migrations/302_enable_gemini_image_generation_groups.sql", "backend/migrations/303_group_strip_optional_image_tools.sql", "backend/migrations/304_upstream_confidence_fingerprint.sql", "backend/migrations/305_scoped_admin_api_keys.sql", "backend/migrations/306_group_image_count_billing.sql", "backend/migrations/307_user_default_group_rate_percent.sql", "backend/migrations/308_mcp_oauth.sql", "backend/migrations/309_add_usage_logs_api_key_cost_index_notx.sql", "backend/migrations/310_openai_cache_write_ttl.sql", "backend/migrations/311_group_force_openai_ultrafast.sql", "backend/migrations/312_group_usage_rollup_nonblocking_build.sql", "backend/migrations/313_channel_pricing_ultrafast_multiplier.sql"})
+        self.assertEqual(current, historical | {f"backend/migrations/{MIGRATION}", "backend/migrations/298_group_scheduling_protection_policies.sql", "backend/migrations/299_upstream_cache_guard_revisions.sql", "backend/migrations/300_upstream_health_history_index.sql", "backend/migrations/301_upstream_cache_guard_admissions.sql", "backend/migrations/302_enable_gemini_image_generation_groups.sql", "backend/migrations/303_group_strip_optional_image_tools.sql", "backend/migrations/304_upstream_confidence_fingerprint.sql", "backend/migrations/305_scoped_admin_api_keys.sql", "backend/migrations/306_group_image_count_billing.sql", "backend/migrations/307_user_default_group_rate_percent.sql", "backend/migrations/308_mcp_oauth.sql", "backend/migrations/309_add_usage_logs_api_key_cost_index_notx.sql", "backend/migrations/310_openai_cache_write_ttl.sql", "backend/migrations/311_group_force_openai_ultrafast.sql", "backend/migrations/312_group_usage_rollup_nonblocking_build.sql", "backend/migrations/313_channel_pricing_ultrafast_multiplier.sql"} | bash_helpers.CONFIGURED_MIGRATION_PATHS)
         prior = json.loads(git_blob(".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml"))
         registered = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
         for name, checksum in prior["migration_contracts"].items():
@@ -65,14 +65,13 @@ class Profile269ReleaseContractTest(unittest.TestCase):
         profile = get_profile("269")
         with self.assertRaisesRegex(ValueError, "historical"):
             get_release_profile("269")
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "286")
         self.assertEqual((profile["version"], profile["parent"], profile["gate_schema"]), ("0.2.16-baiyu", "268", 2))
         self.assertEqual(profile["new_migrations"], [MIGRATION])
         self.assertEqual(profile["release_policy"], get_profile("268")["release_policy"])
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 287"):
-            get_profile("287")
+        with self.assertRaisesRegex(ValueError, f"unknown release profile: {int(CURRENT_RELEASE_PROFILE) + 1}"):
+            get_profile(str(int(CURRENT_RELEASE_PROFILE) + 1))
         registered = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(registered["current_profile"]["id"], "286")
+        self.assertEqual(registered["current_profile"]["id"], CURRENT_RELEASE_PROFILE)
         self.assertEqual(registered["current_profile"]["status"], "pending")
         for field in ("version", "parent", "gate_schema", "new_migrations", "release_policy"):
             self.assertEqual(registered["historical_profiles"]["269"][field], profile[field])

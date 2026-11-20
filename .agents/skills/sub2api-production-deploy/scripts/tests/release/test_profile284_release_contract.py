@@ -44,7 +44,7 @@ class Profile284ReleaseContractTest(unittest.TestCase):
         paths = subprocess.check_output(["git", "ls-tree", "-r", "--name-only", BASELINE, "--", "backend/migrations"], cwd=WORKSPACE, text=True).splitlines()
         paths = [p for p in paths if p.endswith(".sql")]
         self.assertEqual(len(paths), 359)
-        self.assertEqual({p.name for p in (WORKSPACE / "backend/migrations").glob("*.sql")}, {Path(p).name for p in paths} | set(MIGRATIONS) | set(get_profile("285")["new_migrations"]) | set(get_profile("286")["new_migrations"]))
+        self.assertEqual({p.name for p in (WORKSPACE / "backend/migrations").glob("*.sql")}, {Path(p).name for p in paths} | set(MIGRATIONS) | set(get_profile("285")["new_migrations"]) | set(get_profile("286")["new_migrations"]) | bash_helpers.CONFIGURED_MIGRATIONS)
         for path in paths:
             self.assertEqual((WORKSPACE / path).read_bytes(), git_blob(BASELINE, path), path)
         protected = ".agents/skills/sub2api-production-deploy/scripts/release/recovery_gate.py"
@@ -55,21 +55,20 @@ class Profile284ReleaseContractTest(unittest.TestCase):
                 self.assertEqual(getattr(recovery_gate, name)[:len(entries)], entries, name)
 
     def test_current_identity_registry_and_original_sql_bytes(self):
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "286")
         profile = get_profile("284")
         self.assertEqual((profile["version"], profile["parent"], profile["gate_schema"], profile["new_migrations"]), ("0.2.21-baiyu", "283", 2, MIGRATIONS))
         with self.assertRaisesRegex(ValueError, "historical"):
             get_release_profile("283")
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 287"):
-            get_profile("287")
+        with self.assertRaisesRegex(ValueError, f"unknown release profile: {int(CURRENT_RELEASE_PROFILE) + 1}"):
+            get_profile(str(int(CURRENT_RELEASE_PROFILE) + 1))
         self.assertTrue(RELEASE_ID.fullmatch("284-aaaaaaaaaaaa-1-aaaaaaaa"))
         self.assertTrue(RELEASE_ID.fullmatch("287-aaaaaaaaaaaa-1-aaaaaaaa"))
         registry = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(registry["current_profile"]["id"], "286")
+        self.assertEqual(registry["current_profile"]["id"], CURRENT_RELEASE_PROFILE)
         for key in ("version", "parent", "gate_schema", "new_migrations", "release_policy"):
             self.assertEqual(registry["historical_profiles"]["284"][key], profile[key])
             self.assertEqual(registry["historical_profiles"]["283"][key], get_profile("283")[key])
-        self.assertEqual((WORKSPACE / "backend/cmd/server/VERSION").read_text().strip(), get_profile("286")["version"])
+        self.assertEqual((WORKSPACE / "backend/cmd/server/VERSION").read_text().strip(), get_profile(CURRENT_RELEASE_PROFILE)["version"])
         for name, original, raw_sha, checksum in zip(MIGRATIONS, ORIGINALS, RAW_CHECKSUMS, CHECKSUMS):
             raw = (WORKSPACE / "backend/migrations" / name).read_bytes()
             self.assertEqual(raw, git_blob(UPSTREAM, "backend/migrations/" + original))

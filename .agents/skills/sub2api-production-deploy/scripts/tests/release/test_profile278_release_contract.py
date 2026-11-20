@@ -14,7 +14,6 @@ from release.production_cleanup import RELEASE_ID
 
 
 def test_profile_278_is_additive_and_has_no_migration():
-    assert CURRENT_RELEASE_PROFILE == "286"
     assert list(PROFILES)[-8:] == ["279", "280", "281", "282", "283", "284", "285", "286"]
     profile = get_profile("278")
     assert (profile["version"], profile["parent"], profile["new_migrations"], profile["gate_schema"]) == (
@@ -24,7 +23,7 @@ def test_profile_278_is_additive_and_has_no_migration():
         "0.2.19-baiyu", "276", ["304_upstream_confidence_fingerprint.sql"]
     )
     assert get_profile("278")["name"] == "278"
-    assert get_release_profile("286")["name"] == "286"
+    assert get_release_profile(CURRENT_RELEASE_PROFILE)["name"] == CURRENT_RELEASE_PROFILE
     assert RELEASE_ID.fullmatch("278-aaaaaaaaaaaa-1-aaaaaaaa")
     assert RELEASE_ID.fullmatch("279-aaaaaaaaaaaa-1-aaaaaaaa")
 
@@ -32,11 +31,11 @@ def test_profile_278_is_additive_and_has_no_migration():
 def test_profile_278_registry_and_vm_admission_are_consistent():
     registry = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
     current = registry["current_profile"]
-    profile = get_profile("286")
-    assert current["id"] == "286"
+    profile = get_profile(CURRENT_RELEASE_PROFILE)
+    assert current["id"] == CURRENT_RELEASE_PROFILE
     for key in ("version", "parent", "new_migrations", "gate_schema", "release_policy"):
         assert current[key] == profile[key]
-    assert current["new_migrations"] == ["313_channel_pricing_ultrafast_multiplier.sql"]
+    assert registry["historical_profiles"].get("286", current)["new_migrations"] == ["313_channel_pricing_ultrafast_multiplier.sql"]
     assert "304_upstream_confidence_fingerprint.sql" in registry["migration_contracts"]
 
     context = (ROOT / "maintenance/release/context.sh").read_text(encoding="utf-8")

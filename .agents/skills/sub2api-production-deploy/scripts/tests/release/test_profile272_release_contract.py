@@ -40,15 +40,14 @@ class Profile272ReleaseContractTest(unittest.TestCase):
                 actual = PROFILES[name]
                 self.assertTrue(deployment_keys.isdisjoint(actual))
                 self.assertEqual(actual, {key: value for key, value in contract.items() if key not in deployment_keys})
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "286")
         profile = get_profile("272")
         self.assertEqual((profile["version"], profile["parent"], profile["gate_schema"], profile["new_migrations"]),
                          ("0.2.17-baiyu", "271", 2, []))
         catalog = discover_migration_catalog(WORKSPACE)
         snapshot = {row["filename"]: row["checksum"] for row in catalog}
         self.assertEqual(plan_migrations(catalog, snapshot)["pending"], [])
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 287"):
-            get_profile("287")
+        with self.assertRaisesRegex(ValueError, f"unknown release profile: {int(CURRENT_RELEASE_PROFILE) + 1}"):
+            get_profile(str(int(CURRENT_RELEASE_PROFILE) + 1))
 
     @unittest.skipUnless(JQ, "jq unavailable; set SUB2API_TEST_JQ for real filter validation")
     def test_inherited_hooks_validate_real_manifest_filters(self):

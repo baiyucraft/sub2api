@@ -1,4 +1,11 @@
 {
   "schema": 1,
-  "profiles": []
+  "profiles": [
+    {
+      "profile": "287",
+      "parent": "286",
+      "version": "0.2.24-baiyu",
+      "new_migrations": []
+    }
+  ]
 }

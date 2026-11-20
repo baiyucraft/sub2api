@@ -51,7 +51,6 @@ class Profile261ReleaseContractTest(unittest.TestCase):
                 actual = get_profile(name)
                 self.assertTrue(deployment_keys.isdisjoint(actual))
                 self.assertEqual(actual, {key: value for key, value in contract.items() if key not in deployment_keys})
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "286")
         current = get_profile("261")
         self.assertEqual(current["version"], "0.2.13-baiyu")
         self.assertEqual(current["parent"], "260")
@@ -62,16 +61,16 @@ class Profile261ReleaseContractTest(unittest.TestCase):
             get_release_profile("260")
         with self.assertRaisesRegex(ValueError, "historical"):
             get_release_profile("261")
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 287"):
-            get_profile("287")
-        self.assertEqual(get_release_profile("286")["name"], "286")
+        with self.assertRaisesRegex(ValueError, f"unknown release profile: {int(CURRENT_RELEASE_PROFILE) + 1}"):
+            get_profile(str(int(CURRENT_RELEASE_PROFILE) + 1))
+        self.assertEqual(get_release_profile(CURRENT_RELEASE_PROFILE)["name"], CURRENT_RELEASE_PROFILE)
 
     def test_official_raw_bytes_and_catalog_checksums_match(self) -> None:
         registration = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
         catalog = {item["filename"]: item for item in discover_migration_catalog(WORKSPACE)}
         self.assertEqual(git_blob(UPSTREAM, "backend/cmd/server/VERSION").decode().strip(), "0.2.13")
         self.assertEqual(registration["version_contract"]["official_release_versions"][UPSTREAM], "0.2.13")
-        self.assertEqual(registration["current_profile"]["id"], "286")
+        self.assertEqual(registration["current_profile"]["id"], CURRENT_RELEASE_PROFILE)
         self.assertEqual(registration["current_profile"]["status"], "pending")
         for field in ("version", "parent", "new_migrations", "gate_schema", "release_policy"):
             self.assertEqual(registration["historical_profiles"]["261"][field], get_profile("261")[field])

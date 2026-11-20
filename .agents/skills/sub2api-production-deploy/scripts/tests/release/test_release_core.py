@@ -481,7 +481,7 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertEqual(current["version"], "0.2.11-baiyu")
         self.assertEqual(current["parent"], "259")
         self.assertEqual(current["new_migrations"], ["285_upstream_null_rate_lifecycle.sql"])
-        self.assertEqual(profiles.CURRENT_RELEASE_PROFILE, "286")
+        self.assertEqual(profiles.LEGACY_CURRENT_PROFILE, "286")
         successor = get_profile("261")
         self.assertEqual(successor["version"], "0.2.13-baiyu")
         self.assertEqual(successor["parent"], "260")
@@ -559,11 +559,11 @@ class ReleaseCoreTest(unittest.TestCase):
         self.assertEqual(catalog["historical_profiles"]["277"]["version"], "0.2.19-baiyu")
         self.assertEqual(catalog["historical_profiles"]["277"]["parent"], "276")
         self.assertEqual(catalog["historical_profiles"]["277"]["new_migrations"], ["304_upstream_confidence_fingerprint.sql"])
-        self.assertEqual(catalog["current_profile"]["id"], "286")
+        current_profile = get_release_profile(profiles.CURRENT_RELEASE_PROFILE)
+        self.assertEqual(catalog["current_profile"]["id"], current_profile["name"])
         self.assertEqual(catalog["current_profile"]["status"], "pending")
-        self.assertEqual(catalog["current_profile"]["version"], "0.2.23-baiyu")
-        self.assertEqual(catalog["current_profile"]["parent"], "285")
-        self.assertEqual(catalog["current_profile"]["new_migrations"], ["313_channel_pricing_ultrafast_multiplier.sql"])
+        for field in ("version", "parent", "new_migrations", "gate_schema", "release_policy"):
+            self.assertEqual(catalog["current_profile"][field], current_profile[field], field)
         self.assertTrue(catalog["migration_assertions"]["backend/migrations/283_affiliate_ledger_operation_id.sql"])
         for migration_name in migration_names:
             migration_path = WORKSPACE / "backend" / "migrations" / migration_name

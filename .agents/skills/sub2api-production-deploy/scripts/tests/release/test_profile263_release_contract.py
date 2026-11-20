@@ -18,7 +18,14 @@ from release.manifest import validate_manifest_profile_contract
 from release.migration_planner import catalog_sha256, checksum_policy_sha256, discover_migration_catalog, plan_migrations
 from release.paths import WORKSPACE
 from release.production_cleanup import RELEASE_ID as CLEANUP_RELEASE_ID
-from release.profiles import CURRENT_RELEASE_PROFILE, PROFILES, get_profile, get_release_profile
+from release.profiles import CURRENT_RELEASE_PROFILE, LEGACY_CURRENT_PROFILE, PROFILES, get_profile, get_release_profile
+
+CONFIGURED_MIGRATIONS = {
+    filename
+    for number in range(int(LEGACY_CURRENT_PROFILE) + 1, int(CURRENT_RELEASE_PROFILE) + 1)
+    for filename in get_profile(str(number))["new_migrations"]
+}
+CONFIGURED_MIGRATION_PATHS = {f"backend/migrations/{name}" for name in CONFIGURED_MIGRATIONS}
 
 BASELINE = "8a59856bfa15e71810307e905d4a001cb907e41c"
 
@@ -43,21 +50,20 @@ class Profile263ReleaseContractTest(unittest.TestCase):
                 self.assertEqual(actual, {key: value for key, value in contract.items() if key not in deployment_keys})
                 with self.assertRaisesRegex(ValueError, "historical"):
                     get_release_profile(name)
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "286")
         current = get_profile("263")
         self.assertEqual(current["version"], "0.2.14-baiyu")
         self.assertEqual(current["parent"], "262")
         self.assertEqual(current["new_migrations"], [])
         self.assertEqual(current["gate_schema"], 2)
         self.assertEqual(current["release_policy"], get_profile("262")["release_policy"])
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 287"):
-            get_profile("287")
+        with self.assertRaisesRegex(ValueError, f"unknown release profile: {int(CURRENT_RELEASE_PROFILE) + 1}"):
+            get_profile(str(int(CURRENT_RELEASE_PROFILE) + 1))
         self.assertEqual(get_profile("276")["name"], "276")
-        self.assertEqual(get_release_profile("286")["name"], "286")
+        self.assertEqual(get_release_profile(CURRENT_RELEASE_PROFILE)["name"], CURRENT_RELEASE_PROFILE)
 
     def test_registration_and_existing_database_replay(self) -> None:
         registration = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(registration["current_profile"]["id"], "286")
+        self.assertEqual(registration["current_profile"]["id"], CURRENT_RELEASE_PROFILE)
         for field in ("version", "parent", "new_migrations", "gate_schema", "release_policy"):
             self.assertEqual(registration["historical_profiles"]["263"][field], get_profile("263")[field])
             self.assertEqual(registration["historical_profiles"]["262"][field], get_profile("262")[field])
@@ -167,18 +173,29 @@ jq() {
                 self.assertEqual(result.returncode == 0, allowed, result.stderr)
 
     def test_release_id_guards_retain_history_and_reject_unknown(self) -> None:
-        files = (
-            "release/sign-gate.sh", "release/sign-dr-evidence.sh", "release/production-space-clean.sh",
-            "release/production-recovery-retention-clean.sh", "release/promote-dr-baseline.sh",
-            "maintenance/release/context.sh", "maintenance/release/prepare.sh", "maintenance/release/promote-backup.sh",
-        )
-        for relative in files:
-            source = "\n".join(line for line in (DEPLOY_ROOT / relative).read_text(encoding="utf-8").splitlines() if not line.lstrip().startswith("#"))
-            groups = re.findall(r"\((?:182\||195\|)[0-9|]+\)", source)
+        unknown = str(int(CURRENT_RELEASE_PROFILE) + 1)
+        with self.assertRaisesRegex(ValueError, f"unknown release profile: {unknown}"):
+            get_profile(unknown)
+        for relative, configured_syntax in (
+            ("release/sign-gate.sh", False),
+            ("release/sign-dr-evidence.sh", True),
+            ("release/production-space-clean.sh", True),
+            ("release/production-recovery-retention-clean.sh", True),
+            ("release/promote-dr-baseline.sh", True),
+            ("maintenance/release/promote-backup.sh", False),
+        ):
+            source = (DEPLOY_ROOT / relative).read_text(encoding="utf-8")
+            groups = [
+                group for group in re.findall(r"\((?:182|195)\|[^)]+\)", source)
+                if "|286" in group
+            ]
             self.assertTrue(groups, relative)
+            cases = tuple((f"{profile}-aaaaaaaaaaaa-1-aaaaaaaa", True) for profile in range(261, 287))
+            cases += ((f"{unknown}-aaaaaaaaaaaa-1-aaaaaaaa", configured_syntax),
+                      (f"0{unknown}-aaaaaaaaaaaa-1-aaaaaaaa", False),
+                      (f"{unknown}-aaaaaaaaaaaa-1-aaaaaaaa/extra", False))
             for group in groups:
                 with self.subTest(file=relative):
-                    cases = tuple((f"{profile}-aaaaaaaaaaaa-1-aaaaaaaa", allowed) for profile, allowed in (("261", True), ("262", True), ("263", True), ("264", True), ("265", True), ("266", True), ("267", True), ("268", True), ("269", True), ("270", True), ("271", True), ("272", True), ("273", True), ("274", True), ("275", True), ("276", True), ("277", True), ("278", True), ("279", True), ("280", True), ("281", True), ("282", True), ("283", True), ("284", True), ("285", True), ("286", True), ("287", False)))
                     self.assert_guard_cases(f'[[ $release_id =~ ^{group}-[0-9a-f]{{12}}-[0-9]+-[0-9a-f]{{8}}$ ]]', "release_id", cases)
 
     def test_backup_unit_helpers_validate_path_syntax_without_owning_profile_admission(self) -> None:
@@ -204,19 +221,20 @@ jq() {
 
     def test_ancestor_assertion_guards_admit_263_through_270_and_reject_271(self) -> None:
         newer_profiles = {
-            "migration-297-assert.sh": {"269", "270", "271", "272", "273", "274", "275", "276", "277"},
-            "migration-298-assert.sh": {"270", "271", "272", "273", "274", "275", "276", "277"},
-            "migration-299-assert.sh": {"271", "272", "273", "274", "275", "276", "277"},
-            "migration-301-assert.sh": {"274", "275", "276", "277"},
+            "migration-297-assert.sh": {"269", "270", "271", "272", "273", "274", "275", "276", "277", "278", "279", "280", "281", "282", "283", "284", "285", "286"},
+            "migration-298-assert.sh": {"270", "271", "272", "273", "274", "275", "276", "277", "278", "279", "280", "281", "282", "283", "284", "285", "286"},
+            "migration-299-assert.sh": {"271", "272", "273", "274", "275", "276", "277", "278", "279", "280", "281", "282", "283", "284", "285", "286"},
+            "migration-301-assert.sh": {"274", "275", "276", "277", "278", "279", "280", "281", "282", "283", "284", "285", "286"},
         }
         for path in sorted((DEPLOY_ROOT / "maintenance/release").glob("migration-*-assert.sh")):
             source = path.read_text(encoding="utf-8")
-            guards = [re.search(r"\[\[.*?\]\]", line)[0] for line in source.splitlines() if line.startswith("[[ $profile ==")]
+            guards = [re.search(r"\[\[.*?\]\]", line)[0] for line in source.splitlines()
+                      if line.startswith(("[[ $profile ==", "if ! [[ $profile =="))]
             self.assertTrue(guards, path.name)
             for guard in guards:
                 with self.subTest(file=path.name):
-                    accepted = newer_profiles.get(path.name, {str(value) for value in range(262, 277)})
-                    cases = tuple((str(value), str(value) in accepted) for value in range(262, 277))
+                    accepted = newer_profiles.get(path.name, {str(value) for value in range(262, int(LEGACY_CURRENT_PROFILE) + 1)})
+                    cases = tuple((str(value), str(value) in accepted) for value in range(262, int(CURRENT_RELEASE_PROFILE) + 2))
                     self.assert_guard_cases(guard, "profile", cases)
 
 

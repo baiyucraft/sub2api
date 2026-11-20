@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "catalog_version": "2026-11-12",
+  "catalog_version": "2026-11-20",
   "version_contract": {
     "upstream_path": "backend/cmd/server/VERSION",
     "fork_suffix": "-baiyu",
@@ -13,7 +13,8 @@
       "b8dece9000c68815a5b867ca5a1e6f236e173905": "0.2.13",
       "3f1a2ea0a760730e3bc528105c00b4ee4f23e469": "0.2.14",
       "3a6fd1c9db07203ca308aaba69e502bc1f35b307": "0.2.15",
-      "4d9ac3e482106d2da3a39fe3e546d8d6801f1cc1": "0.2.16"
+      "4d9ac3e482106d2da3a39fe3e546d8d6801f1cc1": "0.2.16",
+      "328db26f450edbdf9f8d4344a3ea903ac6396842": "0.2.24"
     }
   },
   "upstream_overlap_reviews": [
@@ -167,17 +168,16 @@
     "282": {"version": "0.2.19-baiyu", "parent": "281", "gate_schema": 2, "new_migrations": ["307_user_default_group_rate_percent.sql"], "release_policy": {"compatibility_image": "production_current", "migration_source": "database_state"}},
     "283": {"version": "0.2.20-baiyu", "parent": "282", "gate_schema": 2, "new_migrations": ["308_mcp_oauth.sql"], "release_policy": {"compatibility_image": "production_current", "migration_source": "database_state"}},
     "284": {"version": "0.2.21-baiyu", "parent": "283", "gate_schema": 2, "new_migrations": ["309_add_usage_logs_api_key_cost_index_notx.sql", "310_openai_cache_write_ttl.sql"], "release_policy": {"compatibility_image": "production_current", "migration_source": "database_state"}},
-    "285": {"version": "0.2.22-baiyu", "parent": "284", "gate_schema": 2, "new_migrations": ["311_group_force_openai_ultrafast.sql", "312_group_usage_rollup_nonblocking_build.sql"], "release_policy": {"compatibility_image": "production_current", "migration_source": "database_state"}}
+    "285": {"version": "0.2.22-baiyu", "parent": "284", "gate_schema": 2, "new_migrations": ["311_group_force_openai_ultrafast.sql", "312_group_usage_rollup_nonblocking_build.sql"], "release_policy": {"compatibility_image": "production_current", "migration_source": "database_state"}},
+    "286": {"version": "0.2.23-baiyu", "parent": "285", "gate_schema": 2, "new_migrations": ["313_channel_pricing_ultrafast_multiplier.sql"], "release_policy": {"compatibility_image": "production_current", "migration_source": "database_state"}}
   },
   "current_profile": {
-    "id": "286",
+    "id": "287",
     "status": "pending",
-    "version": "0.2.23-baiyu",
-    "parent": "285",
+    "version": "0.2.24-baiyu",
+    "parent": "286",
     "gate_schema": 2,
-    "new_migrations": [
-      "313_channel_pricing_ultrafast_multiplier.sql"
-    ],
+    "new_migrations": [],
     "release_policy": {
       "compatibility_image": "production_current",
       "migration_source": "database_state"
@@ -2497,7 +2497,7 @@
         "官方限定管理员密钥PostgreSQL回归只将迁移读取名改为305，原字节305/306与官方247/248一致，旧SQL不回写。",
         "profile282现为历史profile，保持0.2.19-baiyu、parent281、仅新增307_user_default_group_rate_percent.sql；原始profile/SQL/checksum/恢复审阅不变。profile283为0.2.20-baiyu、parent282，仅新增原字节重编号的308_mcp_oauth.sql；目标官方249_mcp_oauth SQL原字节相同。全部入口接纳283并拒绝未知284，current-only仅283；保留downtime和301停旧写者/coordinated_restore，不新增恢复豁免。",
         "Profile285为0.2.22-baiyu、parent284，仅新增原字节重编号311/312。",
-        "Profile286为0.2.23-baiyu、parent285，仅新增原字节重编号的313渠道 Ultrafast 倍率；历史合同和恢复审阅保持不变。各入口接纳286并拒绝未知287；保留downtime、停旧写者和301 coordinated_restore，不新增恢复豁免。"
+        "历史 profile 286 为0.2.23-baiyu、parent285，仅新增原字节重编号的313渠道 Ultra Fast 倍率，历史合同和恢复审阅保持不变。当前 pending profile 287 为0.2.24-baiyu、parent286、new_migrations=[]，只在.release/contract.json追加，无需修改发布入口。仍继承downtime、停旧写者和301 coordinated_restore，不新增恢复豁免。"
       ]
     },
     {

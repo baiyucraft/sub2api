@@ -1,4 +1,6 @@
 import importlib.util
+import json
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -57,3 +59,52 @@ def test_git_paths_are_unquoted_utf8(tmp_path):
     subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
     audit = module.Audit(tmp_path, "pre-merge", "a" * 40, None, tmp_path / "catalog.json")
     assert audit.git("diff", "--cached", "--name-only") == "重磅推出活动.md"
+
+
+@pytest.mark.parametrize("parent", ["286", "285"])
+def test_profiles_use_contract_from_audited_checkout(tmp_path, monkeypatch, parent):
+    source = tmp_path / module.RELEASE_PROFILE_SOURCE
+    source.parent.mkdir(parents=True)
+    release_package = Path(__file__).resolve().parents[4] / module.RELEASE_PROFILE_SOURCE.parent
+    for name in ("__init__.py", "atomic.py", "paths.py", "profiles.py"):
+        shutil.copyfile(release_package / name, source.parent / name)
+
+    subprocess.run(["git", "init", "--quiet", str(tmp_path)], check=True)
+    contract = tmp_path / ".release" / "contract.json"
+    contract.parent.mkdir()
+    contract.write_text(json.dumps({
+        "schema": 1,
+        "profiles": [{"profile": "287", "parent": parent, "version": "0.2.24-baiyu", "new_migrations": []}],
+    }), encoding="utf-8")
+    monkeypatch.setenv("SUB2API_APP_ROOT", str(tmp_path / "wrong-checkout"))
+
+    audit = module.Audit(tmp_path, "snapshot", "a" * 40, None, tmp_path / "catalog.json")
+    audit.catalog = {
+        "profile_source": module.RELEASE_PROFILE_SOURCE.as_posix(),
+        "historical_profiles": {"286": {"gate_schema": 2, "version": "0.2.23-baiyu"}},
+        "current_profile": {"id": "287", "parent": "286", "gate_schema": 2, "version": "0.2.24-baiyu", "new_migrations": []},
+    }
+    audit.show = lambda ref, path: "0.2.24-baiyu"
+
+    audit.check_profiles()
+
+    codes = [finding["code"] for finding in audit.findings]
+    if parent == "286":
+        assert codes == ["historical_profile_contract", "current_profile_contract"]
+    else:
+        assert codes == ["profile_source_unreadable"]
+        assert "immediate parent" in audit.findings[0]["details"]["error"]
+
+
+def test_profiles_accept_standalone_source_without_current_pointer(tmp_path):
+    (tmp_path / "profiles.py").write_text(
+        'PROFILES = {"42": {"name": "42", "gate_schema": 2, "version": "0.2.0-baiyu"}}\n',
+        encoding="utf-8",
+    )
+    audit = module.Audit(tmp_path, "snapshot", "a" * 40, None, tmp_path / "catalog.json")
+    audit.catalog = {"profile_source": "profiles.py", "current_profile": {"id": "42", "version": "0.2.0-baiyu"}}
+    audit.show = lambda ref, path: "0.2.0-baiyu"
+
+    audit.check_profiles()
+
+    assert [finding["code"] for finding in audit.findings] == ["current_profile_contract"]

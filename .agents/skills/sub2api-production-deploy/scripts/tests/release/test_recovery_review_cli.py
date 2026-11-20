@@ -18,7 +18,7 @@ from release import cli, gate, paths, supervisor
 from release import recovery_evidence as evidence
 from release.atomic import canonical_json
 from release.recovery_gate import classify, require_full, require_specialized
-from release.profiles import CURRENT_RELEASE_PROFILE
+from release.profiles import CURRENT_RELEASE_PROFILE, LEGACY_CURRENT_PROFILE
 import test_recovery_evidence as evidence_fixture
 import test_gate_v2 as gate_fixture
 
@@ -146,7 +146,7 @@ class RecoveryReviewCLITests(unittest.TestCase):
         document = template._document()
         reviewed = evidence.apply_review(self.fixture.report, self.fixture.signed(), workspace=self.fixture.workspace)
         old_image = reviewed["full_recovery_evidence"]["payload"]["source"]["pre_image_id"]
-        document["manifest"].update(commit_sha=self.fixture.target, release_id=f"{CURRENT_RELEASE_PROFILE}-{self.fixture.target[:12]}-1-aaaaaaaa", recovery_gate=reviewed, production_current_image_id=old_image)
+        document["manifest"].update(commit_sha=self.fixture.target, release_id=f"{LEGACY_CURRENT_PROFILE}-{self.fixture.target[:12]}-1-aaaaaaaa", recovery_gate=reviewed, production_current_image_id=old_image)
         document["evidence"]["production_current_image_id"] = old_image
         return document
 
@@ -156,8 +156,14 @@ class RecoveryReviewCLITests(unittest.TestCase):
         (self.root / "gate.sig").write_bytes(self.fixture.key.sign(raw))
         # Assets/catalog are another contract. Do not mock either signature,
         # classification validation or full evidence Git scope derivation.
-        with mock.patch("release.manifest.discover_migration_catalog", return_value=gate_fixture.GateV2Test._catalog()), mock.patch.object(gate, "runner_checksum", return_value="d" * 64), mock.patch.object(gate, "release_asset_checksums", return_value=gate_fixture.GateV2Test._assets()), mock.patch.object(gate, "sha256_file", side_effect=gate_fixture.GateV2Test._asset_checksum):
-            return gate.verify_gate(self.root, self.fixture.key_path, CURRENT_RELEASE_PROFILE, allow_expired=allow_expired, accepted_schemas=frozenset({2}))
+        with (
+            mock.patch.object(gate, "CURRENT_RELEASE_PROFILE", LEGACY_CURRENT_PROFILE),
+            mock.patch("release.manifest.discover_migration_catalog", return_value=gate_fixture.GateV2Test._catalog()),
+            mock.patch.object(gate, "runner_checksum", return_value="d" * 64),
+            mock.patch.object(gate, "release_asset_checksums", return_value=gate_fixture.GateV2Test._assets()),
+            mock.patch.object(gate, "sha256_file", side_effect=gate_fixture.GateV2Test._asset_checksum),
+        ):
+            return gate.verify_gate(self.root, self.fixture.key_path, LEGACY_CURRENT_PROFILE, allow_expired=allow_expired, accepted_schemas=frozenset({2}))
 
     def test_gate_reverifies_nested_signature_even_when_outer_gate_is_resigned(self):
         document = self.gate_document()

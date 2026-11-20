@@ -72,6 +72,7 @@ func TestScopedAdminReviewGroupPriorityAndStatus(t *testing.T) {
 		nil,    // compositeResolver
 		nil,    // channelCacheInvalidator
 		nil,    // proxyIPGroupRepo
+		nil,    // userPlatformQuotaRepo
 	)
 	scoped := admin.(service.ScopedAdminAccounts)
 	ctx := context.Background()

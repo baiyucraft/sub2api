@@ -40,26 +40,25 @@ class Profile274ReleaseContractTest(unittest.TestCase):
             actual = PROFILES[name]
             self.assertTrue(deployment_keys.isdisjoint(actual))
             self.assertEqual(actual, {key: value for key, value in contract.items() if key not in deployment_keys}, name)
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "286")
         profile = get_profile("274")
         self.assertEqual((profile["version"], profile["parent"], profile["gate_schema"], profile["new_migrations"]),
                          ("0.2.17-baiyu", "273", 2, [MIGRATION]))
         with self.assertRaisesRegex(ValueError, "historical"):
             get_release_profile("273")
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 287"):
-            get_profile("287")
+        with self.assertRaisesRegex(ValueError, f"unknown release profile: {int(CURRENT_RELEASE_PROFILE) + 1}"):
+            get_profile(str(int(CURRENT_RELEASE_PROFILE) + 1))
         old_files = subprocess.run(["git", "ls-tree", "-r", "--name-only", BASELINE, "--", "backend/migrations"],
                                    cwd=WORKSPACE, check=True, capture_output=True, text=True, timeout=10).stdout.splitlines()
         changed = subprocess.run(["git", "diff", "--name-only", BASELINE, "--", "backend/migrations/*.sql"], cwd=WORKSPACE,
                                  check=True, capture_output=True, text=True, timeout=10).stdout.splitlines()
-        self.assertLessEqual(set(changed), {"backend/migrations/" + MIGRATION, "backend/migrations/302_enable_gemini_image_generation_groups.sql", "backend/migrations/303_group_strip_optional_image_tools.sql", "backend/migrations/304_upstream_confidence_fingerprint.sql", "backend/migrations/305_scoped_admin_api_keys.sql", "backend/migrations/306_group_image_count_billing.sql", "backend/migrations/307_user_default_group_rate_percent.sql", "backend/migrations/308_mcp_oauth.sql", "backend/migrations/309_add_usage_logs_api_key_cost_index_notx.sql", "backend/migrations/310_openai_cache_write_ttl.sql", "backend/migrations/311_group_force_openai_ultrafast.sql", "backend/migrations/312_group_usage_rollup_nonblocking_build.sql", "backend/migrations/313_channel_pricing_ultrafast_multiplier.sql"})
+        self.assertLessEqual(set(changed), {"backend/migrations/" + MIGRATION, "backend/migrations/302_enable_gemini_image_generation_groups.sql", "backend/migrations/303_group_strip_optional_image_tools.sql", "backend/migrations/304_upstream_confidence_fingerprint.sql", "backend/migrations/305_scoped_admin_api_keys.sql", "backend/migrations/306_group_image_count_billing.sql", "backend/migrations/307_user_default_group_rate_percent.sql", "backend/migrations/308_mcp_oauth.sql", "backend/migrations/309_add_usage_logs_api_key_cost_index_notx.sql", "backend/migrations/310_openai_cache_write_ttl.sql", "backend/migrations/311_group_force_openai_ultrafast.sql", "backend/migrations/312_group_usage_rollup_nonblocking_build.sql", "backend/migrations/313_channel_pricing_ultrafast_multiplier.sql"} | bash_helpers.CONFIGURED_MIGRATION_PATHS)
         current = {str(p.relative_to(WORKSPACE)).replace("\\", "/") for p in (WORKSPACE / "backend/migrations").glob("*.sql")}
-        self.assertEqual(current, {name for name in old_files if name.endswith(".sql")} | {"backend/migrations/" + MIGRATION, "backend/migrations/302_enable_gemini_image_generation_groups.sql", "backend/migrations/303_group_strip_optional_image_tools.sql", "backend/migrations/304_upstream_confidence_fingerprint.sql", "backend/migrations/305_scoped_admin_api_keys.sql", "backend/migrations/306_group_image_count_billing.sql", "backend/migrations/307_user_default_group_rate_percent.sql", "backend/migrations/308_mcp_oauth.sql", "backend/migrations/309_add_usage_logs_api_key_cost_index_notx.sql", "backend/migrations/310_openai_cache_write_ttl.sql", "backend/migrations/311_group_force_openai_ultrafast.sql", "backend/migrations/312_group_usage_rollup_nonblocking_build.sql", "backend/migrations/313_channel_pricing_ultrafast_multiplier.sql"})
+        self.assertEqual(current, {name for name in old_files if name.endswith(".sql")} | {"backend/migrations/" + MIGRATION, "backend/migrations/302_enable_gemini_image_generation_groups.sql", "backend/migrations/303_group_strip_optional_image_tools.sql", "backend/migrations/304_upstream_confidence_fingerprint.sql", "backend/migrations/305_scoped_admin_api_keys.sql", "backend/migrations/306_group_image_count_billing.sql", "backend/migrations/307_user_default_group_rate_percent.sql", "backend/migrations/308_mcp_oauth.sql", "backend/migrations/309_add_usage_logs_api_key_cost_index_notx.sql", "backend/migrations/310_openai_cache_write_ttl.sql", "backend/migrations/311_group_force_openai_ultrafast.sql", "backend/migrations/312_group_usage_rollup_nonblocking_build.sql", "backend/migrations/313_channel_pricing_ultrafast_multiplier.sql"} | bash_helpers.CONFIGURED_MIGRATION_PATHS)
         catalog = discover_migration_catalog(WORKSPACE)
         snapshot = {row["filename"]: row["checksum"] for row in catalog if row["filename"] != MIGRATION}
         self.assertEqual([row["filename"] for row in plan_migrations(catalog, snapshot)["pending"]], [MIGRATION])
         registry = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(registry["current_profile"]["id"], "286")
+        self.assertEqual(registry["current_profile"]["id"], CURRENT_RELEASE_PROFILE)
         for key in ("version", "parent", "new_migrations", "release_policy"):
             self.assertEqual(registry["historical_profiles"]["274"][key], profile[key])
         self.assertEqual(registry["migration_contracts"][MIGRATION], hashlib.sha256((WORKSPACE / "backend/migrations" / MIGRATION).read_bytes()).hexdigest())

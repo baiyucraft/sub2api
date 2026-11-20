@@ -47,22 +47,21 @@ class Profile265ReleaseContractTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "historical"):
                 get_release_profile(name)
         for path in sorted((WORKSPACE / "backend/migrations").glob("*.sql")):
-            if path.name not in (MIGRATION, "291_user_invoice_annotations.sql", *get_profile("267")["new_migrations"], *get_profile("268")["new_migrations"], *get_profile("269")["new_migrations"], *get_profile("270")["new_migrations"], *get_profile("271")["new_migrations"], *get_profile("273")["new_migrations"], *get_profile("274")["new_migrations"], *get_profile("275")["new_migrations"], *get_profile("276")["new_migrations"], *get_profile("277")["new_migrations"], *get_profile("281")["new_migrations"], *get_profile("282")["new_migrations"], "308_mcp_oauth.sql", "309_add_usage_logs_api_key_cost_index_notx.sql", "310_openai_cache_write_ttl.sql", "309_add_usage_logs_api_key_cost_index_notx.sql", "310_openai_cache_write_ttl.sql", "311_group_force_openai_ultrafast.sql", "312_group_usage_rollup_nonblocking_build.sql", "313_channel_pricing_ultrafast_multiplier.sql"):
+            if path.name not in (*bash_helpers.CONFIGURED_MIGRATIONS, MIGRATION, "291_user_invoice_annotations.sql", *get_profile("267")["new_migrations"], *get_profile("268")["new_migrations"], *get_profile("269")["new_migrations"], *get_profile("270")["new_migrations"], *get_profile("271")["new_migrations"], *get_profile("273")["new_migrations"], *get_profile("274")["new_migrations"], *get_profile("275")["new_migrations"], *get_profile("276")["new_migrations"], *get_profile("277")["new_migrations"], *get_profile("281")["new_migrations"], *get_profile("282")["new_migrations"], "308_mcp_oauth.sql", "309_add_usage_logs_api_key_cost_index_notx.sql", "310_openai_cache_write_ttl.sql", "309_add_usage_logs_api_key_cost_index_notx.sql", "310_openai_cache_write_ttl.sql", "311_group_force_openai_ultrafast.sql", "312_group_usage_rollup_nonblocking_build.sql", "313_channel_pricing_ultrafast_multiplier.sql"):
                 self.assertEqual(path.read_bytes(), git_blob(BASELINE, f"backend/migrations/{path.name}"), path.name)
         current = get_profile("265")
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "286")
         self.assertEqual((current["version"], current["parent"], current["gate_schema"]), ("0.2.15-baiyu", "264", 2))
         self.assertEqual(current["new_migrations"], [MIGRATION])
         self.assertEqual(current["release_policy"], get_profile("264")["release_policy"])
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 287"):
-            get_profile("287")
+        with self.assertRaisesRegex(ValueError, f"unknown release profile: {int(CURRENT_RELEASE_PROFILE) + 1}"):
+            get_profile(str(int(CURRENT_RELEASE_PROFILE) + 1))
 
     def test_official_raw_bytes_registration_and_checksum_contracts(self):
         registration = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
         for field in ("version", "parent", "gate_schema", "new_migrations", "release_policy"):
             self.assertEqual(registration["historical_profiles"]["265"][field], get_profile("265")[field])
             self.assertEqual(registration["historical_profiles"]["264"][field], get_profile("264")[field])
-        self.assertEqual(registration["current_profile"]["id"], "286")
+        self.assertEqual(registration["current_profile"]["id"], CURRENT_RELEASE_PROFILE)
         self.assertEqual(registration["current_profile"]["status"], "pending")
         self.assertEqual(registration["version_contract"]["official_release_versions"][UPSTREAM], "0.2.15")
         self.assertEqual(git_blob(UPSTREAM, "backend/cmd/server/VERSION").decode().strip(), "0.2.15")
@@ -151,13 +150,16 @@ jq() {
     def test_reward_postflight_is_inherited_only_for_downtime(self):
         for relative in ("maintenance/release/switch.sh", "maintenance/release/activity-reward-cost-postflight.sh"):
             source = (DEPLOY_ROOT / relative).read_text(encoding="utf-8")
-            guard = next(re.search(r"\[\[.*?\]\]", line)[0] for line in source.splitlines() if "$release_profile == 264" in line)
+            guard = next(re.search(r"\[\[.*?\]\]", line)[0] for line in source.splitlines() if "release_profile_contract_verified" in line and "deployment_mode == downtime" in line)
             for profile, mode, allowed in (("264", "downtime", True), ("265", "downtime", True), ("265", "blue-green", False), ("266", "downtime", True), ("267", "downtime", True), ("268", "downtime", True), ("269", "downtime", True), ("270", "downtime", True), ("271", "downtime", True), ("272", "downtime", True), ("272", "blue-green", False), ("273", "downtime", True), ("273", "blue-green", False), ("274", "downtime", True), ("275", "downtime", True), ("275", "blue-green", False), ("276", "downtime", True), ("276", "blue-green", False), ("277", "downtime", True), ("278", "downtime", True), ("279", "downtime", True), ("280", "downtime", True), ("281", "downtime", True), ("282", "downtime", True), ("283", "downtime", True), ("285", "downtime", True), ("286", "downtime", True), ("287", "downtime", False)):
-                result = self.execute('release_profile=$1; deployment_mode=$2\n' + guard, profile, mode)
+                configured = "0"
+                result = self.execute('release_profile=$1; deployment_mode=$2; release_profile_contract_verified=$3\n' + guard, profile, mode, configured)
                 self.assertEqual(result.returncode == 0, allowed, (relative, result.stderr))
         source = (DEPLOY_ROOT / "release/vm-validate.sh").read_text(encoding="utf-8")
-        guard = next(re.search(r"\[\[.*?\]\]", line)[0] for line in source.splitlines() if line.startswith('  if [[ "$profile" == 264'))
-        self.assert_guard_cases(guard, "profile", (("264", True), ("265", True), ("271", True), ("272", True), ("273", True), ("274", True), ("275", True), ("276", True), ("277", True), ("278", True), ("279", True), ("280", True), ("281", True), ("282", True), ("283", True), ("284", True), ("285", True), ("286", True), ("287", False)))
+        guard = next(re.search(r"\[\[.*?\]\]", line)[0] for line in source.splitlines() if line.startswith('  if [[ "$configured_profile" == true || "$profile" == 264'))
+        self.assert_guard_cases(guard.replace('"$configured_profile"', "false"), "profile",
+                                tuple((str(number), True) for number in range(264, 287)) + (("287", False),))
+        self.assert_guard_cases(guard.replace('"$configured_profile"', "true"), "profile", (("287", True),))
 
 
 if __name__ == "__main__":

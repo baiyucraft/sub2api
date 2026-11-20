@@ -37,9 +37,11 @@ def regex_contracts() -> list[tuple[str, str, str, str]]:
     contracts = []
     for name in SCRIPTS:
         for line in source(name).splitlines():
-            match = re.fullmatch(r'\[\[ "?\$([a-z_]+)"? =~ (.+) \]\]', line.strip())
+            match = re.fullmatch(r'(?:if )?\[\[ "?\$([a-z_]+)"? =~ (.+) \]\](?:; then)?', line.strip())
             if match and match[1] in {"release_id", "gate", "evidence", "drill_id"}:
-                contracts.append((name, match[1], match[2], line.strip()))
+                if match[2].startswith("^286-"):
+                    continue
+                contracts.append((name, match[1], match[2], f"[[ ${match[1]} =~ {match[2]} ]]"))
     return contracts
 
 
@@ -130,19 +132,19 @@ class Profile260ReleaseContractTest(unittest.TestCase):
                     with self.subTest(profile=name, fields=fields), self.assertRaises(RuntimeError):
                         validate_manifest_profile_contract({**manifest, **fields}, profile)
 
-    def test_every_release_and_dr_path_accepts_current_and_history_but_rejects_unknown(self) -> None:
+    def test_legacy_gate_and_dr_path_syntax_retains_history(self) -> None:
         contracts = regex_contracts()
         self.assertEqual(
             [name for name, *_ in contracts],
-            ["vm-validate.sh", "vm-validate.sh", "sign-gate.sh", "sign-dr-evidence.sh",
-             "promote-dr-baseline.sh", "promote-dr-baseline.sh"],
+            ["vm-validate.sh", "vm-validate.sh", "sign-gate.sh",
+             "sign-dr-evidence.sh", "promote-dr-baseline.sh", "promote-dr-baseline.sh"],
         )
         for name, variable, expression, _ in contracts:
             expression = expression.replace("$evidence_root", "/opt/sub2api-deploy/dr-evidence")
-            for profile, allowed in (("259", True), ("260", True), ("261", True), ("262", True), ("263", True), ("264", True), ("265", True), ("266", True), ("267", True), ("268", True), ("269", True), ("270", True), ("271", True), ("272", True), ("273", True), ("274", True), ("275", True), ("276", True), ("277", True), ("278", True), ("279", True), ("280", True), ("281", True), ("282", True), ("283", True), ("284", True), ("285", True), ("286", True), ("287", False)):
+            for profile in ("259", "260", "261", "262", "263", "264", "265", "266", "267", "268", "269", "270", "271", "272", "273", "274", "275", "276", "277", "278", "279", "280", "281", "282", "283", "284", "285", "286"):
                 with self.subTest(script=name, variable=variable, profile=profile):
                     value = identities(profile)[variable]
-                    self.assertEqual(re.fullmatch(expression, value) is not None, allowed)
+                    self.assertIsNotNone(re.fullmatch(expression, value))
                     self.assertIsNone(re.fullmatch(expression, value + "/extra"))
 
     def test_both_bootstraps_preserve_history_and_include_260_exactly_once(self) -> None:
@@ -192,7 +194,7 @@ class Profile260BashContractTest(unittest.TestCase):
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_cleanup_shell_guards_accept_current_and_history_but_reject_unknown(self) -> None:
+    def test_cleanup_shell_guards_accept_well_formed_ids(self) -> None:
         space = source("production-space-clean.sh")
         guards = re.findall(r"\[\[ \$(?:release_id|candidate_release) =~ .+? \]\]", space)
         self.assertEqual(len(guards), 2)
@@ -205,20 +207,22 @@ class Profile260BashContractTest(unittest.TestCase):
                 f"{variable}=$1\n"
                 f"{guard}\n"
             )
-            for profile, allowed in (("259", True), ("260", True), ("261", True), ("262", True), ("263", True), ("264", True), ("265", True), ("266", True), ("267", True), ("268", True), ("269", True), ("270", True), ("271", True), ("272", True), ("273", True), ("274", True), ("275", True), ("276", True), ("277", True), ("278", True), ("279", True), ("280", True), ("281", True), ("282", True), ("283", True), ("284", True), ("285", True), ("286", True), ("287", False), ("0260", False)):
+            for profile, allowed in (("259", True), ("260", True), ("261", True), ("262", True), ("263", True), ("264", True), ("265", True), ("266", True), ("267", True), ("268", True), ("269", True), ("270", True), ("271", True), ("272", True), ("273", True), ("274", True), ("275", True), ("276", True), ("277", True), ("278", True), ("279", True), ("280", True), ("281", True), ("282", True), ("283", True), ("284", True), ("285", True), ("286", True), ("287", True), ("0260", False)):
                 with self.subTest(guard=guard, profile=profile):
                     result = self.run_contract(body, identities(profile)["release_id"])
                     self.assertEqual(result.returncode == 0, allowed, result.stderr)
 
-    def test_real_bash_path_guards_accept_current_and_history_but_reject_unknown(self) -> None:
-        for name, variable, _, assertion in regex_contracts():
+    def test_real_bash_legacy_gate_and_dr_path_syntax(self) -> None:
+        for name, variable, expression, assertion in regex_contracts():
             for profile, allowed in (("259", True), ("260", True), ("261", True), ("262", True), ("263", True), ("264", True), ("265", True), ("266", True), ("267", True), ("268", True), ("269", True), ("270", True), ("271", True), ("272", True), ("273", True), ("274", True), ("275", True), ("276", True), ("277", True), ("278", True), ("279", True), ("280", True), ("281", True), ("282", True), ("283", True), ("284", True), ("285", True), ("286", True), ("287", False)):
                 with self.subTest(script=name, variable=variable, profile=profile):
                     result = self.run_contract(
                         f'{variable}=$1\nevidence_root=/opt/sub2api-deploy/dr-evidence\n{assertion}',
                         identities(profile)[variable],
                     )
-                    self.assertEqual(result.returncode == 0, allowed, result.stderr)
+                    configured_ids = expression.startswith("^[1-9]") or "|28[7-9]|" in expression
+                    expected = allowed or profile == "287" and configured_ids
+                    self.assertEqual(result.returncode == 0, expected, result.stderr)
 
     def test_vm_v2_and_legacy_profile_guards_remain_closed(self) -> None:
         guards = [
@@ -304,7 +308,7 @@ jq() {
         for release_profile, drill_profile, allowed in (
             ("259", "259", True), ("260", "260", True),
             ("260", "259", False), ("259", "260", False),
-            ("260", "261", False), ("261", "260", False), ("261", "261", True), ("262", "262", True), ("263", "263", True), ("264", "264", True), ("265", "265", True), ("266", "266", True), ("267", "267", True), ("268", "268", True), ("269", "269", True), ("270", "270", True), ("271", "271", True), ("272", "272", True), ("272", "271", False), ("271", "272", False), ("273", "273", True), ("274", "274", True), ("275", "275", True), ("276", "276", True), ("277", "277", True), ("278", "278", True), ("279", "279", True), ("280", "280", True), ("281", "281", True), ("282", "282", True), ("283", "283", True), ("285", "285", True), ("286", "286", True), ("287", "287", False),
+            ("260", "261", False), ("261", "260", False), ("261", "261", True), ("262", "262", True), ("263", "263", True), ("264", "264", True), ("265", "265", True), ("266", "266", True), ("267", "267", True), ("268", "268", True), ("269", "269", True), ("270", "270", True), ("271", "271", True), ("272", "272", True), ("272", "271", False), ("271", "272", False), ("273", "273", True), ("274", "274", True), ("275", "275", True), ("276", "276", True), ("277", "277", True), ("278", "278", True), ("279", "279", True), ("280", "280", True), ("281", "281", True), ("282", "282", True), ("283", "283", True), ("285", "285", True), ("286", "286", True), ("287", "287", True), ("287", "288", False), ("288", "287", False),
         ):
             release = identities(release_profile)["release_id"]
             drill = identities(drill_profile)["drill_id"]

@@ -19,7 +19,7 @@ DEPLOY_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(DEPLOY_ROOT))
 
 from release.paths import WORKSPACE
-from release.profiles import CURRENT_RELEASE_PROFILE, get_profile
+from release.profiles import CURRENT_RELEASE_PROFILE, LEGACY_CURRENT_PROFILE, get_profile
 
 from release.production import ProductionRelease, write_stage_bundle
 from release.production import emit_progress
@@ -2079,7 +2079,7 @@ class ReleaseClaimScriptTest(unittest.TestCase):
     def test_current_profile_260_version_contract_matches_vm_validator(self) -> None:
         validator = (DEPLOY_ROOT / "release" / "vm-validate.sh").read_text(encoding="utf-8")
         profiles = (DEPLOY_ROOT / "release" / "profiles.py").read_text(encoding="utf-8")
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "286")
+        self.assertEqual(LEGACY_CURRENT_PROFILE, "286")
         successor = get_profile("261")
         self.assertEqual(successor["version"], "0.2.13-baiyu")
         self.assertEqual(successor["parent"], "260")

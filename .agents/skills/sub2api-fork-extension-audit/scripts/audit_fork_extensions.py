@@ -34,6 +34,32 @@ IDENTIFIER_STOPWORDS = {
 # catalog_update_required finding; their long-term contract lives in .wiki and
 # their workflow artifacts live in .spec.
 GOVERNANCE_PATH_PATTERNS = (".wiki/**", ".spec/**", ".agents/skills/wiki-*", ".agents/skills/wiki-*/*")
+RELEASE_PROFILE_SOURCE = Path(".agents/skills/sub2api-production-deploy/scripts/release/profiles.py")
+
+PROFILE_READER = """
+import json
+import runpy
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1])
+if sys.argv[2] == "package":
+    sys.path.insert(0, str(source.parent.parent))
+    from release.profiles import CURRENT_RELEASE_PROFILE, get_profile
+
+    profiles = {}
+    for name in sys.argv[3:]:
+        try:
+            profiles[name] = get_profile(name)
+        except ValueError:
+            continue
+    current = CURRENT_RELEASE_PROFILE
+else:
+    namespace = runpy.run_path(str(source))
+    profiles = namespace.get("PROFILES", {})
+    current = namespace.get("CURRENT_RELEASE_PROFILE")
+print(json.dumps({"profiles": profiles, "current": current}))
+"""
 
 
 def is_governance_path(path: str) -> bool:
@@ -575,14 +601,32 @@ class Audit:
         if not source.is_file():
             self.add("blocker", "profile_source_missing", "profile manifest 源不存在", path=str(source.relative_to(self.root)))
             return
+        historical = self.catalog.get("historical_profiles", {})
+        current = self.catalog.get("current_profile")
+        names = set(historical)
+        if current:
+            names.add(str(current.get("id", "")))
+            if "base_profile" in current:
+                names.add(str(current["base_profile"]))
         try:
-            namespace: dict[str, Any] = {}
-            exec(compile(source.read_text(encoding="utf-8"), str(source), "exec"), namespace)
-            profiles = namespace.get("PROFILES", {})
+            package = source == self.root / RELEASE_PROFILE_SOURCE and source.with_name("__init__.py").is_file()
+            result = subprocess.run(
+                [sys.executable, "-I", "-S", "-B", "-c", PROFILE_READER, str(source),
+                 "package" if package else "standalone", *sorted(names)],
+                cwd=self.root,
+                env={**os.environ, "SUB2API_APP_ROOT": str(self.root)},
+                encoding="utf-8",
+                capture_output=True,
+            )
+            if result.returncode:
+                error = result.stderr.strip().splitlines()
+                raise RuntimeError(error[-1] if error else f"profile reader exited with status {result.returncode}")
+            data = json.loads(result.stdout)
+            profiles = data["profiles"]
         except Exception as exc:
-            self.add("blocker", "profile_source_unreadable", "profile manifest 无法执行读取", error=str(exc))
+            self.add("blocker", "profile_source_unreadable", "无法读取发布 profile 合同", error=str(exc))
             return
-        for name, expected in sorted(self.catalog.get("historical_profiles", {}).items()):
+        for name, expected in sorted(historical.items()):
             profile = profiles.get(name)
             if not profile:
                 self.add("blocker", "historical_profile_missing", "历史 profile 不存在", profile=name)
@@ -628,7 +672,7 @@ class Audit:
             else:
                 self.add("pass", "historical_profile_contract", "历史 profile 合同保持不变", profile=name)
 
-        expected = self.catalog.get("current_profile")
+        expected = current
         if not expected:
             return
         name = str(expected.get("id", ""))
@@ -640,8 +684,8 @@ class Audit:
         # source declares an explicit current pointer, enforce it; otherwise
         # retain the legacy fixture contract and validate the catalog/profile
         # fields below.
-        if "CURRENT_RELEASE_PROFILE" in namespace:
-            declared_current = str(namespace.get("CURRENT_RELEASE_PROFILE", ""))
+        if data["current"] is not None:
+            declared_current = str(data["current"])
             if declared_current != name:
                 self.add("blocker", "current_profile_pointer_drift", "CURRENT_RELEASE_PROFILE 未指向审计目录声明的当前 profile", expected=name, actual=declared_current)
         fork_version = (self.show(self.head, "backend/cmd/server/VERSION") or "").strip()

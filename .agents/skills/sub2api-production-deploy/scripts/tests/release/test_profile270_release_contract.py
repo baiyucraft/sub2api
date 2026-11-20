@@ -20,7 +20,6 @@ MIGRATION = "298_group_scheduling_protection_policies.sql"
 
 class Profile270ReleaseContractTest(unittest.TestCase):
     def test_current_registration_preserves_269_and_rejects_unknown_successor(self):
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "286")
         profile = get_profile("270")
         self.assertEqual((profile["version"], profile["parent"], profile["gate_schema"]), ("0.2.16-baiyu", "269", 2))
         self.assertEqual(profile["new_migrations"], [MIGRATION])
@@ -28,10 +27,10 @@ class Profile270ReleaseContractTest(unittest.TestCase):
         self.assertEqual((previous["version"], previous["parent"], previous["new_migrations"]), ("0.2.16-baiyu", "268", ["297_upstream_cache_guard_account_scope.sql"]))
         with self.assertRaisesRegex(ValueError, "historical"):
             get_release_profile("269")
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 287"):
-            get_profile("287")
+        with self.assertRaisesRegex(ValueError, f"unknown release profile: {int(CURRENT_RELEASE_PROFILE) + 1}"):
+            get_profile(str(int(CURRENT_RELEASE_PROFILE) + 1))
         registered = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(registered["current_profile"]["id"], "286")
+        self.assertEqual(registered["current_profile"]["id"], CURRENT_RELEASE_PROFILE)
         self.assertEqual(registered["current_profile"]["status"], "pending")
         for key in ("version", "parent", "new_migrations", "gate_schema", "release_policy"):
             self.assertEqual(registered["historical_profiles"]["270"][key], profile[key])

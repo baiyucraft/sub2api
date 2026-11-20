@@ -681,6 +681,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			}
 			imageCounter.AddSSEData(dataBytes)
 			searchCounter += countGrokNativeSearchCallsInSSEDataDedup(dataBytes, streamSearchSeen)
+			searchCounter = grokSearchCountWithTerminalUsage(searchCounter, dataBytes)
 
 			// Correct Codex tool calls if needed (apply_patch -> edit, etc.)
 			if correctedData, corrected := s.toolCorrector.CorrectToolCallsInSSEBytes(dataBytes); corrected {
@@ -1984,8 +1985,10 @@ func writeOpenAINonStreamingBody(c *gin.Context, status int, contentType string,
 		return delivered
 	}
 	markOpenAITTFTGuardFirstTokenForRequest(c)
-	if c.Writer.Header().Get("Content-Type") == "" {
-		c.Writer.Header().Set("Content-Type", contentType)
+	header := c.Writer.Header()
+	// Buffered SSE responses can carry the original header after conversion to JSON.
+	if header.Get("Content-Type") == "" || (isEventStreamResponse(header) && strings.HasPrefix(contentType, "application/json")) {
+		header.Set("Content-Type", contentType)
 	}
 	c.Status(status)
 	deliverable := c.Request.Context().Err() == nil

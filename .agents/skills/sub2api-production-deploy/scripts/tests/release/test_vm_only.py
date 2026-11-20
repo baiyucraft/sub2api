@@ -20,7 +20,7 @@ sys.path.insert(0, str(DEPLOY_ROOT))
 from release.atomic import canonical_json
 from release.gate import verify_gate_v2, verify_vm_only_gate
 from release.manifest import create_vm_only_manifest
-from release.profiles import CURRENT_RELEASE_PROFILE, get_profile, parse_profile_contract
+from release.profiles import CURRENT_RELEASE_PROFILE, LEGACY_CURRENT_PROFILE, get_profile, parse_profile_contract
 from release.vm_only import vm_only_switch
 
 
@@ -37,7 +37,7 @@ class VMOnlyGateTest(unittest.TestCase):
         self.temp.cleanup()
 
     def _bundle(self, profile=None, **contract_fields) -> Path:
-        profile = profile or get_profile(CURRENT_RELEASE_PROFILE)
+        profile = profile or get_profile(LEGACY_CURRENT_PROFILE)
         archive = b"candidate"
         (self.root / "candidate.tar.gz").write_bytes(archive)
         manifest = {
@@ -77,7 +77,8 @@ class VMOnlyGateTest(unittest.TestCase):
 
     def test_vm_only_gate_is_verified_by_separate_contract(self) -> None:
         bundle = self._bundle()
-        self.assertEqual(verify_vm_only_gate(bundle, self.public_key, CURRENT_RELEASE_PROFILE)["manifest"]["scope"], "vm-only")
+        with mock.patch("release.gate.CURRENT_RELEASE_PROFILE", LEGACY_CURRENT_PROFILE):
+            self.assertEqual(verify_vm_only_gate(bundle, self.public_key, LEGACY_CURRENT_PROFILE)["manifest"]["scope"], "vm-only")
 
     def test_vm_only_configured_profile_binds_exact_contract(self) -> None:
         contract = canonical_json({
@@ -124,20 +125,21 @@ class VMOnlyGateTest(unittest.TestCase):
     def test_vm_only_gate_is_not_accepted_as_production_gate(self) -> None:
         bundle = self._bundle()
         with self.assertRaises(Exception):
-            verify_gate_v2(bundle, self.public_key, CURRENT_RELEASE_PROFILE)
+            verify_gate_v2(bundle, self.public_key, LEGACY_CURRENT_PROFILE)
 
     def test_vm_only_manifest_has_no_production_snapshot_fields(self) -> None:
         profile = {
-            "name": CURRENT_RELEASE_PROFILE,
-            "version": get_profile(CURRENT_RELEASE_PROFILE)["version"],
+            "name": LEGACY_CURRENT_PROFILE,
+            "version": get_profile(LEGACY_CURRENT_PROFILE)["version"],
             "origin": "https://github.com/baiyucraft/sub2api.git",
             "gate_ttl_seconds": 3600,
         }
         with (
             mock.patch("release.manifest.check_output_hidden", return_value="https://github.com/baiyucraft/sub2api.git"),
             mock.patch("release.manifest.read_committed_profile_contract", return_value=None),
+            mock.patch("release.manifest.CURRENT_RELEASE_PROFILE", LEGACY_CURRENT_PROFILE),
         ):
-            manifest = create_vm_only_manifest("a" * 40, profile, f"{CURRENT_RELEASE_PROFILE}-aaaaaaaaaaaa-1-aaaaaaaa", "b" * 40, "c" * 64, "d" * 64)
+            manifest = create_vm_only_manifest("a" * 40, profile, f"{LEGACY_CURRENT_PROFILE}-aaaaaaaaaaaa-1-aaaaaaaa", "b" * 40, "c" * 64, "d" * 64)
         self.assertNotIn("production_current_image_id", manifest)
         self.assertNotIn("production_snapshot_sha256", manifest)
 

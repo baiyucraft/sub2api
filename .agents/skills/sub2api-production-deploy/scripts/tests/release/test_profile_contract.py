@@ -12,7 +12,8 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from release.manifest import profile_contract_digest
-from release.profiles import parse_profile_contract
+from release.paths import WORKSPACE
+from release.profiles import CURRENT_RELEASE_PROFILE, get_profile, get_release_profile, parse_profile_contract
 from release.recovery_gate import classify
 
 
@@ -30,6 +31,20 @@ def profile(name: str, parent: str, version: str, migrations: list[str] | None =
 
 
 class ProfileContractTest(unittest.TestCase):
+    def test_workspace_selects_latest_configured_profile(self) -> None:
+        raw = (WORKSPACE / ".release/contract.json").read_bytes()
+        entries = json.loads(raw)["profiles"]
+        self.assertTrue(entries)
+        latest = entries[-1]
+        self.assertEqual(CURRENT_RELEASE_PROFILE, latest["profile"])
+        current = get_release_profile(latest["profile"])
+        self.assertEqual(current["version"], (WORKSPACE / "backend/cmd/server/VERSION").read_text().strip())
+        self.assertEqual(current["parent"], latest["parent"])
+        self.assertEqual(current["new_migrations"], latest["new_migrations"])
+        with self.assertRaisesRegex(ValueError, "historical"):
+            get_release_profile(latest["parent"])
+        self.assertEqual(get_profile(latest["parent"])["name"], latest["parent"])
+
     def test_parses_contiguous_additive_profiles(self) -> None:
         raw = contract(
             profile("287", "286", "0.2.24-baiyu", ["314_example.sql"]),

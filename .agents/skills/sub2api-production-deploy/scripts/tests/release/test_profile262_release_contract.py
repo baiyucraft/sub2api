@@ -42,7 +42,6 @@ class Profile262ReleaseContractTest(unittest.TestCase):
                 actual = get_profile(profile)
                 self.assertTrue(deployment_keys.isdisjoint(actual))
                 self.assertEqual(actual, {key: value for key, value in contract.items() if key not in deployment_keys})
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "286")
         current = get_profile("262")
         self.assertEqual(current["version"], "0.2.13-baiyu")
         self.assertEqual(current["parent"], "261")
@@ -53,12 +52,12 @@ class Profile262ReleaseContractTest(unittest.TestCase):
             get_release_profile("261")
         with self.assertRaisesRegex(ValueError, "historical"):
             get_release_profile("262")
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 287"):
-            get_profile("287")
+        with self.assertRaisesRegex(ValueError, f"unknown release profile: {int(CURRENT_RELEASE_PROFILE) + 1}"):
+            get_profile(str(int(CURRENT_RELEASE_PROFILE) + 1))
 
     def test_registration_and_both_checksum_contracts(self) -> None:
         registration = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(registration["current_profile"]["id"], "286")
+        self.assertEqual(registration["current_profile"]["id"], CURRENT_RELEASE_PROFILE)
         self.assertEqual(registration["current_profile"]["status"], "pending")
         for field in ("version", "parent", "new_migrations", "gate_schema", "release_policy"):
             self.assertEqual(registration["historical_profiles"]["262"][field], get_profile("262")[field])

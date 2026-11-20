@@ -14,7 +14,6 @@ from release.production_cleanup import RELEASE_ID
 
 
 def test_profile_280_is_additive_and_inherits_279_without_migration():
-    assert CURRENT_RELEASE_PROFILE == "286"
     assert list(PROFILES)[-1] == "286"
     assert (get_profile("279")["version"], get_profile("279")["parent"], get_profile("279")["new_migrations"]) == (
         "0.2.21-baiyu", "278", []
@@ -23,7 +22,7 @@ def test_profile_280_is_additive_and_inherits_279_without_migration():
     assert (profile["version"], profile["parent"], profile["new_migrations"], profile["gate_schema"]) == (
         "0.2.22-baiyu", "279", [], 2
     )
-    assert get_release_profile("286")["name"] == "286"
+    assert get_release_profile(CURRENT_RELEASE_PROFILE)["name"] == CURRENT_RELEASE_PROFILE
     assert RELEASE_ID.fullmatch("279-aaaaaaaaaaaa-1-aaaaaaaa")
     assert RELEASE_ID.fullmatch("280-aaaaaaaaaaaa-1-aaaaaaaa")
     assert RELEASE_ID.fullmatch("283-aaaaaaaaaaaa-1-aaaaaaaa")
@@ -33,8 +32,8 @@ def test_profile_280_is_additive_and_inherits_279_without_migration():
 def test_profile_280_registry_and_current_only_admission_are_consistent():
     registry = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
     current = registry["current_profile"]
-    profile = get_profile("286")
-    assert current["id"] == "286"
+    profile = get_profile(CURRENT_RELEASE_PROFILE)
+    assert current["id"] == CURRENT_RELEASE_PROFILE
     for key in ("version", "parent", "new_migrations", "gate_schema", "release_policy"):
         assert current[key] == profile[key]
     assert (WORKSPACE / "backend/cmd/server/VERSION").read_text(encoding="utf-8").strip() == get_profile(CURRENT_RELEASE_PROFILE)["version"]

@@ -34,7 +34,7 @@
                 <Icon name="link" size="sm" class="shrink-0" />
                 {{ t('admin.accounts.reAuthorize') }}
               </button>
-              <button v-if="canUseAction('refresh_token')" class="action-menu-item text-purple-600" role="menuitem" @click="$emit('refresh-token', account); emit('close')">
+              <button v-if="canUseAction('refresh_token')" class="action-menu-item text-purple-600" role="menuitem" :title="t('admin.accounts.refreshTokenHint')" @click="$emit('refresh-token', account); emit('close')">
                 <Icon name="refresh" size="sm" class="shrink-0" />
                 {{ t('admin.accounts.refreshToken') }}
               </button>

@@ -39,20 +39,19 @@ class Profile283ReleaseContractTest(unittest.TestCase):
         self.assertEqual(set(PROFILES), set(previous["PROFILES"]) | {"283", "284", "285", "286"})
         for name, contract in previous["PROFILES"].items():
             self.assertEqual(get_profile(name), contract, name)
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "286")
         profile = get_profile("283")
         self.assertEqual((profile["version"], profile["parent"], profile["gate_schema"], profile["new_migrations"]),
                          ("0.2.20-baiyu", "282", 2, [MIGRATION]))
         with self.assertRaisesRegex(ValueError, "historical"):
             get_release_profile("282")
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 287"):
-            get_profile("287")
+        with self.assertRaisesRegex(ValueError, f"unknown release profile: {int(CURRENT_RELEASE_PROFILE) + 1}"):
+            get_profile(str(int(CURRENT_RELEASE_PROFILE) + 1))
         historical = subprocess.run(["git", "ls-tree", "-r", "--name-only", BASELINE, "--", "backend/migrations"],
                                    cwd=WORKSPACE, check=True, capture_output=True, text=True, timeout=30).stdout.splitlines()
         historical = [path for path in historical if path.endswith(".sql")]
         self.assertEqual(len(historical), 358)
         self.assertEqual({p.name for p in (WORKSPACE / "backend/migrations").glob("*.sql")},
-                         {Path(p).name for p in historical} | {MIGRATION, *get_profile("284")["new_migrations"], *get_profile("285")["new_migrations"], *get_profile("286")["new_migrations"]})
+                         {Path(p).name for p in historical} | {MIGRATION, *get_profile("284")["new_migrations"], *get_profile("285")["new_migrations"], *get_profile("286")["new_migrations"]} | bash_helpers.CONFIGURED_MIGRATIONS)
         for path in historical:
             self.assertEqual((WORKSPACE / path).read_bytes(), git_blob(BASELINE, path), path)
         self.assertTrue(RELEASE_ID.fullmatch("282-aaaaaaaaaaaa-1-aaaaaaaa"))
@@ -67,9 +66,9 @@ class Profile283ReleaseContractTest(unittest.TestCase):
 
     def test_registry_and_migration_have_independent_checksums(self):
         registry = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(registry["current_profile"]["id"], "286")
+        self.assertEqual(registry["current_profile"]["id"], CURRENT_RELEASE_PROFILE)
         for key in ("version", "parent", "new_migrations", "gate_schema", "release_policy"):
-            self.assertEqual(registry["current_profile"][key], get_profile("286")[key])
+            self.assertEqual(registry["current_profile"][key], get_profile(CURRENT_RELEASE_PROFILE)[key])
             self.assertEqual(registry["historical_profiles"]["282"][key], get_profile("282")[key])
         self.assertEqual((WORKSPACE / "backend/cmd/server/VERSION").read_text(encoding="utf-8").strip(), get_profile(CURRENT_RELEASE_PROFILE)["version"])
         raw = (WORKSPACE / "backend/migrations" / MIGRATION).read_bytes()

@@ -37,19 +37,18 @@ class Profile273ReleaseContractTest(unittest.TestCase):
                 actual = PROFILES[name]
                 self.assertTrue(deployment_keys.isdisjoint(actual))
                 self.assertEqual(actual, {key: value for key, value in contract.items() if key not in deployment_keys})
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "286")
         profile = get_profile("273")
         self.assertEqual((profile["version"], profile["parent"], profile["gate_schema"], profile["new_migrations"]),
                          ("0.2.17-baiyu", "272", 2, [MIGRATION]))
         with self.assertRaisesRegex(ValueError, "historical"):
             get_release_profile("272")
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 287"):
-            get_profile("287")
+        with self.assertRaisesRegex(ValueError, f"unknown release profile: {int(CURRENT_RELEASE_PROFILE) + 1}"):
+            get_profile(str(int(CURRENT_RELEASE_PROFILE) + 1))
         catalog = discover_migration_catalog(WORKSPACE)
         snapshot = {row["filename"]: row["checksum"] for row in catalog if row["filename"] not in (MIGRATION, "301_upstream_cache_guard_admissions.sql")}
         self.assertEqual([row["filename"] for row in plan_migrations(catalog, snapshot)["pending"]], [MIGRATION, "301_upstream_cache_guard_admissions.sql"])
         registry = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(registry["current_profile"]["id"], "286")
+        self.assertEqual(registry["current_profile"]["id"], CURRENT_RELEASE_PROFILE)
         for key in ("version", "parent", "new_migrations"):
             self.assertEqual(registry["historical_profiles"]["273"][key], profile[key])
         migration_owner = next(e for e in registry["extensions"] if e["id"] == "migration-profile-contract")

@@ -34,7 +34,6 @@ class Profile277ReleaseContractTest(unittest.TestCase):
             actual = get_profile(name)
             self.assertTrue(deployment_keys.isdisjoint(actual))
             self.assertEqual(actual, {key: value for key, value in profile.items() if key not in deployment_keys}, name)
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "286")
         self.assertEqual((get_profile("276")["version"], get_profile("276")["parent"], get_profile("276")["new_migrations"]),
                          ("0.2.18-baiyu", "275", ["303_group_strip_optional_image_tools.sql"]))
         profile = get_profile("277")
@@ -53,10 +52,10 @@ class Profile277ReleaseContractTest(unittest.TestCase):
 
     def test_catalog_checksum_and_pending_migration(self):
         registry = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(registry["current_profile"]["id"], "286")
+        self.assertEqual(registry["current_profile"]["id"], CURRENT_RELEASE_PROFILE)
         for key in ("version", "parent", "new_migrations", "gate_schema", "release_policy"):
-            self.assertEqual(registry["current_profile"][key], get_profile("286")[key])
-        self.assertEqual(registry["current_profile"]["new_migrations"], ["313_channel_pricing_ultrafast_multiplier.sql"])
+            self.assertEqual(registry["current_profile"][key], get_profile(CURRENT_RELEASE_PROFILE)[key])
+        self.assertEqual(registry["historical_profiles"].get("286", registry["current_profile"])["new_migrations"], ["313_channel_pricing_ultrafast_multiplier.sql"])
         raw = (WORKSPACE / "backend/migrations" / MIGRATION).read_bytes()
         self.assertEqual(registry["migration_contracts"][MIGRATION], hashlib.sha256(raw).hexdigest())
         catalog = discover_migration_catalog(WORKSPACE)
@@ -92,15 +91,17 @@ class Profile277ReleaseContractTest(unittest.TestCase):
         guards = [
             ('release_dir', next(line for line in context.splitlines() if '$release_dir =~' in line).strip().split(' || return')[0], 'history'),
             ('profile', next(line for line in validator.splitlines() if line.lstrip().startswith('[[ "$profile" == 286')).strip(), 'current'),
-            ('profile', next(line for line in prepare.splitlines() if line.lstrip().startswith('[[ $profile ==')).strip(), 'current'),
+            ('release_id', next(line for line in prepare.splitlines() if line.startswith('[[ $release_id =~')).strip(), 'history'),
         ]
         env = {key: value for key, value in os.environ.items() if key not in {'BASH_ENV', 'ENV', 'SHELLOPTS'}}
         for variable, guard, scope in guards:
-            cases = (('278', True), ('277', True), ('279', True), ('280', True), ('281', True), ('282', True), ('283', True), ('284', True), ('285', True), ('286', True), ('287', False), ('0282', False), ('282;true', False)) if scope == 'history' else (
+            cases = (('278', True), ('277', True), ('279', True), ('280', True), ('281', True), ('282', True), ('283', True), ('284', True), ('285', True), ('286', True), ('287', True), ('0282', False), ('282;true', False)) if scope == 'history' else (
                 ('286', True), ('285', False), ('284', False), ('283', False), ('282', False), ('281', False), ('280', False), ('287', False), ('279', False), ('278', False), ('277', False), ('0282', False), ('282;true', False)
             )
             for profile, accepted in cases:
-                value = '/opt/sub2api/releases/' + profile + '-aaaaaaaaaaaa-1-aaaaaaaa' if variable == 'release_dir' else profile
+                value = profile + '-aaaaaaaaaaaa-1-aaaaaaaa' if scope == 'history' else profile
+                if variable == 'release_dir':
+                    value = '/opt/sub2api/releases/' + value
                 script = variable + '=$1\nif ' + guard + '; then exit 0; else exit 1; fi'
                 result = subprocess.run([bash, '--noprofile', '--norc', '-c', script, 'profile-admission', value],
                                         env=env, capture_output=True, text=True, timeout=10)

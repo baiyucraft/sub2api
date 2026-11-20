@@ -49,19 +49,18 @@ class Profile281ReleaseContractTest(unittest.TestCase):
             actual = get_profile(name)
             self.assertTrue(deployment_keys.isdisjoint(actual))
             self.assertEqual(actual, {key: value for key, value in contract.items() if key not in deployment_keys}, name)
-        self.assertEqual(CURRENT_RELEASE_PROFILE, "286")
         profile = get_profile("281")
         self.assertEqual((profile["version"], profile["parent"], profile["gate_schema"], profile["new_migrations"]),
                          ("0.2.19-baiyu", "280", 2, MIGRATIONS))
         with self.assertRaisesRegex(ValueError, "historical"):
             get_release_profile("280")
-        with self.assertRaisesRegex(ValueError, "unknown release profile: 287"):
-            get_profile("287")
+        with self.assertRaisesRegex(ValueError, f"unknown release profile: {int(CURRENT_RELEASE_PROFILE) + 1}"):
+            get_profile(str(int(CURRENT_RELEASE_PROFILE) + 1))
         names = subprocess.run(["git", "ls-tree", "-r", "--name-only", BASELINE, "--", "backend/migrations"],
                                cwd=WORKSPACE, check=True, capture_output=True, text=True, timeout=30).stdout.splitlines()
         historical = [p for p in names if p.endswith(".sql")]
         self.assertEqual({p.name for p in (WORKSPACE / "backend/migrations").glob("*.sql")},
-                         {Path(p).name for p in historical} | set(MIGRATIONS) | {"307_user_default_group_rate_percent.sql", "308_mcp_oauth.sql", "309_add_usage_logs_api_key_cost_index_notx.sql", "310_openai_cache_write_ttl.sql", "311_group_force_openai_ultrafast.sql", "312_group_usage_rollup_nonblocking_build.sql", "313_channel_pricing_ultrafast_multiplier.sql"})
+                         {Path(p).name for p in historical} | set(MIGRATIONS) | {"307_user_default_group_rate_percent.sql", "308_mcp_oauth.sql", "309_add_usage_logs_api_key_cost_index_notx.sql", "310_openai_cache_write_ttl.sql", "311_group_force_openai_ultrafast.sql", "312_group_usage_rollup_nonblocking_build.sql", "313_channel_pricing_ultrafast_multiplier.sql"} | bash_helpers.CONFIGURED_MIGRATIONS)
         for path in historical:
             self.assertEqual((WORKSPACE / path).read_bytes(), git_blob(BASELINE, path), path)
         self.assertTrue(RELEASE_ID.fullmatch("280-aaaaaaaaaaaa-1-aaaaaaaa"))
@@ -71,7 +70,7 @@ class Profile281ReleaseContractTest(unittest.TestCase):
 
     def test_official_raw_bytes_and_independent_checksums(self):
         registry = json.loads((WORKSPACE / ".agents/skills/sub2api-fork-extension-audit/references/extensions.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(registry["current_profile"]["id"], "286")
+        self.assertEqual(registry["current_profile"]["id"], CURRENT_RELEASE_PROFILE)
         for key in ("version", "parent", "new_migrations", "gate_schema", "release_policy"):
             self.assertEqual(registry["historical_profiles"]["281"][key], get_profile("281")[key])
             self.assertEqual(registry["historical_profiles"]["280"][key], get_profile("280")[key])
